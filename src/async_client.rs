@@ -204,8 +204,17 @@ impl AsyncClient {
 
         let response = self.send(request).await.unwrap();
 
-        for (_, room) in &response.rooms.join {
+        for (room_id, room) in &response.rooms.join {
+            let room_id = room_id.to_string();
+
+            for event in &room.state.events {
+                self.base_client.receive_joined_state_event(&room_id, event);
+            }
+
             for event in &room.timeline.events {
+                self.base_client
+                    .receive_joined_timeline_event(&room_id, event);
+
                 let event_type = match &event {
                     RoomEvent::CallAnswer(e) => e.event_type(),
                     RoomEvent::CallCandidates(e) => e.event_type(),
@@ -229,11 +238,6 @@ impl AsyncClient {
                     RoomEvent::CustomRoom(e) => e.event_type(),
                     RoomEvent::CustomState(e) => e.event_type(),
                 };
-
-                if self.event_callbacks.contains_key(&event_type) {
-                    let cb = self.event_callbacks.get_mut(&event_type).unwrap();
-                    cb(event.clone());
-                }
 
                 if self.event_callbacks.contains_key(&event_type) {
                     let cb = self.event_callbacks.get_mut(&event_type).unwrap();

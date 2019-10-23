@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use crate::api::r0 as api;
-use crate::events::collections::all::RoomEvent;
+use crate::events::collections::all::{RoomEvent, StateEvent};
 use crate::events::room::member::{MemberEvent, MembershipState};
 use crate::session::Session;
 
@@ -108,15 +108,28 @@ impl Room {
         }
     }
 
-    /// Receive an event for this room and update the room state.
+    /// Receive a timeline event for this room and update the room state.
     /// # Arguments
     ///
     /// `event` - The event of the room.
     ///
     /// Returns true if the joined member list changed, false otherwise.
-    pub fn receive_event(&mut self, event: &RoomEvent) -> bool {
+    pub fn receive_timeline_event(&mut self, event: &RoomEvent) -> bool {
         match event {
             RoomEvent::RoomMember(m) => self.handle_membership(m),
+            _ => false,
+        }
+    }
+
+    /// Receive a state event for this room and update the room state.
+    /// # Arguments
+    ///
+    /// `event` - The event of the room.
+    ///
+    /// Returns true if the joined member list changed, false otherwise.
+    pub fn receive_state_event(&mut self, event: &StateEvent) -> bool {
+        match event {
+            StateEvent::RoomMember(m) => self.handle_membership(m),
             _ => false,
         }
     }
@@ -170,17 +183,8 @@ impl Client {
         self.session = Some(session);
     }
 
-    /// Receive a room event for a joined room and update the client state.
-    /// # Arguments
-    /// 
-    /// `room_id` - The unique id of the room the event belongs to.
-    /// `event` - The event that should be handled by the client.
-    ///
-    /// Returns true if the membership list of the room changed, false
-    /// otherwise.
-    pub fn receive_joined_room_event(&mut self, room_id: &RoomId, event: &RoomEvent) -> bool {
-        let room = self
-            .joined_rooms
+    fn get_or_create_room(&mut self, room_id: &RoomId) -> &mut Room {
+        self.joined_rooms
             .entry(room_id.to_string())
             .or_insert(Room::new(
                 room_id,
@@ -190,8 +194,32 @@ impl Client {
                     .expect("Receiving events while not being logged in")
                     .user_id
                     .to_string(),
-            ));
+            ))
+    }
 
-        room.receive_event(event)
+    /// Receive a timeline event for a joined room and update the client state.
+    /// # Arguments
+    ///
+    /// `room_id` - The unique id of the room the event belongs to.
+    /// `event` - The event that should be handled by the client.
+    ///
+    /// Returns true if the membership list of the room changed, false
+    /// otherwise.
+    pub fn receive_joined_timeline_event(&mut self, room_id: &RoomId, event: &RoomEvent) -> bool {
+        let mut room = self.get_or_create_room(room_id);
+        room.receive_timeline_event(event)
+    }
+
+    /// Receive a state event for a joined room and update the client state.
+    /// # Arguments
+    ///
+    /// `room_id` - The unique id of the room the event belongs to.
+    /// `event` - The event that should be handled by the client.
+    ///
+    /// Returns true if the membership list of the room changed, false
+    /// otherwise.
+    pub fn receive_joined_state_event(&mut self, room_id: &RoomId, event: &StateEvent) -> bool {
+        let mut room = self.get_or_create_room(room_id);
+        room.receive_state_event(event)
     }
 }
