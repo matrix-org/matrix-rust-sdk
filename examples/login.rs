@@ -22,18 +22,7 @@ async fn login(
         .disable_ssl_verification();
     let mut client = AsyncClient::new_with_config(&homeserver_url, None, client_config).unwrap();
 
-    let callback = |event| {
-        if let RoomEvent::RoomMessage(MessageEvent {
-            content: MessageEventContent::Text(TextMessageEventContent { body: msg_body, .. }),
-            sender,
-            ..
-        }) = event
-        {
-            println!("{}: {}", sender, msg_body);
-        }
-    };
-
-    client.add_event_future(EventType::RoomMessage, |event| {
+    client.add_event_callback(EventType::RoomMessage, |event| {
         Box::pin(async {
             if let RoomEvent::RoomMessage(MessageEvent {
                 content: MessageEventContent::Text(TextMessageEventContent { body: msg_body, .. }),

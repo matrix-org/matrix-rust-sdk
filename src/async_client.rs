@@ -27,8 +27,7 @@ pub struct AsyncClient {
     /// User session data.
     base_client: BaseClient,
     /// Event callbacks
-    event_callbacks: HashMap<EventType, Box<dyn FnMut(RoomEvent)>>,
-    event_futures:
+    event_callbacks:
         HashMap<EventType, Box<dyn FnMut(RoomEvent) -> Pin<Box<dyn Future<Output = ()>>>>>,
 }
 
@@ -117,7 +116,6 @@ impl AsyncClient {
             http_client,
             base_client: BaseClient::new(session),
             event_callbacks: HashMap::new(),
-            event_futures: HashMap::new(),
         })
     }
 
@@ -160,24 +158,15 @@ impl AsyncClient {
             http_client,
             base_client: BaseClient::new(session),
             event_callbacks: HashMap::new(),
-            event_futures: HashMap::new(),
         })
     }
 
     pub fn add_event_callback(
         &mut self,
         event_type: EventType,
-        callback: impl FnMut(RoomEvent) + 'static,
-    ) {
-        self.event_callbacks.insert(event_type, Box::new(callback));
-    }
-
-    pub fn add_event_future(
-        &mut self,
-        event_type: EventType,
         callback: impl FnMut(RoomEvent) -> Pin<Box<dyn Future<Output = ()>>> + 'static,
     ) {
-        self.event_futures.insert(event_type, Box::new(callback));
+        self.event_callbacks.insert(event_type, Box::new(callback));
     }
 
     pub async fn login<S: Into<String>>(
@@ -246,8 +235,8 @@ impl AsyncClient {
                     cb(event.clone());
                 }
 
-                if self.event_futures.contains_key(&event_type) {
-                    let cb = self.event_futures.get_mut(&event_type).unwrap();
+                if self.event_callbacks.contains_key(&event_type) {
+                    let cb = self.event_callbacks.get_mut(&event_type).unwrap();
                     let future = Pin::from(cb(event.clone()));
                     future.await;
                 }
