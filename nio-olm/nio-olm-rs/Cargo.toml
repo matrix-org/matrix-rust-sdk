@@ -1,0 +1,10 @@
+[package]
+name = "nio-olm-rs"
+version = "3.1.4-beta"
+authors = ["Damir Jelić <poljar@termina.org.uk>"]
+description = "Higher level bindings for the Olm C library"
+license = "ISC"
+edition = "2018"
+
+[dependencies]
+nio-olm-sys = { path = "../nio-olm-sys" }
