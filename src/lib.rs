@@ -5,8 +5,8 @@
 pub use crate::{error::Error, session::Session};
 pub use ruma_client_api as api;
 pub use ruma_events as events;
+pub use reqwest::header::InvalidHeaderValue;
 
-//pub mod api;
 mod async_client;
 mod base_client;
 mod error;

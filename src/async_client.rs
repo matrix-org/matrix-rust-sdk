@@ -6,7 +6,7 @@ use std::pin::Pin;
 use http::Method as HttpMethod;
 use http::Response as HttpResponse;
 use js_int::UInt;
-use reqwest;
+use reqwest::header::{HeaderValue, InvalidHeaderValue};
 use url::Url;
 
 use ruma_api::Endpoint;
@@ -35,7 +35,7 @@ pub struct AsyncClient {
 pub struct AsyncClientConfig {
     proxy: Option<reqwest::Proxy>,
     use_sys_proxy: bool,
-    user_agent: Option<String>,
+    user_agent: Option<HeaderValue>,
     disable_ssl_verification: bool,
 }
 
@@ -67,6 +67,11 @@ impl AsyncClientConfig {
     pub fn disable_ssl_verification(mut self) -> Self {
         self.disable_ssl_verification = true;
         self
+    }
+
+    pub fn user_agent(mut self, user_agent: &str) -> Result<Self, InvalidHeaderValue> {
+        self.user_agent = Some(HeaderValue::from_str(user_agent)?);
+        Ok(self)
     }
 }
 
@@ -107,23 +112,16 @@ use api::r0::sync::sync_events;
 
 impl AsyncClient {
     /// Creates a new client for making HTTP requests to the given homeserver.
-    pub fn new(homeserver_url: &str, session: Option<Session>) -> Result<Self, url::ParseError> {
-        let homeserver = Url::parse(homeserver_url)?;
-        let http_client = reqwest::Client::new();
-
-        Ok(Self {
-            homeserver,
-            http_client,
-            base_client: BaseClient::new(session),
-            event_callbacks: HashMap::new(),
-        })
+    pub fn new(homeserver_url: &str, session: Option<Session>) -> Result<Self, Error> {
+        let config = AsyncClientConfig::new();
+        AsyncClient::new_with_config(homeserver_url, session, config)
     }
 
     pub fn new_with_config(
         homeserver_url: &str,
         session: Option<Session>,
         config: AsyncClientConfig,
-    ) -> Result<Self, url::ParseError> {
+    ) -> Result<Self, Error> {
         let homeserver = Url::parse(homeserver_url)?;
         let http_client = reqwest::Client::builder();
 
@@ -146,9 +144,14 @@ impl AsyncClient {
 
         let mut headers = reqwest::header::HeaderMap::new();
 
+        let user_agent = match config.user_agent {
+            Some(a) => a,
+            None => HeaderValue::from_static("nio-rust"),
+        };
+
         headers.insert(
             reqwest::header::USER_AGENT,
-            reqwest::header::HeaderValue::from_static("ruma"),
+            user_agent,
         );
 
         let http_client = http_client.default_headers(headers).build().unwrap();

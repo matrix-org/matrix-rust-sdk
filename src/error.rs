@@ -3,7 +3,7 @@
 use std::error::Error as StdError;
 use std::fmt::{Display, Formatter, Result as FmtResult};
 
-use http::uri::InvalidUri;
+use url::ParseError;
 use reqwest::Error as ReqwestError;
 use ruma_api::Error as RumaApiError;
 use serde_json::Error as SerdeJsonError;
@@ -41,7 +41,7 @@ pub(crate) enum InnerError {
     /// An error at the HTTP layer.
     Reqwest(ReqwestError),
     /// An error when parsing a string as a URI.
-    Uri(InvalidUri),
+    Uri(ParseError),
     /// An error converting between ruma_client_api types and Hyper types.
     RumaApi(RumaApiError),
     /// An error when serializing or deserializing a JSON value.
@@ -50,8 +50,8 @@ pub(crate) enum InnerError {
     SerdeUrlEncodedSerialize(SerdeUrlEncodedSerializeError),
 }
 
-impl From<InvalidUri> for Error {
-    fn from(error: InvalidUri) -> Self {
+impl From<ParseError> for Error {
+    fn from(error: ParseError) -> Self {
         Self(InnerError::Uri(error))
     }
 }
