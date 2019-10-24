@@ -244,8 +244,7 @@ impl AsyncClient {
 
                 if self.event_callbacks.contains_key(&event_type) {
                     let cb = self.event_callbacks.get_mut(&event_type).unwrap();
-                    let future = Pin::from(cb(event.clone()));
-                    future.await;
+                    cb(event.clone()).await;
                 }
             }
         }
