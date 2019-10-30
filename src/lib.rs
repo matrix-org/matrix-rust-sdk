@@ -13,4 +13,6 @@ mod error;
 mod session;
 
 pub use async_client::{AsyncClient, AsyncClientConfig, SyncSettings};
-pub use base_client::Client;
+pub use base_client::{Client, Room};
+
+pub const VERSION: &'static str = env!("CARGO_PKG_VERSION");

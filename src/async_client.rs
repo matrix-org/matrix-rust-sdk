@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 use std::convert::{TryFrom, TryInto};
 use std::future::Future;
 use std::pin::Pin;
@@ -16,8 +15,11 @@ pub use ruma_events::EventType;
 
 use crate::api;
 use crate::base_client::Client as BaseClient;
+use crate::base_client::Room;
 use crate::error::{Error, InnerError};
 use crate::session::Session;
+
+type RoomEventCallback = Box::<dyn FnMut(&Room, &RoomEvent)>;
 
 pub struct AsyncClient {
     /// The URL of the homeserver to connect to.
@@ -27,8 +29,7 @@ pub struct AsyncClient {
     /// User session data.
     base_client: BaseClient,
     /// Event callbacks
-    event_callbacks:
-        HashMap<EventType, Box<dyn FnMut(RoomEvent) -> Pin<Box<dyn Future<Output = ()>>>>>,
+    event_callbacks: Vec<RoomEventCallback>,
 }
 
 #[derive(Default, Debug)]
@@ -160,16 +161,16 @@ impl AsyncClient {
             homeserver,
             http_client,
             base_client: BaseClient::new(session),
-            event_callbacks: HashMap::new(),
+            event_callbacks: Vec::new(),
         })
     }
 
     pub fn add_event_callback(
         &mut self,
         event_type: EventType,
-        callback: impl FnMut(RoomEvent) -> Pin<Box<dyn Future<Output = ()>>> + 'static,
+        callback: RoomEventCallback,
     ) {
-        self.event_callbacks.insert(event_type, Box::new(callback));
+        self.event_callbacks.push(callback);
     }
 
     pub async fn login<S: Into<String>>(
@@ -187,7 +188,7 @@ impl AsyncClient {
             user: user.into(),
         };
 
-        let response = self.send(request).await.unwrap();
+        let response = self.send(request).await?;
         self.base_client.receive_login_response(&response);
 
         Ok(response)
@@ -205,47 +206,39 @@ impl AsyncClient {
             timeout: sync_settings.timeout,
         };
 
-        let response = self.send(request).await.unwrap();
+        let response = self.send(request).await?;
 
         for (room_id, room) in &response.rooms.join {
             let room_id = room_id.to_string();
 
             for event in &room.state.events {
-                self.base_client.receive_joined_state_event(&room_id, event);
+                let event = match event.clone().into_result() {
+                    Ok(e) => e,
+                    Err(e) => continue
+                };
+
+                self.base_client.receive_joined_state_event(&room_id, &event);
             }
 
             for event in &room.timeline.events {
-                self.base_client
-                    .receive_joined_timeline_event(&room_id, event);
-
-                let event_type = match &event {
-                    RoomEvent::CallAnswer(e) => e.event_type(),
-                    RoomEvent::CallCandidates(e) => e.event_type(),
-                    RoomEvent::CallHangup(e) => e.event_type(),
-                    RoomEvent::CallInvite(e) => e.event_type(),
-                    RoomEvent::RoomAliases(e) => e.event_type(),
-                    RoomEvent::RoomAvatar(e) => e.event_type(),
-                    RoomEvent::RoomCanonicalAlias(e) => e.event_type(),
-                    RoomEvent::RoomCreate(e) => e.event_type(),
-                    RoomEvent::RoomGuestAccess(e) => e.event_type(),
-                    RoomEvent::RoomHistoryVisibility(e) => e.event_type(),
-                    RoomEvent::RoomJoinRules(e) => e.event_type(),
-                    RoomEvent::RoomMember(e) => e.event_type(),
-                    RoomEvent::RoomMessage(e) => e.event_type(),
-                    RoomEvent::RoomName(e) => e.event_type(),
-                    RoomEvent::RoomPinnedEvents(e) => e.event_type(),
-                    RoomEvent::RoomPowerLevels(e) => e.event_type(),
-                    RoomEvent::RoomRedaction(e) => e.event_type(),
-                    RoomEvent::RoomThirdPartyInvite(e) => e.event_type(),
-                    RoomEvent::RoomTopic(e) => e.event_type(),
-                    RoomEvent::CustomRoom(e) => e.event_type(),
-                    RoomEvent::CustomState(e) => e.event_type(),
+                let event = match event.clone().into_result() {
+                    Ok(e) => e,
+                    Err(e) => continue
                 };
 
-                if self.event_callbacks.contains_key(&event_type) {
-                    let cb = self.event_callbacks.get_mut(&event_type).unwrap();
-                    cb(event.clone()).await;
+                self.base_client
+                    .receive_joined_timeline_event(&room_id, &event);
+
+                let room = self.base_client.joined_rooms.get(&room_id).unwrap();
+
+                for mut cb in &mut self.event_callbacks {
+                    cb(&room, &event);
                 }
+
+                // if self.event_callbacks.contains_key(&event_type) {
+                //     let cb = self.event_callbacks.get_mut(&event_type).unwrap();
+                //     cb(&event).await;
+                // }
             }
         }
 

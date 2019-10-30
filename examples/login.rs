@@ -9,8 +9,12 @@ use matrix_nio::{
         room::message::{MessageEvent, MessageEventContent, TextMessageEventContent},
         EventType,
     },
-    AsyncClient, AsyncClientConfig, SyncSettings,
+    AsyncClient, AsyncClientConfig, SyncSettings, Room
 };
+
+fn callback(room: &Room, event: &RoomEvent) {
+    println!("{:?}", event);
+}
 
 async fn login(
     homeserver_url: String,
@@ -22,18 +26,20 @@ async fn login(
         .disable_ssl_verification();
     let mut client = AsyncClient::new_with_config(&homeserver_url, None, client_config).unwrap();
 
-    client.add_event_callback(EventType::RoomMessage, |event| {
-        Box::pin(async {
-            if let RoomEvent::RoomMessage(MessageEvent {
-                content: MessageEventContent::Text(TextMessageEventContent { body: msg_body, .. }),
-                sender,
-                ..
-            }) = event
-            {
-                println!("{}: {}", sender, msg_body);
-            }
-        })
-    });
+    client.add_event_callback(EventType::RoomMessage, Box::new(callback));
+
+    // client.add_event_callback(EventType::RoomMessage, Box::new(|event| {
+    //     Box::pin(async {
+    //         if let RoomEvent::RoomMessage(MessageEvent {
+    //             content: MessageEventContent::Text(TextMessageEventContent { body: msg_body, .. }),
+    //             sender,
+    //             ..
+    //         }) = event
+    //         {
+    //             println!("{}: {}", sender, msg_body);
+    //         }
+    //     })
+    // }));
 
     client.login(username, password, None).await?;
     let response = client.sync(SyncSettings::new()).await?;

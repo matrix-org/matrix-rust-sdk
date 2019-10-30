@@ -105,6 +105,7 @@ impl Room {
             MembershipState::Ban => self.handle_leave(event),
             MembershipState::Invite => false,
             MembershipState::Knock => false,
+            _ => false,
         }
     }
 
