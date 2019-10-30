@@ -1,6 +1,8 @@
 use std::convert::{TryFrom, TryInto};
 use std::future::Future;
 use std::pin::Pin;
+use std::rc::Rc;
+use std::cell::RefCell;
 
 use http::Method as HttpMethod;
 use http::Response as HttpResponse;
@@ -20,6 +22,7 @@ use crate::error::{Error, InnerError};
 use crate::session::Session;
 
 type RoomEventCallback = Box::<dyn FnMut(&Room, &RoomEvent)>;
+type RoomEventCallbackF = Box::<dyn FnMut(Rc<RefCell<Room>>, Rc<RoomEvent>) -> Pin<Box<dyn Future<Output = ()>>>>;
 
 pub struct AsyncClient {
     /// The URL of the homeserver to connect to.
@@ -30,6 +33,8 @@ pub struct AsyncClient {
     base_client: BaseClient,
     /// Event callbacks
     event_callbacks: Vec<RoomEventCallback>,
+    /// Event futures
+    event_futures: Vec<RoomEventCallbackF>,
 }
 
 #[derive(Default, Debug)]
@@ -162,6 +167,7 @@ impl AsyncClient {
             http_client,
             base_client: BaseClient::new(session),
             event_callbacks: Vec::new(),
+            event_futures: Vec::new(),
         })
     }
 
@@ -171,6 +177,14 @@ impl AsyncClient {
         callback: RoomEventCallback,
     ) {
         self.event_callbacks.push(callback);
+    }
+
+    pub fn add_event_future(
+        &mut self,
+        event_type: EventType,
+        callback: RoomEventCallbackF,
+    ) {
+        self.event_futures.push(callback);
     }
 
     pub async fn login<S: Into<String>>(
@@ -232,13 +246,12 @@ impl AsyncClient {
                 let room = self.base_client.joined_rooms.get(&room_id).unwrap();
 
                 for mut cb in &mut self.event_callbacks {
-                    cb(&room, &event);
+                    cb(&room.borrow(), &event);
                 }
 
-                // if self.event_callbacks.contains_key(&event_type) {
-                //     let cb = self.event_callbacks.get_mut(&event_type).unwrap();
-                //     cb(&event).await;
-                // }
+                for mut cb in &mut self.event_futures {
+                    cb(room.clone(), Rc::new(event.clone())).await;
+                }
             }
         }
 

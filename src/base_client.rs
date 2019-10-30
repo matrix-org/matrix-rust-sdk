@@ -4,6 +4,8 @@ use crate::api::r0 as api;
 use crate::events::collections::all::{RoomEvent, StateEvent};
 use crate::events::room::member::{MemberEvent, MembershipState};
 use crate::session::Session;
+use std::rc::Rc;
+use std::cell::RefCell;
 
 pub type Token = String;
 pub type RoomId = String;
@@ -13,30 +15,30 @@ pub type UserId = String;
 /// A Matrix room member.
 pub struct RoomMember {
     /// The unique mxid of the user.
-    user_id: UserId,
+    pub user_id: UserId,
     /// The human readable name of the user.
-    display_name: Option<String>,
+    pub display_name: Option<String>,
     /// The matrix url of the users avatar.
-    avatar_url: Option<String>,
+    pub avatar_url: Option<String>,
     /// The users power level.
-    power_level: u8,
+    pub power_level: u8,
 }
 
 #[derive(Debug)]
 /// A Matrix rooom.
 pub struct Room {
     /// The unique id of the room.
-    room_id: RoomId,
+    pub room_id: RoomId,
     /// The mxid of our own user.
-    own_user_id: UserId,
+    pub own_user_id: UserId,
     /// The mxid of the room creator.
-    creator: Option<UserId>,
+    pub creator: Option<UserId>,
     /// The map of room members.
-    members: HashMap<UserId, RoomMember>,
+    pub members: HashMap<UserId, RoomMember>,
     /// A list of users that are currently typing.
-    typing_users: Vec<UserId>,
+    pub typing_users: Vec<UserId>,
     /// A flag indicating if the room is encrypted.
-    encrypted: bool,
+    pub encrypted: bool,
 }
 
 impl Room {
@@ -148,7 +150,7 @@ pub struct Client {
     /// The current sync token that should be used for the next sync call.
     pub sync_token: Option<Token>,
     /// A map of the rooms our user is joined in.
-    pub joined_rooms: HashMap<RoomId, Room>,
+    pub joined_rooms: HashMap<RoomId, Rc<RefCell<Room>>>,
 }
 
 impl Client {
@@ -184,18 +186,19 @@ impl Client {
         self.session = Some(session);
     }
 
-    fn get_or_create_room(&mut self, room_id: &RoomId) -> &mut Room {
+    fn get_or_create_room(&mut self, room_id: &RoomId) -> &mut Rc<RefCell<Room>> {
         self.joined_rooms
             .entry(room_id.to_string())
-            .or_insert(Room::new(
-                room_id,
-                &self
-                    .session
-                    .as_ref()
-                    .expect("Receiving events while not being logged in")
-                    .user_id
-                    .to_string(),
-            ))
+            .or_insert(
+                Rc::new(RefCell::new(Room::new(
+                    room_id,
+                    &self
+                        .session
+                        .as_ref()
+                        .expect("Receiving events while not being logged in")
+                        .user_id
+                        .to_string(),
+            ))))
     }
 
     /// Receive a timeline event for a joined room and update the client state.
@@ -207,7 +210,7 @@ impl Client {
     /// Returns true if the membership list of the room changed, false
     /// otherwise.
     pub fn receive_joined_timeline_event(&mut self, room_id: &RoomId, event: &RoomEvent) -> bool {
-        let mut room = self.get_or_create_room(room_id);
+        let mut room = self.get_or_create_room(room_id).borrow_mut();
         room.receive_timeline_event(event)
     }
 
@@ -220,7 +223,7 @@ impl Client {
     /// Returns true if the membership list of the room changed, false
     /// otherwise.
     pub fn receive_joined_state_event(&mut self, room_id: &RoomId, event: &StateEvent) -> bool {
-        let mut room = self.get_or_create_room(room_id);
+        let mut room = self.get_or_create_room(room_id).borrow_mut();
         room.receive_state_event(event)
     }
 }

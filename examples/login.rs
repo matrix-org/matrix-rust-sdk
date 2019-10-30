@@ -1,6 +1,10 @@
 #![feature(async_closure)]
 
 use std::{env, process::exit};
+use std::pin::Pin;
+use std::future::Future;
+use std::rc::Rc;
+use std::cell::RefCell;
 
 use matrix_nio::{
     self,
@@ -12,8 +16,22 @@ use matrix_nio::{
     AsyncClient, AsyncClientConfig, SyncSettings, Room
 };
 
-fn callback(room: &Room, event: &RoomEvent) {
-    println!("{:?}", event);
+async fn async_helper(room: Rc<RefCell<Room>>, event: Rc<RoomEvent>) {
+    let room = room.borrow();
+    if let RoomEvent::RoomMessage(MessageEvent {
+        content: MessageEventContent::Text(TextMessageEventContent { body: msg_body, .. }),
+        sender,
+        ..
+    }) = &*event
+    {
+        let user = room.members.get(&sender.to_string()).unwrap();
+        println!("{}: {}", user.display_name.as_ref().unwrap_or(&sender.to_string()), msg_body);
+    }
+
+}
+
+fn async_callback(room: Rc<RefCell<Room>>, event: Rc<RoomEvent>) -> Pin<Box<dyn Future<Output = ()>>> {
+    Box::pin(async_helper(room, event))
 }
 
 async fn login(
@@ -26,20 +44,7 @@ async fn login(
         .disable_ssl_verification();
     let mut client = AsyncClient::new_with_config(&homeserver_url, None, client_config).unwrap();
 
-    client.add_event_callback(EventType::RoomMessage, Box::new(callback));
-
-    // client.add_event_callback(EventType::RoomMessage, Box::new(|event| {
-    //     Box::pin(async {
-    //         if let RoomEvent::RoomMessage(MessageEvent {
-    //             content: MessageEventContent::Text(TextMessageEventContent { body: msg_body, .. }),
-    //             sender,
-    //             ..
-    //         }) = event
-    //         {
-    //             println!("{}: {}", sender, msg_body);
-    //         }
-    //     })
-    // }));
+    client.add_event_future(EventType::RoomMessage, Box::new(async_callback));
 
     client.login(username, password, None).await?;
     let response = client.sync(SyncSettings::new()).await?;
