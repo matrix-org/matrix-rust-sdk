@@ -11,13 +11,14 @@ repository = "https://github.com/poljar/nio-rust"
 version = "0.1.0"
 
 [dependencies]
-js_int = "*"
+js_int = "0.1.2"
 futures-preview = "0.3.0-alpha.18"
 reqwest = "0.10.0-alpha.1"
 http = "0.1.18"
-ruma-api = "*"
-ruma-client-api = { git = "https://github.com/ruma/ruma-client-api" }
-ruma-events = "0.12"
+ruma-api = "0.11.0"
+ruma-client-api = "0.4.0"
+ruma-events = "0.15.1"
+log = "0.4.8"
 
 ruma-identifiers = "*"
 serde_json = "1.0.40"
