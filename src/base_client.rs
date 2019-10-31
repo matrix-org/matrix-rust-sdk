@@ -4,8 +4,7 @@ use crate::api::r0 as api;
 use crate::events::collections::all::{RoomEvent, StateEvent};
 use crate::events::room::member::{MemberEvent, MembershipState};
 use crate::session::Session;
-use std::rc::Rc;
-use std::cell::RefCell;
+use std::sync::{Arc, Mutex};
 
 pub type Token = String;
 pub type RoomId = String;
@@ -150,7 +149,7 @@ pub struct Client {
     /// The current sync token that should be used for the next sync call.
     pub sync_token: Option<Token>,
     /// A map of the rooms our user is joined in.
-    pub joined_rooms: HashMap<RoomId, Rc<RefCell<Room>>>,
+    pub joined_rooms: HashMap<RoomId, Arc<Mutex<Room>>>,
 }
 
 impl Client {
@@ -186,11 +185,11 @@ impl Client {
         self.session = Some(session);
     }
 
-    fn get_or_create_room(&mut self, room_id: &RoomId) -> &mut Rc<RefCell<Room>> {
+    fn get_or_create_room(&mut self, room_id: &RoomId) -> &mut Arc<Mutex<Room>> {
         self.joined_rooms
             .entry(room_id.to_string())
             .or_insert(
-                Rc::new(RefCell::new(Room::new(
+                Arc::new(Mutex::new(Room::new(
                     room_id,
                     &self
                         .session
@@ -210,7 +209,7 @@ impl Client {
     /// Returns true if the membership list of the room changed, false
     /// otherwise.
     pub fn receive_joined_timeline_event(&mut self, room_id: &RoomId, event: &RoomEvent) -> bool {
-        let mut room = self.get_or_create_room(room_id).borrow_mut();
+        let mut room = self.get_or_create_room(room_id).lock().unwrap();
         room.receive_timeline_event(event)
     }
 
@@ -223,7 +222,7 @@ impl Client {
     /// Returns true if the membership list of the room changed, false
     /// otherwise.
     pub fn receive_joined_state_event(&mut self, room_id: &RoomId, event: &StateEvent) -> bool {
-        let mut room = self.get_or_create_room(room_id).borrow_mut();
+        let mut room = self.get_or_create_room(room_id).lock().unwrap();
         room.receive_state_event(event)
     }
 }

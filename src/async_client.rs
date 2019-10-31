@@ -2,7 +2,7 @@ use std::convert::{TryFrom, TryInto};
 use std::future::Future;
 use std::pin::Pin;
 use std::rc::Rc;
-use std::cell::RefCell;
+use std::sync::{Arc, Mutex};
 
 use http::Method as HttpMethod;
 use http::Response as HttpResponse;
@@ -22,7 +22,7 @@ use crate::error::{Error, InnerError};
 use crate::session::Session;
 
 type RoomEventCallback = Box::<dyn FnMut(&Room, &RoomEvent)>;
-type RoomEventCallbackF = Box::<dyn FnMut(Rc<RefCell<Room>>, Rc<RoomEvent>) -> Pin<Box<dyn Future<Output = ()>>>>;
+type RoomEventCallbackF = Box::<dyn FnMut(Arc<Mutex<Room>>, Arc<RoomEvent>) -> Pin<Box<dyn Future<Output = ()> + Send + Sync>> + Send + Sync>;
 
 pub struct AsyncClient {
     /// The URL of the homeserver to connect to.
@@ -31,8 +31,8 @@ pub struct AsyncClient {
     http_client: reqwest::Client,
     /// User session data.
     base_client: BaseClient,
-    /// Event callbacks
-    event_callbacks: Vec<RoomEventCallback>,
+    // /// Event callbacks
+    // event_callbacks: Vec<RoomEventCallback>,
     /// Event futures
     event_futures: Vec<RoomEventCallbackF>,
 }
@@ -166,18 +166,18 @@ impl AsyncClient {
             homeserver,
             http_client,
             base_client: BaseClient::new(session),
-            event_callbacks: Vec::new(),
+            // event_callbacks: Vec::new(),
             event_futures: Vec::new(),
         })
     }
 
-    pub fn add_event_callback(
-        &mut self,
-        event_type: EventType,
-        callback: RoomEventCallback,
-    ) {
-        self.event_callbacks.push(callback);
-    }
+    // pub fn add_event_callback(
+    //     &mut self,
+    //     event_type: EventType,
+    //     callback: RoomEventCallback,
+    // ) {
+    //     self.event_callbacks.push(callback);
+    // }
 
     pub fn add_event_future(
         &mut self,
@@ -245,12 +245,12 @@ impl AsyncClient {
 
                 let room = self.base_client.joined_rooms.get(&room_id).unwrap();
 
-                for mut cb in &mut self.event_callbacks {
-                    cb(&room.borrow(), &event);
-                }
+                // for mut cb in &mut self.event_callbacks {
+                //     cb(&room.lock().unwrap(), &event);
+                // }
 
                 for mut cb in &mut self.event_futures {
-                    cb(room.clone(), Rc::new(event.clone())).await;
+                    cb(room.clone(), Arc::new(event.clone())).await;
                 }
             }
         }

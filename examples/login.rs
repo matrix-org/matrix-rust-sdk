@@ -3,8 +3,8 @@
 use std::{env, process::exit};
 use std::pin::Pin;
 use std::future::Future;
+use std::sync::{Arc, Mutex};
 use std::rc::Rc;
-use std::cell::RefCell;
 
 use matrix_nio::{
     self,
@@ -16,8 +16,8 @@ use matrix_nio::{
     AsyncClient, AsyncClientConfig, SyncSettings, Room
 };
 
-async fn async_helper(room: Rc<RefCell<Room>>, event: Rc<RoomEvent>) {
-    let room = room.borrow();
+async fn async_helper(room: Arc<Mutex<Room>>, event: Arc<RoomEvent>) {
+    let room = room.lock().unwrap();
     if let RoomEvent::RoomMessage(MessageEvent {
         content: MessageEventContent::Text(TextMessageEventContent { body: msg_body, .. }),
         sender,
@@ -27,10 +27,9 @@ async fn async_helper(room: Rc<RefCell<Room>>, event: Rc<RoomEvent>) {
         let user = room.members.get(&sender.to_string()).unwrap();
         println!("{}: {}", user.display_name.as_ref().unwrap_or(&sender.to_string()), msg_body);
     }
-
 }
 
-fn async_callback(room: Rc<RefCell<Room>>, event: Rc<RoomEvent>) -> Pin<Box<dyn Future<Output = ()>>> {
+fn async_callback(room: Arc<Mutex<Room>>, event: Arc<RoomEvent>) -> Pin<Box<dyn Future<Output = ()> + Send + Sync >> {
     Box::pin(async_helper(room, event))
 }
 
