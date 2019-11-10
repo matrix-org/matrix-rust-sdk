@@ -188,15 +188,14 @@ impl Client {
     fn get_or_create_room(&mut self, room_id: &RoomId) -> &mut Arc<RwLock<Room>> {
         self.joined_rooms
             .entry(room_id.to_string())
-            .or_insert(
-                Arc::new(RwLock::new(Room::new(
-                    room_id,
-                    &self
-                        .session
-                        .as_ref()
-                        .expect("Receiving events while not being logged in")
-                        .user_id
-                        .to_string(),
+            .or_insert(Arc::new(RwLock::new(Room::new(
+                room_id,
+                &self
+                    .session
+                    .as_ref()
+                    .expect("Receiving events while not being logged in")
+                    .user_id
+                    .to_string(),
             ))))
     }
 

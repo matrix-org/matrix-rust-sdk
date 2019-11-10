@@ -2,8 +2,8 @@ use std::convert::{TryFrom, TryInto};
 use std::future::Future;
 use std::pin::Pin;
 use std::rc::Rc;
-use std::sync::{Arc, RwLock};
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, RwLock};
 
 use http::Method as HttpMethod;
 use http::Response as HttpResponse;
@@ -16,8 +16,8 @@ use ruma_events::collections::all::RoomEvent;
 use ruma_events::room::message::MessageEvent;
 use ruma_events::room::message::MessageEventContent;
 use ruma_events::Event;
-use ruma_identifiers::RoomId;
 pub use ruma_events::EventType;
+use ruma_identifiers::RoomId;
 
 use crate::api;
 use crate::base_client::Client as BaseClient;
@@ -25,8 +25,12 @@ use crate::base_client::Room;
 use crate::error::{Error, InnerError};
 use crate::session::Session;
 
-type RoomEventCallback = Box::<dyn FnMut(&Room, &RoomEvent)>;
-type RoomEventCallbackF = Box::<dyn FnMut(Arc<RwLock<Room>>, Arc<RoomEvent>) -> Pin<Box<dyn Future<Output = ()> + Send + Sync>> + Send + Sync>;
+type RoomEventCallback = Box<dyn FnMut(&Room, &RoomEvent)>;
+type RoomEventCallbackF = Box<
+    dyn FnMut(Arc<RwLock<Room>>, Arc<RoomEvent>) -> Pin<Box<dyn Future<Output = ()> + Send + Sync>>
+        + Send
+        + Sync,
+>;
 
 #[derive(Clone)]
 pub struct AsyncClient {
@@ -120,13 +124,16 @@ impl SyncSettings {
     }
 }
 
+use api::r0::send::send_message_event;
 use api::r0::session::login;
 use api::r0::sync::sync_events;
-use api::r0::send::send_message_event;
 
 impl AsyncClient {
     /// Creates a new client for making HTTP requests to the given homeserver.
-    pub fn new<U: TryInto<Url>>(homeserver_url: U, session: Option<Session>) -> Result<Self, Error> {
+    pub fn new<U: TryInto<Url>>(
+        homeserver_url: U,
+        session: Option<Session>,
+    ) -> Result<Self, Error> {
         let config = AsyncClientConfig::new();
         AsyncClient::new_with_config(homeserver_url, session, config)
     }
@@ -138,7 +145,7 @@ impl AsyncClient {
     ) -> Result<Self, Error> {
         let homeserver: Url = match homeserver_url.try_into() {
             Ok(u) => u,
-            Err(e) => panic!("Error parsing homeserver url")
+            Err(e) => panic!("Error parsing homeserver url"),
         };
 
         let http_client = reqwest::Client::builder();
@@ -167,10 +174,7 @@ impl AsyncClient {
             None => HeaderValue::from_static("nio-rust"),
         };
 
-        headers.insert(
-            reqwest::header::USER_AGENT,
-            user_agent,
-        );
+        headers.insert(reqwest::header::USER_AGENT, user_agent);
 
         let http_client = http_client.default_headers(headers).build().unwrap();
 
@@ -244,7 +248,7 @@ impl AsyncClient {
             for event in &room.state.events {
                 let event = match event.clone().into_result() {
                     Ok(e) => e,
-                    Err(e) => continue
+                    Err(e) => continue,
                 };
 
                 client.receive_joined_state_event(&room_id, &event);
@@ -253,7 +257,7 @@ impl AsyncClient {
             for event in &room.timeline.events {
                 let event = match event.clone().into_result() {
                     Ok(e) => e,
-                    Err(e) => continue
+                    Err(e) => continue,
                 };
 
                 client.receive_joined_timeline_event(&room_id, &event);
@@ -276,7 +280,10 @@ impl AsyncClient {
     async fn send<Request: Endpoint>(&self, request: Request) -> Result<Request::Response, Error> {
         let request: http::Request<Vec<u8>> = request.try_into()?;
         let url = request.uri();
-        let url = self.homeserver.join(url.path_and_query().unwrap().as_str()).unwrap();
+        let url = self
+            .homeserver
+            .join(url.path_and_query().unwrap().as_str())
+            .unwrap();
 
         let request_builder = match Request::METADATA.method {
             HttpMethod::GET => self.http_client.get(url),
@@ -324,7 +331,11 @@ impl AsyncClient {
         self.transaction_id.fetch_add(1, Ordering::SeqCst)
     }
 
-    pub async fn room_send(&mut self, room_id: &str, data: MessageEventContent) -> Result<send_message_event::Response, Error> {
+    pub async fn room_send(
+        &mut self,
+        room_id: &str,
+        data: MessageEventContent,
+    ) -> Result<send_message_event::Response, Error> {
         let request = send_message_event::Request {
             room_id: RoomId::try_from(room_id).unwrap(),
             event_type: EventType::RoomMessage,

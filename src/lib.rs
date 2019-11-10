@@ -3,9 +3,9 @@
 #![warn(missing_docs)]
 
 pub use crate::{error::Error, session::Session};
+pub use reqwest::header::InvalidHeaderValue;
 pub use ruma_client_api as api;
 pub use ruma_events as events;
-pub use reqwest::header::InvalidHeaderValue;
 
 mod async_client;
 mod base_client;

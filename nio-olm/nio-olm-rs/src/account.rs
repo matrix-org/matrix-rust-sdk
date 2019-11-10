@@ -17,7 +17,21 @@ impl Account {
 
         Account {
             account: acc_ptr,
-            buffer: account_data
+            buffer: account_data,
+        }
+    }
+
+    pub fn identity_keys(&self) {
+        let keys_length = unsafe { nio_olm_sys::olm_account_identity_keys_length(self.account) };
+
+        let out_buffer: Vec<u8> = vec![0; keys_length];
+    }
+}
+
+impl Drop for Account {
+    fn drop(&mut self) {
+        unsafe {
+            nio_olm_sys::olm_clear_account(self.account);
         }
     }
 }

@@ -1,10 +1,11 @@
 #![feature(async_closure)]
 
-use std::{env, process::exit};
-use std::pin::Pin;
 use std::future::Future;
-use std::sync::{Arc, Mutex};
+use std::pin::Pin;
 use std::rc::Rc;
+use std::sync::{Arc, Mutex};
+use std::{env, process::exit};
+use url::Url;
 
 use matrix_nio::{
     self,
@@ -13,7 +14,7 @@ use matrix_nio::{
         room::message::{MessageEvent, MessageEventContent, TextMessageEventContent},
         EventType,
     },
-    AsyncClient, AsyncClientConfig, SyncSettings, Room
+    AsyncClient, AsyncClientConfig, Room, SyncSettings,
 };
 
 async fn async_helper(room: Arc<Mutex<Room>>, event: Arc<RoomEvent>) {
@@ -25,11 +26,18 @@ async fn async_helper(room: Arc<Mutex<Room>>, event: Arc<RoomEvent>) {
     }) = &*event
     {
         let user = room.members.get(&sender.to_string()).unwrap();
-        println!("{}: {}", user.display_name.as_ref().unwrap_or(&sender.to_string()), msg_body);
+        println!(
+            "{}: {}",
+            user.display_name.as_ref().unwrap_or(&sender.to_string()),
+            msg_body
+        );
     }
 }
 
-fn async_callback(room: Arc<Mutex<Room>>, event: Arc<RoomEvent>) -> Pin<Box<dyn Future<Output = ()> + Send + Sync >> {
+fn async_callback(
+    room: Arc<Mutex<Room>>,
+    event: Arc<RoomEvent>,
+) -> Pin<Box<dyn Future<Output = ()> + Send + Sync>> {
     Box::pin(async_helper(room, event))
 }
 
@@ -41,9 +49,10 @@ async fn login(
     let client_config = AsyncClientConfig::new()
         .proxy("http://localhost:8080")?
         .disable_ssl_verification();
-    let mut client = AsyncClient::new_with_config(&homeserver_url, None, client_config).unwrap();
+    let homeserver_url = Url::parse(&homeserver_url)?;
+    let mut client = AsyncClient::new_with_config(homeserver_url, None, client_config).unwrap();
 
-    client.add_event_future(EventType::RoomMessage, Box::new(async_callback));
+    // client.add_event_future(EventType::RoomMessage, Box::new(async_callback));
 
     client.login(username, password, None).await?;
     let response = client.sync(SyncSettings::new()).await?;

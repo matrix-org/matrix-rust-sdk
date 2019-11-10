@@ -3,11 +3,11 @@
 use std::error::Error as StdError;
 use std::fmt::{Display, Formatter, Result as FmtResult};
 
-use url::ParseError;
 use reqwest::Error as ReqwestError;
 use ruma_api::Error as RumaApiError;
 use serde_json::Error as SerdeJsonError;
 use serde_urlencoded::ser::Error as SerdeUrlEncodedSerializeError;
+use url::ParseError;
 
 /// An error that can occur during client operations.
 #[derive(Debug)]
