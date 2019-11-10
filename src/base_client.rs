@@ -4,7 +4,7 @@ use crate::api::r0 as api;
 use crate::events::collections::all::{RoomEvent, StateEvent};
 use crate::events::room::member::{MemberEvent, MembershipState};
 use crate::session::Session;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, RwLock};
 
 pub type Token = String;
 pub type RoomId = String;
@@ -99,7 +99,7 @@ impl Room {
         false
     }
 
-    fn handle_membership(&mut self, event: &MemberEvent) -> bool {
+    pub fn handle_membership(&mut self, event: &MemberEvent) -> bool {
         match event.content.membership {
             MembershipState::Join => self.handle_join(event),
             MembershipState::Leave => self.handle_leave(event),
@@ -149,7 +149,7 @@ pub struct Client {
     /// The current sync token that should be used for the next sync call.
     pub sync_token: Option<Token>,
     /// A map of the rooms our user is joined in.
-    pub joined_rooms: HashMap<RoomId, Arc<Mutex<Room>>>,
+    pub joined_rooms: HashMap<RoomId, Arc<RwLock<Room>>>,
 }
 
 impl Client {
@@ -185,11 +185,11 @@ impl Client {
         self.session = Some(session);
     }
 
-    fn get_or_create_room(&mut self, room_id: &RoomId) -> &mut Arc<Mutex<Room>> {
+    fn get_or_create_room(&mut self, room_id: &RoomId) -> &mut Arc<RwLock<Room>> {
         self.joined_rooms
             .entry(room_id.to_string())
             .or_insert(
-                Arc::new(Mutex::new(Room::new(
+                Arc::new(RwLock::new(Room::new(
                     room_id,
                     &self
                         .session
@@ -209,7 +209,7 @@ impl Client {
     /// Returns true if the membership list of the room changed, false
     /// otherwise.
     pub fn receive_joined_timeline_event(&mut self, room_id: &RoomId, event: &RoomEvent) -> bool {
-        let mut room = self.get_or_create_room(room_id).lock().unwrap();
+        let mut room = self.get_or_create_room(room_id).write().unwrap();
         room.receive_timeline_event(event)
     }
 
@@ -222,7 +222,7 @@ impl Client {
     /// Returns true if the membership list of the room changed, false
     /// otherwise.
     pub fn receive_joined_state_event(&mut self, room_id: &RoomId, event: &StateEvent) -> bool {
-        let mut room = self.get_or_create_room(room_id).lock().unwrap();
+        let mut room = self.get_or_create_room(room_id).write().unwrap();
         room.receive_state_event(event)
     }
 }
