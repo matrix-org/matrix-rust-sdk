@@ -319,4 +319,20 @@ impl AsyncClient {
 
         Ok(response)
     }
+
+    fn transaction_id(&self) -> u64 {
+        self.transaction_id.fetch_add(1, Ordering::SeqCst)
+    }
+
+    pub async fn room_send(&mut self, room_id: &str, data: MessageEventContent) -> Result<send_message_event::Response, Error> {
+        let request = send_message_event::Request {
+            room_id: RoomId::try_from(room_id).unwrap(),
+            event_type: EventType::RoomMessage,
+            txn_id: self.transaction_id().to_string(),
+            data,
+        };
+
+        let response = self.send(request).await?;
+        Ok(response)
+    }
 }
