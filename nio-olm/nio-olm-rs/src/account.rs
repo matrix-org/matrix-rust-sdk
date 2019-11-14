@@ -5,15 +5,19 @@ pub struct Account {
     buffer: Vec<u8>,
 }
 
+pub struct IdentityKeys {
+    ed25519: String,
+    curve25519: String,
+}
+
 impl Account {
     #[allow(clippy::new_without_default)]
     pub fn new() -> Account {
-        let (acc_ptr, account_data) = unsafe {
-            let account_size = nio_olm_sys::olm_account_size();
-            let account_data: Vec<u8> = vec![0; account_size];
-            let acc_ptr = nio_olm_sys::olm_account(account_data.as_ptr() as *mut _);
-            (acc_ptr, account_data)
-        };
+        let account_size = unsafe { nio_olm_sys::olm_account_size() };
+
+        let account_data: Vec<u8> = vec![0; account_size];
+
+        let acc_ptr = unsafe { nio_olm_sys::olm_account(account_data.as_ptr() as *mut _) };
 
         Account {
             account: acc_ptr,
