@@ -74,6 +74,14 @@ impl Room {
         true
     }
 
+    fn remove_member(&mut self, event: &MemberEvent) -> bool {
+        if !self.members.contains_key(&event.state_key) {
+            return false;
+        }
+
+        true
+    }
+
     fn update_joined_member(&mut self, event: &MemberEvent) -> bool {
         if let Some(member) = self.members.get_mut(&event.state_key) {
             member.display_name = event.content.displayname.clone();
@@ -88,7 +96,7 @@ impl Room {
             Some(c) => match c.membership {
                 MembershipState::Join => self.update_joined_member(event),
                 MembershipState::Invite => self.add_member(event),
-                MembershipState::Leave => self.add_member(event),
+                MembershipState::Leave => self.remove_member(event),
                 _ => false,
             },
             None => self.add_member(event),
