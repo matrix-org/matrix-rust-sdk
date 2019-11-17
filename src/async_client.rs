@@ -24,6 +24,7 @@ use crate::base_client::Client as BaseClient;
 use crate::base_client::Room;
 use crate::error::{Error, InnerError};
 use crate::session::Session;
+use crate::VERSION;
 
 type RoomEventCallback = Box<dyn FnMut(&Room, &RoomEvent)>;
 type RoomEventCallbackF = Box<
@@ -171,7 +172,7 @@ impl AsyncClient {
 
         let user_agent = match config.user_agent {
             Some(a) => a,
-            None => HeaderValue::from_static("nio-rust"),
+            None => HeaderValue::from_str(&format!("nio-rust {}", VERSION)).unwrap(),
         };
 
         headers.insert(reqwest::header::USER_AGENT, user_agent);
