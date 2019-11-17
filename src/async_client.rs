@@ -52,7 +52,6 @@ pub struct AsyncClient {
 #[derive(Default, Debug)]
 pub struct AsyncClientConfig {
     proxy: Option<reqwest::Proxy>,
-    use_sys_proxy: bool,
     user_agent: Option<HeaderValue>,
     disable_ssl_verification: bool,
 }
@@ -63,22 +62,7 @@ impl AsyncClientConfig {
     }
 
     pub fn proxy(mut self, proxy: &str) -> Result<Self, Error> {
-        if self.use_sys_proxy {
-            return Err(Error(InnerError::ConfigurationError(
-                "Using the system proxy has been previously configured.".to_string(),
-            )));
-        }
         self.proxy = Some(reqwest::Proxy::all(proxy)?);
-        Ok(self)
-    }
-
-    pub fn use_sys_proxy(mut self) -> Result<Self, Error> {
-        if self.proxy.is_some() {
-            return Err(Error(InnerError::ConfigurationError(
-                "A proxy has already been configured.".to_string(),
-            )));
-        }
-        self.use_sys_proxy = true;
         Ok(self)
     }
 
@@ -160,12 +144,6 @@ impl AsyncClient {
         let http_client = match config.proxy {
             Some(p) => http_client.proxy(p),
             None => http_client,
-        };
-
-        let http_client = if config.use_sys_proxy {
-            http_client.use_sys_proxy()
-        } else {
-            http_client
         };
 
         let mut headers = reqwest::header::HeaderMap::new();
