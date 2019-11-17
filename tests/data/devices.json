@@ -1,0 +1,10 @@
+{
+ "devices": [
+      {
+        "device_id": "QBUAZIFURK",
+        "display_name": "android",
+        "last_seen_ip": "1.2.3.4",
+        "last_seen_ts": 1474491775024
+      }
+    ]
+}
