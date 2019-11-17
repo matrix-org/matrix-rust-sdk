@@ -188,6 +188,10 @@ impl AsyncClient {
         })
     }
 
+    pub fn logged_in(&self) -> bool {
+        self.base_client.read().unwrap().logged_in()
+    }
+
     // pub fn add_event_callback(
     //     &mut self,
     //     event_type: EventType,
