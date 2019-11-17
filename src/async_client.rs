@@ -282,12 +282,6 @@ impl AsyncClient {
             _ => panic!("Unsuported method"),
         };
 
-        // let request_builder = if let Some(query) = request.uri().query() {
-        //     request_builder.query(query)
-        // } else {
-        //     request_builder
-        // };
-
         let request_builder = if Request::METADATA.requires_authentication {
             let client = self.base_client.read().unwrap();
 
