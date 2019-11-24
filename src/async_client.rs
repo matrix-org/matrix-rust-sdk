@@ -255,6 +255,8 @@ impl AsyncClient {
                 //     cb(room.clone(), Arc::new(event.clone())).await;
                 // }
             }
+
+            client.receive_sync_response(&response);
         }
 
         Ok(response)
@@ -322,5 +324,9 @@ impl AsyncClient {
 
         let response = self.send(request).await?;
         Ok(response)
+    }
+
+    pub fn sync_token(&self) -> Option<String> {
+        self.base_client.read().unwrap().sync_token.clone()
     }
 }

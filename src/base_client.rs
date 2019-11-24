@@ -232,4 +232,8 @@ impl Client {
         let mut room = self.get_or_create_room(room_id).write().unwrap();
         room.receive_state_event(event)
     }
+
+    pub fn receive_sync_response(&mut self, response: &api::sync::sync_events::Response) {
+        self.sync_token = Some(response.next_batch.clone());
+    }
 }
