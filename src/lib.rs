@@ -16,4 +16,4 @@ mod session;
 pub use async_client::{AsyncClient, AsyncClientConfig, SyncSettings};
 pub use base_client::{Client, Room};
 
-pub const VERSION: &'static str = env!("CARGO_PKG_VERSION");
+pub(crate) const VERSION: &str = env!("CARGO_PKG_VERSION");
