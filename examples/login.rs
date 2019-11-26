@@ -1,9 +1,4 @@
-#![feature(async_closure)]
-
-use std::future::Future;
-use std::pin::Pin;
-use std::rc::Rc;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, RwLock};
 use std::{env, process::exit};
 use url::Url;
 
@@ -12,13 +7,12 @@ use matrix_nio::{
     events::{
         collections::all::RoomEvent,
         room::message::{MessageEvent, MessageEventContent, TextMessageEventContent},
-        EventType,
     },
     AsyncClient, AsyncClientConfig, Room, SyncSettings,
 };
 
-async fn async_helper(room: Arc<Mutex<Room>>, event: Arc<RoomEvent>) {
-    let room = room.lock().unwrap();
+async fn async_cb(room: Arc<RwLock<Room>>, event: Arc<RoomEvent>) {
+    let room = room.read().unwrap();
     if let RoomEvent::RoomMessage(MessageEvent {
         content: MessageEventContent::Text(TextMessageEventContent { body: msg_body, .. }),
         sender,
@@ -34,13 +28,6 @@ async fn async_helper(room: Arc<Mutex<Room>>, event: Arc<RoomEvent>) {
     }
 }
 
-fn async_callback(
-    room: Arc<Mutex<Room>>,
-    event: Arc<RoomEvent>,
-) -> Pin<Box<dyn Future<Output = ()> + Send + Sync>> {
-    Box::pin(async_helper(room, event))
-}
-
 async fn login(
     homeserver_url: String,
     username: String,
@@ -52,10 +39,10 @@ async fn login(
     let homeserver_url = Url::parse(&homeserver_url)?;
     let mut client = AsyncClient::new_with_config(homeserver_url, None, client_config).unwrap();
 
-    // client.add_event_future(EventType::RoomMessage, Box::new(async_callback));
+    client.add_event_future(async_cb);
 
     client.login(username, password, None).await?;
-    let response = client.sync(SyncSettings::new()).await?;
+    let _response = client.sync(SyncSettings::new()).await?;
 
     Ok(())
 }

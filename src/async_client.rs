@@ -1,7 +1,5 @@
+use futures::future::{BoxFuture, Future, FutureExt};
 use std::convert::{TryFrom, TryInto};
-use std::future::Future;
-use std::pin::Pin;
-use std::rc::Rc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, RwLock};
 
@@ -13,9 +11,7 @@ use url::Url;
 
 use ruma_api::Endpoint;
 use ruma_events::collections::all::RoomEvent;
-use ruma_events::room::message::MessageEvent;
 use ruma_events::room::message::MessageEventContent;
-use ruma_events::Event;
 pub use ruma_events::EventType;
 use ruma_identifiers::RoomId;
 
@@ -26,12 +22,8 @@ use crate::error::{Error, InnerError};
 use crate::session::Session;
 use crate::VERSION;
 
-type RoomEventCallback = Box<dyn FnMut(&Room, &RoomEvent)>;
-type RoomEventCallbackF = Box<
-    dyn FnMut(Arc<RwLock<Room>>, Arc<RoomEvent>) -> Pin<Box<dyn Future<Output = ()> + Send + Sync>>
-        + Send
-        + Sync,
->;
+type RoomEventCallbackF =
+    Box<dyn FnMut(Arc<RwLock<Room>>, Arc<RoomEvent>) -> BoxFuture<'static, ()>>;
 
 #[derive(Clone)]
 pub struct AsyncClient {
@@ -43,10 +35,8 @@ pub struct AsyncClient {
     base_client: Arc<RwLock<BaseClient>>,
     /// The transaction id.
     transaction_id: Arc<AtomicU64>,
-    // /// Event callbacks
-    // event_callbacks: Vec<RoomEventCallback>,
-    // /// Event futures
-    // event_futures: Vec<RoomEventCallbackF>,
+    /// Event futures
+    event_futures: Arc<RwLock<Vec<RoomEventCallbackF>>>,
 }
 
 #[derive(Default, Debug)]
@@ -163,7 +153,7 @@ impl AsyncClient {
             base_client: Arc::new(RwLock::new(BaseClient::new(session))),
             transaction_id: Arc::new(AtomicU64::new(0)),
             // event_callbacks: Vec::new(),
-            // event_futures: Vec::new(),
+            event_futures: Arc::new(RwLock::new(Vec::new())),
         })
     }
 
@@ -171,21 +161,18 @@ impl AsyncClient {
         self.base_client.read().unwrap().logged_in()
     }
 
-    // pub fn add_event_callback(
-    //     &mut self,
-    //     event_type: EventType,
-    //     callback: RoomEventCallback,
-    // ) {
-    //     self.event_callbacks.push(callback);
-    // }
+    pub fn add_event_future<C: 'static>(
+        &mut self,
+        mut callback: impl FnMut(Arc<RwLock<Room>>, Arc<RoomEvent>) -> C + 'static,
+    ) where
+        C: Future<Output = ()> + Send,
+    {
+        let mut futures = self.event_futures.write().unwrap();
 
-    // pub fn add_event_future(
-    //     &mut self,
-    //     event_type: EventType,
-    //     callback: RoomEventCallbackF,
-    // ) {
-    //     self.event_futures.push(callback);
-    // }
+        let future = move |room, event| callback(room, event).boxed();
+
+        futures.push(Box::new(future));
+    }
 
     pub async fn login<S: Into<String>>(
         &mut self,
@@ -246,14 +233,13 @@ impl AsyncClient {
                 client.receive_joined_timeline_event(&room_id, &event);
 
                 let room = client.joined_rooms.get(&room_id).unwrap();
+                let mut cb_futures = self.event_futures.write().unwrap();
 
-                // for mut cb in &mut self.event_callbacks {
-                //     cb(&room.lock().unwrap(), &event);
-                // }
+                let event = Arc::new(event.clone());
 
-                // for mut cb in &mut self.event_futures {
-                //     cb(room.clone(), Arc::new(event.clone())).await;
-                // }
+                for cb in &mut cb_futures.iter_mut() {
+                    cb(room.clone(), event.clone()).await;
+                }
             }
 
             client.receive_sync_response(&response);
