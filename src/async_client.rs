@@ -24,7 +24,7 @@ use crate::session::Session;
 use crate::VERSION;
 
 type RoomEventCallbackF =
-    Box<dyn FnMut(Arc<RwLock<Room>>, Arc<RoomEvent>) -> BoxFuture<'static, ()> + Send>;
+    Box<dyn FnMut(Arc<RwLock<Room>>, Arc<EventResult<RoomEvent>>) -> BoxFuture<'static, ()> + Send>;
 
 #[derive(Clone)]
 pub struct AsyncClient {
@@ -163,7 +163,7 @@ impl AsyncClient {
 
     pub fn add_event_future<C: 'static>(
         &mut self,
-        mut callback: impl FnMut(Arc<RwLock<Room>>, Arc<RoomEvent>) -> C + 'static + Send,
+        mut callback: impl FnMut(Arc<RwLock<Room>>, Arc<EventResult<RoomEvent>>) -> C + 'static + Send,
     ) where
         C: Future<Output = ()> + Send,
     {
@@ -226,11 +226,6 @@ impl AsyncClient {
             };
 
             for event in &room.timeline.events {
-                let event = match event.clone().into_result() {
-                    Ok(e) => e,
-                    Err(e) => continue,
-                };
-
                 {
                     let mut client = self.base_client.write().unwrap();
                     client.receive_joined_timeline_event(&room_id, &event);

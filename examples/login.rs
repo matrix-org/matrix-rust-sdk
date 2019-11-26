@@ -7,17 +7,23 @@ use matrix_nio::{
     events::{
         collections::all::RoomEvent,
         room::message::{MessageEvent, MessageEventContent, TextMessageEventContent},
+        EventResult,
     },
     AsyncClient, AsyncClientConfig, Room, SyncSettings,
 };
 
-async fn async_cb(room: Arc<RwLock<Room>>, event: Arc<RoomEvent>) {
+async fn async_cb(room: Arc<RwLock<Room>>, event: Arc<EventResult<RoomEvent>>) {
     let room = room.read().unwrap();
+    let event = if let EventResult::Ok(event) = &*event {
+        event
+    } else {
+        return;
+    };
     if let RoomEvent::RoomMessage(MessageEvent {
         content: MessageEventContent::Text(TextMessageEventContent { body: msg_body, .. }),
         sender,
         ..
-    }) = &*event
+    }) = event
     {
         let user = room.members.get(&sender.to_string()).unwrap();
         println!(

@@ -3,6 +3,7 @@ use std::collections::HashMap;
 use crate::api::r0 as api;
 use crate::events::collections::all::{RoomEvent, StateEvent};
 use crate::events::room::member::{MemberEvent, MembershipState};
+use crate::events::EventResult;
 use crate::session::Session;
 use std::sync::{Arc, RwLock};
 
@@ -215,9 +216,18 @@ impl Client {
     ///
     /// Returns true if the membership list of the room changed, false
     /// otherwise.
-    pub fn receive_joined_timeline_event(&mut self, room_id: &RoomId, event: &RoomEvent) -> bool {
-        let mut room = self.get_or_create_room(room_id).write().unwrap();
-        room.receive_timeline_event(event)
+    pub fn receive_joined_timeline_event(
+        &mut self,
+        room_id: &RoomId,
+        event: &EventResult<RoomEvent>,
+    ) -> bool {
+        match event {
+            EventResult::Ok(e) => {
+                let mut room = self.get_or_create_room(room_id).write().unwrap();
+                room.receive_timeline_event(e)
+            }
+            _ => false,
+        }
     }
 
     /// Receive a state event for a joined room and update the client state.
