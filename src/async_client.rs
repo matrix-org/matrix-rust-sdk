@@ -2,6 +2,9 @@ use futures::future::{BoxFuture, Future, FutureExt};
 use std::convert::{TryFrom, TryInto};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
+use std::time::Duration;
+
+use async_std::task::sleep;
 
 use http::Method as HttpMethod;
 use http::Response as HttpResponse;
@@ -275,7 +278,37 @@ impl AsyncClient {
         Ok(response)
     }
 
-    async fn sync_forever() {}
+    pub async fn sync_forever<C>(
+        &mut self,
+        sync_settings: SyncSettings,
+        callback: impl Fn(sync_events::IncomingResponse) -> C + Send,
+    ) where
+        C: Future<Output = ()>,
+    {
+        let mut sync_settings = sync_settings;
+
+        loop {
+            let response = self.sync(sync_settings.clone()).await;
+
+            // TODO query keys here.
+            // TODO upload keys here
+            // TODO send out to-device messages here
+
+            let response = if let Ok(r) = response {
+                r
+            } else {
+                sleep(Duration::from_secs(1)).await;
+                continue;
+            };
+
+            callback(response).await;
+
+            sync_settings = SyncSettings::new()
+                .timeout(30000)
+                .unwrap()
+                .token(self.sync_token().unwrap());
+        }
+    }
 
     async fn send<Request: Endpoint>(
         &self,
