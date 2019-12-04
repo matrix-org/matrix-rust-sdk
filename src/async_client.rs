@@ -9,7 +9,7 @@ use js_int::UInt;
 use reqwest::header::{HeaderValue, InvalidHeaderValue};
 use url::Url;
 
-use ruma_api::Endpoint;
+use ruma_api::{Endpoint, Outgoing};
 use ruma_events::collections::all::RoomEvent;
 use ruma_events::room::message::MessageEventContent;
 use ruma_events::EventResult;
@@ -23,8 +23,11 @@ use crate::error::{Error, InnerError};
 use crate::session::Session;
 use crate::VERSION;
 
-type RoomEventCallbackF =
+type RoomEventCallback =
     Box<dyn FnMut(Arc<RwLock<Room>>, Arc<EventResult<RoomEvent>>) -> BoxFuture<'static, ()> + Send>;
+
+type ResponseCallback =
+    Box<dyn FnMut(Arc<sync_events::IncomingResponse>) -> BoxFuture<'static, ()> + Send>;
 
 #[derive(Clone)]
 pub struct AsyncClient {
@@ -36,8 +39,10 @@ pub struct AsyncClient {
     base_client: Arc<RwLock<BaseClient>>,
     /// The transaction id.
     transaction_id: Arc<AtomicU64>,
-    /// Event futures
-    event_futures: Arc<Mutex<Vec<RoomEventCallbackF>>>,
+    /// Event callbacks
+    event_callbacks: Arc<Mutex<Vec<RoomEventCallback>>>,
+    // /// Response callbacks.
+    response_callbacks: Arc<Mutex<Vec<ResponseCallback>>>,
 }
 
 #[derive(Default, Debug)]
@@ -68,7 +73,7 @@ impl AsyncClientConfig {
     }
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub struct SyncSettings {
     pub(crate) timeout: Option<UInt>,
     pub(crate) token: Option<String>,
@@ -153,7 +158,8 @@ impl AsyncClient {
             http_client,
             base_client: Arc::new(RwLock::new(BaseClient::new(session))),
             transaction_id: Arc::new(AtomicU64::new(0)),
-            event_futures: Arc::new(Mutex::new(Vec::new())),
+            event_callbacks: Arc::new(Mutex::new(Vec::new())),
+            response_callbacks: Arc::new(Mutex::new(Vec::new())),
         })
     }
 
@@ -161,15 +167,28 @@ impl AsyncClient {
         self.base_client.read().unwrap().logged_in()
     }
 
-    pub fn add_event_future<C: 'static>(
+    pub fn add_event_callback<C: 'static>(
         &mut self,
         mut callback: impl FnMut(Arc<RwLock<Room>>, Arc<EventResult<RoomEvent>>) -> C + 'static + Send,
     ) where
         C: Future<Output = ()> + Send,
     {
-        let mut futures = self.event_futures.lock().unwrap();
+        let mut futures = self.event_callbacks.lock().unwrap();
 
         let future = move |room, event| callback(room, event).boxed();
+
+        futures.push(Box::new(future));
+    }
+
+    pub fn add_response_callback<C: 'static>(
+        &mut self,
+        mut callback: impl FnMut(Arc<sync_events::IncomingResponse>) -> C + 'static + Send,
+    ) where
+        C: Future<Output = ()> + Send,
+    {
+        let mut futures = self.response_callbacks.lock().unwrap();
+
+        let future = move |response| callback(response).boxed();
 
         futures.push(Box::new(future));
     }
@@ -199,7 +218,7 @@ impl AsyncClient {
     pub async fn sync(
         &mut self,
         sync_settings: SyncSettings,
-    ) -> Result<sync_events::Response, Error> {
+    ) -> Result<sync_events::IncomingResponse, Error> {
         let request = sync_events::Request {
             filter: None,
             since: sync_settings.token,
@@ -234,7 +253,7 @@ impl AsyncClient {
                 let event = Arc::new(event.clone());
 
                 let callbacks = {
-                    let mut cb_futures = self.event_futures.lock().unwrap();
+                    let mut cb_futures = self.event_callbacks.lock().unwrap();
                     let mut callbacks = Vec::new();
 
                     for cb in &mut cb_futures.iter_mut() {
@@ -258,7 +277,15 @@ impl AsyncClient {
 
     async fn sync_forever() {}
 
-    async fn send<Request: Endpoint>(&self, request: Request) -> Result<Request::Response, Error> {
+    async fn send<Request: Endpoint>(
+        &self,
+        request: Request,
+    ) -> Result<<Request::Response as Outgoing>::Incoming, Error>
+    where
+        Request::Incoming: TryFrom<http::Request<Vec<u8>>, Error = ruma_api::Error>,
+        <Request::Response as Outgoing>::Incoming:
+            TryFrom<http::Response<Vec<u8>>, Error = ruma_api::Error>,
+    {
         let request: http::Request<Vec<u8>> = request.try_into()?;
         let url = request.uri();
         let url = self
@@ -297,7 +324,7 @@ impl AsyncClient {
         let status = response.status();
         let body = response.bytes().await?.as_ref().to_owned();
         let response = HttpResponse::builder().status(status).body(body).unwrap();
-        let response = Request::Response::try_from(response)?;
+        let response = <Request::Response as Outgoing>::Incoming::try_from(response)?;
 
         Ok(response)
     }

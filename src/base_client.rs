@@ -243,7 +243,7 @@ impl Client {
         room.receive_state_event(event)
     }
 
-    pub fn receive_sync_response(&mut self, response: &api::sync::sync_events::Response) {
+    pub fn receive_sync_response(&mut self, response: &api::sync::sync_events::IncomingResponse) {
         self.sync_token = Some(response.next_batch.clone());
     }
 }

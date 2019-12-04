@@ -45,7 +45,7 @@ async fn login(
     let homeserver_url = Url::parse(&homeserver_url)?;
     let mut client = AsyncClient::new_with_config(homeserver_url, None, client_config).unwrap();
 
-    client.add_event_future(async_cb);
+    client.add_event_callback(async_cb);
 
     client.login(username, password, None).await?;
     let _response = client.sync(SyncSettings::new()).await?;

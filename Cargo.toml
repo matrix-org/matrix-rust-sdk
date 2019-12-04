@@ -15,18 +15,19 @@ js_int = "0.1.2"
 futures = "0.3.1"
 reqwest = "0.10.0-alpha.2"
 http = "0.1.19"
-ruma-api = "0.11.0"
-ruma-client-api = "0.4.0"
+async-std = "1.2.0"
+ruma-api = "0.12.0-alpha.1"
+ruma-client-api = "0.5.0-alpha.1"
 ruma-events = "0.15.1"
 log = "0.4.8"
 
 ruma-identifiers = "0.14.0"
-serde_json = "1.0.41"
+serde_json = "1.0.42"
 serde_urlencoded = "0.6.1"
 url = "2.1.0"
 
 [dependencies.serde]
-version = "1.0.102"
+version = "1.0.103"
 features = ["derive"]
 
 [dev-dependencies]
