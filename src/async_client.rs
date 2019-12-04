@@ -29,9 +29,6 @@ use crate::VERSION;
 type RoomEventCallback =
     Box<dyn FnMut(Arc<RwLock<Room>>, Arc<EventResult<RoomEvent>>) -> BoxFuture<'static, ()> + Send>;
 
-type ResponseCallback =
-    Box<dyn FnMut(Arc<sync_events::IncomingResponse>) -> BoxFuture<'static, ()> + Send>;
-
 #[derive(Clone)]
 pub struct AsyncClient {
     /// The URL of the homeserver to connect to.
@@ -44,8 +41,6 @@ pub struct AsyncClient {
     transaction_id: Arc<AtomicU64>,
     /// Event callbacks
     event_callbacks: Arc<Mutex<Vec<RoomEventCallback>>>,
-    // /// Response callbacks.
-    response_callbacks: Arc<Mutex<Vec<ResponseCallback>>>,
 }
 
 #[derive(Default, Debug)]
@@ -162,7 +157,6 @@ impl AsyncClient {
             base_client: Arc::new(RwLock::new(BaseClient::new(session))),
             transaction_id: Arc::new(AtomicU64::new(0)),
             event_callbacks: Arc::new(Mutex::new(Vec::new())),
-            response_callbacks: Arc::new(Mutex::new(Vec::new())),
         })
     }
 
@@ -179,19 +173,6 @@ impl AsyncClient {
         let mut futures = self.event_callbacks.lock().unwrap();
 
         let future = move |room, event| callback(room, event).boxed();
-
-        futures.push(Box::new(future));
-    }
-
-    pub fn add_response_callback<C: 'static>(
-        &mut self,
-        mut callback: impl FnMut(Arc<sync_events::IncomingResponse>) -> C + 'static + Send,
-    ) where
-        C: Future<Output = ()> + Send,
-    {
-        let mut futures = self.response_callbacks.lock().unwrap();
-
-        let future = move |response| callback(response).boxed();
 
         futures.push(Box::new(future));
     }
