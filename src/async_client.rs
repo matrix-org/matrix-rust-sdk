@@ -160,8 +160,14 @@ impl AsyncClient {
         })
     }
 
+    /// Is the client logged in.
     pub fn logged_in(&self) -> bool {
         self.base_client.read().unwrap().logged_in()
+    }
+
+    /// The Homeserver of the client.
+    pub fn homeserver(&self) -> &Url {
+        &self.homeserver
     }
 
     pub fn add_event_callback<C: 'static>(
