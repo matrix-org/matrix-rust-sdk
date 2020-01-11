@@ -10,7 +10,7 @@ use std::str::FromStr;
 
 #[test]
 fn login() {
-    let rt = Runtime::new().unwrap();
+    let mut rt = Runtime::new().unwrap();
 
     let homeserver = Url::from_str(&mockito::server_url()).unwrap();
 
@@ -29,7 +29,7 @@ fn login() {
 
 #[test]
 fn sync() {
-    let rt = Runtime::new().unwrap();
+    let mut rt = Runtime::new().unwrap();
 
     let homeserver = Url::from_str(&mockito::server_url()).unwrap();
 
