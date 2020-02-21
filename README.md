@@ -1,10 +1,9 @@
-# nio-rust
+# matrix-rust-sdk
 
-**nio-rust** is a port of the [matrix-nio][] python library to [Rust][].
+**matrix-rust-sdk** is an implementation of a [Matrix][] client-server library in [Rust][].
 
 [Matrix]: https://matrix.org/
 [Rust]: https://www.rust-lang.org/
-[matrix-nio]: https://github.com/poljar/matrix-nio
 
 ## Status
 
@@ -12,4 +11,4 @@ This library is very much work in progress.
 
 ## License
 
-[MIT](http://opensource.org/licenses/MIT)
+[Apache](https://www.apache.org/licenses/LICENSE-2.0)
