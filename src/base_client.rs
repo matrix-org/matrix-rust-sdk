@@ -47,10 +47,10 @@ impl Room {
     ///
     /// * `room_id` - The unique id of the room.
     /// * `own_user_id` - The mxid of our own user.
-    pub fn new(room_id: &str, own_user_id: &UserId) -> Self {
+    pub fn new(room_id: &str, own_user_id: &str) -> Self {
         Room {
             room_id: room_id.to_string(),
-            own_user_id: own_user_id.clone(),
+            own_user_id: own_user_id.to_owned(),
             creator: None,
             members: HashMap::new(),
             typing_users: Vec::new(),
@@ -196,7 +196,8 @@ impl Client {
         self.session = Some(session);
     }
 
-    fn get_or_create_room(&mut self, room_id: &RoomId) -> &mut Arc<RwLock<Room>> {
+    fn get_or_create_room(&mut self, room_id: &str) -> &mut Arc<RwLock<Room>> {
+        #[allow(clippy::or_fun_call)]
         self.joined_rooms
             .entry(room_id.to_string())
             .or_insert(Arc::new(RwLock::new(Room::new(
@@ -221,7 +222,7 @@ impl Client {
     /// otherwise.
     pub fn receive_joined_timeline_event(
         &mut self,
-        room_id: &RoomId,
+        room_id: &str,
         event: &EventResult<RoomEvent>,
     ) -> bool {
         match event {

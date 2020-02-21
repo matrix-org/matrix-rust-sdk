@@ -18,7 +18,6 @@ impl Display for Error {
         let message = match self.0 {
             InnerError::AuthenticationRequired => "The queried endpoint requires authentication but was called with an anonymous client.",
             InnerError::Reqwest(_) => "An HTTP error occurred.",
-            InnerError::ConfigurationError(_) => "Error configuring the client",
             InnerError::Uri(_) => "Provided string could not be converted into a URI.",
             InnerError::RumaApi(_) => "An error occurred converting between ruma_client_api and hyper types.",
             InnerError::SerdeJson(_) => "A serialization error occurred.",
@@ -36,8 +35,6 @@ impl StdError for Error {}
 pub(crate) enum InnerError {
     /// Queried endpoint requires authentication but was called on an anonymous client.
     AuthenticationRequired,
-    /// An error in the client configuration.
-    ConfigurationError(String),
     /// An error at the HTTP layer.
     Reqwest(ReqwestError),
     /// An error when parsing a string as a URI.

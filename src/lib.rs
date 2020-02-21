@@ -1,6 +1,5 @@
-//! Crate `nio-client` is a [Matrix](https://matrix.org/) client library.
-//!
-#![warn(missing_docs)]
+//! This crate implements a [Matrix](https://matrix.org/) client library.
+#![deny(missing_docs)]
 
 pub use crate::{error::Error, session::Session};
 pub use reqwest::header::InvalidHeaderValue;

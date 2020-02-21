@@ -193,7 +193,7 @@ impl AsyncClient {
     ) -> Result<Self, Error> {
         let homeserver: Url = match homeserver_url.try_into() {
             Ok(u) => u,
-            Err(e) => panic!("Error parsing homeserver url"),
+            Err(_e) => panic!("Error parsing homeserver url"),
         };
 
         let http_client = reqwest::Client::builder();
