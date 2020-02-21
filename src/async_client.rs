@@ -149,7 +149,7 @@ impl AsyncClient {
 
         headers.insert(reqwest::header::USER_AGENT, user_agent);
 
-        let http_client = http_client.default_headers(headers).build().unwrap();
+        let http_client = http_client.default_headers(headers).build()?;
 
         Ok(Self {
             homeserver,
