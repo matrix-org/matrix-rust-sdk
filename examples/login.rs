@@ -2,7 +2,7 @@ use std::sync::{Arc, RwLock};
 use std::{env, process::exit};
 use url::Url;
 
-use matrix_nio::{
+use matrix_sdk::{
     self,
     events::{
         collections::all::RoomEvent,
@@ -38,7 +38,7 @@ async fn login(
     homeserver_url: String,
     username: String,
     password: String,
-) -> Result<(), matrix_nio::Error> {
+) -> Result<(), matrix_sdk::Error> {
     let client_config = AsyncClientConfig::new()
         .proxy("http://localhost:8080")?
         .disable_ssl_verification();
@@ -54,7 +54,7 @@ async fn login(
 }
 
 #[tokio::main]
-async fn main() -> Result<(), matrix_nio::Error> {
+async fn main() -> Result<(), matrix_sdk::Error> {
     let (homeserver_url, username, password) =
         match (env::args().nth(1), env::args().nth(2), env::args().nth(3)) {
             (Some(a), Some(b), Some(c)) => (a, b, c),
