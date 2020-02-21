@@ -104,10 +104,12 @@ impl Room {
         }
     }
 
-    fn handle_leave(&mut self, event: &MemberEvent) -> bool {
+    fn handle_leave(&mut self, _event: &MemberEvent) -> bool {
         false
     }
 
+    /// Handle a room.member updating the room state if necessary.
+    /// Returns true if the joined member list changed, false otherwise.
     pub fn handle_membership(&mut self, event: &MemberEvent) -> bool {
         match event.content.membership {
             MembershipState::Join => self.handle_join(event),
@@ -209,6 +211,7 @@ impl Client {
     }
 
     /// Receive a timeline event for a joined room and update the client state.
+    ///
     /// # Arguments
     ///
     /// `room_id` - The unique id of the room the event belongs to.
@@ -231,6 +234,7 @@ impl Client {
     }
 
     /// Receive a state event for a joined room and update the client state.
+    ///
     /// # Arguments
     ///
     /// `room_id` - The unique id of the room the event belongs to.
@@ -238,11 +242,16 @@ impl Client {
     ///
     /// Returns true if the membership list of the room changed, false
     /// otherwise.
-    pub fn receive_joined_state_event(&mut self, room_id: &RoomId, event: &StateEvent) -> bool {
+    pub fn receive_joined_state_event(&mut self, room_id: &str, event: &StateEvent) -> bool {
         let mut room = self.get_or_create_room(room_id).write().unwrap();
         room.receive_state_event(event)
     }
 
+    /// Receive a response from a sync call.
+    ///
+    /// # Arguments
+    ///
+    /// `response` - The response that we received after a successful sync.
     pub fn receive_sync_response(&mut self, response: &api::sync::sync_events::IncomingResponse) {
         self.sync_token = Some(response.next_batch.clone());
     }

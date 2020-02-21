@@ -30,6 +30,7 @@ type RoomEventCallback =
     Box<dyn FnMut(Arc<RwLock<Room>>, Arc<EventResult<RoomEvent>>) -> BoxFuture<'static, ()> + Send>;
 
 #[derive(Clone)]
+/// An async/await enabled Matrix client.
 pub struct AsyncClient {
     /// The URL of the homeserver to connect to.
     homeserver: Url,
@@ -44,6 +45,20 @@ pub struct AsyncClient {
 }
 
 #[derive(Default, Debug)]
+/// Configuration for the creation of the `AsyncClient`.
+///
+/// # Example
+///
+/// ```
+/// // To pass all the request through mitmproxy set the proxy and disable SSL
+/// // verification
+/// use matrix_nio::AsyncClientConfig;
+///
+/// let client_config = AsyncClientConfig::new()
+///     .proxy("http://localhost:8080")
+///     .unwrap()
+///     .disable_ssl_verification();
+/// ```
 pub struct AsyncClientConfig {
     proxy: Option<reqwest::Proxy>,
     user_agent: Option<HeaderValue>,
@@ -51,20 +66,40 @@ pub struct AsyncClientConfig {
 }
 
 impl AsyncClientConfig {
+    /// Create a new default `AsyncClientConfig`.
     pub fn new() -> Self {
         Default::default()
     }
 
+    /// Set the proxy through which all the HTTP requests should go.
+    ///
+    /// Note, only HTTP proxies are supported.
+    ///
+    /// # Arguments
+    ///
+    /// * `proxy` - The HTTP URL of the proxy.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use matrix_nio::AsyncClientConfig;
+    ///
+    /// let client_config = AsyncClientConfig::new()
+    ///     .proxy("http://localhost:8080")
+    ///     .unwrap();
+    /// ```
     pub fn proxy(mut self, proxy: &str) -> Result<Self, Error> {
         self.proxy = Some(reqwest::Proxy::all(proxy)?);
         Ok(self)
     }
 
+    /// Disable SSL verification for the HTTP requests.
     pub fn disable_ssl_verification(mut self) -> Self {
         self.disable_ssl_verification = true;
         self
     }
 
+    /// Set a custom HTTP user agent for the client.
     pub fn user_agent(mut self, user_agent: &str) -> Result<Self, InvalidHeaderValue> {
         self.user_agent = Some(HeaderValue::from_str(user_agent)?);
         Ok(self)
@@ -72,6 +107,7 @@ impl AsyncClientConfig {
 }
 
 #[derive(Debug, Default, Clone)]
+/// Settings for a sync call.
 pub struct SyncSettings {
     pub(crate) timeout: Option<UInt>,
     pub(crate) token: Option<String>,
@@ -79,15 +115,27 @@ pub struct SyncSettings {
 }
 
 impl SyncSettings {
+    /// Create new default sync settings.
     pub fn new() -> Self {
         Default::default()
     }
 
+    /// Set the sync token.
+    ///
+    /// # Arguments
+    ///
+    /// * `token` - The sync token that should be used for the sync call.
     pub fn token<S: Into<String>>(mut self, token: S) -> Self {
         self.token = Some(token.into());
         self
     }
 
+    /// Set the maximum time the server can wait, in milliseconds, before
+    /// responding to the sync request.
+    ///
+    /// # Arguments
+    ///
+    /// * `timeout` - The time the server is allowed to wait.
     pub fn timeout<T: TryInto<UInt>>(mut self, timeout: T) -> Result<Self, js_int::TryFromIntError>
     where
         js_int::TryFromIntError:
@@ -97,6 +145,13 @@ impl SyncSettings {
         Ok(self)
     }
 
+    /// Should the server return the full state from the start of the timeline.
+    ///
+    /// This does nothing if no sync token is set.
+    ///
+    /// # Arguments
+    /// * `full_state` - A boolean deciding if the server should return the full
+    ///     state or not.
     pub fn full_state(mut self, full_state: bool) -> Self {
         self.full_state = Some(full_state);
         self
@@ -109,6 +164,12 @@ use api::r0::sync::sync_events;
 
 impl AsyncClient {
     /// Creates a new client for making HTTP requests to the given homeserver.
+    ///
+    /// # Arguments
+    ///
+    /// * `homeserver_url` - The homeserver that the client should connect to.
+    /// * `session` - If a previous login exists, the access token can be
+    ///     reused by giving a session object here.
     pub fn new<U: TryInto<Url>>(
         homeserver_url: U,
         session: Option<Session>,
@@ -117,6 +178,14 @@ impl AsyncClient {
         AsyncClient::new_with_config(homeserver_url, session, config)
     }
 
+    /// Create a new client with the given configuration.
+    ///
+    /// # Arguments
+    ///
+    /// * `homeserver_url` - The homeserver that the client should connect to.
+    /// * `session` - If a previous login exists, the access token can be
+    ///     reused by giving a session object here.
+    /// * `config` - Configuration for the client.
     pub fn new_with_config<U: TryInto<Url>>(
         homeserver_url: U,
         session: Option<Session>,
@@ -170,6 +239,42 @@ impl AsyncClient {
         &self.homeserver
     }
 
+    /// Add a callback that will be called every time the client receives a room
+    /// event
+    ///
+    /// # Arguments
+    ///
+    /// * `callback` - The callback that should be called once a RoomEvent is
+    ///     received.
+    ///
+    /// # Examples
+    /// ```noexecute
+    /// async fn async_cb(room: Arc<RwLock<Room>>, event: Arc<EventResult<RoomEvent>>) {
+    ///     let room = room.read().unwrap();
+    ///     let event = if let EventResult::Ok(event) = &*event {
+    ///         event
+    ///     } else {
+    ///         return;
+    ///     };
+    ///     if let RoomEvent::RoomMessage(MessageEvent {
+    ///         content: MessageEventContent::Text(TextMessageEventContent { body: msg_body, .. }),
+    ///         sender,
+    ///         ..
+    ///     }) = event
+    ///     {
+    ///         let user = room.members.get(&sender.to_string()).unwrap();
+    ///         println!(
+    ///             "{}: {}",
+    ///             user.display_name.as_ref().unwrap_or(&sender.to_string()),
+    ///             msg_body
+    ///         );
+    ///     }
+    /// }
+    ///
+    /// async fn main(client: AsyncClient) {
+    ///     client.add_event_callback(async_cb);
+    /// }
+    ///```
     pub fn add_event_callback<C: 'static>(
         &mut self,
         mut callback: impl FnMut(Arc<RwLock<Room>>, Arc<EventResult<RoomEvent>>) -> C + 'static + Send,
@@ -183,6 +288,16 @@ impl AsyncClient {
         futures.push(Box::new(future));
     }
 
+    /// Login to the server.
+    ///
+    /// # Arguments
+    ///
+    /// `user` - The user that should be logged in to the homeserver.
+    /// `password` - The password of the user.
+    /// `device_id` - A unique id that will be associated with this session. If
+    ///     not given the homeserver will create one. Can be an exising
+    ///     device_id from a previous login call. Note that this should be done
+    ///     only if the client also holds the encryption keys for this devcie.
     pub async fn login<S: Into<String>>(
         &mut self,
         user: S,
@@ -205,6 +320,11 @@ impl AsyncClient {
         Ok(response)
     }
 
+    /// Synchronise the client's state with the latest state on the server.
+    ///
+    /// # Arguments
+    ///
+    /// * `sync_settings` - Settings for the sync call.
     pub async fn sync(
         &mut self,
         sync_settings: SyncSettings,
@@ -265,6 +385,40 @@ impl AsyncClient {
         Ok(response)
     }
 
+    /// Repeatedly call sync to synchronize the client state with the server.
+    ///
+    /// # Arguments
+    ///
+    /// * `sync_settings` - Settings for the sync call. Note that those settings
+    ///     will be only used for the first sync call.
+    /// * `callback` - A callback that will be called every time a successful
+    ///     response has been fetched from the server.
+    ///
+    /// # Examples
+    ///
+    /// The following example demonstrates how to sync forever while sending all
+    /// the interesting events through a mpsc channel to another thread e.g. a
+    /// UI thread.
+    ///
+    /// ```noexecute
+    /// client
+    ///     .sync_forever(sync_settings, async move |response| {
+    ///         let channel = sync_channel;
+    ///         for (room_id, room) in response.rooms.join {
+    ///             for event in room.state.events {
+    ///                 if let EventResult::Ok(e) = event {
+    ///                     channel.send(e).await;
+    ///                 }
+    ///             }
+    ///             for event in room.timeline.events {
+    ///                 if let EventResult::Ok(e) = event {
+    ///                     channel.send(e).await;
+    ///                 }
+    ///             }
+    ///         }
+    ///     })
+    ///     .await;
+    /// ```
     pub async fn sync_forever<C>(
         &mut self,
         sync_settings: SyncSettings,
@@ -349,10 +503,19 @@ impl AsyncClient {
         Ok(response)
     }
 
+    /// Get a new unique transaction id for the client.
     fn transaction_id(&self) -> u64 {
         self.transaction_id.fetch_add(1, Ordering::SeqCst)
     }
 
+    /// Send a room message to the homeserver.
+    ///
+    /// # Arguments
+    ///
+    /// `room_id` -  The id of the room that should receive the message.
+    /// `data` - The content of the message.
+    ///
+    /// Returns the parsed response from the server.
     pub async fn room_send(
         &mut self,
         room_id: &str,
@@ -369,6 +532,8 @@ impl AsyncClient {
         Ok(response)
     }
 
+    /// Get the current, if any, sync token of the client.
+    /// This will be None if the client didn't sync at least once.
     pub fn sync_token(&self) -> Option<String> {
         self.base_client.read().unwrap().sync_token.clone()
     }
