@@ -12,17 +12,17 @@ version = "0.1.0"
 
 [dependencies]
 js_int = "0.1.2"
-futures = "0.3.1"
+futures = "0.3.4"
 reqwest = "0.10.1"
 http = "0.2.0"
-async-std = "1.4.0"
-ruma-api = "0.12.0"
-ruma-client-api = "0.5.0"
-ruma-events = "0.15.1"
+async-std = "1.5.0"
+ruma-api = "0.13.0"
+ruma-client-api = "0.6.0"
+ruma-events = "0.15.0"
 log = "0.4.8"
 
 ruma-identifiers = "0.14.1"
-serde_json = "1.0.44"
+serde_json = "1.0.48"
 serde_urlencoded = "0.6.1"
 url = "2.1.1"
 
@@ -31,6 +31,6 @@ version = "1.0.104"
 features = ["derive"]
 
 [dev-dependencies]
-tokio = { version = "0.2.9", features = ["full"] }
+tokio = { version = "0.2.11", features = ["full"] }
 url = "2.1.1"
-mockito = "0.22.0"
+mockito = "0.23.3"

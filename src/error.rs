@@ -4,7 +4,8 @@ use std::error::Error as StdError;
 use std::fmt::{Display, Formatter, Result as FmtResult};
 
 use reqwest::Error as ReqwestError;
-use ruma_api::Error as RumaApiError;
+use ruma_api::error::FromHttpResponseError as RumaResponseError;
+use ruma_api::error::IntoHttpError as RumaIntoHttpError;
 use serde_json::Error as SerdeJsonError;
 use serde_urlencoded::ser::Error as SerdeUrlEncodedSerializeError;
 use url::ParseError;
@@ -19,7 +20,8 @@ impl Display for Error {
             InnerError::AuthenticationRequired => "The queried endpoint requires authentication but was called with an anonymous client.",
             InnerError::Reqwest(_) => "An HTTP error occurred.",
             InnerError::Uri(_) => "Provided string could not be converted into a URI.",
-            InnerError::RumaApi(_) => "An error occurred converting between ruma_client_api and hyper types.",
+            InnerError::RumaResponseError(_) => "An error occurred converting between ruma_client_api and hyper types.",
+            InnerError::IntoHttpError(_) => "An error occurred converting between ruma_client_api and hyper types.",
             InnerError::SerdeJson(_) => "A serialization error occurred.",
             InnerError::SerdeUrlEncodedSerialize(_) => "An error occurred serializing data to a query string.",
         };
@@ -40,7 +42,9 @@ pub(crate) enum InnerError {
     /// An error when parsing a string as a URI.
     Uri(ParseError),
     /// An error converting between ruma_client_api types and Hyper types.
-    RumaApi(RumaApiError),
+    RumaResponseError(RumaResponseError),
+    /// An error converting between ruma_client_api types and Hyper types.
+    IntoHttpError(RumaIntoHttpError),
     /// An error when serializing or deserializing a JSON value.
     SerdeJson(SerdeJsonError),
     /// An error when serializing a query string value.
@@ -53,9 +57,15 @@ impl From<ParseError> for Error {
     }
 }
 
-impl From<RumaApiError> for Error {
-    fn from(error: RumaApiError) -> Self {
-        Self(InnerError::RumaApi(error))
+impl From<RumaResponseError> for Error {
+    fn from(error: RumaResponseError) -> Self {
+        Self(InnerError::RumaResponseError(error))
+    }
+}
+
+impl From<RumaIntoHttpError> for Error {
+    fn from(error: RumaIntoHttpError) -> Self {
+        Self(InnerError::IntoHttpError(error))
     }
 }
 

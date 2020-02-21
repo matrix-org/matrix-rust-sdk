@@ -158,7 +158,7 @@ impl SyncSettings {
     }
 }
 
-use api::r0::send::send_message_event;
+use api::r0::message::create_message_event;
 use api::r0::session::login;
 use api::r0::sync::sync_events;
 
@@ -305,12 +305,12 @@ impl AsyncClient {
         device_id: Option<S>,
     ) -> Result<login::Response, Error> {
         let request = login::Request {
-            address: None,
-            login_type: login::LoginType::Password,
-            medium: None,
+            user: login::UserInfo::MatrixId(user.into()),
+            login_info: login::LoginInfo::Password {
+                password: password.into(),
+            },
             device_id: device_id.map(|d| d.into()),
-            password: password.into(),
-            user: user.into(),
+            initial_device_display_name: None,
         };
 
         let response = self.send(request).await?;
@@ -456,9 +456,10 @@ impl AsyncClient {
         request: Request,
     ) -> Result<<Request::Response as Outgoing>::Incoming, Error>
     where
-        Request::Incoming: TryFrom<http::Request<Vec<u8>>, Error = ruma_api::Error>,
+        Request::Incoming:
+            TryFrom<http::Request<Vec<u8>>, Error = ruma_api::error::FromHttpRequestError>,
         <Request::Response as Outgoing>::Incoming:
-            TryFrom<http::Response<Vec<u8>>, Error = ruma_api::Error>,
+            TryFrom<http::Response<Vec<u8>>, Error = ruma_api::error::FromHttpResponseError>,
     {
         let request: http::Request<Vec<u8>> = request.try_into()?;
         let url = request.uri();
@@ -520,8 +521,8 @@ impl AsyncClient {
         &mut self,
         room_id: &str,
         data: MessageEventContent,
-    ) -> Result<send_message_event::Response, Error> {
-        let request = send_message_event::Request {
+    ) -> Result<create_message_event::Response, Error> {
+        let request = create_message_event::Request {
             room_id: RoomId::try_from(room_id).unwrap(),
             event_type: EventType::RoomMessage,
             txn_id: self.transaction_id().to_string(),
