@@ -1,5 +1,5 @@
-use matrix_nio::identifiers::UserId;
-use matrix_nio::{AsyncClient, Session, SyncSettings};
+use matrix_sdk::identifiers::UserId;
+use matrix_sdk::{AsyncClient, Session, SyncSettings};
 
 use mockito::{mock, Matcher};
 use tokio::runtime::Runtime;

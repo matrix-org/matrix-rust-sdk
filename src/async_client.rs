@@ -67,7 +67,7 @@ pub struct AsyncClient {
 /// ```
 /// // To pass all the request through mitmproxy set the proxy and disable SSL
 /// // verification
-/// use matrix_nio::AsyncClientConfig;
+/// use matrix_sdk::AsyncClientConfig;
 ///
 /// let client_config = AsyncClientConfig::new()
 ///     .proxy("http://localhost:8080")
@@ -97,7 +97,7 @@ impl AsyncClientConfig {
     /// # Example
     ///
     /// ```
-    /// use matrix_nio::AsyncClientConfig;
+    /// use matrix_sdk::AsyncClientConfig;
     ///
     /// let client_config = AsyncClientConfig::new()
     ///     .proxy("http://localhost:8080")
