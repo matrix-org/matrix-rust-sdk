@@ -1,4 +1,3 @@
-// Copyright 2020 Damir Jelić
 // Copyright 2020 The Matrix.org Foundation C.I.C.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -13,17 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! User sessions.
+// TODO remove this.
+#[allow(dead_code)]
 
-use ruma_identifiers::UserId;
-
-/// A user session, containing an access token and information about the associated user account.
-#[derive(Clone, Debug, Eq, Hash, PartialEq)]
-pub struct Session {
-    /// The access token used for this session.
-    pub access_token: String,
-    /// The user the access token was issued for.
-    pub user_id: UserId,
-    /// The ID of the client device
-    pub device_id: String,
-}
+mod olm;

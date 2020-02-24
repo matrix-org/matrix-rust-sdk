@@ -27,6 +27,9 @@ mod base_client;
 mod error;
 mod session;
 
+#[cfg(feature = "encryption")]
+mod crypto;
+
 pub use async_client::{AsyncClient, AsyncClientConfig, SyncSettings};
 pub use base_client::{Client, Room};
 

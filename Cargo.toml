@@ -10,6 +10,10 @@ readme = "README.md"
 repository = "https://github.com/matrix-org/matrix-rust-sdk"
 version = "0.1.0"
 
+[features]
+default = []
+encryption = ["olm-rs", "serde/derive", "serde_json"]
+
 [dependencies]
 js_int = "0.1.2"
 futures = "0.3.4"
@@ -22,13 +26,11 @@ ruma-events = "0.15.0"
 log = "0.4.8"
 
 ruma-identifiers = "0.14.1"
-serde_json = "1.0.48"
-serde_urlencoded = "0.6.1"
 url = "2.1.1"
 
-[dependencies.serde]
-version = "1.0.104"
-features = ["derive"]
+olm-rs = { git = "https://gitlab.gnome.org/jhaye/olm-rs/", optional = true}
+serde = { version = "1.0.104", optional = true, features = ["derive"] }
+serde_json = { version = "*", optional = true }
 
 [dev-dependencies]
 tokio = { version = "0.2.11", features = ["full"] }

@@ -21,8 +21,6 @@ use std::fmt::{Display, Formatter, Result as FmtResult};
 use reqwest::Error as ReqwestError;
 use ruma_api::error::FromHttpResponseError as RumaResponseError;
 use ruma_api::error::IntoHttpError as RumaIntoHttpError;
-use serde_json::Error as SerdeJsonError;
-use serde_urlencoded::ser::Error as SerdeUrlEncodedSerializeError;
 use url::ParseError;
 
 /// An error that can occur during client operations.
@@ -37,8 +35,6 @@ impl Display for Error {
             InnerError::Uri(_) => "Provided string could not be converted into a URI.",
             InnerError::RumaResponseError(_) => "An error occurred converting between ruma_client_api and hyper types.",
             InnerError::IntoHttpError(_) => "An error occurred converting between ruma_client_api and hyper types.",
-            InnerError::SerdeJson(_) => "A serialization error occurred.",
-            InnerError::SerdeUrlEncodedSerialize(_) => "An error occurred serializing data to a query string.",
         };
 
         write!(f, "{}", message)
@@ -60,10 +56,6 @@ pub(crate) enum InnerError {
     RumaResponseError(RumaResponseError),
     /// An error converting between ruma_client_api types and Hyper types.
     IntoHttpError(RumaIntoHttpError),
-    /// An error when serializing or deserializing a JSON value.
-    SerdeJson(SerdeJsonError),
-    /// An error when serializing a query string value.
-    SerdeUrlEncodedSerialize(SerdeUrlEncodedSerializeError),
 }
 
 impl From<ParseError> for Error {
@@ -81,18 +73,6 @@ impl From<RumaResponseError> for Error {
 impl From<RumaIntoHttpError> for Error {
     fn from(error: RumaIntoHttpError) -> Self {
         Self(InnerError::IntoHttpError(error))
-    }
-}
-
-impl From<SerdeJsonError> for Error {
-    fn from(error: SerdeJsonError) -> Self {
-        Self(InnerError::SerdeJson(error))
-    }
-}
-
-impl From<SerdeUrlEncodedSerializeError> for Error {
-    fn from(error: SerdeUrlEncodedSerializeError) -> Self {
-        Self(InnerError::SerdeUrlEncodedSerialize(error))
     }
 }
 
