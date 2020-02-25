@@ -14,10 +14,16 @@
 
 use std::convert::TryInto;
 
+use super::error::SignatureError;
 use super::olm::Account;
 use crate::api;
 
 use api::r0::keys;
+
+use cjson;
+use olm_rs::utility::OlmUtility;
+use serde_json::json;
+use serde_json::value::Value;
 
 struct OlmMachine {
     /// The unique user id that owns this account.
@@ -34,6 +40,14 @@ struct OlmMachine {
 }
 
 impl OlmMachine {
+    const OLM_V1_ALGORITHM: &'static str = "m.olm.v1.curve25519-aes-sha2";
+    const MEGOLM_V1_ALGORITHM: &'static str = "m.megolm.v1.aes-sha2";
+
+    const ALGORITHMS: &'static [&'static str] = &[
+        OlmMachine::OLM_V1_ALGORITHM,
+        OlmMachine::MEGOLM_V1_ALGORITHM,
+    ];
+
     /// Create a new account.
     pub fn new(user_id: &str, device_id: &str) -> Self {
         OlmMachine {
@@ -62,9 +76,9 @@ impl OlmMachine {
         }
     }
 
-    /// Receive a successfull keys upload response.
+    /// Receive a successful keys upload response.
     ///
-    /// # Arugments
+    /// # Arguments
     ///
     /// `response` - The keys upload response of the request that the client
     ///     performed.
@@ -108,7 +122,104 @@ impl OlmMachine {
         }
     }
 
-    fn device_keys() -> () {}
+    /// Sign the device keys and return a JSON Value to upload them.
+    fn device_keys(&self) -> Value {
+        let identity_keys = self.account.identity_keys();
+
+        let mut device_keys = json!({
+            "user_id": self.user_id,
+            "device_id": self.device_id,
+            "algorithms": OlmMachine::ALGORITHMS,
+            "keys": {
+                format!("curve25519:{}", self.device_id): identity_keys.curve25519(),
+                format!("ed25519:{}", self.device_id): identity_keys.ed25519(),
+            },
+        });
+
+        let signature = json!({
+            self.user_id.clone(): {
+                format!("ed25519:{}", self.device_id): self.sign_json(&device_keys),
+            }
+        });
+
+        let device_keys_object = device_keys
+            .as_object_mut()
+            .expect("Device keys json value isn't an object");
+
+        device_keys_object.insert("signatures".to_string(), signature);
+
+        device_keys
+    }
+
+    /// Convert a JSON value to the canonical representation and sign the JSON string.
+    fn sign_json(&self, json: &Value) -> String {
+        let canonical_json =
+            cjson::to_string(json).expect(&format!("Can't serialize {} to canonical JSON", json));
+        println!("HELLO SIGNING {}", canonical_json);
+        self.account.sign(&canonical_json)
+    }
+
+    /// Verify a signed JSON object.
+    ///
+    /// The object must have a signatures key associated  with an object of the
+    /// form `user_id: {key_id: signature}`.
+    ///
+    /// # Arguments
+    ///
+    /// * `user_id` - The user who signed the JSON object.
+    /// * `device_id` - The device that signed the JSON object.
+    /// * `user_key` - The public ed25519 key which was used to sign the JSON
+    ///     object.
+    /// * `json` - The JSON object that should be verified.
+    ///
+    /// Returns Ok if the signature was successfully verified, otherwise an
+    /// SignatureError.
+    fn verify_json(
+        &self,
+        user_id: &str,
+        device_id: &str,
+        user_key: &str,
+        json: &mut Value,
+    ) -> Result<(), SignatureError> {
+        let json_object = json.as_object_mut().ok_or(SignatureError::NotAnObject)?;
+        let unsigned = json_object.remove("unsigned");
+        let signatures = json_object.remove("signatures");
+
+        let canonical_json = cjson::to_string(json_object)?;
+
+        if let Some(u) = unsigned {
+            json_object.insert("unsigned".to_string(), u);
+        }
+
+        let key_id = format!("ed25519:{}", device_id);
+
+        let signatures = signatures.ok_or(SignatureError::NoSignatureFound)?;
+        let signature_object = signatures
+            .as_object()
+            .ok_or(SignatureError::NoSignatureFound)?;
+        let signature = signature_object
+            .get(user_id)
+            .ok_or(SignatureError::NoSignatureFound)?;
+        let signature = signature
+            .get(key_id)
+            .ok_or(SignatureError::NoSignatureFound)?;
+        let signature = signature.as_str().ok_or(SignatureError::NoSignatureFound)?;
+
+        let utility = OlmUtility::new();
+
+        let ret = if utility
+            .ed25519_verify(&user_key, &canonical_json, signature)
+            .is_ok()
+        {
+            Ok(())
+        } else {
+            Err(SignatureError::VerificationError)
+        };
+
+        json_object.insert("signatures".to_string(), signatures);
+
+        ret
+    }
 }
 
 #[cfg(test)]
@@ -193,5 +304,22 @@ mod test {
         );
         machine.receive_keys_upload_response(&response).await;
         assert!(machine.generate_one_time_keys().is_err());
+    }
+
+    #[test]
+    fn test_device_key_signing() {
+        let machine = OlmMachine::new(USER_ID, DEVICE_ID);
+
+        let mut device_keys = machine.device_keys();
+        let identity_keys = machine.account.identity_keys();
+        let ed25519_key = identity_keys.ed25519();
+
+        let ret = machine.verify_json(
+            &machine.user_id,
+            &machine.device_id,
+            ed25519_key,
+            &mut device_keys,
+        );
+        assert!(ret.is_ok());
     }
 }

@@ -151,6 +151,10 @@ impl Account {
     pub fn mark_keys_as_published(&self) {
         self.inner.mark_keys_as_published();
     }
+
+    pub fn sign(&self, string: &str) -> String {
+        self.inner.sign(string)
+    }
 }
 
 #[cfg(test)]

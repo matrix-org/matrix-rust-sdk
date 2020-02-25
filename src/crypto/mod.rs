@@ -13,6 +13,7 @@
 // limitations under the License.
 
 // TODO remove this.
+mod error;
 #[allow(dead_code)]
 mod machine;
 #[allow(dead_code)]
