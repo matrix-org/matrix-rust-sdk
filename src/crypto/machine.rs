@@ -155,7 +155,6 @@ impl OlmMachine {
     fn sign_json(&self, json: &Value) -> String {
         let canonical_json =
             cjson::to_string(json).expect(&format!("Can't serialize {} to canonical JSON", json));
-        println!("HELLO SIGNING {}", canonical_json);
         self.account.sign(&canonical_json)
     }
 
