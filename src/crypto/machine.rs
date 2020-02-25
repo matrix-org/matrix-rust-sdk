@@ -322,4 +322,19 @@ mod test {
         );
         assert!(ret.is_ok());
     }
+
+    #[test]
+    fn test_invalid_signature() {
+        let machine = OlmMachine::new(USER_ID, DEVICE_ID);
+
+        let mut device_keys = machine.device_keys();
+
+        let ret = machine.verify_json(
+            &machine.user_id,
+            &machine.device_id,
+            "fake_key",
+            &mut device_keys,
+        );
+        assert!(ret.is_err());
+    }
 }
