@@ -94,17 +94,21 @@ impl OlmMachine {
                 let key_count = (max_keys / 2) - count;
 
                 if key_count <= 0 {
-                    return Err(())
+                    return Err(());
                 }
 
-                let key_count: usize = key_count.try_into().unwrap_or_else(|_| self.account.max_one_time_keys());
+                let key_count: usize = key_count
+                    .try_into()
+                    .unwrap_or_else(|_| self.account.max_one_time_keys());
 
                 self.account.generate_one_time_keys(key_count);
                 Ok(key_count as u64)
-            },
-            None => Err(())
+            }
+            None => Err(()),
         }
     }
+
+    fn device_keys() -> () {}
 }
 
 #[cfg(test)]
@@ -112,10 +116,10 @@ mod test {
     const USER_ID: &str = "@test:example.org";
     const DEVICE_ID: &str = "DEVICEID";
 
+    use js_int::UInt;
     use std::convert::TryFrom;
     use std::fs::File;
     use std::io::prelude::*;
-    use js_int::UInt;
 
     use crate::api::r0::keys;
     use crate::crypto::machine::OlmMachine;
@@ -146,17 +150,26 @@ mod test {
         let mut machine = OlmMachine::new(USER_ID, DEVICE_ID);
         let mut response = keys_upload_response();
 
-        response.one_time_key_counts.remove(&keys::KeyAlgorithm::SignedCurve25519).unwrap();
+        response
+            .one_time_key_counts
+            .remove(&keys::KeyAlgorithm::SignedCurve25519)
+            .unwrap();
 
         assert!(machine.should_upload_keys());
         machine.receive_keys_upload_response(&response).await;
         assert!(!machine.should_upload_keys());
 
-        response.one_time_key_counts.insert(keys::KeyAlgorithm::SignedCurve25519, UInt::try_from(10).unwrap());
+        response.one_time_key_counts.insert(
+            keys::KeyAlgorithm::SignedCurve25519,
+            UInt::try_from(10).unwrap(),
+        );
         machine.receive_keys_upload_response(&response).await;
         assert!(machine.should_upload_keys());
 
-        response.one_time_key_counts.insert(keys::KeyAlgorithm::SignedCurve25519, UInt::try_from(50).unwrap());
+        response.one_time_key_counts.insert(
+            keys::KeyAlgorithm::SignedCurve25519,
+            UInt::try_from(50).unwrap(),
+        );
         machine.receive_keys_upload_response(&response).await;
         assert!(!machine.should_upload_keys());
     }
@@ -174,7 +187,10 @@ mod test {
         assert!(machine.should_upload_keys());
         assert!(machine.generate_one_time_keys().is_ok());
 
-        response.one_time_key_counts.insert(keys::KeyAlgorithm::SignedCurve25519, UInt::try_from(50).unwrap());
+        response.one_time_key_counts.insert(
+            keys::KeyAlgorithm::SignedCurve25519,
+            UInt::try_from(50).unwrap(),
+        );
         machine.receive_keys_upload_response(&response).await;
         assert!(machine.generate_one_time_keys().is_err());
     }
