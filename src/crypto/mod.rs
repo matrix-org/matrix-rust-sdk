@@ -14,5 +14,6 @@
 
 // TODO remove this.
 #[allow(dead_code)]
-
+mod machine;
+#[allow(dead_code)]
 mod olm;

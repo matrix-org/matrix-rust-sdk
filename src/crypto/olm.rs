@@ -18,7 +18,6 @@ use std::collections::{hash_map::Iter, hash_map::Keys, hash_map::Values, HashMap
 use serde;
 use serde::Deserialize;
 
-
 /// Struct representing the parsed result of `OlmAccount::identity_keys()`.
 #[derive(Deserialize, Debug, PartialEq)]
 pub struct IdentityKeys {
@@ -109,7 +108,7 @@ impl OneTimeKeys {
 
 pub struct Account {
     inner: OlmAccount,
-    shared: bool,
+    pub(crate) shared: bool,
 }
 
 impl Account {
@@ -148,6 +147,10 @@ impl Account {
         self.inner.max_number_of_one_time_keys()
     }
 
+    /// Mark the current set of one-time keys as being published.
+    pub fn mark_keys_as_published(&self) {
+        self.inner.mark_keys_as_published();
+    }
 }
 
 #[cfg(test)]
@@ -165,7 +168,10 @@ mod test {
         assert_ne!(identyty_keys.keys().len(), 0);
         assert_ne!(identyty_keys.iter().len(), 0);
         assert!(identyty_keys.contains_key("ed25519"));
-        assert_eq!(identyty_keys.ed25519(), identyty_keys.get("ed25519").unwrap());
+        assert_eq!(
+            identyty_keys.ed25519(),
+            identyty_keys.get("ed25519").unwrap()
+        );
         assert!(!identyty_keys.curve25519().is_empty());
     }
 
@@ -186,6 +192,13 @@ mod test {
         assert_ne!(one_time_keys.iter().len(), 0);
         assert!(one_time_keys.contains_key("curve25519"));
         assert_eq!(one_time_keys.curve25519().keys().len(), 10);
-        assert_eq!(one_time_keys.curve25519(), one_time_keys.get("curve25519").unwrap());
+        assert_eq!(
+            one_time_keys.curve25519(),
+            one_time_keys.get("curve25519").unwrap()
+        );
+
+        account.mark_keys_as_published();
+        let one_time_keys = account.one_time_keys();
+        assert!(one_time_keys.curve25519().is_empty());
     }
 }
