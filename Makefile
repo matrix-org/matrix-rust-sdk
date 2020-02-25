@@ -1,8 +1,8 @@
 test:
-	cargo test
+	cargo test --features encryption
 
 coverage:
-	cargo tarpaulin
+	cargo tarpaulin --features encryption -v
 
 clean:
 	cargo clean
