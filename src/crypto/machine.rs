@@ -105,11 +105,13 @@ impl OlmMachine {
         match self.uploaded_key_count {
             Some(count) => {
                 let max_keys = self.account.max_one_time_keys() as u64;
-                let key_count = (max_keys / 2) - count;
+                let max_on_server = max_keys / 2;
 
-                if key_count <= 0 {
+                if count >= (max_on_server) {
                     return Err(());
                 }
+
+                let key_count = (max_on_server) - count;
 
                 let key_count: usize = key_count
                     .try_into()
@@ -153,8 +155,8 @@ impl OlmMachine {
 
     /// Convert a JSON value to the canonical representation and sign the JSON string.
     fn sign_json(&self, json: &Value) -> String {
-        let canonical_json =
-            cjson::to_string(json).expect(&format!("Can't serialize {} to canonical JSON", json));
+        let canonical_json = cjson::to_string(json)
+            .unwrap_or_else(|_| panic!(format!("Can't serialize {} to canonical JSON", json)));
         self.account.sign(&canonical_json)
     }
 
