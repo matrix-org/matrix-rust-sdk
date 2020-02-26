@@ -32,11 +32,11 @@ struct OlmMachine {
     device_id: String,
     /// Our underlying Olm Account holding our identity keys.
     account: Account,
-    /// The number of one-time keys we have uploaded to the server. If this is
-    /// None, no action will be taken. After a sync request the client needs to
-    /// set this for us, depending on the count we will suggest the client
-    /// to upload new keys.
-    uploaded_key_count: Option<u64>,
+    /// The number of signed one-time keys we have uploaded to the server. If
+    /// this is None, no action will be taken. After a sync request the client
+    /// needs to set this for us, depending on the count we will suggest the
+    /// client to upload new keys.
+    uploaded_signed_key_count: Option<u64>,
 }
 
 impl OlmMachine {
@@ -54,7 +54,7 @@ impl OlmMachine {
             user_id: user_id.to_owned(),
             device_id: device_id.to_owned(),
             account: Account::new(),
-            uploaded_key_count: None,
+            uploaded_signed_key_count: None,
         }
     }
 
@@ -66,7 +66,7 @@ impl OlmMachine {
 
         // If we have a known key count, check that we have more than
         // max_one_time_Keys() / 2, otherwise tell the client to upload more.
-        match self.uploaded_key_count {
+        match self.uploaded_signed_key_count {
             Some(count) => {
                 let max_keys = self.account.max_one_time_keys() as u64;
                 let key_count = (max_keys / 2) - count;
@@ -90,7 +90,7 @@ impl OlmMachine {
 
         if let Some(c) = one_time_key_count {
             let count: u64 = (*c).into();
-            self.uploaded_key_count = Some(count);
+            self.uploaded_signed_key_count = Some(count);
         }
 
         self.account.mark_keys_as_published();
@@ -102,7 +102,7 @@ impl OlmMachine {
     /// Returns the number of newly generated one-time keys. If no keys can be
     /// generated returns an empty error.
     fn generate_one_time_keys(&self) -> Result<u64, ()> {
-        match self.uploaded_key_count {
+        match self.uploaded_signed_key_count {
             Some(count) => {
                 let max_keys = self.account.max_one_time_keys() as u64;
                 let max_on_server = max_keys / 2;
@@ -238,10 +238,11 @@ mod test {
     use http::Response;
 
     fn response_from_file(path: &str) -> Response<Vec<u8>> {
-        let mut file = File::open(path).expect(&format!("No such data file found {}", path));
+        let mut file = File::open(path)
+            .unwrap_or_else(|_| panic!(format!("No such data file found {}", path)));
         let mut contents = Vec::new();
         file.read_to_end(&mut contents)
-            .expect(&format!("Can't read data file {}", path));
+            .unwrap_or_else(|_| panic!(format!("Can't read data file {}", path)));
 
         Response::builder().status(200).body(contents).unwrap()
     }
