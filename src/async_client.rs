@@ -17,7 +17,7 @@ use futures::future::{BoxFuture, Future, FutureExt};
 use std::convert::{TryFrom, TryInto};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use async_std::task::sleep;
 
@@ -43,6 +43,8 @@ use crate::VERSION;
 
 type RoomEventCallback =
     Box<dyn FnMut(Arc<RwLock<Room>>, Arc<EventResult<RoomEvent>>) -> BoxFuture<'static, ()> + Send>;
+
+const DEFAULT_SYNC_TIMEOUT: u64 = 30000;
 
 #[derive(Clone)]
 /// An async/await enabled Matrix client.
@@ -442,6 +444,7 @@ impl AsyncClient {
         C: Future<Output = ()>,
     {
         let mut sync_settings = sync_settings;
+        let mut last_sync_time: Option<Instant> = None;
 
         loop {
             let response = self.sync(sync_settings.clone()).await;
@@ -459,8 +462,21 @@ impl AsyncClient {
 
             callback(response).await;
 
+            let now = Instant::now();
+
+            // If the last sync happened less than a second ago, sleep for a
+            // while to not hammer out requests if the server doesn't respect
+            // the sync timeout.
+            if let Some(t) = last_sync_time {
+                if now - t <= Duration::from_secs(1) {
+                    sleep(Duration::from_secs(1)).await;
+                }
+            }
+
+            last_sync_time = Some(now);
+
             sync_settings = SyncSettings::new()
-                .timeout(30000)
+                .timeout(DEFAULT_SYNC_TIMEOUT)
                 .unwrap()
                 .token(self.sync_token().unwrap());
         }
