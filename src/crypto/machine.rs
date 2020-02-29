@@ -23,7 +23,7 @@ use api::r0::keys;
 use cjson;
 use olm_rs::utility::OlmUtility;
 use serde_json::json;
-use serde_json::value::Value;
+use serde_json::Value;
 
 struct OlmMachine {
     /// The unique user id that owns this account.
@@ -151,6 +151,39 @@ impl OlmMachine {
         device_keys_object.insert("signatures".to_string(), signature);
 
         device_keys
+    }
+
+    /// Generate, sign and prepare one-time keys to be uploaded.
+    ///
+    /// If no one-time keys need to be uploaded returns an empty error.
+    fn signed_one_time_keys(&self) -> Result<Value, ()> {
+        let _ = self.generate_one_time_keys()?;
+
+        let one_time_keys = self.account.one_time_keys();
+
+        let mut one_time_key_map = json!({});
+        let one_time_key_object = one_time_key_map.as_object_mut().unwrap();
+
+        for (key_id, key) in one_time_keys.curve25519().iter() {
+            let key_json = json!({
+                "key": key,
+            });
+
+            let signature = self.sign_json(&key_json);
+
+            let one_time_key = json!({
+                "key": key,
+                "signatures": {
+                    self.user_id.clone(): {
+                        format!("ed25519:{}", self.device_id): signature
+                    }
+                }
+            });
+
+            one_time_key_object.insert(format!("signed_curve25519:{}", key_id), one_time_key);
+        }
+
+        Ok(one_time_key_map)
     }
 
     /// Convert a JSON value to the canonical representation and sign the JSON string.
@@ -338,5 +371,30 @@ mod test {
             &mut device_keys,
         );
         assert!(ret.is_err());
+    }
+
+    #[test]
+    fn test_one_time_key_signing() {
+        let mut machine = OlmMachine::new(USER_ID, DEVICE_ID);
+        machine.uploaded_signed_key_count = Some(49);
+
+        let mut one_time_keys = machine.signed_one_time_keys().unwrap();
+        let identity_keys = machine.account.identity_keys();
+        let ed25519_key = identity_keys.ed25519();
+
+        let mut one_time_key = one_time_keys
+            .as_object_mut()
+            .unwrap()
+            .values_mut()
+            .nth(0)
+            .unwrap();
+
+        let ret = machine.verify_json(
+            &machine.user_id,
+            &machine.device_id,
+            ed25519_key,
+            &mut one_time_key,
+        );
+        assert!(ret.is_ok());
     }
 }
