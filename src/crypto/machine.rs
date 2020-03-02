@@ -80,7 +80,7 @@ impl OlmMachine {
     ///
     /// # Arguments
     ///
-    /// `response` - The keys upload response of the request that the client
+    /// * `response` - The keys upload response of the request that the client
     ///     performed.
     pub async fn receive_keys_upload_response(&mut self, response: &keys::upload_keys::Response) {
         self.account.shared = true;
@@ -186,7 +186,13 @@ impl OlmMachine {
         Ok(one_time_key_map)
     }
 
-    /// Convert a JSON value to the canonical representation and sign the JSON string.
+    /// Convert a JSON value to the canonical representation and sign the JSON
+    /// string.
+    ///
+    /// # Arguments
+    ///
+    /// * `json` - The value that should be converted into a canonical JSON
+    /// string.
     fn sign_json(&self, json: &Value) -> String {
         let canonical_json = cjson::to_string(json)
             .unwrap_or_else(|_| panic!(format!("Can't serialize {} to canonical JSON", json)));
@@ -198,16 +204,19 @@ impl OlmMachine {
     /// The object must have a signatures key associated  with an object of the
     /// form `user_id: {key_id: signature}`.
     ///
+    /// Returns Ok if the signature was successfully verified, otherwise an
+    /// SignatureError.
+    ///
     /// # Arguments
     ///
     /// * `user_id` - The user who signed the JSON object.
+    ///
     /// * `device_id` - The device that signed the JSON object.
+    ///
     /// * `user_key` - The public ed25519 key which was used to sign the JSON
     ///     object.
-    /// * `json` - The JSON object that should be verified.
     ///
-    /// Returns Ok if the signature was successfully verified, otherwise an
-    /// SignatureError.
+    /// * `json` - The JSON object that should be verified.
     fn verify_json(
         &self,
         user_id: &str,

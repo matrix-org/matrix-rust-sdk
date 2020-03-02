@@ -58,9 +58,11 @@ pub struct Room {
 
 impl Room {
     /// Create a new room.
+    ///
     /// # Arguments
     ///
     /// * `room_id` - The unique id of the room.
+    ///
     /// * `own_user_id` - The mxid of our own user.
     pub fn new(room_id: &str, own_user_id: &str) -> Self {
         Room {
@@ -137,11 +139,12 @@ impl Room {
     }
 
     /// Receive a timeline event for this room and update the room state.
-    /// # Arguments
-    ///
-    /// `event` - The event of the room.
     ///
     /// Returns true if the joined member list changed, false otherwise.
+    ///
+    /// # Arguments
+    ///
+    /// * `event` - The event of the room.
     pub fn receive_timeline_event(&mut self, event: &RoomEvent) -> bool {
         match event {
             RoomEvent::RoomMember(m) => self.handle_membership(m),
@@ -150,11 +153,12 @@ impl Room {
     }
 
     /// Receive a state event for this room and update the room state.
-    /// # Arguments
-    ///
-    /// `event` - The event of the room.
     ///
     /// Returns true if the joined member list changed, false otherwise.
+    ///
+    /// # Arguments
+    ///
+    /// * `event` - The event of the room.
     pub fn receive_state_event(&mut self, event: &StateEvent) -> bool {
         match event {
             StateEvent::RoomMember(m) => self.handle_membership(m),
@@ -180,9 +184,10 @@ pub struct Client {
 
 impl Client {
     /// Create a new client.
+    ///
     /// # Arguments
     ///
-    /// `session` - An optional session if the user already has one from a
+    /// * `session` - An optional session if the user already has one from a
     /// previous login call.
     pub fn new(session: Option<Session>) -> Self {
         Client {
@@ -198,9 +203,10 @@ impl Client {
     }
 
     /// Receive a login response and update the session of the client.
+    ///
     /// # Arguments
     ///
-    /// `response` - A successful login response that contains our access token
+    /// * `response` - A successful login response that contains our access token
     /// and device id.
     pub fn receive_login_response(&mut self, response: &api::session::login::Response) {
         let session = Session {
@@ -228,13 +234,14 @@ impl Client {
 
     /// Receive a timeline event for a joined room and update the client state.
     ///
-    /// # Arguments
-    ///
-    /// `room_id` - The unique id of the room the event belongs to.
-    /// `event` - The event that should be handled by the client.
-    ///
     /// Returns true if the membership list of the room changed, false
     /// otherwise.
+    ///
+    /// # Arguments
+    ///
+    /// * `room_id` - The unique id of the room the event belongs to.
+    ///
+    /// * `event` - The event that should be handled by the client.
     pub fn receive_joined_timeline_event(
         &mut self,
         room_id: &str,
@@ -251,13 +258,14 @@ impl Client {
 
     /// Receive a state event for a joined room and update the client state.
     ///
-    /// # Arguments
-    ///
-    /// `room_id` - The unique id of the room the event belongs to.
-    /// `event` - The event that should be handled by the client.
-    ///
     /// Returns true if the membership list of the room changed, false
     /// otherwise.
+    ///
+    /// # Arguments
+    ///
+    /// * `room_id` - The unique id of the room the event belongs to.
+    ///
+    /// * `event` - The event that should be handled by the client.
     pub fn receive_joined_state_event(&mut self, room_id: &str, event: &StateEvent) -> bool {
         let mut room = self.get_or_create_room(room_id).write().unwrap();
         room.receive_state_event(event)
@@ -267,7 +275,7 @@ impl Client {
     ///
     /// # Arguments
     ///
-    /// `response` - The response that we received after a successful sync.
+    /// * `response` - The response that we received after a successful sync.
     pub fn receive_sync_response(&mut self, response: &api::sync::sync_events::IncomingResponse) {
         self.sync_token = Some(response.next_batch.clone());
     }

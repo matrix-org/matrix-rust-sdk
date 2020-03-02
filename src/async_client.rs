@@ -67,10 +67,9 @@ pub struct AsyncClient {
 /// # Example
 ///
 /// ```
+/// # use matrix_sdk::AsyncClientConfig;
 /// // To pass all the request through mitmproxy set the proxy and disable SSL
 /// // verification
-/// use matrix_sdk::AsyncClientConfig;
-///
 /// let client_config = AsyncClientConfig::new()
 ///     .proxy("http://localhost:8080")
 ///     .unwrap()
@@ -265,7 +264,17 @@ impl AsyncClient {
     ///     received.
     ///
     /// # Examples
-    /// ```noexecute
+    /// ```
+    /// # use matrix_sdk::events::{
+    /// #     collections::all::RoomEvent,
+    /// #     room::message::{MessageEvent, MessageEventContent, TextMessageEventContent},
+    /// #     EventResult,
+    /// # };
+    /// # use matrix_sdk::Room;
+    /// # use std::sync::{Arc, RwLock};
+    /// # use matrix_sdk::AsyncClient;
+    /// # use url::Url;
+    ///
     /// async fn async_cb(room: Arc<RwLock<Room>>, event: Arc<EventResult<RoomEvent>>) {
     ///     let room = room.read().unwrap();
     ///     let event = if let EventResult::Ok(event) = &*event {
@@ -287,11 +296,15 @@ impl AsyncClient {
     ///         );
     ///     }
     /// }
+    /// # fn main() -> Result<(), matrix_sdk::Error> {
+    /// let homeserver = Url::parse("http://localhost:8080")?;
     ///
-    /// async fn main(client: AsyncClient) {
-    ///     client.add_event_callback(async_cb);
-    /// }
-    ///```
+    /// let mut client = AsyncClient::new(homeserver, None)?;
+    ///
+    /// client.add_event_callback(async_cb);
+    /// # Ok(())
+    /// # }
+    /// ```
     pub fn add_event_callback<C: 'static>(
         &mut self,
         mut callback: impl FnMut(Arc<RwLock<Room>>, Arc<EventResult<RoomEvent>>) -> C + 'static + Send,
@@ -309,9 +322,11 @@ impl AsyncClient {
     ///
     /// # Arguments
     ///
-    /// `user` - The user that should be logged in to the homeserver.
-    /// `password` - The password of the user.
-    /// `device_id` - A unique id that will be associated with this session. If
+    /// * `user` - The user that should be logged in to the homeserver.
+    ///
+    /// * `password` - The password of the user.
+    ///
+    /// * `device_id` - A unique id that will be associated with this session. If
     ///     not given the homeserver will create one. Can be an exising
     ///     device_id from a previous login call. Note that this should be done
     ///     only if the client also holds the encryption keys for this devcie.
@@ -408,6 +423,7 @@ impl AsyncClient {
     ///
     /// * `sync_settings` - Settings for the sync call. Note that those settings
     ///     will be only used for the first sync call.
+    ///
     /// * `callback` - A callback that will be called every time a successful
     ///     response has been fetched from the server.
     ///
@@ -417,16 +433,35 @@ impl AsyncClient {
     /// the interesting events through a mpsc channel to another thread e.g. a
     /// UI thread.
     ///
-    /// ```noexecute
+    /// ```compile_fail,E0658
+    /// # use matrix_sdk::events::{
+    /// #     collections::all::RoomEvent,
+    /// #     room::message::{MessageEvent, MessageEventContent, TextMessageEventContent},
+    /// #     EventResult,
+    /// # };
+    /// # use matrix_sdk::Room;
+    /// # use std::sync::{Arc, RwLock};
+    /// # use matrix_sdk::{AsyncClient, SyncSettings};
+    /// # use url::Url;
+    /// # use futures::executor::block_on;
+    /// # block_on(async {
+    /// # let homeserver = Url::parse("http://localhost:8080").unwrap();
+    /// # let mut client = AsyncClient::new(homeserver, None).unwrap();
+    ///
+    /// use async_std::sync::channel;
+    ///
+    /// let (tx, rx) = channel(100);
+    ///
+    /// let sync_channel = &tx;
+    /// let sync_settings = SyncSettings::new()
+    ///     .timeout(30_000)
+    ///     .unwrap();
+    ///
     /// client
     ///     .sync_forever(sync_settings, async move |response| {
     ///         let channel = sync_channel;
+    ///
     ///         for (room_id, room) in response.rooms.join {
-    ///             for event in room.state.events {
-    ///                 if let EventResult::Ok(e) = event {
-    ///                     channel.send(e).await;
-    ///                 }
-    ///             }
     ///             for event in room.timeline.events {
     ///                 if let EventResult::Ok(e) = event {
     ///                     channel.send(e).await;
@@ -435,6 +470,7 @@ impl AsyncClient {
     ///         }
     ///     })
     ///     .await;
+    /// })
     /// ```
     pub async fn sync_forever<C>(
         &mut self,
@@ -542,12 +578,13 @@ impl AsyncClient {
 
     /// Send a room message to the homeserver.
     ///
+    /// Returns the parsed response from the server.
+    ///
     /// # Arguments
     ///
-    /// `room_id` -  The id of the room that should receive the message.
-    /// `data` - The content of the message.
+    /// * `room_id` -  The id of the room that should receive the message.
     ///
-    /// Returns the parsed response from the server.
+    /// * `data` - The content of the message.
     pub async fn room_send(
         &mut self,
         room_id: &str,
