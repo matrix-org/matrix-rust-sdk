@@ -26,9 +26,13 @@ use olm_rs::utility::OlmUtility;
 use serde_json::json;
 use serde_json::Value;
 
-use ruma_client_api::r0::keys::{AlgorithmAndDeviceId, DeviceKeys, KeyAlgorithm};
+use ruma_client_api::r0::keys::{
+    AlgorithmAndDeviceId, DeviceKeys, KeyAlgorithm, OneTimeKey, SignedKey,
+};
 use ruma_events::Algorithm;
 use ruma_identifiers::{DeviceId, UserId};
+
+pub type SignedOneTimeKeys = HashMap<AlgorithmAndDeviceId, OneTimeKey>;
 
 struct OlmMachine {
     /// The unique user id that owns this account.
@@ -45,9 +49,6 @@ struct OlmMachine {
 }
 
 impl OlmMachine {
-    const OLM_V1_ALGORITHM: &'static str = "m.olm.v1.curve25519-aes-sha2";
-    const MEGOLM_V1_ALGORITHM: &'static str = "m.megolm.v1.aes-sha2";
-
     const ALGORITHMS: &'static [&'static ruma_events::Algorithm] = &[
         &Algorithm::OlmV1Curve25519AesSha2,
         &Algorithm::MegolmV1AesSha2,
@@ -176,13 +177,11 @@ impl OlmMachine {
     /// Generate, sign and prepare one-time keys to be uploaded.
     ///
     /// If no one-time keys need to be uploaded returns an empty error.
-    fn signed_one_time_keys(&self) -> Result<Value, ()> {
+    fn signed_one_time_keys(&self) -> Result<SignedOneTimeKeys, ()> {
         let _ = self.generate_one_time_keys()?;
 
         let one_time_keys = self.account.one_time_keys();
-
-        let mut one_time_key_map = json!({});
-        let one_time_key_object = one_time_key_map.as_object_mut().unwrap();
+        let mut one_time_key_map = HashMap::new();
 
         for (key_id, key) in one_time_keys.curve25519().iter() {
             let key_json = json!({
@@ -191,16 +190,25 @@ impl OlmMachine {
 
             let signature = self.sign_json(&key_json);
 
-            let one_time_key = json!({
-                "key": key,
-                "signatures": {
-                    self.user_id.to_string(): {
-                        format!("ed25519:{}", self.device_id): signature
-                    }
-                }
-            });
+            let mut signature_map = HashMap::new();
 
-            one_time_key_object.insert(format!("signed_curve25519:{}", key_id), one_time_key);
+            signature_map.insert(
+                AlgorithmAndDeviceId(KeyAlgorithm::Ed25519, self.device_id.clone()),
+                signature,
+            );
+
+            let mut signatures = HashMap::new();
+            signatures.insert(self.user_id.clone(), signature_map);
+
+            let signed_key = SignedKey {
+                key: key.to_owned(),
+                signatures,
+            };
+
+            one_time_key_map.insert(
+                AlgorithmAndDeviceId(KeyAlgorithm::SignedCurve25519, key_id.to_owned()),
+                OneTimeKey::SignedKey(signed_key),
+            );
         }
 
         Ok(one_time_key_map)
@@ -419,18 +427,13 @@ mod test {
         let identity_keys = machine.account.identity_keys();
         let ed25519_key = identity_keys.ed25519();
 
-        let mut one_time_key = one_time_keys
-            .as_object_mut()
-            .unwrap()
-            .values_mut()
-            .nth(0)
-            .unwrap();
+        let mut one_time_key = one_time_keys.values_mut().nth(0).unwrap();
 
         let ret = machine.verify_json(
             &machine.user_id,
             &machine.device_id,
             ed25519_key,
-            &mut one_time_key,
+            &mut json!(&mut one_time_key),
         );
         assert!(ret.is_ok());
     }
