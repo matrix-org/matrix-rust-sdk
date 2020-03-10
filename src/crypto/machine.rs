@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::collections::HashMap;
 use std::convert::TryInto;
 
 use super::error::SignatureError;
@@ -25,11 +26,15 @@ use olm_rs::utility::OlmUtility;
 use serde_json::json;
 use serde_json::Value;
 
+use ruma_client_api::r0::keys::{AlgorithmAndDeviceId, DeviceKeys, KeyAlgorithm};
+use ruma_events::Algorithm;
+use ruma_identifiers::{DeviceId, UserId};
+
 struct OlmMachine {
     /// The unique user id that owns this account.
-    user_id: String,
+    user_id: UserId,
     /// The unique device id of the device that holds this account.
-    device_id: String,
+    device_id: DeviceId,
     /// Our underlying Olm Account holding our identity keys.
     account: Account,
     /// The number of signed one-time keys we have uploaded to the server. If
@@ -43,15 +48,15 @@ impl OlmMachine {
     const OLM_V1_ALGORITHM: &'static str = "m.olm.v1.curve25519-aes-sha2";
     const MEGOLM_V1_ALGORITHM: &'static str = "m.megolm.v1.aes-sha2";
 
-    const ALGORITHMS: &'static [&'static str] = &[
-        OlmMachine::OLM_V1_ALGORITHM,
-        OlmMachine::MEGOLM_V1_ALGORITHM,
+    const ALGORITHMS: &'static [&'static ruma_events::Algorithm] = &[
+        &Algorithm::OlmV1Curve25519AesSha2,
+        &Algorithm::MegolmV1AesSha2,
     ];
 
     /// Create a new account.
-    pub fn new(user_id: &str, device_id: &str) -> Self {
+    pub fn new(user_id: UserId, device_id: &str) -> Self {
         OlmMachine {
-            user_id: user_id.to_owned(),
+            user_id,
             device_id: device_id.to_owned(),
             account: Account::new(),
             uploaded_signed_key_count: None,
@@ -125,32 +130,47 @@ impl OlmMachine {
     }
 
     /// Sign the device keys and return a JSON Value to upload them.
-    fn device_keys(&self) -> Value {
+    fn device_keys(&self) -> DeviceKeys {
         let identity_keys = self.account.identity_keys();
 
-        let mut device_keys = json!({
+        let mut keys = HashMap::new();
+
+        keys.insert(
+            AlgorithmAndDeviceId(KeyAlgorithm::Curve25519, self.device_id.clone()),
+            identity_keys.curve25519().to_owned(),
+        );
+        keys.insert(
+            AlgorithmAndDeviceId(KeyAlgorithm::Ed25519, self.device_id.clone()),
+            identity_keys.ed25519().to_owned(),
+        );
+
+        let device_keys = json!({
             "user_id": self.user_id,
             "device_id": self.device_id,
             "algorithms": OlmMachine::ALGORITHMS,
-            "keys": {
-                format!("curve25519:{}", self.device_id): identity_keys.curve25519(),
-                format!("ed25519:{}", self.device_id): identity_keys.ed25519(),
-            },
+            "keys": keys,
         });
 
-        let signature = json!({
-            self.user_id.clone(): {
-                format!("ed25519:{}", self.device_id): self.sign_json(&device_keys),
-            }
-        });
+        let mut signatures = HashMap::new();
 
-        let device_keys_object = device_keys
-            .as_object_mut()
-            .expect("Device keys json value isn't an object");
+        let mut signature = HashMap::new();
+        signature.insert(
+            AlgorithmAndDeviceId(KeyAlgorithm::Ed25519, self.device_id.clone()),
+            self.sign_json(&device_keys),
+        );
+        signatures.insert(self.user_id.clone(), signature);
 
-        device_keys_object.insert("signatures".to_string(), signature);
-
-        device_keys
+        DeviceKeys {
+            user_id: self.user_id.clone(),
+            device_id: self.device_id.clone(),
+            algorithms: vec![
+                Algorithm::OlmV1Curve25519AesSha2,
+                Algorithm::MegolmV1AesSha2,
+            ],
+            keys,
+            signatures,
+            unsigned: None,
+        }
     }
 
     /// Generate, sign and prepare one-time keys to be uploaded.
@@ -174,7 +194,7 @@ impl OlmMachine {
             let one_time_key = json!({
                 "key": key,
                 "signatures": {
-                    self.user_id.clone(): {
+                    self.user_id.to_string(): {
                         format!("ed25519:{}", self.device_id): signature
                     }
                 }
@@ -219,7 +239,7 @@ impl OlmMachine {
     /// * `json` - The JSON object that should be verified.
     fn verify_json(
         &self,
-        user_id: &str,
+        user_id: &UserId,
         device_id: &str,
         user_key: &str,
         json: &mut Value,
@@ -234,17 +254,18 @@ impl OlmMachine {
             json_object.insert("unsigned".to_string(), u);
         }
 
-        let key_id = format!("ed25519:{}", device_id);
+        // TODO this should be part of ruma-client-api.
+        let key_id_string = format!("{}:{}", KeyAlgorithm::Ed25519, device_id);
 
         let signatures = signatures.ok_or(SignatureError::NoSignatureFound)?;
         let signature_object = signatures
             .as_object()
             .ok_or(SignatureError::NoSignatureFound)?;
         let signature = signature_object
-            .get(user_id)
+            .get(&user_id.to_string())
             .ok_or(SignatureError::NoSignatureFound)?;
         let signature = signature
-            .get(key_id)
+            .get(key_id_string)
             .ok_or(SignatureError::NoSignatureFound)?;
         let signature = signature.as_str().ok_or(SignatureError::NoSignatureFound)?;
 
@@ -267,7 +288,7 @@ impl OlmMachine {
 
 #[cfg(test)]
 mod test {
-    const USER_ID: &str = "@test:example.org";
+    static USER_ID: &str = "@test:example.org";
     const DEVICE_ID: &str = "DEVICEID";
 
     use js_int::UInt;
@@ -275,9 +296,16 @@ mod test {
     use std::fs::File;
     use std::io::prelude::*;
 
+    use ruma_identifiers::UserId;
+    use serde_json::json;
+
     use crate::api::r0::keys;
     use crate::crypto::machine::OlmMachine;
     use http::Response;
+
+    fn user_id() -> UserId {
+        UserId::try_from(USER_ID).unwrap()
+    }
 
     fn response_from_file(path: &str) -> Response<Vec<u8>> {
         let mut file = File::open(path)
@@ -296,13 +324,13 @@ mod test {
 
     #[test]
     fn create_olm_machine() {
-        let machine = OlmMachine::new(USER_ID, DEVICE_ID);
+        let machine = OlmMachine::new(user_id(), DEVICE_ID);
         assert!(machine.should_upload_keys());
     }
 
     #[async_std::test]
     async fn receive_keys_upload_response() {
-        let mut machine = OlmMachine::new(USER_ID, DEVICE_ID);
+        let mut machine = OlmMachine::new(user_id(), DEVICE_ID);
         let mut response = keys_upload_response();
 
         response
@@ -331,7 +359,7 @@ mod test {
 
     #[async_std::test]
     async fn generate_one_time_keys() {
-        let mut machine = OlmMachine::new(USER_ID, DEVICE_ID);
+        let mut machine = OlmMachine::new(user_id(), DEVICE_ID);
 
         let mut response = keys_upload_response();
 
@@ -352,7 +380,7 @@ mod test {
 
     #[test]
     fn test_device_key_signing() {
-        let machine = OlmMachine::new(USER_ID, DEVICE_ID);
+        let machine = OlmMachine::new(user_id(), DEVICE_ID);
 
         let mut device_keys = machine.device_keys();
         let identity_keys = machine.account.identity_keys();
@@ -362,14 +390,14 @@ mod test {
             &machine.user_id,
             &machine.device_id,
             ed25519_key,
-            &mut device_keys,
+            &mut json!(&mut device_keys),
         );
         assert!(ret.is_ok());
     }
 
     #[test]
     fn test_invalid_signature() {
-        let machine = OlmMachine::new(USER_ID, DEVICE_ID);
+        let machine = OlmMachine::new(user_id(), DEVICE_ID);
 
         let mut device_keys = machine.device_keys();
 
@@ -377,14 +405,14 @@ mod test {
             &machine.user_id,
             &machine.device_id,
             "fake_key",
-            &mut device_keys,
+            &mut json!(&mut device_keys),
         );
         assert!(ret.is_err());
     }
 
     #[test]
     fn test_one_time_key_signing() {
-        let mut machine = OlmMachine::new(USER_ID, DEVICE_ID);
+        let mut machine = OlmMachine::new(user_id(), DEVICE_ID);
         machine.uploaded_signed_key_count = Some(49);
 
         let mut one_time_keys = machine.signed_one_time_keys().unwrap();
