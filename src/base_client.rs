@@ -297,4 +297,45 @@ impl Client {
     pub fn receive_sync_response(&mut self, response: &api::sync::sync_events::IncomingResponse) {
         self.sync_token = Some(response.next_batch.clone());
     }
+
+    /// Should account or one-time keys be uploaded to the server.
+    #[cfg(feature = "encryption")]
+    pub async fn should_upload_keys(&self) -> bool {
+        let olm = self.olm.lock().await;
+
+        match &*olm {
+            Some(o) => o.should_upload_keys(),
+            None => false,
+        }
+    }
+
+    /// Get a tuple of device and one-time keys that need to be uploaded.
+    ///
+    /// Returns an empty error if no keys need to be uploaded.
+    #[cfg(feature = "encryption")]
+    pub async fn keys_for_upload(&self) -> Result<(Option<DeviceKeys>, Option<OneTimeKeys>), ()> {
+        let olm = self.olm.lock().await;
+
+        match &*olm {
+            Some(o) => o.keys_for_upload(),
+            None => Err(()),
+        }
+    }
+
+    /// Receive a successful keys upload response.
+    ///
+    /// # Arguments
+    ///
+    /// * `response` - The keys upload response of the request that the client
+    ///     performed.
+    ///
+    /// # Panics
+    /// Panics if the client hasn't been logged in.
+    #[cfg(feature = "encryption")]
+    pub async fn receive_keys_upload_response(&self, response: &KeysUploadResponse) {
+        let mut olm = self.olm.lock().await;
+
+        let o = olm.as_mut().expect("Client isn't logged in.");
+        o.receive_keys_upload_response(response).await;
+    }
 }
