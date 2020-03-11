@@ -16,8 +16,9 @@
 use futures::future::{BoxFuture, Future, FutureExt};
 use std::convert::{TryFrom, TryInto};
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, Mutex, RwLock};
+use std::sync::{Arc, Mutex, RwLock as SyncLock};
 use std::time::{Duration, Instant};
+use tokio::sync::RwLock;
 
 use async_std::task::sleep;
 
@@ -41,8 +42,9 @@ use crate::error::{Error, InnerError};
 use crate::session::Session;
 use crate::VERSION;
 
-type RoomEventCallback =
-    Box<dyn FnMut(Arc<RwLock<Room>>, Arc<EventResult<RoomEvent>>) -> BoxFuture<'static, ()> + Send>;
+type RoomEventCallback = Box<
+    dyn FnMut(Arc<SyncLock<Room>>, Arc<EventResult<RoomEvent>>) -> BoxFuture<'static, ()> + Send,
+>;
 
 const DEFAULT_SYNC_TIMEOUT: u64 = 30000;
 
@@ -174,6 +176,8 @@ impl SyncSettings {
     }
 }
 
+#[cfg(feature = "encryption")]
+use api::r0::keys::upload_keys;
 use api::r0::message::create_message_event;
 use api::r0::session::login;
 use api::r0::sync::sync_events;
@@ -246,8 +250,10 @@ impl AsyncClient {
     }
 
     /// Is the client logged in.
-    pub fn logged_in(&self) -> bool {
-        self.base_client.read().unwrap().logged_in()
+    pub async fn logged_in(&self) -> bool {
+        // TODO turn this into a atomic bool so this method doesn't need to be
+        // async.
+        self.base_client.read().await.logged_in()
     }
 
     /// The Homeserver of the client.
@@ -307,7 +313,7 @@ impl AsyncClient {
     /// ```
     pub fn add_event_callback<C: 'static>(
         &mut self,
-        mut callback: impl FnMut(Arc<RwLock<Room>>, Arc<EventResult<RoomEvent>>) -> C + 'static + Send,
+        mut callback: impl FnMut(Arc<SyncLock<Room>>, Arc<EventResult<RoomEvent>>) -> C + 'static + Send,
     ) where
         C: Future<Output = ()> + Send,
     {
@@ -346,8 +352,8 @@ impl AsyncClient {
         };
 
         let response = self.send(request).await?;
-        let mut client = self.base_client.write().unwrap();
-        client.receive_login_response(&response);
+        let mut client = self.base_client.write().await;
+        client.receive_login_response(&response).await;
 
         Ok(response)
     }
@@ -375,7 +381,7 @@ impl AsyncClient {
             let room_id = room_id.to_string();
 
             let matrix_room = {
-                let mut client = self.base_client.write().unwrap();
+                let mut client = self.base_client.write().await;
 
                 for event in &room.state.events {
                     if let EventResult::Ok(e) = event {
@@ -388,7 +394,7 @@ impl AsyncClient {
 
             for event in &room.timeline.events {
                 {
-                    let mut client = self.base_client.write().unwrap();
+                    let mut client = self.base_client.write().await;
                     client.receive_joined_timeline_event(&room_id, &event);
                 }
 
@@ -409,10 +415,10 @@ impl AsyncClient {
                     cb.await;
                 }
             }
-
-            let mut client = self.base_client.write().unwrap();
-            client.receive_sync_response(&response);
         }
+
+        let mut client = self.base_client.write().await;
+        client.receive_sync_response(&response);
 
         Ok(response)
     }
@@ -513,8 +519,12 @@ impl AsyncClient {
 
             sync_settings = SyncSettings::new()
                 .timeout(DEFAULT_SYNC_TIMEOUT)
-                .unwrap()
-                .token(self.sync_token().unwrap());
+                .expect("Default sync timeout doesn't contain a valid value")
+                .token(
+                    self.sync_token()
+                        .await
+                        .expect("No sync token found after initial sync"),
+                );
         }
     }
 
@@ -550,7 +560,7 @@ impl AsyncClient {
         };
 
         let request_builder = if Request::METADATA.requires_authentication {
-            let client = self.base_client.read().unwrap();
+            let client = self.base_client.read().await;
 
             if let Some(ref session) = client.session {
                 request_builder.bearer_auth(&session.access_token)
@@ -601,9 +611,41 @@ impl AsyncClient {
         Ok(response)
     }
 
+    /// Upload the E2E encryption keys.
+    ///
+    /// This uploads the long lived device keys as well as the required amount
+    /// of one-time keys.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the client isn't logged in, or if no encryption keys need to
+    /// be uploaded.
+    #[cfg(feature = "encryption")]
+    async fn keys_upload(&self) -> Result<upload_keys::Response, Error> {
+        let (device_keys, one_time_keys) = self
+            .base_client
+            .read()
+            .await
+            .keys_for_upload()
+            .await
+            .expect("Keys don't need to be uploaded");
+        let request = upload_keys::Request {
+            device_keys,
+            one_time_keys,
+        };
+
+        let response = self.send(request).await?;
+        self.base_client
+            .write()
+            .await
+            .receive_keys_upload_response(&response)
+            .await;
+        Ok(response)
+    }
+
     /// Get the current, if any, sync token of the client.
     /// This will be None if the client didn't sync at least once.
-    pub fn sync_token(&self) -> Option<String> {
-        self.base_client.read().unwrap().sync_token.clone()
+    pub async fn sync_token(&self) -> Option<String> {
+        self.base_client.read().await.sync_token.clone()
     }
 }

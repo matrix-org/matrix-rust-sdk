@@ -17,7 +17,7 @@ encryption = ["olm-rs", "serde/derive", "serde_json", "cjson"]
 [dependencies]
 js_int = "0.1.2"
 futures = "0.3.4"
-reqwest = "0.10.2"
+reqwest = "0.10.4"
 http = "0.2.0"
 async-std = "1.5.0"
 ruma-api = "0.13.0"
@@ -32,9 +32,10 @@ olm-rs = { git = "https://gitlab.gnome.org/jhaye/olm-rs/", optional = true, feat
 serde = { version = "1.0.104", optional = true, features = ["derive"] }
 serde_json = { version = "1.0.48", optional = true }
 cjson = { version = "0.1.0", optional = true }
+tokio = { version = "0.2.13", default-features = false, features = ["sync"] }
 
 [dev-dependencies]
-tokio = { version = "0.2.11", features = ["full"] }
+tokio = { version = "0.2.13", features = ["full"] }
 async-std = { version = "1.5.0", features = ["unstable", "attributes"] }
 url = "2.1.1"
 mockito = "0.23.3"

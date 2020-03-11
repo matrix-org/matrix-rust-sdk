@@ -24,7 +24,8 @@ fn login() {
     rt.block_on(client.login("example", "wordpass", None))
         .unwrap();
 
-    assert!(client.logged_in(), "Clint should be logged in");
+    let logged_in = rt.block_on(client.logged_in());
+    assert!(logged_in, "Clint should be logged in");
 }
 
 #[test]
@@ -51,5 +52,9 @@ fn sync() {
 
     let sync_settings = SyncSettings::new().timeout(3000).unwrap();
 
-    rt.block_on(client.sync(sync_settings)).unwrap();
+    let response = rt.block_on(client.sync(sync_settings)).unwrap();
+
+    assert_ne!(response.next_batch, "");
+
+    assert!(rt.block_on(client.sync_token()).is_some());
 }
