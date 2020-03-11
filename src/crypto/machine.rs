@@ -96,10 +96,8 @@ impl OlmMachine {
             .one_time_key_counts
             .get(&keys::KeyAlgorithm::SignedCurve25519);
 
-        if let Some(c) = one_time_key_count {
-            let count: u64 = (*c).into();
-            self.uploaded_signed_key_count = Some(count);
-        }
+        let count: u64 = one_time_key_count.map_or(0, |c| (*c).into());
+        self.uploaded_signed_key_count = Some(count);
 
         self.account.mark_keys_as_published();
         // TODO save the account here.
@@ -369,7 +367,7 @@ mod test {
 
         assert!(machine.should_upload_keys());
         machine.receive_keys_upload_response(&response).await;
-        assert!(!machine.should_upload_keys());
+        assert!(machine.should_upload_keys());
 
         response.one_time_key_counts.insert(
             keys::KeyAlgorithm::SignedCurve25519,
