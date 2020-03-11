@@ -233,7 +233,7 @@ impl AsyncClient {
 
         let user_agent = match config.user_agent {
             Some(a) => a,
-            None => HeaderValue::from_str(&format!("nio-rust {}", VERSION)).unwrap(),
+            None => HeaderValue::from_str(&format!("matrix-rust-sdk {}", VERSION)).unwrap(),
         };
 
         headers.insert(reqwest::header::USER_AGENT, user_agent);
