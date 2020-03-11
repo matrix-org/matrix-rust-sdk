@@ -12,11 +12,24 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::fmt;
+
 use olm_rs::account::{IdentityKeys, OlmAccount, OneTimeKeys};
 
 pub struct Account {
     inner: OlmAccount,
     pub(crate) shared: bool,
+}
+
+impl fmt::Debug for Account {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "Olm Account: {:?}, shared: {}",
+            self.identity_keys(),
+            self.shared
+        )
+    }
 }
 
 impl Account {

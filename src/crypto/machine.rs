@@ -34,7 +34,8 @@ use ruma_identifiers::{DeviceId, UserId};
 
 pub type OneTimeKeys = HashMap<AlgorithmAndDeviceId, OneTimeKey>;
 
-struct OlmMachine {
+#[derive(Debug)]
+pub struct OlmMachine {
     /// The unique user id that owns this account.
     user_id: UserId,
     /// The unique device id of the device that holds this account.
@@ -55,9 +56,9 @@ impl OlmMachine {
     ];
 
     /// Create a new account.
-    pub fn new(user_id: UserId, device_id: &str) -> Self {
+    pub fn new(user_id: &UserId, device_id: &str) -> Self {
         OlmMachine {
-            user_id,
+            user_id: user_id.clone(),
             device_id: device_id.to_owned(),
             account: Account::new(),
             uploaded_signed_key_count: None,
@@ -87,9 +88,10 @@ impl OlmMachine {
     /// # Arguments
     ///
     /// * `response` - The keys upload response of the request that the client
-    ///     performed.
+    /// performed.
     pub async fn receive_keys_upload_response(&mut self, response: &keys::upload_keys::Response) {
         self.account.shared = true;
+
         let one_time_key_count = response
             .one_time_key_counts
             .get(&keys::KeyAlgorithm::SignedCurve25519);
@@ -351,13 +353,13 @@ mod test {
 
     #[test]
     fn create_olm_machine() {
-        let machine = OlmMachine::new(user_id(), DEVICE_ID);
+        let machine = OlmMachine::new(&user_id(), DEVICE_ID);
         assert!(machine.should_upload_keys());
     }
 
     #[async_std::test]
     async fn receive_keys_upload_response() {
-        let mut machine = OlmMachine::new(user_id(), DEVICE_ID);
+        let mut machine = OlmMachine::new(&user_id(), DEVICE_ID);
         let mut response = keys_upload_response();
 
         response
@@ -386,7 +388,7 @@ mod test {
 
     #[async_std::test]
     async fn generate_one_time_keys() {
-        let mut machine = OlmMachine::new(user_id(), DEVICE_ID);
+        let mut machine = OlmMachine::new(&user_id(), DEVICE_ID);
 
         let mut response = keys_upload_response();
 
@@ -407,7 +409,7 @@ mod test {
 
     #[test]
     fn test_device_key_signing() {
-        let machine = OlmMachine::new(user_id(), DEVICE_ID);
+        let machine = OlmMachine::new(&user_id(), DEVICE_ID);
 
         let mut device_keys = machine.device_keys();
         let identity_keys = machine.account.identity_keys();
@@ -424,7 +426,7 @@ mod test {
 
     #[test]
     fn test_invalid_signature() {
-        let machine = OlmMachine::new(user_id(), DEVICE_ID);
+        let machine = OlmMachine::new(&user_id(), DEVICE_ID);
 
         let mut device_keys = machine.device_keys();
 
@@ -439,7 +441,7 @@ mod test {
 
     #[test]
     fn test_one_time_key_signing() {
-        let mut machine = OlmMachine::new(user_id(), DEVICE_ID);
+        let mut machine = OlmMachine::new(&user_id(), DEVICE_ID);
         machine.uploaded_signed_key_count = Some(49);
 
         let mut one_time_keys = machine.signed_one_time_keys().unwrap();
@@ -459,7 +461,7 @@ mod test {
 
     #[async_std::test]
     async fn test_keys_for_upload() {
-        let mut machine = OlmMachine::new(user_id(), DEVICE_ID);
+        let mut machine = OlmMachine::new(&user_id(), DEVICE_ID);
         machine.uploaded_signed_key_count = Some(0);
 
         let identity_keys = machine.account.identity_keys();
