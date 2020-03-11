@@ -22,6 +22,14 @@ use crate::events::EventResult;
 use crate::session::Session;
 use std::sync::{Arc, RwLock};
 
+#[cfg(feature = "encryption")]
+use tokio::sync::Mutex;
+
+#[cfg(feature = "encryption")]
+use crate::crypto::{OlmMachine, OneTimeKeys};
+#[cfg(feature = "encryption")]
+use ruma_client_api::r0::keys::{upload_keys::Response as KeysUploadResponse, DeviceKeys};
+
 pub type Token = String;
 pub type RoomId = String;
 pub type UserId = String;
@@ -180,6 +188,8 @@ pub struct Client {
     pub sync_token: Option<Token>,
     /// A map of the rooms our user is joined in.
     pub joined_rooms: HashMap<RoomId, Arc<RwLock<Room>>>,
+    #[cfg(feature = "encryption")]
+    olm: Arc<Mutex<Option<OlmMachine>>>,
 }
 
 impl Client {
@@ -194,6 +204,8 @@ impl Client {
             session,
             sync_token: None,
             joined_rooms: HashMap::new(),
+            #[cfg(feature = "encryption")]
+            olm: Arc::new(Mutex::new(None)),
         }
     }
 
@@ -208,13 +220,19 @@ impl Client {
     ///
     /// * `response` - A successful login response that contains our access token
     /// and device id.
-    pub fn receive_login_response(&mut self, response: &api::session::login::Response) {
+    pub async fn receive_login_response(&mut self, response: &api::session::login::Response) {
         let session = Session {
             access_token: response.access_token.clone(),
             device_id: response.device_id.clone(),
             user_id: response.user_id.clone(),
         };
         self.session = Some(session);
+
+        #[cfg(feature = "encryption")]
+        {
+            let mut olm = self.olm.lock().await;
+            *olm = Some(OlmMachine::new(&response.user_id, &response.device_id));
+        }
     }
 
     fn get_or_create_room(&mut self, room_id: &str) -> &mut Arc<RwLock<Room>> {
