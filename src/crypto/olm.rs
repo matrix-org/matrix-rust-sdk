@@ -32,6 +32,12 @@ impl fmt::Debug for Account {
     }
 }
 
+/// Marking this as Send is safe because nothing will modify the pointer under
+/// us from the C side. Sync on the other hand is unsafe since libolm doesn't do
+/// any synchronization. We're wrapping the whole Olm machine inside a Mutex to
+/// get Sync for it
+unsafe impl Send for Account {}
+
 impl Account {
     /// Create a new account.
     pub fn new() -> Self {
