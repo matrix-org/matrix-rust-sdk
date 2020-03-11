@@ -491,10 +491,6 @@ impl AsyncClient {
         loop {
             let response = self.sync(sync_settings.clone()).await;
 
-            // TODO query keys here.
-            // TODO upload keys here
-            // TODO send out to-device messages here
-
             let response = if let Ok(r) = response {
                 r
             } else {
@@ -503,6 +499,16 @@ impl AsyncClient {
             };
 
             callback(response).await;
+
+            // TODO query keys here.
+            // TODO send out to-device messages here
+
+            #[cfg(feature = "encryption")]
+            {
+                if self.base_client.read().await.should_upload_keys().await {
+                    let _ = self.keys_upload().await;
+                }
+            }
 
             let now = Instant::now();
 
