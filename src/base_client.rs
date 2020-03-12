@@ -200,12 +200,18 @@ impl Client {
     /// * `session` - An optional session if the user already has one from a
     /// previous login call.
     pub fn new(session: Option<Session>) -> Self {
+        #[cfg(feature = "encryption")]
+        let olm = match &session {
+            Some(s) => Some(OlmMachine::new(&s.user_id, &s.device_id)),
+            None => None,
+        };
+
         Client {
             session,
             sync_token: None,
             joined_rooms: HashMap::new(),
             #[cfg(feature = "encryption")]
-            olm: Arc::new(Mutex::new(None)),
+            olm: Arc::new(Mutex::new(olm)),
         }
     }
 
