@@ -336,7 +336,14 @@ impl OlmMachine {
         // TODO handle to-device verification events here.
     }
 
-    pub fn receive_sync_response(&self, response: &mut SyncResponse) {
+    pub fn receive_sync_response(&mut self, response: &mut SyncResponse) {
+        let one_time_key_count = response
+            .device_one_time_keys_count
+            .get(&keys::KeyAlgorithm::SignedCurve25519);
+
+        let count: u64 = one_time_key_count.map_or(0, |c| (*c).into());
+        self.uploaded_signed_key_count = Some(count);
+
         for event in response.to_device.events.iter() {
             let event = if let EventResult::Ok(e) = event {
                 e

@@ -302,9 +302,9 @@ impl Client {
 
         #[cfg(feature = "encryption")]
         {
-            let olm = self.olm.lock().await;
+            let mut olm = self.olm.lock().await;
 
-            if let Some(o) = &*olm {
+            if let Some(o) = &mut *olm {
                 o.receive_sync_response(response);
             }
         }
