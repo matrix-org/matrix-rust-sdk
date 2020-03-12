@@ -375,7 +375,7 @@ impl AsyncClient {
             timeout: sync_settings.timeout,
         };
 
-        let response = self.send(request).await?;
+        let mut response = self.send(request).await?;
 
         for (room_id, room) in &response.rooms.join {
             let room_id = room_id.to_string();
@@ -418,7 +418,7 @@ impl AsyncClient {
         }
 
         let mut client = self.base_client.write().await;
-        client.receive_sync_response(&response);
+        client.receive_sync_response(&mut response).await;
 
         Ok(response)
     }

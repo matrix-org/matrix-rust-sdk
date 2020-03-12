@@ -29,7 +29,11 @@ use serde_json::Value;
 use ruma_client_api::r0::keys::{
     AlgorithmAndDeviceId, DeviceKeys, KeyAlgorithm, OneTimeKey, SignedKey,
 };
-use ruma_events::Algorithm;
+use ruma_client_api::r0::sync::sync_events::IncomingResponse as SyncResponse;
+use ruma_events::{
+    to_device::{ToDevice as ToDeviceEvent, ToDeviceEncrypted, ToDeviceRoomKeyRequest},
+    Algorithm, EventResult,
+};
 use ruma_identifiers::{DeviceId, UserId};
 
 pub type OneTimeKeys = HashMap<AlgorithmAndDeviceId, OneTimeKey>;
@@ -310,6 +314,54 @@ impl OlmMachine {
         let one_time_keys: Option<OneTimeKeys> = self.signed_one_time_keys().ok();
 
         Ok((device_keys, one_time_keys))
+    }
+
+    /// Decrypt a to-device event.
+    ///
+    /// Returns a decrypted `ToDeviceEvent` if the decryption was successful,
+    /// an error indicating why decryption failed otherwise.
+    ///
+    /// # Arguments
+    ///
+    /// * `event` - The to-device event that should be decrypted.
+    fn decrypt_to_device_event(&self, _: &ToDeviceEncrypted) -> Result<ToDeviceEvent, ()> {
+        Err(())
+    }
+
+    fn handle_room_key_request(&self, _: &ToDeviceRoomKeyRequest) {
+        // TODO handle room key requests here.
+    }
+
+    fn handle_verification_event(&self, _: &ToDeviceEvent) {
+        // TODO handle to-device verification events here.
+    }
+
+    pub fn receive_sync_response(&self, response: &mut SyncResponse) {
+        for event in response.to_device.events.iter() {
+            let event = if let EventResult::Ok(e) = event {
+                e
+            } else {
+                // Skip invalid events.
+                // TODO log here
+                continue;
+            };
+
+            match event {
+                ToDeviceEvent::RoomEncrypted(e) => {
+                    // TODO put the decrypted event into a vec so we can replace
+                    // them in the sync response.
+                    let _ = self.decrypt_to_device_event(e);
+                }
+                ToDeviceEvent::RoomKeyRequest(e) => self.handle_room_key_request(e),
+                ToDeviceEvent::KeyVerificationAccept(..)
+                | ToDeviceEvent::KeyVerificationCancel(..)
+                | ToDeviceEvent::KeyVerificationKey(..)
+                | ToDeviceEvent::KeyVerificationMac(..)
+                | ToDeviceEvent::KeyVerificationRequest(..)
+                | ToDeviceEvent::KeyVerificationStart(..) => self.handle_verification_event(event),
+                _ => continue,
+            }
+        }
     }
 }
 

@@ -294,8 +294,20 @@ impl Client {
     /// # Arguments
     ///
     /// * `response` - The response that we received after a successful sync.
-    pub fn receive_sync_response(&mut self, response: &api::sync::sync_events::IncomingResponse) {
+    pub async fn receive_sync_response(
+        &mut self,
+        response: &mut api::sync::sync_events::IncomingResponse,
+    ) {
         self.sync_token = Some(response.next_batch.clone());
+
+        #[cfg(feature = "encryption")]
+        {
+            let olm = self.olm.lock().await;
+
+            if let Some(o) = &*olm {
+                o.receive_sync_response(response);
+            }
+        }
     }
 
     /// Should account or one-time keys be uploaded to the server.
