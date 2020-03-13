@@ -31,7 +31,7 @@ use ruma_client_api::r0::keys::{
 };
 use ruma_client_api::r0::sync::sync_events::IncomingResponse as SyncResponse;
 use ruma_events::{
-    to_device::{ToDevice as ToDeviceEvent, ToDeviceEncrypted, ToDeviceRoomKeyRequest},
+    to_device::{AnyToDeviceEvent as ToDeviceEvent, ToDeviceEncrypted, ToDeviceRoomKeyRequest},
     Algorithm, EventResult,
 };
 use ruma_identifiers::{DeviceId, UserId};
