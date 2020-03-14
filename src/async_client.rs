@@ -400,7 +400,7 @@ impl AsyncClient {
                     }
                 }
 
-                client.joined_rooms.get(&room_id).unwrap().clone()
+                client.get_or_create_room(&room_id).clone()
             };
 
             for event in &room.timeline.events {
