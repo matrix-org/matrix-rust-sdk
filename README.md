@@ -1,3 +1,5 @@
+[![Build Status](https://img.shields.io/travis/matrix-org/matrix-rust-sdk.svg?style=flat-square)](https://travis-ci.org/matrix-org/matrix-rust-sdk)
+
 # matrix-rust-sdk
 
 **matrix-rust-sdk** is an implementation of a [Matrix][] client-server library in [Rust][].
