@@ -8,8 +8,6 @@ jobs:
 
     - os: osx
 
-    - os: windows
-
 before_script:
   - rustup component add rustfmt
 
