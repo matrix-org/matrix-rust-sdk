@@ -13,5 +13,5 @@ before_script:
 
 script:
   - cargo build  --no-default-features --features 'encryption'
-  - cargo fmt --all --no-default-features --features 'encryption' -- --check
+  - cargo fmt --all -- --check
   - cargo test --no-default-features --features 'encryption'
