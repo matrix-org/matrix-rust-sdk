@@ -414,7 +414,7 @@ mod test {
         assert!(machine.should_upload_keys());
     }
 
-    #[async_std::test]
+    #[tokio::test]
     async fn receive_keys_upload_response() {
         let mut machine = OlmMachine::new(&user_id(), DEVICE_ID);
         let mut response = keys_upload_response();
@@ -443,7 +443,7 @@ mod test {
         assert!(!machine.should_upload_keys());
     }
 
-    #[async_std::test]
+    #[tokio::test]
     async fn generate_one_time_keys() {
         let mut machine = OlmMachine::new(&user_id(), DEVICE_ID);
 
@@ -516,7 +516,7 @@ mod test {
         assert!(ret.is_ok());
     }
 
-    #[async_std::test]
+    #[tokio::test]
     async fn test_keys_for_upload() {
         let mut machine = OlmMachine::new(&user_id(), DEVICE_ID);
         machine.uploaded_signed_key_count = Some(0);
