@@ -19,7 +19,6 @@ js_int = "0.1.2"
 futures = "0.3.4"
 reqwest = "0.10.4"
 http = "0.2.0"
-async-std = "1.5.0"
 ruma-api = "0.14.0"
 ruma-client-api = { version = "0.6.0", git = "https://github.com/matrix-org/ruma-client-api/" }
 ruma-events = "0.17.0"
@@ -32,7 +31,7 @@ olm-rs = { git = "https://gitlab.gnome.org/jhaye/olm-rs/", optional = true, feat
 serde = { version = "1.0.104", optional = true, features = ["derive"] }
 serde_json = { version = "1.0.48", optional = true }
 cjson = { version = "0.1.0", optional = true }
-tokio = { version = "0.2.13", default-features = false, features = ["sync"] }
+tokio = { version = "0.2.13", default-features = false, features = ["sync", "time"] }
 
 [dev-dependencies]
 tokio = { version = "0.2.13", features = ["rt-threaded", "macros"] }

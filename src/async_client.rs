@@ -19,8 +19,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, RwLock as SyncLock};
 use std::time::{Duration, Instant};
 use tokio::sync::RwLock;
-
-use async_std::task::sleep;
+use tokio::time::delay_for as sleep;
 
 use http::Method as HttpMethod;
 use http::Response as HttpResponse;
