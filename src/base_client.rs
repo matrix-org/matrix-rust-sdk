@@ -14,6 +14,8 @@
 // limitations under the License.
 
 use std::collections::HashMap;
+
+#[cfg(feature = "encryption")]
 use std::result::Result as StdResult;
 
 use crate::api::r0 as api;
