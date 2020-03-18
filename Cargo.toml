@@ -16,25 +16,30 @@ encryption = ["olm-rs", "serde/derive", "serde_json", "cjson", "async-trait"]
 sqlite-cryptostore = ["sqlx", "zeroize"]
 
 [dependencies]
-js_int = "0.1.2"
 futures = "0.3.4"
 reqwest = "0.10.4"
 http = "0.2.0"
+url = "2.1.1"
+
+js_int = "0.1.3"
 ruma-api = "0.14.0"
 ruma-client-api = { version = "0.6.0", git = "https://github.com/matrix-org/ruma-client-api/" }
 ruma-events = "0.17.0"
-log = "0.4.8"
-
 ruma-identifiers = "0.14.1"
-url = "2.1.1"
+
+thiserror = "1.0.11"
+zeroize = { version = "1.1.0", optional = true }
+async-trait = { version = "0.1.24", optional = true }
 
 olm-rs = { path = "/home/poljar/werk/matrix/olm-rs", optional = true, features = ["serde"]}
 serde = { version = "1.0.104", optional = true, features = ["derive"] }
 serde_json = { version = "1.0.48", optional = true }
 cjson = { version = "0.1.0", optional = true }
-tokio = { version = "0.2.13", default-features = false, features = ["sync", "time"] }
-async-trait = { version = "0.1.24", optional = true }
-zeroize = { version = "*", optional = true}
+
+[dependencies.tokio]
+version = "0.2.13"
+default-features = false
+features = ["sync", "time"]
 
 [dependencies.sqlx]
 git = "https://github.com/launchbadge/sqlx/"
@@ -45,5 +50,4 @@ features = ["runtime-tokio", "sqlite"]
 [dev-dependencies]
 tokio = { version = "0.2.13", features = ["rt-threaded", "macros"] }
 tempfile = "3.1.0"
-url = "2.1.1"
 mockito = "0.23.3"
