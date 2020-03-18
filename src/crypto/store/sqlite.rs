@@ -19,16 +19,6 @@ pub struct SqliteStore {
     pickle_passphrase: Option<Zeroizing<String>>,
 }
 
-impl std::fmt::Debug for SqliteStore {
-    fn fmt(&self, fmt: &mut std::fmt::Formatter<'_>) -> StdResult<(), std::fmt::Error> {
-        write!(
-            fmt,
-            "SqliteStore {{ user_id: {}, device_id: {}, path: {:?} }}",
-            self.user_id, self.device_id, self.path
-        )
-    }
-}
-
 static DATABASE_NAME: &str = "matrix-sdk-crypto.db";
 
 impl SqliteStore {
@@ -163,6 +153,16 @@ impl CryptoStore for SqliteStore {
         .await?;
 
         Ok(())
+    }
+}
+
+impl std::fmt::Debug for SqliteStore {
+    fn fmt(&self, fmt: &mut std::fmt::Formatter<'_>) -> StdResult<(), std::fmt::Error> {
+        write!(
+            fmt,
+            "SqliteStore {{ user_id: {}, device_id: {}, path: {:?} }}",
+            self.user_id, self.device_id, self.path
+        )
     }
 }
 

@@ -89,20 +89,21 @@ impl OlmMachine {
         path: P,
         passphrase: String,
     ) -> Result<Self> {
+        let mut store =
+            SqliteStore::open_with_passphrase(&user_id.to_string(), device_id, path, passphrase)
+                .await?;
+
+        let account = match store.load_account().await? {
+            Some(a) => a,
+            None => Account::new(),
+        };
+
         Ok(OlmMachine {
             user_id: user_id.clone(),
             device_id: device_id.to_owned(),
-            account: Arc::new(Mutex::new(Account::new())),
+            account: Arc::new(Mutex::new(account)),
             uploaded_signed_key_count: None,
-            store: Box::new(
-                SqliteStore::open_with_passphrase(
-                    &user_id.to_string(),
-                    device_id,
-                    path,
-                    passphrase,
-                )
-                .await?,
-            ),
+            store: Box::new(store),
         })
     }
 
