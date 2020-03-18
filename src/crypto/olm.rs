@@ -101,7 +101,7 @@ impl Account {
 
 impl PartialEq for Account {
     fn eq(&self, other: &Self) -> bool {
-        self.identity_keys() == other.identity_keys()
+        self.identity_keys() == other.identity_keys() && self.shared == other.shared
     }
 }
 
