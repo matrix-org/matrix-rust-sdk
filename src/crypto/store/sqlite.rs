@@ -100,23 +100,28 @@ impl SqliteStore {
 
 #[async_trait]
 impl CryptoStore for SqliteStore {
-    async fn load_account(&self) -> Result<Account> {
+    async fn load_account(&self) -> Result<Option<Account>> {
         let mut connection = self.connection.lock().await;
 
-        let (pickle, shared): (String, bool) = query_as(
+        let row: Option<(String, bool)> = query_as(
             "SELECT pickle, shared FROM account
                       WHERE user_id = ? and device_id = ?",
         )
         .bind(&*self.user_id)
         .bind(&*self.device_id)
-        .fetch_one(&mut *connection)
+        .fetch_optional(&mut *connection)
         .await?;
 
-        Ok(Account::from_pickle(
-            pickle,
-            self.get_pickle_mode(),
-            shared,
-        )?)
+        let result = match row {
+            Some((pickle, shared)) => Some(Account::from_pickle(
+                pickle,
+                self.get_pickle_mode(),
+                shared,
+            )?),
+            None => None,
+        };
+
+        Ok(result)
     }
 
     async fn save_account(&self, account: Arc<Mutex<Account>>) -> Result<()> {
@@ -216,6 +221,7 @@ mod test {
 
         let acc = account.lock().await;
         let loaded_account = store.load_account().await.expect("Can't load account");
+        let loaded_account = loaded_account.unwrap();
 
         assert_eq!(*acc, loaded_account);
     }

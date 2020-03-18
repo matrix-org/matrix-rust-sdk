@@ -34,6 +34,6 @@ pub type Result<T> = std::result::Result<T, CryptoStoreError>;
 
 #[async_trait]
 pub trait CryptoStore {
-    async fn load_account(&self) -> Result<Account>;
+    async fn load_account(&self) -> Result<Option<Account>>;
     async fn save_account(&self, account: Arc<Mutex<Account>>) -> Result<()>;
 }
