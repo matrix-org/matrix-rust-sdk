@@ -1,4 +1,5 @@
-use std::path::Path;
+use std::path::{Path, PathBuf};
+use std::result::Result as StdResult;
 use std::sync::Arc;
 use url::Url;
 
@@ -13,54 +14,60 @@ use super::{Account, CryptoStore, Result};
 pub struct SqliteStore {
     user_id: Arc<String>,
     device_id: Arc<String>,
+    path: PathBuf,
     connection: Arc<Mutex<SqliteConnection>>,
     pickle_passphrase: Option<Zeroizing<String>>,
+}
+
+impl std::fmt::Debug for SqliteStore {
+    fn fmt(&self, fmt: &mut std::fmt::Formatter<'_>) -> StdResult<(), std::fmt::Error> {
+        write!(
+            fmt,
+            "SqliteStore {{ user_id: {}, device_id: {}, path: {:?} }}",
+            self.user_id, self.device_id, self.path
+        )
+    }
 }
 
 static DATABASE_NAME: &str = "matrix-sdk-crypto.db";
 
 impl SqliteStore {
-    async fn open<P: AsRef<Path>>(user_id: &str, device_id: &str, path: P) -> Result<SqliteStore> {
-        let url = SqliteStore::path_to_url(path)?;
-        SqliteStore::open_helper(user_id, device_id, url.as_ref(), None).await
+    pub async fn open<P: AsRef<Path>>(
+        user_id: &str,
+        device_id: &str,
+        path: P,
+    ) -> Result<SqliteStore> {
+        SqliteStore::open_helper(user_id, device_id, path, None).await
     }
 
-    async fn open_with_passphrase<P: AsRef<Path>>(
+    pub async fn open_with_passphrase<P: AsRef<Path>>(
         user_id: &str,
         device_id: &str,
         path: P,
         passphrase: String,
     ) -> Result<SqliteStore> {
-        let url = SqliteStore::path_to_url(path)?;
-        SqliteStore::open_helper(
-            user_id,
-            device_id,
-            url.as_ref(),
-            Some(Zeroizing::new(passphrase)),
-        )
-        .await
+        SqliteStore::open_helper(user_id, device_id, path, Some(Zeroizing::new(passphrase))).await
     }
 
-    async fn open_in_memory(user_id: &str, device_id: &str) -> Result<SqliteStore> {
-        SqliteStore::open_helper(user_id, device_id, "sqlite::memory:", None).await
-    }
-
-    fn path_to_url<P: AsRef<Path>>(path: P) -> Result<Url> {
+    fn path_to_url(path: &Path) -> Result<Url> {
         // TODO this returns an empty error if the path isn't absolute.
-        let url = Url::from_directory_path(path.as_ref()).expect("Invalid path");
+        let url = Url::from_directory_path(path).expect("Invalid path");
         Ok(url.join(DATABASE_NAME)?)
     }
 
-    async fn open_helper(
+    async fn open_helper<P: AsRef<Path>>(
         user_id: &str,
         device_id: &str,
-        sqlite_url: &str,
+        path: P,
         passphrase: Option<Zeroizing<String>>,
     ) -> Result<SqliteStore> {
-        let connection = SqliteConnection::connect(sqlite_url).await.unwrap();
+        let url = SqliteStore::path_to_url(path.as_ref())?;
+
+        let connection = SqliteConnection::connect(url.as_ref()).await.unwrap();
         let store = SqliteStore {
             user_id: Arc::new(user_id.to_owned()),
             device_id: Arc::new(device_id.to_owned()),
+            path: path.as_ref().to_owned(),
             connection: Arc::new(Mutex::new(connection)),
             pickle_passphrase: passphrase,
         };
@@ -100,7 +107,7 @@ impl SqliteStore {
 
 #[async_trait]
 impl CryptoStore for SqliteStore {
-    async fn load_account(&self) -> Result<Option<Account>> {
+    async fn load_account(&mut self) -> Result<Option<Account>> {
         let mut connection = self.connection.lock().await;
 
         let row: Option<(String, bool)> = query_as(
@@ -124,7 +131,7 @@ impl CryptoStore for SqliteStore {
         Ok(result)
     }
 
-    async fn save_account(&self, account: Arc<Mutex<Account>>) -> Result<()> {
+    async fn save_account(&mut self, account: Arc<Mutex<Account>>) -> Result<()> {
         let acc = account.lock().await;
         let pickle = acc.pickle(self.get_pickle_mode());
         let mut connection = self.connection.lock().await;
@@ -178,12 +185,6 @@ mod test {
             .expect("Can't create store")
     }
 
-    async fn get_memory_store() -> SqliteStore {
-        SqliteStore::open_in_memory(USER_ID, DEVICE_ID)
-            .await
-            .expect("Can't create memory store")
-    }
-
     fn get_account() -> Arc<Mutex<Account>> {
         let account = Account::new();
         Arc::new(Mutex::new(account))
@@ -200,7 +201,7 @@ mod test {
 
     #[tokio::test]
     async fn save_account() {
-        let store = get_store().await;
+        let mut store = get_store().await;
         let account = get_account();
 
         store
@@ -211,7 +212,7 @@ mod test {
 
     #[tokio::test]
     async fn load_account() {
-        let store = get_memory_store().await;
+        let mut store = get_store().await;
         let account = get_account();
 
         store

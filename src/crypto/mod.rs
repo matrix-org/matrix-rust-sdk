@@ -22,3 +22,4 @@ mod store;
 
 pub use error::OlmError;
 pub use machine::{OlmMachine, OneTimeKeys};
+pub use store::{CryptoStore, CryptoStoreError};

@@ -645,7 +645,7 @@ impl AsyncClient {
             .write()
             .await
             .receive_keys_upload_response(&response)
-            .await;
+            .await?;
         Ok(response)
     }
 

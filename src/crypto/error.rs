@@ -18,6 +18,15 @@ use thiserror::Error;
 use super::store::CryptoStoreError;
 
 pub type Result<T> = std::result::Result<T, OlmError>;
+
+#[derive(Error, Debug)]
+pub enum OlmError {
+    #[error("signature verification failed")]
+    Signature(#[from] SignatureError),
+    #[error("failed to read or write to the crypto store {0}")]
+    Store(#[from] CryptoStoreError),
+}
+
 pub type VerificationResult<T> = std::result::Result<T, SignatureError>;
 
 #[derive(Error, Debug)]
@@ -36,12 +45,4 @@ impl From<CjsonError> for SignatureError {
     fn from(error: CjsonError) -> Self {
         Self::CanonicalJsonError(error)
     }
-}
-
-#[derive(Error, Debug)]
-pub enum OlmError {
-    #[error("signature verification failed")]
-    Signature(#[from] SignatureError),
-    #[error("failed to read or write to the crypto store {0}")]
-    Store(#[from] CryptoStoreError),
 }

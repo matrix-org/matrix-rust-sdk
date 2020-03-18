@@ -331,7 +331,7 @@ impl Client {
         let olm = self.olm.lock().await;
 
         match &*olm {
-            Some(o) => o.should_upload_keys(),
+            Some(o) => o.should_upload_keys().await,
             None => false,
         }
     }
@@ -346,7 +346,7 @@ impl Client {
         let olm = self.olm.lock().await;
 
         match &*olm {
-            Some(o) => o.keys_for_upload(),
+            Some(o) => o.keys_for_upload().await,
             None => Err(()),
         }
     }
@@ -361,10 +361,11 @@ impl Client {
     /// # Panics
     /// Panics if the client hasn't been logged in.
     #[cfg(feature = "encryption")]
-    pub async fn receive_keys_upload_response(&self, response: &KeysUploadResponse) {
+    pub async fn receive_keys_upload_response(&self, response: &KeysUploadResponse) -> Result<()> {
         let mut olm = self.olm.lock().await;
 
         let o = olm.as_mut().expect("Client isn't logged in.");
-        o.receive_keys_upload_response(response).await;
+        o.receive_keys_upload_response(response).await?;
+        Ok(())
     }
 }
