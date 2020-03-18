@@ -1,8 +1,8 @@
 test:
-	cargo test --features encryption
+	cargo test --features 'encryption sqlite-cryptostore'
 
 coverage:
-	cargo tarpaulin --features encryption -v
+	cargo tarpaulin --features 'encryption sqlite-cryptostore' -v
 
 clean:
 	cargo clean

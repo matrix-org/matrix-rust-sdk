@@ -18,5 +18,6 @@ mod error;
 mod machine;
 #[allow(dead_code)]
 mod olm;
+mod store;
 
 pub use machine::{OlmMachine, OneTimeKeys};
