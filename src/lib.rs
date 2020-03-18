@@ -16,7 +16,7 @@
 //! This crate implements a [Matrix](https://matrix.org/) client library.
 #![deny(missing_docs)]
 
-pub use crate::{error::Error, session::Session};
+pub use crate::{error::Error, error::Result, session::Session};
 pub use reqwest::header::InvalidHeaderValue;
 pub use ruma_client_api as api;
 pub use ruma_events as events;

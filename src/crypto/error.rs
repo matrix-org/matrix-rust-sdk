@@ -13,35 +13,35 @@
 // limitations under the License.
 
 use cjson::Error as CjsonError;
-use std::fmt::{Display, Formatter, Result as FmtResult};
+use thiserror::Error;
 
-#[derive(Debug)]
+use super::store::CryptoStoreError;
+
+pub type Result<T> = std::result::Result<T, OlmError>;
+pub type VerificationResult<T> = std::result::Result<T, SignatureError>;
+
+#[derive(Error, Debug)]
 pub enum SignatureError {
+    #[error("the provided JSON value isn't an object")]
     NotAnObject,
+    #[error("the provided JSON object doesn't contain a signatures field")]
     NoSignatureFound,
+    #[error("the provided JSON object can't be converted to a canonical representation")]
     CanonicalJsonError(CjsonError),
+    #[error("the signature didn't match the provided key")]
     VerificationError,
-}
-
-impl Display for SignatureError {
-    fn fmt(&self, f: &mut Formatter) -> FmtResult {
-        let message = match self {
-            SignatureError::NotAnObject => "The provided JSON value isn't an object.",
-            SignatureError::NoSignatureFound => {
-                "The provided JSON object doesn't contain a signatures field."
-            }
-            SignatureError::CanonicalJsonError(_) => {
-                "The provided JSON object can't be converted to a canonical representation."
-            }
-            SignatureError::VerificationError => "The signature didn't match the provided key.",
-        };
-
-        write!(f, "{}", message)
-    }
 }
 
 impl From<CjsonError> for SignatureError {
     fn from(error: CjsonError) -> Self {
         Self::CanonicalJsonError(error)
     }
+}
+
+#[derive(Error, Debug)]
+pub enum OlmError {
+    #[error("signature verification failed")]
+    Signature(#[from] SignatureError),
+    #[error("failed to read or write to the crypto store {0}")]
+    Store(#[from] CryptoStoreError),
 }

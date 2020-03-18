@@ -20,4 +20,5 @@ mod machine;
 mod olm;
 mod store;
 
+pub use error::OlmError;
 pub use machine::{OlmMachine, OneTimeKeys};

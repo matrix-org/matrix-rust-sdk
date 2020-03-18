@@ -15,69 +15,50 @@
 
 //! Error conditions.
 
-use std::error::Error as StdError;
-use std::fmt::{Display, Formatter, Result as FmtResult};
-
 use reqwest::Error as ReqwestError;
 use ruma_api::error::FromHttpResponseError as RumaResponseError;
 use ruma_api::error::IntoHttpError as RumaIntoHttpError;
+use thiserror::Error;
 use url::ParseError;
 
-/// An error that can occur during client operations.
-#[derive(Debug)]
-pub struct Error(pub(crate) InnerError);
+#[cfg(feature = "encryption")]
+use crate::crypto::OlmError;
 
-impl Display for Error {
-    fn fmt(&self, f: &mut Formatter) -> FmtResult {
-        let message = match self.0 {
-            InnerError::AuthenticationRequired => "The queried endpoint requires authentication but was called with an anonymous client.",
-            InnerError::Reqwest(_) => "An HTTP error occurred.",
-            InnerError::Uri(_) => "Provided string could not be converted into a URI.",
-            InnerError::RumaResponseError(_) => "An error occurred converting between ruma_client_api and hyper types.",
-            InnerError::IntoHttpError(_) => "An error occurred converting between ruma_client_api and hyper types.",
-        };
-
-        write!(f, "{}", message)
-    }
-}
-
-impl StdError for Error {}
+/// Result type of the rust-sdk.
+pub type Result<T> = std::result::Result<T, Error>;
 
 /// Internal representation of errors.
-#[derive(Debug)]
-pub(crate) enum InnerError {
+#[derive(Error, Debug)]
+pub enum Error {
     /// Queried endpoint requires authentication but was called on an anonymous client.
+    #[error("the queried endpoint requires authentication but was called before logging in")]
     AuthenticationRequired,
     /// An error at the HTTP layer.
-    Reqwest(ReqwestError),
+    #[error(transparent)]
+    Reqwest(#[from] ReqwestError),
     /// An error when parsing a string as a URI.
-    Uri(ParseError),
+    #[error("can't parse the provided string as an URL")]
+    Uri(#[from] ParseError),
     /// An error converting between ruma_client_api types and Hyper types.
-    RumaResponseError(RumaResponseError),
+    #[error("can't parse the JSON response as a Matrix response")]
+    RumaResponse(RumaResponseError),
     /// An error converting between ruma_client_api types and Hyper types.
-    IntoHttpError(RumaIntoHttpError),
-}
-
-impl From<ParseError> for Error {
-    fn from(error: ParseError) -> Self {
-        Self(InnerError::Uri(error))
-    }
+    #[error("can't convert between ruma_client_api and hyper types.")]
+    IntoHttp(RumaIntoHttpError),
+    #[cfg(feature = "encryption")]
+    /// An error occured durring a E2EE operation.
+    #[error(transparent)]
+    OlmError(#[from] OlmError),
 }
 
 impl From<RumaResponseError> for Error {
     fn from(error: RumaResponseError) -> Self {
-        Self(InnerError::RumaResponseError(error))
+        Self::RumaResponse(error)
     }
 }
 
 impl From<RumaIntoHttpError> for Error {
     fn from(error: RumaIntoHttpError) -> Self {
-        Self(InnerError::IntoHttpError(error))
-    }
-}
-
-impl From<ReqwestError> for Error {
-    fn from(error: ReqwestError) -> Self {
-        Self(InnerError::Reqwest(error))
+        Self::IntoHttp(error)
     }
 }

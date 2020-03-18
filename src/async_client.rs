@@ -15,6 +15,7 @@
 
 use futures::future::{BoxFuture, Future, FutureExt};
 use std::convert::{TryFrom, TryInto};
+use std::result::Result as StdResult;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, RwLock as SyncLock};
 use std::time::{Duration, Instant};
@@ -37,9 +38,9 @@ use ruma_identifiers::RoomId;
 use crate::api;
 use crate::base_client::Client as BaseClient;
 use crate::base_client::Room;
-use crate::error::{Error, InnerError};
 use crate::session::Session;
 use crate::VERSION;
+use crate::{Error, Result};
 
 type RoomEventCallback = Box<
     dyn FnMut(Arc<SyncLock<Room>>, Arc<EventResult<RoomEvent>>) -> BoxFuture<'static, ()> + Send,
@@ -105,7 +106,7 @@ impl AsyncClientConfig {
     ///     .proxy("http://localhost:8080")
     ///     .unwrap();
     /// ```
-    pub fn proxy(mut self, proxy: &str) -> Result<Self, Error> {
+    pub fn proxy(mut self, proxy: &str) -> Result<Self> {
         self.proxy = Some(reqwest::Proxy::all(proxy)?);
         Ok(self)
     }
@@ -117,7 +118,7 @@ impl AsyncClientConfig {
     }
 
     /// Set a custom HTTP user agent for the client.
-    pub fn user_agent(mut self, user_agent: &str) -> Result<Self, InvalidHeaderValue> {
+    pub fn user_agent(mut self, user_agent: &str) -> StdResult<Self, InvalidHeaderValue> {
         self.user_agent = Some(HeaderValue::from_str(user_agent)?);
         Ok(self)
     }
@@ -153,7 +154,10 @@ impl SyncSettings {
     /// # Arguments
     ///
     /// * `timeout` - The time the server is allowed to wait.
-    pub fn timeout<T: TryInto<UInt>>(mut self, timeout: T) -> Result<Self, js_int::TryFromIntError>
+    pub fn timeout<T: TryInto<UInt>>(
+        mut self,
+        timeout: T,
+    ) -> StdResult<Self, js_int::TryFromIntError>
     where
         js_int::TryFromIntError:
             std::convert::From<<T as std::convert::TryInto<js_int::UInt>>::Error>,
@@ -189,10 +193,7 @@ impl AsyncClient {
     /// * `homeserver_url` - The homeserver that the client should connect to.
     /// * `session` - If a previous login exists, the access token can be
     ///     reused by giving a session object here.
-    pub fn new<U: TryInto<Url>>(
-        homeserver_url: U,
-        session: Option<Session>,
-    ) -> Result<Self, Error> {
+    pub fn new<U: TryInto<Url>>(homeserver_url: U, session: Option<Session>) -> Result<Self> {
         let config = AsyncClientConfig::new();
         AsyncClient::new_with_config(homeserver_url, session, config)
     }
@@ -209,7 +210,7 @@ impl AsyncClient {
         homeserver_url: U,
         session: Option<Session>,
         config: AsyncClientConfig,
-    ) -> Result<Self, Error> {
+    ) -> Result<Self> {
         let homeserver: Url = match homeserver_url.try_into() {
             Ok(u) => u,
             Err(_e) => panic!("Error parsing homeserver url"),
@@ -242,7 +243,7 @@ impl AsyncClient {
         Ok(Self {
             homeserver,
             http_client,
-            base_client: Arc::new(RwLock::new(BaseClient::new(session))),
+            base_client: Arc::new(RwLock::new(BaseClient::new(session)?)),
             transaction_id: Arc::new(AtomicU64::new(0)),
             event_callbacks: Arc::new(Mutex::new(Vec::new())),
         })
@@ -340,7 +341,7 @@ impl AsyncClient {
         user: S,
         password: S,
         device_id: Option<S>,
-    ) -> Result<login::Response, Error> {
+    ) -> Result<login::Response> {
         let request = login::Request {
             user: login::UserInfo::MatrixId(user.into()),
             login_info: login::LoginInfo::Password {
@@ -352,7 +353,7 @@ impl AsyncClient {
 
         let response = self.send(request).await?;
         let mut client = self.base_client.write().await;
-        client.receive_login_response(&response).await;
+        client.receive_login_response(&response).await?;
 
         Ok(response)
     }
@@ -365,7 +366,7 @@ impl AsyncClient {
     pub async fn sync(
         &mut self,
         sync_settings: SyncSettings,
-    ) -> Result<sync_events::IncomingResponse, Error> {
+    ) -> Result<sync_events::IncomingResponse> {
         let request = sync_events::Request {
             filter: None,
             since: sync_settings.token,
@@ -536,7 +537,7 @@ impl AsyncClient {
     async fn send<Request: Endpoint>(
         &self,
         request: Request,
-    ) -> Result<<Request::Response as Outgoing>::Incoming, Error>
+    ) -> Result<<Request::Response as Outgoing>::Incoming>
     where
         Request::Incoming:
             TryFrom<http::Request<Vec<u8>>, Error = ruma_api::error::FromHttpRequestError>,
@@ -570,7 +571,7 @@ impl AsyncClient {
             if let Some(ref session) = client.session {
                 request_builder.bearer_auth(&session.access_token)
             } else {
-                return Err(Error(InnerError::AuthenticationRequired));
+                return Err(Error::AuthenticationRequired);
             }
         } else {
             request_builder
@@ -604,7 +605,7 @@ impl AsyncClient {
         &mut self,
         room_id: &str,
         data: MessageEventContent,
-    ) -> Result<create_message_event::Response, Error> {
+    ) -> Result<create_message_event::Response> {
         let request = create_message_event::Request {
             room_id: RoomId::try_from(room_id).unwrap(),
             event_type: EventType::RoomMessage,
@@ -626,7 +627,7 @@ impl AsyncClient {
     /// Panics if the client isn't logged in, or if no encryption keys need to
     /// be uploaded.
     #[cfg(feature = "encryption")]
-    async fn keys_upload(&self) -> Result<upload_keys::Response, Error> {
+    async fn keys_upload(&self) -> Result<upload_keys::Response> {
         let (device_keys, one_time_keys) = self
             .base_client
             .read()

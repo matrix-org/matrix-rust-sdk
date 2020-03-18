@@ -14,8 +14,9 @@
 
 use std::collections::HashMap;
 use std::convert::TryInto;
+use std::result::Result as StdResult;
 
-use super::error::SignatureError;
+use super::error::{Result, SignatureError, VerificationResult};
 use super::olm::Account;
 use crate::api;
 
@@ -26,6 +27,7 @@ use olm_rs::utility::OlmUtility;
 use serde_json::json;
 use serde_json::Value;
 
+use super::store::CryptoStoreError;
 use ruma_client_api::r0::keys::{
     AlgorithmAndDeviceId, DeviceKeys, KeyAlgorithm, OneTimeKey, SignedKey,
 };
@@ -37,6 +39,9 @@ use ruma_events::{
 use ruma_identifiers::{DeviceId, UserId};
 
 pub type OneTimeKeys = HashMap<AlgorithmAndDeviceId, OneTimeKey>;
+
+#[cfg(feature = "sqlite-cryptostore")]
+use super::store::sqlite::SqliteStore;
 
 #[derive(Debug)]
 pub struct OlmMachine {
@@ -60,13 +65,13 @@ impl OlmMachine {
     ];
 
     /// Create a new account.
-    pub fn new(user_id: &UserId, device_id: &str) -> Self {
-        OlmMachine {
+    pub fn new(user_id: &UserId, device_id: &str) -> Result<Self> {
+        Ok(OlmMachine {
             user_id: user_id.clone(),
             device_id: device_id.to_owned(),
             account: Account::new(),
             uploaded_signed_key_count: None,
-        }
+        })
     }
 
     /// Should account or one-time keys be uploaded to the server.
@@ -111,7 +116,7 @@ impl OlmMachine {
     ///
     /// Returns the number of newly generated one-time keys. If no keys can be
     /// generated returns an empty error.
-    fn generate_one_time_keys(&self) -> Result<u64, ()> {
+    fn generate_one_time_keys(&self) -> StdResult<u64, ()> {
         match self.uploaded_signed_key_count {
             Some(count) => {
                 let max_keys = self.account.max_one_time_keys() as u64;
@@ -181,7 +186,7 @@ impl OlmMachine {
     /// Generate, sign and prepare one-time keys to be uploaded.
     ///
     /// If no one-time keys need to be uploaded returns an empty error.
-    fn signed_one_time_keys(&self) -> Result<OneTimeKeys, ()> {
+    fn signed_one_time_keys(&self) -> StdResult<OneTimeKeys, ()> {
         let _ = self.generate_one_time_keys()?;
 
         let one_time_keys = self.account.one_time_keys();
@@ -255,7 +260,7 @@ impl OlmMachine {
         device_id: &str,
         user_key: &str,
         json: &mut Value,
-    ) -> Result<(), SignatureError> {
+    ) -> VerificationResult<()> {
         let json_object = json.as_object_mut().ok_or(SignatureError::NotAnObject)?;
         let unsigned = json_object.remove("unsigned");
         let signatures = json_object.remove("signatures");
@@ -300,7 +305,7 @@ impl OlmMachine {
     /// Get a tuple of device and one-time keys that need to be uploaded.
     ///
     /// Returns an empty error if no keys need to be uploaded.
-    pub fn keys_for_upload(&self) -> Result<(Option<DeviceKeys>, Option<OneTimeKeys>), ()> {
+    pub fn keys_for_upload(&self) -> StdResult<(Option<DeviceKeys>, Option<OneTimeKeys>), ()> {
         if !self.should_upload_keys() {
             return Err(());
         }
@@ -324,7 +329,7 @@ impl OlmMachine {
     /// # Arguments
     ///
     /// * `event` - The to-device event that should be decrypted.
-    fn decrypt_to_device_event(&self, _: &ToDeviceEncrypted) -> Result<ToDeviceEvent, ()> {
+    fn decrypt_to_device_event(&self, _: &ToDeviceEncrypted) -> StdResult<ToDeviceEvent, ()> {
         Err(())
     }
 
@@ -410,13 +415,13 @@ mod test {
 
     #[test]
     fn create_olm_machine() {
-        let machine = OlmMachine::new(&user_id(), DEVICE_ID);
+        let machine = OlmMachine::new(&user_id(), DEVICE_ID).unwrap();
         assert!(machine.should_upload_keys());
     }
 
     #[tokio::test]
     async fn receive_keys_upload_response() {
-        let mut machine = OlmMachine::new(&user_id(), DEVICE_ID);
+        let mut machine = OlmMachine::new(&user_id(), DEVICE_ID).unwrap();
         let mut response = keys_upload_response();
 
         response
@@ -445,7 +450,7 @@ mod test {
 
     #[tokio::test]
     async fn generate_one_time_keys() {
-        let mut machine = OlmMachine::new(&user_id(), DEVICE_ID);
+        let mut machine = OlmMachine::new(&user_id(), DEVICE_ID).unwrap();
 
         let mut response = keys_upload_response();
 
@@ -466,7 +471,7 @@ mod test {
 
     #[test]
     fn test_device_key_signing() {
-        let machine = OlmMachine::new(&user_id(), DEVICE_ID);
+        let machine = OlmMachine::new(&user_id(), DEVICE_ID).unwrap();
 
         let mut device_keys = machine.device_keys();
         let identity_keys = machine.account.identity_keys();
@@ -483,7 +488,7 @@ mod test {
 
     #[test]
     fn test_invalid_signature() {
-        let machine = OlmMachine::new(&user_id(), DEVICE_ID);
+        let machine = OlmMachine::new(&user_id(), DEVICE_ID).unwrap();
 
         let mut device_keys = machine.device_keys();
 
@@ -498,7 +503,7 @@ mod test {
 
     #[test]
     fn test_one_time_key_signing() {
-        let mut machine = OlmMachine::new(&user_id(), DEVICE_ID);
+        let mut machine = OlmMachine::new(&user_id(), DEVICE_ID).unwrap();
         machine.uploaded_signed_key_count = Some(49);
 
         let mut one_time_keys = machine.signed_one_time_keys().unwrap();
@@ -518,7 +523,7 @@ mod test {
 
     #[tokio::test]
     async fn test_keys_for_upload() {
-        let mut machine = OlmMachine::new(&user_id(), DEVICE_ID);
+        let mut machine = OlmMachine::new(&user_id(), DEVICE_ID).unwrap();
         machine.uploaded_signed_key_count = Some(0);
 
         let identity_keys = machine.account.identity_keys();

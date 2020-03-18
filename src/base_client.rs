@@ -14,8 +14,10 @@
 // limitations under the License.
 
 use std::collections::HashMap;
+use std::result::Result as StdResult;
 
 use crate::api::r0 as api;
+use crate::error::Result;
 use crate::events::collections::all::{RoomEvent, StateEvent};
 use crate::events::room::member::{MemberEvent, MembershipState};
 use crate::events::EventResult;
@@ -199,20 +201,20 @@ impl Client {
     ///
     /// * `session` - An optional session if the user already has one from a
     /// previous login call.
-    pub fn new(session: Option<Session>) -> Self {
+    pub fn new(session: Option<Session>) -> Result<Self> {
         #[cfg(feature = "encryption")]
         let olm = match &session {
-            Some(s) => Some(OlmMachine::new(&s.user_id, &s.device_id)),
+            Some(s) => Some(OlmMachine::new(&s.user_id, &s.device_id)?),
             None => None,
         };
 
-        Client {
+        Ok(Client {
             session,
             sync_token: None,
             joined_rooms: HashMap::new(),
             #[cfg(feature = "encryption")]
             olm: Arc::new(Mutex::new(olm)),
-        }
+        })
     }
 
     /// Is the client logged in.
@@ -226,7 +228,10 @@ impl Client {
     ///
     /// * `response` - A successful login response that contains our access token
     /// and device id.
-    pub async fn receive_login_response(&mut self, response: &api::session::login::Response) {
+    pub async fn receive_login_response(
+        &mut self,
+        response: &api::session::login::Response,
+    ) -> Result<()> {
         let session = Session {
             access_token: response.access_token.clone(),
             device_id: response.device_id.clone(),
@@ -237,8 +242,10 @@ impl Client {
         #[cfg(feature = "encryption")]
         {
             let mut olm = self.olm.lock().await;
-            *olm = Some(OlmMachine::new(&response.user_id, &response.device_id));
+            *olm = Some(OlmMachine::new(&response.user_id, &response.device_id)?);
         }
+
+        Ok(())
     }
 
     fn get_or_create_room(&mut self, room_id: &str) -> &mut Arc<RwLock<Room>> {
@@ -331,7 +338,9 @@ impl Client {
     ///
     /// Returns an empty error if no keys need to be uploaded.
     #[cfg(feature = "encryption")]
-    pub async fn keys_for_upload(&self) -> Result<(Option<DeviceKeys>, Option<OneTimeKeys>), ()> {
+    pub async fn keys_for_upload(
+        &self,
+    ) -> StdResult<(Option<DeviceKeys>, Option<OneTimeKeys>), ()> {
         let olm = self.olm.lock().await;
 
         match &*olm {

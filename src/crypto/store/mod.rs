@@ -19,7 +19,7 @@ use sqlx::Error as SqlxError;
 pub enum CryptoStoreError {
     #[error("can't read or write from the store")]
     Io(#[from] IoError),
-    #[error("Olm operation failed")]
+    #[error("can't finish Olm account operation {0}")]
     OlmAccountError(#[from] OlmAccountError),
     #[error("URL can't be parsed")]
     UrlParse(#[from] ParseError),
