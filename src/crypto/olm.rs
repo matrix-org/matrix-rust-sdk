@@ -15,6 +15,8 @@
 use std::fmt;
 
 use olm_rs::account::{IdentityKeys, OlmAccount, OneTimeKeys};
+use olm_rs::errors::OlmAccountError;
+use olm_rs::PicklingMode;
 
 pub struct Account {
     inner: OlmAccount,
@@ -81,6 +83,25 @@ impl Account {
 
     pub fn sign(&self, string: &str) -> String {
         self.inner.sign(string)
+    }
+
+    pub fn pickle(&self, pickling_mode: PicklingMode) -> String {
+        self.inner.pickle(pickling_mode)
+    }
+
+    pub fn from_pickle(
+        pickle: String,
+        pickling_mode: PicklingMode,
+        shared: bool,
+    ) -> Result<Self, OlmAccountError> {
+        let acc = OlmAccount::unpickle(pickle, pickling_mode)?;
+        Ok(Account { inner: acc, shared })
+    }
+}
+
+impl PartialEq for Account {
+    fn eq(&self, other: &Self) -> bool {
+        self.identity_keys() == other.identity_keys()
     }
 }
 
