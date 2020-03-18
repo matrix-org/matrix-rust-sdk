@@ -46,11 +46,9 @@ impl SqliteStore {
     }
 
     fn path_to_url<P: AsRef<Path>>(path: P) -> Result<Url> {
-        let url = Url::from_directory_path(path.as_ref()).expect("Can't create URL from directory");
-        let url = url
-            .join(DATABASE_NAME)
-            .expect("Can't append database name to URL");
-        Ok(url)
+        // TODO this returns an empty error if the path isn't absolute.
+        let url = Url::from_directory_path(path.as_ref()).expect("Invalid path");
+        Ok(url.join(DATABASE_NAME)?)
     }
 
     async fn open_helper(
@@ -85,8 +83,7 @@ impl SqliteStore {
             );
         "#,
             )
-            .await
-            .unwrap();
+            .await?;
 
         Ok(())
     }
@@ -113,10 +110,13 @@ impl CryptoStore for SqliteStore {
         .bind(&*self.user_id)
         .bind(&*self.device_id)
         .fetch_one(&mut *connection)
-        .await
-        .unwrap();
+        .await?;
 
-        Ok(Account::from_pickle(pickle, self.get_pickle_mode(), shared).unwrap())
+        Ok(Account::from_pickle(
+            pickle,
+            self.get_pickle_mode(),
+            shared,
+        )?)
     }
 
     async fn save_account(&self, account: Arc<Mutex<Account>>) -> Result<()> {
@@ -134,8 +134,7 @@ impl CryptoStore for SqliteStore {
         .bind(&pickle)
         .bind(acc.shared)
         .execute(&mut *connection)
-        .await
-        .unwrap();
+        .await?;
 
         query(
             "UPDATE account
@@ -149,8 +148,7 @@ impl CryptoStore for SqliteStore {
         .bind(&*self.user_id)
         .bind(&*self.device_id)
         .execute(&mut *connection)
-        .await
-        .unwrap();
+        .await?;
 
         Ok(())
     }
