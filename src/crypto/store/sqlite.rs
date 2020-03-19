@@ -67,7 +67,7 @@ impl SqliteStore {
     ) -> Result<SqliteStore> {
         let url = SqliteStore::path_to_url(path.as_ref())?;
 
-        let connection = SqliteConnection::connect(url.as_ref()).await.unwrap();
+        let connection = SqliteConnection::connect(url.as_ref()).await?;
         let store = SqliteStore {
             user_id: Arc::new(user_id.to_owned()),
             device_id: Arc::new(device_id.to_owned()),
