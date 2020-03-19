@@ -14,6 +14,16 @@
 // limitations under the License.
 
 //! This crate implements a [Matrix](https://matrix.org/) client library.
+//!
+//! ##  Crate Feature Flags
+//!
+//! The following crate feature flags are available:
+//!
+//! * `encryption`: Enables end-to-end encryption support in the library.
+//! * `sqlite-cryptostore`: Enables a SQLite based store for the encryption
+//! keys. If this is disabled and `encryption` support is enabled the keys will
+//! by default be stored only in memory and thus lost after the client is
+//! destroyed.
 #![deny(missing_docs)]
 
 pub use crate::{error::Error, error::Result, session::Session};
