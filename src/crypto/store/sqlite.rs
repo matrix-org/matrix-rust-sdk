@@ -240,4 +240,28 @@ mod test {
 
         assert_eq!(*acc, loaded_account);
     }
+
+    #[tokio::test]
+    async fn save_and_share_account() {
+        let mut store = get_store().await;
+        let account = get_account();
+
+        store
+            .save_account(account.clone())
+            .await
+            .expect("Can't save account");
+
+        account.lock().await.shared = true;
+
+        store
+            .save_account(account.clone())
+            .await
+            .expect("Can't save account");
+
+        let loaded_account = store.load_account().await.expect("Can't load account");
+        let loaded_account = loaded_account.unwrap();
+        let acc = account.lock().await;
+
+        assert_eq!(*acc, loaded_account);
+    }
 }
