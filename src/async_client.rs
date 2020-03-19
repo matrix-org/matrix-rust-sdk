@@ -21,6 +21,7 @@ use std::sync::{Arc, Mutex, RwLock as SyncLock};
 use std::time::{Duration, Instant};
 use tokio::sync::RwLock;
 use tokio::time::delay_for as sleep;
+use tracing::{debug, info, instrument, trace};
 
 use http::Method as HttpMethod;
 use http::Response as HttpResponse;
@@ -61,6 +62,12 @@ pub struct AsyncClient {
     transaction_id: Arc<AtomicU64>,
     /// Event callbacks
     event_callbacks: Arc<Mutex<Vec<RoomEventCallback>>>,
+}
+
+impl std::fmt::Debug for AsyncClient {
+    fn fmt(&self, fmt: &mut std::fmt::Formatter<'_>) -> StdResult<(), std::fmt::Error> {
+        write!(fmt, "AsyncClient {{ homeserver: {} }}", self.homeserver)
+    }
 }
 
 #[derive(Default, Debug)]
@@ -336,12 +343,15 @@ impl AsyncClient {
     ///     not given the homeserver will create one. Can be an exising
     ///     device_id from a previous login call. Note that this should be done
     ///     only if the client also holds the encryption keys for this devcie.
-    pub async fn login<S: Into<String>>(
+    #[instrument(skip(password))]
+    pub async fn login<S: Into<String> + std::fmt::Debug>(
         &mut self,
         user: S,
         password: S,
         device_id: Option<S>,
     ) -> Result<login::Response> {
+        info!("Logging in to {} as {:?}", self.homeserver, user);
+
         let request = login::Request {
             user: login::UserInfo::MatrixId(user.into()),
             login_info: login::LoginInfo::Password {
@@ -363,6 +373,7 @@ impl AsyncClient {
     /// # Arguments
     ///
     /// * `sync_settings` - Settings for the sync call.
+    #[instrument]
     pub async fn sync(
         &mut self,
         sync_settings: SyncSettings,
@@ -478,6 +489,7 @@ impl AsyncClient {
     ///     .await;
     /// })
     /// ```
+    #[instrument(skip(callback))]
     pub async fn sync_forever<C>(
         &mut self,
         sync_settings: SyncSettings,
@@ -534,7 +546,7 @@ impl AsyncClient {
         }
     }
 
-    async fn send<Request: Endpoint>(
+    async fn send<Request: Endpoint + std::fmt::Debug>(
         &self,
         request: Request,
     ) -> Result<<Request::Response as Outgoing>::Incoming>
@@ -550,6 +562,8 @@ impl AsyncClient {
             .homeserver
             .join(url.path_and_query().unwrap().as_str())
             .unwrap();
+
+        trace!("Doing request {:?}", url);
 
         let request_builder = match Request::METADATA.method {
             HttpMethod::GET => self.http_client.get(url),
@@ -577,12 +591,23 @@ impl AsyncClient {
             request_builder
         };
 
-        let response = request_builder.send().await?;
+        let mut response = request_builder.send().await?;
+
+        trace!("Got response: {:?}", response);
 
         let status = response.status();
+        let mut http_response = HttpResponse::builder().status(status);
+        let headers = http_response.headers_mut().unwrap();
+
+        for (k, v) in response.headers_mut().drain() {
+            if let Some(key) = k {
+                headers.insert(key, v);
+            }
+        }
+
         let body = response.bytes().await?.as_ref().to_owned();
-        let response = HttpResponse::builder().status(status).body(body).unwrap();
-        let response = <Request::Response as Outgoing>::Incoming::try_from(response)?;
+        let http_response = http_response.body(body).unwrap();
+        let response = <Request::Response as Outgoing>::Incoming::try_from(http_response)?;
 
         Ok(response)
     }
@@ -627,6 +652,8 @@ impl AsyncClient {
     /// Panics if the client isn't logged in, or if no encryption keys need to
     /// be uploaded.
     #[cfg(feature = "encryption")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "encryption")))]
+    #[instrument]
     async fn keys_upload(&self) -> Result<upload_keys::Response> {
         let (device_keys, one_time_keys) = self
             .base_client
@@ -635,6 +662,13 @@ impl AsyncClient {
             .keys_for_upload()
             .await
             .expect("Keys don't need to be uploaded");
+
+        debug!(
+            "Uploading encryption keys device keys: {}, one-time-keys: {}",
+            device_keys.is_some(),
+            one_time_keys.as_ref().map_or(0, |k| k.len())
+        );
+
         let request = upload_keys::Request {
             device_keys,
             one_time_keys,

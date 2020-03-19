@@ -33,6 +33,7 @@ use olm_rs::utility::OlmUtility;
 use serde_json::json;
 use serde_json::Value;
 use tokio::sync::Mutex;
+use tracing::{debug, info, instrument, warn};
 
 use ruma_client_api::r0::keys::{
     AlgorithmAndDeviceId, DeviceKeys, KeyAlgorithm, OneTimeKey, SignedKey,
@@ -83,6 +84,7 @@ impl OlmMachine {
     }
 
     #[cfg(feature = "sqlite-cryptostore")]
+    #[instrument(skip(path, passphrase))]
     pub async fn new_with_sqlite_store<P: AsRef<Path>>(
         user_id: &UserId,
         device_id: &str,
@@ -94,8 +96,14 @@ impl OlmMachine {
                 .await?;
 
         let account = match store.load_account().await? {
-            Some(a) => a,
-            None => Account::new(),
+            Some(a) => {
+                debug!("Restored account");
+                a
+            }
+            None => {
+                debug!("Creating a new account");
+                Account::new()
+            }
         };
 
         Ok(OlmMachine {
@@ -131,11 +139,15 @@ impl OlmMachine {
     ///
     /// * `response` - The keys upload response of the request that the client
     /// performed.
+    #[instrument]
     pub async fn receive_keys_upload_response(
         &mut self,
         response: &keys::upload_keys::Response,
     ) -> Result<()> {
         let mut account = self.account.lock().await;
+        if !account.shared {
+            debug!("Marking account as shared");
+        }
         account.shared = true;
 
         let one_time_key_count = response
@@ -143,6 +155,11 @@ impl OlmMachine {
             .get(&keys::KeyAlgorithm::SignedCurve25519);
 
         let count: u64 = one_time_key_count.map_or(0, |c| (*c).into());
+        debug!(
+            "Updated uploaded one-time key count {} -> {}, marking keys as published",
+            self.uploaded_signed_key_count.as_ref().map_or(0, |c| *c),
+            count
+        );
         self.uploaded_signed_key_count = Some(count);
 
         account.mark_keys_as_published();
@@ -374,7 +391,9 @@ impl OlmMachine {
     /// # Arguments
     ///
     /// * `event` - The to-device event that should be decrypted.
+    #[instrument]
     fn decrypt_to_device_event(&self, _: &ToDeviceEncrypted) -> StdResult<ToDeviceEvent, ()> {
+        info!("Decrypting to-device event");
         Err(())
     }
 
@@ -386,6 +405,7 @@ impl OlmMachine {
         // TODO handle to-device verification events here.
     }
 
+    #[instrument]
     pub fn receive_sync_response(&mut self, response: &mut SyncResponse) {
         let one_time_key_count = response
             .device_one_time_keys_count
@@ -399,9 +419,11 @@ impl OlmMachine {
                 e
             } else {
                 // Skip invalid events.
-                // TODO log here
+                warn!("Received an invalid to-device event {:?}", event);
                 continue;
             };
+
+            info!("Received a to-device event {:?}", event);
 
             match event {
                 ToDeviceEvent::RoomEncrypted(e) => {

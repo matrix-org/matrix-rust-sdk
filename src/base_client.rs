@@ -327,6 +327,7 @@ impl Client {
 
     /// Should account or one-time keys be uploaded to the server.
     #[cfg(feature = "encryption")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "encryption")))]
     pub async fn should_upload_keys(&self) -> bool {
         let olm = self.olm.lock().await;
 
@@ -340,6 +341,7 @@ impl Client {
     ///
     /// Returns an empty error if no keys need to be uploaded.
     #[cfg(feature = "encryption")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "encryption")))]
     pub async fn keys_for_upload(
         &self,
     ) -> StdResult<(Option<DeviceKeys>, Option<OneTimeKeys>), ()> {
@@ -361,6 +363,7 @@ impl Client {
     /// # Panics
     /// Panics if the client hasn't been logged in.
     #[cfg(feature = "encryption")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "encryption")))]
     pub async fn receive_keys_upload_response(&self, response: &KeysUploadResponse) -> Result<()> {
         let mut olm = self.olm.lock().await;
 

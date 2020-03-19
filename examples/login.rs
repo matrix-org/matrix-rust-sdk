@@ -48,13 +48,15 @@ async fn login(
     client.add_event_callback(async_cb);
 
     client.login(username, password, None).await?;
-    let _response = client.sync(SyncSettings::new()).await?;
+    client.sync_forever(SyncSettings::new(), |_| async {}).await;
 
     Ok(())
 }
 
 #[tokio::main]
 async fn main() -> Result<(), matrix_sdk::Error> {
+    tracing_subscriber::fmt::init();
+
     let (homeserver_url, username, password) =
         match (env::args().nth(1), env::args().nth(2), env::args().nth(3)) {
             (Some(a), Some(b), Some(c)) => (a, b, c),
