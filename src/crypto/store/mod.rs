@@ -13,7 +13,9 @@
 // limitations under the License.
 
 use core::fmt::Debug;
+use std::collections::HashMap;
 use std::io::Error as IoError;
+use std::result::Result as StdResult;
 use std::sync::Arc;
 use url::ParseError;
 
@@ -21,7 +23,7 @@ use async_trait::async_trait;
 use thiserror::Error;
 use tokio::sync::Mutex;
 
-use super::olm::Account;
+use super::olm::{Account, Session};
 use olm_rs::errors::OlmAccountError;
 use olm_rs::PicklingMode;
 
@@ -52,17 +54,21 @@ pub type Result<T> = std::result::Result<T, CryptoStoreError>;
 pub trait CryptoStore: Debug {
     async fn load_account(&mut self) -> Result<Option<Account>>;
     async fn save_account(&mut self, account: Arc<Mutex<Account>>) -> Result<()>;
+    async fn sessions_mut(&mut self, sender_key: &str) -> Result<Option<&mut Vec<Session>>>;
 }
 
-#[derive(Debug)]
 pub struct MemoryStore {
     pub(crate) account_info: Option<(String, bool)>,
+    sessions: HashMap<String, Vec<Session>>,
 }
 
 impl MemoryStore {
     /// Create a new empty memory store.
     pub fn new() -> Self {
-        MemoryStore { account_info: None }
+        MemoryStore {
+            account_info: None,
+            sessions: HashMap::new(),
+        }
     }
 }
 
@@ -85,5 +91,23 @@ impl CryptoStore for MemoryStore {
         let pickle = acc.pickle(PicklingMode::Unencrypted);
         self.account_info = Some((pickle, acc.shared));
         Ok(())
+    }
+
+    async fn sessions_mut<'a>(
+        &'a mut self,
+        sender_key: &str,
+    ) -> Result<Option<&'a mut Vec<Session>>> {
+        Ok(self.sessions.get_mut(sender_key))
+    }
+}
+
+impl std::fmt::Debug for MemoryStore {
+    fn fmt(&self, fmt: &mut std::fmt::Formatter<'_>) -> StdResult<(), std::fmt::Error> {
+        write!(
+            fmt,
+            "MemoryStore {{ account_stored: {}, account shared: {} }}",
+            self.account_info.is_some(),
+            self.account_info.as_ref().map_or(false, |a| a.1)
+        )
     }
 }

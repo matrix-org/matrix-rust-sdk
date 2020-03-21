@@ -23,7 +23,7 @@ use sqlx::{query, query_as, sqlite::SqliteQueryAs, Connect, Executor, SqliteConn
 use tokio::sync::Mutex;
 use zeroize::Zeroizing;
 
-use super::{Account, CryptoStore, Result};
+use super::{Account, CryptoStore, Result, Session};
 
 pub struct SqliteStore {
     user_id: Arc<String>,
@@ -167,6 +167,13 @@ impl CryptoStore for SqliteStore {
         .await?;
 
         Ok(())
+    }
+
+    async fn sessions_mut<'a>(
+        &'a mut self,
+        sender_key: &str,
+    ) -> Result<Option<&'a mut Vec<Session>>> {
+        todo!()
     }
 }
 

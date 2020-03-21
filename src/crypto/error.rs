@@ -25,6 +25,10 @@ pub enum OlmError {
     Signature(#[from] SignatureError),
     #[error("failed to read or write to the crypto store {0}")]
     Store(#[from] CryptoStoreError),
+    #[error("decryption failed likely because a Olm session was wedged")]
+    SessionWedged,
+    #[error("the Olm message has a unsupported type")]
+    UnsupportedOlmType,
 }
 
 pub type VerificationResult<T> = std::result::Result<T, SignatureError>;

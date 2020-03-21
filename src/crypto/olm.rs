@@ -13,9 +13,11 @@
 // limitations under the License.
 
 use std::fmt;
+use std::time::Instant;
 
 use olm_rs::account::{IdentityKeys, OlmAccount, OneTimeKeys};
-use olm_rs::errors::OlmAccountError;
+use olm_rs::errors::{OlmAccountError, OlmSessionError};
+use olm_rs::session::{OlmMessage, OlmSession, PreKeyMessage};
 use olm_rs::PicklingMode;
 
 pub struct Account {
@@ -39,6 +41,7 @@ impl fmt::Debug for Account {
 /// any synchronization. We're wrapping the whole Olm machine inside a Mutex to
 /// get Sync for it
 unsafe impl Send for Account {}
+unsafe impl Send for Session {}
 
 impl Account {
     /// Create a new account.
@@ -97,11 +100,52 @@ impl Account {
         let acc = OlmAccount::unpickle(pickle, pickling_mode)?;
         Ok(Account { inner: acc, shared })
     }
+
+    pub fn create_inbound_session_from(
+        &self,
+        their_identity_key: &str,
+        message: PreKeyMessage,
+    ) -> Result<Session, OlmSessionError> {
+        let session = self
+            .inner
+            .create_inbound_session_from(their_identity_key, message)?;
+
+        let now = Instant::now();
+
+        Ok(Session {
+            inner: session,
+            creation_time: now.clone(),
+            last_use_time: now,
+        })
+    }
 }
 
 impl PartialEq for Account {
     fn eq(&self, other: &Self) -> bool {
         self.identity_keys() == other.identity_keys() && self.shared == other.shared
+    }
+}
+
+pub struct Session {
+    inner: OlmSession,
+    creation_time: Instant,
+    last_use_time: Instant,
+}
+
+impl Session {
+    pub fn decrypt(&mut self, message: OlmMessage) -> Result<String, OlmSessionError> {
+        let plaintext = self.inner.decrypt(message)?;
+        self.last_use_time = Instant::now();
+        Ok(plaintext)
+    }
+
+    pub fn matches(
+        &self,
+        their_identity_key: &str,
+        message: PreKeyMessage,
+    ) -> Result<bool, OlmSessionError> {
+        self.inner
+            .matches_inbound_session_from(their_identity_key, message)
     }
 }
 

@@ -14,11 +14,12 @@
 
 use std::collections::HashMap;
 use std::convert::TryInto;
+#[cfg(feature = "sqlite-cryptostore")]
 use std::path::Path;
 use std::result::Result as StdResult;
 use std::sync::Arc;
 
-use super::error::{Result, SignatureError, VerificationResult};
+use super::error::{OlmError, Result, SignatureError, VerificationResult};
 use super::olm::Account;
 #[cfg(feature = "sqlite-cryptostore")]
 use super::store::sqlite::SqliteStore;
@@ -29,17 +30,19 @@ use crate::api;
 use api::r0::keys;
 
 use cjson;
+use olm_rs::session::OlmMessage;
 use olm_rs::utility::OlmUtility;
 use serde_json::json;
 use serde_json::Value;
 use tokio::sync::Mutex;
-use tracing::{debug, info, instrument, warn};
+use tracing::{debug, info, instrument, trace, warn};
 
 use ruma_client_api::r0::keys::{
     AlgorithmAndDeviceId, DeviceKeys, KeyAlgorithm, OneTimeKey, SignedKey,
 };
 use ruma_client_api::r0::sync::sync_events::IncomingResponse as SyncResponse;
 use ruma_events::{
+    room::encrypted::EncryptedEventContent,
     to_device::{AnyToDeviceEvent as ToDeviceEvent, ToDeviceEncrypted, ToDeviceRoomKeyRequest},
     Algorithm, EventResult,
 };
@@ -383,6 +386,71 @@ impl OlmMachine {
         Ok((device_keys, one_time_keys))
     }
 
+    async fn try_decrypt_olm_event(
+        &mut self,
+        sender_key: &str,
+        message: &OlmMessage,
+    ) -> Result<Option<String>> {
+        let mut s = self.store.sessions_mut(sender_key).await?;
+
+        let sessions = if let Some(s) = s {
+            s
+        } else {
+            return Ok(None);
+        };
+
+        for session in sessions.iter_mut() {
+            let mut matches = false;
+
+            if let OlmMessage::PreKey(m) = &message {
+                matches = session.matches(sender_key, m.clone()).unwrap();
+                if !matches {
+                    continue;
+                }
+            }
+
+            let ret = session.decrypt(message.clone());
+
+            if let Ok(p) = ret {
+                // TODO save the session.
+                return Ok(Some(p));
+            } else {
+                if matches {
+                    return Err(OlmError::SessionWedged);
+                }
+            }
+        }
+
+        Ok(None)
+    }
+
+    async fn decrypt_olm_message(
+        &mut self,
+        sender: &str,
+        sender_key: &str,
+        message: OlmMessage,
+    ) -> Result<Option<ToDeviceEvent>> {
+        let plaintext = if let Some(p) = self.try_decrypt_olm_event(sender_key, &message).await? {
+            p
+        } else {
+            let mut session = match &message {
+                OlmMessage::Message(_) => return Err(OlmError::SessionWedged),
+                OlmMessage::PreKey(m) => {
+                    let account = self.account.lock().await;
+                    account
+                        .create_inbound_session_from(sender_key, m.clone())
+                        .unwrap()
+                }
+            };
+
+            session.decrypt(message).unwrap()
+            // TODO save the session
+        };
+
+        // TODO convert the plaintext to a ruma event.
+        todo!()
+    }
+
     /// Decrypt a to-device event.
     ///
     /// Returns a decrypted `ToDeviceEvent` if the decryption was successful,
@@ -392,9 +460,31 @@ impl OlmMachine {
     ///
     /// * `event` - The to-device event that should be decrypted.
     #[instrument]
-    fn decrypt_to_device_event(&self, _: &ToDeviceEncrypted) -> StdResult<ToDeviceEvent, ()> {
+    async fn decrypt_to_device_event(
+        &self,
+        event: &ToDeviceEncrypted,
+    ) -> Result<Option<ToDeviceEvent>> {
         info!("Decrypting to-device event");
-        Err(())
+
+        let content = if let EncryptedEventContent::OlmV1Curve25519AesSha2(c) = &event.content {
+            c
+        } else {
+            warn!("Error, unsupported encryption algorithm");
+            return Ok(None);
+        };
+
+        let identity_keys = self.account.lock().await.identity_keys();
+        let own_key = identity_keys.curve25519();
+        let own_ciphertext = content.ciphertext.get(own_key);
+
+        if let Some(ciphertext) = own_ciphertext {
+            let message_type: u8 = ciphertext.message_type.try_into().unwrap();
+            let message =
+                OlmMessage::from_type_and_ciphertext(message_type.into(), ciphertext.body.clone())
+                    .map_err(|_| OlmError::UnsupportedOlmType);
+        }
+
+        todo!()
     }
 
     fn handle_room_key_request(&self, _: &ToDeviceRoomKeyRequest) {
@@ -405,7 +495,7 @@ impl OlmMachine {
         // TODO handle to-device verification events here.
     }
 
-    #[instrument]
+    #[instrument(skip(response))]
     pub fn receive_sync_response(&mut self, response: &mut SyncResponse) {
         let one_time_key_count = response
             .device_one_time_keys_count
