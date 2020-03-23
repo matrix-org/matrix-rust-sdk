@@ -320,7 +320,7 @@ impl Client {
             let mut olm = self.olm.lock().await;
 
             if let Some(o) = &mut *olm {
-                o.receive_sync_response(response);
+                o.receive_sync_response(response).await;
             }
         }
     }

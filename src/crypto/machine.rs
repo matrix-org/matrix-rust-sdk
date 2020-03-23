@@ -403,7 +403,7 @@ impl OlmMachine {
             let mut matches = false;
 
             if let OlmMessage::PreKey(m) = &message {
-                matches = session.matches(sender_key, m.clone()).unwrap();
+                matches = session.matches(sender_key, m.clone())?;
                 if !matches {
                     continue;
                 }
@@ -429,7 +429,7 @@ impl OlmMachine {
         sender: &str,
         sender_key: &str,
         message: OlmMessage,
-    ) -> Result<Option<ToDeviceEvent>> {
+    ) -> Result<EventResult<ToDeviceEvent>> {
         let plaintext = if let Some(p) = self.try_decrypt_olm_event(sender_key, &message).await? {
             p
         } else {
@@ -437,18 +437,24 @@ impl OlmMachine {
                 OlmMessage::Message(_) => return Err(OlmError::SessionWedged),
                 OlmMessage::PreKey(m) => {
                     let account = self.account.lock().await;
-                    account
-                        .create_inbound_session_from(sender_key, m.clone())
-                        .unwrap()
+                    account.create_inbound_session_from(sender_key, m.clone())?
                 }
             };
 
-            session.decrypt(message).unwrap()
+            session.decrypt(message)?
             // TODO save the session
         };
 
         // TODO convert the plaintext to a ruma event.
-        todo!()
+        let mut json_plaintext = serde_json::from_str::<Value>(&plaintext)?;
+        let json_object = json_plaintext
+            .as_object_mut()
+            .ok_or(OlmError::NotAnObject)?;
+        json_object.insert("sender".to_owned(), sender.into());
+
+        Ok(serde_json::from_value::<EventResult<ToDeviceEvent>>(
+            json_plaintext,
+        )?)
     }
 
     /// Decrypt a to-device event.
@@ -461,16 +467,16 @@ impl OlmMachine {
     /// * `event` - The to-device event that should be decrypted.
     #[instrument]
     async fn decrypt_to_device_event(
-        &self,
+        &mut self,
         event: &ToDeviceEncrypted,
-    ) -> Result<Option<ToDeviceEvent>> {
+    ) -> Result<EventResult<ToDeviceEvent>> {
         info!("Decrypting to-device event");
 
         let content = if let EncryptedEventContent::OlmV1Curve25519AesSha2(c) = &event.content {
             c
         } else {
             warn!("Error, unsupported encryption algorithm");
-            return Ok(None);
+            return Err(OlmError::UnsupportedAlgorithm);
         };
 
         let identity_keys = self.account.lock().await.identity_keys();
@@ -478,13 +484,21 @@ impl OlmMachine {
         let own_ciphertext = content.ciphertext.get(own_key);
 
         if let Some(ciphertext) = own_ciphertext {
-            let message_type: u8 = ciphertext.message_type.try_into().unwrap();
+            let message_type: u8 = ciphertext
+                .message_type
+                .try_into()
+                .map_err(|_| OlmError::UnsupportedOlmType)?;
             let message =
                 OlmMessage::from_type_and_ciphertext(message_type.into(), ciphertext.body.clone())
-                    .map_err(|_| OlmError::UnsupportedOlmType);
-        }
+                    .map_err(|_| OlmError::UnsupportedOlmType)?;
 
-        todo!()
+            Ok(self
+                .decrypt_olm_message(&event.sender.to_string(), &content.sender_key, message)
+                .await?)
+        } else {
+            warn!("Olm event doesn't contain a ciphertext for our key");
+            Err(OlmError::MissingCiphertext)
+        }
     }
 
     fn handle_room_key_request(&self, _: &ToDeviceRoomKeyRequest) {
@@ -496,7 +510,7 @@ impl OlmMachine {
     }
 
     #[instrument(skip(response))]
-    pub fn receive_sync_response(&mut self, response: &mut SyncResponse) {
+    pub async fn receive_sync_response(&mut self, response: &mut SyncResponse) {
         let one_time_key_count = response
             .device_one_time_keys_count
             .get(&keys::KeyAlgorithm::SignedCurve25519);
@@ -519,7 +533,8 @@ impl OlmMachine {
                 ToDeviceEvent::RoomEncrypted(e) => {
                     // TODO put the decrypted event into a vec so we can replace
                     // them in the sync response.
-                    let _ = self.decrypt_to_device_event(e);
+                    let decrypted_event = self.decrypt_to_device_event(e).await;
+                    info!("Decrypted a to-device event {:?}", decrypted_event);
                 }
                 ToDeviceEvent::RoomKeyRequest(e) => self.handle_room_key_request(e),
                 ToDeviceEvent::KeyVerificationAccept(..)

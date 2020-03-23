@@ -13,6 +13,8 @@
 // limitations under the License.
 
 use cjson::Error as CjsonError;
+use olm_rs::errors::OlmSessionError;
+use serde_json::Error as SerdeError;
 use thiserror::Error;
 
 use super::store::CryptoStoreError;
@@ -29,6 +31,16 @@ pub enum OlmError {
     SessionWedged,
     #[error("the Olm message has a unsupported type")]
     UnsupportedOlmType,
+    #[error("the Encrypted message has been encrypted with a unsupported algorithm.")]
+    UnsupportedAlgorithm,
+    #[error("the Encrypted message doesn't contain a ciphertext for our device")]
+    MissingCiphertext,
+    #[error("can't finish Olm Session operation {0}")]
+    OlmSessionError(#[from] OlmSessionError),
+    #[error("error deserializing a string to json")]
+    JsonError(#[from] SerdeError),
+    #[error("the provided JSON value isn't an object")]
+    NotAnObject,
 }
 
 pub type VerificationResult<T> = std::result::Result<T, SignatureError>;

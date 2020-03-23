@@ -12,9 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// TODO remove this.
 mod error;
-#[allow(dead_code)]
+// TODO remove this.
 mod machine;
 #[allow(dead_code)]
 mod olm;
