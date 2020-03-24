@@ -43,7 +43,10 @@ use ruma_client_api::r0::keys::{
 use ruma_client_api::r0::sync::sync_events::IncomingResponse as SyncResponse;
 use ruma_events::{
     room::encrypted::EncryptedEventContent,
-    to_device::{AnyToDeviceEvent as ToDeviceEvent, ToDeviceEncrypted, ToDeviceRoomKeyRequest},
+    to_device::{
+        AnyToDeviceEvent as ToDeviceEvent, ToDeviceEncrypted, ToDeviceForwardedRoomKey,
+        ToDeviceRoomKey, ToDeviceRoomKeyRequest,
+    },
     Algorithm, EventResult,
 };
 use ruma_identifiers::{DeviceId, UserId};
@@ -446,14 +449,9 @@ impl OlmMachine {
         };
 
         // TODO convert the plaintext to a ruma event.
-        let mut json_plaintext = serde_json::from_str::<Value>(&plaintext)?;
-        let json_object = json_plaintext
-            .as_object_mut()
-            .ok_or(OlmError::NotAnObject)?;
-        json_object.insert("sender".to_owned(), sender.into());
-
-        Ok(serde_json::from_value::<EventResult<ToDeviceEvent>>(
-            json_plaintext,
+        trace!("Successfully decrypted a Olm message: {}", plaintext);
+        Ok(serde_json::from_str::<EventResult<ToDeviceEvent>>(
+            &plaintext,
         )?)
     }
 
@@ -501,6 +499,35 @@ impl OlmMachine {
         }
     }
 
+    fn add_room_key(&self, event: &ToDeviceRoomKey) {
+        match event.content.algorithm {
+            Algorithm::MegolmV1AesSha2 => {}
+            _ => warn!(
+                "Received room key with unsupported key algorithm {}",
+                event.content.algorithm
+            ),
+        }
+    }
+
+    fn add_forwarded_room_key(&self, event: &ToDeviceForwardedRoomKey) {
+        // TODO
+    }
+
+    fn handle_decrypted_to_device_event(&self, event: &EventResult<ToDeviceEvent>) {
+        let event = if let EventResult::Ok(e) = event {
+            e
+        } else {
+            warn!("Decrypted to-device event failed to be parsed correctly");
+            return;
+        };
+
+        match event {
+            ToDeviceEvent::RoomKey(e) => self.add_room_key(e),
+            ToDeviceEvent::ForwardedRoomKey(e) => self.add_forwarded_room_key(e),
+            _ => warn!("Received a unexpected encrypted to-device event"),
+        }
+    }
+
     fn handle_room_key_request(&self, _: &ToDeviceRoomKeyRequest) {
         // TODO handle room key requests here.
     }
@@ -533,8 +560,21 @@ impl OlmMachine {
                 ToDeviceEvent::RoomEncrypted(e) => {
                     // TODO put the decrypted event into a vec so we can replace
                     // them in the sync response.
-                    let decrypted_event = self.decrypt_to_device_event(e).await;
-                    info!("Decrypted a to-device event {:?}", decrypted_event);
+                    let decrypted_event = match self.decrypt_to_device_event(e).await {
+                        Ok(e) => e,
+                        Err(err) => {
+                            warn!(
+                                "Failed to decrypt to-device event from {} {}",
+                                e.sender, err
+                            );
+                            // TODO if the session is wedged mark it for
+                            // unwedging.
+                            continue;
+                        }
+                    };
+
+                    debug!("Decrypted a to-device event {:?}", decrypted_event);
+                    self.handle_decrypted_to_device_event(&decrypted_event);
                 }
                 ToDeviceEvent::RoomKeyRequest(e) => self.handle_room_key_request(e),
                 ToDeviceEvent::KeyVerificationAccept(..)
