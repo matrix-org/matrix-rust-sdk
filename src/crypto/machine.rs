@@ -20,6 +20,7 @@ use std::result::Result as StdResult;
 use std::sync::Arc;
 
 use super::error::{OlmError, Result, SignatureError, VerificationResult};
+use super::memory_stores::GroupSessionStore;
 use super::olm::Account;
 #[cfg(feature = "sqlite-cryptostore")]
 use super::store::sqlite::SqliteStore;
@@ -30,10 +31,10 @@ use crate::api;
 use api::r0::keys;
 
 use cjson;
-use olm_rs::session::OlmMessage;
-use olm_rs::utility::OlmUtility;
-use serde_json::json;
-use serde_json::Value;
+use olm_rs::{
+    inbound_group_session::OlmInboundGroupSession, session::OlmMessage, utility::OlmUtility,
+};
+use serde_json::{json, Value};
 use tokio::sync::Mutex;
 use tracing::{debug, info, instrument, trace, warn};
 
@@ -70,6 +71,8 @@ pub struct OlmMachine {
     /// Persists all the encrytpion keys so a client can resume the session
     /// without the need to create new keys.
     store: Box<dyn CryptoStore>,
+    /// A cache of all the inbound group sessions we know about.
+    inbound_group_sessions: GroupSessionStore,
 }
 
 impl OlmMachine {
@@ -86,6 +89,7 @@ impl OlmMachine {
             account: Arc::new(Mutex::new(Account::new())),
             uploaded_signed_key_count: None,
             store: Box::new(MemoryStore::new()),
+            inbound_group_sessions: GroupSessionStore::new(),
         })
     }
 
@@ -118,6 +122,7 @@ impl OlmMachine {
             account: Arc::new(Mutex::new(account)),
             uploaded_signed_key_count: None,
             store: Box::new(store),
+            inbound_group_sessions: GroupSessionStore::new(),
         })
     }
 
@@ -490,18 +495,27 @@ impl OlmMachine {
                 OlmMessage::from_type_and_ciphertext(message_type.into(), ciphertext.body.clone())
                     .map_err(|_| OlmError::UnsupportedOlmType)?;
 
-            Ok(self
+            let decrypted_event = self
                 .decrypt_olm_message(&event.sender.to_string(), &content.sender_key, message)
-                .await?)
+                .await?;
+            debug!("Decrypted a to-device event {:?}", decrypted_event);
+            self.handle_decrypted_to_device_event(&content.sender_key, &decrypted_event);
+
+            Ok(decrypted_event)
         } else {
             warn!("Olm event doesn't contain a ciphertext for our key");
             Err(OlmError::MissingCiphertext)
         }
     }
 
-    fn add_room_key(&self, event: &ToDeviceRoomKey) {
+    fn add_room_key(&mut self, sender_key: &str, event: &ToDeviceRoomKey) {
         match event.content.algorithm {
-            Algorithm::MegolmV1AesSha2 => {}
+            Algorithm::MegolmV1AesSha2 => {
+                // TODO check for all the valid fields.
+                let session = OlmInboundGroupSession::new(&event.content.session_key).unwrap();
+                self.inbound_group_sessions
+                    .add(&event.sender.to_string(), sender_key, session);
+            }
             _ => warn!(
                 "Received room key with unsupported key algorithm {}",
                 event.content.algorithm
@@ -513,7 +527,11 @@ impl OlmMachine {
         // TODO
     }
 
-    fn handle_decrypted_to_device_event(&self, event: &EventResult<ToDeviceEvent>) {
+    fn handle_decrypted_to_device_event(
+        &mut self,
+        sender_key: &str,
+        event: &EventResult<ToDeviceEvent>,
+    ) {
         let event = if let EventResult::Ok(e) = event {
             e
         } else {
@@ -522,7 +540,7 @@ impl OlmMachine {
         };
 
         match event {
-            ToDeviceEvent::RoomKey(e) => self.add_room_key(e),
+            ToDeviceEvent::RoomKey(e) => self.add_room_key(sender_key, e),
             ToDeviceEvent::ForwardedRoomKey(e) => self.add_forwarded_room_key(e),
             _ => warn!("Received a unexpected encrypted to-device event"),
         }
@@ -572,9 +590,6 @@ impl OlmMachine {
                             continue;
                         }
                     };
-
-                    debug!("Decrypted a to-device event {:?}", decrypted_event);
-                    self.handle_decrypted_to_device_event(&decrypted_event);
                 }
                 ToDeviceEvent::RoomKeyRequest(e) => self.handle_room_key_request(e),
                 ToDeviceEvent::KeyVerificationAccept(..)

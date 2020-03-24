@@ -15,6 +15,7 @@
 mod error;
 // TODO remove this.
 mod machine;
+mod memory_stores;
 #[allow(dead_code)]
 mod olm;
 mod store;
