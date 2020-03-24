@@ -30,6 +30,7 @@ use reqwest::header::{HeaderValue, InvalidHeaderValue};
 use url::Url;
 
 use ruma_api::{Endpoint, Outgoing};
+use ruma_client_api::Error as RumaClientError;
 use ruma_events::collections::all::RoomEvent;
 use ruma_events::room::message::MessageEventContent;
 use ruma_events::EventResult;
@@ -47,7 +48,7 @@ type RoomEventCallback = Box<
     dyn FnMut(Arc<SyncLock<Room>>, Arc<EventResult<RoomEvent>>) -> BoxFuture<'static, ()> + Send,
 >;
 
-const DEFAULT_SYNC_TIMEOUT: u64 = 30000;
+const DEFAULT_SYNC_TIMEOUT: Duration = Duration::from_secs(30);
 
 #[derive(Clone)]
 /// An async/await enabled Matrix client.
@@ -134,7 +135,7 @@ impl AsyncClientConfig {
 #[derive(Debug, Default, Clone)]
 /// Settings for a sync call.
 pub struct SyncSettings {
-    pub(crate) timeout: Option<UInt>,
+    pub(crate) timeout: Option<Duration>,
     pub(crate) token: Option<String>,
     pub(crate) full_state: Option<bool>,
 }
@@ -161,16 +162,9 @@ impl SyncSettings {
     /// # Arguments
     ///
     /// * `timeout` - The time the server is allowed to wait.
-    pub fn timeout<T: TryInto<UInt>>(
-        mut self,
-        timeout: T,
-    ) -> StdResult<Self, js_int::TryFromIntError>
-    where
-        js_int::TryFromIntError:
-            std::convert::From<<T as std::convert::TryInto<js_int::UInt>>::Error>,
-    {
-        self.timeout = Some(timeout.try_into()?);
-        Ok(self)
+    pub fn timeout(mut self, timeout: Duration) -> Self {
+        self.timeout = Some(timeout);
+        self
     }
 
     /// Should the server return the full state from the start of the timeline.
@@ -535,14 +529,11 @@ impl AsyncClient {
 
             last_sync_time = Some(now);
 
-            sync_settings = SyncSettings::new()
-                .timeout(DEFAULT_SYNC_TIMEOUT)
-                .expect("Default sync timeout doesn't contain a valid value")
-                .token(
-                    self.sync_token()
-                        .await
-                        .expect("No sync token found after initial sync"),
-                );
+            sync_settings = SyncSettings::new().timeout(DEFAULT_SYNC_TIMEOUT).token(
+                self.sync_token()
+                    .await
+                    .expect("No sync token found after initial sync"),
+            );
         }
     }
 
@@ -553,8 +544,13 @@ impl AsyncClient {
     where
         Request::Incoming:
             TryFrom<http::Request<Vec<u8>>, Error = ruma_api::error::FromHttpRequestError>,
-        <Request::Response as Outgoing>::Incoming:
-            TryFrom<http::Response<Vec<u8>>, Error = ruma_api::error::FromHttpResponseError>,
+        <Request::Response as Outgoing>::Incoming: TryFrom<
+            http::Response<Vec<u8>>,
+            Error = ruma_api::error::FromHttpResponseError<
+                <Request as ruma_api::Endpoint>::ResponseError,
+            >,
+        >,
+        <Request as ruma_api::Endpoint>::ResponseError: std::fmt::Debug,
     {
         let request: http::Request<Vec<u8>> = request.try_into()?;
         let url = request.uri();
@@ -607,7 +603,8 @@ impl AsyncClient {
 
         let body = response.bytes().await?.as_ref().to_owned();
         let http_response = http_response.body(body).unwrap();
-        let response = <Request::Response as Outgoing>::Incoming::try_from(http_response)?;
+        let response = <Request::Response as Outgoing>::Incoming::try_from(http_response)
+            .expect("Can't convert http response into ruma response");
 
         Ok(response)
     }

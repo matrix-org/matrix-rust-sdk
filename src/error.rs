@@ -18,6 +18,7 @@
 use reqwest::Error as ReqwestError;
 use ruma_api::error::FromHttpResponseError as RumaResponseError;
 use ruma_api::error::IntoHttpError as RumaIntoHttpError;
+use ruma_client_api::Error as RumaClientError;
 use thiserror::Error;
 use url::ParseError;
 
@@ -41,7 +42,7 @@ pub enum Error {
     Uri(#[from] ParseError),
     /// An error converting between ruma_client_api types and Hyper types.
     #[error("can't parse the JSON response as a Matrix response")]
-    RumaResponse(RumaResponseError),
+    RumaResponse(RumaResponseError<RumaClientError>),
     /// An error converting between ruma_client_api types and Hyper types.
     #[error("can't convert between ruma_client_api and hyper types.")]
     IntoHttp(RumaIntoHttpError),
@@ -51,8 +52,8 @@ pub enum Error {
     OlmError(#[from] OlmError),
 }
 
-impl From<RumaResponseError> for Error {
-    fn from(error: RumaResponseError) -> Self {
+impl From<RumaResponseError<RumaClientError>> for Error {
+    fn from(error: RumaResponseError<RumaClientError>) -> Self {
         Self::RumaResponse(error)
     }
 }

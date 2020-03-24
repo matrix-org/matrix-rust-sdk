@@ -7,6 +7,7 @@ use url::Url;
 
 use std::convert::TryFrom;
 use std::str::FromStr;
+use std::time::Duration;
 
 #[test]
 fn login() {
@@ -50,7 +51,7 @@ fn sync() {
 
     let mut client = AsyncClient::new(homeserver, Some(session)).unwrap();
 
-    let sync_settings = SyncSettings::new().timeout(3000).unwrap();
+    let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
 
     let response = rt.block_on(client.sync(sync_settings)).unwrap();
 
