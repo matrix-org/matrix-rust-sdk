@@ -41,7 +41,8 @@ use ruma_client_api::r0::keys::{
 };
 use ruma_client_api::r0::sync::sync_events::IncomingResponse as SyncResponse;
 use ruma_events::{
-    room::encrypted::EncryptedEventContent,
+    collections::all::RoomEvent,
+    room::encrypted::{EncryptedEvent, EncryptedEventContent},
     to_device::{
         AnyToDeviceEvent as ToDeviceEvent, ToDeviceEncrypted, ToDeviceForwardedRoomKey,
         ToDeviceRoomKey, ToDeviceRoomKeyRequest,
@@ -622,6 +623,52 @@ impl OlmMachine {
                 _ => continue,
             }
         }
+    }
+
+    pub async fn decrypt_room_event(
+        &self,
+        event: &EncryptedEvent,
+    ) -> Result<EventResult<RoomEvent>> {
+        let content = match &event.content {
+            EncryptedEventContent::MegolmV1AesSha2(c) => c,
+            _ => return Err(OlmError::UnsupportedAlgorithm),
+        };
+
+        let room_id = event.room_id.as_ref().unwrap();
+
+        let session = self.inbound_group_sessions.get(
+            &room_id.to_string(),
+            &content.sender_key,
+            &content.session_id,
+        );
+        // TODO check if the olm session is wedged and re-request the key.
+        let session = session.ok_or(OlmError::MissingSession)?;
+
+        let (plaintext, _) = session.decrypt(content.ciphertext.clone())?;
+        // TODO check the message index.
+        // TODO check if this is from a verified device.
+
+        let mut decrypted_value = serde_json::from_str::<Value>(&plaintext)?;
+        let decrypted_object = decrypted_value
+            .as_object_mut()
+            .ok_or(OlmError::NotAnObject)?;
+
+        let server_ts: u64 = event.origin_server_ts.into();
+
+        decrypted_object.insert("sender".to_owned(), event.sender.to_string().into());
+        decrypted_object.insert("event_id".to_owned(), event.event_id.to_string().into());
+        decrypted_object.insert("origin_server_ts".to_owned(), server_ts.into());
+
+        if let Some(unsigned) = &event.unsigned {
+            decrypted_object.insert("unsigned".to_owned(), unsigned.clone());
+        }
+
+        let decrypted_event = serde_json::from_value::<EventResult<RoomEvent>>(decrypted_value)?;
+        trace!("Successfully decrypted megolm event {:?}", decrypted_event);
+        // TODO set the encryption info on the event (is it verified, was it
+        // decrypted, sender key...)
+
+        Ok(decrypted_event)
     }
 }
 

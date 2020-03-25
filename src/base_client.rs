@@ -33,9 +33,9 @@ use tokio::sync::Mutex;
 use crate::crypto::{OlmMachine, OneTimeKeys};
 #[cfg(feature = "encryption")]
 use ruma_client_api::r0::keys::{upload_keys::Response as KeysUploadResponse, DeviceKeys};
+use ruma_identifiers::RoomId;
 
 pub type Token = String;
-pub type RoomId = String;
 pub type UserId = String;
 
 #[derive(Debug)]
@@ -55,7 +55,7 @@ pub struct RoomMember {
 /// A Matrix rooom.
 pub struct Room {
     /// The unique id of the room.
-    pub room_id: RoomId,
+    pub room_id: String,
     /// The mxid of our own user.
     pub own_user_id: UserId,
     /// The mxid of the room creator.
@@ -191,7 +191,7 @@ pub struct Client {
     /// The current sync token that should be used for the next sync call.
     pub sync_token: Option<Token>,
     /// A map of the rooms our user is joined in.
-    pub joined_rooms: HashMap<RoomId, Arc<RwLock<Room>>>,
+    pub joined_rooms: HashMap<String, Arc<RwLock<Room>>>,
     #[cfg(feature = "encryption")]
     olm: Arc<Mutex<Option<OlmMachine>>>,
 }
@@ -267,25 +267,49 @@ impl Client {
 
     /// Receive a timeline event for a joined room and update the client state.
     ///
-    /// Returns true if the membership list of the room changed, false
-    /// otherwise.
+    /// If the event was a encrypted room event and decryption was successful
+    /// the decrypted event will be returned, otherwise None.
     ///
     /// # Arguments
     ///
     /// * `room_id` - The unique id of the room the event belongs to.
     ///
     /// * `event` - The event that should be handled by the client.
-    pub fn receive_joined_timeline_event(
+    pub async fn receive_joined_timeline_event(
         &mut self,
-        room_id: &str,
-        event: &EventResult<RoomEvent>,
-    ) -> bool {
+        room_id: &RoomId,
+        event: &mut EventResult<RoomEvent>,
+    ) -> Option<EventResult<RoomEvent>> {
         match event {
             EventResult::Ok(e) => {
-                let mut room = self.get_or_create_room(room_id).write().unwrap();
-                room.receive_timeline_event(e)
+                #[cfg(feature = "encryption")]
+                let mut decrypted_event = None;
+                #[cfg(not(feature = "encryption"))]
+                let decrypted_event = None;
+
+                #[cfg(feature = "encryption")]
+                {
+                    match e {
+                        RoomEvent::RoomEncrypted(e) => {
+                            e.room_id = Some(room_id.to_owned());
+                            let mut olm = self.olm.lock().await;
+
+                            if let Some(o) = &mut *olm {
+                                decrypted_event = o.decrypt_room_event(e).await.ok();
+                            }
+                        }
+                        _ => (),
+                    }
+                }
+
+                let mut room = self
+                    .get_or_create_room(&room_id.to_string())
+                    .write()
+                    .unwrap();
+                room.receive_timeline_event(e);
+                decrypted_event
             }
-            _ => false,
+            _ => None,
         }
     }
 

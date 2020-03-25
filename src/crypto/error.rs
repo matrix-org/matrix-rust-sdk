@@ -35,6 +35,8 @@ pub enum OlmError {
     UnsupportedAlgorithm,
     #[error("the Encrypted message doesn't contain a ciphertext for our device")]
     MissingCiphertext,
+    #[error("decryption failed because the session to decrypt the message is missing")]
+    MissingSession,
     #[error("can't finish Olm Session operation {0}")]
     OlmSession(#[from] OlmSessionError),
     #[error("can't finish Olm Session operation {0}")]

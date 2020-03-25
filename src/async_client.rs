@@ -25,7 +25,6 @@ use tracing::{debug, info, instrument, trace};
 
 use http::Method as HttpMethod;
 use http::Response as HttpResponse;
-use js_int::UInt;
 use reqwest::header::{HeaderValue, InvalidHeaderValue};
 use url::Url;
 
@@ -382,28 +381,33 @@ impl AsyncClient {
 
         let mut response = self.send(request).await?;
 
-        for (room_id, room) in &response.rooms.join {
-            let room_id = room_id.to_string();
+        for (room_id, room) in &mut response.rooms.join {
+            let room_id_string = room_id.to_string();
 
             let matrix_room = {
                 let mut client = self.base_client.write().await;
 
                 for event in &room.state.events {
                     if let EventResult::Ok(e) = event {
-                        client.receive_joined_state_event(&room_id, &e);
+                        client.receive_joined_state_event(&room_id_string, &e);
                     }
                 }
 
-                client.get_or_create_room(&room_id).clone()
+                client.get_or_create_room(&room_id_string).clone()
             };
 
-            for event in &room.timeline.events {
-                {
+            for mut event in &mut room.timeline.events {
+                let decrypted_event = {
                     let mut client = self.base_client.write().await;
-                    client.receive_joined_timeline_event(&room_id, &event);
-                }
+                    client
+                        .receive_joined_timeline_event(room_id, &mut event)
+                        .await
+                };
 
-                let event = Arc::new(event.clone());
+                let event = match decrypted_event {
+                    Some(e) => Arc::new(e.clone()),
+                    None => Arc::new(event.clone()),
+                };
 
                 let callbacks = {
                     let mut cb_futures = self.event_callbacks.lock().unwrap();
