@@ -12,12 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use olm_rs::inbound_group_session::OlmInboundGroupSession;
+use super::olm::InboundGroupSession;
 use std::collections::HashMap;
 
 #[derive(Debug)]
 pub struct GroupSessionStore {
-    entries: HashMap<String, HashMap<String, HashMap<String, OlmInboundGroupSession>>>,
+    entries: HashMap<String, HashMap<String, HashMap<String, InboundGroupSession>>>,
 }
 
 impl GroupSessionStore {
@@ -27,23 +27,19 @@ impl GroupSessionStore {
         }
     }
 
-    pub fn add(
-        &mut self,
-        room_id: &str,
-        sender_key: &str,
-        session: OlmInboundGroupSession,
-    ) -> bool {
-        if !self.entries.contains_key(room_id) {
-            self.entries.insert(room_id.to_owned(), HashMap::new());
+    pub fn add(&mut self, session: InboundGroupSession) -> bool {
+        if !self.entries.contains_key(&session.room_id) {
+            self.entries
+                .insert(session.room_id.to_owned(), HashMap::new());
         }
 
-        let mut room_map = self.entries.get_mut(room_id).unwrap();
+        let mut room_map = self.entries.get_mut(&session.room_id).unwrap();
 
-        if !room_map.contains_key(sender_key) {
-            room_map.insert(sender_key.to_owned(), HashMap::new());
+        if !room_map.contains_key(&session.sender_key) {
+            room_map.insert(session.sender_key.to_owned(), HashMap::new());
         }
 
-        let mut sender_map = room_map.get_mut(sender_key).unwrap();
+        let mut sender_map = room_map.get_mut(&session.sender_key).unwrap();
         let ret = sender_map.insert(session.session_id(), session);
 
         ret.is_some()
@@ -54,7 +50,7 @@ impl GroupSessionStore {
         room_id: &str,
         sender_key: &str,
         session_id: &str,
-    ) -> Option<&OlmInboundGroupSession> {
+    ) -> Option<&InboundGroupSession> {
         self.entries
             .get(room_id)
             .and_then(|m| m.get(sender_key).and_then(|m| m.get(session_id)))

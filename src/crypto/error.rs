@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use cjson::Error as CjsonError;
-use olm_rs::errors::OlmSessionError;
+use olm_rs::errors::{OlmGroupSessionError, OlmSessionError};
 use serde_json::Error as SerdeError;
 use thiserror::Error;
 
@@ -36,7 +36,9 @@ pub enum OlmError {
     #[error("the Encrypted message doesn't contain a ciphertext for our device")]
     MissingCiphertext,
     #[error("can't finish Olm Session operation {0}")]
-    OlmSessionError(#[from] OlmSessionError),
+    OlmSession(#[from] OlmSessionError),
+    #[error("can't finish Olm Session operation {0}")]
+    OlmGroupSession(#[from] OlmGroupSessionError),
     #[error("error deserializing a string to json")]
     JsonError(#[from] SerdeError),
     #[error("the provided JSON value isn't an object")]

@@ -21,7 +21,7 @@ use std::sync::Arc;
 
 use super::error::{OlmError, Result, SignatureError, VerificationResult};
 use super::memory_stores::GroupSessionStore;
-use super::olm::Account;
+use super::olm::{Account, InboundGroupSession};
 #[cfg(feature = "sqlite-cryptostore")]
 use super::store::sqlite::SqliteStore;
 use super::store::MemoryStore;
@@ -31,9 +31,7 @@ use crate::api;
 use api::r0::keys;
 
 use cjson;
-use olm_rs::{
-    inbound_group_session::OlmInboundGroupSession, session::OlmMessage, utility::OlmUtility,
-};
+use olm_rs::{session::OlmMessage, utility::OlmUtility};
 use serde_json::{json, Value};
 use tokio::sync::Mutex;
 use tracing::{debug, info, instrument, trace, warn};
@@ -499,7 +497,7 @@ impl OlmMachine {
                 .decrypt_olm_message(&event.sender.to_string(), &content.sender_key, message)
                 .await?;
             debug!("Decrypted a to-device event {:?}", decrypted_event);
-            self.handle_decrypted_to_device_event(&content.sender_key, &decrypted_event);
+            self.handle_decrypted_to_device_event(&content.sender_key, &decrypted_event)?;
 
             Ok(decrypted_event)
         } else {
@@ -508,22 +506,35 @@ impl OlmMachine {
         }
     }
 
-    fn add_room_key(&mut self, sender_key: &str, event: &ToDeviceRoomKey) {
+    fn add_room_key(&mut self, sender_key: &str, event: &ToDeviceRoomKey) -> Result<()> {
         match event.content.algorithm {
             Algorithm::MegolmV1AesSha2 => {
                 // TODO check for all the valid fields.
-                let session = OlmInboundGroupSession::new(&event.content.session_key).unwrap();
-                self.inbound_group_sessions
-                    .add(&event.sender.to_string(), sender_key, session);
+                let session = InboundGroupSession::new(
+                    sender_key,
+                    &event.content.room_id.to_string(),
+                    &event.content.session_key,
+                )?;
+                self.inbound_group_sessions.add(session);
+                // TODO save the session in the store.
+                Ok(())
             }
-            _ => warn!(
-                "Received room key with unsupported key algorithm {}",
-                event.content.algorithm
-            ),
+            _ => {
+                warn!(
+                    "Received room key with unsupported key algorithm {}",
+                    event.content.algorithm
+                );
+                Ok(())
+            }
         }
     }
 
-    fn add_forwarded_room_key(&self, event: &ToDeviceForwardedRoomKey) {
+    fn add_forwarded_room_key(
+        &self,
+        sender_key: &str,
+        event: &ToDeviceForwardedRoomKey,
+    ) -> Result<()> {
+        Ok(())
         // TODO
     }
 
@@ -531,18 +542,21 @@ impl OlmMachine {
         &mut self,
         sender_key: &str,
         event: &EventResult<ToDeviceEvent>,
-    ) {
+    ) -> Result<()> {
         let event = if let EventResult::Ok(e) = event {
             e
         } else {
             warn!("Decrypted to-device event failed to be parsed correctly");
-            return;
+            return Ok(());
         };
 
         match event {
             ToDeviceEvent::RoomKey(e) => self.add_room_key(sender_key, e),
-            ToDeviceEvent::ForwardedRoomKey(e) => self.add_forwarded_room_key(e),
-            _ => warn!("Received a unexpected encrypted to-device event"),
+            ToDeviceEvent::ForwardedRoomKey(e) => self.add_forwarded_room_key(sender_key, e),
+            _ => {
+                warn!("Received a unexpected encrypted to-device event");
+                Ok(())
+            }
         }
     }
 
@@ -555,6 +569,13 @@ impl OlmMachine {
     }
 
     #[instrument(skip(response))]
+    /// Handle a sync response and update the internal state of the Olm machine.
+    ///
+    /// This will decrypt to-device events but will not touch room messages.
+    ///
+    /// # Arguments
+    ///
+    /// * `response` - The sync latest sync response.
     pub async fn receive_sync_response(&mut self, response: &mut SyncResponse) {
         let one_time_key_count = response
             .device_one_time_keys_count

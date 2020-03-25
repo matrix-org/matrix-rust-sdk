@@ -16,7 +16,8 @@ use std::fmt;
 use std::time::Instant;
 
 use olm_rs::account::{IdentityKeys, OlmAccount, OneTimeKeys};
-use olm_rs::errors::{OlmAccountError, OlmSessionError};
+use olm_rs::errors::{OlmAccountError, OlmGroupSessionError, OlmSessionError};
+use olm_rs::inbound_group_session::OlmInboundGroupSession;
 use olm_rs::session::{OlmMessage, OlmSession, PreKeyMessage};
 use olm_rs::PicklingMode;
 
@@ -42,6 +43,7 @@ impl fmt::Debug for Account {
 /// get Sync for it
 unsafe impl Send for Account {}
 unsafe impl Send for Session {}
+unsafe impl Send for InboundGroupSession {}
 
 impl Account {
     /// Create a new account.
@@ -146,6 +148,41 @@ impl Session {
     ) -> Result<bool, OlmSessionError> {
         self.inner
             .matches_inbound_session_from(their_identity_key, message)
+    }
+}
+
+#[derive(Debug)]
+pub struct InboundGroupSession {
+    inner: OlmInboundGroupSession,
+    pub(crate) sender_key: String,
+    pub(crate) room_id: String,
+    forwarding_chains: Option<Vec<String>>,
+}
+
+impl InboundGroupSession {
+    pub fn new(
+        sender_key: &str,
+        room_id: &str,
+        session_key: &str,
+    ) -> Result<Self, OlmGroupSessionError> {
+        Ok(InboundGroupSession {
+            inner: OlmInboundGroupSession::new(session_key)?,
+            sender_key: sender_key.to_owned(),
+            room_id: room_id.to_owned(),
+            forwarding_chains: None,
+        })
+    }
+
+    pub fn session_id(&self) -> String {
+        self.inner.session_id()
+    }
+
+    pub fn first_known_index(&self) -> u32 {
+        self.inner.first_known_index()
+    }
+
+    pub fn decrypt(&self, mut message: String) -> Result<(String, u32), OlmGroupSessionError> {
+        self.inner.decrypt(message)
     }
 }
 
