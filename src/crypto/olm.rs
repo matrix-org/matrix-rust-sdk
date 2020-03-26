@@ -116,6 +116,7 @@ impl Account {
 
         Ok(Session {
             inner: session,
+            sender_key: their_identity_key.to_owned(),
             creation_time: now.clone(),
             last_use_time: now,
         })
@@ -128,8 +129,10 @@ impl PartialEq for Account {
     }
 }
 
+#[derive(Debug)]
 pub struct Session {
     inner: OlmSession,
+    pub(crate) sender_key: String,
     creation_time: Instant,
     last_use_time: Instant,
 }

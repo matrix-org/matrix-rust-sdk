@@ -398,7 +398,7 @@ impl OlmMachine {
         sender_key: &str,
         message: &OlmMessage,
     ) -> Result<Option<String>> {
-        let mut s = self.store.sessions_mut(sender_key).await?;
+        let mut s = self.sessions.get_mut(sender_key).await;
 
         let sessions = if let Some(s) = s {
             s
@@ -406,7 +406,7 @@ impl OlmMachine {
             return Ok(None);
         };
 
-        for session in sessions.iter_mut() {
+        for session in sessions.lock().await.iter_mut() {
             let mut matches = false;
 
             if let OlmMessage::PreKey(m) = &message {
@@ -448,8 +448,10 @@ impl OlmMachine {
                 }
             };
 
-            session.decrypt(message)?
+            let plaintext = session.decrypt(message)?;
+            self.sessions.add(session).await;
             // TODO save the session
+            plaintext
         };
 
         // TODO convert the plaintext to a ruma event.
@@ -644,7 +646,7 @@ impl OlmMachine {
         // TODO check if the olm session is wedged and re-request the key.
         let session = session.ok_or(OlmError::MissingSession)?;
 
-        let (plaintext, _) = session.decrypt(content.ciphertext.clone())?;
+        let (plaintext, _) = session.lock().await.decrypt(content.ciphertext.clone())?;
         // TODO check the message index.
         // TODO check if this is from a verified device.
 

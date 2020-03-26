@@ -168,13 +168,6 @@ impl CryptoStore for SqliteStore {
 
         Ok(())
     }
-
-    async fn sessions_mut<'a>(
-        &'a mut self,
-        sender_key: &str,
-    ) -> Result<Option<&'a mut Vec<Session>>> {
-        todo!()
-    }
 }
 
 impl std::fmt::Debug for SqliteStore {

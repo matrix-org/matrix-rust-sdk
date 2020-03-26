@@ -53,24 +53,19 @@ pub enum CryptoStoreError {
 pub type Result<T> = std::result::Result<T, CryptoStoreError>;
 
 #[async_trait]
-pub trait CryptoStore: Debug {
+pub trait CryptoStore: Debug + Sync + Sync {
     async fn load_account(&mut self) -> Result<Option<Account>>;
     async fn save_account(&mut self, account: Arc<Mutex<Account>>) -> Result<()>;
-    async fn sessions_mut(&mut self, sender_key: &str) -> Result<Option<&mut Vec<Session>>>;
 }
 
 pub struct MemoryStore {
     pub(crate) account_info: Option<(String, bool)>,
-    sessions: HashMap<String, Vec<Session>>,
 }
 
 impl MemoryStore {
     /// Create a new empty memory store.
     pub fn new() -> Self {
-        MemoryStore {
-            account_info: None,
-            sessions: HashMap::new(),
-        }
+        MemoryStore { account_info: None }
     }
 }
 
@@ -93,13 +88,6 @@ impl CryptoStore for MemoryStore {
         let pickle = acc.pickle(PicklingMode::Unencrypted);
         self.account_info = Some((pickle, acc.shared));
         Ok(())
-    }
-
-    async fn sessions_mut<'a>(
-        &'a mut self,
-        sender_key: &str,
-    ) -> Result<Option<&'a mut Vec<Session>>> {
-        Ok(self.sessions.get_mut(sender_key))
     }
 }
 

@@ -12,12 +12,46 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use super::olm::InboundGroupSession;
 use std::collections::HashMap;
+use std::sync::Arc;
+
+use tokio::sync::Mutex;
+
+use super::olm::{InboundGroupSession, Session};
+
+#[derive(Debug)]
+pub struct SessionStore {
+    entries: Mutex<HashMap<String, Arc<Mutex<Vec<Session>>>>>,
+}
+
+impl SessionStore {
+    pub fn new() -> Self {
+        SessionStore {
+            entries: Mutex::new(HashMap::new()),
+        }
+    }
+
+    pub async fn add(&mut self, session: Session) {
+        let mut entries = self.entries.lock().await;
+
+        if !entries.contains_key(&session.sender_key) {
+            entries.insert(
+                session.sender_key.to_owned(),
+                Arc::new(Mutex::new(Vec::new())),
+            );
+        }
+        let mut sessions = entries.get_mut(&session.sender_key).unwrap();
+        sessions.lock().await.push(session);
+    }
+
+    pub async fn get_mut(&mut self, sender_key: &str) -> Option<Arc<Mutex<Vec<Session>>>> {
+        self.entries.lock().await.get_mut(sender_key).cloned()
+    }
+}
 
 #[derive(Debug)]
 pub struct GroupSessionStore {
-    entries: HashMap<String, HashMap<String, HashMap<String, InboundGroupSession>>>,
+    entries: HashMap<String, HashMap<String, HashMap<String, Arc<Mutex<InboundGroupSession>>>>>,
 }
 
 impl GroupSessionStore {
@@ -40,7 +74,7 @@ impl GroupSessionStore {
         }
 
         let mut sender_map = room_map.get_mut(&session.sender_key).unwrap();
-        let ret = sender_map.insert(session.session_id(), session);
+        let ret = sender_map.insert(session.session_id(), Arc::new(Mutex::new(session)));
 
         ret.is_some()
     }
@@ -50,9 +84,9 @@ impl GroupSessionStore {
         room_id: &str,
         sender_key: &str,
         session_id: &str,
-    ) -> Option<&InboundGroupSession> {
+    ) -> Option<Arc<Mutex<InboundGroupSession>>> {
         self.entries
             .get(room_id)
-            .and_then(|m| m.get(sender_key).and_then(|m| m.get(session_id)))
+            .and_then(|m| m.get(sender_key).and_then(|m| m.get(session_id).cloned()))
     }
 }
