@@ -20,8 +20,8 @@ use std::result::Result as StdResult;
 use std::sync::Arc;
 
 use super::error::{OlmError, Result, SignatureError, VerificationResult};
-use super::memory_stores::GroupSessionStore;
-use super::olm::{Account, InboundGroupSession};
+use super::memory_stores::{GroupSessionStore, SessionStore};
+use super::olm::{Account, InboundGroupSession, Session};
 #[cfg(feature = "sqlite-cryptostore")]
 use super::store::sqlite::SqliteStore;
 use super::store::MemoryStore;
@@ -69,7 +69,9 @@ pub struct OlmMachine {
     /// Store for the encryption keys.
     /// Persists all the encrytpion keys so a client can resume the session
     /// without the need to create new keys.
-    store: Box<dyn CryptoStore>,
+    // store: Box<dyn CryptoStore>,
+    /// A cache of all the Olm sessions we know about.
+    sessions: SessionStore,
     /// A cache of all the inbound group sessions we know about.
     inbound_group_sessions: GroupSessionStore,
 }
@@ -87,7 +89,8 @@ impl OlmMachine {
             device_id: device_id.to_owned(),
             account: Arc::new(Mutex::new(Account::new())),
             uploaded_signed_key_count: None,
-            store: Box::new(MemoryStore::new()),
+            // store: Box::new(MemoryStore::new()),
+            sessions: SessionStore::new(),
             inbound_group_sessions: GroupSessionStore::new(),
         })
     }
@@ -120,7 +123,8 @@ impl OlmMachine {
             device_id: device_id.to_owned(),
             account: Arc::new(Mutex::new(account)),
             uploaded_signed_key_count: None,
-            store: Box::new(store),
+            // store: Box::new(store),
+            sessions: SessionStore::new(),
             inbound_group_sessions: GroupSessionStore::new(),
         })
     }
@@ -175,7 +179,7 @@ impl OlmMachine {
         account.mark_keys_as_published();
         drop(account);
 
-        self.store.save_account(self.account.clone()).await?;
+        // self.store.save_account(self.account.clone()).await?;
         Ok(())
     }
 

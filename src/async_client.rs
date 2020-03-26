@@ -29,7 +29,6 @@ use reqwest::header::{HeaderValue, InvalidHeaderValue};
 use url::Url;
 
 use ruma_api::{Endpoint, Outgoing};
-use ruma_client_api::Error as RumaClientError;
 use ruma_events::collections::all::RoomEvent;
 use ruma_events::room::message::MessageEventContent;
 use ruma_events::EventResult;
@@ -404,13 +403,19 @@ impl AsyncClient {
                         .await
                 };
 
-                let event = match decrypted_event {
-                    Some(e) => Arc::new(e.clone()),
-                    None => Arc::new(event.clone()),
-                };
+                if let Some(e) = decrypted_event {
+                    *event = e;
+                }
 
                 let callbacks = {
                     let mut cb_futures = self.event_callbacks.lock().unwrap();
+
+                    let event = if !cb_futures.is_empty() {
+                        Arc::new(event.clone())
+                    } else {
+                        continue;
+                    };
+
                     let mut callbacks = Vec::new();
 
                     for cb in &mut cb_futures.iter_mut() {
