@@ -53,51 +53,7 @@ pub enum CryptoStoreError {
 pub type Result<T> = std::result::Result<T, CryptoStoreError>;
 
 #[async_trait]
-pub trait CryptoStore: Debug + Sync + Sync {
+pub trait CryptoStore: Debug + Send + Sync {
     async fn load_account(&mut self) -> Result<Option<Account>>;
     async fn save_account(&mut self, account: Arc<Mutex<Account>>) -> Result<()>;
-}
-
-pub struct MemoryStore {
-    pub(crate) account_info: Option<(String, bool)>,
-}
-
-impl MemoryStore {
-    /// Create a new empty memory store.
-    pub fn new() -> Self {
-        MemoryStore { account_info: None }
-    }
-}
-
-#[async_trait]
-impl CryptoStore for MemoryStore {
-    async fn load_account(&mut self) -> Result<Option<Account>> {
-        let result = match &self.account_info {
-            Some((pickle, shared)) => Some(Account::from_pickle(
-                pickle.to_owned(),
-                PicklingMode::Unencrypted,
-                *shared,
-            )?),
-            None => None,
-        };
-        Ok(result)
-    }
-
-    async fn save_account(&mut self, account: Arc<Mutex<Account>>) -> Result<()> {
-        let acc = account.lock().await;
-        let pickle = acc.pickle(PicklingMode::Unencrypted);
-        self.account_info = Some((pickle, acc.shared));
-        Ok(())
-    }
-}
-
-impl std::fmt::Debug for MemoryStore {
-    fn fmt(&self, fmt: &mut std::fmt::Formatter<'_>) -> StdResult<(), std::fmt::Error> {
-        write!(
-            fmt,
-            "MemoryStore {{ account_stored: {}, account shared: {} }}",
-            self.account_info.is_some(),
-            self.account_info.as_ref().map_or(false, |a| a.1)
-        )
-    }
 }
