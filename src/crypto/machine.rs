@@ -404,7 +404,7 @@ impl OlmMachine {
         sender_key: &str,
         message: &OlmMessage,
     ) -> Result<Option<String>> {
-        let mut s = self.sessions.get_mut(sender_key).await;
+        let s = self.sessions.get(sender_key);
 
         let sessions = if let Some(s) = s {
             s
@@ -412,20 +412,24 @@ impl OlmMachine {
             return Ok(None);
         };
 
-        for session in sessions.lock().await.iter_mut() {
+        for session in sessions {
             let mut matches = false;
 
+            let mut session_lock = session.lock().await;
+
             if let OlmMessage::PreKey(m) = &message {
-                matches = session.matches(sender_key, m.clone())?;
+                matches = session_lock.matches(sender_key, m.clone())?;
                 if !matches {
                     continue;
                 }
             }
 
-            let ret = session.decrypt(message.clone());
+            let ret = session_lock.decrypt(message.clone());
 
             if let Ok(p) = ret {
-                // TODO save the session.
+                if let Some(store) = self.store.as_mut() {
+                    store.save_session(session.clone()).await?;
+                }
                 return Ok(Some(p));
             } else {
                 if matches {
@@ -456,6 +460,7 @@ impl OlmMachine {
 
             let plaintext = session.decrypt(message)?;
             self.sessions.add(session).await;
+
             // TODO save the session
             plaintext
         };

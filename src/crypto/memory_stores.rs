@@ -21,31 +21,31 @@ use super::olm::{InboundGroupSession, Session};
 
 #[derive(Debug)]
 pub struct SessionStore {
-    entries: Mutex<HashMap<String, Arc<Mutex<Vec<Session>>>>>,
+    entries: HashMap<String, Vec<Arc<Mutex<Session>>>>,
 }
 
 impl SessionStore {
     pub fn new() -> Self {
         SessionStore {
-            entries: Mutex::new(HashMap::new()),
+            entries: HashMap::new(),
         }
     }
 
     pub async fn add(&mut self, session: Session) {
-        let mut entries = self.entries.lock().await;
-
-        if !entries.contains_key(&session.sender_key) {
-            entries.insert(
-                session.sender_key.to_owned(),
-                Arc::new(Mutex::new(Vec::new())),
-            );
+        if !self.entries.contains_key(&session.sender_key) {
+            self.entries
+                .insert(session.sender_key.to_owned(), Vec::new());
         }
-        let mut sessions = entries.get_mut(&session.sender_key).unwrap();
-        sessions.lock().await.push(session);
+        let mut sessions = self.entries.get_mut(&session.sender_key).unwrap();
+        sessions.push(Arc::new(Mutex::new(session)));
     }
 
-    pub async fn get_mut(&mut self, sender_key: &str) -> Option<Arc<Mutex<Vec<Session>>>> {
-        self.entries.lock().await.get_mut(sender_key).cloned()
+    pub fn get(&self, sender_key: &str) -> Option<&Vec<Arc<Mutex<Session>>>> {
+        self.entries.get(sender_key)
+    }
+
+    pub fn set_for_sender(&mut self, sender_key: &str, sessions: Vec<Arc<Mutex<Session>>>) {
+        self.entries.insert(sender_key.to_owned(), sessions);
     }
 }
 

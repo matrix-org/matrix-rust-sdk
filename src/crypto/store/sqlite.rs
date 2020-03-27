@@ -26,12 +26,14 @@ use tokio::sync::Mutex;
 use zeroize::Zeroizing;
 
 use super::{Account, CryptoStore, CryptoStoreError, Result, Session};
+use crate::crypto::memory_stores::SessionStore;
 
 pub struct SqliteStore {
     user_id: Arc<String>,
     device_id: Arc<String>,
     account_id: Option<i64>,
     path: PathBuf,
+    sessions: SessionStore,
     connection: Arc<Mutex<SqliteConnection>>,
     pickle_passphrase: Option<Zeroizing<String>>,
 }
@@ -75,6 +77,7 @@ impl SqliteStore {
             user_id: Arc::new(user_id.to_owned()),
             device_id: Arc::new(device_id.to_owned()),
             account_id: None,
+            sessions: SessionStore::new(),
             path: path.as_ref().to_owned(),
             connection: Arc::new(Mutex::new(connection)),
             pickle_passphrase: passphrase,
@@ -120,6 +123,60 @@ impl SqliteStore {
             .await?;
 
         Ok(())
+    }
+
+    async fn get_sessions_for(
+        &mut self,
+        sender_key: &str,
+    ) -> Result<Option<&Vec<Arc<Mutex<Session>>>>> {
+        let loaded_sessions = self.sessions.get(sender_key).is_some();
+
+        if !loaded_sessions {
+            let sessions = self.load_session_for(sender_key).await?;
+
+            if !sessions.is_empty() {
+                self.sessions.set_for_sender(sender_key, sessions);
+            }
+        }
+
+        Ok(self.sessions.get(sender_key))
+    }
+
+    async fn load_session_for(&mut self, sender_key: &str) -> Result<Vec<Arc<Mutex<Session>>>> {
+        let account_id = self.account_id.ok_or(CryptoStoreError::AccountUnset)?;
+        let mut connection = self.connection.lock().await;
+
+        let rows: Vec<(String, String, String, String)> = query_as(
+            "SELECT pickle, sender_key, creation_time, last_use_time FROM sessions WHERE account_id = ? and sender_key = ?"
+        )
+            .bind(account_id)
+            .bind(sender_key)
+            .fetch_all(&mut *connection)
+            .await?;
+
+        let now = Instant::now();
+
+        Ok(rows
+            .iter()
+            .map(|row| {
+                let pickle = &row.0;
+                let sender_key = &row.1;
+                let creation_time = now
+                    .checked_sub(serde_json::from_str::<Duration>(&row.2)?)
+                    .ok_or(CryptoStoreError::SessionTimestampError)?;
+                let last_use_time = now
+                    .checked_sub(serde_json::from_str::<Duration>(&row.3)?)
+                    .ok_or(CryptoStoreError::SessionTimestampError)?;
+
+                Ok(Arc::new(Mutex::new(Session::from_pickle(
+                    pickle.to_string(),
+                    self.get_pickle_mode(),
+                    sender_key.to_string(),
+                    creation_time,
+                    last_use_time,
+                )?)))
+            })
+            .collect::<Result<Vec<Arc<Mutex<Session>>>>>()?)
     }
 
     fn get_pickle_mode(&self) -> PicklingMode {
@@ -233,40 +290,11 @@ impl CryptoStore for SqliteStore {
         Ok(())
     }
 
-    async fn load_sessions(&mut self) -> Result<Vec<Session>> {
-        let account_id = self.account_id.ok_or(CryptoStoreError::AccountUnset)?;
-        let mut connection = self.connection.lock().await;
-
-        let rows: Vec<(String, String, String, String)> = query_as(
-            "SELECT pickle, sender_key, creation_time, last_use_time FROM sessions WHERE account_id = ?"
-        )
-            .bind(account_id)
-            .fetch_all(&mut *connection)
-            .await?;
-
-        let now = Instant::now();
-
-        Ok(rows
-            .iter()
-            .map(|row| {
-                let pickle = &row.0;
-                let sender_key = &row.1;
-                let creation_time = now
-                    .checked_sub(serde_json::from_str::<Duration>(&row.2)?)
-                    .ok_or(CryptoStoreError::SessionTimestampError)?;
-                let last_use_time = now
-                    .checked_sub(serde_json::from_str::<Duration>(&row.3)?)
-                    .ok_or(CryptoStoreError::SessionTimestampError)?;
-
-                Ok(Session::from_pickle(
-                    pickle.to_string(),
-                    self.get_pickle_mode(),
-                    sender_key.to_string(),
-                    creation_time,
-                    last_use_time,
-                )?)
-            })
-            .collect::<Result<Vec<Session>>>()?)
+    async fn get_sessions<'a>(
+        &'a mut self,
+        sender_key: &str,
+    ) -> Result<Option<&'a Vec<Arc<Mutex<Session>>>>> {
+        Ok(self.get_sessions_for(sender_key).await?)
     }
 }
 

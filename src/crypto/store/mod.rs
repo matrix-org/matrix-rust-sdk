@@ -64,5 +64,6 @@ pub trait CryptoStore: Debug + Send + Sync {
     async fn load_account(&mut self) -> Result<Option<Account>>;
     async fn save_account(&mut self, account: Arc<Mutex<Account>>) -> Result<()>;
     async fn save_session(&mut self, session: Arc<Mutex<Session>>) -> Result<()>;
-    async fn load_sessions(&mut self) -> Result<Vec<Session>>;
+    async fn get_sessions(&mut self, sender_key: &str)
+        -> Result<Option<&Vec<Arc<Mutex<Session>>>>>;
 }
