@@ -15,19 +15,22 @@
 use std::path::{Path, PathBuf};
 use std::result::Result as StdResult;
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 use url::Url;
 
 use async_trait::async_trait;
 use olm_rs::PicklingMode;
+use serde_json;
 use sqlx::{query, query_as, sqlite::SqliteQueryAs, Connect, Executor, SqliteConnection};
 use tokio::sync::Mutex;
 use zeroize::Zeroizing;
 
-use super::{Account, CryptoStore, Result, Session};
+use super::{Account, CryptoStore, CryptoStoreError, Result, Session};
 
 pub struct SqliteStore {
     user_id: Arc<String>,
     device_id: Arc<String>,
+    account_id: Option<i64>,
     path: PathBuf,
     connection: Arc<Mutex<SqliteConnection>>,
     pickle_passphrase: Option<Zeroizing<String>>,
@@ -71,6 +74,7 @@ impl SqliteStore {
         let store = SqliteStore {
             user_id: Arc::new(user_id.to_owned()),
             device_id: Arc::new(device_id.to_owned()),
+            account_id: None,
             path: path.as_ref().to_owned(),
             connection: Arc::new(Mutex::new(connection)),
             pickle_passphrase: passphrase,
@@ -84,7 +88,7 @@ impl SqliteStore {
         connection
             .execute(
                 r#"
-            CREATE TABLE IF NOT EXISTS account (
+            CREATE TABLE IF NOT EXISTS accounts (
                 "id" INTEGER NOT NULL PRIMARY KEY,
                 "user_id" TEXT NOT NULL,
                 "device_id" TEXT NOT NULL,
@@ -92,6 +96,25 @@ impl SqliteStore {
                 "shared" INTEGER NOT NULL,
                 UNIQUE(user_id,device_id)
             );
+        "#,
+            )
+            .await?;
+
+        connection
+            .execute(
+                r#"
+            CREATE TABLE IF NOT EXISTS sessions (
+                "session_id" TEXT NOT NULL PRIMARY KEY,
+                "account_id" INTEGER NOT NULL,
+                "creation_time" TEXT NOT NULL,
+                "last_use_time" TEXT NOT NULL,
+                "sender_key" TEXT NOT NULL,
+                "pickle" BLOB NOT NULL,
+                FOREIGN KEY ("account_id") REFERENCES "accounts" ("id")
+                    ON DELETE CASCADE
+            );
+
+            CREATE INDEX "olmsessions_account_id" ON "sessions" ("account_id");
         "#,
             )
             .await?;
@@ -114,8 +137,8 @@ impl CryptoStore for SqliteStore {
     async fn load_account(&mut self) -> Result<Option<Account>> {
         let mut connection = self.connection.lock().await;
 
-        let row: Option<(String, bool)> = query_as(
-            "SELECT pickle, shared FROM account
+        let row: Option<(i64, String, bool)> = query_as(
+            "SELECT id, pickle, shared FROM accounts
                       WHERE user_id = ? and device_id = ?",
         )
         .bind(&*self.user_id)
@@ -124,11 +147,14 @@ impl CryptoStore for SqliteStore {
         .await?;
 
         let result = match row {
-            Some((pickle, shared)) => Some(Account::from_pickle(
-                pickle,
-                self.get_pickle_mode(),
-                shared,
-            )?),
+            Some((id, pickle, shared)) => {
+                self.account_id = Some(id);
+                Some(Account::from_pickle(
+                    pickle,
+                    self.get_pickle_mode(),
+                    shared,
+                )?)
+            }
             None => None,
         };
 
@@ -141,7 +167,7 @@ impl CryptoStore for SqliteStore {
         let mut connection = self.connection.lock().await;
 
         query(
-            "INSERT OR IGNORE INTO account (
+            "INSERT OR IGNORE INTO accounts (
                 user_id, device_id, pickle, shared
              ) VALUES (?, ?, ?, ?)",
         )
@@ -153,7 +179,7 @@ impl CryptoStore for SqliteStore {
         .await?;
 
         query(
-            "UPDATE account
+            "UPDATE accounts
                SET pickle = ?,
                    shared = ?
                WHERE user_id = ? and
@@ -166,7 +192,81 @@ impl CryptoStore for SqliteStore {
         .execute(&mut *connection)
         .await?;
 
+        let account_id: (i64,) =
+            query_as("SELECT id FROM accounts WHERE user_id = ? and device_id = ?")
+                .bind(&*self.user_id)
+                .bind(&*self.device_id)
+                .fetch_one(&mut *connection)
+                .await?;
+
+        self.account_id = Some(account_id.0);
+
         Ok(())
+    }
+
+    async fn save_session(&mut self, session: Arc<Mutex<Session>>) -> Result<()> {
+        let account_id = self.account_id.ok_or(CryptoStoreError::AccountUnset)?;
+
+        let session = session.lock().await;
+
+        let session_id = session.session_id();
+        let creation_time = serde_json::to_string(&session.creation_time.elapsed())?;
+        let last_use_time = serde_json::to_string(&session.last_use_time.elapsed())?;
+        let pickle = session.pickle(self.get_pickle_mode());
+
+        let mut connection = self.connection.lock().await;
+
+        query(
+            "REPLACE INTO sessions (
+                session_id, account_id, creation_time, last_use_time, sender_key, pickle
+             ) VALUES (?, ?, ?, ?, ?, ?)",
+        )
+        .bind(&session_id)
+        .bind(&account_id)
+        .bind(&creation_time)
+        .bind(&last_use_time)
+        .bind(&session.sender_key)
+        .bind(&pickle)
+        .execute(&mut *connection)
+        .await?;
+
+        Ok(())
+    }
+
+    async fn load_sessions(&mut self) -> Result<Vec<Session>> {
+        let account_id = self.account_id.ok_or(CryptoStoreError::AccountUnset)?;
+        let mut connection = self.connection.lock().await;
+
+        let rows: Vec<(String, String, String, String)> = query_as(
+            "SELECT pickle, sender_key, creation_time, last_use_time FROM sessions WHERE account_id = ?"
+        )
+            .bind(account_id)
+            .fetch_all(&mut *connection)
+            .await?;
+
+        let now = Instant::now();
+
+        Ok(rows
+            .iter()
+            .map(|row| {
+                let pickle = &row.0;
+                let sender_key = &row.1;
+                let creation_time = now
+                    .checked_sub(serde_json::from_str::<Duration>(&row.2)?)
+                    .ok_or(CryptoStoreError::SessionTimestampError)?;
+                let last_use_time = now
+                    .checked_sub(serde_json::from_str::<Duration>(&row.3)?)
+                    .ok_or(CryptoStoreError::SessionTimestampError)?;
+
+                Ok(Session::from_pickle(
+                    pickle.to_string(),
+                    self.get_pickle_mode(),
+                    sender_key.to_string(),
+                    creation_time,
+                    last_use_time,
+                )?)
+            })
+            .collect::<Result<Vec<Session>>>()?)
     }
 }
 
@@ -186,7 +286,7 @@ mod test {
     use tempfile::tempdir;
     use tokio::sync::Mutex;
 
-    use super::{Account, CryptoStore, SqliteStore};
+    use super::{Account, CryptoStore, Session, SqliteStore};
 
     static USER_ID: &str = "@example:localhost";
     static DEVICE_ID: &str = "DEVICEID";
@@ -202,6 +302,28 @@ mod test {
     fn get_account() -> Arc<Mutex<Account>> {
         let account = Account::new();
         Arc::new(Mutex::new(account))
+    }
+
+    fn get_account_and_session() -> (Arc<Mutex<Account>>, Arc<Mutex<Session>>) {
+        let alice = Account::new();
+
+        let bob = Account::new();
+
+        bob.generate_one_time_keys(1);
+        let one_time_key = bob
+            .one_time_keys()
+            .curve25519()
+            .iter()
+            .nth(0)
+            .unwrap()
+            .1
+            .to_owned();
+        let sender_key = bob.identity_keys().curve25519().to_owned();
+        let session = alice
+            .create_outbound_session(&sender_key, &one_time_key)
+            .unwrap();
+
+        (Arc::new(Mutex::new(alice)), Arc::new(Mutex::new(session)))
     }
 
     #[tokio::test]
@@ -263,5 +385,36 @@ mod test {
         let acc = account.lock().await;
 
         assert_eq!(*acc, loaded_account);
+    }
+
+    #[tokio::test]
+    async fn save_session() {
+        let mut store = get_store().await;
+        let (account, session) = get_account_and_session();
+
+        assert!(store.save_session(session.clone()).await.is_err());
+
+        store
+            .save_account(account.clone())
+            .await
+            .expect("Can't save account");
+
+        store.save_session(session).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn load_sessions() {
+        let mut store = get_store().await;
+        let (account, session) = get_account_and_session();
+        store
+            .save_account(account.clone())
+            .await
+            .expect("Can't save account");
+        store.save_session(session.clone()).await.unwrap();
+
+        let sess = session.lock().await;
+
+        let sessions = store.load_sessions().await.expect("Can't load sessions");
+        assert!(sessions.contains(&sess));
     }
 }

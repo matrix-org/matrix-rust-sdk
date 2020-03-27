@@ -90,17 +90,36 @@ impl Account {
         self.inner.sign(string)
     }
 
-    pub fn pickle(&self, pickling_mode: PicklingMode) -> String {
-        self.inner.pickle(pickling_mode)
+    pub fn pickle(&self, pickle_mode: PicklingMode) -> String {
+        self.inner.pickle(pickle_mode)
     }
 
     pub fn from_pickle(
         pickle: String,
-        pickling_mode: PicklingMode,
+        pickle_mode: PicklingMode,
         shared: bool,
     ) -> Result<Self, OlmAccountError> {
-        let acc = OlmAccount::unpickle(pickle, pickling_mode)?;
+        let acc = OlmAccount::unpickle(pickle, pickle_mode)?;
         Ok(Account { inner: acc, shared })
+    }
+
+    pub fn create_outbound_session(
+        &self,
+        their_identity_key: &str,
+        their_one_time_key: &str,
+    ) -> Result<Session, OlmSessionError> {
+        let session = self
+            .inner
+            .create_outbound_session(their_identity_key, their_one_time_key)?;
+
+        let now = Instant::now();
+
+        Ok(Session {
+            inner: session,
+            sender_key: their_identity_key.to_owned(),
+            creation_time: now.clone(),
+            last_use_time: now,
+        })
     }
 
     pub fn create_inbound_session_from(
@@ -133,8 +152,8 @@ impl PartialEq for Account {
 pub struct Session {
     inner: OlmSession,
     pub(crate) sender_key: String,
-    creation_time: Instant,
-    last_use_time: Instant,
+    pub(crate) creation_time: Instant,
+    pub(crate) last_use_time: Instant,
 }
 
 impl Session {
@@ -151,6 +170,36 @@ impl Session {
     ) -> Result<bool, OlmSessionError> {
         self.inner
             .matches_inbound_session_from(their_identity_key, message)
+    }
+
+    pub fn session_id(&self) -> String {
+        self.inner.session_id()
+    }
+
+    pub fn pickle(&self, pickle_mode: PicklingMode) -> String {
+        self.inner.pickle(pickle_mode)
+    }
+
+    pub fn from_pickle(
+        pickle: String,
+        pickle_mode: PicklingMode,
+        sender_key: String,
+        creation_time: Instant,
+        last_use_time: Instant,
+    ) -> Result<Self, OlmSessionError> {
+        let session = OlmSession::unpickle(pickle, pickle_mode)?;
+        Ok(Session {
+            inner: session,
+            sender_key,
+            creation_time,
+            last_use_time,
+        })
+    }
+}
+
+impl PartialEq for Session {
+    fn eq(&self, other: &Self) -> bool {
+        self.session_id() == other.session_id()
     }
 }
 

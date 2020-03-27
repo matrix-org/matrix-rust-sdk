@@ -20,6 +20,7 @@ use std::sync::Arc;
 use url::ParseError;
 
 use async_trait::async_trait;
+use serde_json::Error as SerdeError;
 use thiserror::Error;
 use tokio::sync::Mutex;
 
@@ -31,7 +32,7 @@ use olm_rs::PicklingMode;
 pub mod sqlite;
 
 #[cfg(feature = "sqlite-cryptostore")]
-use sqlx::{sqlite::Sqlite, Error as SqlxError};
+use sqlx::Error as SqlxError;
 
 #[derive(Error, Debug)]
 pub enum CryptoStoreError {
@@ -43,11 +44,17 @@ pub enum CryptoStoreError {
     OlmSessionError(#[from] OlmSessionError),
     #[error("URL can't be parsed")]
     UrlParse(#[from] ParseError),
+    #[error("error serializing data for the database")]
+    Serialization(#[from] SerdeError),
+    #[error("can't load session timestamps")]
+    SessionTimestampError,
+    #[error("can't save/load sessions or group sessions in the store before a account is stored")]
+    AccountUnset,
     // TODO flatten the SqlxError to make it easier for other store
     // implementations.
     #[cfg(feature = "sqlite-cryptostore")]
     #[error("database error")]
-    DatabaseError(#[from] SqlxError<Sqlite>),
+    DatabaseError(#[from] SqlxError),
 }
 
 pub type Result<T> = std::result::Result<T, CryptoStoreError>;
@@ -56,4 +63,6 @@ pub type Result<T> = std::result::Result<T, CryptoStoreError>;
 pub trait CryptoStore: Debug + Send + Sync {
     async fn load_account(&mut self) -> Result<Option<Account>>;
     async fn save_account(&mut self, account: Arc<Mutex<Account>>) -> Result<()>;
+    async fn save_session(&mut self, session: Arc<Mutex<Session>>) -> Result<()>;
+    async fn load_sessions(&mut self) -> Result<Vec<Session>>;
 }
