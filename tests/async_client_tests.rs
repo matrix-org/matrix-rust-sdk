@@ -22,7 +22,7 @@ fn login() {
 
     let mut client = AsyncClient::new(homeserver, None).unwrap();
 
-    rt.block_on(client.login("example", "wordpass", None))
+    rt.block_on(client.login("example", "wordpass", None, None))
         .unwrap();
 
     let logged_in = rt.block_on(client.logged_in());

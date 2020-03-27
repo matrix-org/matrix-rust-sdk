@@ -341,6 +341,7 @@ impl AsyncClient {
         user: S,
         password: S,
         device_id: Option<S>,
+        initial_device_display_name: Option<S>,
     ) -> Result<login::Response> {
         info!("Logging in to {} as {:?}", self.homeserver, user);
 
@@ -350,7 +351,7 @@ impl AsyncClient {
                 password: password.into(),
             },
             device_id: device_id.map(|d| d.into()),
-            initial_device_display_name: None,
+            initial_device_display_name: initial_device_display_name.map(|d| d.into()),
         };
 
         let response = self.send(request).await?;

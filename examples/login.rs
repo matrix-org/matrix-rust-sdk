@@ -47,7 +47,9 @@ async fn login(
 
     client.add_event_callback(async_cb);
 
-    client.login(username, password, None).await?;
+    client
+        .login(username, password, None, Some("rust-sdk".to_string()))
+        .await?;
     client.sync_forever(SyncSettings::new(), |_| async {}).await;
 
     Ok(())
