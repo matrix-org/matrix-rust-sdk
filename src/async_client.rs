@@ -14,6 +14,7 @@
 // limitations under the License.
 
 use futures::future::{BoxFuture, Future, FutureExt};
+use std::collections::HashMap;
 use std::convert::{TryFrom, TryInto};
 use std::result::Result as StdResult;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -258,6 +259,22 @@ impl AsyncClient {
     /// The Homeserver of the client.
     pub fn homeserver(&self) -> &Url {
         &self.homeserver
+    }
+
+    #[doc(hidden)]
+    /// Access to the underlying `BaseClient`. Used for testing and debugging so far.
+    pub async fn base_client(&self) -> RwLockReadGuard<'_, BaseClient> {
+        self.base_client.read().await
+    }
+
+    /// Calculate the room name from a `RoomId`, returning a string.
+    pub async fn get_room_name(&self, room_id: &str) -> Option<String> {
+        self.base_client.read().await.calculate_room_name(room_id)
+    }
+
+    /// Calculate the room names this client knows about.
+    pub async fn get_room_names(&self) -> Vec<String> {
+        self.base_client.read().await.calculate_room_names()
     }
 
     /// Add a callback that will be called every time the client receives a room

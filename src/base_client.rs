@@ -28,7 +28,7 @@ use crate::events::room::{
     name::{NameEvent},
 };
 use crate::events::EventResult;
-use crate::identifiers::{RoomAliasId};
+use crate::identifiers::RoomAliasId;
 use crate::session::Session;
 use std::sync::{Arc, RwLock};
 
@@ -103,7 +103,7 @@ impl RoomName {
         true
     }
 
-    pub fn calculate_name(&self, room_id: &RoomId, members: &HashMap<UserId, RoomMember>) -> String {
+    pub fn calculate_name(&self, room_id: &str, members: &HashMap<UserId, RoomMember>) -> String {
         // https://github.com/matrix-org/matrix-js-sdk/blob/33941eb37bffe41958ba9887fc8070dfb1a0ee76/src/models/room.js#L1823
         // the order in which we check for a name ^^
         if let Some(name) = &self.name {
@@ -117,9 +117,10 @@ impl RoomName {
             let mut names = members.values().flat_map(|m| m.display_name.clone()).take(3).collect::<Vec<_>>();
             
             if names.is_empty() {
+                // TODO implement the rest of matrix-js-sdk handling of room names
                 format!("Room {}", room_id)
             } else {
-                // stablize order
+                // stabilize order
                 names.sort();
                 names.join(", ").to_string()
             }
@@ -360,7 +361,18 @@ impl Client {
         Ok(())
     }
 
-    pub(crate) fn get_or_create_room(&mut self, room_id: &str) -> &mut Arc<RwLock<Room>> {
+    pub(crate) fn calculate_room_name(&self, room_id: &str) -> Option<String> {
+        self.joined_rooms.get(room_id)
+            .and_then(|r| r.read().map(|r| r.room_name.calculate_name(room_id, &r.members)).ok())
+    }
+
+    pub(crate) fn calculate_room_names(&self) -> Vec<String> {
+        self.joined_rooms.iter()
+            .flat_map(|(id, room)| room.read().map(|r| r.room_name.calculate_name(id, &r.members)).ok())
+            .collect()
+    }
+
+    fn get_or_create_room(&mut self, room_id: &str) -> &mut Arc<RwLock<Room>> {
         #[allow(clippy::or_fun_call)]
         self.joined_rooms
             .entry(room_id.to_string())
