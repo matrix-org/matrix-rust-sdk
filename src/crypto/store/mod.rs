@@ -24,7 +24,7 @@ use serde_json::Error as SerdeError;
 use thiserror::Error;
 use tokio::sync::Mutex;
 
-use super::olm::{Account, Session};
+use super::olm::{Account, InboundGroupSession, Session};
 use olm_rs::errors::{OlmAccountError, OlmSessionError};
 use olm_rs::PicklingMode;
 

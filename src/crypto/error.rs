@@ -37,6 +37,8 @@ pub enum OlmError {
     MissingCiphertext,
     #[error("decryption failed because the session to decrypt the message is missing")]
     MissingSession,
+    #[error("the Encrypted message is missing the signing key of the sender")]
+    MissingSigningKey,
     #[error("can't finish Olm Session operation {0}")]
     OlmSession(#[from] OlmSessionError),
     #[error("can't finish Olm Session operation {0}")]

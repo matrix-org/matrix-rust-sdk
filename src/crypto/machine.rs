@@ -524,8 +524,14 @@ impl OlmMachine {
         match event.content.algorithm {
             Algorithm::MegolmV1AesSha2 => {
                 // TODO check for all the valid fields.
+                let signing_key = event
+                    .keys
+                    .get("ed25519")
+                    .ok_or(OlmError::MissingSigningKey)?;
+
                 let session = InboundGroupSession::new(
                     sender_key,
+                    signing_key,
                     &event.content.room_id.to_string(),
                     &event.content.session_key,
                 )?;

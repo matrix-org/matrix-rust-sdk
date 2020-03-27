@@ -25,8 +25,8 @@ use sqlx::{query, query_as, sqlite::SqliteQueryAs, Connect, Executor, SqliteConn
 use tokio::sync::Mutex;
 use zeroize::Zeroizing;
 
-use super::{Account, CryptoStore, CryptoStoreError, Result, Session};
-use crate::crypto::memory_stores::SessionStore;
+use super::{Account, CryptoStore, CryptoStoreError, InboundGroupSession, Result, Session};
+use crate::crypto::memory_stores::{GroupSessionStore, SessionStore};
 
 pub struct SqliteStore {
     user_id: Arc<String>,
@@ -34,6 +34,7 @@ pub struct SqliteStore {
     account_id: Option<i64>,
     path: PathBuf,
     sessions: SessionStore,
+    inbound_group_sessions: GroupSessionStore,
     connection: Arc<Mutex<SqliteConnection>>,
     pickle_passphrase: Option<Zeroizing<String>>,
 }
@@ -78,6 +79,7 @@ impl SqliteStore {
             device_id: Arc::new(device_id.to_owned()),
             account_id: None,
             sessions: SessionStore::new(),
+            inbound_group_sessions: GroupSessionStore::new(),
             path: path.as_ref().to_owned(),
             connection: Arc::new(Mutex::new(connection)),
             pickle_passphrase: passphrase,
@@ -118,6 +120,25 @@ impl SqliteStore {
             );
 
             CREATE INDEX "olmsessions_account_id" ON "sessions" ("account_id");
+        "#,
+            )
+            .await?;
+
+        connection
+            .execute(
+                r#"
+            CREATE TABLE IF NOT EXISTS inbound_group_sessions (
+                "session_id" TEXT NOT NULL PRIMARY KEY,
+                "account_id" INTEGER NOT NULL,
+                "sender_key" TEXT NOT NULL,
+                "signing_key" TEXT NOT NULL,
+                "room_id" TEXT NOT NULL,
+                "pickle" BLOB NOT NULL,
+                FOREIGN KEY ("account_id") REFERENCES "accounts" ("id")
+                    ON DELETE CASCADE
+            );
+
+            CREATE INDEX "olm_groups_sessions_account_id" ON "inbound_group_sessions" ("account_id");
         "#,
             )
             .await?;
@@ -178,6 +199,34 @@ impl SqliteStore {
                 )?)))
             })
             .collect::<Result<Vec<Arc<Mutex<Session>>>>>()?)
+    }
+
+    async fn save_inbound_group_session(&mut self, session: InboundGroupSession) -> Result<()> {
+        let account_id = self.account_id.ok_or(CryptoStoreError::AccountUnset)?;
+        let pickle = session.pickle(self.get_pickle_mode());
+        let mut connection = self.connection.lock().await;
+
+        query(
+            "INSERT INTO inbound_group_sessions (
+                session_id, account_id, sender_key, signing_key,
+                room_id, pickle
+             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+             ON CONFLICT(session_id) DO UPDATE SET
+                pickle = ?6
+             WHERE session_id = ?1
+             ",
+        )
+        .bind(&session.session_id())
+        .bind(account_id)
+        .bind(&session.sender_key)
+        .bind(&session.signing_key)
+        .bind(&session.room_id)
+        .bind(&pickle)
+        .execute(&mut *connection)
+        .await?;
+
+        self.inbound_group_sessions.add(session);
+        Ok(())
     }
 
     fn get_pickle_mode(&self) -> PicklingMode {
@@ -303,11 +352,12 @@ impl std::fmt::Debug for SqliteStore {
 
 #[cfg(test)]
 mod test {
+    use olm_rs::outbound_group_session::OlmOutboundGroupSession;
     use std::sync::Arc;
     use tempfile::tempdir;
     use tokio::sync::Mutex;
 
-    use super::{Account, CryptoStore, Session, SqliteStore};
+    use super::{Account, CryptoStore, InboundGroupSession, Session, SqliteStore};
 
     static USER_ID: &str = "@example:localhost";
     static DEVICE_ID: &str = "DEVICEID";
@@ -442,5 +492,32 @@ mod test {
         let loaded_session = &sessions[0];
 
         assert_eq!(*sess, *loaded_session.lock().await);
+    }
+
+    #[tokio::test]
+    async fn save_inbound_group_session() {
+        let mut store = get_store().await;
+        let account = get_account();
+
+        store
+            .save_account(account.clone())
+            .await
+            .expect("Can't save account");
+
+        let acc = account.lock().await;
+        let identity_keys = acc.identity_keys();
+        let outbound_session = OlmOutboundGroupSession::new();
+        let session = InboundGroupSession::new(
+            identity_keys.curve25519(),
+            identity_keys.ed25519(),
+            "!test:localhost",
+            &outbound_session.session_key(),
+        )
+        .expect("Can't create session");
+
+        store
+            .save_inbound_group_session(session)
+            .await
+            .expect("Can't save group session");
     }
 }

@@ -207,6 +207,7 @@ impl PartialEq for Session {
 pub struct InboundGroupSession {
     inner: OlmInboundGroupSession,
     pub(crate) sender_key: String,
+    pub(crate) signing_key: String,
     pub(crate) room_id: String,
     forwarding_chains: Option<Vec<String>>,
 }
@@ -214,12 +215,14 @@ pub struct InboundGroupSession {
 impl InboundGroupSession {
     pub fn new(
         sender_key: &str,
+        signing_key: &str,
         room_id: &str,
         session_key: &str,
     ) -> Result<Self, OlmGroupSessionError> {
         Ok(InboundGroupSession {
             inner: OlmInboundGroupSession::new(session_key)?,
             sender_key: sender_key.to_owned(),
+            signing_key: signing_key.to_owned(),
             room_id: room_id.to_owned(),
             forwarding_chains: None,
         })
@@ -227,6 +230,10 @@ impl InboundGroupSession {
 
     pub fn session_id(&self) -> String {
         self.inner.session_id()
+    }
+
+    pub fn pickle(&self, pickle_mode: PicklingMode) -> String {
+        self.inner.pickle(pickle_mode)
     }
 
     pub fn first_known_index(&self) -> u32 {
