@@ -225,28 +225,20 @@ impl CryptoStore for SqliteStore {
         let mut connection = self.connection.lock().await;
 
         query(
-            "INSERT OR IGNORE INTO accounts (
+            "INSERT INTO accounts (
                 user_id, device_id, pickle, shared
-             ) VALUES (?, ?, ?, ?)",
+             ) VALUES (?1, ?2, ?3, ?4)
+             ON CONFLICT(user_id, device_id) DO UPDATE SET
+                pickle = ?3,
+                shared = ?4
+             WHERE user_id = ?1 and
+                  device_id = ?2
+             ",
         )
         .bind(&*self.user_id)
         .bind(&*self.device_id)
         .bind(&pickle)
         .bind(acc.shared)
-        .execute(&mut *connection)
-        .await?;
-
-        query(
-            "UPDATE accounts
-               SET pickle = ?,
-                   shared = ?
-               WHERE user_id = ? and
-                    device_id = ?",
-        )
-        .bind(pickle)
-        .bind(acc.shared)
-        .bind(&*self.user_id)
-        .bind(&*self.device_id)
         .execute(&mut *connection)
         .await?;
 
