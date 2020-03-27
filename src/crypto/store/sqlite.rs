@@ -132,7 +132,7 @@ impl SqliteStore {
         let loaded_sessions = self.sessions.get(sender_key).is_some();
 
         if !loaded_sessions {
-            let sessions = self.load_session_for(sender_key).await?;
+            let sessions = self.load_sessions_for(sender_key).await?;
 
             if !sessions.is_empty() {
                 self.sessions.set_for_sender(sender_key, sessions);
@@ -142,17 +142,18 @@ impl SqliteStore {
         Ok(self.sessions.get(sender_key))
     }
 
-    async fn load_session_for(&mut self, sender_key: &str) -> Result<Vec<Arc<Mutex<Session>>>> {
+    async fn load_sessions_for(&mut self, sender_key: &str) -> Result<Vec<Arc<Mutex<Session>>>> {
         let account_id = self.account_id.ok_or(CryptoStoreError::AccountUnset)?;
         let mut connection = self.connection.lock().await;
 
         let rows: Vec<(String, String, String, String)> = query_as(
-            "SELECT pickle, sender_key, creation_time, last_use_time FROM sessions WHERE account_id = ? and sender_key = ?"
+            "SELECT pickle, sender_key, creation_time, last_use_time
+             FROM sessions WHERE account_id = ? and sender_key = ?",
         )
-            .bind(account_id)
-            .bind(sender_key)
-            .fetch_all(&mut *connection)
-            .await?;
+        .bind(account_id)
+        .bind(sender_key)
+        .fetch_all(&mut *connection)
+        .await?;
 
         let now = Instant::now();
 
@@ -442,7 +443,12 @@ mod test {
 
         let sess = session.lock().await;
 
-        let sessions = store.load_sessions().await.expect("Can't load sessions");
-        assert!(sessions.contains(&sess));
+        let sessions = store
+            .load_sessions_for(&sess.sender_key)
+            .await
+            .expect("Can't load sessions");
+        let loaded_session = &sessions[0];
+
+        assert_eq!(*sess, *loaded_session.lock().await);
     }
 }
