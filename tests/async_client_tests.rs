@@ -77,7 +77,7 @@ fn timeline() {
         Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_string()),
     )
     .with_status(200)
-    .with_body_from_file("tests/data/timeline.json")
+    .with_body_from_file("tests/data/sync.json")
     .create();
 
     let mut client = AsyncClient::new(homeserver, Some(session)).unwrap();
