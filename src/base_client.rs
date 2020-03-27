@@ -17,8 +17,14 @@ use std::collections::HashMap;
 
 use crate::api::r0 as api;
 use crate::events::collections::all::{RoomEvent, StateEvent};
-use crate::events::room::member::{MemberEvent, MembershipState};
+use crate::events::room::{
+    aliases::AliasesEvent,
+    canonical_alias::CanonicalAliasEvent,
+    member::{MemberEvent, MembershipState},
+    name::{NameEvent},
+};
 use crate::events::EventResult;
+use crate::identifiers::{RoomAliasId};
 use crate::session::Session;
 use std::sync::{Arc, RwLock};
 
@@ -33,6 +39,17 @@ use ruma_client_api::r0::keys::{upload_keys::Response as KeysUploadResponse, Dev
 pub type Token = String;
 pub type RoomId = String;
 pub type UserId = String;
+
+#[derive(Debug, Default)]
+/// `RoomName` allows the calculation of a text room name.
+pub struct RoomName {
+    /// The displayed name of the room.
+    name: Option<String>,
+    /// The canonical alias of the room ex. `#room-name:example.com` and port number.
+    canonical_alias: Option<RoomAliasId>,
+    /// List of `RoomAliasId`s the room has been given.
+    aliases: Vec<RoomAliasId>,
+}
 
 #[derive(Debug)]
 /// A Matrix room member.
@@ -52,6 +69,8 @@ pub struct RoomMember {
 pub struct Room {
     /// The unique id of the room.
     pub room_id: RoomId,
+    /// The name of the room, clients use this to represent a room.
+    pub room_name: RoomName,
     /// The mxid of our own user.
     pub own_user_id: UserId,
     /// The mxid of the room creator.
@@ -62,6 +81,46 @@ pub struct Room {
     pub typing_users: Vec<UserId>,
     /// A flag indicating if the room is encrypted.
     pub encrypted: bool,
+}
+
+impl RoomName {
+    pub fn push_alias(&mut self, alias: RoomAliasId) -> bool {
+        self.aliases.push(alias);
+        true
+    }
+
+    pub fn set_canonical(&mut self, alias: RoomAliasId) -> bool {
+        self.canonical_alias = Some(alias);
+        true
+    }
+
+    pub fn set_name(&mut self, name: &str) -> bool {
+        self.name = Some(name.to_string());
+        true
+    }
+
+    pub fn calculate_name(&self, room_id: &RoomId, members: &HashMap<UserId, RoomMember>) -> String {
+        // https://github.com/matrix-org/matrix-js-sdk/blob/33941eb37bffe41958ba9887fc8070dfb1a0ee76/src/models/room.js#L1823
+        // the order in which we check for a name ^^
+        if let Some(name) = &self.name {
+            name.clone()
+        } else if let Some(alias) = &self.canonical_alias {
+            alias.alias().to_string()
+        } else if !self.aliases.is_empty() {
+            self.aliases[0].alias().to_string()
+        } else {
+            // TODO 
+            let mut names = members.values().flat_map(|m| m.display_name.clone()).take(3).collect::<Vec<_>>();
+            
+            if names.is_empty() {
+                format!("Room {}", room_id)
+            } else {
+                // stablize order
+                names.sort();
+                names.join(", ").to_string()
+            }
+        }
+    }
 }
 
 impl Room {
@@ -75,6 +134,7 @@ impl Room {
     pub fn new(room_id: &str, own_user_id: &str) -> Self {
         Room {
             room_id: room_id.to_string(),
+            room_name: RoomName::default(),
             own_user_id: own_user_id.to_owned(),
             creator: None,
             members: HashMap::new(),
@@ -146,6 +206,50 @@ impl Room {
         }
     }
 
+    /// Add to the list of `RoomAliasId`s.
+    fn room_aliases(&mut self, alias: &RoomAliasId) -> bool {
+        self.room_name.push_alias(alias.clone());
+        true
+    }
+
+    /// RoomAliasId is `#alias:hostname` and `port`
+    fn canonical_alias(&mut self, alias: &RoomAliasId) -> bool {
+        self.room_name.set_canonical(alias.clone());
+        true
+    }
+
+    fn name_room(&mut self, name: &str) -> bool {
+        self.room_name.set_name(name);
+        true
+    }
+
+    /// Handle a room.aliases event, updating the room state if necessary.
+    /// Returns true if the room name changed, false otherwise.
+    pub fn handle_room_aliases(&mut self, event: &AliasesEvent) -> bool {
+        match event.content.aliases.as_slice() {
+            [alias] => self.room_aliases(alias),
+            _ => false,
+        }
+    }
+
+    /// Handle a room.canonical_alias event, updating the room state if necessary.
+    /// Returns true if the room name changed, false otherwise.
+    pub fn handle_canonical(&mut self, event: &CanonicalAliasEvent) -> bool {
+        match &event.content.alias {
+            Some(name) => self.canonical_alias(&name),
+            _ => false,
+        }
+    }
+
+    /// Handle a room.name event, updating the room state if necessary.
+    /// Returns true if the room name changed, false otherwise.
+    pub fn handle_room_name(&mut self, event: &NameEvent) -> bool {
+        match event.content.name() {
+            Some(name) => self.name_room(name),
+            _ => false,
+        }
+    }
+
     /// Receive a timeline event for this room and update the room state.
     ///
     /// Returns true if the joined member list changed, false otherwise.
@@ -156,6 +260,9 @@ impl Room {
     pub fn receive_timeline_event(&mut self, event: &RoomEvent) -> bool {
         match event {
             RoomEvent::RoomMember(m) => self.handle_membership(m),
+            RoomEvent::RoomName(n) => self.handle_room_name(n),
+            RoomEvent::RoomCanonicalAlias(ca) => self.handle_canonical(ca),
+            RoomEvent::RoomAliases(a) => self.handle_room_aliases(a),
             _ => false,
         }
     }
@@ -170,6 +277,9 @@ impl Room {
     pub fn receive_state_event(&mut self, event: &StateEvent) -> bool {
         match event {
             StateEvent::RoomMember(m) => self.handle_membership(m),
+            StateEvent::RoomName(n) => self.handle_room_name(n),
+            StateEvent::RoomCanonicalAlias(ca) => self.handle_canonical(ca),
+            StateEvent::RoomAliases(a) => self.handle_room_aliases(a),
             _ => false,
         }
     }
