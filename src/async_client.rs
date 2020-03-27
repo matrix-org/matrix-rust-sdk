@@ -14,7 +14,6 @@
 // limitations under the License.
 
 use futures::future::{BoxFuture, Future, FutureExt};
-use std::collections::HashMap;
 use std::convert::{TryFrom, TryInto};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, RwLock as SyncLock};
