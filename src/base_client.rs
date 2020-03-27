@@ -25,7 +25,7 @@ use crate::events::room::{
     aliases::AliasesEvent,
     canonical_alias::CanonicalAliasEvent,
     member::{MemberEvent, MembershipState},
-    name::{NameEvent},
+    name::NameEvent,
 };
 use crate::events::EventResult;
 use crate::identifiers::RoomAliasId;
@@ -113,16 +113,20 @@ impl RoomName {
         } else if !self.aliases.is_empty() {
             self.aliases[0].alias().to_string()
         } else {
-            // TODO 
-            let mut names = members.values().flat_map(|m| m.display_name.clone()).take(3).collect::<Vec<_>>();
-            
+            // TODO
+            let mut names = members
+                .values()
+                .flat_map(|m| m.display_name.clone())
+                .take(3)
+                .collect::<Vec<_>>();
+
             if names.is_empty() {
                 // TODO implement the rest of matrix-js-sdk handling of room names
                 format!("Room {}", room_id)
             } else {
                 // stabilize order
                 names.sort();
-                names.join(", ").to_string()
+                names.join(", ")
             }
         }
     }
@@ -362,13 +366,21 @@ impl Client {
     }
 
     pub(crate) fn calculate_room_name(&self, room_id: &str) -> Option<String> {
-        self.joined_rooms.get(room_id)
-            .and_then(|r| r.read().map(|r| r.room_name.calculate_name(room_id, &r.members)).ok())
+        self.joined_rooms.get(room_id).and_then(|r| {
+            r.read()
+                .map(|r| r.room_name.calculate_name(room_id, &r.members))
+                .ok()
+        })
     }
 
     pub(crate) fn calculate_room_names(&self) -> Vec<String> {
-        self.joined_rooms.iter()
-            .flat_map(|(id, room)| room.read().map(|r| r.room_name.calculate_name(id, &r.members)).ok())
+        self.joined_rooms
+            .iter()
+            .flat_map(|(id, room)| {
+                room.read()
+                    .map(|r| r.room_name.calculate_name(id, &r.members))
+                    .ok()
+            })
             .collect()
     }
 

@@ -60,7 +60,6 @@ fn sync() {
     assert!(rt.block_on(client.sync_token()).is_some());
 }
 
-
 #[test]
 fn timeline() {
     let mut rt = Runtime::new().unwrap();
@@ -88,7 +87,10 @@ fn timeline() {
     let _response = rt.block_on(client.sync(sync_settings)).unwrap();
 
     assert_eq!(vec!["tutorial"], rt.block_on(client.get_room_names()));
-    assert_eq!(Some("tutorial".into()), rt.block_on(client.get_room_name("!SVkFJHzfwvuaIEawgC:localhost")));
+    assert_eq!(
+        Some("tutorial".into()),
+        rt.block_on(client.get_room_name("!SVkFJHzfwvuaIEawgC:localhost"))
+    );
 
     // rt.block_on(async { println!("{:#?}", &client.base_client().await.joined_rooms ) });
 }
