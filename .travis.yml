@@ -12,6 +12,6 @@ before_script:
   - rustup component add rustfmt
 
 script:
-  - cargo build  --no-default-features --features 'encryption'
+  - cargo build  --no-default-features --features 'encryption sqlite-cryptostore'
   - cargo fmt --all -- --check
-  - cargo test --no-default-features --features 'encryption'
+  - cargo test --no-default-features --features 'encryption sqlite-cryptostore'
