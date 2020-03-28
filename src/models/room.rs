@@ -260,7 +260,7 @@ impl Room {
             RoomEvent::RoomCanonicalAlias(ca) => self.handle_canonical(ca),
             RoomEvent::RoomAliases(a) => self.handle_room_aliases(a),
             // power levels of the room members
-            RoomEvent::RoomPowerLevels(p) => self.handle_power_level(p),
+            // RoomEvent::RoomPowerLevels(p) => self.handle_power_level(p),
             _ => false,
         }
     }
