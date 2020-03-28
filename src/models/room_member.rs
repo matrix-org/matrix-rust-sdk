@@ -16,6 +16,7 @@
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 
+use super::{User, UserId};
 use crate::api::r0 as api;
 use crate::events::collections::all::{Event, RoomEvent, StateEvent};
 use crate::events::room::{
@@ -27,7 +28,6 @@ use crate::events::room::{
 use crate::events::EventResult;
 use crate::identifiers::RoomAliasId;
 use crate::session::Session;
-use super::{UserId, RoomId, User};
 
 use js_int::{Int, UInt};
 #[cfg(feature = "encryption")]
@@ -44,7 +44,7 @@ pub struct RoomMember {
     /// The unique mxid of the user.
     pub user_id: UserId,
     /// The unique id of the room.
-    pub room_id: Option<RoomId>,
+    pub room_id: Option<String>,
     /// If the member is typing.
     pub typing: Option<bool>,
     /// The user data for this room member.
@@ -58,7 +58,7 @@ pub struct RoomMember {
     /// The human readable name of this room member.
     pub name: String,
     /// The events that created the state of this room member.
-    pub events: Vec<Event>
+    pub events: Vec<Event>,
 }
 
 impl RoomMember {
@@ -73,26 +73,30 @@ impl RoomMember {
             power_level_norm: None,
             membership: event.content.membership,
             name: event.state_key.clone(),
-            events: vec![Event::RoomMember(event.clone())]
+            events: vec![Event::RoomMember(event.clone())],
         }
     }
 
     pub fn update(&mut self, event: &MemberEvent) {
         let MemberEvent {
-            content: MemberEventContent {
-                membership,
-                ..
-            },
+            content: MemberEventContent { membership, .. },
             room_id,
             state_key,
             ..
         } = event;
 
         let mut events = Vec::new();
-        events.extend(self.events.drain(..).chain(Some(Event::RoomMember(event.clone()))));
+        events.extend(
+            self.events
+                .drain(..)
+                .chain(Some(Event::RoomMember(event.clone()))),
+        );
 
         *self = Self {
-            room_id: room_id.as_ref().map(|id| id.to_string()).or(self.room_id.take()),
+            room_id: room_id
+                .as_ref()
+                .map(|id| id.to_string())
+                .or(self.room_id.take()),
             user_id: state_key.clone(),
             typing: None,
             user: User::new(event),

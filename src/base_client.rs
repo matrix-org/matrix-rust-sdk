@@ -21,17 +21,17 @@ use std::result::Result as StdResult;
 use crate::api::r0 as api;
 use crate::error::Result;
 use crate::events::collections::all::{RoomEvent, StateEvent};
+use crate::events::presence::PresenceEvent;
 use crate::events::room::{
     aliases::AliasesEvent,
     canonical_alias::CanonicalAliasEvent,
     member::{MemberEvent, MembershipState},
     name::NameEvent,
 };
-use crate::events::presence::PresenceEvent;
 use crate::events::EventResult;
 use crate::identifiers::RoomAliasId;
+use crate::models::Room;
 use crate::session::Session;
-use crate::models::{Room};
 use std::sync::{Arc, RwLock};
 
 #[cfg(feature = "encryption")]

@@ -16,6 +16,7 @@
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 
+use super::{RoomMember, User, UserId};
 use crate::api::r0 as api;
 use crate::events::collections::all::{RoomEvent, StateEvent};
 use crate::events::room::{
@@ -24,10 +25,12 @@ use crate::events::room::{
     member::{MemberEvent, MembershipState},
     name::NameEvent,
 };
-use crate::events::{presence::{PresenceEvent, PresenceEventContent}, EventResult};
+use crate::events::{
+    presence::{PresenceEvent, PresenceEventContent},
+    EventResult,
+};
 use crate::identifiers::RoomAliasId;
 use crate::session::Session;
-use super::{RoomId, UserId, RoomMember, User};
 
 #[cfg(feature = "encryption")]
 use tokio::sync::Mutex;
@@ -52,7 +55,7 @@ pub struct RoomName {
 /// A Matrix rooom.
 pub struct Room {
     /// The unique id of the room.
-    pub room_id: RoomId,
+    pub room_id: String,
     /// The name of the room, clients use this to represent a room.
     pub room_name: RoomName,
     /// The mxid of our own user.
@@ -175,11 +178,11 @@ impl Room {
     // }
 
     // fn handle_leave(&mut self, event: &MemberEvent) -> bool {
-        
+
     // }
 
     /// Handle a room.member updating the room state if necessary.
-    /// 
+    ///
     /// Returns true if the joined member list changed, false otherwise.
     pub fn handle_membership(&mut self, event: &MemberEvent) -> bool {
         match &event.content.membership {
@@ -214,7 +217,7 @@ impl Room {
     }
 
     /// Handle a room.aliases event, updating the room state if necessary.
-    /// 
+    ///
     /// Returns true if the room name changed, false otherwise.
     pub fn handle_room_aliases(&mut self, event: &AliasesEvent) -> bool {
         match event.content.aliases.as_slice() {
@@ -225,7 +228,7 @@ impl Room {
     }
 
     /// Handle a room.canonical_alias event, updating the room state if necessary.
-    /// 
+    ///
     /// Returns true if the room name changed, false otherwise.
     pub fn handle_canonical(&mut self, event: &CanonicalAliasEvent) -> bool {
         match &event.content.alias {
@@ -235,7 +238,7 @@ impl Room {
     }
 
     /// Handle a room.name event, updating the room state if necessary.
-    /// 
+    ///
     /// Returns true if the room name changed, false otherwise.
     pub fn handle_room_name(&mut self, event: &NameEvent) -> bool {
         match event.content.name() {
@@ -291,21 +294,29 @@ impl Room {
     /// * `event` - The event of the room.
     pub fn receive_presence_event(&mut self, event: &PresenceEvent) -> bool {
         let PresenceEvent {
-            content: PresenceEventContent {
-                avatar_url,
-                currently_active,
-                displayname,
-                last_active_ago,
-                presence,
-                status_msg,
-            },
+            content:
+                PresenceEventContent {
+                    avatar_url,
+                    currently_active,
+                    displayname,
+                    last_active_ago,
+                    presence,
+                    status_msg,
+                },
             sender,
         } = event;
 
-        if let Some(user) = self.members.get_mut(&sender.to_string()).map(|m| &mut m.user) {
-            if user.display_name == *displayname && user.avatar_url == *avatar_url
-            && user.presence.as_ref() == Some(presence) && user.status_msg == *status_msg
-            && user.last_active_ago == *last_active_ago && user.currently_active == *currently_active
+        if let Some(user) = self
+            .members
+            .get_mut(&sender.to_string())
+            .map(|m| &mut m.user)
+        {
+            if user.display_name == *displayname
+                && user.avatar_url == *avatar_url
+                && user.presence.as_ref() == Some(presence)
+                && user.status_msg == *status_msg
+                && user.last_active_ago == *last_active_ago
+                && user.currently_active == *currently_active
             {
                 false
             } else {

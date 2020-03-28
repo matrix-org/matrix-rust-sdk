@@ -90,38 +90,3 @@ async fn timeline() {
 
     println!("{:#?}", &client.base_client().read().await.joined_rooms);
 }
-
-#[test]
-fn timeline() {
-    let mut rt = Runtime::new().unwrap();
-
-    let homeserver = Url::from_str(&mockito::server_url()).unwrap();
-
-    let session = Session {
-        access_token: "1234".to_owned(),
-        user_id: UserId::try_from("@example:example.com").unwrap(),
-        device_id: "DEVICEID".to_owned(),
-    };
-
-    let _m = mock(
-        "GET",
-        Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_string()),
-    )
-    .with_status(200)
-    .with_body_from_file("tests/data/sync.json")
-    .create();
-
-    let mut client = AsyncClient::new(homeserver, Some(session)).unwrap();
-
-    let sync_settings = SyncSettings::new().timeout(3000).unwrap();
-
-    let _response = rt.block_on(client.sync(sync_settings)).unwrap();
-
-    assert_eq!(vec!["tutorial"], rt.block_on(client.get_room_names()));
-    assert_eq!(
-        Some("tutorial".into()),
-        rt.block_on(client.get_room_name("!SVkFJHzfwvuaIEawgC:localhost"))
-    );
-
-    rt.block_on(async { println!("{:#?}", &client.base_client().read().await.joined_rooms ) });
-}

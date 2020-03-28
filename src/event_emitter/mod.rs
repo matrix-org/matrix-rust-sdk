@@ -13,32 +13,35 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::collections::HashMap;
-use std::sync::{Arc, RwLock};
-
-use crate::api::r0 as api;
-use crate::events::collections::all::{Event, RoomEvent, StateEvent};
-use crate::events::room::{
-    aliases::AliasesEvent,
-    canonical_alias::CanonicalAliasEvent,
-    member::{MemberEvent, MemberEventContent, MembershipState},
-    name::NameEvent,
-};
-use crate::events::EventResult;
-use crate::identifiers::RoomAliasId;
-use crate::session::Session;
+use crate::events::collections::all::RoomEvent;
 use crate::models::Room;
 
-use js_int::{Int, UInt};
-#[cfg(feature = "encryption")]
-use tokio::sync::Mutex;
+// JUST AN IDEA 
+// 
 
-#[cfg(feature = "encryption")]
-use crate::crypto::{OlmMachine, OneTimeKeys};
-#[cfg(feature = "encryption")]
-use ruma_client_api::r0::keys::{upload_keys::Response as KeysUploadResponse, DeviceKeys};
-
+/// This is just a thought I had. Making users impl a trait instead of writing callbacks for events
+/// could give the chance for really good documentation for each event?
+/// It would look something like this
+///
+/// ```rust,ignore
+/// use matrix-sdk::{AsyncClient, EventEmitter};
+///
+/// struct MyAppClient;
+///
+/// impl EventEmitter for MyAppClient {
+///     fn on_room_member(&mut self, room: &Room, event: &RoomEvent) { ... }
+/// }
+/// async fn main() {
+///     let cl = AsyncClient::with_emitter(MyAppClient);
+/// }
+/// ```
+///
+/// And in `AsyncClient::sync` there could be a switch case that calls the corresponding method on
+/// the `Box<dyn EventEmitter>
 pub trait EventEmitter {
-    fn on_room_name(&mut self, _: &Room) {}
-    fn on_room_member(&mut self, _: &Room) {}
+    fn on_room_name(&mut self, _: &Room, _: &RoomEvent) {}
+    /// Any event that alters the state of the room's members
+    fn on_room_member(&mut self, _: &Room, _: &RoomEvent) {}
 }
+
+

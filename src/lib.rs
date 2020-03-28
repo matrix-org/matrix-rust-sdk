@@ -35,9 +35,9 @@ pub use ruma_identifiers as identifiers;
 mod async_client;
 mod base_client;
 mod error;
+mod event_emitter;
 mod models;
 mod session;
-mod event_emitter;
 
 #[cfg(feature = "encryption")]
 mod crypto;

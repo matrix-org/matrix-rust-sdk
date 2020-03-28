@@ -16,19 +16,19 @@
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 
+use super::UserId;
 use crate::api::r0 as api;
 use crate::events::collections::all::{Event, RoomEvent, StateEvent};
+use crate::events::presence::{PresenceEvent, PresenceState};
 use crate::events::room::{
     aliases::AliasesEvent,
     canonical_alias::CanonicalAliasEvent,
     member::{MemberEvent, MembershipState},
     name::NameEvent,
 };
-use crate::events::presence::{PresenceEvent, PresenceState};
 use crate::events::EventResult;
 use crate::identifiers::RoomAliasId;
 use crate::session::Session;
-use super::{UserId, RoomId};
 
 use js_int::UInt;
 #[cfg(feature = "encryption")]
