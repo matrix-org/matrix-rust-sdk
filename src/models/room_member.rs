@@ -16,7 +16,7 @@
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 
-use super::{User, UserId};
+use super::User;
 use crate::api::r0 as api;
 use crate::events::collections::all::{Event, RoomEvent, StateEvent};
 use crate::events::room::{
@@ -24,9 +24,10 @@ use crate::events::room::{
     canonical_alias::CanonicalAliasEvent,
     member::{MemberEvent, MemberEventContent, MembershipState},
     name::NameEvent,
+    power_levels::PowerLevelsEvent,
 };
 use crate::events::EventResult;
-use crate::identifiers::RoomAliasId;
+use crate::identifiers::{RoomAliasId, UserId};
 use crate::session::Session;
 
 use js_int::{Int, UInt};
@@ -66,7 +67,7 @@ impl RoomMember {
         let user = User::new(event);
         Self {
             room_id: event.room_id.as_ref().map(|id| id.to_string()),
-            user_id: event.state_key.clone(),
+            user_id: event.sender.clone(),
             typing: None,
             user,
             power_level: None,
@@ -77,34 +78,31 @@ impl RoomMember {
         }
     }
 
-    pub fn update(&mut self, event: &MemberEvent) {
-        let MemberEvent {
-            content: MemberEventContent { membership, .. },
-            room_id,
-            state_key,
-            ..
-        } = event;
+    pub fn update_member(&mut self, event: &MemberEvent) -> bool {
+        let changed = self.membership == event.content.membership;
+        self.membership = event.content.membership;
+        changed
+    }
 
-        let mut events = Vec::new();
-        events.extend(
-            self.events
-                .drain(..)
-                .chain(Some(Event::RoomMember(event.clone()))),
-        );
-
-        *self = Self {
-            room_id: room_id
-                .as_ref()
-                .map(|id| id.to_string())
-                .or(self.room_id.take()),
-            user_id: state_key.clone(),
-            typing: None,
-            user: User::new(event),
-            power_level: None,
-            power_level_norm: None,
-            membership: membership.clone(),
-            name: state_key.clone(),
-            events,
+    pub fn update_power(&mut self, event: &PowerLevelsEvent) -> bool {
+        let mut max_power = event.content.users_default;
+        for power in event.content.users.values() {
+            max_power = *power.max(&max_power);
         }
+
+        let mut changed = false;
+        if let Some(user_power) = event.content.users.get(&self.user_id) {
+            changed = self.power_level == Some(*user_power);
+            self.power_level = Some(*user_power);
+        } else {
+            changed = self.power_level == Some(event.content.users_default);
+            self.power_level = Some(event.content.users_default);
+        }
+
+        if max_power > Int::from(0) {
+            self.power_level_norm = Some((self.power_level.unwrap() * Int::from(100)) / max_power);
+        }
+
+        changed
     }
 }

@@ -24,6 +24,7 @@ use crate::events::room::{
     canonical_alias::CanonicalAliasEvent,
     member::{MemberEvent, MembershipState},
     name::NameEvent,
+    power_levels::PowerLevelsEvent,
 };
 use crate::events::{
     presence::{PresenceEvent, PresenceEventContent},
@@ -188,10 +189,8 @@ impl Room {
         match &event.content.membership {
             MembershipState::Invite | MembershipState::Join => self.add_member(event),
             _ => {
-                if let Some(member) = self.members.get_mut(&event.sender.to_string()) {
-                    let changed = member.membership == event.content.membership;
-                    member.membership = event.content.membership;
-                    changed
+                if let Some(member) = self.members.get_mut(&event.state_key) {
+                    member.update_member(event)
                 } else {
                     false
                 }
@@ -247,6 +246,17 @@ impl Room {
         }
     }
 
+    /// Handle a room.power_levels event, updating the room state if necessary.
+    ///
+    /// Returns true if the room name changed, false otherwise.
+    pub fn handle_power_level(&mut self, event: &PowerLevelsEvent) -> bool {
+        if let Some(member) = self.members.get_mut(&event.state_key) {
+            member.update_power(event)
+        } else {
+            false
+        }
+    }
+
     /// Receive a timeline event for this room and update the room state.
     ///
     /// Returns true if the joined member list changed, false otherwise.
@@ -263,7 +273,7 @@ impl Room {
             RoomEvent::RoomCanonicalAlias(ca) => self.handle_canonical(ca),
             RoomEvent::RoomAliases(a) => self.handle_room_aliases(a),
             // power levels of the room members
-            // RoomEvent::RoomPowerLevels(p) => self.handle_power_level(p),
+            RoomEvent::RoomPowerLevels(p) => self.handle_power_level(p),
             _ => false,
         }
     }
