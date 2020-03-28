@@ -16,8 +16,8 @@
 use crate::events::collections::all::RoomEvent;
 use crate::models::Room;
 
-// JUST AN IDEA 
-// 
+// JUST AN IDEA
+//
 
 /// This is just a thought I had. Making users impl a trait instead of writing callbacks for events
 /// could give the chance for really good documentation for each event?
@@ -43,5 +43,3 @@ pub trait EventEmitter {
     /// Any event that alters the state of the room's members
     fn on_room_member(&mut self, _: &Room, _: &RoomEvent) {}
 }
-
-
