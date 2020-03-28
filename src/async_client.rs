@@ -263,10 +263,10 @@ impl AsyncClient {
 
     #[doc(hidden)]
     /// Access to the underlying `BaseClient`. Used for testing and debugging so far.
-    pub async fn base_client(&self) -> RwLockReadGuard<'_, BaseClient> {
-        self.base_client.read().await
+    pub fn base_client(&self) -> Arc<RwLock<BaseClient>> {
+        Arc::clone(&self.base_client)
     }
-
+    
     /// Calculate the room name from a `RoomId`, returning a string.
     pub async fn get_room_name(&self, room_id: &str) -> Option<String> {
         self.base_client.read().await.calculate_room_name(room_id)
