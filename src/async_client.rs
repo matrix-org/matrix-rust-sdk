@@ -37,7 +37,7 @@ use ruma_identifiers::RoomId;
 
 use crate::api;
 use crate::base_client::Client as BaseClient;
-use crate::base_client::Room;
+use crate::models::Room;
 use crate::error::{Error, InnerError};
 use crate::session::Session;
 use crate::VERSION;
@@ -310,10 +310,10 @@ impl AsyncClient {
     ///         ..
     ///     }) = event
     ///     {
-    ///         let user = room.members.get(&sender.to_string()).unwrap();
+    ///         let member = room.members.get(&sender.to_string()).unwrap();
     ///         println!(
     ///             "{}: {}",
-    ///             user.display_name.as_ref().unwrap_or(&sender.to_string()),
+    ///             member.user.display_name.as_ref().unwrap_or(&sender.to_string()),
     ///             msg_body
     ///         );
     ///     }
@@ -412,6 +412,13 @@ impl AsyncClient {
                 {
                     let mut client = self.base_client.write().await;
                     client.receive_joined_timeline_event(&room_id, &event);
+                }
+
+                for presence in &response.presence.events {
+                    let mut client = self.base_client.write().await;
+                    if let EventResult::Ok(e) = presence {
+                        client.receive_presence_event(&room_id, e);
+                    }
                 }
 
                 let event = Arc::new(event.clone());

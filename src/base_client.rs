@@ -23,9 +23,11 @@ use crate::events::room::{
     member::{MemberEvent, MembershipState},
     name::NameEvent,
 };
+use crate::events::presence::PresenceEvent;
 use crate::events::EventResult;
 use crate::identifiers::RoomAliasId;
 use crate::session::Session;
+use crate::models::{Room};
 use std::sync::{Arc, RwLock};
 
 #[cfg(feature = "encryption")]
@@ -39,261 +41,6 @@ use ruma_client_api::r0::keys::{upload_keys::Response as KeysUploadResponse, Dev
 pub type Token = String;
 pub type RoomId = String;
 pub type UserId = String;
-
-#[derive(Debug, Default)]
-/// `RoomName` allows the calculation of a text room name.
-pub struct RoomName {
-    /// The displayed name of the room.
-    name: Option<String>,
-    /// The canonical alias of the room ex. `#room-name:example.com` and port number.
-    canonical_alias: Option<RoomAliasId>,
-    /// List of `RoomAliasId`s the room has been given.
-    aliases: Vec<RoomAliasId>,
-}
-
-#[derive(Debug)]
-/// A Matrix room member.
-pub struct RoomMember {
-    /// The unique mxid of the user.
-    pub user_id: UserId,
-    /// The human readable name of the user.
-    pub display_name: Option<String>,
-    /// The matrix url of the users avatar.
-    pub avatar_url: Option<String>,
-    /// The users power level.
-    pub power_level: u8,
-}
-
-#[derive(Debug)]
-/// A Matrix rooom.
-pub struct Room {
-    /// The unique id of the room.
-    pub room_id: RoomId,
-    /// The name of the room, clients use this to represent a room.
-    pub room_name: RoomName,
-    /// The mxid of our own user.
-    pub own_user_id: UserId,
-    /// The mxid of the room creator.
-    pub creator: Option<UserId>,
-    /// The map of room members.
-    pub members: HashMap<UserId, RoomMember>,
-    /// A list of users that are currently typing.
-    pub typing_users: Vec<UserId>,
-    /// A flag indicating if the room is encrypted.
-    pub encrypted: bool,
-}
-
-impl RoomName {
-    pub fn push_alias(&mut self, alias: RoomAliasId) -> bool {
-        self.aliases.push(alias);
-        true
-    }
-
-    pub fn set_canonical(&mut self, alias: RoomAliasId) -> bool {
-        self.canonical_alias = Some(alias);
-        true
-    }
-
-    pub fn set_name(&mut self, name: &str) -> bool {
-        self.name = Some(name.to_string());
-        true
-    }
-
-    pub fn calculate_name(&self, room_id: &str, members: &HashMap<UserId, RoomMember>) -> String {
-        // https://github.com/matrix-org/matrix-js-sdk/blob/33941eb37bffe41958ba9887fc8070dfb1a0ee76/src/models/room.js#L1823
-        // the order in which we check for a name ^^
-        if let Some(name) = &self.name {
-            name.clone()
-        } else if let Some(alias) = &self.canonical_alias {
-            alias.alias().to_string()
-        } else if !self.aliases.is_empty() {
-            self.aliases[0].alias().to_string()
-        } else {
-            // TODO
-            let mut names = members
-                .values()
-                .flat_map(|m| m.display_name.clone())
-                .take(3)
-                .collect::<Vec<_>>();
-
-            if names.is_empty() {
-                // TODO implement the rest of matrix-js-sdk handling of room names
-                format!("Room {}", room_id)
-            } else {
-                // stabilize order
-                names.sort();
-                names.join(", ")
-            }
-        }
-    }
-}
-
-impl Room {
-    /// Create a new room.
-    ///
-    /// # Arguments
-    ///
-    /// * `room_id` - The unique id of the room.
-    ///
-    /// * `own_user_id` - The mxid of our own user.
-    pub fn new(room_id: &str, own_user_id: &str) -> Self {
-        Room {
-            room_id: room_id.to_string(),
-            room_name: RoomName::default(),
-            own_user_id: own_user_id.to_owned(),
-            creator: None,
-            members: HashMap::new(),
-            typing_users: Vec::new(),
-            encrypted: false,
-        }
-    }
-
-    fn add_member(&mut self, event: &MemberEvent) -> bool {
-        if self.members.contains_key(&event.state_key) {
-            return false;
-        }
-
-        let member = RoomMember {
-            user_id: event.state_key.clone(),
-            display_name: event.content.displayname.clone(),
-            avatar_url: event.content.avatar_url.clone(),
-            power_level: 0,
-        };
-
-        self.members.insert(event.state_key.clone(), member);
-
-        true
-    }
-
-    fn remove_member(&mut self, event: &MemberEvent) -> bool {
-        if !self.members.contains_key(&event.state_key) {
-            return false;
-        }
-
-        true
-    }
-
-    fn update_joined_member(&mut self, event: &MemberEvent) -> bool {
-        if let Some(member) = self.members.get_mut(&event.state_key) {
-            member.display_name = event.content.displayname.clone();
-            member.avatar_url = event.content.avatar_url.clone();
-        }
-
-        false
-    }
-
-    fn handle_join(&mut self, event: &MemberEvent) -> bool {
-        match &event.prev_content {
-            Some(c) => match c.membership {
-                MembershipState::Join => self.update_joined_member(event),
-                MembershipState::Invite => self.add_member(event),
-                MembershipState::Leave => self.remove_member(event),
-                _ => false,
-            },
-            None => self.add_member(event),
-        }
-    }
-
-    fn handle_leave(&mut self, _event: &MemberEvent) -> bool {
-        false
-    }
-
-    /// Handle a room.member updating the room state if necessary.
-    /// 
-    /// Returns true if the joined member list changed, false otherwise.
-    pub fn handle_membership(&mut self, event: &MemberEvent) -> bool {
-        match event.content.membership {
-            MembershipState::Join => self.handle_join(event),
-            MembershipState::Leave => self.handle_leave(event),
-            MembershipState::Ban => self.handle_leave(event),
-            MembershipState::Invite => false,
-            MembershipState::Knock => false,
-            _ => false,
-        }
-    }
-
-    /// Add to the list of `RoomAliasId`s.
-    fn room_aliases(&mut self, alias: &RoomAliasId) -> bool {
-        self.room_name.push_alias(alias.clone());
-        true
-    }
-
-    /// RoomAliasId is `#alias:hostname` and `port`
-    fn canonical_alias(&mut self, alias: &RoomAliasId) -> bool {
-        self.room_name.set_canonical(alias.clone());
-        true
-    }
-
-    fn name_room(&mut self, name: &str) -> bool {
-        self.room_name.set_name(name);
-        true
-    }
-
-    /// Handle a room.aliases event, updating the room state if necessary.
-    /// 
-    /// Returns true if the room name changed, false otherwise.
-    pub fn handle_room_aliases(&mut self, event: &AliasesEvent) -> bool {
-        match event.content.aliases.as_slice() {
-            [alias] => self.room_aliases(alias),
-            [alias, ..] => self.room_aliases(alias),
-            _ => false,
-        }
-    }
-
-    /// Handle a room.canonical_alias event, updating the room state if necessary.
-    /// 
-    /// Returns true if the room name changed, false otherwise.
-    pub fn handle_canonical(&mut self, event: &CanonicalAliasEvent) -> bool {
-        match &event.content.alias {
-            Some(name) => self.canonical_alias(&name),
-            _ => false,
-        }
-    }
-
-    /// Handle a room.name event, updating the room state if necessary.
-    /// 
-    /// Returns true if the room name changed, false otherwise.
-    pub fn handle_room_name(&mut self, event: &NameEvent) -> bool {
-        match event.content.name() {
-            Some(name) => self.name_room(name),
-            _ => false,
-        }
-    }
-
-    /// Receive a timeline event for this room and update the room state.
-    ///
-    /// Returns true if the joined member list changed, false otherwise.
-    ///
-    /// # Arguments
-    ///
-    /// * `event` - The event of the room.
-    pub fn receive_timeline_event(&mut self, event: &RoomEvent) -> bool {
-        match event {
-            RoomEvent::RoomMember(m) => self.handle_membership(m),
-            RoomEvent::RoomName(n) => self.handle_room_name(n),
-            RoomEvent::RoomCanonicalAlias(ca) => self.handle_canonical(ca),
-            RoomEvent::RoomAliases(a) => self.handle_room_aliases(a),
-            _ => false,
-        }
-    }
-
-    /// Receive a state event for this room and update the room state.
-    ///
-    /// Returns true if the joined member list changed, false otherwise.
-    ///
-    /// # Arguments
-    ///
-    /// * `event` - The event of the room.
-    pub fn receive_state_event(&mut self, event: &StateEvent) -> bool {
-        match event {
-            StateEvent::RoomMember(m) => self.handle_membership(m),
-            StateEvent::RoomName(n) => self.handle_room_name(n),
-            StateEvent::RoomCanonicalAlias(ca) => self.handle_canonical(ca),
-            StateEvent::RoomAliases(a) => self.handle_room_aliases(a),
-            _ => false,
-        }
-    }
-}
 
 #[derive(Debug)]
 /// A no IO Client implementation.
@@ -432,6 +179,21 @@ impl Client {
     pub fn receive_joined_state_event(&mut self, room_id: &str, event: &StateEvent) -> bool {
         let mut room = self.get_or_create_room(room_id).write().unwrap();
         room.receive_state_event(event)
+    }
+
+    /// Receive a presence event from an `IncomingResponse` and updates the client state.
+    ///
+    /// Returns true if the membership list of the room changed, false
+    /// otherwise.
+    ///
+    /// # Arguments
+    ///
+    /// * `room_id` - The unique id of the room the event belongs to.
+    ///
+    /// * `event` - The event that should be handled by the client.
+    pub fn receive_presence_event(&mut self, room_id: &str, event: &PresenceEvent) -> bool {
+        let mut room = self.get_or_create_room(room_id).write().unwrap();
+        room.receive_presence_event(event)
     }
 
     /// Receive a response from a sync call.

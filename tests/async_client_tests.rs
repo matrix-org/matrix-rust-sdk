@@ -91,5 +91,5 @@ fn timeline() {
         rt.block_on(client.get_room_name("!SVkFJHzfwvuaIEawgC:localhost"))
     );
 
-    // rt.block_on(async { println!("{:#?}", &client.base_client().read().await.joined_rooms ) });
+    rt.block_on(async { println!("{:#?}", &client.base_client().read().await.joined_rooms ) });
 }
