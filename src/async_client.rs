@@ -37,7 +37,8 @@ use ruma_identifiers::RoomId;
 
 use crate::api;
 use crate::base_client::Client as BaseClient;
-use crate::base_client::Room;
+use crate::models::Room;
+use crate::error::{Error, InnerError};
 use crate::session::Session;
 use crate::VERSION;
 use crate::{Error, Result};
@@ -265,7 +266,7 @@ impl AsyncClient {
     pub fn base_client(&self) -> Arc<RwLock<BaseClient>> {
         Arc::clone(&self.base_client)
     }
-
+    
     /// Calculate the room name from a `RoomId`, returning a string.
     pub async fn get_room_name(&self, room_id: &str) -> Option<String> {
         self.base_client.read().await.calculate_room_name(room_id)
@@ -309,10 +310,10 @@ impl AsyncClient {
     ///         ..
     ///     }) = event
     ///     {
-    ///         let user = room.members.get(&sender.to_string()).unwrap();
+    ///         let member = room.members.get(&sender.to_string()).unwrap();
     ///         println!(
     ///             "{}: {}",
-    ///             user.display_name.as_ref().unwrap_or(&sender.to_string()),
+    ///             member.user.display_name.as_ref().unwrap_or(&sender.to_string()),
     ///             msg_body
     ///         );
     ///     }
@@ -423,6 +424,15 @@ impl AsyncClient {
                 if let Some(e) = decrypted_event {
                     *event = e;
                 }
+                
+                for presence in &response.presence.events {
+                    let mut client = self.base_client.write().await;
+                    if let EventResult::Ok(e) = presence {
+                        client.receive_presence_event(&room_id, e);
+                    }
+                }
+
+                let event = Arc::new(event.clone());
 
                 let callbacks = {
                     let mut cb_futures = self.event_callbacks.lock().unwrap();
