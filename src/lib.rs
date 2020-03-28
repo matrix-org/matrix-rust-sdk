@@ -27,6 +27,7 @@ mod base_client;
 mod error;
 mod models;
 mod session;
+mod event_emitter;
 
 #[cfg(feature = "encryption")]
 mod crypto;
