@@ -72,7 +72,7 @@ pub struct RoomMember {
 /// A Matrix rooom.
 pub struct Room {
     /// The unique id of the room.
-    pub room_id: RoomId,
+    pub room_id: String,
     /// The name of the room, clients use this to represent a room.
     pub room_name: RoomName,
     /// The mxid of our own user.
@@ -203,7 +203,7 @@ impl Room {
     }
 
     /// Handle a room.member updating the room state if necessary.
-    /// 
+    ///
     /// Returns true if the joined member list changed, false otherwise.
     pub fn handle_membership(&mut self, event: &MemberEvent) -> bool {
         match event.content.membership {
@@ -234,7 +234,7 @@ impl Room {
     }
 
     /// Handle a room.aliases event, updating the room state if necessary.
-    /// 
+    ///
     /// Returns true if the room name changed, false otherwise.
     pub fn handle_room_aliases(&mut self, event: &AliasesEvent) -> bool {
         match event.content.aliases.as_slice() {
@@ -245,7 +245,7 @@ impl Room {
     }
 
     /// Handle a room.canonical_alias event, updating the room state if necessary.
-    /// 
+    ///
     /// Returns true if the room name changed, false otherwise.
     pub fn handle_canonical(&mut self, event: &CanonicalAliasEvent) -> bool {
         match &event.content.alias {
@@ -255,7 +255,7 @@ impl Room {
     }
 
     /// Handle a room.name event, updating the room state if necessary.
-    /// 
+    ///
     /// Returns true if the room name changed, false otherwise.
     pub fn handle_room_name(&mut self, event: &NameEvent) -> bool {
         match event.content.name() {

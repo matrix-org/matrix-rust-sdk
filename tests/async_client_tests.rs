@@ -9,10 +9,8 @@ use std::convert::TryFrom;
 use std::str::FromStr;
 use std::time::Duration;
 
-#[test]
-fn login() {
-    let mut rt = Runtime::new().unwrap();
-
+#[tokio::test]
+async fn login() {
     let homeserver = Url::from_str(&mockito::server_url()).unwrap();
 
     let _m = mock("POST", "/_matrix/client/r0/login")
@@ -22,17 +20,17 @@ fn login() {
 
     let mut client = AsyncClient::new(homeserver, None).unwrap();
 
-    rt.block_on(client.login("example", "wordpass", None, None))
+    client
+        .login("example", "wordpass", None, None)
+        .await
         .unwrap();
 
-    let logged_in = rt.block_on(client.logged_in());
+    let logged_in = client.logged_in().await;
     assert!(logged_in, "Clint should be logged in");
 }
 
-#[test]
-fn sync() {
-    let mut rt = Runtime::new().unwrap();
-
+#[tokio::test]
+async fn sync() {
     let homeserver = Url::from_str(&mockito::server_url()).unwrap();
 
     let session = Session {
@@ -53,17 +51,15 @@ fn sync() {
 
     let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
 
-    let response = rt.block_on(client.sync(sync_settings)).unwrap();
+    let response = client.sync(sync_settings).await.unwrap();
 
     assert_ne!(response.next_batch, "");
 
-    assert!(rt.block_on(client.sync_token()).is_some());
+    assert!(client.sync_token().await.is_some());
 }
 
-#[test]
-fn timeline() {
-    let mut rt = Runtime::new().unwrap();
-
+#[tokio::test]
+async fn timeline() {
     let homeserver = Url::from_str(&mockito::server_url()).unwrap();
 
     let session = Session {
@@ -82,15 +78,15 @@ fn timeline() {
 
     let mut client = AsyncClient::new(homeserver, Some(session)).unwrap();
 
-    let sync_settings = SyncSettings::new().timeout(3000).unwrap();
+    let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
 
-    let _response = rt.block_on(client.sync(sync_settings)).unwrap();
+    let _response = client.sync(sync_settings).await.unwrap();
 
-    assert_eq!(vec!["tutorial"], rt.block_on(client.get_room_names()));
+    assert_eq!(vec!["tutorial"], client.get_room_names().await);
     assert_eq!(
         Some("tutorial".into()),
-        rt.block_on(client.get_room_name("!SVkFJHzfwvuaIEawgC:localhost"))
+        client.get_room_name("!SVkFJHzfwvuaIEawgC:localhost").await
     );
 
-    // rt.block_on(async { println!("{:#?}", &client.base_client().read().await.joined_rooms ) });
+    println!("{:#?}", &client.base_client().read().await.joined_rooms);
 }
