@@ -389,7 +389,7 @@ impl Client {
             .collect()
     }
 
-    fn get_or_create_room(&mut self, room_id: &str) -> &mut Arc<RwLock<Room>> {
+    pub(crate) fn get_or_create_room(&mut self, room_id: &str) -> &mut Arc<RwLock<Room>> {
         #[allow(clippy::or_fun_call)]
         self.joined_rooms
             .entry(room_id.to_string())
