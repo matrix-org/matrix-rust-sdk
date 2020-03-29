@@ -104,7 +104,7 @@ impl User {
     }
 
     /// Updates the `User`s presence.
-    /// 
+    ///
     /// This should only be used if `did_update_presence` was true.
     ///
     /// # Arguments
@@ -123,7 +123,7 @@ impl User {
                 },
             ..
         } = presence_ev;
-        
+
         self.presence_events.push(presence_ev.clone());
         *self = User {
             display_name: displayname.clone(),

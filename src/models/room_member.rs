@@ -87,13 +87,12 @@ impl RoomMember {
                 self.user.display_name = event.content.displayname.clone();
                 self.user.avatar_url = event.content.avatar_url.clone();
                 true
-            },
-            Banned | Kicked | KickedAndBanned
-                | InvitationRejected | InvitationRevoked
-                | Left | Unbanned | Joined | Invited => {
-                    self.membership = event.content.membership;
-                    true
-            },
+            }
+            Banned | Kicked | KickedAndBanned | InvitationRejected | InvitationRevoked | Left
+            | Unbanned | Joined | Invited => {
+                self.membership = event.content.membership;
+                true
+            }
             NotImplemented => false,
             None => false,
             // TODO should this be handled somehow ??

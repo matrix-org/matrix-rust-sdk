@@ -30,9 +30,9 @@ use url::Url;
 
 use ruma_api::{Endpoint, Outgoing};
 use ruma_events::collections::all::RoomEvent;
+use ruma_events::presence::PresenceEvent;
 use ruma_events::room::message::MessageEventContent;
 use ruma_events::EventResult;
-use ruma_events::presence::PresenceEvent;
 pub use ruma_events::EventType;
 use ruma_identifiers::RoomId;
 
@@ -48,7 +48,8 @@ type RoomEventCallback = Box<
 >;
 
 type PresenceEventCallback = Box<
-    dyn FnMut(Arc<SyncLock<Room>>, Arc<EventResult<PresenceEvent>>) -> BoxFuture<'static, ()> + Send,
+    dyn FnMut(Arc<SyncLock<Room>>, Arc<EventResult<PresenceEvent>>) -> BoxFuture<'static, ()>
+        + Send,
 >;
 
 const DEFAULT_SYNC_TIMEOUT: Duration = Duration::from_secs(30);
@@ -405,7 +406,9 @@ impl AsyncClient {
     /// ```
     pub fn add_presence_callback<C: 'static>(
         &mut self,
-        mut callback: impl FnMut(Arc<SyncLock<Room>>, Arc<EventResult<PresenceEvent>>) -> C + 'static + Send,
+        mut callback: impl FnMut(Arc<SyncLock<Room>>, Arc<EventResult<PresenceEvent>>) -> C
+            + 'static
+            + Send,
     ) where
         C: Future<Output = ()> + Send,
     {
