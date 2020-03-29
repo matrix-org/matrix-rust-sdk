@@ -284,6 +284,11 @@ impl AsyncClient {
         self.base_client.read().await.calculate_room_names()
     }
 
+    /// Calculate the room names this client knows about.
+    pub async fn current_room_id(&self) -> Option<RoomId> {
+        self.base_client.read().await.current_room_id()
+    }
+
     /// Add a callback that will be called every time the client receives a room
     /// event
     ///

@@ -17,7 +17,7 @@ use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 
 use super::{RoomMember, User, UserId};
-use crate::api::r0 as api;
+
 use crate::events::collections::all::{RoomEvent, StateEvent};
 use crate::events::room::{
     aliases::AliasesEvent,
@@ -32,6 +32,8 @@ use crate::events::{
 };
 use crate::identifiers::RoomAliasId;
 use crate::session::Session;
+
+use js_int::UInt;
 
 #[cfg(feature = "encryption")]
 use tokio::sync::Mutex;
@@ -69,6 +71,10 @@ pub struct Room {
     pub typing_users: Vec<UserId>,
     /// A flag indicating if the room is encrypted.
     pub encrypted: bool,
+    /// Number of unread notifications with highlight flag set.
+    pub unread_highlight: Option<UInt>,
+    /// Number of unread notifications.
+    pub unread_notifications: Option<UInt>,
 }
 
 impl RoomName {
@@ -133,6 +139,8 @@ impl Room {
             members: HashMap::new(),
             typing_users: Vec::new(),
             encrypted: false,
+            unread_highlight: None,
+            unread_notifications: None,
         }
     }
 
@@ -146,22 +154,6 @@ impl Room {
         self.members.insert(event.state_key.clone(), member);
 
         true
-    }
-
-    /// Handle a room.member updating the room state if necessary.
-    ///
-    /// Returns true if the joined member list changed, false otherwise.
-    pub fn handle_membership(&mut self, event: &MemberEvent) -> bool {
-        match event.membership_change() {
-            MembershipChange::Invited | MembershipChange::Joined => self.add_member(event),
-            _ => {
-                if let Some(member) = self.members.get_mut(&event.sender.to_string()) {
-                    member.update_member(event)
-                } else {
-                    false
-                }
-            }
-        }
     }
 
     /// Add to the list of `RoomAliasId`s.
@@ -179,6 +171,22 @@ impl Room {
     fn name_room(&mut self, name: &str) -> bool {
         self.room_name.set_name(name);
         true
+    }
+
+    /// Handle a room.member updating the room state if necessary.
+    ///
+    /// Returns true if the joined member list changed, false otherwise.
+    pub fn handle_membership(&mut self, event: &MemberEvent) -> bool {
+        match event.membership_change() {
+            MembershipChange::Invited | MembershipChange::Joined => self.add_member(event),
+            _ => {
+                if let Some(member) = self.members.get_mut(&event.sender.to_string()) {
+                    member.update_member(event)
+                } else {
+                    false
+                }
+            }
+        }
     }
 
     /// Handle a room.aliases event, updating the room state if necessary.
@@ -263,6 +271,7 @@ impl Room {
 
     /// Receive a presence event from an `IncomingResponse` and updates the client state.
     ///
+    /// This will only update the user if found in the current room looped through by `AsyncClient::sync`.
     /// Returns true if the specific users presence has changed, false otherwise.
     ///
     /// # Arguments
