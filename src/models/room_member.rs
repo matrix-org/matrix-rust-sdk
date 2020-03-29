@@ -22,7 +22,7 @@ use crate::events::collections::all::{Event, RoomEvent, StateEvent};
 use crate::events::room::{
     aliases::AliasesEvent,
     canonical_alias::CanonicalAliasEvent,
-    member::{MemberEvent, MemberEventContent, MembershipState},
+    member::{MemberEvent, MemberEventContent, MembershipChange, MembershipState},
     name::NameEvent,
     power_levels::PowerLevelsEvent,
 };
@@ -73,15 +73,33 @@ impl RoomMember {
             power_level: None,
             power_level_norm: None,
             membership: event.content.membership,
+            // TODO should this be `sender` ??
             name: event.state_key.clone(),
             events: vec![Event::RoomMember(event.clone())],
         }
     }
 
     pub fn update_member(&mut self, event: &MemberEvent) -> bool {
-        let changed = self.membership == event.content.membership;
-        self.membership = event.content.membership;
-        changed
+        use MembershipChange::*;
+
+        match event.membership_change() {
+            ProfileChanged => {
+                self.user.display_name = event.content.displayname.clone();
+                self.user.avatar_url = event.content.avatar_url.clone();
+                true
+            },
+            Banned | Kicked | KickedAndBanned
+                | InvitationRejected | InvitationRevoked
+                | Left | Unbanned | Joined | Invited => {
+                    self.membership = event.content.membership;
+                    true
+            },
+            NotImplemented => false,
+            None => false,
+            // TODO should this be handled somehow ??
+            Error => false,
+            _ => false,
+        }
     }
 
     pub fn update_power(&mut self, event: &PowerLevelsEvent) -> bool {

@@ -22,7 +22,7 @@ use crate::events::collections::all::{RoomEvent, StateEvent};
 use crate::events::room::{
     aliases::AliasesEvent,
     canonical_alias::CanonicalAliasEvent,
-    member::{MemberEvent, MembershipState},
+    member::{MemberEvent, MembershipChange},
     name::NameEvent,
     power_levels::PowerLevelsEvent,
 };
@@ -148,48 +148,14 @@ impl Room {
         true
     }
 
-    // fn remove_member(&mut self, event: &MemberEvent) -> bool {
-    //     if let Some(member) = self.members.get_mut(&event.sender.to_string()) {
-    //         let changed = member.membership == event.content.membership;
-    //         member.membership = event.content.membership;
-    //         changed
-    //     } else {
-    //         false
-    //     }
-    // }
-
-    // fn update_joined_member(&mut self, event: &MemberEvent) -> bool {
-    //     if let Some(member) = self.members.get_mut(&event.state_key) {
-    //         member.update(event);
-    //     }
-
-    //     false
-    // }
-
-    // fn handle_join(&mut self, event: &MemberEvent) -> bool {
-    //     match &event.prev_content {
-    //         Some(c) => match c.membership {
-    //             MembershipState::Join => self.update_joined_member(event),
-    //             MembershipState::Invite => self.add_member(event),
-    //             MembershipState::Leave => self.remove_member(event),
-    //             _ => false,
-    //         },
-    //         None => self.add_member(event),
-    //     }
-    // }
-
-    // fn handle_leave(&mut self, event: &MemberEvent) -> bool {
-
-    // }
-
     /// Handle a room.member updating the room state if necessary.
     ///
     /// Returns true if the joined member list changed, false otherwise.
     pub fn handle_membership(&mut self, event: &MemberEvent) -> bool {
-        match &event.content.membership {
-            MembershipState::Invite | MembershipState::Join => self.add_member(event),
+        match event.membership_change() {
+            MembershipChange::Invited | MembershipChange::Joined => self.add_member(event),
             _ => {
-                if let Some(member) = self.members.get_mut(&event.state_key) {
+                if let Some(member) = self.members.get_mut(&event.sender.to_string()) {
                     member.update_member(event)
                 } else {
                     false
@@ -297,98 +263,27 @@ impl Room {
 
     /// Receive a presence event from an `IncomingResponse` and updates the client state.
     ///
-    /// Returns true if the joined member list changed, false otherwise.
+    /// Returns true if the specific users presence has changed, false otherwise.
     ///
     /// # Arguments
     ///
-    /// * `event` - The event of the room.
+    /// * `event` - The presence event for a specified room member.
     pub fn receive_presence_event(&mut self, event: &PresenceEvent) -> bool {
-        let PresenceEvent {
-            content:
-                PresenceEventContent {
-                    avatar_url,
-                    currently_active,
-                    displayname,
-                    last_active_ago,
-                    presence,
-                    status_msg,
-                },
-            sender,
-        } = event;
-
         if let Some(user) = self
             .members
-            .get_mut(&sender.to_string())
+            .get_mut(&event.sender.to_string())
             .map(|m| &mut m.user)
         {
-            if user.display_name == *displayname
-                && user.avatar_url == *avatar_url
-                && user.presence.as_ref() == Some(presence)
-                && user.status_msg == *status_msg
-                && user.last_active_ago == *last_active_ago
-                && user.currently_active == *currently_active
-            {
+            if user.did_update_presence(event) {
                 false
             } else {
-                user.presence_events.push(event.clone());
-                *user = User {
-                    display_name: displayname.clone(),
-                    avatar_url: avatar_url.clone(),
-                    presence: Some(presence.clone()),
-                    status_msg: status_msg.clone(),
-                    last_active_ago: *last_active_ago,
-                    currently_active: *currently_active,
-                    // TODO better way of moving vec over
-                    events: user.events.clone(),
-                    presence_events: user.presence_events.clone(),
-                };
+                user.update_presence(event);
                 true
             }
         } else {
             // this is probably an error as we have a `PresenceEvent` for a user
-            // we dont know about
+            // we don't know about
             false
         }
     }
 }
-
-// pub struct User {
-//     /// The human readable name of the user.
-//     pub display_name: Option<String>,
-//     /// The matrix url of the users avatar.
-//     pub avatar_url: Option<String>,
-//     /// The presence of the user, if found.
-//     pub presence: Option<PresenceState>,
-//     /// The presence status message, if found.
-//     pub status_msg: Option<String>,
-//     /// The time, in ms, since the user interacted with the server.
-//     pub last_active_ago: Option<UInt>,
-//     /// If the user should be considered active.
-//     pub currently_active: Option<bool>,
-//     /// The events that created the state of the current user.
-//     // TODO do we want to hold the whole state or just update our structures.
-//     pub events: Vec<Event>,
-//     /// The `PresenceEvent`s connected to this user.
-//     pub presence_events: Vec<PresenceEvent>,
-// }
-
-// pub struct RoomMember {
-//     /// The unique mxid of the user.
-//     pub user_id: UserId,
-//     /// The unique id of the room.
-//     pub room_id: Option<RoomId>,
-//     /// If the member is typing.
-//     pub typing: Option<bool>,
-//     /// The user data for this room member.
-//     pub user: User,
-//     /// The users power level.
-//     pub power_level: Option<Int>,
-//     /// The normalized power level of this `RoomMember` (0-100).
-//     pub power_level_norm: Option<Int>,
-//     /// The `MembershipState` of this `RoomMember`.
-//     pub membership: MembershipState,
-//     /// The human readable name of this room member.
-//     pub name: String,
-//     /// The events that created the state of this room member.
-//     pub events: Vec<Event>
-// }

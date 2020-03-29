@@ -236,6 +236,7 @@ impl Client {
     ///
     /// * `event` - The event that should be handled by the client.
     pub fn receive_presence_event(&mut self, room_id: &str, event: &PresenceEvent) -> bool {
+        // this should be guaranteed to find the room that was just created in the `Client::sync` loop.
         let mut room = self.get_or_create_room(room_id).write().unwrap();
         room.receive_presence_event(event)
     }

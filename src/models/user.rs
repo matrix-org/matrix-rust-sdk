@@ -19,7 +19,7 @@ use std::sync::{Arc, RwLock};
 use super::UserId;
 use crate::api::r0 as api;
 use crate::events::collections::all::{Event, RoomEvent, StateEvent};
-use crate::events::presence::{PresenceEvent, PresenceState};
+use crate::events::presence::{PresenceEvent, PresenceEventContent, PresenceState};
 use crate::events::room::{
     aliases::AliasesEvent,
     canonical_alias::CanonicalAliasEvent,
@@ -72,6 +72,69 @@ impl User {
             currently_active: None,
             events: Vec::default(),
             presence_events: Vec::default(),
+        }
+    }
+
+    /// If the current `PresenceEvent` updated the state of this `User`.
+    ///
+    /// Returns true if the specific users presence has changed, false otherwise.
+    ///
+    /// # Arguments
+    ///
+    /// * `presence` - The presence event for a this room member.
+    pub fn did_update_presence(&self, presence: &PresenceEvent) -> bool {
+        let PresenceEvent {
+            content:
+                PresenceEventContent {
+                    avatar_url,
+                    currently_active,
+                    displayname,
+                    last_active_ago,
+                    presence,
+                    status_msg,
+                },
+            ..
+        } = presence;
+        self.display_name == *displayname
+            && self.avatar_url == *avatar_url
+            && self.presence.as_ref() == Some(presence)
+            && self.status_msg == *status_msg
+            && self.last_active_ago == *last_active_ago
+            && self.currently_active == *currently_active
+    }
+
+    /// Updates the `User`s presence.
+    /// 
+    /// This should only be used if `did_update_presence` was true.
+    ///
+    /// # Arguments
+    ///
+    /// * `presence` - The presence event for a this room member.
+    pub fn update_presence(&mut self, presence_ev: &PresenceEvent) {
+        let PresenceEvent {
+            content:
+                PresenceEventContent {
+                    avatar_url,
+                    currently_active,
+                    displayname,
+                    last_active_ago,
+                    presence,
+                    status_msg,
+                },
+            ..
+        } = presence_ev;
+        
+        self.presence_events.push(presence_ev.clone());
+        *self = User {
+            display_name: displayname.clone(),
+            avatar_url: avatar_url.clone(),
+            presence: Some(presence.clone()),
+            status_msg: status_msg.clone(),
+            last_active_ago: *last_active_ago,
+            currently_active: *currently_active,
+            // TODO better way of moving vec over
+            events: self.events.clone(),
+            presence_events: self.presence_events.clone(),
         }
     }
 }

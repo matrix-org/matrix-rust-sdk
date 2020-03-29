@@ -32,6 +32,7 @@ use ruma_api::{Endpoint, Outgoing};
 use ruma_events::collections::all::RoomEvent;
 use ruma_events::room::message::MessageEventContent;
 use ruma_events::EventResult;
+use ruma_events::presence::PresenceEvent;
 pub use ruma_events::EventType;
 use ruma_identifiers::RoomId;
 
@@ -44,6 +45,10 @@ use crate::{Error, Result};
 
 type RoomEventCallback = Box<
     dyn FnMut(Arc<SyncLock<Room>>, Arc<EventResult<RoomEvent>>) -> BoxFuture<'static, ()> + Send,
+>;
+
+type PresenceEventCallback = Box<
+    dyn FnMut(Arc<SyncLock<Room>>, Arc<EventResult<PresenceEvent>>) -> BoxFuture<'static, ()> + Send,
 >;
 
 const DEFAULT_SYNC_TIMEOUT: Duration = Duration::from_secs(30);
@@ -61,6 +66,7 @@ pub struct AsyncClient {
     transaction_id: Arc<AtomicU64>,
     /// Event callbacks
     event_callbacks: Arc<Mutex<Vec<RoomEventCallback>>>,
+    presence_callbacks: Arc<Mutex<Vec<PresenceEventCallback>>>,
 }
 
 impl std::fmt::Debug for AsyncClient {
@@ -245,6 +251,7 @@ impl AsyncClient {
             base_client: Arc::new(RwLock::new(BaseClient::new(session)?)),
             transaction_id: Arc::new(AtomicU64::new(0)),
             event_callbacks: Arc::new(Mutex::new(Vec::new())),
+            presence_callbacks: Arc::new(Mutex::new(Vec::new())),
         })
     }
 
@@ -339,6 +346,76 @@ impl AsyncClient {
         futures.push(Box::new(future));
     }
 
+    /// Add a callback that will be called every time the client receives a room
+    /// event
+    ///
+    /// # Arguments
+    ///
+    /// * `callback` - The callback that should be called once a RoomEvent is
+    ///     received.
+    ///
+    /// # Examples
+    /// ```
+    /// # use matrix_sdk::events::{
+    /// #     collections::all::RoomEvent,
+    /// #     room::message::{MessageEvent, MessageEventContent, TextMessageEventContent},
+    /// #     presence::{PresenceEvent, PresenceEventContent},
+    /// #     EventResult,
+    /// # };
+    /// # use matrix_sdk::Room;
+    /// # use std::sync::{Arc, RwLock};
+    /// # use matrix_sdk::AsyncClient;
+    /// # use url::Url;
+    ///
+    /// async fn async_cb(room: Arc<RwLock<Room>>, event: Arc<EventResult<PresenceEvent>>) {
+    ///     let room = room.read().unwrap();
+    ///     let event = if let EventResult::Ok(event) = &*event {
+    ///         event
+    ///     } else {
+    ///         return;
+    ///     };
+    ///     let PresenceEvent {
+    ///         content: PresenceEventContent {
+    ///             avatar_url,
+    ///             currently_active,
+    ///             displayname,
+    ///             last_active_ago,
+    ///             presence,
+    ///             status_msg,
+    ///         },
+    ///         sender,
+    ///     } = event;
+    ///     {
+    ///         let member = room.members.get(&sender.to_string()).unwrap();
+    ///         println!(
+    ///             "{} is {}",
+    ///             displayname.as_deref().unwrap_or(&sender.to_string()),
+    ///             status_msg.as_deref().unwrap_or("not here")
+    ///         );
+    ///     }
+    /// }
+    /// # fn main() -> Result<(), matrix_sdk::Error> {
+    /// let homeserver = Url::parse("http://localhost:8080")?;
+    ///
+    /// let mut client = AsyncClient::new(homeserver, None)?;
+    ///
+    /// client.add_presence_callback(async_cb);
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn add_presence_callback<C: 'static>(
+        &mut self,
+        mut callback: impl FnMut(Arc<SyncLock<Room>>, Arc<EventResult<PresenceEvent>>) -> C + 'static + Send,
+    ) where
+        C: Future<Output = ()> + Send,
+    {
+        let mut futures = self.presence_callbacks.lock().unwrap();
+
+        let future = move |room, event| callback(room, event).boxed();
+
+        futures.push(Box::new(future));
+    }
+
     /// Login to the server.
     ///
     /// # Arguments
@@ -424,13 +501,6 @@ impl AsyncClient {
                     *event = e;
                 }
 
-                for presence in &response.presence.events {
-                    let mut client = self.base_client.write().await;
-                    if let EventResult::Ok(e) = presence {
-                        client.receive_presence_event(&room_id_string, e);
-                    }
-                }
-
                 let callbacks = {
                     let mut cb_futures = self.event_callbacks.lock().unwrap();
 
@@ -449,6 +519,34 @@ impl AsyncClient {
                     callbacks
                 };
 
+                for cb in callbacks {
+                    cb.await;
+                }
+            }
+
+            // After the room has been created and state/timeline events accounted for we use the room_id of the newly created
+            // to add any presence events that relate to a user in the current room. This is not super
+            // efficient but we need a room_id so we would loop through now or later.
+            for presence in &response.presence.events {
+                let mut client = self.base_client.write().await;
+                if let EventResult::Ok(e) = presence {
+                    client.receive_presence_event(&room_id_string, e);
+                }
+
+                let callbacks = {
+                    let mut cb_futures = self.presence_callbacks.lock().unwrap();
+                    let event = if !cb_futures.is_empty() {
+                        Arc::new(presence.clone())
+                    } else {
+                        continue;
+                    };
+                    let mut callbacks = Vec::new();
+                    for cb in &mut cb_futures.iter_mut() {
+                        callbacks.push(cb(matrix_room.clone(), Arc::clone(&event)));
+                    }
+
+                    callbacks
+                };
                 for cb in callbacks {
                     cb.await;
                 }
