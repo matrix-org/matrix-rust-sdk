@@ -532,8 +532,18 @@ impl AsyncClient {
                 }
             }
 
+            // look at AccountData to further cut down users by collecting ignored users
+            for account_data in &room.account_data.events {
+                let mut client = self.base_client.write().await;
+                if let EventResult::Ok(e) = account_data {
+                    client.receive_account_data(&room_id_string, e);
+                }
+            }
+
+            // TODO do we need `IncomingEphemeral` events?
+
             // After the room has been created and state/timeline events accounted for we use the room_id of the newly created
-            // to add any presence events that relate to a user in the current room. This is not super
+            // room to add any presence events that relate to a user in the current room. This is not super
             // efficient but we need a room_id so we would loop through now or later.
             for presence in &response.presence.events {
                 let mut client = self.base_client.write().await;
