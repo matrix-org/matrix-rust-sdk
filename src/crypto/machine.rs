@@ -20,8 +20,9 @@ use std::result::Result as StdResult;
 use std::sync::Arc;
 
 use super::error::{OlmError, Result, SignatureError, VerificationResult};
-use super::memory_stores::{GroupSessionStore, SessionStore};
+use super::memory_stores::SessionStore;
 use super::olm::{Account, InboundGroupSession, Session};
+use super::store::memorystore::MemoryStore;
 #[cfg(feature = "sqlite-cryptostore")]
 use super::store::sqlite::SqliteStore;
 use super::CryptoStore;
@@ -68,11 +69,7 @@ pub struct OlmMachine {
     /// Store for the encryption keys.
     /// Persists all the encrytpion keys so a client can resume the session
     /// without the need to create new keys.
-    store: Option<Box<dyn CryptoStore>>,
-    /// A cache of all the Olm sessions we know about.
-    sessions: SessionStore,
-    /// A cache of all the inbound group sessions we know about.
-    inbound_group_sessions: GroupSessionStore,
+    store: Box<dyn CryptoStore>,
 }
 
 impl OlmMachine {
@@ -88,9 +85,7 @@ impl OlmMachine {
             device_id: device_id.to_owned(),
             account: Arc::new(Mutex::new(Account::new())),
             uploaded_signed_key_count: None,
-            store: None,
-            sessions: SessionStore::new(),
-            inbound_group_sessions: GroupSessionStore::new(),
+            store: Box::new(MemoryStore::new()),
         })
     }
 
@@ -122,9 +117,7 @@ impl OlmMachine {
             device_id: device_id.to_owned(),
             account: Arc::new(Mutex::new(account)),
             uploaded_signed_key_count: None,
-            store: Some(Box::new(store)),
-            sessions: SessionStore::new(),
-            inbound_group_sessions: GroupSessionStore::new(),
+            store: Box::new(store),
         })
     }
 
@@ -178,9 +171,7 @@ impl OlmMachine {
         account.mark_keys_as_published();
         drop(account);
 
-        if let Some(store) = self.store.as_mut() {
-            store.save_account(self.account.clone()).await?;
-        }
+        self.store.save_account(self.account.clone()).await?;
 
         Ok(())
     }
@@ -404,7 +395,7 @@ impl OlmMachine {
         sender_key: &str,
         message: &OlmMessage,
     ) -> Result<Option<String>> {
-        let s = self.sessions.get(sender_key);
+        let s = self.store.get_sessions(sender_key).await?;
 
         let sessions = if let Some(s) = s {
             s
@@ -412,7 +403,7 @@ impl OlmMachine {
             return Ok(None);
         };
 
-        for session in sessions {
+        for session in &*sessions.lock().await {
             let mut matches = false;
 
             let mut session_lock = session.lock().await;
@@ -427,9 +418,7 @@ impl OlmMachine {
             let ret = session_lock.decrypt(message.clone());
 
             if let Ok(p) = ret {
-                if let Some(store) = self.store.as_mut() {
-                    store.save_session(session.clone()).await?;
-                }
+                self.store.save_session(session.clone()).await?;
                 return Ok(Some(p));
             } else {
                 if matches {
@@ -459,13 +448,10 @@ impl OlmMachine {
             };
 
             let plaintext = session.decrypt(message)?;
-            self.sessions.add(session).await;
-
-            // TODO save the session
+            self.store.add_and_save_session(session).await?;
             plaintext
         };
 
-        // TODO convert the plaintext to a ruma event.
         trace!("Successfully decrypted a Olm message: {}", plaintext);
         Ok(serde_json::from_str::<EventResult<ToDeviceEvent>>(
             &plaintext,
@@ -511,7 +497,8 @@ impl OlmMachine {
                 .decrypt_olm_message(&event.sender.to_string(), &content.sender_key, message)
                 .await?;
             debug!("Decrypted a to-device event {:?}", decrypted_event);
-            self.handle_decrypted_to_device_event(&content.sender_key, &decrypted_event)?;
+            self.handle_decrypted_to_device_event(&content.sender_key, &decrypted_event)
+                .await?;
 
             Ok(decrypted_event)
         } else {
@@ -520,7 +507,7 @@ impl OlmMachine {
         }
     }
 
-    fn add_room_key(&mut self, sender_key: &str, event: &ToDeviceRoomKey) -> Result<()> {
+    async fn add_room_key(&mut self, sender_key: &str, event: &ToDeviceRoomKey) -> Result<()> {
         match event.content.algorithm {
             Algorithm::MegolmV1AesSha2 => {
                 // TODO check for all the valid fields.
@@ -535,8 +522,7 @@ impl OlmMachine {
                     &event.content.room_id.to_string(),
                     &event.content.session_key,
                 )?;
-                self.inbound_group_sessions.add(session);
-                // TODO save the session in the store.
+                self.store.save_inbound_group_session(session).await?;
                 Ok(())
             }
             _ => {
@@ -558,7 +544,7 @@ impl OlmMachine {
         // TODO
     }
 
-    fn handle_decrypted_to_device_event(
+    async fn handle_decrypted_to_device_event(
         &mut self,
         sender_key: &str,
         event: &EventResult<ToDeviceEvent>,
@@ -571,7 +557,7 @@ impl OlmMachine {
         };
 
         match event {
-            ToDeviceEvent::RoomKey(e) => self.add_room_key(sender_key, e),
+            ToDeviceEvent::RoomKey(e) => self.add_room_key(sender_key, e).await,
             ToDeviceEvent::ForwardedRoomKey(e) => self.add_forwarded_room_key(sender_key, e),
             _ => {
                 warn!("Received a unexpected encrypted to-device event");
@@ -645,7 +631,7 @@ impl OlmMachine {
     }
 
     pub async fn decrypt_room_event(
-        &self,
+        &mut self,
         event: &EncryptedEvent,
     ) -> Result<EventResult<RoomEvent>> {
         let content = match &event.content {
@@ -655,11 +641,14 @@ impl OlmMachine {
 
         let room_id = event.room_id.as_ref().unwrap();
 
-        let session = self.inbound_group_sessions.get(
-            &room_id.to_string(),
-            &content.sender_key,
-            &content.session_id,
-        );
+        let session = self
+            .store
+            .get_inbound_group_session(
+                &room_id.to_string(),
+                &content.sender_key,
+                &content.session_id,
+            )
+            .await?;
         // TODO check if the olm session is wedged and re-request the key.
         let session = session.ok_or(OlmError::MissingSession)?;
 

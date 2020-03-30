@@ -21,7 +21,7 @@ use super::olm::{InboundGroupSession, Session};
 
 #[derive(Debug)]
 pub struct SessionStore {
-    entries: HashMap<String, Vec<Arc<Mutex<Session>>>>,
+    entries: HashMap<String, Arc<Mutex<Vec<Arc<Mutex<Session>>>>>>,
 }
 
 impl SessionStore {
@@ -33,19 +33,22 @@ impl SessionStore {
 
     pub async fn add(&mut self, session: Session) {
         if !self.entries.contains_key(&session.sender_key) {
-            self.entries
-                .insert(session.sender_key.to_owned(), Vec::new());
+            self.entries.insert(
+                session.sender_key.to_owned(),
+                Arc::new(Mutex::new(Vec::new())),
+            );
         }
         let mut sessions = self.entries.get_mut(&session.sender_key).unwrap();
-        sessions.push(Arc::new(Mutex::new(session)));
+        sessions.lock().await.push(Arc::new(Mutex::new(session)));
     }
 
-    pub fn get(&self, sender_key: &str) -> Option<&Vec<Arc<Mutex<Session>>>> {
-        self.entries.get(sender_key)
+    pub fn get(&self, sender_key: &str) -> Option<Arc<Mutex<Vec<Arc<Mutex<Session>>>>>> {
+        self.entries.get(sender_key).cloned()
     }
 
     pub fn set_for_sender(&mut self, sender_key: &str, sessions: Vec<Arc<Mutex<Session>>>) {
-        self.entries.insert(sender_key.to_owned(), sessions);
+        self.entries
+            .insert(sender_key.to_owned(), Arc::new(Mutex::new(sessions)));
     }
 }
 

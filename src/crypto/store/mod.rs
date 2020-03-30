@@ -28,6 +28,7 @@ use super::olm::{Account, InboundGroupSession, Session};
 use olm_rs::errors::{OlmAccountError, OlmSessionError};
 use olm_rs::PicklingMode;
 
+pub mod memorystore;
 #[cfg(feature = "sqlite-cryptostore")]
 pub mod sqlite;
 
@@ -64,6 +65,16 @@ pub trait CryptoStore: Debug + Send + Sync {
     async fn load_account(&mut self) -> Result<Option<Account>>;
     async fn save_account(&mut self, account: Arc<Mutex<Account>>) -> Result<()>;
     async fn save_session(&mut self, session: Arc<Mutex<Session>>) -> Result<()>;
-    async fn get_sessions(&mut self, sender_key: &str)
-        -> Result<Option<&Vec<Arc<Mutex<Session>>>>>;
+    async fn add_and_save_session(&mut self, session: Session) -> Result<()>;
+    async fn get_sessions(
+        &mut self,
+        sender_key: &str,
+    ) -> Result<Option<Arc<Mutex<Vec<Arc<Mutex<Session>>>>>>>;
+    async fn save_inbound_group_session(&mut self, session: InboundGroupSession) -> Result<()>;
+    async fn get_inbound_group_session(
+        &mut self,
+        room_id: &str,
+        sender_key: &str,
+        session_id: &str,
+    ) -> Result<Option<Arc<Mutex<InboundGroupSession>>>>;
 }

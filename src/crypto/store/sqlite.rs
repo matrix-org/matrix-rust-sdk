@@ -149,7 +149,7 @@ impl SqliteStore {
     async fn get_sessions_for(
         &mut self,
         sender_key: &str,
-    ) -> Result<Option<&Vec<Arc<Mutex<Session>>>>> {
+    ) -> Result<Option<Arc<Mutex<Vec<Arc<Mutex<Session>>>>>>> {
         let loaded_sessions = self.sessions.get(sender_key).is_some();
 
         if !loaded_sessions {
@@ -332,11 +332,28 @@ impl CryptoStore for SqliteStore {
         Ok(())
     }
 
-    async fn get_sessions<'a>(
-        &'a mut self,
+    async fn add_and_save_session(&mut self, session: Session) -> Result<()> {
+        todo!()
+    }
+
+    async fn get_sessions(
+        &mut self,
         sender_key: &str,
-    ) -> Result<Option<&'a Vec<Arc<Mutex<Session>>>>> {
+    ) -> Result<Option<Arc<Mutex<Vec<Arc<Mutex<Session>>>>>>> {
         Ok(self.get_sessions_for(sender_key).await?)
+    }
+
+    async fn save_inbound_group_session(&mut self, session: InboundGroupSession) -> Result<()> {
+        todo!()
+    }
+
+    async fn get_inbound_group_session(
+        &mut self,
+        room_id: &str,
+        sender_key: &str,
+        session_id: &str,
+    ) -> Result<Option<Arc<Mutex<InboundGroupSession>>>> {
+        todo!()
     }
 }
 
