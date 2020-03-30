@@ -88,5 +88,5 @@ async fn timeline() {
         client.get_room_name("!SVkFJHzfwvuaIEawgC:localhost").await
     );
 
-    println!("{:#?}", &client.base_client().read().await.joined_rooms);
+    // println!("{:#?}", &client.base_client().read().await.joined_rooms);
 }

@@ -13,9 +13,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::collections::HashMap;
-use std::sync::{Arc, RwLock};
-
 use super::User;
 use crate::api::r0 as api;
 use crate::events::collections::all::{Event, RoomEvent, StateEvent};

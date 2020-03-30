@@ -352,7 +352,7 @@ impl AsyncClient {
         futures.push(Box::new(future));
     }
 
-    /// Add a callback that will be called every time the client receives a room
+    /// Add a callback that will be called every time the client receives a presence
     /// event
     ///
     /// # Arguments
@@ -433,9 +433,9 @@ impl AsyncClient {
     /// * `password` - The password of the user.
     ///
     /// * `device_id` - A unique id that will be associated with this session. If
-    ///     not given the homeserver will create one. Can be an exising
+    ///     not given the homeserver will create one. Can be an existing
     ///     device_id from a previous login call. Note that this should be done
-    ///     only if the client also holds the encryption keys for this devcie.
+    ///     only if the client also holds the encryption keys for this device.
     #[instrument(skip(password))]
     pub async fn login<S: Into<String> + std::fmt::Debug>(
         &mut self,
@@ -462,7 +462,7 @@ impl AsyncClient {
         Ok(response)
     }
 
-    /// Synchronise the client's state with the latest state on the server.
+    /// Synchronize the client's state with the latest state on the server.
     ///
     /// # Arguments
     ///
