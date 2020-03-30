@@ -26,7 +26,7 @@ use crate::events::presence::PresenceEvent;
 // `NonRoomEvent` is what it is aliased as
 use crate::events::collections::only::Event as NonRoomEvent;
 use crate::events::ignored_user_list::IgnoredUserListEvent;
-use crate::events::push_rules::{ Ruleset, PushRulesEvent};
+use crate::events::push_rules::{PushRulesEvent, Ruleset};
 use crate::events::room::{
     aliases::AliasesEvent,
     canonical_alias::CanonicalAliasEvent,
@@ -81,7 +81,8 @@ impl CurrentRoom {
 
     pub(crate) fn update(&mut self, room_id: &str, event: &PresenceEvent) {
         self.last_active = event.content.last_active_ago;
-        self.current_room_id = Some(RoomId::try_from(room_id).expect("room id failed CurrentRoom::update"));
+        self.current_room_id =
+            Some(RoomId::try_from(room_id).expect("room id failed CurrentRoom::update"));
     }
 }
 
@@ -209,10 +210,22 @@ impl Client {
     /// Returns true if the room name changed, false otherwise.
     pub(crate) fn handle_ignored_users(&mut self, event: &IgnoredUserListEvent) -> bool {
         // TODO use actual UserId instead of string?
-        if self.ignored_users == event.content.ignored_users.iter().map(|u| u.to_string()).collect::<Vec<String>>() {
+        if self.ignored_users
+            == event
+                .content
+                .ignored_users
+                .iter()
+                .map(|u| u.to_string())
+                .collect::<Vec<String>>()
+        {
             false
         } else {
-            self.ignored_users = event.content.ignored_users.iter().map(|u| u.to_string()).collect();
+            self.ignored_users = event
+                .content
+                .ignored_users
+                .iter()
+                .map(|u| u.to_string())
+                .collect();
             true
         }
     }
@@ -304,7 +317,11 @@ impl Client {
     ///
     /// * `event` - The event that should be handled by the client.
     pub fn receive_presence_event(&mut self, room_id: &str, event: &PresenceEvent) -> bool {
-        let user_id = &self.session.as_ref().expect("to receive events you must be logged in").user_id;
+        let user_id = &self
+            .session
+            .as_ref()
+            .expect("to receive events you must be logged in")
+            .user_id;
         if self.current_room_id.comes_after(user_id, event) {
             self.current_room_id.update(room_id, event);
         }

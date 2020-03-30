@@ -533,6 +533,7 @@ impl AsyncClient {
             }
 
             // look at AccountData to further cut down users by collecting ignored users
+            // TODO actually use the ignored users
             for account_data in &room.account_data.events {
                 let mut client = self.base_client.write().await;
                 if let EventResult::Ok(e) = account_data {

@@ -1,6 +1,5 @@
 mod room;
 mod room_member;
-mod room_state;
 mod user;
 
 pub use room::{Room, RoomName};

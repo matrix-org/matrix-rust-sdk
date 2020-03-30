@@ -128,7 +128,7 @@ impl User {
         *self = User {
             display_name: displayname.clone(),
             avatar_url: avatar_url.clone(),
-            presence: Some(presence.clone()),
+            presence: Some(*presence),
             status_msg: status_msg.clone(),
             last_active_ago: *last_active_ago,
             currently_active: *currently_active,
