@@ -62,7 +62,7 @@ pub struct AsyncClient {
     /// The underlying HTTP client.
     http_client: reqwest::Client,
     /// User session data.
-    base_client: Arc<RwLock<BaseClient>>,
+    pub(crate) base_client: Arc<RwLock<BaseClient>>,
     /// The transaction id.
     transaction_id: Arc<AtomicU64>,
     /// Event callbacks

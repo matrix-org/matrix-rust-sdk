@@ -71,9 +71,20 @@ pub struct CurrentRoom {
 }
 
 impl CurrentRoom {
+    // TODO when UserId is isomorphic to &str clean this up.
     pub(crate) fn comes_after(&self, user: &Uid, event: &PresenceEvent) -> bool {
-        if user == &event.sender {
-            event.content.last_active_ago < self.last_active
+        let u = user.to_string();
+        let u = u.split(':').next();
+
+        let s = event.sender.to_string();
+        let s = s.split(':').next();
+
+        if u == s {
+            if self.last_active.is_none() {
+                true
+            } else {
+                event.content.last_active_ago < self.last_active
+            }
         } else {
             false
         }
@@ -327,6 +338,7 @@ impl Client {
             .as_ref()
             .expect("to receive events you must be logged in")
             .user_id;
+
         if self.current_room_id.comes_after(user_id, event) {
             self.current_room_id.update(room_id, event);
         }
@@ -422,5 +434,50 @@ impl Client {
         let o = olm.as_mut().expect("Client isn't logged in.");
         o.receive_keys_upload_response(response).await?;
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    use crate::events::room::member::MembershipState;
+    use crate::identifiers::UserId;
+    use crate::{AsyncClient, Session, SyncSettings};
+
+    use mockito::{mock, Matcher};
+    use tokio::runtime::Runtime;
+    use url::Url;
+
+    use std::convert::TryFrom;
+    use std::str::FromStr;
+    use std::time::Duration;
+
+    #[tokio::test]
+    async fn account_data() {
+        let homeserver = Url::from_str(&mockito::server_url()).unwrap();
+
+        let session = Session {
+            access_token: "1234".to_owned(),
+            user_id: UserId::try_from("@example:example.com").unwrap(),
+            device_id: "DEVICEID".to_owned(),
+        };
+
+        let _m = mock(
+            "GET",
+            Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_string()),
+        )
+        .with_status(200)
+        .with_body_from_file("tests/data/sync.json")
+        .create();
+
+        let mut client = AsyncClient::new(homeserver, Some(session)).unwrap();
+
+        let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
+
+        let _response = client.sync(sync_settings).await.unwrap();
+
+        let bc = &client.base_client.read().await;
+        assert_eq!(1, bc.ignored_users.len())
     }
 }

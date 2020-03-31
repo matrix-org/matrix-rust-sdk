@@ -296,3 +296,57 @@ impl Room {
         }
     }
 }
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    use crate::events::room::member::MembershipState;
+    use crate::identifiers::UserId;
+    use crate::{AsyncClient, Session, SyncSettings};
+
+    use mockito::{mock, Matcher};
+    use tokio::runtime::Runtime;
+    use url::Url;
+
+    use std::convert::TryFrom;
+    use std::str::FromStr;
+    use std::time::Duration;
+
+    #[tokio::test]
+    async fn user_presence() {
+        let homeserver = Url::from_str(&mockito::server_url()).unwrap();
+
+        let session = Session {
+            access_token: "1234".to_owned(),
+            user_id: UserId::try_from("@example:example.com").unwrap(),
+            device_id: "DEVICEID".to_owned(),
+        };
+
+        let _m = mock(
+            "GET",
+            Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_string()),
+        )
+        .with_status(200)
+        .with_body_from_file("tests/data/sync.json")
+        .create();
+
+        let mut client = AsyncClient::new(homeserver, Some(session)).unwrap();
+
+        let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
+
+        let _response = client.sync(sync_settings).await.unwrap();
+
+        let rooms = &client.base_client.read().await.joined_rooms;
+        let room = &rooms
+            .get("!SVkFJHzfwvuaIEawgC:localhost")
+            .unwrap()
+            .read()
+            .unwrap();
+
+        assert_eq!(2, room.members.len());
+        for (id, member) in &room.members {
+            assert_eq!(MembershipState::Join, member.membership);
+        }
+    }
+}

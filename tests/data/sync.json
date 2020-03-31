@@ -12,7 +12,23 @@
         "join": {
             "!SVkFJHzfwvuaIEawgC:localhost": {
                 "account_data": {
-                    "events": []
+                    "events": [
+                        {
+                            "content": {
+                                "event_id": "$someplace:example.org"
+                            },
+                            "room_id": "!roomid:room.com",
+                            "type": "m.fully_read"
+                        },
+                        {
+                            "content": {
+                                "ignored_users": {
+                                    "@someone:example.org": {}
+                                }
+                            },
+                            "type": "m.ignored_user_list"
+                        }
+                    ]
                 },
                 "ephemeral": {
                     "events": [
@@ -248,7 +264,7 @@
                 "content": {
                     "avatar_url": "mxc://localhost:wefuiwegh8742w",
                     "currently_active": false,
-                    "last_active_ago": 2478593,
+                    "last_active_ago": 1,
                     "presence": "online",
                     "status_msg": "Making cupcakes"
                 },

@@ -59,7 +59,7 @@ async fn sync() {
 }
 
 #[tokio::test]
-async fn timeline() {
+async fn room_names() {
     let homeserver = Url::from_str(&mockito::server_url()).unwrap();
 
     let session = Session {
@@ -86,5 +86,35 @@ async fn timeline() {
     assert_eq!(
         Some("tutorial".into()),
         client.get_room_name("!SVkFJHzfwvuaIEawgC:localhost").await
+    );
+}
+
+#[tokio::test]
+async fn current_room() {
+    let homeserver = Url::from_str(&mockito::server_url()).unwrap();
+
+    let session = Session {
+        access_token: "1234".to_owned(),
+        user_id: UserId::try_from("@example:example.com").unwrap(),
+        device_id: "DEVICEID".to_owned(),
+    };
+
+    let _m = mock(
+        "GET",
+        Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_string()),
+    )
+    .with_status(200)
+    .with_body_from_file("tests/data/sync.json")
+    .create();
+
+    let mut client = AsyncClient::new(homeserver, Some(session)).unwrap();
+
+    let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
+
+    let _response = client.sync(sync_settings).await.unwrap();
+
+    assert_eq!(
+        Some("!SVkFJHzfwvuaIEawgC:localhost".into()),
+        client.current_room_id().await.map(|id| id.to_string())
     );
 }
