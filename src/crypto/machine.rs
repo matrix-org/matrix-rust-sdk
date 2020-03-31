@@ -590,12 +590,12 @@ impl OlmMachine {
         let count: u64 = one_time_key_count.map_or(0, |c| (*c).into());
         self.uploaded_signed_key_count = Some(count);
 
-        for event in response.to_device.events.iter() {
-            let event = if let EventResult::Ok(e) = event {
+        for event_result in &mut response.to_device.events {
+            let event = if let EventResult::Ok(e) = &event_result {
                 e
             } else {
                 // Skip invalid events.
-                warn!("Received an invalid to-device event {:?}", event);
+                warn!("Received an invalid to-device event {:?}", event_result);
                 continue;
             };
 
@@ -603,8 +603,6 @@ impl OlmMachine {
 
             match event {
                 ToDeviceEvent::RoomEncrypted(e) => {
-                    // TODO put the decrypted event into a vec so we can replace
-                    // them in the sync response.
                     let decrypted_event = match self.decrypt_to_device_event(e).await {
                         Ok(e) => e,
                         Err(err) => {
@@ -617,6 +615,10 @@ impl OlmMachine {
                             continue;
                         }
                     };
+
+                    // TODO make sure private keys are cleared from the event
+                    // before we replace the result.
+                    *event_result = decrypted_event;
                 }
                 ToDeviceEvent::RoomKeyRequest(e) => self.handle_room_key_request(e),
                 ToDeviceEvent::KeyVerificationAccept(..)
