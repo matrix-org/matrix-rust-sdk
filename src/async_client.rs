@@ -541,7 +541,7 @@ impl AsyncClient {
                 }
             }
 
-            // TODO do we need `IncomingEphemeral` events?
+            // TODO `IncomingEphemeral` events for typing events
 
             // After the room has been created and state/timeline events accounted for we use the room_id of the newly created
             // room to add any presence events that relate to a user in the current room. This is not super

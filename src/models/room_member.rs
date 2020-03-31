@@ -13,6 +13,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::convert::TryFrom;
+
 use super::User;
 use crate::api::r0 as api;
 use crate::events::collections::all::{Event, RoomEvent, StateEvent};
@@ -36,8 +38,11 @@ use crate::crypto::{OlmMachine, OneTimeKeys};
 #[cfg(feature = "encryption")]
 use ruma_client_api::r0::keys::{upload_keys::Response as KeysUploadResponse, DeviceKeys};
 
+// Notes: if Alice invites Bob into a room we will get an event with the sender as Alice and the state key as Bob.
+
 #[derive(Debug)]
 /// A Matrix room member.
+///
 pub struct RoomMember {
     /// The unique mxid of the user.
     pub user_id: UserId,
@@ -64,13 +69,12 @@ impl RoomMember {
         let user = User::new(event);
         Self {
             room_id: event.room_id.as_ref().map(|id| id.to_string()),
-            user_id: event.sender.clone(),
+            user_id: UserId::try_from(event.state_key.as_str()).unwrap(),
             typing: None,
             user,
             power_level: None,
             power_level_norm: None,
             membership: event.content.membership,
-            // TODO should this be `sender` ??
             name: event.state_key.clone(),
             events: vec![Event::RoomMember(event.clone())],
         }
@@ -92,7 +96,7 @@ impl RoomMember {
             }
             NotImplemented => false,
             None => false,
-            // TODO should this be handled somehow ??
+            // we ignore the error here as only a buggy or malicious server would send this
             Error => false,
             _ => false,
         }

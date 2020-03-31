@@ -205,11 +205,16 @@ impl Client {
             ))))
     }
 
+    pub(crate) fn get_room(&mut self, room_id: &str) -> Option<&mut Arc<RwLock<Room>>> {
+        #[allow(clippy::or_fun_call)]
+        self.joined_rooms.get_mut(room_id)
+    }
+
     /// Handle a m.ignored_user_list event, updating the room state if necessary.
     ///
     /// Returns true if the room name changed, false otherwise.
     pub(crate) fn handle_ignored_users(&mut self, event: &IgnoredUserListEvent) -> bool {
-        // TODO use actual UserId instead of string?
+        // FIXME when UserId becomes more like a &str wrapper in ruma-identifiers
         if self.ignored_users
             == event
                 .content
@@ -306,7 +311,7 @@ impl Client {
         room.receive_state_event(event)
     }
 
-    /// Receive a presence event from an `IncomingResponse` and updates the client state.
+    /// Receive a presence event from a sync response and updates the client state.
     ///
     /// Returns true if the membership list of the room changed, false
     /// otherwise.
@@ -325,12 +330,16 @@ impl Client {
         if self.current_room_id.comes_after(user_id, event) {
             self.current_room_id.update(room_id, event);
         }
-        // this should be guaranteed to find the room that was just created in the `Client::sync` loop.
-        let mut room = self.get_or_create_room(room_id).write().unwrap();
-        room.receive_presence_event(event)
+        // this should be the room that was just created in the `Client::sync` loop.
+        if let Some(room) = self.get_room(room_id) {
+            let mut room = room.write().unwrap();
+            room.receive_presence_event(event)
+        } else {
+            false
+        }
     }
 
-    /// Receive a presence event from an `IncomingResponse` and updates the client state.
+    /// Receive a presence event from a sync response and updates the client state.
     ///
     /// This will only update the user if found in the current room looped through by `AsyncClient::sync`.
     /// Returns true if the specific users presence has changed, false otherwise.

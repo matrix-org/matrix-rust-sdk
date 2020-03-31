@@ -69,6 +69,7 @@ pub struct Room {
     pub members: HashMap<UserId, RoomMember>,
     /// A list of users that are currently typing.
     pub typing_users: Vec<UserId>,
+    // TODO when encryption events are handled we store algorithm used and rotation time.
     /// A flag indicating if the room is encrypted.
     pub encrypted: bool,
     /// Number of unread notifications with highlight flag set.
@@ -94,7 +95,7 @@ impl RoomName {
     }
 
     pub fn calculate_name(&self, room_id: &str, members: &HashMap<UserId, RoomMember>) -> String {
-        // https://github.com/matrix-org/matrix-js-sdk/blob/33941eb37bffe41958ba9887fc8070dfb1a0ee76/src/models/room.js#L1823
+        // https://matrix.org/docs/spec/client_server/latest#calculating-the-display-name-for-a-room.
         // the order in which we check for a name ^^
         if let Some(name) = &self.name {
             name.clone()
@@ -103,7 +104,6 @@ impl RoomName {
         } else if !self.aliases.is_empty() {
             self.aliases[0].alias().to_string()
         } else {
-            // TODO
             let mut names = members
                 .values()
                 .flat_map(|m| m.user.display_name.clone())
@@ -111,7 +111,7 @@ impl RoomName {
                 .collect::<Vec<_>>();
 
             if names.is_empty() {
-                // TODO implement the rest of matrix-js-sdk handling of room names
+                // TODO implement the rest of display name for room spec
                 format!("Room {}", room_id)
             } else {
                 // stabilize order
@@ -180,7 +180,7 @@ impl Room {
         match event.membership_change() {
             MembershipChange::Invited | MembershipChange::Joined => self.add_member(event),
             _ => {
-                if let Some(member) = self.members.get_mut(&event.sender.to_string()) {
+                if let Some(member) = self.members.get_mut(&event.state_key) {
                     member.update_member(event)
                 } else {
                     false
