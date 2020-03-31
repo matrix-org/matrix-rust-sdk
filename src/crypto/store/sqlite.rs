@@ -201,32 +201,35 @@ impl SqliteStore {
             .collect::<Result<Vec<Arc<Mutex<Session>>>>>()?)
     }
 
-    async fn save_inbound_group_session(&mut self, session: InboundGroupSession) -> Result<()> {
+    async fn load_inbound_group_sessions(&self) -> Result<Vec<InboundGroupSession>> {
         let account_id = self.account_id.ok_or(CryptoStoreError::AccountUnset)?;
-        let pickle = session.pickle(self.get_pickle_mode());
         let mut connection = self.connection.lock().await;
 
-        query(
-            "INSERT INTO inbound_group_sessions (
-                session_id, account_id, sender_key, signing_key,
-                room_id, pickle
-             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6)
-             ON CONFLICT(session_id) DO UPDATE SET
-                pickle = ?6
-             WHERE session_id = ?1
-             ",
+        let rows: Vec<(String, String, String, String)> = query_as(
+            "SELECT pickle, sender_key, signing_key, room_id
+             FROM inbound_group_sessions WHERE account_id = ?",
         )
-        .bind(&session.session_id())
         .bind(account_id)
-        .bind(&session.sender_key)
-        .bind(&session.signing_key)
-        .bind(&session.room_id)
-        .bind(&pickle)
-        .execute(&mut *connection)
+        .fetch_all(&mut *connection)
         .await?;
 
-        self.inbound_group_sessions.add(session);
-        Ok(())
+        Ok(rows
+            .iter()
+            .map(|row| {
+                let pickle = &row.0;
+                let sender_key = &row.1;
+                let signing_key = &row.2;
+                let room_id = &row.3;
+
+                Ok(InboundGroupSession::from_pickle(
+                    pickle.to_string(),
+                    self.get_pickle_mode(),
+                    sender_key.to_string(),
+                    signing_key.to_owned(),
+                    room_id.to_owned(),
+                )?)
+            })
+            .collect::<Result<Vec<InboundGroupSession>>>()?)
     }
 
     fn get_pickle_mode(&self) -> PicklingMode {
@@ -264,6 +267,17 @@ impl CryptoStore for SqliteStore {
             }
             None => None,
         };
+
+        drop(connection);
+
+        let mut sessions = self.load_inbound_group_sessions().await?;
+
+        let _ = sessions
+            .drain(..)
+            .map(|s| {
+                self.inbound_group_sessions.add(s);
+            })
+            .collect::<()>();
 
         Ok(result)
     }
@@ -333,7 +347,9 @@ impl CryptoStore for SqliteStore {
     }
 
     async fn add_and_save_session(&mut self, session: Session) -> Result<()> {
-        todo!()
+        let session = self.sessions.add(session).await;
+        self.save_session(session).await?;
+        Ok(())
     }
 
     async fn get_sessions(
@@ -343,8 +359,32 @@ impl CryptoStore for SqliteStore {
         Ok(self.get_sessions_for(sender_key).await?)
     }
 
-    async fn save_inbound_group_session(&mut self, session: InboundGroupSession) -> Result<()> {
-        todo!()
+    async fn save_inbound_group_session(&mut self, session: InboundGroupSession) -> Result<bool> {
+        let account_id = self.account_id.ok_or(CryptoStoreError::AccountUnset)?;
+        let pickle = session.pickle(self.get_pickle_mode());
+        let mut connection = self.connection.lock().await;
+        let session_id = session.session_id();
+
+        query(
+            "INSERT INTO inbound_group_sessions (
+                session_id, account_id, sender_key, signing_key,
+                room_id, pickle
+             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+             ON CONFLICT(session_id) DO UPDATE SET
+                pickle = ?6
+             WHERE session_id = ?1
+             ",
+        )
+        .bind(session_id)
+        .bind(account_id)
+        .bind(&session.sender_key)
+        .bind(&session.signing_key)
+        .bind(&session.room_id)
+        .bind(&pickle)
+        .execute(&mut *connection)
+        .await?;
+
+        Ok(self.inbound_group_sessions.add(session))
     }
 
     async fn get_inbound_group_session(
@@ -353,7 +393,9 @@ impl CryptoStore for SqliteStore {
         sender_key: &str,
         session_id: &str,
     ) -> Result<Option<Arc<Mutex<InboundGroupSession>>>> {
-        todo!()
+        Ok(self
+            .inbound_group_sessions
+            .get(room_id, sender_key, session_id))
     }
 }
 
@@ -387,12 +429,23 @@ mod test {
             .expect("Can't create store")
     }
 
+    async fn get_loaded_store() -> (Arc<Mutex<Account>>, SqliteStore) {
+        let mut store = get_store().await;
+        let account = get_account();
+        store
+            .save_account(account.clone())
+            .await
+            .expect("Can't save account");
+
+        (account, store)
+    }
+
     fn get_account() -> Arc<Mutex<Account>> {
         let account = Account::new();
         Arc::new(Mutex::new(account))
     }
 
-    fn get_account_and_session() -> (Arc<Mutex<Account>>, Arc<Mutex<Session>>) {
+    fn get_account_and_session() -> (Arc<Mutex<Account>>, Session) {
         let alice = Account::new();
 
         let bob = Account::new();
@@ -411,7 +464,7 @@ mod test {
             .create_outbound_session(&sender_key, &one_time_key)
             .unwrap();
 
-        (Arc::new(Mutex::new(alice)), Arc::new(Mutex::new(session)))
+        (Arc::new(Mutex::new(alice)), session)
     }
 
     #[tokio::test]
@@ -479,6 +532,7 @@ mod test {
     async fn save_session() {
         let mut store = get_store().await;
         let (account, session) = get_account_and_session();
+        let session = Arc::new(Mutex::new(session));
 
         assert!(store.save_session(session.clone()).await.is_err());
 
@@ -494,6 +548,7 @@ mod test {
     async fn load_sessions() {
         let mut store = get_store().await;
         let (account, session) = get_account_and_session();
+        let session = Arc::new(Mutex::new(session));
         store
             .save_account(account.clone())
             .await
@@ -512,14 +567,28 @@ mod test {
     }
 
     #[tokio::test]
-    async fn save_inbound_group_session() {
+    async fn add_and_save_session() {
         let mut store = get_store().await;
-        let account = get_account();
+        let (account, session) = get_account_and_session();
+        let sender_key = session.sender_key.to_owned();
+        let session_id = session.session_id();
 
         store
             .save_account(account.clone())
             .await
             .expect("Can't save account");
+        store.add_and_save_session(session).await.unwrap();
+
+        let sessions = store.get_sessions(&sender_key).await.unwrap().unwrap();
+        let sessions_lock = sessions.lock().await;
+        let session = &sessions_lock[0];
+
+        assert_eq!(session_id, *session.lock().await.session_id());
+    }
+
+    #[tokio::test]
+    async fn save_inbound_group_session() {
+        let (account, mut store) = get_loaded_store().await;
 
         let acc = account.lock().await;
         let identity_keys = acc.identity_keys();
@@ -536,5 +605,32 @@ mod test {
             .save_inbound_group_session(session)
             .await
             .expect("Can't save group session");
+    }
+
+    #[tokio::test]
+    async fn load_inbound_group_session() {
+        let (account, mut store) = get_loaded_store().await;
+
+        let acc = account.lock().await;
+        let identity_keys = acc.identity_keys();
+        let outbound_session = OlmOutboundGroupSession::new();
+        let session = InboundGroupSession::new(
+            identity_keys.curve25519(),
+            identity_keys.ed25519(),
+            "!test:localhost",
+            &outbound_session.session_key(),
+        )
+        .expect("Can't create session");
+
+        let session_id = session.session_id();
+
+        store
+            .save_inbound_group_session(session)
+            .await
+            .expect("Can't save group session");
+
+        let sessions = store.load_inbound_group_sessions().await.unwrap();
+
+        assert_eq!(session_id, sessions[0].session_id());
     }
 }

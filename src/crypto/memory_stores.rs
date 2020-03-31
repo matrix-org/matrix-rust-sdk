@@ -31,7 +31,7 @@ impl SessionStore {
         }
     }
 
-    pub async fn add(&mut self, session: Session) {
+    pub async fn add(&mut self, session: Session) -> Arc<Mutex<Session>> {
         if !self.entries.contains_key(&session.sender_key) {
             self.entries.insert(
                 session.sender_key.to_owned(),
@@ -39,7 +39,10 @@ impl SessionStore {
             );
         }
         let mut sessions = self.entries.get_mut(&session.sender_key).unwrap();
-        sessions.lock().await.push(Arc::new(Mutex::new(session)));
+        let session = Arc::new(Mutex::new(session));
+        sessions.lock().await.push(session.clone());
+
+        session
     }
 
     pub fn get(&self, sender_key: &str) -> Option<Arc<Mutex<Vec<Arc<Mutex<Session>>>>>> {

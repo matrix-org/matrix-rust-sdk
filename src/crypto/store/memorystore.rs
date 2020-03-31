@@ -61,9 +61,8 @@ impl CryptoStore for MemoryStore {
         Ok(self.sessions.get(sender_key))
     }
 
-    async fn save_inbound_group_session(&mut self, session: InboundGroupSession) -> Result<()> {
-        self.inbound_group_sessions.add(session);
-        Ok(())
+    async fn save_inbound_group_session(&mut self, session: InboundGroupSession) -> Result<bool> {
+        Ok(self.inbound_group_sessions.add(session))
     }
 
     async fn get_inbound_group_session(

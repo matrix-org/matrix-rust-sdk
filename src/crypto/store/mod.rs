@@ -25,7 +25,7 @@ use thiserror::Error;
 use tokio::sync::Mutex;
 
 use super::olm::{Account, InboundGroupSession, Session};
-use olm_rs::errors::{OlmAccountError, OlmSessionError};
+use olm_rs::errors::{OlmAccountError, OlmGroupSessionError, OlmSessionError};
 use olm_rs::PicklingMode;
 
 pub mod memorystore;
@@ -40,9 +40,11 @@ pub enum CryptoStoreError {
     #[error("can't read or write from the store")]
     Io(#[from] IoError),
     #[error("can't finish Olm Account operation {0}")]
-    OlmAccountError(#[from] OlmAccountError),
+    OlmAccount(#[from] OlmAccountError),
     #[error("can't finish Olm Session operation {0}")]
-    OlmSessionError(#[from] OlmSessionError),
+    OlmSession(#[from] OlmSessionError),
+    #[error("can't finish Olm GruoupSession operation {0}")]
+    OlmGroupSession(#[from] OlmGroupSessionError),
     #[error("URL can't be parsed")]
     UrlParse(#[from] ParseError),
     #[error("error serializing data for the database")]
@@ -70,7 +72,7 @@ pub trait CryptoStore: Debug + Send + Sync {
         &mut self,
         sender_key: &str,
     ) -> Result<Option<Arc<Mutex<Vec<Arc<Mutex<Session>>>>>>>;
-    async fn save_inbound_group_session(&mut self, session: InboundGroupSession) -> Result<()>;
+    async fn save_inbound_group_session(&mut self, session: InboundGroupSession) -> Result<bool>;
     async fn get_inbound_group_session(
         &mut self,
         room_id: &str,

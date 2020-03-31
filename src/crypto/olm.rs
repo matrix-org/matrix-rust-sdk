@@ -228,6 +228,23 @@ impl InboundGroupSession {
         })
     }
 
+    pub fn from_pickle(
+        pickle: String,
+        pickle_mode: PicklingMode,
+        sender_key: String,
+        signing_key: String,
+        room_id: String,
+    ) -> Result<Self, OlmGroupSessionError> {
+        let session = OlmInboundGroupSession::unpickle(pickle, pickle_mode)?;
+        Ok(InboundGroupSession {
+            inner: session,
+            sender_key,
+            signing_key,
+            room_id,
+            forwarding_chains: None,
+        })
+    }
+
     pub fn session_id(&self) -> String {
         self.inner.session_id()
     }
