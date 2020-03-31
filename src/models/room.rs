@@ -144,6 +144,11 @@ impl Room {
         }
     }
 
+    /// Calculate and return the display name of the room.
+    pub fn calculate_name(&self) -> String {
+        self.room_name.calculate_name(&self.room_id, &self.members)
+    }
+
     fn add_member(&mut self, event: &MemberEvent) -> bool {
         if self.members.contains_key(&event.state_key) {
             return false;
