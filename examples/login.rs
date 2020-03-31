@@ -1,4 +1,4 @@
-use std::sync::{Arc, RwLock};
+use std::sync::{Arc, Mutex};
 use std::{env, process::exit};
 use url::Url;
 
@@ -7,34 +7,32 @@ use matrix_sdk::{
     events::{
         collections::all::RoomEvent,
         room::message::{MessageEvent, MessageEventContent, TextMessageEventContent},
-        EventResult,
     },
-    AsyncClient, AsyncClientConfig, Room, SyncSettings,
+    AsyncClient, AsyncClientConfig, EventEmitter, Room, SyncSettings,
 };
 
-async fn async_cb(room: Arc<RwLock<Room>>, event: Arc<EventResult<RoomEvent>>) {
-    let room = room.read().unwrap();
-    let event = if let EventResult::Ok(event) = &*event {
-        event
-    } else {
-        return;
-    };
-    if let RoomEvent::RoomMessage(MessageEvent {
-        content: MessageEventContent::Text(TextMessageEventContent { body: msg_body, .. }),
-        sender,
-        ..
-    }) = event
-    {
-        let member = room.members.get(&sender.to_string()).unwrap();
-        println!(
-            "{}: {}",
-            member
-                .user
-                .display_name
-                .as_ref()
-                .unwrap_or(&sender.to_string()),
-            msg_body
-        );
+struct EventCallback;
+
+#[async_trait::async_trait]
+impl EventEmitter for EventCallback {
+    async fn on_room_message(&mut self, room: &Room, event: &RoomEvent) {
+        if let RoomEvent::RoomMessage(MessageEvent {
+            content: MessageEventContent::Text(TextMessageEventContent { body: msg_body, .. }),
+            sender,
+            ..
+        }) = event
+        {
+            let member = room.members.get(&sender.to_string()).unwrap();
+            println!(
+                "{}: {}",
+                member
+                    .user
+                    .display_name
+                    .as_ref()
+                    .unwrap_or(&sender.to_string()),
+                msg_body
+            );
+        }
     }
 }
 
@@ -49,7 +47,9 @@ async fn login(
     let homeserver_url = Url::parse(&homeserver_url)?;
     let mut client = AsyncClient::new_with_config(homeserver_url, None, client_config).unwrap();
 
-    client.add_event_callback(async_cb);
+    client
+        .add_event_emitter(Arc::new(Mutex::new(EventCallback)))
+        .await;
 
     client
         .login(username, password, None, Some("rust-sdk".to_string()))

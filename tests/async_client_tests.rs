@@ -2,7 +2,6 @@ use matrix_sdk::identifiers::UserId;
 use matrix_sdk::{AsyncClient, Session, SyncSettings};
 
 use mockito::{mock, Matcher};
-use tokio::runtime::Runtime;
 use url::Url;
 
 use std::convert::TryFrom;

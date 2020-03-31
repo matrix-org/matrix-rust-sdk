@@ -32,9 +32,12 @@ pub use ruma_client_api as api;
 pub use ruma_events as events;
 pub use ruma_identifiers as identifiers;
 
+pub use ruma_api as ruma_traits;
+
 mod async_client;
 mod base_client;
 mod error;
+mod event_emitter;
 mod models;
 mod session;
 
@@ -43,6 +46,7 @@ mod crypto;
 
 pub use async_client::{AsyncClient, AsyncClientConfig, SyncSettings};
 pub use base_client::Client;
+pub use event_emitter::EventEmitter;
 pub use models::Room;
 
 pub(crate) const VERSION: &str = env!("CARGO_PKG_VERSION");

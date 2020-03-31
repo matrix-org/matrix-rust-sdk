@@ -16,20 +16,14 @@
 use std::convert::TryFrom;
 
 use super::User;
-use crate::api::r0 as api;
-use crate::events::collections::all::{Event, RoomEvent, StateEvent};
+use crate::events::collections::all::Event;
 use crate::events::room::{
-    aliases::AliasesEvent,
-    canonical_alias::CanonicalAliasEvent,
-    member::{MemberEvent, MemberEventContent, MembershipChange, MembershipState},
-    name::NameEvent,
+    member::{MemberEvent, MembershipChange, MembershipState},
     power_levels::PowerLevelsEvent,
 };
-use crate::events::EventResult;
-use crate::identifiers::{RoomAliasId, UserId};
-use crate::session::Session;
+use crate::identifiers::UserId;
 
-use js_int::{Int, UInt};
+use js_int::Int;
 #[cfg(feature = "encryption")]
 use tokio::sync::Mutex;
 
@@ -108,7 +102,7 @@ impl RoomMember {
             max_power = *power.max(&max_power);
         }
 
-        let mut changed = false;
+        let changed;
         if let Some(user_power) = event.content.users.get(&self.user_id) {
             changed = self.power_level != Some(*user_power);
             self.power_level = Some(*user_power);
@@ -134,7 +128,6 @@ mod test {
 
     use js_int::{Int, UInt};
     use mockito::{mock, Matcher};
-    use tokio::runtime::Runtime;
     use url::Url;
 
     use std::collections::HashMap;
@@ -177,7 +170,7 @@ mod test {
             .write()
             .unwrap();
 
-        for (id, member) in &mut room.members {
+        for (_id, member) in &mut room.members {
             let power = power_levels();
             assert!(member.update_power(&power));
             assert_eq!(MembershipState::Join, member.membership);
