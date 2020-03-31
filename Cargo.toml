@@ -51,7 +51,7 @@ default-features = false
 features = ["sync", "time"]
 
 [dependencies.sqlx]
-git = "https://github.com/launchbadge/sqlx/"
+version = "0.3.2"
 optional = true
 default-features = false
 features = ["runtime-tokio", "sqlite"]
