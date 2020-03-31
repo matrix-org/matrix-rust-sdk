@@ -73,13 +73,7 @@ pub struct CurrentRoom {
 impl CurrentRoom {
     // TODO when UserId is isomorphic to &str clean this up.
     pub(crate) fn comes_after(&self, user: &Uid, event: &PresenceEvent) -> bool {
-        let u = user.to_string();
-        let u = u.split(':').next();
-
-        let s = event.sender.to_string();
-        let s = s.split(':').next();
-
-        if u == s {
+        if user == &event.sender {
             if self.last_active.is_none() {
                 true
             } else {
@@ -217,7 +211,6 @@ impl Client {
     }
 
     pub(crate) fn get_room(&mut self, room_id: &str) -> Option<&mut Arc<RwLock<Room>>> {
-        #[allow(clippy::or_fun_call)]
         self.joined_rooms.get_mut(room_id)
     }
 

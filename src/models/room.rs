@@ -319,7 +319,7 @@ mod test {
 
         let session = Session {
             access_token: "1234".to_owned(),
-            user_id: UserId::try_from("@example:example.com").unwrap(),
+            user_id: UserId::try_from("@example:localhost").unwrap(),
             device_id: "DEVICEID".to_owned(),
         };
 

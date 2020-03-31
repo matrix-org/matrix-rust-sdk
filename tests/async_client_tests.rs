@@ -35,7 +35,7 @@ async fn sync() {
 
     let session = Session {
         access_token: "1234".to_owned(),
-        user_id: UserId::try_from("@example:example.com").unwrap(),
+        user_id: UserId::try_from("@example:localhost").unwrap(),
         device_id: "DEVICEID".to_owned(),
     };
 
@@ -64,7 +64,7 @@ async fn room_names() {
 
     let session = Session {
         access_token: "1234".to_owned(),
-        user_id: UserId::try_from("@example:example.com").unwrap(),
+        user_id: UserId::try_from("@example:localhost").unwrap(),
         device_id: "DEVICEID".to_owned(),
     };
 
@@ -95,7 +95,7 @@ async fn current_room() {
 
     let session = Session {
         access_token: "1234".to_owned(),
-        user_id: UserId::try_from("@example:example.com").unwrap(),
+        user_id: UserId::try_from("@example:localhost").unwrap(),
         device_id: "DEVICEID".to_owned(),
     };
 
