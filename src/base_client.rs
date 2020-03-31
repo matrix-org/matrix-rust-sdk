@@ -14,6 +14,7 @@
 // limitations under the License.
 
 use std::collections::HashMap;
+use std::convert::TryFrom;
 
 #[cfg(feature = "encryption")]
 use std::result::Result as StdResult;
@@ -21,10 +22,24 @@ use std::result::Result as StdResult;
 use crate::api::r0 as api;
 use crate::error::Result;
 use crate::events::collections::all::{RoomEvent, StateEvent};
-use crate::events::room::member::{MemberEvent, MembershipState};
+use crate::events::presence::PresenceEvent;
+// `NonRoomEvent` is what it is aliased as
+use crate::events::collections::only::Event as NonRoomEvent;
+use crate::events::ignored_user_list::IgnoredUserListEvent;
+use crate::events::push_rules::{PushRulesEvent, Ruleset};
+use crate::events::room::{
+    aliases::AliasesEvent,
+    canonical_alias::CanonicalAliasEvent,
+    member::{MemberEvent, MembershipState},
+    name::NameEvent,
+};
 use crate::events::EventResult;
+use crate::identifiers::{RoomAliasId, UserId as Uid};
+use crate::models::Room;
 use crate::session::Session;
 use std::sync::{Arc, RwLock};
+
+use js_int::UInt;
 
 #[cfg(feature = "encryption")]
 use tokio::sync::Mutex;
@@ -38,144 +53,41 @@ use ruma_identifiers::RoomId;
 pub type Token = String;
 pub type UserId = String;
 
-#[derive(Debug)]
-/// A Matrix room member.
-pub struct RoomMember {
-    /// The unique mxid of the user.
-    pub user_id: UserId,
-    /// The human readable name of the user.
-    pub display_name: Option<String>,
-    /// The matrix url of the users avatar.
-    pub avatar_url: Option<String>,
-    /// The users power level.
-    pub power_level: u8,
+#[derive(Debug, Default)]
+/// `RoomName` allows the calculation of a text room name.
+pub struct RoomName {
+    /// The displayed name of the room.
+    name: Option<String>,
+    /// The canonical alias of the room ex. `#room-name:example.com` and port number.
+    canonical_alias: Option<RoomAliasId>,
+    /// List of `RoomAliasId`s the room has been given.
+    aliases: Vec<RoomAliasId>,
 }
 
-#[derive(Debug)]
-/// A Matrix rooom.
-pub struct Room {
-    /// The unique id of the room.
-    pub room_id: String,
-    /// The mxid of our own user.
-    pub own_user_id: UserId,
-    /// The mxid of the room creator.
-    pub creator: Option<UserId>,
-    /// The map of room members.
-    pub members: HashMap<UserId, RoomMember>,
-    /// A list of users that are currently typing.
-    pub typing_users: Vec<UserId>,
-    /// A flag indicating if the room is encrypted.
-    pub encrypted: bool,
+#[derive(Clone, Debug, Default)]
+pub struct CurrentRoom {
+    last_active: Option<UInt>,
+    current_room_id: Option<RoomId>,
 }
 
-impl Room {
-    /// Create a new room.
-    ///
-    /// # Arguments
-    ///
-    /// * `room_id` - The unique id of the room.
-    ///
-    /// * `own_user_id` - The mxid of our own user.
-    pub fn new(room_id: &str, own_user_id: &str) -> Self {
-        Room {
-            room_id: room_id.to_string(),
-            own_user_id: own_user_id.to_owned(),
-            creator: None,
-            members: HashMap::new(),
-            typing_users: Vec::new(),
-            encrypted: false,
+impl CurrentRoom {
+    // TODO when UserId is isomorphic to &str clean this up.
+    pub(crate) fn comes_after(&self, user: &Uid, event: &PresenceEvent) -> bool {
+        if user == &event.sender {
+            if self.last_active.is_none() {
+                true
+            } else {
+                event.content.last_active_ago < self.last_active
+            }
+        } else {
+            false
         }
     }
 
-    fn add_member(&mut self, event: &MemberEvent) -> bool {
-        if self.members.contains_key(&event.state_key) {
-            return false;
-        }
-
-        let member = RoomMember {
-            user_id: event.state_key.clone(),
-            display_name: event.content.displayname.clone(),
-            avatar_url: event.content.avatar_url.clone(),
-            power_level: 0,
-        };
-
-        self.members.insert(event.state_key.clone(), member);
-
-        true
-    }
-
-    fn remove_member(&mut self, event: &MemberEvent) -> bool {
-        if !self.members.contains_key(&event.state_key) {
-            return false;
-        }
-
-        true
-    }
-
-    fn update_joined_member(&mut self, event: &MemberEvent) -> bool {
-        if let Some(member) = self.members.get_mut(&event.state_key) {
-            member.display_name = event.content.displayname.clone();
-            member.avatar_url = event.content.avatar_url.clone();
-        }
-
-        false
-    }
-
-    fn handle_join(&mut self, event: &MemberEvent) -> bool {
-        match &event.prev_content {
-            Some(c) => match c.membership {
-                MembershipState::Join => self.update_joined_member(event),
-                MembershipState::Invite => self.add_member(event),
-                MembershipState::Leave => self.remove_member(event),
-                _ => false,
-            },
-            None => self.add_member(event),
-        }
-    }
-
-    fn handle_leave(&mut self, _event: &MemberEvent) -> bool {
-        false
-    }
-
-    /// Handle a room.member updating the room state if necessary.
-    /// Returns true if the joined member list changed, false otherwise.
-    pub fn handle_membership(&mut self, event: &MemberEvent) -> bool {
-        match event.content.membership {
-            MembershipState::Join => self.handle_join(event),
-            MembershipState::Leave => self.handle_leave(event),
-            MembershipState::Ban => self.handle_leave(event),
-            MembershipState::Invite => false,
-            MembershipState::Knock => false,
-            _ => false,
-        }
-    }
-
-    /// Receive a timeline event for this room and update the room state.
-    ///
-    /// Returns true if the joined member list changed, false otherwise.
-    ///
-    /// # Arguments
-    ///
-    /// * `event` - The event of the room.
-    pub fn receive_timeline_event(&mut self, event: &RoomEvent) -> bool {
-        match event {
-            RoomEvent::RoomMember(m) => self.handle_membership(m),
-            _ => false,
-        }
-    }
-
-    /// Receive a state event for this room and update the room state.
-    ///
-    /// Returns true if the joined member list changed, false otherwise.
-    ///
-    /// # Arguments
-    ///
-    /// * `event` - The event of the room.
-    pub fn receive_state_event(&mut self, event: &StateEvent) -> bool {
-        match event {
-            StateEvent::RoomMember(m) => self.handle_membership(m),
-            _ => false,
-        }
+    pub(crate) fn update(&mut self, room_id: &str, event: &PresenceEvent) {
+        self.last_active = event.content.last_active_ago;
+        self.current_room_id =
+            Some(RoomId::try_from(room_id).expect("room id failed CurrentRoom::update"));
     }
 }
 
@@ -192,6 +104,13 @@ pub struct Client {
     pub sync_token: Option<Token>,
     /// A map of the rooms our user is joined in.
     pub joined_rooms: HashMap<String, Arc<RwLock<Room>>>,
+    /// The most recent room the logged in user used by `RoomId`.
+    pub current_room_id: CurrentRoom,
+    /// A list of ignored users.
+    pub ignored_users: Vec<UserId>,
+    /// The push ruleset for the logged in user.
+    pub push_ruleset: Option<Ruleset>,
+
     #[cfg(feature = "encryption")]
     olm: Arc<Mutex<Option<OlmMachine>>>,
 }
@@ -214,6 +133,9 @@ impl Client {
             session,
             sync_token: None,
             joined_rooms: HashMap::new(),
+            current_room_id: CurrentRoom::default(),
+            ignored_users: Vec::new(),
+            push_ruleset: None,
             #[cfg(feature = "encryption")]
             olm: Arc::new(Mutex::new(olm)),
         })
@@ -250,6 +172,29 @@ impl Client {
         Ok(())
     }
 
+    pub(crate) fn calculate_room_name(&self, room_id: &str) -> Option<String> {
+        self.joined_rooms.get(room_id).and_then(|r| {
+            r.read()
+                .map(|r| r.room_name.calculate_name(room_id, &r.members))
+                .ok()
+        })
+    }
+
+    pub(crate) fn calculate_room_names(&self) -> Vec<String> {
+        self.joined_rooms
+            .iter()
+            .flat_map(|(id, room)| {
+                room.read()
+                    .map(|r| r.room_name.calculate_name(id, &r.members))
+                    .ok()
+            })
+            .collect()
+    }
+
+    pub(crate) fn current_room_id(&self) -> Option<RoomId> {
+        self.current_room_id.current_room_id.clone()
+    }
+
     pub(crate) fn get_or_create_room(&mut self, room_id: &str) -> &mut Arc<RwLock<Room>> {
         #[allow(clippy::or_fun_call)]
         self.joined_rooms
@@ -263,6 +208,48 @@ impl Client {
                     .user_id
                     .to_string(),
             ))))
+    }
+
+    pub(crate) fn get_room(&mut self, room_id: &str) -> Option<&mut Arc<RwLock<Room>>> {
+        self.joined_rooms.get_mut(room_id)
+    }
+
+    /// Handle a m.ignored_user_list event, updating the room state if necessary.
+    ///
+    /// Returns true if the room name changed, false otherwise.
+    pub(crate) fn handle_ignored_users(&mut self, event: &IgnoredUserListEvent) -> bool {
+        // FIXME when UserId becomes more like a &str wrapper in ruma-identifiers
+        if self.ignored_users
+            == event
+                .content
+                .ignored_users
+                .iter()
+                .map(|u| u.to_string())
+                .collect::<Vec<String>>()
+        {
+            false
+        } else {
+            self.ignored_users = event
+                .content
+                .ignored_users
+                .iter()
+                .map(|u| u.to_string())
+                .collect();
+            true
+        }
+    }
+
+    /// Handle a m.ignored_user_list event, updating the room state if necessary.
+    ///
+    /// Returns true if the room name changed, false otherwise.
+    pub(crate) fn handle_push_rules(&mut self, event: &PushRulesEvent) -> bool {
+        // TODO this is basically a stub
+        if self.push_ruleset.as_ref() == Some(&event.content.global) {
+            false
+        } else {
+            self.push_ruleset = Some(event.content.global.clone());
+            true
+        }
     }
 
     /// Receive a timeline event for a joined room and update the client state.
@@ -326,6 +313,52 @@ impl Client {
     pub fn receive_joined_state_event(&mut self, room_id: &str, event: &StateEvent) -> bool {
         let mut room = self.get_or_create_room(room_id).write().unwrap();
         room.receive_state_event(event)
+    }
+
+    /// Receive a presence event from a sync response and updates the client state.
+    ///
+    /// Returns true if the membership list of the room changed, false
+    /// otherwise.
+    ///
+    /// # Arguments
+    ///
+    /// * `room_id` - The unique id of the room the event belongs to.
+    ///
+    /// * `event` - The event that should be handled by the client.
+    pub fn receive_presence_event(&mut self, room_id: &str, event: &PresenceEvent) -> bool {
+        let user_id = &self
+            .session
+            .as_ref()
+            .expect("to receive events you must be logged in")
+            .user_id;
+
+        if self.current_room_id.comes_after(user_id, event) {
+            self.current_room_id.update(room_id, event);
+        }
+        // this should be the room that was just created in the `Client::sync` loop.
+        if let Some(room) = self.get_room(room_id) {
+            let mut room = room.write().unwrap();
+            room.receive_presence_event(event)
+        } else {
+            false
+        }
+    }
+
+    /// Receive a presence event from a sync response and updates the client state.
+    ///
+    /// This will only update the user if found in the current room looped through by `AsyncClient::sync`.
+    /// Returns true if the specific users presence has changed, false otherwise.
+    ///
+    /// # Arguments
+    ///
+    /// * `event` - The presence event for a specified room member.
+    pub fn receive_account_data(&mut self, room_id: &str, event: &NonRoomEvent) -> bool {
+        match event {
+            NonRoomEvent::IgnoredUserList(iu) => self.handle_ignored_users(iu),
+            NonRoomEvent::Presence(p) => self.receive_presence_event(room_id, p),
+            NonRoomEvent::PushRules(pr) => self.handle_push_rules(pr),
+            _ => false,
+        }
     }
 
     /// Receive a response from a sync call.
@@ -394,5 +427,50 @@ impl Client {
         let o = olm.as_mut().expect("Client isn't logged in.");
         o.receive_keys_upload_response(response).await?;
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    use crate::events::room::member::MembershipState;
+    use crate::identifiers::UserId;
+    use crate::{AsyncClient, Session, SyncSettings};
+
+    use mockito::{mock, Matcher};
+    use tokio::runtime::Runtime;
+    use url::Url;
+
+    use std::convert::TryFrom;
+    use std::str::FromStr;
+    use std::time::Duration;
+
+    #[tokio::test]
+    async fn account_data() {
+        let homeserver = Url::from_str(&mockito::server_url()).unwrap();
+
+        let session = Session {
+            access_token: "1234".to_owned(),
+            user_id: UserId::try_from("@example:example.com").unwrap(),
+            device_id: "DEVICEID".to_owned(),
+        };
+
+        let _m = mock(
+            "GET",
+            Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_string()),
+        )
+        .with_status(200)
+        .with_body_from_file("tests/data/sync.json")
+        .create();
+
+        let mut client = AsyncClient::new(homeserver, Some(session)).unwrap();
+
+        let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
+
+        let _response = client.sync(sync_settings).await.unwrap();
+
+        let bc = &client.base_client.read().await;
+        assert_eq!(1, bc.ignored_users.len())
     }
 }

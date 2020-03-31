@@ -25,10 +25,14 @@ async fn async_cb(room: Arc<RwLock<Room>>, event: Arc<EventResult<RoomEvent>>) {
         ..
     }) = event
     {
-        let user = room.members.get(&sender.to_string()).unwrap();
+        let member = room.members.get(&sender.to_string()).unwrap();
         println!(
             "{}: {}",
-            user.display_name.as_ref().unwrap_or(&sender.to_string()),
+            member
+                .user
+                .display_name
+                .as_ref()
+                .unwrap_or(&sender.to_string()),
             msg_body
         );
     }

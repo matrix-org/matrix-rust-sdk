@@ -35,12 +35,14 @@ pub use ruma_identifiers as identifiers;
 mod async_client;
 mod base_client;
 mod error;
+mod models;
 mod session;
 
 #[cfg(feature = "encryption")]
 mod crypto;
 
 pub use async_client::{AsyncClient, AsyncClientConfig, SyncSettings};
-pub use base_client::{Client, Room};
+pub use base_client::Client;
+pub use models::Room;
 
 pub(crate) const VERSION: &str = env!("CARGO_PKG_VERSION");
