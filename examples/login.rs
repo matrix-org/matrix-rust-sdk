@@ -1,6 +1,6 @@
+use std::ops::{Deref, DerefMut};
 use std::sync::{Arc, RwLock};
 use std::{env, process::exit};
-use std::ops::{Deref, DerefMut};
 use url::Url;
 
 use matrix_sdk::{

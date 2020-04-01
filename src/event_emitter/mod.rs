@@ -64,11 +64,17 @@ pub trait EventEmitter: Send + Sync {
     /// Fires when `AsyncClient` receives a `NonRoomEvent::RoomMember` event.
     async fn on_account_presence(&mut self, _: Arc<Mutex<Room>>, _: Arc<Mutex<NonRoomEvent>>) {}
     /// Fires when `AsyncClient` receives a `NonRoomEvent::RoomName` event.
-    async fn on_account_ignored_users(&mut self, _: Arc<Mutex<Room>>, _: Arc<Mutex<NonRoomEvent>>) {}
+    async fn on_account_ignored_users(&mut self, _: Arc<Mutex<Room>>, _: Arc<Mutex<NonRoomEvent>>) {
+    }
     /// Fires when `AsyncClient` receives a `NonRoomEvent::RoomCanonicalAlias` event.
     async fn on_account_push_rules(&mut self, _: Arc<Mutex<Room>>, _: Arc<Mutex<NonRoomEvent>>) {}
     /// Fires when `AsyncClient` receives a `NonRoomEvent::RoomAliases` event.
-    async fn on_account_data_fully_read(&mut self, _: Arc<Mutex<Room>>, _: Arc<Mutex<NonRoomEvent>>) {}
+    async fn on_account_data_fully_read(
+        &mut self,
+        _: Arc<Mutex<Room>>,
+        _: Arc<Mutex<NonRoomEvent>>,
+    ) {
+    }
 
     // `PresenceEvent` is a struct so there is only the one method
     /// Fires when `AsyncClient` receives a `NonRoomEvent::RoomAliases` event.

@@ -16,7 +16,7 @@
 use std::collections::{HashMap, HashSet};
 use std::convert::TryFrom;
 use std::fmt;
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
 
 #[cfg(feature = "encryption")]
 use std::result::Result as StdResult;
@@ -302,10 +302,7 @@ impl Client {
                     }
                 }
 
-                let mut room = self
-                    .get_or_create_room(&room_id.to_string())
-                    .lock()
-                    .await;
+                let mut room = self.get_or_create_room(&room_id.to_string()).lock().await;
                 room.receive_timeline_event(e);
                 decrypted_event
             }
@@ -527,7 +524,10 @@ impl Client {
                     if let Some(room) = self.get_room(&room_id.to_string()) {
                         ee.lock()
                             .await
-                            .on_room_canonical_alias(Arc::clone(&room), Arc::new(Mutex::new(event.clone())))
+                            .on_room_canonical_alias(
+                                Arc::clone(&room),
+                                Arc::new(Mutex::new(event.clone())),
+                            )
                             .await;
                     }
                 }
@@ -567,7 +567,10 @@ impl Client {
                     if let Some(room) = self.get_room(&room_id.to_string()) {
                         ee.lock()
                             .await
-                            .on_room_message_feedback(Arc::clone(&room), Arc::new(Mutex::new(event.clone())))
+                            .on_room_message_feedback(
+                                Arc::clone(&room),
+                                Arc::new(Mutex::new(event.clone())),
+                            )
                             .await;
                     }
                 }
@@ -577,7 +580,10 @@ impl Client {
                     if let Some(room) = self.get_room(&room_id.to_string()) {
                         ee.lock()
                             .await
-                            .on_room_redaction(Arc::clone(&room), Arc::new(Mutex::new(event.clone())))
+                            .on_room_redaction(
+                                Arc::clone(&room),
+                                Arc::new(Mutex::new(event.clone())),
+                            )
                             .await;
                     }
                 }
@@ -587,7 +593,10 @@ impl Client {
                     if let Some(room) = self.get_room(&room_id.to_string()) {
                         ee.lock()
                             .await
-                            .on_room_power_levels(Arc::clone(&room), Arc::new(Mutex::new(event.clone())))
+                            .on_room_power_levels(
+                                Arc::clone(&room),
+                                Arc::new(Mutex::new(event.clone())),
+                            )
                             .await;
                     }
                 }
@@ -623,7 +632,10 @@ impl Client {
                     if let Some(room) = self.get_room(&room_id.to_string()) {
                         ee.lock()
                             .await
-                            .on_state_canonical_alias(Arc::clone(&room), Arc::new(Mutex::new(event.clone())))
+                            .on_state_canonical_alias(
+                                Arc::clone(&room),
+                                Arc::new(Mutex::new(event.clone())),
+                            )
                             .await;
                     }
                 }
@@ -633,7 +645,10 @@ impl Client {
                     if let Some(room) = self.get_room(&room_id.to_string()) {
                         ee.lock()
                             .await
-                            .on_state_aliases(Arc::clone(&room), Arc::new(Mutex::new(event.clone())))
+                            .on_state_aliases(
+                                Arc::clone(&room),
+                                Arc::new(Mutex::new(event.clone())),
+                            )
                             .await;
                     }
                 }
@@ -653,7 +668,10 @@ impl Client {
                     if let Some(room) = self.get_room(&room_id.to_string()) {
                         ee.lock()
                             .await
-                            .on_state_power_levels(Arc::clone(&room), Arc::new(Mutex::new(event.clone())))
+                            .on_state_power_levels(
+                                Arc::clone(&room),
+                                Arc::new(Mutex::new(event.clone())),
+                            )
                             .await;
                     }
                 }
@@ -663,7 +681,10 @@ impl Client {
                     if let Some(room) = self.get_room(&room_id.to_string()) {
                         ee.lock()
                             .await
-                            .on_state_join_rules(Arc::clone(&room), Arc::new(Mutex::new(event.clone())))
+                            .on_state_join_rules(
+                                Arc::clone(&room),
+                                Arc::new(Mutex::new(event.clone())),
+                            )
                             .await;
                     }
                 }
@@ -683,7 +704,10 @@ impl Client {
                     if let Some(room) = self.get_room(&room_id.to_string()) {
                         ee.lock()
                             .await
-                            .on_account_presence(Arc::clone(&room), Arc::new(Mutex::new(event.clone())))
+                            .on_account_presence(
+                                Arc::clone(&room),
+                                Arc::new(Mutex::new(event.clone())),
+                            )
                             .await;
                     }
                 }
@@ -693,7 +717,10 @@ impl Client {
                     if let Some(room) = self.get_room(&room_id.to_string()) {
                         ee.lock()
                             .await
-                            .on_account_ignored_users(Arc::clone(&room), Arc::new(Mutex::new(event.clone())))
+                            .on_account_ignored_users(
+                                Arc::clone(&room),
+                                Arc::new(Mutex::new(event.clone())),
+                            )
                             .await;
                     }
                 }
@@ -703,7 +730,10 @@ impl Client {
                     if let Some(room) = self.get_room(&room_id.to_string()) {
                         ee.lock()
                             .await
-                            .on_account_push_rules(Arc::clone(&room), Arc::new(Mutex::new(event.clone())))
+                            .on_account_push_rules(
+                                Arc::clone(&room),
+                                Arc::new(Mutex::new(event.clone())),
+                            )
                             .await;
                     }
                 }
@@ -713,7 +743,10 @@ impl Client {
                     if let Some(room) = self.get_room(&room_id.to_string()) {
                         ee.lock()
                             .await
-                            .on_account_data_fully_read(Arc::clone(&room), Arc::new(Mutex::new(event.clone())))
+                            .on_account_data_fully_read(
+                                Arc::clone(&room),
+                                Arc::new(Mutex::new(event.clone())),
+                            )
                             .await;
                     }
                 }

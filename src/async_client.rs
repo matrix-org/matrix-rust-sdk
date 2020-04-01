@@ -17,7 +17,7 @@ use std::collections::HashMap;
 use std::convert::{TryFrom, TryInto};
 use std::result::Result as StdResult;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use futures::future::{BoxFuture, Future, FutureExt};
@@ -263,13 +263,20 @@ impl AsyncClient {
     /// Add `EventEmitter` to `AsyncClient`.
     ///
     /// The methods of `EventEmitter` are called when the respective `RoomEvents` occur.
-    pub async fn add_event_emitter(&mut self, emitter: Arc<tokio::sync::Mutex<Box<dyn EventEmitter>>>) {
+    pub async fn add_event_emitter(
+        &mut self,
+        emitter: Arc<tokio::sync::Mutex<Box<dyn EventEmitter>>>,
+    ) {
         self.base_client.write().await.event_emitter = Some(emitter);
     }
 
     /// Calculates the room name from a `RoomId`, returning a string.
     pub async fn get_room_name(&self, room_id: &str) -> Option<String> {
-        self.base_client.read().await.calculate_room_name(room_id).await
+        self.base_client
+            .read()
+            .await
+            .calculate_room_name(room_id)
+            .await
     }
 
     /// Calculates the room names this client knows about.
