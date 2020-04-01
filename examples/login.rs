@@ -17,12 +17,12 @@ struct EventCallback;
 
 #[async_trait::async_trait]
 impl EventEmitter for EventCallback {
-    async fn on_room_message(&mut self, room: Arc<Mutex<Room>>, event: Arc<Mutex<RoomEvent>>) {
-        if let RoomEvent::RoomMessage(MessageEvent {
+    async fn on_room_message(&mut self, room: Arc<Mutex<Room>>, event: Arc<Mutex<MessageEvent>>) {
+        if let MessageEvent {
             content: MessageEventContent::Text(TextMessageEventContent { body: msg_body, .. }),
             sender,
             ..
-        }) = event.lock().await.deref()
+        } = event.lock().await.deref()
         {
             let rooms = room.lock().await;
             let member = rooms.members.get(&sender.to_string()).unwrap();

@@ -367,7 +367,6 @@ impl AsyncClient {
                 client.get_or_create_room(&room_id_string).clone()
             };
 
-            // TODO should we determine if anything room state has changed before calling
             // re looping is not ideal here
             for event in &mut room.state.events {
                 if let EventResult::Ok(e) = event {
@@ -386,7 +385,6 @@ impl AsyncClient {
                     *event = e;
                 }
 
-                // TODO should we determine if any room state has changed before calling
                 if let EventResult::Ok(e) = event {
                     client.emit_timeline_event(room_id, e).await;
                 }
@@ -398,7 +396,6 @@ impl AsyncClient {
                     if let EventResult::Ok(e) = account_data {
                         client.receive_account_data(&room_id_string, e).await;
 
-                        // TODO should we determine if anything room state has changed before calling
                         client.emit_account_data_event(room_id, e).await;
                     }
                 }
@@ -414,7 +411,6 @@ impl AsyncClient {
                     if let EventResult::Ok(e) = presence {
                         client.receive_presence_event(&room_id_string, e).await;
 
-                        // TODO should we determine if any room state has changed before calling
                         client.emit_presence_event(room_id, e).await;
                     }
                 }
