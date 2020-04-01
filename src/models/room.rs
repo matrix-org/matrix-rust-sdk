@@ -149,6 +149,11 @@ impl Room {
         self.room_name.calculate_name(&self.room_id, &self.members)
     }
 
+    /// Is the room a encrypted room.
+    pub fn is_encrypted(&self) -> bool {
+        self.encrypted
+    }
+
     fn add_member(&mut self, event: &MemberEvent) -> bool {
         if self.members.contains_key(&event.state_key) {
             return false;

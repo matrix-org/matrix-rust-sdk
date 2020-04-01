@@ -13,12 +13,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use futures::future::{BoxFuture, Future, FutureExt};
+use std::collections::HashMap;
 use std::convert::{TryFrom, TryInto};
 use std::result::Result as StdResult;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, RwLock as SyncLock};
 use std::time::{Duration, Instant};
+
+use futures::future::{BoxFuture, Future, FutureExt};
 use tokio::sync::RwLock;
 use tokio::time::delay_for as sleep;
 use tracing::{debug, info, instrument, trace};
@@ -35,6 +37,9 @@ use ruma_events::room::message::MessageEventContent;
 use ruma_events::EventResult;
 pub use ruma_events::EventType;
 use ruma_identifiers::RoomId;
+
+#[cfg(feature = "encryption")]
+use ruma_identifiers::{DeviceId, UserId};
 
 use crate::api;
 use crate::base_client::Client as BaseClient;
@@ -185,6 +190,8 @@ impl SyncSettings {
     }
 }
 
+#[cfg(feature = "encryption")]
+use api::r0::keys::get_keys;
 #[cfg(feature = "encryption")]
 use api::r0::keys::upload_keys;
 use api::r0::message::create_message_event;
@@ -658,6 +665,11 @@ impl AsyncClient {
                 if self.base_client.read().await.should_upload_keys().await {
                     let _ = self.keys_upload().await;
                 }
+
+                if self.base_client.read().await.should_query_keys().await {
+                    // TODO enable this
+                    // let _ = self.keys_query().await;
+                }
             }
 
             let now = Instant::now();
@@ -828,5 +840,49 @@ impl AsyncClient {
     /// This will be None if the client didn't sync at least once.
     pub async fn sync_token(&self) -> Option<String> {
         self.base_client.read().await.sync_token.clone()
+    }
+
+    #[cfg(feature = "encryption")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "encryption")))]
+    #[instrument]
+    /// Query the server for users device keys.
+    ///
+    /// # Panics
+    ///
+    /// Panics if no key query needs to be done.
+    async fn keys_query(&self) -> Result<get_keys::Response> {
+        let mut users_for_query = self
+            .base_client
+            .read()
+            .await
+            .users_for_key_query()
+            .await
+            .expect("Keys don't need to be uploaded");
+
+        debug!(
+            "Querying device keys device for users: {:?}",
+            users_for_query
+        );
+
+        let mut device_keys: HashMap<UserId, Vec<DeviceId>> = HashMap::new();
+
+        for user in users_for_query.drain() {
+            device_keys.insert(UserId::try_from(user.as_ref()).unwrap(), Vec::new());
+        }
+
+        let request = get_keys::Request {
+            timeout: None,
+            device_keys,
+            token: None,
+        };
+
+        let response = self.send(request).await?;
+        self.base_client
+            .write()
+            .await
+            .receive_keys_query_response(&response)
+            .await?;
+
+        Ok(response)
     }
 }

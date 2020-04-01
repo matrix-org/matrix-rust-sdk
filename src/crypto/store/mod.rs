@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use core::fmt::Debug;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::io::Error as IoError;
 use std::result::Result as StdResult;
 use std::sync::Arc;
@@ -79,4 +79,6 @@ pub trait CryptoStore: Debug + Send + Sync {
         sender_key: &str,
         session_id: &str,
     ) -> Result<Option<Arc<Mutex<InboundGroupSession>>>>;
+    fn tracked_users(&self) -> &HashSet<String>;
+    async fn add_user_for_tracking(&mut self, user: &str) -> Result<bool>;
 }

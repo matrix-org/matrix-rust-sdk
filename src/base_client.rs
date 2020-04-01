@@ -13,7 +13,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::convert::TryFrom;
 
 #[cfg(feature = "encryption")]
@@ -47,7 +47,10 @@ use tokio::sync::Mutex;
 #[cfg(feature = "encryption")]
 use crate::crypto::{OlmMachine, OneTimeKeys};
 #[cfg(feature = "encryption")]
-use ruma_client_api::r0::keys::{upload_keys::Response as KeysUploadResponse, DeviceKeys};
+use ruma_client_api::r0::keys::{
+    get_keys::Response as KeysQueryResponse, upload_keys::Response as KeysUploadResponse,
+    DeviceKeys,
+};
 use ruma_identifiers::RoomId;
 
 pub type Token = String;
@@ -378,6 +381,18 @@ impl Client {
 
             if let Some(o) = &mut *olm {
                 o.receive_sync_response(response).await;
+
+                // TODO once the base client deals with callbacks move this into the
+                // part where we already iterate through the rooms to avoid yet
+                // another room loop.
+                for room in self.joined_rooms.values() {
+                    let room = room.read().unwrap();
+                    if !room.is_encrypted() {
+                        continue;
+                    }
+
+                    o.update_tracked_users(room.members.keys()).await;
+                }
             }
         }
     }
@@ -390,6 +405,18 @@ impl Client {
 
         match &*olm {
             Some(o) => o.should_upload_keys().await,
+            None => false,
+        }
+    }
+
+    /// Should users be queried for their device keys.
+    #[cfg(feature = "encryption")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "encryption")))]
+    pub async fn should_query_keys(&self) -> bool {
+        let olm = self.olm.lock().await;
+
+        match &*olm {
+            Some(o) => o.should_query_keys(),
             None => false,
         }
     }
@@ -410,6 +437,20 @@ impl Client {
         }
     }
 
+    /// Get the users that we need to query keys for.
+    ///
+    /// Returns an empty error if no keys need to be queried.
+    #[cfg(feature = "encryption")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "encryption")))]
+    pub async fn users_for_key_query(&self) -> StdResult<HashSet<String>, ()> {
+        let olm = self.olm.lock().await;
+
+        match &*olm {
+            Some(o) => Ok(o.users_for_key_query()),
+            None => Err(()),
+        }
+    }
+
     /// Receive a successful keys upload response.
     ///
     /// # Arguments
@@ -426,6 +467,26 @@ impl Client {
 
         let o = olm.as_mut().expect("Client isn't logged in.");
         o.receive_keys_upload_response(response).await?;
+        Ok(())
+    }
+
+    /// Receive a successful keys query response.
+    ///
+    /// # Arguments
+    ///
+    /// * `response` - The keys query response of the request that the client
+    /// performed.
+    ///
+    /// # Panics
+    /// Panics if the client hasn't been logged in.
+    #[cfg(feature = "encryption")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "encryption")))]
+    pub async fn receive_keys_query_response(&self, response: &KeysQueryResponse) -> Result<()> {
+        let mut olm = self.olm.lock().await;
+
+        let o = olm.as_mut().expect("Client isn't logged in.");
+        o.receive_keys_query_response(response).await?;
+        // TODO notify our callers of new devices via some callback.
         Ok(())
     }
 }

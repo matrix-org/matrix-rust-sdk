@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::collections::HashSet;
 use std::sync::Arc;
 
 use async_trait::async_trait;
@@ -24,6 +25,7 @@ use crate::crypto::memory_stores::{GroupSessionStore, SessionStore};
 pub struct MemoryStore {
     sessions: SessionStore,
     inbound_group_sessions: GroupSessionStore,
+    tracked_users: HashSet<String>,
 }
 
 impl MemoryStore {
@@ -31,6 +33,7 @@ impl MemoryStore {
         MemoryStore {
             sessions: SessionStore::new(),
             inbound_group_sessions: GroupSessionStore::new(),
+            tracked_users: HashSet::new(),
         }
     }
 }
@@ -74,5 +77,13 @@ impl CryptoStore for MemoryStore {
         Ok(self
             .inbound_group_sessions
             .get(room_id, sender_key, session_id))
+    }
+
+    fn tracked_users(&self) -> &HashSet<String> {
+        &self.tracked_users
+    }
+
+    async fn add_user_for_tracking(&mut self, user: &str) -> Result<bool> {
+        Ok(self.tracked_users.insert(user.to_string()))
     }
 }

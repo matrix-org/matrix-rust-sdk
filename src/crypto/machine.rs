@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::convert::TryInto;
 #[cfg(feature = "sqlite-cryptostore")]
 use std::path::Path;
@@ -70,6 +70,9 @@ pub struct OlmMachine {
     /// Persists all the encrytpion keys so a client can resume the session
     /// without the need to create new keys.
     store: Box<dyn CryptoStore>,
+    /// Set of users that we need to query keys for. This is a subset of
+    /// the tracked users in the CryptoStore.
+    users_for_key_query: HashSet<String>,
 }
 
 impl OlmMachine {
@@ -86,6 +89,7 @@ impl OlmMachine {
             account: Arc::new(Mutex::new(Account::new())),
             uploaded_signed_key_count: None,
             store: Box::new(MemoryStore::new()),
+            users_for_key_query: HashSet::new(),
         })
     }
 
@@ -112,12 +116,14 @@ impl OlmMachine {
             }
         };
 
+        // TODO load the tracked users here.
         Ok(OlmMachine {
             user_id: user_id.clone(),
             device_id: device_id.to_owned(),
             account: Arc::new(Mutex::new(account)),
             uploaded_signed_key_count: None,
             store: Box::new(store),
+            users_for_key_query: HashSet::new(),
         })
     }
 
@@ -174,6 +180,21 @@ impl OlmMachine {
         self.store.save_account(self.account.clone()).await?;
 
         Ok(())
+    }
+
+    /// Receive a successful keys query response.
+    ///
+    /// # Arguments
+    ///
+    /// * `response` - The keys query response of the request that the client
+    /// performed.
+    // TODO this should return a
+    #[instrument]
+    pub async fn receive_keys_query_response(
+        &mut self,
+        response: &keys::get_keys::Response,
+    ) -> Result<()> {
+        todo!()
     }
 
     /// Generate new one-time keys.
@@ -679,6 +700,44 @@ impl OlmMachine {
         // decrypted, sender key...)
 
         Ok(decrypted_event)
+    }
+
+    /// Update the tracked users.
+    ///
+    /// This will only not already seen users for a key query and user tracking.
+    /// If the user is already known to the Olm machine it will not be
+    /// considered for a key query.
+    ///
+    /// Use the `mark_user_as_changed()` if the user really needs a key query.
+    pub async fn update_tracked_users<'a, I>(&mut self, users: I)
+    where
+        I: IntoIterator<Item = &'a String>,
+    {
+        for user in users {
+            let ret = self.store.add_user_for_tracking(user).await;
+
+            match ret {
+                Ok(newly_added) => {
+                    if newly_added {
+                        self.users_for_key_query.insert(user.to_string());
+                    }
+                }
+                Err(e) => {
+                    warn!("Error storing users for tracking {}", e);
+                    self.users_for_key_query.insert(user.to_string());
+                }
+            }
+        }
+    }
+
+    /// Should a key query be done.
+    pub fn should_query_keys(&self) -> bool {
+        !self.users_for_key_query.is_empty()
+    }
+
+    /// Get the set of users that we need to query keys for.
+    pub fn users_for_key_query(&self) -> HashSet<String> {
+        self.users_for_key_query.clone()
     }
 }
 

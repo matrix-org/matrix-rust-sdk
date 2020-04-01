@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::result::Result as StdResult;
 use std::sync::Arc;
@@ -37,6 +38,7 @@ pub struct SqliteStore {
     inbound_group_sessions: GroupSessionStore,
     connection: Arc<Mutex<SqliteConnection>>,
     pickle_passphrase: Option<Zeroizing<String>>,
+    tracked_users: HashSet<String>,
 }
 
 static DATABASE_NAME: &str = "matrix-sdk-crypto.db";
@@ -83,6 +85,7 @@ impl SqliteStore {
             path: path.as_ref().to_owned(),
             connection: Arc::new(Mutex::new(connection)),
             pickle_passphrase: passphrase,
+            tracked_users: HashSet::new(),
         };
         store.create_tables().await?;
         Ok(store)
@@ -396,6 +399,14 @@ impl CryptoStore for SqliteStore {
         Ok(self
             .inbound_group_sessions
             .get(room_id, sender_key, session_id))
+    }
+
+    fn tracked_users(&self) -> &HashSet<String> {
+        &self.tracked_users
+    }
+
+    async fn add_user_for_tracking(&mut self, user: &str) -> Result<bool> {
+        todo!()
     }
 }
 
