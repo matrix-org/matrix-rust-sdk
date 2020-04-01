@@ -23,7 +23,7 @@ use std::time::{Duration, Instant};
 use futures::future::{BoxFuture, Future, FutureExt};
 use tokio::sync::RwLock;
 use tokio::time::delay_for as sleep;
-use tracing::{info, instrument, trace};
+use tracing::{debug, info, instrument, trace};
 
 use http::Method as HttpMethod;
 use http::Response as HttpResponse;
