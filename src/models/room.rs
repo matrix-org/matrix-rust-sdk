@@ -22,6 +22,7 @@ use crate::events::collections::all::{RoomEvent, StateEvent};
 use crate::events::room::{
     aliases::AliasesEvent,
     canonical_alias::CanonicalAliasEvent,
+    encryption::EncryptionEvent,
     member::{MemberEvent, MembershipChange},
     name::NameEvent,
     power_levels::PowerLevelsEvent,
@@ -241,6 +242,11 @@ impl Room {
         }
     }
 
+    fn handle_encryption_event(&mut self, event: &EncryptionEvent) -> bool {
+        self.encrypted = true;
+        true
+    }
+
     /// Receive a timeline event for this room and update the room state.
     ///
     /// Returns true if the joined member list changed, false otherwise.
@@ -258,6 +264,7 @@ impl Room {
             RoomEvent::RoomAliases(a) => self.handle_room_aliases(a),
             // power levels of the room members
             RoomEvent::RoomPowerLevels(p) => self.handle_power_level(p),
+            RoomEvent::RoomEncryption(e) => self.handle_encryption_event(e),
             _ => false,
         }
     }
@@ -275,6 +282,7 @@ impl Room {
             StateEvent::RoomName(n) => self.handle_room_name(n),
             StateEvent::RoomCanonicalAlias(ca) => self.handle_canonical(ca),
             StateEvent::RoomAliases(a) => self.handle_room_aliases(a),
+            StateEvent::RoomEncryption(e) => self.handle_encryption_event(e),
             _ => false,
         }
     }
