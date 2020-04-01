@@ -351,8 +351,8 @@ mod test {
         let room = &rooms
             .get("!SVkFJHzfwvuaIEawgC:localhost")
             .unwrap()
-            .read()
-            .unwrap();
+            .lock()
+            .await;
 
         assert_eq!(2, room.members.len());
         for (_id, member) in &room.members {

@@ -99,7 +99,7 @@ pub struct Client {
     /// The current sync token that should be used for the next sync call.
     pub sync_token: Option<Token>,
     /// A map of the rooms our user is joined in.
-    pub joined_rooms: HashMap<String, Arc<RwLock<Room>>>,
+    pub joined_rooms: HashMap<String, Arc<Mutex<Room>>>,
     /// The most recent room the logged in user used by `RoomId`.
     pub current_room_id: CurrentRoom,
     /// A list of ignored users.
@@ -186,34 +186,33 @@ impl Client {
         Ok(())
     }
 
-    pub(crate) fn calculate_room_name(&self, room_id: &str) -> Option<String> {
-        self.joined_rooms.get(room_id).and_then(|r| {
-            r.read()
-                .map(|r| r.room_name.calculate_name(room_id, &r.members))
-                .ok()
-        })
+    pub(crate) async fn calculate_room_name(&self, room_id: &str) -> Option<String> {
+        if let Some(room) = self.joined_rooms.get(room_id) {
+            let room = room.lock().await;
+            Some(room.room_name.calculate_name(room_id, &room.members))
+        } else {
+            None
+        }
     }
 
-    pub(crate) fn calculate_room_names(&self) -> Vec<String> {
-        self.joined_rooms
-            .iter()
-            .flat_map(|(id, room)| {
-                room.read()
-                    .map(|r| r.room_name.calculate_name(id, &r.members))
-                    .ok()
-            })
-            .collect()
+    pub(crate) async fn calculate_room_names(&self) -> Vec<String> {
+        let mut res = Vec::new();
+        for (id, room) in &self.joined_rooms {
+            let room = room.lock().await;
+            res.push(room.room_name.calculate_name(id, &room.members))
+        }
+        res
     }
 
     pub(crate) fn current_room_id(&self) -> Option<RoomId> {
         self.current_room_id.current_room_id.clone()
     }
 
-    pub(crate) fn get_or_create_room(&mut self, room_id: &str) -> &mut Arc<RwLock<Room>> {
+    pub(crate) fn get_or_create_room(&mut self, room_id: &str) -> &mut Arc<Mutex<Room>> {
         #[allow(clippy::or_fun_call)]
         self.joined_rooms
             .entry(room_id.to_string())
-            .or_insert(Arc::new(RwLock::new(Room::new(
+            .or_insert(Arc::new(Mutex::new(Room::new(
                 room_id,
                 &self
                     .session
@@ -224,7 +223,7 @@ impl Client {
             ))))
     }
 
-    pub(crate) fn get_room(&self, room_id: &str) -> Option<&Arc<RwLock<Room>>> {
+    pub(crate) fn get_room(&self, room_id: &str) -> Option<&Arc<Mutex<Room>>> {
         self.joined_rooms.get(room_id)
     }
 
@@ -305,8 +304,8 @@ impl Client {
 
                 let mut room = self
                     .get_or_create_room(&room_id.to_string())
-                    .write()
-                    .unwrap();
+                    .lock()
+                    .await;
                 room.receive_timeline_event(e);
                 decrypted_event
             }
@@ -324,8 +323,8 @@ impl Client {
     /// * `room_id` - The unique id of the room the event belongs to.
     ///
     /// * `event` - The event that should be handled by the client.
-    pub fn receive_joined_state_event(&mut self, room_id: &str, event: &StateEvent) -> bool {
-        let mut room = self.get_or_create_room(room_id).write().unwrap();
+    pub async fn receive_joined_state_event(&mut self, room_id: &str, event: &StateEvent) -> bool {
+        let mut room = self.get_or_create_room(room_id).lock().await;
         room.receive_state_event(event)
     }
 
@@ -339,7 +338,7 @@ impl Client {
     /// * `room_id` - The unique id of the room the event belongs to.
     ///
     /// * `event` - The event that should be handled by the client.
-    pub fn receive_presence_event(&mut self, room_id: &str, event: &PresenceEvent) -> bool {
+    pub async fn receive_presence_event(&mut self, room_id: &str, event: &PresenceEvent) -> bool {
         let user_id = &self
             .session
             .as_ref()
@@ -351,7 +350,7 @@ impl Client {
         }
         // this should be the room that was just created in the `Client::sync` loop.
         if let Some(room) = self.get_room(room_id) {
-            let mut room = room.write().unwrap();
+            let mut room = room.lock().await;
             room.receive_presence_event(event)
         } else {
             false
@@ -366,10 +365,10 @@ impl Client {
     /// # Arguments
     ///
     /// * `event` - The presence event for a specified room member.
-    pub fn receive_account_data(&mut self, room_id: &str, event: &NonRoomEvent) -> bool {
+    pub async fn receive_account_data(&mut self, room_id: &str, event: &NonRoomEvent) -> bool {
         match event {
             NonRoomEvent::IgnoredUserList(iu) => self.handle_ignored_users(iu),
-            NonRoomEvent::Presence(p) => self.receive_presence_event(room_id, p),
+            NonRoomEvent::Presence(p) => self.receive_presence_event(room_id, p).await,
             NonRoomEvent::PushRules(pr) => self.handle_push_rules(pr),
             _ => false,
         }

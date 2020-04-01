@@ -167,8 +167,8 @@ mod test {
         let mut room = rooms
             .get_mut("!SVkFJHzfwvuaIEawgC:localhost")
             .unwrap()
-            .write()
-            .unwrap();
+            .lock()
+            .await;
 
         for (_id, member) in &mut room.members {
             let power = power_levels();

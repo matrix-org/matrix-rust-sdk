@@ -41,6 +41,7 @@ use ruma_identifiers::{DeviceId, UserId};
 
 use crate::api;
 use crate::base_client::Client as BaseClient;
+use crate::models::Room;
 use crate::session::Session;
 use crate::VERSION;
 use crate::{Error, EventEmitter, Result};
@@ -268,12 +269,17 @@ impl AsyncClient {
 
     /// Calculates the room name from a `RoomId`, returning a string.
     pub async fn get_room_name(&self, room_id: &str) -> Option<String> {
-        self.base_client.read().await.calculate_room_name(room_id)
+        self.base_client.read().await.calculate_room_name(room_id).await
     }
 
     /// Calculates the room names this client knows about.
     pub async fn get_room_names(&self) -> Vec<String> {
-        self.base_client.read().await.calculate_room_names()
+        self.base_client.read().await.calculate_room_names().await
+    }
+
+    /// Calculates the room names this client knows about.
+    pub async fn get_rooms(&self) -> HashMap<String, Arc<tokio::sync::Mutex<Room>>> {
+        self.base_client.read().await.joined_rooms.clone()
     }
 
     /// Calculates the room that the client last interacted with.
@@ -347,7 +353,7 @@ impl AsyncClient {
             let _matrix_room = {
                 for event in &room.state.events {
                     if let EventResult::Ok(e) = event {
-                        client.receive_joined_state_event(&room_id_string, &e);
+                        client.receive_joined_state_event(&room_id_string, &e).await;
                     }
                 }
 
@@ -383,7 +389,7 @@ impl AsyncClient {
             for account_data in &mut room.account_data.events {
                 {
                     if let EventResult::Ok(e) = account_data {
-                        client.receive_account_data(&room_id_string, e);
+                        client.receive_account_data(&room_id_string, e).await;
 
                         // TODO should we determine if anything room state has changed before calling
                         client.emit_account_data_event(room_id, e).await;
@@ -399,7 +405,7 @@ impl AsyncClient {
             for presence in &mut response.presence.events {
                 {
                     if let EventResult::Ok(e) = presence {
-                        client.receive_presence_event(&room_id_string, e);
+                        client.receive_presence_event(&room_id_string, e).await;
 
                         // TODO should we determine if any room state has changed before calling
                         client.emit_presence_event(room_id, e).await;

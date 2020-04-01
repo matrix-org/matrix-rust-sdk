@@ -1,5 +1,6 @@
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, RwLock};
 use std::{env, process::exit};
+use std::ops::{Deref, DerefMut};
 use url::Url;
 
 use matrix_sdk::{
@@ -10,19 +11,21 @@ use matrix_sdk::{
     },
     AsyncClient, AsyncClientConfig, EventEmitter, Room, SyncSettings,
 };
+use tokio::sync::Mutex;
 
 struct EventCallback;
 
 #[async_trait::async_trait]
 impl EventEmitter for EventCallback {
-    async fn on_room_message(&mut self, room: &Room, event: &RoomEvent) {
+    async fn on_room_message(&mut self, room: Arc<Mutex<Room>>, event: Arc<Mutex<RoomEvent>>) {
         if let RoomEvent::RoomMessage(MessageEvent {
             content: MessageEventContent::Text(TextMessageEventContent { body: msg_body, .. }),
             sender,
             ..
-        }) = event
+        }) = event.lock().await.deref()
         {
-            let member = room.members.get(&sender.to_string()).unwrap();
+            let rooms = room.lock().await;
+            let member = rooms.members.get(&sender.to_string()).unwrap();
             println!(
                 "{}: {}",
                 member
@@ -48,7 +51,7 @@ async fn login(
     let mut client = AsyncClient::new_with_config(homeserver_url, None, client_config).unwrap();
 
     client
-        .add_event_emitter(Arc::new(Mutex::new(EventCallback)))
+        .add_event_emitter(Arc::new(Mutex::new(Box::new(EventCallback))))
         .await;
 
     client
