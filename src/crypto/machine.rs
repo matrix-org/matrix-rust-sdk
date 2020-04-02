@@ -34,7 +34,7 @@ use cjson;
 use olm_rs::{session::OlmMessage, utility::OlmUtility};
 use serde_json::{json, Value};
 use tokio::sync::Mutex;
-use tracing::{debug, info, instrument, trace, warn};
+use tracing::{debug, error, info, instrument, trace, warn};
 
 use ruma_client_api::r0::keys::{
     AlgorithmAndDeviceId, DeviceKeys, KeyAlgorithm, OneTimeKey, SignedKey,
@@ -179,6 +179,118 @@ impl OlmMachine {
 
         self.store.save_account(self.account.clone()).await?;
 
+        Ok(())
+    }
+
+    pub async fn receive_keys_claim_response(
+        &mut self,
+        response: &keys::claim_keys::Response,
+    ) -> Result<()> {
+        // TODO log the failures here
+
+        for (user_id, user_devices) in &response.one_time_keys {
+            for (device_id, key_map) in user_devices {
+                let device = if let Some(d) = self
+                    .store
+                    .get_device(&user_id.to_string(), device_id)
+                    .await
+                    .expect("Can't get devices")
+                {
+                    d
+                } else {
+                    warn!(
+                        "Tried to create an Olm session for {} {}, but the device is unknown",
+                        user_id, device_id
+                    );
+                    continue;
+                };
+
+                let one_time_key = if let Some(k) = key_map.get(&AlgorithmAndDeviceId(
+                    KeyAlgorithm::SignedCurve25519,
+                    device_id.to_owned(),
+                )) {
+                    match k {
+                        OneTimeKey::SignedKey(k) => k,
+                        OneTimeKey::Key(_) => {
+                            warn!(
+                                "Tried to create an Olm session for {} {}, but
+                                   the requested key isn't a signed curve key",
+                                user_id, device_id
+                            );
+                            continue;
+                        }
+                    }
+                } else {
+                    warn!(
+                        "Tried to create an Olm session for {} {}, but the
+                           signed one-time key is missing",
+                        user_id, device_id
+                    );
+                    continue;
+                };
+
+                let signing_key = if let Some(k) = device.keys(&KeyAlgorithm::Ed25519) {
+                    k
+                } else {
+                    warn!(
+                        "Tried to create an Olm session for {} {}, but the
+                           device is missing the signing key",
+                        user_id, device_id
+                    );
+                    continue;
+                };
+
+                if self
+                    .verify_json(user_id, device_id, signing_key, &mut json!(&one_time_key))
+                    .is_err()
+                {
+                    warn!(
+                        "Failed to verify the one-time key signatures for {} {}",
+                        user_id, device_id
+                    );
+                    continue;
+                }
+
+                let curve_key = if let Some(k) = device.keys(&KeyAlgorithm::Curve25519) {
+                    k
+                } else {
+                    warn!(
+                        "Tried to create an Olm session for {} {}, but the
+                           device is missing the curve key",
+                        user_id, device_id
+                    );
+                    continue;
+                };
+
+                info!("Creating outbound Session for {} {}", user_id, device_id);
+
+                let session = match self
+                    .account
+                    .lock()
+                    .await
+                    .create_outbound_session(&one_time_key.key, curve_key)
+                {
+                    Ok(s) => s,
+                    Err(e) => {
+                        warn!(
+                            "Error creating new Olm session for {} {}: {}",
+                            user_id, device_id, e
+                        );
+                        continue;
+                    }
+                };
+
+                if let Err(e) = self.store.add_and_save_session(session).await {
+                    error!("Failed to store newly created Olm session {}", e);
+                    continue;
+                }
+
+                // TODO if this session was created because a previous one was
+                // wedged queue up a dummy event to be sent out.
+                // TODO if this session was created because of a key request,
+                // mark the forwarding keys to be sent out
+            }
+        }
         Ok(())
     }
 

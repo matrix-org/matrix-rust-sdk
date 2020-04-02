@@ -32,6 +32,12 @@ pub struct Device {
     trust_state: Arc<Atomic<TrustState>>,
 }
 
+impl Device {
+    pub fn keys(&self, algorithm: &KeyAlgorithm) -> Option<&String> {
+        self.keys.get(algorithm)
+    }
+}
+
 #[derive(Debug, Clone, Copy)]
 pub enum TrustState {
     Verified,
