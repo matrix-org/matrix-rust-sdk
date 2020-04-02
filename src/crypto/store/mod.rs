@@ -25,6 +25,7 @@ use thiserror::Error;
 use tokio::sync::Mutex;
 
 use super::device::Device;
+use super::memory_stores::UserDevices;
 use super::olm::{Account, InboundGroupSession, Session};
 use olm_rs::errors::{OlmAccountError, OlmGroupSessionError, OlmSessionError};
 use olm_rs::PicklingMode;
@@ -82,5 +83,6 @@ pub trait CryptoStore: Debug + Send + Sync {
     ) -> Result<Option<Arc<Mutex<InboundGroupSession>>>>;
     fn tracked_users(&self) -> &HashSet<String>;
     async fn add_user_for_tracking(&mut self, user: &str) -> Result<bool>;
-    async fn get_user_device(&self, user_id: &str, device_id: &str) -> Result<Option<Device>>;
+    async fn get_device(&self, user_id: &str, device_id: &str) -> Result<Option<Device>>;
+    async fn get_user_devices(&self, user_id: &str) -> Result<UserDevices>;
 }

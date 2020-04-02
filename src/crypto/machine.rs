@@ -240,16 +240,26 @@ impl OlmMachine {
 
                 let device = self
                     .store
-                    .get_user_device(&user_id_string, device_id)
+                    .get_device(&user_id_string, device_id)
                     .await
                     .expect("Can't load device");
 
                 if let Some(d) = device {
-                    todo!()
+                    // TODO check what and if anything changed for the device.
                 } else {
                     let device = Device::from(device_keys);
                     info!("Found new device {:?}", device);
                 }
+            }
+
+            let current_devices: HashSet<&String> = device_map.keys().collect();
+            let stored_devices = self.store.get_user_devices(&user_id_string).await.unwrap();
+            let stored_devices_set: HashSet<&String> = stored_devices.keys().collect();
+
+            let deleted_devices = stored_devices_set.difference(&current_devices);
+
+            for device_id in deleted_devices {
+                // TODO delete devices here.
             }
         }
         Ok(())

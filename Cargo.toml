@@ -39,6 +39,8 @@ zeroize = { version = "1.1.0", optional = true }
 thiserror = "1.0.13"
 async-trait = { version = "0.1.26", optional = true }
 tracing = "0.1.13"
+atomic = "0.4.5"
+dashmap = "3.9.1"
 
 [dependencies.tracing-futures]
 version = "0.2.3"

@@ -15,8 +15,10 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
+use dashmap::{DashMap, ReadOnlyView};
 use tokio::sync::Mutex;
 
+use super::device::Device;
 use super::olm::{InboundGroupSession, Session};
 
 #[derive(Debug)]
@@ -94,5 +96,59 @@ impl GroupSessionStore {
         self.entries
             .get(room_id)
             .and_then(|m| m.get(sender_key).and_then(|m| m.get(session_id).cloned()))
+    }
+}
+
+#[derive(Debug)]
+pub struct DeviceStore {
+    entries: DashMap<String, DashMap<String, Device>>,
+}
+
+pub struct UserDevices {
+    entries: ReadOnlyView<String, Device>,
+}
+
+impl UserDevices {
+    pub fn get(&self, device_id: &str) -> Option<Device> {
+        self.entries.get(device_id).cloned()
+    }
+
+    pub fn keys(&self) -> impl Iterator<Item = &String> {
+        self.entries.keys()
+    }
+}
+
+impl DeviceStore {
+    pub fn new() -> Self {
+        DeviceStore {
+            entries: DashMap::new(),
+        }
+    }
+
+    pub fn add(&self, device: Device) -> bool {
+        if !self.entries.contains_key(device.user_id()) {
+            self.entries
+                .insert(device.user_id().to_owned(), DashMap::new());
+        }
+        let mut device_map = self.entries.get_mut(device.user_id()).unwrap();
+
+        device_map
+            .insert(device.device_id().to_owned(), device)
+            .is_some()
+    }
+
+    pub fn get(&self, user_id: &str, device_id: &str) -> Option<Device> {
+        self.entries
+            .get(user_id)
+            .and_then(|m| m.get(device_id).map(|d| d.value().clone()))
+    }
+
+    pub fn user_devices(&self, user_id: &str) -> UserDevices {
+        if !self.entries.contains_key(user_id) {
+            self.entries.insert(user_id.to_owned(), DashMap::new());
+        }
+        UserDevices {
+            entries: self.entries.get(user_id).unwrap().clone().into_read_only(),
+        }
     }
 }

@@ -13,22 +13,26 @@
 // limitations under the License.
 
 use std::collections::HashMap;
+use std::sync::atomic::AtomicBool;
+use std::sync::Arc;
+
+use atomic::Atomic;
 
 use ruma_client_api::r0::keys::{DeviceKeys, KeyAlgorithm};
 use ruma_events::Algorithm;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Device {
-    user_id: String,
-    device_id: String,
-    algorithms: Vec<Algorithm>,
-    keys: HashMap<KeyAlgorithm, String>,
-    display_name: Option<String>,
-    deleted: bool,
-    trust_state: TrustState,
+    user_id: Arc<String>,
+    device_id: Arc<String>,
+    algorithms: Arc<Vec<Algorithm>>,
+    keys: Arc<HashMap<KeyAlgorithm, String>>,
+    display_name: Arc<Option<String>>,
+    deleted: Arc<AtomicBool>,
+    trust_state: Arc<Atomic<TrustState>>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub enum TrustState {
     Verified,
     BlackListed,
@@ -37,7 +41,7 @@ pub enum TrustState {
 }
 
 impl Device {
-    pub fn id(&self) -> &str {
+    pub fn device_id(&self) -> &str {
         &self.device_id
     }
 
@@ -56,16 +60,18 @@ impl From<&DeviceKeys> for Device {
         }
 
         Device {
-            user_id: device_keys.user_id.to_string(),
-            device_id: device_keys.device_id.clone(),
-            algorithms: device_keys.algorithms.clone(),
-            keys,
-            display_name: device_keys
-                .unsigned
-                .as_ref()
-                .map(|d| d.device_display_name.clone()),
-            deleted: false,
-            trust_state: TrustState::Unset,
+            user_id: Arc::new(device_keys.user_id.to_string()),
+            device_id: Arc::new(device_keys.device_id.clone()),
+            algorithms: Arc::new(device_keys.algorithms.clone()),
+            keys: Arc::new(keys),
+            display_name: Arc::new(
+                device_keys
+                    .unsigned
+                    .as_ref()
+                    .map(|d| d.device_display_name.clone()),
+            ),
+            deleted: Arc::new(AtomicBool::new(false)),
+            trust_state: Arc::new(Atomic::new(TrustState::Unset)),
         }
     }
 }
