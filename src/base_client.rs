@@ -393,7 +393,7 @@ impl Client {
                 // part where we already iterate through the rooms to avoid yet
                 // another room loop.
                 for room in self.joined_rooms.values() {
-                    let room = room.read().unwrap();
+                    let room = room.lock().await;
                     if !room.is_encrypted() {
                         continue;
                     }
