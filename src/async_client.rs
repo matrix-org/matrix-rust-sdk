@@ -270,7 +270,9 @@ impl AsyncClient {
         self.base_client.write().await.event_emitter = Some(emitter);
     }
 
-    /// Calculates the room name from a `RoomId`, returning a string.
+    /// Returns an `Option` of the room name from a `RoomId`.
+    ///
+    /// This is a human readable room name.
     pub async fn get_room_name(&self, room_id: &str) -> Option<String> {
         self.base_client
             .read()
@@ -279,19 +281,18 @@ impl AsyncClient {
             .await
     }
 
-    /// Calculates the room names this client knows about.
+    /// Returns a `Vec` of the room names this client knows about.
+    ///
+    /// This is a human readable list of room names.
     pub async fn get_room_names(&self) -> Vec<String> {
         self.base_client.read().await.calculate_room_names().await
     }
 
-    /// Calculates the room names this client knows about.
+    /// Returns the rooms this client knows about.
+    ///
+    /// A `HashMap` of room id to `matrix::models::Room`
     pub async fn get_rooms(&self) -> HashMap<String, Arc<tokio::sync::Mutex<Room>>> {
         self.base_client.read().await.joined_rooms.clone()
-    }
-
-    /// Calculates the room that the client last interacted with.
-    pub async fn current_room_id(&self) -> Option<RoomId> {
-        self.base_client.read().await.current_room_id()
     }
 
     /// Login to the server.

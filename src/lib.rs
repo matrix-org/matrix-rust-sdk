@@ -28,11 +28,10 @@
 
 pub use crate::{error::Error, error::Result, session::Session};
 pub use reqwest::header::InvalidHeaderValue;
+pub use ruma_api;
 pub use ruma_client_api as api;
 pub use ruma_events as events;
 pub use ruma_identifiers as identifiers;
-
-pub use ruma_api as ruma_traits;
 
 mod async_client;
 mod base_client;

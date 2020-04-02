@@ -35,7 +35,6 @@ use crate::models::Room;
 use crate::session::Session;
 use crate::EventEmitter;
 
-use js_int::UInt;
 use tokio::sync::Mutex;
 
 #[cfg(feature = "encryption")]
@@ -61,33 +60,6 @@ pub struct RoomName {
     aliases: Vec<RoomAliasId>,
 }
 
-#[derive(Clone, Debug, Default)]
-pub struct CurrentRoom {
-    last_active: Option<UInt>,
-    current_room_id: Option<RoomId>,
-}
-
-impl CurrentRoom {
-    // TODO when UserId is isomorphic to &str clean this up.
-    pub(crate) fn comes_after(&self, user: &Uid, event: &PresenceEvent) -> bool {
-        if user == &event.sender {
-            if self.last_active.is_none() {
-                true
-            } else {
-                event.content.last_active_ago < self.last_active
-            }
-        } else {
-            false
-        }
-    }
-
-    pub(crate) fn update(&mut self, room_id: &str, event: &PresenceEvent) {
-        self.last_active = event.content.last_active_ago;
-        self.current_room_id =
-            Some(RoomId::try_from(room_id).expect("room id failed CurrentRoom::update"));
-    }
-}
-
 /// A no IO Client implementation.
 ///
 /// This Client is a state machine that receives responses and events and
@@ -100,8 +72,6 @@ pub struct Client {
     pub sync_token: Option<Token>,
     /// A map of the rooms our user is joined in.
     pub joined_rooms: HashMap<String, Arc<Mutex<Room>>>,
-    /// The most recent room the logged in user used by `RoomId`.
-    pub current_room_id: CurrentRoom,
     /// A list of ignored users.
     pub ignored_users: Vec<UserId>,
     /// The push ruleset for the logged in user.
@@ -120,7 +90,6 @@ impl fmt::Debug for Client {
             .field("session", &self.session)
             .field("sync_token", &self.sync_token)
             .field("joined_rooms", &self.joined_rooms)
-            .field("current_room_id", &self.current_room_id)
             .field("ignored_users", &self.ignored_users)
             .field("push_ruleset", &self.push_ruleset)
             .field("event_emitter", &"EventEmitter<...>")
@@ -146,7 +115,6 @@ impl Client {
             session,
             sync_token: None,
             joined_rooms: HashMap::new(),
-            current_room_id: CurrentRoom::default(),
             ignored_users: Vec::new(),
             push_ruleset: None,
             event_emitter: None,
@@ -158,6 +126,16 @@ impl Client {
     /// Is the client logged in.
     pub fn logged_in(&self) -> bool {
         self.session.is_some()
+    }
+
+    /// Add `EventEmitter` to `Client`.
+    ///
+    /// The methods of `EventEmitter` are called when the respective `RoomEvents` occur.
+    pub async fn add_event_emitter(
+        &mut self,
+        emitter: Arc<tokio::sync::Mutex<Box<dyn EventEmitter>>>,
+    ) {
+        self.event_emitter = Some(emitter);
     }
 
     /// Receive a login response and update the session of the client.
@@ -202,10 +180,6 @@ impl Client {
             res.push(room.room_name.calculate_name(id, &room.members))
         }
         res
-    }
-
-    pub(crate) fn current_room_id(&self) -> Option<RoomId> {
-        self.current_room_id.current_room_id.clone()
     }
 
     pub(crate) fn get_or_create_room(&mut self, room_id: &str) -> &mut Arc<Mutex<Room>> {
@@ -336,15 +310,6 @@ impl Client {
     ///
     /// * `event` - The event that should be handled by the client.
     pub async fn receive_presence_event(&mut self, room_id: &str, event: &PresenceEvent) -> bool {
-        let user_id = &self
-            .session
-            .as_ref()
-            .expect("to receive events you must be logged in")
-            .user_id;
-
-        if self.current_room_id.comes_after(user_id, event) {
-            self.current_room_id.update(room_id, event);
-        }
         // this should be the room that was just created in the `Client::sync` loop.
         if let Some(room) = self.get_room(room_id) {
             let mut room = room.lock().await;
@@ -360,6 +325,8 @@ impl Client {
     /// Returns true if the specific users presence has changed, false otherwise.
     ///
     /// # Arguments
+    ///
+    /// * `room_id` - The unique id of the room the event belongs to.
     ///
     /// * `event` - The presence event for a specified room member.
     pub async fn receive_account_data(&mut self, room_id: &str, event: &NonRoomEvent) -> bool {

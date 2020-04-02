@@ -16,53 +16,69 @@
 use std::sync::Arc;
 
 use crate::events::{
-    call::{
-        answer::AnswerEvent, candidates::CandidatesEvent, hangup::HangupEvent, invite::InviteEvent,
-    },
-    direct::DirectEvent,
-    dummy::DummyEvent,
-    forwarded_room_key::ForwardedRoomKeyEvent,
     fully_read::FullyReadEvent,
     ignored_user_list::IgnoredUserListEvent,
-    key::verification::{
-        accept::AcceptEvent, cancel::CancelEvent, key::KeyEvent, mac::MacEvent,
-        request::RequestEvent, start::StartEvent,
-    },
     presence::PresenceEvent,
     push_rules::PushRulesEvent,
-    receipt::ReceiptEvent,
     room::{
         aliases::AliasesEvent,
         avatar::AvatarEvent,
         canonical_alias::CanonicalAliasEvent,
-        create::CreateEvent,
-        encrypted::EncryptedEvent,
-        encryption::EncryptionEvent,
-        guest_access::GuestAccessEvent,
-        history_visibility::HistoryVisibilityEvent,
         join_rules::JoinRulesEvent,
         member::MemberEvent,
         message::{feedback::FeedbackEvent, MessageEvent},
         name::NameEvent,
-        pinned_events::PinnedEventsEvent,
         power_levels::PowerLevelsEvent,
         redaction::RedactionEvent,
-        server_acl::ServerAclEvent,
-        third_party_invite::ThirdPartyInviteEvent,
-        tombstone::TombstoneEvent,
-        topic::TopicEvent,
     },
-    room_key::RoomKeyEvent,
-    room_key_request::RoomKeyRequestEvent,
-    sticker::StickerEvent,
-    tag::TagEvent,
-    typing::TypingEvent,
-    CustomEvent, CustomRoomEvent, CustomStateEvent,
 };
 use crate::models::Room;
 
 use tokio::sync::Mutex;
+/// This trait allows any type implementing `EventEmitter` to specify event callbacks for each event.
+/// The `AsyncClient` calls each method when the corresponding event is received.
 ///
+/// # Examples
+/// ```
+/// # use std::ops::Deref;
+/// # use std::sync::Arc;
+/// # use std::{env, process::exit};
+/// # use url::Url;
+/// use matrix_sdk::{
+///     self,
+///     events::{
+///         room::message::{MessageEvent, MessageEventContent, TextMessageEventContent},
+///     },
+///     AsyncClient, AsyncClientConfig, EventEmitter, Room, SyncSettings,
+/// };
+/// use tokio::sync::Mutex;
+///
+/// struct EventCallback;
+///
+/// #[async_trait::async_trait]
+/// impl EventEmitter for EventCallback {
+///     async fn on_room_message(&mut self, room: Arc<Mutex<Room>>, event: Arc<Mutex<MessageEvent>>) {
+///         if let MessageEvent {
+///             content: MessageEventContent::Text(TextMessageEventContent { body: msg_body, .. }),
+///             sender,
+///             ..
+///         } = event.lock().await.deref()
+///         {
+///             let rooms = room.lock().await;
+///             let member = rooms.members.get(&sender.to_string()).unwrap();
+///             println!(
+///                 "{}: {}",
+///                 member
+///                     .user
+///                     .display_name
+///                     .as_ref()
+///                     .unwrap_or(&sender.to_string()),
+///                 msg_body
+///             );
+///         }
+///     }
+/// }
+/// ```
 #[async_trait::async_trait]
 pub trait EventEmitter: Send + Sync {
     // ROOM EVENTS from `IncomingTimeline`
@@ -145,4 +161,174 @@ pub trait EventEmitter: Send + Sync {
     // `PresenceEvent` is a struct so there is only the one method
     /// Fires when `AsyncClient` receives a `NonRoomEvent::RoomAliases` event.
     async fn on_presence_event(&mut self, _: Arc<Mutex<Room>>, _: Arc<Mutex<PresenceEvent>>) {}
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    pub struct EvEmitterTest(Arc<Mutex<Vec<String>>>);
+
+    #[async_trait::async_trait]
+    impl EventEmitter for EvEmitterTest {
+        async fn on_room_member(&mut self, _: Arc<Mutex<Room>>, _: Arc<Mutex<MemberEvent>>) {
+            self.0.lock().await.push("member".to_string())
+        }
+        async fn on_room_name(&mut self, _: Arc<Mutex<Room>>, _: Arc<Mutex<NameEvent>>) {
+            self.0.lock().await.push("name".to_string())
+        }
+        async fn on_room_canonical_alias(
+            &mut self,
+            r: Arc<Mutex<Room>>,
+            _: Arc<Mutex<CanonicalAliasEvent>>,
+        ) {
+            self.0.lock().await.push("canonical".to_string())
+        }
+        async fn on_room_aliases(&mut self, _: Arc<Mutex<Room>>, _: Arc<Mutex<AliasesEvent>>) {
+            self.0.lock().await.push("aliases".to_string())
+        }
+        async fn on_room_avatar(&mut self, _: Arc<Mutex<Room>>, _: Arc<Mutex<AvatarEvent>>) {
+            self.0.lock().await.push("avatar".to_string())
+        }
+        async fn on_room_message(&mut self, _: Arc<Mutex<Room>>, _: Arc<Mutex<MessageEvent>>) {
+            self.0.lock().await.push("message".to_string())
+        }
+        async fn on_room_message_feedback(
+            &mut self,
+            _: Arc<Mutex<Room>>,
+            _: Arc<Mutex<FeedbackEvent>>,
+        ) {
+            self.0.lock().await.push("feedback".to_string())
+        }
+        async fn on_room_redaction(&mut self, _: Arc<Mutex<Room>>, _: Arc<Mutex<RedactionEvent>>) {
+            self.0.lock().await.push("redaction".to_string())
+        }
+        async fn on_room_power_levels(
+            &mut self,
+            _: Arc<Mutex<Room>>,
+            _: Arc<Mutex<PowerLevelsEvent>>,
+        ) {
+            self.0.lock().await.push("power".to_string())
+        }
+
+        async fn on_state_member(&mut self, _: Arc<Mutex<Room>>, _: Arc<Mutex<MemberEvent>>) {
+            self.0.lock().await.push("state member".to_string())
+        }
+        async fn on_state_name(&mut self, _: Arc<Mutex<Room>>, _: Arc<Mutex<NameEvent>>) {
+            self.0.lock().await.push("state name".to_string())
+        }
+        async fn on_state_canonical_alias(
+            &mut self,
+            _: Arc<Mutex<Room>>,
+            _: Arc<Mutex<CanonicalAliasEvent>>,
+        ) {
+            self.0.lock().await.push("state canonical".to_string())
+        }
+        async fn on_state_aliases(&mut self, _: Arc<Mutex<Room>>, _: Arc<Mutex<AliasesEvent>>) {
+            self.0.lock().await.push("state aliases".to_string())
+        }
+        async fn on_state_avatar(&mut self, _: Arc<Mutex<Room>>, _: Arc<Mutex<AvatarEvent>>) {
+            self.0.lock().await.push("state avatar".to_string())
+        }
+        async fn on_state_power_levels(
+            &mut self,
+            _: Arc<Mutex<Room>>,
+            _: Arc<Mutex<PowerLevelsEvent>>,
+        ) {
+            self.0.lock().await.push("state power".to_string())
+        }
+        async fn on_state_join_rules(
+            &mut self,
+            _: Arc<Mutex<Room>>,
+            _: Arc<Mutex<JoinRulesEvent>>,
+        ) {
+            self.0.lock().await.push("state rules".to_string())
+        }
+
+        async fn on_account_presence(&mut self, _: Arc<Mutex<Room>>, _: Arc<Mutex<PresenceEvent>>) {
+            self.0.lock().await.push("account presence".to_string())
+        }
+        async fn on_account_ignored_users(
+            &mut self,
+            _: Arc<Mutex<Room>>,
+            _: Arc<Mutex<IgnoredUserListEvent>>,
+        ) {
+            self.0.lock().await.push("account ignore".to_string())
+        }
+        async fn on_account_push_rules(
+            &mut self,
+            _: Arc<Mutex<Room>>,
+            _: Arc<Mutex<PushRulesEvent>>,
+        ) {
+            self.0.lock().await.push("".to_string())
+        }
+        async fn on_account_data_fully_read(
+            &mut self,
+            _: Arc<Mutex<Room>>,
+            _: Arc<Mutex<FullyReadEvent>>,
+        ) {
+            self.0.lock().await.push("account read".to_string())
+        }
+        async fn on_presence_event(&mut self, _: Arc<Mutex<Room>>, _: Arc<Mutex<PresenceEvent>>) {
+            self.0.lock().await.push("presence event".to_string())
+        }
+    }
+
+    use crate::identifiers::UserId;
+    use crate::{AsyncClient, Session, SyncSettings};
+
+    use mockito::{mock, Matcher};
+    use url::Url;
+
+    use std::convert::TryFrom;
+    use std::str::FromStr;
+    use std::time::Duration;
+
+    #[tokio::test]
+    async fn event_emitter() {
+        let homeserver = Url::from_str(&mockito::server_url()).unwrap();
+
+        let session = Session {
+            access_token: "1234".to_owned(),
+            user_id: UserId::try_from("@example:example.com").unwrap(),
+            device_id: "DEVICEID".to_owned(),
+        };
+
+        let _m = mock(
+            "GET",
+            Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_string()),
+        )
+        .with_status(200)
+        .with_body_from_file("tests/data/sync.json")
+        .create();
+
+        let vec = Arc::new(Mutex::new(Vec::new()));
+        let test_vec = Arc::clone(&vec);
+        let mut emitter = Arc::new(Mutex::new(
+            Box::new(EvEmitterTest(vec)) as Box<(dyn EventEmitter)>
+        ));
+        let mut client = AsyncClient::new(homeserver, Some(session)).unwrap();
+        client.add_event_emitter(Arc::clone(&emitter)).await;
+
+        let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
+        let _response = client.sync(sync_settings).await.unwrap();
+
+        let v = test_vec.lock().await;
+        assert_eq!(
+            v.as_slice(),
+            [
+                "state rules",
+                "state member",
+                "state aliases",
+                "state power",
+                "state canonical",
+                "state member",
+                "state member",
+                "message",
+                "account read",
+                "account ignore",
+                "presence event",
+            ],
+        )
+    }
 }

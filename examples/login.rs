@@ -1,14 +1,11 @@
-use std::ops::{Deref, DerefMut};
-use std::sync::{Arc, RwLock};
+use std::ops::Deref;
+use std::sync::Arc;
 use std::{env, process::exit};
 use url::Url;
 
 use matrix_sdk::{
     self,
-    events::{
-        collections::all::RoomEvent,
-        room::message::{MessageEvent, MessageEventContent, TextMessageEventContent},
-    },
+    events::room::message::{MessageEvent, MessageEventContent, TextMessageEventContent},
     AsyncClient, AsyncClientConfig, EventEmitter, Room, SyncSettings,
 };
 use tokio::sync::Mutex;
