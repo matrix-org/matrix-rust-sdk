@@ -496,7 +496,7 @@ impl Client {
         // TODO notify our callers of new devices via some callback.
         Ok(())
     }
-    
+
     pub(crate) async fn emit_timeline_event(&mut self, room_id: &RoomId, event: &mut RoomEvent) {
         match event {
             RoomEvent::RoomMember(mem) => {
