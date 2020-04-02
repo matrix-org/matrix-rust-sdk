@@ -99,9 +99,9 @@ impl GroupSessionStore {
     }
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct DeviceStore {
-    entries: DashMap<String, DashMap<String, Device>>,
+    entries: Arc<DashMap<String, DashMap<String, Device>>>,
 }
 
 pub struct UserDevices {
@@ -121,7 +121,7 @@ impl UserDevices {
 impl DeviceStore {
     pub fn new() -> Self {
         DeviceStore {
-            entries: DashMap::new(),
+            entries: Arc::new(DashMap::new()),
         }
     }
 
