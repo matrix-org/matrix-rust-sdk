@@ -14,7 +14,6 @@
 // limitations under the License.
 
 use std::collections::{HashMap, HashSet};
-use std::convert::TryFrom;
 use std::fmt;
 use std::sync::Arc;
 
@@ -30,7 +29,7 @@ use crate::events::collections::only::Event as NonRoomEvent;
 use crate::events::ignored_user_list::IgnoredUserListEvent;
 use crate::events::push_rules::{PushRulesEvent, Ruleset};
 use crate::events::EventResult;
-use crate::identifiers::{RoomAliasId, UserId as Uid};
+use crate::identifiers::RoomAliasId;
 use crate::models::Room;
 use crate::session::Session;
 use crate::EventEmitter;

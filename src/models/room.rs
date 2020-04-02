@@ -140,7 +140,7 @@ impl Room {
         }
     }
 
-    /// Calculate and return the display name of the room.
+    /// Return the display name of the room.
     pub fn calculate_name(&self) -> String {
         self.room_name.calculate_name(&self.room_id, &self.members)
     }
@@ -237,7 +237,7 @@ impl Room {
         }
     }
 
-    fn handle_encryption_event(&mut self, event: &EncryptionEvent) -> bool {
+    fn handle_encryption_event(&mut self, _event: &EncryptionEvent) -> bool {
         self.encrypted = true;
         true
     }

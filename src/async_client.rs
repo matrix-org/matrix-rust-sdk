@@ -20,7 +20,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use futures::future::{BoxFuture, Future, FutureExt};
+use futures::future::Future;
 use tokio::sync::RwLock;
 use tokio::time::delay_for as sleep;
 use tracing::{debug, info, instrument, trace};
