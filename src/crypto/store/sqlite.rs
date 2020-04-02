@@ -27,6 +27,7 @@ use tokio::sync::Mutex;
 use zeroize::Zeroizing;
 
 use super::{Account, CryptoStore, CryptoStoreError, InboundGroupSession, Result, Session};
+use crate::crypto::device::Device;
 use crate::crypto::memory_stores::{GroupSessionStore, SessionStore};
 
 pub struct SqliteStore {
@@ -406,6 +407,10 @@ impl CryptoStore for SqliteStore {
     }
 
     async fn add_user_for_tracking(&mut self, user: &str) -> Result<bool> {
+        Ok(self.tracked_users.insert(user.to_string()))
+    }
+
+    async fn get_user_device(&self, user_id: &str, device_id: &str) -> Result<Option<Device>> {
         todo!()
     }
 }

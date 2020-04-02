@@ -242,7 +242,8 @@ impl Room {
         }
     }
 
-    fn handle_encryption_event(&mut self, event: &EncryptionEvent) -> bool {
+    fn handle_encryption_event(&mut self, _: &EncryptionEvent) -> bool {
+        // TODO store the encryption settings.
         self.encrypted = true;
         true
     }

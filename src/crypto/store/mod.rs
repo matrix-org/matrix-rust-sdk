@@ -24,6 +24,7 @@ use serde_json::Error as SerdeError;
 use thiserror::Error;
 use tokio::sync::Mutex;
 
+use super::device::Device;
 use super::olm::{Account, InboundGroupSession, Session};
 use olm_rs::errors::{OlmAccountError, OlmGroupSessionError, OlmSessionError};
 use olm_rs::PicklingMode;
@@ -81,4 +82,5 @@ pub trait CryptoStore: Debug + Send + Sync {
     ) -> Result<Option<Arc<Mutex<InboundGroupSession>>>>;
     fn tracked_users(&self) -> &HashSet<String>;
     async fn add_user_for_tracking(&mut self, user: &str) -> Result<bool>;
+    async fn get_user_device(&self, user_id: &str, device_id: &str) -> Result<Option<Device>>;
 }

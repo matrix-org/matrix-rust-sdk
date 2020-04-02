@@ -14,6 +14,7 @@
 
 mod error;
 // TODO remove this.
+mod device;
 mod machine;
 mod memory_stores;
 #[allow(dead_code)]

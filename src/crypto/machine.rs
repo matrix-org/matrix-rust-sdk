@@ -25,7 +25,7 @@ use super::olm::{Account, InboundGroupSession, Session};
 use super::store::memorystore::MemoryStore;
 #[cfg(feature = "sqlite-cryptostore")]
 use super::store::sqlite::SqliteStore;
-use super::CryptoStore;
+use super::{device::Device, CryptoStore};
 use crate::api;
 
 use api::r0::keys;
@@ -188,13 +188,71 @@ impl OlmMachine {
     ///
     /// * `response` - The keys query response of the request that the client
     /// performed.
-    // TODO this should return a
-    #[instrument]
+    // TODO this should return a list of changed devices.
     pub async fn receive_keys_query_response(
         &mut self,
         response: &keys::get_keys::Response,
     ) -> Result<()> {
-        todo!()
+        for (user_id, device_map) in &response.device_keys {
+            let user_id_string = user_id.to_string();
+            self.users_for_key_query.remove(&user_id_string);
+
+            for (device_id, device_keys) in device_map.iter() {
+                // We don't need our own device in the device store.
+                if user_id == &self.user_id && device_id == &self.device_id {
+                    continue;
+                }
+
+                if user_id != &device_keys.user_id || device_id != &device_keys.device_id {
+                    warn!(
+                        "Mismatch in device keys payload of device {} from user {}",
+                        device_keys.device_id, device_keys.user_id
+                    );
+                    continue;
+                }
+
+                let curve_key_id =
+                    AlgorithmAndDeviceId(KeyAlgorithm::Curve25519, device_id.to_owned());
+                let ed_key_id = AlgorithmAndDeviceId(KeyAlgorithm::Ed25519, device_id.to_owned());
+
+                let sender_key = if let Some(k) = device_keys.keys.get(&curve_key_id) {
+                    k
+                } else {
+                    continue;
+                };
+
+                let signing_key = if let Some(k) = device_keys.keys.get(&ed_key_id) {
+                    k
+                } else {
+                    continue;
+                };
+
+                if self
+                    .verify_json(user_id, device_id, signing_key, &mut json!(&device_keys))
+                    .is_err()
+                {
+                    warn!(
+                        "Failed to verify the device key signatures for {} {}",
+                        user_id, device_id
+                    );
+                    continue;
+                }
+
+                let device = self
+                    .store
+                    .get_user_device(&user_id_string, device_id)
+                    .await
+                    .expect("Can't load device");
+
+                if let Some(d) = device {
+                    todo!()
+                } else {
+                    let device = Device::from(device_keys);
+                    info!("Found new device {:?}", device);
+                }
+            }
+        }
+        Ok(())
     }
 
     /// Generate new one-time keys.
