@@ -205,10 +205,7 @@ impl OlmMachine {
                     continue;
                 };
 
-                let one_time_key = if let Some(k) = key_map.get(&AlgorithmAndDeviceId(
-                    KeyAlgorithm::SignedCurve25519,
-                    device_id.to_owned(),
-                )) {
+                let one_time_key = if let Some(k) = key_map.values().nth(0) {
                     match k {
                         OneTimeKey::SignedKey(k) => k,
                         OneTimeKey::Key(_) => {
@@ -268,7 +265,7 @@ impl OlmMachine {
                     .account
                     .lock()
                     .await
-                    .create_outbound_session(&one_time_key.key, curve_key)
+                    .create_outbound_session(curve_key, &one_time_key)
                 {
                     Ok(s) => s,
                     Err(e) => {

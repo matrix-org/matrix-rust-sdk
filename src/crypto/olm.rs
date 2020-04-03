@@ -21,6 +21,8 @@ use olm_rs::inbound_group_session::OlmInboundGroupSession;
 use olm_rs::session::{OlmMessage, OlmSession, PreKeyMessage};
 use olm_rs::PicklingMode;
 
+use ruma_client_api::r0::keys::SignedKey;
+
 pub struct Account {
     inner: OlmAccount,
     pub(crate) shared: bool,
@@ -106,11 +108,11 @@ impl Account {
     pub fn create_outbound_session(
         &self,
         their_identity_key: &str,
-        their_one_time_key: &str,
+        their_one_time_key: &SignedKey,
     ) -> Result<Session, OlmSessionError> {
         let session = self
             .inner
-            .create_outbound_session(their_identity_key, their_one_time_key)?;
+            .create_outbound_session(their_identity_key, &their_one_time_key.key)?;
 
         let now = Instant::now();
 
