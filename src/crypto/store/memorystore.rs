@@ -18,7 +18,7 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use tokio::sync::Mutex;
 
-use super::{Account, CryptoStore, CryptoStoreError, InboundGroupSession, Result, Session};
+use super::{Account, CryptoStore, InboundGroupSession, Result, Session};
 use crate::crypto::device::Device;
 use crate::crypto::memory_stores::{DeviceStore, GroupSessionStore, SessionStore, UserDevices};
 
@@ -47,11 +47,11 @@ impl CryptoStore for MemoryStore {
         Ok(None)
     }
 
-    async fn save_account(&mut self, account: Arc<Mutex<Account>>) -> Result<()> {
+    async fn save_account(&mut self, _: Arc<Mutex<Account>>) -> Result<()> {
         Ok(())
     }
 
-    async fn save_session(&mut self, session: Arc<Mutex<Session>>) -> Result<()> {
+    async fn save_session(&mut self, _: Arc<Mutex<Session>>) -> Result<()> {
         Ok(())
     }
 

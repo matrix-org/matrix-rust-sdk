@@ -40,7 +40,7 @@ impl SessionStore {
                 Arc::new(Mutex::new(Vec::new())),
             );
         }
-        let mut sessions = self.entries.get_mut(&session.sender_key).unwrap();
+        let sessions = self.entries.get_mut(&session.sender_key).unwrap();
         let session = Arc::new(Mutex::new(session));
         sessions.lock().await.push(session.clone());
 
@@ -75,13 +75,13 @@ impl GroupSessionStore {
                 .insert(session.room_id.to_owned(), HashMap::new());
         }
 
-        let mut room_map = self.entries.get_mut(&session.room_id).unwrap();
+        let room_map = self.entries.get_mut(&session.room_id).unwrap();
 
         if !room_map.contains_key(&session.sender_key) {
             room_map.insert(session.sender_key.to_owned(), HashMap::new());
         }
 
-        let mut sender_map = room_map.get_mut(&session.sender_key).unwrap();
+        let sender_map = room_map.get_mut(&session.sender_key).unwrap();
         let ret = sender_map.insert(session.session_id(), Arc::new(Mutex::new(session)));
 
         ret.is_some()
@@ -134,7 +134,7 @@ impl DeviceStore {
             self.entries
                 .insert(device.user_id().to_owned(), DashMap::new());
         }
-        let mut device_map = self.entries.get_mut(device.user_id()).unwrap();
+        let device_map = self.entries.get_mut(device.user_id()).unwrap();
 
         device_map
             .insert(device.device_id().to_owned(), device)

@@ -410,15 +410,15 @@ impl CryptoStore for SqliteStore {
         Ok(self.tracked_users.insert(user.to_string()))
     }
 
-    async fn get_device(&self, user_id: &str, device_id: &str) -> Result<Option<Device>> {
+    async fn get_device(&self, _user_id: &str, _device_id: &str) -> Result<Option<Device>> {
         todo!()
     }
 
-    async fn get_user_devices(&self, user_id: &str) -> Result<UserDevices> {
+    async fn get_user_devices(&self, _user_id: &str) -> Result<UserDevices> {
         todo!()
     }
 
-    async fn save_device(&self, device: Device) -> Result<()> {
+    async fn save_device(&self, _device: Device) -> Result<()> {
         todo!()
     }
 }

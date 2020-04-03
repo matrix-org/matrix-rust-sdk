@@ -259,7 +259,7 @@ impl InboundGroupSession {
         self.inner.first_known_index()
     }
 
-    pub fn decrypt(&self, mut message: String) -> Result<(String, u32), OlmGroupSessionError> {
+    pub fn decrypt(&self, message: String) -> Result<(String, u32), OlmGroupSessionError> {
         self.inner.decrypt(message)
     }
 }

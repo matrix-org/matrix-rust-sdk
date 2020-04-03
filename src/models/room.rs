@@ -31,14 +31,6 @@ use crate::identifiers::RoomAliasId;
 
 use js_int::UInt;
 
-#[cfg(feature = "encryption")]
-use tokio::sync::Mutex;
-
-#[cfg(feature = "encryption")]
-use crate::crypto::{OlmMachine, OneTimeKeys};
-#[cfg(feature = "encryption")]
-use ruma_client_api::r0::keys::{upload_keys::Response as KeysUploadResponse, DeviceKeys};
-
 #[derive(Debug, Default)]
 /// `RoomName` allows the calculation of a text room name.
 pub struct RoomName {

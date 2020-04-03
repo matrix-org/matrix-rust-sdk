@@ -20,8 +20,7 @@ use std::result::Result as StdResult;
 use std::sync::Arc;
 
 use super::error::{OlmError, Result, SignatureError, VerificationResult};
-use super::memory_stores::SessionStore;
-use super::olm::{Account, InboundGroupSession, Session};
+use super::olm::{Account, InboundGroupSession};
 use super::store::memorystore::MemoryStore;
 #[cfg(feature = "sqlite-cryptostore")]
 use super::store::sqlite::SqliteStore;
@@ -364,15 +363,16 @@ impl OlmMachine {
                     continue;
                 }
 
-                let curve_key_id =
-                    AlgorithmAndDeviceId(KeyAlgorithm::Curve25519, device_id.to_owned());
+                // let curve_key_id =
+                //     AlgorithmAndDeviceId(KeyAlgorithm::Curve25519, device_id.to_owned());
                 let ed_key_id = AlgorithmAndDeviceId(KeyAlgorithm::Ed25519, device_id.to_owned());
 
-                let sender_key = if let Some(k) = device_keys.keys.get(&curve_key_id) {
-                    k
-                } else {
-                    continue;
-                };
+                // TODO check if the curve key changed for an existing device.
+                // let sender_key = if let Some(k) = device_keys.keys.get(&curve_key_id) {
+                //     k
+                // } else {
+                //     continue;
+                // };
 
                 let signing_key = if let Some(k) = device_keys.keys.get(&ed_key_id) {
                     k
@@ -397,7 +397,7 @@ impl OlmMachine {
                     .await
                     .expect("Can't load device");
 
-                if let Some(d) = device {
+                if let Some(_d) = device {
                     // TODO check what and if anything changed for the device.
                 } else {
                     let device = Device::from(device_keys);
@@ -412,7 +412,7 @@ impl OlmMachine {
 
             let deleted_devices = stored_devices_set.difference(&current_devices);
 
-            for device_id in deleted_devices {
+            for _device_id in deleted_devices {
                 // TODO delete devices here.
             }
         }
@@ -680,7 +680,7 @@ impl OlmMachine {
 
     async fn decrypt_olm_message(
         &mut self,
-        sender: &str,
+        _sender: &str,
         sender_key: &str,
         message: OlmMessage,
     ) -> Result<EventResult<ToDeviceEvent>> {
@@ -785,8 +785,8 @@ impl OlmMachine {
 
     fn add_forwarded_room_key(
         &self,
-        sender_key: &str,
-        event: &ToDeviceForwardedRoomKey,
+        _sender_key: &str,
+        _event: &ToDeviceForwardedRoomKey,
     ) -> Result<()> {
         Ok(())
         // TODO

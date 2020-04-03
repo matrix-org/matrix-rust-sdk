@@ -13,9 +13,8 @@
 // limitations under the License.
 
 use core::fmt::Debug;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use std::io::Error as IoError;
-use std::result::Result as StdResult;
 use std::sync::Arc;
 use url::ParseError;
 
@@ -28,7 +27,6 @@ use super::device::Device;
 use super::memory_stores::UserDevices;
 use super::olm::{Account, InboundGroupSession, Session};
 use olm_rs::errors::{OlmAccountError, OlmGroupSessionError, OlmSessionError};
-use olm_rs::PicklingMode;
 
 pub mod memorystore;
 #[cfg(feature = "sqlite-cryptostore")]
