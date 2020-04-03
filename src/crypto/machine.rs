@@ -344,6 +344,8 @@ impl OlmMachine {
         &mut self,
         response: &keys::get_keys::Response,
     ) -> Result<()> {
+        let mut changed_devices = Vec::new();
+
         for (user_id, device_map) in &response.device_keys {
             let user_id_string = user_id.to_string();
             self.users_for_key_query.remove(&user_id_string);
@@ -400,6 +402,7 @@ impl OlmMachine {
                 } else {
                     let device = Device::from(device_keys);
                     info!("Found new device {:?}", device);
+                    changed_devices.push(device);
                 }
             }
 
@@ -413,6 +416,11 @@ impl OlmMachine {
                 // TODO delete devices here.
             }
         }
+
+        for device in changed_devices {
+            self.store.save_device(device).await.unwrap();
+        }
+
         Ok(())
     }
 
