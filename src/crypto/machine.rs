@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use std::collections::{HashMap, HashSet};
-use std::convert::TryInto;
+use std::convert::{TryFrom, TryInto};
 #[cfg(feature = "sqlite-cryptostore")]
 use std::path::Path;
 use std::result::Result as StdResult;
@@ -180,6 +180,48 @@ impl OlmMachine {
         self.store.save_account(self.account.clone()).await?;
 
         Ok(())
+    }
+
+    pub async fn get_missing_sessions(
+        &mut self,
+        users: impl Iterator<Item = &String>,
+    ) -> HashMap<UserId, HashMap<DeviceId, KeyAlgorithm>> {
+        let mut missing = HashMap::new();
+
+        for user_id in users {
+            let user_devices = self.store.get_user_devices(&user_id).await.unwrap();
+
+            for device in user_devices.devices() {
+                let sender_key = if let Some(k) = device.keys(&KeyAlgorithm::Curve25519) {
+                    k
+                } else {
+                    continue;
+                };
+
+                let sessions = self.store.get_sessions(sender_key).await.unwrap();
+
+                let is_missing = if let Some(sessions) = sessions {
+                    sessions.lock().await.is_empty()
+                } else {
+                    true
+                };
+
+                if is_missing {
+                    let user_id = UserId::try_from(user_id.as_ref()).unwrap();
+                    if !missing.contains_key(&user_id) {
+                        missing.insert(user_id.to_owned(), HashMap::new());
+                    }
+
+                    let user_map = missing.get_mut(&user_id).unwrap();
+                    user_map.insert(
+                        device.device_id().to_owned(),
+                        KeyAlgorithm::SignedCurve25519,
+                    );
+                }
+            }
+        }
+
+        missing
     }
 
     pub async fn receive_keys_claim_response(
