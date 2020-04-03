@@ -273,7 +273,7 @@ impl AsyncClient {
     /// Returns an `Option` of the room name from a `RoomId`.
     ///
     /// This is a human readable room name.
-    pub async fn get_room_name(&self, room_id: &str) -> Option<String> {
+    pub async fn get_room_name(&self, room_id: &RoomId) -> Option<String> {
         self.base_client
             .read()
             .await
@@ -291,7 +291,7 @@ impl AsyncClient {
     /// Returns the rooms this client knows about.
     ///
     /// A `HashMap` of room id to `matrix::models::Room`
-    pub async fn get_rooms(&self) -> HashMap<String, Arc<tokio::sync::Mutex<Room>>> {
+    pub async fn get_rooms(&self) -> HashMap<RoomId, Arc<tokio::sync::Mutex<Room>>> {
         self.base_client.read().await.joined_rooms.clone()
     }
 
@@ -354,18 +354,17 @@ impl AsyncClient {
         let mut response = self.send(request).await?;
 
         for (room_id, room) in &mut response.rooms.join {
-            let room_id_string = room_id.to_string();
 
             let mut client = self.base_client.write().await;
 
             let _matrix_room = {
                 for event in &room.state.events {
                     if let EventResult::Ok(e) = event {
-                        client.receive_joined_state_event(&room_id_string, &e).await;
+                        client.receive_joined_state_event(&room_id, &e).await;
                     }
                 }
 
-                client.get_or_create_room(&room_id_string).clone()
+                client.get_or_create_room(&room_id).clone()
             };
 
             // re looping is not ideal here
@@ -395,7 +394,7 @@ impl AsyncClient {
             for account_data in &mut room.account_data.events {
                 {
                     if let EventResult::Ok(e) = account_data {
-                        client.receive_account_data(&room_id_string, e).await;
+                        client.receive_account_data(&room_id, e).await;
 
                         client.emit_account_data_event(room_id, e).await;
                     }
@@ -410,7 +409,7 @@ impl AsyncClient {
             for presence in &mut response.presence.events {
                 {
                     if let EventResult::Ok(e) = presence {
-                        client.receive_presence_event(&room_id_string, e).await;
+                        client.receive_presence_event(&room_id, e).await;
 
                         client.emit_presence_event(room_id, e).await;
                     }

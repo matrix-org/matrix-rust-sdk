@@ -160,7 +160,7 @@ mod test {
 
         let mut rooms = client.base_client.write().await.joined_rooms.clone();
         let mut room = rooms
-            .get_mut("!SVkFJHzfwvuaIEawgC:localhost")
+            .get_mut(&RoomId::try_from("!SVkFJHzfwvuaIEawgC:localhost").unwrap())
             .unwrap()
             .lock()
             .await;

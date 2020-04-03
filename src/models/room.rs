@@ -14,8 +14,9 @@
 // limitations under the License.
 
 use std::collections::HashMap;
+use std::convert::TryFrom;
 
-use super::{RoomMember, UserId};
+use super::RoomMember;
 
 use crate::events::collections::all::{RoomEvent, StateEvent};
 use crate::events::presence::PresenceEvent;
@@ -27,7 +28,7 @@ use crate::events::room::{
     name::NameEvent,
     power_levels::PowerLevelsEvent,
 };
-use crate::identifiers::RoomAliasId;
+use crate::identifiers::{RoomId, RoomAliasId, UserId};
 
 use js_int::UInt;
 
@@ -46,7 +47,7 @@ pub struct RoomName {
 /// A Matrix rooom.
 pub struct Room {
     /// The unique id of the room.
-    pub room_id: String,
+    pub room_id: RoomId,
     /// The name of the room, clients use this to represent a room.
     pub room_name: RoomName,
     /// The mxid of our own user.
@@ -82,7 +83,7 @@ impl RoomName {
         true
     }
 
-    pub fn calculate_name(&self, room_id: &str, members: &HashMap<UserId, RoomMember>) -> String {
+    pub fn calculate_name(&self, room_id: &RoomId, members: &HashMap<UserId, RoomMember>) -> String {
         // https://matrix.org/docs/spec/client_server/latest#calculating-the-display-name-for-a-room.
         // the order in which we check for a name ^^
         if let Some(name) = &self.name {
@@ -118,11 +119,11 @@ impl Room {
     /// * `room_id` - The unique id of the room.
     ///
     /// * `own_user_id` - The mxid of our own user.
-    pub fn new(room_id: &str, own_user_id: &str) -> Self {
+    pub fn new(room_id: &RoomId, own_user_id: &UserId) -> Self {
         Room {
-            room_id: room_id.to_string(),
+            room_id: room_id.clone(),
             room_name: RoomName::default(),
-            own_user_id: own_user_id.to_owned(),
+            own_user_id: own_user_id.clone(),
             creator: None,
             members: HashMap::new(),
             typing_users: Vec::new(),
@@ -143,19 +144,19 @@ impl Room {
     }
 
     fn add_member(&mut self, event: &MemberEvent) -> bool {
-        if self.members.contains_key(&event.state_key) {
+        if self.members.contains_key(&UserId::try_from(event.state_key.as_str()).unwrap()) {
             return false;
         }
 
         let member = RoomMember::new(event);
 
-        self.members.insert(event.state_key.clone(), member);
+        self.members.insert(UserId::try_from(event.state_key.as_str()).unwrap(), member);
 
         true
     }
 
     /// Add to the list of `RoomAliasId`s.
-    fn room_aliases(&mut self, alias: &RoomAliasId) -> bool {
+    fn push_room_alias(&mut self, alias: &RoomAliasId) -> bool {
         self.room_name.push_alias(alias.clone());
         true
     }
@@ -166,7 +167,7 @@ impl Room {
         true
     }
 
-    fn name_room(&mut self, name: &str) -> bool {
+    fn set_name_room(&mut self, name: &str) -> bool {
         self.room_name.set_name(name);
         true
     }
@@ -178,7 +179,7 @@ impl Room {
         match event.membership_change() {
             MembershipChange::Invited | MembershipChange::Joined => self.add_member(event),
             _ => {
-                if let Some(member) = self.members.get_mut(&event.state_key) {
+                if let Some(member) = self.members.get_mut(&UserId::try_from(event.state_key.as_str()).unwrap()) {
                     member.update_member(event)
                 } else {
                     false
@@ -192,8 +193,8 @@ impl Room {
     /// Returns true if the room name changed, false otherwise.
     pub fn handle_room_aliases(&mut self, event: &AliasesEvent) -> bool {
         match event.content.aliases.as_slice() {
-            [alias] => self.room_aliases(alias),
-            [alias, ..] => self.room_aliases(alias),
+            [alias] => self.push_room_alias(alias),
+            [alias, ..] => self.push_room_alias(alias),
             _ => false,
         }
     }
@@ -213,7 +214,7 @@ impl Room {
     /// Returns true if the room name changed, false otherwise.
     pub fn handle_room_name(&mut self, event: &NameEvent) -> bool {
         match event.content.name() {
-            Some(name) => self.name_room(name),
+            Some(name) => self.set_name_room(name),
             _ => false,
         }
     }
@@ -222,7 +223,7 @@ impl Room {
     ///
     /// Returns true if the room name changed, false otherwise.
     pub fn handle_power_level(&mut self, event: &PowerLevelsEvent) -> bool {
-        if let Some(member) = self.members.get_mut(&event.state_key) {
+        if let Some(member) = self.members.get_mut(&UserId::try_from(event.state_key.as_str()).unwrap()) {
             member.update_power(event)
         } else {
             false
@@ -285,7 +286,7 @@ impl Room {
     pub fn receive_presence_event(&mut self, event: &PresenceEvent) -> bool {
         if let Some(user) = self
             .members
-            .get_mut(&event.sender.to_string())
+            .get_mut(&event.sender)
             .map(|m| &mut m.user)
         {
             if user.did_update_presence(event) {
@@ -304,6 +305,7 @@ impl Room {
 
 #[cfg(test)]
 mod test {
+    use super::*;
     use crate::events::room::member::MembershipState;
     use crate::identifiers::UserId;
     use crate::{AsyncClient, Session, SyncSettings};
@@ -341,7 +343,7 @@ mod test {
 
         let rooms = &client.base_client.read().await.joined_rooms;
         let room = &rooms
-            .get("!SVkFJHzfwvuaIEawgC:localhost")
+            .get(&RoomId::try_from("!SVkFJHzfwvuaIEawgC:localhost").unwrap())
             .unwrap()
             .lock()
             .await;

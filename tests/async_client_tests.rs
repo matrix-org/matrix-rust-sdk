@@ -1,4 +1,4 @@
-use matrix_sdk::identifiers::UserId;
+use matrix_sdk::identifiers::{RoomId, UserId};
 use matrix_sdk::{AsyncClient, Session, SyncSettings};
 
 use mockito::{mock, Matcher};
@@ -84,6 +84,6 @@ async fn room_names() {
     assert_eq!(vec!["tutorial"], client.get_room_names().await);
     assert_eq!(
         Some("tutorial".into()),
-        client.get_room_name("!SVkFJHzfwvuaIEawgC:localhost").await
+        client.get_room_name(&RoomId::try_from("!SVkFJHzfwvuaIEawgC:localhost").unwrap()).await
     );
 }

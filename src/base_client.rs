@@ -31,7 +31,7 @@ use crate::events::collections::only::Event as NonRoomEvent;
 use crate::events::ignored_user_list::IgnoredUserListEvent;
 use crate::events::push_rules::{PushRulesEvent, Ruleset};
 use crate::events::EventResult;
-use crate::identifiers::RoomAliasId;
+use crate::identifiers::{RoomId, RoomAliasId, UserId};
 use crate::models::Room;
 use crate::session::Session;
 use crate::EventEmitter;
@@ -45,12 +45,10 @@ use ruma_client_api::r0::keys::{
     claim_keys::Response as KeysClaimResponse, get_keys::Response as KeysQueryResponse,
     upload_keys::Response as KeysUploadResponse, DeviceKeys, KeyAlgorithm,
 };
-use ruma_identifiers::RoomId;
 #[cfg(feature = "encryption")]
-use ruma_identifiers::{DeviceId, UserId as RumaUserId};
+use ruma_identifiers::DeviceId;
 
 pub type Token = String;
-pub type UserId = String;
 
 #[derive(Debug, Default)]
 /// `RoomName` allows the calculation of a text room name.
@@ -74,7 +72,7 @@ pub struct Client {
     /// The current sync token that should be used for the next sync call.
     pub sync_token: Option<Token>,
     /// A map of the rooms our user is joined in.
-    pub joined_rooms: HashMap<String, Arc<Mutex<Room>>>,
+    pub joined_rooms: HashMap<RoomId, Arc<Mutex<Room>>>,
     /// A list of ignored users.
     pub ignored_users: Vec<UserId>,
     /// The push ruleset for the logged in user.
@@ -167,7 +165,7 @@ impl Client {
         Ok(())
     }
 
-    pub(crate) async fn calculate_room_name(&self, room_id: &str) -> Option<String> {
+    pub(crate) async fn calculate_room_name(&self, room_id: &RoomId) -> Option<String> {
         if let Some(room) = self.joined_rooms.get(room_id) {
             let room = room.lock().await;
             Some(room.room_name.calculate_name(room_id, &room.members))
@@ -185,22 +183,21 @@ impl Client {
         res
     }
 
-    pub(crate) fn get_or_create_room(&mut self, room_id: &str) -> &mut Arc<Mutex<Room>> {
+    pub(crate) fn get_or_create_room(&mut self, room_id: &RoomId) -> &mut Arc<Mutex<Room>> {
         #[allow(clippy::or_fun_call)]
         self.joined_rooms
-            .entry(room_id.to_string())
+            .entry(room_id.clone())
             .or_insert(Arc::new(Mutex::new(Room::new(
                 room_id,
                 &self
                     .session
                     .as_ref()
                     .expect("Receiving events while not being logged in")
-                    .user_id
-                    .to_string(),
+                    .user_id,
             ))))
     }
 
-    pub(crate) fn get_room(&self, room_id: &str) -> Option<&Arc<Mutex<Room>>> {
+    pub(crate) fn get_room(&self, room_id: &RoomId) -> Option<&Arc<Mutex<Room>>> {
         self.joined_rooms.get(room_id)
     }
 
@@ -208,14 +205,13 @@ impl Client {
     ///
     /// Returns true if the room name changed, false otherwise.
     pub(crate) fn handle_ignored_users(&mut self, event: &IgnoredUserListEvent) -> bool {
-        // FIXME when UserId becomes more like a &str wrapper in ruma-identifiers
-        if self.ignored_users
+        // this avoids cloning every UserId for the eq check
+        if self.ignored_users.iter().collect::<Vec<_>>()
             == event
                 .content
                 .ignored_users
                 .iter()
-                .map(|u| u.to_string())
-                .collect::<Vec<String>>()
+                .collect::<Vec<_>>()
         {
             false
         } else {
@@ -223,8 +219,8 @@ impl Client {
                 .content
                 .ignored_users
                 .iter()
-                .map(|u| u.to_string())
-                .collect();
+                .cloned()
+                .collect::<Vec<_>>();
             true
         }
     }
@@ -279,7 +275,7 @@ impl Client {
                     }
                 }
 
-                let mut room = self.get_or_create_room(&room_id.to_string()).lock().await;
+                let mut room = self.get_or_create_room(&room_id).lock().await;
                 room.receive_timeline_event(e);
                 decrypted_event
             }
@@ -297,7 +293,7 @@ impl Client {
     /// * `room_id` - The unique id of the room the event belongs to.
     ///
     /// * `event` - The event that should be handled by the client.
-    pub async fn receive_joined_state_event(&mut self, room_id: &str, event: &StateEvent) -> bool {
+    pub async fn receive_joined_state_event(&mut self, room_id: &RoomId, event: &StateEvent) -> bool {
         let mut room = self.get_or_create_room(room_id).lock().await;
         room.receive_state_event(event)
     }
@@ -312,7 +308,7 @@ impl Client {
     /// * `room_id` - The unique id of the room the event belongs to.
     ///
     /// * `event` - The event that should be handled by the client.
-    pub async fn receive_presence_event(&mut self, room_id: &str, event: &PresenceEvent) -> bool {
+    pub async fn receive_presence_event(&mut self, room_id: &RoomId, event: &PresenceEvent) -> bool {
         // this should be the room that was just created in the `Client::sync` loop.
         if let Some(room) = self.get_room(room_id) {
             let mut room = room.lock().await;
@@ -332,7 +328,7 @@ impl Client {
     /// * `room_id` - The unique id of the room the event belongs to.
     ///
     /// * `event` - The presence event for a specified room member.
-    pub async fn receive_account_data(&mut self, room_id: &str, event: &NonRoomEvent) -> bool {
+    pub async fn receive_account_data(&mut self, room_id: &RoomId, event: &NonRoomEvent) -> bool {
         match event {
             NonRoomEvent::IgnoredUserList(iu) => self.handle_ignored_users(iu),
             NonRoomEvent::Presence(p) => self.receive_presence_event(room_id, p).await,
@@ -507,7 +503,7 @@ impl Client {
         match event {
             RoomEvent::RoomMember(mem) => {
                 if let Some(ee) = &self.event_emitter {
-                    if let Some(room) = self.get_room(&room_id.to_string()) {
+                    if let Some(room) = self.get_room(&room_id) {
                         ee.lock()
                             .await
                             .on_room_member(Arc::clone(&room), Arc::new(Mutex::new(mem.clone())))
@@ -517,7 +513,7 @@ impl Client {
             }
             RoomEvent::RoomName(name) => {
                 if let Some(ee) = &self.event_emitter {
-                    if let Some(room) = self.get_room(&room_id.to_string()) {
+                    if let Some(room) = self.get_room(&room_id) {
                         ee.lock()
                             .await
                             .on_room_name(Arc::clone(&room), Arc::new(Mutex::new(name.clone())))
@@ -527,7 +523,7 @@ impl Client {
             }
             RoomEvent::RoomCanonicalAlias(canonical) => {
                 if let Some(ee) = &self.event_emitter {
-                    if let Some(room) = self.get_room(&room_id.to_string()) {
+                    if let Some(room) = self.get_room(&room_id) {
                         ee.lock()
                             .await
                             .on_room_canonical_alias(
@@ -540,7 +536,7 @@ impl Client {
             }
             RoomEvent::RoomAliases(aliases) => {
                 if let Some(ee) = &self.event_emitter {
-                    if let Some(room) = self.get_room(&room_id.to_string()) {
+                    if let Some(room) = self.get_room(&room_id) {
                         ee.lock()
                             .await
                             .on_room_aliases(
@@ -553,7 +549,7 @@ impl Client {
             }
             RoomEvent::RoomAvatar(avatar) => {
                 if let Some(ee) = &self.event_emitter {
-                    if let Some(room) = self.get_room(&room_id.to_string()) {
+                    if let Some(room) = self.get_room(&room_id) {
                         ee.lock()
                             .await
                             .on_room_avatar(Arc::clone(&room), Arc::new(Mutex::new(avatar.clone())))
@@ -563,7 +559,7 @@ impl Client {
             }
             RoomEvent::RoomMessage(msg) => {
                 if let Some(ee) = &self.event_emitter {
-                    if let Some(room) = self.get_room(&room_id.to_string()) {
+                    if let Some(room) = self.get_room(&room_id) {
                         ee.lock()
                             .await
                             .on_room_message(Arc::clone(&room), Arc::new(Mutex::new(msg.clone())))
@@ -573,7 +569,7 @@ impl Client {
             }
             RoomEvent::RoomMessageFeedback(msg_feedback) => {
                 if let Some(ee) = &self.event_emitter {
-                    if let Some(room) = self.get_room(&room_id.to_string()) {
+                    if let Some(room) = self.get_room(&room_id) {
                         ee.lock()
                             .await
                             .on_room_message_feedback(
@@ -586,7 +582,7 @@ impl Client {
             }
             RoomEvent::RoomRedaction(redaction) => {
                 if let Some(ee) = &self.event_emitter {
-                    if let Some(room) = self.get_room(&room_id.to_string()) {
+                    if let Some(room) = self.get_room(&room_id) {
                         ee.lock()
                             .await
                             .on_room_redaction(
@@ -599,7 +595,7 @@ impl Client {
             }
             RoomEvent::RoomPowerLevels(power) => {
                 if let Some(ee) = &self.event_emitter {
-                    if let Some(room) = self.get_room(&room_id.to_string()) {
+                    if let Some(room) = self.get_room(&room_id) {
                         ee.lock()
                             .await
                             .on_room_power_levels(
@@ -618,7 +614,7 @@ impl Client {
         match event {
             StateEvent::RoomMember(member) => {
                 if let Some(ee) = &self.event_emitter {
-                    if let Some(room) = self.get_room(&room_id.to_string()) {
+                    if let Some(room) = self.get_room(&room_id) {
                         ee.lock()
                             .await
                             .on_state_member(
@@ -631,7 +627,7 @@ impl Client {
             }
             StateEvent::RoomName(name) => {
                 if let Some(ee) = &self.event_emitter {
-                    if let Some(room) = self.get_room(&room_id.to_string()) {
+                    if let Some(room) = self.get_room(&room_id) {
                         ee.lock()
                             .await
                             .on_state_name(Arc::clone(&room), Arc::new(Mutex::new(name.clone())))
@@ -641,7 +637,7 @@ impl Client {
             }
             StateEvent::RoomCanonicalAlias(canonical) => {
                 if let Some(ee) = &self.event_emitter {
-                    if let Some(room) = self.get_room(&room_id.to_string()) {
+                    if let Some(room) = self.get_room(&room_id) {
                         ee.lock()
                             .await
                             .on_state_canonical_alias(
@@ -654,7 +650,7 @@ impl Client {
             }
             StateEvent::RoomAliases(aliases) => {
                 if let Some(ee) = &self.event_emitter {
-                    if let Some(room) = self.get_room(&room_id.to_string()) {
+                    if let Some(room) = self.get_room(&room_id) {
                         ee.lock()
                             .await
                             .on_state_aliases(
@@ -667,7 +663,7 @@ impl Client {
             }
             StateEvent::RoomAvatar(avatar) => {
                 if let Some(ee) = &self.event_emitter {
-                    if let Some(room) = self.get_room(&room_id.to_string()) {
+                    if let Some(room) = self.get_room(&room_id) {
                         ee.lock()
                             .await
                             .on_state_avatar(
@@ -680,7 +676,7 @@ impl Client {
             }
             StateEvent::RoomPowerLevels(power) => {
                 if let Some(ee) = &self.event_emitter {
-                    if let Some(room) = self.get_room(&room_id.to_string()) {
+                    if let Some(room) = self.get_room(&room_id) {
                         ee.lock()
                             .await
                             .on_state_power_levels(
@@ -693,7 +689,7 @@ impl Client {
             }
             StateEvent::RoomJoinRules(rules) => {
                 if let Some(ee) = &self.event_emitter {
-                    if let Some(room) = self.get_room(&room_id.to_string()) {
+                    if let Some(room) = self.get_room(&room_id) {
                         ee.lock()
                             .await
                             .on_state_join_rules(
@@ -716,7 +712,7 @@ impl Client {
         match event {
             NonRoomEvent::Presence(presence) => {
                 if let Some(ee) = &self.event_emitter {
-                    if let Some(room) = self.get_room(&room_id.to_string()) {
+                    if let Some(room) = self.get_room(&room_id) {
                         ee.lock()
                             .await
                             .on_account_presence(
@@ -729,7 +725,7 @@ impl Client {
             }
             NonRoomEvent::IgnoredUserList(ignored) => {
                 if let Some(ee) = &self.event_emitter {
-                    if let Some(room) = self.get_room(&room_id.to_string()) {
+                    if let Some(room) = self.get_room(&room_id) {
                         ee.lock()
                             .await
                             .on_account_ignored_users(
@@ -742,7 +738,7 @@ impl Client {
             }
             NonRoomEvent::PushRules(rules) => {
                 if let Some(ee) = &self.event_emitter {
-                    if let Some(room) = self.get_room(&room_id.to_string()) {
+                    if let Some(room) = self.get_room(&room_id) {
                         ee.lock()
                             .await
                             .on_account_push_rules(
@@ -755,7 +751,7 @@ impl Client {
             }
             NonRoomEvent::FullyRead(full_read) => {
                 if let Some(ee) = &self.event_emitter {
-                    if let Some(room) = self.get_room(&room_id.to_string()) {
+                    if let Some(room) = self.get_room(&room_id) {
                         ee.lock()
                             .await
                             .on_account_data_fully_read(
@@ -776,7 +772,7 @@ impl Client {
         event: &mut PresenceEvent,
     ) {
         if let Some(ee) = &self.event_emitter {
-            if let Some(room) = self.get_room(&room_id.to_string()) {
+            if let Some(room) = self.get_room(&room_id) {
                 ee.lock()
                     .await
                     .on_presence_event(Arc::clone(&room), Arc::new(Mutex::new(event.clone())))
