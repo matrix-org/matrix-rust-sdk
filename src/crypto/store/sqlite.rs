@@ -436,6 +436,8 @@ impl std::fmt::Debug for SqliteStore {
 #[cfg(test)]
 mod test {
     use olm_rs::outbound_group_session::OlmOutboundGroupSession;
+    use ruma_client_api::r0::keys::SignedKey;
+    use std::collections::HashMap;
     use std::sync::Arc;
     use tempfile::tempdir;
     use tokio::sync::Mutex;
@@ -483,6 +485,10 @@ mod test {
             .unwrap()
             .1
             .to_owned();
+        let one_time_key = SignedKey {
+            key: one_time_key,
+            signatures: HashMap::new(),
+        };
         let sender_key = bob.identity_keys().curve25519().to_owned();
         let session = alice
             .create_outbound_session(&sender_key, &one_time_key)

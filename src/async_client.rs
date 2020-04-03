@@ -510,7 +510,6 @@ impl AsyncClient {
                 }
 
                 if self.base_client.read().await.should_query_keys().await {
-                    // TODO enable this
                     let _ = self.keys_query().await;
                 }
             }
