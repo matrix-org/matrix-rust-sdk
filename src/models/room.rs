@@ -14,11 +14,11 @@
 // limitations under the License.
 
 use std::collections::HashMap;
-use std::sync::{Arc, RwLock};
 
-use super::{RoomMember, User, UserId};
+use super::{RoomMember, UserId};
 
 use crate::events::collections::all::{RoomEvent, StateEvent};
+use crate::events::presence::PresenceEvent;
 use crate::events::room::{
     aliases::AliasesEvent,
     canonical_alias::CanonicalAliasEvent,
@@ -27,12 +27,7 @@ use crate::events::room::{
     name::NameEvent,
     power_levels::PowerLevelsEvent,
 };
-use crate::events::{
-    presence::{PresenceEvent, PresenceEventContent},
-    EventResult,
-};
 use crate::identifiers::RoomAliasId;
-use crate::session::Session;
 
 use js_int::UInt;
 
@@ -145,7 +140,7 @@ impl Room {
         }
     }
 
-    /// Calculate and return the display name of the room.
+    /// Return the display name of the room.
     pub fn calculate_name(&self) -> String {
         self.room_name.calculate_name(&self.room_id, &self.members)
     }
@@ -242,8 +237,7 @@ impl Room {
         }
     }
 
-    fn handle_encryption_event(&mut self, _: &EncryptionEvent) -> bool {
-        // TODO store the encryption settings.
+    fn handle_encryption_event(&mut self, _event: &EncryptionEvent) -> bool {
         self.encrypted = true;
         true
     }
@@ -318,14 +312,11 @@ impl Room {
 
 #[cfg(test)]
 mod test {
-    use super::*;
-
     use crate::events::room::member::MembershipState;
     use crate::identifiers::UserId;
     use crate::{AsyncClient, Session, SyncSettings};
 
     use mockito::{mock, Matcher};
-    use tokio::runtime::Runtime;
     use url::Url;
 
     use std::convert::TryFrom;
@@ -360,11 +351,11 @@ mod test {
         let room = &rooms
             .get("!SVkFJHzfwvuaIEawgC:localhost")
             .unwrap()
-            .read()
-            .unwrap();
+            .lock()
+            .await;
 
         assert_eq!(2, room.members.len());
-        for (id, member) in &room.members {
+        for (_id, member) in &room.members {
             assert_eq!(MembershipState::Join, member.membership);
         }
     }
