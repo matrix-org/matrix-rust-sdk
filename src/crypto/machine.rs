@@ -71,7 +71,7 @@ pub struct OlmMachine {
     store: Box<dyn CryptoStore>,
     /// Set of users that we need to query keys for. This is a subset of
     /// the tracked users in the CryptoStore.
-    users_for_key_query: HashSet<String>,
+    users_for_key_query: HashSet<UserId>,
 }
 
 impl OlmMachine {
@@ -101,8 +101,7 @@ impl OlmMachine {
         passphrase: String,
     ) -> Result<Self> {
         let mut store =
-            SqliteStore::open_with_passphrase(&user_id.to_string(), device_id, path, passphrase)
-                .await?;
+            SqliteStore::open_with_passphrase(&user_id, device_id, path, passphrase).await?;
 
         let account = match store.load_account().await? {
             Some(a) => {
@@ -183,12 +182,12 @@ impl OlmMachine {
 
     pub async fn get_missing_sessions(
         &mut self,
-        users: impl Iterator<Item = &String>,
+        users: impl Iterator<Item = &UserId>,
     ) -> HashMap<UserId, HashMap<DeviceId, KeyAlgorithm>> {
         let mut missing = HashMap::new();
 
         for user_id in users {
-            let user_devices = self.store.get_user_devices(&user_id).await.unwrap();
+            let user_devices = self.store.get_user_devices(user_id).await.unwrap();
 
             for device in user_devices.devices() {
                 let sender_key = if let Some(k) = device.keys(&KeyAlgorithm::Curve25519) {
@@ -206,12 +205,11 @@ impl OlmMachine {
                 };
 
                 if is_missing {
-                    let user_id = UserId::try_from(user_id.as_ref()).unwrap();
-                    if !missing.contains_key(&user_id) {
-                        missing.insert(user_id.to_owned(), HashMap::new());
+                    if !missing.contains_key(user_id) {
+                        missing.insert(user_id.clone(), HashMap::new());
                     }
 
-                    let user_map = missing.get_mut(&user_id).unwrap();
+                    let user_map = missing.get_mut(user_id).unwrap();
                     user_map.insert(
                         device.device_id().to_owned(),
                         KeyAlgorithm::SignedCurve25519,
@@ -233,7 +231,7 @@ impl OlmMachine {
             for (device_id, key_map) in user_devices {
                 let device = if let Some(d) = self
                     .store
-                    .get_device(&user_id.to_string(), device_id)
+                    .get_device(&user_id, device_id)
                     .await
                     .expect("Can't get devices")
                 {
@@ -346,8 +344,7 @@ impl OlmMachine {
         let mut changed_devices = Vec::new();
 
         for (user_id, device_map) in &response.device_keys {
-            let user_id_string = user_id.to_string();
-            self.users_for_key_query.remove(&user_id_string);
+            self.users_for_key_query.remove(&user_id);
 
             for (device_id, device_keys) in device_map.iter() {
                 // We don't need our own device in the device store.
@@ -393,7 +390,7 @@ impl OlmMachine {
 
                 let device = self
                     .store
-                    .get_device(&user_id_string, device_id)
+                    .get_device(&user_id, device_id)
                     .await
                     .expect("Can't load device");
 
@@ -407,7 +404,7 @@ impl OlmMachine {
             }
 
             let current_devices: HashSet<&String> = device_map.keys().collect();
-            let stored_devices = self.store.get_user_devices(&user_id_string).await.unwrap();
+            let stored_devices = self.store.get_user_devices(&user_id).await.unwrap();
             let stored_devices_set: HashSet<&String> = stored_devices.keys().collect();
 
             let deleted_devices = stored_devices_set.difference(&current_devices);
@@ -767,7 +764,7 @@ impl OlmMachine {
                 let session = InboundGroupSession::new(
                     sender_key,
                     signing_key,
-                    &event.content.room_id.to_string(),
+                    &event.content.room_id,
                     &event.content.session_key,
                 )?;
                 self.store.save_inbound_group_session(session).await?;
@@ -893,11 +890,7 @@ impl OlmMachine {
 
         let session = self
             .store
-            .get_inbound_group_session(
-                &room_id.to_string(),
-                &content.sender_key,
-                &content.session_id,
-            )
+            .get_inbound_group_session(&room_id, &content.sender_key, &content.session_id)
             .await?;
         // TODO check if the olm session is wedged and re-request the key.
         let session = session.ok_or(OlmError::MissingSession)?;
@@ -936,7 +929,7 @@ impl OlmMachine {
     /// Use the `mark_user_as_changed()` if the user really needs a key query.
     pub async fn update_tracked_users<'a, I>(&mut self, users: I)
     where
-        I: IntoIterator<Item = &'a String>,
+        I: IntoIterator<Item = &'a UserId>,
     {
         for user in users {
             let ret = self.store.add_user_for_tracking(user).await;
@@ -944,12 +937,12 @@ impl OlmMachine {
             match ret {
                 Ok(newly_added) => {
                     if newly_added {
-                        self.users_for_key_query.insert(user.to_string());
+                        self.users_for_key_query.insert(user.clone());
                     }
                 }
                 Err(e) => {
                     warn!("Error storing users for tracking {}", e);
-                    self.users_for_key_query.insert(user.to_string());
+                    self.users_for_key_query.insert(user.clone());
                 }
             }
         }
@@ -961,7 +954,7 @@ impl OlmMachine {
     }
 
     /// Get the set of users that we need to query keys for.
-    pub fn users_for_key_query(&self) -> HashSet<String> {
+    pub fn users_for_key_query(&self) -> HashSet<UserId> {
         self.users_for_key_query.clone()
     }
 }

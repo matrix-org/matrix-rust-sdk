@@ -13,6 +13,7 @@
 // limitations under the License.
 
 use std::collections::HashMap;
+use std::convert::TryFrom;
 use std::sync::Arc;
 
 use dashmap::{DashMap, ReadOnlyView};
@@ -20,6 +21,7 @@ use tokio::sync::Mutex;
 
 use super::device::Device;
 use super::olm::{InboundGroupSession, Session};
+use crate::identifiers::{RoomId, UserId};
 
 #[derive(Debug)]
 pub struct SessionStore {
@@ -59,7 +61,7 @@ impl SessionStore {
 
 #[derive(Debug)]
 pub struct GroupSessionStore {
-    entries: HashMap<String, HashMap<String, HashMap<String, Arc<Mutex<InboundGroupSession>>>>>,
+    entries: HashMap<RoomId, HashMap<String, HashMap<String, Arc<Mutex<InboundGroupSession>>>>>,
 }
 
 impl GroupSessionStore {
@@ -89,7 +91,7 @@ impl GroupSessionStore {
 
     pub fn get(
         &self,
-        room_id: &str,
+        room_id: &RoomId,
         sender_key: &str,
         session_id: &str,
     ) -> Option<Arc<Mutex<InboundGroupSession>>> {
@@ -101,7 +103,7 @@ impl GroupSessionStore {
 
 #[derive(Clone, Debug)]
 pub struct DeviceStore {
-    entries: Arc<DashMap<String, DashMap<String, Device>>>,
+    entries: Arc<DashMap<UserId, DashMap<String, Device>>>,
 }
 
 pub struct UserDevices {
@@ -130,26 +132,27 @@ impl DeviceStore {
     }
 
     pub fn add(&self, device: Device) -> bool {
-        if !self.entries.contains_key(device.user_id()) {
-            self.entries
-                .insert(device.user_id().to_owned(), DashMap::new());
+        let user_id = UserId::try_from(device.user_id()).unwrap();
+
+        if !self.entries.contains_key(&user_id) {
+            self.entries.insert(user_id.clone(), DashMap::new());
         }
-        let device_map = self.entries.get_mut(device.user_id()).unwrap();
+        let device_map = self.entries.get_mut(&user_id).unwrap();
 
         device_map
             .insert(device.device_id().to_owned(), device)
             .is_some()
     }
 
-    pub fn get(&self, user_id: &str, device_id: &str) -> Option<Device> {
+    pub fn get(&self, user_id: &UserId, device_id: &str) -> Option<Device> {
         self.entries
             .get(user_id)
             .and_then(|m| m.get(device_id).map(|d| d.value().clone()))
     }
 
-    pub fn user_devices(&self, user_id: &str) -> UserDevices {
+    pub fn user_devices(&self, user_id: &UserId) -> UserDevices {
         if !self.entries.contains_key(user_id) {
-            self.entries.insert(user_id.to_owned(), DashMap::new());
+            self.entries.insert(user_id.clone(), DashMap::new());
         }
         UserDevices {
             entries: self.entries.get(user_id).unwrap().clone().into_read_only(),

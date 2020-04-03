@@ -21,12 +21,13 @@ use tokio::sync::Mutex;
 use super::{Account, CryptoStore, InboundGroupSession, Result, Session};
 use crate::crypto::device::Device;
 use crate::crypto::memory_stores::{DeviceStore, GroupSessionStore, SessionStore, UserDevices};
+use crate::identifiers::{RoomId, UserId};
 
 #[derive(Debug)]
 pub struct MemoryStore {
     sessions: SessionStore,
     inbound_group_sessions: GroupSessionStore,
-    tracked_users: HashSet<String>,
+    tracked_users: HashSet<UserId>,
     devices: DeviceStore,
 }
 
@@ -73,7 +74,7 @@ impl CryptoStore for MemoryStore {
 
     async fn get_inbound_group_session(
         &mut self,
-        room_id: &str,
+        room_id: &RoomId,
         sender_key: &str,
         session_id: &str,
     ) -> Result<Option<Arc<Mutex<InboundGroupSession>>>> {
@@ -82,19 +83,19 @@ impl CryptoStore for MemoryStore {
             .get(room_id, sender_key, session_id))
     }
 
-    fn tracked_users(&self) -> &HashSet<String> {
+    fn tracked_users(&self) -> &HashSet<UserId> {
         &self.tracked_users
     }
 
-    async fn add_user_for_tracking(&mut self, user: &str) -> Result<bool> {
-        Ok(self.tracked_users.insert(user.to_string()))
+    async fn add_user_for_tracking(&mut self, user: &UserId) -> Result<bool> {
+        Ok(self.tracked_users.insert(user.clone()))
     }
 
-    async fn get_device(&self, user_id: &str, device_id: &str) -> Result<Option<Device>> {
+    async fn get_device(&self, user_id: &UserId, device_id: &str) -> Result<Option<Device>> {
         Ok(self.devices.get(user_id, device_id))
     }
 
-    async fn get_user_devices(&self, user_id: &str) -> Result<UserDevices> {
+    async fn get_user_devices(&self, user_id: &UserId) -> Result<UserDevices> {
         Ok(self.devices.user_devices(user_id))
     }
 

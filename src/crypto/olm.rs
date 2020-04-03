@@ -23,6 +23,8 @@ use olm_rs::PicklingMode;
 
 use ruma_client_api::r0::keys::SignedKey;
 
+use crate::identifiers::{RoomId, UserId};
+
 pub struct Account {
     inner: OlmAccount,
     pub(crate) shared: bool,
@@ -210,7 +212,7 @@ pub struct InboundGroupSession {
     inner: OlmInboundGroupSession,
     pub(crate) sender_key: String,
     pub(crate) signing_key: String,
-    pub(crate) room_id: String,
+    pub(crate) room_id: RoomId,
     forwarding_chains: Option<Vec<String>>,
 }
 
@@ -218,14 +220,14 @@ impl InboundGroupSession {
     pub fn new(
         sender_key: &str,
         signing_key: &str,
-        room_id: &str,
+        room_id: &RoomId,
         session_key: &str,
     ) -> Result<Self, OlmGroupSessionError> {
         Ok(InboundGroupSession {
             inner: OlmInboundGroupSession::new(session_key)?,
             sender_key: sender_key.to_owned(),
             signing_key: signing_key.to_owned(),
-            room_id: room_id.to_owned(),
+            room_id: room_id.clone(),
             forwarding_chains: None,
         })
     }
@@ -235,7 +237,7 @@ impl InboundGroupSession {
         pickle_mode: PicklingMode,
         sender_key: String,
         signing_key: String,
-        room_id: String,
+        room_id: RoomId,
     ) -> Result<Self, OlmGroupSessionError> {
         let session = OlmInboundGroupSession::unpickle(pickle, pickle_mode)?;
         Ok(InboundGroupSession {

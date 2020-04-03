@@ -13,6 +13,7 @@
 // limitations under the License.
 
 use std::collections::HashSet;
+use std::convert::TryFrom;
 use std::path::{Path, PathBuf};
 use std::result::Result as StdResult;
 use std::sync::Arc;
@@ -29,6 +30,7 @@ use zeroize::Zeroizing;
 use super::{Account, CryptoStore, CryptoStoreError, InboundGroupSession, Result, Session};
 use crate::crypto::device::Device;
 use crate::crypto::memory_stores::{GroupSessionStore, SessionStore, UserDevices};
+use crate::identifiers::{RoomId, UserId};
 
 pub struct SqliteStore {
     user_id: Arc<String>,
@@ -39,14 +41,14 @@ pub struct SqliteStore {
     inbound_group_sessions: GroupSessionStore,
     connection: Arc<Mutex<SqliteConnection>>,
     pickle_passphrase: Option<Zeroizing<String>>,
-    tracked_users: HashSet<String>,
+    tracked_users: HashSet<UserId>,
 }
 
 static DATABASE_NAME: &str = "matrix-sdk-crypto.db";
 
 impl SqliteStore {
     pub async fn open<P: AsRef<Path>>(
-        user_id: &str,
+        user_id: &UserId,
         device_id: &str,
         path: P,
     ) -> Result<SqliteStore> {
@@ -54,7 +56,7 @@ impl SqliteStore {
     }
 
     pub async fn open_with_passphrase<P: AsRef<Path>>(
-        user_id: &str,
+        user_id: &UserId,
         device_id: &str,
         path: P,
         passphrase: String,
@@ -69,7 +71,7 @@ impl SqliteStore {
     }
 
     async fn open_helper<P: AsRef<Path>>(
-        user_id: &str,
+        user_id: &UserId,
         device_id: &str,
         path: P,
         passphrase: Option<Zeroizing<String>>,
@@ -78,7 +80,7 @@ impl SqliteStore {
 
         let connection = SqliteConnection::connect(url.as_ref()).await?;
         let store = SqliteStore {
-            user_id: Arc::new(user_id.to_owned()),
+            user_id: Arc::new(user_id.to_string()),
             device_id: Arc::new(device_id.to_owned()),
             account_id: None,
             sessions: SessionStore::new(),
@@ -230,7 +232,7 @@ impl SqliteStore {
                     self.get_pickle_mode(),
                     sender_key.to_string(),
                     signing_key.to_owned(),
-                    room_id.to_owned(),
+                    RoomId::try_from(room_id.as_str()).unwrap(),
                 )?)
             })
             .collect::<Result<Vec<InboundGroupSession>>>()?)
@@ -302,8 +304,8 @@ impl CryptoStore for SqliteStore {
                   device_id = ?2
              ",
         )
-        .bind(&*self.user_id)
-        .bind(&*self.device_id)
+        .bind(&*self.user_id.to_string())
+        .bind(&*self.device_id.to_string())
         .bind(&pickle)
         .bind(acc.shared)
         .execute(&mut *connection)
@@ -311,8 +313,8 @@ impl CryptoStore for SqliteStore {
 
         let account_id: (i64,) =
             query_as("SELECT id FROM accounts WHERE user_id = ? and device_id = ?")
-                .bind(&*self.user_id)
-                .bind(&*self.device_id)
+                .bind(&*self.user_id.to_string())
+                .bind(&*self.device_id.to_string())
                 .fetch_one(&mut *connection)
                 .await?;
 
@@ -383,7 +385,7 @@ impl CryptoStore for SqliteStore {
         .bind(account_id)
         .bind(&session.sender_key)
         .bind(&session.signing_key)
-        .bind(&session.room_id)
+        .bind(&session.room_id.to_string())
         .bind(&pickle)
         .execute(&mut *connection)
         .await?;
@@ -393,7 +395,7 @@ impl CryptoStore for SqliteStore {
 
     async fn get_inbound_group_session(
         &mut self,
-        room_id: &str,
+        room_id: &RoomId,
         sender_key: &str,
         session_id: &str,
     ) -> Result<Option<Arc<Mutex<InboundGroupSession>>>> {
@@ -402,19 +404,19 @@ impl CryptoStore for SqliteStore {
             .get(room_id, sender_key, session_id))
     }
 
-    fn tracked_users(&self) -> &HashSet<String> {
+    fn tracked_users(&self) -> &HashSet<UserId> {
         &self.tracked_users
     }
 
-    async fn add_user_for_tracking(&mut self, user: &str) -> Result<bool> {
-        Ok(self.tracked_users.insert(user.to_string()))
+    async fn add_user_for_tracking(&mut self, user: &UserId) -> Result<bool> {
+        Ok(self.tracked_users.insert(user.clone()))
     }
 
-    async fn get_device(&self, _user_id: &str, _device_id: &str) -> Result<Option<Device>> {
+    async fn get_device(&self, _user_id: &UserId, _device_id: &str) -> Result<Option<Device>> {
         todo!()
     }
 
-    async fn get_user_devices(&self, _user_id: &str) -> Result<UserDevices> {
+    async fn get_user_devices(&self, _user_id: &UserId) -> Result<UserDevices> {
         todo!()
     }
 
@@ -442,7 +444,9 @@ mod test {
     use tempfile::tempdir;
     use tokio::sync::Mutex;
 
-    use super::{Account, CryptoStore, InboundGroupSession, Session, SqliteStore};
+    use super::{
+        Account, CryptoStore, InboundGroupSession, RoomId, Session, SqliteStore, TryFrom, UserId,
+    };
 
     static USER_ID: &str = "@example:localhost";
     static DEVICE_ID: &str = "DEVICEID";
@@ -450,7 +454,7 @@ mod test {
     async fn get_store() -> SqliteStore {
         let tmpdir = tempdir().unwrap();
         let tmpdir_path = tmpdir.path().to_str().unwrap();
-        SqliteStore::open(USER_ID, DEVICE_ID, tmpdir_path)
+        SqliteStore::open(&UserId::try_from(USER_ID).unwrap(), DEVICE_ID, tmpdir_path)
             .await
             .expect("Can't create store")
     }
@@ -501,7 +505,7 @@ mod test {
     async fn create_store() {
         let tmpdir = tempdir().unwrap();
         let tmpdir_path = tmpdir.path().to_str().unwrap();
-        let _ = SqliteStore::open("@example:localhost", "DEVICEID", tmpdir_path)
+        let _ = SqliteStore::open(&UserId::try_from(USER_ID).unwrap(), "DEVICEID", tmpdir_path)
             .await
             .expect("Can't create store");
     }
@@ -626,7 +630,7 @@ mod test {
         let session = InboundGroupSession::new(
             identity_keys.curve25519(),
             identity_keys.ed25519(),
-            "!test:localhost",
+            &RoomId::try_from("!test:localhost").unwrap(),
             &outbound_session.session_key(),
         )
         .expect("Can't create session");
@@ -647,7 +651,7 @@ mod test {
         let session = InboundGroupSession::new(
             identity_keys.curve25519(),
             identity_keys.ed25519(),
-            "!test:localhost",
+            &RoomId::try_from("!test:localhost").unwrap(),
             &outbound_session.session_key(),
         )
         .expect("Can't create session");

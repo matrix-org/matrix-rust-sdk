@@ -65,7 +65,7 @@ use tokio::sync::Mutex;
 ///         } = event.lock().await.deref()
 ///         {
 ///             let rooms = room.lock().await;
-///             let member = rooms.members.get(&sender.to_string()).unwrap();
+///             let member = rooms.members.get(&sender).unwrap();
 ///             println!(
 ///                 "{}: {}",
 ///                 member

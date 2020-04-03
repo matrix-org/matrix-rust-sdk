@@ -26,6 +26,7 @@ use tokio::sync::Mutex;
 use super::device::Device;
 use super::memory_stores::UserDevices;
 use super::olm::{Account, InboundGroupSession, Session};
+use crate::identifiers::{RoomId, UserId};
 use olm_rs::errors::{OlmAccountError, OlmGroupSessionError, OlmSessionError};
 
 pub mod memorystore;
@@ -75,13 +76,13 @@ pub trait CryptoStore: Debug + Send + Sync {
     async fn save_inbound_group_session(&mut self, session: InboundGroupSession) -> Result<bool>;
     async fn get_inbound_group_session(
         &mut self,
-        room_id: &str,
+        room_id: &RoomId,
         sender_key: &str,
         session_id: &str,
     ) -> Result<Option<Arc<Mutex<InboundGroupSession>>>>;
-    fn tracked_users(&self) -> &HashSet<String>;
-    async fn add_user_for_tracking(&mut self, user: &str) -> Result<bool>;
+    fn tracked_users(&self) -> &HashSet<UserId>;
+    async fn add_user_for_tracking(&mut self, user: &UserId) -> Result<bool>;
     async fn save_device(&self, device: Device) -> Result<()>;
-    async fn get_device(&self, user_id: &str, device_id: &str) -> Result<Option<Device>>;
-    async fn get_user_devices(&self, user_id: &str) -> Result<UserDevices>;
+    async fn get_device(&self, user_id: &UserId, device_id: &str) -> Result<Option<Device>>;
+    async fn get_user_devices(&self, user_id: &UserId) -> Result<UserDevices>;
 }

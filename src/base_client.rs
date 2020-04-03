@@ -400,8 +400,8 @@ impl Client {
     #[cfg_attr(docsrs, doc(cfg(feature = "encryption")))]
     pub async fn get_missing_sessions(
         &self,
-        users: impl Iterator<Item = &String>,
-    ) -> HashMap<RumaUserId, HashMap<DeviceId, KeyAlgorithm>> {
+        users: impl Iterator<Item = &UserId>,
+    ) -> HashMap<UserId, HashMap<DeviceId, KeyAlgorithm>> {
         let mut olm = self.olm.lock().await;
 
         match &mut *olm {
@@ -431,7 +431,7 @@ impl Client {
     /// Returns an empty error if no keys need to be queried.
     #[cfg(feature = "encryption")]
     #[cfg_attr(docsrs, doc(cfg(feature = "encryption")))]
-    pub async fn users_for_key_query(&self) -> StdResult<HashSet<String>, ()> {
+    pub async fn users_for_key_query(&self) -> StdResult<HashSet<UserId>, ()> {
         let olm = self.olm.lock().await;
 
         match &*olm {

@@ -623,7 +623,7 @@ impl AsyncClient {
     /// * `data` - The content of the message.
     pub async fn room_send(
         &mut self,
-        room_id: &str,
+        room_id: &RoomId,
         data: MessageEventContent,
     ) -> Result<create_message_event::Response> {
         #[cfg(feature = "encryption")]
@@ -658,7 +658,7 @@ impl AsyncClient {
         }
 
         let request = create_message_event::Request {
-            room_id: RoomId::try_from(room_id).unwrap(),
+            room_id: room_id.clone(),
             event_type: EventType::RoomMessage,
             txn_id: self.transaction_id().to_string(),
             data,
@@ -771,7 +771,7 @@ impl AsyncClient {
         let mut device_keys: HashMap<UserId, Vec<DeviceId>> = HashMap::new();
 
         for user in users_for_query.drain() {
-            device_keys.insert(UserId::try_from(user.as_ref()).unwrap(), Vec::new());
+            device_keys.insert(user, Vec::new());
         }
 
         let request = get_keys::Request {
