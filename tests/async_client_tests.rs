@@ -84,6 +84,8 @@ async fn room_names() {
     assert_eq!(vec!["tutorial"], client.get_room_names().await);
     assert_eq!(
         Some("tutorial".into()),
-        client.get_room_name(&RoomId::try_from("!SVkFJHzfwvuaIEawgC:localhost").unwrap()).await
+        client
+            .get_room_name(&RoomId::try_from("!SVkFJHzfwvuaIEawgC:localhost").unwrap())
+            .await
     );
 }

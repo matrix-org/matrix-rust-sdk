@@ -8,4 +8,3 @@ pub use user::User;
 
 #[allow(dead_code)]
 pub type Token = String;
-pub type UserId = String;

@@ -354,7 +354,6 @@ impl AsyncClient {
         let mut response = self.send(request).await?;
 
         for (room_id, room) in &mut response.rooms.join {
-
             let mut client = self.base_client.write().await;
 
             let _matrix_room = {

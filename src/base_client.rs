@@ -31,7 +31,7 @@ use crate::events::collections::only::Event as NonRoomEvent;
 use crate::events::ignored_user_list::IgnoredUserListEvent;
 use crate::events::push_rules::{PushRulesEvent, Ruleset};
 use crate::events::EventResult;
-use crate::identifiers::{RoomId, RoomAliasId, UserId};
+use crate::identifiers::{RoomAliasId, RoomId, UserId};
 use crate::models::Room;
 use crate::session::Session;
 use crate::EventEmitter;
@@ -207,20 +207,11 @@ impl Client {
     pub(crate) fn handle_ignored_users(&mut self, event: &IgnoredUserListEvent) -> bool {
         // this avoids cloning every UserId for the eq check
         if self.ignored_users.iter().collect::<Vec<_>>()
-            == event
-                .content
-                .ignored_users
-                .iter()
-                .collect::<Vec<_>>()
+            == event.content.ignored_users.iter().collect::<Vec<_>>()
         {
             false
         } else {
-            self.ignored_users = event
-                .content
-                .ignored_users
-                .iter()
-                .cloned()
-                .collect::<Vec<_>>();
+            self.ignored_users = event.content.ignored_users.to_vec();
             true
         }
     }
@@ -293,7 +284,11 @@ impl Client {
     /// * `room_id` - The unique id of the room the event belongs to.
     ///
     /// * `event` - The event that should be handled by the client.
-    pub async fn receive_joined_state_event(&mut self, room_id: &RoomId, event: &StateEvent) -> bool {
+    pub async fn receive_joined_state_event(
+        &mut self,
+        room_id: &RoomId,
+        event: &StateEvent,
+    ) -> bool {
         let mut room = self.get_or_create_room(room_id).lock().await;
         room.receive_state_event(event)
     }
@@ -308,7 +303,11 @@ impl Client {
     /// * `room_id` - The unique id of the room the event belongs to.
     ///
     /// * `event` - The event that should be handled by the client.
-    pub async fn receive_presence_event(&mut self, room_id: &RoomId, event: &PresenceEvent) -> bool {
+    pub async fn receive_presence_event(
+        &mut self,
+        room_id: &RoomId,
+        event: &PresenceEvent,
+    ) -> bool {
         // this should be the room that was just created in the `Client::sync` loop.
         if let Some(room) = self.get_room(room_id) {
             let mut room = room.lock().await;

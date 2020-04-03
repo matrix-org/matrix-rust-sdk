@@ -28,7 +28,7 @@ use crate::events::room::{
     name::NameEvent,
     power_levels::PowerLevelsEvent,
 };
-use crate::identifiers::{RoomId, RoomAliasId, UserId};
+use crate::identifiers::{RoomAliasId, RoomId, UserId};
 
 use js_int::UInt;
 
@@ -83,7 +83,11 @@ impl RoomName {
         true
     }
 
-    pub fn calculate_name(&self, room_id: &RoomId, members: &HashMap<UserId, RoomMember>) -> String {
+    pub fn calculate_name(
+        &self,
+        room_id: &RoomId,
+        members: &HashMap<UserId, RoomMember>,
+    ) -> String {
         // https://matrix.org/docs/spec/client_server/latest#calculating-the-display-name-for-a-room.
         // the order in which we check for a name ^^
         if let Some(name) = &self.name {
@@ -144,13 +148,17 @@ impl Room {
     }
 
     fn add_member(&mut self, event: &MemberEvent) -> bool {
-        if self.members.contains_key(&UserId::try_from(event.state_key.as_str()).unwrap()) {
+        if self
+            .members
+            .contains_key(&UserId::try_from(event.state_key.as_str()).unwrap())
+        {
             return false;
         }
 
         let member = RoomMember::new(event);
 
-        self.members.insert(UserId::try_from(event.state_key.as_str()).unwrap(), member);
+        self.members
+            .insert(UserId::try_from(event.state_key.as_str()).unwrap(), member);
 
         true
     }
@@ -179,7 +187,10 @@ impl Room {
         match event.membership_change() {
             MembershipChange::Invited | MembershipChange::Joined => self.add_member(event),
             _ => {
-                if let Some(member) = self.members.get_mut(&UserId::try_from(event.state_key.as_str()).unwrap()) {
+                if let Some(member) = self
+                    .members
+                    .get_mut(&UserId::try_from(event.state_key.as_str()).unwrap())
+                {
                     member.update_member(event)
                 } else {
                     false
@@ -223,7 +234,10 @@ impl Room {
     ///
     /// Returns true if the room name changed, false otherwise.
     pub fn handle_power_level(&mut self, event: &PowerLevelsEvent) -> bool {
-        if let Some(member) = self.members.get_mut(&UserId::try_from(event.state_key.as_str()).unwrap()) {
+        if let Some(member) = self
+            .members
+            .get_mut(&UserId::try_from(event.state_key.as_str()).unwrap())
+        {
             member.update_power(event)
         } else {
             false
@@ -284,11 +298,7 @@ impl Room {
     ///
     /// * `event` - The presence event for a specified room member.
     pub fn receive_presence_event(&mut self, event: &PresenceEvent) -> bool {
-        if let Some(user) = self
-            .members
-            .get_mut(&event.sender)
-            .map(|m| &mut m.user)
-        {
+        if let Some(user) = self.members.get_mut(&event.sender).map(|m| &mut m.user) {
             if user.did_update_presence(event) {
                 false
             } else {
