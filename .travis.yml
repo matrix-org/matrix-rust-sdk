@@ -1,5 +1,11 @@
 language: rust
 rust: stable
+addons:
+  apt:
+    packages:
+      - libssl-dev
+
+cache: cargo
 
 jobs:
   include:
@@ -7,6 +13,15 @@ jobs:
       dist: bionic
 
     - os: osx
+    - os: linux
+      name: Coverage
+      before_script:
+          - cargo install cargo-tarpaulin
+      script:
+          - cargo tarpaulin --features 'encryption sqlite-cryptostore' -v
+      after_success:
+          - cargo tarpaulin --out Xml
+          - bash <(curl -s https://codecov.io/bash)
 
 before_script:
   - rustup component add rustfmt
