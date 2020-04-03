@@ -177,9 +177,7 @@ impl SyncSettings {
 }
 
 #[cfg(feature = "encryption")]
-use api::r0::keys::get_keys;
-#[cfg(feature = "encryption")]
-use api::r0::keys::upload_keys;
+use api::r0::keys::{claim_keys, get_keys, upload_keys, KeyAlgorithm};
 use api::r0::message::create_message_event;
 use api::r0::session::login;
 use api::r0::sync::sync_events;
@@ -637,6 +635,37 @@ impl AsyncClient {
         };
 
         let response = self.send(request).await?;
+        Ok(response)
+    }
+
+    /// Claim one-time keys creating new Olm sessions.
+    ///
+    /// # Arguments
+    ///
+    /// * `users` - The list of user/device pairs that we should claim keys for.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the client isn't logged in, or if no encryption keys need to
+    /// be uploaded.
+    #[cfg(feature = "encryption")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "encryption")))]
+    #[instrument]
+    async fn claim_one_time_keys(
+        &self,
+        one_time_keys: HashMap<UserId, HashMap<DeviceId, KeyAlgorithm>>,
+    ) -> Result<claim_keys::Response> {
+        let request = claim_keys::Request {
+            timeout: None,
+            one_time_keys,
+        };
+
+        let response = self.send(request).await?;
+        self.base_client
+            .write()
+            .await
+            .receive_keys_claim_response(&response)
+            .await?;
         Ok(response)
     }
 

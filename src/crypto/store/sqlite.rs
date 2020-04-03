@@ -417,6 +417,10 @@ impl CryptoStore for SqliteStore {
     async fn get_user_devices(&self, user_id: &str) -> Result<UserDevices> {
         todo!()
     }
+
+    async fn save_device(&self, device: Device) -> Result<()> {
+        todo!()
+    }
 }
 
 impl std::fmt::Debug for SqliteStore {

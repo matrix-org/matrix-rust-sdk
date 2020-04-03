@@ -116,6 +116,10 @@ impl UserDevices {
     pub fn keys(&self) -> impl Iterator<Item = &String> {
         self.entries.keys()
     }
+
+    pub fn devices(&self) -> impl Iterator<Item = &Device> {
+        self.entries.values()
+    }
 }
 
 impl DeviceStore {

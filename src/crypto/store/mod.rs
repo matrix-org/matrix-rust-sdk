@@ -83,6 +83,7 @@ pub trait CryptoStore: Debug + Send + Sync {
     ) -> Result<Option<Arc<Mutex<InboundGroupSession>>>>;
     fn tracked_users(&self) -> &HashSet<String>;
     async fn add_user_for_tracking(&mut self, user: &str) -> Result<bool>;
+    async fn save_device(&self, device: Device) -> Result<()>;
     async fn get_device(&self, user_id: &str, device_id: &str) -> Result<Option<Device>>;
     async fn get_user_devices(&self, user_id: &str) -> Result<UserDevices>;
 }

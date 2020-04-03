@@ -40,10 +40,12 @@ use tokio::sync::Mutex;
 use crate::crypto::{OlmMachine, OneTimeKeys};
 #[cfg(feature = "encryption")]
 use ruma_client_api::r0::keys::{
-    get_keys::Response as KeysQueryResponse, upload_keys::Response as KeysUploadResponse,
-    DeviceKeys,
+    claim_keys::Response as KeysClaimResponse, get_keys::Response as KeysQueryResponse,
+    upload_keys::Response as KeysUploadResponse, DeviceKeys, KeyAlgorithm,
 };
 use ruma_identifiers::RoomId;
+#[cfg(feature = "encryption")]
+use ruma_identifiers::{DeviceId, UserId as RumaUserId};
 
 pub type Token = String;
 pub type UserId = String;
@@ -399,6 +401,23 @@ impl Client {
     /// Returns an empty error if no keys need to be uploaded.
     #[cfg(feature = "encryption")]
     #[cfg_attr(docsrs, doc(cfg(feature = "encryption")))]
+    pub async fn get_missing_sessions(
+        &self,
+        users: impl Iterator<Item = &String>,
+    ) -> HashMap<RumaUserId, HashMap<DeviceId, KeyAlgorithm>> {
+        let mut olm = self.olm.lock().await;
+
+        match &mut *olm {
+            Some(o) => o.get_missing_sessions(users).await,
+            None => HashMap::new(),
+        }
+    }
+
+    /// Get a tuple of device and one-time keys that need to be uploaded.
+    ///
+    /// Returns an empty error if no keys need to be uploaded.
+    #[cfg(feature = "encryption")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "encryption")))]
     pub async fn keys_for_upload(
         &self,
     ) -> StdResult<(Option<DeviceKeys>, Option<OneTimeKeys>), ()> {
@@ -440,6 +459,25 @@ impl Client {
 
         let o = olm.as_mut().expect("Client isn't logged in.");
         o.receive_keys_upload_response(response).await?;
+        Ok(())
+    }
+
+    /// Receive a successful keys claim response.
+    ///
+    /// # Arguments
+    ///
+    /// * `response` - The keys claim response of the request that the client
+    /// performed.
+    ///
+    /// # Panics
+    /// Panics if the client hasn't been logged in.
+    #[cfg(feature = "encryption")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "encryption")))]
+    pub async fn receive_keys_claim_response(&self, response: &KeysClaimResponse) -> Result<()> {
+        let mut olm = self.olm.lock().await;
+
+        let o = olm.as_mut().expect("Client isn't logged in.");
+        o.receive_keys_claim_response(response).await?;
         Ok(())
     }
 

@@ -97,4 +97,9 @@ impl CryptoStore for MemoryStore {
     async fn get_user_devices(&self, user_id: &str) -> Result<UserDevices> {
         Ok(self.devices.user_devices(user_id))
     }
+
+    async fn save_device(&self, device: Device) -> Result<()> {
+        self.devices.add(device);
+        Ok(())
+    }
 }
