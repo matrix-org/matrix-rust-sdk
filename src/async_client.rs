@@ -511,7 +511,7 @@ impl AsyncClient {
 
                 if self.base_client.read().await.should_query_keys().await {
                     // TODO enable this
-                    // let _ = self.keys_query().await;
+                    let _ = self.keys_query().await;
                 }
             }
 
@@ -627,6 +627,37 @@ impl AsyncClient {
         room_id: &str,
         data: MessageEventContent,
     ) -> Result<create_message_event::Response> {
+        #[cfg(feature = "encryption")]
+        {
+            let encrypted = {
+                let client = self.base_client.read().await;
+                let room = client.joined_rooms.get(room_id);
+
+                match room {
+                    Some(r) => r.lock().await.is_encrypted(),
+                    None => false,
+                }
+            };
+
+            if encrypted {
+                let missing_sessions = {
+                    let client = self.base_client.read().await;
+                    let room = client.joined_rooms.get(room_id);
+                    let room = room.as_ref().unwrap().lock().await;
+                    let users = room.members.keys();
+                    self.base_client
+                        .read()
+                        .await
+                        .get_missing_sessions(users)
+                        .await
+                };
+
+                if !missing_sessions.is_empty() {
+                    let _ = self.claim_one_time_keys(missing_sessions).await;
+                }
+            }
+        }
+
         let request = create_message_event::Request {
             room_id: RoomId::try_from(room_id).unwrap(),
             event_type: EventType::RoomMessage,
