@@ -13,7 +13,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
+#[cfg(feature = "encryption")]
+use std::collections::HashSet;
 use std::fmt;
 use std::sync::Arc;
 

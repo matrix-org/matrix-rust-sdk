@@ -23,7 +23,9 @@ use std::time::{Duration, Instant};
 use futures::future::Future;
 use tokio::sync::RwLock;
 use tokio::time::delay_for as sleep;
-use tracing::{debug, info, instrument, trace};
+#[cfg(feature = "encryption")]
+use tracing::debug;
+use tracing::{info, instrument, trace};
 
 use http::Method as HttpMethod;
 use http::Response as HttpResponse;
@@ -746,14 +748,14 @@ impl AsyncClient {
         self.base_client.read().await.sync_token.clone()
     }
 
-    #[cfg(feature = "encryption")]
-    #[cfg_attr(docsrs, doc(cfg(feature = "encryption")))]
-    #[instrument]
     /// Query the server for users device keys.
     ///
     /// # Panics
     ///
     /// Panics if no key query needs to be done.
+    #[cfg(feature = "encryption")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "encryption")))]
+    #[instrument]
     async fn keys_query(&self) -> Result<get_keys::Response> {
         let mut users_for_query = self
             .base_client
