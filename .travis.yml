@@ -18,9 +18,8 @@ jobs:
       before_script:
           - cargo install cargo-tarpaulin
       script:
-          - cargo tarpaulin --features 'encryption sqlite-cryptostore' -v
+          - cargo tarpaulin --features 'encryption sqlite-cryptostore' --out Xml
       after_success:
-          - cargo tarpaulin --out Xml
           - bash <(curl -s https://codecov.io/bash)
 
 before_script:
