@@ -135,7 +135,7 @@ impl AsyncClientConfig {
 pub struct SyncSettings {
     pub(crate) timeout: Option<Duration>,
     pub(crate) token: Option<String>,
-    pub(crate) full_state: Option<bool>,
+    pub(crate) full_state: bool,
 }
 
 impl SyncSettings {
@@ -173,7 +173,7 @@ impl SyncSettings {
     /// * `full_state` - A boolean deciding if the server should return the full
     ///     state or not.
     pub fn full_state(mut self, full_state: bool) -> Self {
-        self.full_state = Some(full_state);
+        self.full_state = full_state;
         self
     }
 }
@@ -347,7 +347,7 @@ impl AsyncClient {
             filter: None,
             since: sync_settings.token,
             full_state: sync_settings.full_state,
-            set_presence: None,
+            set_presence: sync_events::SetPresence::Online,
             timeout: sync_settings.timeout,
         };
 

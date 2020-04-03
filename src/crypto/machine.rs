@@ -917,9 +917,7 @@ impl OlmMachine {
         decrypted_object.insert("event_id".to_owned(), event.event_id.to_string().into());
         decrypted_object.insert("origin_server_ts".to_owned(), server_ts.into());
 
-        if let Some(unsigned) = &event.unsigned {
-            decrypted_object.insert("unsigned".to_owned(), unsigned.clone());
-        }
+        decrypted_object.insert("unsigned".to_owned(), event.unsigned.clone().into());
 
         let decrypted_event = serde_json::from_value::<EventResult<RoomEvent>>(decrypted_value)?;
         trace!("Successfully decrypted megolm event {:?}", decrypted_event);

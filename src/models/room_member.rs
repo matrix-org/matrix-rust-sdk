@@ -119,6 +119,8 @@ mod test {
     use crate::identifiers::{EventId, RoomId, UserId};
     use crate::{AsyncClient, Session, SyncSettings};
 
+    use serde_json;
+
     use js_int::{Int, UInt};
     use mockito::{mock, Matcher};
     use url::Url;
@@ -190,7 +192,7 @@ mod test {
             origin_server_ts: UInt::new(1520372800469).unwrap(),
             prev_content: None,
             room_id: RoomId::try_from("!roomid:room.com").ok(),
-            unsigned: None,
+            unsigned: serde_json::Map::new(),
             sender: UserId::try_from("@example:example.com").unwrap(),
             state_key: "@example:example.com".into(),
         }
