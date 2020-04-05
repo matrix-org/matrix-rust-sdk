@@ -50,17 +50,6 @@ use ruma_identifiers::DeviceId;
 
 pub type Token = String;
 
-#[derive(Debug, Default)]
-/// `RoomName` allows the calculation of a text room name.
-pub struct RoomName {
-    /// The displayed name of the room.
-    name: Option<String>,
-    /// The canonical alias of the room ex. `#room-name:example.com` and port number.
-    canonical_alias: Option<RoomAliasId>,
-    /// List of `RoomAliasId`s the room has been given.
-    aliases: Vec<RoomAliasId>,
-}
-
 /// A no IO Client implementation.
 ///
 /// This Client is a state machine that receives responses and events and

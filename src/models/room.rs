@@ -156,7 +156,7 @@ impl Room {
         }
 
         let member = RoomMember::new(event);
-
+        
         self.members
             .insert(UserId::try_from(event.state_key.as_str()).unwrap(), member);
 
@@ -187,9 +187,14 @@ impl Room {
         match event.membership_change() {
             MembershipChange::Invited | MembershipChange::Joined => self.add_member(event),
             _ => {
+                let user = if let Ok(id) = UserId::try_from(event.state_key.as_str()) {
+                    id
+                } else {
+                    return false;
+                };
                 if let Some(member) = self
                     .members
-                    .get_mut(&UserId::try_from(event.state_key.as_str()).unwrap())
+                    .get_mut(&user)
                 {
                     member.update_member(event)
                 } else {
@@ -234,9 +239,17 @@ impl Room {
     ///
     /// Returns true if the room name changed, false otherwise.
     pub fn handle_power_level(&mut self, event: &PowerLevelsEvent) -> bool {
+        // when getting a response from the actual matrix server `state_key`
+        // was empty, the spec says "state_key: A zero-length string."
+        // for `m.room.power_levels` events
+        let user = if let Ok(id) = UserId::try_from(event.state_key.as_str()) {
+            id
+        } else {
+            return false;
+        };
         if let Some(member) = self
             .members
-            .get_mut(&UserId::try_from(event.state_key.as_str()).unwrap())
+            .get_mut(&user)
         {
             member.update_power(event)
         } else {
@@ -260,7 +273,7 @@ impl Room {
         match event {
             // update to the current members of the room
             RoomEvent::RoomMember(m) => self.handle_membership(m),
-            // finds all events related to the name of the room for later calculation
+            // finds all events related to the name of the room for later use
             RoomEvent::RoomName(n) => self.handle_room_name(n),
             RoomEvent::RoomCanonicalAlias(ca) => self.handle_canonical(ca),
             RoomEvent::RoomAliases(a) => self.handle_room_aliases(a),
