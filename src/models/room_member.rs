@@ -16,11 +16,11 @@
 use std::convert::TryFrom;
 
 use crate::events::collections::all::Event;
+use crate::events::presence::{PresenceEvent, PresenceEventContent, PresenceState};
 use crate::events::room::{
     member::{MemberEvent, MembershipChange, MembershipState},
     power_levels::PowerLevelsEvent,
 };
-use crate::events::presence::{PresenceEvent, PresenceEventContent, PresenceState};
 use crate::identifiers::UserId;
 
 use js_int::{Int, UInt};
@@ -106,12 +106,7 @@ impl RoomMember {
         }
     }
 
-    pub fn update_power(&mut self, event: &PowerLevelsEvent) -> bool {
-        let mut max_power = event.content.users_default;
-        for power in event.content.users.values() {
-            max_power = *power.max(&max_power);
-        }
-
+    pub fn update_power(&mut self, event: &PowerLevelsEvent, max_power: Int) -> bool {
         let changed;
         if let Some(user_power) = event.content.users.get(&self.user_id) {
             changed = self.power_level != Some(*user_power);
@@ -179,18 +174,16 @@ impl RoomMember {
 
         self.presence_events.push(presence_ev.clone());
         self.avatar_url = avatar_url.clone();
-        self.currently_active = currently_active.clone();
+        self.currently_active = *currently_active;
         self.display_name = displayname.clone();
-        self.last_active_ago = last_active_ago.clone();
-        self.presence = Some(presence.clone());
+        self.last_active_ago = *last_active_ago;
+        self.presence = Some(*presence);
         self.status_msg = status_msg.clone();
     }
 }
 
 #[cfg(test)]
 mod test {
-    use super::*;
-
     use crate::identifiers::{EventId, RoomId, UserId};
     use crate::{AsyncClient, Session, SyncSettings};
 
@@ -202,6 +195,7 @@ mod test {
 
     use std::collections::HashMap;
     use std::convert::TryFrom;
+    use std::ops::Deref;
     use std::str::FromStr;
     use std::time::Duration;
 
@@ -240,11 +234,17 @@ mod test {
             .lock()
             .await;
 
-        for (_id, member) in &mut room.members {
-            let power = power_levels();
-            assert!(member.update_power(&power));
-            assert_eq!(MembershipState::Join, member.membership);
-        }
+        let power = power_levels();
+        assert!(room.handle_power_level(&power));
+
+        assert_eq!(
+            room.deref().power_levels.as_ref().unwrap().ban,
+            Int::new(40).unwrap()
+        );
+        assert_eq!(
+            room.deref().power_levels.as_ref().unwrap().notifications,
+            Int::new(35).unwrap()
+        );
     }
 
     fn power_levels() -> PowerLevelsEvent {

@@ -25,10 +25,7 @@ impl EventEmitter for EventCallback {
             let member = rooms.members.get(&sender).unwrap();
             println!(
                 "{}: {}",
-                member
-                    .display_name
-                    .as_ref()
-                    .unwrap_or(&sender.to_string()),
+                member.display_name.as_ref().unwrap_or(&sender.to_string()),
                 msg_body
             );
         }

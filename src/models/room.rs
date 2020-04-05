@@ -26,11 +26,12 @@ use crate::events::room::{
     encryption::EncryptionEvent,
     member::{MemberEvent, MembershipChange},
     name::NameEvent,
-    power_levels::PowerLevelsEvent,
+    power_levels::{NotificationPowerLevels, PowerLevelsEvent, PowerLevelsEventContent},
 };
+use crate::events::EventType;
 use crate::identifiers::{RoomAliasId, RoomId, UserId};
 
-use js_int::UInt;
+use js_int::{Int, UInt};
 
 #[derive(Debug, Default)]
 /// `RoomName` allows the calculation of a text room name.
@@ -41,6 +42,32 @@ pub struct RoomName {
     canonical_alias: Option<RoomAliasId>,
     /// List of `RoomAliasId`s the room has been given.
     aliases: Vec<RoomAliasId>,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub struct PowerLevels {
+    /// The level required to ban a user.
+    pub ban: Int,
+    /// The level required to send specific event types.
+    ///
+    /// This is a mapping from event type to power level required.
+    pub events: HashMap<EventType, Int>,
+    /// The default level required to send message events.
+    pub events_default: Int,
+    /// The level required to invite a user.
+    pub invite: Int,
+    /// The level required to kick a user.
+    pub kick: Int,
+    /// The level required to redact an event.
+    pub redact: Int,
+    /// The default level required to send state events.
+    pub state_default: Int,
+    /// The default power level for every user in the room.
+    pub users_default: Int,
+    /// The power level requirements for specific notification types.
+    ///
+    /// This is a mapping from `key` to power level for that notifications key.
+    pub notifications: Int,
 }
 
 #[derive(Debug)]
@@ -58,6 +85,8 @@ pub struct Room {
     pub members: HashMap<UserId, RoomMember>,
     /// A list of users that are currently typing.
     pub typing_users: Vec<UserId>,
+    /// The power level requirements for specific actions in this room
+    pub power_levels: Option<PowerLevels>,
     // TODO when encryption events are handled we store algorithm used and rotation time.
     /// A flag indicating if the room is encrypted.
     pub encrypted: bool,
@@ -131,6 +160,7 @@ impl Room {
             creator: None,
             members: HashMap::new(),
             typing_users: Vec::new(),
+            power_levels: None,
             encrypted: false,
             unread_highlight: None,
             unread_notifications: None,
@@ -156,7 +186,7 @@ impl Room {
         }
 
         let member = RoomMember::new(event);
-        
+
         self.members
             .insert(UserId::try_from(event.state_key.as_str()).unwrap(), member);
 
@@ -180,6 +210,35 @@ impl Room {
         true
     }
 
+    fn set_room_power_level(&mut self, event: &PowerLevelsEvent) -> bool {
+        let PowerLevelsEventContent {
+            ban,
+            events,
+            events_default,
+            invite,
+            kick,
+            redact,
+            state_default,
+            users_default,
+            notifications: NotificationPowerLevels { room },
+            ..
+        } = &event.content;
+
+        let power = PowerLevels {
+            ban: *ban,
+            events: events.clone(),
+            events_default: *events_default,
+            invite: *invite,
+            kick: *kick,
+            redact: *redact,
+            state_default: *state_default,
+            users_default: *users_default,
+            notifications: *room,
+        };
+        self.power_levels = Some(power);
+        true
+    }
+
     /// Handle a room.member updating the room state if necessary.
     ///
     /// Returns true if the joined member list changed, false otherwise.
@@ -192,10 +251,7 @@ impl Room {
                 } else {
                     return false;
                 };
-                if let Some(member) = self
-                    .members
-                    .get_mut(&user)
-                {
+                if let Some(member) = self.members.get_mut(&user) {
                     member.update_member(event)
                 } else {
                     false
@@ -239,22 +295,22 @@ impl Room {
     ///
     /// Returns true if the room name changed, false otherwise.
     pub fn handle_power_level(&mut self, event: &PowerLevelsEvent) -> bool {
-        // when getting a response from the actual matrix server `state_key`
-        // was empty, the spec says "state_key: A zero-length string."
-        // for `m.room.power_levels` events
-        let user = if let Ok(id) = UserId::try_from(event.state_key.as_str()) {
-            id
-        } else {
-            return false;
-        };
-        if let Some(member) = self
-            .members
-            .get_mut(&user)
-        {
-            member.update_power(event)
-        } else {
-            false
+        // NOTE: this is always true, we assume that if we get an event their is an update.
+        let mut updated = self.set_room_power_level(event);
+
+        let mut max_power = event.content.users_default;
+        for power in event.content.users.values() {
+            max_power = *power.max(&max_power);
         }
+
+        for user in event.content.users.keys() {
+            if let Some(member) = self.members.get_mut(user) {
+                if member.update_power(event, max_power) {
+                    updated = true;
+                }
+            }
+        }
+        updated
     }
 
     fn handle_encryption_event(&mut self, _event: &EncryptionEvent) -> bool {
@@ -297,6 +353,7 @@ impl Room {
             StateEvent::RoomName(n) => self.handle_room_name(n),
             StateEvent::RoomCanonicalAlias(ca) => self.handle_canonical(ca),
             StateEvent::RoomAliases(a) => self.handle_room_aliases(a),
+            StateEvent::RoomPowerLevels(p) => self.handle_power_level(p),
             StateEvent::RoomEncryption(e) => self.handle_encryption_event(e),
             _ => false,
         }
@@ -337,6 +394,7 @@ mod test {
     use url::Url;
 
     use std::convert::TryFrom;
+    use std::ops::Deref;
     use std::str::FromStr;
     use std::time::Duration;
 
@@ -375,5 +433,7 @@ mod test {
         for (_id, member) in &room.members {
             assert_eq!(MembershipState::Join, member.membership);
         }
+
+        assert!(room.deref().power_levels.is_some())
     }
 }
