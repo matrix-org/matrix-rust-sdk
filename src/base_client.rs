@@ -31,7 +31,7 @@ use crate::events::collections::only::Event as NonRoomEvent;
 use crate::events::ignored_user_list::IgnoredUserListEvent;
 use crate::events::push_rules::{PushRulesEvent, Ruleset};
 use crate::events::EventResult;
-use crate::identifiers::{RoomAliasId, RoomId, UserId};
+use crate::identifiers::{RoomId, UserId};
 use crate::models::Room;
 use crate::session::Session;
 use crate::EventEmitter;

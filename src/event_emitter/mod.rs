@@ -179,7 +179,7 @@ mod test {
         }
         async fn on_room_canonical_alias(
             &mut self,
-            r: Arc<Mutex<Room>>,
+            _: Arc<Mutex<Room>>,
             _: Arc<Mutex<CanonicalAliasEvent>>,
         ) {
             self.0.lock().await.push("canonical".to_string())
@@ -304,7 +304,7 @@ mod test {
 
         let vec = Arc::new(Mutex::new(Vec::new()));
         let test_vec = Arc::clone(&vec);
-        let mut emitter = Arc::new(Mutex::new(
+        let emitter = Arc::new(Mutex::new(
             Box::new(EvEmitterTest(vec)) as Box<(dyn EventEmitter)>
         ));
         let mut client = AsyncClient::new(homeserver, Some(session)).unwrap();

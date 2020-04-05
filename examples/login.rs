@@ -26,7 +26,6 @@ impl EventEmitter for EventCallback {
             println!(
                 "{}: {}",
                 member
-                    .user
                     .display_name
                     .as_ref()
                     .unwrap_or(&sender.to_string()),

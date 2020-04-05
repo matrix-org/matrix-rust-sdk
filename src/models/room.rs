@@ -99,7 +99,7 @@ impl RoomName {
         } else {
             let mut names = members
                 .values()
-                .flat_map(|m| m.user.display_name.clone())
+                .flat_map(|m| m.display_name.clone())
                 .take(3)
                 .collect::<Vec<_>>();
 
@@ -311,11 +311,11 @@ impl Room {
     ///
     /// * `event` - The presence event for a specified room member.
     pub fn receive_presence_event(&mut self, event: &PresenceEvent) -> bool {
-        if let Some(user) = self.members.get_mut(&event.sender).map(|m| &mut m.user) {
-            if user.did_update_presence(event) {
+        if let Some(member) = self.members.get_mut(&event.sender) {
+            if member.did_update_presence(event) {
                 false
             } else {
-                user.update_presence(event);
+                member.update_presence(event);
                 true
             }
         } else {
