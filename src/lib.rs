@@ -40,6 +40,9 @@ mod event_emitter;
 mod models;
 mod session;
 
+// TODO remove
+mod test_builder;
+
 #[cfg(feature = "encryption")]
 mod crypto;
 

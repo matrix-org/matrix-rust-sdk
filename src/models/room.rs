@@ -399,6 +399,11 @@ mod test {
     use std::time::Duration;
 
     #[tokio::test]
+    async fn add_member() {
+        
+    }
+
+    #[tokio::test]
     async fn user_presence() {
         let homeserver = Url::from_str(&mockito::server_url()).unwrap();
 
