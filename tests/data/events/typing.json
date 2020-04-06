@@ -1,0 +1,10 @@
+{
+    "content": {
+        "user_ids": [
+            "@alice:matrix.org",
+            "@bob:example.com"
+        ]
+    },
+    "room_id": "!jEsUZKDJdhlrceRyVU:example.org",
+    "type": "m.typing"
+}
