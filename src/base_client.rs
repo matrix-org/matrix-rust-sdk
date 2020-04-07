@@ -306,17 +306,42 @@ impl Client {
         }
     }
 
-    /// Receive a presence event from a sync response and updates the client state.
+    /// Receive an account data event from a sync response and updates the client state.
     ///
-    /// This will only update the user if found in the current room looped through by `AsyncClient::sync`.
-    /// Returns true if the specific users presence has changed, false otherwise.
+    /// Returns true if the state of the `Room` has changed, false otherwise.
     ///
     /// # Arguments
     ///
     /// * `room_id` - The unique id of the room the event belongs to.
     ///
     /// * `event` - The presence event for a specified room member.
-    pub async fn receive_account_data(&mut self, room_id: &RoomId, event: &NonRoomEvent) -> bool {
+    pub async fn receive_account_data_event(
+        &mut self,
+        room_id: &RoomId,
+        event: &NonRoomEvent,
+    ) -> bool {
+        match event {
+            NonRoomEvent::IgnoredUserList(iu) => self.handle_ignored_users(iu),
+            NonRoomEvent::Presence(p) => self.receive_presence_event(room_id, p).await,
+            NonRoomEvent::PushRules(pr) => self.handle_push_rules(pr),
+            _ => false,
+        }
+    }
+
+    /// Receive an ephemeral event from a sync response and updates the client state.
+    ///
+    /// Returns true if the state of the `Room` has changed, false otherwise.
+    ///
+    /// # Arguments
+    ///
+    /// * `room_id` - The unique id of the room the event belongs to.
+    ///
+    /// * `event` - The presence event for a specified room member.
+    pub async fn receive_ephemeral_event(
+        &mut self,
+        room_id: &RoomId,
+        event: &NonRoomEvent,
+    ) -> bool {
         match event {
             NonRoomEvent::IgnoredUserList(iu) => self.handle_ignored_users(iu),
             NonRoomEvent::Presence(p) => self.receive_presence_event(room_id, p).await,
@@ -693,6 +718,68 @@ impl Client {
     }
 
     pub(crate) async fn emit_account_data_event(
+        &mut self,
+        room_id: &RoomId,
+        event: &mut NonRoomEvent,
+    ) {
+        match event {
+            NonRoomEvent::Presence(presence) => {
+                if let Some(ee) = &self.event_emitter {
+                    if let Some(room) = self.get_room(&room_id) {
+                        ee.lock()
+                            .await
+                            .on_account_presence(
+                                Arc::clone(&room),
+                                Arc::new(Mutex::new(presence.clone())),
+                            )
+                            .await;
+                    }
+                }
+            }
+            NonRoomEvent::IgnoredUserList(ignored) => {
+                if let Some(ee) = &self.event_emitter {
+                    if let Some(room) = self.get_room(&room_id) {
+                        ee.lock()
+                            .await
+                            .on_account_ignored_users(
+                                Arc::clone(&room),
+                                Arc::new(Mutex::new(ignored.clone())),
+                            )
+                            .await;
+                    }
+                }
+            }
+            NonRoomEvent::PushRules(rules) => {
+                if let Some(ee) = &self.event_emitter {
+                    if let Some(room) = self.get_room(&room_id) {
+                        ee.lock()
+                            .await
+                            .on_account_push_rules(
+                                Arc::clone(&room),
+                                Arc::new(Mutex::new(rules.clone())),
+                            )
+                            .await;
+                    }
+                }
+            }
+            NonRoomEvent::FullyRead(full_read) => {
+                if let Some(ee) = &self.event_emitter {
+                    if let Some(room) = self.get_room(&room_id) {
+                        ee.lock()
+                            .await
+                            .on_account_data_fully_read(
+                                Arc::clone(&room),
+                                Arc::new(Mutex::new(full_read.clone())),
+                            )
+                            .await;
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+
+    pub(crate) async fn emit_ephemeral_event(
         &mut self,
         room_id: &RoomId,
         event: &mut NonRoomEvent,

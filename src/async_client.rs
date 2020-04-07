@@ -393,14 +393,12 @@ impl AsyncClient {
             for account_data in &mut room.account_data.events {
                 {
                     if let EventResult::Ok(e) = account_data {
-                        client.receive_account_data(&room_id, e).await;
+                        client.receive_account_data_event(&room_id, e).await;
 
                         client.emit_account_data_event(room_id, e).await;
                     }
                 }
             }
-
-            // TODO `IncomingEphemeral` events for typing events
 
             // After the room has been created and state/timeline events accounted for we use the room_id of the newly created
             // room to add any presence events that relate to a user in the current room. This is not super
@@ -411,6 +409,16 @@ impl AsyncClient {
                         client.receive_presence_event(&room_id, e).await;
 
                         client.emit_presence_event(room_id, e).await;
+                    }
+                }
+            }
+
+            for ephemeral in &mut room.ephemeral.events {
+                {
+                    if let EventResult::Ok(e) = ephemeral {
+                        client.receive_ephemeral_event(&room_id, e).await;
+
+                        client.emit_ephemeral_event(room_id, e).await;
                     }
                 }
             }
@@ -793,39 +801,85 @@ impl AsyncClient {
 
 #[cfg(test)]
 mod test {
-    use super::{AsyncClient, Room, Url};
-    use crate::identifiers::{RoomId, UserId};
+    use super::{AsyncClient, Url};
     use crate::events::collections::all::RoomEvent;
+    use crate::identifiers::{RoomId, UserId};
 
-    use crate::test_builder::{EventBuilder};
+    use crate::test_builder::EventBuilder;
     use crate::{assert_eq_, async_assert};
 
     use std::convert::TryFrom;
 
     #[tokio::test]
-    async fn client_runner() { // TODO make this actually test something
+    async fn client_runner() {
+        // TODO make this actually test something
 
-        async_assert!{
-            async fn test_room_users<'a>(cli: &'a AsyncClient) -> Result<(), String> {
-                assert_eq_!(cli.homeserver(), &Url::parse("http://localhost:8080").unwrap());
+        async_assert! {
+            async fn test_client_homeserver<'a>(cli: &'a AsyncClient) -> Result<(), String> {
+                assert_eq_!(cli.homeserver(), &Url::parse(&mockito::server_url()).unwrap());
                 Ok(())
             }
         }
 
+        let session = crate::Session {
+            access_token: "12345".to_owned(),
+            user_id: UserId::try_from("@example:localhost").unwrap(),
+            device_id: "DEVICEID".to_owned(),
+        };
+        let homeserver = url::Url::parse(&mockito::server_url()).unwrap();
+        let client = AsyncClient::new(homeserver, Some(session)).unwrap();
+
         let rid = RoomId::try_from("!roomid:room.com").unwrap();
         let uid = UserId::try_from("@example:localhost").unwrap();
 
-        let homeserver = Url::parse("http://localhost:8080").unwrap();
-        let client = AsyncClient::new(homeserver, None).unwrap();
-        let room = Room::new(&rid, &uid);
         let bld = EventBuilder::default();
-        let runner = bld.add_room_event_from_file("./tests/data/events/member.json", RoomEvent::RoomMember)
-            .add_room_event_from_file("./tests/data/events/power_levels.json", RoomEvent::RoomPowerLevels)
-            .build_client_runner("!roomid:room.com", "@example:localhost")
-            .set_room(room)
+        let runner = bld
+            .add_room_event_from_file("./tests/data/events/member.json", RoomEvent::RoomMember)
+            .add_room_event_from_file(
+                "./tests/data/events/power_levels.json",
+                RoomEvent::RoomPowerLevels,
+            )
+            .build_client_runner(rid, uid)
             .set_client(client)
-            .add_client_assert(test_room_users);
-        
+            .add_client_assert(test_client_homeserver);
+
+        runner.run_test().await;
+    }
+
+    #[tokio::test]
+    async fn mock_runner() {
+        use std::convert::TryFrom;
+
+        async_assert! {
+            async fn test_mock_homeserver<'a>(cli: &'a AsyncClient) -> Result<(), String> {
+                assert_eq_!(cli.homeserver(), &url::Url::parse(&mockito::server_url()).unwrap());
+                Ok(())
+            }
+        }
+
+        let session = crate::Session {
+            access_token: "12345".to_owned(),
+            user_id: UserId::try_from("@example:localhost").unwrap(),
+            device_id: "DEVICEID".to_owned(),
+        };
+
+        let homeserver = url::Url::parse(&mockito::server_url()).unwrap();
+        let client = AsyncClient::new(homeserver, Some(session)).unwrap();
+
+        let bld = EventBuilder::default();
+        let runner = bld
+            .add_room_event_from_file("./tests/data/events/member.json", RoomEvent::RoomMember)
+            .add_room_event_from_file(
+                "./tests/data/events/power_levels.json",
+                RoomEvent::RoomPowerLevels,
+            )
+            .build_mock_runner(
+                "GET",
+                mockito::Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_string()),
+            )
+            .set_client(client)
+            .add_client_assert(test_mock_homeserver);
+
         runner.run_test().await;
     }
 }

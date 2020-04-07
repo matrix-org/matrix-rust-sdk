@@ -25,7 +25,6 @@
 //! by default be stored only in memory and thus lost after the client is
 //! destroyed.
 #![deny(missing_docs)]
-#![feature(type_alias_impl_trait)]
 
 pub use crate::{error::Error, error::Result, session::Session};
 pub use reqwest::header::InvalidHeaderValue;

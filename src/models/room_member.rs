@@ -184,11 +184,11 @@ impl RoomMember {
 
 #[cfg(test)]
 mod test {
-    use crate::events::room::member::MembershipState;
     use crate::events::collections::all::RoomEvent;
     use crate::events::presence::PresenceState;
+    use crate::events::room::member::MembershipState;
     use crate::identifiers::{RoomId, UserId};
-    use crate::test_builder::{EventBuilder};
+    use crate::test_builder::EventBuilder;
     use crate::{assert_, assert_eq_, Room};
 
     use js_int::{Int, UInt};
@@ -198,7 +198,10 @@ mod test {
     #[tokio::test]
     async fn room_member_events() {
         fn test_room_member(room: &Room) -> Result<(), String> {
-            let member = room.members.get(&UserId::try_from("@example:localhost").unwrap()).unwrap();
+            let member = room
+                .members
+                .get(&UserId::try_from("@example:localhost").unwrap())
+                .unwrap();
             assert_eq_!(member.membership, MembershipState::Join);
             assert_eq_!(member.power_level, Int::new(100));
             println!("{:#?}", room);
@@ -208,26 +211,36 @@ mod test {
         let rid = RoomId::try_from("!roomid:room.com").unwrap();
         let uid = UserId::try_from("@example:localhost").unwrap();
         let bld = EventBuilder::default();
-        let runner = bld.add_room_event_from_file("./tests/data/events/member.json", RoomEvent::RoomMember)
-            .add_room_event_from_file("./tests/data/events/power_levels.json", RoomEvent::RoomPowerLevels)
+        let runner = bld
+            .add_room_event_from_file("./tests/data/events/member.json", RoomEvent::RoomMember)
+            .add_room_event_from_file(
+                "./tests/data/events/power_levels.json",
+                RoomEvent::RoomPowerLevels,
+            )
             .build_room_runner(&rid, &uid)
             .add_room_assert(test_room_member);
-        
+
         runner.run_test().await;
     }
 
     #[tokio::test]
     async fn member_presence_events() {
         fn test_room_member(room: &Room) -> Result<(), String> {
-            let member = room.members.get(&UserId::try_from("@example:localhost").unwrap()).unwrap();
+            let member = room
+                .members
+                .get(&UserId::try_from("@example:localhost").unwrap())
+                .unwrap();
             assert_eq_!(member.membership, MembershipState::Join);
             assert_eq_!(member.power_level, Int::new(100));
             println!("{:#?}", room);
             Ok(())
         }
-    
+
         fn test_presence(room: &Room) -> Result<(), String> {
-            let member = room.members.get(&UserId::try_from("@example:localhost").unwrap()).unwrap();
+            let member = room
+                .members
+                .get(&UserId::try_from("@example:localhost").unwrap())
+                .unwrap();
             assert_!(member.avatar_url.is_some());
             assert_eq_!(member.last_active_ago, UInt::new(1));
             assert_eq_!(member.presence, Some(PresenceState::Online));
@@ -237,13 +250,17 @@ mod test {
         let rid = RoomId::try_from("!roomid:room.com").unwrap();
         let uid = UserId::try_from("@example:localhost").unwrap();
         let bld = EventBuilder::default();
-        let runner = bld.add_room_event_from_file("./tests/data/events/member.json", RoomEvent::RoomMember)
-            .add_room_event_from_file("./tests/data/events/power_levels.json", RoomEvent::RoomPowerLevels)
+        let runner = bld
+            .add_room_event_from_file("./tests/data/events/member.json", RoomEvent::RoomMember)
+            .add_room_event_from_file(
+                "./tests/data/events/power_levels.json",
+                RoomEvent::RoomPowerLevels,
+            )
             .add_presence_event_from_file("./tests/data/events/presence.json")
             .build_room_runner(&rid, &uid)
             .add_room_assert(test_presence)
             .add_room_assert(test_room_member);
-        
+
         runner.run_test().await;
     }
 }
