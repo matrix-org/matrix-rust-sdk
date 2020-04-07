@@ -803,7 +803,7 @@ mod test {
     use std::convert::TryFrom;
 
     #[tokio::test]
-    async fn room_events() {
+    async fn client_runner() { // TODO make this actually test something
 
         async_assert!{
             async fn test_room_users<'a>(cli: &'a AsyncClient) -> Result<(), String> {
