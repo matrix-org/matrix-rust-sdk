@@ -806,21 +806,11 @@ mod test {
     use crate::identifiers::{RoomId, UserId};
 
     use crate::test_builder::EventBuilder;
-    use crate::{assert_eq_, async_assert};
 
     use std::convert::TryFrom;
 
     #[tokio::test]
     async fn client_runner() {
-        // TODO make this actually test something
-
-        async_assert! {
-            async fn test_client_homeserver<'a>(cli: &'a AsyncClient) -> Result<(), String> {
-                assert_eq_!(cli.homeserver(), &Url::parse(&mockito::server_url()).unwrap());
-                Ok(())
-            }
-        }
-
         let session = crate::Session {
             access_token: "12345".to_owned(),
             user_id: UserId::try_from("@example:localhost").unwrap(),
@@ -832,30 +822,25 @@ mod test {
         let rid = RoomId::try_from("!roomid:room.com").unwrap();
         let uid = UserId::try_from("@example:localhost").unwrap();
 
-        let bld = EventBuilder::default();
-        let runner = bld
+        let mut bld = EventBuilder::default()
             .add_room_event_from_file("./tests/data/events/member.json", RoomEvent::RoomMember)
             .add_room_event_from_file(
                 "./tests/data/events/power_levels.json",
                 RoomEvent::RoomPowerLevels,
             )
-            .build_client_runner(rid, uid)
-            .set_client(client)
-            .add_client_assert(test_client_homeserver);
+            .build_client_runner(rid, uid);
 
-        runner.run_test().await;
+        let cli = bld.set_client(client).to_client().await;
+
+        assert_eq!(
+            cli.homeserver(),
+            &Url::parse(&mockito::server_url()).unwrap()
+        );
     }
 
     #[tokio::test]
     async fn mock_runner() {
         use std::convert::TryFrom;
-
-        async_assert! {
-            async fn test_mock_homeserver<'a>(cli: &'a AsyncClient) -> Result<(), String> {
-                assert_eq_!(cli.homeserver(), &url::Url::parse(&mockito::server_url()).unwrap());
-                Ok(())
-            }
-        }
 
         let session = crate::Session {
             access_token: "12345".to_owned(),
@@ -866,8 +851,7 @@ mod test {
         let homeserver = url::Url::parse(&mockito::server_url()).unwrap();
         let client = AsyncClient::new(homeserver, Some(session)).unwrap();
 
-        let bld = EventBuilder::default();
-        let runner = bld
+        let mut bld = EventBuilder::default()
             .add_room_event_from_file("./tests/data/events/member.json", RoomEvent::RoomMember)
             .add_room_event_from_file(
                 "./tests/data/events/power_levels.json",
@@ -876,10 +860,13 @@ mod test {
             .build_mock_runner(
                 "GET",
                 mockito::Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_string()),
-            )
-            .set_client(client)
-            .add_client_assert(test_mock_homeserver);
+            );
 
-        runner.run_test().await;
+        let cli = bld.set_client(client).to_client().await.unwrap();
+
+        assert_eq!(
+            cli.homeserver(),
+            &Url::parse(&mockito::server_url()).unwrap()
+        );
     }
 }

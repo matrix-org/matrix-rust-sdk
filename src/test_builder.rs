@@ -15,176 +15,14 @@ use crate::events::{
 use crate::identifiers::{RoomId, UserId};
 use crate::AsyncClient;
 
-use ansi_term::Colour;
 use mockito::{self, mock, Mock};
 
 use crate::models::Room;
 
-/// `assert` to use in `TestRunner`.
-///
-/// This returns an `Err` on failure, instead of panicking.
-#[macro_export]
-macro_rules! assert_ {
-    ($truth:expr) => {
-        if !$truth {
-            return Err(format!(
-                r#"assertion failed: `(left == right)`
-    expression: `{:?}`
-    failed at {}"#,
-                stringify!($truth),
-                file!(),
-            ));
-        }
-    };
-}
-
-/// `assert_eq` to use in `TestRunner.
-///
-/// This returns an `Err` on failure, instead of panicking.
-#[macro_export]
-macro_rules! assert_eq_ {
-    ($left:expr, $right:expr) => ({
-        match (&$left, &$right) {
-            (left_val, right_val) => {
-                if !(*left_val == *right_val) {
-                    return Err(format!(r#"assertion failed: `(left == right)`
-    left: `{:?}`,
-    right: `{:?}`
-    failed at {}:{}"#,
-                        &*left_val,
-                        &*right_val,
-                        file!(),
-                        line!()
-                    ))
-                }
-            }
-        }
-    });
-    ($left:expr, $right:expr,) => ({
-        $crate::assert_eq!($left, $right)
-    });
-    ($left:expr, $right:expr, $($arg:tt)+) => ({
-        match (&($left), &($right)) {
-            (left_val, right_val) => {
-                if !(*left_val == *right_val) {
-                    return Err(format!(r#"assertion failed: `(left == right)`
-    left: `{:?}`,
-    right: `{:?}` : {}
-    failed at {}:{}"#,
-                        &*left_val,
-                        &*right_val,
-                        $crate::format_args!($($arg)+),
-                        file!(),
-                        line!(),
-                    ))
-                }
-            }
-        }
-    });
-}
-
-/// `assert_ne` to use in `TestRunner.
-///
-/// This returns an `Err` on failure, instead of panicking.
-#[macro_export]
-macro_rules! assert_ne_ {
-    ($left:expr, $right:expr) => ({
-        match (&$left, &$right) {
-            (left_val, right_val) => {
-                if (*left_val == *right_val) {
-                    return Err(format!(r#"assertion failed: `(left == right)`
-    left: `{:?}`,
-    right: `{:?}`
-    failed at {}:{}"#,
-                        &*left_val,
-                        &*right_val,
-                        file!(),
-                        line!()
-                    ))
-                }
-            }
-        }
-    });
-    ($left:expr, $right:expr,) => ({
-        $crate::assert_eq!($left, $right)
-    });
-    ($left:expr, $right:expr, $($arg:tt)+) => ({
-        match (&($left), &($right)) {
-            (left_val, right_val) => {
-                if (*left_val == *right_val) {
-                    return Err(format!(r#"assertion failed: `(left == right)`
-    left: `{:?}`,
-    right: `{:?}` : {}
-    failed at {}:{}"#,
-                        &*left_val,
-                        &*right_val,
-                        $crate::format_args!($($arg)+),
-                        file!(),
-                        line!(),
-                    ))
-                }
-            }
-        }
-    });
-}
-
-/// Convenience macro for declaring an `async` assert function to store in the `TestRunner`.
-///
-/// Declares an async function that can be stored in a struct.
-///
-/// # Examples
-/// ```rust
-/// # use matrix_sdk::AsyncClient;
-/// # use url::Url;
-/// async_assert!{
-///     async fn foo(cli: &AsyncClient) -> Result<(), String> {
-///         assert_eq_!(cli.homeserver(), &url::Url::parse("matrix.org").unwrap());
-///         Ok(())
-///     }
-/// }
-/// ```
-#[macro_export]
-macro_rules! async_assert {
-    (
-        $( #[$attr:meta] )*
-        $pub:vis async fn $fname:ident<$lt:lifetime> ( $($args:tt)* ) $(-> $Ret:ty)? {
-            $($body:tt)*
-        }
-    ) => (
-        $( #[$attr] )*
-        #[allow(unused_parens)]
-        $pub fn $fname<$lt> ( $($args)* )
-            -> ::std::pin::Pin<::std::boxed::Box<dyn ::std::future::Future<Output = ($($Ret)?)>
-        + ::std::marker::Send + $lt>>
-        {
-            ::std::boxed::Box::pin(async move { $($body)* })
-        }
-    );
-    (
-        $( #[$attr:meta] )*
-        $pub:vis async fn $fname:ident ( $($args:tt)* ) $(-> $Ret:ty)? {
-            $($body:tt)*
-        }
-    ) => (
-        $( #[$attr] )*
-        #[allow(unused_parens)]
-        $pub fn $fname ( $($args)* )
-            -> ::std::pin::Pin<::std::boxed::Box<(dyn ::std::future::Future<Output = ($($Ret)?)>
-        + ::std::marker::Send)>>
-        {
-            ::std::boxed::Box::pin(async move { $($body)* })
-        }
-    )
-}
-
-type DynFuture<'lt, T> = ::std::pin::Pin<Box<dyn 'lt + Send + ::std::future::Future<Output = T>>>;
-pub type AsyncAssert = fn(&AsyncClient) -> DynFuture<Result<(), String>>;
-
+/// Easily create events to stream into either a Client or a `Room` for testing.
 #[derive(Default)]
 pub struct EventBuilder {
     /// The events that determine the state of a `Room`.
-    ///
-    /// When testing the models `RoomEvent`s are needed.
     room_events: Vec<RoomEvent>,
     /// The presence events that determine the presence state of a `RoomMember`.
     presence_events: Vec<PresenceEvent>,
@@ -204,17 +42,11 @@ pub struct RoomTestRunner {
     /// The account data events that determine the state of a `Room`.
     account_data: Vec<Event>,
     /// The events that determine the state of a `Room`.
-    ///
-    /// When testing the models `RoomEvent`s are needed.
     room_events: Vec<RoomEvent>,
     /// The presence events that determine the presence state of a `RoomMember`.
     presence_events: Vec<PresenceEvent>,
     /// The state events that determine the state of a `Room`.
     state_events: Vec<StateEvent>,
-    /// A `Vec` of callbacks that should assert something about the room.
-    ///
-    /// The callback should use the provided `assert_`, `assert_*_` macros.
-    room_assertions: Vec<fn(&Room) -> Result<(), String>>,
 }
 
 pub struct ClientTestRunner {
@@ -229,19 +61,13 @@ pub struct ClientTestRunner {
     /// The account data events that determine the state of a `Room`.
     account_data: Vec<Event>,
     /// The events that determine the state of a `Room`.
-    ///
-    /// When testing the models `RoomEvent`s are needed.
     room_events: Vec<RoomEvent>,
     /// The presence events that determine the presence state of a `RoomMember`.
     presence_events: Vec<PresenceEvent>,
     /// The state events that determine the state of a `Room`.
     state_events: Vec<StateEvent>,
-    /// A `Vec` of callbacks that should assert something about the client.
-    ///
-    /// The callback should use the provided `assert_`, `assert_*_` macros.
-    client_assertions: Vec<AsyncAssert>,
 }
-// the compiler complains that the event Vec's are never used they are.
+
 #[allow(dead_code)]
 pub struct MockTestRunner {
     /// Used when testing the whole client
@@ -251,17 +77,11 @@ pub struct MockTestRunner {
     /// The account data events that determine the state of a `Room`.
     account_data: Vec<Event>,
     /// The events that determine the state of a `Room`.
-    ///
-    /// When testing the models `RoomEvent`s are needed.
     room_events: Vec<RoomEvent>,
     /// The presence events that determine the presence state of a `RoomMember`.
     presence_events: Vec<PresenceEvent>,
     /// The state events that determine the state of a `Room`.
     state_events: Vec<StateEvent>,
-    /// A `Vec` of callbacks that should assert something about the client.
-    ///
-    /// The callback should use the provided `assert_`, `assert_*_` macros.
-    client_assertions: Vec<AsyncAssert>,
     /// `mokito::Mock`
     mock: Option<mockito::Mock>,
 }
@@ -269,16 +89,6 @@ pub struct MockTestRunner {
 #[allow(dead_code)]
 #[allow(unused_mut)]
 impl EventBuilder {
-    /// Creates an `IncomingResponse` to hold events for a sync.
-    pub fn create_sync_response(mut self) -> Self {
-        self
-    }
-
-    /// Just throw events at the client, not part of a specific response.
-    pub fn create_event_stream(mut self) -> Self {
-        self
-    }
-
     /// Add an event to the room events `Vec`.
     pub fn add_ephemeral_from_file<Ev: TryFromRaw, P: AsRef<Path>>(
         mut self,
@@ -420,7 +230,6 @@ impl EventBuilder {
             room_events: Vec::new(),
             presence_events: Vec::new(),
             state_events: Vec::new(),
-            client_assertions: Vec::new(),
             mock,
         }
     }
@@ -438,7 +247,6 @@ impl EventBuilder {
             room_events: self.room_events,
             presence_events: self.presence_events,
             state_events: self.state_events,
-            client_assertions: Vec::new(),
         }
     }
 
@@ -454,27 +262,22 @@ impl EventBuilder {
             room_events: self.room_events,
             presence_events: self.presence_events,
             state_events: self.state_events,
-            room_assertions: Vec::new(),
         }
     }
 }
 
 impl RoomTestRunner {
     /// Set `Room`
-    pub fn set_room(mut self, room: Room) -> Self {
+    pub fn set_room(&mut self, room: Room) -> &mut Self {
         self.room = Some(room);
         self
     }
 
-    pub fn add_room_assert(mut self, assert: fn(&Room) -> Result<(), String>) -> Self {
-        self.room_assertions.push(assert);
-        self
-    }
-
-    fn run_room_tests(&mut self) -> Result<(), Vec<String>> {
-        let mut errs = Vec::new();
-        let room = self.room.as_mut().unwrap();
-
+    fn stream_room_events(&mut self) {
+        let room = self
+            .room
+            .as_mut()
+            .expect("`Room` must be set use `RoomTestRunner::set_room`");
         for event in &self.account_data {
             match event {
                 // Event::IgnoredUserList(iu) => room.handle_ignored_users(iu),
@@ -502,52 +305,29 @@ impl RoomTestRunner {
         for event in &self.state_events {
             room.receive_state_event(event);
         }
-
-        for assert in &mut self.room_assertions {
-            if let Err(e) = assert(&room) {
-                errs.push(e);
-            }
-        }
-        if errs.is_empty() {
-            Ok(())
-        } else {
-            Err(errs)
-        }
     }
 
-    pub async fn run_test(mut self) {
-        let (count, errs) = if let Some(_) = &self.room {
-            (self.room_assertions.len(), self.run_room_tests())
-        } else {
-            panic!("must have either AsyncClient or Room")
-        };
-
-        if let Err(errs) = errs {
-            let err_str = errs.join(&format!("\n\n"));
-            eprintln!("{}\n{}", Colour::Red.paint("Error: "), err_str);
-            if !errs.is_empty() {
-                panic!("{} tests failed", errs.len());
-            } else {
-                println!("{}. {} passed", Colour::Green.paint("Ok"), count);
-            }
-        }
+    pub fn to_room(&mut self) -> &mut Room {
+        self.stream_room_events();
+        self.room.as_mut().unwrap()
     }
 }
 
 impl ClientTestRunner {
-    pub fn set_client(mut self, client: AsyncClient) -> Self {
+    pub fn set_client(&mut self, client: AsyncClient) -> &mut Self {
         self.client = Some(client);
         self
     }
 
-    pub fn add_client_assert(mut self, assert: AsyncAssert) -> Self {
-        self.client_assertions.push(assert);
-        self
-    }
+    async fn stream_client_events(&mut self) {
+        let mut cli = self
+            .client
+            .as_ref()
+            .expect("`AsyncClient` must be set use `ClientTestRunner::set_client`")
+            .base_client
+            .write()
+            .await;
 
-    async fn run_client_tests(&mut self) -> Result<(), Vec<String>> {
-        let mut errs = Vec::new();
-        let mut cli = self.client.as_ref().unwrap().base_client.write().await;
         let room_id = &self.room_user_id.0;
 
         for event in &self.account_data {
@@ -573,40 +353,16 @@ impl ClientTestRunner {
         for event in &self.state_events {
             cli.receive_joined_state_event(room_id, event).await;
         }
-
-        for assert in &mut self.client_assertions {
-            if let Err(e) = assert(self.client.as_ref().unwrap()).await {
-                errs.push(e);
-            }
-        }
-        if errs.is_empty() {
-            Ok(())
-        } else {
-            Err(errs)
-        }
     }
 
-    pub async fn run_test(mut self) {
-        let (count, errs) = if let Some(_) = &self.client {
-            (self.client_assertions.len(), self.run_client_tests().await)
-        } else {
-            panic!("must have either AsyncClient or Room")
-        };
-
-        if let Err(errs) = errs {
-            let err_str = errs.join(&format!("\n\n"));
-            eprintln!("{}\n{}", Colour::Red.paint("Error: "), err_str);
-            if !errs.is_empty() {
-                panic!("{} tests failed", errs.len());
-            } else {
-                println!("{}. {} passed", Colour::Green.paint("Ok"), count);
-            }
-        }
+    pub async fn to_client(&mut self) -> &mut AsyncClient {
+        self.stream_client_events().await;
+        self.client.as_mut().unwrap()
     }
 }
 
 impl MockTestRunner {
-    pub fn set_client(mut self, client: AsyncClient) -> Self {
+    pub fn set_client(&mut self, client: AsyncClient) -> &mut Self {
         self.client = Some(client);
         self
     }
@@ -616,48 +372,13 @@ impl MockTestRunner {
         self
     }
 
-    pub fn add_client_assert(mut self, assert: AsyncAssert) -> Self {
-        self.client_assertions.push(assert);
-        self
-    }
-
-    async fn run_mock_tests(&mut self) -> Result<(), Vec<String>> {
-        let mut errs = Vec::new();
+    pub async fn to_client(&mut self) -> Result<&mut AsyncClient, crate::Error> {
         self.client
             .as_mut()
             .unwrap()
             .sync(crate::SyncSettings::default())
-            .await
-            .map(|_r| ())
-            .map_err(|e| vec![e.to_string()])?;
+            .await?;
 
-        for assert in &mut self.client_assertions {
-            if let Err(e) = assert(self.client.as_ref().unwrap()).await {
-                errs.push(e);
-            }
-        }
-        if errs.is_empty() {
-            Ok(())
-        } else {
-            Err(errs)
-        }
-    }
-
-    pub async fn run_test(mut self) {
-        let (count, errs) = if let Some(_) = &self.mock {
-            (self.client_assertions.len(), self.run_mock_tests().await)
-        } else {
-            panic!("must have either AsyncClient or Room")
-        };
-
-        if let Err(errs) = errs {
-            let err_str = errs.join(&format!("\n\n"));
-            eprintln!("{}\n{}", Colour::Red.paint("Error: "), err_str);
-            if !errs.is_empty() {
-                panic!("{} tests failed", errs.len());
-            } else {
-                println!("{}. {} passed", Colour::Green.paint("Ok"), count);
-            }
-        }
+        Ok(self.client.as_mut().unwrap())
     }
 }
