@@ -790,3 +790,42 @@ impl AsyncClient {
         Ok(response)
     }
 }
+
+#[cfg(test)]
+mod test {
+    use super::{AsyncClient, Room, Url};
+    use crate::identifiers::{RoomId, UserId};
+    use crate::events::collections::all::RoomEvent;
+
+    use crate::test_builder::{EventBuilder};
+    use crate::{assert_eq_, async_assert};
+
+    use std::convert::TryFrom;
+
+    #[tokio::test]
+    async fn room_events() {
+
+        async_assert!{
+            async fn test_room_users<'a>(cli: &'a AsyncClient) -> Result<(), String> {
+                assert_eq_!(cli.homeserver(), &Url::parse("http://localhost:8080").unwrap());
+                Ok(())
+            }
+        }
+
+        let rid = RoomId::try_from("!roomid:room.com").unwrap();
+        let uid = UserId::try_from("@example:localhost").unwrap();
+
+        let homeserver = Url::parse("http://localhost:8080").unwrap();
+        let client = AsyncClient::new(homeserver, None).unwrap();
+        let room = Room::new(&rid, &uid);
+        let bld = EventBuilder::default();
+        let runner = bld.add_room_event_from_file("./tests/data/events/member.json", RoomEvent::RoomMember)
+            .add_room_event_from_file("./tests/data/events/power_levels.json", RoomEvent::RoomPowerLevels)
+            .build_client_runner("!roomid:room.com", "@example:localhost")
+            .set_room(room)
+            .set_client(client)
+            .add_client_assert(test_room_users);
+        
+        runner.run_test().await;
+    }
+}

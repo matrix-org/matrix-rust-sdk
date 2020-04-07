@@ -389,6 +389,8 @@ mod test {
     use crate::events::room::member::MembershipState;
     use crate::identifiers::UserId;
     use crate::{AsyncClient, Session, SyncSettings};
+    use crate::test_builder::{EventBuilder};
+    use crate::{assert_, assert_eq_};
 
     use mockito::{mock, Matcher};
     use url::Url;
@@ -440,5 +442,33 @@ mod test {
         }
 
         assert!(room.deref().power_levels.is_some())
+    }
+
+    #[tokio::test]
+    async fn room_events() {
+
+        fn test_room_users(room: &Room) -> Result<(), String> {
+            assert_eq_!(room.members.len(), 1);
+            Ok(())
+        }
+    
+        fn test_room_power(room: &Room) -> Result<(), String> {
+            assert_!(room.power_levels.is_some());
+            assert_eq_!(room.power_levels.as_ref().unwrap().kick, js_int::Int::new(50).unwrap());
+            let admin = room.members.get(&UserId::try_from("@example:localhost").unwrap()).unwrap();
+            assert_eq_!(admin.power_level.unwrap(), js_int::Int::new(100).unwrap());
+            Ok(())
+        }
+
+        let rid = RoomId::try_from("!roomid:room.com").unwrap();
+        let uid = UserId::try_from("@example:localhost").unwrap();
+        let bld = EventBuilder::default();
+        let runner = bld.add_room_event_from_file("./tests/data/events/member.json", RoomEvent::RoomMember)
+            .add_room_event_from_file("./tests/data/events/power_levels.json", RoomEvent::RoomPowerLevels)
+            .build_room_runner(&rid, &uid)
+            .add_room_assert(test_room_power)
+            .add_room_assert(test_room_users);
+        
+        runner.run_test().await;
     }
 }
