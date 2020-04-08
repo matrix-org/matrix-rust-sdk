@@ -13,14 +13,14 @@
 // limitations under the License.
 
 use std::collections::{HashMap, HashSet};
-use std::convert::{TryFrom, TryInto};
+use std::convert::TryInto;
 #[cfg(feature = "sqlite-cryptostore")]
 use std::path::Path;
 use std::result::Result as StdResult;
 use std::sync::Arc;
 
 use super::error::{OlmError, Result, SignatureError, VerificationResult};
-use super::olm::{Account, InboundGroupSession};
+use super::olm::{Account, InboundGroupSession, OutboundGroupSession};
 use super::store::memorystore::MemoryStore;
 #[cfg(feature = "sqlite-cryptostore")]
 use super::store::sqlite::SqliteStore;
@@ -35,12 +35,13 @@ use serde_json::{json, Value};
 use tokio::sync::Mutex;
 use tracing::{debug, error, info, instrument, trace, warn};
 
+use ruma_client_api::r0::client_exchange::DeviceIdOrAllDevices;
 use ruma_client_api::r0::keys::{
     AlgorithmAndDeviceId, DeviceKeys, KeyAlgorithm, OneTimeKey, SignedKey,
 };
 use ruma_client_api::r0::sync::sync_events::IncomingResponse as SyncResponse;
 use ruma_events::{
-    collections::all::RoomEvent,
+    collections::all::{Event, RoomEvent},
     room::encrypted::{EncryptedEvent, EncryptedEventContent},
     to_device::{
         AnyToDeviceEvent as ToDeviceEvent, ToDeviceEncrypted, ToDeviceForwardedRoomKey,
@@ -48,6 +49,7 @@ use ruma_events::{
     },
     Algorithm, EventResult,
 };
+use ruma_identifiers::RoomId;
 use ruma_identifiers::{DeviceId, UserId};
 
 pub type OneTimeKeys = HashMap<AlgorithmAndDeviceId, OneTimeKey>;
@@ -72,6 +74,8 @@ pub struct OlmMachine {
     /// Set of users that we need to query keys for. This is a subset of
     /// the tracked users in the CryptoStore.
     users_for_key_query: HashSet<UserId>,
+    /// The currently active outbound group sessions.
+    outbound_group_session: HashMap<RoomId, OutboundGroupSession>,
 }
 
 impl OlmMachine {
@@ -89,6 +93,7 @@ impl OlmMachine {
             uploaded_signed_key_count: None,
             store: Box::new(MemoryStore::new()),
             users_for_key_query: HashSet::new(),
+            outbound_group_session: HashMap::new(),
         })
     }
 
@@ -122,6 +127,7 @@ impl OlmMachine {
             uploaded_signed_key_count: None,
             store: Box::new(store),
             users_for_key_query: HashSet::new(),
+            outbound_group_session: HashMap::new(),
         })
     }
 
@@ -778,6 +784,74 @@ impl OlmMachine {
                 Ok(())
             }
         }
+    }
+
+    async fn create_outbound_group_session(&mut self, room_id: &RoomId) -> Result<()> {
+        let session = OutboundGroupSession::new(room_id);
+        let account = self.account.lock().await;
+        let identity_keys = account.identity_keys();
+
+        let sender_key = identity_keys.curve25519();
+        let signing_key = identity_keys.ed25519();
+
+        let inbound_session = InboundGroupSession::new(
+            sender_key,
+            signing_key,
+            &room_id,
+            &session.session_key().await,
+        )?;
+        self.store
+            .save_inbound_group_session(inbound_session)
+            .await?;
+
+        self.outbound_group_session
+            .insert(room_id.to_owned(), session);
+        Ok(())
+    }
+
+    // TODO accept an algorithm here
+    async fn share_megolm_session<'a, I>(
+        &mut self,
+        room_id: &RoomId,
+        users: I,
+    ) -> Result<HashMap<UserId, HashMap<DeviceIdOrAllDevices, Event>>>
+    where
+        I: IntoIterator<Item = &'a UserId>,
+    {
+        if !self.outbound_group_session.contains_key(room_id) {
+            self.create_outbound_group_session(room_id).await?
+        }
+
+        let session = self.outbound_group_session.get(room_id).unwrap();
+
+        let key_content = json!({
+            "algorithm": Algorithm::MegolmV1AesSha2,
+            "room_id": room_id,
+            "session_id": session.session_id(),
+            "session_key": session.session_key().await,
+            "chain_index": session.message_index().await,
+        });
+
+        for user_id in users {
+            for device in self.store.get_user_devices(user_id).await?.devices() {
+                let sender_key = if let Some(k) = device.keys(&KeyAlgorithm::Curve25519) {
+                    k
+                } else {
+                    warn!(
+                        "The device {} of user {} doesn't have a curve 25519 key",
+                        user_id,
+                        device.device_id()
+                    );
+                    continue;
+                };
+
+                // TODO abor if the device isn't verified
+
+                let session = self.store.get_sessions(sender_key);
+            }
+        }
+
+        todo!()
     }
 
     fn add_forwarded_room_key(
