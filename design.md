@@ -3,14 +3,14 @@
 ## Design and Layout
 
 #### Async Client
-The highest level structure that ties the other pieces of functionality together. The client is responsible for the Request/Response cycle. It knows how to 
+The highest level structure that ties the other pieces of functionality together. The client is responsible for the Request/Response cycle. It can be thought of as a thin layer atop the `BaseClient` passing requests along for the `BaseClient` to handle. A user should be able to write their own `AsyncClient` using the `BaseClient`. It knows how to 
   - login
   - send messages
   - encryption ...
   - sync client state with the server
   - make raw Http requests
 
-#### Base Client
+#### Base Client/Client State Machine
 In addition to Http the `AsyncClient` passes along methods from the `BaseClient` that deal with `Room`s and `RoomMember`s. This allows the client to keep track of more complicated information that needs to be calculated in some way.
   - human readable room names
   - power level?
@@ -19,7 +19,7 @@ In addition to Http the `AsyncClient` passes along methods from the `BaseClient`
   - more?
 
 #### Crypto State Machine
-
+Given a Matrix response the crypto machine will update it's internal state, along with encryption information this means keeping track of when to encrypt. It has knowledge of when encryption needs to happen and can be asked from the `BaseClient`. The crypto state machine is given responses that relate to encryption and can create encrypted request bodies for encryption related requests. Basically it tells the `BaseClient` to send a to-device messages out and the `BaseClient` is responsible for notifying the crypto state machine when it sent the message so crypto can update state.
 
 #### Client State/Room and RoomMember
 The `BaseClient` is responsible for keeping state in sync through the `IncomingResponse`s of `AsyncClient` or querying the `StateStore`. By processing and then delegating incoming `RoomEvent`s, `StateEvent`s, `PresenceEvent`, `IncomingAccountData` and `EphemeralEvent`s to the correct `Room` in the base clients `HashMap<RoomId, Room>` or further to `Room`'s `RoomMember` via the members `HashMap<UserId, RoomMember>`. The `BaseClient` is also responsible for emitting the incoming events to the `EventEmitter` trait.
