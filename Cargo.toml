@@ -25,8 +25,8 @@ async-trait = "0.1.30"
 # Ruma dependencies
 js_int = "0.1.4"
 ruma-api = "0.15.0"
-ruma-client-api = { path = "/home/poljar/werk/misc/ruma-client-api", version = "0.7.0" }
-ruma-events = { path = "/home/poljar/werk/misc/ruma-events", version = "0.18.0" }
+ruma-client-api = { git = "https://github.com/matrix-org/ruma-client-api/", version = "0.7.0" }
+ruma-events = { git = "https://github.com/matrix-org/ruma-events", version = "0.18.0" }
 ruma-identifiers = "0.14.1"
 uuid = { version = "0.8.1", features = ["v4"] }
 
