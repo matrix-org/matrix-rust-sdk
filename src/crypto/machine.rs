@@ -90,6 +90,8 @@ impl OlmMachine {
         &Algorithm::MegolmV1AesSha2,
     ];
 
+    const MAX_TO_DEVICE_MESSAGES: usize = 20;
+
     /// Create a new account.
     pub fn new(user_id: &UserId, device_id: &str) -> Result<Self> {
         Ok(OlmMachine {
@@ -815,12 +817,115 @@ impl OlmMachine {
         Ok(())
     }
 
+    pub async fn encrypt(
+        &mut self,
+        room_id: &RoomId,
+        content: MessageEventContent,
+    ) -> Result<MegolmV1AesSha2Content> {
+        if !self.outbound_group_session.contains_key(room_id) {
+            self.create_outbound_group_session(room_id).await?
+        }
+
+        let session = self.outbound_group_session.get(room_id).unwrap();
+
+        if session.expired() {
+            todo!()
+        }
+
+        // if !session.shared() {
+        //     todo!()
+        // }
+
+        let mut json_content = json!({
+            "content": content,
+            "room_id": room_id,
+            "type": EventType::RoomMessage,
+        });
+
+        let plaintext = cjson::to_string(&json_content).unwrap_or_else(|_| {
+            panic!(format!(
+                "Can't serialize {} to canonical JSON",
+                json_content
+            ))
+        });
+
+        let ciphertext = session.encrypt(plaintext).await;
+
+        Ok(MegolmV1AesSha2Content {
+            algorithm: Algorithm::MegolmV1AesSha2,
+            ciphertext,
+            sender_key: self
+                .account
+                .lock()
+                .await
+                .identity_keys()
+                .curve25519()
+                .to_owned(),
+            session_id: session.session_id().to_owned(),
+            device_id: self.device_id.to_owned(),
+        })
+    }
+
+    async fn olm_encrypt(
+        &mut self,
+        session: Arc<Mutex<Session>>,
+        recipient_device: &Device,
+        event_type: EventType,
+        content: Value,
+    ) -> Result<OlmV1Curve25519AesSha2Content> {
+        let identity_keys = self.account.lock().await.identity_keys();
+
+        let recipient_signing_key = recipient_device
+            .keys(&KeyAlgorithm::Ed25519)
+            .ok_or(OlmError::MissingSigningKey)?;
+        let recipient_sender_key = recipient_device
+            .keys(&KeyAlgorithm::Curve25519)
+            .ok_or(OlmError::MissingSigningKey)?;
+
+        let payload = json!({
+            "sender": self.user_id,
+            "sender_device": self.device_id,
+            "keys": {
+                "ed25519": identity_keys.ed25519(),
+            },
+            "recipient": recipient_device.user_id(),
+            "recipient_keys": {
+                "ed25519": recipient_signing_key,
+            },
+            "type": event_type,
+            "content": content,
+        });
+
+        let plaintext = cjson::to_string(&payload)
+            .unwrap_or_else(|_| panic!(format!("Can't serialize {} to canonical JSON", payload)));
+
+        let ciphertext = session.lock().await.encrypt(&plaintext).to_tuple();
+        self.store.save_session(session).await?;
+
+        let message_type: usize = ciphertext.0.into();
+
+        let ciphertext = CiphertextInfo {
+            body: ciphertext.1,
+            message_type: (message_type as u32).into(),
+        };
+
+        let mut content = HashMap::new();
+
+        content.insert(recipient_sender_key.to_owned(), ciphertext);
+
+        Ok(OlmV1Curve25519AesSha2Content {
+            algorithm: Algorithm::OlmV1Curve25519AesSha2,
+            sender_key: identity_keys.curve25519().to_owned(),
+            ciphertext: content,
+        })
+    }
+
     // TODO accept an algorithm here
-    async fn share_megolm_session<'a, I>(
+    pub(crate) async fn share_megolm_session<'a, I>(
         &mut self,
         room_id: &RoomId,
         users: I,
-    ) -> Result<HashMap<UserId, HashMap<DeviceIdOrAllDevices, Event>>>
+    ) -> Result<Vec<ToDeviceRequest>>
     where
         I: IntoIterator<Item = &'a UserId>,
     {
@@ -828,15 +933,19 @@ impl OlmMachine {
             self.create_outbound_group_session(room_id).await?
         }
 
-        let session = self.outbound_group_session.get(room_id).unwrap();
+        let megolm_session = self.outbound_group_session.get(room_id).unwrap();
+        let session_id = megolm_session.session_id().to_owned();
+        megolm_session.mark_as_shared();
 
         let key_content = json!({
             "algorithm": Algorithm::MegolmV1AesSha2,
             "room_id": room_id,
-            "session_id": session.session_id(),
-            "session_key": session.session_key().await,
-            "chain_index": session.message_index().await,
+            "session_id": session_id.clone(),
+            "session_key": megolm_session.session_key().await,
+            "chain_index": megolm_session.message_index().await,
         });
+
+        let mut user_map = Vec::new();
 
         for user_id in users {
             for device in self.store.get_user_devices(user_id).await?.devices() {
@@ -851,13 +960,61 @@ impl OlmMachine {
                     continue;
                 };
 
-                // TODO abor if the device isn't verified
+                // TODO abort if the device isn't verified
+                let sessions = self.store.get_sessions(sender_key).await?;
 
-                let session = self.store.get_sessions(sender_key);
+                if let Some(s) = sessions {
+                    let session = &s.lock().await[0];
+                    user_map.push((session.clone(), device.clone()));
+                } else {
+                    warn!(
+                        "Trying to encrypt a megolm session for user
+                          {} on device {}, but no Olm session is found",
+                        user_id,
+                        device.device_id()
+                    );
+                }
             }
         }
 
-        todo!()
+        let mut message_vec = Vec::new();
+
+        for (i, user_map_chunk) in user_map
+            .chunks(OlmMachine::MAX_TO_DEVICE_MESSAGES)
+            .enumerate()
+        {
+            let mut messages = HashMap::new();
+
+            for (session, device) in user_map_chunk {
+                if !messages.contains_key(device.user_id()) {
+                    messages.insert(device.user_id().clone(), HashMap::new());
+                };
+
+                let user_messages = messages.get_mut(device.user_id()).unwrap();
+
+                let encrypted_content = self
+                    .olm_encrypt(
+                        session.clone(),
+                        &device,
+                        EventType::RoomKey,
+                        key_content.clone(),
+                    )
+                    .await?;
+
+                user_messages.insert(
+                    DeviceIdOrAllDevices::DeviceId(device.device_id().clone()),
+                    encrypted_content,
+                );
+            }
+
+            message_vec.push(ToDeviceRequest {
+                event_type: "m.room.encrypted".to_owned(),
+                txn_id: format!("{}-{}", session_id, i),
+                messages,
+            });
+        }
+
+        Ok(message_vec)
     }
 
     fn add_forwarded_room_key(
