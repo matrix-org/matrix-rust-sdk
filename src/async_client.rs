@@ -181,6 +181,8 @@ impl SyncSettings {
 }
 
 #[cfg(feature = "encryption")]
+use api::r0::client_exchange::send_event_to_device;
+#[cfg(feature = "encryption")]
 use api::r0::keys::{claim_keys, get_keys, upload_keys, KeyAlgorithm};
 use api::r0::message::create_message_event;
 use api::r0::session::login;
@@ -634,8 +636,10 @@ impl AsyncClient {
     pub async fn room_send(
         &mut self,
         room_id: &RoomId,
-        data: MessageEventContent,
+        mut content: MessageEventContent,
     ) -> Result<create_message_event::Response> {
+        let mut event_type = EventType::RoomMessage;
+
         #[cfg(feature = "encryption")]
         {
             let encrypted = {
@@ -669,9 +673,9 @@ impl AsyncClient {
 
         let request = create_message_event::Request {
             room_id: room_id.clone(),
-            event_type: EventType::RoomMessage,
+            event_type,
             txn_id: Uuid::new_v4().to_string(),
-            data,
+            data: content,
         };
 
         let response = self.send(request).await?;
