@@ -720,6 +720,35 @@ impl AsyncClient {
         Ok(response)
     }
 
+    /// Share a group session for a room.
+    ///
+    /// # Arguments
+    ///
+    /// * `room_id` - The ID of the room for which we want to share a group
+    /// session.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the client isn't logged in.
+    #[cfg(feature = "encryption")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "encryption")))]
+    #[instrument]
+    async fn share_group_session(&self, room_id: &RoomId) -> Result<()> {
+        let mut requests = self
+            .base_client
+            .read()
+            .await
+            .share_group_session(room_id)
+            .await
+            .expect("Keys don't need to be uploaded");
+
+        for request in requests.drain(..) {
+            let response: send_event_to_device::Response = self.send(request).await?;
+        }
+
+        Ok(())
+    }
+
     /// Upload the E2E encryption keys.
     ///
     /// This uploads the long lived device keys as well as the required amount
