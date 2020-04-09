@@ -20,6 +20,8 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+use uuid::Uuid;
+
 use futures::future::Future;
 use tokio::sync::RwLock;
 use tokio::time::delay_for as sleep;
@@ -668,7 +670,7 @@ impl AsyncClient {
         let request = create_message_event::Request {
             room_id: room_id.clone(),
             event_type: EventType::RoomMessage,
-            txn_id: self.transaction_id().to_string(),
+            txn_id: Uuid::new_v4().to_string(),
             data,
         };
 
