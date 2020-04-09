@@ -564,10 +564,11 @@ impl AsyncClient {
     {
         let request: http::Request<Vec<u8>> = request.try_into()?;
         let url = request.uri();
-        let url = self
-            .homeserver
-            .join(url.path_and_query().unwrap().as_str())
-            .unwrap();
+        let path_and_query = url.path_and_query().unwrap();
+        let mut url = self.homeserver.clone();
+
+        url.set_path(path_and_query.path());
+        url.set_query(path_and_query.query());
 
         trace!("Doing request {:?}", url);
 
