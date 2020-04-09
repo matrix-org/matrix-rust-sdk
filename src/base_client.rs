@@ -41,10 +41,14 @@ use tokio::sync::Mutex;
 #[cfg(feature = "encryption")]
 use crate::crypto::{OlmMachine, OneTimeKeys};
 #[cfg(feature = "encryption")]
+use ruma_client_api::r0::client_exchange::send_event_to_device;
+#[cfg(feature = "encryption")]
 use ruma_client_api::r0::keys::{
     claim_keys::Response as KeysClaimResponse, get_keys::Response as KeysQueryResponse,
     upload_keys::Response as KeysUploadResponse, DeviceKeys, KeyAlgorithm,
 };
+#[cfg(feature = "encryption")]
+use ruma_events::room::message::MessageEventContent;
 #[cfg(feature = "encryption")]
 use ruma_identifiers::DeviceId;
 
@@ -421,6 +425,44 @@ impl Client {
         match &mut *olm {
             Some(o) => o.get_missing_sessions(users).await,
             None => HashMap::new(),
+        }
+    }
+
+    /// Get a to-device request that will share a group session for a room.
+    #[cfg(feature = "encryption")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "encryption")))]
+    pub async fn share_group_session(
+        &self,
+        room_id: &RoomId,
+    ) -> Result<Vec<send_event_to_device::Request>> {
+        let room = self.get_room(room_id).expect("No room found");
+        let mut olm = self.olm.lock().await;
+
+        match &mut *olm {
+            Some(o) => {
+                let room = room.lock().await;
+                let members = room.members.keys();
+                Ok(o.share_megolm_session(room_id, members).await?)
+            }
+            None => panic!("Olm machine wasn't started"),
+        }
+    }
+
+    /// Encrypt a message event content.
+    #[cfg(feature = "encryption")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "encryption")))]
+    pub async fn encrypt(
+        &self,
+        room_id: &RoomId,
+        content: MessageEventContent,
+    ) -> Result<MessageEventContent> {
+        let mut olm = self.olm.lock().await;
+
+        match &mut *olm {
+            Some(o) => Ok(MessageEventContent::Encrypted(
+                o.encrypt(room_id, content).await?,
+            )),
+            None => panic!("Olm machine wasn't started"),
         }
     }
 
