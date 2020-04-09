@@ -172,6 +172,12 @@ impl Session {
         Ok(plaintext)
     }
 
+    pub fn encrypt(&mut self, plaintext: &str) -> OlmMessage {
+        let message = self.inner.encrypt(plaintext);
+        self.last_use_time = Instant::now();
+        message
+    }
+
     pub fn matches(
         &self,
         their_identity_key: &str,
@@ -315,6 +321,10 @@ impl OutboundGroupSession {
 
     pub fn mark_as_shared(&self) {
         self.shared.store(true, Ordering::Relaxed);
+    }
+
+    pub fn shared(&self) -> bool {
+        self.shared.load(Ordering::Relaxed)
     }
 
     pub async fn session_key(&self) -> String {
