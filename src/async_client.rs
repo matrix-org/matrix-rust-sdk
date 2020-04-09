@@ -576,11 +576,17 @@ impl AsyncClient {
             HttpMethod::GET => self.http_client.get(url),
             HttpMethod::POST => {
                 let body = request.body().clone();
-                self.http_client.post(url).body(body)
+                self.http_client
+                    .post(url)
+                    .body(body)
+                    .header(reqwest::header::CONTENT_TYPE, "application/json")
             }
             HttpMethod::PUT => {
                 let body = request.body().clone();
-                self.http_client.put(url).body(body)
+                self.http_client
+                    .put(url)
+                    .body(body)
+                    .header(reqwest::header::CONTENT_TYPE, "application/json")
             }
             HttpMethod::DELETE => unimplemented!(),
             _ => panic!("Unsuported method"),
