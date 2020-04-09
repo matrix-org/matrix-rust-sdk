@@ -292,6 +292,7 @@ impl OutboundGroupSession {
     pub fn new(room_id: &RoomId) -> Self {
         let session = OlmOutboundGroupSession::new();
         let session_id = session.session_id();
+
         OutboundGroupSession {
             inner: Arc::new(Mutex::new(session)),
             room_id: Arc::new(room_id.to_owned()),

@@ -13,7 +13,6 @@
 // limitations under the License.
 
 use std::collections::HashMap;
-use std::convert::TryFrom;
 use std::sync::Arc;
 
 use dashmap::{DashMap, ReadOnlyView};
@@ -21,7 +20,7 @@ use tokio::sync::Mutex;
 
 use super::device::Device;
 use super::olm::{InboundGroupSession, Session};
-use crate::identifiers::{RoomId, UserId};
+use crate::identifiers::{DeviceId, RoomId, UserId};
 
 #[derive(Debug)]
 pub struct SessionStore {
@@ -107,7 +106,7 @@ pub struct DeviceStore {
 }
 
 pub struct UserDevices {
-    entries: ReadOnlyView<String, Device>,
+    entries: ReadOnlyView<DeviceId, Device>,
 }
 
 impl UserDevices {
@@ -115,7 +114,7 @@ impl UserDevices {
         self.entries.get(device_id).cloned()
     }
 
-    pub fn keys(&self) -> impl Iterator<Item = &String> {
+    pub fn keys(&self) -> impl Iterator<Item = &DeviceId> {
         self.entries.keys()
     }
 
@@ -132,7 +131,7 @@ impl DeviceStore {
     }
 
     pub fn add(&self, device: Device) -> bool {
-        let user_id = UserId::try_from(device.user_id()).unwrap();
+        let user_id = device.user_id();
 
         if !self.entries.contains_key(&user_id) {
             self.entries.insert(user_id.clone(), DashMap::new());

@@ -20,7 +20,7 @@ use std::result::Result as StdResult;
 use std::sync::Arc;
 
 use super::error::{OlmError, Result, SignatureError, VerificationResult};
-use super::olm::{Account, InboundGroupSession, OutboundGroupSession};
+use super::olm::{Account, InboundGroupSession, OutboundGroupSession, Session};
 use super::store::memorystore::MemoryStore;
 #[cfg(feature = "sqlite-cryptostore")]
 use super::store::sqlite::SqliteStore;
@@ -35,19 +35,25 @@ use serde_json::{json, Value};
 use tokio::sync::Mutex;
 use tracing::{debug, error, info, instrument, trace, warn};
 
-use ruma_client_api::r0::client_exchange::DeviceIdOrAllDevices;
+use ruma_client_api::r0::client_exchange::{
+    send_event_to_device::Request as ToDeviceRequest, DeviceIdOrAllDevices,
+};
 use ruma_client_api::r0::keys::{
     AlgorithmAndDeviceId, DeviceKeys, KeyAlgorithm, OneTimeKey, SignedKey,
 };
 use ruma_client_api::r0::sync::sync_events::IncomingResponse as SyncResponse;
 use ruma_events::{
-    collections::all::{Event, RoomEvent},
-    room::encrypted::{EncryptedEvent, EncryptedEventContent},
+    collections::all::RoomEvent,
+    room::encrypted::{
+        CiphertextInfo, EncryptedEvent, EncryptedEventContent, MegolmV1AesSha2Content,
+        OlmV1Curve25519AesSha2Content,
+    },
+    room::message::MessageEventContent,
     to_device::{
         AnyToDeviceEvent as ToDeviceEvent, ToDeviceEncrypted, ToDeviceForwardedRoomKey,
         ToDeviceRoomKey, ToDeviceRoomKeyRequest,
     },
-    Algorithm, EventResult,
+    Algorithm, EventResult, EventType,
 };
 use ruma_identifiers::RoomId;
 use ruma_identifiers::{DeviceId, UserId};
@@ -409,9 +415,9 @@ impl OlmMachine {
                 }
             }
 
-            let current_devices: HashSet<&String> = device_map.keys().collect();
+            let current_devices: HashSet<&DeviceId> = device_map.keys().collect();
             let stored_devices = self.store.get_user_devices(&user_id).await.unwrap();
-            let stored_devices_set: HashSet<&String> = stored_devices.keys().collect();
+            let stored_devices_set: HashSet<&DeviceId> = stored_devices.keys().collect();
 
             let deleted_devices = stored_devices_set.difference(&current_devices);
 
