@@ -18,6 +18,7 @@ use std::convert::TryInto;
 use std::path::Path;
 use std::result::Result as StdResult;
 use std::sync::Arc;
+use uuid::Uuid;
 
 use super::error::{OlmError, Result, SignatureError, VerificationResult};
 use super::olm::{Account, InboundGroupSession, OutboundGroupSession, Session};
@@ -1009,7 +1010,7 @@ impl OlmMachine {
 
             message_vec.push(ToDeviceRequest {
                 event_type: "m.room.encrypted".to_owned(),
-                txn_id: format!("{}-{}", session_id, i),
+                txn_id: Uuid::new_v4().to_string(),
                 messages,
             });
         }
