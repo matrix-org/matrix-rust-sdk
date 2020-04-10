@@ -187,8 +187,7 @@ impl OlmMachine {
         self.uploaded_signed_key_count = Some(count);
 
         self.account.mark_keys_as_published().await;
-
-        // self.store.save_account(self.account.clone()).await?;
+        self.store.save_account(self.account.clone()).await?;
 
         Ok(())
     }
