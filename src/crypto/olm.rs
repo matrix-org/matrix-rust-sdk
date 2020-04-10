@@ -343,12 +343,14 @@ pub struct GroupSessionKey(pub String);
 ///
 /// Inbound group sessions are used to exchange room messages between a group of
 /// participants. Inbound group sessions are used to decrypt the room messages.
+#[derive(Clone)]
 pub struct InboundGroupSession {
-    inner: OlmInboundGroupSession,
-    pub(crate) sender_key: String,
-    pub(crate) signing_key: String,
-    pub(crate) room_id: RoomId,
-    forwarding_chains: Option<Vec<String>>,
+    inner: Arc<Mutex<OlmInboundGroupSession>>,
+    session_id: Arc<String>,
+    pub(crate) sender_key: Arc<String>,
+    pub(crate) signing_key: Arc<String>,
+    pub(crate) room_id: Arc<RoomId>,
+    forwarding_chains: Arc<Mutex<Option<Vec<String>>>>,
 }
 
 impl InboundGroupSession {
@@ -374,12 +376,16 @@ impl InboundGroupSession {
         room_id: &RoomId,
         session_key: GroupSessionKey,
     ) -> Result<Self, OlmGroupSessionError> {
+        let session = OlmInboundGroupSession::new(&session_key.0)?;
+        let session_id = session.session_id();
+
         Ok(InboundGroupSession {
-            inner: OlmInboundGroupSession::new(&session_key.0)?,
-            sender_key: sender_key.to_owned(),
-            signing_key: signing_key.to_owned(),
-            room_id: room_id.clone(),
-            forwarding_chains: None,
+            inner: Arc::new(Mutex::new(session)),
+            session_id: Arc::new(session_id),
+            sender_key: Arc::new(sender_key.to_owned()),
+            signing_key: Arc::new(signing_key.to_owned()),
+            room_id: Arc::new(room_id.clone()),
+            forwarding_chains: Arc::new(Mutex::new(None)),
         })
     }
 
@@ -389,8 +395,8 @@ impl InboundGroupSession {
     ///
     /// * `pickle_mode` - The mode that was used to pickle the group session,
     /// either an unencrypted mode or an encrypted using passphrase.
-    pub fn pickle(&self, pickle_mode: PicklingMode) -> String {
-        self.inner.pickle(pickle_mode)
+    pub async fn pickle(&self, pickle_mode: PicklingMode) -> String {
+        self.inner.lock().await.pickle(pickle_mode)
     }
 
     /// Restore a Session from a previously pickled string.
@@ -420,23 +426,26 @@ impl InboundGroupSession {
         room_id: RoomId,
     ) -> Result<Self, OlmGroupSessionError> {
         let session = OlmInboundGroupSession::unpickle(pickle, pickle_mode)?;
+        let session_id = session.session_id();
+
         Ok(InboundGroupSession {
-            inner: session,
-            sender_key,
-            signing_key,
-            room_id,
-            forwarding_chains: None,
+            inner: Arc::new(Mutex::new(session)),
+            session_id: Arc::new(session_id),
+            sender_key: Arc::new(sender_key),
+            signing_key: Arc::new(signing_key),
+            room_id: Arc::new(room_id),
+            forwarding_chains: Arc::new(Mutex::new(None)),
         })
     }
 
     /// Returns the unique identifier for this session.
-    pub fn session_id(&self) -> String {
-        self.inner.session_id()
+    pub fn session_id(&self) -> &str {
+        &self.session_id
     }
 
     /// Get the first message index we know how to decrypt.
-    pub fn first_known_index(&self) -> u32 {
-        self.inner.first_known_index()
+    pub async fn first_known_index(&self) -> u32 {
+        self.inner.lock().await.first_known_index()
     }
 
     /// Decrypt the given ciphertext.
@@ -447,8 +456,8 @@ impl InboundGroupSession {
     /// # Arguments
     ///
     /// * `message` - The message that should be decrypted.
-    pub fn decrypt(&self, message: String) -> Result<(String, u32), OlmGroupSessionError> {
-        self.inner.decrypt(message)
+    pub async fn decrypt(&self, message: String) -> Result<(String, u32), OlmGroupSessionError> {
+        self.inner.lock().await.decrypt(message)
     }
 }
 

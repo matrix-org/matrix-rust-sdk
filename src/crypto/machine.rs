@@ -1139,7 +1139,7 @@ impl OlmMachine {
         // TODO check if the olm session is wedged and re-request the key.
         let session = session.ok_or(OlmError::MissingSession)?;
 
-        let (plaintext, _) = session.lock().await.decrypt(content.ciphertext.clone())?;
+        let (plaintext, _) = session.decrypt(content.ciphertext.clone()).await?;
         // TODO check the message index.
         // TODO check if this is from a verified device.
 

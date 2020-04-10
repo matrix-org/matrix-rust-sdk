@@ -60,7 +60,7 @@ impl SessionStore {
 
 #[derive(Debug)]
 pub struct GroupSessionStore {
-    entries: HashMap<RoomId, HashMap<String, HashMap<String, Arc<Mutex<InboundGroupSession>>>>>,
+    entries: HashMap<RoomId, HashMap<String, HashMap<String, InboundGroupSession>>>,
 }
 
 impl GroupSessionStore {
@@ -72,18 +72,19 @@ impl GroupSessionStore {
 
     pub fn add(&mut self, session: InboundGroupSession) -> bool {
         if !self.entries.contains_key(&session.room_id) {
-            self.entries
-                .insert(session.room_id.to_owned(), HashMap::new());
+            let room_id = &*session.room_id;
+            self.entries.insert(room_id.clone(), HashMap::new());
         }
 
         let room_map = self.entries.get_mut(&session.room_id).unwrap();
 
-        if !room_map.contains_key(&session.sender_key) {
-            room_map.insert(session.sender_key.to_owned(), HashMap::new());
+        if !room_map.contains_key(&*session.sender_key) {
+            let sender_key = &*session.sender_key;
+            room_map.insert(sender_key.to_owned(), HashMap::new());
         }
 
-        let sender_map = room_map.get_mut(&session.sender_key).unwrap();
-        let ret = sender_map.insert(session.session_id(), Arc::new(Mutex::new(session)));
+        let sender_map = room_map.get_mut(&*session.sender_key).unwrap();
+        let ret = sender_map.insert(session.session_id().to_owned(), session);
 
         ret.is_some()
     }
@@ -93,7 +94,7 @@ impl GroupSessionStore {
         room_id: &RoomId,
         sender_key: &str,
         session_id: &str,
-    ) -> Option<Arc<Mutex<InboundGroupSession>>> {
+    ) -> Option<InboundGroupSession> {
         self.entries
             .get(room_id)
             .and_then(|m| m.get(sender_key).and_then(|m| m.get(session_id).cloned()))

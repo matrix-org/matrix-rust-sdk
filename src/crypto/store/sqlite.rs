@@ -366,7 +366,7 @@ impl CryptoStore for SqliteStore {
 
     async fn save_inbound_group_session(&mut self, session: InboundGroupSession) -> Result<bool> {
         let account_id = self.account_id.ok_or(CryptoStoreError::AccountUnset)?;
-        let pickle = session.pickle(self.get_pickle_mode());
+        let pickle = session.pickle(self.get_pickle_mode()).await;
         let mut connection = self.connection.lock().await;
         let session_id = session.session_id();
 
@@ -382,9 +382,9 @@ impl CryptoStore for SqliteStore {
         )
         .bind(session_id)
         .bind(account_id)
-        .bind(&session.sender_key)
-        .bind(&session.signing_key)
-        .bind(&session.room_id.to_string())
+        .bind(&*session.sender_key)
+        .bind(&*session.signing_key)
+        .bind(&*session.room_id.to_string())
         .bind(&pickle)
         .execute(&mut *connection)
         .await?;
@@ -397,7 +397,7 @@ impl CryptoStore for SqliteStore {
         room_id: &RoomId,
         sender_key: &str,
         session_id: &str,
-    ) -> Result<Option<Arc<Mutex<InboundGroupSession>>>> {
+    ) -> Result<Option<InboundGroupSession>> {
         Ok(self
             .inbound_group_sessions
             .get(room_id, sender_key, session_id))
@@ -653,7 +653,7 @@ mod test {
         )
         .expect("Can't create session");
 
-        let session_id = session.session_id();
+        let session_id = session.session_id().to_owned();
 
         store
             .save_inbound_group_session(session)
