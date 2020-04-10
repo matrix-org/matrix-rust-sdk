@@ -819,25 +819,23 @@ impl OlmMachine {
     }
 
     pub async fn encrypt(
-        &mut self,
+        &self,
         room_id: &RoomId,
         content: MessageEventContent,
     ) -> Result<MegolmV1AesSha2Content> {
-        if !self.outbound_group_session.contains_key(room_id) {
-            self.create_outbound_group_session(room_id).await?
-        }
+        let session = self.outbound_group_session.get(room_id);
 
-        let session = self.outbound_group_session.get(room_id).unwrap();
+        let session = if let Some(s) = session {
+            s
+        } else {
+            panic!("Session wasn't created nor shared");
+        };
 
         if session.expired() {
-            todo!()
+            panic!("Session is expired");
         }
 
-        // if !session.shared() {
-        //     todo!()
-        // }
-
-        let mut json_content = json!({
+        let json_content = json!({
             "content": content,
             "room_id": room_id,
             "type": EventType::RoomMessage,
