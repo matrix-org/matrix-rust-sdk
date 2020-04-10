@@ -37,7 +37,7 @@ use ruma_api::{Endpoint, Outgoing};
 use ruma_events::room::message::MessageEventContent;
 use ruma_events::EventResult;
 pub use ruma_events::EventType;
-use ruma_identifiers::RoomId;
+use ruma_identifiers::{RoomId, RoomIdOrAliasId, UserId};
 
 #[cfg(feature = "encryption")]
 use ruma_identifiers::{DeviceId, UserId};
@@ -181,7 +181,16 @@ impl SyncSettings {
 use api::r0::client_exchange::send_event_to_device;
 #[cfg(feature = "encryption")]
 use api::r0::keys::{claim_keys, get_keys, upload_keys, KeyAlgorithm};
+use api::r0::membership::join_room_by_id;
+use api::r0::membership::join_room_by_id_or_alias;
+use api::r0::membership::kick_user;
+use api::r0::membership::leave_room;
+use api::r0::membership::{
+    invite_user::{self, InvitationRecipient},
+    Invite3pid,
+};
 use api::r0::message::create_message_event;
+use api::r0::room::create_room;
 use api::r0::session::login;
 use api::r0::sync::sync_events;
 
@@ -331,6 +340,162 @@ impl AsyncClient {
         client.receive_login_response(&response).await?;
 
         Ok(response)
+    }
+
+    /// Join a room by `RoomId`.
+    ///
+    /// Returns a `join_room_by_id::Response` consisting of the
+    /// joined rooms `RoomId`.
+    ///
+    /// # Arguments
+    ///
+    /// * room_id - A valid RoomId otherwise sending will fail.
+    ///
+    pub async fn join_room_by_id(&mut self, room_id: &RoomId) -> Result<join_room_by_id::Response> {
+        let request = join_room_by_id::Request {
+            room_id: room_id.clone(),
+            third_party_signed: None,
+        };
+        self.send(request).await
+    }
+
+    /// Join a room by `RoomId`.
+    ///
+    /// Returns a `join_room_by_id_or_alias::Response` consisting of the
+    /// joined rooms `RoomId`.
+    ///
+    /// # Arguments
+    ///
+    /// * alias - A valid `RoomIdOrAliasId` otherwise sending will fail.
+    ///
+    pub async fn join_room_by_id_or_alias(
+        &mut self,
+        alias: &RoomIdOrAliasId,
+    ) -> Result<join_room_by_id_or_alias::Response> {
+        let request = join_room_by_id_or_alias::Request {
+            room_id_or_alias: alias.clone(),
+            third_party_signed: None,
+        };
+        self.send(request).await
+    }
+
+    /// Kick a user out of the specified room.
+    ///
+    /// Returns a `kick_user::Response`, an empty response.
+    ///
+    /// # Arguments
+    ///
+    /// * room_id - A valid `RoomId` otherwise sending will fail.
+    ///
+    /// * user_id - A valid `UserId`.
+    ///
+    /// * reason - Optional reason why the room member is being kicked out.
+    ///
+    pub async fn kick_user(
+        &mut self,
+        room_id: &RoomId,
+        user_id: &UserId,
+        reason: Option<String>,
+    ) -> Result<kick_user::Response> {
+        let request = kick_user::Request {
+            reason,
+            room_id: room_id.clone(),
+            user_id: user_id.clone(),
+        };
+        self.send(request).await
+    }
+
+    /// Leave the specified room.
+    ///
+    /// Returns a `leave_room::Response`, an empty response.
+    ///
+    /// # Arguments
+    ///
+    /// * room_id - A valid `RoomId`.
+    ///
+    pub async fn leave_room(&mut self, room_id: &RoomId) -> Result<leave_room::Response> {
+        let request = leave_room::Request {
+            room_id: room_id.clone(),
+        };
+        self.send(request).await
+    }
+
+    /// Invite the specified user by `UserId` to the given room.
+    ///
+    /// Returns a `invite_user::Response`, an empty response.
+    ///
+    /// # Arguments
+    ///
+    /// * room_id - A valid `RoomId`.
+    ///
+    /// * user_id - A valid `UserId`.
+    ///
+    pub async fn invite_user_by_id(
+        &mut self,
+        room_id: &RoomId,
+        user_id: &UserId,
+    ) -> Result<invite_user::Response> {
+        let request = invite_user::Request {
+            room_id: room_id.clone(),
+            recipient: InvitationRecipient::UserId {
+                user_id: user_id.clone(),
+            },
+        };
+        self.send(request).await
+    }
+
+    /// Invite the specified user by third party id to the given room.
+    ///
+    /// Returns a `invite_user::Response`, an empty response.
+    ///
+    /// # Arguments
+    ///
+    /// * room_id - A valid `RoomId`.
+    ///
+    /// * invite_id - A valid `UserId`.
+    ///
+    pub async fn invite_user_by_3pid(
+        &mut self,
+        room_id: &RoomId,
+        invite_id: &Invite3pid,
+    ) -> Result<invite_user::Response> {
+        let request = invite_user::Request {
+            room_id: room_id.clone(),
+            recipient: InvitationRecipient::ThirdPartyId(invite_id.clone()),
+        };
+        self.send(request).await
+    }
+
+    /// A builder to create a room and send the request.
+    ///
+    /// Returns a `create_room::Response`, an empty response.
+    ///
+    /// # Arguments
+    ///
+    /// * room - the easiest way to create this request is using `RoomBuilder` struct.
+    ///
+    /// # Examples
+    /// ```ignore
+    /// use matrix_sdk::{AsyncClient, RoomBuilder};
+    ///
+    /// let mut bldr = RoomBuilder::default();
+    /// bldr.creation_content(false)
+    ///     .initial_state(vec![])
+    ///     .visibility(Visibility::Public)
+    ///     .name("name")
+    ///     .room_version("v1.0");
+    ///
+    /// let mut cli = AsyncClient::new(homeserver, Some(session)).unwrap();
+    ///
+    /// assert!(cli.create_room(bldr).await.is_ok());
+    /// ```
+    ///
+    pub async fn create_room<R: Into<create_room::Request>>(
+        &mut self,
+        room: R,
+    ) -> Result<create_room::Response> {
+        let request = room.into();
+        self.send(request).await
     }
 
     /// Synchronize the client's state with the latest state on the server.

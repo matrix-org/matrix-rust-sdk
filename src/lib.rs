@@ -38,6 +38,7 @@ mod base_client;
 mod error;
 mod event_emitter;
 mod models;
+mod request_builder;
 mod session;
 
 #[cfg(test)]
@@ -50,5 +51,6 @@ pub use async_client::{AsyncClient, AsyncClientConfig, SyncSettings};
 pub use base_client::Client;
 pub use event_emitter::EventEmitter;
 pub use models::Room;
+pub use request_builder::RoomBuilder;
 
 pub(crate) const VERSION: &str = env!("CARGO_PKG_VERSION");
