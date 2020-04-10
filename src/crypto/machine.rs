@@ -919,6 +919,23 @@ impl OlmMachine {
         })
     }
 
+    /// Should the client share a group session for the given room.
+    ///
+    /// Returns true if a session needs to be shared before room messages can be
+    /// encrypted, false if one is already shared and ready to encrypt room
+    /// messages.
+    ///
+    /// This should be called every time a new room message wants to be sent out
+    /// since group sessions can expire at any time.
+    pub fn should_share_group_session(&self, room_id: &RoomId) -> bool {
+        let session = self.outbound_group_session.get(room_id);
+
+        match session {
+            Some(s) => !s.shared() || s.expired(),
+            None => true,
+        }
+    }
+
     // TODO accept an algorithm here
     pub(crate) async fn share_group_session<'a, I>(
         &mut self,
@@ -958,6 +975,7 @@ impl OlmMachine {
                         user_id,
                         device.device_id()
                     );
+                    // TODO mark the user for a key query.
                     continue;
                 };
 
