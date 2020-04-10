@@ -16,7 +16,6 @@
 use std::collections::HashMap;
 use std::convert::{TryFrom, TryInto};
 use std::result::Result as StdResult;
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -61,8 +60,6 @@ pub struct AsyncClient {
     http_client: reqwest::Client,
     /// User session data.
     pub(crate) base_client: Arc<RwLock<BaseClient>>,
-    /// The transaction id.
-    transaction_id: Arc<AtomicU64>,
 }
 
 impl std::fmt::Debug for AsyncClient {
@@ -248,7 +245,6 @@ impl AsyncClient {
             homeserver,
             http_client,
             base_client: Arc::new(RwLock::new(BaseClient::new(session)?)),
-            transaction_id: Arc::new(AtomicU64::new(0)),
         })
     }
 
@@ -624,11 +620,6 @@ impl AsyncClient {
             .expect("Can't convert http response into ruma response");
 
         Ok(response)
-    }
-
-    /// Get a new unique transaction id for the client.
-    fn transaction_id(&self) -> u64 {
-        self.transaction_id.fetch_add(1, Ordering::SeqCst)
     }
 
     /// Send a room message to the homeserver.
