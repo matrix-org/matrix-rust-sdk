@@ -696,9 +696,12 @@ impl OlmMachine {
             let mut session = match &message {
                 OlmMessage::Message(_) => return Err(OlmError::SessionWedged),
                 OlmMessage::PreKey(m) => {
-                    self.account
+                    let session = self
+                        .account
                         .create_inbound_session(sender_key, m.clone())
-                        .await?
+                        .await?;
+                    self.store.save_account(self.account.clone()).await?;
+                    session
                 }
             };
 
