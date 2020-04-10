@@ -19,6 +19,7 @@ use std::time::Instant;
 
 use serde::Serialize;
 use tokio::sync::Mutex;
+use zeroize::Zeroize;
 
 use olm_rs::account::{IdentityKeys, OlmAccount, OneTimeKeys};
 use olm_rs::errors::{OlmAccountError, OlmGroupSessionError, OlmSessionError};
@@ -344,7 +345,8 @@ impl PartialEq for Session {
 
 /// The private session key of a group session.
 /// Can be used to create a new inbound group session.
-#[derive(Clone, Serialize)]
+#[derive(Clone, Serialize, Zeroize)]
+#[zeroize(drop)]
 pub struct GroupSessionKey(pub String);
 
 /// Inbound group session.
