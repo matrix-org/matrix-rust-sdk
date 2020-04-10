@@ -664,8 +664,28 @@ impl AsyncClient {
                 };
 
                 if !missing_sessions.is_empty() {
-                    let _ = self.claim_one_time_keys(missing_sessions).await;
+                    self.claim_one_time_keys(missing_sessions).await?;
                 }
+
+                if self
+                    .base_client
+                    .read()
+                    .await
+                    .should_share_group_session(room_id)
+                    .await
+                {
+                    // TODO we need to make sure that only one such request is
+                    // in flight per room at a time.
+                    self.share_group_session(room_id).await?;
+                }
+
+                content = self
+                    .base_client
+                    .read()
+                    .await
+                    .encrypt(room_id, content)
+                    .await?;
+                event_type = EventType::RoomEncrypted;
             }
         }
 
@@ -734,7 +754,7 @@ impl AsyncClient {
             .expect("Keys don't need to be uploaded");
 
         for request in requests.drain(..) {
-            let response: send_event_to_device::Response = self.send(request).await?;
+            let _response: send_event_to_device::Response = self.send(request).await?;
         }
 
         Ok(())
