@@ -935,6 +935,18 @@ impl OlmMachine {
         }
 
         let megolm_session = self.outbound_group_session.get(room_id).unwrap();
+
+        let megolm_session = if megolm_session.expired() {
+            self.create_outbound_group_session(room_id).await?;
+            self.outbound_group_session.get(room_id).unwrap()
+        } else {
+            megolm_session
+        };
+
+        if megolm_session.shared() {
+            panic!("Session is already shared");
+        }
+
         let session_id = megolm_session.session_id().to_owned();
         megolm_session.mark_as_shared();
 
