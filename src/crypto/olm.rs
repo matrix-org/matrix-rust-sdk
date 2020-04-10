@@ -26,10 +26,12 @@ use olm_rs::outbound_group_session::OlmOutboundGroupSession;
 use olm_rs::session::{OlmMessage, OlmSession, PreKeyMessage};
 use olm_rs::PicklingMode;
 
-use ruma_client_api::r0::keys::SignedKey;
-
+use crate::api::r0::keys::SignedKey;
 use crate::identifiers::RoomId;
 
+/// The Olm account.
+/// An account is the central identity for encrypted communication between two
+/// devices. It holds the two identity key pairs for a device.
 pub struct Account {
     inner: OlmAccount,
     pub(crate) shared: bool,
@@ -87,14 +89,34 @@ impl Account {
         self.inner.mark_keys_as_published();
     }
 
+    /// Sign the given string using the accounts signing key.
+    ///
+    /// Returns the signature as a base64 encoded string.
     pub fn sign(&self, string: &str) -> String {
         self.inner.sign(string)
     }
 
+    /// Store the account as a base64 encoded string.
+    ///
+    /// # Arguments
+    ///
+    /// * `pickle_mode` - The mode that was used to pickle the account, either an
+    /// unencrypted mode or an encrypted using passphrase.
     pub fn pickle(&self, pickle_mode: PicklingMode) -> String {
         self.inner.pickle(pickle_mode)
     }
 
+    /// Restore an account from a previously pickled string.
+    ///
+    /// # Arguments
+    ///
+    /// * `pickle` - The pickled string of the account.
+    ///
+    /// * `pickle_mode` - The mode that was used to pickle the account, either an
+    /// unencrypted mode or an encrypted using passphrase.
+    ///
+    /// * `shared` - Boolean determining if the account was uploaded to the
+    /// server.
     pub fn from_pickle(
         pickle: String,
         pickle_mode: PicklingMode,
@@ -104,6 +126,16 @@ impl Account {
         Ok(Account { inner: acc, shared })
     }
 
+    /// Create a new session with another account given a one-time key.
+    ///
+    /// Returns the newly created session or a `OlmSessionError` if creating a
+    /// session failed.
+    ///
+    /// # Arguments
+    /// * `their_identity_key` - The other account's identity/curve25519 key.
+    ///
+    /// * `their_one_time_key` - A signed one-time key that the other account
+    /// created and shared with us.
     pub fn create_outbound_session(
         &self,
         their_identity_key: &str,
@@ -123,6 +155,16 @@ impl Account {
         })
     }
 
+    /// Create a new session with another account given a pre-key Olm message.
+    ///
+    /// Returns the newly created session or a `OlmSessionError` if creating a
+    /// session failed.
+    ///
+    /// # Arguments
+    /// * `their_identity_key` - The other account's identitiy/curve25519 key.
+    ///
+    /// * `message` - A pre-key Olm message that was sent to us by the other
+    /// account.
     pub fn create_inbound_session_from(
         &self,
         their_identity_key: &str,
@@ -150,6 +192,10 @@ impl PartialEq for Account {
 }
 
 #[derive(Debug)]
+/// The Olm Session.
+///
+/// Sessions are used to exchange encrypted messages between two
+/// accounts/devices.
 pub struct Session {
     inner: OlmSession,
     pub(crate) sender_key: String,
@@ -158,18 +204,44 @@ pub struct Session {
 }
 
 impl Session {
+    /// Decrypt the given Olm message.
+    ///
+    /// Returns the decrypted plaintext or an `OlmSessionError` if decryption
+    /// failed.
+    ///
+    /// # Arguments
+    ///
+    /// * `message` - The Olm message that should be decrypted.
     pub fn decrypt(&mut self, message: OlmMessage) -> Result<String, OlmSessionError> {
         let plaintext = self.inner.decrypt(message)?;
         self.last_use_time = Instant::now();
         Ok(plaintext)
     }
 
+    /// Encrypt the given plaintext as a OlmMessage.
+    ///
+    /// Returns the encrypted Olm message.
+    ///
+    /// # Arguments
+    ///
+    /// * `plaintext` - The plaintext that should be encrypted.
     pub fn encrypt(&mut self, plaintext: &str) -> OlmMessage {
         let message = self.inner.encrypt(plaintext);
         self.last_use_time = Instant::now();
         message
     }
 
+    /// Check if a pre-key Olm message was encrypted for this session.
+    ///
+    /// Returns true if it matches, false if not and a OlmSessionError if there
+    /// was an error checking if it matches.
+    ///
+    /// # Arguments
+    ///
+    /// * `their_identity_key` - The identity/curve25519 key of the account
+    /// that encrypted this Olm message.
+    ///
+    /// * `message` - The pre-key Olm message that should be checked.
     pub fn matches(
         &self,
         their_identity_key: &str,
@@ -179,14 +251,41 @@ impl Session {
             .matches_inbound_session_from(their_identity_key, message)
     }
 
+    /// Returns the unique identifier for this session.
     pub fn session_id(&self) -> String {
         self.inner.session_id()
     }
 
+    /// Store the session as a base64 encoded string.
+    ///
+    /// # Arguments
+    ///
+    /// * `pickle_mode` - The mode that was used to pickle the session, either
+    /// an unencrypted mode or an encrypted using passphrase.
     pub fn pickle(&self, pickle_mode: PicklingMode) -> String {
         self.inner.pickle(pickle_mode)
     }
 
+    /// Restore a Session from a previously pickled string.
+    ///
+    /// Returns the restored Olm Session or a `OlmSessionError` if there was an
+    /// error.
+    ///
+    /// # Arguments
+    ///
+    /// * `pickle` - The pickled string of the session.
+    ///
+    /// * `pickle_mode` - The mode that was used to pickle the session, either
+    /// an unencrypted mode or an encrypted using passphrase.
+    ///
+    /// * `sender_key` - The public curve25519 key of the account that
+    /// established the session with us.
+    ///
+    /// * `creation_time` - The timestamp that marks when the session was
+    /// created.
+    ///
+    /// * `last_use_time` - The timestamp that marks when the session was
+    /// last used to encrypt or decrypt an Olm message.
     pub fn from_pickle(
         pickle: String,
         pickle_mode: PicklingMode,
@@ -210,6 +309,10 @@ impl PartialEq for Session {
     }
 }
 
+/// Inbound group session.
+///
+/// Inbound group sessions are used to exchange room messages between a group of
+/// participants. Inbound group sessions are used to decrypt the room messages.
 pub struct InboundGroupSession {
     inner: OlmInboundGroupSession,
     pub(crate) sender_key: String,
@@ -219,6 +322,22 @@ pub struct InboundGroupSession {
 }
 
 impl InboundGroupSession {
+    /// Create a new inbound group session for the given room.
+    ///
+    /// These sessions are used to decrypt room messages.
+    ///
+    /// # Arguments
+    ///
+    /// * `sender_key` - The public curve25519 key of the account that
+    /// sent us the session
+    ///
+    /// * `signing_key` - The public ed25519 key of the account that
+    /// sent us the session.
+    ///
+    /// * `room_id` - The id of the room that the session is used in.
+    ///
+    /// * `session_key` - The private session key that is used to decrypt
+    /// messages.
     pub fn new(
         sender_key: &str,
         signing_key: &str,
@@ -234,6 +353,35 @@ impl InboundGroupSession {
         })
     }
 
+    /// Store the group session as a base64 encoded string.
+    ///
+    /// # Arguments
+    ///
+    /// * `pickle_mode` - The mode that was used to pickle the group session,
+    /// either an unencrypted mode or an encrypted using passphrase.
+    pub fn pickle(&self, pickle_mode: PicklingMode) -> String {
+        self.inner.pickle(pickle_mode)
+    }
+
+    /// Restore a Session from a previously pickled string.
+    ///
+    /// Returns the restored group session or a `OlmGroupSessionError` if there
+    /// was an error.
+    ///
+    /// # Arguments
+    ///
+    /// * `pickle` - The pickled string of the group session session.
+    ///
+    /// * `pickle_mode` - The mode that was used to pickle the session, either
+    /// an unencrypted mode or an encrypted using passphrase.
+    ///
+    /// * `sender_key` - The public curve25519 key of the account that
+    /// sent us the session
+    ///
+    /// * `signing_key` - The public ed25519 key of the account that
+    /// sent us the session.
+    ///
+    /// * `room_id` - The id of the room that the session is used in.
     pub fn from_pickle(
         pickle: String,
         pickle_mode: PicklingMode,
@@ -251,18 +399,24 @@ impl InboundGroupSession {
         })
     }
 
+    /// Returns the unique identifier for this session.
     pub fn session_id(&self) -> String {
         self.inner.session_id()
     }
 
-    pub fn pickle(&self, pickle_mode: PicklingMode) -> String {
-        self.inner.pickle(pickle_mode)
-    }
-
+    /// Get the first message index we know how to decrypt.
     pub fn first_known_index(&self) -> u32 {
         self.inner.first_known_index()
     }
 
+    /// Decrypt the given ciphertext.
+    ///
+    /// Returns the decrypted plaintext or an `OlmGroupSessionError` if
+    /// decryption failed.
+    ///
+    /// # Arguments
+    ///
+    /// * `message` - The message that should be decrypted.
     pub fn decrypt(&self, message: String) -> Result<(String, u32), OlmGroupSessionError> {
         self.inner.decrypt(message)
     }
@@ -270,12 +424,17 @@ impl InboundGroupSession {
 
 impl fmt::Debug for InboundGroupSession {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("InbounDGroupSession")
+        f.debug_struct("InboundGroupSession")
             .field("session_id", &self.session_id())
             .finish()
     }
 }
 
+/// Outbound group session.
+///
+/// Outbound group sessions are used to exchange room messages between a group
+/// of participants. Outbound group sessions are used to encrypt the room
+/// messages.
 #[derive(Clone)]
 pub struct OutboundGroupSession {
     inner: Arc<Mutex<OlmOutboundGroupSession>>,
@@ -287,6 +446,13 @@ pub struct OutboundGroupSession {
 }
 
 impl OutboundGroupSession {
+    /// Create a new outbound group session for the given room.
+    ///
+    /// Outbound group sessions are used to encrypt room messages.
+    ///
+    /// # Arguments
+    ///
+    /// * `room_id` - The id of the room that the session is used in.
     pub fn new(room_id: &RoomId) -> Self {
         let session = OlmOutboundGroupSession::new();
         let session_id = session.session_id();
@@ -301,33 +467,57 @@ impl OutboundGroupSession {
         }
     }
 
+    /// Encrypt the given plaintext using this session.
+    ///
+    /// Returns the encrypted ciphertext.
+    ///
+    /// # Arguments
+    ///
+    /// * `plaintext` - The plaintext that should be encrypted.
     pub async fn encrypt(&self, plaintext: String) -> String {
         let session = self.inner.lock().await;
         session.encrypt(plaintext)
     }
 
+    /// Check if the session has expired and if it should be rotated.
+    ///
+    /// A session will expire after some time or if enough messages have been
+    /// encrypted using it.
     pub fn expired(&self) -> bool {
         // TODO implement this.
         false
     }
 
+    /// Mark the session as shared.
+    ///
+    /// Messages shouldn't be encrypted with the session before it has been
+    /// shared.
     pub fn mark_as_shared(&self) {
         self.shared.store(true, Ordering::Relaxed);
     }
 
+    /// Check if the session has been marked as shared.
     pub fn shared(&self) -> bool {
         self.shared.load(Ordering::Relaxed)
     }
 
+    /// Get the session key of this session.
+    ///
+    /// A session key can be used to to create an `InboundGroupSession`.
     pub async fn session_key(&self) -> String {
         let session = self.inner.lock().await;
         session.session_key()
     }
 
+    /// Returns the unique identifier for this session.
     pub fn session_id(&self) -> &str {
         &self.session_id
     }
 
+    /// Get the current message index for this session.
+    ///
+    /// Each message is sent with an increasing index. This returns the
+    /// message index that will be used for the next encrypted message.
     pub async fn message_index(&self) -> u32 {
         let session = self.inner.lock().await;
         session.session_message_index()
