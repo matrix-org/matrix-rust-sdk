@@ -14,6 +14,7 @@
 
 use std::collections::{HashMap, HashSet};
 use std::convert::TryInto;
+use std::mem;
 #[cfg(feature = "sqlite-cryptostore")]
 use std::path::Path;
 use std::result::Result as StdResult;
@@ -751,11 +752,11 @@ impl OlmMachine {
                 OlmMessage::from_type_and_ciphertext(message_type.into(), ciphertext.body.clone())
                     .map_err(|_| OlmError::UnsupportedOlmType)?;
 
-            let decrypted_event = self
+            let mut decrypted_event = self
                 .decrypt_olm_message(&event.sender.to_string(), &content.sender_key, message)
                 .await?;
             debug!("Decrypted a to-device event {:?}", decrypted_event);
-            self.handle_decrypted_to_device_event(&content.sender_key, &decrypted_event)
+            self.handle_decrypted_to_device_event(&content.sender_key, &mut decrypted_event)
                 .await?;
 
             Ok(decrypted_event)
@@ -765,7 +766,7 @@ impl OlmMachine {
         }
     }
 
-    async fn add_room_key(&mut self, sender_key: &str, event: &ToDeviceRoomKey) -> Result<()> {
+    async fn add_room_key(&mut self, sender_key: &str, event: &mut ToDeviceRoomKey) -> Result<()> {
         match event.content.algorithm {
             Algorithm::MegolmV1AesSha2 => {
                 // TODO check for all the valid fields.
@@ -774,7 +775,7 @@ impl OlmMachine {
                     .get("ed25519")
                     .ok_or(OlmError::MissingSigningKey)?;
 
-                let session_key = GroupSessionKey(event.content.session_key.to_owned());
+                let session_key = GroupSessionKey(mem::take(&mut event.content.session_key));
 
                 let session = InboundGroupSession::new(
                     sender_key,
@@ -1038,7 +1039,7 @@ impl OlmMachine {
     async fn handle_decrypted_to_device_event(
         &mut self,
         sender_key: &str,
-        event: &EventResult<ToDeviceEvent>,
+        event: &mut EventResult<ToDeviceEvent>,
     ) -> Result<()> {
         let event = if let EventResult::Ok(e) = event {
             e
