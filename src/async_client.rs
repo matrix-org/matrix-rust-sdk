@@ -626,16 +626,46 @@ impl AsyncClient {
     ///
     /// Returns the parsed response from the server.
     ///
+    /// If the encryption feature is enabled this method will transparently
+    /// encrypt the room message if the given room is encrypted.
+    ///
     /// # Arguments
     ///
     /// * `room_id` -  The id of the room that should receive the message.
     ///
-    /// * `data` - The content of the message.
+    /// * `content` - The content of the message event.
+    ///
+    /// # Example
+    /// ```no_run
+    /// # use matrix_sdk::Room;
+    /// # use std::sync::{Arc, RwLock};
+    /// # use matrix_sdk::{AsyncClient, SyncSettings};
+    /// # use url::Url;
+    /// # use futures::executor::block_on;
+    /// # use ruma_identifiers::RoomId;
+    /// # use std::convert::TryFrom;
+    /// use matrix_sdk::events::room::message::{MessageEventContent, TextMessageEventContent};
+    /// # block_on(async {
+    /// # let homeserver = Url::parse("http://localhost:8080").unwrap();
+    /// # let mut client = AsyncClient::new(homeserver, None).unwrap();
+    /// # let room_id = RoomId::try_from("!test:localhost").unwrap();
+    ///
+    /// let content = MessageEventContent::Text(TextMessageEventContent {
+    ///     body: "Hello world".to_owned(),
+    ///     format: None,
+    ///     formatted_body: None,
+    ///     relates_to: None,
+    /// });
+    ///
+    /// client.room_send(&room_id, content).await.unwrap();
+    /// })
+    /// ```
     pub async fn room_send(
         &mut self,
         room_id: &RoomId,
-        mut content: MessageEventContent,
+        #[allow(unused_mut)] mut content: MessageEventContent,
     ) -> Result<create_message_event::Response> {
+        #[allow(unused_mut)]
         let mut event_type = EventType::RoomMessage;
 
         #[cfg(feature = "encryption")]
