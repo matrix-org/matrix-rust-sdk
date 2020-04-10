@@ -920,7 +920,7 @@ impl OlmMachine {
     }
 
     // TODO accept an algorithm here
-    pub(crate) async fn share_megolm_session<'a, I>(
+    pub(crate) async fn share_group_session<'a, I>(
         &mut self,
         room_id: &RoomId,
         users: I,
@@ -928,18 +928,8 @@ impl OlmMachine {
     where
         I: IntoIterator<Item = &'a UserId>,
     {
-        if !self.outbound_group_session.contains_key(room_id) {
-            self.create_outbound_group_session(room_id).await?
-        }
-
+        self.create_outbound_group_session(room_id).await?;
         let megolm_session = self.outbound_group_session.get(room_id).unwrap();
-
-        let megolm_session = if megolm_session.expired() {
-            self.create_outbound_group_session(room_id).await?;
-            self.outbound_group_session.get(room_id).unwrap()
-        } else {
-            megolm_session
-        };
 
         if megolm_session.shared() {
             panic!("Session is already shared");

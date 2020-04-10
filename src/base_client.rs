@@ -442,7 +442,7 @@ impl Client {
             Some(o) => {
                 let room = room.lock().await;
                 let members = room.members.keys();
-                Ok(o.share_megolm_session(room_id, members).await?)
+                Ok(o.share_group_session(room_id, members).await?)
             }
             None => panic!("Olm machine wasn't started"),
         }
