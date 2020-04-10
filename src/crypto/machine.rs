@@ -992,10 +992,7 @@ impl OlmMachine {
 
         let mut message_vec = Vec::new();
 
-        for (i, user_map_chunk) in user_map
-            .chunks(OlmMachine::MAX_TO_DEVICE_MESSAGES)
-            .enumerate()
-        {
+        for user_map_chunk in user_map.chunks(OlmMachine::MAX_TO_DEVICE_MESSAGES) {
             let mut messages = HashMap::new();
 
             for (session, device) in user_map_chunk {
