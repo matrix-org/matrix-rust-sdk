@@ -199,6 +199,14 @@ impl Account {
             .await
             .create_inbound_session_from(their_identity_key, message)?;
 
+        self.inner
+            .lock()
+            .await
+            .remove_one_time_keys(&session)
+            .expect(
+            "Session was successfully created but the account doesn't hold a matching one-time key",
+        );
+
         let now = Instant::now();
 
         Ok(Session {
