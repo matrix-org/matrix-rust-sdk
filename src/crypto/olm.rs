@@ -17,6 +17,7 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::Instant;
 
+use serde::Serialize;
 use tokio::sync::Mutex;
 
 use olm_rs::account::{IdentityKeys, OlmAccount, OneTimeKeys};
@@ -309,6 +310,11 @@ impl PartialEq for Session {
     }
 }
 
+/// The private session key of a group session.
+/// Can be used to create a new inbound group session.
+#[derive(Clone, Serialize)]
+pub struct GroupSessionKey(pub String);
+
 /// Inbound group session.
 ///
 /// Inbound group sessions are used to exchange room messages between a group of
@@ -342,10 +348,10 @@ impl InboundGroupSession {
         sender_key: &str,
         signing_key: &str,
         room_id: &RoomId,
-        session_key: &str,
+        session_key: GroupSessionKey,
     ) -> Result<Self, OlmGroupSessionError> {
         Ok(InboundGroupSession {
-            inner: OlmInboundGroupSession::new(session_key)?,
+            inner: OlmInboundGroupSession::new(&session_key.0)?,
             sender_key: sender_key.to_owned(),
             signing_key: signing_key.to_owned(),
             room_id: room_id.clone(),
@@ -504,9 +510,9 @@ impl OutboundGroupSession {
     /// Get the session key of this session.
     ///
     /// A session key can be used to to create an `InboundGroupSession`.
-    pub async fn session_key(&self) -> String {
+    pub async fn session_key(&self) -> GroupSessionKey {
         let session = self.inner.lock().await;
-        session.session_key()
+        GroupSessionKey(session.session_key())
     }
 
     /// Returns the unique identifier for this session.

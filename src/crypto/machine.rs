@@ -21,7 +21,7 @@ use std::sync::Arc;
 use uuid::Uuid;
 
 use super::error::{OlmError, Result, SignatureError, VerificationResult};
-use super::olm::{Account, InboundGroupSession, OutboundGroupSession, Session};
+use super::olm::{Account, GroupSessionKey, InboundGroupSession, OutboundGroupSession, Session};
 use super::store::memorystore::MemoryStore;
 #[cfg(feature = "sqlite-cryptostore")]
 use super::store::sqlite::SqliteStore;
@@ -776,11 +776,13 @@ impl OlmMachine {
                     .get("ed25519")
                     .ok_or(OlmError::MissingSigningKey)?;
 
+                let session_key = GroupSessionKey(event.content.session_key.to_owned());
+
                 let session = InboundGroupSession::new(
                     sender_key,
                     signing_key,
                     &event.content.room_id,
-                    &event.content.session_key,
+                    session_key,
                 )?;
                 self.store.save_inbound_group_session(session).await?;
                 Ok(())
@@ -807,7 +809,7 @@ impl OlmMachine {
             sender_key,
             signing_key,
             &room_id,
-            &session.session_key().await,
+            session.session_key().await,
         )?;
         self.store
             .save_inbound_group_session(inbound_session)
