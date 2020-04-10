@@ -166,7 +166,7 @@ impl Account {
     ///
     /// * `message` - A pre-key Olm message that was sent to us by the other
     /// account.
-    pub fn create_inbound_session_from(
+    pub fn create_inbound_session(
         &self,
         their_identity_key: &str,
         message: PreKeyMessage,

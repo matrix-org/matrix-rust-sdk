@@ -703,7 +703,7 @@ impl OlmMachine {
                 OlmMessage::Message(_) => return Err(OlmError::SessionWedged),
                 OlmMessage::PreKey(m) => {
                     let account = self.account.lock().await;
-                    account.create_inbound_session_from(sender_key, m.clone())?
+                    account.create_inbound_session(sender_key, m.clone())?
                 }
             };
 

@@ -437,6 +437,7 @@ impl std::fmt::Debug for SqliteStore {
 
 #[cfg(test)]
 mod test {
+    use crate::crypto::olm::GroupSessionKey;
     use olm_rs::outbound_group_session::OlmOutboundGroupSession;
     use ruma_client_api::r0::keys::SignedKey;
     use std::collections::HashMap;
@@ -631,7 +632,7 @@ mod test {
             identity_keys.curve25519(),
             identity_keys.ed25519(),
             &RoomId::try_from("!test:localhost").unwrap(),
-            &outbound_session.session_key(),
+            GroupSessionKey(outbound_session.session_key()),
         )
         .expect("Can't create session");
 
@@ -652,7 +653,7 @@ mod test {
             identity_keys.curve25519(),
             identity_keys.ed25519(),
             &RoomId::try_from("!test:localhost").unwrap(),
-            &outbound_session.session_key(),
+            GroupSessionKey(outbound_session.session_key()),
         )
         .expect("Can't create session");
 
