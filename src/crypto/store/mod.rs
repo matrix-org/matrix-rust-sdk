@@ -66,7 +66,7 @@ pub type Result<T> = std::result::Result<T, CryptoStoreError>;
 #[async_trait]
 pub trait CryptoStore: Debug + Send + Sync {
     async fn load_account(&mut self) -> Result<Option<Account>>;
-    async fn save_account(&mut self, account: Arc<Mutex<Account>>) -> Result<()>;
+    async fn save_account(&mut self, account: Account) -> Result<()>;
     async fn save_session(&mut self, session: Arc<Mutex<Session>>) -> Result<()>;
     async fn add_and_save_session(&mut self, session: Session) -> Result<()>;
     async fn get_sessions(

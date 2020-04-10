@@ -288,9 +288,8 @@ impl CryptoStore for SqliteStore {
         Ok(result)
     }
 
-    async fn save_account(&mut self, account: Arc<Mutex<Account>>) -> Result<()> {
-        let acc = account.lock().await;
-        let pickle = acc.pickle(self.get_pickle_mode());
+    async fn save_account(&mut self, account: Account) -> Result<()> {
+        let pickle = account.pickle(self.get_pickle_mode()).await;
         let mut connection = self.connection.lock().await;
 
         query(
@@ -307,7 +306,7 @@ impl CryptoStore for SqliteStore {
         .bind(&*self.user_id.to_string())
         .bind(&*self.device_id.to_string())
         .bind(&pickle)
-        .bind(acc.shared)
+        .bind(account.shared())
         .execute(&mut *connection)
         .await?;
 
@@ -460,7 +459,7 @@ mod test {
             .expect("Can't create store")
     }
 
-    async fn get_loaded_store() -> (Arc<Mutex<Account>>, SqliteStore) {
+    async fn get_loaded_store() -> (Account, SqliteStore) {
         let mut store = get_store().await;
         let account = get_account();
         store
@@ -471,19 +470,19 @@ mod test {
         (account, store)
     }
 
-    fn get_account() -> Arc<Mutex<Account>> {
-        let account = Account::new();
-        Arc::new(Mutex::new(account))
+    fn get_account() -> Account {
+        Account::new()
     }
 
-    fn get_account_and_session() -> (Arc<Mutex<Account>>, Session) {
+    async fn get_account_and_session() -> (Account, Session) {
         let alice = Account::new();
 
         let bob = Account::new();
 
-        bob.generate_one_time_keys(1);
+        bob.generate_one_time_keys(1).await;
         let one_time_key = bob
             .one_time_keys()
+            .await
             .curve25519()
             .iter()
             .nth(0)
@@ -497,9 +496,10 @@ mod test {
         let sender_key = bob.identity_keys().curve25519().to_owned();
         let session = alice
             .create_outbound_session(&sender_key, &one_time_key)
+            .await
             .unwrap();
 
-        (Arc::new(Mutex::new(alice)), session)
+        (alice, session)
     }
 
     #[tokio::test]
@@ -532,11 +532,10 @@ mod test {
             .await
             .expect("Can't save account");
 
-        let acc = account.lock().await;
         let loaded_account = store.load_account().await.expect("Can't load account");
         let loaded_account = loaded_account.unwrap();
 
-        assert_eq!(*acc, loaded_account);
+        assert_eq!(account, loaded_account);
     }
 
     #[tokio::test]
@@ -549,7 +548,7 @@ mod test {
             .await
             .expect("Can't save account");
 
-        account.lock().await.shared = true;
+        account.mark_as_shared();
 
         store
             .save_account(account.clone())
@@ -558,15 +557,14 @@ mod test {
 
         let loaded_account = store.load_account().await.expect("Can't load account");
         let loaded_account = loaded_account.unwrap();
-        let acc = account.lock().await;
 
-        assert_eq!(*acc, loaded_account);
+        assert_eq!(account, loaded_account);
     }
 
     #[tokio::test]
     async fn save_session() {
         let mut store = get_store().await;
-        let (account, session) = get_account_and_session();
+        let (account, session) = get_account_and_session().await;
         let session = Arc::new(Mutex::new(session));
 
         assert!(store.save_session(session.clone()).await.is_err());
@@ -582,7 +580,7 @@ mod test {
     #[tokio::test]
     async fn load_sessions() {
         let mut store = get_store().await;
-        let (account, session) = get_account_and_session();
+        let (account, session) = get_account_and_session().await;
         let session = Arc::new(Mutex::new(session));
         store
             .save_account(account.clone())
@@ -604,7 +602,7 @@ mod test {
     #[tokio::test]
     async fn add_and_save_session() {
         let mut store = get_store().await;
-        let (account, session) = get_account_and_session();
+        let (account, session) = get_account_and_session().await;
         let sender_key = session.sender_key.to_owned();
         let session_id = session.session_id();
 
@@ -625,8 +623,7 @@ mod test {
     async fn save_inbound_group_session() {
         let (account, mut store) = get_loaded_store().await;
 
-        let acc = account.lock().await;
-        let identity_keys = acc.identity_keys();
+        let identity_keys = account.identity_keys();
         let outbound_session = OlmOutboundGroupSession::new();
         let session = InboundGroupSession::new(
             identity_keys.curve25519(),
@@ -646,8 +643,7 @@ mod test {
     async fn load_inbound_group_session() {
         let (account, mut store) = get_loaded_store().await;
 
-        let acc = account.lock().await;
-        let identity_keys = acc.identity_keys();
+        let identity_keys = account.identity_keys();
         let outbound_session = OlmOutboundGroupSession::new();
         let session = InboundGroupSession::new(
             identity_keys.curve25519(),

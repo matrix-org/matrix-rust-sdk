@@ -48,7 +48,7 @@ impl CryptoStore for MemoryStore {
         Ok(None)
     }
 
-    async fn save_account(&mut self, _: Arc<Mutex<Account>>) -> Result<()> {
+    async fn save_account(&mut self, _: Account) -> Result<()> {
         Ok(())
     }
 
