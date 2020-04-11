@@ -486,7 +486,6 @@ impl AsyncClient {
     ///     .room_version("v1.0");
     ///
     /// let mut cli = AsyncClient::new(homeserver, Some(session)).unwrap();
-    ///
     /// assert!(cli.create_room(bldr).await.is_ok());
     /// ```
     ///

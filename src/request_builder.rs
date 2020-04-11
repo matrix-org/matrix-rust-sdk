@@ -11,9 +11,23 @@ use api::r0::room::{
 ///
 /// # Examples
 /// ```
-///
+/// # use matrix_sdk::{AsyncClient, RoomBuilder};
+/// # use matrix_sdk::api::r0::room::Visibility;
+/// # use url::Url;
+/// # let homeserver = Url::parse("http://example.com").unwrap();
+/// let mut bldr = RoomBuilder::default();
+/// bldr.creation_content(false)
+///     .initial_state(vec![])
+///     .visibility(Visibility::Public)
+///     .name("name")
+///     .room_version("v1.0");
+/// let mut cli = AsyncClient::new(homeserver, None).unwrap();
+/// # use futures::executor::block_on;
+/// # block_on(async {
+/// assert!(cli.create_room(bldr).await.is_err());
+/// # })
 /// ```
-#[derive(Default)]
+#[derive(Clone, Default)]
 pub struct RoomBuilder {
     /// Extra keys to be added to the content of the `m.room.create`.
     creation_content: Option<CreationContent>,
@@ -169,10 +183,8 @@ mod test {
     use super::*;
 
     use crate::{AsyncClient, Session};
-
     use mockito::mock;
     use url::Url;
-
     use std::convert::TryFrom;
 
     #[tokio::test]
@@ -196,9 +208,7 @@ mod test {
             .visibility(Visibility::Public)
             .name("name")
             .room_version("v1.0");
-
         let mut cli = AsyncClient::new(homeserver, Some(session)).unwrap();
-
         assert!(cli.create_room(bldr).await.is_ok());
     }
 }
