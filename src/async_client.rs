@@ -40,7 +40,7 @@ pub use ruma_events::EventType;
 use ruma_identifiers::{RoomId, RoomIdOrAliasId, UserId};
 
 #[cfg(feature = "encryption")]
-use ruma_identifiers::{DeviceId, UserId};
+use ruma_identifiers::DeviceId;
 
 use crate::api;
 use crate::base_client::Client as BaseClient;
@@ -190,6 +190,7 @@ use api::r0::membership::{
     Invite3pid,
 };
 use api::r0::message::create_message_event;
+use api::r0::message::get_message_events;
 use api::r0::room::create_room;
 use api::r0::session::login;
 use api::r0::sync::sync_events;
@@ -472,7 +473,7 @@ impl AsyncClient {
     ///
     /// # Arguments
     ///
-    /// * room - the easiest way to create this request is using `RoomBuilder` struct.
+    /// * room - the easiest way to create this request is using the `RoomBuilder`.
     ///
     /// # Examples
     /// ```ignore
@@ -495,6 +496,34 @@ impl AsyncClient {
     ) -> Result<create_room::Response> {
         let request = room.into();
         self.send(request).await
+    }
+
+    /// Invite the specified user by third party id to the given room.
+    ///
+    /// Returns a `invite_user::Response`, an empty response.
+    ///
+    /// # Arguments
+    ///
+    /// * request - The easiest way to create a `Request` is using the `GetMessageBuilder`
+    pub async fn get_message_events<R: Into<get_message_events::Request>>(
+        &mut self,
+        request: R,
+    ) -> Result<get_message_events::IncomingResponse> {
+        let req = request.into();
+        let room_id = req.room_id.clone();
+        let mut res = self.send(req).await?;
+        let mut client = self.base_client.write().await;
+        // TODO should we support this event? to keep emitting these msg events this is needed
+        for mut event in &mut res.chunk {
+            client
+                .receive_joined_timeline_event(&room_id, &mut event)
+                .await;
+
+            if let EventResult::Ok(e) = event {
+                client.emit_timeline_event(&room_id, e).await;
+            }
+        }
+        Ok(res)
     }
 
     /// Synchronize the client's state with the latest state on the server.
