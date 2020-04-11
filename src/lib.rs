@@ -39,6 +39,7 @@ mod error;
 mod event_emitter;
 mod models;
 mod session;
+mod state;
 
 #[cfg(test)]
 pub mod test_builder;
@@ -50,5 +51,6 @@ pub use async_client::{AsyncClient, AsyncClientConfig, SyncSettings};
 pub use base_client::Client;
 pub use event_emitter::EventEmitter;
 pub use models::Room;
+pub use state::{StateStore, JsonStore};
 
 pub(crate) const VERSION: &str = env!("CARGO_PKG_VERSION");
