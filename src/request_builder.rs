@@ -291,8 +291,8 @@ mod test {
     use std::collections::HashMap;
 
     use super::*;
-    use crate::{AsyncClient, Session, identifiers::RoomId};
     use crate::events::room::power_levels::NotificationPowerLevels;
+    use crate::{identifiers::RoomId, AsyncClient, Session};
 
     use js_int::Int;
     use mockito::{mock, Matcher};
@@ -331,7 +331,9 @@ mod test {
                 redact: Int::max_value(),
                 state_default: Int::min_value(),
                 users_default: Int::min_value(),
-                notifications: NotificationPowerLevels { room: Int::min_value() },
+                notifications: NotificationPowerLevels {
+                    room: Int::min_value(),
+                },
                 users: HashMap::default(),
             })
             .preset(RoomPreset::PrivateChat)
@@ -346,10 +348,13 @@ mod test {
     async fn get_message_events() {
         let homeserver = Url::parse(&mockito::server_url()).unwrap();
 
-        let _m = mock("GET", Matcher::Regex(r"^/_matrix/client/r0/rooms/.*/messages".to_string()))
-            .with_status(200)
-            .with_body_from_file("./tests/data/room_messages.json")
-            .create();
+        let _m = mock(
+            "GET",
+            Matcher::Regex(r"^/_matrix/client/r0/rooms/.*/messages".to_string()),
+        )
+        .with_status(200)
+        .with_body_from_file("./tests/data/room_messages.json")
+        .create();
 
         let session = Session {
             access_token: "1234".to_owned(),
@@ -358,14 +363,13 @@ mod test {
         };
 
         let mut bldr = GetMessageBuilder::new();
-        bldr
-            .room_id(RoomId::try_from("!roomid:example.com").unwrap())
+        bldr.room_id(RoomId::try_from("!roomid:example.com").unwrap())
             .from("t47429-4392820_219380_26003_2265".to_string())
             .to("t4357353_219380_26003_2265".to_string())
             .direction(Direction::Backward)
             .limit(UInt::new(10).unwrap());
-            // TODO this makes ruma error `Err(IntoHttp(IntoHttpError(Query(Custom("unsupported value")))))`?? 
-            // .filter(RoomEventFilter::default());
+        // TODO this makes ruma error `Err(IntoHttp(IntoHttpError(Query(Custom("unsupported value")))))`??
+        // .filter(RoomEventFilter::default());
 
         let mut cli = AsyncClient::new(homeserver, Some(session)).unwrap();
         assert!(cli.get_message_events(bldr).await.is_ok());
