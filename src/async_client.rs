@@ -505,7 +505,7 @@ impl AsyncClient {
     /// # Arguments
     ///
     /// * request - The easiest way to create a `Request` is using the `GetMessageBuilder`
-    pub async fn get_message_events<R: Into<get_message_events::Request>>(
+    pub async fn room_messages<R: Into<get_message_events::Request>>(
         &mut self,
         request: R,
     ) -> Result<get_message_events::IncomingResponse> {

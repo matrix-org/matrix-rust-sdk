@@ -175,7 +175,7 @@ impl Into<create_room::Request> for RoomBuilder {
 
 /// Create a builder for making get_message_event requests.
 #[derive(Clone, Default)]
-pub struct GetMessageBuilder {
+pub struct RoomMessageBuilder {
     /// The room to get events from.
     room_id: Option<RoomId>,
     /// The token to start returning events from.
@@ -200,14 +200,14 @@ pub struct GetMessageBuilder {
     filter: Option<RoomEventFilter>,
 }
 
-impl GetMessageBuilder {
-    /// Create a `GetMessageBuilder` builder to make a `get_message_events::Request`.
+impl RoomMessageBuilder {
+    /// Create a `RoomMessageBuilder` builder to make a `get_message_events::Request`.
     ///
     /// The `room_id` and `from`` fields **need to be set** to create the request.
     ///
     /// # Examples
     /// ```
-    /// # use matrix_sdk::{AsyncClient, GetMessageBuilder};
+    /// # use matrix_sdk::{AsyncClient, RoomMessageBuilder};
     /// # use matrix_sdk::api::r0::message::get_message_events::{self, Direction};
     /// # use matrix_sdk::identifiers::RoomId;
     /// # use url::Url;
@@ -218,12 +218,12 @@ impl GetMessageBuilder {
     /// # let last_sync_token = "".to_string();;
     /// let mut cli = AsyncClient::new(homeserver, None).unwrap();
     ///
-    /// let mut bldr = GetMessageBuilder::new();
+    /// let mut bldr = RoomMessageBuilder::new();
     /// bldr.room_id(room_id)
     ///     .from(last_sync_token)
     ///     .direction(Direction::Forward);
     ///
-    /// cli.get_message_events(bldr).await.is_err();
+    /// cli.room_messages(bldr).await.is_err();
     /// # })
     /// ```
     pub fn new() -> Self {
@@ -273,7 +273,7 @@ impl GetMessageBuilder {
     }
 }
 
-impl Into<get_message_events::Request> for GetMessageBuilder {
+impl Into<get_message_events::Request> for RoomMessageBuilder {
     fn into(self) -> get_message_events::Request {
         get_message_events::Request {
             room_id: self.room_id.expect("`room_id` and `from` need to be set"),
@@ -362,7 +362,7 @@ mod test {
             device_id: "DEVICEID".to_owned(),
         };
 
-        let mut bldr = GetMessageBuilder::new();
+        let mut bldr = RoomMessageBuilder::new();
         bldr.room_id(RoomId::try_from("!roomid:example.com").unwrap())
             .from("t47429-4392820_219380_26003_2265".to_string())
             .to("t4357353_219380_26003_2265".to_string())
@@ -372,6 +372,6 @@ mod test {
         // .filter(RoomEventFilter::default());
 
         let mut cli = AsyncClient::new(homeserver, Some(session)).unwrap();
-        assert!(cli.get_message_events(bldr).await.is_ok());
+        assert!(cli.room_messages(bldr).await.is_ok());
     }
 }
