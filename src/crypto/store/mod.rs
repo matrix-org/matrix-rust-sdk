@@ -66,22 +66,26 @@ pub type Result<T> = std::result::Result<T, CryptoStoreError>;
 #[async_trait]
 pub trait CryptoStore: Debug + Send + Sync {
     async fn load_account(&mut self) -> Result<Option<Account>>;
-    async fn save_account(&mut self, account: Arc<Mutex<Account>>) -> Result<()>;
+    async fn save_account(&mut self, account: Account) -> Result<()>;
+
     async fn save_session(&mut self, session: Arc<Mutex<Session>>) -> Result<()>;
     async fn add_and_save_session(&mut self, session: Session) -> Result<()>;
     async fn get_sessions(
         &mut self,
         sender_key: &str,
     ) -> Result<Option<Arc<Mutex<Vec<Arc<Mutex<Session>>>>>>>;
+
     async fn save_inbound_group_session(&mut self, session: InboundGroupSession) -> Result<bool>;
     async fn get_inbound_group_session(
         &mut self,
         room_id: &RoomId,
         sender_key: &str,
         session_id: &str,
-    ) -> Result<Option<Arc<Mutex<InboundGroupSession>>>>;
+    ) -> Result<Option<InboundGroupSession>>;
+
     fn tracked_users(&self) -> &HashSet<UserId>;
     async fn add_user_for_tracking(&mut self, user: &UserId) -> Result<bool>;
+
     async fn save_device(&self, device: Device) -> Result<()>;
     async fn get_device(&self, user_id: &UserId, device_id: &str) -> Result<Option<Device>>;
     async fn get_user_devices(&self, user_id: &UserId) -> Result<UserDevices>;

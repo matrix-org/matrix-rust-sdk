@@ -14,6 +14,7 @@
 
 use std::collections::{HashMap, HashSet};
 use std::convert::TryInto;
+use std::mem;
 #[cfg(feature = "sqlite-cryptostore")]
 use std::path::Path;
 use std::result::Result as StdResult;
@@ -68,7 +69,7 @@ pub struct OlmMachine {
     /// The unique device id of the device that holds this account.
     device_id: DeviceId,
     /// Our underlying Olm Account holding our identity keys.
-    account: Arc<Mutex<Account>>,
+    account: Account,
     /// The number of signed one-time keys we have uploaded to the server. If
     /// this is None, no action will be taken. After a sync request the client
     /// needs to set this for us, depending on the count we will suggest the
@@ -98,7 +99,7 @@ impl OlmMachine {
         Ok(OlmMachine {
             user_id: user_id.clone(),
             device_id: device_id.to_owned(),
-            account: Arc::new(Mutex::new(Account::new())),
+            account: Account::new(),
             uploaded_signed_key_count: None,
             store: Box::new(MemoryStore::new()),
             users_for_key_query: HashSet::new(),
@@ -132,7 +133,7 @@ impl OlmMachine {
         Ok(OlmMachine {
             user_id: user_id.clone(),
             device_id: device_id.to_owned(),
-            account: Arc::new(Mutex::new(account)),
+            account,
             uploaded_signed_key_count: None,
             store: Box::new(store),
             users_for_key_query: HashSet::new(),
@@ -142,7 +143,7 @@ impl OlmMachine {
 
     /// Should account or one-time keys be uploaded to the server.
     pub async fn should_upload_keys(&self) -> bool {
-        if !self.account.lock().await.shared() {
+        if !self.account.shared() {
             return true;
         }
 
@@ -150,7 +151,7 @@ impl OlmMachine {
         // max_one_time_Keys() / 2, otherwise tell the client to upload more.
         match self.uploaded_signed_key_count {
             Some(count) => {
-                let max_keys = self.account.lock().await.max_one_time_keys() as u64;
+                let max_keys = self.account.max_one_time_keys().await as u64;
                 let key_count = (max_keys / 2) - count;
                 key_count > 0
             }
@@ -169,11 +170,10 @@ impl OlmMachine {
         &mut self,
         response: &keys::upload_keys::Response,
     ) -> Result<()> {
-        let mut account = self.account.lock().await;
-        if !account.shared {
+        if !self.account.shared() {
             debug!("Marking account as shared");
         }
-        account.shared = true;
+        self.account.mark_as_shared();
 
         let one_time_key_count = response
             .one_time_key_counts
@@ -187,9 +187,7 @@ impl OlmMachine {
         );
         self.uploaded_signed_key_count = Some(count);
 
-        account.mark_keys_as_published();
-        drop(account);
-
+        self.account.mark_keys_as_published().await;
         self.store.save_account(self.account.clone()).await?;
 
         Ok(())
@@ -317,9 +315,8 @@ impl OlmMachine {
 
                 let session = match self
                     .account
-                    .lock()
-                    .await
                     .create_outbound_session(curve_key, &one_time_key)
+                    .await
                 {
                     Ok(s) => s,
                     Err(e) => {
@@ -441,10 +438,9 @@ impl OlmMachine {
     /// Returns the number of newly generated one-time keys. If no keys can be
     /// generated returns an empty error.
     async fn generate_one_time_keys(&self) -> StdResult<u64, ()> {
-        let account = self.account.lock().await;
         match self.uploaded_signed_key_count {
             Some(count) => {
-                let max_keys = account.max_one_time_keys() as u64;
+                let max_keys = self.account.max_one_time_keys().await as u64;
                 let max_on_server = max_keys / 2;
 
                 if count >= (max_on_server) {
@@ -453,11 +449,11 @@ impl OlmMachine {
 
                 let key_count = (max_on_server) - count;
 
-                let key_count: usize = key_count
-                    .try_into()
-                    .unwrap_or_else(|_| account.max_one_time_keys());
+                let max_keys = self.account.max_one_time_keys().await;
 
-                account.generate_one_time_keys(key_count);
+                let key_count: usize = key_count.try_into().unwrap_or(max_keys);
+
+                self.account.generate_one_time_keys(key_count).await;
                 Ok(key_count as u64)
             }
             None => Err(()),
@@ -466,7 +462,7 @@ impl OlmMachine {
 
     /// Sign the device keys and return a JSON Value to upload them.
     async fn device_keys(&self) -> DeviceKeys {
-        let identity_keys = self.account.lock().await.identity_keys();
+        let identity_keys = self.account.identity_keys();
 
         let mut keys = HashMap::new();
 
@@ -513,7 +509,7 @@ impl OlmMachine {
     /// If no one-time keys need to be uploaded returns an empty error.
     async fn signed_one_time_keys(&self) -> StdResult<OneTimeKeys, ()> {
         let _ = self.generate_one_time_keys().await?;
-        let one_time_keys = self.account.lock().await.one_time_keys();
+        let one_time_keys = self.account.one_time_keys().await;
         let mut one_time_key_map = HashMap::new();
 
         for (key_id, key) in one_time_keys.curve25519().iter() {
@@ -555,10 +551,9 @@ impl OlmMachine {
     /// * `json` - The value that should be converted into a canonical JSON
     /// string.
     async fn sign_json(&self, json: &Value) -> String {
-        let account = self.account.lock().await;
         let canonical_json = cjson::to_string(json)
             .unwrap_or_else(|_| panic!(format!("Can't serialize {} to canonical JSON", json)));
-        account.sign(&canonical_json)
+        self.account.sign(&canonical_json).await
     }
 
     /// Verify a signed JSON object.
@@ -637,7 +632,7 @@ impl OlmMachine {
             return Err(());
         }
 
-        let shared = self.account.lock().await.shared();
+        let shared = self.account.shared();
 
         let device_keys = if !shared {
             Some(self.device_keys().await)
@@ -702,8 +697,12 @@ impl OlmMachine {
             let mut session = match &message {
                 OlmMessage::Message(_) => return Err(OlmError::SessionWedged),
                 OlmMessage::PreKey(m) => {
-                    let account = self.account.lock().await;
-                    account.create_inbound_session(sender_key, m.clone())?
+                    let session = self
+                        .account
+                        .create_inbound_session(sender_key, m.clone())
+                        .await?;
+                    self.store.save_account(self.account.clone()).await?;
+                    session
                 }
             };
 
@@ -740,7 +739,7 @@ impl OlmMachine {
             return Err(OlmError::UnsupportedAlgorithm);
         };
 
-        let identity_keys = self.account.lock().await.identity_keys();
+        let identity_keys = self.account.identity_keys();
         let own_key = identity_keys.curve25519();
         let own_ciphertext = content.ciphertext.get(own_key);
 
@@ -753,11 +752,11 @@ impl OlmMachine {
                 OlmMessage::from_type_and_ciphertext(message_type.into(), ciphertext.body.clone())
                     .map_err(|_| OlmError::UnsupportedOlmType)?;
 
-            let decrypted_event = self
+            let mut decrypted_event = self
                 .decrypt_olm_message(&event.sender.to_string(), &content.sender_key, message)
                 .await?;
             debug!("Decrypted a to-device event {:?}", decrypted_event);
-            self.handle_decrypted_to_device_event(&content.sender_key, &decrypted_event)
+            self.handle_decrypted_to_device_event(&content.sender_key, &mut decrypted_event)
                 .await?;
 
             Ok(decrypted_event)
@@ -767,7 +766,7 @@ impl OlmMachine {
         }
     }
 
-    async fn add_room_key(&mut self, sender_key: &str, event: &ToDeviceRoomKey) -> Result<()> {
+    async fn add_room_key(&mut self, sender_key: &str, event: &mut ToDeviceRoomKey) -> Result<()> {
         match event.content.algorithm {
             Algorithm::MegolmV1AesSha2 => {
                 // TODO check for all the valid fields.
@@ -776,7 +775,7 @@ impl OlmMachine {
                     .get("ed25519")
                     .ok_or(OlmError::MissingSigningKey)?;
 
-                let session_key = GroupSessionKey(event.content.session_key.to_owned());
+                let session_key = GroupSessionKey(mem::take(&mut event.content.session_key));
 
                 let session = InboundGroupSession::new(
                     sender_key,
@@ -799,8 +798,7 @@ impl OlmMachine {
 
     async fn create_outbound_group_session(&mut self, room_id: &RoomId) -> Result<()> {
         let session = OutboundGroupSession::new(room_id);
-        let account = self.account.lock().await;
-        let identity_keys = account.identity_keys();
+        let identity_keys = self.account.identity_keys();
 
         let sender_key = identity_keys.curve25519();
         let signing_key = identity_keys.ed25519();
@@ -855,13 +853,7 @@ impl OlmMachine {
         Ok(MegolmV1AesSha2Content {
             algorithm: Algorithm::MegolmV1AesSha2,
             ciphertext,
-            sender_key: self
-                .account
-                .lock()
-                .await
-                .identity_keys()
-                .curve25519()
-                .to_owned(),
+            sender_key: self.account.identity_keys().curve25519().to_owned(),
             session_id: session.session_id().to_owned(),
             device_id: self.device_id.to_owned(),
         })
@@ -874,7 +866,7 @@ impl OlmMachine {
         event_type: EventType,
         content: Value,
     ) -> Result<OlmV1Curve25519AesSha2Content> {
-        let identity_keys = self.account.lock().await.identity_keys();
+        let identity_keys = self.account.identity_keys();
 
         let recipient_signing_key = recipient_device
             .keys(&KeyAlgorithm::Ed25519)
@@ -1047,7 +1039,7 @@ impl OlmMachine {
     async fn handle_decrypted_to_device_event(
         &mut self,
         sender_key: &str,
-        event: &EventResult<ToDeviceEvent>,
+        event: &mut EventResult<ToDeviceEvent>,
     ) -> Result<()> {
         let event = if let EventResult::Ok(e) = event {
             e
@@ -1150,7 +1142,7 @@ impl OlmMachine {
         // TODO check if the olm session is wedged and re-request the key.
         let session = session.ok_or(OlmError::MissingSession)?;
 
-        let (plaintext, _) = session.lock().await.decrypt(content.ciphertext.clone())?;
+        let (plaintext, _) = session.decrypt(content.ciphertext.clone()).await?;
         // TODO check the message index.
         // TODO check if this is from a verified device.
 
@@ -1326,7 +1318,7 @@ mod test {
         let machine = OlmMachine::new(&user_id(), DEVICE_ID).unwrap();
 
         let mut device_keys = machine.device_keys().await;
-        let identity_keys = machine.account.lock().await.identity_keys();
+        let identity_keys = machine.account.identity_keys();
         let ed25519_key = identity_keys.ed25519();
 
         let ret = machine.verify_json(
@@ -1359,7 +1351,7 @@ mod test {
         machine.uploaded_signed_key_count = Some(49);
 
         let mut one_time_keys = machine.signed_one_time_keys().await.unwrap();
-        let identity_keys = machine.account.lock().await.identity_keys();
+        let identity_keys = machine.account.identity_keys();
         let ed25519_key = identity_keys.ed25519();
 
         let mut one_time_key = one_time_keys.values_mut().nth(0).unwrap();
@@ -1378,7 +1370,7 @@ mod test {
         let mut machine = OlmMachine::new(&user_id(), DEVICE_ID).unwrap();
         machine.uploaded_signed_key_count = Some(0);
 
-        let identity_keys = machine.account.lock().await.identity_keys();
+        let identity_keys = machine.account.identity_keys();
         let ed25519_key = identity_keys.ed25519();
 
         let (device_keys, mut one_time_keys) = machine

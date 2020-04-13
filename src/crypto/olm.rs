@@ -19,6 +19,7 @@ use std::time::Instant;
 
 use serde::Serialize;
 use tokio::sync::Mutex;
+use zeroize::Zeroize;
 
 use olm_rs::account::{IdentityKeys, OlmAccount, OneTimeKeys};
 use olm_rs::errors::{OlmAccountError, OlmGroupSessionError, OlmSessionError};
@@ -33,9 +34,11 @@ use crate::identifiers::RoomId;
 /// The Olm account.
 /// An account is the central identity for encrypted communication between two
 /// devices. It holds the two identity key pairs for a device.
+#[derive(Clone)]
 pub struct Account {
-    inner: OlmAccount,
-    pub(crate) shared: bool,
+    inner: Arc<Mutex<OlmAccount>>,
+    identity_keys: Arc<IdentityKeys>,
+    pub(crate) shared: Arc<AtomicBool>,
 }
 
 impl fmt::Debug for Account {
@@ -44,7 +47,7 @@ impl fmt::Debug for Account {
             f,
             "Olm Account: {:?}, shared: {}",
             self.identity_keys(),
-            self.shared
+            self.shared()
         )
     }
 }
@@ -52,49 +55,61 @@ impl fmt::Debug for Account {
 impl Account {
     /// Create a new account.
     pub fn new() -> Self {
+        let account = OlmAccount::new();
+        let identity_keys = account.parsed_identity_keys();
+
         Account {
-            inner: OlmAccount::new(),
-            shared: false,
+            inner: Arc::new(Mutex::new(account)),
+            identity_keys: Arc::new(identity_keys),
+            shared: Arc::new(AtomicBool::new(false)),
         }
     }
 
     /// Get the public parts of the identity keys for the account.
-    pub fn identity_keys(&self) -> IdentityKeys {
-        self.inner.parsed_identity_keys()
+    pub fn identity_keys(&self) -> &IdentityKeys {
+        &self.identity_keys
     }
 
     /// Has the account been shared with the server.
     pub fn shared(&self) -> bool {
-        self.shared
+        self.shared.load(Ordering::Relaxed)
+    }
+
+    /// Mark the account as shared.
+    ///
+    /// Messages shouldn't be encrypted with the session before it has been
+    /// shared.
+    pub fn mark_as_shared(&self) {
+        self.shared.store(true, Ordering::Relaxed);
     }
 
     /// Get the one-time keys of the account.
     ///
     /// This can be empty, keys need to be generated first.
-    pub fn one_time_keys(&self) -> OneTimeKeys {
-        self.inner.parsed_one_time_keys()
+    pub async fn one_time_keys(&self) -> OneTimeKeys {
+        self.inner.lock().await.parsed_one_time_keys()
     }
 
     /// Generate count number of one-time keys.
-    pub fn generate_one_time_keys(&self, count: usize) {
-        self.inner.generate_one_time_keys(count);
+    pub async fn generate_one_time_keys(&self, count: usize) {
+        self.inner.lock().await.generate_one_time_keys(count);
     }
 
     /// Get the maximum number of one-time keys the account can hold.
-    pub fn max_one_time_keys(&self) -> usize {
-        self.inner.max_number_of_one_time_keys()
+    pub async fn max_one_time_keys(&self) -> usize {
+        self.inner.lock().await.max_number_of_one_time_keys()
     }
 
     /// Mark the current set of one-time keys as being published.
-    pub fn mark_keys_as_published(&self) {
-        self.inner.mark_keys_as_published();
+    pub async fn mark_keys_as_published(&self) {
+        self.inner.lock().await.mark_keys_as_published();
     }
 
     /// Sign the given string using the accounts signing key.
     ///
     /// Returns the signature as a base64 encoded string.
-    pub fn sign(&self, string: &str) -> String {
-        self.inner.sign(string)
+    pub async fn sign(&self, string: &str) -> String {
+        self.inner.lock().await.sign(string)
     }
 
     /// Store the account as a base64 encoded string.
@@ -103,8 +118,8 @@ impl Account {
     ///
     /// * `pickle_mode` - The mode that was used to pickle the account, either an
     /// unencrypted mode or an encrypted using passphrase.
-    pub fn pickle(&self, pickle_mode: PicklingMode) -> String {
-        self.inner.pickle(pickle_mode)
+    pub async fn pickle(&self, pickle_mode: PicklingMode) -> String {
+        self.inner.lock().await.pickle(pickle_mode)
     }
 
     /// Restore an account from a previously pickled string.
@@ -123,8 +138,14 @@ impl Account {
         pickle_mode: PicklingMode,
         shared: bool,
     ) -> Result<Self, OlmAccountError> {
-        let acc = OlmAccount::unpickle(pickle, pickle_mode)?;
-        Ok(Account { inner: acc, shared })
+        let account = OlmAccount::unpickle(pickle, pickle_mode)?;
+        let identity_keys = account.parsed_identity_keys();
+
+        Ok(Account {
+            inner: Arc::new(Mutex::new(account)),
+            identity_keys: Arc::new(identity_keys),
+            shared: Arc::new(AtomicBool::from(shared)),
+        })
     }
 
     /// Create a new session with another account given a one-time key.
@@ -137,13 +158,15 @@ impl Account {
     ///
     /// * `their_one_time_key` - A signed one-time key that the other account
     /// created and shared with us.
-    pub fn create_outbound_session(
+    pub async fn create_outbound_session(
         &self,
         their_identity_key: &str,
         their_one_time_key: &SignedKey,
     ) -> Result<Session, OlmSessionError> {
         let session = self
             .inner
+            .lock()
+            .await
             .create_outbound_session(their_identity_key, &their_one_time_key.key)?;
 
         let now = Instant::now();
@@ -166,14 +189,24 @@ impl Account {
     ///
     /// * `message` - A pre-key Olm message that was sent to us by the other
     /// account.
-    pub fn create_inbound_session(
+    pub async fn create_inbound_session(
         &self,
         their_identity_key: &str,
         message: PreKeyMessage,
     ) -> Result<Session, OlmSessionError> {
         let session = self
             .inner
+            .lock()
+            .await
             .create_inbound_session_from(their_identity_key, message)?;
+
+        self.inner
+            .lock()
+            .await
+            .remove_one_time_keys(&session)
+            .expect(
+            "Session was successfully created but the account doesn't hold a matching one-time key",
+        );
 
         let now = Instant::now();
 
@@ -188,7 +221,7 @@ impl Account {
 
 impl PartialEq for Account {
     fn eq(&self, other: &Self) -> bool {
-        self.identity_keys() == other.identity_keys() && self.shared == other.shared
+        self.identity_keys() == other.identity_keys() && self.shared() == other.shared()
     }
 }
 
@@ -312,19 +345,22 @@ impl PartialEq for Session {
 
 /// The private session key of a group session.
 /// Can be used to create a new inbound group session.
-#[derive(Clone, Serialize)]
+#[derive(Clone, Serialize, Zeroize)]
+#[zeroize(drop)]
 pub struct GroupSessionKey(pub String);
 
 /// Inbound group session.
 ///
 /// Inbound group sessions are used to exchange room messages between a group of
 /// participants. Inbound group sessions are used to decrypt the room messages.
+#[derive(Clone)]
 pub struct InboundGroupSession {
-    inner: OlmInboundGroupSession,
-    pub(crate) sender_key: String,
-    pub(crate) signing_key: String,
-    pub(crate) room_id: RoomId,
-    forwarding_chains: Option<Vec<String>>,
+    inner: Arc<Mutex<OlmInboundGroupSession>>,
+    session_id: Arc<String>,
+    pub(crate) sender_key: Arc<String>,
+    pub(crate) signing_key: Arc<String>,
+    pub(crate) room_id: Arc<RoomId>,
+    forwarding_chains: Arc<Mutex<Option<Vec<String>>>>,
 }
 
 impl InboundGroupSession {
@@ -350,12 +386,16 @@ impl InboundGroupSession {
         room_id: &RoomId,
         session_key: GroupSessionKey,
     ) -> Result<Self, OlmGroupSessionError> {
+        let session = OlmInboundGroupSession::new(&session_key.0)?;
+        let session_id = session.session_id();
+
         Ok(InboundGroupSession {
-            inner: OlmInboundGroupSession::new(&session_key.0)?,
-            sender_key: sender_key.to_owned(),
-            signing_key: signing_key.to_owned(),
-            room_id: room_id.clone(),
-            forwarding_chains: None,
+            inner: Arc::new(Mutex::new(session)),
+            session_id: Arc::new(session_id),
+            sender_key: Arc::new(sender_key.to_owned()),
+            signing_key: Arc::new(signing_key.to_owned()),
+            room_id: Arc::new(room_id.clone()),
+            forwarding_chains: Arc::new(Mutex::new(None)),
         })
     }
 
@@ -365,8 +405,8 @@ impl InboundGroupSession {
     ///
     /// * `pickle_mode` - The mode that was used to pickle the group session,
     /// either an unencrypted mode or an encrypted using passphrase.
-    pub fn pickle(&self, pickle_mode: PicklingMode) -> String {
-        self.inner.pickle(pickle_mode)
+    pub async fn pickle(&self, pickle_mode: PicklingMode) -> String {
+        self.inner.lock().await.pickle(pickle_mode)
     }
 
     /// Restore a Session from a previously pickled string.
@@ -396,23 +436,26 @@ impl InboundGroupSession {
         room_id: RoomId,
     ) -> Result<Self, OlmGroupSessionError> {
         let session = OlmInboundGroupSession::unpickle(pickle, pickle_mode)?;
+        let session_id = session.session_id();
+
         Ok(InboundGroupSession {
-            inner: session,
-            sender_key,
-            signing_key,
-            room_id,
-            forwarding_chains: None,
+            inner: Arc::new(Mutex::new(session)),
+            session_id: Arc::new(session_id),
+            sender_key: Arc::new(sender_key),
+            signing_key: Arc::new(signing_key),
+            room_id: Arc::new(room_id),
+            forwarding_chains: Arc::new(Mutex::new(None)),
         })
     }
 
     /// Returns the unique identifier for this session.
-    pub fn session_id(&self) -> String {
-        self.inner.session_id()
+    pub fn session_id(&self) -> &str {
+        &self.session_id
     }
 
     /// Get the first message index we know how to decrypt.
-    pub fn first_known_index(&self) -> u32 {
-        self.inner.first_known_index()
+    pub async fn first_known_index(&self) -> u32 {
+        self.inner.lock().await.first_known_index()
     }
 
     /// Decrypt the given ciphertext.
@@ -423,8 +466,8 @@ impl InboundGroupSession {
     /// # Arguments
     ///
     /// * `message` - The message that should be decrypted.
-    pub fn decrypt(&self, message: String) -> Result<(String, u32), OlmGroupSessionError> {
-        self.inner.decrypt(message)
+    pub async fn decrypt(&self, message: String) -> Result<(String, u32), OlmGroupSessionError> {
+        self.inner.lock().await.decrypt(message)
     }
 }
 
@@ -566,16 +609,16 @@ mod test {
         assert!(!identyty_keys.curve25519().is_empty());
     }
 
-    #[test]
-    fn one_time_keys_creation() {
+    #[tokio::test]
+    async fn one_time_keys_creation() {
         let account = Account::new();
-        let one_time_keys = account.one_time_keys();
+        let one_time_keys = account.one_time_keys().await;
 
         assert!(one_time_keys.curve25519().is_empty());
-        assert_ne!(account.max_one_time_keys(), 0);
+        assert_ne!(account.max_one_time_keys().await, 0);
 
-        account.generate_one_time_keys(10);
-        let one_time_keys = account.one_time_keys();
+        account.generate_one_time_keys(10).await;
+        let one_time_keys = account.one_time_keys().await;
 
         assert!(!one_time_keys.curve25519().is_empty());
         assert_ne!(one_time_keys.values().len(), 0);
@@ -588,21 +631,19 @@ mod test {
             one_time_keys.get("curve25519").unwrap()
         );
 
-        account.mark_keys_as_published();
-        let one_time_keys = account.one_time_keys();
+        account.mark_keys_as_published().await;
+        let one_time_keys = account.one_time_keys().await;
         assert!(one_time_keys.curve25519().is_empty());
     }
 
-    #[test]
-    fn session_creation() {
+    #[tokio::test]
+    async fn session_creation() {
         let alice = Account::new();
         let bob = Account::new();
         let alice_keys = alice.identity_keys();
-        let one_time_keys = alice.one_time_keys();
-
-        alice.generate_one_time_keys(1);
-        let one_time_keys = alice.one_time_keys();
-        alice.mark_keys_as_published();
+        alice.generate_one_time_keys(1).await;
+        let one_time_keys = alice.one_time_keys().await;
+        alice.mark_keys_as_published().await;
 
         let one_time_key = one_time_keys
             .curve25519()
@@ -619,6 +660,7 @@ mod test {
 
         let mut bob_session = bob
             .create_outbound_session(alice_keys.curve25519(), &one_time_key)
+            .await
             .unwrap();
 
         let plaintext = "Hello world";
@@ -633,6 +675,7 @@ mod test {
         let bob_keys = bob.identity_keys();
         let mut alice_session = alice
             .create_inbound_session(bob_keys.curve25519(), prekey_message)
+            .await
             .unwrap();
 
         assert_eq!(bob_session.session_id(), alice_session.session_id());

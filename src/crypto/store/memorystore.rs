@@ -48,7 +48,7 @@ impl CryptoStore for MemoryStore {
         Ok(None)
     }
 
-    async fn save_account(&mut self, _: Arc<Mutex<Account>>) -> Result<()> {
+    async fn save_account(&mut self, _: Account) -> Result<()> {
         Ok(())
     }
 
@@ -77,7 +77,7 @@ impl CryptoStore for MemoryStore {
         room_id: &RoomId,
         sender_key: &str,
         session_id: &str,
-    ) -> Result<Option<Arc<Mutex<InboundGroupSession>>>> {
+    ) -> Result<Option<InboundGroupSession>> {
         Ok(self
             .inbound_group_sessions
             .get(room_id, sender_key, session_id))
