@@ -505,18 +505,18 @@ impl AsyncClient {
     /// # Arguments
     ///
     /// * request - The easiest way to create a `Request` is using the `GetMessageBuilder`
-    /// 
+    ///
     /// # Examples
     /// ```ignore
     /// use matrix_sdk::{AsyncClient, RoomBuilder};
-    /// 
+    ///
     /// let mut builder = RoomMessageBuilder::new();
     /// builder.room_id(RoomId::try_from("!roomid:example.com").unwrap())
     ///     .from("t47429-4392820_219380_26003_2265".to_string())
     ///     .to("t4357353_219380_26003_2265".to_string())
     ///     .direction(Direction::Backward)
     ///     .limit(UInt::new(10).unwrap());
-    /// 
+    ///
     /// let mut cli = AsyncClient::new(homeserver, Some(session)).unwrap();
     /// assert!(cli.create_room(builder).await.is_ok());
     /// ```
@@ -829,9 +829,10 @@ impl AsyncClient {
     /// * `room_id` -  The id of the room that should receive the message.
     ///
     /// * `content` - The content of the message event.
-    /// 
+    ///
     /// * `txn_id` - A unique `Uuid` that can be attached to a `MessageEvent` held
-    /// in it's unsigned field as `transaction_id`.
+    /// in it's unsigned field as `transaction_id`. If not given one is created for the
+    /// message.
     ///
     /// # Example
     /// ```no_run
@@ -848,7 +849,7 @@ impl AsyncClient {
     /// # let mut client = AsyncClient::new(homeserver, None).unwrap();
     /// # let room_id = RoomId::try_from("!test:localhost").unwrap();
     /// use uuid::Uuid;
-    /// 
+    ///
     /// let content = MessageEventContent::Text(TextMessageEventContent {
     ///     body: "Hello world".to_owned(),
     ///     format: None,
@@ -856,7 +857,7 @@ impl AsyncClient {
     ///     relates_to: None,
     /// });
     /// let txn_id = Uuid::new_v4();
-    /// client.room_send(&room_id, content, Some(uuid)).await.unwrap();
+    /// client.room_send(&room_id, content, Some(txn_id)).await.unwrap();
     /// })
     /// ```
     pub async fn room_send(

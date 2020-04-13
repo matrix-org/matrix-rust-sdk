@@ -315,7 +315,8 @@ mod test {
         };
 
         let mut builder = RoomBuilder::new();
-        builder.creation_content(false)
+        builder
+            .creation_content(false)
             .initial_state(vec![])
             .visibility(Visibility::Public)
             .name("room_name")
@@ -363,7 +364,8 @@ mod test {
         };
 
         let mut builder = RoomMessageBuilder::new();
-        builder.room_id(RoomId::try_from("!roomid:example.com").unwrap())
+        builder
+            .room_id(RoomId::try_from("!roomid:example.com").unwrap())
             .from("t47429-4392820_219380_26003_2265".to_string())
             .to("t4357353_219380_26003_2265".to_string())
             .direction(Direction::Backward)
