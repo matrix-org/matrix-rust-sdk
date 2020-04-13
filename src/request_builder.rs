@@ -23,14 +23,14 @@ use js_int::UInt;
 /// # let homeserver = Url::parse("http://example.com").unwrap();
 /// # let mut rt = tokio::runtime::Runtime::new().unwrap();
 /// # rt.block_on(async {
-/// let mut bldr = RoomBuilder::default();
-/// bldr.creation_content(false)
+/// let mut builder = RoomBuilder::default();
+/// builder.creation_content(false)
 ///     .initial_state(vec![])
 ///     .visibility(Visibility::Public)
 ///     .name("name")
 ///     .room_version("v1.0");
 /// let mut cli = AsyncClient::new(homeserver, None).unwrap();
-/// cli.create_room(bldr).await;
+/// cli.create_room(builder).await;
 /// # })
 /// ```
 #[derive(Clone, Default)]
@@ -218,12 +218,12 @@ impl RoomMessageBuilder {
     /// # let last_sync_token = "".to_string();;
     /// let mut cli = AsyncClient::new(homeserver, None).unwrap();
     ///
-    /// let mut bldr = RoomMessageBuilder::new();
-    /// bldr.room_id(room_id)
+    /// let mut builder = RoomMessageBuilder::new();
+    /// builder.room_id(room_id)
     ///     .from(last_sync_token)
     ///     .direction(Direction::Forward);
     ///
-    /// cli.room_messages(bldr).await.is_err();
+    /// cli.room_messages(builder).await.is_err();
     /// # })
     /// ```
     pub fn new() -> Self {
@@ -314,8 +314,8 @@ mod test {
             device_id: "DEVICEID".to_owned(),
         };
 
-        let mut bldr = RoomBuilder::new();
-        bldr.creation_content(false)
+        let mut builder = RoomBuilder::new();
+        builder.creation_content(false)
             .initial_state(vec![])
             .visibility(Visibility::Public)
             .name("room_name")
@@ -341,7 +341,7 @@ mod test {
             .topic("room topic")
             .visibility(Visibility::Private);
         let mut cli = AsyncClient::new(homeserver, Some(session)).unwrap();
-        assert!(cli.create_room(bldr).await.is_ok());
+        assert!(cli.create_room(builder).await.is_ok());
     }
 
     #[tokio::test]
@@ -362,8 +362,8 @@ mod test {
             device_id: "DEVICEID".to_owned(),
         };
 
-        let mut bldr = RoomMessageBuilder::new();
-        bldr.room_id(RoomId::try_from("!roomid:example.com").unwrap())
+        let mut builder = RoomMessageBuilder::new();
+        builder.room_id(RoomId::try_from("!roomid:example.com").unwrap())
             .from("t47429-4392820_219380_26003_2265".to_string())
             .to("t4357353_219380_26003_2265".to_string())
             .direction(Direction::Backward)
@@ -372,6 +372,6 @@ mod test {
         // .filter(RoomEventFilter::default());
 
         let mut cli = AsyncClient::new(homeserver, Some(session)).unwrap();
-        assert!(cli.room_messages(bldr).await.is_ok());
+        assert!(cli.room_messages(builder).await.is_ok());
     }
 }

@@ -479,15 +479,15 @@ impl AsyncClient {
     /// ```ignore
     /// use matrix_sdk::{AsyncClient, RoomBuilder};
     ///
-    /// let mut bldr = RoomBuilder::default();
-    /// bldr.creation_content(false)
+    /// let mut builder = RoomBuilder::default();
+    /// builder.creation_content(false)
     ///     .initial_state(vec![])
     ///     .visibility(Visibility::Public)
     ///     .name("name")
     ///     .room_version("v1.0");
     ///
     /// let mut cli = AsyncClient::new(homeserver, Some(session)).unwrap();
-    /// assert!(cli.create_room(bldr).await.is_ok());
+    /// assert!(cli.create_room(builder).await.is_ok());
     /// ```
     ///
     pub async fn create_room<R: Into<create_room::Request>>(
@@ -505,25 +505,27 @@ impl AsyncClient {
     /// # Arguments
     ///
     /// * request - The easiest way to create a `Request` is using the `GetMessageBuilder`
+    /// 
+    /// # Examples
+    /// ```ignore
+    /// use matrix_sdk::{AsyncClient, RoomBuilder};
+    /// 
+    /// let mut builder = RoomMessageBuilder::new();
+    /// builder.room_id(RoomId::try_from("!roomid:example.com").unwrap())
+    ///     .from("t47429-4392820_219380_26003_2265".to_string())
+    ///     .to("t4357353_219380_26003_2265".to_string())
+    ///     .direction(Direction::Backward)
+    ///     .limit(UInt::new(10).unwrap());
+    /// 
+    /// let mut cli = AsyncClient::new(homeserver, Some(session)).unwrap();
+    /// assert!(cli.create_room(builder).await.is_ok());
+    /// ```
     pub async fn room_messages<R: Into<get_message_events::Request>>(
         &mut self,
         request: R,
     ) -> Result<get_message_events::IncomingResponse> {
         let req = request.into();
-        let room_id = req.room_id.clone();
-        let mut res = self.send(req).await?;
-        let mut client = self.base_client.write().await;
-        // TODO should we support this event? to keep emitting these msg events this is needed
-        for mut event in &mut res.chunk {
-            client
-                .receive_joined_timeline_event(&room_id, &mut event)
-                .await;
-
-            if let EventResult::Ok(e) = event {
-                client.emit_timeline_event(&room_id, e).await;
-            }
-        }
-        Ok(res)
+        self.send(req).await
     }
 
     /// Synchronize the client's state with the latest state on the server.
@@ -827,6 +829,9 @@ impl AsyncClient {
     /// * `room_id` -  The id of the room that should receive the message.
     ///
     /// * `content` - The content of the message event.
+    /// 
+    /// * `txn_id` - A unique `Uuid` that can be attached to a `MessageEvent` held
+    /// in it's unsigned field as `transaction_id`.
     ///
     /// # Example
     /// ```no_run
@@ -842,21 +847,23 @@ impl AsyncClient {
     /// # let homeserver = Url::parse("http://localhost:8080").unwrap();
     /// # let mut client = AsyncClient::new(homeserver, None).unwrap();
     /// # let room_id = RoomId::try_from("!test:localhost").unwrap();
-    ///
+    /// use uuid::Uuid;
+    /// 
     /// let content = MessageEventContent::Text(TextMessageEventContent {
     ///     body: "Hello world".to_owned(),
     ///     format: None,
     ///     formatted_body: None,
     ///     relates_to: None,
     /// });
-    ///
-    /// client.room_send(&room_id, content).await.unwrap();
+    /// let txn_id = Uuid::new_v4();
+    /// client.room_send(&room_id, content, Some(uuid)).await.unwrap();
     /// })
     /// ```
     pub async fn room_send(
         &mut self,
         room_id: &RoomId,
         #[allow(unused_mut)] mut content: MessageEventContent,
+        txn_id: Option<Uuid>,
     ) -> Result<create_message_event::Response> {
         #[allow(unused_mut)]
         let mut event_type = EventType::RoomMessage;
@@ -915,7 +922,7 @@ impl AsyncClient {
         let request = create_message_event::Request {
             room_id: room_id.clone(),
             event_type,
-            txn_id: Uuid::new_v4().to_string(),
+            txn_id: txn_id.unwrap_or(Uuid::new_v4()).to_string(),
             data: content,
         };
 
