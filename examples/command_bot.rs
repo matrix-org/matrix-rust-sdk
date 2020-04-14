@@ -11,7 +11,7 @@ use matrix_sdk::{
 };
 use tokio::runtime::Handle;
 use tokio::sync::{
-    mpsc::{self, Receiver, Sender},
+    mpsc::{self, Sender},
     Mutex,
 };
 
@@ -30,14 +30,16 @@ impl EventEmitter for CommandBot {
     async fn on_room_message(&mut self, room: Arc<Mutex<Room>>, event: Arc<Mutex<MessageEvent>>) {
         if let MessageEvent {
             content: MessageEventContent::Text(TextMessageEventContent { body: msg_body, .. }),
-            sender,
             ..
         } = event.lock().await.deref()
         {
             let room = room.lock().await;
             if msg_body.contains("!party") {
                 self.send
-                    .send((room.room_id.clone(), "let's PARTY!! 🥳🎊🎉".to_string()))
+                    .send((
+                        room.room_id.clone(),
+                        "🎉🎊🥳 let's PARTY!! 🥳🎊🎉".to_string(),
+                    ))
                     .await
                     .unwrap()
             }
@@ -89,7 +91,7 @@ async fn login_and_sync(
             send_client
                 .lock()
                 .await
-                .room_send(&id, content)
+                .room_send(&id, content, None)
                 .await
                 .unwrap();
         }
