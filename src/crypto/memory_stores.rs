@@ -24,7 +24,7 @@ use crate::identifiers::{DeviceId, RoomId, UserId};
 
 #[derive(Debug)]
 pub struct SessionStore {
-    entries: HashMap<String, Arc<Mutex<Vec<Arc<Mutex<Session>>>>>>,
+    entries: HashMap<String, Arc<Mutex<Vec<Session>>>>,
 }
 
 impl SessionStore {
@@ -34,25 +34,24 @@ impl SessionStore {
         }
     }
 
-    pub async fn add(&mut self, session: Session) -> Arc<Mutex<Session>> {
-        if !self.entries.contains_key(&session.sender_key) {
+    pub async fn add(&mut self, session: Session) -> Session {
+        if !self.entries.contains_key(&*session.sender_key) {
             self.entries.insert(
-                session.sender_key.to_owned(),
+                session.sender_key.to_string(),
                 Arc::new(Mutex::new(Vec::new())),
             );
         }
-        let sessions = self.entries.get_mut(&session.sender_key).unwrap();
-        let session = Arc::new(Mutex::new(session));
+        let sessions = self.entries.get_mut(&*session.sender_key).unwrap();
         sessions.lock().await.push(session.clone());
 
         session
     }
 
-    pub fn get(&self, sender_key: &str) -> Option<Arc<Mutex<Vec<Arc<Mutex<Session>>>>>> {
+    pub fn get(&self, sender_key: &str) -> Option<Arc<Mutex<Vec<Session>>>> {
         self.entries.get(sender_key).cloned()
     }
 
-    pub fn set_for_sender(&mut self, sender_key: &str, sessions: Vec<Arc<Mutex<Session>>>) {
+    pub fn set_for_sender(&mut self, sender_key: &str, sessions: Vec<Session>) {
         self.entries
             .insert(sender_key.to_owned(), Arc::new(Mutex::new(sessions)));
     }

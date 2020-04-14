@@ -18,7 +18,6 @@ use std::mem;
 #[cfg(feature = "sqlite-cryptostore")]
 use std::path::Path;
 use std::result::Result as StdResult;
-use std::sync::Arc;
 use uuid::Uuid;
 
 use super::error::{OlmError, Result, SignatureError, VerificationResult};
@@ -34,7 +33,6 @@ use api::r0::keys;
 use cjson;
 use olm_rs::{session::OlmMessage, utility::OlmUtility};
 use serde_json::{json, Value};
-use tokio::sync::Mutex;
 use tracing::{debug, error, info, instrument, trace, warn};
 
 use ruma_client_api::r0::client_exchange::{
@@ -658,19 +656,17 @@ impl OlmMachine {
             return Ok(None);
         };
 
-        for session in &*sessions.lock().await {
+        for session in &mut *sessions.lock().await {
             let mut matches = false;
 
-            let mut session_lock = session.lock().await;
-
             if let OlmMessage::PreKey(m) = &message {
-                matches = session_lock.matches(sender_key, m.clone())?;
+                matches = session.matches(sender_key, m.clone()).await?;
                 if !matches {
                     continue;
                 }
             }
 
-            let ret = session_lock.decrypt(message.clone());
+            let ret = session.decrypt(message.clone()).await;
 
             if let Ok(p) = ret {
                 self.store.save_session(session.clone()).await?;
@@ -706,7 +702,7 @@ impl OlmMachine {
                 }
             };
 
-            let plaintext = session.decrypt(message)?;
+            let plaintext = session.decrypt(message).await?;
             self.store.add_and_save_session(session).await?;
             plaintext
         };
@@ -861,7 +857,7 @@ impl OlmMachine {
 
     async fn olm_encrypt(
         &mut self,
-        session: Arc<Mutex<Session>>,
+        mut session: Session,
         recipient_device: &Device,
         event_type: EventType,
         content: Value,
@@ -892,7 +888,7 @@ impl OlmMachine {
         let plaintext = cjson::to_string(&payload)
             .unwrap_or_else(|_| panic!(format!("Can't serialize {} to canonical JSON", payload)));
 
-        let ciphertext = session.lock().await.encrypt(&plaintext).to_tuple();
+        let ciphertext = session.encrypt(&plaintext).await.to_tuple();
         self.store.save_session(session).await?;
 
         let message_type: usize = ciphertext.0.into();

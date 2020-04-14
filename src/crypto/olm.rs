@@ -13,6 +13,7 @@
 // limitations under the License.
 
 use std::fmt;
+use std::mem;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::Instant;
@@ -170,12 +171,14 @@ impl Account {
             .create_outbound_session(their_identity_key, &their_one_time_key.key)?;
 
         let now = Instant::now();
+        let session_id = session.session_id();
 
         Ok(Session {
-            inner: session,
-            sender_key: their_identity_key.to_owned(),
-            creation_time: now.clone(),
-            last_use_time: now,
+            inner: Arc::new(Mutex::new(session)),
+            session_id: Arc::new(session_id),
+            sender_key: Arc::new(their_identity_key.to_owned()),
+            creation_time: Arc::new(now.clone()),
+            last_use_time: Arc::new(now),
         })
     }
 
@@ -209,12 +212,14 @@ impl Account {
         );
 
         let now = Instant::now();
+        let session_id = session.session_id();
 
         Ok(Session {
-            inner: session,
-            sender_key: their_identity_key.to_owned(),
-            creation_time: now.clone(),
-            last_use_time: now,
+            inner: Arc::new(Mutex::new(session)),
+            session_id: Arc::new(session_id),
+            sender_key: Arc::new(their_identity_key.to_owned()),
+            creation_time: Arc::new(now.clone()),
+            last_use_time: Arc::new(now),
         })
     }
 }
@@ -225,16 +230,17 @@ impl PartialEq for Account {
     }
 }
 
-#[derive(Debug)]
 /// The Olm Session.
 ///
 /// Sessions are used to exchange encrypted messages between two
 /// accounts/devices.
+#[derive(Debug, Clone)]
 pub struct Session {
-    inner: OlmSession,
-    pub(crate) sender_key: String,
-    pub(crate) creation_time: Instant,
-    pub(crate) last_use_time: Instant,
+    inner: Arc<Mutex<OlmSession>>,
+    session_id: Arc<String>,
+    pub(crate) sender_key: Arc<String>,
+    pub(crate) creation_time: Arc<Instant>,
+    pub(crate) last_use_time: Arc<Instant>,
 }
 
 impl Session {
@@ -246,9 +252,9 @@ impl Session {
     /// # Arguments
     ///
     /// * `message` - The Olm message that should be decrypted.
-    pub fn decrypt(&mut self, message: OlmMessage) -> Result<String, OlmSessionError> {
-        let plaintext = self.inner.decrypt(message)?;
-        self.last_use_time = Instant::now();
+    pub async fn decrypt(&mut self, message: OlmMessage) -> Result<String, OlmSessionError> {
+        let plaintext = self.inner.lock().await.decrypt(message)?;
+        mem::replace(&mut self.last_use_time, Arc::new(Instant::now()));
         Ok(plaintext)
     }
 
@@ -259,9 +265,9 @@ impl Session {
     /// # Arguments
     ///
     /// * `plaintext` - The plaintext that should be encrypted.
-    pub fn encrypt(&mut self, plaintext: &str) -> OlmMessage {
-        let message = self.inner.encrypt(plaintext);
-        self.last_use_time = Instant::now();
+    pub async fn encrypt(&mut self, plaintext: &str) -> OlmMessage {
+        let message = self.inner.lock().await.encrypt(plaintext);
+        mem::replace(&mut self.last_use_time, Arc::new(Instant::now()));
         message
     }
 
@@ -276,18 +282,20 @@ impl Session {
     /// that encrypted this Olm message.
     ///
     /// * `message` - The pre-key Olm message that should be checked.
-    pub fn matches(
+    pub async fn matches(
         &self,
         their_identity_key: &str,
         message: PreKeyMessage,
     ) -> Result<bool, OlmSessionError> {
         self.inner
+            .lock()
+            .await
             .matches_inbound_session_from(their_identity_key, message)
     }
 
     /// Returns the unique identifier for this session.
-    pub fn session_id(&self) -> String {
-        self.inner.session_id()
+    pub fn session_id(&self) -> &str {
+        &self.session_id
     }
 
     /// Store the session as a base64 encoded string.
@@ -296,8 +304,8 @@ impl Session {
     ///
     /// * `pickle_mode` - The mode that was used to pickle the session, either
     /// an unencrypted mode or an encrypted using passphrase.
-    pub fn pickle(&self, pickle_mode: PicklingMode) -> String {
-        self.inner.pickle(pickle_mode)
+    pub async fn pickle(&self, pickle_mode: PicklingMode) -> String {
+        self.inner.lock().await.pickle(pickle_mode)
     }
 
     /// Restore a Session from a previously pickled string.
@@ -328,11 +336,14 @@ impl Session {
         last_use_time: Instant,
     ) -> Result<Self, OlmSessionError> {
         let session = OlmSession::unpickle(pickle, pickle_mode)?;
+        let session_id = session.session_id();
+
         Ok(Session {
-            inner: session,
-            sender_key,
-            creation_time,
-            last_use_time,
+            inner: Arc::new(Mutex::new(session)),
+            session_id: Arc::new(session_id),
+            sender_key: Arc::new(sender_key),
+            creation_time: Arc::new(creation_time),
+            last_use_time: Arc::new(last_use_time),
         })
     }
 }
@@ -665,7 +676,7 @@ mod test {
 
         let plaintext = "Hello world";
 
-        let message = bob_session.encrypt(plaintext);
+        let message = bob_session.encrypt(plaintext).await;
 
         let prekey_message = match message.clone() {
             OlmMessage::PreKey(m) => m,
@@ -680,7 +691,7 @@ mod test {
 
         assert_eq!(bob_session.session_id(), alice_session.session_id());
 
-        let decyrpted = alice_session.decrypt(message).unwrap();
+        let decyrpted = alice_session.decrypt(message).await.unwrap();
         assert_eq!(plaintext, decyrpted);
     }
 }
