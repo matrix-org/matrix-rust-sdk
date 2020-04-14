@@ -3,7 +3,7 @@
 ## Design and Layout
 
 #### Async Client
-The highest level structure that ties the other pieces of functionality together. The client is responsible for the Request/Response cycle. It can be thought of as a thin layer atop the `BaseClient` passing requests along for the `BaseClient` to handle. A user should be able to write their own `AsyncClient` using the `BaseClient`. It knows how to 
+The highest level structure that ties the other pieces of functionality together. The client is responsible for the Request/Response cycle. It can be thought of as a thin layer atop the `BaseClient` passing requests along for the `BaseClient` to handle. A user should be able to write their own `AsyncClient` using the `BaseClient`. It knows how to
   - login
   - send messages
   - encryption ...
@@ -91,6 +91,8 @@ The `BaseClient` also has access to a `dyn StateStore` this is an abstraction ar
   - load
   - store/save
   - update ??
+
+The state store will restore our client state in the `BaseClient` and client authors can just get the latest state that they want to present from the client object. No need to ask the state store for it, this may change if custom setups request this. `StateStore`'s base is load/store and internally to the crate update the `BaseClient`.
 
 #### Event Emitter
 The consumer of this crate can implement the `EventEmitter` trait for full control over how incoming events are handled by their client. If that isn't enough it is possible to receive every incoming response with the `AsyncClient::sync_forever` callback.
