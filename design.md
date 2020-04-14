@@ -3,7 +3,7 @@
 ## Design and Layout
 
 #### Async Client
-The highest level structure that ties the other pieces of functionality together. The client is responsible for the Request/Response cycle. It can be thought of as a thin layer atop the `BaseClient` passing requests along for the `BaseClient` to handle. A user should be able to write their own `AsyncClient` using the `BaseClient`. It knows how to 
+The highest level structure that ties the other pieces of functionality together. The client is responsible for the Request/Response cycle. It can be thought of as a thin layer atop the `BaseClient` passing requests along for the `BaseClient` to handle. A user should be able to write their own `AsyncClient` using the `BaseClient`. It knows how to
   - login
   - send messages
   - encryption ...

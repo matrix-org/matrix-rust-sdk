@@ -52,7 +52,7 @@ impl CryptoStore for MemoryStore {
         Ok(())
     }
 
-    async fn save_session(&mut self, _: Arc<Mutex<Session>>) -> Result<()> {
+    async fn save_session(&mut self, _: Session) -> Result<()> {
         Ok(())
     }
 
@@ -61,10 +61,7 @@ impl CryptoStore for MemoryStore {
         Ok(())
     }
 
-    async fn get_sessions(
-        &mut self,
-        sender_key: &str,
-    ) -> Result<Option<Arc<Mutex<Vec<Arc<Mutex<Session>>>>>>> {
+    async fn get_sessions(&mut self, sender_key: &str) -> Result<Option<Arc<Mutex<Vec<Session>>>>> {
         Ok(self.sessions.get(sender_key))
     }
 
