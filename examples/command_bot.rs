@@ -1,5 +1,3 @@
-use std::ops::Deref;
-use std::sync::Arc;
 use std::{env, process::exit};
 use url::Url;
 
@@ -8,13 +6,10 @@ use matrix_sdk::{
     events::room::message::{MessageEvent, MessageEventContent, TextMessageEventContent},
     AsyncClient, AsyncClientConfig, EventEmitter, Room, SyncSettings,
 };
-use tokio::runtime::{Handle, Runtime};
-use tokio::sync::mpsc::{channel, Sender};
 use tokio::sync::Mutex;
 
 struct CommandBot {
     client: Mutex<AsyncClient>,
-    // sender: Sender<(RoomId, MessageEventContent)>
 }
 
 impl CommandBot {
@@ -66,7 +61,6 @@ async fn login_and_sync(
     homeserver_url: String,
     username: String,
     password: String,
-    exec: Handle,
 ) -> Result<(), matrix_sdk::Error> {
     let client_config = AsyncClientConfig::new();
     // .proxy("http://localhost:8080")?
@@ -89,16 +83,13 @@ async fn login_and_sync(
 
     println!("logged in as {}", username);
 
-    exec.spawn(async move {
-        client.sync_forever(SyncSettings::new(), |_| async {}).await;
-    })
-    .await
-    .unwrap();
+    client.sync_forever(SyncSettings::new(), |_| async {}).await;
 
     Ok(())
 }
 
-fn main() -> Result<(), matrix_sdk::Error> {
+#[tokio::main]
+async fn main() -> Result<(), matrix_sdk::Error> {
     let (homeserver_url, username, password) =
         match (env::args().nth(1), env::args().nth(2), env::args().nth(3)) {
             (Some(a), Some(b), Some(c)) => (a, b, c),
@@ -111,15 +102,6 @@ fn main() -> Result<(), matrix_sdk::Error> {
             }
         };
 
-    let mut runtime = tokio::runtime::Builder::new()
-        .basic_scheduler()
-        .threaded_scheduler()
-        .enable_all()
-        .build()
-        .unwrap();
-
-    let exec = runtime.handle().clone();
-
-    runtime.block_on(async { login_and_sync(homeserver_url, username, password, exec).await })?;
+    login_and_sync(homeserver_url, username, password).await?;
     Ok(())
 }
