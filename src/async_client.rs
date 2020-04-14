@@ -350,8 +350,7 @@ impl AsyncClient {
     ///
     /// # Arguments
     ///
-    /// * room_id - A valid RoomId otherwise sending will fail.
-    ///
+    /// * room_id - The `RoomId` of the room to be joined.
     pub async fn join_room_by_id(&mut self, room_id: &RoomId) -> Result<join_room_by_id::Response> {
         let request = join_room_by_id::Request {
             room_id: room_id.clone(),
@@ -367,8 +366,8 @@ impl AsyncClient {
     ///
     /// # Arguments
     ///
-    /// * alias - A valid `RoomIdOrAliasId` otherwise sending will fail.
-    ///
+    /// * alias - The `RoomId` or `RoomAliasId` of the room to be joined.
+    /// An alias looks like this `#name:example.com`
     pub async fn join_room_by_id_or_alias(
         &mut self,
         alias: &RoomIdOrAliasId,
@@ -386,12 +385,11 @@ impl AsyncClient {
     ///
     /// # Arguments
     ///
-    /// * room_id - A valid `RoomId` otherwise sending will fail.
+    /// * room_id - The `RoomId` of the room the user should be kicked out of.
     ///
-    /// * user_id - A valid `UserId`.
+    /// * user_id - The `UserId` of the user that should be kicked out of the room.
     ///
     /// * reason - Optional reason why the room member is being kicked out.
-    ///
     pub async fn kick_user(
         &mut self,
         room_id: &RoomId,
@@ -412,7 +410,7 @@ impl AsyncClient {
     ///
     /// # Arguments
     ///
-    /// * room_id - A valid `RoomId`.
+    /// * room_id - The `RoomId` of the room to leave.
     ///
     pub async fn leave_room(&mut self, room_id: &RoomId) -> Result<leave_room::Response> {
         let request = leave_room::Request {
@@ -427,10 +425,9 @@ impl AsyncClient {
     ///
     /// # Arguments
     ///
-    /// * room_id - A valid `RoomId`.
+    /// * room_id - The `RoomId` of the room to invite the specified user to.
     ///
-    /// * user_id - A valid `UserId`.
-    ///
+    /// * user_id - The `UserId` of the user to invite to the room.
     pub async fn invite_user_by_id(
         &mut self,
         room_id: &RoomId,
@@ -451,10 +448,9 @@ impl AsyncClient {
     ///
     /// # Arguments
     ///
-    /// * room_id - A valid `RoomId`.
+    /// * room_id - The `RoomId` of the room to invite the specified user to.
     ///
-    /// * invite_id - A valid `UserId`.
-    ///
+    /// * invite_id - A third party id of a user to invite to the room.
     pub async fn invite_user_by_3pid(
         &mut self,
         room_id: &RoomId,
@@ -467,18 +463,22 @@ impl AsyncClient {
         self.send(request).await
     }
 
-    /// A builder to create a room and send the request.
+    /// Create a room using the `RoomBuilder` and send the request.
     ///
-    /// Returns a `create_room::Response`, an empty response.
+    /// Sends a request to `/_matrix/client/r0/createRoom`, returns a `create_room::Response`,
+    /// this is an empty response.
     ///
     /// # Arguments
     ///
-    /// * room - the easiest way to create this request is using the `RoomBuilder`.
+    /// * room - The easiest way to create this request is using the `RoomBuilder`.
     ///
     /// # Examples
-    /// ```ignore
+    /// ```no_run
     /// use matrix_sdk::{AsyncClient, RoomBuilder};
-    ///
+    /// # use matrix_sdk::api::r0::room::Visibility;
+    /// # use url::Url;
+    /// 
+    /// # let homeserver = Url::parse("http://example.com").unwrap();
     /// let mut builder = RoomBuilder::default();
     /// builder.creation_content(false)
     ///     .initial_state(vec![])
@@ -486,10 +486,12 @@ impl AsyncClient {
     ///     .name("name")
     ///     .room_version("v1.0");
     ///
-    /// let mut cli = AsyncClient::new(homeserver, Some(session)).unwrap();
+    /// let mut cli = AsyncClient::new(homeserver, None).unwrap();
+    /// # use futures::executor::block_on;
+    /// # block_on(async {
     /// assert!(cli.create_room(builder).await.is_ok());
+    /// # });
     /// ```
-    ///
     pub async fn create_room<R: Into<create_room::Request>>(
         &mut self,
         room: R,
@@ -498,27 +500,41 @@ impl AsyncClient {
         self.send(request).await
     }
 
-    /// Invite the specified user by third party id to the given room.
+    /// Get messages starting at a specific sync point using the
+    /// `MessagesRequestBuilder`s `from` field as a starting point.
     ///
-    /// Returns a `invite_user::Response`, an empty response.
+    /// Sends a request to `/_matrix/client/r0/rooms/{room_id}/messages` and
+    /// returns a `get_message_events::IncomingResponse` that contains chunks
+    /// of `RoomEvents`.
     ///
     /// # Arguments
     ///
-    /// * request - The easiest way to create a `Request` is using the `GetMessageBuilder`
+    /// * request - The easiest way to create a `Request` is using the 
+    /// `MessagesRequestBuilder`.
     ///
     /// # Examples
-    /// ```ignore
-    /// use matrix_sdk::{AsyncClient, RoomBuilder};
-    ///
-    /// let mut builder = RoomMessageBuilder::new();
+    /// ```no_run
+    /// # use std::convert::TryFrom;
+    /// use matrix_sdk::{AsyncClient, MessagesRequestBuilder};
+    /// # use matrix_sdk::identifiers::RoomId;
+    /// # use matrix_sdk::api::r0::filter::RoomEventFilter;
+    /// # use matrix_sdk::api::r0::message::get_message_events::Direction;
+    /// # use url::Url;
+    /// # use js_int::UInt;
+    /// 
+    /// # let homeserver = Url::parse("http://example.com").unwrap();
+    /// let mut builder = MessagesRequestBuilder::new();
     /// builder.room_id(RoomId::try_from("!roomid:example.com").unwrap())
     ///     .from("t47429-4392820_219380_26003_2265".to_string())
     ///     .to("t4357353_219380_26003_2265".to_string())
     ///     .direction(Direction::Backward)
     ///     .limit(UInt::new(10).unwrap());
     ///
-    /// let mut cli = AsyncClient::new(homeserver, Some(session)).unwrap();
-    /// assert!(cli.create_room(builder).await.is_ok());
+    /// let mut cli = AsyncClient::new(homeserver, None).unwrap();
+    /// # use futures::executor::block_on;
+    /// # block_on(async {
+    /// assert!(cli.room_messages(builder).await.is_ok());
+    /// # });
     /// ```
     pub async fn room_messages<R: Into<get_message_events::Request>>(
         &mut self,

@@ -174,8 +174,30 @@ impl Into<create_room::Request> for RoomBuilder {
 }
 
 /// Create a builder for making get_message_event requests.
+///
+/// # Examples
+/// ```
+/// # use matrix_sdk::{AsyncClient, MessagesRequestBuilder};
+/// # use matrix_sdk::api::r0::message::get_message_events::{self, Direction};
+/// # use matrix_sdk::identifiers::RoomId;
+/// # use url::Url;
+/// # let homeserver = Url::parse("http://example.com").unwrap();
+/// # let mut rt = tokio::runtime::Runtime::new().unwrap();
+/// # rt.block_on(async {
+/// # let room_id = RoomId::new(homeserver.as_str()).unwrap();
+/// # let last_sync_token = "".to_string();;
+/// let mut cli = AsyncClient::new(homeserver, None).unwrap();
+///
+/// let mut builder = MessagesRequestBuilder::new();
+/// builder.room_id(room_id)
+///     .from(last_sync_token)
+///     .direction(Direction::Forward);
+///
+/// cli.room_messages(builder).await.is_err();
+/// # })
+/// ```
 #[derive(Clone, Default)]
-pub struct RoomMessageBuilder {
+pub struct MessagesRequestBuilder {
     /// The room to get events from.
     room_id: Option<RoomId>,
     /// The token to start returning events from.
@@ -200,32 +222,10 @@ pub struct RoomMessageBuilder {
     filter: Option<RoomEventFilter>,
 }
 
-impl RoomMessageBuilder {
-    /// Create a `RoomMessageBuilder` builder to make a `get_message_events::Request`.
+impl MessagesRequestBuilder {
+    /// Create a `MessagesRequestBuilder` builder to make a `get_message_events::Request`.
     ///
     /// The `room_id` and `from`` fields **need to be set** to create the request.
-    ///
-    /// # Examples
-    /// ```
-    /// # use matrix_sdk::{AsyncClient, RoomMessageBuilder};
-    /// # use matrix_sdk::api::r0::message::get_message_events::{self, Direction};
-    /// # use matrix_sdk::identifiers::RoomId;
-    /// # use url::Url;
-    /// # let homeserver = Url::parse("http://example.com").unwrap();
-    /// # let mut rt = tokio::runtime::Runtime::new().unwrap();
-    /// # rt.block_on(async {
-    /// # let room_id = RoomId::new(homeserver.as_str()).unwrap();
-    /// # let last_sync_token = "".to_string();;
-    /// let mut cli = AsyncClient::new(homeserver, None).unwrap();
-    ///
-    /// let mut builder = RoomMessageBuilder::new();
-    /// builder.room_id(room_id)
-    ///     .from(last_sync_token)
-    ///     .direction(Direction::Forward);
-    ///
-    /// cli.room_messages(builder).await.is_err();
-    /// # })
-    /// ```
     pub fn new() -> Self {
         Self::default()
     }
@@ -273,7 +273,7 @@ impl RoomMessageBuilder {
     }
 }
 
-impl Into<get_message_events::Request> for RoomMessageBuilder {
+impl Into<get_message_events::Request> for MessagesRequestBuilder {
     fn into(self) -> get_message_events::Request {
         get_message_events::Request {
             room_id: self.room_id.expect("`room_id` and `from` need to be set"),
@@ -363,7 +363,7 @@ mod test {
             device_id: "DEVICEID".to_owned(),
         };
 
-        let mut builder = RoomMessageBuilder::new();
+        let mut builder = MessagesRequestBuilder::new();
         builder
             .room_id(RoomId::try_from("!roomid:example.com").unwrap())
             .from("t47429-4392820_219380_26003_2265".to_string())
