@@ -477,7 +477,7 @@ impl AsyncClient {
     /// use matrix_sdk::{AsyncClient, RoomBuilder};
     /// # use matrix_sdk::api::r0::room::Visibility;
     /// # use url::Url;
-    /// 
+    ///
     /// # let homeserver = Url::parse("http://example.com").unwrap();
     /// let mut builder = RoomBuilder::default();
     /// builder.creation_content(false)
@@ -509,7 +509,7 @@ impl AsyncClient {
     ///
     /// # Arguments
     ///
-    /// * request - The easiest way to create a `Request` is using the 
+    /// * request - The easiest way to create a `Request` is using the
     /// `MessagesRequestBuilder`.
     ///
     /// # Examples
@@ -521,7 +521,7 @@ impl AsyncClient {
     /// # use matrix_sdk::api::r0::message::get_message_events::Direction;
     /// # use url::Url;
     /// # use js_int::UInt;
-    /// 
+    ///
     /// # let homeserver = Url::parse("http://example.com").unwrap();
     /// let mut builder = MessagesRequestBuilder::new();
     /// builder.room_id(RoomId::try_from("!roomid:example.com").unwrap())
@@ -939,7 +939,7 @@ impl AsyncClient {
         let request = create_message_event::Request {
             room_id: room_id.clone(),
             event_type,
-            txn_id: txn_id.unwrap_or(Uuid::new_v4()).to_string(),
+            txn_id: txn_id.unwrap_or_else(Uuid::new_v4).to_string(),
             data: content,
         };
 
