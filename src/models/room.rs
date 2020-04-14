@@ -427,7 +427,7 @@ mod test {
         let room = &rooms
             .get(&RoomId::try_from("!SVkFJHzfwvuaIEawgC:localhost").unwrap())
             .unwrap()
-            .lock()
+            .read()
             .await;
 
         assert_eq!(2, room.members.len());

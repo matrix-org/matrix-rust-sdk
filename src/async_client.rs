@@ -273,10 +273,7 @@ impl AsyncClient {
     /// Add `EventEmitter` to `AsyncClient`.
     ///
     /// The methods of `EventEmitter` are called when the respective `RoomEvents` occur.
-    pub async fn add_event_emitter(
-        &mut self,
-        emitter: Arc<tokio::sync::Mutex<Box<dyn EventEmitter>>>,
-    ) {
+    pub async fn add_event_emitter(&mut self, emitter: Box<dyn EventEmitter>) {
         self.base_client.write().await.event_emitter = Some(emitter);
     }
 
@@ -301,7 +298,7 @@ impl AsyncClient {
     /// Returns the rooms this client knows about.
     ///
     /// A `HashMap` of room id to `matrix::models::Room`
-    pub async fn get_rooms(&self) -> HashMap<RoomId, Arc<tokio::sync::Mutex<Room>>> {
+    pub async fn get_rooms(&self) -> HashMap<RoomId, Arc<tokio::sync::RwLock<Room>>> {
         self.base_client.read().await.joined_rooms.clone()
     }
 
@@ -565,9 +562,8 @@ impl AsyncClient {
         let mut response = self.send(request).await?;
 
         for (room_id, room) in &mut response.rooms.join {
-            let mut client = self.base_client.write().await;
-
             let _matrix_room = {
+                let mut client = self.base_client.write().await;
                 for event in &room.state.events {
                     if let EventResult::Ok(e) = event {
                         client.receive_joined_state_event(&room_id, &e).await;
@@ -580,12 +576,14 @@ impl AsyncClient {
             // re looping is not ideal here
             for event in &mut room.state.events {
                 if let EventResult::Ok(e) = event {
+                    let client = self.base_client.read().await;
                     client.emit_state_event(room_id, e).await;
                 }
             }
 
             for mut event in &mut room.timeline.events {
                 let decrypted_event = {
+                    let mut client = self.base_client.write().await;
                     client
                         .receive_joined_timeline_event(room_id, &mut event)
                         .await
@@ -596,6 +594,7 @@ impl AsyncClient {
                 }
 
                 if let EventResult::Ok(e) = event {
+                    let client = self.base_client.read().await;
                     client.emit_timeline_event(room_id, e).await;
                 }
             }
@@ -604,8 +603,8 @@ impl AsyncClient {
             for account_data in &mut room.account_data.events {
                 {
                     if let EventResult::Ok(e) = account_data {
+                        let mut client = self.base_client.write().await;
                         client.receive_account_data_event(&room_id, e).await;
-
                         client.emit_account_data_event(room_id, e).await;
                     }
                 }
@@ -617,6 +616,7 @@ impl AsyncClient {
             for presence in &mut response.presence.events {
                 {
                     if let EventResult::Ok(e) = presence {
+                        let mut client = self.base_client.write().await;
                         client.receive_presence_event(&room_id, e).await;
 
                         client.emit_presence_event(room_id, e).await;
@@ -627,6 +627,7 @@ impl AsyncClient {
             for ephemeral in &mut room.ephemeral.events {
                 {
                     if let EventResult::Ok(e) = ephemeral {
+                        let mut client = self.base_client.write().await;
                         client.receive_ephemeral_event(&room_id, e).await;
 
                         client.emit_ephemeral_event(room_id, e).await;
@@ -810,7 +811,6 @@ impl AsyncClient {
         } else {
             request_builder
         };
-
         let mut response = request_builder.send().await?;
 
         trace!("Got response: {:?}", response);
@@ -892,7 +892,7 @@ impl AsyncClient {
                 let room = client.joined_rooms.get(room_id);
 
                 match room {
-                    Some(r) => r.lock().await.is_encrypted(),
+                    Some(r) => r.write().await.is_encrypted(),
                     None => false,
                 }
             };
@@ -901,7 +901,7 @@ impl AsyncClient {
                 let missing_sessions = {
                     let client = self.base_client.read().await;
                     let room = client.joined_rooms.get(room_id);
-                    let room = room.as_ref().unwrap().lock().await;
+                    let room = room.as_ref().unwrap().write().await;
                     let users = room.members.keys();
                     self.base_client
                         .read()

@@ -8,41 +8,55 @@ use matrix_sdk::{
     events::room::message::{MessageEvent, MessageEventContent, TextMessageEventContent},
     AsyncClient, AsyncClientConfig, EventEmitter, Room, SyncSettings,
 };
+use tokio::runtime::{Handle, Runtime};
+use tokio::sync::mpsc::{channel, Sender};
 use tokio::sync::Mutex;
 
 struct CommandBot {
-    client: AsyncClient,
+    client: Mutex<AsyncClient>,
+    // sender: Sender<(RoomId, MessageEventContent)>
 }
 
 impl CommandBot {
     pub fn new(client: AsyncClient) -> Self {
-        Self { client }
+        Self {
+            client: Mutex::new(client),
+        }
     }
 }
 
 #[async_trait::async_trait]
 impl EventEmitter for CommandBot {
-    async fn on_room_message(&mut self, room: Arc<Mutex<Room>>, event: Arc<Mutex<MessageEvent>>) {
-        if let MessageEvent {
+    async fn on_room_message(&self, room: &Room, event: &MessageEvent) {
+        let msg_body = if let MessageEvent {
             content: MessageEventContent::Text(TextMessageEventContent { body: msg_body, .. }),
             ..
-        } = event.lock().await.deref()
+        } = event
         {
-            let room = room.lock().await;
-            if msg_body.contains("!party") {
-                println!("!party found");
-                let content = MessageEventContent::Text(TextMessageEventContent {
-                    body: "🎉🎊🥳 let's PARTY!! 🥳🎊🎉".to_string(),
-                    format: None,
-                    formatted_body: None,
-                    relates_to: None,
-                });
-                self.client
-                    .room_send(&room.room_id, content, None)
-                    .await
-                    .unwrap();
-                println!("message sent");
-            }
+            msg_body.clone()
+        } else {
+            String::new()
+        };
+
+        if msg_body.contains("!party") {
+            let content = MessageEventContent::Text(TextMessageEventContent {
+                body: "🎉🎊🥳 let's PARTY!! 🥳🎊🎉".to_string(),
+                format: None,
+                formatted_body: None,
+                relates_to: None,
+            });
+            let room_id = &room.room_id;
+
+            println!("sending");
+
+            self.client
+                .lock()
+                .await
+                .room_send(&room_id, content, None)
+                .await
+                .unwrap();
+
+            println!("message sent");
         }
     }
 }
@@ -52,6 +66,7 @@ async fn login_and_sync(
     homeserver_url: String,
     username: String,
     password: String,
+    exec: Handle,
 ) -> Result<(), matrix_sdk::Error> {
     let client_config = AsyncClientConfig::new();
     // .proxy("http://localhost:8080")?
@@ -60,9 +75,7 @@ async fn login_and_sync(
     let mut client = AsyncClient::new_with_config(homeserver_url, None, client_config).unwrap();
 
     client
-        .add_event_emitter(Arc::new(Mutex::new(Box::new(CommandBot::new(
-            client.clone(),
-        )))))
+        .add_event_emitter(Box::new(CommandBot::new(client.clone())))
         .await;
 
     client
@@ -76,13 +89,16 @@ async fn login_and_sync(
 
     println!("logged in as {}", username);
 
-    client.sync_forever(SyncSettings::new(), |_| async {}).await;
+    exec.spawn(async move {
+        client.sync_forever(SyncSettings::new(), |_| async {}).await;
+    })
+    .await
+    .unwrap();
 
     Ok(())
 }
 
-#[tokio::main]
-async fn main() -> Result<(), matrix_sdk::Error> {
+fn main() -> Result<(), matrix_sdk::Error> {
     let (homeserver_url, username, password) =
         match (env::args().nth(1), env::args().nth(2), env::args().nth(3)) {
             (Some(a), Some(b), Some(c)) => (a, b, c),
@@ -94,6 +110,16 @@ async fn main() -> Result<(), matrix_sdk::Error> {
                 exit(1)
             }
         };
-    login_and_sync(homeserver_url, username, password).await?;
+
+    let mut runtime = tokio::runtime::Builder::new()
+        .basic_scheduler()
+        .threaded_scheduler()
+        .enable_all()
+        .build()
+        .unwrap();
+
+    let exec = runtime.handle().clone();
+
+    runtime.block_on(async { login_and_sync(homeserver_url, username, password, exec).await })?;
     Ok(())
 }

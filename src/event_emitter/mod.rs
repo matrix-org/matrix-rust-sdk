@@ -13,8 +13,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::sync::Arc;
-
 use crate::events::{
     fully_read::FullyReadEvent,
     ignored_user_list::IgnoredUserListEvent,
@@ -34,7 +32,6 @@ use crate::events::{
 };
 use crate::models::Room;
 
-use tokio::sync::Mutex;
 /// This trait allows any type implementing `EventEmitter` to specify event callbacks for each event.
 /// The `AsyncClient` calls each method when the corresponding event is received.
 ///
@@ -57,15 +54,14 @@ use tokio::sync::Mutex;
 ///
 /// #[async_trait::async_trait]
 /// impl EventEmitter for EventCallback {
-///     async fn on_room_message(&mut self, room: Arc<Mutex<Room>>, event: Arc<Mutex<MessageEvent>>) {
+///     async fn on_room_message(&self, room: &Room, event: &MessageEvent) {
 ///         if let MessageEvent {
 ///             content: MessageEventContent::Text(TextMessageEventContent { body: msg_body, .. }),
 ///             sender,
 ///             ..
-///         } = event.lock().await.deref()
+///         } = event
 ///         {
-///             let rooms = room.lock().await;
-///             let member = rooms.members.get(&sender).unwrap();
+///             let member = room.members.get(&sender).unwrap();
 ///             println!(
 ///                 "{}: {}",
 ///                 member
@@ -82,193 +78,128 @@ use tokio::sync::Mutex;
 pub trait EventEmitter: Send + Sync {
     // ROOM EVENTS from `IncomingTimeline`
     /// Fires when `AsyncClient` receives a `RoomEvent::RoomMember` event.
-    async fn on_room_member(&mut self, _: Arc<Mutex<Room>>, _: Arc<Mutex<MemberEvent>>) {}
+    async fn on_room_member(&self, _: &Room, _: &MemberEvent) {}
     /// Fires when `AsyncClient` receives a `RoomEvent::RoomName` event.
-    async fn on_room_name(&mut self, _: Arc<Mutex<Room>>, _: Arc<Mutex<NameEvent>>) {}
+    async fn on_room_name(&self, _: &Room, _: &NameEvent) {}
     /// Fires when `AsyncClient` receives a `RoomEvent::RoomCanonicalAlias` event.
-    async fn on_room_canonical_alias(
-        &mut self,
-        _: Arc<Mutex<Room>>,
-        _: Arc<Mutex<CanonicalAliasEvent>>,
-    ) {
-    }
+    async fn on_room_canonical_alias(&self, _: &Room, _: &CanonicalAliasEvent) {}
     /// Fires when `AsyncClient` receives a `RoomEvent::RoomAliases` event.
-    async fn on_room_aliases(&mut self, _: Arc<Mutex<Room>>, _: Arc<Mutex<AliasesEvent>>) {}
+    async fn on_room_aliases(&self, _: &Room, _: &AliasesEvent) {}
     /// Fires when `AsyncClient` receives a `RoomEvent::RoomAvatar` event.
-    async fn on_room_avatar(&mut self, _: Arc<Mutex<Room>>, _: Arc<Mutex<AvatarEvent>>) {}
+    async fn on_room_avatar(&self, _: &Room, _: &AvatarEvent) {}
     /// Fires when `AsyncClient` receives a `RoomEvent::RoomMessage` event.
-    async fn on_room_message(&mut self, _: Arc<Mutex<Room>>, _: Arc<Mutex<MessageEvent>>) {}
+    async fn on_room_message(&self, _: &Room, _: &MessageEvent) {}
     /// Fires when `AsyncClient` receives a `RoomEvent::RoomMessageFeedback` event.
-    async fn on_room_message_feedback(
-        &mut self,
-        _: Arc<Mutex<Room>>,
-        _: Arc<Mutex<FeedbackEvent>>,
-    ) {
-    }
+    async fn on_room_message_feedback(&self, _: &Room, _: &FeedbackEvent) {}
     /// Fires when `AsyncClient` receives a `RoomEvent::RoomRedaction` event.
-    async fn on_room_redaction(&mut self, _: Arc<Mutex<Room>>, _: Arc<Mutex<RedactionEvent>>) {}
+    async fn on_room_redaction(&self, _: &Room, _: &RedactionEvent) {}
     /// Fires when `AsyncClient` receives a `RoomEvent::RoomPowerLevels` event.
-    async fn on_room_power_levels(&mut self, _: Arc<Mutex<Room>>, _: Arc<Mutex<PowerLevelsEvent>>) {
-    }
+    async fn on_room_power_levels(&self, _: &Room, _: &PowerLevelsEvent) {}
 
     // `RoomEvent`s from `IncomingState`
     /// Fires when `AsyncClient` receives a `StateEvent::RoomMember` event.
-    async fn on_state_member(&mut self, _: Arc<Mutex<Room>>, _: Arc<Mutex<MemberEvent>>) {}
+    async fn on_state_member(&self, _: &Room, _: &MemberEvent) {}
     /// Fires when `AsyncClient` receives a `StateEvent::RoomName` event.
-    async fn on_state_name(&mut self, _: Arc<Mutex<Room>>, _: Arc<Mutex<NameEvent>>) {}
+    async fn on_state_name(&self, _: &Room, _: &NameEvent) {}
     /// Fires when `AsyncClient` receives a `StateEvent::RoomCanonicalAlias` event.
-    async fn on_state_canonical_alias(
-        &mut self,
-        _: Arc<Mutex<Room>>,
-        _: Arc<Mutex<CanonicalAliasEvent>>,
-    ) {
-    }
+    async fn on_state_canonical_alias(&self, _: &Room, _: &CanonicalAliasEvent) {}
     /// Fires when `AsyncClient` receives a `StateEvent::RoomAliases` event.
-    async fn on_state_aliases(&mut self, _: Arc<Mutex<Room>>, _: Arc<Mutex<AliasesEvent>>) {}
+    async fn on_state_aliases(&self, _: &Room, _: &AliasesEvent) {}
     /// Fires when `AsyncClient` receives a `StateEvent::RoomAvatar` event.
-    async fn on_state_avatar(&mut self, _: Arc<Mutex<Room>>, _: Arc<Mutex<AvatarEvent>>) {}
+    async fn on_state_avatar(&self, _: &Room, _: &AvatarEvent) {}
     /// Fires when `AsyncClient` receives a `StateEvent::RoomPowerLevels` event.
-    async fn on_state_power_levels(
-        &mut self,
-        _: Arc<Mutex<Room>>,
-        _: Arc<Mutex<PowerLevelsEvent>>,
-    ) {
-    }
+    async fn on_state_power_levels(&self, _: &Room, _: &PowerLevelsEvent) {}
     /// Fires when `AsyncClient` receives a `StateEvent::RoomJoinRules` event.
-    async fn on_state_join_rules(&mut self, _: Arc<Mutex<Room>>, _: Arc<Mutex<JoinRulesEvent>>) {}
+    async fn on_state_join_rules(&self, _: &Room, _: &JoinRulesEvent) {}
 
     // `NonRoomEvent` (this is a type alias from ruma_events) from `IncomingAccountData`
     /// Fires when `AsyncClient` receives a `NonRoomEvent::RoomMember` event.
-    async fn on_account_presence(&mut self, _: Arc<Mutex<Room>>, _: Arc<Mutex<PresenceEvent>>) {}
+    async fn on_account_presence(&self, _: &Room, _: &PresenceEvent) {}
     /// Fires when `AsyncClient` receives a `NonRoomEvent::RoomName` event.
-    async fn on_account_ignored_users(
-        &mut self,
-        _: Arc<Mutex<Room>>,
-        _: Arc<Mutex<IgnoredUserListEvent>>,
-    ) {
-    }
+    async fn on_account_ignored_users(&self, _: &Room, _: &IgnoredUserListEvent) {}
     /// Fires when `AsyncClient` receives a `NonRoomEvent::RoomCanonicalAlias` event.
-    async fn on_account_push_rules(&mut self, _: Arc<Mutex<Room>>, _: Arc<Mutex<PushRulesEvent>>) {}
+    async fn on_account_push_rules(&self, _: &Room, _: &PushRulesEvent) {}
     /// Fires when `AsyncClient` receives a `NonRoomEvent::RoomAliases` event.
-    async fn on_account_data_fully_read(
-        &mut self,
-        _: Arc<Mutex<Room>>,
-        _: Arc<Mutex<FullyReadEvent>>,
-    ) {
-    }
+    async fn on_account_data_fully_read(&self, _: &Room, _: &FullyReadEvent) {}
 
     // `PresenceEvent` is a struct so there is only the one method
     /// Fires when `AsyncClient` receives a `NonRoomEvent::RoomAliases` event.
-    async fn on_presence_event(&mut self, _: Arc<Mutex<Room>>, _: Arc<Mutex<PresenceEvent>>) {}
+    async fn on_presence_event(&self, _: &Room, _: &PresenceEvent) {}
 }
 
 #[cfg(test)]
 mod test {
     use super::*;
-
+    use std::sync::Arc;
+    use tokio::sync::Mutex;
+    #[derive(Clone)]
     pub struct EvEmitterTest(Arc<Mutex<Vec<String>>>);
 
     #[async_trait::async_trait]
     impl EventEmitter for EvEmitterTest {
-        async fn on_room_member(&mut self, _: Arc<Mutex<Room>>, _: Arc<Mutex<MemberEvent>>) {
+        async fn on_room_member(&self, _: &Room, _: &MemberEvent) {
             self.0.lock().await.push("member".to_string())
         }
-        async fn on_room_name(&mut self, _: Arc<Mutex<Room>>, _: Arc<Mutex<NameEvent>>) {
+        async fn on_room_name(&self, _: &Room, _: &NameEvent) {
             self.0.lock().await.push("name".to_string())
         }
-        async fn on_room_canonical_alias(
-            &mut self,
-            _: Arc<Mutex<Room>>,
-            _: Arc<Mutex<CanonicalAliasEvent>>,
-        ) {
+        async fn on_room_canonical_alias(&self, _: &Room, _: &CanonicalAliasEvent) {
             self.0.lock().await.push("canonical".to_string())
         }
-        async fn on_room_aliases(&mut self, _: Arc<Mutex<Room>>, _: Arc<Mutex<AliasesEvent>>) {
+        async fn on_room_aliases(&self, _: &Room, _: &AliasesEvent) {
             self.0.lock().await.push("aliases".to_string())
         }
-        async fn on_room_avatar(&mut self, _: Arc<Mutex<Room>>, _: Arc<Mutex<AvatarEvent>>) {
+        async fn on_room_avatar(&self, _: &Room, _: &AvatarEvent) {
             self.0.lock().await.push("avatar".to_string())
         }
-        async fn on_room_message(&mut self, _: Arc<Mutex<Room>>, _: Arc<Mutex<MessageEvent>>) {
+        async fn on_room_message(&self, _: &Room, _: &MessageEvent) {
             self.0.lock().await.push("message".to_string())
         }
-        async fn on_room_message_feedback(
-            &mut self,
-            _: Arc<Mutex<Room>>,
-            _: Arc<Mutex<FeedbackEvent>>,
-        ) {
+        async fn on_room_message_feedback(&self, _: &Room, _: &FeedbackEvent) {
             self.0.lock().await.push("feedback".to_string())
         }
-        async fn on_room_redaction(&mut self, _: Arc<Mutex<Room>>, _: Arc<Mutex<RedactionEvent>>) {
+        async fn on_room_redaction(&self, _: &Room, _: &RedactionEvent) {
             self.0.lock().await.push("redaction".to_string())
         }
-        async fn on_room_power_levels(
-            &mut self,
-            _: Arc<Mutex<Room>>,
-            _: Arc<Mutex<PowerLevelsEvent>>,
-        ) {
+        async fn on_room_power_levels(&self, _: &Room, _: &PowerLevelsEvent) {
             self.0.lock().await.push("power".to_string())
         }
 
-        async fn on_state_member(&mut self, _: Arc<Mutex<Room>>, _: Arc<Mutex<MemberEvent>>) {
+        async fn on_state_member(&self, _: &Room, _: &MemberEvent) {
             self.0.lock().await.push("state member".to_string())
         }
-        async fn on_state_name(&mut self, _: Arc<Mutex<Room>>, _: Arc<Mutex<NameEvent>>) {
+        async fn on_state_name(&self, _: &Room, _: &NameEvent) {
             self.0.lock().await.push("state name".to_string())
         }
-        async fn on_state_canonical_alias(
-            &mut self,
-            _: Arc<Mutex<Room>>,
-            _: Arc<Mutex<CanonicalAliasEvent>>,
-        ) {
+        async fn on_state_canonical_alias(&self, _: &Room, _: &CanonicalAliasEvent) {
             self.0.lock().await.push("state canonical".to_string())
         }
-        async fn on_state_aliases(&mut self, _: Arc<Mutex<Room>>, _: Arc<Mutex<AliasesEvent>>) {
+        async fn on_state_aliases(&self, _: &Room, _: &AliasesEvent) {
             self.0.lock().await.push("state aliases".to_string())
         }
-        async fn on_state_avatar(&mut self, _: Arc<Mutex<Room>>, _: Arc<Mutex<AvatarEvent>>) {
+        async fn on_state_avatar(&self, _: &Room, _: &AvatarEvent) {
             self.0.lock().await.push("state avatar".to_string())
         }
-        async fn on_state_power_levels(
-            &mut self,
-            _: Arc<Mutex<Room>>,
-            _: Arc<Mutex<PowerLevelsEvent>>,
-        ) {
+        async fn on_state_power_levels(&self, _: &Room, _: &PowerLevelsEvent) {
             self.0.lock().await.push("state power".to_string())
         }
-        async fn on_state_join_rules(
-            &mut self,
-            _: Arc<Mutex<Room>>,
-            _: Arc<Mutex<JoinRulesEvent>>,
-        ) {
+        async fn on_state_join_rules(&self, _: &Room, _: &JoinRulesEvent) {
             self.0.lock().await.push("state rules".to_string())
         }
 
-        async fn on_account_presence(&mut self, _: Arc<Mutex<Room>>, _: Arc<Mutex<PresenceEvent>>) {
+        async fn on_account_presence(&self, _: &Room, _: &PresenceEvent) {
             self.0.lock().await.push("account presence".to_string())
         }
-        async fn on_account_ignored_users(
-            &mut self,
-            _: Arc<Mutex<Room>>,
-            _: Arc<Mutex<IgnoredUserListEvent>>,
-        ) {
+        async fn on_account_ignored_users(&self, _: &Room, _: &IgnoredUserListEvent) {
             self.0.lock().await.push("account ignore".to_string())
         }
-        async fn on_account_push_rules(
-            &mut self,
-            _: Arc<Mutex<Room>>,
-            _: Arc<Mutex<PushRulesEvent>>,
-        ) {
+        async fn on_account_push_rules(&self, _: &Room, _: &PushRulesEvent) {
             self.0.lock().await.push("".to_string())
         }
-        async fn on_account_data_fully_read(
-            &mut self,
-            _: Arc<Mutex<Room>>,
-            _: Arc<Mutex<FullyReadEvent>>,
-        ) {
+        async fn on_account_data_fully_read(&self, _: &Room, _: &FullyReadEvent) {
             self.0.lock().await.push("account read".to_string())
         }
-        async fn on_presence_event(&mut self, _: Arc<Mutex<Room>>, _: Arc<Mutex<PresenceEvent>>) {
+        async fn on_presence_event(&self, _: &Room, _: &PresenceEvent) {
             self.0.lock().await.push("presence event".to_string())
         }
     }
@@ -303,11 +234,9 @@ mod test {
 
         let vec = Arc::new(Mutex::new(Vec::new()));
         let test_vec = Arc::clone(&vec);
-        let emitter = Arc::new(Mutex::new(
-            Box::new(EvEmitterTest(vec)) as Box<(dyn EventEmitter)>
-        ));
+        let emitter = Box::new(EvEmitterTest(vec)) as Box<(dyn EventEmitter)>;
         let mut client = AsyncClient::new(homeserver, Some(session)).unwrap();
-        client.add_event_emitter(Arc::clone(&emitter)).await;
+        client.add_event_emitter(emitter).await;
 
         let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
         let _response = client.sync(sync_settings).await.unwrap();
