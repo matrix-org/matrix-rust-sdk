@@ -6,22 +6,17 @@ use url::Url;
 use matrix_sdk::{
     self,
     events::room::message::{MessageEvent, MessageEventContent, TextMessageEventContent},
-    identifiers::RoomId,
     AsyncClient, AsyncClientConfig, EventEmitter, Room, SyncSettings,
 };
-use tokio::runtime::Handle;
-use tokio::sync::{
-    mpsc::{self, Sender},
-    Mutex,
-};
+use tokio::sync::Mutex;
 
 struct CommandBot {
-    send: Sender<(RoomId, String)>,
+    client: AsyncClient,
 }
 
 impl CommandBot {
-    pub fn new(send: Sender<(RoomId, String)>) -> Self {
-        Self { send }
+    pub fn new(client: AsyncClient) -> Self {
+        Self { client }
     }
 }
 
@@ -35,13 +30,18 @@ impl EventEmitter for CommandBot {
         {
             let room = room.lock().await;
             if msg_body.contains("!party") {
-                self.send
-                    .send((
-                        room.room_id.clone(),
-                        "🎉🎊🥳 let's PARTY!! 🥳🎊🎉".to_string(),
-                    ))
+                println!("!party found");
+                let content = MessageEventContent::Text(TextMessageEventContent {
+                    body: "🎉🎊🥳 let's PARTY!! 🥳🎊🎉".to_string(),
+                    format: None,
+                    formatted_body: None,
+                    relates_to: None,
+                });
+                self.client
+                    .room_send(&room.room_id, content, None)
                     .await
-                    .unwrap()
+                    .unwrap();
+                println!("message sent");
             }
         }
     }
@@ -52,7 +52,6 @@ async fn login_and_sync(
     homeserver_url: String,
     username: String,
     password: String,
-    exec: Handle,
 ) -> Result<(), matrix_sdk::Error> {
     let client_config = AsyncClientConfig::new();
     // .proxy("http://localhost:8080")?
@@ -60,10 +59,10 @@ async fn login_and_sync(
     let homeserver_url = Url::parse(&homeserver_url)?;
     let mut client = AsyncClient::new_with_config(homeserver_url, None, client_config).unwrap();
 
-    let (send, mut recv) = mpsc::channel(100);
-
     client
-        .add_event_emitter(Arc::new(Mutex::new(Box::new(CommandBot::new(send)))))
+        .add_event_emitter(Arc::new(Mutex::new(Box::new(CommandBot::new(
+            client.clone(),
+        )))))
         .await;
 
     client
@@ -75,38 +74,15 @@ async fn login_and_sync(
         )
         .await?;
 
-    println!("logged in as user {}", username);
+    println!("logged in as {}", username);
 
-    let client = Arc::new(Mutex::new(client));
-    let send_client = Arc::clone(&client);
-
-    exec.spawn(async move {
-        for (id, msg) in recv.recv().await {
-            let content = MessageEventContent::Text(TextMessageEventContent {
-                body: msg,
-                format: None,
-                formatted_body: None,
-                relates_to: None,
-            });
-            send_client
-                .lock()
-                .await
-                .room_send(&id, content, None)
-                .await
-                .unwrap();
-        }
-    });
-
-    client
-        .lock()
-        .await
-        .sync_forever(SyncSettings::new(), |_| async {})
-        .await;
+    client.sync(SyncSettings::new()).await.unwrap();
 
     Ok(())
 }
 
-fn main() -> Result<(), matrix_sdk::Error> {
+#[tokio::main]
+async fn main() -> Result<(), matrix_sdk::Error> {
     let (homeserver_url, username, password) =
         match (env::args().nth(1), env::args().nth(2), env::args().nth(3)) {
             (Some(a), Some(b), Some(c)) => (a, b, c),
@@ -118,14 +94,6 @@ fn main() -> Result<(), matrix_sdk::Error> {
                 exit(1)
             }
         };
-
-    let mut runtime = tokio::runtime::Builder::new()
-        .basic_scheduler()
-        .threaded_scheduler()
-        .enable_all()
-        .build()
-        .unwrap();
-
-    let executor = runtime.handle().clone();
-    runtime.block_on(async { login_and_sync(homeserver_url, username, password, executor).await })
+    login_and_sync(homeserver_url, username, password).await?;
+    Ok(())
 }
