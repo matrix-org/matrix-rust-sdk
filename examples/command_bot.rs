@@ -76,7 +76,7 @@ async fn login_and_sync(
 
     println!("logged in as {}", username);
 
-    client.sync(SyncSettings::new()).await.unwrap();
+    client.sync_forever(SyncSettings::new(), |_| async {}).await;
 
     Ok(())
 }
