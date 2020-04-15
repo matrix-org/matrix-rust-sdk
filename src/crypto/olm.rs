@@ -497,6 +497,12 @@ impl fmt::Debug for InboundGroupSession {
     }
 }
 
+impl PartialEq for InboundGroupSession {
+    fn eq(&self, other: &Self) -> bool {
+        self.session_id() == other.session_id()
+    }
+}
+
 /// Outbound group session.
 ///
 /// Outbound group sessions are used to exchange room messages between a group

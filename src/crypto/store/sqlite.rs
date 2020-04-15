@@ -350,7 +350,7 @@ impl CryptoStore for SqliteStore {
     }
 
     async fn add_and_save_session(&mut self, session: Session) -> Result<()> {
-        let session = self.sessions.add(session).await;
+        self.sessions.add(session.clone()).await;
         self.save_session(session).await?;
         Ok(())
     }
@@ -435,9 +435,7 @@ mod test {
     use olm_rs::outbound_group_session::OlmOutboundGroupSession;
     use ruma_client_api::r0::keys::SignedKey;
     use std::collections::HashMap;
-    use std::sync::Arc;
     use tempfile::tempdir;
-    use tokio::sync::Mutex;
 
     use super::{
         Account, CryptoStore, InboundGroupSession, RoomId, Session, SqliteStore, TryFrom, UserId,
