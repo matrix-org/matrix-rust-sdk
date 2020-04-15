@@ -1,4 +1,3 @@
-use std::ops::Deref;
 use std::sync::Arc;
 use std::{env, process::exit};
 use url::Url;
@@ -8,25 +7,30 @@ use matrix_sdk::{
     events::room::message::{MessageEvent, MessageEventContent, TextMessageEventContent},
     AsyncClient, AsyncClientConfig, EventEmitter, Room, SyncSettings,
 };
-use tokio::sync::Mutex;
+use tokio::sync::RwLock;
 
 struct EventCallback;
 
 #[async_trait::async_trait]
 impl EventEmitter for EventCallback {
-    async fn on_room_message(&self, room: &Room, event: &MessageEvent) {
+    async fn on_room_message(&self, room: Arc<RwLock<Room>>, event: &MessageEvent) {
         if let MessageEvent {
             content: MessageEventContent::Text(TextMessageEventContent { body: msg_body, .. }),
             sender,
             ..
         } = event
         {
-            let member = room.members.get(&sender).unwrap();
-            println!(
-                "{}: {}",
-                member.display_name.as_ref().unwrap_or(&sender.to_string()),
-                msg_body
-            );
+            let name = {
+                // any reads or
+                let room = room.read().await;
+                let member = room.members.get(&sender).unwrap();
+                member
+                    .display_name
+                    .as_ref()
+                    .map(ToString::to_string)
+                    .unwrap_or(sender.to_string())
+            };
+            println!("{}: {}", name, msg_body);
         }
     }
 }

@@ -1,4 +1,6 @@
+use std::sync::Arc;
 use std::{env, process::exit};
+
 use url::Url;
 
 use matrix_sdk::{
@@ -6,7 +8,7 @@ use matrix_sdk::{
     events::room::message::{MessageEvent, MessageEventContent, TextMessageEventContent},
     AsyncClient, AsyncClientConfig, EventEmitter, Room, SyncSettings,
 };
-use tokio::sync::Mutex;
+use tokio::sync::{Mutex, RwLock};
 
 struct CommandBot {
     client: Mutex<AsyncClient>,
@@ -22,7 +24,7 @@ impl CommandBot {
 
 #[async_trait::async_trait]
 impl EventEmitter for CommandBot {
-    async fn on_room_message(&self, room: &Room, event: &MessageEvent) {
+    async fn on_room_message(&self, room: Arc<RwLock<Room>>, event: &MessageEvent) {
         let msg_body = if let MessageEvent {
             content: MessageEventContent::Text(TextMessageEventContent { body: msg_body, .. }),
             ..
@@ -40,7 +42,7 @@ impl EventEmitter for CommandBot {
                 formatted_body: None,
                 relates_to: None,
             });
-            let room_id = &room.room_id;
+            let room_id = { room.read().await.room_id.clone() };
 
             println!("sending");
 
@@ -62,9 +64,10 @@ async fn login_and_sync(
     username: String,
     password: String,
 ) -> Result<(), matrix_sdk::Error> {
-    let client_config = AsyncClientConfig::new();
-    // .proxy("http://localhost:8080")?
-    // .disable_ssl_verification();
+    let client_config = AsyncClientConfig::new()
+        .proxy("http://localhost:8080")?
+        .disable_ssl_verification();
+
     let homeserver_url = Url::parse(&homeserver_url)?;
     let mut client = AsyncClient::new_with_config(homeserver_url, None, client_config).unwrap();
 

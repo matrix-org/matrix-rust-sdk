@@ -17,7 +17,6 @@ use std::collections::HashMap;
 #[cfg(feature = "encryption")]
 use std::collections::HashSet;
 use std::fmt;
-use std::ops::Deref;
 use std::sync::Arc;
 
 #[cfg(feature = "encryption")]
@@ -578,21 +577,21 @@ impl Client {
             RoomEvent::RoomMember(mem) => {
                 if let Some(ee) = &self.event_emitter {
                     if let Some(room) = self.get_room(&room_id) {
-                        ee.on_room_member(room.read().await.deref(), &mem).await;
+                        ee.on_room_member(Arc::clone(&room), &mem).await;
                     }
                 }
             }
             RoomEvent::RoomName(name) => {
                 if let Some(ee) = &self.event_emitter {
                     if let Some(room) = self.get_room(&room_id) {
-                        ee.on_room_name(room.read().await.deref(), &name).await;
+                        ee.on_room_name(Arc::clone(&room), &name).await;
                     }
                 }
             }
             RoomEvent::RoomCanonicalAlias(canonical) => {
                 if let Some(ee) = &self.event_emitter {
                     if let Some(room) = self.get_room(&room_id) {
-                        ee.on_room_canonical_alias(room.read().await.deref(), &canonical)
+                        ee.on_room_canonical_alias(Arc::clone(&room), &canonical)
                             .await;
                     }
                 }
@@ -600,29 +599,28 @@ impl Client {
             RoomEvent::RoomAliases(aliases) => {
                 if let Some(ee) = &self.event_emitter {
                     if let Some(room) = self.get_room(&room_id) {
-                        ee.on_room_aliases(room.read().await.deref(), &aliases)
-                            .await;
+                        ee.on_room_aliases(Arc::clone(&room), &aliases).await;
                     }
                 }
             }
             RoomEvent::RoomAvatar(avatar) => {
                 if let Some(ee) = &self.event_emitter {
                     if let Some(room) = self.get_room(&room_id) {
-                        ee.on_room_avatar(room.read().await.deref(), &avatar).await;
+                        ee.on_room_avatar(Arc::clone(&room), &avatar).await;
                     }
                 }
             }
             RoomEvent::RoomMessage(msg) => {
                 if let Some(ee) = &self.event_emitter {
                     if let Some(room) = self.get_room(&room_id) {
-                        ee.on_room_message(room.read().await.deref(), &msg).await;
+                        ee.on_room_message(Arc::clone(&room), &msg).await;
                     }
                 }
             }
             RoomEvent::RoomMessageFeedback(msg_feedback) => {
                 if let Some(ee) = &self.event_emitter {
                     if let Some(room) = self.get_room(&room_id) {
-                        ee.on_room_message_feedback(room.read().await.deref(), &msg_feedback)
+                        ee.on_room_message_feedback(Arc::clone(&room), &msg_feedback)
                             .await;
                     }
                 }
@@ -630,16 +628,14 @@ impl Client {
             RoomEvent::RoomRedaction(redaction) => {
                 if let Some(ee) = &self.event_emitter {
                     if let Some(room) = self.get_room(&room_id) {
-                        ee.on_room_redaction(room.read().await.deref(), &redaction)
-                            .await;
+                        ee.on_room_redaction(Arc::clone(&room), &redaction).await;
                     }
                 }
             }
             RoomEvent::RoomPowerLevels(power) => {
                 if let Some(ee) = &self.event_emitter {
                     if let Some(room) = self.get_room(&room_id) {
-                        ee.on_room_power_levels(room.read().await.deref(), &power)
-                            .await;
+                        ee.on_room_power_levels(Arc::clone(&room), &power).await;
                     }
                 }
             }
@@ -652,21 +648,21 @@ impl Client {
             StateEvent::RoomMember(member) => {
                 if let Some(ee) = &self.event_emitter {
                     if let Some(room) = self.get_room(&room_id) {
-                        ee.on_state_member(room.read().await.deref(), &member).await;
+                        ee.on_state_member(Arc::clone(&room), &member).await;
                     }
                 }
             }
             StateEvent::RoomName(name) => {
                 if let Some(ee) = &self.event_emitter {
                     if let Some(room) = self.get_room(&room_id) {
-                        ee.on_state_name(room.read().await.deref(), &name).await;
+                        ee.on_state_name(Arc::clone(&room), &name).await;
                     }
                 }
             }
             StateEvent::RoomCanonicalAlias(canonical) => {
                 if let Some(ee) = &self.event_emitter {
                     if let Some(room) = self.get_room(&room_id) {
-                        ee.on_state_canonical_alias(room.read().await.deref(), &canonical)
+                        ee.on_state_canonical_alias(Arc::clone(&room), &canonical)
                             .await;
                     }
                 }
@@ -674,31 +670,28 @@ impl Client {
             StateEvent::RoomAliases(aliases) => {
                 if let Some(ee) = &self.event_emitter {
                     if let Some(room) = self.get_room(&room_id) {
-                        ee.on_state_aliases(room.read().await.deref(), &aliases)
-                            .await;
+                        ee.on_state_aliases(Arc::clone(&room), &aliases).await;
                     }
                 }
             }
             StateEvent::RoomAvatar(avatar) => {
                 if let Some(ee) = &self.event_emitter {
                     if let Some(room) = self.get_room(&room_id) {
-                        ee.on_state_avatar(room.read().await.deref(), &avatar).await;
+                        ee.on_state_avatar(Arc::clone(&room), &avatar).await;
                     }
                 }
             }
             StateEvent::RoomPowerLevels(power) => {
                 if let Some(ee) = &self.event_emitter {
                     if let Some(room) = self.get_room(&room_id) {
-                        ee.on_state_power_levels(room.read().await.deref(), &power)
-                            .await;
+                        ee.on_state_power_levels(Arc::clone(&room), &power).await;
                     }
                 }
             }
             StateEvent::RoomJoinRules(rules) => {
                 if let Some(ee) = &self.event_emitter {
                     if let Some(room) = self.get_room(&room_id) {
-                        ee.on_state_join_rules(room.read().await.deref(), &rules)
-                            .await;
+                        ee.on_state_join_rules(Arc::clone(&room), &rules).await;
                     }
                 }
             }
@@ -711,15 +704,14 @@ impl Client {
             NonRoomEvent::Presence(presence) => {
                 if let Some(ee) = &self.event_emitter {
                     if let Some(room) = self.get_room(&room_id) {
-                        ee.on_account_presence(room.read().await.deref(), &presence)
-                            .await;
+                        ee.on_account_presence(Arc::clone(&room), &presence).await;
                     }
                 }
             }
             NonRoomEvent::IgnoredUserList(ignored) => {
                 if let Some(ee) = &self.event_emitter {
                     if let Some(room) = self.get_room(&room_id) {
-                        ee.on_account_ignored_users(room.read().await.deref(), &ignored)
+                        ee.on_account_ignored_users(Arc::clone(&room), &ignored)
                             .await;
                     }
                 }
@@ -727,15 +719,14 @@ impl Client {
             NonRoomEvent::PushRules(rules) => {
                 if let Some(ee) = &self.event_emitter {
                     if let Some(room) = self.get_room(&room_id) {
-                        ee.on_account_push_rules(room.read().await.deref(), &rules)
-                            .await;
+                        ee.on_account_push_rules(Arc::clone(&room), &rules).await;
                     }
                 }
             }
             NonRoomEvent::FullyRead(full_read) => {
                 if let Some(ee) = &self.event_emitter {
                     if let Some(room) = self.get_room(&room_id) {
-                        ee.on_account_data_fully_read(room.read().await.deref(), &full_read)
+                        ee.on_account_data_fully_read(Arc::clone(&room), &full_read)
                             .await;
                     }
                 }
@@ -749,15 +740,14 @@ impl Client {
             NonRoomEvent::Presence(presence) => {
                 if let Some(ee) = &self.event_emitter {
                     if let Some(room) = self.get_room(&room_id) {
-                        ee.on_account_presence(room.read().await.deref(), &presence)
-                            .await;
+                        ee.on_account_presence(Arc::clone(&room), &presence).await;
                     }
                 }
             }
             NonRoomEvent::IgnoredUserList(ignored) => {
                 if let Some(ee) = &self.event_emitter {
                     if let Some(room) = self.get_room(&room_id) {
-                        ee.on_account_ignored_users(room.read().await.deref(), &ignored)
+                        ee.on_account_ignored_users(Arc::clone(&room), &ignored)
                             .await;
                     }
                 }
@@ -765,15 +755,14 @@ impl Client {
             NonRoomEvent::PushRules(rules) => {
                 if let Some(ee) = &self.event_emitter {
                     if let Some(room) = self.get_room(&room_id) {
-                        ee.on_account_push_rules(room.read().await.deref(), &rules)
-                            .await;
+                        ee.on_account_push_rules(Arc::clone(&room), &rules).await;
                     }
                 }
             }
             NonRoomEvent::FullyRead(full_read) => {
                 if let Some(ee) = &self.event_emitter {
                     if let Some(room) = self.get_room(&room_id) {
-                        ee.on_account_data_fully_read(room.read().await.deref(), &full_read)
+                        ee.on_account_data_fully_read(Arc::clone(&room), &full_read)
                             .await;
                     }
                 }
@@ -785,8 +774,7 @@ impl Client {
     pub(crate) async fn emit_presence_event(&self, room_id: &RoomId, event: &PresenceEvent) {
         if let Some(ee) = &self.event_emitter {
             if let Some(room) = self.get_room(&room_id) {
-                ee.on_presence_event(room.read().await.deref(), &event)
-                    .await;
+                ee.on_presence_event(Arc::clone(&room), &event).await;
             }
         }
     }
