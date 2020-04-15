@@ -155,7 +155,7 @@ impl SqliteStore {
     async fn get_sessions_for(
         &mut self,
         sender_key: &str,
-    ) -> Result<Option<Arc<Mutex<Vec<Arc<Mutex<Session>>>>>>> {
+    ) -> Result<Option<Arc<Mutex<Vec<Session>>>>> {
         let loaded_sessions = self.sessions.get(sender_key).is_some();
 
         if !loaded_sessions {
@@ -169,7 +169,7 @@ impl SqliteStore {
         Ok(self.sessions.get(sender_key))
     }
 
-    async fn load_sessions_for(&mut self, sender_key: &str) -> Result<Vec<Arc<Mutex<Session>>>> {
+    async fn load_sessions_for(&mut self, sender_key: &str) -> Result<Vec<Session>> {
         let account_id = self.account_id.ok_or(CryptoStoreError::AccountUnset)?;
         let mut connection = self.connection.lock().await;
 
@@ -196,15 +196,15 @@ impl SqliteStore {
                     .checked_sub(serde_json::from_str::<Duration>(&row.3)?)
                     .ok_or(CryptoStoreError::SessionTimestampError)?;
 
-                Ok(Arc::new(Mutex::new(Session::from_pickle(
+                Ok(Session::from_pickle(
                     pickle.to_string(),
                     self.get_pickle_mode(),
                     sender_key.to_string(),
                     creation_time,
                     last_use_time,
-                )?)))
+                )?)
             })
-            .collect::<Result<Vec<Arc<Mutex<Session>>>>>()?)
+            .collect::<Result<Vec<Session>>>()?)
     }
 
     async fn load_inbound_group_sessions(&self) -> Result<Vec<InboundGroupSession>> {
@@ -322,15 +322,13 @@ impl CryptoStore for SqliteStore {
         Ok(())
     }
 
-    async fn save_session(&mut self, session: Arc<Mutex<Session>>) -> Result<()> {
+    async fn save_session(&mut self, session: Session) -> Result<()> {
         let account_id = self.account_id.ok_or(CryptoStoreError::AccountUnset)?;
-
-        let session = session.lock().await;
 
         let session_id = session.session_id();
         let creation_time = serde_json::to_string(&session.creation_time.elapsed())?;
         let last_use_time = serde_json::to_string(&session.last_use_time.elapsed())?;
-        let pickle = session.pickle(self.get_pickle_mode());
+        let pickle = session.pickle(self.get_pickle_mode()).await;
 
         let mut connection = self.connection.lock().await;
 
@@ -341,9 +339,9 @@ impl CryptoStore for SqliteStore {
         )
         .bind(&session_id)
         .bind(&account_id)
-        .bind(&creation_time)
-        .bind(&last_use_time)
-        .bind(&session.sender_key)
+        .bind(&*creation_time)
+        .bind(&*last_use_time)
+        .bind(&*session.sender_key)
         .bind(&pickle)
         .execute(&mut *connection)
         .await?;
@@ -352,15 +350,12 @@ impl CryptoStore for SqliteStore {
     }
 
     async fn add_and_save_session(&mut self, session: Session) -> Result<()> {
-        let session = self.sessions.add(session).await;
+        self.sessions.add(session.clone()).await;
         self.save_session(session).await?;
         Ok(())
     }
 
-    async fn get_sessions(
-        &mut self,
-        sender_key: &str,
-    ) -> Result<Option<Arc<Mutex<Vec<Arc<Mutex<Session>>>>>>> {
+    async fn get_sessions(&mut self, sender_key: &str) -> Result<Option<Arc<Mutex<Vec<Session>>>>> {
         Ok(self.get_sessions_for(sender_key).await?)
     }
 
@@ -440,9 +435,7 @@ mod test {
     use olm_rs::outbound_group_session::OlmOutboundGroupSession;
     use ruma_client_api::r0::keys::SignedKey;
     use std::collections::HashMap;
-    use std::sync::Arc;
     use tempfile::tempdir;
-    use tokio::sync::Mutex;
 
     use super::{
         Account, CryptoStore, InboundGroupSession, RoomId, Session, SqliteStore, TryFrom, UserId,
@@ -565,7 +558,6 @@ mod test {
     async fn save_session() {
         let mut store = get_store().await;
         let (account, session) = get_account_and_session().await;
-        let session = Arc::new(Mutex::new(session));
 
         assert!(store.save_session(session.clone()).await.is_err());
 
@@ -581,22 +573,19 @@ mod test {
     async fn load_sessions() {
         let mut store = get_store().await;
         let (account, session) = get_account_and_session().await;
-        let session = Arc::new(Mutex::new(session));
         store
             .save_account(account.clone())
             .await
             .expect("Can't save account");
         store.save_session(session.clone()).await.unwrap();
 
-        let sess = session.lock().await;
-
         let sessions = store
-            .load_sessions_for(&sess.sender_key)
+            .load_sessions_for(&session.sender_key)
             .await
             .expect("Can't load sessions");
         let loaded_session = &sessions[0];
 
-        assert_eq!(*sess, *loaded_session.lock().await);
+        assert_eq!(&session, loaded_session);
     }
 
     #[tokio::test]
@@ -604,7 +593,7 @@ mod test {
         let mut store = get_store().await;
         let (account, session) = get_account_and_session().await;
         let sender_key = session.sender_key.to_owned();
-        let session_id = session.session_id();
+        let session_id = session.session_id().to_owned();
 
         store
             .save_account(account.clone())
@@ -616,7 +605,7 @@ mod test {
         let sessions_lock = sessions.lock().await;
         let session = &sessions_lock[0];
 
-        assert_eq!(session_id, *session.lock().await.session_id());
+        assert_eq!(session_id, session.session_id());
     }
 
     #[tokio::test]

@@ -13,6 +13,7 @@
 // limitations under the License.
 
 use std::fmt;
+use std::mem;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::Instant;
@@ -38,17 +39,16 @@ use crate::identifiers::RoomId;
 pub struct Account {
     inner: Arc<Mutex<OlmAccount>>,
     identity_keys: Arc<IdentityKeys>,
-    pub(crate) shared: Arc<AtomicBool>,
+    shared: Arc<AtomicBool>,
 }
 
+#[cfg_attr(tarpaulin, skip)]
 impl fmt::Debug for Account {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            f,
-            "Olm Account: {:?}, shared: {}",
-            self.identity_keys(),
-            self.shared()
-        )
+        f.debug_struct("Account")
+            .field("identity_keys", self.identity_keys())
+            .field("shared", &self.shared())
+            .finish()
     }
 }
 
@@ -170,12 +170,14 @@ impl Account {
             .create_outbound_session(their_identity_key, &their_one_time_key.key)?;
 
         let now = Instant::now();
+        let session_id = session.session_id();
 
         Ok(Session {
-            inner: session,
-            sender_key: their_identity_key.to_owned(),
-            creation_time: now.clone(),
-            last_use_time: now,
+            inner: Arc::new(Mutex::new(session)),
+            session_id: Arc::new(session_id),
+            sender_key: Arc::new(their_identity_key.to_owned()),
+            creation_time: Arc::new(now.clone()),
+            last_use_time: Arc::new(now),
         })
     }
 
@@ -209,12 +211,14 @@ impl Account {
         );
 
         let now = Instant::now();
+        let session_id = session.session_id();
 
         Ok(Session {
-            inner: session,
-            sender_key: their_identity_key.to_owned(),
-            creation_time: now.clone(),
-            last_use_time: now,
+            inner: Arc::new(Mutex::new(session)),
+            session_id: Arc::new(session_id),
+            sender_key: Arc::new(their_identity_key.to_owned()),
+            creation_time: Arc::new(now.clone()),
+            last_use_time: Arc::new(now),
         })
     }
 }
@@ -225,16 +229,27 @@ impl PartialEq for Account {
     }
 }
 
-#[derive(Debug)]
 /// The Olm Session.
 ///
 /// Sessions are used to exchange encrypted messages between two
 /// accounts/devices.
+#[derive(Clone)]
 pub struct Session {
-    inner: OlmSession,
-    pub(crate) sender_key: String,
-    pub(crate) creation_time: Instant,
-    pub(crate) last_use_time: Instant,
+    inner: Arc<Mutex<OlmSession>>,
+    session_id: Arc<String>,
+    pub(crate) sender_key: Arc<String>,
+    pub(crate) creation_time: Arc<Instant>,
+    pub(crate) last_use_time: Arc<Instant>,
+}
+
+#[cfg_attr(tarpaulin, skip)]
+impl fmt::Debug for Session {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Session")
+            .field("session_id", &self.session_id())
+            .field("sender_key", &self.sender_key)
+            .finish()
+    }
 }
 
 impl Session {
@@ -246,9 +261,9 @@ impl Session {
     /// # Arguments
     ///
     /// * `message` - The Olm message that should be decrypted.
-    pub fn decrypt(&mut self, message: OlmMessage) -> Result<String, OlmSessionError> {
-        let plaintext = self.inner.decrypt(message)?;
-        self.last_use_time = Instant::now();
+    pub async fn decrypt(&mut self, message: OlmMessage) -> Result<String, OlmSessionError> {
+        let plaintext = self.inner.lock().await.decrypt(message)?;
+        mem::replace(&mut self.last_use_time, Arc::new(Instant::now()));
         Ok(plaintext)
     }
 
@@ -259,9 +274,9 @@ impl Session {
     /// # Arguments
     ///
     /// * `plaintext` - The plaintext that should be encrypted.
-    pub fn encrypt(&mut self, plaintext: &str) -> OlmMessage {
-        let message = self.inner.encrypt(plaintext);
-        self.last_use_time = Instant::now();
+    pub async fn encrypt(&mut self, plaintext: &str) -> OlmMessage {
+        let message = self.inner.lock().await.encrypt(plaintext);
+        mem::replace(&mut self.last_use_time, Arc::new(Instant::now()));
         message
     }
 
@@ -276,18 +291,20 @@ impl Session {
     /// that encrypted this Olm message.
     ///
     /// * `message` - The pre-key Olm message that should be checked.
-    pub fn matches(
+    pub async fn matches(
         &self,
         their_identity_key: &str,
         message: PreKeyMessage,
     ) -> Result<bool, OlmSessionError> {
         self.inner
+            .lock()
+            .await
             .matches_inbound_session_from(their_identity_key, message)
     }
 
     /// Returns the unique identifier for this session.
-    pub fn session_id(&self) -> String {
-        self.inner.session_id()
+    pub fn session_id(&self) -> &str {
+        &self.session_id
     }
 
     /// Store the session as a base64 encoded string.
@@ -296,8 +313,8 @@ impl Session {
     ///
     /// * `pickle_mode` - The mode that was used to pickle the session, either
     /// an unencrypted mode or an encrypted using passphrase.
-    pub fn pickle(&self, pickle_mode: PicklingMode) -> String {
-        self.inner.pickle(pickle_mode)
+    pub async fn pickle(&self, pickle_mode: PicklingMode) -> String {
+        self.inner.lock().await.pickle(pickle_mode)
     }
 
     /// Restore a Session from a previously pickled string.
@@ -328,11 +345,14 @@ impl Session {
         last_use_time: Instant,
     ) -> Result<Self, OlmSessionError> {
         let session = OlmSession::unpickle(pickle, pickle_mode)?;
+        let session_id = session.session_id();
+
         Ok(Session {
-            inner: session,
-            sender_key,
-            creation_time,
-            last_use_time,
+            inner: Arc::new(Mutex::new(session)),
+            session_id: Arc::new(session_id),
+            sender_key: Arc::new(sender_key),
+            creation_time: Arc::new(creation_time),
+            last_use_time: Arc::new(last_use_time),
         })
     }
 }
@@ -471,11 +491,18 @@ impl InboundGroupSession {
     }
 }
 
+#[cfg_attr(tarpaulin, skip)]
 impl fmt::Debug for InboundGroupSession {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("InboundGroupSession")
             .field("session_id", &self.session_id())
             .finish()
+    }
+}
+
+impl PartialEq for InboundGroupSession {
+    fn eq(&self, other: &Self) -> bool {
+        self.session_id() == other.session_id()
     }
 }
 
@@ -573,6 +600,7 @@ impl OutboundGroupSession {
     }
 }
 
+#[cfg_attr(tarpaulin, skip)]
 impl std::fmt::Debug for OutboundGroupSession {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("OutboundGroupSession")
@@ -586,10 +614,12 @@ impl std::fmt::Debug for OutboundGroupSession {
 
 #[cfg(test)]
 mod test {
-    use crate::crypto::olm::Account;
+    use crate::crypto::olm::{Account, InboundGroupSession, OutboundGroupSession};
+    use crate::identifiers::RoomId;
     use olm_rs::session::OlmMessage;
     use ruma_client_api::r0::keys::SignedKey;
     use std::collections::HashMap;
+    use std::convert::TryFrom;
 
     #[test]
     fn account_creation() {
@@ -607,6 +637,9 @@ mod test {
             identyty_keys.get("ed25519").unwrap()
         );
         assert!(!identyty_keys.curve25519().is_empty());
+
+        account.mark_as_shared();
+        assert!(account.shared());
     }
 
     #[tokio::test]
@@ -665,7 +698,7 @@ mod test {
 
         let plaintext = "Hello world";
 
-        let message = bob_session.encrypt(plaintext);
+        let message = bob_session.encrypt(plaintext).await;
 
         let prekey_message = match message.clone() {
             OlmMessage::PreKey(m) => m,
@@ -674,13 +707,48 @@ mod test {
 
         let bob_keys = bob.identity_keys();
         let mut alice_session = alice
-            .create_inbound_session(bob_keys.curve25519(), prekey_message)
+            .create_inbound_session(bob_keys.curve25519(), prekey_message.clone())
             .await
             .unwrap();
 
+        assert!(alice_session
+            .matches(bob_keys.curve25519(), prekey_message)
+            .await
+            .unwrap());
+
         assert_eq!(bob_session.session_id(), alice_session.session_id());
 
-        let decyrpted = alice_session.decrypt(message).unwrap();
+        let decyrpted = alice_session.decrypt(message).await.unwrap();
         assert_eq!(plaintext, decyrpted);
+    }
+
+    #[tokio::test]
+    async fn group_session_creation() {
+        let alice = Account::new();
+        let room_id = RoomId::try_from("!test:localhost").unwrap();
+
+        let outbound = OutboundGroupSession::new(&room_id);
+
+        assert_eq!(0, outbound.message_index().await);
+        assert!(!outbound.shared());
+        outbound.mark_as_shared();
+        assert!(outbound.shared());
+
+        let inbound = InboundGroupSession::new(
+            "test_key",
+            "test_key",
+            &room_id,
+            outbound.session_key().await,
+        )
+        .unwrap();
+
+        assert_eq!(0, inbound.first_known_index().await);
+
+        assert_eq!(outbound.session_id(), inbound.session_id());
+
+        let plaintext = "This is a secret to everybody".to_owned();
+        let ciphertext = outbound.encrypt(plaintext.clone()).await;
+
+        assert_eq!(plaintext, inbound.decrypt(ciphertext).await.unwrap().0);
     }
 }

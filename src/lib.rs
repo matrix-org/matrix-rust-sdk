@@ -38,6 +38,7 @@ mod base_client;
 mod error;
 mod event_emitter;
 mod models;
+mod request_builder;
 mod session;
 mod state;
 
@@ -51,6 +52,7 @@ pub use async_client::{AsyncClient, AsyncClientConfig, SyncSettings};
 pub use base_client::Client;
 pub use event_emitter::EventEmitter;
 pub use models::Room;
-pub use state::{StateStore, JsonStore};
+pub use request_builder::{MessagesRequestBuilder, RoomBuilder};
+pub use state::{JsonStore, StateStore};
 
 pub(crate) const VERSION: &str = env!("CARGO_PKG_VERSION");

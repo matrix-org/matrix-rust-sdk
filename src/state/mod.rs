@@ -55,13 +55,14 @@ use crate::session::Session;
 use crate::VERSION;
 use crate::{Error, EventEmitter, Result};
 /// Abstraction around the data store to avoid unnecessary request on client initialization.
-/// 
+///
 pub trait StateStore {
+    ///
     fn load_state(&self) -> sync_events::IncomingResponse;
-
+    ///
     fn save_state_events(&mut self, events: Vec<StateEvent>) -> Result<()>;
+    ///
     fn save_room_events(&mut self, events: Vec<RoomEvent>) -> Result<()>;
+    ///
     fn save_non_room_events(&mut self, events: Vec<NonRoomEvent>) -> Result<()>;
-
-    
 }

@@ -37,10 +37,10 @@ use ruma_api::{Endpoint, Outgoing};
 use ruma_events::room::message::MessageEventContent;
 use ruma_events::EventResult;
 pub use ruma_events::EventType;
-use ruma_identifiers::RoomId;
+use ruma_identifiers::{RoomId, RoomIdOrAliasId, UserId};
 
 #[cfg(feature = "encryption")]
-use ruma_identifiers::{DeviceId, UserId};
+use ruma_identifiers::DeviceId;
 
 use crate::api;
 use crate::base_client::Client as BaseClient;
@@ -53,6 +53,8 @@ const DEFAULT_SYNC_TIMEOUT: Duration = Duration::from_secs(30);
 
 #[derive(Clone)]
 /// An async/await enabled Matrix client.
+///
+/// All of the state is held in an `Arc` so the `AsyncClient` can be cloned freely.
 pub struct AsyncClient {
     /// The URL of the homeserver to connect to.
     homeserver: Url,
@@ -181,7 +183,17 @@ impl SyncSettings {
 use api::r0::client_exchange::send_event_to_device;
 #[cfg(feature = "encryption")]
 use api::r0::keys::{claim_keys, get_keys, upload_keys, KeyAlgorithm};
+use api::r0::membership::join_room_by_id;
+use api::r0::membership::join_room_by_id_or_alias;
+use api::r0::membership::kick_user;
+use api::r0::membership::leave_room;
+use api::r0::membership::{
+    invite_user::{self, InvitationRecipient},
+    Invite3pid,
+};
 use api::r0::message::create_message_event;
+use api::r0::message::get_message_events;
+use api::r0::room::create_room;
 use api::r0::session::login;
 use api::r0::sync::sync_events;
 
@@ -263,10 +275,7 @@ impl AsyncClient {
     /// Add `EventEmitter` to `AsyncClient`.
     ///
     /// The methods of `EventEmitter` are called when the respective `RoomEvents` occur.
-    pub async fn add_event_emitter(
-        &mut self,
-        emitter: Arc<tokio::sync::Mutex<Box<dyn EventEmitter>>>,
-    ) {
+    pub async fn add_event_emitter(&mut self, emitter: Box<dyn EventEmitter>) {
         self.base_client.write().await.event_emitter = Some(emitter);
     }
 
@@ -291,7 +300,7 @@ impl AsyncClient {
     /// Returns the rooms this client knows about.
     ///
     /// A `HashMap` of room id to `matrix::models::Room`
-    pub async fn get_rooms(&self) -> HashMap<RoomId, Arc<tokio::sync::Mutex<Room>>> {
+    pub async fn get_rooms(&self) -> HashMap<RoomId, Arc<tokio::sync::RwLock<Room>>> {
         self.base_client.read().await.joined_rooms.clone()
     }
 
@@ -309,7 +318,7 @@ impl AsyncClient {
     ///     only if the client also holds the encryption keys for this device.
     #[instrument(skip(password))]
     pub async fn login<S: Into<String> + std::fmt::Debug>(
-        &mut self,
+        &self,
         user: S,
         password: S,
         device_id: Option<S>,
@@ -333,16 +342,214 @@ impl AsyncClient {
         Ok(response)
     }
 
+    /// Join a room by `RoomId`.
+    ///
+    /// Returns a `join_room_by_id::Response` consisting of the
+    /// joined rooms `RoomId`.
+    ///
+    /// # Arguments
+    ///
+    /// * room_id - The `RoomId` of the room to be joined.
+    pub async fn join_room_by_id(&mut self, room_id: &RoomId) -> Result<join_room_by_id::Response> {
+        let request = join_room_by_id::Request {
+            room_id: room_id.clone(),
+            third_party_signed: None,
+        };
+        self.send(request).await
+    }
+
+    /// Join a room by `RoomId`.
+    ///
+    /// Returns a `join_room_by_id_or_alias::Response` consisting of the
+    /// joined rooms `RoomId`.
+    ///
+    /// # Arguments
+    ///
+    /// * alias - The `RoomId` or `RoomAliasId` of the room to be joined.
+    /// An alias looks like this `#name:example.com`
+    pub async fn join_room_by_id_or_alias(
+        &self,
+        alias: &RoomIdOrAliasId,
+    ) -> Result<join_room_by_id_or_alias::Response> {
+        let request = join_room_by_id_or_alias::Request {
+            room_id_or_alias: alias.clone(),
+            third_party_signed: None,
+        };
+        self.send(request).await
+    }
+
+    /// Kick a user out of the specified room.
+    ///
+    /// Returns a `kick_user::Response`, an empty response.
+    ///
+    /// # Arguments
+    ///
+    /// * room_id - The `RoomId` of the room the user should be kicked out of.
+    ///
+    /// * user_id - The `UserId` of the user that should be kicked out of the room.
+    ///
+    /// * reason - Optional reason why the room member is being kicked out.
+    pub async fn kick_user(
+        &self,
+        room_id: &RoomId,
+        user_id: &UserId,
+        reason: Option<String>,
+    ) -> Result<kick_user::Response> {
+        let request = kick_user::Request {
+            reason,
+            room_id: room_id.clone(),
+            user_id: user_id.clone(),
+        };
+        self.send(request).await
+    }
+
+    /// Leave the specified room.
+    ///
+    /// Returns a `leave_room::Response`, an empty response.
+    ///
+    /// # Arguments
+    ///
+    /// * room_id - The `RoomId` of the room to leave.
+    ///
+    pub async fn leave_room(&self, room_id: &RoomId) -> Result<leave_room::Response> {
+        let request = leave_room::Request {
+            room_id: room_id.clone(),
+        };
+        self.send(request).await
+    }
+
+    /// Invite the specified user by `UserId` to the given room.
+    ///
+    /// Returns a `invite_user::Response`, an empty response.
+    ///
+    /// # Arguments
+    ///
+    /// * room_id - The `RoomId` of the room to invite the specified user to.
+    ///
+    /// * user_id - The `UserId` of the user to invite to the room.
+    pub async fn invite_user_by_id(
+        &self,
+        room_id: &RoomId,
+        user_id: &UserId,
+    ) -> Result<invite_user::Response> {
+        let request = invite_user::Request {
+            room_id: room_id.clone(),
+            recipient: InvitationRecipient::UserId {
+                user_id: user_id.clone(),
+            },
+        };
+        self.send(request).await
+    }
+
+    /// Invite the specified user by third party id to the given room.
+    ///
+    /// Returns a `invite_user::Response`, an empty response.
+    ///
+    /// # Arguments
+    ///
+    /// * room_id - The `RoomId` of the room to invite the specified user to.
+    ///
+    /// * invite_id - A third party id of a user to invite to the room.
+    pub async fn invite_user_by_3pid(
+        &self,
+        room_id: &RoomId,
+        invite_id: &Invite3pid,
+    ) -> Result<invite_user::Response> {
+        let request = invite_user::Request {
+            room_id: room_id.clone(),
+            recipient: InvitationRecipient::ThirdPartyId(invite_id.clone()),
+        };
+        self.send(request).await
+    }
+
+    /// Create a room using the `RoomBuilder` and send the request.
+    ///
+    /// Sends a request to `/_matrix/client/r0/createRoom`, returns a `create_room::Response`,
+    /// this is an empty response.
+    ///
+    /// # Arguments
+    ///
+    /// * room - The easiest way to create this request is using the `RoomBuilder`.
+    ///
+    /// # Examples
+    /// ```no_run
+    /// use matrix_sdk::{AsyncClient, RoomBuilder};
+    /// # use matrix_sdk::api::r0::room::Visibility;
+    /// # use url::Url;
+    ///
+    /// # let homeserver = Url::parse("http://example.com").unwrap();
+    /// let mut builder = RoomBuilder::default();
+    /// builder.creation_content(false)
+    ///     .initial_state(vec![])
+    ///     .visibility(Visibility::Public)
+    ///     .name("name")
+    ///     .room_version("v1.0");
+    ///
+    /// let mut cli = AsyncClient::new(homeserver, None).unwrap();
+    /// # use futures::executor::block_on;
+    /// # block_on(async {
+    /// assert!(cli.create_room(builder).await.is_ok());
+    /// # });
+    /// ```
+    pub async fn create_room<R: Into<create_room::Request>>(
+        &self,
+        room: R,
+    ) -> Result<create_room::Response> {
+        let request = room.into();
+        self.send(request).await
+    }
+
+    /// Get messages starting at a specific sync point using the
+    /// `MessagesRequestBuilder`s `from` field as a starting point.
+    ///
+    /// Sends a request to `/_matrix/client/r0/rooms/{room_id}/messages` and
+    /// returns a `get_message_events::IncomingResponse` that contains chunks
+    /// of `RoomEvents`.
+    ///
+    /// # Arguments
+    ///
+    /// * request - The easiest way to create a `Request` is using the
+    /// `MessagesRequestBuilder`.
+    ///
+    /// # Examples
+    /// ```no_run
+    /// # use std::convert::TryFrom;
+    /// use matrix_sdk::{AsyncClient, MessagesRequestBuilder};
+    /// # use matrix_sdk::identifiers::RoomId;
+    /// # use matrix_sdk::api::r0::filter::RoomEventFilter;
+    /// # use matrix_sdk::api::r0::message::get_message_events::Direction;
+    /// # use url::Url;
+    /// # use js_int::UInt;
+    ///
+    /// # let homeserver = Url::parse("http://example.com").unwrap();
+    /// let mut builder = MessagesRequestBuilder::new();
+    /// builder.room_id(RoomId::try_from("!roomid:example.com").unwrap())
+    ///     .from("t47429-4392820_219380_26003_2265".to_string())
+    ///     .to("t4357353_219380_26003_2265".to_string())
+    ///     .direction(Direction::Backward)
+    ///     .limit(UInt::new(10).unwrap());
+    ///
+    /// let mut cli = AsyncClient::new(homeserver, None).unwrap();
+    /// # use futures::executor::block_on;
+    /// # block_on(async {
+    /// assert!(cli.room_messages(builder).await.is_ok());
+    /// # });
+    /// ```
+    pub async fn room_messages<R: Into<get_message_events::Request>>(
+        &self,
+        request: R,
+    ) -> Result<get_message_events::IncomingResponse> {
+        let req = request.into();
+        self.send(req).await
+    }
+
     /// Synchronize the client's state with the latest state on the server.
     ///
     /// # Arguments
     ///
     /// * `sync_settings` - Settings for the sync call.
     #[instrument]
-    pub async fn sync(
-        &mut self,
-        sync_settings: SyncSettings,
-    ) -> Result<sync_events::IncomingResponse> {
+    pub async fn sync(&self, sync_settings: SyncSettings) -> Result<sync_events::IncomingResponse> {
         let request = sync_events::Request {
             filter: None,
             since: sync_settings.token,
@@ -354,9 +561,8 @@ impl AsyncClient {
         let mut response = self.send(request).await?;
 
         for (room_id, room) in &mut response.rooms.join {
-            let mut client = self.base_client.write().await;
-
             let _matrix_room = {
+                let mut client = self.base_client.write().await;
                 for event in &room.state.events {
                     if let EventResult::Ok(e) = event {
                         client.receive_joined_state_event(&room_id, &e).await;
@@ -369,12 +575,14 @@ impl AsyncClient {
             // re looping is not ideal here
             for event in &mut room.state.events {
                 if let EventResult::Ok(e) = event {
+                    let client = self.base_client.read().await;
                     client.emit_state_event(room_id, e).await;
                 }
             }
 
             for mut event in &mut room.timeline.events {
                 let decrypted_event = {
+                    let mut client = self.base_client.write().await;
                     client
                         .receive_joined_timeline_event(room_id, &mut event)
                         .await
@@ -385,6 +593,7 @@ impl AsyncClient {
                 }
 
                 if let EventResult::Ok(e) = event {
+                    let client = self.base_client.read().await;
                     client.emit_timeline_event(room_id, e).await;
                 }
             }
@@ -393,8 +602,8 @@ impl AsyncClient {
             for account_data in &mut room.account_data.events {
                 {
                     if let EventResult::Ok(e) = account_data {
+                        let mut client = self.base_client.write().await;
                         client.receive_account_data_event(&room_id, e).await;
-
                         client.emit_account_data_event(room_id, e).await;
                     }
                 }
@@ -406,6 +615,7 @@ impl AsyncClient {
             for presence in &mut response.presence.events {
                 {
                     if let EventResult::Ok(e) = presence {
+                        let mut client = self.base_client.write().await;
                         client.receive_presence_event(&room_id, e).await;
 
                         client.emit_presence_event(room_id, e).await;
@@ -416,6 +626,7 @@ impl AsyncClient {
             for ephemeral in &mut room.ephemeral.events {
                 {
                     if let EventResult::Ok(e) = ephemeral {
+                        let mut client = self.base_client.write().await;
                         client.receive_ephemeral_event(&room_id, e).await;
 
                         client.emit_ephemeral_event(room_id, e).await;
@@ -487,7 +698,7 @@ impl AsyncClient {
     /// ```
     #[instrument(skip(callback))]
     pub async fn sync_forever<C>(
-        &mut self,
+        &self,
         sync_settings: SyncSettings,
         callback: impl Fn(sync_events::IncomingResponse) -> C + Send,
     ) where
@@ -599,7 +810,6 @@ impl AsyncClient {
         } else {
             request_builder
         };
-
         let mut response = request_builder.send().await?;
 
         trace!("Got response: {:?}", response);
@@ -635,6 +845,10 @@ impl AsyncClient {
     ///
     /// * `content` - The content of the message event.
     ///
+    /// * `txn_id` - A unique `Uuid` that can be attached to a `MessageEvent` held
+    /// in it's unsigned field as `transaction_id`. If not given one is created for the
+    /// message.
+    ///
     /// # Example
     /// ```no_run
     /// # use matrix_sdk::Room;
@@ -649,6 +863,7 @@ impl AsyncClient {
     /// # let homeserver = Url::parse("http://localhost:8080").unwrap();
     /// # let mut client = AsyncClient::new(homeserver, None).unwrap();
     /// # let room_id = RoomId::try_from("!test:localhost").unwrap();
+    /// use uuid::Uuid;
     ///
     /// let content = MessageEventContent::Text(TextMessageEventContent {
     ///     body: "Hello world".to_owned(),
@@ -656,14 +871,15 @@ impl AsyncClient {
     ///     formatted_body: None,
     ///     relates_to: None,
     /// });
-    ///
-    /// client.room_send(&room_id, content).await.unwrap();
+    /// let txn_id = Uuid::new_v4();
+    /// client.room_send(&room_id, content, Some(txn_id)).await.unwrap();
     /// })
     /// ```
     pub async fn room_send(
-        &mut self,
+        &self,
         room_id: &RoomId,
         #[allow(unused_mut)] mut content: MessageEventContent,
+        txn_id: Option<Uuid>,
     ) -> Result<create_message_event::Response> {
         #[allow(unused_mut)]
         let mut event_type = EventType::RoomMessage;
@@ -675,7 +891,7 @@ impl AsyncClient {
                 let room = client.joined_rooms.get(room_id);
 
                 match room {
-                    Some(r) => r.lock().await.is_encrypted(),
+                    Some(r) => r.read().await.is_encrypted(),
                     None => false,
                 }
             };
@@ -684,7 +900,7 @@ impl AsyncClient {
                 let missing_sessions = {
                     let client = self.base_client.read().await;
                     let room = client.joined_rooms.get(room_id);
-                    let room = room.as_ref().unwrap().lock().await;
+                    let room = room.as_ref().unwrap().read().await;
                     let users = room.members.keys();
                     self.base_client
                         .read()
@@ -722,7 +938,7 @@ impl AsyncClient {
         let request = create_message_event::Request {
             room_id: room_id.clone(),
             event_type,
-            txn_id: Uuid::new_v4().to_string(),
+            txn_id: txn_id.unwrap_or_else(Uuid::new_v4).to_string(),
             data: content,
         };
 

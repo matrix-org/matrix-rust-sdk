@@ -17,7 +17,7 @@ async fn login() {
         .with_body_from_file("tests/data/login_response.json")
         .create();
 
-    let mut client = AsyncClient::new(homeserver, None).unwrap();
+    let client = AsyncClient::new(homeserver, None).unwrap();
 
     client
         .login("example", "wordpass", None, None)
@@ -46,7 +46,7 @@ async fn sync() {
     .with_body_from_file("tests/data/sync.json")
     .create();
 
-    let mut client = AsyncClient::new(homeserver, Some(session)).unwrap();
+    let client = AsyncClient::new(homeserver, Some(session)).unwrap();
 
     let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
 
@@ -75,7 +75,7 @@ async fn room_names() {
     .with_body_from_file("tests/data/sync.json")
     .create();
 
-    let mut client = AsyncClient::new(homeserver, Some(session)).unwrap();
+    let client = AsyncClient::new(homeserver, Some(session)).unwrap();
 
     let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
 
