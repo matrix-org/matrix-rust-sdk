@@ -90,8 +90,11 @@ async fn login_and_sync(
         .add_event_emitter(Box::new(CommandBot::new(client.clone())))
         .await;
 
+    // since we called sync before we `sync_forever` we must pass that sync token to
+    // `sync_forever`
+    let settings = SyncSettings::default().token(client.sync_token().await.unwrap());
     // this keeps state from the server streaming in to CommandBot via the EventEmitter trait
-    client.sync_forever(SyncSettings::new(), |_| async {}).await;
+    client.sync_forever(settings, |_| async {}).await;
 
     Ok(())
 }
