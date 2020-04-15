@@ -53,6 +53,8 @@ const DEFAULT_SYNC_TIMEOUT: Duration = Duration::from_secs(30);
 
 #[derive(Clone)]
 /// An async/await enabled Matrix client.
+///
+/// All of the state is held in an `Arc` so the `AsyncClient` can be cloned freely.
 pub struct AsyncClient {
     /// The URL of the homeserver to connect to.
     homeserver: Url,
@@ -273,10 +275,7 @@ impl AsyncClient {
     /// Add `EventEmitter` to `AsyncClient`.
     ///
     /// The methods of `EventEmitter` are called when the respective `RoomEvents` occur.
-    pub async fn add_event_emitter(
-        &mut self,
-        emitter: Arc<tokio::sync::Mutex<Box<dyn EventEmitter>>>,
-    ) {
+    pub async fn add_event_emitter(&mut self, emitter: Box<dyn EventEmitter>) {
         self.base_client.write().await.event_emitter = Some(emitter);
     }
 
@@ -301,7 +300,7 @@ impl AsyncClient {
     /// Returns the rooms this client knows about.
     ///
     /// A `HashMap` of room id to `matrix::models::Room`
-    pub async fn get_rooms(&self) -> HashMap<RoomId, Arc<tokio::sync::Mutex<Room>>> {
+    pub async fn get_rooms(&self) -> HashMap<RoomId, Arc<tokio::sync::RwLock<Room>>> {
         self.base_client.read().await.joined_rooms.clone()
     }
 
@@ -319,7 +318,7 @@ impl AsyncClient {
     ///     only if the client also holds the encryption keys for this device.
     #[instrument(skip(password))]
     pub async fn login<S: Into<String> + std::fmt::Debug>(
-        &mut self,
+        &self,
         user: S,
         password: S,
         device_id: Option<S>,
@@ -369,7 +368,7 @@ impl AsyncClient {
     /// * alias - The `RoomId` or `RoomAliasId` of the room to be joined.
     /// An alias looks like this `#name:example.com`
     pub async fn join_room_by_id_or_alias(
-        &mut self,
+        &self,
         alias: &RoomIdOrAliasId,
     ) -> Result<join_room_by_id_or_alias::Response> {
         let request = join_room_by_id_or_alias::Request {
@@ -391,7 +390,7 @@ impl AsyncClient {
     ///
     /// * reason - Optional reason why the room member is being kicked out.
     pub async fn kick_user(
-        &mut self,
+        &self,
         room_id: &RoomId,
         user_id: &UserId,
         reason: Option<String>,
@@ -412,7 +411,7 @@ impl AsyncClient {
     ///
     /// * room_id - The `RoomId` of the room to leave.
     ///
-    pub async fn leave_room(&mut self, room_id: &RoomId) -> Result<leave_room::Response> {
+    pub async fn leave_room(&self, room_id: &RoomId) -> Result<leave_room::Response> {
         let request = leave_room::Request {
             room_id: room_id.clone(),
         };
@@ -429,7 +428,7 @@ impl AsyncClient {
     ///
     /// * user_id - The `UserId` of the user to invite to the room.
     pub async fn invite_user_by_id(
-        &mut self,
+        &self,
         room_id: &RoomId,
         user_id: &UserId,
     ) -> Result<invite_user::Response> {
@@ -452,7 +451,7 @@ impl AsyncClient {
     ///
     /// * invite_id - A third party id of a user to invite to the room.
     pub async fn invite_user_by_3pid(
-        &mut self,
+        &self,
         room_id: &RoomId,
         invite_id: &Invite3pid,
     ) -> Result<invite_user::Response> {
@@ -493,7 +492,7 @@ impl AsyncClient {
     /// # });
     /// ```
     pub async fn create_room<R: Into<create_room::Request>>(
-        &mut self,
+        &self,
         room: R,
     ) -> Result<create_room::Response> {
         let request = room.into();
@@ -537,7 +536,7 @@ impl AsyncClient {
     /// # });
     /// ```
     pub async fn room_messages<R: Into<get_message_events::Request>>(
-        &mut self,
+        &self,
         request: R,
     ) -> Result<get_message_events::IncomingResponse> {
         let req = request.into();
@@ -550,10 +549,7 @@ impl AsyncClient {
     ///
     /// * `sync_settings` - Settings for the sync call.
     #[instrument]
-    pub async fn sync(
-        &mut self,
-        sync_settings: SyncSettings,
-    ) -> Result<sync_events::IncomingResponse> {
+    pub async fn sync(&self, sync_settings: SyncSettings) -> Result<sync_events::IncomingResponse> {
         let request = sync_events::Request {
             filter: None,
             since: sync_settings.token,
@@ -565,9 +561,8 @@ impl AsyncClient {
         let mut response = self.send(request).await?;
 
         for (room_id, room) in &mut response.rooms.join {
-            let mut client = self.base_client.write().await;
-
             let _matrix_room = {
+                let mut client = self.base_client.write().await;
                 for event in &room.state.events {
                     if let EventResult::Ok(e) = event {
                         client.receive_joined_state_event(&room_id, &e).await;
@@ -580,12 +575,14 @@ impl AsyncClient {
             // re looping is not ideal here
             for event in &mut room.state.events {
                 if let EventResult::Ok(e) = event {
+                    let client = self.base_client.read().await;
                     client.emit_state_event(room_id, e).await;
                 }
             }
 
             for mut event in &mut room.timeline.events {
                 let decrypted_event = {
+                    let mut client = self.base_client.write().await;
                     client
                         .receive_joined_timeline_event(room_id, &mut event)
                         .await
@@ -596,6 +593,7 @@ impl AsyncClient {
                 }
 
                 if let EventResult::Ok(e) = event {
+                    let client = self.base_client.read().await;
                     client.emit_timeline_event(room_id, e).await;
                 }
             }
@@ -604,8 +602,8 @@ impl AsyncClient {
             for account_data in &mut room.account_data.events {
                 {
                     if let EventResult::Ok(e) = account_data {
+                        let mut client = self.base_client.write().await;
                         client.receive_account_data_event(&room_id, e).await;
-
                         client.emit_account_data_event(room_id, e).await;
                     }
                 }
@@ -617,6 +615,7 @@ impl AsyncClient {
             for presence in &mut response.presence.events {
                 {
                     if let EventResult::Ok(e) = presence {
+                        let mut client = self.base_client.write().await;
                         client.receive_presence_event(&room_id, e).await;
 
                         client.emit_presence_event(room_id, e).await;
@@ -627,6 +626,7 @@ impl AsyncClient {
             for ephemeral in &mut room.ephemeral.events {
                 {
                     if let EventResult::Ok(e) = ephemeral {
+                        let mut client = self.base_client.write().await;
                         client.receive_ephemeral_event(&room_id, e).await;
 
                         client.emit_ephemeral_event(room_id, e).await;
@@ -698,7 +698,7 @@ impl AsyncClient {
     /// ```
     #[instrument(skip(callback))]
     pub async fn sync_forever<C>(
-        &mut self,
+        &self,
         sync_settings: SyncSettings,
         callback: impl Fn(sync_events::IncomingResponse) -> C + Send,
     ) where
@@ -810,7 +810,6 @@ impl AsyncClient {
         } else {
             request_builder
         };
-
         let mut response = request_builder.send().await?;
 
         trace!("Got response: {:?}", response);
@@ -877,7 +876,7 @@ impl AsyncClient {
     /// })
     /// ```
     pub async fn room_send(
-        &mut self,
+        &self,
         room_id: &RoomId,
         #[allow(unused_mut)] mut content: MessageEventContent,
         txn_id: Option<Uuid>,
@@ -892,7 +891,7 @@ impl AsyncClient {
                 let room = client.joined_rooms.get(room_id);
 
                 match room {
-                    Some(r) => r.lock().await.is_encrypted(),
+                    Some(r) => r.read().await.is_encrypted(),
                     None => false,
                 }
             };
@@ -901,7 +900,7 @@ impl AsyncClient {
                 let missing_sessions = {
                     let client = self.base_client.read().await;
                     let room = client.joined_rooms.get(room_id);
-                    let room = room.as_ref().unwrap().lock().await;
+                    let room = room.as_ref().unwrap().read().await;
                     let users = room.members.keys();
                     self.base_client
                         .read()
