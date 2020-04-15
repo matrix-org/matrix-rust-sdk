@@ -53,6 +53,8 @@ const DEFAULT_SYNC_TIMEOUT: Duration = Duration::from_secs(30);
 
 #[derive(Clone)]
 /// An async/await enabled Matrix client.
+///
+/// All of the state is held in an `Arc` so the `AsyncClient` can be cloned freely.
 pub struct AsyncClient {
     /// The URL of the homeserver to connect to.
     homeserver: Url,

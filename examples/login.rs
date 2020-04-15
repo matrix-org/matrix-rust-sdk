@@ -21,7 +21,8 @@ impl EventEmitter for EventCallback {
         } = event
         {
             let name = {
-                // any reads or
+                // any reads should be held for the shortest time possible to
+                // avoid dead locks
                 let room = room.read().await;
                 let member = room.members.get(&sender).unwrap();
                 member
