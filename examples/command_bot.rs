@@ -1,8 +1,6 @@
 use std::sync::Arc;
-use std::time::{SystemTime, UNIX_EPOCH};
 use std::{env, process::exit};
 
-use js_int::UInt;
 use matrix_sdk::{
     self,
     events::room::message::{MessageEvent, MessageEventContent, TextMessageEventContent},
@@ -15,36 +13,28 @@ struct CommandBot {
     /// This clone of the `AsyncClient` will send requests to the server,
     /// while the other keeps us in sync with the server using `sync_forever`.
     client: AsyncClient,
-    /// A timestamp so we only respond to messages sent after the bot is running.
-    start_time: UInt,
 }
 
 impl CommandBot {
     pub fn new(client: AsyncClient) -> Self {
-        let now = SystemTime::now();
-        let timestamp = now.duration_since(UNIX_EPOCH).unwrap().as_millis();
-        Self {
-            client,
-            start_time: UInt::new(timestamp as u64).unwrap(),
-        }
+        Self { client }
     }
 }
 
 #[async_trait::async_trait]
 impl EventEmitter for CommandBot {
     async fn on_room_message(&self, room: Arc<RwLock<Room>>, event: &MessageEvent) {
-        let (msg_body, timestamp) = if let MessageEvent {
+        let msg_body = if let MessageEvent {
             content: MessageEventContent::Text(TextMessageEventContent { body: msg_body, .. }),
-            origin_server_ts,
             ..
         } = event
         {
-            (msg_body.clone(), *origin_server_ts)
+            msg_body.clone()
         } else {
-            (String::new(), UInt::min_value())
+            String::new()
         };
 
-        if msg_body.contains("!party") && timestamp > self.start_time {
+        if msg_body.contains("!party") {
             let content = MessageEventContent::Text(TextMessageEventContent {
                 body: "🎉🎊🥳 let's PARTY!! 🥳🎊🎉".to_string(),
                 format: None,
