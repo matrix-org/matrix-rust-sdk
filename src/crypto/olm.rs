@@ -39,17 +39,15 @@ use crate::identifiers::RoomId;
 pub struct Account {
     inner: Arc<Mutex<OlmAccount>>,
     identity_keys: Arc<IdentityKeys>,
-    pub(crate) shared: Arc<AtomicBool>,
+    shared: Arc<AtomicBool>,
 }
 
 impl fmt::Debug for Account {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            f,
-            "Olm Account: {:?}, shared: {}",
-            self.identity_keys(),
-            self.shared()
-        )
+        f.debug_struct("Account")
+            .field("identity_keys", self.identity_keys())
+            .field("shared", &self.shared())
+            .finish()
     }
 }
 
@@ -597,10 +595,12 @@ impl std::fmt::Debug for OutboundGroupSession {
 
 #[cfg(test)]
 mod test {
-    use crate::crypto::olm::Account;
+    use crate::crypto::olm::{Account, InboundGroupSession, OutboundGroupSession};
+    use crate::identifiers::RoomId;
     use olm_rs::session::OlmMessage;
     use ruma_client_api::r0::keys::SignedKey;
     use std::collections::HashMap;
+    use std::convert::TryFrom;
 
     #[test]
     fn account_creation() {
@@ -618,6 +618,9 @@ mod test {
             identyty_keys.get("ed25519").unwrap()
         );
         assert!(!identyty_keys.curve25519().is_empty());
+
+        account.mark_as_shared();
+        assert!(account.shared());
     }
 
     #[tokio::test]
@@ -693,5 +696,35 @@ mod test {
 
         let decyrpted = alice_session.decrypt(message).await.unwrap();
         assert_eq!(plaintext, decyrpted);
+    }
+
+    #[tokio::test]
+    async fn group_session_creation() {
+        let alice = Account::new();
+        let room_id = RoomId::try_from("!test:localhost").unwrap();
+
+        let outbound = OutboundGroupSession::new(&room_id);
+
+        assert_eq!(0, outbound.message_index().await);
+        assert!(!outbound.shared());
+        outbound.mark_as_shared();
+        assert!(outbound.shared());
+
+        let inbound = InboundGroupSession::new(
+            "test_key",
+            "test_key",
+            &room_id,
+            outbound.session_key().await,
+        )
+        .unwrap();
+
+        assert_eq!(0, inbound.first_known_index().await);
+
+        assert_eq!(outbound.session_id(), inbound.session_id());
+
+        let plaintext = "This is a secret to everybody".to_owned();
+        let ciphertext = outbound.encrypt(plaintext.clone()).await;
+
+        assert_eq!(plaintext, inbound.decrypt(ciphertext).await.unwrap().0);
     }
 }
