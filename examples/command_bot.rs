@@ -8,13 +8,13 @@ use matrix_sdk::{
     events::room::message::{MessageEvent, MessageEventContent, TextMessageEventContent},
     AsyncClient, AsyncClientConfig, EventEmitter, Room, SyncSettings,
 };
-use tokio::sync::{Mutex, RwLock};
+use tokio::sync::RwLock;
 use url::Url;
 
 struct CommandBot {
     /// This clone of the `AsyncClient` will send requests to the server,
     /// while the other keeps us in sync with the server using `sync_forever`.
-    client: Mutex<AsyncClient>,
+    client: AsyncClient,
     /// A timestamp so we only respond to messages sent after the bot is running.
     start_time: UInt,
 }
@@ -24,7 +24,7 @@ impl CommandBot {
         let now = SystemTime::now();
         let timestamp = now.duration_since(UNIX_EPOCH).unwrap().as_millis();
         Self {
-            client: Mutex::new(client),
+            client,
             start_time: UInt::new(timestamp as u64).unwrap(),
         }
     }
@@ -57,8 +57,6 @@ impl EventEmitter for CommandBot {
             println!("sending");
 
             self.client
-                .lock()
-                .await
                 // send our message to the room we found the "!party" command in
                 // the last parameter is an optional Uuid which we don't care about.
                 .room_send(&room_id, content, None)
@@ -82,10 +80,6 @@ async fn login_and_sync(
     let homeserver_url = Url::parse(&homeserver_url)?;
     // create a new AsyncClient with the given homeserver url and config
     let mut client = AsyncClient::new_with_config(homeserver_url, None, client_config).unwrap();
-    // add our CommandBot to be notified of incoming messages
-    client
-        .add_event_emitter(Box::new(CommandBot::new(client.clone())))
-        .await;
 
     client
         .login(
@@ -97,6 +91,14 @@ async fn login_and_sync(
         .await?;
 
     println!("logged in as {}", username);
+
+    // initial sync to set up state and so our bot doesn't respond to old messages
+    client.sync(SyncSettings::default()).await.unwrap();
+    // add our CommandBot to be notified of incoming messages, we do this after the initial
+    // sync to avoid responding to messages before the bot was running.
+    client
+        .add_event_emitter(Box::new(CommandBot::new(client.clone())))
+        .await;
 
     // this keeps state from the server streaming in to CommandBot via the EventEmitter trait
     client.sync_forever(SyncSettings::new(), |_| async {}).await;
