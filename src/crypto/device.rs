@@ -33,12 +33,6 @@ pub struct Device {
     trust_state: Arc<Atomic<TrustState>>,
 }
 
-impl Device {
-    pub fn keys(&self, algorithm: &KeyAlgorithm) -> Option<&String> {
-        self.keys.get(algorithm)
-    }
-}
-
 #[derive(Debug, Clone, Copy)]
 pub enum TrustState {
     Verified,
@@ -54,6 +48,10 @@ impl Device {
 
     pub fn user_id(&self) -> &UserId {
         &self.user_id
+    }
+
+    pub fn keys(&self, algorithm: &KeyAlgorithm) -> Option<&String> {
+        self.keys.get(algorithm)
     }
 }
 
@@ -94,7 +92,7 @@ pub(crate) mod test {
     use serde_json::json;
     use std::convert::{From, TryFrom};
 
-    use crate::api::r0::keys::DeviceKeys;
+    use crate::api::r0::keys::{DeviceKeys, KeyAlgorithm};
     use crate::crypto::device::Device;
     use crate::identifiers::UserId;
 
@@ -138,5 +136,13 @@ pub(crate) mod test {
         assert_eq!(&user_id, device.user_id());
         assert_eq!(device_id, device.device_id());
         assert_eq!(device.algorithms.len(), 2);
+        assert_eq!(
+            device.keys(&KeyAlgorithm::Curve25519).unwrap(),
+            "wjLpTLRqbqBzLs63aYaEv2Boi6cFEbbM/sSRQ2oAKk4"
+        );
+        assert_eq!(
+            device.keys(&KeyAlgorithm::Ed25519).unwrap(),
+            "nE6W2fCblxDcOFmeEtCHNl8/l8bXcu7GKyAswA4r3mM"
+        );
     }
 }
