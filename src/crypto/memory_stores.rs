@@ -114,36 +114,45 @@ impl GroupSessionStore {
     }
 }
 
+/// In-memory store holding the devices of users.
 #[derive(Clone, Debug)]
 pub struct DeviceStore {
     entries: Arc<DashMap<UserId, DashMap<String, Device>>>,
 }
 
+/// A read only view over all devices belonging to a user.
 pub struct UserDevices {
     entries: ReadOnlyView<DeviceId, Device>,
 }
 
 impl UserDevices {
+    /// Get the specific device with the given device id.
     pub fn get(&self, device_id: &str) -> Option<Device> {
         self.entries.get(device_id).cloned()
     }
 
+    /// Iterator over all the device ids of the user devices.
     pub fn keys(&self) -> impl Iterator<Item = &DeviceId> {
         self.entries.keys()
     }
 
+    /// Iterator over all the devices of the user devices.
     pub fn devices(&self) -> impl Iterator<Item = &Device> {
         self.entries.values()
     }
 }
 
 impl DeviceStore {
+    /// Create a new empty device store.
     pub fn new() -> Self {
         DeviceStore {
             entries: Arc::new(DashMap::new()),
         }
     }
 
+    /// Add a device to the store.
+    ///
+    /// Returns true if the device was already in the store, false otherwise.
     pub fn add(&self, device: Device) -> bool {
         let user_id = device.user_id();
 
@@ -157,12 +166,14 @@ impl DeviceStore {
             .is_some()
     }
 
+    /// Get the device with the given device_id and belonging to the given user.
     pub fn get(&self, user_id: &UserId, device_id: &str) -> Option<Device> {
         self.entries
             .get(user_id)
             .and_then(|m| m.get(device_id).map(|d| d.value().clone()))
     }
 
+    /// Get a read-only view over all devices of the given user.
     pub fn user_devices(&self, user_id: &UserId) -> UserDevices {
         if !self.entries.contains_key(user_id) {
             self.entries.insert(user_id.clone(), DashMap::new());
@@ -179,6 +190,7 @@ mod test {
     use std::convert::TryFrom;
 
     use crate::api::r0::keys::SignedKey;
+    use crate::crypto::device::test::get_device;
     use crate::crypto::memory_stores::{DeviceStore, GroupSessionStore, SessionStore};
     use crate::crypto::olm::{Account, InboundGroupSession, OutboundGroupSession, Session};
     use crate::identifiers::RoomId;
@@ -227,6 +239,21 @@ mod test {
     }
 
     #[tokio::test]
+    async fn test_session_store_bulk_storing() {
+        let (account, session) = get_account_and_session().await;
+
+        let mut store = SessionStore::new();
+        store.set_for_sender(&session.sender_key, vec![session.clone()]);
+
+        let sessions = store.get(&session.sender_key).unwrap();
+        let sessions = sessions.lock().await;
+
+        let loaded_session = &sessions[0];
+
+        assert_eq!(&session, loaded_session);
+    }
+
+    #[tokio::test]
     async fn test_group_session_store() {
         let alice = Account::new();
         let room_id = RoomId::try_from("!test:localhost").unwrap();
@@ -253,5 +280,27 @@ mod test {
             .get(&room_id, "test_key", outbound.session_id())
             .unwrap();
         assert_eq!(inbound, loaded_session);
+    }
+
+    #[tokio::test]
+    async fn test_device_store() {
+        let device = get_device();
+        let store = DeviceStore::new();
+
+        assert!(!store.add(device.clone()));
+        assert!(store.add(device.clone()));
+
+        let loaded_device = store.get(device.user_id(), device.device_id()).unwrap();
+
+        assert_eq!(device, loaded_device);
+
+        let user_devices = store.user_devices(device.user_id());
+
+        assert_eq!(user_devices.keys().nth(0).unwrap(), device.device_id());
+        assert_eq!(user_devices.devices().nth(0).unwrap(), &device);
+
+        let loaded_device = user_devices.get(device.device_id()).unwrap();
+
+        assert_eq!(device, loaded_device);
     }
 }

@@ -18,9 +18,9 @@ use std::sync::Arc;
 
 use atomic::Atomic;
 
-use ruma_client_api::r0::keys::{DeviceKeys, KeyAlgorithm};
-use ruma_events::Algorithm;
-use ruma_identifiers::{DeviceId, UserId};
+use crate::api::r0::keys::{DeviceKeys, KeyAlgorithm};
+use crate::events::Algorithm;
+use crate::identifiers::{DeviceId, UserId};
 
 #[derive(Debug, Clone)]
 pub struct Device {
@@ -80,5 +80,63 @@ impl From<&DeviceKeys> for Device {
             deleted: Arc::new(AtomicBool::new(false)),
             trust_state: Arc::new(Atomic::new(TrustState::Unset)),
         }
+    }
+}
+
+impl PartialEq for Device {
+    fn eq(&self, other: &Self) -> bool {
+        self.user_id() == other.user_id() && self.device_id() == other.device_id()
+    }
+}
+
+#[cfg(test)]
+pub(crate) mod test {
+    use serde_json::json;
+    use std::convert::{From, TryFrom};
+
+    use crate::api::r0::keys::DeviceKeys;
+    use crate::crypto::device::Device;
+    use crate::identifiers::UserId;
+
+    pub(crate) fn get_device() -> Device {
+        let user_id = UserId::try_from("@alice:example.org").unwrap();
+        let device_id = "DEVICEID";
+
+        let device_keys = json!({
+          "algorithms": vec![
+              "m.olm.v1.curve25519-aes-sha2",
+              "m.megolm.v1.aes-sha2"
+          ],
+          "device_id": device_id,
+          "user_id": user_id.to_string(),
+          "keys": {
+              "curve25519:DEVICEID": "wjLpTLRqbqBzLs63aYaEv2Boi6cFEbbM/sSRQ2oAKk4",
+              "ed25519:DEVICEID": "nE6W2fCblxDcOFmeEtCHNl8/l8bXcu7GKyAswA4r3mM"
+          },
+          "signatures": {
+              user_id.to_string(): {
+                  "ed25519:DEVICEID": "m53Wkbh2HXkc3vFApZvCrfXcX3AI51GsDHustMhKwlv3TuOJMj4wistcOTM8q2+e/Ro7rWFUb9ZfnNbwptSUBA"
+              }
+          },
+          "unsigned": {
+              "device_display_name": "Alice's mobile phone"
+          }
+        });
+
+        let device_keys: DeviceKeys = serde_json::from_value(device_keys).unwrap();
+
+        Device::from(&device_keys)
+    }
+
+    #[test]
+    fn create_a_device() {
+        let user_id = UserId::try_from("@alice:example.org").unwrap();
+        let device_id = "DEVICEID";
+
+        let device = get_device();
+
+        assert_eq!(&user_id, device.user_id());
+        assert_eq!(device_id, device.device_id());
+        assert_eq!(device.algorithms.len(), 2);
     }
 }
