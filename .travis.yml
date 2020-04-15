@@ -5,8 +5,6 @@ addons:
     packages:
       - libssl-dev
 
-cache: cargo
-
 jobs:
   include:
     - os: linux
