@@ -232,13 +232,22 @@ impl PartialEq for Account {
 ///
 /// Sessions are used to exchange encrypted messages between two
 /// accounts/devices.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct Session {
     inner: Arc<Mutex<OlmSession>>,
     session_id: Arc<String>,
     pub(crate) sender_key: Arc<String>,
     pub(crate) creation_time: Arc<Instant>,
     pub(crate) last_use_time: Arc<Instant>,
+}
+
+impl fmt::Debug for Session {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Session")
+            .field("session_id", &self.session_id())
+            .field("sender_key", &self.sender_key)
+            .finish()
+    }
 }
 
 impl Session {
@@ -688,9 +697,14 @@ mod test {
 
         let bob_keys = bob.identity_keys();
         let mut alice_session = alice
-            .create_inbound_session(bob_keys.curve25519(), prekey_message)
+            .create_inbound_session(bob_keys.curve25519(), prekey_message.clone())
             .await
             .unwrap();
+
+        assert!(alice_session
+            .matches(bob_keys.curve25519(), prekey_message)
+            .await
+            .unwrap());
 
         assert_eq!(bob_session.session_id(), alice_session.session_id());
 
