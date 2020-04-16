@@ -1105,7 +1105,9 @@ mod test {
 
     use crate::test_builder::EventBuilder;
 
+    use mockito::mock;
     use std::convert::TryFrom;
+    use std::str::FromStr;
 
     #[tokio::test]
     async fn client_runner() {
@@ -1166,5 +1168,45 @@ mod test {
             cli.homeserver(),
             &Url::parse(&mockito::server_url()).unwrap()
         );
+    }
+
+    #[tokio::test]
+    async fn login_error() {
+        let homeserver = Url::from_str(&mockito::server_url()).unwrap();
+
+        let _m = mock("POST", "/_matrix/client/r0/login")
+            .with_status(403)
+            .with_body_from_file("tests/data/login_response_error.json")
+            .create();
+
+        let client = AsyncClient::new(homeserver, None).unwrap();
+
+        if let Err(err) = client.login("example", "wordpass", None, None).await {
+            if let crate::Error::RumaResponse(ruma_api::error::FromHttpResponseError::Http(
+                ruma_api::error::ServerError::Known(ruma_client_api::error::Error {
+                    kind,
+                    message,
+                    status_code,
+                }),
+            )) = err
+            {
+                if let ruma_client_api::error::ErrorKind::Forbidden = kind {
+                } else {
+                    panic!(
+                        "found the wrong `ErrorKind` {:?}, expected `Forbidden",
+                        kind
+                    );
+                }
+                assert_eq!(message, "Invalid password".to_string());
+                assert_eq!(status_code, http::StatusCode::from_u16(403).unwrap());
+            } else {
+                panic!(
+                    "found the wrong `Error` type {:?}, expected `Error::RumaResponse",
+                    err
+                );
+            }
+        } else {
+            panic!("this request should return an `Err` variant")
+        }
     }
 }
