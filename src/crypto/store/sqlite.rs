@@ -683,12 +683,19 @@ mod test {
         let session_id = session.session_id().to_owned();
 
         store
-            .save_inbound_group_session(session)
+            .save_inbound_group_session(session.clone())
             .await
             .expect("Can't save group session");
 
         let sessions = store.load_inbound_group_sessions().await.unwrap();
 
         assert_eq!(session_id, sessions[0].session_id());
+
+        let loaded_session = store
+            .get_inbound_group_session(&session.room_id, &session.sender_key, session.session_id())
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(session, loaded_session);
     }
 }
