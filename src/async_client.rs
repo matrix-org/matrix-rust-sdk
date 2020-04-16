@@ -754,7 +754,7 @@ impl AsyncClient {
         }
     }
 
-    async fn send<Request: Endpoint + std::fmt::Debug>(
+    async fn send<Request: Endpoint<ResponseError = ruma_client_api::Error> + std::fmt::Debug>(
         &self,
         request: Request,
     ) -> Result<<Request::Response as Outgoing>::Incoming>
@@ -815,21 +815,20 @@ impl AsyncClient {
         trace!("Got response: {:?}", response);
 
         let status = response.status();
-        let mut http_response = HttpResponse::builder().status(status);
-        let headers = http_response.headers_mut().unwrap();
+        let mut http_builder = HttpResponse::builder().status(status);
+        let headers = http_builder.headers_mut().unwrap();
 
         for (k, v) in response.headers_mut().drain() {
             if let Some(key) = k {
                 headers.insert(key, v);
             }
         }
-
         let body = response.bytes().await?.as_ref().to_owned();
-        let http_response = http_response.body(body).unwrap();
-        let response = <Request::Response as Outgoing>::Incoming::try_from(http_response)
-            .map_err(|e| Error::LoginError(format!("{:?}", e)))?;
+        let http_response = http_builder.body(body).unwrap();
 
-        Ok(response)
+        Ok(<Request::Response as Outgoing>::Incoming::try_from(
+            http_response,
+        )?)
     }
 
     /// Send a room message to the homeserver.

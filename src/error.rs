@@ -50,9 +50,6 @@ pub enum Error {
     /// An error occurred during a E2EE operation.
     #[error(transparent)]
     OlmError(#[from] OlmError),
-    /// An error occurred during log in.
-    #[error("can't login {0}.")]
-    LoginError(String),
 }
 
 impl From<RumaResponseError<RumaClientError>> for Error {
