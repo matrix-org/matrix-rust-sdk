@@ -30,7 +30,7 @@ use zeroize::Zeroizing;
 use super::{Account, CryptoStore, CryptoStoreError, InboundGroupSession, Result, Session};
 use crate::crypto::device::Device;
 use crate::crypto::memory_stores::{GroupSessionStore, SessionStore, UserDevices};
-use crate::identifiers::{RoomId, UserId};
+use crate::identifiers::{DeviceId, RoomId, UserId};
 
 pub struct SqliteStore {
     user_id: Arc<String>,
@@ -402,7 +402,7 @@ impl CryptoStore for SqliteStore {
         Ok(self.tracked_users.insert(user.clone()))
     }
 
-    async fn get_device(&self, _user_id: &UserId, _device_id: &str) -> Result<Option<Device>> {
+    async fn get_device(&self, _user_id: &UserId, _device_id: &DeviceId) -> Result<Option<Device>> {
         todo!()
     }
 

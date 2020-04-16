@@ -26,7 +26,7 @@ use tokio::sync::Mutex;
 use super::device::Device;
 use super::memory_stores::UserDevices;
 use super::olm::{Account, InboundGroupSession, Session};
-use crate::identifiers::{RoomId, UserId};
+use crate::identifiers::{DeviceId, RoomId, UserId};
 use olm_rs::errors::{OlmAccountError, OlmGroupSessionError, OlmSessionError};
 
 pub mod memorystore;
@@ -65,13 +65,48 @@ pub type Result<T> = std::result::Result<T, CryptoStoreError>;
 
 #[async_trait]
 pub trait CryptoStore: Debug + Send + Sync {
+    /// Load an account that was previously stored.
     async fn load_account(&mut self) -> Result<Option<Account>>;
+
+    /// Save the given account in the store.
+    ///
+    /// # Arguments
+    ///
+    /// * `account` - The account that should be stored.
     async fn save_account(&mut self, account: Account) -> Result<()>;
 
+    /// Save the given session in the store.
+    ///
+    /// # Arguments
+    ///
+    /// * `session` - The session that should be stored.
     async fn save_session(&mut self, session: Session) -> Result<()>;
+
+    /// Get all the sessions that belong to the given sender key.
+    ///
+    /// # Arguments
+    ///
+    /// * `sender_key` - The sender key that was used to establish the sessions.
     async fn get_sessions(&mut self, sender_key: &str) -> Result<Option<Arc<Mutex<Vec<Session>>>>>;
 
+    /// Save the given inbound group session in the store.
+    ///
+    /// If the session wasn't already in the store true is returned, false
+    /// otherwise.
+    ///
+    /// # Arguments
+    ///
+    /// * `session` - The session that should be stored.
     async fn save_inbound_group_session(&mut self, session: InboundGroupSession) -> Result<bool>;
+
+    /// Get the inbound group session from our store.
+    ///
+    /// # Arguments
+    /// * `room_id` - The room id of the room that the session belongs to.
+    ///
+    /// * `sender_key` - The sender key that sent us the session.
+    ///
+    /// * `session_id` - The unique id of the session.
     async fn get_inbound_group_session(
         &mut self,
         room_id: &RoomId,
@@ -79,10 +114,39 @@ pub trait CryptoStore: Debug + Send + Sync {
         session_id: &str,
     ) -> Result<Option<InboundGroupSession>>;
 
+    /// Get the set of tracked users.
     fn tracked_users(&self) -> &HashSet<UserId>;
+
+    /// Add an user for tracking.
+    ///
+    /// Returns true if the user wasn't already tracked, false otherwise.
+    ///
+    /// # Arguments
+    ///
+    /// * `user` - The user that should be marked as tracked.
     async fn add_user_for_tracking(&mut self, user: &UserId) -> Result<bool>;
 
+    /// Save the given device in the store.
+    ///
+    /// # Arguments
+    ///
+    /// * `device` - The device that should be stored.
     async fn save_device(&self, device: Device) -> Result<()>;
-    async fn get_device(&self, user_id: &UserId, device_id: &str) -> Result<Option<Device>>;
+
+    /// Get the device for the given user with the given device id.
+    ///
+    /// # Arguments
+    ///
+    /// * `user_id` - The user that the device belongs to.
+    ///
+    /// * `device_id` - The unique id of the device.
+    async fn get_device(&self, user_id: &UserId, device_id: &DeviceId) -> Result<Option<Device>>;
+
+    /// Get all the devices of the given user.
+    ///
+    ///
+    /// # Arguments
+    ///
+    /// * `user_id` - The user for which we should get all the devices.
     async fn get_user_devices(&self, user_id: &UserId) -> Result<UserDevices>;
 }

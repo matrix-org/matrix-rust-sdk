@@ -21,7 +21,7 @@ use tokio::sync::Mutex;
 use super::{Account, CryptoStore, InboundGroupSession, Result, Session};
 use crate::crypto::device::Device;
 use crate::crypto::memory_stores::{DeviceStore, GroupSessionStore, SessionStore, UserDevices};
-use crate::identifiers::{RoomId, UserId};
+use crate::identifiers::{DeviceId, RoomId, UserId};
 
 #[derive(Debug)]
 pub struct MemoryStore {
@@ -84,7 +84,7 @@ impl CryptoStore for MemoryStore {
         Ok(self.tracked_users.insert(user.clone()))
     }
 
-    async fn get_device(&self, user_id: &UserId, device_id: &str) -> Result<Option<Device>> {
+    async fn get_device(&self, user_id: &UserId, device_id: &DeviceId) -> Result<Option<Device>> {
         Ok(self.devices.get(user_id, device_id))
     }
 
