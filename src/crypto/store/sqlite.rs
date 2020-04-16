@@ -152,10 +152,7 @@ impl SqliteStore {
         Ok(())
     }
 
-    async fn get_sessions_for(
-        &mut self,
-        sender_key: &str,
-    ) -> Result<Option<Arc<Mutex<Vec<Session>>>>> {
+    async fn lazy_load_sessions(&mut self, sender_key: &str) -> Result<()> {
         let loaded_sessions = self.sessions.get(sender_key).is_some();
 
         if !loaded_sessions {
@@ -166,6 +163,14 @@ impl SqliteStore {
             }
         }
 
+        Ok(())
+    }
+
+    async fn get_sessions_for(
+        &mut self,
+        sender_key: &str,
+    ) -> Result<Option<Arc<Mutex<Vec<Session>>>>> {
+        self.lazy_load_sessions(sender_key).await?;
         Ok(self.sessions.get(sender_key))
     }
 
@@ -275,14 +280,16 @@ impl CryptoStore for SqliteStore {
 
         drop(connection);
 
-        let mut sessions = self.load_inbound_group_sessions().await?;
+        let mut group_sessions = self.load_inbound_group_sessions().await?;
 
-        let _ = sessions
+        let _ = group_sessions
             .drain(..)
             .map(|s| {
                 self.inbound_group_sessions.add(s);
             })
             .collect::<()>();
+
+        // TODO load the tracked users here as well.
 
         Ok(result)
     }
@@ -322,6 +329,7 @@ impl CryptoStore for SqliteStore {
     }
 
     async fn save_session(&mut self, session: Session) -> Result<()> {
+        self.lazy_load_sessions(&session.sender_key).await?;
         self.sessions.add(session.clone()).await;
 
         let account_id = self.account_id.ok_or(CryptoStoreError::AccountUnset)?;
@@ -530,6 +538,22 @@ mod test {
     #[tokio::test]
     async fn load_account() {
         let mut store = get_store(None).await;
+        let account = get_account();
+
+        store
+            .save_account(account.clone())
+            .await
+            .expect("Can't save account");
+
+        let loaded_account = store.load_account().await.expect("Can't load account");
+        let loaded_account = loaded_account.unwrap();
+
+        assert_eq!(account, loaded_account);
+    }
+
+    #[tokio::test]
+    async fn load_account_with_passphrase() {
+        let mut store = get_store(Some("secret_passphrase")).await;
         let account = get_account();
 
         store
