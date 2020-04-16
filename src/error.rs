@@ -47,9 +47,12 @@ pub enum Error {
     #[error("can't convert between ruma_client_api and hyper types.")]
     IntoHttp(RumaIntoHttpError),
     #[cfg(feature = "encryption")]
-    /// An error occured durring a E2EE operation.
+    /// An error occurred during a E2EE operation.
     #[error(transparent)]
     OlmError(#[from] OlmError),
+    /// An error occurred during log in.
+    #[error("can't login {0}.")]
+    LoginError(String),
 }
 
 impl From<RumaResponseError<RumaClientError>> for Error {

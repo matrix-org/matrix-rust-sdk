@@ -827,7 +827,7 @@ impl AsyncClient {
         let body = response.bytes().await?.as_ref().to_owned();
         let http_response = http_response.body(body).unwrap();
         let response = <Request::Response as Outgoing>::Incoming::try_from(http_response)
-            .expect("Can't convert http response into ruma response");
+            .map_err(|e| Error::LoginError(format!("{:?}", e)))?;
 
         Ok(response)
     }
