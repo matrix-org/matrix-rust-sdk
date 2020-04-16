@@ -37,7 +37,10 @@ impl SessionStore {
     }
 
     /// Add a session to the store.
-    pub async fn add(&mut self, session: Session) {
+    ///
+    /// Returns true if the the session was already in the store, false
+    /// otherwise.
+    pub async fn add(&mut self, session: Session) -> bool {
         if !self.entries.contains_key(&*session.sender_key) {
             self.entries.insert(
                 session.sender_key.to_string(),
@@ -45,7 +48,13 @@ impl SessionStore {
             );
         }
         let sessions = self.entries.get_mut(&*session.sender_key).unwrap();
-        sessions.lock().await.push(session);
+
+        if !sessions.lock().await.contains(&session) {
+            sessions.lock().await.push(session);
+            false
+        } else {
+            true
+        }
     }
 
     /// Get all the sessions that belong to the given sender key.
@@ -75,6 +84,9 @@ impl GroupSessionStore {
     }
 
     /// Add a inbound group session to the store.
+    ///
+    /// Returns true if the the session was already in the store, false
+    /// otherwise.
     pub fn add(&mut self, session: InboundGroupSession) -> bool {
         if !self.entries.contains_key(&session.room_id) {
             let room_id = &*session.room_id;
@@ -228,7 +240,9 @@ mod test {
         let (account, session) = get_account_and_session().await;
 
         let mut store = SessionStore::new();
-        store.add(session.clone()).await;
+
+        assert!(!store.add(session.clone()).await);
+        assert!(store.add(session.clone()).await);
 
         let sessions = store.get(&session.sender_key).unwrap();
         let sessions = sessions.lock().await;
