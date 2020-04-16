@@ -16,53 +16,112 @@
 pub mod state_store;
 pub use state_store::JsonStore;
 
-use crate::api;
-use crate::events;
-use api::r0::message::create_message_event;
-use api::r0::session::login;
-use api::r0::sync::sync_events;
-use events::collections::all::{Event as NonRoomEvent, RoomEvent, StateEvent};
+use serde::{Deserialize, Serialize};
 
-use std::collections::HashMap;
-use std::convert::{TryFrom, TryInto};
-use std::result::Result as StdResult;
-use std::sync::Arc;
-use std::time::{Duration, Instant};
-
-use uuid::Uuid;
-
-use futures::future::Future;
-use tokio::sync::RwLock;
-use tokio::time::delay_for as sleep;
-#[cfg(feature = "encryption")]
-use tracing::debug;
-use tracing::{info, instrument, trace};
-
-use http::Method as HttpMethod;
-use http::Response as HttpResponse;
-use reqwest::header::{HeaderValue, InvalidHeaderValue};
-use url::Url;
-
-use ruma_api::{Endpoint, Outgoing};
-use ruma_events::room::message::MessageEventContent;
-use ruma_events::EventResult;
-pub use ruma_events::EventType;
-use ruma_identifiers::RoomId;
-
-use crate::base_client::Client as BaseClient;
+use crate::events::push_rules::Ruleset;
+use crate::identifiers::{RoomId, UserId};
 use crate::models::Room;
 use crate::session::Session;
-use crate::VERSION;
-use crate::{Error, EventEmitter, Result};
+use crate::{base_client::Token, Result};
+
+#[derive(Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct ClientState {
+    /// The current client session containing our user id, device id and access
+    /// token.
+    pub session: Option<Session>,
+    /// The current sync token that should be used for the next sync call.
+    pub sync_token: Option<Token>,
+    /// A list of ignored users.
+    pub ignored_users: Vec<UserId>,
+    /// The push ruleset for the logged in user.
+    pub push_ruleset: Option<Ruleset>,
+}
+
 /// Abstraction around the data store to avoid unnecessary request on client initialization.
-///
 pub trait StateStore {
     ///
-    fn load_state(&self) -> sync_events::IncomingResponse;
+    fn load_client_state(&self) -> Result<ClientState>;
     ///
-    fn save_state_events(&mut self, events: Vec<StateEvent>) -> Result<()>;
+    fn load_room_state(&self, room_id: &RoomId) -> Result<Room>;
     ///
-    fn save_room_events(&mut self, events: Vec<RoomEvent>) -> Result<()>;
+    fn store_client_state(&self, _: ClientState) -> Result<()>;
     ///
-    fn save_non_room_events(&mut self, events: Vec<NonRoomEvent>) -> Result<()>;
+    fn store_room_state(&self, _: &Room) -> Result<()>;
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    use std::collections::HashMap;
+    use std::convert::TryFrom;
+
+    use crate::identifiers::{RoomId, UserId};
+
+    #[test]
+    fn serialize() {
+        let id = RoomId::try_from("!roomid:example.com").unwrap();
+        let user = UserId::try_from("@example:example.com").unwrap();
+
+        let room = Room::new(&id, &user);
+
+        let state = ClientState {
+            session: None,
+            sync_token: Some("hello".into()),
+            ignored_users: vec![user],
+            push_ruleset: None,
+        };
+        assert_eq!(
+            r#"{"session":null,"sync_token":"hello","ignored_users":["@example:example.com"],"push_ruleset":null}"#,
+            serde_json::to_string(&state).unwrap()
+        );
+
+        let mut joined_rooms = HashMap::new();
+        joined_rooms.insert(id, room);
+        assert_eq!(
+            r#"{
+  "!roomid:example.com": {
+    "room_id": "!roomid:example.com",
+    "room_name": {
+      "name": null,
+      "canonical_alias": null,
+      "aliases": []
+    },
+    "own_user_id": "@example:example.com",
+    "creator": null,
+    "members": {},
+    "typing_users": [],
+    "power_levels": null,
+    "encrypted": false,
+    "unread_highlight": null,
+    "unread_notifications": null
+  }
+}"#,
+            serde_json::to_string_pretty(&joined_rooms).unwrap()
+        );
+    }
+
+    #[test]
+    fn deserialize() {
+        let id = RoomId::try_from("!roomid:example.com").unwrap();
+        let user = UserId::try_from("@example:example.com").unwrap();
+
+        let room = Room::new(&id, &user);
+
+        let state = ClientState {
+            session: None,
+            sync_token: Some("hello".into()),
+            ignored_users: vec![user],
+            push_ruleset: None,
+        };
+        let json = serde_json::to_string(&state).unwrap();
+
+        assert_eq!(state, serde_json::from_str(&json).unwrap());
+
+        let mut joined_rooms = HashMap::new();
+        joined_rooms.insert(id, room);
+        let json = serde_json::to_string(&joined_rooms).unwrap();
+
+        assert_eq!(joined_rooms, serde_json::from_str(&json).unwrap());
+    }
 }

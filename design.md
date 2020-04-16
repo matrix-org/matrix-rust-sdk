@@ -11,7 +11,7 @@ The highest level structure that ties the other pieces of functionality together
   - make raw Http requests
 
 #### Base Client/Client State Machine
-In addition to Http the `AsyncClient` passes along methods from the `BaseClient` that deal with `Room`s and `RoomMember`s. This allows the client to keep track of more complicated information that needs to be calculated in some way.
+In addition to Http, the `AsyncClient` passes along methods from the `BaseClient` that deal with `Room`s and `RoomMember`s. This allows the client to keep track of more complicated information that needs to be calculated in some way.
   - human readable room names
   - power level?
   - ignored list?
@@ -87,7 +87,7 @@ pub struct RoomMember {
 ```
 
 #### State Store
-The `BaseClient` also has access to a `dyn StateStore` this is an abstraction around a "database" to keep client state without requesting a full sync from the server on start up. A default implementation that serializes/deserializes json to files in a specified directory can be used. The user can also implement `StateStore` to fit any storage solution they choose.
+The `BaseClient` also has access to a `dyn StateStore` this is an abstraction around a "database" to keep the client state without requesting a full sync from the server on startup. A default implementation that serializes/deserializes JSON to files in a specified directory can be used. The user can also implement `StateStore` to fit any storage solution they choose.
   - load
   - store/save
   - update ??

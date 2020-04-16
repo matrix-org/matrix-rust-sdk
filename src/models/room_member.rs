@@ -24,10 +24,10 @@ use crate::events::room::{
 use crate::identifiers::UserId;
 
 use js_int::{Int, UInt};
-
+use serde::{Deserialize, Serialize};
 // Notes: if Alice invites Bob into a room we will get an event with the sender as Alice and the state key as Bob.
 
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize)]
 /// A Matrix room member.
 ///
 pub struct RoomMember {
@@ -58,9 +58,24 @@ pub struct RoomMember {
     /// The human readable name of this room member.
     pub name: String,
     /// The events that created the state of this room member.
+    #[serde(skip)]
     pub events: Vec<Event>,
     /// The `PresenceEvent`s connected to this user.
+    #[serde(skip)]
     pub presence_events: Vec<PresenceEvent>,
+}
+
+impl PartialEq for RoomMember {
+    fn eq(&self, other: &RoomMember) -> bool {
+        // TODO check everything but events and presence_events they dont impl PartialEq
+        self.room_id == other.room_id
+            && self.user_id == other.user_id
+            && self.name == other.name
+            && self.display_name == other.display_name
+            && self.avatar_url == other.avatar_url
+            && self.last_active_ago == other.last_active_ago
+            && self.membership == other.membership
+    }
 }
 
 impl RoomMember {
