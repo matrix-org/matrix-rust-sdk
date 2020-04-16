@@ -38,8 +38,8 @@ impl SessionStore {
 
     /// Add a session to the store.
     ///
-    /// Returns true if the the session was already in the store, false
-    /// otherwise.
+    /// Returns true if the the session was added, false if the session was
+    /// already in the store.
     pub async fn add(&mut self, session: Session) -> bool {
         if !self.entries.contains_key(&*session.sender_key) {
             self.entries.insert(
@@ -51,9 +51,9 @@ impl SessionStore {
 
         if !sessions.lock().await.contains(&session) {
             sessions.lock().await.push(session);
-            false
-        } else {
             true
+        } else {
+            false
         }
     }
 
@@ -85,8 +85,8 @@ impl GroupSessionStore {
 
     /// Add a inbound group session to the store.
     ///
-    /// Returns true if the the session was already in the store, false
-    /// otherwise.
+    /// Returns true if the the session was added, false if the session was
+    /// already in the store.
     pub fn add(&mut self, session: InboundGroupSession) -> bool {
         if !self.entries.contains_key(&session.room_id) {
             let room_id = &*session.room_id;
@@ -103,7 +103,7 @@ impl GroupSessionStore {
         let sender_map = room_map.get_mut(&*session.sender_key).unwrap();
         let ret = sender_map.insert(session.session_id().to_owned(), session);
 
-        ret.is_some()
+        ret.is_none()
     }
 
     /// Get a inbound group session from our store.
@@ -175,7 +175,7 @@ impl DeviceStore {
 
         device_map
             .insert(device.device_id().to_owned(), device)
-            .is_some()
+            .is_none()
     }
 
     /// Get the device with the given device_id and belonging to the given user.
@@ -241,8 +241,8 @@ mod test {
 
         let mut store = SessionStore::new();
 
-        assert!(!store.add(session.clone()).await);
         assert!(store.add(session.clone()).await);
+        assert!(!store.add(session.clone()).await);
 
         let sessions = store.get(&session.sender_key).unwrap();
         let sessions = sessions.lock().await;
@@ -301,8 +301,8 @@ mod test {
         let device = get_device();
         let store = DeviceStore::new();
 
-        assert!(!store.add(device.clone()));
         assert!(store.add(device.clone()));
+        assert!(!store.add(device.clone()));
 
         let loaded_device = store.get(device.user_id(), device.device_id()).unwrap();
 
