@@ -125,7 +125,7 @@ impl SqliteStore {
                     ON DELETE CASCADE
             );
 
-            CREATE INDEX "olmsessions_account_id" ON "sessions" ("account_id");
+            CREATE INDEX IF NOT EXISTS "olmsessions_account_id" ON "sessions" ("account_id");
         "#,
             )
             .await?;
@@ -144,7 +144,7 @@ impl SqliteStore {
                     ON DELETE CASCADE
             );
 
-            CREATE INDEX "olm_groups_sessions_account_id" ON "inbound_group_sessions" ("account_id");
+            CREATE INDEX IF NOT EXISTS "olm_groups_sessions_account_id" ON "inbound_group_sessions" ("account_id");
         "#,
             )
             .await?;
@@ -436,9 +436,10 @@ impl std::fmt::Debug for SqliteStore {
 
 #[cfg(test)]
 mod test {
+    use crate::api::r0::keys::SignedKey;
+    use crate::crypto::device::test::get_device;
     use crate::crypto::olm::GroupSessionKey;
     use olm_rs::outbound_group_session::OlmOutboundGroupSession;
-    use ruma_client_api::r0::keys::SignedKey;
     use std::collections::HashMap;
     use tempfile::tempdir;
 
@@ -473,15 +474,15 @@ mod test {
         (store, tmpdir)
     }
 
-    async fn get_loaded_store() -> (Account, SqliteStore) {
-        let (mut store, _dir) = get_store(None).await;
+    async fn get_loaded_store() -> (Account, SqliteStore, tempfile::TempDir) {
+        let (mut store, dir) = get_store(None).await;
         let account = get_account();
         store
             .save_account(account.clone())
             .await
             .expect("Can't save account");
 
-        (account, store)
+        (account, store, dir)
     }
 
     fn get_account() -> Account {
@@ -628,7 +629,7 @@ mod test {
 
     #[tokio::test]
     async fn add_and_save_session() {
-        let (mut store, _dir) = get_store(None).await;
+        let (mut store, dir) = get_store(None).await;
         let (account, session) = get_account_and_session().await;
         let sender_key = session.sender_key.to_owned();
         let session_id = session.session_id().to_owned();
@@ -644,11 +645,27 @@ mod test {
         let session = &sessions_lock[0];
 
         assert_eq!(session_id, session.session_id());
+
+        drop(store);
+
+        let mut store =
+            SqliteStore::open(&UserId::try_from(USER_ID).unwrap(), DEVICE_ID, dir.path())
+                .await
+                .expect("Can't create store");
+
+        let loaded_account = store.load_account().await.unwrap().unwrap();
+        assert_eq!(account, loaded_account);
+
+        let sessions = store.get_sessions(&sender_key).await.unwrap().unwrap();
+        let sessions_lock = sessions.lock().await;
+        let session = &sessions_lock[0];
+
+        assert_eq!(session_id, session.session_id());
     }
 
     #[tokio::test]
     async fn save_inbound_group_session() {
-        let (account, mut store) = get_loaded_store().await;
+        let (account, mut store, _dir) = get_loaded_store().await;
 
         let identity_keys = account.identity_keys();
         let outbound_session = OlmOutboundGroupSession::new();
@@ -668,7 +685,7 @@ mod test {
 
     #[tokio::test]
     async fn load_inbound_group_session() {
-        let (account, mut store) = get_loaded_store().await;
+        let (account, mut store, _dir) = get_loaded_store().await;
 
         let identity_keys = account.identity_keys();
         let outbound_session = OlmOutboundGroupSession::new();
@@ -697,5 +714,18 @@ mod test {
             .unwrap()
             .unwrap();
         assert_eq!(session, loaded_session);
+    }
+
+    #[tokio::test]
+    async fn test_tracked_users() {
+        let (account, mut store, _dir) = get_loaded_store().await;
+        let device = get_device();
+
+        assert!(store.add_user_for_tracking(device.user_id()).await.unwrap());
+        assert!(!store.add_user_for_tracking(device.user_id()).await.unwrap());
+
+        let tracked_users = store.tracked_users();
+
+        tracked_users.contains(device.user_id());
     }
 }
