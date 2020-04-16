@@ -52,11 +52,7 @@ impl CryptoStore for MemoryStore {
         Ok(())
     }
 
-    async fn save_session(&mut self, _: Session) -> Result<()> {
-        Ok(())
-    }
-
-    async fn add_and_save_session(&mut self, session: Session) -> Result<()> {
+    async fn save_session(&mut self, session: Session) -> Result<()> {
         self.sessions.add(session).await;
         Ok(())
     }

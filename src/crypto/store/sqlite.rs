@@ -323,6 +323,8 @@ impl CryptoStore for SqliteStore {
     }
 
     async fn save_session(&mut self, session: Session) -> Result<()> {
+        self.sessions.add(session.clone()).await;
+
         let account_id = self.account_id.ok_or(CryptoStoreError::AccountUnset)?;
 
         let session_id = session.session_id();
@@ -346,12 +348,6 @@ impl CryptoStore for SqliteStore {
         .execute(&mut *connection)
         .await?;
 
-        Ok(())
-    }
-
-    async fn add_and_save_session(&mut self, session: Session) -> Result<()> {
-        self.sessions.add(session.clone()).await;
-        self.save_session(session).await?;
         Ok(())
     }
 
@@ -599,7 +595,7 @@ mod test {
             .save_account(account.clone())
             .await
             .expect("Can't save account");
-        store.add_and_save_session(session).await.unwrap();
+        store.save_session(session).await.unwrap();
 
         let sessions = store.get_sessions(&sender_key).await.unwrap().unwrap();
         let sessions_lock = sessions.lock().await;

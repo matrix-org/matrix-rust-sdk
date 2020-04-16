@@ -326,7 +326,7 @@ impl OlmMachine {
                     }
                 };
 
-                if let Err(e) = self.store.add_and_save_session(session).await {
+                if let Err(e) = self.store.save_session(session).await {
                     error!("Failed to store newly created Olm session {}", e);
                     continue;
                 }
@@ -703,7 +703,7 @@ impl OlmMachine {
             };
 
             let plaintext = session.decrypt(message).await?;
-            self.store.add_and_save_session(session).await?;
+            self.store.save_session(session).await?;
             plaintext
         };
 
