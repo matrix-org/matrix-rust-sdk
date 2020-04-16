@@ -262,16 +262,15 @@ impl CryptoStore for SqliteStore {
         .fetch_optional(&mut *connection)
         .await?;
 
-        let result = match row {
-            Some((id, pickle, shared)) => {
-                self.account_id = Some(id);
-                Some(Account::from_pickle(
-                    pickle,
-                    self.get_pickle_mode(),
-                    shared,
-                )?)
-            }
-            None => None,
+        let result = if let Some((id, pickle, shared)) = row {
+            self.account_id = Some(id);
+            Some(Account::from_pickle(
+                pickle,
+                self.get_pickle_mode(),
+                shared,
+            )?)
+        } else {
+            return Ok(None);
         };
 
         drop(connection);
@@ -399,6 +398,7 @@ impl CryptoStore for SqliteStore {
     }
 
     async fn add_user_for_tracking(&mut self, user: &UserId) -> Result<bool> {
+        // TODO save the tracked user to the database.
         Ok(self.tracked_users.insert(user.clone()))
     }
 
@@ -415,13 +415,14 @@ impl CryptoStore for SqliteStore {
     }
 }
 
+#[cfg_attr(tarpaulin, skip)]
 impl std::fmt::Debug for SqliteStore {
     fn fmt(&self, fmt: &mut std::fmt::Formatter<'_>) -> StdResult<(), std::fmt::Error> {
-        write!(
-            fmt,
-            "SqliteStore {{ user_id: {}, device_id: {}, path: {:?} }}",
-            self.user_id, self.device_id, self.path
-        )
+        fmt.debug_struct("SqliteStore")
+            .field("user_id", &self.user_id)
+            .field("device_id", &self.device_id)
+            .field("path", &self.path)
+            .finish()
     }
 }
 
@@ -440,16 +441,30 @@ mod test {
     static USER_ID: &str = "@example:localhost";
     static DEVICE_ID: &str = "DEVICEID";
 
-    async fn get_store() -> SqliteStore {
+    async fn get_store(passphrase: Option<&str>) -> SqliteStore {
         let tmpdir = tempdir().unwrap();
         let tmpdir_path = tmpdir.path().to_str().unwrap();
-        SqliteStore::open(&UserId::try_from(USER_ID).unwrap(), DEVICE_ID, tmpdir_path)
+
+        let user_id = &UserId::try_from(USER_ID).unwrap();
+
+        if let Some(passphrase) = passphrase {
+            SqliteStore::open_with_passphrase(
+                &user_id,
+                DEVICE_ID,
+                tmpdir_path,
+                "secret".to_string(),
+            )
             .await
-            .expect("Can't create store")
+            .expect("Can't create a passphrase protected store")
+        } else {
+            SqliteStore::open(&user_id, DEVICE_ID, tmpdir_path)
+                .await
+                .expect("Can't create store")
+        }
     }
 
     async fn get_loaded_store() -> (Account, SqliteStore) {
-        let mut store = get_store().await;
+        let mut store = get_store(None).await;
         let account = get_account();
         store
             .save_account(account.clone())
@@ -502,7 +517,8 @@ mod test {
 
     #[tokio::test]
     async fn save_account() {
-        let mut store = get_store().await;
+        let mut store = get_store(None).await;
+        assert!(store.load_account().await.unwrap().is_none());
         let account = get_account();
 
         store
@@ -513,7 +529,7 @@ mod test {
 
     #[tokio::test]
     async fn load_account() {
-        let mut store = get_store().await;
+        let mut store = get_store(None).await;
         let account = get_account();
 
         store
@@ -529,7 +545,7 @@ mod test {
 
     #[tokio::test]
     async fn save_and_share_account() {
-        let mut store = get_store().await;
+        let mut store = get_store(None).await;
         let account = get_account();
 
         store
@@ -552,7 +568,7 @@ mod test {
 
     #[tokio::test]
     async fn save_session() {
-        let mut store = get_store().await;
+        let mut store = get_store(None).await;
         let (account, session) = get_account_and_session().await;
 
         assert!(store.save_session(session.clone()).await.is_err());
@@ -567,7 +583,7 @@ mod test {
 
     #[tokio::test]
     async fn load_sessions() {
-        let mut store = get_store().await;
+        let mut store = get_store(None).await;
         let (account, session) = get_account_and_session().await;
         store
             .save_account(account.clone())
@@ -586,7 +602,7 @@ mod test {
 
     #[tokio::test]
     async fn add_and_save_session() {
-        let mut store = get_store().await;
+        let mut store = get_store(None).await;
         let (account, session) = get_account_and_session().await;
         let sender_key = session.sender_key.to_owned();
         let session_id = session.session_id().to_owned();
