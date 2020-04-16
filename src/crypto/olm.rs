@@ -613,13 +613,41 @@ impl std::fmt::Debug for OutboundGroupSession {
 }
 
 #[cfg(test)]
-mod test {
-    use crate::crypto::olm::{Account, InboundGroupSession, OutboundGroupSession};
+pub(crate) mod test {
+    use crate::crypto::olm::{Account, InboundGroupSession, OutboundGroupSession, Session};
     use crate::identifiers::RoomId;
     use olm_rs::session::OlmMessage;
     use ruma_client_api::r0::keys::SignedKey;
     use std::collections::HashMap;
     use std::convert::TryFrom;
+
+    pub(crate) async fn get_account_and_session() -> (Account, Session) {
+        let alice = Account::new();
+
+        let bob = Account::new();
+
+        bob.generate_one_time_keys(1).await;
+        let one_time_key = bob
+            .one_time_keys()
+            .await
+            .curve25519()
+            .iter()
+            .nth(0)
+            .unwrap()
+            .1
+            .to_owned();
+        let one_time_key = SignedKey {
+            key: one_time_key,
+            signatures: HashMap::new(),
+        };
+        let sender_key = bob.identity_keys().curve25519().to_owned();
+        let session = alice
+            .create_outbound_session(&sender_key, &one_time_key)
+            .await
+            .unwrap();
+
+        (alice, session)
+    }
 
     #[test]
     fn account_creation() {
@@ -724,7 +752,6 @@ mod test {
 
     #[tokio::test]
     async fn group_session_creation() {
-        let alice = Account::new();
         let room_id = RoomId::try_from("!test:localhost").unwrap();
 
         let outbound = OutboundGroupSession::new(&room_id);

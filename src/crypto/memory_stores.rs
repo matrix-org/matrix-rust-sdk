@@ -198,46 +198,17 @@ impl DeviceStore {
 
 #[cfg(test)]
 mod test {
-    use std::collections::HashMap;
     use std::convert::TryFrom;
 
-    use crate::api::r0::keys::SignedKey;
     use crate::crypto::device::test::get_device;
     use crate::crypto::memory_stores::{DeviceStore, GroupSessionStore, SessionStore};
-    use crate::crypto::olm::{Account, InboundGroupSession, OutboundGroupSession, Session};
+    use crate::crypto::olm::test::get_account_and_session;
+    use crate::crypto::olm::{InboundGroupSession, OutboundGroupSession};
     use crate::identifiers::RoomId;
-
-    async fn get_account_and_session() -> (Account, Session) {
-        let alice = Account::new();
-
-        let bob = Account::new();
-
-        bob.generate_one_time_keys(1).await;
-        let one_time_key = bob
-            .one_time_keys()
-            .await
-            .curve25519()
-            .iter()
-            .nth(0)
-            .unwrap()
-            .1
-            .to_owned();
-        let one_time_key = SignedKey {
-            key: one_time_key,
-            signatures: HashMap::new(),
-        };
-        let sender_key = bob.identity_keys().curve25519().to_owned();
-        let session = alice
-            .create_outbound_session(&sender_key, &one_time_key)
-            .await
-            .unwrap();
-
-        (alice, session)
-    }
 
     #[tokio::test]
     async fn test_session_store() {
-        let (account, session) = get_account_and_session().await;
+        let (_, session) = get_account_and_session().await;
 
         let mut store = SessionStore::new();
 
@@ -254,7 +225,7 @@ mod test {
 
     #[tokio::test]
     async fn test_session_store_bulk_storing() {
-        let (account, session) = get_account_and_session().await;
+        let (_, session) = get_account_and_session().await;
 
         let mut store = SessionStore::new();
         store.set_for_sender(&session.sender_key, vec![session.clone()]);
@@ -269,7 +240,6 @@ mod test {
 
     #[tokio::test]
     async fn test_group_session_store() {
-        let alice = Account::new();
         let room_id = RoomId::try_from("!test:localhost").unwrap();
 
         let outbound = OutboundGroupSession::new(&room_id);
