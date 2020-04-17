@@ -26,6 +26,7 @@ use crate::api::r0 as api;
 use crate::error::Result;
 use crate::events::collections::all::{RoomEvent, StateEvent};
 use crate::events::presence::PresenceEvent;
+use api::sync::sync_events::RoomSummary;
 // `NonRoomEvent` is what it is aliased as
 use crate::events::collections::only::Event as NonRoomEvent;
 use crate::events::ignored_user_list::IgnoredUserListEvent;
@@ -160,7 +161,7 @@ impl Client {
     pub(crate) async fn calculate_room_name(&self, room_id: &RoomId) -> Option<String> {
         if let Some(room) = self.joined_rooms.get(room_id) {
             let room = room.read().await;
-            Some(room.room_name.calculate_name(room_id, &room.members))
+            Some(room.room_name.calculate_name(&room.members))
         } else {
             None
         }
@@ -168,9 +169,9 @@ impl Client {
 
     pub(crate) async fn calculate_room_names(&self) -> Vec<String> {
         let mut res = Vec::new();
-        for (id, room) in &self.joined_rooms {
+        for (_id, room) in &self.joined_rooms {
             let room = room.read().await;
-            res.push(room.room_name.calculate_name(id, &room.members))
+            res.push(room.room_name.calculate_name(&room.members))
         }
         res
     }

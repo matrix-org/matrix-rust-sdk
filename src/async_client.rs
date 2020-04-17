@@ -561,7 +561,7 @@ impl AsyncClient {
         let mut response = self.send(request).await?;
 
         for (room_id, room) in &mut response.rooms.join {
-            let _matrix_room = {
+            let matrix_room = {
                 let mut client = self.base_client.write().await;
                 for event in &room.state.events {
                     if let EventResult::Ok(e) = event {
@@ -571,6 +571,9 @@ impl AsyncClient {
 
                 client.get_or_create_room(&room_id).clone()
             };
+
+            // RoomSummary contains information for calculating room name
+            matrix_room.write().await.set_room_summary(&room.summary);
 
             // re looping is not ideal here
             for event in &mut room.state.events {
