@@ -146,6 +146,7 @@ impl RoomName {
             } else if heroes < (joined + invited - one) && invited + joined > one {
                 let mut names = self.heroes.iter().take(3).cloned().collect::<Vec<String>>();
                 names.sort();
+                // TODO what is the length the spec wants us to use here and in the `else`
                 format!("{}, and {} others", names.join(", "), (joined + invited))
             } else {
                 format!("Empty Room (was {} others)", members.len())
