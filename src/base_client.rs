@@ -26,7 +26,6 @@ use crate::api::r0 as api;
 use crate::error::Result;
 use crate::events::collections::all::{RoomEvent, StateEvent};
 use crate::events::presence::PresenceEvent;
-use api::sync::sync_events::RoomSummary;
 // `NonRoomEvent` is what it is aliased as
 use crate::events::collections::only::Event as NonRoomEvent;
 use crate::events::ignored_user_list::IgnoredUserListEvent;
