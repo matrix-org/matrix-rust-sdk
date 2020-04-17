@@ -201,7 +201,7 @@ impl OlmMachine {
             let user_devices = self.store.get_user_devices(user_id).await.unwrap();
 
             for device in user_devices.devices() {
-                let sender_key = if let Some(k) = device.keys(&KeyAlgorithm::Curve25519) {
+                let sender_key = if let Some(k) = device.get_key(&KeyAlgorithm::Curve25519) {
                     k
                 } else {
                     continue;
@@ -276,7 +276,7 @@ impl OlmMachine {
                     continue;
                 };
 
-                let signing_key = if let Some(k) = device.keys(&KeyAlgorithm::Ed25519) {
+                let signing_key = if let Some(k) = device.get_key(&KeyAlgorithm::Ed25519) {
                     k
                 } else {
                     warn!(
@@ -298,7 +298,7 @@ impl OlmMachine {
                     continue;
                 }
 
-                let curve_key = if let Some(k) = device.keys(&KeyAlgorithm::Curve25519) {
+                let curve_key = if let Some(k) = device.get_key(&KeyAlgorithm::Curve25519) {
                     k
                 } else {
                     warn!(
@@ -865,10 +865,10 @@ impl OlmMachine {
         let identity_keys = self.account.identity_keys();
 
         let recipient_signing_key = recipient_device
-            .keys(&KeyAlgorithm::Ed25519)
+            .get_key(&KeyAlgorithm::Ed25519)
             .ok_or(OlmError::MissingSigningKey)?;
         let recipient_sender_key = recipient_device
-            .keys(&KeyAlgorithm::Curve25519)
+            .get_key(&KeyAlgorithm::Curve25519)
             .ok_or(OlmError::MissingSigningKey)?;
 
         let payload = json!({
@@ -957,7 +957,7 @@ impl OlmMachine {
 
         for user_id in users {
             for device in self.store.get_user_devices(user_id).await?.devices() {
-                let sender_key = if let Some(k) = device.keys(&KeyAlgorithm::Curve25519) {
+                let sender_key = if let Some(k) = device.get_key(&KeyAlgorithm::Curve25519) {
                     k
                 } else {
                     warn!(
