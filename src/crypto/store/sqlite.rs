@@ -956,5 +956,9 @@ mod test {
         }
         assert_eq!(device.algorithms().len(), loaded_device.algorithms().len());
         assert_eq!(device.keys(), loaded_device.keys());
+
+        let user_devices = store.get_user_devices(device.user_id()).await.unwrap();
+        assert_eq!(user_devices.keys().nth(0).unwrap(), device.device_id());
+        assert_eq!(user_devices.devices().nth(0).unwrap(), &device);
     }
 }
