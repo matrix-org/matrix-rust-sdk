@@ -160,7 +160,7 @@ impl Client {
     pub(crate) async fn calculate_room_name(&self, room_id: &RoomId) -> Option<String> {
         if let Some(room) = self.joined_rooms.get(room_id) {
             let room = room.read().await;
-            Some(room.room_name.calculate_name(room_id, &room.members))
+            Some(room.room_name.calculate_name(&room.members))
         } else {
             None
         }
@@ -168,9 +168,9 @@ impl Client {
 
     pub(crate) async fn calculate_room_names(&self) -> Vec<String> {
         let mut res = Vec::new();
-        for (id, room) in &self.joined_rooms {
+        for (_id, room) in &self.joined_rooms {
             let room = room.read().await;
-            res.push(room.room_name.calculate_name(id, &room.members))
+            res.push(room.room_name.calculate_name(&room.members))
         }
         res
     }

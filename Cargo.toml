@@ -27,7 +27,7 @@ serde_json = "1.0.51"
 
 # Ruma dependencies
 js_int = "0.1.4"
-ruma-api = "0.15.0"
+ruma-api = "0.15.1"
 ruma-client-api = { git = "https://github.com/matrix-org/ruma-client-api/", version = "0.7.0" }
 ruma-events = { git = "https://github.com/matrix-org/ruma-events", version = "0.18.0" }
 ruma-identifiers = "0.14.1"

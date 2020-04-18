@@ -561,7 +561,7 @@ impl AsyncClient {
         let mut response = self.send(request).await?;
 
         for (room_id, room) in &mut response.rooms.join {
-            let _matrix_room = {
+            let matrix_room = {
                 let mut client = self.base_client.write().await;
                 for event in &room.state.events {
                     if let EventResult::Ok(e) = event {
@@ -571,6 +571,9 @@ impl AsyncClient {
 
                 client.get_or_create_room(&room_id).clone()
             };
+
+            // RoomSummary contains information for calculating room name
+            matrix_room.write().await.set_room_summary(&room.summary);
 
             // re looping is not ideal here
             for event in &mut room.state.events {
@@ -754,7 +757,7 @@ impl AsyncClient {
         }
     }
 
-    async fn send<Request: Endpoint + std::fmt::Debug>(
+    async fn send<Request: Endpoint<ResponseError = ruma_client_api::Error> + std::fmt::Debug>(
         &self,
         request: Request,
     ) -> Result<<Request::Response as Outgoing>::Incoming>
@@ -815,21 +818,20 @@ impl AsyncClient {
         trace!("Got response: {:?}", response);
 
         let status = response.status();
-        let mut http_response = HttpResponse::builder().status(status);
-        let headers = http_response.headers_mut().unwrap();
+        let mut http_builder = HttpResponse::builder().status(status);
+        let headers = http_builder.headers_mut().unwrap();
 
         for (k, v) in response.headers_mut().drain() {
             if let Some(key) = k {
                 headers.insert(key, v);
             }
         }
-
         let body = response.bytes().await?.as_ref().to_owned();
-        let http_response = http_response.body(body).unwrap();
-        let response = <Request::Response as Outgoing>::Incoming::try_from(http_response)
-            .expect("Can't convert http response into ruma response");
+        let http_response = http_builder.body(body).unwrap();
 
-        Ok(response)
+        Ok(<Request::Response as Outgoing>::Incoming::try_from(
+            http_response,
+        )?)
     }
 
     /// Send a room message to the homeserver.
@@ -1106,7 +1108,9 @@ mod test {
 
     use crate::test_builder::EventBuilder;
 
+    use mockito::mock;
     use std::convert::TryFrom;
+    use std::str::FromStr;
 
     #[tokio::test]
     async fn client_runner() {
@@ -1167,5 +1171,45 @@ mod test {
             cli.homeserver(),
             &Url::parse(&mockito::server_url()).unwrap()
         );
+    }
+
+    #[tokio::test]
+    async fn login_error() {
+        let homeserver = Url::from_str(&mockito::server_url()).unwrap();
+
+        let _m = mock("POST", "/_matrix/client/r0/login")
+            .with_status(403)
+            .with_body_from_file("tests/data/login_response_error.json")
+            .create();
+
+        let client = AsyncClient::new(homeserver, None).unwrap();
+
+        if let Err(err) = client.login("example", "wordpass", None, None).await {
+            if let crate::Error::RumaResponse(ruma_api::error::FromHttpResponseError::Http(
+                ruma_api::error::ServerError::Known(ruma_client_api::error::Error {
+                    kind,
+                    message,
+                    status_code,
+                }),
+            )) = err
+            {
+                if let ruma_client_api::error::ErrorKind::Forbidden = kind {
+                } else {
+                    panic!(
+                        "found the wrong `ErrorKind` {:?}, expected `Forbidden",
+                        kind
+                    );
+                }
+                assert_eq!(message, "Invalid password".to_string());
+                assert_eq!(status_code, http::StatusCode::from_u16(403).unwrap());
+            } else {
+                panic!(
+                    "found the wrong `Error` type {:?}, expected `Error::RumaResponse",
+                    err
+                );
+            }
+        } else {
+            panic!("this request should return an `Err` variant")
+        }
     }
 }

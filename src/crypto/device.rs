@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use std::collections::HashMap;
-use std::sync::atomic::AtomicBool;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 use atomic::Atomic;
@@ -26,6 +26,8 @@ use crate::identifiers::{DeviceId, UserId};
 pub struct Device {
     user_id: Arc<UserId>,
     device_id: Arc<DeviceId>,
+    // TODO the algorithm and the keys might change, so we can't make them read
+    // only here. Perhaps dashmap and a rwlock on the algorithms.
     algorithms: Arc<Vec<Algorithm>>,
     keys: Arc<HashMap<KeyAlgorithm, String>>,
     display_name: Arc<Option<String>>,
@@ -33,25 +35,85 @@ pub struct Device {
     trust_state: Arc<Atomic<TrustState>>,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
+/// The trust state of a device.
 pub enum TrustState {
-    Verified,
-    BlackListed,
-    Ignored,
-    Unset,
+    /// The device has been verified and is trusted.
+    Verified = 0,
+    /// The device been blacklisted from communicating.
+    BlackListed = 1,
+    /// The trust state of the device is being ignored.
+    Ignored = 2,
+    /// The trust state is unset.
+    Unset = 3,
+}
+
+impl From<i64> for TrustState {
+    fn from(state: i64) -> Self {
+        match state {
+            0 => TrustState::Verified,
+            1 => TrustState::BlackListed,
+            2 => TrustState::Ignored,
+            3 => TrustState::Unset,
+            _ => TrustState::Unset,
+        }
+    }
 }
 
 impl Device {
-    pub fn device_id(&self) -> &DeviceId {
-        &self.device_id
+    /// Create a new Device.
+    pub fn new(
+        user_id: UserId,
+        device_id: DeviceId,
+        display_name: Option<String>,
+        trust_state: TrustState,
+        algorithms: Vec<Algorithm>,
+        keys: HashMap<KeyAlgorithm, String>,
+    ) -> Self {
+        Device {
+            user_id: Arc::new(user_id),
+            device_id: Arc::new(device_id),
+            display_name: Arc::new(display_name),
+            trust_state: Arc::new(Atomic::new(trust_state)),
+            algorithms: Arc::new(algorithms),
+            keys: Arc::new(keys),
+            deleted: Arc::new(AtomicBool::new(false)),
+        }
     }
 
+    /// The user id of the device owner.
     pub fn user_id(&self) -> &UserId {
         &self.user_id
     }
 
-    pub fn keys(&self, algorithm: &KeyAlgorithm) -> Option<&String> {
+    /// The unique ID of the device.
+    pub fn device_id(&self) -> &DeviceId {
+        &self.device_id
+    }
+
+    /// Get the human readable name of the device.
+    pub fn display_name(&self) -> &Option<String> {
+        &self.display_name
+    }
+
+    /// Get the key of the given key algorithm belonging to this device.
+    pub fn get_key(&self, algorithm: &KeyAlgorithm) -> Option<&String> {
         self.keys.get(algorithm)
+    }
+
+    /// Get a map containing all the device keys.
+    pub fn keys(&self) -> &HashMap<KeyAlgorithm, String> {
+        &self.keys
+    }
+
+    /// Get the trust state of the device.
+    pub fn trust_state(&self) -> TrustState {
+        self.trust_state.load(Ordering::Relaxed)
+    }
+
+    /// Get the list of algorithms this device supports.
+    pub fn algorithms(&self) -> &[Algorithm] {
+        &self.algorithms
     }
 }
 
@@ -93,7 +155,7 @@ pub(crate) mod test {
     use std::convert::{From, TryFrom};
 
     use crate::api::r0::keys::{DeviceKeys, KeyAlgorithm};
-    use crate::crypto::device::Device;
+    use crate::crypto::device::{Device, TrustState};
     use crate::identifiers::UserId;
 
     pub(crate) fn get_device() -> Device {
@@ -136,12 +198,17 @@ pub(crate) mod test {
         assert_eq!(&user_id, device.user_id());
         assert_eq!(device_id, device.device_id());
         assert_eq!(device.algorithms.len(), 2);
+        assert_eq!(TrustState::Unset, device.trust_state());
         assert_eq!(
-            device.keys(&KeyAlgorithm::Curve25519).unwrap(),
+            "Alice's mobile phone",
+            device.display_name().as_ref().unwrap()
+        );
+        assert_eq!(
+            device.get_key(&KeyAlgorithm::Curve25519).unwrap(),
             "wjLpTLRqbqBzLs63aYaEv2Boi6cFEbbM/sSRQ2oAKk4"
         );
         assert_eq!(
-            device.keys(&KeyAlgorithm::Ed25519).unwrap(),
+            device.get_key(&KeyAlgorithm::Ed25519).unwrap(),
             "nE6W2fCblxDcOFmeEtCHNl8/l8bXcu7GKyAswA4r3mM"
         );
     }

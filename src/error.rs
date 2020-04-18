@@ -56,7 +56,7 @@ pub enum Error {
     #[error(transparent)]
     IoError(#[from] IoError),
     #[cfg(feature = "encryption")]
-    /// An error occured durring a E2EE operation.
+    /// An error occurred during a E2EE operation.
     #[error(transparent)]
     OlmError(#[from] OlmError),
 }

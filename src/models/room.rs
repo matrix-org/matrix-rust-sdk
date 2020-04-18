@@ -18,6 +18,7 @@ use std::convert::TryFrom;
 
 use super::RoomMember;
 
+use crate::api::r0::sync::sync_events::RoomSummary;
 use crate::events::collections::all::{RoomEvent, StateEvent};
 use crate::events::presence::PresenceEvent;
 use crate::events::room::{
@@ -42,6 +43,17 @@ pub struct RoomName {
     canonical_alias: Option<RoomAliasId>,
     /// List of `RoomAliasId`s the room has been given.
     aliases: Vec<RoomAliasId>,
+    /// Users which can be used to generate a room name if the room does not have
+    /// one. Required if room name or canonical aliases are not set or empty.
+    pub heroes: Vec<String>,
+    /// Number of users whose membership status is `join`.
+    /// Required if field has changed since last sync; otherwise, it may be
+    /// omitted.
+    pub joined_member_count: Option<UInt>,
+    /// Number of users whose membership status is `invite`.
+    /// Required if field has changed since last sync; otherwise, it may be
+    /// omitted.
+    pub invited_member_count: Option<UInt>,
 }
 
 #[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -112,11 +124,7 @@ impl RoomName {
         true
     }
 
-    pub fn calculate_name(
-        &self,
-        room_id: &RoomId,
-        members: &HashMap<UserId, RoomMember>,
-    ) -> String {
+    pub fn calculate_name(&self, members: &HashMap<UserId, RoomMember>) -> String {
         // https://matrix.org/docs/spec/client_server/latest#calculating-the-display-name-for-a-room.
         // the order in which we check for a name ^^
         if let Some(name) = &self.name {
@@ -126,19 +134,22 @@ impl RoomName {
         } else if !self.aliases.is_empty() {
             self.aliases[0].alias().to_string()
         } else {
-            let mut names = members
-                .values()
-                .flat_map(|m| m.display_name.clone())
-                .take(3)
-                .collect::<Vec<_>>();
+            let joined = self.joined_member_count.unwrap_or(UInt::max_value());
+            let invited = self.invited_member_count.unwrap_or(UInt::max_value());
+            let heroes = UInt::new(self.heroes.len() as u64).unwrap();
+            let one = UInt::new(1).unwrap();
 
-            if names.is_empty() {
-                // TODO implement the rest of display name for room spec
-                format!("Room {}", room_id)
-            } else {
-                // stabilize order
+            if heroes >= (joined + invited - one) {
+                let mut names = self.heroes.iter().take(3).cloned().collect::<Vec<String>>();
                 names.sort();
                 names.join(", ")
+            } else if heroes < (joined + invited - one) && invited + joined > one {
+                let mut names = self.heroes.iter().take(3).cloned().collect::<Vec<String>>();
+                names.sort();
+                // TODO what is the length the spec wants us to use here and in the `else`
+                format!("{}, and {} others", names.join(", "), (joined + invited))
+            } else {
+                format!("Empty Room (was {} others)", members.len())
             }
         }
     }
@@ -169,7 +180,7 @@ impl Room {
 
     /// Return the display name of the room.
     pub fn calculate_name(&self) -> String {
-        self.room_name.calculate_name(&self.room_id, &self.members)
+        self.room_name.calculate_name(&self.members)
     }
 
     /// Is the room a encrypted room.
@@ -237,6 +248,17 @@ impl Room {
         };
         self.power_levels = Some(power);
         true
+    }
+
+    pub(crate) fn set_room_summary(&mut self, summary: &RoomSummary) {
+        let RoomSummary {
+            heroes,
+            joined_member_count,
+            invited_member_count,
+        } = summary;
+        self.room_name.heroes = heroes.clone();
+        self.room_name.invited_member_count = invited_member_count.clone();
+        self.room_name.joined_member_count = joined_member_count.clone();
     }
 
     /// Handle a room.member updating the room state if necessary.

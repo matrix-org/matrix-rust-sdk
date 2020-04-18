@@ -37,7 +37,10 @@ impl SessionStore {
     }
 
     /// Add a session to the store.
-    pub async fn add(&mut self, session: Session) {
+    ///
+    /// Returns true if the the session was added, false if the session was
+    /// already in the store.
+    pub async fn add(&mut self, session: Session) -> bool {
         if !self.entries.contains_key(&*session.sender_key) {
             self.entries.insert(
                 session.sender_key.to_string(),
@@ -45,7 +48,13 @@ impl SessionStore {
             );
         }
         let sessions = self.entries.get_mut(&*session.sender_key).unwrap();
-        sessions.lock().await.push(session);
+
+        if !sessions.lock().await.contains(&session) {
+            sessions.lock().await.push(session);
+            true
+        } else {
+            false
+        }
     }
 
     /// Get all the sessions that belong to the given sender key.
@@ -75,6 +84,9 @@ impl GroupSessionStore {
     }
 
     /// Add a inbound group session to the store.
+    ///
+    /// Returns true if the the session was added, false if the session was
+    /// already in the store.
     pub fn add(&mut self, session: InboundGroupSession) -> bool {
         if !self.entries.contains_key(&session.room_id) {
             let room_id = &*session.room_id;
@@ -91,7 +103,7 @@ impl GroupSessionStore {
         let sender_map = room_map.get_mut(&*session.sender_key).unwrap();
         let ret = sender_map.insert(session.session_id().to_owned(), session);
 
-        ret.is_some()
+        ret.is_none()
     }
 
     /// Get a inbound group session from our store.
@@ -163,7 +175,7 @@ impl DeviceStore {
 
         device_map
             .insert(device.device_id().to_owned(), device)
-            .is_some()
+            .is_none()
     }
 
     /// Get the device with the given device_id and belonging to the given user.
@@ -186,49 +198,22 @@ impl DeviceStore {
 
 #[cfg(test)]
 mod test {
-    use std::collections::HashMap;
     use std::convert::TryFrom;
 
-    use crate::api::r0::keys::SignedKey;
     use crate::crypto::device::test::get_device;
     use crate::crypto::memory_stores::{DeviceStore, GroupSessionStore, SessionStore};
-    use crate::crypto::olm::{Account, InboundGroupSession, OutboundGroupSession, Session};
+    use crate::crypto::olm::test::get_account_and_session;
+    use crate::crypto::olm::{InboundGroupSession, OutboundGroupSession};
     use crate::identifiers::RoomId;
-
-    async fn get_account_and_session() -> (Account, Session) {
-        let alice = Account::new();
-
-        let bob = Account::new();
-
-        bob.generate_one_time_keys(1).await;
-        let one_time_key = bob
-            .one_time_keys()
-            .await
-            .curve25519()
-            .iter()
-            .nth(0)
-            .unwrap()
-            .1
-            .to_owned();
-        let one_time_key = SignedKey {
-            key: one_time_key,
-            signatures: HashMap::new(),
-        };
-        let sender_key = bob.identity_keys().curve25519().to_owned();
-        let session = alice
-            .create_outbound_session(&sender_key, &one_time_key)
-            .await
-            .unwrap();
-
-        (alice, session)
-    }
 
     #[tokio::test]
     async fn test_session_store() {
-        let (account, session) = get_account_and_session().await;
+        let (_, session) = get_account_and_session().await;
 
         let mut store = SessionStore::new();
-        store.add(session.clone()).await;
+
+        assert!(store.add(session.clone()).await);
+        assert!(!store.add(session.clone()).await);
 
         let sessions = store.get(&session.sender_key).unwrap();
         let sessions = sessions.lock().await;
@@ -240,7 +225,7 @@ mod test {
 
     #[tokio::test]
     async fn test_session_store_bulk_storing() {
-        let (account, session) = get_account_and_session().await;
+        let (_, session) = get_account_and_session().await;
 
         let mut store = SessionStore::new();
         store.set_for_sender(&session.sender_key, vec![session.clone()]);
@@ -255,7 +240,6 @@ mod test {
 
     #[tokio::test]
     async fn test_group_session_store() {
-        let alice = Account::new();
         let room_id = RoomId::try_from("!test:localhost").unwrap();
 
         let outbound = OutboundGroupSession::new(&room_id);
@@ -287,8 +271,8 @@ mod test {
         let device = get_device();
         let store = DeviceStore::new();
 
-        assert!(!store.add(device.clone()));
         assert!(store.add(device.clone()));
+        assert!(!store.add(device.clone()));
 
         let loaded_device = store.get(device.user_id(), device.device_id()).unwrap();
 
