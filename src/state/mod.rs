@@ -13,16 +13,18 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::path::Path;
+
 pub mod state_store;
 pub use state_store::JsonStore;
 
 use serde::{Deserialize, Serialize};
 
+use crate::base_client::Token;
 use crate::events::push_rules::Ruleset;
 use crate::identifiers::{RoomId, UserId};
 use crate::models::Room;
 use crate::session::Session;
-use crate::{base_client::Token, Result};
 
 #[derive(Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct ClientState {
@@ -38,15 +40,24 @@ pub struct ClientState {
 }
 
 /// Abstraction around the data store to avoid unnecessary request on client initialization.
-pub trait StateStore {
+pub trait StateStore: Send + Sync {
+    /// The type of store to create. The default `JsonStore` uses `ClientState` as the store
+    /// to serialize and deserialize state to JSON files.
+    type Store;
+
+    /// The error type to return.
+    type IoError;
+
+    /// Set up connections or open files to load/save state.
+    fn open(&self, path: &Path) -> Result<(), Self::IoError>;
     ///
-    fn load_client_state(&self) -> Result<ClientState>;
+    fn load_client_state(&self) -> Result<Self::Store, Self::IoError>;
     ///
-    fn load_room_state(&self, room_id: &RoomId) -> Result<Room>;
+    fn load_room_state(&self, room_id: &RoomId) -> Result<Room, Self::IoError>;
     ///
-    fn store_client_state(&self, _: ClientState) -> Result<()>;
+    fn store_client_state(&self, _: Self::Store) -> Result<(), Self::IoError>;
     ///
-    fn store_room_state(&self, _: &Room) -> Result<()>;
+    fn store_room_state(&self, _: &Room) -> Result<(), Self::IoError>;
 }
 
 #[cfg(test)]
@@ -85,7 +96,10 @@ mod test {
     "room_name": {
       "name": null,
       "canonical_alias": null,
-      "aliases": []
+      "aliases": [],
+      "heroes": [],
+      "joined_member_count": null,
+      "invited_member_count": null
     },
     "own_user_id": "@example:example.com",
     "creator": null,

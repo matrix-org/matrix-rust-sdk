@@ -1,3 +1,4 @@
+mod event_deser;
 mod room;
 mod room_member;
 

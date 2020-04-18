@@ -34,6 +34,7 @@ use crate::events::EventResult;
 use crate::identifiers::{RoomId, UserId};
 use crate::models::Room;
 use crate::session::Session;
+use crate::state::StateStore;
 use crate::EventEmitter;
 
 #[cfg(feature = "encryption")]
@@ -60,7 +61,7 @@ pub type Token = String;
 ///
 /// This Client is a state machine that receives responses and events and
 /// accordingly updates it's state.
-pub struct Client {
+pub struct Client<S, E> {
     /// The current client session containing our user id, device id and access
     /// token.
     pub session: Option<Session>,
@@ -75,12 +76,14 @@ pub struct Client {
     /// Any implementor of EventEmitter will act as the callbacks for various
     /// events.
     pub event_emitter: Option<Box<dyn EventEmitter>>,
+    ///
+    pub state_store: Option<Box<dyn StateStore<Store = S, IoError = E>>>,
 
     #[cfg(feature = "encryption")]
     olm: Arc<Mutex<Option<OlmMachine>>>,
 }
 
-impl fmt::Debug for Client {
+impl<S, E> fmt::Debug for Client<S, E> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Client")
             .field("session", &self.session)
@@ -93,7 +96,7 @@ impl fmt::Debug for Client {
     }
 }
 
-impl Client {
+impl<S, E> Client<S, E> {
     /// Create a new client.
     ///
     /// # Arguments
@@ -114,6 +117,7 @@ impl Client {
             ignored_users: Vec::new(),
             push_ruleset: None,
             event_emitter: None,
+            state_store: None,
             #[cfg(feature = "encryption")]
             olm: Arc::new(Mutex::new(olm)),
         })
@@ -811,7 +815,7 @@ mod test {
         .with_body_from_file("tests/data/sync.json")
         .create();
 
-        let client = AsyncClient::new(homeserver, Some(session)).unwrap();
+        let client = AsyncClient::<(), ()>::new(homeserver, Some(session)).unwrap();
 
         let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
 

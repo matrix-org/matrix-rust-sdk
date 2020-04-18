@@ -12,11 +12,14 @@ use url::Url;
 struct CommandBot {
     /// This clone of the `AsyncClient` will send requests to the server,
     /// while the other keeps us in sync with the server using `sync_forever`.
-    client: AsyncClient,
+    ///
+    /// The two type parameters are for the `StateStore` trait and specify the `Store`
+    /// type and `IoError` type to use, here we don't care.
+    client: AsyncClient<(), ()>,
 }
 
 impl CommandBot {
-    pub fn new(client: AsyncClient) -> Self {
+    pub fn new(client: AsyncClient<(), ()>) -> Self {
         Self { client }
     }
 }

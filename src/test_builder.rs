@@ -49,9 +49,9 @@ pub struct RoomTestRunner {
     state_events: Vec<StateEvent>,
 }
 
-pub struct ClientTestRunner {
+pub struct ClientTestRunner<S, E> {
     /// Used when testing the whole client
-    client: Option<AsyncClient>,
+    client: Option<AsyncClient<S, E>>,
     /// RoomId and UserId to use for the events.
     ///
     /// The RoomId must match the RoomId of the events to track.
@@ -69,9 +69,9 @@ pub struct ClientTestRunner {
 }
 
 #[allow(dead_code)]
-pub struct MockTestRunner {
+pub struct MockTestRunner<S, E> {
     /// Used when testing the whole client
-    client: Option<AsyncClient>,
+    client: Option<AsyncClient<S, E>>,
     /// The ephemeral room events that determine the state of a `Room`.
     ephemeral: Vec<Event>,
     /// The account data events that determine the state of a `Room`.
@@ -169,11 +169,11 @@ impl EventBuilder {
     ///
     /// The `TestRunner` streams the events to the client and holds methods to make assertions
     /// about the state of the client.
-    pub fn build_mock_runner<P: Into<mockito::Matcher>>(
+    pub fn build_mock_runner<S, E, P: Into<mockito::Matcher>>(
         mut self,
         method: &str,
         path: P,
-    ) -> MockTestRunner {
+    ) -> MockTestRunner<S, E> {
         let body = serde_json::json! {
             {
                 "device_one_time_keys_count": {},
@@ -238,7 +238,11 @@ impl EventBuilder {
     ///
     /// The `TestRunner` streams the events to the `AsyncClient` and holds methods to make assertions
     /// about the state of the `AsyncClient`.
-    pub fn build_client_runner(self, room_id: RoomId, user_id: UserId) -> ClientTestRunner {
+    pub fn build_client_runner<S, E>(
+        self,
+        room_id: RoomId,
+        user_id: UserId,
+    ) -> ClientTestRunner<S, E> {
         ClientTestRunner {
             client: None,
             room_user_id: (room_id, user_id),
@@ -313,8 +317,8 @@ impl RoomTestRunner {
     }
 }
 
-impl ClientTestRunner {
-    pub fn set_client(&mut self, client: AsyncClient) -> &mut Self {
+impl<S, E> ClientTestRunner<S, E> {
+    pub fn set_client(&mut self, client: AsyncClient<S, E>) -> &mut Self {
         self.client = Some(client);
         self
     }
@@ -355,14 +359,14 @@ impl ClientTestRunner {
         }
     }
 
-    pub async fn to_client(&mut self) -> &mut AsyncClient {
+    pub async fn to_client(&mut self) -> &mut AsyncClient<S, E> {
         self.stream_client_events().await;
         self.client.as_mut().unwrap()
     }
 }
 
-impl MockTestRunner {
-    pub fn set_client(&mut self, client: AsyncClient) -> &mut Self {
+impl<S, E> MockTestRunner<S, E> {
+    pub fn set_client(&mut self, client: AsyncClient<S, E>) -> &mut Self {
         self.client = Some(client);
         self
     }
@@ -372,7 +376,7 @@ impl MockTestRunner {
         self
     }
 
-    pub async fn to_client(&mut self) -> Result<&mut AsyncClient, crate::Error> {
+    pub async fn to_client(&mut self) -> Result<&mut AsyncClient<S, E>, crate::Error> {
         self.client
             .as_mut()
             .unwrap()

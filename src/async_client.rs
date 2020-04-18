@@ -55,16 +55,16 @@ const DEFAULT_SYNC_TIMEOUT: Duration = Duration::from_secs(30);
 /// An async/await enabled Matrix client.
 ///
 /// All of the state is held in an `Arc` so the `AsyncClient` can be cloned freely.
-pub struct AsyncClient {
+pub struct AsyncClient<State, E> {
     /// The URL of the homeserver to connect to.
     homeserver: Url,
     /// The underlying HTTP client.
     http_client: reqwest::Client,
     /// User session data.
-    pub(crate) base_client: Arc<RwLock<BaseClient>>,
+    pub(crate) base_client: Arc<RwLock<BaseClient<State, E>>>,
 }
 
-impl std::fmt::Debug for AsyncClient {
+impl<State, E> std::fmt::Debug for AsyncClient<State, E> {
     fn fmt(&self, fmt: &mut std::fmt::Formatter<'_>) -> StdResult<(), std::fmt::Error> {
         write!(fmt, "AsyncClient {{ homeserver: {} }}", self.homeserver)
     }
@@ -197,7 +197,7 @@ use api::r0::room::create_room;
 use api::r0::session::login;
 use api::r0::sync::sync_events;
 
-impl AsyncClient {
+impl<State, E> AsyncClient<State, E> {
     /// Creates a new client for making HTTP requests to the given homeserver.
     ///
     /// # Arguments
@@ -485,7 +485,7 @@ impl AsyncClient {
     ///     .name("name")
     ///     .room_version("v1.0");
     ///
-    /// let mut cli = AsyncClient::new(homeserver, None).unwrap();
+    /// let mut cli = AsyncClient::<(), ()>::new(homeserver, None).unwrap();
     /// # use futures::executor::block_on;
     /// # block_on(async {
     /// assert!(cli.create_room(builder).await.is_ok());
@@ -529,7 +529,7 @@ impl AsyncClient {
     ///     .direction(Direction::Backward)
     ///     .limit(UInt::new(10).unwrap());
     ///
-    /// let mut cli = AsyncClient::new(homeserver, None).unwrap();
+    /// let mut cli = AsyncClient::<(), ()>::new(homeserver, None).unwrap();
     /// # use futures::executor::block_on;
     /// # block_on(async {
     /// assert!(cli.room_messages(builder).await.is_ok());
@@ -673,7 +673,7 @@ impl AsyncClient {
     /// # use futures::executor::block_on;
     /// # block_on(async {
     /// # let homeserver = Url::parse("http://localhost:8080").unwrap();
-    /// # let mut client = AsyncClient::new(homeserver, None).unwrap();
+    /// # let mut client = AsyncClient::<(), ()>::new(homeserver, None).unwrap();
     ///
     /// use async_std::sync::channel;
     ///
@@ -863,7 +863,7 @@ impl AsyncClient {
     /// use matrix_sdk::events::room::message::{MessageEventContent, TextMessageEventContent};
     /// # block_on(async {
     /// # let homeserver = Url::parse("http://localhost:8080").unwrap();
-    /// # let mut client = AsyncClient::new(homeserver, None).unwrap();
+    /// # let mut client = AsyncClient::<(), ()>::new(homeserver, None).unwrap();
     /// # let room_id = RoomId::try_from("!test:localhost").unwrap();
     /// use uuid::Uuid;
     ///
@@ -1120,7 +1120,7 @@ mod test {
             device_id: "DEVICEID".to_owned(),
         };
         let homeserver = url::Url::parse(&mockito::server_url()).unwrap();
-        let client = AsyncClient::new(homeserver, Some(session)).unwrap();
+        let client = AsyncClient::<(), ()>::new(homeserver, Some(session)).unwrap();
 
         let rid = RoomId::try_from("!roomid:room.com").unwrap();
         let uid = UserId::try_from("@example:localhost").unwrap();
@@ -1152,7 +1152,7 @@ mod test {
         };
 
         let homeserver = url::Url::parse(&mockito::server_url()).unwrap();
-        let client = AsyncClient::new(homeserver, Some(session)).unwrap();
+        let client = AsyncClient::<(), ()>::new(homeserver, Some(session)).unwrap();
 
         let mut bld = EventBuilder::default()
             .add_room_event_from_file("./tests/data/events/member.json", RoomEvent::RoomMember)
@@ -1182,7 +1182,7 @@ mod test {
             .with_body_from_file("tests/data/login_response_error.json")
             .create();
 
-        let client = AsyncClient::new(homeserver, None).unwrap();
+        let client = AsyncClient::<(), ()>::new(homeserver, None).unwrap();
 
         if let Err(err) = client.login("example", "wordpass", None, None).await {
             if let crate::Error::RumaResponse(ruma_api::error::FromHttpResponseError::Http(

@@ -238,7 +238,7 @@ mod test {
         let vec = Arc::new(Mutex::new(Vec::new()));
         let test_vec = Arc::clone(&vec);
         let emitter = Box::new(EvEmitterTest(vec)) as Box<(dyn EventEmitter)>;
-        let mut client = AsyncClient::new(homeserver, Some(session)).unwrap();
+        let mut client = AsyncClient::<(), ()>::new(homeserver, Some(session)).unwrap();
         client.add_event_emitter(emitter).await;
 
         let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));

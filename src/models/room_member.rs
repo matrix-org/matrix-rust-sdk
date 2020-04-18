@@ -58,16 +58,16 @@ pub struct RoomMember {
     /// The human readable name of this room member.
     pub name: String,
     /// The events that created the state of this room member.
-    #[serde(skip)]
+    #[serde(deserialize_with = "super::event_deser::deserialize_events")]
     pub events: Vec<Event>,
     /// The `PresenceEvent`s connected to this user.
-    #[serde(skip)]
+    #[serde(deserialize_with = "super::event_deser::deserialize_presence")]
     pub presence_events: Vec<PresenceEvent>,
 }
 
 impl PartialEq for RoomMember {
     fn eq(&self, other: &RoomMember) -> bool {
-        // TODO check everything but events and presence_events they dont impl PartialEq
+        // TODO check everything but events and presence_events they don;t impl PartialEq
         self.room_id == other.room_id
             && self.user_id == other.user_id
             && self.name == other.name

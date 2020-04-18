@@ -10,6 +10,15 @@ use crate::{Error, Result, Room};
 pub struct JsonStore;
 
 impl StateStore for JsonStore {
+    type IoError = Error;
+    type Store = ClientState;
+
+    fn open(&self, path: &Path) -> Result<()> {
+        if !path.exists() {
+            std::fs::create_dir_all(path)?;
+        }
+        Ok(())
+    }
     fn load_client_state(&self) -> Result<ClientState> {
         if let Some(mut path) = dirs::home_dir() {
             path.push(".matrix_store/client.json");
