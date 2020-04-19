@@ -257,8 +257,8 @@ impl Room {
             invited_member_count,
         } = summary;
         self.room_name.heroes = heroes.clone();
-        self.room_name.invited_member_count = invited_member_count.clone();
-        self.room_name.joined_member_count = joined_member_count.clone();
+        self.room_name.invited_member_count = *invited_member_count;
+        self.room_name.joined_member_count = *joined_member_count;
     }
 
     /// Handle a room.member updating the room state if necessary.
@@ -453,7 +453,7 @@ mod test {
             .await;
 
         assert_eq!(2, room.members.len());
-        for (_id, member) in &room.members {
+        for member in room.members.values() {
             assert_eq!(MembershipState::Join, member.membership);
         }
 

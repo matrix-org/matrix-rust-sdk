@@ -1,4 +1,5 @@
-use std::fs::OpenOptions;
+use std::collections::HashMap;
+use std::fs::{self, OpenOptions};
 use std::io::{BufReader, BufWriter, Write};
 use std::path::Path;
 
@@ -37,6 +38,33 @@ impl StateStore for JsonStore {
             let file = OpenOptions::new().read(true).open(path)?;
             let reader = BufReader::new(file);
             serde_json::from_reader(reader).map_err(Error::from)
+        } else {
+            todo!("Error maybe")
+        }
+    }
+
+    fn load_all_rooms(&self) -> Result<HashMap<RoomId, Room>> {
+        if let Some(mut path) = dirs::home_dir() {
+            path.push(".matrix_store/rooms/");
+
+            let mut rooms_map = HashMap::new();
+            for file in fs::read_dir(&path)? {
+                let file = file?.path();
+
+                if file.is_dir() {
+                    continue;
+                }
+
+                let f_hdl = OpenOptions::new().read(true).open(&file)?;
+                let reader = BufReader::new(f_hdl);
+
+                let room = serde_json::from_reader::<_, Room>(reader).map_err(Error::from)?;
+                let room_id = room.room_id.clone();
+
+                rooms_map.insert(room_id, room);
+            }
+
+            Ok(rooms_map)
         } else {
             todo!("Error maybe")
         }
@@ -145,5 +173,22 @@ mod test {
     #[test]
     fn store_room_state() {
         run_and_cleanup(test_store_room_state);
+    }
+
+    fn test_load_rooms() {
+        let store = JsonStore;
+
+        let id = RoomId::try_from("!roomid:example.com").unwrap();
+        let user = UserId::try_from("@example:example.com").unwrap();
+
+        let room = Room::new(&id, &user);
+        store.store_room_state(&room).unwrap();
+        let loaded = store.load_all_rooms().unwrap();
+        println!("{:?}", loaded);
+    }
+
+    #[test]
+    fn load_rooms() {
+        run_and_cleanup(test_load_rooms);
     }
 }

@@ -13,6 +13,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::collections::HashMap;
 use std::path::Path;
 
 pub mod state_store;
@@ -50,13 +51,17 @@ pub trait StateStore: Send + Sync {
 
     /// Set up connections or open files to load/save state.
     fn open(&self, path: &Path) -> Result<(), Self::IoError>;
-    ///
+    /// Loads the state of `BaseClient` through `StateStore::Store` type.
     fn load_client_state(&self) -> Result<Self::Store, Self::IoError>;
-    ///
+    /// Load the state of a single `Room` by `RoomId`.
     fn load_room_state(&self, room_id: &RoomId) -> Result<Room, Self::IoError>;
+    /// Load the state of all `Room`s.
     ///
+    /// This will be mapped over in the client in order to store `Room`s in an async safe way.
+    fn load_all_rooms(&self) -> Result<HashMap<RoomId, Room>, Self::IoError>;
+    /// Save the current state of the `BaseClient` using the `StateStore::Store` type.
     fn store_client_state(&self, _: Self::Store) -> Result<(), Self::IoError>;
-    ///
+    /// Save the state a single `Room`.
     fn store_room_state(&self, _: &Room) -> Result<(), Self::IoError>;
 }
 
