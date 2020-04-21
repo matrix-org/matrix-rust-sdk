@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::fs::{self, OpenOptions};
 use std::io::{BufReader, BufWriter, Write};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use super::{ClientState, StateStore};
 use crate::identifiers::RoomId;
@@ -11,7 +11,6 @@ use crate::{Error, Result, Room};
 pub struct JsonStore;
 
 impl StateStore for JsonStore {
-    type IoError = Error;
     type Store = ClientState;
 
     fn open(&self, path: &Path) -> Result<()> {
@@ -20,98 +19,84 @@ impl StateStore for JsonStore {
         }
         Ok(())
     }
-    fn load_client_state(&self) -> Result<ClientState> {
-        if let Some(mut path) = dirs::home_dir() {
-            path.push(".matrix_store/client.json");
-            let file = OpenOptions::new().read(true).open(path)?;
-            let reader = BufReader::new(file);
-            serde_json::from_reader(reader).map_err(Error::from)
-        } else {
-            todo!("Error maybe")
-        }
+    fn load_client_state(&self, path: &Path) -> Result<ClientState> {
+        let mut path = path.to_path_buf();
+        path.push("client.json");
+
+        let file = OpenOptions::new().read(true).open(path)?;
+        let reader = BufReader::new(file);
+        serde_json::from_reader(reader).map_err(Error::from)
     }
 
-    fn load_room_state(&self, room_id: &RoomId) -> Result<Room> {
-        if let Some(mut path) = dirs::home_dir() {
-            path.push(&format!(".matrix_store/rooms/{}.json", room_id));
+    fn load_room_state(&self, path: &Path, room_id: &RoomId) -> Result<Room> {
+        let mut path = path.to_path_buf();
+        path.push(&format!("rooms/{}.json", room_id));
 
-            let file = OpenOptions::new().read(true).open(path)?;
-            let reader = BufReader::new(file);
-            serde_json::from_reader(reader).map_err(Error::from)
-        } else {
-            todo!("Error maybe")
-        }
+        let file = OpenOptions::new().read(true).open(path)?;
+        let reader = BufReader::new(file);
+        serde_json::from_reader(reader).map_err(Error::from)
     }
 
-    fn load_all_rooms(&self) -> Result<HashMap<RoomId, Room>> {
-        if let Some(mut path) = dirs::home_dir() {
-            path.push(".matrix_store/rooms/");
+    fn load_all_rooms(&self, path: &Path) -> Result<HashMap<RoomId, Room>> {
+        let mut path = path.to_path_buf();
+        path.push("rooms");
 
-            let mut rooms_map = HashMap::new();
-            for file in fs::read_dir(&path)? {
-                let file = file?.path();
+        let mut rooms_map = HashMap::new();
+        for file in fs::read_dir(&path)? {
+            let file = file?.path();
 
-                if file.is_dir() {
-                    continue;
-                }
-
-                let f_hdl = OpenOptions::new().read(true).open(&file)?;
-                let reader = BufReader::new(f_hdl);
-
-                let room = serde_json::from_reader::<_, Room>(reader).map_err(Error::from)?;
-                let room_id = room.room_id.clone();
-
-                rooms_map.insert(room_id, room);
+            if file.is_dir() {
+                continue;
             }
 
-            Ok(rooms_map)
-        } else {
-            todo!("Error maybe")
+            let f_hdl = OpenOptions::new().read(true).open(&file)?;
+            let reader = BufReader::new(f_hdl);
+
+            let room = serde_json::from_reader::<_, Room>(reader).map_err(Error::from)?;
+            let room_id = room.room_id.clone();
+
+            rooms_map.insert(room_id, room);
         }
+
+        Ok(rooms_map)
     }
 
-    fn store_client_state(&self, state: ClientState) -> Result<()> {
-        if let Some(mut path) = dirs::home_dir() {
-            path.push(".matrix_store/client.json");
+    fn store_client_state(&self, path: &Path, state: ClientState) -> Result<()> {
+        let mut path = path.to_path_buf();
+        path.push("client.json");
 
-            if !Path::new(&path).exists() {
-                let mut dir = path.clone();
-                dir.pop();
-                std::fs::create_dir_all(dir)?;
-            }
-
-            let json = serde_json::to_string(&state).map_err(Error::from)?;
-
-            let file = OpenOptions::new().write(true).create(true).open(path)?;
-            let mut writer = BufWriter::new(file);
-            writer.write_all(json.as_bytes())?;
-
-            Ok(())
-        } else {
-            todo!("Error maybe")
+        if !Path::new(&path).exists() {
+            let mut dir = path.clone();
+            dir.pop();
+            std::fs::create_dir_all(dir)?;
         }
+
+        let json = serde_json::to_string(&state).map_err(Error::from)?;
+
+        let file = OpenOptions::new().write(true).create(true).open(path)?;
+        let mut writer = BufWriter::new(file);
+        writer.write_all(json.as_bytes())?;
+
+        Ok(())
     }
 
-    fn store_room_state(&self, room: &Room) -> Result<()> {
-        if let Some(mut path) = dirs::home_dir() {
-            path.push(&format!(".matrix_store/rooms/{}.json", room.room_id));
+    fn store_room_state(&self, path: &Path, room: &Room) -> Result<()> {
+        let mut path = path.to_path_buf();
+        path.push(&format!("rooms/{}.json", room.room_id));
 
-            if !Path::new(&path).exists() {
-                let mut dir = path.clone();
-                dir.pop();
-                std::fs::create_dir_all(dir)?;
-            }
-
-            let json = serde_json::to_string(&room).map_err(Error::from)?;
-
-            let file = OpenOptions::new().write(true).create(true).open(path)?;
-            let mut writer = BufWriter::new(file);
-            writer.write_all(json.as_bytes())?;
-
-            Ok(())
-        } else {
-            todo!("Error maybe")
+        if !Path::new(&path).exists() {
+            let mut dir = path.clone();
+            dir.pop();
+            std::fs::create_dir_all(dir)?;
         }
+
+        let json = serde_json::to_string(&room).map_err(Error::from)?;
+
+        let file = OpenOptions::new().write(true).create(true).open(path)?;
+        let mut writer = BufWriter::new(file);
+        writer.write_all(json.as_bytes())?;
+
+        Ok(())
     }
 }
 
@@ -132,15 +117,22 @@ mod test {
         pub static ref MTX: Mutex<()> = Mutex::new(());
     }
 
+    lazy_static! {
+        /// Limit io tests to one thread at a time.
+        pub static ref PATH: PathBuf = {
+            let mut path = dirs::home_dir().unwrap();
+            path.push(".matrix_store");
+            path
+        };
+    }
+
     fn run_and_cleanup(test: fn()) {
         let _lock = MTX.lock();
 
         test();
 
-        let mut path = dirs::home_dir().unwrap();
-        path.push(".matrix_store");
-
-        if path.exists() {
+        if PATH.exists() {
+            let path: &Path = &PATH;
             fs::remove_dir_all(path).unwrap();
         }
     }
@@ -148,8 +140,8 @@ mod test {
     fn test_store_client_state() {
         let store = JsonStore;
         let state = ClientState::default();
-        store.store_client_state(state).unwrap();
-        let loaded = store.load_client_state().unwrap();
+        store.store_client_state(&PATH, state).unwrap();
+        let loaded = store.load_client_state(&PATH).unwrap();
         assert_eq!(loaded, ClientState::default());
     }
 
@@ -165,8 +157,8 @@ mod test {
         let user = UserId::try_from("@example:example.com").unwrap();
 
         let room = Room::new(&id, &user);
-        store.store_room_state(&room).unwrap();
-        let loaded = store.load_room_state(&id).unwrap();
+        store.store_room_state(&PATH, &room).unwrap();
+        let loaded = store.load_room_state(&PATH, &id).unwrap();
         assert_eq!(loaded, Room::new(&id, &user));
     }
 
@@ -182,8 +174,8 @@ mod test {
         let user = UserId::try_from("@example:example.com").unwrap();
 
         let room = Room::new(&id, &user);
-        store.store_room_state(&room).unwrap();
-        let loaded = store.load_all_rooms().unwrap();
+        store.store_room_state(&PATH, &room).unwrap();
+        let loaded = store.load_all_rooms(&PATH).unwrap();
         println!("{:?}", loaded);
     }
 

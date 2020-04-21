@@ -26,7 +26,7 @@ use crate::events::push_rules::Ruleset;
 use crate::identifiers::{RoomId, UserId};
 use crate::models::Room;
 use crate::session::Session;
-
+use crate::Result;
 #[derive(Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct ClientState {
     /// The current client session containing our user id, device id and access
@@ -46,23 +46,20 @@ pub trait StateStore: Send + Sync {
     /// to serialize and deserialize state to JSON files.
     type Store;
 
-    /// The error type to return.
-    type IoError;
-
     /// Set up connections or open files to load/save state.
-    fn open(&self, path: &Path) -> Result<(), Self::IoError>;
+    fn open(&self, path: &Path) -> Result<()>;
     /// Loads the state of `BaseClient` through `StateStore::Store` type.
-    fn load_client_state(&self) -> Result<Self::Store, Self::IoError>;
+    fn load_client_state(&self, path: &Path) -> Result<Self::Store>;
     /// Load the state of a single `Room` by `RoomId`.
-    fn load_room_state(&self, room_id: &RoomId) -> Result<Room, Self::IoError>;
+    fn load_room_state(&self, path: &Path, room_id: &RoomId) -> Result<Room>;
     /// Load the state of all `Room`s.
     ///
     /// This will be mapped over in the client in order to store `Room`s in an async safe way.
-    fn load_all_rooms(&self) -> Result<HashMap<RoomId, Room>, Self::IoError>;
+    fn load_all_rooms(&self, path: &Path) -> Result<HashMap<RoomId, Room>>;
     /// Save the current state of the `BaseClient` using the `StateStore::Store` type.
-    fn store_client_state(&self, _: Self::Store) -> Result<(), Self::IoError>;
+    fn store_client_state(&self, path: &Path, _: Self::Store) -> Result<()>;
     /// Save the state a single `Room`.
-    fn store_room_state(&self, _: &Room) -> Result<(), Self::IoError>;
+    fn store_room_state(&self, path: &Path, _: &Room) -> Result<()>;
 }
 
 #[cfg(test)]

@@ -439,7 +439,7 @@ mod test {
         .with_body_from_file("tests/data/sync.json")
         .create();
 
-        let client = AsyncClient::<(), ()>::new(homeserver, Some(session)).unwrap();
+        let client = AsyncClient::<()>::new(homeserver, Some(session)).unwrap();
 
         let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
 

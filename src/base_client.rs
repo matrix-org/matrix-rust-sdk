@@ -61,7 +61,7 @@ pub type Token = String;
 ///
 /// This Client is a state machine that receives responses and events and
 /// accordingly updates it's state.
-pub struct Client<S, E> {
+pub struct Client<S> {
     /// The current client session containing our user id, device id and access
     /// token.
     pub session: Option<Session>,
@@ -77,13 +77,13 @@ pub struct Client<S, E> {
     /// events.
     pub event_emitter: Option<Box<dyn EventEmitter>>,
     ///
-    pub state_store: Option<Box<dyn StateStore<Store = S, IoError = E>>>,
+    pub state_store: Option<Box<dyn StateStore<Store = S>>>,
 
     #[cfg(feature = "encryption")]
     olm: Arc<Mutex<Option<OlmMachine>>>,
 }
 
-impl<S, E> fmt::Debug for Client<S, E> {
+impl<S> fmt::Debug for Client<S> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Client")
             .field("session", &self.session)
@@ -96,7 +96,7 @@ impl<S, E> fmt::Debug for Client<S, E> {
     }
 }
 
-impl<S, E> Client<S, E> {
+impl<S> Client<S> {
     /// Create a new client.
     ///
     /// # Arguments
@@ -815,7 +815,7 @@ mod test {
         .with_body_from_file("tests/data/sync.json")
         .create();
 
-        let client = AsyncClient::<(), ()>::new(homeserver, Some(session)).unwrap();
+        let client = AsyncClient::<()>::new(homeserver, Some(session)).unwrap();
 
         let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
 

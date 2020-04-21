@@ -67,7 +67,7 @@ pub struct RoomMember {
 
 impl PartialEq for RoomMember {
     fn eq(&self, other: &RoomMember) -> bool {
-        // TODO check everything but events and presence_events they don;t impl PartialEq
+        // TODO check everything but events and presence_events they don't impl PartialEq
         self.room_id == other.room_id
             && self.user_id == other.user_id
             && self.name == other.name
