@@ -722,7 +722,6 @@ impl AsyncClient {
 
             callback(response).await;
 
-            // TODO query keys here.
             // TODO send out to-device messages here
 
             #[cfg(feature = "encryption")]

@@ -13,6 +13,7 @@
 // limitations under the License.
 
 use std::collections::HashMap;
+use std::mem;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
@@ -26,8 +27,6 @@ use crate::identifiers::{DeviceId, UserId};
 pub struct Device {
     user_id: Arc<UserId>,
     device_id: Arc<DeviceId>,
-    // TODO the algorithm and the keys might change, so we can't make them read
-    // only here. Perhaps dashmap and a rwlock on the algorithms.
     algorithms: Arc<Vec<Algorithm>>,
     keys: Arc<HashMap<KeyAlgorithm, String>>,
     display_name: Arc<Option<String>>,
@@ -115,6 +114,30 @@ impl Device {
     pub fn algorithms(&self) -> &[Algorithm] {
         &self.algorithms
     }
+
+    /// Update a device with a new device keys struct.
+    pub(crate) fn update_device(&mut self, device_keys: &DeviceKeys) {
+        let mut keys = HashMap::new();
+
+        for (key_id, key) in device_keys.keys.iter() {
+            let key_id = key_id.0;
+            keys.insert(key_id, key.clone());
+        }
+
+        let display_name = Arc::new(
+            device_keys
+                .unsigned
+                .as_ref()
+                .map(|d| d.device_display_name.clone()),
+        );
+
+        mem::replace(
+            &mut self.algorithms,
+            Arc::new(device_keys.algorithms.clone()),
+        );
+        mem::replace(&mut self.keys, Arc::new(keys));
+        mem::replace(&mut self.display_name, display_name);
+    }
 }
 
 impl From<&DeviceKeys> for Device {
@@ -158,7 +181,7 @@ pub(crate) mod test {
     use crate::crypto::device::{Device, TrustState};
     use crate::identifiers::UserId;
 
-    pub(crate) fn get_device() -> Device {
+    fn device_keys() -> DeviceKeys {
         let user_id = UserId::try_from("@alice:example.org").unwrap();
         let device_id = "DEVICEID";
 
@@ -183,8 +206,11 @@ pub(crate) mod test {
           }
         });
 
-        let device_keys: DeviceKeys = serde_json::from_value(device_keys).unwrap();
+        serde_json::from_value(device_keys).unwrap()
+    }
 
+    pub(crate) fn get_device() -> Device {
+        let device_keys = device_keys();
         Device::from(&device_keys)
     }
 
@@ -210,6 +236,26 @@ pub(crate) mod test {
         assert_eq!(
             device.get_key(&KeyAlgorithm::Ed25519).unwrap(),
             "nE6W2fCblxDcOFmeEtCHNl8/l8bXcu7GKyAswA4r3mM"
+        );
+    }
+
+    #[test]
+    fn update_a_device() {
+        let mut device = get_device();
+
+        assert_eq!(
+            "Alice's mobile phone",
+            device.display_name().as_ref().unwrap()
+        );
+
+        let mut device_keys = device_keys();
+        device_keys.unsigned.as_mut().unwrap().device_display_name =
+            "Alice's work computer".to_owned();
+        device.update_device(&device_keys);
+
+        assert_eq!(
+            "Alice's work computer",
+            device.display_name().as_ref().unwrap()
         );
     }
 }
