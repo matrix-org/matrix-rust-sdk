@@ -26,8 +26,13 @@ use olm_rs::account::{IdentityKeys, OlmAccount, OneTimeKeys};
 use olm_rs::errors::{OlmAccountError, OlmGroupSessionError, OlmSessionError};
 use olm_rs::inbound_group_session::OlmInboundGroupSession;
 use olm_rs::outbound_group_session::OlmOutboundGroupSession;
-use olm_rs::session::{OlmMessage, OlmSession, PreKeyMessage};
+use olm_rs::session::OlmSession;
 use olm_rs::PicklingMode;
+
+pub use olm_rs::{
+    session::{OlmMessage, PreKeyMessage},
+    utility::OlmUtility,
+};
 
 use crate::api::r0::keys::SignedKey;
 use crate::identifiers::RoomId;

@@ -21,28 +21,17 @@ use std::result::Result as StdResult;
 use uuid::Uuid;
 
 use super::error::{OlmError, Result, SignatureError, VerificationResult};
-use super::olm::{Account, GroupSessionKey, InboundGroupSession, OutboundGroupSession, Session};
+use super::olm::{
+    Account, GroupSessionKey, InboundGroupSession, OlmMessage, OlmUtility, OutboundGroupSession,
+    Session,
+};
 use super::store::memorystore::MemoryStore;
 #[cfg(feature = "sqlite-cryptostore")]
 use super::store::sqlite::SqliteStore;
 use super::{device::Device, CryptoStore};
+
 use crate::api;
-
-use api::r0::keys;
-
-use cjson;
-use olm_rs::{session::OlmMessage, utility::OlmUtility};
-use serde_json::{json, Value};
-use tracing::{debug, error, info, instrument, trace, warn};
-
-use ruma_client_api::r0::client_exchange::{
-    send_event_to_device::Request as ToDeviceRequest, DeviceIdOrAllDevices,
-};
-use ruma_client_api::r0::keys::{
-    AlgorithmAndDeviceId, DeviceKeys, KeyAlgorithm, OneTimeKey, SignedKey,
-};
-use ruma_client_api::r0::sync::sync_events::IncomingResponse as SyncResponse;
-use ruma_events::{
+use crate::events::{
     collections::all::RoomEvent,
     room::encrypted::{
         CiphertextInfo, EncryptedEvent, EncryptedEventContent, MegolmV1AesSha2Content,
@@ -55,8 +44,18 @@ use ruma_events::{
     },
     Algorithm, EventResult, EventType,
 };
-use ruma_identifiers::RoomId;
-use ruma_identifiers::{DeviceId, UserId};
+use crate::identifiers::{DeviceId, RoomId, UserId};
+
+use api::r0::keys;
+use api::r0::{
+    client_exchange::{send_event_to_device::Request as ToDeviceRequest, DeviceIdOrAllDevices},
+    keys::{AlgorithmAndDeviceId, DeviceKeys, KeyAlgorithm, OneTimeKey, SignedKey},
+    sync::sync_events::IncomingResponse as SyncResponse,
+};
+
+use cjson;
+use serde_json::{json, Value};
+use tracing::{debug, error, info, instrument, trace, warn};
 
 pub type OneTimeKeys = HashMap<AlgorithmAndDeviceId, OneTimeKey>;
 
