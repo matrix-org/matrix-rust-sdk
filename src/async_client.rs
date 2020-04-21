@@ -55,16 +55,16 @@ const DEFAULT_SYNC_TIMEOUT: Duration = Duration::from_secs(30);
 /// An async/await enabled Matrix client.
 ///
 /// All of the state is held in an `Arc` so the `AsyncClient` can be cloned freely.
-pub struct AsyncClient<State> {
+pub struct AsyncClient {
     /// The URL of the homeserver to connect to.
     homeserver: Url,
     /// The underlying HTTP client.
     http_client: reqwest::Client,
     /// User session data.
-    pub(crate) base_client: Arc<RwLock<BaseClient<State>>>,
+    pub(crate) base_client: Arc<RwLock<BaseClient>>,
 }
 
-impl<State> std::fmt::Debug for AsyncClient<State> {
+impl std::fmt::Debug for AsyncClient {
     fn fmt(&self, fmt: &mut std::fmt::Formatter<'_>) -> StdResult<(), std::fmt::Error> {
         write!(fmt, "AsyncClient {{ homeserver: {} }}", self.homeserver)
     }
@@ -197,7 +197,7 @@ use api::r0::room::create_room;
 use api::r0::session::login;
 use api::r0::sync::sync_events;
 
-impl<State> AsyncClient<State> {
+impl AsyncClient {
     /// Creates a new client for making HTTP requests to the given homeserver.
     ///
     /// # Arguments
@@ -1119,7 +1119,7 @@ mod test {
             device_id: "DEVICEID".to_owned(),
         };
         let homeserver = url::Url::parse(&mockito::server_url()).unwrap();
-        let client = AsyncClient::<()>::new(homeserver, Some(session)).unwrap();
+        let client = AsyncClient::new(homeserver, Some(session)).unwrap();
 
         let rid = RoomId::try_from("!roomid:room.com").unwrap();
         let uid = UserId::try_from("@example:localhost").unwrap();
@@ -1151,7 +1151,7 @@ mod test {
         };
 
         let homeserver = url::Url::parse(&mockito::server_url()).unwrap();
-        let client = AsyncClient::<()>::new(homeserver, Some(session)).unwrap();
+        let client = AsyncClient::new(homeserver, Some(session)).unwrap();
 
         let mut bld = EventBuilder::default()
             .add_room_event_from_file("./tests/data/events/member.json", RoomEvent::RoomMember)
@@ -1181,7 +1181,7 @@ mod test {
             .with_body_from_file("tests/data/login_response_error.json")
             .create();
 
-        let client = AsyncClient::<()>::new(homeserver, None).unwrap();
+        let client = AsyncClient::new(homeserver, None).unwrap();
 
         if let Err(err) = client.login("example", "wordpass", None, None).await {
             if let crate::Error::RumaResponse(ruma_api::error::FromHttpResponseError::Http(

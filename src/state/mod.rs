@@ -42,14 +42,10 @@ pub struct ClientState {
 
 /// Abstraction around the data store to avoid unnecessary request on client initialization.
 pub trait StateStore: Send + Sync {
-    /// The type of store to create. The default `JsonStore` uses `ClientState` as the store
-    /// to serialize and deserialize state to JSON files.
-    type Store;
-
     /// Set up connections or open files to load/save state.
     fn open(&self, path: &Path) -> Result<()>;
     /// Loads the state of `BaseClient` through `StateStore::Store` type.
-    fn load_client_state(&self, path: &Path) -> Result<Self::Store>;
+    fn load_client_state(&self, path: &Path) -> Result<ClientState>;
     /// Load the state of a single `Room` by `RoomId`.
     fn load_room_state(&self, path: &Path, room_id: &RoomId) -> Result<Room>;
     /// Load the state of all `Room`s.
@@ -57,7 +53,7 @@ pub trait StateStore: Send + Sync {
     /// This will be mapped over in the client in order to store `Room`s in an async safe way.
     fn load_all_rooms(&self, path: &Path) -> Result<HashMap<RoomId, Room>>;
     /// Save the current state of the `BaseClient` using the `StateStore::Store` type.
-    fn store_client_state(&self, path: &Path, _: Self::Store) -> Result<()>;
+    fn store_client_state(&self, path: &Path, _: ClientState) -> Result<()>;
     /// Save the state a single `Room`.
     fn store_room_state(&self, path: &Path, _: &Room) -> Result<()>;
 }

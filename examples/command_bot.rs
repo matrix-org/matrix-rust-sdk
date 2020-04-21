@@ -15,11 +15,11 @@ struct CommandBot {
     ///
     /// The type parameter is for the `StateStore` trait specifying the `Store`
     /// type for state storage, here we don't care.
-    client: AsyncClient<()>,
+    client: AsyncClient,
 }
 
 impl CommandBot {
-    pub fn new(client: AsyncClient<()>) -> Self {
+    pub fn new(client: AsyncClient) -> Self {
         Self { client }
     }
 }

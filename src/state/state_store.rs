@@ -11,8 +11,6 @@ use crate::{Error, Result, Room};
 pub struct JsonStore;
 
 impl StateStore for JsonStore {
-    type Store = ClientState;
-
     fn open(&self, path: &Path) -> Result<()> {
         if !path.exists() {
             std::fs::create_dir_all(path)?;
