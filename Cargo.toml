@@ -31,7 +31,7 @@ ruma-identifiers = "0.14.1"
 uuid = { version = "0.8.1", features = ["v4"] }
 
 # Dependencies for the encryption support
-olm-rs = { git = "https://gitlab.gnome.org/poljar/olm-rs", optional = true, features = ["serde"]}
+olm-rs = { version = "0.5.0", optional = true, features = ["serde"]}
 serde = { version = "1.0.106", optional = true, features = ["derive"] }
 serde_json = { version = "1.0.51", optional = true }
 cjson = { version = "0.1.0", optional = true }
