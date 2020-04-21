@@ -115,6 +115,11 @@ impl Device {
         &self.algorithms
     }
 
+    /// Is the device deleted.
+    pub fn deleted(&self) -> bool {
+        self.deleted.load(Ordering::Relaxed)
+    }
+
     /// Update a device with a new device keys struct.
     pub(crate) fn update_device(&mut self, device_keys: &DeviceKeys) {
         let mut keys = HashMap::new();
@@ -137,6 +142,11 @@ impl Device {
         );
         mem::replace(&mut self.keys, Arc::new(keys));
         mem::replace(&mut self.display_name, display_name);
+    }
+
+    /// Mark the device as deleted.
+    pub(crate) fn mark_as_deleted(&self) {
+        self.deleted.store(true, Ordering::Relaxed);
     }
 }
 
@@ -257,5 +267,17 @@ pub(crate) mod test {
             "Alice's work computer",
             device.display_name().as_ref().unwrap()
         );
+    }
+
+    #[test]
+    fn delete_a_device() {
+        let device = get_device();
+        assert!(!device.deleted());
+
+        let device_clone = device.clone();
+
+        device.mark_as_deleted();
+        assert!(device.deleted());
+        assert!(device_clone.deleted());
     }
 }
