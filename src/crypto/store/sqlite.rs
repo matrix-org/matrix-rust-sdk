@@ -609,6 +609,7 @@ impl CryptoStore for SqliteStore {
     }
 
     async fn save_device(&self, device: Device) -> Result<()> {
+        self.devices.add(device.clone());
         self.save_device_helper(device).await
     }
 
