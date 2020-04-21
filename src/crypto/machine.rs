@@ -1248,6 +1248,27 @@ mod test {
         keys::upload_keys::Response::try_from(data).expect("Can't parse the keys upload response")
     }
 
+    fn keys_query_response() -> keys::get_keys::Response {
+        let data = response_from_file("tests/data/keys_query.json");
+        keys::get_keys::Response::try_from(data).expect("Can't parse the keys upload response")
+    }
+
+    async fn get_prepared_machine() -> OlmMachine {
+        let mut machine = OlmMachine::new(&user_id(), DEVICE_ID).unwrap();
+        machine.uploaded_signed_key_count = Some(0);
+        let (_, _) = machine
+            .keys_for_upload()
+            .await
+            .expect("Can't prepare initial key upload");
+        let response = keys_upload_response();
+        machine
+            .receive_keys_upload_response(&response)
+            .await
+            .unwrap();
+
+        machine
+    }
+
     #[tokio::test]
     async fn create_olm_machine() {
         let machine = OlmMachine::new(&user_id(), DEVICE_ID).unwrap();
@@ -1413,5 +1434,30 @@ mod test {
 
         let ret = machine.keys_for_upload().await;
         assert!(ret.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_keys_query() {
+        let mut machine = get_prepared_machine().await;
+        let response = keys_query_response();
+        let alice_id = UserId::try_from("@alice:example.org").unwrap();
+        let alice_device_id = "JLAFKJWSCS".to_owned();
+
+        let alice_devices = machine.store.get_user_devices(&alice_id).await.unwrap();
+        assert!(alice_devices.devices().peekable().peek().is_none());
+
+        machine
+            .receive_keys_query_response(&response)
+            .await
+            .unwrap();
+
+        let device = machine
+            .store
+            .get_device(&alice_id, &alice_device_id)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(device.user_id(), &alice_id);
+        assert_eq!(device.device_id(), &alice_device_id);
     }
 }
