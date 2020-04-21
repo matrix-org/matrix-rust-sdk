@@ -342,15 +342,17 @@ impl OlmMachine {
 
     /// Receive a successful keys query response.
     ///
+    /// Returns a list of devices newly discovered devices and devices that
+    /// changed.
+    ///
     /// # Arguments
     ///
     /// * `response` - The keys query response of the request that the client
     /// performed.
-    // TODO this should return a list of changed devices.
     pub async fn receive_keys_query_response(
         &mut self,
         response: &keys::get_keys::Response,
-    ) -> Result<()> {
+    ) -> Result<Vec<Device>> {
         let mut changed_devices = Vec::new();
 
         for (user_id, device_map) in &response.device_keys {
@@ -370,20 +372,15 @@ impl OlmMachine {
                     continue;
                 }
 
-                // let curve_key_id =
-                //     AlgorithmAndDeviceId(KeyAlgorithm::Curve25519, device_id.to_owned());
                 let ed_key_id = AlgorithmAndDeviceId(KeyAlgorithm::Ed25519, device_id.to_owned());
-
-                // TODO check if the curve key changed for an existing device.
-                // let sender_key = if let Some(k) = device_keys.keys.get(&curve_key_id) {
-                //     k
-                // } else {
-                //     continue;
-                // };
 
                 let signing_key = if let Some(k) = device_keys.keys.get(&ed_key_id) {
                     k
                 } else {
+                    warn!(
+                        "Ed25519 identity key wasn't found for user/device {} {}",
+                        user_id, device_id
+                    );
                     continue;
                 };
 
@@ -398,19 +395,28 @@ impl OlmMachine {
                     continue;
                 }
 
-                let device = self
-                    .store
-                    .get_device(&user_id, device_id)
-                    .await
-                    .expect("Can't load device");
+                let device = self.store.get_device(&user_id, device_id).await?;
 
-                if let Some(_d) = device {
-                    // TODO check what and if anything changed for the device.
+                let device = if let Some(mut d) = device {
+                    let stored_signing_key = d.get_key(&KeyAlgorithm::Ed25519);
+
+                    if let Some(stored_signing_key) = stored_signing_key {
+                        if stored_signing_key != signing_key {
+                            warn!("Ed25519 key has changed for {} {}", user_id, device_id);
+                            continue;
+                        }
+                    }
+
+                    d.update_device(device_keys);
+
+                    d
                 } else {
                     let device = Device::from(device_keys);
-                    info!("Found new device {:?}", device);
-                    changed_devices.push(device);
-                }
+                    info!("Adding a new device to the device store {:?}", device);
+                    device
+                };
+
+                changed_devices.push(device);
             }
 
             let current_devices: HashSet<&DeviceId> = device_map.keys().collect();
@@ -419,16 +425,20 @@ impl OlmMachine {
 
             let deleted_devices = stored_devices_set.difference(&current_devices);
 
-            for _device_id in deleted_devices {
-                // TODO delete devices here.
+            for device_id in deleted_devices {
+                if let Some(device) = stored_devices.get(device_id) {
+                    device.mark_as_deleted();
+                    // TODO change this to a delete device.
+                    self.store.save_device(device).await?;
+                }
             }
         }
 
-        for device in changed_devices {
-            self.store.save_device(device).await.unwrap();
+        for device in &changed_devices {
+            self.store.save_device(device.clone()).await?;
         }
 
-        Ok(())
+        Ok(changed_devices)
     }
 
     /// Generate new one-time keys.
