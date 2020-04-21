@@ -185,6 +185,16 @@ impl DeviceStore {
             .and_then(|m| m.get(device_id).map(|d| d.value().clone()))
     }
 
+    /// Remove the device with the given device_id and belonging to the given user.
+    ///
+    /// Returns the device if it was removed, None if it wasn't in the store.
+    pub fn remove(&self, user_id: &UserId, device_id: &str) -> Option<Device> {
+        self.entries
+            .get(user_id)
+            .and_then(|m| m.remove(device_id))
+            .and_then(|(_, d)| Some(d))
+    }
+
     /// Get a read-only view over all devices of the given user.
     pub fn user_devices(&self, user_id: &UserId) -> UserDevices {
         if !self.entries.contains_key(user_id) {
@@ -286,5 +296,10 @@ mod test {
         let loaded_device = user_devices.get(device.device_id()).unwrap();
 
         assert_eq!(device, loaded_device);
+
+        store.remove(device.user_id(), device.device_id());
+
+        let loaded_device = store.get(device.user_id(), device.device_id());
+        assert!(loaded_device.is_none());
     }
 }
