@@ -23,6 +23,7 @@ use crate::api::r0::keys::{DeviceKeys, KeyAlgorithm};
 use crate::events::Algorithm;
 use crate::identifiers::{DeviceId, UserId};
 
+/// A device represents a E2EE capable client of an user.
 #[derive(Debug, Clone)]
 pub struct Device {
     user_id: Arc<UserId>,

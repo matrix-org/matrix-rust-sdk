@@ -12,15 +12,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-mod error;
-// TODO remove this.
 mod device;
+mod error;
 mod machine;
 mod memory_stores;
-#[allow(dead_code)]
 mod olm;
 mod store;
 
+pub use device::{Device, TrustState};
 pub use error::OlmError;
 pub use machine::{OlmMachine, OneTimeKeys};
 pub use store::{CryptoStore, CryptoStoreError};
