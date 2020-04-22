@@ -655,13 +655,13 @@ impl OlmMachine {
 
     async fn try_decrypt_olm_event(
         &mut self,
-        sender: &str,
+        sender: &UserId,
         sender_key: &str,
         message: &OlmMessage,
     ) -> Result<Option<String>> {
         let s = self.store.get_sessions(sender_key).await?;
 
-        /// We don't have any existing sessions, return early.
+        // We don't have any existing sessions, return early.
         let sessions = if let Some(s) = s {
             s
         } else {
@@ -708,10 +708,10 @@ impl OlmMachine {
 
     async fn decrypt_olm_message(
         &mut self,
-        sender: &str,
+        sender: &UserId,
         sender_key: &str,
         message: OlmMessage,
-    ) -> Result<EventResult<ToDeviceEvent>> {
+    ) -> Result<(EventResult<ToDeviceEvent>, String)> {
         // First try to decrypt using an existing session.
         let plaintext = if let Some(p) = self
             .try_decrypt_olm_event(sender, sender_key, &message)
@@ -724,8 +724,8 @@ impl OlmMachine {
             // Decryption failed with every known session, let's try to create a
             // new session.
             let mut session = match &message {
-                /// A new session can only be created using a pre-key message,
-                /// return with an error if it isn't one.
+                // A new session can only be created using a pre-key message,
+                // return with an error if it isn't one.
                 OlmMessage::Message(_) => {
                     warn!(
                         "Failed to decrypt a non-pre-key message with all
@@ -736,7 +736,7 @@ impl OlmMachine {
                 }
 
                 OlmMessage::PreKey(m) => {
-                    /// Create the new session.
+                    // Create the new session.
                     let session = match self
                         .account
                         .create_inbound_session(sender_key, m.clone())
@@ -753,32 +753,79 @@ impl OlmMachine {
                         }
                     };
 
-                    /// Save the account since we remove the one-time key that
-                    /// was used to create this session.
+                    // Save the account since we remove the one-time key that
+                    // was used to create this session.
                     self.store.save_account(self.account.clone()).await?;
                     session
                 }
             };
 
-            /// Decrypt our message, this shouldn't fail since we're using a
-            /// newly created Session.
+            // Decrypt our message, this shouldn't fail since we're using a
+            // newly created Session.
             let plaintext = session.decrypt(message).await?;
 
-            /// Save the new ratcheted state of the session.
+            // Save the new ratcheted state of the session.
             self.store.save_session(session).await?;
             plaintext
         };
 
         trace!("Successfully decrypted a Olm message: {}", plaintext);
 
-        // TODO get the recipient, recipient_keys, and keys out of here
-        // separately.
-        // TODO verify that the recipient, recipient_keys match with us.
-        // TODO verify that the sender in the decrypted event matches the one in
-        // the unencrypted one.
-        Ok(serde_json::from_str::<EventResult<ToDeviceEvent>>(
-            &plaintext,
-        )?)
+        Ok(self.parse_decrypted_to_device_event(sender, &plaintext)?)
+    }
+
+    fn parse_decrypted_to_device_event(
+        &self,
+        sender: &UserId,
+        plaintext: &str,
+    ) -> Result<(EventResult<ToDeviceEvent>, String)> {
+        // TODO make the errors a bit more specific.
+        let decrypted_json: Value = serde_json::from_str(&plaintext)?;
+
+        let encrytped_sender = decrypted_json
+            .get("sender")
+            .cloned()
+            .ok_or(OlmError::MissingCiphertext)?;
+        let encrytped_sender: UserId = serde_json::from_value(encrytped_sender)?;
+        let recipient = decrypted_json
+            .get("recipient")
+            .cloned()
+            .ok_or(OlmError::MissingCiphertext)?;
+        let recipient: UserId = serde_json::from_value(recipient)?;
+
+        let recipient_keys: HashMap<KeyAlgorithm, String> = serde_json::from_value(
+            decrypted_json
+                .get("recipient_keys")
+                .cloned()
+                .ok_or(OlmError::MissingCiphertext)?,
+        )?;
+        let keys: HashMap<KeyAlgorithm, String> = serde_json::from_value(
+            decrypted_json
+                .get("keys")
+                .cloned()
+                .ok_or(OlmError::MissingCiphertext)?,
+        )?;
+
+        if recipient != self.user_id || sender != &encrytped_sender {
+            return Err(OlmError::MissingCiphertext);
+        }
+
+        if self.account.identity_keys().ed25519()
+            != recipient_keys
+                .get(&KeyAlgorithm::Ed25519)
+                .ok_or(OlmError::MissingCiphertext)?
+        {
+            return Err(OlmError::MissingCiphertext);
+        }
+
+        let signing_key = keys
+            .get(&KeyAlgorithm::Ed25519)
+            .ok_or(OlmError::MissingSigningKey)?;
+
+        Ok((
+            serde_json::from_value::<EventResult<ToDeviceEvent>>(decrypted_json)?,
+            signing_key.to_owned(),
+        ))
     }
 
     /// Decrypt a to-device event.
@@ -820,16 +867,20 @@ impl OlmMachine {
                     .map_err(|_| OlmError::UnsupportedOlmType)?;
 
             // Decrypt the OlmMessage and get a Ruma event out of it.
-            let mut decrypted_event = self
-                .decrypt_olm_message(&event.sender.to_string(), &content.sender_key, message)
+            let (mut decrypted_event, signing_key) = self
+                .decrypt_olm_message(&event.sender, &content.sender_key, message)
                 .await?;
 
             debug!("Decrypted a to-device event {:?}", decrypted_event);
 
             // Handle the decrypted event, e.g. fetch out megolm sessions out of
             // the event.
-            self.handle_decrypted_to_device_event(&content.sender_key, &mut decrypted_event)
-                .await?;
+            self.handle_decrypted_to_device_event(
+                &content.sender_key,
+                &signing_key,
+                &mut decrypted_event,
+            )
+            .await?;
 
             Ok(decrypted_event)
         } else {
@@ -838,14 +889,14 @@ impl OlmMachine {
         }
     }
 
-    async fn add_room_key(&mut self, sender_key: &str, event: &mut ToDeviceRoomKey) -> Result<()> {
+    async fn add_room_key(
+        &mut self,
+        sender_key: &str,
+        signing_key: &str,
+        event: &mut ToDeviceRoomKey,
+    ) -> Result<()> {
         match event.content.algorithm {
             Algorithm::MegolmV1AesSha2 => {
-                let signing_key = event
-                    .keys
-                    .get("ed25519")
-                    .ok_or(OlmError::MissingSigningKey)?;
-
                 let session_key = GroupSessionKey(mem::take(&mut event.content.session_key));
 
                 let session = InboundGroupSession::new(
@@ -1101,6 +1152,7 @@ impl OlmMachine {
     fn add_forwarded_room_key(
         &self,
         _sender_key: &str,
+        _signing_key: &str,
         _event: &ToDeviceForwardedRoomKey,
     ) -> Result<()> {
         Ok(())
@@ -1110,6 +1162,7 @@ impl OlmMachine {
     async fn handle_decrypted_to_device_event(
         &mut self,
         sender_key: &str,
+        signing_key: &str,
         event: &mut EventResult<ToDeviceEvent>,
     ) -> Result<()> {
         let event = if let EventResult::Ok(e) = event {
@@ -1120,8 +1173,10 @@ impl OlmMachine {
         };
 
         match event {
-            ToDeviceEvent::RoomKey(e) => self.add_room_key(sender_key, e).await,
-            ToDeviceEvent::ForwardedRoomKey(e) => self.add_forwarded_room_key(sender_key, e),
+            ToDeviceEvent::RoomKey(e) => self.add_room_key(sender_key, signing_key, e).await,
+            ToDeviceEvent::ForwardedRoomKey(e) => {
+                self.add_forwarded_room_key(sender_key, signing_key, e)
+            }
             _ => {
                 warn!("Received a unexpected encrypted to-device event");
                 Ok(())
