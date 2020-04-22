@@ -19,6 +19,7 @@ use std::collections::HashSet;
 use std::fmt;
 use std::sync::Arc;
 
+use std::path::PathBuf;
 #[cfg(feature = "encryption")]
 use std::result::Result as StdResult;
 
@@ -34,7 +35,7 @@ use crate::events::EventResult;
 use crate::identifiers::{RoomId, UserId};
 use crate::models::Room;
 use crate::session::Session;
-use crate::state::StateStore;
+use crate::state::{ClientState, StateStore};
 use crate::EventEmitter;
 
 #[cfg(feature = "encryption")]
@@ -144,6 +145,7 @@ impl Client {
     pub async fn receive_login_response(
         &mut self,
         response: &api::session::login::Response,
+        store_path: Option<&PathBuf>,
     ) -> Result<()> {
         let session = Session {
             access_token: response.access_token.clone(),
@@ -156,6 +158,27 @@ impl Client {
         {
             let mut olm = self.olm.lock().await;
             *olm = Some(OlmMachine::new(&response.user_id, &response.device_id)?);
+        }
+
+        if let Some(path) = store_path {
+            if let Some(store) = self.state_store.as_ref() {
+                let ClientState {
+                    session,
+                    sync_token,
+                    ignored_users,
+                    push_ruleset,
+                } = store.load_client_state(&path).await?;
+                let mut rooms = store.load_all_rooms(&path).await?;
+
+                self.joined_rooms = rooms
+                    .drain()
+                    .map(|(k, room)| (k, Arc::new(RwLock::new(room))))
+                    .collect();
+                self.session = session;
+                self.sync_token = sync_token;
+                self.ignored_users = ignored_users;
+                self.push_ruleset = push_ruleset;
+            }
         }
 
         Ok(())
@@ -235,10 +258,14 @@ impl Client {
     /// * `room_id` - The unique id of the room the event belongs to.
     ///
     /// * `event` - The event that should be handled by the client.
+    ///
+    /// * `did_update` - This is used internally to confirm when the state has
+    /// been updated.
     pub async fn receive_joined_timeline_event(
         &mut self,
         room_id: &RoomId,
         event: &mut EventResult<RoomEvent>,
+        did_update: &mut bool,
     ) -> Option<EventResult<RoomEvent>> {
         match event {
             EventResult::Ok(e) => {
@@ -263,7 +290,8 @@ impl Client {
                 }
 
                 let mut room = self.get_or_create_room(&room_id).write().await;
-                room.receive_timeline_event(e);
+                // Not sure what the best way to do this is ??
+                *did_update = room.receive_timeline_event(e);
                 decrypted_event
             }
             _ => None,

@@ -15,6 +15,8 @@
 
 use std::collections::HashMap;
 use std::convert::{TryFrom, TryInto};
+use std::ops::Deref;
+use std::path::{Path, PathBuf};
 use std::result::Result as StdResult;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -46,6 +48,7 @@ use crate::api;
 use crate::base_client::Client as BaseClient;
 use crate::models::Room;
 use crate::session::Session;
+use crate::state::{ClientState, JsonStore, StateStore};
 use crate::VERSION;
 use crate::{Error, EventEmitter, Result};
 
@@ -62,6 +65,8 @@ pub struct AsyncClient {
     http_client: reqwest::Client,
     /// User session data.
     pub(crate) base_client: Arc<RwLock<BaseClient>>,
+    /// The path to the default state store.
+    state_store_path: Option<PathBuf>,
 }
 
 impl std::fmt::Debug for AsyncClient {
@@ -70,7 +75,7 @@ impl std::fmt::Debug for AsyncClient {
     }
 }
 
-#[derive(Default, Debug)]
+#[derive(Default)]
 /// Configuration for the creation of the `AsyncClient`.
 ///
 /// # Example
@@ -88,6 +93,19 @@ pub struct AsyncClientConfig {
     proxy: Option<reqwest::Proxy>,
     user_agent: Option<HeaderValue>,
     disable_ssl_verification: bool,
+    store_path: Option<PathBuf>,
+    state_store: Option<Box<dyn StateStore>>,
+}
+
+impl std::fmt::Debug for AsyncClientConfig {
+    fn fmt(&self, fmt: &mut std::fmt::Formatter<'_>) -> StdResult<(), std::fmt::Error> {
+        fmt.debug_struct("AsyncClientConfig")
+            .field("proxy", &self.proxy)
+            .field("user_agent", &self.user_agent)
+            .field("disable_ssl_verification", &self.disable_ssl_verification)
+            .field("store_path", &self.store_path)
+            .finish()
+    }
 }
 
 impl AsyncClientConfig {
@@ -128,6 +146,23 @@ impl AsyncClientConfig {
     pub fn user_agent(mut self, user_agent: &str) -> StdResult<Self, InvalidHeaderValue> {
         self.user_agent = Some(HeaderValue::from_str(user_agent)?);
         Ok(self)
+    }
+
+    /// Set the path for the default `StateStore`.
+    ///
+    /// When the path is set `AsyncClient` will set the state store
+    /// to `JsonStore`.
+    pub fn state_store_path<P: AsRef<Path>>(mut self, path: P) -> Self {
+        self.store_path = Some(path.as_ref().to_owned());
+        self
+    }
+
+    /// Set a custom implementation of a `StateStore`.
+    ///
+    /// The state store should be "connected" before being set.
+    pub fn state_store(mut self, store: Box<dyn StateStore>) -> Self {
+        self.state_store = Some(store);
+        self
     }
 }
 
@@ -253,10 +288,20 @@ impl AsyncClient {
 
         let http_client = http_client.default_headers(headers).build()?;
 
+        let mut base_client = BaseClient::new(session)?;
+        if let Some(path) = config.store_path.as_ref() {
+            let store = JsonStore;
+            store.open(path)?;
+            base_client.state_store = Some(Box::new(store));
+        } else if let Some(store) = config.state_store {
+            base_client.state_store = Some(store);
+        };
+
         Ok(Self {
             homeserver,
             http_client,
-            base_client: Arc::new(RwLock::new(BaseClient::new(session)?)),
+            base_client: Arc::new(RwLock::new(base_client)),
+            state_store_path: config.store_path,
         })
     }
 
@@ -337,7 +382,15 @@ impl AsyncClient {
 
         let response = self.send(request).await?;
         let mut client = self.base_client.write().await;
-        client.receive_login_response(&response).await?;
+        // TODO avoid allocation somehow?
+        let path = self.state_store_path.as_ref().map(|p| {
+            let mut path = PathBuf::from(p);
+            path.push(response.user_id.to_string());
+            path
+        });
+        client
+            .receive_login_response(&response, path.as_ref())
+            .await?;
 
         Ok(response)
     }
@@ -485,7 +538,7 @@ impl AsyncClient {
     ///     .name("name")
     ///     .room_version("v1.0");
     ///
-    /// let mut cli = AsyncClient::<(), ()>::new(homeserver, None).unwrap();
+    /// let mut cli = AsyncClient::new(homeserver, None).unwrap();
     /// # use futures::executor::block_on;
     /// # block_on(async {
     /// assert!(cli.create_room(builder).await.is_ok());
@@ -529,7 +582,7 @@ impl AsyncClient {
     ///     .direction(Direction::Backward)
     ///     .limit(UInt::new(10).unwrap());
     ///
-    /// let mut cli = AsyncClient::<(), ()>::new(homeserver, None).unwrap();
+    /// let mut cli = AsyncClient::new(homeserver, None).unwrap();
     /// # use futures::executor::block_on;
     /// # block_on(async {
     /// assert!(cli.room_messages(builder).await.is_ok());
@@ -560,12 +613,15 @@ impl AsyncClient {
 
         let mut response = self.send(request).await?;
 
+        let mut updated = false;
         for (room_id, room) in &mut response.rooms.join {
             let matrix_room = {
                 let mut client = self.base_client.write().await;
                 for event in &room.state.events {
                     if let EventResult::Ok(e) = event {
-                        client.receive_joined_state_event(&room_id, &e).await;
+                        if client.receive_joined_state_event(&room_id, &e).await {
+                            updated = true;
+                        }
                     }
                 }
 
@@ -586,9 +642,14 @@ impl AsyncClient {
             for mut event in &mut room.timeline.events {
                 let decrypted_event = {
                     let mut client = self.base_client.write().await;
-                    client
-                        .receive_joined_timeline_event(room_id, &mut event)
-                        .await
+                    let mut timeline_update = false;
+                    let decrypt_ev = client
+                        .receive_joined_timeline_event(room_id, &mut event, &mut timeline_update)
+                        .await;
+                    if timeline_update {
+                        updated = true;
+                    };
+                    decrypt_ev
                 };
 
                 if let Some(e) = decrypted_event {
@@ -606,7 +667,9 @@ impl AsyncClient {
                 {
                     if let EventResult::Ok(e) = account_data {
                         let mut client = self.base_client.write().await;
-                        client.receive_account_data_event(&room_id, e).await;
+                        if client.receive_account_data_event(&room_id, e).await {
+                            updated = true;
+                        }
                         client.emit_account_data_event(room_id, e).await;
                     }
                 }
@@ -619,7 +682,9 @@ impl AsyncClient {
                 {
                     if let EventResult::Ok(e) = presence {
                         let mut client = self.base_client.write().await;
-                        client.receive_presence_event(&room_id, e).await;
+                        if client.receive_presence_event(&room_id, e).await {
+                            updated = true;
+                        }
 
                         client.emit_presence_event(room_id, e).await;
                     }
@@ -630,10 +695,22 @@ impl AsyncClient {
                 {
                     if let EventResult::Ok(e) = ephemeral {
                         let mut client = self.base_client.write().await;
-                        client.receive_ephemeral_event(&room_id, e).await;
+                        if client.receive_ephemeral_event(&room_id, e).await {
+                            updated = true;
+                        }
 
                         client.emit_ephemeral_event(room_id, e).await;
                     }
+                }
+            }
+
+            if updated {
+                if let Some(store) = self.base_client.read().await.state_store.as_ref() {
+                    if let Some(path) = self.state_store_path.as_ref() {
+                        store
+                            .store_room_state(&path, matrix_room.read().await.deref())
+                            .await?;
+                    };
                 }
             }
         }
@@ -641,6 +718,14 @@ impl AsyncClient {
         let mut client = self.base_client.write().await;
         client.receive_sync_response(&mut response).await;
 
+        if updated {
+            if let Some(store) = client.state_store.as_ref() {
+                if let Some(path) = self.state_store_path.as_ref() {
+                    let state = ClientState::from_base_client(&client);
+                    store.store_client_state(&path, state).await?;
+                };
+            }
+        }
         Ok(response)
     }
 
@@ -673,7 +758,7 @@ impl AsyncClient {
     /// # use futures::executor::block_on;
     /// # block_on(async {
     /// # let homeserver = Url::parse("http://localhost:8080").unwrap();
-    /// # let mut client = AsyncClient::<(), ()>::new(homeserver, None).unwrap();
+    /// # let mut client = AsyncClient::new(homeserver, None).unwrap();
     ///
     /// use async_std::sync::channel;
     ///
@@ -862,7 +947,7 @@ impl AsyncClient {
     /// use matrix_sdk::events::room::message::{MessageEventContent, TextMessageEventContent};
     /// # block_on(async {
     /// # let homeserver = Url::parse("http://localhost:8080").unwrap();
-    /// # let mut client = AsyncClient::<(), ()>::new(homeserver, None).unwrap();
+    /// # let mut client = AsyncClient::new(homeserver, None).unwrap();
     /// # let room_id = RoomId::try_from("!test:localhost").unwrap();
     /// use uuid::Uuid;
     ///

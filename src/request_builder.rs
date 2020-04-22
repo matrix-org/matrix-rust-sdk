@@ -29,7 +29,7 @@ use js_int::UInt;
 ///     .visibility(Visibility::Public)
 ///     .name("name")
 ///     .room_version("v1.0");
-/// let mut cli = AsyncClient::<(), ()>::new(homeserver, None).unwrap();
+/// let mut cli = AsyncClient::new(homeserver, None).unwrap();
 /// cli.create_room(builder).await;
 /// # })
 /// ```
@@ -186,7 +186,7 @@ impl Into<create_room::Request> for RoomBuilder {
 /// # rt.block_on(async {
 /// # let room_id = RoomId::new(homeserver.as_str()).unwrap();
 /// # let last_sync_token = "".to_string();;
-/// let mut cli = AsyncClient::<(), ()>::new(homeserver, None).unwrap();
+/// let mut cli = AsyncClient::new(homeserver, None).unwrap();
 ///
 /// let mut builder = MessagesRequestBuilder::new();
 /// builder.room_id(room_id)

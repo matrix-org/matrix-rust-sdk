@@ -15,7 +15,7 @@ use crate::events::{
 use crate::identifiers::{RoomId, UserId};
 use crate::AsyncClient;
 
-use mockito::{self, mock, Mock};
+use mockito::{self, mock, Matcher, Mock};
 
 use crate::models::Room;
 
@@ -169,11 +169,7 @@ impl EventBuilder {
     ///
     /// The `TestRunner` streams the events to the client and holds methods to make assertions
     /// about the state of the client.
-    pub fn build_mock_runner<P: Into<mockito::Matcher>>(
-        mut self,
-        method: &str,
-        path: P,
-    ) -> MockTestRunner {
+    pub fn build_mock_runner<P: Into<Matcher>>(mut self, method: &str, path: P) -> MockTestRunner {
         let body = serde_json::json! {
             {
                 "device_one_time_keys_count": {},
@@ -344,8 +340,12 @@ impl ClientTestRunner {
         }
 
         for event in &self.room_events {
-            cli.receive_joined_timeline_event(room_id, &mut EventResult::Ok(event.clone()))
-                .await;
+            cli.receive_joined_timeline_event(
+                room_id,
+                &mut EventResult::Ok(event.clone()),
+                &mut false,
+            )
+            .await;
         }
         for event in &self.presence_events {
             cli.receive_presence_event(room_id, event).await;

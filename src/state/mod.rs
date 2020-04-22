@@ -21,7 +21,7 @@ pub use state_store::JsonStore;
 
 use serde::{Deserialize, Serialize};
 
-use crate::base_client::Token;
+use crate::base_client::{Client as BaseClient, Token};
 use crate::events::push_rules::Ruleset;
 use crate::identifiers::{RoomId, UserId};
 use crate::models::Room;
@@ -40,22 +40,41 @@ pub struct ClientState {
     pub push_ruleset: Option<Ruleset>,
 }
 
+impl ClientState {
+    pub fn from_base_client(client: &BaseClient) -> ClientState {
+        let BaseClient {
+            session,
+            sync_token,
+            ignored_users,
+            push_ruleset,
+            ..
+        } = client;
+        Self {
+            session: session.clone(),
+            sync_token: sync_token.clone(),
+            ignored_users: ignored_users.clone(),
+            push_ruleset: push_ruleset.clone(),
+        }
+    }
+}
+
 /// Abstraction around the data store to avoid unnecessary request on client initialization.
+#[async_trait::async_trait]
 pub trait StateStore: Send + Sync {
-    /// Set up connections or open files to load/save state.
+    /// Set up connections or check files exist to load/save state.
     fn open(&self, path: &Path) -> Result<()>;
     /// Loads the state of `BaseClient` through `StateStore::Store` type.
-    fn load_client_state(&self, path: &Path) -> Result<ClientState>;
+    async fn load_client_state(&self, path: &Path) -> Result<ClientState>;
     /// Load the state of a single `Room` by `RoomId`.
-    fn load_room_state(&self, path: &Path, room_id: &RoomId) -> Result<Room>;
+    async fn load_room_state(&self, path: &Path, room_id: &RoomId) -> Result<Room>;
     /// Load the state of all `Room`s.
     ///
     /// This will be mapped over in the client in order to store `Room`s in an async safe way.
-    fn load_all_rooms(&self, path: &Path) -> Result<HashMap<RoomId, Room>>;
+    async fn load_all_rooms(&self, path: &Path) -> Result<HashMap<RoomId, Room>>;
     /// Save the current state of the `BaseClient` using the `StateStore::Store` type.
-    fn store_client_state(&self, path: &Path, _: ClientState) -> Result<()>;
+    async fn store_client_state(&self, path: &Path, _: ClientState) -> Result<()>;
     /// Save the state a single `Room`.
-    fn store_room_state(&self, path: &Path, _: &Room) -> Result<()>;
+    async fn store_room_state(&self, path: &Path, _: &Room) -> Result<()>;
 }
 
 #[cfg(test)]
