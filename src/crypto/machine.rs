@@ -944,7 +944,7 @@ impl OlmMachine {
         &self,
         room_id: &RoomId,
         content: MessageEventContent,
-    ) -> Result<MegolmV1AesSha2Content> {
+    ) -> Result<EncryptedEventContent> {
         let session = self.outbound_group_session.get(room_id);
 
         let session = if let Some(s) = session {
@@ -972,13 +972,15 @@ impl OlmMachine {
 
         let ciphertext = session.encrypt(plaintext).await;
 
-        Ok(MegolmV1AesSha2Content {
-            algorithm: Algorithm::MegolmV1AesSha2,
-            ciphertext,
-            sender_key: self.account.identity_keys().curve25519().to_owned(),
-            session_id: session.session_id().to_owned(),
-            device_id: self.device_id.to_owned(),
-        })
+        Ok(EncryptedEventContent::MegolmV1AesSha2(
+            MegolmV1AesSha2Content {
+                algorithm: Algorithm::MegolmV1AesSha2,
+                ciphertext,
+                sender_key: self.account.identity_keys().curve25519().to_owned(),
+                session_id: session.session_id().to_owned(),
+                device_id: self.device_id.to_owned(),
+            },
+        ))
     }
 
     async fn olm_encrypt(
