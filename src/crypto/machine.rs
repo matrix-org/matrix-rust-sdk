@@ -841,7 +841,6 @@ impl OlmMachine {
     async fn add_room_key(&mut self, sender_key: &str, event: &mut ToDeviceRoomKey) -> Result<()> {
         match event.content.algorithm {
             Algorithm::MegolmV1AesSha2 => {
-                // TODO check for all the valid fields.
                 let signing_key = event
                     .keys
                     .get("ed25519")
