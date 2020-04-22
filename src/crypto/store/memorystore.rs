@@ -88,6 +88,11 @@ impl CryptoStore for MemoryStore {
         Ok(self.devices.get(user_id, device_id))
     }
 
+    async fn delete_device(&self, device: Device) -> Result<()> {
+        self.devices.remove(device.user_id(), device.device_id());
+        Ok(())
+    }
+
     async fn get_user_devices(&self, user_id: &UserId) -> Result<UserDevices> {
         Ok(self.devices.user_devices(user_id))
     }
@@ -181,6 +186,13 @@ mod test {
         let loaded_device = user_devices.get(device.device_id()).unwrap();
 
         assert_eq!(device, loaded_device);
+
+        store.delete_device(device.clone()).await.unwrap();
+        assert!(store
+            .get_device(device.user_id(), device.device_id())
+            .await
+            .unwrap()
+            .is_none());
     }
 
     #[tokio::test]

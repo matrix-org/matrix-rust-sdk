@@ -427,12 +427,13 @@ impl OlmMachine {
             for device_id in deleted_devices {
                 if let Some(device) = stored_devices.get(device_id) {
                     device.mark_as_deleted();
-                    // TODO change this to a delete device.
-                    self.store.save_device(device).await?;
+                    // TODO change this to a bulk deletion.
+                    self.store.delete_device(device).await?;
                 }
             }
         }
 
+        // TODO change this to a bulk operation.
         for device in &changed_devices {
             self.store.save_device(device.clone()).await?;
         }
