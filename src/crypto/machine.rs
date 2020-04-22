@@ -655,11 +655,13 @@ impl OlmMachine {
 
     async fn try_decrypt_olm_event(
         &mut self,
+        sender: &str,
         sender_key: &str,
         message: &OlmMessage,
     ) -> Result<Option<String>> {
         let s = self.store.get_sessions(sender_key).await?;
 
+        /// We don't have any existing sessions, return early.
         let sessions = if let Some(s) = s {
             s
         } else {
@@ -669,8 +671,11 @@ impl OlmMachine {
         for session in &mut *sessions.lock().await {
             let mut matches = false;
 
+            // If this is a pre-key message check if it was encrypted for our
+            // session, if it wasn't decryption will fail so no need to try.
             if let OlmMessage::PreKey(m) = &message {
                 matches = session.matches(sender_key, m.clone()).await?;
+
                 if !matches {
                     continue;
                 }
@@ -679,10 +684,20 @@ impl OlmMachine {
             let ret = session.decrypt(message.clone()).await;
 
             if let Ok(p) = ret {
+                // Decryption was successful, save the new ratchet state of the
+                // session.
                 self.store.save_session(session.clone()).await?;
+
                 return Ok(Some(p));
             } else {
+                // Decryption failed with a matching session, the session is
+                // likely wedged and needs to be rotated.
                 if matches {
+                    warn!(
+                        "Found a matching Olm session yet decryption failed
+                          for sender {} and sender_key {}",
+                        sender, sender_key
+                    );
                     return Err(OlmError::SessionWedged);
                 }
             }
@@ -693,31 +708,74 @@ impl OlmMachine {
 
     async fn decrypt_olm_message(
         &mut self,
-        _sender: &str,
+        sender: &str,
         sender_key: &str,
         message: OlmMessage,
     ) -> Result<EventResult<ToDeviceEvent>> {
-        let plaintext = if let Some(p) = self.try_decrypt_olm_event(sender_key, &message).await? {
+        // First try to decrypt using an existing session.
+        let plaintext = if let Some(p) = self
+            .try_decrypt_olm_event(sender, sender_key, &message)
+            .await?
+        {
+            // Decryption succeeded, destructure the plaintext out of the
+            // Option.
             p
         } else {
+            // Decryption failed with every known session, let's try to create a
+            // new session.
             let mut session = match &message {
-                OlmMessage::Message(_) => return Err(OlmError::SessionWedged),
+                /// A new session can only be created using a pre-key message,
+                /// return with an error if it isn't one.
+                OlmMessage::Message(_) => {
+                    warn!(
+                        "Failed to decrypt a non-pre-key message with all
+                          available sessions {} {}",
+                        sender, sender_key
+                    );
+                    return Err(OlmError::SessionWedged);
+                }
+
                 OlmMessage::PreKey(m) => {
-                    let session = self
+                    /// Create the new session.
+                    let session = match self
                         .account
                         .create_inbound_session(sender_key, m.clone())
-                        .await?;
+                        .await
+                    {
+                        Ok(s) => s,
+                        Err(e) => {
+                            warn!(
+                                "Failed to create a new Olm session for {} {}
+                                      from a prekey message: {}",
+                                sender, sender_key, e
+                            );
+                            return Err(OlmError::SessionWedged);
+                        }
+                    };
+
+                    /// Save the account since we remove the one-time key that
+                    /// was used to create this session.
                     self.store.save_account(self.account.clone()).await?;
                     session
                 }
             };
 
+            /// Decrypt our message, this shouldn't fail since we're using a
+            /// newly created Session.
             let plaintext = session.decrypt(message).await?;
+
+            /// Save the new ratcheted state of the session.
             self.store.save_session(session).await?;
             plaintext
         };
 
         trace!("Successfully decrypted a Olm message: {}", plaintext);
+
+        // TODO get the recipient, recipient_keys, and keys out of here
+        // separately.
+        // TODO verify that the recipient, recipient_keys match with us.
+        // TODO verify that the sender in the decrypted event matches the one in
+        // the unencrypted one.
         Ok(serde_json::from_str::<EventResult<ToDeviceEvent>>(
             &plaintext,
         )?)
@@ -749,19 +807,27 @@ impl OlmMachine {
         let own_key = identity_keys.curve25519();
         let own_ciphertext = content.ciphertext.get(own_key);
 
+        // Try to find a ciphertext that was meant for our device.
         if let Some(ciphertext) = own_ciphertext {
             let message_type: u8 = ciphertext
                 .message_type
                 .try_into()
                 .map_err(|_| OlmError::UnsupportedOlmType)?;
+
+            // Create a OlmMessage from the ciphertext and the type.
             let message =
                 OlmMessage::from_type_and_ciphertext(message_type.into(), ciphertext.body.clone())
                     .map_err(|_| OlmError::UnsupportedOlmType)?;
 
+            // Decrypt the OlmMessage and get a Ruma event out of it.
             let mut decrypted_event = self
                 .decrypt_olm_message(&event.sender.to_string(), &content.sender_key, message)
                 .await?;
+
             debug!("Decrypted a to-device event {:?}", decrypted_event);
+
+            // Handle the decrypted event, e.g. fetch out megolm sessions out of
+            // the event.
             self.handle_decrypted_to_device_event(&content.sender_key, &mut decrypted_event)
                 .await?;
 
