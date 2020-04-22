@@ -989,7 +989,7 @@ impl OlmMachine {
         recipient_device: &Device,
         event_type: EventType,
         content: Value,
-    ) -> Result<OlmV1Curve25519AesSha2Content> {
+    ) -> Result<EncryptedEventContent> {
         let identity_keys = self.account.identity_keys();
 
         let recipient_signing_key = recipient_device
@@ -1030,11 +1030,13 @@ impl OlmMachine {
 
         content.insert(recipient_sender_key.to_owned(), ciphertext);
 
-        Ok(OlmV1Curve25519AesSha2Content {
-            algorithm: Algorithm::OlmV1Curve25519AesSha2,
-            sender_key: identity_keys.curve25519().to_owned(),
-            ciphertext: content,
-        })
+        Ok(EncryptedEventContent::OlmV1Curve25519AesSha2(
+            OlmV1Curve25519AesSha2Content {
+                algorithm: Algorithm::OlmV1Curve25519AesSha2,
+                sender_key: identity_keys.curve25519().to_owned(),
+                ciphertext: content,
+            },
+        ))
     }
 
     /// Should the client share a group session for the given room.
@@ -1137,12 +1139,12 @@ impl OlmMachine {
 
                 user_messages.insert(
                     DeviceIdOrAllDevices::DeviceId(device.device_id().clone()),
-                    encrypted_content,
+                    MessageEventContent::Encrypted(encrypted_content),
                 );
             }
 
             message_vec.push(ToDeviceRequest {
-                event_type: "m.room.encrypted".to_owned(),
+                event_type: EventType::RoomEncrypted,
                 txn_id: Uuid::new_v4().to_string(),
                 messages,
             });
