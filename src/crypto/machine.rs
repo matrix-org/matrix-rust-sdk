@@ -59,7 +59,6 @@ use tracing::{debug, error, info, instrument, trace, warn};
 
 pub type OneTimeKeys = BTreeMap<AlgorithmAndDeviceId, OneTimeKey>;
 
-#[derive(Debug)]
 pub struct OlmMachine {
     /// The unique user id that owns this account.
     user_id: UserId,
@@ -81,6 +80,15 @@ pub struct OlmMachine {
     users_for_key_query: HashSet<UserId>,
     /// The currently active outbound group sessions.
     outbound_group_session: HashMap<RoomId, OutboundGroupSession>,
+}
+
+impl std::fmt::Debug for OlmMachine {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("OlmMachine")
+            .field("user_id", &self.user_id)
+            .field("device_id", &self.device_id)
+            .finish()
+    }
 }
 
 impl OlmMachine {
@@ -668,6 +676,9 @@ impl OlmMachine {
             return Ok(None);
         };
 
+        let mut session_to_save = None;
+        let mut plaintext = None;
+
         for session in &mut *sessions.lock().await {
             let mut matches = false;
 
@@ -684,11 +695,10 @@ impl OlmMachine {
             let ret = session.decrypt(message.clone()).await;
 
             if let Ok(p) = ret {
-                // Decryption was successful, save the new ratchet state of the
-                // session.
-                self.store.save_session(session.clone()).await?;
+                plaintext = Some(p);
+                session_to_save = Some(session.clone());
 
-                return Ok(Some(p));
+                break;
             } else {
                 // Decryption failed with a matching session, the session is
                 // likely wedged and needs to be rotated.
@@ -703,7 +713,14 @@ impl OlmMachine {
             }
         }
 
-        Ok(None)
+        if let Some(session) = session_to_save {
+            // Decryption was successful, save the new ratchet state of the
+            // session that was used to decrypt the message.
+            trace!("Saved the new session state for {}", sender);
+            self.store.save_session(session).await?;
+        }
+
+        Ok(plaintext)
     }
 
     async fn decrypt_olm_message(
@@ -836,7 +853,6 @@ impl OlmMachine {
     /// # Arguments
     ///
     /// * `event` - The to-device event that should be decrypted.
-    #[instrument]
     async fn decrypt_to_device_event(
         &mut self,
         event: &ToDeviceEncrypted,

@@ -237,6 +237,7 @@ impl Client {
         event: &mut EventJson<RoomEvent>,
     ) -> Option<EventJson<RoomEvent>> {
         match event.deserialize() {
+            #[allow(unused_mut)]
             Ok(mut e) => {
                 #[cfg(feature = "encryption")]
                 let mut decrypted_event = None;
