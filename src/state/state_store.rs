@@ -1,26 +1,36 @@
 use std::collections::HashMap;
 use std::fs::{self, OpenOptions};
 use std::io::{BufReader, BufWriter, Write};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use super::{ClientState, StateStore};
 use crate::identifiers::RoomId;
 use crate::{Error, Result, Room};
 /// A default `StateStore` implementation that serializes state as json
 /// and saves it to disk.
-pub struct JsonStore;
+pub struct JsonStore {
+    path: PathBuf,
+}
+
+impl JsonStore {
+    /// Create a `JsonStore` to store the client and room state.
+    ///
+    /// Checks if the provided path exists and creates the directories if not.
+    pub fn open<P: AsRef<Path>>(path: P) -> Result<Self> {
+        let p = path.as_ref();
+        if !p.exists() {
+            std::fs::create_dir_all(p)?;
+        }
+        Ok(Self {
+            path: p.to_path_buf(),
+        })
+    }
+}
 
 #[async_trait::async_trait]
 impl StateStore for JsonStore {
-    fn open(&self, path: &Path) -> Result<()> {
-        if !path.exists() {
-            std::fs::create_dir_all(path)?;
-        }
-        Ok(())
-    }
-
-    async fn load_client_state(&self, path: &Path) -> Result<ClientState> {
-        let mut path = path.to_path_buf();
+    async fn load_client_state(&self) -> Result<ClientState> {
+        let mut path = self.path.clone();
         path.push("client.json");
 
         let file = OpenOptions::new().read(true).open(path)?;
@@ -28,8 +38,8 @@ impl StateStore for JsonStore {
         serde_json::from_reader(reader).map_err(Error::from)
     }
 
-    async fn load_room_state(&self, path: &Path, room_id: &RoomId) -> Result<Room> {
-        let mut path = path.to_path_buf();
+    async fn load_room_state(&self, room_id: &RoomId) -> Result<Room> {
+        let mut path = self.path.clone();
         path.push(&format!("rooms/{}.json", room_id));
 
         let file = OpenOptions::new().read(true).open(path)?;
@@ -37,8 +47,8 @@ impl StateStore for JsonStore {
         serde_json::from_reader(reader).map_err(Error::from)
     }
 
-    async fn load_all_rooms(&self, path: &Path) -> Result<HashMap<RoomId, Room>> {
-        let mut path = path.to_path_buf();
+    async fn load_all_rooms(&self) -> Result<HashMap<RoomId, Room>> {
+        let mut path = self.path.clone();
         path.push("rooms");
 
         let mut rooms_map = HashMap::new();
@@ -61,8 +71,8 @@ impl StateStore for JsonStore {
         Ok(rooms_map)
     }
 
-    async fn store_client_state(&self, path: &Path, state: ClientState) -> Result<()> {
-        let mut path = path.to_path_buf();
+    async fn store_client_state(&self, state: ClientState) -> Result<()> {
+        let mut path = self.path.clone();
         path.push("client.json");
 
         if !Path::new(&path).exists() {
@@ -84,8 +94,8 @@ impl StateStore for JsonStore {
         Ok(())
     }
 
-    async fn store_room_state(&self, path: &Path, room: &Room) -> Result<()> {
-        let mut path = path.to_path_buf();
+    async fn store_room_state(&self, room: &Room) -> Result<()> {
+        let mut path = self.path.clone();
         path.push(&format!("rooms/{}.json", room.room_id));
 
         if !Path::new(&path).exists() {
@@ -153,10 +163,11 @@ mod test {
     }
 
     async fn test_store_client_state() {
-        let store = JsonStore;
+        let path: &Path = &PATH;
+        let store = JsonStore::open(path).unwrap();
         let state = ClientState::default();
-        store.store_client_state(&PATH, state).await.unwrap();
-        let loaded = store.load_client_state(&PATH).await.unwrap();
+        store.store_client_state(state).await.unwrap();
+        let loaded = store.load_client_state().await.unwrap();
         assert_eq!(loaded, ClientState::default());
     }
 
@@ -166,14 +177,15 @@ mod test {
     }
 
     async fn test_store_room_state() {
-        let store = JsonStore;
+        let path: &Path = &PATH;
+        let store = JsonStore::open(path).unwrap();
 
         let id = RoomId::try_from("!roomid:example.com").unwrap();
         let user = UserId::try_from("@example:example.com").unwrap();
 
         let room = Room::new(&id, &user);
-        store.store_room_state(&PATH, &room).await.unwrap();
-        let loaded = store.load_room_state(&PATH, &id).await.unwrap();
+        store.store_room_state(&room).await.unwrap();
+        let loaded = store.load_room_state(&id).await.unwrap();
         assert_eq!(loaded, Room::new(&id, &user));
     }
 
@@ -183,14 +195,15 @@ mod test {
     }
 
     async fn test_load_rooms() {
-        let store = JsonStore;
+        let path: &Path = &PATH;
+        let store = JsonStore::open(path).unwrap();
 
         let id = RoomId::try_from("!roomid:example.com").unwrap();
         let user = UserId::try_from("@example:example.com").unwrap();
 
         let room = Room::new(&id, &user);
-        store.store_room_state(&PATH, &room).await.unwrap();
-        let loaded = store.load_all_rooms(&PATH).await.unwrap();
+        store.store_room_state(&room).await.unwrap();
+        let loaded = store.load_all_rooms().await.unwrap();
         assert_eq!(&room, loaded.get(&id).unwrap());
     }
 
@@ -221,20 +234,19 @@ mod test {
             .with_body_from_file("tests/data/login_response.json")
             .create();
 
-        let mut path = PATH.clone();
-        path.push(session.user_id.to_string());
-        // a sync response to populate our JSON store with user_id added to path
-        let config = AsyncClientConfig::default().state_store_path(&path);
+        let path: &Path = &PATH;
+        // a sync response to populate our JSON store
+        let config =
+            AsyncClientConfig::default().state_store(Box::new(JsonStore::open(path).unwrap()));
         let client =
             AsyncClient::new_with_config(homeserver.clone(), Some(session.clone()), config)
                 .unwrap();
         let sync_settings = SyncSettings::new().timeout(std::time::Duration::from_millis(3000));
         let _ = client.sync(sync_settings).await.unwrap();
 
-        // remove user_id as login will set this
-        path.pop();
         // once logged in without syncing the client is updated from the state store
-        let config = AsyncClientConfig::default().state_store_path(&path);
+        let config =
+            AsyncClientConfig::default().state_store(Box::new(JsonStore::open(path).unwrap()));
         let client = AsyncClient::new_with_config(homeserver, None, config).unwrap();
         client
             .login("example", "wordpass", None, None)

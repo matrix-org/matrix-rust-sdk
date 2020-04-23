@@ -14,7 +14,6 @@
 // limitations under the License.
 
 use std::collections::HashMap;
-use std::path::Path;
 
 pub mod state_store;
 pub use state_store::JsonStore;
@@ -61,20 +60,18 @@ impl ClientState {
 /// Abstraction around the data store to avoid unnecessary request on client initialization.
 #[async_trait::async_trait]
 pub trait StateStore: Send + Sync {
-    /// Set up connections or check files exist to load/save state.
-    fn open(&self, path: &Path) -> Result<()>;
     /// Loads the state of `BaseClient` through `StateStore::Store` type.
-    async fn load_client_state(&self, path: &Path) -> Result<ClientState>;
+    async fn load_client_state(&self) -> Result<ClientState>;
     /// Load the state of a single `Room` by `RoomId`.
-    async fn load_room_state(&self, path: &Path, room_id: &RoomId) -> Result<Room>;
+    async fn load_room_state(&self, room_id: &RoomId) -> Result<Room>;
     /// Load the state of all `Room`s.
     ///
     /// This will be mapped over in the client in order to store `Room`s in an async safe way.
-    async fn load_all_rooms(&self, path: &Path) -> Result<HashMap<RoomId, Room>>;
+    async fn load_all_rooms(&self) -> Result<HashMap<RoomId, Room>>;
     /// Save the current state of the `BaseClient` using the `StateStore::Store` type.
-    async fn store_client_state(&self, path: &Path, _: ClientState) -> Result<()>;
+    async fn store_client_state(&self, _: ClientState) -> Result<()>;
     /// Save the state a single `Room`.
-    async fn store_room_state(&self, path: &Path, _: &Room) -> Result<()>;
+    async fn store_room_state(&self, _: &Room) -> Result<()>;
 }
 
 #[cfg(test)]

@@ -19,7 +19,6 @@ use std::collections::HashSet;
 use std::fmt;
 use std::sync::Arc;
 
-use std::path::PathBuf;
 #[cfg(feature = "encryption")]
 use std::result::Result as StdResult;
 
@@ -145,7 +144,6 @@ impl Client {
     pub async fn receive_login_response(
         &mut self,
         response: &api::session::login::Response,
-        store_path: Option<&PathBuf>,
     ) -> Result<()> {
         let session = Session {
             access_token: response.access_token.clone(),
@@ -160,25 +158,23 @@ impl Client {
             *olm = Some(OlmMachine::new(&response.user_id, &response.device_id)?);
         }
 
-        if let Some(path) = store_path {
-            if let Some(store) = self.state_store.as_ref() {
-                let ClientState {
-                    session,
-                    sync_token,
-                    ignored_users,
-                    push_ruleset,
-                } = store.load_client_state(&path).await?;
-                let mut rooms = store.load_all_rooms(&path).await?;
+        if let Some(store) = self.state_store.as_ref() {
+            let ClientState {
+                session,
+                sync_token,
+                ignored_users,
+                push_ruleset,
+            } = store.load_client_state().await?;
+            let mut rooms = store.load_all_rooms().await?;
 
-                self.joined_rooms = rooms
-                    .drain()
-                    .map(|(k, room)| (k, Arc::new(RwLock::new(room))))
-                    .collect();
-                self.session = session;
-                self.sync_token = sync_token;
-                self.ignored_users = ignored_users;
-                self.push_ruleset = push_ruleset;
-            }
+            self.joined_rooms = rooms
+                .drain()
+                .map(|(k, room)| (k, Arc::new(RwLock::new(room))))
+                .collect();
+            self.session = session;
+            self.sync_token = sync_token;
+            self.ignored_users = ignored_users;
+            self.push_ruleset = push_ruleset;
         }
 
         Ok(())

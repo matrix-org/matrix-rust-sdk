@@ -16,7 +16,6 @@
 use std::collections::HashMap;
 use std::convert::{TryFrom, TryInto};
 use std::ops::Deref;
-use std::path::{Path, PathBuf};
 use std::result::Result as StdResult;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -48,7 +47,7 @@ use crate::api;
 use crate::base_client::Client as BaseClient;
 use crate::models::Room;
 use crate::session::Session;
-use crate::state::{ClientState, JsonStore, StateStore};
+use crate::state::{ClientState, StateStore};
 use crate::VERSION;
 use crate::{Error, EventEmitter, Result};
 
@@ -65,8 +64,6 @@ pub struct AsyncClient {
     http_client: reqwest::Client,
     /// User session data.
     pub(crate) base_client: Arc<RwLock<BaseClient>>,
-    /// The path to the default state store.
-    state_store_path: Option<PathBuf>,
 }
 
 impl std::fmt::Debug for AsyncClient {
@@ -93,7 +90,6 @@ pub struct AsyncClientConfig {
     proxy: Option<reqwest::Proxy>,
     user_agent: Option<HeaderValue>,
     disable_ssl_verification: bool,
-    store_path: Option<PathBuf>,
     state_store: Option<Box<dyn StateStore>>,
 }
 
@@ -103,7 +99,6 @@ impl std::fmt::Debug for AsyncClientConfig {
             .field("proxy", &self.proxy)
             .field("user_agent", &self.user_agent)
             .field("disable_ssl_verification", &self.disable_ssl_verification)
-            .field("store_path", &self.store_path)
             .finish()
     }
 }
@@ -146,15 +141,6 @@ impl AsyncClientConfig {
     pub fn user_agent(mut self, user_agent: &str) -> StdResult<Self, InvalidHeaderValue> {
         self.user_agent = Some(HeaderValue::from_str(user_agent)?);
         Ok(self)
-    }
-
-    /// Set the path for the default `StateStore`.
-    ///
-    /// When the path is set `AsyncClient` will set the state store
-    /// to `JsonStore`.
-    pub fn state_store_path<P: AsRef<Path>>(mut self, path: P) -> Self {
-        self.store_path = Some(path.as_ref().to_owned());
-        self
     }
 
     /// Set a custom implementation of a `StateStore`.
@@ -289,11 +275,8 @@ impl AsyncClient {
         let http_client = http_client.default_headers(headers).build()?;
 
         let mut base_client = BaseClient::new(session)?;
-        if let Some(path) = config.store_path.as_ref() {
-            let store = JsonStore;
-            store.open(path)?;
-            base_client.state_store = Some(Box::new(store));
-        } else if let Some(store) = config.state_store {
+
+        if let Some(store) = config.state_store {
             base_client.state_store = Some(store);
         };
 
@@ -301,7 +284,6 @@ impl AsyncClient {
             homeserver,
             http_client,
             base_client: Arc::new(RwLock::new(base_client)),
-            state_store_path: config.store_path,
         })
     }
 
@@ -382,15 +364,8 @@ impl AsyncClient {
 
         let response = self.send(request).await?;
         let mut client = self.base_client.write().await;
-        // TODO avoid allocation somehow?
-        let path = self.state_store_path.as_ref().map(|p| {
-            let mut path = PathBuf::from(p);
-            path.push(response.user_id.to_string());
-            path
-        });
-        client
-            .receive_login_response(&response, path.as_ref())
-            .await?;
+
+        client.receive_login_response(&response).await?;
 
         Ok(response)
     }
@@ -706,11 +681,9 @@ impl AsyncClient {
 
             if updated {
                 if let Some(store) = self.base_client.read().await.state_store.as_ref() {
-                    if let Some(path) = self.state_store_path.as_ref() {
-                        store
-                            .store_room_state(&path, matrix_room.read().await.deref())
-                            .await?;
-                    };
+                    store
+                        .store_room_state(matrix_room.read().await.deref())
+                        .await?;
                 }
             }
         }
@@ -720,10 +693,8 @@ impl AsyncClient {
 
         if updated {
             if let Some(store) = client.state_store.as_ref() {
-                if let Some(path) = self.state_store_path.as_ref() {
-                    let state = ClientState::from_base_client(&client);
-                    store.store_client_state(&path, state).await?;
-                };
+                let state = ClientState::from_base_client(&client);
+                store.store_client_state(state).await?;
             }
         }
         Ok(response)

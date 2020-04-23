@@ -12,9 +12,6 @@ use url::Url;
 struct CommandBot {
     /// This clone of the `AsyncClient` will send requests to the server,
     /// while the other keeps us in sync with the server using `sync_forever`.
-    ///
-    /// The type parameter is for the `StateStore` trait specifying the `Store`
-    /// type for state storage, here we don't care.
     client: AsyncClient,
 }
 
