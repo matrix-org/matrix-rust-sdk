@@ -28,13 +28,14 @@ use crate::events::room::{
     member::{MemberEvent, MembershipChange},
     name::NameEvent,
     power_levels::{NotificationPowerLevels, PowerLevelsEvent, PowerLevelsEventContent},
+    tombstone::TombstoneEvent,
 };
 use crate::events::EventType;
 use crate::identifiers::{RoomAliasId, RoomId, UserId};
 
 use js_int::{Int, UInt};
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, PartialEq)]
 /// `RoomName` allows the calculation of a text room name.
 pub struct RoomName {
     /// The displayed name of the room.
@@ -82,8 +83,16 @@ pub struct PowerLevels {
     pub notifications: Int,
 }
 
+#[derive(Debug, PartialEq, Eq)]
+pub struct Tombstone {
+    /// A server-defined message.
+    body: String,
+    /// The room that is now active.
+    replacement: RoomId,
+}
+
 #[derive(Debug)]
-/// A Matrix rooom.
+/// A Matrix room.
 pub struct Room {
     /// The unique id of the room.
     pub room_id: RoomId,
@@ -106,6 +115,8 @@ pub struct Room {
     pub unread_highlight: Option<UInt>,
     /// Number of unread notifications.
     pub unread_notifications: Option<UInt>,
+    /// The tombstone state of this room.
+    pub tombstone: Option<Tombstone>,
 }
 
 impl RoomName {
@@ -175,6 +186,7 @@ impl Room {
             encrypted: false,
             unread_highlight: None,
             unread_notifications: None,
+            tombstone: None,
         }
     }
 
@@ -257,8 +269,8 @@ impl Room {
             invited_member_count,
         } = summary;
         self.room_name.heroes = heroes.clone();
-        self.room_name.invited_member_count = invited_member_count.clone();
-        self.room_name.joined_member_count = joined_member_count.clone();
+        self.room_name.invited_member_count = *invited_member_count;
+        self.room_name.joined_member_count = *joined_member_count;
     }
 
     /// Handle a room.member updating the room state if necessary.
@@ -335,6 +347,14 @@ impl Room {
         updated
     }
 
+    fn handle_tombstone(&mut self, event: &TombstoneEvent) -> bool {
+        self.tombstone = Some(Tombstone {
+            body: event.content.body.clone(),
+            replacement: event.content.replacement_room.clone(),
+        });
+        true
+    }
+
     fn handle_encryption_event(&mut self, _event: &EncryptionEvent) -> bool {
         self.encrypted = true;
         true
@@ -357,6 +377,7 @@ impl Room {
             RoomEvent::RoomAliases(a) => self.handle_room_aliases(a),
             // power levels of the room members
             RoomEvent::RoomPowerLevels(p) => self.handle_power_level(p),
+            RoomEvent::RoomTombstone(t) => self.handle_tombstone(t),
             RoomEvent::RoomEncryption(e) => self.handle_encryption_event(e),
             _ => false,
         }
@@ -376,6 +397,7 @@ impl Room {
             StateEvent::RoomCanonicalAlias(ca) => self.handle_canonical(ca),
             StateEvent::RoomAliases(a) => self.handle_room_aliases(a),
             StateEvent::RoomPowerLevels(p) => self.handle_power_level(p),
+            StateEvent::RoomTombstone(t) => self.handle_tombstone(t),
             StateEvent::RoomEncryption(e) => self.handle_encryption_event(e),
             _ => false,
         }
