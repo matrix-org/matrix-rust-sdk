@@ -290,7 +290,7 @@ impl Into<get_message_events::Request> for MessagesRequestBuilder {
 
 #[cfg(test)]
 mod test {
-    use std::collections::{BTreeMap, HashMap};
+    use std::collections::BTreeMap;
 
     use super::*;
     use crate::events::room::power_levels::NotificationPowerLevels;
