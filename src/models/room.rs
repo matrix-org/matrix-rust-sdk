@@ -139,23 +139,40 @@ impl RoomName {
         // https://matrix.org/docs/spec/client_server/latest#calculating-the-display-name-for-a-room.
         // the order in which we check for a name ^^
         if let Some(name) = &self.name {
-            name.clone()
+            let name = name.trim();
+            name.to_string()
         } else if let Some(alias) = &self.canonical_alias {
-            alias.alias().to_string()
-        } else if !self.aliases.is_empty() {
-            self.aliases[0].alias().to_string()
+            let alias = alias.alias().trim();
+            alias.to_string()
+        } else if !self.aliases.is_empty() && !self.aliases[0].alias().is_empty() {
+            self.aliases[0].alias().trim().to_string()
         } else {
-            let joined = self.joined_member_count.unwrap_or(UInt::max_value());
-            let invited = self.invited_member_count.unwrap_or(UInt::max_value());
+            let joined = self.joined_member_count.unwrap_or(UInt::min_value());
+            let invited = self.invited_member_count.unwrap_or(UInt::min_value());
             let heroes = UInt::new(self.heroes.len() as u64).unwrap();
             let one = UInt::new(1).unwrap();
 
-            if heroes >= (joined + invited - one) {
-                let mut names = self.heroes.iter().take(3).cloned().collect::<Vec<String>>();
+            let invited_joined = if invited + joined == UInt::min_value() {
+                UInt::min_value()
+            } else {
+                invited + joined - one
+            };
+
+            // TODO this should use `self.heroes but it is always empty??
+            if heroes >= invited_joined {
+                let mut names = members
+                    .values()
+                    .take(3)
+                    .map(|mem| mem.user_id.localpart().to_string())
+                    .collect::<Vec<String>>();
                 names.sort();
                 names.join(", ")
-            } else if heroes < (joined + invited - one) && invited + joined > one {
-                let mut names = self.heroes.iter().take(3).cloned().collect::<Vec<String>>();
+            } else if heroes < invited_joined && invited + joined > one {
+                let mut names = members
+                    .values()
+                    .take(3)
+                    .map(|mem| mem.user_id.localpart().to_string())
+                    .collect::<Vec<String>>();
                 names.sort();
                 // TODO what is the length the spec wants us to use here and in the `else`
                 format!("{}, and {} others", names.join(", "), (joined + invited))
