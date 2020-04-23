@@ -82,6 +82,7 @@ pub struct OlmMachine {
     outbound_group_session: HashMap<RoomId, OutboundGroupSession>,
 }
 
+#[cfg_attr(tarpaulin, skip)]
 impl std::fmt::Debug for OlmMachine {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("OlmMachine")
