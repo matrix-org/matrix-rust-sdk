@@ -163,7 +163,12 @@ impl RoomName {
                 let mut names = members
                     .values()
                     .take(3)
-                    .map(|mem| mem.user_id.localpart().to_string())
+                    .map(|mem| {
+                        mem.display_name
+                            .clone()
+                            .unwrap_or(mem.user_id.localpart().to_string())
+                            .to_string()
+                    })
                     .collect::<Vec<String>>();
                 // stabilize ordering
                 names.sort();
@@ -172,7 +177,11 @@ impl RoomName {
                 let mut names = members
                     .values()
                     .take(3)
-                    .map(|mem| mem.user_id.localpart().to_string())
+                    .map(|mem| {
+                        mem.display_name
+                            .clone()
+                            .unwrap_or(mem.user_id.localpart().to_string())
+                    })
                     .collect::<Vec<String>>();
                 names.sort();
                 // TODO what is the length the spec wants us to use here and in the `else`
@@ -246,7 +255,7 @@ impl Room {
         true
     }
 
-    fn set_name_room(&mut self, name: &str) -> bool {
+    fn set_room_name(&mut self, name: &str) -> bool {
         self.room_name.set_name(name);
         true
     }
@@ -338,7 +347,7 @@ impl Room {
     /// Returns true if the room name changed, false otherwise.
     pub fn handle_room_name(&mut self, event: &NameEvent) -> bool {
         match event.content.name() {
-            Some(name) => self.set_name_room(name),
+            Some(name) => self.set_room_name(name),
             _ => false,
         }
     }
@@ -526,5 +535,75 @@ mod test {
             .get(&UserId::try_from("@example:localhost").unwrap())
             .unwrap();
         assert_eq!(admin.power_level.unwrap(), js_int::Int::new(100).unwrap());
+    }
+
+    #[test]
+    fn calculate_aliases() {
+        let rid = RoomId::try_from("!roomid:room.com").unwrap();
+        let uid = UserId::try_from("@example:localhost").unwrap();
+
+        let mut bld = EventBuilder::default()
+            .add_state_event_from_file("./tests/data/events/aliases.json", StateEvent::RoomAliases)
+            .build_room_runner(&rid, &uid);
+
+        let room = bld.to_room();
+
+        assert_eq!("tutorial", room.calculate_name());
+    }
+
+    #[test]
+    fn calculate_alias() {
+        let rid = RoomId::try_from("!roomid:room.com").unwrap();
+        let uid = UserId::try_from("@example:localhost").unwrap();
+
+        let mut bld = EventBuilder::default()
+            .add_state_event_from_file(
+                "./tests/data/events/alias.json",
+                StateEvent::RoomCanonicalAlias,
+            )
+            .build_room_runner(&rid, &uid);
+
+        let room = bld.to_room();
+
+        assert_eq!("tutorial", room.calculate_name());
+    }
+
+    #[test]
+    fn calculate_name() {
+        let rid = RoomId::try_from("!roomid:room.com").unwrap();
+        let uid = UserId::try_from("@example:localhost").unwrap();
+
+        let mut bld = EventBuilder::default()
+            .add_state_event_from_file("./tests/data/events/name.json", StateEvent::RoomName)
+            .build_room_runner(&rid, &uid);
+
+        let room = bld.to_room();
+
+        assert_eq!("room name", room.calculate_name());
+    }
+
+    #[tokio::test]
+    async fn calculate_room_names_from_summary() {
+        let homeserver = Url::from_str(&mockito::server_url()).unwrap();
+
+        let mut bld = EventBuilder::default().build_with_response(
+            // this sync has no room.name or room.alias events so only relies on summary
+            "tests/data/sync_with_summary.json",
+            "GET",
+            Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_string()),
+        );
+
+        let session = Session {
+            access_token: "1234".to_owned(),
+            user_id: UserId::try_from("@example:localhost").unwrap(),
+            device_id: "DEVICEID".to_owned(),
+        };
+        let client = AsyncClient::new(homeserver, Some(session)).unwrap();
+        let client = bld.set_client(client).to_client().await.unwrap();
+
+        let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
+        let _response = client.sync(sync_settings).await.unwrap();
+
+        assert_eq!(vec!["example, example2"], client.get_room_names().await);
     }
 }
