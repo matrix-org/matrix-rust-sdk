@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashSet};
 use std::convert::TryFrom;
 use std::mem;
 use std::path::{Path, PathBuf};
@@ -348,7 +348,7 @@ impl SqliteStore {
                     .fetch_all(&mut *connection)
                     .await?;
 
-            let mut keys = HashMap::new();
+            let mut keys = BTreeMap::new();
 
             for row in key_rows {
                 let algorithm = if let Ok(a) = KeyAlgorithm::try_from(&row.0 as &str) {
@@ -643,7 +643,7 @@ mod test {
     use crate::crypto::device::test::get_device;
     use crate::crypto::olm::GroupSessionKey;
     use olm_rs::outbound_group_session::OlmOutboundGroupSession;
-    use std::collections::HashMap;
+    use std::collections::BTreeMap;
     use tempfile::tempdir;
 
     use super::{
@@ -709,7 +709,7 @@ mod test {
             .to_owned();
         let one_time_key = SignedKey {
             key: one_time_key,
-            signatures: HashMap::new(),
+            signatures: BTreeMap::new(),
         };
         let sender_key = bob.identity_keys().curve25519().to_owned();
         let session = alice

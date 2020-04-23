@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::convert::TryInto;
 use std::mem;
 #[cfg(feature = "sqlite-cryptostore")]
@@ -42,7 +42,7 @@ use crate::events::{
         AnyToDeviceEvent as ToDeviceEvent, ToDeviceEncrypted, ToDeviceForwardedRoomKey,
         ToDeviceRoomKey, ToDeviceRoomKeyRequest,
     },
-    Algorithm, EventResult, EventType,
+    Algorithm, EventJson, EventType,
 };
 use crate::identifiers::{DeviceId, RoomId, UserId};
 
@@ -50,14 +50,14 @@ use api::r0::keys;
 use api::r0::{
     client_exchange::{send_event_to_device::Request as ToDeviceRequest, DeviceIdOrAllDevices},
     keys::{AlgorithmAndDeviceId, DeviceKeys, KeyAlgorithm, OneTimeKey, SignedKey},
-    sync::sync_events::IncomingResponse as SyncResponse,
+    sync::sync_events::Response as SyncResponse,
 };
 
 use cjson;
 use serde_json::{json, Value};
 use tracing::{debug, error, info, instrument, trace, warn};
 
-pub type OneTimeKeys = HashMap<AlgorithmAndDeviceId, OneTimeKey>;
+pub type OneTimeKeys = BTreeMap<AlgorithmAndDeviceId, OneTimeKey>;
 
 #[derive(Debug)]
 pub struct OlmMachine {
@@ -193,8 +193,8 @@ impl OlmMachine {
     pub async fn get_missing_sessions(
         &mut self,
         users: impl Iterator<Item = &UserId>,
-    ) -> HashMap<UserId, HashMap<DeviceId, KeyAlgorithm>> {
-        let mut missing = HashMap::new();
+    ) -> BTreeMap<UserId, BTreeMap<DeviceId, KeyAlgorithm>> {
+        let mut missing = BTreeMap::new();
 
         for user_id in users {
             let user_devices = self.store.get_user_devices(user_id).await.unwrap();
@@ -216,7 +216,7 @@ impl OlmMachine {
 
                 if is_missing {
                     if !missing.contains_key(user_id) {
-                        missing.insert(user_id.clone(), HashMap::new());
+                        missing.insert(user_id.clone(), BTreeMap::new());
                     }
 
                     let user_map = missing.get_mut(user_id).unwrap();
@@ -472,7 +472,7 @@ impl OlmMachine {
     async fn device_keys(&self) -> DeviceKeys {
         let identity_keys = self.account.identity_keys();
 
-        let mut keys = HashMap::new();
+        let mut keys = BTreeMap::new();
 
         keys.insert(
             AlgorithmAndDeviceId(KeyAlgorithm::Curve25519, self.device_id.clone()),
@@ -490,9 +490,9 @@ impl OlmMachine {
             "keys": keys,
         });
 
-        let mut signatures = HashMap::new();
+        let mut signatures = BTreeMap::new();
 
-        let mut signature = HashMap::new();
+        let mut signature = BTreeMap::new();
         signature.insert(
             AlgorithmAndDeviceId(KeyAlgorithm::Ed25519, self.device_id.clone()),
             self.sign_json(&device_keys).await,
@@ -518,7 +518,7 @@ impl OlmMachine {
     async fn signed_one_time_keys(&self) -> StdResult<OneTimeKeys, ()> {
         let _ = self.generate_one_time_keys().await?;
         let one_time_keys = self.account.one_time_keys().await;
-        let mut one_time_key_map = HashMap::new();
+        let mut one_time_key_map = BTreeMap::new();
 
         for (key_id, key) in one_time_keys.curve25519().iter() {
             let key_json = json!({
@@ -527,14 +527,14 @@ impl OlmMachine {
 
             let signature = self.sign_json(&key_json).await;
 
-            let mut signature_map = HashMap::new();
+            let mut signature_map = BTreeMap::new();
 
             signature_map.insert(
                 AlgorithmAndDeviceId(KeyAlgorithm::Ed25519, self.device_id.clone()),
                 signature,
             );
 
-            let mut signatures = HashMap::new();
+            let mut signatures = BTreeMap::new();
             signatures.insert(self.user_id.clone(), signature_map);
 
             let signed_key = SignedKey {
@@ -711,7 +711,7 @@ impl OlmMachine {
         sender: &UserId,
         sender_key: &str,
         message: OlmMessage,
-    ) -> Result<(EventResult<ToDeviceEvent>, String)> {
+    ) -> Result<(EventJson<ToDeviceEvent>, String)> {
         // First try to decrypt using an existing session.
         let plaintext = if let Some(p) = self
             .try_decrypt_olm_event(sender, sender_key, &message)
@@ -778,7 +778,7 @@ impl OlmMachine {
         &self,
         sender: &UserId,
         plaintext: &str,
-    ) -> Result<(EventResult<ToDeviceEvent>, String)> {
+    ) -> Result<(EventJson<ToDeviceEvent>, String)> {
         // TODO make the errors a bit more specific.
         let decrypted_json: Value = serde_json::from_str(&plaintext)?;
 
@@ -793,13 +793,13 @@ impl OlmMachine {
             .ok_or(OlmError::MissingCiphertext)?;
         let recipient: UserId = serde_json::from_value(recipient)?;
 
-        let recipient_keys: HashMap<KeyAlgorithm, String> = serde_json::from_value(
+        let recipient_keys: BTreeMap<KeyAlgorithm, String> = serde_json::from_value(
             decrypted_json
                 .get("recipient_keys")
                 .cloned()
                 .ok_or(OlmError::MissingCiphertext)?,
         )?;
-        let keys: HashMap<KeyAlgorithm, String> = serde_json::from_value(
+        let keys: BTreeMap<KeyAlgorithm, String> = serde_json::from_value(
             decrypted_json
                 .get("keys")
                 .cloned()
@@ -823,7 +823,7 @@ impl OlmMachine {
             .ok_or(OlmError::MissingSigningKey)?;
 
         Ok((
-            serde_json::from_value::<EventResult<ToDeviceEvent>>(decrypted_json)?,
+            serde_json::from_value::<EventJson<ToDeviceEvent>>(decrypted_json)?,
             signing_key.to_owned(),
         ))
     }
@@ -840,7 +840,7 @@ impl OlmMachine {
     async fn decrypt_to_device_event(
         &mut self,
         event: &ToDeviceEncrypted,
-    ) -> Result<EventResult<ToDeviceEvent>> {
+    ) -> Result<EventJson<ToDeviceEvent>> {
         info!("Decrypting to-device event");
 
         let content = if let EncryptedEventContent::OlmV1Curve25519AesSha2(c) = &event.content {
@@ -1026,7 +1026,7 @@ impl OlmMachine {
             message_type: (message_type as u32).into(),
         };
 
-        let mut content = HashMap::new();
+        let mut content = BTreeMap::new();
 
         content.insert(recipient_sender_key.to_owned(), ciphertext);
 
@@ -1119,11 +1119,11 @@ impl OlmMachine {
         let mut message_vec = Vec::new();
 
         for user_map_chunk in user_map.chunks(OlmMachine::MAX_TO_DEVICE_MESSAGES) {
-            let mut messages = HashMap::new();
+            let mut messages = BTreeMap::new();
 
             for (session, device) in user_map_chunk {
                 if !messages.contains_key(device.user_id()) {
-                    messages.insert(device.user_id().clone(), HashMap::new());
+                    messages.insert(device.user_id().clone(), BTreeMap::new());
                 };
 
                 let user_messages = messages.get_mut(device.user_id()).unwrap();
@@ -1139,7 +1139,7 @@ impl OlmMachine {
 
                 user_messages.insert(
                     DeviceIdOrAllDevices::DeviceId(device.device_id().clone()),
-                    MessageEventContent::Encrypted(encrypted_content),
+                    EventJson::from(MessageEventContent::Encrypted(encrypted_content)),
                 );
             }
 
@@ -1167,9 +1167,9 @@ impl OlmMachine {
         &mut self,
         sender_key: &str,
         signing_key: &str,
-        event: &mut EventResult<ToDeviceEvent>,
+        event: &mut EventJson<ToDeviceEvent>,
     ) -> Result<()> {
-        let event = if let EventResult::Ok(e) = event {
+        let event = if let Ok(e) = event.deserialize() {
             e
         } else {
             warn!("Decrypted to-device event failed to be parsed correctly");
@@ -1177,9 +1177,11 @@ impl OlmMachine {
         };
 
         match event {
-            ToDeviceEvent::RoomKey(e) => self.add_room_key(sender_key, signing_key, e).await,
-            ToDeviceEvent::ForwardedRoomKey(e) => {
-                self.add_forwarded_room_key(sender_key, signing_key, e)
+            ToDeviceEvent::RoomKey(mut e) => {
+                self.add_room_key(sender_key, signing_key, &mut e).await
+            }
+            ToDeviceEvent::ForwardedRoomKey(mut e) => {
+                self.add_forwarded_room_key(sender_key, signing_key, &mut e)
             }
             _ => {
                 warn!("Received a unexpected encrypted to-device event");
@@ -1213,7 +1215,7 @@ impl OlmMachine {
         self.uploaded_signed_key_count = Some(count);
 
         for event_result in &mut response.to_device.events {
-            let event = if let EventResult::Ok(e) = &event_result {
+            let event = if let Ok(e) = event_result.deserialize() {
                 e
             } else {
                 // Skip invalid events.
@@ -1223,7 +1225,7 @@ impl OlmMachine {
 
             info!("Received a to-device event {:?}", event);
 
-            match event {
+            match &event {
                 ToDeviceEvent::RoomEncrypted(e) => {
                     let decrypted_event = match self.decrypt_to_device_event(e).await {
                         Ok(e) => e,
@@ -1248,7 +1250,7 @@ impl OlmMachine {
                 | ToDeviceEvent::KeyVerificationKey(..)
                 | ToDeviceEvent::KeyVerificationMac(..)
                 | ToDeviceEvent::KeyVerificationRequest(..)
-                | ToDeviceEvent::KeyVerificationStart(..) => self.handle_verification_event(event),
+                | ToDeviceEvent::KeyVerificationStart(..) => self.handle_verification_event(&event),
                 _ => continue,
             }
         }
@@ -1257,7 +1259,7 @@ impl OlmMachine {
     pub async fn decrypt_room_event(
         &mut self,
         event: &EncryptedEvent,
-    ) -> Result<EventResult<RoomEvent>> {
+    ) -> Result<EventJson<RoomEvent>> {
         let content = match &event.content {
             EncryptedEventContent::MegolmV1AesSha2(c) => c,
             _ => return Err(OlmError::UnsupportedAlgorithm),
@@ -1281,15 +1283,24 @@ impl OlmMachine {
             .as_object_mut()
             .ok_or(OlmError::NotAnObject)?;
 
-        let server_ts: u64 = event.origin_server_ts.into();
+        // TODO better number conversion here.
+        let server_ts = event
+            .origin_server_ts
+            .duration_since(std::time::SystemTime::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis();
+        let server_ts: i64 = server_ts.try_into().unwrap_or_default();
 
         decrypted_object.insert("sender".to_owned(), event.sender.to_string().into());
         decrypted_object.insert("event_id".to_owned(), event.event_id.to_string().into());
         decrypted_object.insert("origin_server_ts".to_owned(), server_ts.into());
 
-        decrypted_object.insert("unsigned".to_owned(), event.unsigned.clone().into());
+        decrypted_object.insert(
+            "unsigned".to_owned(),
+            serde_json::to_value(&event.unsigned).unwrap_or_default(),
+        );
 
-        let decrypted_event = serde_json::from_value::<EventResult<RoomEvent>>(decrypted_value)?;
+        let decrypted_event = serde_json::from_value::<EventJson<RoomEvent>>(decrypted_value)?;
         trace!("Successfully decrypted megolm event {:?}", decrypted_event);
         // TODO set the encryption info on the event (is it verified, was it
         // decrypted, sender key...)

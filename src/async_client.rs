@@ -13,7 +13,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::convert::{TryFrom, TryInto};
 use std::result::Result as StdResult;
 use std::sync::Arc;
@@ -33,9 +33,9 @@ use http::Response as HttpResponse;
 use reqwest::header::{HeaderValue, InvalidHeaderValue};
 use url::Url;
 
-use ruma_api::{Endpoint, Outgoing};
+use ruma_api::Endpoint;
 use ruma_events::room::message::MessageEventContent;
-use ruma_events::EventResult;
+use ruma_events::EventJson;
 pub use ruma_events::EventType;
 use ruma_identifiers::{RoomId, RoomIdOrAliasId, UserId};
 
@@ -370,9 +370,11 @@ impl AsyncClient {
     pub async fn join_room_by_id_or_alias(
         &self,
         alias: &RoomIdOrAliasId,
+        server_name: &str,
     ) -> Result<join_room_by_id_or_alias::Response> {
         let request = join_room_by_id_or_alias::Request {
             room_id_or_alias: alias.clone(),
+            server_name: server_name.to_owned(),
             third_party_signed: None,
         };
         self.send(request).await
@@ -538,7 +540,7 @@ impl AsyncClient {
     pub async fn room_messages<R: Into<get_message_events::Request>>(
         &self,
         request: R,
-    ) -> Result<get_message_events::IncomingResponse> {
+    ) -> Result<get_message_events::Response> {
         let req = request.into();
         self.send(req).await
     }
@@ -549,7 +551,7 @@ impl AsyncClient {
     ///
     /// * `sync_settings` - Settings for the sync call.
     #[instrument]
-    pub async fn sync(&self, sync_settings: SyncSettings) -> Result<sync_events::IncomingResponse> {
+    pub async fn sync(&self, sync_settings: SyncSettings) -> Result<sync_events::Response> {
         let request = sync_events::Request {
             filter: None,
             since: sync_settings.token,
@@ -564,7 +566,7 @@ impl AsyncClient {
             let matrix_room = {
                 let mut client = self.base_client.write().await;
                 for event in &room.state.events {
-                    if let EventResult::Ok(e) = event {
+                    if let Ok(e) = event.deserialize() {
                         client.receive_joined_state_event(&room_id, &e).await;
                     }
                 }
@@ -577,9 +579,9 @@ impl AsyncClient {
 
             // re looping is not ideal here
             for event in &mut room.state.events {
-                if let EventResult::Ok(e) = event {
+                if let Ok(e) = event.deserialize() {
                     let client = self.base_client.read().await;
-                    client.emit_state_event(room_id, e).await;
+                    client.emit_state_event(&room_id, &e).await;
                 }
             }
 
@@ -595,19 +597,19 @@ impl AsyncClient {
                     *event = e;
                 }
 
-                if let EventResult::Ok(e) = event {
+                if let Ok(e) = event.deserialize() {
                     let client = self.base_client.read().await;
-                    client.emit_timeline_event(room_id, e).await;
+                    client.emit_timeline_event(&room_id, &e).await;
                 }
             }
 
             // look at AccountData to further cut down users by collecting ignored users
             for account_data in &mut room.account_data.events {
                 {
-                    if let EventResult::Ok(e) = account_data {
+                    if let Ok(e) = account_data.deserialize() {
                         let mut client = self.base_client.write().await;
-                        client.receive_account_data_event(&room_id, e).await;
-                        client.emit_account_data_event(room_id, e).await;
+                        client.receive_account_data_event(&room_id, &e).await;
+                        client.emit_account_data_event(&room_id, &e).await;
                     }
                 }
             }
@@ -617,22 +619,22 @@ impl AsyncClient {
             // efficient but we need a room_id so we would loop through now or later.
             for presence in &mut response.presence.events {
                 {
-                    if let EventResult::Ok(e) = presence {
+                    if let Ok(e) = presence.deserialize() {
                         let mut client = self.base_client.write().await;
-                        client.receive_presence_event(&room_id, e).await;
+                        client.receive_presence_event(&room_id, &e).await;
 
-                        client.emit_presence_event(room_id, e).await;
+                        client.emit_presence_event(&room_id, &e).await;
                     }
                 }
             }
 
             for ephemeral in &mut room.ephemeral.events {
                 {
-                    if let EventResult::Ok(e) = ephemeral {
+                    if let Ok(e) = ephemeral.deserialize() {
                         let mut client = self.base_client.write().await;
-                        client.receive_ephemeral_event(&room_id, e).await;
+                        client.receive_ephemeral_event(&room_id, &e).await;
 
-                        client.emit_ephemeral_event(room_id, e).await;
+                        client.emit_ephemeral_event(&room_id, &e).await;
                     }
                 }
             }
@@ -703,7 +705,7 @@ impl AsyncClient {
     pub async fn sync_forever<C>(
         &self,
         sync_settings: SyncSettings,
-        callback: impl Fn(sync_events::IncomingResponse) -> C + Send,
+        callback: impl Fn(sync_events::Response) -> C + Send,
     ) where
         C: Future<Output = ()>,
     {
@@ -759,18 +761,7 @@ impl AsyncClient {
     async fn send<Request: Endpoint<ResponseError = ruma_client_api::Error> + std::fmt::Debug>(
         &self,
         request: Request,
-    ) -> Result<<Request::Response as Outgoing>::Incoming>
-    where
-        Request::Incoming:
-            TryFrom<http::Request<Vec<u8>>, Error = ruma_api::error::FromHttpRequestError>,
-        <Request::Response as Outgoing>::Incoming: TryFrom<
-            http::Response<Vec<u8>>,
-            Error = ruma_api::error::FromHttpResponseError<
-                <Request as ruma_api::Endpoint>::ResponseError,
-            >,
-        >,
-        <Request as ruma_api::Endpoint>::ResponseError: std::fmt::Debug,
-    {
+    ) -> Result<Request::Response> {
         let request: http::Request<Vec<u8>> = request.try_into()?;
         let url = request.uri();
         let path_and_query = url.path_and_query().unwrap();
@@ -828,9 +819,7 @@ impl AsyncClient {
         let body = response.bytes().await?.as_ref().to_owned();
         let http_response = http_builder.body(body).unwrap();
 
-        Ok(<Request::Response as Outgoing>::Incoming::try_from(
-            http_response,
-        )?)
+        Ok(<Request::Response>::try_from(http_response)?)
     }
 
     /// Send a room message to the homeserver.
@@ -940,7 +929,7 @@ impl AsyncClient {
             room_id: room_id.clone(),
             event_type,
             txn_id: txn_id.unwrap_or_else(Uuid::new_v4).to_string(),
-            data: content,
+            data: EventJson::from(content),
         };
 
         let response = self.send(request).await?;
@@ -962,7 +951,7 @@ impl AsyncClient {
     #[instrument]
     async fn claim_one_time_keys(
         &self,
-        one_time_keys: HashMap<UserId, HashMap<DeviceId, KeyAlgorithm>>,
+        one_time_keys: BTreeMap<UserId, BTreeMap<DeviceId, KeyAlgorithm>>,
     ) -> Result<claim_keys::Response> {
         let request = claim_keys::Request {
             timeout: None,
@@ -1076,7 +1065,7 @@ impl AsyncClient {
             users_for_query
         );
 
-        let mut device_keys: HashMap<UserId, Vec<DeviceId>> = HashMap::new();
+        let mut device_keys: BTreeMap<UserId, Vec<DeviceId>> = BTreeMap::new();
 
         for user in users_for_query.drain() {
             device_keys.insert(user, Vec::new());

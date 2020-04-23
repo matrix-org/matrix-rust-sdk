@@ -623,7 +623,7 @@ pub(crate) mod test {
     use crate::identifiers::RoomId;
     use olm_rs::session::OlmMessage;
     use ruma_client_api::r0::keys::SignedKey;
-    use std::collections::HashMap;
+    use std::collections::BTreeMap;
     use std::convert::TryFrom;
 
     pub(crate) async fn get_account_and_session() -> (Account, Session) {
@@ -643,7 +643,7 @@ pub(crate) mod test {
             .to_owned();
         let one_time_key = SignedKey {
             key: one_time_key,
-            signatures: HashMap::new(),
+            signatures: BTreeMap::new(),
         };
         let sender_key = bob.identity_keys().curve25519().to_owned();
         let session = alice
@@ -721,7 +721,7 @@ pub(crate) mod test {
 
         let one_time_key = SignedKey {
             key: one_time_key,
-            signatures: HashMap::new(),
+            signatures: BTreeMap::new(),
         };
 
         let mut bob_session = bob

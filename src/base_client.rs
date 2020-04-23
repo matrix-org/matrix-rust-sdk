@@ -15,7 +15,7 @@
 
 use std::collections::HashMap;
 #[cfg(feature = "encryption")]
-use std::collections::HashSet;
+use std::collections::{BTreeMap, HashSet};
 use std::fmt;
 use std::sync::Arc;
 
@@ -30,7 +30,7 @@ use crate::events::presence::PresenceEvent;
 use crate::events::collections::only::Event as NonRoomEvent;
 use crate::events::ignored_user_list::IgnoredUserListEvent;
 use crate::events::push_rules::{PushRulesEvent, Ruleset};
-use crate::events::EventResult;
+use crate::events::EventJson;
 use crate::identifiers::{RoomId, UserId};
 use crate::models::Room;
 use crate::session::Session;
@@ -234,10 +234,10 @@ impl Client {
     pub async fn receive_joined_timeline_event(
         &mut self,
         room_id: &RoomId,
-        event: &mut EventResult<RoomEvent>,
-    ) -> Option<EventResult<RoomEvent>> {
-        match event {
-            EventResult::Ok(e) => {
+        event: &mut EventJson<RoomEvent>,
+    ) -> Option<EventJson<RoomEvent>> {
+        match event.deserialize() {
+            Ok(mut e) => {
                 #[cfg(feature = "encryption")]
                 let mut decrypted_event = None;
                 #[cfg(not(feature = "encryption"))]
@@ -246,12 +246,12 @@ impl Client {
                 #[cfg(feature = "encryption")]
                 {
                     match e {
-                        RoomEvent::RoomEncrypted(e) => {
+                        RoomEvent::RoomEncrypted(ref mut e) => {
                             e.room_id = Some(room_id.to_owned());
                             let mut olm = self.olm.lock().await;
 
                             if let Some(o) = &mut *olm {
-                                decrypted_event = o.decrypt_room_event(e).await.ok();
+                                decrypted_event = o.decrypt_room_event(&e).await.ok();
                             }
                         }
                         _ => (),
@@ -259,7 +259,7 @@ impl Client {
                 }
 
                 let mut room = self.get_or_create_room(&room_id).write().await;
-                room.receive_timeline_event(e);
+                room.receive_timeline_event(&e);
                 decrypted_event
             }
             _ => None,
@@ -358,10 +358,7 @@ impl Client {
     /// # Arguments
     ///
     /// * `response` - The response that we received after a successful sync.
-    pub async fn receive_sync_response(
-        &mut self,
-        response: &mut api::sync::sync_events::IncomingResponse,
-    ) {
+    pub async fn receive_sync_response(&mut self, response: &mut api::sync::sync_events::Response) {
         self.sync_token = Some(response.next_batch.clone());
 
         #[cfg(feature = "encryption")]
@@ -437,12 +434,12 @@ impl Client {
     pub async fn get_missing_sessions(
         &self,
         users: impl Iterator<Item = &UserId>,
-    ) -> HashMap<UserId, HashMap<DeviceId, KeyAlgorithm>> {
+    ) -> BTreeMap<UserId, BTreeMap<DeviceId, KeyAlgorithm>> {
         let mut olm = self.olm.lock().await;
 
         match &mut *olm {
             Some(o) => o.get_missing_sessions(users).await,
-            None => HashMap::new(),
+            None => BTreeMap::new(),
         }
     }
 
