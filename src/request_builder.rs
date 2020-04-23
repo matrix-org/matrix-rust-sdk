@@ -290,7 +290,7 @@ impl Into<get_message_events::Request> for MessagesRequestBuilder {
 
 #[cfg(test)]
 mod test {
-    use std::collections::{BTreeMap, HashMap};
+    use std::collections::BTreeMap;
 
     use super::*;
     use crate::events::room::power_levels::NotificationPowerLevels;
@@ -371,9 +371,8 @@ mod test {
             .from("t47429-4392820_219380_26003_2265".to_string())
             .to("t4357353_219380_26003_2265".to_string())
             .direction(Direction::Backward)
-            .limit(UInt::new(10).unwrap());
-        // TODO this makes ruma error `Err(IntoHttp(IntoHttpError(Query(Custom("unsupported value")))))`??
-        // .filter(RoomEventFilter::default());
+            .limit(UInt::new(10).unwrap())
+            .filter(RoomEventFilter::default());
 
         let cli = AsyncClient::new(homeserver, Some(session)).unwrap();
         assert!(cli.room_messages(builder).await.is_ok());

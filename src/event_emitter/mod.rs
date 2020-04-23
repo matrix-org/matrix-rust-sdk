@@ -29,6 +29,7 @@ use crate::events::{
         name::NameEvent,
         power_levels::PowerLevelsEvent,
         redaction::RedactionEvent,
+        tombstone::TombstoneEvent,
     },
 };
 use crate::models::Room;
@@ -98,6 +99,8 @@ pub trait EventEmitter: Send + Sync {
     async fn on_room_redaction(&self, _: Arc<RwLock<Room>>, _: &RedactionEvent) {}
     /// Fires when `AsyncClient` receives a `RoomEvent::RoomPowerLevels` event.
     async fn on_room_power_levels(&self, _: Arc<RwLock<Room>>, _: &PowerLevelsEvent) {}
+    /// Fires when `AsyncClient` receives a `RoomEvent::Tombstone` event.
+    async fn on_room_tombstone(&self, _: Arc<RwLock<Room>>, _: &TombstoneEvent) {}
 
     // `RoomEvent`s from `IncomingState`
     /// Fires when `AsyncClient` receives a `StateEvent::RoomMember` event.
@@ -166,6 +169,9 @@ mod test {
         }
         async fn on_room_power_levels(&self, _: Arc<RwLock<Room>>, _: &PowerLevelsEvent) {
             self.0.lock().await.push("power".to_string())
+        }
+        async fn on_room_tombstone(&self, _: Arc<RwLock<Room>>, _: &TombstoneEvent) {
+            self.0.lock().await.push("tombstone".to_string())
         }
 
         async fn on_state_member(&self, _: Arc<RwLock<Room>>, _: &MemberEvent) {

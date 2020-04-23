@@ -165,6 +165,7 @@ impl RoomName {
                     .take(3)
                     .map(|mem| mem.user_id.localpart().to_string())
                     .collect::<Vec<String>>();
+                // stabilize ordering
                 names.sort();
                 names.join(", ")
             } else if heroes < invited_joined && invited + joined > one {
