@@ -242,16 +242,18 @@ mod test {
             AsyncClient::new_with_config(homeserver.clone(), Some(session.clone()), config)
                 .unwrap();
         let sync_settings = SyncSettings::new().timeout(std::time::Duration::from_millis(3000));
-        let _ = client.sync(sync_settings).await.unwrap();
+        // fake a sync to skip the load with the state store, this will fail as the files won't exist
+        // but the `AsyncClient::sync` will skip `StateStore::load_*`
+        assert!(client.sync_with_state_store().await.is_err());
+        // gather state to save to the db
+        let _ = client.sync(sync_settings.clone()).await.unwrap();
 
-        // once logged in without syncing the client is updated from the state store
+        // now syncing the client will update from the state store
         let config =
             AsyncClientConfig::default().state_store(Box::new(JsonStore::open(path).unwrap()));
-        let client = AsyncClient::new_with_config(homeserver, None, config).unwrap();
-        client
-            .login("example", "wordpass", None, None)
-            .await
-            .unwrap();
+        let client =
+            AsyncClient::new_with_config(homeserver, Some(session.clone()), config).unwrap();
+        client.sync(sync_settings).await.unwrap();
 
         let base_client = client.base_client.read().await;
 

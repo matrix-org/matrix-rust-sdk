@@ -16,6 +16,7 @@
 use std::collections::HashMap;
 use std::convert::{TryFrom, TryInto};
 use std::ops::Deref;
+use std::path::Path;
 use std::result::Result as StdResult;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -75,6 +76,9 @@ impl std::fmt::Debug for AsyncClient {
 #[derive(Default)]
 /// Configuration for the creation of the `AsyncClient`.
 ///
+/// When setting the `StateStore` it is up to the user to open/connect
+/// the storage backend before client creation.
+///
 /// # Example
 ///
 /// ```
@@ -85,6 +89,14 @@ impl std::fmt::Debug for AsyncClient {
 ///     .proxy("http://localhost:8080")
 ///     .unwrap()
 ///     .disable_ssl_verification();
+/// ```
+/// add the default `JsonStore` to the `AsyncClient`
+/// ```no_run
+///  # use matrix_sdk::{AsyncClientConfig, JsonStore};
+///
+/// let store = JsonStore::open("path/to/json").unwrap();
+/// let client_config = AsyncClientConfig::new()
+///     . state_store(Box::new(store));
 /// ```
 pub struct AsyncClientConfig {
     proxy: Option<reqwest::Proxy>,
@@ -145,7 +157,7 @@ impl AsyncClientConfig {
 
     /// Set a custom implementation of a `StateStore`.
     ///
-    /// The state store should be "connected" before being set.
+    /// The state store should be "connected/opened" before being set.
     pub fn state_store(mut self, store: Box<dyn StateStore>) -> Self {
         self.state_store = Some(store);
         self
@@ -329,6 +341,18 @@ impl AsyncClient {
     /// A `HashMap` of room id to `matrix::models::Room`
     pub async fn get_rooms(&self) -> HashMap<RoomId, Arc<tokio::sync::RwLock<Room>>> {
         self.base_client.read().await.joined_rooms.clone()
+    }
+
+    /// This allows `AsyncClient` to manually sync state with the provided `StateStore`.
+    ///
+    /// Returns true when a successful `StateStore` sync has completed.
+    /// # Examples
+    ///
+    /// ```
+    /// // TODO
+    /// ```
+    pub async fn sync_with_state_store(&self) -> Result<bool> {
+        self.base_client.write().await.sync_with_state_store().await
     }
 
     /// Login to the server.
@@ -573,11 +597,28 @@ impl AsyncClient {
 
     /// Synchronize the client's state with the latest state on the server.
     ///
+    /// If a `StateStore` is provided and this is the initial sync state will
+    /// be loaded from the state store.
+    ///
     /// # Arguments
     ///
     /// * `sync_settings` - Settings for the sync call.
     #[instrument]
-    pub async fn sync(&self, sync_settings: SyncSettings) -> Result<sync_events::IncomingResponse> {
+    pub async fn sync(
+        &self,
+        mut sync_settings: SyncSettings,
+    ) -> Result<sync_events::IncomingResponse> {
+        {
+            if self.base_client.read().await.is_state_store_synced() {
+                if let Ok(synced) = self.sync_with_state_store().await {
+                    if synced {
+                        // once synced, update the sync token to the last known state from `StateStore`.
+                        sync_settings.token = self.sync_token().await;
+                    }
+                }
+            }
+        }
+
         let request = sync_events::Request {
             filter: None,
             since: sync_settings.token,

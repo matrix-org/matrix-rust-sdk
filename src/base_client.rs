@@ -78,6 +78,8 @@ pub struct Client {
     pub event_emitter: Option<Box<dyn EventEmitter>>,
     ///
     pub state_store: Option<Box<dyn StateStore>>,
+    /// Does the `Client` need to sync with the state store.
+    needs_state_store_sync: bool,
 
     #[cfg(feature = "encryption")]
     olm: Arc<Mutex<Option<OlmMachine>>>,
@@ -118,6 +120,7 @@ impl Client {
             push_ruleset: None,
             event_emitter: None,
             state_store: None,
+            needs_state_store_sync: true,
             #[cfg(feature = "encryption")]
             olm: Arc::new(Mutex::new(olm)),
         })
@@ -133,6 +136,39 @@ impl Client {
     /// The methods of `EventEmitter` are called when the respective `RoomEvents` occur.
     pub async fn add_event_emitter(&mut self, emitter: Box<dyn EventEmitter>) {
         self.event_emitter = Some(emitter);
+    }
+
+    /// Returns true if the state store has been loaded into the client.
+    pub fn is_state_store_synced(&self) -> bool {
+        !self.needs_state_store_sync
+    }
+
+    /// When a client is provided the state store will load state from the `StateStore`.
+    ///
+    /// Returns `true` when a sync has successfully completed.
+    pub(crate) async fn sync_with_state_store(&mut self) -> Result<bool> {
+        if let Some(store) = self.state_store.as_ref() {
+            let ClientState {
+                session,
+                sync_token,
+                ignored_users,
+                push_ruleset,
+            } = store.load_client_state().await?;
+            let mut rooms = store.load_all_rooms().await?;
+
+            self.joined_rooms = rooms
+                .drain()
+                .map(|(k, room)| (k, Arc::new(RwLock::new(room))))
+                .collect();
+            self.session = session;
+            self.sync_token = sync_token;
+            self.ignored_users = ignored_users;
+            self.push_ruleset = push_ruleset;
+
+            self.needs_state_store_sync = false;
+        }
+
+        Ok(!self.needs_state_store_sync)
     }
 
     /// Receive a login response and update the session of the client.
@@ -156,25 +192,6 @@ impl Client {
         {
             let mut olm = self.olm.lock().await;
             *olm = Some(OlmMachine::new(&response.user_id, &response.device_id)?);
-        }
-
-        if let Some(store) = self.state_store.as_ref() {
-            let ClientState {
-                session,
-                sync_token,
-                ignored_users,
-                push_ruleset,
-            } = store.load_client_state().await?;
-            let mut rooms = store.load_all_rooms().await?;
-
-            self.joined_rooms = rooms
-                .drain()
-                .map(|(k, room)| (k, Arc::new(RwLock::new(room))))
-                .collect();
-            self.session = session;
-            self.sync_token = sync_token;
-            self.ignored_users = ignored_users;
-            self.push_ruleset = push_ruleset;
         }
 
         Ok(())
