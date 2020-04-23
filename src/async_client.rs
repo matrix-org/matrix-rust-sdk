@@ -962,7 +962,7 @@ impl AsyncClient {
 
         let response = self.send(request).await?;
         self.base_client
-            .write()
+            .read()
             .await
             .receive_keys_claim_response(&response)
             .await?;
@@ -1032,7 +1032,7 @@ impl AsyncClient {
 
         let response = self.send(request).await?;
         self.base_client
-            .write()
+            .read()
             .await
             .receive_keys_upload_response(&response)
             .await?;
@@ -1081,7 +1081,7 @@ impl AsyncClient {
 
         let response = self.send(request).await?;
         self.base_client
-            .write()
+            .read()
             .await
             .receive_keys_query_response(&response)
             .await?;
