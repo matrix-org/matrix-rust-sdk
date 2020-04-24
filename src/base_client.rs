@@ -637,6 +637,13 @@ impl Client {
                     }
                 }
             }
+            RoomEvent::RoomTombstone(tomb) => {
+                if let Some(ee) = &self.event_emitter {
+                    if let Some(room) = self.get_room(&room_id) {
+                        ee.on_room_tombstone(Arc::clone(&room), &tomb).await;
+                    }
+                }
+            }
             _ => {}
         }
     }
@@ -690,6 +697,13 @@ impl Client {
                 if let Some(ee) = &self.event_emitter {
                     if let Some(room) = self.get_room(&room_id) {
                         ee.on_state_join_rules(Arc::clone(&room), &rules).await;
+                    }
+                }
+            }
+            StateEvent::RoomTombstone(tomb) => {
+                if let Some(ee) = &self.event_emitter {
+                    if let Some(room) = self.get_room(&room_id) {
+                        ee.on_room_tombstone(Arc::clone(&room), &tomb).await;
                     }
                 }
             }
