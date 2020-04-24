@@ -2,14 +2,25 @@ use std::collections::HashMap;
 use std::fs::{self, OpenOptions};
 use std::io::{BufReader, BufWriter, Write};
 use std::path::{Path, PathBuf};
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Arc,
+};
+
+use tokio::fs as async_fs;
+use tokio::sync::RwLock;
 
 use super::{ClientState, StateStore};
 use crate::identifiers::RoomId;
 use crate::{Error, Result, Room};
 /// A default `StateStore` implementation that serializes state as json
 /// and saves it to disk.
+///
+/// When logged in the `JsonStore` appends the user_id to it's folder path,
+/// so all files are saved in `my_client/user_id/*`.
 pub struct JsonStore {
-    path: PathBuf,
+    path: Arc<RwLock<PathBuf>>,
+    user_path_set: AtomicBool,
 }
 
 impl JsonStore {
@@ -22,39 +33,30 @@ impl JsonStore {
             std::fs::create_dir_all(p)?;
         }
         Ok(Self {
-            path: p.to_path_buf(),
+            path: Arc::new(RwLock::new(p.to_path_buf())),
+            user_path_set: AtomicBool::new(false),
         })
     }
 }
 
 #[async_trait::async_trait]
 impl StateStore for JsonStore {
-    async fn initial_use(&self) -> Result<bool> {
-        let mut path = self.path.clone();
-        path.push("client.json");
-        Ok(fs::read_to_string(path).map_or(false, |s| !s.is_empty()))
-    }
-
-    async fn load_client_state(&self) -> Result<ClientState> {
-        let mut path = self.path.clone();
+    async fn load_client_state(&self) -> Result<Option<ClientState>> {
+        let mut path = self.path.read().await.clone();
         path.push("client.json");
 
-        let file = OpenOptions::new().read(true).open(path)?;
-        let reader = BufReader::new(file);
-        serde_json::from_reader(reader).map_err(Error::from)
-    }
-
-    async fn load_room_state(&self, room_id: &RoomId) -> Result<Room> {
-        let mut path = self.path.clone();
-        path.push(&format!("rooms/{}.json", room_id));
-
-        let file = OpenOptions::new().read(true).open(path)?;
-        let reader = BufReader::new(file);
-        serde_json::from_reader(reader).map_err(Error::from)
+        let json = async_fs::read_to_string(path)
+            .await
+            .map_or(String::default(), |s| s);
+        if json.is_empty() {
+            Ok(None)
+        } else {
+            serde_json::from_str(&json).map(Some).map_err(Error::from)
+        }
     }
 
     async fn load_all_rooms(&self) -> Result<HashMap<RoomId, Room>> {
-        let mut path = self.path.clone();
+        let mut path = self.path.read().await.clone();
         path.push("rooms");
 
         let mut rooms_map = HashMap::new();
@@ -78,7 +80,16 @@ impl StateStore for JsonStore {
     }
 
     async fn store_client_state(&self, state: ClientState) -> Result<()> {
-        let mut path = self.path.clone();
+        if !self.user_path_set.load(Ordering::SeqCst) {
+            if let Some(user) = &state.user_id {
+                self.user_path_set.swap(true, Ordering::SeqCst);
+                self.path
+                    .write()
+                    .await
+                    .push(format!("{}", user.localpart()))
+            }
+        }
+        let mut path = self.path.read().await.clone();
         path.push("client.json");
 
         if !Path::new(&path).exists() {
@@ -101,7 +112,11 @@ impl StateStore for JsonStore {
     }
 
     async fn store_room_state(&self, room: &Room) -> Result<()> {
-        let mut path = self.path.clone();
+        if !self.user_path_set.load(Ordering::SeqCst) {
+            // TODO Error here, should the load methods also error?
+        }
+
+        let mut path = self.path.read().await.clone();
         path.push(&format!("rooms/{}.json", room.room_id));
 
         if !Path::new(&path).exists() {
@@ -170,11 +185,22 @@ mod test {
 
     async fn test_store_client_state() {
         let path: &Path = &PATH;
+
+        let user = UserId::try_from("@example:example.com").unwrap();
+
         let store = JsonStore::open(path).unwrap();
-        let state = ClientState::default();
-        store.store_client_state(state).await.unwrap();
+
+        let state = ClientState {
+            user_id: Some(user.clone()),
+            device_id: None,
+            sync_token: Some("hello".into()),
+            ignored_users: vec![user],
+            push_ruleset: None,
+        };
+
+        store.store_client_state(state.clone()).await.unwrap();
         let loaded = store.load_client_state().await.unwrap();
-        assert_eq!(loaded, ClientState::default());
+        assert_eq!(loaded, Some(state));
     }
 
     #[tokio::test]
@@ -191,8 +217,8 @@ mod test {
 
         let room = Room::new(&id, &user);
         store.store_room_state(&room).await.unwrap();
-        let loaded = store.load_room_state(&id).await.unwrap();
-        assert_eq!(loaded, Room::new(&id, &user));
+        let loaded = store.load_all_rooms().await.unwrap();
+        assert_eq!(loaded.get(&id), Some(&Room::new(&id, &user)));
     }
 
     #[tokio::test]

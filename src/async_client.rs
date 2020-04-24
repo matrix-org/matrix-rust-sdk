@@ -18,7 +18,6 @@ use std::collections::BTreeMap;
 use std::collections::HashMap;
 use std::convert::{TryFrom, TryInto};
 use std::ops::Deref;
-use std::path::Path;
 use std::result::Result as StdResult;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -159,7 +158,7 @@ impl AsyncClientConfig {
 
     /// Set a custom implementation of a `StateStore`.
     ///
-    /// The state store should be "connected/opened" before being set.
+    /// The state store should be opened before being set.
     pub fn state_store(mut self, store: Box<dyn StateStore>) -> Self {
         self.state_store = Some(store);
         self
@@ -610,7 +609,7 @@ impl AsyncClient {
     #[instrument]
     pub async fn sync(&self, mut sync_settings: SyncSettings) -> Result<sync_events::Response> {
         {
-            // if the client hasn't been synced from the state store don't sync again
+            // if the client has been synced from the state store don't sync again
             if !self.base_client.read().await.is_state_store_synced() {
                 // this will bail out returning false if the store has not been set up
                 if let Ok(synced) = self.sync_with_state_store().await {

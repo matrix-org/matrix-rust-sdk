@@ -148,27 +148,37 @@ impl Client {
     /// Returns `true` when a sync has successfully completed.
     pub(crate) async fn sync_with_state_store(&mut self) -> Result<bool> {
         if let Some(store) = self.state_store.as_ref() {
-            // return false and continues with a sync request then saves the state and creates
-            // and populates the files during the sync
-            if !store.initial_use().await? {
+            if let Some(client_state) = store.load_client_state().await? {
+                let ClientState {
+                    user_id,
+                    device_id,
+                    sync_token,
+                    ignored_users,
+                    push_ruleset,
+                } = client_state;
+
+                if let Some(sess) = self.session.as_mut() {
+                    if let Some(device) = device_id {
+                        sess.device_id = device;
+                    }
+                    if let Some(user) = user_id {
+                        sess.user_id = user;
+                    }
+                }
+                self.sync_token = sync_token;
+                self.ignored_users = ignored_users;
+                self.push_ruleset = push_ruleset;
+            } else {
+                // return false and continues with a sync request then save the state and create
+                // and populate the files during the sync
                 return Ok(false);
             }
-            let ClientState {
-                session,
-                sync_token,
-                ignored_users,
-                push_ruleset,
-            } = store.load_client_state().await?;
-            let mut rooms = store.load_all_rooms().await?;
 
+            let mut rooms = store.load_all_rooms().await?;
             self.joined_rooms = rooms
                 .drain()
                 .map(|(k, room)| (k, Arc::new(RwLock::new(room))))
                 .collect();
-            self.session = session;
-            self.sync_token = sync_token;
-            self.ignored_users = ignored_users;
-            self.push_ruleset = push_ruleset;
 
             self.needs_state_store_sync = false;
         }

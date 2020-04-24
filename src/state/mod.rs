@@ -22,15 +22,15 @@ use serde::{Deserialize, Serialize};
 
 use crate::base_client::{Client as BaseClient, Token};
 use crate::events::push_rules::Ruleset;
-use crate::identifiers::{RoomId, UserId};
+use crate::identifiers::{DeviceId, RoomId, UserId};
 use crate::models::Room;
-use crate::session::Session;
 use crate::Result;
-#[derive(Debug, Default, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct ClientState {
-    /// The current client session containing our user id, device id and access
-    /// token.
-    pub session: Option<Session>,
+    /// The `UserId` for the current logged in user.
+    pub user_id: Option<UserId>,
+    /// The `DeviceId` of the current logged in user.
+    pub device_id: Option<DeviceId>,
     /// The current sync token that should be used for the next sync call.
     pub sync_token: Option<Token>,
     /// A list of ignored users.
@@ -49,7 +49,8 @@ impl ClientState {
             ..
         } = client;
         Self {
-            session: session.clone(),
+            user_id: session.as_ref().map(|s| s.user_id.clone()),
+            device_id: session.as_ref().map(|s| s.device_id.clone()),
             sync_token: sync_token.clone(),
             ignored_users: ignored_users.clone(),
             push_ruleset: push_ruleset.clone(),
@@ -60,14 +61,11 @@ impl ClientState {
 /// Abstraction around the data store to avoid unnecessary request on client initialization.
 #[async_trait::async_trait]
 pub trait StateStore: Send + Sync {
-    /// Signals to the `AsyncClient` if this is the first time a StateStore` has been used.
+    /// Loads the state of `BaseClient` through `ClientState` type.
     ///
-    /// Returns true if `StateStore` has been set up and ready to be loaded from.
-    async fn initial_use(&self) -> Result<bool>;
-    /// Loads the state of `BaseClient` through `StateStore::Store` type.
-    async fn load_client_state(&self) -> Result<ClientState>;
-    /// Load the state of a single `Room` by `RoomId`.
-    async fn load_room_state(&self, room_id: &RoomId) -> Result<Room>;
+    /// An `Option::None` should be returned only if the `StateStore` tries to
+    /// load but no state has been stored.
+    async fn load_client_state(&self) -> Result<Option<ClientState>>;
     /// Load the state of all `Room`s.
     ///
     /// This will be mapped over in the client in order to store `Room`s in an async safe way.
@@ -85,8 +83,6 @@ mod test {
     use std::collections::HashMap;
     use std::convert::TryFrom;
 
-    use crate::identifiers::{RoomId, UserId};
-
     #[test]
     fn serialize() {
         let id = RoomId::try_from("!roomid:example.com").unwrap();
@@ -95,13 +91,14 @@ mod test {
         let room = Room::new(&id, &user);
 
         let state = ClientState {
-            session: None,
+            user_id: Some(user.clone()),
+            device_id: None,
             sync_token: Some("hello".into()),
             ignored_users: vec![user],
             push_ruleset: None,
         };
         assert_eq!(
-            r#"{"session":null,"sync_token":"hello","ignored_users":["@example:example.com"],"push_ruleset":null}"#,
+            r#"{"user_id":"@example:example.com","device_id":null,"sync_token":"hello","ignored_users":["@example:example.com"],"push_ruleset":null}"#,
             serde_json::to_string(&state).unwrap()
         );
 
@@ -141,7 +138,8 @@ mod test {
         let room = Room::new(&id, &user);
 
         let state = ClientState {
-            session: None,
+            user_id: Some(user.clone()),
+            device_id: None,
             sync_token: Some("hello".into()),
             ignored_users: vec![user],
             push_ruleset: None,
