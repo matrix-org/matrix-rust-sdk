@@ -1,5 +1,6 @@
 use crate::api;
 use crate::events::room::power_levels::PowerLevelsEventContent;
+use crate::events::EventJson;
 use crate::identifiers::{RoomId, UserId};
 use api::r0::filter::RoomEventFilter;
 use api::r0::membership::Invite3pid;
@@ -163,7 +164,7 @@ impl Into<create_room::Request> for RoomBuilder {
             invite_3pid: self.invite_3pid,
             is_direct: self.is_direct,
             name: self.name,
-            power_level_content_override: self.power_level_content_override,
+            power_level_content_override: self.power_level_content_override.map(EventJson::from),
             preset: self.preset,
             room_alias_name: self.room_alias_name,
             room_version: self.room_version,
@@ -177,6 +178,7 @@ impl Into<create_room::Request> for RoomBuilder {
 ///
 /// # Examples
 /// ```
+/// # use std::convert::TryFrom;
 /// # use matrix_sdk::{AsyncClient, MessagesRequestBuilder};
 /// # use matrix_sdk::api::r0::message::get_message_events::{self, Direction};
 /// # use matrix_sdk::identifiers::RoomId;
@@ -184,8 +186,8 @@ impl Into<create_room::Request> for RoomBuilder {
 /// # let homeserver = Url::parse("http://example.com").unwrap();
 /// # let mut rt = tokio::runtime::Runtime::new().unwrap();
 /// # rt.block_on(async {
-/// # let room_id = RoomId::new(homeserver.as_str()).unwrap();
-/// # let last_sync_token = "".to_string();;
+/// # let room_id = RoomId::try_from("!test:localhost").unwrap();
+/// # let last_sync_token = "".to_string();
 /// let mut cli = AsyncClient::new(homeserver, None).unwrap();
 ///
 /// let mut builder = MessagesRequestBuilder::new();
@@ -288,7 +290,7 @@ impl Into<get_message_events::Request> for MessagesRequestBuilder {
 
 #[cfg(test)]
 mod test {
-    use std::collections::HashMap;
+    use std::collections::BTreeMap;
 
     use super::*;
     use crate::events::room::power_levels::NotificationPowerLevels;
@@ -325,7 +327,7 @@ mod test {
             .is_direct(true)
             .power_level_override(PowerLevelsEventContent {
                 ban: Int::max_value(),
-                events: HashMap::default(),
+                events: BTreeMap::default(),
                 events_default: Int::min_value(),
                 invite: Int::min_value(),
                 kick: Int::min_value(),
@@ -335,7 +337,7 @@ mod test {
                 notifications: NotificationPowerLevels {
                     room: Int::min_value(),
                 },
-                users: HashMap::default(),
+                users: BTreeMap::default(),
             })
             .preset(RoomPreset::PrivateChat)
             .room_alias_name("room_alias")

@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 use std::mem;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -23,12 +23,13 @@ use crate::api::r0::keys::{DeviceKeys, KeyAlgorithm};
 use crate::events::Algorithm;
 use crate::identifiers::{DeviceId, UserId};
 
+/// A device represents a E2EE capable client of an user.
 #[derive(Debug, Clone)]
 pub struct Device {
     user_id: Arc<UserId>,
     device_id: Arc<DeviceId>,
     algorithms: Arc<Vec<Algorithm>>,
-    keys: Arc<HashMap<KeyAlgorithm, String>>,
+    keys: Arc<BTreeMap<KeyAlgorithm, String>>,
     display_name: Arc<Option<String>>,
     deleted: Arc<AtomicBool>,
     trust_state: Arc<Atomic<TrustState>>,
@@ -67,7 +68,7 @@ impl Device {
         display_name: Option<String>,
         trust_state: TrustState,
         algorithms: Vec<Algorithm>,
-        keys: HashMap<KeyAlgorithm, String>,
+        keys: BTreeMap<KeyAlgorithm, String>,
     ) -> Self {
         Device {
             user_id: Arc::new(user_id),
@@ -101,7 +102,7 @@ impl Device {
     }
 
     /// Get a map containing all the device keys.
-    pub fn keys(&self) -> &HashMap<KeyAlgorithm, String> {
+    pub fn keys(&self) -> &BTreeMap<KeyAlgorithm, String> {
         &self.keys
     }
 
@@ -122,7 +123,7 @@ impl Device {
 
     /// Update a device with a new device keys struct.
     pub(crate) fn update_device(&mut self, device_keys: &DeviceKeys) {
-        let mut keys = HashMap::new();
+        let mut keys = BTreeMap::new();
 
         for (key_id, key) in device_keys.keys.iter() {
             let key_id = key_id.0;
@@ -152,7 +153,7 @@ impl Device {
 
 impl From<&DeviceKeys> for Device {
     fn from(device_keys: &DeviceKeys) -> Self {
-        let mut keys = HashMap::new();
+        let mut keys = BTreeMap::new();
 
         for (key_id, key) in device_keys.keys.iter() {
             let key_id = key_id.0;

@@ -50,6 +50,8 @@ mod crypto;
 
 pub use async_client::{AsyncClient, AsyncClientConfig, SyncSettings};
 pub use base_client::Client;
+#[cfg(feature = "encryption")]
+pub use crypto::{Device, TrustState};
 pub use event_emitter::EventEmitter;
 pub use models::Room;
 pub use request_builder::{MessagesRequestBuilder, RoomBuilder};

@@ -4,16 +4,16 @@ use serde::de::{Deserialize, Deserializer, Error as _};
 
 use crate::events::collections::all::Event;
 use crate::events::presence::PresenceEvent;
-use crate::events::EventResult;
+use crate::events::EventJson;
 
 pub fn deserialize_events<'de, D>(deserializer: D) -> Result<Vec<Event>, D::Error>
 where
     D: Deserializer<'de>,
 {
     let mut events = vec![];
-    let ev = Vec::<EventResult<Event>>::deserialize(deserializer)?;
+    let ev = Vec::<EventJson<Event>>::deserialize(deserializer)?;
     for event in ev {
-        events.push(event.into_result().map_err(D::Error::custom)?);
+        events.push(event.deserialize().map_err(D::Error::custom)?);
     }
 
     Ok(events)
@@ -24,9 +24,9 @@ where
     D: Deserializer<'de>,
 {
     let mut events = vec![];
-    let ev = Vec::<EventResult<PresenceEvent>>::deserialize(deserializer)?;
+    let ev = Vec::<EventJson<PresenceEvent>>::deserialize(deserializer)?;
     for event in ev {
-        events.push(event.into_result().map_err(D::Error::custom)?);
+        events.push(event.deserialize().map_err(D::Error::custom)?);
     }
 
     Ok(events)
@@ -37,15 +37,15 @@ mod test {
     use std::fs;
 
     use crate::events::room::member::MemberEvent;
-    use crate::events::EventResult;
+    use crate::events::EventJson;
     use crate::models::RoomMember;
 
     #[test]
     fn events_and_presence_deserialization() {
         let ev_json = fs::read_to_string("./tests/data/events/member.json").unwrap();
-        let ev = serde_json::from_str::<EventResult<MemberEvent>>(&ev_json)
+        let ev = serde_json::from_str::<EventJson<MemberEvent>>(&ev_json)
             .unwrap()
-            .into_result()
+            .deserialize()
             .unwrap();
         let member = RoomMember::new(&ev);
 

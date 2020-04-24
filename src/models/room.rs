@@ -13,7 +13,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::convert::TryFrom;
 
 use super::RoomMember;
@@ -63,7 +63,7 @@ pub struct PowerLevels {
     /// The level required to send specific event types.
     ///
     /// This is a mapping from event type to power level required.
-    pub events: HashMap<EventType, Int>,
+    pub events: BTreeMap<EventType, Int>,
     /// The default level required to send message events.
     pub events_default: Int,
     /// The level required to invite a user.

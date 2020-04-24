@@ -26,8 +26,13 @@ use olm_rs::account::{IdentityKeys, OlmAccount, OneTimeKeys};
 use olm_rs::errors::{OlmAccountError, OlmGroupSessionError, OlmSessionError};
 use olm_rs::inbound_group_session::OlmInboundGroupSession;
 use olm_rs::outbound_group_session::OlmOutboundGroupSession;
-use olm_rs::session::{OlmMessage, OlmSession, PreKeyMessage};
+use olm_rs::session::OlmSession;
 use olm_rs::PicklingMode;
+
+pub use olm_rs::{
+    session::{OlmMessage, PreKeyMessage},
+    utility::OlmUtility,
+};
 
 use crate::api::r0::keys::SignedKey;
 use crate::identifiers::RoomId;
@@ -618,7 +623,7 @@ pub(crate) mod test {
     use crate::identifiers::RoomId;
     use olm_rs::session::OlmMessage;
     use ruma_client_api::r0::keys::SignedKey;
-    use std::collections::HashMap;
+    use std::collections::BTreeMap;
     use std::convert::TryFrom;
 
     pub(crate) async fn get_account_and_session() -> (Account, Session) {
@@ -638,7 +643,7 @@ pub(crate) mod test {
             .to_owned();
         let one_time_key = SignedKey {
             key: one_time_key,
-            signatures: HashMap::new(),
+            signatures: BTreeMap::new(),
         };
         let sender_key = bob.identity_keys().curve25519().to_owned();
         let session = alice
@@ -716,7 +721,7 @@ pub(crate) mod test {
 
         let one_time_key = SignedKey {
             key: one_time_key,
-            signatures: HashMap::new(),
+            signatures: BTreeMap::new(),
         };
 
         let mut bob_session = bob

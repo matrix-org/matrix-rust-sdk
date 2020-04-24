@@ -10,7 +10,7 @@ use crate::events::{
         only::Event,
     },
     presence::PresenceEvent,
-    EventResult, TryFromRaw,
+    EventJson, TryFromRaw,
 };
 use crate::identifiers::{RoomId, UserId};
 use crate::AsyncClient;
@@ -97,9 +97,9 @@ impl EventBuilder {
     ) -> Self {
         let val = fs::read_to_string(path.as_ref())
             .expect(&format!("file not found {:?}", path.as_ref()));
-        let event = serde_json::from_str::<EventResult<Ev>>(&val)
+        let event = serde_json::from_str::<EventJson<Ev>>(&val)
             .unwrap()
-            .into_result()
+            .deserialize()
             .unwrap();
         self.ephemeral.push(variant(event));
         self
@@ -113,9 +113,9 @@ impl EventBuilder {
     ) -> Self {
         let val = fs::read_to_string(path.as_ref())
             .expect(&format!("file not found {:?}", path.as_ref()));
-        let event = serde_json::from_str::<EventResult<Ev>>(&val)
+        let event = serde_json::from_str::<EventJson<Ev>>(&val)
             .unwrap()
-            .into_result()
+            .deserialize()
             .unwrap();
         self.account_data.push(variant(event));
         self
@@ -129,9 +129,9 @@ impl EventBuilder {
     ) -> Self {
         let val = fs::read_to_string(path.as_ref())
             .expect(&format!("file not found {:?}", path.as_ref()));
-        let event = serde_json::from_str::<EventResult<Ev>>(&val)
+        let event = serde_json::from_str::<EventJson<Ev>>(&val)
             .unwrap()
-            .into_result()
+            .deserialize()
             .unwrap();
         self.room_events.push(variant(event));
         self
@@ -145,9 +145,9 @@ impl EventBuilder {
     ) -> Self {
         let val = fs::read_to_string(path.as_ref())
             .expect(&format!("file not found {:?}", path.as_ref()));
-        let event = serde_json::from_str::<EventResult<Ev>>(&val)
+        let event = serde_json::from_str::<EventJson<Ev>>(&val)
             .unwrap()
-            .into_result()
+            .deserialize()
             .unwrap();
         self.state_events.push(variant(event));
         self
@@ -157,9 +157,9 @@ impl EventBuilder {
     pub fn add_presence_event_from_file<P: AsRef<Path>>(mut self, path: P) -> Self {
         let val = fs::read_to_string(path.as_ref())
             .expect(&format!("file not found {:?}", path.as_ref()));
-        let event = serde_json::from_str::<EventResult<PresenceEvent>>(&val)
+        let event = serde_json::from_str::<EventJson<PresenceEvent>>(&val)
             .unwrap()
-            .into_result()
+            .deserialize()
             .unwrap();
         self.presence_events.push(event);
         self
@@ -342,7 +342,7 @@ impl ClientTestRunner {
         for event in &self.room_events {
             cli.receive_joined_timeline_event(
                 room_id,
-                &mut EventResult::Ok(event.clone()),
+                &mut EventJson::from(event.clone()),
                 &mut false,
             )
             .await;

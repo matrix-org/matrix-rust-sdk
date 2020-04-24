@@ -133,6 +133,13 @@ pub trait CryptoStore: Debug + Send + Sync {
     /// * `device` - The device that should be stored.
     async fn save_device(&self, device: Device) -> Result<()>;
 
+    /// Delete the given device from the store.
+    ///
+    /// # Arguments
+    ///
+    /// * `device` - The device that should be stored.
+    async fn delete_device(&self, device: Device) -> Result<()>;
+
     /// Get the device for the given user with the given device id.
     ///
     /// # Arguments
