@@ -60,6 +60,10 @@ impl ClientState {
 /// Abstraction around the data store to avoid unnecessary request on client initialization.
 #[async_trait::async_trait]
 pub trait StateStore: Send + Sync {
+    /// Signals to the `AsyncClient` if this is the first time a StateStore` has been used.
+    ///
+    /// Returns true if `StateStore` has been set up and ready to be loaded from.
+    async fn initial_use(&self) -> Result<bool>;
     /// Loads the state of `BaseClient` through `StateStore::Store` type.
     async fn load_client_state(&self) -> Result<ClientState>;
     /// Load the state of a single `Room` by `RoomId`.

@@ -29,6 +29,12 @@ impl JsonStore {
 
 #[async_trait::async_trait]
 impl StateStore for JsonStore {
+    async fn initial_use(&self) -> Result<bool> {
+        let mut path = self.path.clone();
+        path.push("client.json");
+        Ok(fs::read_to_string(path).map_or(false, |s| !s.is_empty()))
+    }
+
     async fn load_client_state(&self) -> Result<ClientState> {
         let mut path = self.path.clone();
         path.push("client.json");
@@ -242,10 +248,8 @@ mod test {
             AsyncClient::new_with_config(homeserver.clone(), Some(session.clone()), config)
                 .unwrap();
         let sync_settings = SyncSettings::new().timeout(std::time::Duration::from_millis(3000));
-        // fake a sync to skip the load with the state store, this will fail as the files won't exist
-        // but the `AsyncClient::sync` will skip `StateStore::load_*`
-        assert!(client.sync_with_state_store().await.is_err());
-        // gather state to save to the db
+
+        // gather state to save to the db, the first time through loading will be skipped
         let _ = client.sync(sync_settings.clone()).await.unwrap();
 
         // now syncing the client will update from the state store

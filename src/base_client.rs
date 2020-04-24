@@ -148,6 +148,11 @@ impl Client {
     /// Returns `true` when a sync has successfully completed.
     pub(crate) async fn sync_with_state_store(&mut self) -> Result<bool> {
         if let Some(store) = self.state_store.as_ref() {
+            // return false and continues with a sync request then saves the state and creates
+            // and populates the files during the sync
+            if !store.initial_use().await? {
+                return Ok(false);
+            }
             let ClientState {
                 session,
                 sync_token,

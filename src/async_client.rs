@@ -610,7 +610,9 @@ impl AsyncClient {
     #[instrument]
     pub async fn sync(&self, mut sync_settings: SyncSettings) -> Result<sync_events::Response> {
         {
-            if self.base_client.read().await.is_state_store_synced() {
+            // if the client hasn't been synced from the state store don't sync again
+            if !self.base_client.read().await.is_state_store_synced() {
+                // this will bail out returning false if the store has not been set up
                 if let Ok(synced) = self.sync_with_state_store().await {
                     if synced {
                         // once synced, update the sync token to the last known state from `StateStore`.
