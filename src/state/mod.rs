@@ -25,6 +25,13 @@ use crate::events::push_rules::Ruleset;
 use crate::identifiers::{DeviceId, RoomId, UserId};
 use crate::models::Room;
 use crate::Result;
+
+/// `ClientState` holds all the information to restore a `BaseClient`
+/// except the `access_token` as the default store is not secure.
+///
+/// When implementing `StateStore` for something other than the filesystem
+/// implement `From<ClientState> for YourDbType` this allows for easy conversion
+/// when needed in `StateStore::load/store_client_state`
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct ClientState {
     /// The `UserId` for the current logged in user.

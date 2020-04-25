@@ -4,7 +4,7 @@ use std::{env, process::exit};
 use matrix_sdk::{
     self,
     events::room::message::{MessageEvent, MessageEventContent, TextMessageEventContent},
-    AsyncClient, AsyncClientConfig, EventEmitter, Room, SyncSettings,
+    AsyncClient, AsyncClientConfig, EventEmitter, JsonStore, Room, SyncSettings,
 };
 use tokio::sync::RwLock;
 use url::Url;
@@ -63,9 +63,14 @@ async fn login_and_sync(
     username: String,
     password: String,
 ) -> Result<(), matrix_sdk::Error> {
+    let mut home = dirs::home_dir().expect("no home directory found");
+    home.push("party_bot");
+
+    let store = JsonStore::open(&home)?;
     let client_config = AsyncClientConfig::new()
         .proxy("http://localhost:8080")?
-        .disable_ssl_verification();
+        .disable_ssl_verification()
+        .state_store(Box::new(store));
 
     let homeserver_url = Url::parse(&homeserver_url)?;
     // create a new AsyncClient with the given homeserver url and config
