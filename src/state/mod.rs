@@ -123,7 +123,8 @@ mod test {
     "power_levels": null,
     "encrypted": false,
     "unread_highlight": null,
-    "unread_notifications": null
+    "unread_notifications": null,
+    "tombstone": null
   }
 }"#,
             serde_json::to_string_pretty(&joined_rooms).unwrap()

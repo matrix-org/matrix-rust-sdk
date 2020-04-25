@@ -167,6 +167,33 @@ impl EventBuilder {
 
     /// Consumes `ResponseBuilder and returns a `TestRunner`.
     ///
+    /// The `TestRunner` responds to requests made by the `AsyncClient`.
+    pub fn build_with_response<M, P>(mut self, path: P, method: &str, matcher: M) -> MockTestRunner
+    where
+        M: Into<mockito::Matcher>,
+        P: AsRef<Path>,
+    {
+        let body = fs::read_to_string(path.as_ref())
+            .expect(&format!("file not found {:?}", path.as_ref()));
+        let mock = Some(
+            mock(method, matcher)
+                .with_status(200)
+                .with_body(body)
+                .create(),
+        );
+        MockTestRunner {
+            client: None,
+            ephemeral: Vec::new(),
+            account_data: Vec::new(),
+            room_events: Vec::new(),
+            presence_events: Vec::new(),
+            state_events: Vec::new(),
+            mock,
+        }
+    }
+
+    /// Consumes `ResponseBuilder and returns a `TestRunner`.
+    ///
     /// The `TestRunner` streams the events to the client and holds methods to make assertions
     /// about the state of the client.
     pub fn build_mock_runner<P: Into<Matcher>>(mut self, method: &str, path: P) -> MockTestRunner {
