@@ -16,9 +16,8 @@
 //! User sessions.
 
 use ruma_identifiers::UserId;
-use serde::{Deserialize, Serialize};
 /// A user session, containing an access token and information about the associated user account.
-#[derive(Clone, Debug, Eq, Hash, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct Session {
     /// The access token used for this session.
     pub access_token: String,

@@ -91,13 +91,13 @@ impl std::fmt::Debug for AsyncClient {
 ///     .unwrap()
 ///     .disable_ssl_verification();
 /// ```
-/// add the default `JsonStore` to the `AsyncClient`
+/// An example of adding a default `JsonStore` to the `AsyncClient`.
 /// ```no_run
 ///  # use matrix_sdk::{AsyncClientConfig, JsonStore};
 ///
 /// let store = JsonStore::open("path/to/json").unwrap();
 /// let client_config = AsyncClientConfig::new()
-///     . state_store(Box::new(store));
+///     .state_store(Box::new(store));
 /// ```
 pub struct AsyncClientConfig {
     proxy: Option<reqwest::Proxy>,
@@ -349,8 +349,23 @@ impl AsyncClient {
     /// Returns true when a successful `StateStore` sync has completed.
     /// # Examples
     ///
-    /// ```
-    /// // TODO
+    /// ```no_run
+    /// use matrix_sdk::{AsyncClient, AsyncClientConfig, JsonStore, RoomBuilder};
+    /// # use matrix_sdk::api::r0::room::Visibility;
+    /// # use url::Url;
+    ///
+    /// # let homeserver = Url::parse("http://example.com").unwrap();
+    /// let store = JsonStore::open("path/to/store").unwrap();
+    /// let config = AsyncClientConfig::new().state_store(Box::new(store));
+    /// let mut cli = AsyncClient::new(homeserver, None).unwrap();
+    /// # use futures::executor::block_on;
+    /// # block_on(async {
+    /// let _ = cli.login("name", "password", None, None).await.unwrap();
+    /// // returns true when a state store sync is successful
+    /// assert!(cli.sync_with_state_store().await.unwrap());
+    /// // now state is restored without a request to the server
+    /// assert_eq!(vec!["room".to_string(), "names".to_string()], cli.get_room_names().await)
+    /// # });
     /// ```
     pub async fn sync_with_state_store(&self) -> Result<bool> {
         self.base_client.write().await.sync_with_state_store().await
