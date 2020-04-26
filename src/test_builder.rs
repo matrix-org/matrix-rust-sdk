@@ -13,7 +13,7 @@ use crate::events::{
     EventJson, TryFromRaw,
 };
 use crate::identifiers::{RoomId, UserId};
-use crate::AsyncClient;
+use crate::{AsyncClient, Error, SyncSettings};
 
 use mockito::{self, mock, Matcher, Mock};
 
@@ -399,11 +399,11 @@ impl MockTestRunner {
         self
     }
 
-    pub async fn to_client(&mut self) -> Result<&mut AsyncClient, crate::Error> {
+    pub async fn to_client(&mut self) -> Result<&mut AsyncClient, Error> {
         self.client
             .as_mut()
             .unwrap()
-            .sync(crate::SyncSettings::default())
+            .sync(SyncSettings::default())
             .await?;
 
         Ok(self.client.as_mut().unwrap())

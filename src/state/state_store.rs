@@ -30,7 +30,7 @@ impl JsonStore {
     pub fn open<P: AsRef<Path>>(path: P) -> Result<Self> {
         let p = path.as_ref();
         if !p.exists() {
-            std::fs::create_dir_all(p)?;
+            fs::create_dir_all(p)?;
         }
         Ok(Self {
             path: Arc::new(RwLock::new(p.to_path_buf())),
@@ -83,10 +83,7 @@ impl StateStore for JsonStore {
         if !self.user_path_set.load(Ordering::SeqCst) {
             if let Some(user) = &state.user_id {
                 self.user_path_set.swap(true, Ordering::SeqCst);
-                self.path
-                    .write()
-                    .await
-                    .push(format!("{}", user.localpart()))
+                self.path.write().await.push(user.localpart())
             }
         }
         let mut path = self.path.read().await.clone();
@@ -95,7 +92,7 @@ impl StateStore for JsonStore {
         if !Path::new(&path).exists() {
             let mut dir = path.clone();
             dir.pop();
-            std::fs::create_dir_all(dir)?;
+            async_fs::create_dir_all(dir).await?;
         }
 
         let json = serde_json::to_string(&state).map_err(Error::from)?;
@@ -122,7 +119,7 @@ impl StateStore for JsonStore {
         if !Path::new(&path).exists() {
             let mut dir = path.clone();
             dir.pop();
-            std::fs::create_dir_all(dir)?;
+            async_fs::create_dir_all(dir).await?;
         }
 
         let json = serde_json::to_string(&room).map_err(Error::from)?;
