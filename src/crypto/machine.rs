@@ -202,11 +202,11 @@ impl OlmMachine {
     pub async fn get_missing_sessions(
         &mut self,
         users: impl Iterator<Item = &UserId>,
-    ) -> BTreeMap<UserId, BTreeMap<DeviceId, KeyAlgorithm>> {
+    ) -> Result<BTreeMap<UserId, BTreeMap<DeviceId, KeyAlgorithm>>> {
         let mut missing = BTreeMap::new();
 
         for user_id in users {
-            let user_devices = self.store.get_user_devices(user_id).await.unwrap();
+            let user_devices = self.store.get_user_devices(user_id).await?;
 
             for device in user_devices.devices() {
                 let sender_key = if let Some(k) = device.get_key(&KeyAlgorithm::Curve25519) {
@@ -215,7 +215,7 @@ impl OlmMachine {
                     continue;
                 };
 
-                let sessions = self.store.get_sessions(sender_key).await.unwrap();
+                let sessions = self.store.get_sessions(sender_key).await?;
 
                 let is_missing = if let Some(sessions) = sessions {
                     sessions.lock().await.is_empty()
@@ -237,7 +237,7 @@ impl OlmMachine {
             }
         }
 
-        missing
+        Ok(missing)
     }
 
     pub async fn receive_keys_claim_response(
