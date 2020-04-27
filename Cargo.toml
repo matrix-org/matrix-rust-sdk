@@ -23,7 +23,7 @@ url = "2.1.1"
 async-trait = "0.1.30"
 
 # Ruma dependencies
-js_int = "0.1.4"
+js_int = "0.1.5"
 ruma-api = "0.16.0-rc.2"
 ruma-client-api = { version = "0.8.0-rc.5" }
 ruma-events = { version = "0.21.0-beta.1" }

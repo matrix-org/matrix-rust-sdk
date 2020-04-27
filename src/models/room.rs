@@ -147,13 +147,13 @@ impl RoomName {
         } else if !self.aliases.is_empty() && !self.aliases[0].alias().is_empty() {
             self.aliases[0].alias().trim().to_string()
         } else {
-            let joined = self.joined_member_count.unwrap_or(UInt::min_value());
-            let invited = self.invited_member_count.unwrap_or(UInt::min_value());
+            let joined = self.joined_member_count.unwrap_or(UInt::MIN);
+            let invited = self.invited_member_count.unwrap_or(UInt::MIN);
             let heroes = UInt::new(self.heroes.len() as u64).unwrap();
             let one = UInt::new(1).unwrap();
 
-            let invited_joined = if invited + joined == UInt::min_value() {
-                UInt::min_value()
+            let invited_joined = if invited + joined == UInt::MIN {
+                UInt::MIN
             } else {
                 invited + joined - one
             };
