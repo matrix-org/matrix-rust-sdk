@@ -110,7 +110,8 @@ impl StateStore for JsonStore {
 
     async fn store_room_state(&self, room: &Room) -> Result<()> {
         if !self.user_path_set.load(Ordering::SeqCst) {
-            // TODO Error here, should the load methods also error?
+            self.user_path_set.swap(true, Ordering::SeqCst);
+            self.path.write().await.push(room.own_user_id.localpart())
         }
 
         let mut path = self.path.read().await.clone();
