@@ -327,17 +327,15 @@ mod test {
             .invite_3pid(vec![])
             .is_direct(true)
             .power_level_override(PowerLevelsEventContent {
-                ban: Int::max_value(),
+                ban: Int::MAX,
                 events: BTreeMap::default(),
-                events_default: Int::min_value(),
-                invite: Int::min_value(),
-                kick: Int::min_value(),
-                redact: Int::max_value(),
-                state_default: Int::min_value(),
-                users_default: Int::min_value(),
-                notifications: NotificationPowerLevels {
-                    room: Int::min_value(),
-                },
+                events_default: Int::MIN,
+                invite: Int::MIN,
+                kick: Int::MIN,
+                redact: Int::MAX,
+                state_default: Int::MIN,
+                users_default: Int::MIN,
+                notifications: NotificationPowerLevels { room: Int::MIN },
                 users: BTreeMap::default(),
             })
             .preset(RoomPreset::PrivateChat)

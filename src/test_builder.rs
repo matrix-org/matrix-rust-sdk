@@ -96,7 +96,7 @@ impl EventBuilder {
         variant: fn(Ev) -> Event,
     ) -> Self {
         let val = fs::read_to_string(path.as_ref())
-            .expect(&format!("file not found {:?}", path.as_ref()));
+            .unwrap_or_else(|_| panic!("file not found {:?}", path.as_ref()));
         let event = serde_json::from_str::<EventJson<Ev>>(&val)
             .unwrap()
             .deserialize()
@@ -112,7 +112,7 @@ impl EventBuilder {
         variant: fn(Ev) -> Event,
     ) -> Self {
         let val = fs::read_to_string(path.as_ref())
-            .expect(&format!("file not found {:?}", path.as_ref()));
+            .unwrap_or_else(|_| panic!("file not found {:?}", path.as_ref()));
         let event = serde_json::from_str::<EventJson<Ev>>(&val)
             .unwrap()
             .deserialize()
@@ -128,7 +128,7 @@ impl EventBuilder {
         variant: fn(Ev) -> RoomEvent,
     ) -> Self {
         let val = fs::read_to_string(path.as_ref())
-            .expect(&format!("file not found {:?}", path.as_ref()));
+            .unwrap_or_else(|_| panic!("file not found {:?}", path.as_ref()));
         let event = serde_json::from_str::<EventJson<Ev>>(&val)
             .unwrap()
             .deserialize()
@@ -144,7 +144,7 @@ impl EventBuilder {
         variant: fn(Ev) -> StateEvent,
     ) -> Self {
         let val = fs::read_to_string(path.as_ref())
-            .expect(&format!("file not found {:?}", path.as_ref()));
+            .unwrap_or_else(|_| panic!("file not found {:?}", path.as_ref()));
         let event = serde_json::from_str::<EventJson<Ev>>(&val)
             .unwrap()
             .deserialize()
@@ -156,7 +156,7 @@ impl EventBuilder {
     /// Add a presence event to the presence events `Vec`.
     pub fn add_presence_event_from_file<P: AsRef<Path>>(mut self, path: P) -> Self {
         let val = fs::read_to_string(path.as_ref())
-            .expect(&format!("file not found {:?}", path.as_ref()));
+            .unwrap_or_else(|_| panic!("file not found {:?}", path.as_ref()));
         let event = serde_json::from_str::<EventJson<PresenceEvent>>(&val)
             .unwrap()
             .deserialize()
@@ -174,7 +174,7 @@ impl EventBuilder {
         P: AsRef<Path>,
     {
         let body = fs::read_to_string(path.as_ref())
-            .expect(&format!("file not found {:?}", path.as_ref()));
+            .unwrap_or_else(|_| panic!("file not found {:?}", path.as_ref()));
         let mock = Some(
             mock(method, matcher)
                 .with_status(200)
@@ -367,12 +367,8 @@ impl ClientTestRunner {
         }
 
         for event in &self.room_events {
-            cli.receive_joined_timeline_event(
-                room_id,
-                &mut EventJson::from(event.clone()),
-                &mut false,
-            )
-            .await;
+            cli.receive_joined_timeline_event(room_id, &mut EventJson::from(event), &mut false)
+                .await;
         }
         for event in &self.presence_events {
             cli.receive_presence_event(room_id, event).await;
