@@ -501,12 +501,12 @@ impl Client {
     pub async fn get_missing_sessions(
         &self,
         users: impl Iterator<Item = &UserId>,
-    ) -> BTreeMap<UserId, BTreeMap<DeviceId, KeyAlgorithm>> {
+    ) -> Result<BTreeMap<UserId, BTreeMap<DeviceId, KeyAlgorithm>>> {
         let mut olm = self.olm.lock().await;
 
         match &mut *olm {
-            Some(o) => o.get_missing_sessions(users).await,
-            None => BTreeMap::new(),
+            Some(o) => Ok(o.get_missing_sessions(users).await?),
+            None => Ok(BTreeMap::new()),
         }
     }
 

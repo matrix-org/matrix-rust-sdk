@@ -1008,7 +1008,7 @@ impl AsyncClient {
                         .read()
                         .await
                         .get_missing_sessions(users)
-                        .await
+                        .await?
                 };
 
                 if !missing_sessions.is_empty() {

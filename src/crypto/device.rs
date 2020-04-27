@@ -13,12 +13,16 @@
 // limitations under the License.
 
 use std::collections::BTreeMap;
+#[cfg(test)]
+use std::convert::TryFrom;
 use std::mem;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 use atomic::Atomic;
 
+#[cfg(test)]
+use super::OlmMachine;
 use crate::api::r0::keys::{DeviceKeys, KeyAlgorithm};
 use crate::events::Algorithm;
 use crate::identifiers::{DeviceId, UserId};
@@ -148,6 +152,36 @@ impl Device {
     /// Mark the device as deleted.
     pub(crate) fn mark_as_deleted(&self) {
         self.deleted.store(true, Ordering::Relaxed);
+    }
+}
+
+#[cfg(test)]
+impl From<&OlmMachine> for Device {
+    fn from(machine: &OlmMachine) -> Self {
+        Device {
+            user_id: Arc::new(machine.user_id.clone()),
+            device_id: Arc::new(machine.device_id.clone()),
+            algorithms: Arc::new(vec![
+                Algorithm::MegolmV1AesSha2,
+                Algorithm::OlmV1Curve25519AesSha2,
+            ]),
+            keys: Arc::new(
+                machine
+                    .account
+                    .identity_keys()
+                    .iter()
+                    .map(|(key, value)| {
+                        (
+                            KeyAlgorithm::try_from(key.as_ref()).unwrap(),
+                            value.to_owned(),
+                        )
+                    })
+                    .collect(),
+            ),
+            display_name: Arc::new(None),
+            deleted: Arc::new(AtomicBool::new(false)),
+            trust_state: Arc::new(Atomic::new(TrustState::Unset)),
+        }
     }
 }
 
