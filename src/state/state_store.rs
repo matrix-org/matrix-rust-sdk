@@ -142,12 +142,13 @@ mod test {
 
     use std::convert::TryFrom;
     use std::fs;
+    use std::future::Future;
     use std::path::PathBuf;
     use std::str::FromStr;
-    use std::sync::Mutex;
 
     use lazy_static::lazy_static;
     use mockito::{mock, Matcher};
+    use tokio::sync::Mutex;
 
     use crate::identifiers::{RoomId, UserId};
     use crate::{AsyncClient, AsyncClientConfig, Session, SyncSettings};
@@ -168,9 +169,9 @@ mod test {
 
     async fn run_and_cleanup<Fut>(test: fn() -> Fut)
     where
-        Fut: std::future::Future<Output = ()>,
+        Fut: Future<Output = ()>,
     {
-        let _lock = MTX.lock();
+        let _lock = MTX.lock().await;
 
         test().await;
 
