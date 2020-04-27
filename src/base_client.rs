@@ -209,6 +209,12 @@ impl Client {
             *olm = Some(OlmMachine::new(&response.user_id, &response.device_id)?);
         }
 
+        if let Some(store) = self.state_store.as_ref() {
+            store
+                .store_client_state(ClientState::from_base_client(self))
+                .await?;
+        }
+
         Ok(())
     }
 
