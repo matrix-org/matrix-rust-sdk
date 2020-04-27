@@ -1380,6 +1380,10 @@ mod test {
     use crate::api::r0::keys;
     use crate::crypto::machine::{OlmMachine, OneTimeKeys};
     use crate::crypto::Device;
+    use crate::events::{
+        to_device::{AnyToDeviceEvent, ToDeviceEncrypted},
+        EventType,
+    };
     use crate::identifiers::{DeviceId, UserId};
 
     use http::Response;
@@ -1457,6 +1461,29 @@ mod test {
         bob.store.save_device(alice_deivce).await.unwrap();
 
         (alice, bob, otk)
+    }
+
+    async fn get_machine_pair_with_session() -> (OlmMachine, OlmMachine) {
+        let (mut alice, bob, one_time_keys) = get_machine_pair().await;
+
+        let mut bob_keys = BTreeMap::new();
+
+        let one_time_key = one_time_keys.iter().nth(0).unwrap();
+        let mut keys = BTreeMap::new();
+        keys.insert(one_time_key.0.clone(), one_time_key.1.clone());
+        bob_keys.insert(bob.device_id.clone(), keys);
+
+        let mut one_time_keys = BTreeMap::new();
+        one_time_keys.insert(bob.user_id.clone(), bob_keys);
+
+        let response = keys::claim_keys::Response {
+            failures: BTreeMap::new(),
+            one_time_keys,
+        };
+
+        alice.receive_keys_claim_response(&response).await.unwrap();
+
+        (alice, bob)
     }
 
     #[tokio::test]
@@ -1669,7 +1696,7 @@ mod test {
     }
 
     #[tokio::test]
-    async fn test_key_claiming() {
+    async fn test_session_creation() {
         let (mut alice_machine, bob_machine, one_time_keys) = get_machine_pair().await;
 
         let mut bob_keys = BTreeMap::new();
@@ -1700,5 +1727,43 @@ mod test {
             .unwrap();
 
         assert!(!session.lock().await.is_empty())
+    }
+
+    #[tokio::test]
+    async fn test_olm_encryption() {
+        let (mut alice, mut bob) = get_machine_pair_with_session().await;
+
+        let session = alice
+            .store
+            .get_sessions(bob.account.identity_keys().curve25519())
+            .await
+            .unwrap()
+            .unwrap()
+            .lock()
+            .await[0]
+            .clone();
+
+        let bob_device = alice
+            .store
+            .get_device(&bob.user_id, &bob.device_id)
+            .await
+            .unwrap()
+            .unwrap();
+
+        let event = ToDeviceEncrypted {
+            sender: alice.user_id.clone(),
+            content: alice
+                .olm_encrypt(session, &bob_device, EventType::Dummy, json!({}))
+                .await
+                .unwrap(),
+        };
+
+        let event = bob.decrypt_to_device_event(&event).await.unwrap();
+
+        if let AnyToDeviceEvent::Dummy(e) = event.deserialize().unwrap() {
+            assert_eq!(e.sender, alice.user_id);
+        } else {
+            panic!("Event had the wrong type");
+        }
     }
 }
