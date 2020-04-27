@@ -371,7 +371,7 @@ impl ClientTestRunner {
         }
 
         for event in &self.room_events {
-            cli.receive_joined_timeline_event(room_id, &mut EventJson::from(event.clone()))
+            cli.receive_joined_timeline_event(room_id, &mut EventJson::from(event))
                 .await;
         }
         for event in &self.presence_events {
