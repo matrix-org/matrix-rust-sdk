@@ -166,8 +166,7 @@ impl RoomName {
                     .map(|mem| {
                         mem.display_name
                             .clone()
-                            .unwrap_or(mem.user_id.localpart().to_string())
-                            .to_string()
+                            .unwrap_or_else(|| mem.user_id.localpart().to_string())
                     })
                     .collect::<Vec<String>>();
                 // stabilize ordering
@@ -180,7 +179,7 @@ impl RoomName {
                     .map(|mem| {
                         mem.display_name
                             .clone()
-                            .unwrap_or(mem.user_id.localpart().to_string())
+                            .unwrap_or_else(|| mem.user_id.localpart().to_string())
                     })
                     .collect::<Vec<String>>();
                 names.sort();
@@ -502,7 +501,7 @@ mod test {
             .await;
 
         assert_eq!(2, room.members.len());
-        for (_id, member) in &room.members {
+        for member in room.members.values() {
             assert_eq!(MembershipState::Join, member.membership);
         }
 

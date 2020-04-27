@@ -168,7 +168,7 @@ impl Client {
 
     pub(crate) async fn calculate_room_names(&self) -> Vec<String> {
         let mut res = Vec::new();
-        for (_id, room) in &self.joined_rooms {
+        for room in self.joined_rooms.values() {
             let room = room.read().await;
             res.push(room.room_name.calculate_name(&room.members))
         }
