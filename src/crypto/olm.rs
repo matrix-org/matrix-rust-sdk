@@ -22,7 +22,8 @@ use serde::Serialize;
 use tokio::sync::Mutex;
 use zeroize::Zeroize;
 
-use olm_rs::account::{IdentityKeys, OlmAccount, OneTimeKeys};
+pub use olm_rs::account::IdentityKeys;
+use olm_rs::account::{OlmAccount, OneTimeKeys};
 use olm_rs::errors::{OlmAccountError, OlmGroupSessionError, OlmSessionError};
 use olm_rs::inbound_group_session::OlmInboundGroupSession;
 use olm_rs::outbound_group_session::OlmOutboundGroupSession;

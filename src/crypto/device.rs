@@ -159,15 +159,14 @@ impl Device {
 impl From<&OlmMachine> for Device {
     fn from(machine: &OlmMachine) -> Self {
         Device {
-            user_id: Arc::new(machine.user_id.clone()),
-            device_id: Arc::new(machine.device_id.clone()),
+            user_id: Arc::new(machine.user_id().clone()),
+            device_id: Arc::new(machine.device_id().clone()),
             algorithms: Arc::new(vec![
                 Algorithm::MegolmV1AesSha2,
                 Algorithm::OlmV1Curve25519AesSha2,
             ]),
             keys: Arc::new(
                 machine
-                    .account
                     .identity_keys()
                     .iter()
                     .map(|(key, value)| {

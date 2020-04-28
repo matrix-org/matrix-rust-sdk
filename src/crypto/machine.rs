@@ -22,8 +22,8 @@ use uuid::Uuid;
 
 use super::error::{OlmError, Result, SignatureError, VerificationResult};
 use super::olm::{
-    Account, GroupSessionKey, InboundGroupSession, OlmMessage, OlmUtility, OutboundGroupSession,
-    Session,
+    Account, GroupSessionKey, IdentityKeys, InboundGroupSession, OlmMessage, OlmUtility,
+    OutboundGroupSession, Session,
 };
 use super::store::memorystore::MemoryStore;
 #[cfg(feature = "sqlite-cryptostore")]
@@ -61,11 +61,11 @@ pub type OneTimeKeys = BTreeMap<AlgorithmAndDeviceId, OneTimeKey>;
 
 pub struct OlmMachine {
     /// The unique user id that owns this account.
-    pub(crate) user_id: UserId,
+    user_id: UserId,
     /// The unique device id of the device that holds this account.
-    pub(crate) device_id: DeviceId,
+    device_id: DeviceId,
     /// Our underlying Olm Account holding our identity keys.
-    pub(crate) account: Account,
+    account: Account,
     /// The number of signed one-time keys we have uploaded to the server. If
     /// this is None, no action will be taken. After a sync request the client
     /// needs to set this for us, depending on the count we will suggest the
@@ -145,6 +145,21 @@ impl OlmMachine {
             users_for_key_query: HashSet::new(),
             outbound_group_sessions: HashMap::new(),
         })
+    }
+
+    /// The unique user id that owns this identity.
+    pub(crate) fn user_id(&self) -> &UserId {
+        &self.user_id
+    }
+
+    /// The unique device id of the device that holds this identity.
+    pub(crate) fn device_id(&self) -> &DeviceId {
+        &self.device_id
+    }
+
+    /// Get the public parts of the identity keys.
+    pub(crate) fn identity_keys(&self) -> &IdentityKeys {
+        self.account.identity_keys()
     }
 
     /// Should account or one-time keys be uploaded to the server.
@@ -1869,12 +1884,12 @@ mod test {
         let room_id = RoomId::try_from("!test:example.org").unwrap();
 
         let to_device_requests = alice
-            .share_group_session(&room_id, [bob.user_id.clone()].iter())
+            .share_group_session(&room_id, [bob.user_id().clone()].iter())
             .await
             .unwrap();
 
         let event = ToDeviceEncrypted {
-            sender: alice.user_id.clone(),
+            sender: alice.user_id().clone(),
             content: to_device_requests_to_content(to_device_requests),
         };
 
@@ -1890,7 +1905,7 @@ mod test {
             event_id: EventId::new("example.org").unwrap(),
             origin_server_ts: SystemTime::now(),
             room_id: Some(room_id.clone()),
-            sender: alice.user_id.clone(),
+            sender: alice.user_id().clone(),
             content: encrypted_content,
             unsigned: BTreeMap::new(),
         };
@@ -1907,7 +1922,7 @@ mod test {
             _ => panic!("Decrypted room event has the wrong type"),
         };
 
-        assert_eq!(&decrypted_event.sender, &alice.user_id);
+        assert_eq!(&decrypted_event.sender, alice.user_id());
         assert_eq!(&decrypted_event.room_id, &Some(room_id));
         assert_eq!(&decrypted_event.content, &content);
     }
