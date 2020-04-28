@@ -61,6 +61,7 @@ features = ["runtime-tokio", "sqlite"]
 
 [dev-dependencies]
 tokio = { version = "0.2.16", features = ["rt-threaded", "macros"] }
+ruma-identifiers = { version = "0.16.0", features = ["rand"] }
 serde_json = "1.0.51"
 tracing-subscriber = "0.2.4"
 tempfile = "3.1.0"

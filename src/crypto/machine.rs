@@ -1374,18 +1374,23 @@ mod test {
     use std::convert::TryFrom;
     use std::fs::File;
     use std::io::prelude::*;
+    use std::time::SystemTime;
 
     use serde_json::json;
 
-    use crate::api::r0::keys;
+    use crate::api::r0::{client_exchange::send_event_to_device::Request as ToDeviceRequest, keys};
     use crate::crypto::machine::{OlmMachine, OneTimeKeys};
     use crate::crypto::Device;
     use crate::events::{
-        room::{encrypted::EncryptedEventContent, message::MessageEventContent},
+        collections::all::RoomEvent,
+        room::{
+            encrypted::{EncryptedEvent, EncryptedEventContent},
+            message::{MessageEventContent, TextMessageEventContent},
+        },
         to_device::{AnyToDeviceEvent, ToDeviceEncrypted},
         EventJson, EventType,
     };
-    use crate::identifiers::{DeviceId, RoomId, UserId};
+    use crate::identifiers::{DeviceId, EventId, RoomId, UserId};
 
     use http::Response;
 
@@ -1419,6 +1424,26 @@ mod test {
     fn keys_query_response() -> keys::get_keys::Response {
         let data = response_from_file("tests/data/keys_query.json");
         keys::get_keys::Response::try_from(data).expect("Can't parse the keys upload response")
+    }
+
+    fn to_device_requests_to_content(requests: Vec<ToDeviceRequest>) -> EncryptedEventContent {
+        let to_device_request = &requests[0];
+
+        let content: EventJson<EncryptedEventContent> = serde_json::from_str(
+            to_device_request
+                .messages
+                .values()
+                .nth(0)
+                .unwrap()
+                .values()
+                .nth(0)
+                .unwrap()
+                .json()
+                .get(),
+        )
+        .unwrap();
+
+        content.deserialize().unwrap()
     }
 
     async fn get_prepared_machine() -> (OlmMachine, OneTimeKeys) {
@@ -1483,6 +1508,39 @@ mod test {
         };
 
         alice.receive_keys_claim_response(&response).await.unwrap();
+
+        (alice, bob)
+    }
+
+    async fn get_machine_pair_with_setup_sessions() -> (OlmMachine, OlmMachine) {
+        let (mut alice, mut bob) = get_machine_pair_with_session().await;
+
+        let session = alice
+            .store
+            .get_sessions(bob.account.identity_keys().curve25519())
+            .await
+            .unwrap()
+            .unwrap()
+            .lock()
+            .await[0]
+            .clone();
+
+        let bob_device = alice
+            .store
+            .get_device(&bob.user_id, &bob.device_id)
+            .await
+            .unwrap()
+            .unwrap();
+
+        let event = ToDeviceEncrypted {
+            sender: alice.user_id.clone(),
+            content: alice
+                .olm_encrypt(session, &bob_device, EventType::Dummy, json!({}))
+                .await
+                .unwrap(),
+        };
+
+        bob.decrypt_to_device_event(&event).await.unwrap();
 
         (alice, bob)
     }
@@ -1772,47 +1830,16 @@ mod test {
     async fn test_room_key_sharing() {
         let (mut alice, mut bob) = get_machine_pair_with_session().await;
 
-        let session = alice
-            .store
-            .get_sessions(bob.account.identity_keys().curve25519())
-            .await
-            .unwrap()
-            .unwrap()
-            .lock()
-            .await[0]
-            .clone();
-
-        let bob_device = alice
-            .store
-            .get_device(&bob.user_id, &bob.device_id)
-            .await
-            .unwrap()
-            .unwrap();
-
         let room_id = RoomId::try_from("!test:example.org").unwrap();
 
         let to_device_requests = alice
             .share_group_session(&room_id, [bob.user_id.clone()].iter())
             .await
             .unwrap();
-        let to_device_request = &to_device_requests[0];
-
-        let content: EventJson<EncryptedEventContent> = serde_json::from_str(
-            to_device_request
-                .messages
-                .get(&bob.user_id)
-                .unwrap()
-                .values()
-                .nth(0)
-                .unwrap()
-                .json()
-                .get(),
-        )
-        .unwrap();
 
         let event = ToDeviceEncrypted {
             sender: alice.user_id.clone(),
-            content: content.deserialize().unwrap(),
+            content: to_device_requests_to_content(to_device_requests),
         };
 
         let alice_session = alice.outbound_group_sessions.get(&room_id).unwrap();
@@ -1834,5 +1861,54 @@ mod test {
             )
             .await
             .unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_megolm_encryption() {
+        let (mut alice, mut bob) = get_machine_pair_with_setup_sessions().await;
+        let room_id = RoomId::try_from("!test:example.org").unwrap();
+
+        let to_device_requests = alice
+            .share_group_session(&room_id, [bob.user_id.clone()].iter())
+            .await
+            .unwrap();
+
+        let event = ToDeviceEncrypted {
+            sender: alice.user_id.clone(),
+            content: to_device_requests_to_content(to_device_requests),
+        };
+
+        bob.decrypt_to_device_event(&event).await.unwrap();
+
+        let content = MessageEventContent::Text(TextMessageEventContent::new_plain(
+            "It is a secret to everybody",
+        ));
+
+        let encrypted_content = alice.encrypt(&room_id, content.clone()).await.unwrap();
+
+        let event = EncryptedEvent {
+            event_id: EventId::new("example.org").unwrap(),
+            origin_server_ts: SystemTime::now(),
+            room_id: Some(room_id.clone()),
+            sender: alice.user_id.clone(),
+            content: encrypted_content,
+            unsigned: BTreeMap::new(),
+        };
+
+        let decrypted_event = bob
+            .decrypt_room_event(&event)
+            .await
+            .unwrap()
+            .deserialize()
+            .unwrap();
+
+        let decrypted_event = match decrypted_event {
+            RoomEvent::RoomMessage(e) => e,
+            _ => panic!("Decrypted room event has the wrong type"),
+        };
+
+        assert_eq!(&decrypted_event.sender, &alice.user_id);
+        assert_eq!(&decrypted_event.room_id, &Some(room_id));
+        assert_eq!(&decrypted_event.content, &content);
     }
 }
