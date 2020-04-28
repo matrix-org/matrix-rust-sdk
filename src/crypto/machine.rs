@@ -79,7 +79,7 @@ pub struct OlmMachine {
     /// the tracked users in the CryptoStore.
     users_for_key_query: HashSet<UserId>,
     /// The currently active outbound group sessions.
-    outbound_group_session: HashMap<RoomId, OutboundGroupSession>,
+    outbound_group_sessions: HashMap<RoomId, OutboundGroupSession>,
 }
 
 #[cfg_attr(tarpaulin, skip)]
@@ -109,7 +109,7 @@ impl OlmMachine {
             uploaded_signed_key_count: None,
             store: Box::new(MemoryStore::new()),
             users_for_key_query: HashSet::new(),
-            outbound_group_session: HashMap::new(),
+            outbound_group_sessions: HashMap::new(),
         })
     }
 
@@ -143,7 +143,7 @@ impl OlmMachine {
             uploaded_signed_key_count: None,
             store: Box::new(store),
             users_for_key_query: HashSet::new(),
-            outbound_group_session: HashMap::new(),
+            outbound_group_sessions: HashMap::new(),
         })
     }
 
@@ -952,7 +952,7 @@ impl OlmMachine {
             .save_inbound_group_session(inbound_session)
             .await?;
 
-        self.outbound_group_session
+        self.outbound_group_sessions
             .insert(room_id.to_owned(), session);
         Ok(())
     }
@@ -962,7 +962,7 @@ impl OlmMachine {
         room_id: &RoomId,
         content: MessageEventContent,
     ) -> Result<EncryptedEventContent> {
-        let session = self.outbound_group_session.get(room_id);
+        let session = self.outbound_group_sessions.get(room_id);
 
         let session = if let Some(s) = session {
             s
@@ -1065,7 +1065,7 @@ impl OlmMachine {
     /// This should be called every time a new room message wants to be sent out
     /// since group sessions can expire at any time.
     pub fn should_share_group_session(&self, room_id: &RoomId) -> bool {
-        let session = self.outbound_group_session.get(room_id);
+        let session = self.outbound_group_sessions.get(room_id);
 
         match session {
             Some(s) => !s.shared() || s.expired(),
@@ -1083,7 +1083,7 @@ impl OlmMachine {
         I: IntoIterator<Item = &'a UserId>,
     {
         self.create_outbound_group_session(room_id).await?;
-        let megolm_session = self.outbound_group_session.get(room_id).unwrap();
+        let megolm_session = self.outbound_group_sessions.get(room_id).unwrap();
 
         if megolm_session.shared() {
             panic!("Session is already shared");
@@ -1381,10 +1381,11 @@ mod test {
     use crate::crypto::machine::{OlmMachine, OneTimeKeys};
     use crate::crypto::Device;
     use crate::events::{
+        room::{encrypted::EncryptedEventContent, message::MessageEventContent},
         to_device::{AnyToDeviceEvent, ToDeviceEncrypted},
-        EventType,
+        EventJson, EventType,
     };
-    use crate::identifiers::{DeviceId, UserId};
+    use crate::identifiers::{DeviceId, RoomId, UserId};
 
     use http::Response;
 
@@ -1765,5 +1766,73 @@ mod test {
         } else {
             panic!("Event had the wrong type");
         }
+    }
+
+    #[tokio::test]
+    async fn test_room_key_sharing() {
+        let (mut alice, mut bob) = get_machine_pair_with_session().await;
+
+        let session = alice
+            .store
+            .get_sessions(bob.account.identity_keys().curve25519())
+            .await
+            .unwrap()
+            .unwrap()
+            .lock()
+            .await[0]
+            .clone();
+
+        let bob_device = alice
+            .store
+            .get_device(&bob.user_id, &bob.device_id)
+            .await
+            .unwrap()
+            .unwrap();
+
+        let room_id = RoomId::try_from("!test:example.org").unwrap();
+
+        let to_device_requests = alice
+            .share_group_session(&room_id, [bob.user_id.clone()].iter())
+            .await
+            .unwrap();
+        let to_device_request = &to_device_requests[0];
+
+        let content: EventJson<EncryptedEventContent> = serde_json::from_str(
+            to_device_request
+                .messages
+                .get(&bob.user_id)
+                .unwrap()
+                .values()
+                .nth(0)
+                .unwrap()
+                .json()
+                .get(),
+        )
+        .unwrap();
+
+        let event = ToDeviceEncrypted {
+            sender: alice.user_id.clone(),
+            content: content.deserialize().unwrap(),
+        };
+
+        let alice_session = alice.outbound_group_sessions.get(&room_id).unwrap();
+
+        let event = bob.decrypt_to_device_event(&event).await.unwrap();
+
+        if let AnyToDeviceEvent::RoomKey(e) = event.deserialize().unwrap() {
+            assert_eq!(e.sender, alice.user_id);
+        } else {
+            panic!("Event had the wrong type");
+        }
+
+        let session = bob
+            .store
+            .get_inbound_group_session(
+                &room_id,
+                alice.account.identity_keys().curve25519(),
+                alice_session.session_id(),
+            )
+            .await
+            .unwrap();
     }
 }
