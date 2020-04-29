@@ -40,6 +40,7 @@ mod event_emitter;
 mod models;
 mod request_builder;
 mod session;
+mod state;
 
 #[cfg(test)]
 pub mod test_builder;
@@ -51,5 +52,6 @@ pub use event_emitter::EventEmitter;
 pub use matrix_sdk_crypto::{Device, TrustState};
 pub use models::Room;
 pub use request_builder::{MessagesRequestBuilder, RoomBuilder};
+pub use state::{JsonStore, StateStore};
 
 pub(crate) const VERSION: &str = env!("CARGO_PKG_VERSION");

@@ -34,6 +34,7 @@ use crate::events::EventJson;
 use crate::identifiers::{RoomId, UserId};
 use crate::models::Room;
 use crate::session::Session;
+use crate::state::{ClientState, StateStore};
 use crate::EventEmitter;
 
 #[cfg(feature = "encryption")]
@@ -75,6 +76,10 @@ pub struct Client {
     /// Any implementor of EventEmitter will act as the callbacks for various
     /// events.
     pub event_emitter: Option<Box<dyn EventEmitter>>,
+    ///
+    pub state_store: Option<Box<dyn StateStore>>,
+    /// Does the `Client` need to sync with the state store.
+    needs_state_store_sync: bool,
 
     #[cfg(feature = "encryption")]
     olm: Arc<Mutex<Option<OlmMachine>>>,
@@ -114,6 +119,8 @@ impl Client {
             ignored_users: Vec::new(),
             push_ruleset: None,
             event_emitter: None,
+            state_store: None,
+            needs_state_store_sync: true,
             #[cfg(feature = "encryption")]
             olm: Arc::new(Mutex::new(olm)),
         })
@@ -129,6 +136,54 @@ impl Client {
     /// The methods of `EventEmitter` are called when the respective `RoomEvents` occur.
     pub async fn add_event_emitter(&mut self, emitter: Box<dyn EventEmitter>) {
         self.event_emitter = Some(emitter);
+    }
+
+    /// Returns true if the state store has been loaded into the client.
+    pub fn is_state_store_synced(&self) -> bool {
+        !self.needs_state_store_sync
+    }
+
+    /// When a client is provided the state store will load state from the `StateStore`.
+    ///
+    /// Returns `true` when a sync has successfully completed.
+    pub(crate) async fn sync_with_state_store(&mut self) -> Result<bool> {
+        if let Some(store) = self.state_store.as_ref() {
+            if let Some(client_state) = store.load_client_state().await? {
+                let ClientState {
+                    user_id,
+                    device_id,
+                    sync_token,
+                    ignored_users,
+                    push_ruleset,
+                } = client_state;
+
+                if let Some(sess) = self.session.as_mut() {
+                    if let Some(device) = device_id {
+                        sess.device_id = device;
+                    }
+                    if let Some(user) = user_id {
+                        sess.user_id = user;
+                    }
+                }
+                self.sync_token = sync_token;
+                self.ignored_users = ignored_users;
+                self.push_ruleset = push_ruleset;
+            } else {
+                // return false and continues with a sync request then save the state and create
+                // and populate the files during the sync
+                return Ok(false);
+            }
+
+            let mut rooms = store.load_all_rooms().await?;
+            self.joined_rooms = rooms
+                .drain()
+                .map(|(k, room)| (k, Arc::new(RwLock::new(room))))
+                .collect();
+
+            self.needs_state_store_sync = false;
+        }
+
+        Ok(!self.needs_state_store_sync)
     }
 
     /// Receive a login response and update the session of the client.
@@ -231,10 +286,14 @@ impl Client {
     /// * `room_id` - The unique id of the room the event belongs to.
     ///
     /// * `event` - The event that should be handled by the client.
+    ///
+    /// * `did_update` - This is used internally to confirm when the state has
+    /// been updated.
     pub async fn receive_joined_timeline_event(
         &mut self,
         room_id: &RoomId,
         event: &mut EventJson<RoomEvent>,
+        did_update: &mut bool,
     ) -> Option<EventJson<RoomEvent>> {
         match event.deserialize() {
             #[allow(unused_mut)]
@@ -260,7 +319,8 @@ impl Client {
                 }
 
                 let mut room = self.get_or_create_room(&room_id).write().await;
-                room.receive_timeline_event(&e);
+                // TODO is passing in the bool to use in `AsyncClient::sync` ok here
+                *did_update = room.receive_timeline_event(&e);
                 decrypted_event
             }
             _ => None,

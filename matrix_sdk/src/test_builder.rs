@@ -13,9 +13,9 @@ use crate::events::{
     EventJson, TryFromRaw,
 };
 use crate::identifiers::{RoomId, UserId};
-use crate::AsyncClient;
+use crate::{AsyncClient, Error, SyncSettings};
 
-use mockito::{self, mock, Mock};
+use mockito::{self, mock, Matcher, Mock};
 
 use crate::models::Room;
 
@@ -196,11 +196,7 @@ impl EventBuilder {
     ///
     /// The `TestRunner` streams the events to the client and holds methods to make assertions
     /// about the state of the client.
-    pub fn build_mock_runner<P: Into<mockito::Matcher>>(
-        mut self,
-        method: &str,
-        path: P,
-    ) -> MockTestRunner {
+    pub fn build_mock_runner<P: Into<Matcher>>(mut self, method: &str, path: P) -> MockTestRunner {
         let body = serde_json::json! {
             {
                 "device_one_time_keys_count": {},
@@ -371,7 +367,7 @@ impl ClientTestRunner {
         }
 
         for event in &self.room_events {
-            cli.receive_joined_timeline_event(room_id, &mut EventJson::from(event))
+            cli.receive_joined_timeline_event(room_id, &mut EventJson::from(event), &mut false)
                 .await;
         }
         for event in &self.presence_events {
@@ -399,11 +395,11 @@ impl MockTestRunner {
         self
     }
 
-    pub async fn to_client(&mut self) -> Result<&mut AsyncClient, crate::Error> {
+    pub async fn to_client(&mut self) -> Result<&mut AsyncClient, Error> {
         self.client
             .as_mut()
             .unwrap()
-            .sync(crate::SyncSettings::default())
+            .sync(SyncSettings::default())
             .await?;
 
         Ok(self.client.as_mut().unwrap())

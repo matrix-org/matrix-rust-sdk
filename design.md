@@ -11,15 +11,15 @@ The highest level structure that ties the other pieces of functionality together
   - make raw Http requests
 
 #### Base Client/Client State Machine
-In addition to Http the `AsyncClient` passes along methods from the `BaseClient` that deal with `Room`s and `RoomMember`s. This allows the client to keep track of more complicated information that needs to be calculated in some way.
-  - human readable room names
+In addition to Http, the `AsyncClient` passes along methods from the `BaseClient` that deal with `Room`s and `RoomMember`s. This allows the client to keep track of more complicated information that needs to be calculated in some way.
+  - human-readable room names
   - power level?
   - ignored list?
   - push rulesset?
   - more?
 
 #### Crypto State Machine
-Given a Matrix response the crypto machine will update it's internal state, along with encryption information this means keeping track of when to encrypt. It has knowledge of when encryption needs to happen and can be asked from the `BaseClient`. The crypto state machine is given responses that relate to encryption and can create encrypted request bodies for encryption related requests. Basically it tells the `BaseClient` to send a to-device messages out and the `BaseClient` is responsible for notifying the crypto state machine when it sent the message so crypto can update state.
+Given a Matrix response the crypto machine will update its own internal state, along with encryption information. `BaseClient` and the crypto machine together keep track of when to encrypt. It knows when encryption needs to happen based on signals from the `BaseClient`. The crypto state machine is given responses that relate to encryption and can create encrypted request bodies for encryption-related requests. Basically it tells the `BaseClient` to send to-device messages out, and the `BaseClient` is responsible for notifying the crypto state machine when it sent the message so crypto can update state.
 
 #### Client State/Room and RoomMember
 The `BaseClient` is responsible for keeping state in sync through the `IncomingResponse`s of `AsyncClient` or querying the `StateStore`. By processing and then delegating incoming `RoomEvent`s, `StateEvent`s, `PresenceEvent`, `IncomingAccountData` and `EphemeralEvent`s to the correct `Room` in the base clients `HashMap<RoomId, Room>` or further to `Room`'s `RoomMember` via the members `HashMap<UserId, RoomMember>`. The `BaseClient` is also responsible for emitting the incoming events to the `EventEmitter` trait.
@@ -87,11 +87,14 @@ pub struct RoomMember {
 ```
 
 #### State Store
-The `BaseClient` also has access to a `dyn StateStore` this is an abstraction around a "database" to keep client state without requesting a full sync from the server on start up. A default implementation that serializes/deserializes json to files in a specified directory can be used. The user can also implement `StateStore` to fit any storage solution they choose.
-  - load
-  - store/save
+The `BaseClient` also has access to a `dyn StateStore` this is an abstraction around a "database" to keep the client state without requesting a full sync from the server on startup. A default implementation that serializes/deserializes JSON to files in a specified directory can be used. The user can also implement `StateStore` to fit any storage solution they choose. The base client handles the storage automatically. There "may be/are TODO" ways for the user to interact directly. The room event handling methods signal if the state was modified; if so, we check if some room state file needs to be overwritten.
+  - open
+  - load client/rooms
+  - store client/room
   - update ??
 
+The state store will restore our client state in the `BaseClient` and client authors can just get the latest state that they want to present from the client object. No need to ask the state store for it, this may change if custom setups request this. `StateStore`'s main purpose is to provide load/store functionality and, internally to the crate, update the `BaseClient`.
+
 #### Event Emitter
-The consumer of this crate can implement the `EventEmitter` trait for full control over how incoming events are handled by their client. If that isn't enough it is possible to receive every incoming response with the `AsyncClient::sync_forever` callback.
+The consumer of this crate can implement the `EventEmitter` trait for full control over how incoming events are handled by their client. If that isn't enough, it is possible to receive every incoming response with the `AsyncClient::sync_forever` callback.
   - list the methods for `EventEmitter`?

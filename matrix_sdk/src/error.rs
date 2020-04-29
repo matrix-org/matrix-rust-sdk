@@ -15,10 +15,13 @@
 
 //! Error conditions.
 
+use std::io::Error as IoError;
+
 use reqwest::Error as ReqwestError;
 use ruma_api::error::FromHttpResponseError as RumaResponseError;
 use ruma_api::error::IntoHttpError as RumaIntoHttpError;
 use ruma_client_api::Error as RumaClientError;
+use serde_json::Error as JsonError;
 use thiserror::Error;
 use url::ParseError;
 
@@ -46,6 +49,12 @@ pub enum Error {
     /// An error converting between ruma_client_api types and Hyper types.
     #[error("can't convert between ruma_client_api and hyper types.")]
     IntoHttp(RumaIntoHttpError),
+    /// An error de/serializing type for the `StateStore`
+    #[error(transparent)]
+    SerdeJson(#[from] JsonError),
+    /// An error de/serializing type for the `StateStore`
+    #[error(transparent)]
+    IoError(#[from] IoError),
     #[cfg(feature = "encryption")]
     /// An error occurred during a E2EE operation.
     #[error(transparent)]

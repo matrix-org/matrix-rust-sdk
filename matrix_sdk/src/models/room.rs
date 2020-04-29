@@ -34,8 +34,8 @@ use crate::events::EventType;
 use crate::identifiers::{RoomAliasId, RoomId, UserId};
 
 use js_int::{Int, UInt};
-
-#[derive(Debug, Default, PartialEq)]
+use serde::{Deserialize, Serialize};
+#[derive(Debug, Default, PartialEq, Serialize, Deserialize)]
 /// `RoomName` allows the calculation of a text room name.
 pub struct RoomName {
     /// The displayed name of the room.
@@ -57,7 +57,7 @@ pub struct RoomName {
     pub invited_member_count: Option<UInt>,
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PowerLevels {
     /// The level required to ban a user.
     pub ban: Int,
@@ -83,7 +83,7 @@ pub struct PowerLevels {
     pub notifications: Int,
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Tombstone {
     /// A server-defined message.
     body: String,
@@ -91,7 +91,7 @@ pub struct Tombstone {
     replacement: RoomId,
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Serialize, Deserialize)]
 /// A Matrix room.
 pub struct Room {
     /// The unique id of the room.

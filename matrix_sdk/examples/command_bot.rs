@@ -4,7 +4,7 @@ use std::{env, process::exit};
 use matrix_sdk::{
     self,
     events::room::message::{MessageEvent, MessageEventContent, TextMessageEventContent},
-    AsyncClient, AsyncClientConfig, EventEmitter, Room, SyncSettings,
+    AsyncClient, AsyncClientConfig, EventEmitter, JsonStore, Room, SyncSettings,
 };
 use tokio::sync::RwLock;
 use url::Url;
@@ -63,9 +63,15 @@ async fn login_and_sync(
     username: String,
     password: String,
 ) -> Result<(), matrix_sdk::Error> {
+    // the location for `JsonStore` to save files to
+    let mut home = dirs::home_dir().expect("no home directory found");
+    home.push("party_bot");
+
+    let store = JsonStore::open(&home)?;
     let client_config = AsyncClientConfig::new()
         .proxy("http://localhost:8080")?
-        .disable_ssl_verification();
+        .disable_ssl_verification()
+        .state_store(Box::new(store));
 
     let homeserver_url = Url::parse(&homeserver_url)?;
     // create a new AsyncClient with the given homeserver url and config
@@ -82,7 +88,9 @@ async fn login_and_sync(
 
     println!("logged in as {}", username);
 
-    // initial sync to set up state and so our bot doesn't respond to old messages
+    // An initial sync to set up state and so our bot doesn't respond to old messages.
+    // If the `StateStore` finds saved state in the location given the initial sync will
+    // be skipped in favor of loading state from the store
     client.sync(SyncSettings::default()).await.unwrap();
     // add our CommandBot to be notified of incoming messages, we do this after the initial
     // sync to avoid responding to messages before the bot was running.

@@ -295,6 +295,7 @@ mod test {
     use super::*;
     use crate::events::room::power_levels::NotificationPowerLevels;
     use crate::{identifiers::RoomId, AsyncClient, Session};
+    use api::r0::filter::{LazyLoadOptions, RoomEventFilter};
 
     use js_int::Int;
     use mockito::{mock, Matcher};
@@ -370,7 +371,12 @@ mod test {
             .to("t4357353_219380_26003_2265".to_string())
             .direction(Direction::Backward)
             .limit(UInt::new(10).unwrap())
-            .filter(RoomEventFilter::default());
+            .filter(RoomEventFilter {
+                lazy_load_options: LazyLoadOptions::Enabled {
+                    include_redundant_members: false,
+                },
+                ..Default::default()
+            });
 
         let cli = AsyncClient::new(homeserver, Some(session)).unwrap();
         assert!(cli.room_messages(builder).await.is_ok());
