@@ -674,7 +674,6 @@ impl AsyncClient {
             for mut event in &mut room.timeline.events {
                 let decrypted_event = {
                     let mut client = self.base_client.write().await;
-                    let mut timeline_update = false;
                     let (decrypt_ev, timeline_update) = client
                         .receive_joined_timeline_event(room_id, &mut event)
                         .await;
