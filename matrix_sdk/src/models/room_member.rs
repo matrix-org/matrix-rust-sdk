@@ -23,7 +23,7 @@ use crate::events::room::{
 };
 use crate::identifiers::UserId;
 
-use js_int::{Int, UInt};
+use crate::js_int::{Int, UInt};
 use serde::{Deserialize, Serialize};
 // Notes: if Alice invites Bob into a room we will get an event with the sender as Alice and the state key as Bob.
 
@@ -205,7 +205,7 @@ mod test {
     use crate::identifiers::{RoomId, UserId};
     use crate::test_builder::EventBuilder;
 
-    use js_int::{Int, UInt};
+    use crate::js_int::{Int, UInt};
 
     use std::convert::TryFrom;
 

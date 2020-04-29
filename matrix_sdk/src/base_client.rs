@@ -42,18 +42,18 @@ use tokio::sync::Mutex;
 use tokio::sync::RwLock;
 
 #[cfg(feature = "encryption")]
-use matrix_sdk_crypto::{OlmMachine, OneTimeKeys};
+use crate::api::r0::client_exchange::send_event_to_device;
 #[cfg(feature = "encryption")]
-use ruma_client_api::r0::client_exchange::send_event_to_device;
-#[cfg(feature = "encryption")]
-use ruma_client_api::r0::keys::{
+use crate::api::r0::keys::{
     claim_keys::Response as KeysClaimResponse, get_keys::Response as KeysQueryResponse,
     upload_keys::Response as KeysUploadResponse, DeviceKeys, KeyAlgorithm,
 };
 #[cfg(feature = "encryption")]
-use ruma_events::room::message::MessageEventContent;
+use crate::events::room::message::MessageEventContent;
 #[cfg(feature = "encryption")]
-use ruma_identifiers::DeviceId;
+use crate::identifiers::DeviceId;
+#[cfg(feature = "encryption")]
+use matrix_sdk_crypto::{OlmMachine, OneTimeKeys};
 
 pub type Token = String;
 

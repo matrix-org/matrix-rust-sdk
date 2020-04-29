@@ -10,7 +10,7 @@ use api::r0::room::{
     Visibility,
 };
 
-use js_int::UInt;
+use crate::js_int::UInt;
 
 /// A builder used to create rooms.
 ///
@@ -293,11 +293,11 @@ mod test {
     use std::collections::BTreeMap;
 
     use super::*;
+    use crate::api::r0::filter::{LazyLoadOptions, RoomEventFilter};
     use crate::events::room::power_levels::NotificationPowerLevels;
+    use crate::js_int::Int;
     use crate::{identifiers::RoomId, AsyncClient, Session};
-    use api::r0::filter::{LazyLoadOptions, RoomEventFilter};
 
-    use js_int::Int;
     use mockito::{mock, Matcher};
     use std::convert::TryFrom;
     use url::Url;

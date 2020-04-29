@@ -17,10 +17,10 @@
 
 use std::io::Error as IoError;
 
+use crate::api::Error as RumaClientError;
+use crate::FromHttpResponseError as RumaResponseError;
+use crate::IntoHttpError as RumaIntoHttpError;
 use reqwest::Error as ReqwestError;
-use ruma_api::error::FromHttpResponseError as RumaResponseError;
-use ruma_api::error::IntoHttpError as RumaIntoHttpError;
-use ruma_client_api::Error as RumaClientError;
 use serde_json::Error as JsonError;
 use thiserror::Error;
 use url::ParseError;

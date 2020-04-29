@@ -24,17 +24,10 @@ url = "2.1.1"
 async-trait = "0.1.30"
 serde = "1.0.106"
 serde_json = "1.0.51"
+uuid = { version = "0.8.1", features = ["v4"] }
 
 matrix-sdk-types = { path = "../matrix_sdk_types" }
 matrix-sdk-crypto = { path = "../matrix_sdk_crypto", optional = true }
-
-# Ruma dependencies
-js_int = "0.1.5"
-ruma-api = "0.16.0-rc.2"
-ruma-client-api = { version = "0.8.0-rc.5" }
-ruma-events = { version = "0.21.0-beta.1" }
-ruma-identifiers = "0.16.0"
-uuid = { version = "0.8.1", features = ["v4"] }
 
 # Misc dependencies
 thiserror = "1.0.14"

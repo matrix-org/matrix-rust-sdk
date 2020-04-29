@@ -15,7 +15,7 @@
 
 //! User sessions.
 
-use ruma_identifiers::UserId;
+use crate::identifiers::UserId;
 /// A user session, containing an access token and information about the associated user account.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct Session {

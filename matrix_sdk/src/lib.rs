@@ -27,11 +27,8 @@
 #![deny(missing_docs)]
 
 pub use crate::{error::Error, error::Result, session::Session};
+pub use matrix_sdk_types::*;
 pub use reqwest::header::InvalidHeaderValue;
-pub use ruma_api;
-pub use ruma_client_api as api;
-pub use ruma_events as events;
-pub use ruma_identifiers as identifiers;
 
 mod async_client;
 mod base_client;

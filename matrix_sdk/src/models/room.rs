@@ -33,7 +33,7 @@ use crate::events::room::{
 use crate::events::EventType;
 use crate::identifiers::{RoomAliasId, RoomId, UserId};
 
-use js_int::{Int, UInt};
+use crate::js_int::{Int, UInt};
 use serde::{Deserialize, Serialize};
 #[derive(Debug, Default, PartialEq, Serialize, Deserialize)]
 /// `RoomName` allows the calculation of a text room name.
@@ -527,13 +527,16 @@ mod test {
         assert!(room.power_levels.is_some());
         assert_eq!(
             room.power_levels.as_ref().unwrap().kick,
-            js_int::Int::new(50).unwrap()
+            crate::js_int::Int::new(50).unwrap()
         );
         let admin = room
             .members
             .get(&UserId::try_from("@example:localhost").unwrap())
             .unwrap();
-        assert_eq!(admin.power_level.unwrap(), js_int::Int::new(100).unwrap());
+        assert_eq!(
+            admin.power_level.unwrap(),
+            crate::js_int::Int::new(100).unwrap()
+        );
     }
 
     #[test]

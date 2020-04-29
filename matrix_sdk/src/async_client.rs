@@ -36,14 +36,13 @@ use http::Response as HttpResponse;
 use reqwest::header::{HeaderValue, InvalidHeaderValue};
 use url::Url;
 
-use ruma_api::Endpoint;
-use ruma_events::room::message::MessageEventContent;
-use ruma_events::EventJson;
-pub use ruma_events::EventType;
-use ruma_identifiers::{RoomId, RoomIdOrAliasId, UserId};
+use crate::events::room::message::MessageEventContent;
+use crate::events::{EventJson, EventType};
+use crate::identifiers::{RoomId, RoomIdOrAliasId, UserId};
+use crate::Endpoint;
 
 #[cfg(feature = "encryption")]
-use ruma_identifiers::DeviceId;
+use crate::identifiers::DeviceId;
 
 use crate::api;
 use crate::base_client::Client as BaseClient;
@@ -589,7 +588,7 @@ impl AsyncClient {
     /// # use matrix_sdk::api::r0::filter::RoomEventFilter;
     /// # use matrix_sdk::api::r0::message::get_message_events::Direction;
     /// # use url::Url;
-    /// # use js_int::UInt;
+    /// # use matrix_sdk::js_int::UInt;
     ///
     /// # let homeserver = Url::parse("http://example.com").unwrap();
     /// let mut builder = MessagesRequestBuilder::new();
@@ -870,7 +869,7 @@ impl AsyncClient {
         }
     }
 
-    async fn send<Request: Endpoint<ResponseError = ruma_client_api::Error> + std::fmt::Debug>(
+    async fn send<Request: Endpoint<ResponseError = crate::api::Error> + std::fmt::Debug>(
         &self,
         request: Request,
     ) -> Result<Request::Response> {
@@ -1285,15 +1284,15 @@ mod test {
         let client = AsyncClient::new(homeserver, None).unwrap();
 
         if let Err(err) = client.login("example", "wordpass", None, None).await {
-            if let crate::Error::RumaResponse(ruma_api::error::FromHttpResponseError::Http(
-                ruma_api::error::ServerError::Known(ruma_client_api::error::Error {
+            if let crate::Error::RumaResponse(crate::FromHttpResponseError::Http(
+                crate::ServerError::Known(crate::api::Error {
                     kind,
                     message,
                     status_code,
                 }),
             )) = err
             {
-                if let ruma_client_api::error::ErrorKind::Forbidden = kind {
+                if let crate::api::error::ErrorKind::Forbidden = kind {
                 } else {
                     panic!(
                         "found the wrong `ErrorKind` {:?}, expected `Forbidden",
