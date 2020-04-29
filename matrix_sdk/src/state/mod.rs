@@ -125,6 +125,7 @@ mod test {
     "own_user_id": "@example:example.com",
     "creator": null,
     "members": {},
+    "messages": [],
     "typing_users": [],
     "power_levels": null,
     "encrypted": false,

@@ -16,6 +16,7 @@
 use std::collections::{BTreeMap, HashMap};
 use std::convert::TryFrom;
 
+use super::message::MessageQueue;
 use super::RoomMember;
 
 use crate::api::r0::sync::sync_events::RoomSummary;
@@ -26,6 +27,7 @@ use crate::events::room::{
     canonical_alias::CanonicalAliasEvent,
     encryption::EncryptionEvent,
     member::{MemberEvent, MembershipChange},
+    message::MessageEvent,
     name::NameEvent,
     power_levels::{NotificationPowerLevels, PowerLevelsEvent, PowerLevelsEventContent},
     tombstone::TombstoneEvent,
@@ -36,6 +38,7 @@ use crate::identifiers::{RoomAliasId, RoomId, UserId};
 use crate::js_int::{Int, UInt};
 use serde::{Deserialize, Serialize};
 #[derive(Debug, Default, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(Clone))]
 /// `RoomName` allows the calculation of a text room name.
 pub struct RoomName {
     /// The displayed name of the room.
@@ -58,6 +61,7 @@ pub struct RoomName {
 }
 
 #[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(Clone))]
 pub struct PowerLevels {
     /// The level required to ban a user.
     pub ban: Int,
@@ -84,6 +88,7 @@ pub struct PowerLevels {
 }
 
 #[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(Clone))]
 pub struct Tombstone {
     /// A server-defined message.
     body: String,
@@ -92,6 +97,7 @@ pub struct Tombstone {
 }
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(Clone))]
 /// A Matrix room.
 pub struct Room {
     /// The unique id of the room.
@@ -104,6 +110,12 @@ pub struct Room {
     pub creator: Option<UserId>,
     /// The map of room members.
     pub members: HashMap<UserId, RoomMember>,
+    /// A queue of messages no longer than MAX_MSGS
+    ///
+    /// This is helpful when using a `StateStore` to avoid multiple requests
+    /// to the server for messages.
+    #[serde(with = "super::message::ser_deser")]
+    pub messages: MessageQueue,
     /// A list of users that are currently typing.
     pub typing_users: Vec<UserId>,
     /// The power level requirements for specific actions in this room
@@ -207,6 +219,7 @@ impl Room {
             own_user_id: own_user_id.clone(),
             creator: None,
             members: HashMap::new(),
+            messages: MessageQueue::new(),
             typing_users: Vec::new(),
             power_levels: None,
             encrypted: false,
@@ -320,6 +333,13 @@ impl Room {
         }
     }
 
+    /// Handle a room.message event and update the `MessageQueue` if necessary.
+    ///
+    /// Returns true if `MessageQueue` was added to.
+    pub fn handle_message(&mut self, event: &MessageEvent) -> bool {
+        self.messages.push(event.clone())
+    }
+
     /// Handle a room.aliases event, updating the room state if necessary.
     ///
     /// Returns true if the room name changed, false otherwise.
@@ -396,15 +416,16 @@ impl Room {
     pub fn receive_timeline_event(&mut self, event: &RoomEvent) -> bool {
         match event {
             // update to the current members of the room
-            RoomEvent::RoomMember(m) => self.handle_membership(m),
+            RoomEvent::RoomMember(member) => self.handle_membership(member),
             // finds all events related to the name of the room for later use
-            RoomEvent::RoomName(n) => self.handle_room_name(n),
-            RoomEvent::RoomCanonicalAlias(ca) => self.handle_canonical(ca),
-            RoomEvent::RoomAliases(a) => self.handle_room_aliases(a),
+            RoomEvent::RoomName(name) => self.handle_room_name(name),
+            RoomEvent::RoomCanonicalAlias(c_alias) => self.handle_canonical(c_alias),
+            RoomEvent::RoomAliases(alias) => self.handle_room_aliases(alias),
             // power levels of the room members
-            RoomEvent::RoomPowerLevels(p) => self.handle_power_level(p),
-            RoomEvent::RoomTombstone(t) => self.handle_tombstone(t),
-            RoomEvent::RoomEncryption(e) => self.handle_encryption_event(e),
+            RoomEvent::RoomPowerLevels(power) => self.handle_power_level(power),
+            RoomEvent::RoomTombstone(tomb) => self.handle_tombstone(tomb),
+            RoomEvent::RoomEncryption(encrypt) => self.handle_encryption_event(encrypt),
+            RoomEvent::RoomMessage(msg) => self.handle_message(msg),
             _ => false,
         }
     }
@@ -418,13 +439,16 @@ impl Room {
     /// * `event` - The event of the room.
     pub fn receive_state_event(&mut self, event: &StateEvent) -> bool {
         match event {
-            StateEvent::RoomMember(m) => self.handle_membership(m),
-            StateEvent::RoomName(n) => self.handle_room_name(n),
-            StateEvent::RoomCanonicalAlias(ca) => self.handle_canonical(ca),
-            StateEvent::RoomAliases(a) => self.handle_room_aliases(a),
-            StateEvent::RoomPowerLevels(p) => self.handle_power_level(p),
-            StateEvent::RoomTombstone(t) => self.handle_tombstone(t),
-            StateEvent::RoomEncryption(e) => self.handle_encryption_event(e),
+            // update to the current members of the room
+            StateEvent::RoomMember(member) => self.handle_membership(member),
+            // finds all events related to the name of the room for later use
+            StateEvent::RoomName(name) => self.handle_room_name(name),
+            StateEvent::RoomCanonicalAlias(c_alias) => self.handle_canonical(c_alias),
+            StateEvent::RoomAliases(alias) => self.handle_room_aliases(alias),
+            // power levels of the room members
+            StateEvent::RoomPowerLevels(power) => self.handle_power_level(power),
+            StateEvent::RoomTombstone(tomb) => self.handle_tombstone(tomb),
+            StateEvent::RoomEncryption(encrypt) => self.handle_encryption_event(encrypt),
             _ => false,
         }
     }
