@@ -16,7 +16,7 @@ jobs:
       before_script:
           - cargo install cargo-tarpaulin
       script:
-          - cargo tarpaulin --features 'encryption sqlite-cryptostore' --out Xml
+          - cargo tarpaulin --out Xml
       after_success:
           - bash <(curl -s https://codecov.io/bash)
 
@@ -24,6 +24,6 @@ before_script:
   - rustup component add rustfmt
 
 script:
-  - cargo build  --no-default-features --features 'encryption sqlite-cryptostore'
   - cargo fmt --all -- --check
-  - cargo test --no-default-features --features 'encryption sqlite-cryptostore'
+  - cargo build
+  - cargo test
