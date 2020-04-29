@@ -148,27 +148,16 @@ impl Client {
 
     /// When a client is provided the state store will load state from the `StateStore`.
     ///
-    /// Returns `true` when a sync has successfully completed.
+    /// Returns `true` when a state store sync has successfully completed.
     pub(crate) async fn sync_with_state_store(&mut self) -> Result<bool> {
         if let Some(store) = self.state_store.as_ref() {
             if let Some(sess) = self.session.as_ref() {
                 if let Some(client_state) = store.load_client_state(sess).await? {
                     let ClientState {
-                        user_id,
-                        device_id,
                         sync_token,
                         ignored_users,
                         push_ruleset,
                     } = client_state;
-
-                    if let Some(sess) = self.session.as_mut() {
-                        if let Some(device) = device_id {
-                            sess.device_id = device;
-                        }
-                        if let Some(user) = user_id {
-                            sess.user_id = user;
-                        }
-                    }
                     self.sync_token = sync_token;
                     self.ignored_users = ignored_users;
                     self.push_ruleset = push_ruleset;

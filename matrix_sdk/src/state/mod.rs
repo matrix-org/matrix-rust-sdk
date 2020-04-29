@@ -22,7 +22,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::base_client::{Client as BaseClient, Token};
 use crate::events::push_rules::Ruleset;
-use crate::identifiers::{DeviceId, RoomId, UserId};
+use crate::identifiers::{RoomId, UserId};
 use crate::{Result, Room, Session};
 
 /// `ClientState` holds all the information to restore a `BaseClient`
@@ -33,10 +33,6 @@ use crate::{Result, Room, Session};
 /// when needed in `StateStore::load/store_client_state`
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct ClientState {
-    /// The `UserId` for the current logged in user.
-    pub user_id: Option<UserId>,
-    /// The `DeviceId` of the current logged in user.
-    pub device_id: Option<DeviceId>,
     /// The current sync token that should be used for the next sync call.
     pub sync_token: Option<Token>,
     /// A list of ignored users.
@@ -48,15 +44,12 @@ pub struct ClientState {
 impl ClientState {
     pub fn from_base_client(client: &BaseClient) -> ClientState {
         let BaseClient {
-            session,
             sync_token,
             ignored_users,
             push_ruleset,
             ..
         } = client;
         Self {
-            user_id: session.as_ref().map(|s| s.user_id.clone()),
-            device_id: session.as_ref().map(|s| s.device_id.clone()),
             sync_token: sync_token.clone(),
             ignored_users: ignored_users.clone(),
             push_ruleset: push_ruleset.clone(),
@@ -97,14 +90,12 @@ mod test {
         let room = Room::new(&id, &user);
 
         let state = ClientState {
-            user_id: Some(user.clone()),
-            device_id: None,
             sync_token: Some("hello".into()),
             ignored_users: vec![user],
             push_ruleset: None,
         };
         assert_eq!(
-            r#"{"user_id":"@example:example.com","device_id":null,"sync_token":"hello","ignored_users":["@example:example.com"],"push_ruleset":null}"#,
+            r#"{"sync_token":"hello","ignored_users":["@example:example.com"],"push_ruleset":null}"#,
             serde_json::to_string(&state).unwrap()
         );
 
@@ -146,8 +137,6 @@ mod test {
         let room = Room::new(&id, &user);
 
         let state = ClientState {
-            user_id: Some(user.clone()),
-            device_id: None,
             sync_token: Some("hello".into()),
             ignored_users: vec![user],
             push_ruleset: None,

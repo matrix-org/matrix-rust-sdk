@@ -48,7 +48,7 @@ use crate::api;
 use crate::base_client::Client as BaseClient;
 use crate::models::Room;
 use crate::session::Session;
-use crate::state::{ClientState, StateStore};
+use crate::state::StateStore;
 use crate::VERSION;
 use crate::{Error, EventEmitter, Result};
 
@@ -674,7 +674,6 @@ impl AsyncClient {
             for mut event in &mut room.timeline.events {
                 let decrypted_event = {
                     let mut client = self.base_client.write().await;
-                    let mut timeline_update = false;
                     let (decrypt_ev, timeline_update) = client
                         .receive_joined_timeline_event(room_id, &mut event)
                         .await;
@@ -748,12 +747,6 @@ impl AsyncClient {
         let mut client = self.base_client.write().await;
         client.receive_sync_response(&mut response, updated).await?;
 
-        if updated {
-            if let Some(store) = client.state_store.as_ref() {
-                let state = ClientState::from_base_client(&client);
-                store.store_client_state(state).await?;
-            }
-        }
         Ok(response)
     }
 

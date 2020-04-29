@@ -84,12 +84,6 @@ impl StateStore for JsonStore {
     }
 
     async fn store_client_state(&self, state: ClientState) -> Result<()> {
-        if !self.user_path_set.load(Ordering::SeqCst) {
-            if let Some(user) = &state.user_id {
-                self.user_path_set.swap(true, Ordering::SeqCst);
-                self.path.write().await.push(user.localpart())
-            }
-        }
         let mut path = self.path.read().await.clone();
         path.push("client.json");
 
@@ -193,18 +187,19 @@ mod test {
             device_id: "Tester".to_string(),
         };
 
-        let store = JsonStore::open(path).unwrap();
-
         let state = ClientState {
-            user_id: Some(user.clone()),
-            device_id: None,
             sync_token: Some("hello".into()),
             ignored_users: vec![user],
             push_ruleset: None,
         };
 
+        let mut path_with_user = PathBuf::from(path);
+        path_with_user.push(sess.user_id.localpart());
+        // we have to set the path since `JsonStore::store_client_state()` doesn't append to the path
+        let store = JsonStore::open(path_with_user).unwrap();
         store.store_client_state(state.clone()).await.unwrap();
 
+        // the newly loaded store sets it own user_id local part when `load_client_state`
         let store = JsonStore::open(path).unwrap();
         let loaded = store.load_client_state(&sess).await.unwrap();
         assert_eq!(loaded, Some(state));
