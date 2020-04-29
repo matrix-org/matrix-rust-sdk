@@ -1,6 +1,5 @@
 use std::collections::HashMap;
-use std::fs::{self, OpenOptions};
-use std::io::{BufReader, BufWriter, Write};
+use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::{
     atomic::{AtomicBool, Ordering},
@@ -8,16 +7,17 @@ use std::sync::{
 };
 
 use tokio::fs as async_fs;
+use tokio::io::AsyncWriteExt;
 use tokio::sync::RwLock;
 
 use super::{ClientState, StateStore};
 use crate::identifiers::RoomId;
-use crate::{Error, Result, Room};
+use crate::{Error, Result, Room, Session};
 /// A default `StateStore` implementation that serializes state as json
 /// and saves it to disk.
 ///
 /// When logged in the `JsonStore` appends the user_id to it's folder path,
-/// so all files are saved in `my_client/user_id/*`.
+/// so all files are saved in `my_client/user_id_localpart/*`.
 pub struct JsonStore {
     path: Arc<RwLock<PathBuf>>,
     user_path_set: AtomicBool,
@@ -41,7 +41,12 @@ impl JsonStore {
 
 #[async_trait::async_trait]
 impl StateStore for JsonStore {
-    async fn load_client_state(&self) -> Result<Option<ClientState>> {
+    async fn load_client_state(&self, sess: &Session) -> Result<Option<ClientState>> {
+        if !self.user_path_set.load(Ordering::SeqCst) {
+            self.user_path_set.swap(true, Ordering::SeqCst);
+            self.path.write().await.push(sess.user_id.localpart())
+        }
+
         let mut path = self.path.read().await.clone();
         path.push("client.json");
 
@@ -67,10 +72,9 @@ impl StateStore for JsonStore {
                 continue;
             }
 
-            let f_hdl = OpenOptions::new().read(true).open(&file)?;
-            let reader = BufReader::new(f_hdl);
+            let json = async_fs::read_to_string(&file).await?;
 
-            let room = serde_json::from_reader::<_, Room>(reader).map_err(Error::from)?;
+            let room = serde_json::from_str::<Room>(&json).map_err(Error::from)?;
             let room_id = room.room_id.clone();
 
             rooms_map.insert(room_id, room);
@@ -97,15 +101,13 @@ impl StateStore for JsonStore {
 
         let json = serde_json::to_string(&state).map_err(Error::from)?;
 
-        let file = OpenOptions::new()
+        let mut file = async_fs::OpenOptions::new()
             .write(true)
             .create(true)
             .truncate(true)
-            .open(path)?;
-        let mut writer = BufWriter::new(file);
-        writer.write_all(json.as_bytes())?;
-
-        Ok(())
+            .open(path)
+            .await?;
+        file.write_all(json.as_bytes()).await.map_err(Error::from)
     }
 
     async fn store_room_state(&self, room: &Room) -> Result<()> {
@@ -125,15 +127,13 @@ impl StateStore for JsonStore {
 
         let json = serde_json::to_string(&room).map_err(Error::from)?;
 
-        let file = OpenOptions::new()
+        let mut file = async_fs::OpenOptions::new()
             .write(true)
             .create(true)
             .truncate(true)
-            .open(path)?;
-        let mut writer = BufWriter::new(file);
-        writer.write_all(json.as_bytes())?;
-
-        Ok(())
+            .open(path)
+            .await?;
+        file.write_all(json.as_bytes()).await.map_err(Error::from)
     }
 }
 
@@ -187,6 +187,12 @@ mod test {
 
         let user = UserId::try_from("@example:example.com").unwrap();
 
+        let sess = Session {
+            access_token: "32nj9zu034btz90".to_string(),
+            user_id: user.clone(),
+            device_id: "Tester".to_string(),
+        };
+
         let store = JsonStore::open(path).unwrap();
 
         let state = ClientState {
@@ -198,7 +204,9 @@ mod test {
         };
 
         store.store_client_state(state.clone()).await.unwrap();
-        let loaded = store.load_client_state().await.unwrap();
+
+        let store = JsonStore::open(path).unwrap();
+        let loaded = store.load_client_state(&sess).await.unwrap();
         assert_eq!(loaded, Some(state));
     }
 

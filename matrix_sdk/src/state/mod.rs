@@ -1,4 +1,4 @@
-// Copyright 2020 Damir Jelić
+// Copyright 2020 Devin Ragotzy
 // Copyright 2020 The Matrix.org Foundation C.I.C.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -23,8 +23,7 @@ use serde::{Deserialize, Serialize};
 use crate::base_client::{Client as BaseClient, Token};
 use crate::events::push_rules::Ruleset;
 use crate::identifiers::{DeviceId, RoomId, UserId};
-use crate::models::Room;
-use crate::Result;
+use crate::{Result, Room, Session};
 
 /// `ClientState` holds all the information to restore a `BaseClient`
 /// except the `access_token` as the default store is not secure.
@@ -72,7 +71,7 @@ pub trait StateStore: Send + Sync {
     ///
     /// An `Option::None` should be returned only if the `StateStore` tries to
     /// load but no state has been stored.
-    async fn load_client_state(&self) -> Result<Option<ClientState>>;
+    async fn load_client_state(&self, _: &Session) -> Result<Option<ClientState>>;
     /// Load the state of all `Room`s.
     ///
     /// This will be mapped over in the client in order to store `Room`s in an async safe way.

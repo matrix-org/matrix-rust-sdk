@@ -675,8 +675,8 @@ impl AsyncClient {
                 let decrypted_event = {
                     let mut client = self.base_client.write().await;
                     let mut timeline_update = false;
-                    let decrypt_ev = client
-                        .receive_joined_timeline_event(room_id, &mut event, &mut timeline_update)
+                    let (decrypt_ev, timeline_update) = client
+                        .receive_joined_timeline_event(room_id, &mut event)
                         .await;
                     if timeline_update {
                         updated = true;
@@ -746,7 +746,7 @@ impl AsyncClient {
         }
 
         let mut client = self.base_client.write().await;
-        client.receive_sync_response(&mut response).await;
+        client.receive_sync_response(&mut response, updated).await?;
 
         if updated {
             if let Some(store) = client.state_store.as_ref() {

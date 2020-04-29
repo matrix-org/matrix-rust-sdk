@@ -76,7 +76,10 @@ pub struct Client {
     /// Any implementor of EventEmitter will act as the callbacks for various
     /// events.
     pub event_emitter: Option<Box<dyn EventEmitter>>,
+    /// Any implementor of `StateStore` will be called to save `Room` and
+    /// some `BaseClient` state during `AsyncClient::sync` calls.
     ///
+    /// There is a default implementation `JsonStore` that saves JSON to disk.
     pub state_store: Option<Box<dyn StateStore>>,
     /// Does the `Client` need to sync with the state store.
     needs_state_store_sync: bool,
@@ -148,41 +151,42 @@ impl Client {
     /// Returns `true` when a sync has successfully completed.
     pub(crate) async fn sync_with_state_store(&mut self) -> Result<bool> {
         if let Some(store) = self.state_store.as_ref() {
-            if let Some(client_state) = store.load_client_state().await? {
-                let ClientState {
-                    user_id,
-                    device_id,
-                    sync_token,
-                    ignored_users,
-                    push_ruleset,
-                } = client_state;
+            if let Some(sess) = self.session.as_ref() {
+                if let Some(client_state) = store.load_client_state(sess).await? {
+                    let ClientState {
+                        user_id,
+                        device_id,
+                        sync_token,
+                        ignored_users,
+                        push_ruleset,
+                    } = client_state;
 
-                if let Some(sess) = self.session.as_mut() {
-                    if let Some(device) = device_id {
-                        sess.device_id = device;
+                    if let Some(sess) = self.session.as_mut() {
+                        if let Some(device) = device_id {
+                            sess.device_id = device;
+                        }
+                        if let Some(user) = user_id {
+                            sess.user_id = user;
+                        }
                     }
-                    if let Some(user) = user_id {
-                        sess.user_id = user;
-                    }
+                    self.sync_token = sync_token;
+                    self.ignored_users = ignored_users;
+                    self.push_ruleset = push_ruleset;
+                } else {
+                    // return false and continues with a sync request then save the state and create
+                    // and populate the files during the sync
+                    return Ok(false);
                 }
-                self.sync_token = sync_token;
-                self.ignored_users = ignored_users;
-                self.push_ruleset = push_ruleset;
-            } else {
-                // return false and continues with a sync request then save the state and create
-                // and populate the files during the sync
-                return Ok(false);
+
+                let mut rooms = store.load_all_rooms().await?;
+                self.joined_rooms = rooms
+                    .drain()
+                    .map(|(k, room)| (k, Arc::new(RwLock::new(room))))
+                    .collect();
+
+                self.needs_state_store_sync = false;
             }
-
-            let mut rooms = store.load_all_rooms().await?;
-            self.joined_rooms = rooms
-                .drain()
-                .map(|(k, room)| (k, Arc::new(RwLock::new(room))))
-                .collect();
-
-            self.needs_state_store_sync = false;
         }
-
         Ok(!self.needs_state_store_sync)
     }
 
@@ -278,23 +282,19 @@ impl Client {
 
     /// Receive a timeline event for a joined room and update the client state.
     ///
-    /// If the event was a encrypted room event and decryption was successful
-    /// the decrypted event will be returned, otherwise None.
+    /// Returns a tuple of the successfully decrypted event, or None on failure and
+    /// a bool, true when the `Room` state has been updated.
     ///
     /// # Arguments
     ///
     /// * `room_id` - The unique id of the room the event belongs to.
     ///
     /// * `event` - The event that should be handled by the client.
-    ///
-    /// * `did_update` - This is used internally to confirm when the state has
-    /// been updated.
     pub async fn receive_joined_timeline_event(
         &mut self,
         room_id: &RoomId,
         event: &mut EventJson<RoomEvent>,
-        did_update: &mut bool,
-    ) -> Option<EventJson<RoomEvent>> {
+    ) -> (Option<EventJson<RoomEvent>>, bool) {
         match event.deserialize() {
             #[allow(unused_mut)]
             Ok(mut e) => {
@@ -319,11 +319,9 @@ impl Client {
                 }
 
                 let mut room = self.get_or_create_room(&room_id).write().await;
-                // TODO is passing in the bool to use in `AsyncClient::sync` ok here
-                *did_update = room.receive_timeline_event(&e);
-                decrypted_event
+                (decrypted_event, room.receive_timeline_event(&e))
             }
-            _ => None,
+            _ => (None, false),
         }
     }
 
@@ -419,7 +417,13 @@ impl Client {
     /// # Arguments
     ///
     /// * `response` - The response that we received after a successful sync.
-    pub async fn receive_sync_response(&mut self, response: &mut api::sync::sync_events::Response) {
+    ///
+    /// * `did_update` - Signals to the `StateStore` if the client state needs updating.
+    pub async fn receive_sync_response(
+        &mut self,
+        response: &mut api::sync::sync_events::Response,
+        did_update: bool,
+    ) -> Result<()> {
         self.sync_token = Some(response.next_batch.clone());
 
         #[cfg(feature = "encryption")]
@@ -442,6 +446,14 @@ impl Client {
                 }
             }
         }
+
+        if did_update {
+            if let Some(store) = self.state_store.as_ref() {
+                let state = ClientState::from_base_client(&self);
+                store.store_client_state(state).await?;
+            }
+        }
+        Ok(())
     }
 
     /// Should account or one-time keys be uploaded to the server.
