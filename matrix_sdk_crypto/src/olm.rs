@@ -35,8 +35,8 @@ pub use olm_rs::{
     utility::OlmUtility,
 };
 
-use crate::api::r0::keys::SignedKey;
-use crate::identifiers::RoomId;
+use matrix_sdk_types::api::r0::keys::SignedKey;
+use matrix_sdk_types::identifiers::RoomId;
 
 /// The Olm account.
 /// An account is the central identity for encrypted communication between two
@@ -620,10 +620,10 @@ impl std::fmt::Debug for OutboundGroupSession {
 
 #[cfg(test)]
 pub(crate) mod test {
-    use crate::crypto::olm::{Account, InboundGroupSession, OutboundGroupSession, Session};
-    use crate::identifiers::RoomId;
+    use crate::olm::{Account, InboundGroupSession, OutboundGroupSession, Session};
+    use matrix_sdk_types::api::r0::keys::SignedKey;
+    use matrix_sdk_types::identifiers::RoomId;
     use olm_rs::session::OlmMessage;
-    use ruma_client_api::r0::keys::SignedKey;
     use std::collections::BTreeMap;
     use std::convert::TryFrom;
 

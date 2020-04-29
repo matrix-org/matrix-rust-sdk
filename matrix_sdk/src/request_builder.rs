@@ -307,7 +307,7 @@ mod test {
 
         let _m = mock("POST", "/_matrix/client/r0/createRoom")
             .with_status(200)
-            .with_body_from_file("./tests/data/room_id.json")
+            .with_body_from_file("../test_data/room_id.json")
             .create();
 
         let session = Session {
@@ -354,7 +354,7 @@ mod test {
             Matcher::Regex(r"^/_matrix/client/r0/rooms/.*/messages".to_string()),
         )
         .with_status(200)
-        .with_body_from_file("./tests/data/room_messages.json")
+        .with_body_from_file("../test_data/room_messages.json")
         .create();
 
         let session = Session {

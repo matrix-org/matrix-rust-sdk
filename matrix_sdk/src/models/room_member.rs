@@ -199,9 +199,9 @@ mod test {
         let rid = RoomId::try_from("!roomid:room.com").unwrap();
         let uid = UserId::try_from("@example:localhost").unwrap();
         let mut bld = EventBuilder::default()
-            .add_room_event_from_file("./tests/data/events/member.json", RoomEvent::RoomMember)
+            .add_room_event_from_file("../test_data/events/member.json", RoomEvent::RoomMember)
             .add_room_event_from_file(
-                "./tests/data/events/power_levels.json",
+                "../test_data/events/power_levels.json",
                 RoomEvent::RoomPowerLevels,
             )
             .build_room_runner(&rid, &uid);
@@ -220,12 +220,12 @@ mod test {
         let rid = RoomId::try_from("!roomid:room.com").unwrap();
         let uid = UserId::try_from("@example:localhost").unwrap();
         let mut bld = EventBuilder::default()
-            .add_room_event_from_file("./tests/data/events/member.json", RoomEvent::RoomMember)
+            .add_room_event_from_file("../test_data/events/member.json", RoomEvent::RoomMember)
             .add_room_event_from_file(
-                "./tests/data/events/power_levels.json",
+                "../test_data/events/power_levels.json",
                 RoomEvent::RoomPowerLevels,
             )
-            .add_presence_event_from_file("./tests/data/events/presence.json")
+            .add_presence_event_from_file("../test_data/events/presence.json")
             .build_room_runner(&rid, &uid);
 
         let room = bld.to_room();

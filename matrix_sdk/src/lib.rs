@@ -44,14 +44,11 @@ mod session;
 #[cfg(test)]
 pub mod test_builder;
 
-#[cfg(feature = "encryption")]
-mod crypto;
-
 pub use async_client::{AsyncClient, AsyncClientConfig, SyncSettings};
 pub use base_client::Client;
-#[cfg(feature = "encryption")]
-pub use crypto::{Device, TrustState};
 pub use event_emitter::EventEmitter;
+#[cfg(feature = "encryption")]
+pub use matrix_sdk_crypto::{Device, TrustState};
 pub use models::Room;
 pub use request_builder::{MessagesRequestBuilder, RoomBuilder};
 

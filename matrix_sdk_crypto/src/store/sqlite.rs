@@ -29,11 +29,11 @@ use tokio::sync::Mutex;
 use zeroize::Zeroizing;
 
 use super::{Account, CryptoStore, CryptoStoreError, InboundGroupSession, Result, Session};
-use crate::api::r0::keys::KeyAlgorithm;
-use crate::crypto::device::{Device, TrustState};
-use crate::crypto::memory_stores::{DeviceStore, GroupSessionStore, SessionStore, UserDevices};
-use crate::events::Algorithm;
-use crate::identifiers::{DeviceId, RoomId, UserId};
+use crate::device::{Device, TrustState};
+use crate::memory_stores::{DeviceStore, GroupSessionStore, SessionStore, UserDevices};
+use matrix_sdk_types::api::r0::keys::KeyAlgorithm;
+use matrix_sdk_types::events::Algorithm;
+use matrix_sdk_types::identifiers::{DeviceId, RoomId, UserId};
 
 pub struct SqliteStore {
     user_id: Arc<String>,
@@ -639,9 +639,9 @@ impl std::fmt::Debug for SqliteStore {
 
 #[cfg(test)]
 mod test {
-    use crate::api::r0::keys::SignedKey;
-    use crate::crypto::device::test::get_device;
-    use crate::crypto::olm::GroupSessionKey;
+    use crate::device::test::get_device;
+    use crate::olm::GroupSessionKey;
+    use matrix_sdk_types::api::r0::keys::SignedKey;
     use olm_rs::outbound_group_session::OlmOutboundGroupSession;
     use std::collections::BTreeMap;
     use tempfile::tempdir;

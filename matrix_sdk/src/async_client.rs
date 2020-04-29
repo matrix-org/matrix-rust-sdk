@@ -1116,9 +1116,9 @@ mod test {
         let uid = UserId::try_from("@example:localhost").unwrap();
 
         let mut bld = EventBuilder::default()
-            .add_room_event_from_file("./tests/data/events/member.json", RoomEvent::RoomMember)
+            .add_room_event_from_file("../test_data/events/member.json", RoomEvent::RoomMember)
             .add_room_event_from_file(
-                "./tests/data/events/power_levels.json",
+                "../test_data/events/power_levels.json",
                 RoomEvent::RoomPowerLevels,
             )
             .build_client_runner(rid, uid);
@@ -1145,9 +1145,9 @@ mod test {
         let client = AsyncClient::new(homeserver, Some(session)).unwrap();
 
         let mut bld = EventBuilder::default()
-            .add_room_event_from_file("./tests/data/events/member.json", RoomEvent::RoomMember)
+            .add_room_event_from_file("../test_data/events/member.json", RoomEvent::RoomMember)
             .add_room_event_from_file(
-                "./tests/data/events/power_levels.json",
+                "../test_data/events/power_levels.json",
                 RoomEvent::RoomPowerLevels,
             )
             .build_mock_runner(
@@ -1169,7 +1169,7 @@ mod test {
 
         let _m = mock("POST", "/_matrix/client/r0/login")
             .with_status(403)
-            .with_body_from_file("tests/data/login_response_error.json")
+            .with_body_from_file("../test_data/login_response_error.json")
             .create();
 
         let client = AsyncClient::new(homeserver, None).unwrap();

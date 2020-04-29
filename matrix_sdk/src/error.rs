@@ -23,7 +23,7 @@ use thiserror::Error;
 use url::ParseError;
 
 #[cfg(feature = "encryption")]
-use crate::crypto::OlmError;
+use matrix_sdk_crypto::OlmError;
 
 /// Result type of the rust-sdk.
 pub type Result<T> = std::result::Result<T, Error>;

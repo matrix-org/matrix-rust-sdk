@@ -14,7 +14,7 @@ async fn login() {
 
     let _m = mock("POST", "/_matrix/client/r0/login")
         .with_status(200)
-        .with_body_from_file("tests/data/login_response.json")
+        .with_body_from_file("../test_data/login_response.json")
         .create();
 
     let client = AsyncClient::new(homeserver, None).unwrap();
@@ -43,7 +43,7 @@ async fn sync() {
         Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_string()),
     )
     .with_status(200)
-    .with_body_from_file("tests/data/sync.json")
+    .with_body_from_file("../test_data/sync.json")
     .create();
 
     let client = AsyncClient::new(homeserver, Some(session)).unwrap();
@@ -72,7 +72,7 @@ async fn room_names() {
         Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_string()),
     )
     .with_status(200)
-    .with_body_from_file("tests/data/sync.json")
+    .with_body_from_file("../test_data/sync.json")
     .create();
 
     let client = AsyncClient::new(homeserver, Some(session)).unwrap();

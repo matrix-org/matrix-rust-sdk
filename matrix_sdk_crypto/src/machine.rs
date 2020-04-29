@@ -31,8 +31,8 @@ use super::store::memorystore::MemoryStore;
 use super::store::sqlite::SqliteStore;
 use super::{device::Device, CryptoStore};
 
-use crate::api;
-use crate::events::{
+use matrix_sdk_types::api;
+use matrix_sdk_types::events::{
     collections::all::RoomEvent,
     room::encrypted::{
         CiphertextInfo, EncryptedEvent, EncryptedEventContent, MegolmV1AesSha2Content,
@@ -45,7 +45,7 @@ use crate::events::{
     },
     Algorithm, EventJson, EventType,
 };
-use crate::identifiers::{DeviceId, RoomId, UserId};
+use matrix_sdk_types::identifiers::{DeviceId, RoomId, UserId};
 
 use api::r0::keys;
 use api::r0::{
@@ -94,7 +94,7 @@ impl std::fmt::Debug for OlmMachine {
 }
 
 impl OlmMachine {
-    const ALGORITHMS: &'static [&'static ruma_events::Algorithm] = &[
+    const ALGORITHMS: &'static [&'static Algorithm] = &[
         &Algorithm::OlmV1Curve25519AesSha2,
         &Algorithm::MegolmV1AesSha2,
     ];
@@ -136,7 +136,6 @@ impl OlmMachine {
             }
         };
 
-        // TODO load the tracked users here.
         Ok(OlmMachine {
             user_id: user_id.clone(),
             device_id: device_id.to_owned(),
@@ -1100,7 +1099,15 @@ impl OlmMachine {
     }
 
     // TODO accept an algorithm here
-    pub(crate) async fn share_group_session<'a, I>(
+    /// Get to-device requests to share a group session with users in a room.
+    ///
+    /// # Arguments
+    ///
+    /// `room_id` - The room id of the room where the group session will be
+    /// used.
+    ///
+    /// `users` - The list of users that should receive the group session.
+    pub async fn share_group_session<'a, I>(
         &mut self,
         room_id: &RoomId,
         users: I,
@@ -1395,7 +1402,7 @@ mod test {
     static USER_ID: &str = "@bob:example.org";
     static DEVICE_ID: &str = "DEVICEID";
 
-    use js_int::UInt;
+    use matrix_sdk_types::js_int::UInt;
     use std::collections::BTreeMap;
     use std::convert::TryFrom;
     use std::fs::File;
@@ -1403,12 +1410,16 @@ mod test {
     use std::sync::atomic::AtomicU64;
     use std::time::SystemTime;
 
+    use http::Response;
     use serde_json::json;
 
-    use crate::api::r0::{client_exchange::send_event_to_device::Request as ToDeviceRequest, keys};
-    use crate::crypto::machine::{OlmMachine, OneTimeKeys};
-    use crate::crypto::Device;
-    use crate::events::{
+    use crate::machine::{OlmMachine, OneTimeKeys};
+    use crate::Device;
+
+    use matrix_sdk_types::api::r0::{
+        client_exchange::send_event_to_device::Request as ToDeviceRequest, keys,
+    };
+    use matrix_sdk_types::events::{
         collections::all::RoomEvent,
         room::{
             encrypted::{EncryptedEvent, EncryptedEventContent},
@@ -1417,9 +1428,7 @@ mod test {
         to_device::{AnyToDeviceEvent, ToDeviceEncrypted},
         EventJson, EventType,
     };
-    use crate::identifiers::{DeviceId, EventId, RoomId, UserId};
-
-    use http::Response;
+    use matrix_sdk_types::identifiers::{DeviceId, EventId, RoomId, UserId};
 
     fn alice_id() -> UserId {
         UserId::try_from("@alice:example.org").unwrap()
@@ -1444,12 +1453,12 @@ mod test {
     }
 
     fn keys_upload_response() -> keys::upload_keys::Response {
-        let data = response_from_file("tests/data/keys_upload.json");
+        let data = response_from_file("../test_data/keys_upload.json");
         keys::upload_keys::Response::try_from(data).expect("Can't parse the keys upload response")
     }
 
     fn keys_query_response() -> keys::get_keys::Response {
-        let data = response_from_file("tests/data/keys_query.json");
+        let data = response_from_file("../test_data/keys_query.json");
         keys::get_keys::Response::try_from(data).expect("Can't parse the keys upload response")
     }
 

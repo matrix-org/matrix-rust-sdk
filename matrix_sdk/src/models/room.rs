@@ -484,7 +484,7 @@ mod test {
             Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_string()),
         )
         .with_status(200)
-        .with_body_from_file("tests/data/sync.json")
+        .with_body_from_file("../test_data/sync.json")
         .create();
 
         let client = AsyncClient::new(homeserver, Some(session)).unwrap();
@@ -514,9 +514,9 @@ mod test {
         let uid = UserId::try_from("@example:localhost").unwrap();
 
         let mut bld = EventBuilder::default()
-            .add_room_event_from_file("./tests/data/events/member.json", RoomEvent::RoomMember)
+            .add_room_event_from_file("../test_data/events/member.json", RoomEvent::RoomMember)
             .add_room_event_from_file(
-                "./tests/data/events/power_levels.json",
+                "../test_data/events/power_levels.json",
                 RoomEvent::RoomPowerLevels,
             )
             .build_room_runner(&rid, &uid);
@@ -542,7 +542,7 @@ mod test {
         let uid = UserId::try_from("@example:localhost").unwrap();
 
         let mut bld = EventBuilder::default()
-            .add_state_event_from_file("./tests/data/events/aliases.json", StateEvent::RoomAliases)
+            .add_state_event_from_file("../test_data/events/aliases.json", StateEvent::RoomAliases)
             .build_room_runner(&rid, &uid);
 
         let room = bld.to_room();
@@ -557,7 +557,7 @@ mod test {
 
         let mut bld = EventBuilder::default()
             .add_state_event_from_file(
-                "./tests/data/events/alias.json",
+                "../test_data/events/alias.json",
                 StateEvent::RoomCanonicalAlias,
             )
             .build_room_runner(&rid, &uid);
@@ -573,7 +573,7 @@ mod test {
         let uid = UserId::try_from("@example:localhost").unwrap();
 
         let mut bld = EventBuilder::default()
-            .add_state_event_from_file("./tests/data/events/name.json", StateEvent::RoomName)
+            .add_state_event_from_file("../test_data/events/name.json", StateEvent::RoomName)
             .build_room_runner(&rid, &uid);
 
         let room = bld.to_room();
@@ -587,7 +587,7 @@ mod test {
 
         let mut bld = EventBuilder::default().build_with_response(
             // this sync has no room.name or room.alias events so only relies on summary
-            "tests/data/sync_with_summary.json",
+            "../test_data/sync_with_summary.json",
             "GET",
             Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_string()),
         );

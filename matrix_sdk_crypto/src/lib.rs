@@ -12,6 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+//! This is the encryption part of the matrix-sdk. It contains a state machine
+//! that will aid in adding encryption support to a client library.
+
 mod device;
 mod error;
 mod machine;

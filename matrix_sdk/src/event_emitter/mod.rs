@@ -238,7 +238,7 @@ mod test {
             Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_string()),
         )
         .with_status(200)
-        .with_body_from_file("tests/data/sync.json")
+        .with_body_from_file("../test_data/sync.json")
         .create();
 
         let vec = Arc::new(Mutex::new(Vec::new()));

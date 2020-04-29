@@ -23,9 +23,9 @@ use atomic::Atomic;
 
 #[cfg(test)]
 use super::OlmMachine;
-use crate::api::r0::keys::{DeviceKeys, KeyAlgorithm};
-use crate::events::Algorithm;
-use crate::identifiers::{DeviceId, UserId};
+use matrix_sdk_types::api::r0::keys::{DeviceKeys, KeyAlgorithm};
+use matrix_sdk_types::events::Algorithm;
+use matrix_sdk_types::identifiers::{DeviceId, UserId};
 
 /// A device represents a E2EE capable client of an user.
 #[derive(Debug, Clone)]
@@ -131,7 +131,7 @@ impl Device {
 
         for (key_id, key) in device_keys.keys.iter() {
             let key_id = key_id.0;
-            keys.insert(key_id, key.clone());
+            let _ = keys.insert(key_id, key.clone());
         }
 
         let display_name = Arc::new(
@@ -141,12 +141,12 @@ impl Device {
                 .map(|d| d.device_display_name.clone()),
         );
 
-        mem::replace(
+        let _ = mem::replace(
             &mut self.algorithms,
             Arc::new(device_keys.algorithms.clone()),
         );
-        mem::replace(&mut self.keys, Arc::new(keys));
-        mem::replace(&mut self.display_name, display_name);
+        let _ = mem::replace(&mut self.keys, Arc::new(keys));
+        let _ = mem::replace(&mut self.display_name, display_name);
     }
 
     /// Mark the device as deleted.
@@ -190,7 +190,7 @@ impl From<&DeviceKeys> for Device {
 
         for (key_id, key) in device_keys.keys.iter() {
             let key_id = key_id.0;
-            keys.insert(key_id, key.clone());
+            let _ = keys.insert(key_id, key.clone());
         }
 
         Device {
@@ -221,9 +221,9 @@ pub(crate) mod test {
     use serde_json::json;
     use std::convert::{From, TryFrom};
 
-    use crate::api::r0::keys::{DeviceKeys, KeyAlgorithm};
-    use crate::crypto::device::{Device, TrustState};
-    use crate::identifiers::UserId;
+    use crate::device::{Device, TrustState};
+    use matrix_sdk_types::api::r0::keys::{DeviceKeys, KeyAlgorithm};
+    use matrix_sdk_types::identifiers::UserId;
 
     fn device_keys() -> DeviceKeys {
         let user_id = UserId::try_from("@alice:example.org").unwrap();

@@ -41,7 +41,7 @@ use tokio::sync::Mutex;
 use tokio::sync::RwLock;
 
 #[cfg(feature = "encryption")]
-use crate::crypto::{OlmMachine, OneTimeKeys};
+use matrix_sdk_crypto::{OlmMachine, OneTimeKeys};
 #[cfg(feature = "encryption")]
 use ruma_client_api::r0::client_exchange::send_event_to_device;
 #[cfg(feature = "encryption")]
@@ -820,7 +820,7 @@ mod test {
             Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_string()),
         )
         .with_status(200)
-        .with_body_from_file("tests/data/sync.json")
+        .with_body_from_file("../test_data/sync.json")
         .create();
 
         let client = AsyncClient::new(homeserver, Some(session)).unwrap();

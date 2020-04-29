@@ -20,7 +20,7 @@ use tokio::sync::Mutex;
 
 use super::device::Device;
 use super::olm::{InboundGroupSession, Session};
-use crate::identifiers::{DeviceId, RoomId, UserId};
+use matrix_sdk_types::identifiers::{DeviceId, RoomId, UserId};
 
 /// In-memory store for Olm Sessions.
 #[derive(Debug)]
@@ -210,11 +210,11 @@ impl DeviceStore {
 mod test {
     use std::convert::TryFrom;
 
-    use crate::crypto::device::test::get_device;
-    use crate::crypto::memory_stores::{DeviceStore, GroupSessionStore, SessionStore};
-    use crate::crypto::olm::test::get_account_and_session;
-    use crate::crypto::olm::{InboundGroupSession, OutboundGroupSession};
-    use crate::identifiers::RoomId;
+    use crate::device::test::get_device;
+    use crate::memory_stores::{DeviceStore, GroupSessionStore, SessionStore};
+    use crate::olm::test::get_account_and_session;
+    use crate::olm::{InboundGroupSession, OutboundGroupSession};
+    use matrix_sdk_types::identifiers::RoomId;
 
     #[tokio::test]
     async fn test_session_store() {

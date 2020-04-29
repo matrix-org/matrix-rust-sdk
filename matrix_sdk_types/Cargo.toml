@@ -1,0 +1,18 @@
+[package]
+authors = ["Damir Jelić <poljar@termina.org.uk"]
+description = "Collection of Matrix types used in the matrix-sdk"
+edition = "2018"
+homepage = "https://github.com/matrix-org/matrix-rust-sdk"
+keywords = ["matrix", "chat", "messaging", "ruma", "nio"]
+license = "Apache-2.0"
+name = "matrix-sdk-types"
+readme = "README.md"
+repository = "https://github.com/matrix-org/matrix-rust-sdk"
+version = "0.1.0"
+
+[dependencies]
+js_int = "0.1.5"
+ruma-api = "0.16.0-rc.2"
+ruma-client-api = { version = "0.8.0-rc.5" }
+ruma-events = { version = "0.21.0-beta.1" }
+ruma-identifiers = "0.16.0"

@@ -1,12 +1,12 @@
 all: build
 
 build:
-	cargo build --features 'encryption sqlite-cryptostore'
+	cargo build
 test:
-	cargo test --features 'encryption sqlite-cryptostore'
+	cargo test
 
 coverage:
-	cargo tarpaulin --features 'encryption sqlite-cryptostore' -v
+	cargo tarpaulin -v
 
 clean:
 	cargo clean
