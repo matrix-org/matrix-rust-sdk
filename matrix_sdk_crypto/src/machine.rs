@@ -358,7 +358,7 @@ impl OlmMachine {
                     }
                 };
 
-                if let Err(e) = self.store.save_session(session).await {
+                if let Err(e) = self.store.save_sessions(&[session]).await {
                     error!("Failed to store newly created Olm session {}", e);
                     continue;
                 }
@@ -739,7 +739,7 @@ impl OlmMachine {
             // Decryption was successful, save the new ratchet state of the
             // session that was used to decrypt the message.
             trace!("Saved the new session state for {}", sender);
-            self.store.save_session(session).await?;
+            self.store.save_sessions(&[session]).await?;
         }
 
         Ok(plaintext)
@@ -804,7 +804,7 @@ impl OlmMachine {
             let plaintext = session.decrypt(message).await?;
 
             // Save the new ratcheted state of the session.
-            self.store.save_session(session).await?;
+            self.store.save_sessions(&[session]).await?;
             plaintext
         };
 
@@ -1055,7 +1055,7 @@ impl OlmMachine {
             .unwrap_or_else(|_| panic!(format!("Can't serialize {} to canonical JSON", payload)));
 
         let ciphertext = session.encrypt(&plaintext).await.to_tuple();
-        self.store.save_session(session).await?;
+        self.store.save_sessions(&[session]).await?;
 
         let message_type: usize = ciphertext.0.into();
 

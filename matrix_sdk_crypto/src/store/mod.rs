@@ -75,12 +75,12 @@ pub trait CryptoStore: Debug + Send + Sync {
     /// * `account` - The account that should be stored.
     async fn save_account(&mut self, account: Account) -> Result<()>;
 
-    /// Save the given session in the store.
+    /// Save the given sessions in the store.
     ///
     /// # Arguments
     ///
-    /// * `session` - The session that should be stored.
-    async fn save_session(&mut self, session: Session) -> Result<()>;
+    /// * `session` - The sessions that should be stored.
+    async fn save_sessions(&mut self, session: &[Session]) -> Result<()>;
 
     /// Get all the sessions that belong to the given sender key.
     ///

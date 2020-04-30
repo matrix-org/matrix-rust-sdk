@@ -52,8 +52,11 @@ impl CryptoStore for MemoryStore {
         Ok(())
     }
 
-    async fn save_session(&mut self, session: Session) -> Result<()> {
-        self.sessions.add(session).await;
+    async fn save_sessions(&mut self, sessions: &[Session]) -> Result<()> {
+        for session in sessions {
+            self.sessions.add(session.clone()).await;
+        }
+
         Ok(())
     }
 
@@ -125,7 +128,7 @@ mod test {
         assert!(store.load_account().await.unwrap().is_none());
         store.save_account(account).await.unwrap();
 
-        store.save_session(session.clone()).await.unwrap();
+        store.save_sessions(&[session.clone()]).await.unwrap();
 
         let sessions = store
             .get_sessions(&session.sender_key)

@@ -527,32 +527,35 @@ impl CryptoStore for SqliteStore {
         Ok(())
     }
 
-    async fn save_session(&mut self, session: Session) -> Result<()> {
-        self.lazy_load_sessions(&session.sender_key).await?;
-        self.sessions.add(session.clone()).await;
+    async fn save_sessions(&mut self, sessions: &[Session]) -> Result<()> {
+        // TODO turn this into a transaction
+        for session in sessions {
+            self.lazy_load_sessions(&session.sender_key).await?;
+            self.sessions.add(session.clone()).await;
 
-        let account_id = self.account_id.ok_or(CryptoStoreError::AccountUnset)?;
+            let account_id = self.account_id.ok_or(CryptoStoreError::AccountUnset)?;
 
-        let session_id = session.session_id();
-        let creation_time = serde_json::to_string(&session.creation_time.elapsed())?;
-        let last_use_time = serde_json::to_string(&session.last_use_time.elapsed())?;
-        let pickle = session.pickle(self.get_pickle_mode()).await;
+            let session_id = session.session_id();
+            let creation_time = serde_json::to_string(&session.creation_time.elapsed())?;
+            let last_use_time = serde_json::to_string(&session.last_use_time.elapsed())?;
+            let pickle = session.pickle(self.get_pickle_mode()).await;
 
-        let mut connection = self.connection.lock().await;
+            let mut connection = self.connection.lock().await;
 
-        query(
-            "REPLACE INTO sessions (
-                session_id, account_id, creation_time, last_use_time, sender_key, pickle
-             ) VALUES (?, ?, ?, ?, ?, ?)",
-        )
-        .bind(&session_id)
-        .bind(&account_id)
-        .bind(&*creation_time)
-        .bind(&*last_use_time)
-        .bind(&*session.sender_key)
-        .bind(&pickle)
-        .execute(&mut *connection)
-        .await?;
+            query(
+                "REPLACE INTO sessions (
+                    session_id, account_id, creation_time, last_use_time, sender_key, pickle
+                 ) VALUES (?, ?, ?, ?, ?, ?)",
+            )
+            .bind(&session_id)
+            .bind(&account_id)
+            .bind(&*creation_time)
+            .bind(&*last_use_time)
+            .bind(&*session.sender_key)
+            .bind(&pickle)
+            .execute(&mut *connection)
+            .await?;
+        }
 
         Ok(())
     }
@@ -806,14 +809,14 @@ mod test {
         let (mut store, _dir) = get_store(None).await;
         let (account, session) = get_account_and_session().await;
 
-        assert!(store.save_session(session.clone()).await.is_err());
+        assert!(store.save_sessions(&[session.clone()]).await.is_err());
 
         store
             .save_account(account.clone())
             .await
             .expect("Can't save account");
 
-        store.save_session(session).await.unwrap();
+        store.save_sessions(&[session]).await.unwrap();
     }
 
     #[tokio::test]
@@ -824,7 +827,7 @@ mod test {
             .save_account(account.clone())
             .await
             .expect("Can't save account");
-        store.save_session(session.clone()).await.unwrap();
+        store.save_sessions(&[session.clone()]).await.unwrap();
 
         let sessions = store
             .load_sessions_for(&session.sender_key)
@@ -846,7 +849,7 @@ mod test {
             .save_account(account.clone())
             .await
             .expect("Can't save account");
-        store.save_session(session).await.unwrap();
+        store.save_sessions(&[session]).await.unwrap();
 
         let sessions = store.get_sessions(&sender_key).await.unwrap().unwrap();
         let sessions_lock = sessions.lock().await;
