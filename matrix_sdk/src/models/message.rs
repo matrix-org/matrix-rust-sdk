@@ -71,6 +71,13 @@ impl MessageQueue {
     ///
     /// Removes the oldest element in the queue if there are more than 10 elements.
     pub fn push(&mut self, msg: MessageEvent) -> bool {
+        // only push new messages into the queue
+        if let Some(latest) = self.msgs.last() {
+            if msg.origin_server_ts < latest.origin_server_ts {
+                return false;
+            }
+        }
+
         let message = MessageWrapper(msg);
         match self.msgs.binary_search_by(|m| m.cmp(&message)) {
             Ok(pos) => self.msgs.insert(pos, message),
