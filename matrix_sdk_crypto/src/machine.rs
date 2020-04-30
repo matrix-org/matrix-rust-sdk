@@ -30,8 +30,8 @@ use super::olm::{
 };
 use super::store::memorystore::MemoryStore;
 #[cfg(feature = "sqlite-cryptostore")]
-use super::store::sqlite::SqliteStore;
-use super::{device::Device, store::Result as StoreError, CryptoStore};
+use super::store::{sqlite::SqliteStore, Result as StoreError};
+use super::{device::Device, CryptoStore};
 
 use matrix_sdk_types::api;
 use matrix_sdk_types::events::{
@@ -1467,10 +1467,10 @@ mod test {
             to_device_request
                 .messages
                 .values()
-                .nth(0)
+                .next()
                 .unwrap()
                 .values()
-                .nth(0)
+                .next()
                 .unwrap()
                 .json()
                 .get(),
