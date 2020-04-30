@@ -21,17 +21,15 @@ use std::result::Result as StdResult;
 use std::sync::atomic::{AtomicU64, Ordering};
 use uuid::Uuid;
 
-use super::error::{
-    EventError, MegolmError, MegolmResult, OlmError, OlmResult, SignatureError, VerificationResult,
-};
+use super::error::{EventError, MegolmError, MegolmResult, OlmError, OlmResult, SignatureError};
 use super::olm::{
     Account, GroupSessionKey, IdentityKeys, InboundGroupSession, OlmMessage, OlmUtility,
     OutboundGroupSession, Session,
 };
 use super::store::memorystore::MemoryStore;
 #[cfg(feature = "sqlite-cryptostore")]
-use super::store::{sqlite::SqliteStore, Result as StoreError};
-use super::{device::Device, CryptoStore};
+use super::store::sqlite::SqliteStore;
+use super::{device::Device, store::Result as StoreError, CryptoStore};
 
 use matrix_sdk_types::api;
 use matrix_sdk_types::events::{
@@ -60,8 +58,13 @@ use cjson;
 use serde_json::{json, Value};
 use tracing::{debug, error, info, instrument, trace, warn};
 
+/// A map from the algorithm and device id to a one-time key.
+///
+/// These keys need to be periodically uploaded to the server.
 pub type OneTimeKeys = BTreeMap<AlgorithmAndDeviceId, OneTimeKey>;
 
+/// State machine implementation of the Olm/Megolm encryption protocol used for
+/// Matrix end to end encryption.
 pub struct OlmMachine {
     /// The unique user id that owns this account.
     user_id: UserId,
@@ -75,7 +78,7 @@ pub struct OlmMachine {
     /// client to upload new keys.
     uploaded_signed_key_count: Option<AtomicU64>,
     /// Store for the encryption keys.
-    /// Persists all the encrytpion keys so a client can resume the session
+    /// Persists all the encryption keys so a client can resume the session
     /// without the need to create new keys.
     store: Box<dyn CryptoStore>,
     /// Set of users that we need to query keys for. This is a subset of
@@ -103,7 +106,16 @@ impl OlmMachine {
 
     const MAX_TO_DEVICE_MESSAGES: usize = 20;
 
-    /// Create a new account.
+    /// Create a new memory based OlmMachine.
+    ///
+    /// The created machine will keep the encryption keys only in memory and
+    /// once the object is dropped the keys will be lost.
+    ///
+    /// # Arguments
+    ///
+    /// * `user_id` - The unique id of the user that owns this machine.
+    ///
+    /// * `device_id` - The unique id of the device that owns this machine.
     pub fn new(user_id: &UserId, device_id: &str) -> Self {
         OlmMachine {
             user_id: user_id.clone(),
@@ -116,17 +128,28 @@ impl OlmMachine {
         }
     }
 
-    #[cfg(feature = "sqlite-cryptostore")]
-    #[instrument(skip(path, passphrase))]
-    pub async fn new_with_sqlite_store<P: AsRef<Path>>(
+    /// Create a new OlmMachine with the given `CryptoStore`.
+    ///
+    /// The created machine will keep the encryption keys only in memory and
+    /// once the object is dropped the keys will be lost.
+    ///
+    /// If the store already contains encryption keys for the given user/device
+    /// pair those will be re-used. Otherwise new ones will be created and
+    /// stored.
+    ///
+    /// # Arguments
+    ///
+    /// * `user_id` - The unique id of the user that owns this machine.
+    ///
+    /// * `device_id` - The unique id of the device that owns this machine.
+    ///
+    /// * `store` - A `Cryptostore` implementation that will be used to store
+    /// the encryption keys.
+    pub async fn new_with_store(
         user_id: &UserId,
         device_id: &str,
-        path: P,
-        passphrase: String,
+        mut store: impl CryptoStore + 'static,
     ) -> StoreError<Self> {
-        let mut store =
-            SqliteStore::open_with_passphrase(&user_id, device_id, path, passphrase).await?;
-
         let account = match store.load_account().await? {
             Some(a) => {
                 debug!("Restored account");
@@ -147,6 +170,29 @@ impl OlmMachine {
             users_for_key_query: HashSet::new(),
             outbound_group_sessions: HashMap::new(),
         })
+    }
+
+    #[cfg(feature = "sqlite-cryptostore")]
+    #[instrument(skip(path, passphrase))]
+    /// Create a new machine with the default crypto store.
+    ///
+    /// The default store uses a SQLite database to store the encryption keys.
+    ///
+    /// # Arguments
+    ///
+    /// * `user_id` - The unique id of the user that owns this machine.
+    ///
+    /// * `device_id` - The unique id of the device that owns this machine.
+    pub async fn new_with_default_store<P: AsRef<Path>>(
+        user_id: &UserId,
+        device_id: &str,
+        path: P,
+        passphrase: String,
+    ) -> StoreError<Self> {
+        let store =
+            SqliteStore::open_with_passphrase(&user_id, device_id, path, passphrase).await?;
+
+        OlmMachine::new_with_store(user_id, device_id, store).await
     }
 
     /// The unique user id that owns this identity.
@@ -182,6 +228,7 @@ impl OlmMachine {
         }
     }
 
+    /// Update the count of one-time keys that are currently on the server.
     fn update_key_count(&mut self, count: u64) {
         match &self.uploaded_signed_key_count {
             Some(c) => c.store(count, Ordering::Relaxed),
@@ -225,6 +272,25 @@ impl OlmMachine {
         Ok(())
     }
 
+    /// Get the user/device pairs for which no Olm session exists.
+    ///
+    /// Returns a map from the user id, to a map from the device id to a key
+    /// algorithm.
+    ///
+    /// This can be used to make a key claiming request to the server.
+    ///
+    /// Sessions need to be established between devices so group sessions for a
+    /// room can be shared with them.
+    ///
+    /// This should be called every time a group session needs to be shared.
+    ///
+    /// The response of a successful key claiming requests needs to be passed to
+    /// the `OlmMachine` with the `receive_keys_claim_response()`.
+    ///
+    /// # Arguments
+    ///
+    /// `users` - The list of users that we should check if we lack a session
+    /// with one of their devices.
     pub async fn get_missing_sessions(
         &mut self,
         users: impl Iterator<Item = &UserId>,
@@ -251,11 +317,11 @@ impl OlmMachine {
 
                 if is_missing {
                     if !missing.contains_key(user_id) {
-                        missing.insert(user_id.clone(), BTreeMap::new());
+                        let _ = missing.insert(user_id.clone(), BTreeMap::new());
                     }
 
                     let user_map = missing.get_mut(user_id).unwrap();
-                    user_map.insert(
+                    let _ = user_map.insert(
                         device.device_id().to_owned(),
                         KeyAlgorithm::SignedCurve25519,
                     );
@@ -266,6 +332,12 @@ impl OlmMachine {
         Ok(missing)
     }
 
+    /// Receive a successful key claim response and create new Olm sessions with
+    /// the claimed keys.
+    ///
+    /// # Arguments
+    ///
+    /// * `response` - The response containing the claimed one-time keys.
     pub async fn receive_keys_claim_response(
         &mut self,
         response: &keys::claim_keys::Response,
@@ -620,7 +692,7 @@ impl OlmMachine {
         device_id: &str,
         user_key: &str,
         json: &mut Value,
-    ) -> VerificationResult<()> {
+    ) -> Result<(), SignatureError> {
         let json_object = json.as_object_mut().ok_or(SignatureError::NotAnObject)?;
         let unsigned = json_object.remove("unsigned");
         let signatures = json_object.remove("signatures");
@@ -685,7 +757,11 @@ impl OlmMachine {
         Ok((device_keys, one_time_keys))
     }
 
-    async fn try_decrypt_olm_event(
+    /// Try to decrypt an Olm message.
+    ///
+    /// This try to decrypt an Olm message using all the sessions we share
+    /// have with the given sender.
+    async fn try_decrypt_olm_message(
         &mut self,
         sender: &UserId,
         sender_key: &str,
@@ -755,10 +831,10 @@ impl OlmMachine {
     ) -> OlmResult<(EventJson<ToDeviceEvent>, String)> {
         // First try to decrypt using an existing session.
         let plaintext = if let Some(p) = self
-            .try_decrypt_olm_event(sender, sender_key, &message)
+            .try_decrypt_olm_message(sender, sender_key, &message)
             .await?
         {
-            // Decryption succeeded, destructure the plaintext out of the
+            // Decryption succeeded, de-structure the plaintext out of the
             // Option.
             p
         } else {
@@ -815,6 +891,8 @@ impl OlmMachine {
         Ok(self.parse_decrypted_to_device_event(sender, &plaintext)?)
     }
 
+    /// Parse a decrypted Olm message, check that the plaintext and encrypted
+    /// senders match and that the message was meant for us.
     fn parse_decrypted_to_device_event(
         &self,
         sender: &UserId,
@@ -913,7 +991,7 @@ impl OlmMachine {
 
             debug!("Decrypted a to-device event {:?}", decrypted_event);
 
-            // Handle the decrypted event, e.g. fetch out megolm sessions out of
+            // Handle the decrypted event, e.g. fetch out Megolm sessions out of
             // the event.
             self.handle_decrypted_to_device_event(
                 &content.sender_key,
@@ -929,6 +1007,7 @@ impl OlmMachine {
         }
     }
 
+    /// Create a group session from a room key and add it to our crypto store.
     async fn add_room_key(
         &mut self,
         sender_key: &str,
@@ -945,7 +1024,7 @@ impl OlmMachine {
                     &event.content.room_id,
                     session_key,
                 )?;
-                self.store.save_inbound_group_session(session).await?;
+                let _ = self.store.save_inbound_group_session(session).await?;
                 Ok(())
             }
             _ => {
@@ -958,6 +1037,10 @@ impl OlmMachine {
         }
     }
 
+    /// Create a new outbound group session.
+    ///
+    /// This also creates a matching inbound group session and saves that one in
+    /// the store.
     async fn create_outbound_group_session(&mut self, room_id: &RoomId) -> OlmResult<()> {
         let session = OutboundGroupSession::new(room_id);
         let identity_keys = self.account.identity_keys();
@@ -971,15 +1054,38 @@ impl OlmMachine {
             &room_id,
             session.session_key().await,
         )?;
-        self.store
+        let _ = self
+            .store
             .save_inbound_group_session(inbound_session)
             .await?;
 
-        self.outbound_group_sessions
+        let _ = self
+            .outbound_group_sessions
             .insert(room_id.to_owned(), session);
         Ok(())
     }
 
+    /// Encrypt a room message for the given room.
+    ///
+    /// Beware that a group session needs to be shared before this method can be
+    /// called using the `share_group_session()` method.
+    ///
+    /// Since group sessions can expire or become invalid if the room membership
+    /// changes client authors should check with the
+    /// `should_share_group_session()` method if a new group session needs to
+    /// be shared.
+    ///
+    /// # Arguments
+    ///
+    /// * `room_id` - The id of the room for which the message should be
+    /// encrypted.
+    ///
+    /// * `content` - The plaintext content of the message that should be
+    /// encrypted.
+    ///
+    /// # Panics
+    ///
+    /// Panics if a group session for the given room wasn't shared beforehand.
     pub async fn encrypt(
         &self,
         room_id: &RoomId,
@@ -1023,6 +1129,7 @@ impl OlmMachine {
         ))
     }
 
+    /// Encrypt some JSON content using the given Olm session.
     async fn olm_encrypt(
         &mut self,
         mut session: Session,
@@ -1155,7 +1262,7 @@ impl OlmMachine {
                     user_map.push((session.clone(), device.clone()));
                 } else {
                     warn!(
-                        "Trying to encrypt a megolm session for user
+                        "Trying to encrypt a Megolm session for user
                           {} on device {}, but no Olm session is found",
                         user_id,
                         device.device_id()
@@ -1211,6 +1318,15 @@ impl OlmMachine {
         // TODO
     }
 
+    /// Receive and properly handle a decrypted to-device event.
+    ///
+    /// # Arguments
+    ///
+    /// * `sender_key` - The sender (curve25519) key of the event sender.
+    ///
+    /// * `signing_key` - The signing (ed25519) key of the event sender.
+    ///
+    /// * `event` - The decrypted to-device event.
     async fn handle_decrypted_to_device_event(
         &mut self,
         sender_key: &str,
@@ -1246,14 +1362,17 @@ impl OlmMachine {
         // TODO handle to-device verification events here.
     }
 
-    #[instrument(skip(response))]
     /// Handle a sync response and update the internal state of the Olm machine.
     ///
-    /// This will decrypt to-device events but will not touch room messages.
+    /// This will decrypt to-device events but will not touch events in the room
+    /// timeline.
+    ///
+    /// To decrypt an event from the room timeline call `decrypt_room_event()`.
     ///
     /// # Arguments
     ///
     /// * `response` - The sync latest sync response.
+    #[instrument(skip(response))]
     pub async fn receive_sync_response(&mut self, response: &mut SyncResponse) {
         let one_time_key_count = response
             .device_one_time_keys_count
@@ -1304,6 +1423,11 @@ impl OlmMachine {
         }
     }
 
+    /// Decrypt an event from a room timeline.
+    ///
+    /// # Arguments
+    ///
+    /// * `event` - The event that should be decrypted.
     pub async fn decrypt_room_event(
         &mut self,
         event: &EncryptedEvent,
@@ -1319,7 +1443,7 @@ impl OlmMachine {
             .store
             .get_inbound_group_session(&room_id, &content.sender_key, &content.session_id)
             .await?;
-        // TODO check if the olm session is wedged and re-request the key.
+        // TODO check if the Olm session is wedged and re-request the key.
         let session = session.ok_or(MegolmError::MissingSession)?;
 
         let (plaintext, _) = session.decrypt(content.ciphertext.clone()).await?;
@@ -1349,7 +1473,7 @@ impl OlmMachine {
         );
 
         let decrypted_event = serde_json::from_value::<EventJson<RoomEvent>>(decrypted_value)?;
-        trace!("Successfully decrypted megolm event {:?}", decrypted_event);
+        trace!("Successfully decrypted Megolm event {:?}", decrypted_event);
         // TODO set the encryption info on the event (is it verified, was it
         // decrypted, sender key...)
 
@@ -1357,6 +1481,11 @@ impl OlmMachine {
     }
 
     /// Update the tracked users.
+    ///
+    /// # Arguments
+    ///
+    /// * `users` - An iterator over user ids that should be marked for
+    /// tracking.
     ///
     /// This will only not already seen users for a key query and user tracking.
     /// If the user is already known to the Olm machine it will not be
@@ -1384,12 +1513,14 @@ impl OlmMachine {
         }
     }
 
-    /// Should a key query be done.
+    /// Should the client perform a key query request.
     pub fn should_query_keys(&self) -> bool {
         !self.users_for_key_query.is_empty()
     }
 
     /// Get the set of users that we need to query keys for.
+    ///
+    /// Returns a hash set of users that need to be queried for keys.
     pub fn users_for_key_query(&self) -> HashSet<UserId> {
         self.users_for_key_query.clone()
     }

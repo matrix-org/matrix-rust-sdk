@@ -54,7 +54,7 @@ impl CryptoStore for MemoryStore {
 
     async fn save_sessions(&mut self, sessions: &[Session]) -> Result<()> {
         for session in sessions {
-            self.sessions.add(session.clone()).await;
+            let _ = self.sessions.add(session.clone()).await;
         }
 
         Ok(())
@@ -93,7 +93,7 @@ impl CryptoStore for MemoryStore {
     }
 
     async fn delete_device(&self, device: Device) -> Result<()> {
-        self.devices.remove(device.user_id(), device.device_id());
+        let _ = self.devices.remove(device.user_id(), device.device_id());
         Ok(())
     }
 
@@ -103,7 +103,7 @@ impl CryptoStore for MemoryStore {
 
     async fn save_devices(&self, devices: &[Device]) -> Result<()> {
         for device in devices {
-            self.devices.add(device.clone());
+            let _ = self.devices.add(device.clone());
         }
 
         Ok(())
@@ -157,7 +157,7 @@ mod test {
         .unwrap();
 
         let mut store = MemoryStore::new();
-        store
+        let _ = store
             .save_inbound_group_session(inbound.clone())
             .await
             .unwrap();
@@ -212,6 +212,6 @@ mod test {
 
         let tracked_users = store.tracked_users();
 
-        tracked_users.contains(device.user_id());
+        let _ = tracked_users.contains(device.user_id());
     }
 }

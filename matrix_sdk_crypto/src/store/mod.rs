@@ -37,33 +37,54 @@ pub mod sqlite;
 use sqlx::Error as SqlxError;
 
 #[derive(Error, Debug)]
+/// The crypto store's error type.
 pub enum CryptoStoreError {
-    #[error("can't read or write from the store")]
-    Io(#[from] IoError),
-    #[error("can't finish Olm Account operation {0}")]
-    OlmAccount(#[from] OlmAccountError),
-    #[error("can't finish Olm Session operation {0}")]
-    OlmSession(#[from] OlmSessionError),
-    #[error("can't finish Olm GruoupSession operation {0}")]
-    OlmGroupSession(#[from] OlmGroupSessionError),
-    #[error("URL can't be parsed")]
-    UrlParse(#[from] ParseError),
-    #[error("error serializing data for the database")]
-    Serialization(#[from] SerdeError),
-    #[error("can't load session timestamps")]
-    SessionTimestampError,
-    #[error("can't save/load sessions or group sessions in the store before a account is stored")]
+    /// The account that owns the sessions, group sessions, and devices wasn't
+    /// found.
+    #[error("can't save/load sessions or group sessions in the store before an account is stored")]
     AccountUnset,
+
+    /// SQL error occurred.
     // TODO flatten the SqlxError to make it easier for other store
     // implementations.
     #[cfg(feature = "sqlite-cryptostore")]
-    #[error("database error")]
+    #[error(transparent)]
     DatabaseError(#[from] SqlxError),
+
+    /// An IO error occurred.
+    #[error(transparent)]
+    Io(#[from] IoError),
+
+    /// The underlying Olm Account operation returned an error.
+    #[error(transparent)]
+    OlmAccount(#[from] OlmAccountError),
+
+    /// The underlying Olm session operation returned an error.
+    #[error(transparent)]
+    OlmSession(#[from] OlmSessionError),
+
+    /// The underlying Olm group session operation returned an error.
+    #[error(transparent)]
+    OlmGroupSession(#[from] OlmGroupSessionError),
+
+    /// A session time-stamp couldn't be loaded.
+    #[error("can't load session timestamps")]
+    SessionTimestampError,
+
+    /// The store failed to (de)serialize a data type.
+    #[error(transparent)]
+    Serialization(#[from] SerdeError),
+
+    /// An error occurred while parsing an URL.
+    #[error(transparent)]
+    UrlParse(#[from] ParseError),
 }
 
 pub type Result<T> = std::result::Result<T, CryptoStoreError>;
 
 #[async_trait]
+/// Trait abstracting a store that the `OlmMachine` uses to store cryptographic
+/// keys.
 pub trait CryptoStore: Debug + Send + Sync {
     /// Load an account that was previously stored.
     async fn load_account(&mut self) -> Result<Option<Account>>;

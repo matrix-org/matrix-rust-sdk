@@ -133,6 +133,7 @@ pub struct DeviceStore {
 }
 
 /// A read only view over all devices belonging to a user.
+#[derive(Debug)]
 pub struct UserDevices {
     entries: ReadOnlyView<DeviceId, Device>,
 }

@@ -35,6 +35,7 @@ use matrix_sdk_types::api::r0::keys::KeyAlgorithm;
 use matrix_sdk_types::events::Algorithm;
 use matrix_sdk_types::identifiers::{DeviceId, RoomId, UserId};
 
+/// SQLite based implementation of a `CryptoStore`.
 pub struct SqliteStore {
     user_id: Arc<String>,
     device_id: Arc<String>,
@@ -53,6 +54,17 @@ pub struct SqliteStore {
 static DATABASE_NAME: &str = "matrix-sdk-crypto.db";
 
 impl SqliteStore {
+    /// Open a new `SqliteStore`.
+    ///
+    /// # Arguments
+    ///
+    /// * `user_id` - The unique id of the user for which the store should be
+    /// opened.
+    ///
+    /// * `device_id` - The unique id of the device for which the store should
+    /// be opened.
+    ///
+    /// * `path` - The path where the database file should reside in.
     pub async fn open<P: AsRef<Path>>(
         user_id: &UserId,
         device_id: &str,
@@ -61,6 +73,20 @@ impl SqliteStore {
         SqliteStore::open_helper(user_id, device_id, path, None).await
     }
 
+    /// Open a new `SqliteStore`.
+    ///
+    /// # Arguments
+    ///
+    /// * `user_id` - The unique id of the user for which the store should be
+    /// opened.
+    ///
+    /// * `device_id` - The unique id of the device for which the store should
+    /// be opened.
+    ///
+    /// * `path` - The path where the database file should reside in.
+    ///
+    /// * `passphrase` - The passphrase that should be used to securely store
+    /// the encryption keys.
     pub async fn open_with_passphrase<P: AsRef<Path>>(
         user_id: &UserId,
         device_id: &str,
@@ -321,7 +347,8 @@ impl SqliteStore {
 
         for row in rows {
             let device_row_id = row.0;
-            let user_id = if let Ok(u) = UserId::try_from(&row.1 as &str) {
+            let user_id: &str = &row.1;
+            let user_id = if let Ok(u) = UserId::try_from(user_id) {
                 u
             } else {
                 continue;
@@ -339,7 +366,10 @@ impl SqliteStore {
 
             let algorithms = algorithm_rows
                 .iter()
-                .map(|row| Algorithm::from(&row.0 as &str))
+                .map(|row| {
+                    let algorithm: &str = &row.0;
+                    Algorithm::from(algorithm)
+                })
                 .collect::<Vec<Algorithm>>();
 
             let key_rows: Vec<(String, String)> =
@@ -351,7 +381,8 @@ impl SqliteStore {
             let mut keys = BTreeMap::new();
 
             for row in key_rows {
-                let algorithm = if let Ok(a) = KeyAlgorithm::try_from(&row.0 as &str) {
+                let algorithm: &str = &row.0;
+                let algorithm = if let Ok(a) = KeyAlgorithm::try_from(algorithm) {
                     a
                 } else {
                     continue;

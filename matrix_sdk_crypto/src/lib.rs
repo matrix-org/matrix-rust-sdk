@@ -15,6 +15,17 @@
 //! This is the encryption part of the matrix-sdk. It contains a state machine
 //! that will aid in adding encryption support to a client library.
 
+#![deny(
+    missing_debug_implementations,
+    dead_code,
+    missing_docs,
+    trivial_casts,
+    trivial_numeric_casts,
+    unused_extern_crates,
+    unused_import_braces,
+    unused_qualifications
+)]
+
 mod device;
 mod error;
 mod machine;
