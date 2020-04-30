@@ -19,37 +19,59 @@ use thiserror::Error;
 
 use super::store::CryptoStoreError;
 
-pub type Result<T> = std::result::Result<T, OlmError>;
+pub type OlmResult<T> = std::result::Result<T, OlmError>;
+pub type MegolmResult<T> = std::result::Result<T, MegolmError>;
+pub type VerificationResult<T> = std::result::Result<T, SignatureError>;
 
 #[derive(Error, Debug)]
 pub enum OlmError {
-    #[error("signature verification failed")]
-    Signature(#[from] SignatureError),
-    #[error("failed to read or write to the crypto store {0}")]
-    Store(#[from] CryptoStoreError),
-    #[error("decryption failed likely because a Olm session was wedged")]
-    SessionWedged,
-    #[error("the Olm message has a unsupported type")]
-    UnsupportedOlmType,
-    #[error("the Encrypted message has been encrypted with a unsupported algorithm.")]
-    UnsupportedAlgorithm,
-    #[error("the Encrypted message doesn't contain a ciphertext for our device")]
-    MissingCiphertext,
-    #[error("decryption failed because the session to decrypt the message is missing")]
-    MissingSession,
-    #[error("the Encrypted message is missing the signing key of the sender")]
-    MissingSigningKey,
+    #[error(transparent)]
+    EventError(#[from] EventError),
+    #[error(transparent)]
+    JsonError(#[from] SerdeError),
     #[error("can't finish Olm Session operation {0}")]
     OlmSession(#[from] OlmSessionError),
     #[error("can't finish Olm Session operation {0}")]
     OlmGroupSession(#[from] OlmGroupSessionError),
-    #[error("error deserializing a string to json")]
-    JsonError(#[from] SerdeError),
-    #[error("the provided JSON value isn't an object")]
-    NotAnObject,
+    #[error("failed to read or write to the crypto store {0}")]
+    Store(#[from] CryptoStoreError),
+    #[error("decryption failed likely because a Olm session was wedged")]
+    SessionWedged,
 }
 
-pub type VerificationResult<T> = std::result::Result<T, SignatureError>;
+#[derive(Error, Debug)]
+pub enum MegolmError {
+    #[error("decryption failed because the session to decrypt the message is missing")]
+    MissingSession,
+    #[error(transparent)]
+    JsonError(#[from] SerdeError),
+    #[error(transparent)]
+    EventError(#[from] EventError),
+    #[error("can't finish Olm group session operation {0}")]
+    OlmGroupSession(#[from] OlmGroupSessionError),
+    #[error(transparent)]
+    Store(#[from] CryptoStoreError),
+}
+
+#[derive(Error, Debug)]
+pub enum EventError {
+    #[error("the Olm message has a unsupported type")]
+    UnsupportedOlmType,
+    #[error("the Encrypted message has been encrypted with a unsupported algorithm.")]
+    UnsupportedAlgorithm,
+    #[error("the provided JSON value isn't an object")]
+    NotAnObject,
+    #[error("the Encrypted message doesn't contain a ciphertext for our device")]
+    MissingCiphertext,
+    #[error("the Encrypted message is missing the signing key of the sender")]
+    MissingSigningKey,
+    #[error("the Encrypted message is missing the field {0}")]
+    MissingField(String),
+    #[error("the sender of the plaintext doesn't match the sender of the encrypted message.")]
+    MissmatchedSender,
+    #[error("the keys of the message don't match the keys in our database.")]
+    MissmatchedKeys,
+}
 
 #[derive(Error, Debug)]
 pub enum SignatureError {

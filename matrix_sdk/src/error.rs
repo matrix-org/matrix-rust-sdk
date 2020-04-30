@@ -26,7 +26,7 @@ use thiserror::Error;
 use url::ParseError;
 
 #[cfg(feature = "encryption")]
-use matrix_sdk_crypto::OlmError;
+use matrix_sdk_crypto::{MegolmError, OlmError};
 
 /// Result type of the rust-sdk.
 pub type Result<T> = std::result::Result<T, Error>;
@@ -59,6 +59,9 @@ pub enum Error {
     /// An error occurred during a E2EE operation.
     #[error(transparent)]
     OlmError(#[from] OlmError),
+    /// An error occurred during a E2EE group operation.
+    #[error(transparent)]
+    MegolmError(#[from] MegolmError),
 }
 
 impl From<RumaResponseError<RumaClientError>> for Error {

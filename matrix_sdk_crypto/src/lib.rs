@@ -23,6 +23,6 @@ mod olm;
 mod store;
 
 pub use device::{Device, TrustState};
-pub use error::OlmError;
+pub use error::{MegolmError, OlmError};
 pub use machine::{OlmMachine, OneTimeKeys};
 pub use store::{CryptoStore, CryptoStoreError};

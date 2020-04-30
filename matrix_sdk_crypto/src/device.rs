@@ -101,8 +101,8 @@ impl Device {
     }
 
     /// Get the key of the given key algorithm belonging to this device.
-    pub fn get_key(&self, algorithm: &KeyAlgorithm) -> Option<&String> {
-        self.keys.get(algorithm)
+    pub fn get_key(&self, algorithm: KeyAlgorithm) -> Option<&String> {
+        self.keys.get(&algorithm)
     }
 
     /// Get a map containing all the device keys.
@@ -274,11 +274,11 @@ pub(crate) mod test {
             device.display_name().as_ref().unwrap()
         );
         assert_eq!(
-            device.get_key(&KeyAlgorithm::Curve25519).unwrap(),
+            device.get_key(KeyAlgorithm::Curve25519).unwrap(),
             "wjLpTLRqbqBzLs63aYaEv2Boi6cFEbbM/sSRQ2oAKk4"
         );
         assert_eq!(
-            device.get_key(&KeyAlgorithm::Ed25519).unwrap(),
+            device.get_key(KeyAlgorithm::Ed25519).unwrap(),
             "nE6W2fCblxDcOFmeEtCHNl8/l8bXcu7GKyAswA4r3mM"
         );
     }

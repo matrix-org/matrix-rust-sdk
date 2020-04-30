@@ -111,7 +111,7 @@ impl Client {
     pub fn new(session: Option<Session>) -> Result<Self> {
         #[cfg(feature = "encryption")]
         let olm = match &session {
-            Some(s) => Some(OlmMachine::new(&s.user_id, &s.device_id)?),
+            Some(s) => Some(OlmMachine::new(&s.user_id, &s.device_id)),
             None => None,
         };
 
@@ -199,7 +199,7 @@ impl Client {
         #[cfg(feature = "encryption")]
         {
             let mut olm = self.olm.lock().await;
-            *olm = Some(OlmMachine::new(&response.user_id, &response.device_id)?);
+            *olm = Some(OlmMachine::new(&response.user_id, &response.device_id));
         }
 
         Ok(())
