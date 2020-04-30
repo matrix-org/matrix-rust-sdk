@@ -622,7 +622,21 @@ impl CryptoStore for SqliteStore {
     }
 
     async fn delete_device(&self, device: Device) -> Result<()> {
-        todo!()
+        let account_id = self.account_id.ok_or(CryptoStoreError::AccountUnset)?;
+        let mut connection = self.connection.lock().await;
+
+        query(
+            "DELETE FROM devices
+             WHERE account_id = ?1 and user_id = ?2 and device_id = ?3
+             ",
+        )
+        .bind(account_id)
+        .bind(&device.user_id().to_string())
+        .bind(&device.device_id())
+        .execute(&mut *connection)
+        .await?;
+
+        Ok(())
     }
 
     #[allow(clippy::ptr_arg)]
@@ -974,5 +988,28 @@ mod test {
         let user_devices = store.get_user_devices(device.user_id()).await.unwrap();
         assert_eq!(user_devices.keys().nth(0).unwrap(), device.device_id());
         assert_eq!(user_devices.devices().nth(0).unwrap(), &device);
+    }
+
+    #[tokio::test]
+    async fn device_deleting() {
+        let (_account, store, dir) = get_loaded_store().await;
+        let device = get_device();
+
+        store.save_devices(&[device.clone()]).await.unwrap();
+        store.delete_device(device.clone()).await.unwrap();
+
+        let mut store =
+            SqliteStore::open(&UserId::try_from(USER_ID).unwrap(), DEVICE_ID, dir.path())
+                .await
+                .expect("Can't create store");
+
+        store.load_account().await.unwrap();
+
+        let loaded_device = store
+            .get_device(device.user_id(), device.device_id())
+            .await
+            .unwrap();
+
+        assert!(loaded_device.is_none());
     }
 }
