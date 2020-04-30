@@ -2,13 +2,12 @@ use std::cmp::Ordering;
 use std::ops::Deref;
 use std::vec::IntoIter;
 
-use crate::events::collections::all::RoomEvent;
 use crate::events::room::message::MessageEvent;
 use crate::events::EventJson;
 
 use serde::{de, ser, Serialize};
 
-/// A queue that holds at most 10 messages received from the server.
+/// A queue that holds the 10 most recent messages received from the server.
 #[derive(Clone, Debug, Default)]
 pub struct MessageQueue {
     msgs: Vec<MessageWrapper>,
@@ -104,19 +103,12 @@ pub(crate) mod ser_deser {
     where
         D: de::Deserializer<'de>,
     {
-        let messages: Vec<EventJson<RoomEvent>> = de::Deserialize::deserialize(deserializer)?;
+        let messages: Vec<EventJson<MessageEvent>> = de::Deserialize::deserialize(deserializer)?;
 
-        // TODO this should probably bail out if deserialization fails not skip
+        // TODO this should probably bail out if deserialization fails not skip the message
         let msgs: Vec<MessageWrapper> = messages
             .into_iter()
             .flat_map(|json| json.deserialize())
-            .flat_map(|ev| {
-                if let RoomEvent::RoomMessage(msg) = ev {
-                    Some(msg)
-                } else {
-                    None
-                }
-            })
             .map(MessageWrapper)
             .collect();
 

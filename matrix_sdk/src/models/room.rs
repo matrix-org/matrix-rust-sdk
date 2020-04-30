@@ -110,7 +110,7 @@ pub struct Room {
     pub creator: Option<UserId>,
     /// The map of room members.
     pub members: HashMap<UserId, RoomMember>,
-    /// A queue of messages no longer than MAX_MSGS
+    /// A queue of messages, holds no more than 10 of the most recent messages.
     ///
     /// This is helpful when using a `StateStore` to avoid multiple requests
     /// to the server for messages.
