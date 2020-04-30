@@ -608,9 +608,14 @@ impl CryptoStore for SqliteStore {
         Ok(self.tracked_users.insert(user.clone()))
     }
 
-    async fn save_device(&self, device: Device) -> Result<()> {
-        self.devices.add(device.clone());
-        self.save_device_helper(device).await
+    async fn save_devices(&self, devices: &[Device]) -> Result<()> {
+        // TODO turn this into a bulk transaction.
+        for device in devices {
+            self.devices.add(device.clone());
+            self.save_device_helper(device.clone()).await?
+        }
+
+        Ok(())
     }
 
     async fn delete_device(&self, device: Device) -> Result<()> {
@@ -937,7 +942,7 @@ mod test {
         let (_account, store, dir) = get_loaded_store().await;
         let device = get_device();
 
-        store.save_device(device.clone()).await.unwrap();
+        store.save_devices(&[device.clone()]).await.unwrap();
 
         drop(store);
 

@@ -460,16 +460,12 @@ impl OlmMachine {
             for device_id in deleted_devices {
                 if let Some(device) = stored_devices.get(device_id) {
                     device.mark_as_deleted();
-                    // TODO change this to a bulk deletion.
                     self.store.delete_device(device).await?;
                 }
             }
         }
 
-        // TODO change this to a bulk operation.
-        for device in &changed_devices {
-            self.store.save_device(device.clone()).await?;
-        }
+        self.store.save_devices(&changed_devices).await?;
 
         Ok(changed_devices)
     }
@@ -1519,8 +1515,8 @@ mod test {
 
         let alice_deivce = Device::from(&alice);
         let bob_device = Device::from(&bob);
-        alice.store.save_device(bob_device).await.unwrap();
-        bob.store.save_device(alice_deivce).await.unwrap();
+        alice.store.save_devices(&[bob_device]).await.unwrap();
+        bob.store.save_devices(&[alice_deivce]).await.unwrap();
 
         (alice, bob, otk)
     }

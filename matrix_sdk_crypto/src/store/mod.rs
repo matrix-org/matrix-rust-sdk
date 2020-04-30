@@ -126,12 +126,12 @@ pub trait CryptoStore: Debug + Send + Sync {
     /// * `user` - The user that should be marked as tracked.
     async fn add_user_for_tracking(&mut self, user: &UserId) -> Result<bool>;
 
-    /// Save the given device in the store.
+    /// Save the given devices in the store.
     ///
     /// # Arguments
     ///
     /// * `device` - The device that should be stored.
-    async fn save_device(&self, device: Device) -> Result<()>;
+    async fn save_devices(&self, devices: &[Device]) -> Result<()>;
 
     /// Delete the given device from the store.
     ///

@@ -97,8 +97,11 @@ impl CryptoStore for MemoryStore {
         Ok(self.devices.user_devices(user_id))
     }
 
-    async fn save_device(&self, device: Device) -> Result<()> {
-        self.devices.add(device);
+    async fn save_devices(&self, devices: &[Device]) -> Result<()> {
+        for device in devices {
+            self.devices.add(device.clone());
+        }
+
         Ok(())
     }
 }
@@ -168,7 +171,7 @@ mod test {
         let device = get_device();
         let store = MemoryStore::new();
 
-        store.save_device(device.clone()).await.unwrap();
+        store.save_devices(&[device.clone()]).await.unwrap();
 
         let loaded_device = store
             .get_device(device.user_id(), device.device_id())
