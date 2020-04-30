@@ -192,7 +192,7 @@ impl DeviceStore {
         self.entries
             .get(user_id)
             .and_then(|m| m.remove(device_id))
-            .and_then(|(_, d)| Some(d))
+            .map(|(_, d)| d)
     }
 
     /// Get a read-only view over all devices of the given user.

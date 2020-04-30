@@ -294,16 +294,13 @@ impl Client {
 
                 #[cfg(feature = "encryption")]
                 {
-                    match e {
-                        RoomEvent::RoomEncrypted(ref mut e) => {
-                            e.room_id = Some(room_id.to_owned());
-                            let mut olm = self.olm.lock().await;
+                    if let RoomEvent::RoomEncrypted(ref mut e) = e {
+                        e.room_id = Some(room_id.to_owned());
+                        let mut olm = self.olm.lock().await;
 
-                            if let Some(o) = &mut *olm {
-                                decrypted_event = o.decrypt_room_event(&e).await.ok();
-                            }
+                        if let Some(o) = &mut *olm {
+                            decrypted_event = o.decrypt_room_event(&e).await.ok();
                         }
-                        _ => (),
                     }
                 }
 

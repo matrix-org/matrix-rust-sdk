@@ -480,12 +480,12 @@ impl CryptoStore for SqliteStore {
 
         let mut group_sessions = self.load_inbound_group_sessions().await?;
 
-        let _ = group_sessions
+        group_sessions
             .drain(..)
             .map(|s| {
                 self.inbound_group_sessions.add(s);
             })
-            .collect::<()>();
+            .for_each(drop);
 
         let devices = self.load_devices().await?;
         mem::replace(&mut self.devices, devices);
@@ -625,6 +625,7 @@ impl CryptoStore for SqliteStore {
         todo!()
     }
 
+    #[allow(clippy::ptr_arg)]
     async fn get_device(&self, user_id: &UserId, device_id: &DeviceId) -> Result<Option<Device>> {
         Ok(self.devices.get(user_id, device_id))
     }

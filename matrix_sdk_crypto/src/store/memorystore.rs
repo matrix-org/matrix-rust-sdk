@@ -87,6 +87,7 @@ impl CryptoStore for MemoryStore {
         Ok(self.tracked_users.insert(user.clone()))
     }
 
+    #[allow(clippy::ptr_arg)]
     async fn get_device(&self, user_id: &UserId, device_id: &DeviceId) -> Result<Option<Device>> {
         Ok(self.devices.get(user_id, device_id))
     }

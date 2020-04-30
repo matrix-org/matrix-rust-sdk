@@ -150,17 +150,17 @@ impl OlmMachine {
     }
 
     /// The unique user id that owns this identity.
-    pub(crate) fn user_id(&self) -> &UserId {
+    pub fn user_id(&self) -> &UserId {
         &self.user_id
     }
 
     /// The unique device id of the device that holds this identity.
-    pub(crate) fn device_id(&self) -> &DeviceId {
+    pub fn device_id(&self) -> &DeviceId {
         &self.device_id
     }
 
     /// Get the public parts of the identity keys.
-    pub(crate) fn identity_keys(&self) -> &IdentityKeys {
+    pub fn identity_keys(&self) -> &IdentityKeys {
         self.account.identity_keys()
     }
 
@@ -289,7 +289,7 @@ impl OlmMachine {
                     continue;
                 };
 
-                let one_time_key = if let Some(k) = key_map.values().nth(0) {
+                let one_time_key = if let Some(k) = key_map.values().next() {
                     match k {
                         OneTimeKey::SignedKey(k) => k,
                         OneTimeKey::Key(_) => {
@@ -826,29 +826,29 @@ impl OlmMachine {
         let encrytped_sender = decrypted_json
             .get("sender")
             .cloned()
-            .ok_or(EventError::MissingField("sender".to_string()))?;
+            .ok_or_else(|| EventError::MissingField("sender".to_string()))?;
         let encrytped_sender: UserId = serde_json::from_value(encrytped_sender)?;
         let recipient = decrypted_json
             .get("recipient")
             .cloned()
-            .ok_or(EventError::MissingField("recipient".to_string()))?;
+            .ok_or_else(|| EventError::MissingField("recipient".to_string()))?;
         let recipient: UserId = serde_json::from_value(recipient)?;
 
         let recipient_keys: BTreeMap<KeyAlgorithm, String> = serde_json::from_value(
             decrypted_json
                 .get("recipient_keys")
                 .cloned()
-                .ok_or(EventError::MissingField("recipient_keys".to_string()))?,
+                .ok_or_else(|| EventError::MissingField("recipient_keys".to_string()))?,
         )?;
         let keys: BTreeMap<KeyAlgorithm, String> = serde_json::from_value(
             decrypted_json
                 .get("keys")
                 .cloned()
-                .ok_or(EventError::MissingField("keys".to_string()))?,
+                .ok_or_else(|| EventError::MissingField("keys".to_string()))?,
         )?;
 
         if recipient != self.user_id || sender != &encrytped_sender {
-            return Err(EventError::MissmatchedSender)?;
+            return Err(EventError::MissmatchedSender.into());
         }
 
         if self.account.identity_keys().ed25519()
@@ -856,7 +856,7 @@ impl OlmMachine {
                 .get(&KeyAlgorithm::Ed25519)
                 .ok_or(EventError::MissingSigningKey)?
         {
-            return Err(EventError::MissmatchedKeys)?;
+            return Err(EventError::MissmatchedKeys.into());
         }
 
         let signing_key = keys
@@ -887,7 +887,7 @@ impl OlmMachine {
             c
         } else {
             warn!("Error, unsupported encryption algorithm");
-            return Err(EventError::UnsupportedAlgorithm)?;
+            return Err(EventError::UnsupportedAlgorithm.into());
         };
 
         let identity_keys = self.account.identity_keys();
@@ -925,7 +925,7 @@ impl OlmMachine {
             Ok(decrypted_event)
         } else {
             warn!("Olm event doesn't contain a ciphertext for our key");
-            Err(EventError::MissingCiphertext)?
+            Err(EventError::MissingCiphertext.into())
         }
     }
 
@@ -1228,8 +1228,8 @@ impl OlmMachine {
             ToDeviceEvent::RoomKey(mut e) => {
                 self.add_room_key(sender_key, signing_key, &mut e).await
             }
-            ToDeviceEvent::ForwardedRoomKey(mut e) => {
-                self.add_forwarded_room_key(sender_key, signing_key, &mut e)
+            ToDeviceEvent::ForwardedRoomKey(e) => {
+                self.add_forwarded_room_key(sender_key, signing_key, &e)
             }
             _ => {
                 warn!("Received a unexpected encrypted to-device event");
@@ -1310,7 +1310,7 @@ impl OlmMachine {
     ) -> MegolmResult<EventJson<RoomEvent>> {
         let content = match &event.content {
             EncryptedEventContent::MegolmV1AesSha2(c) => c,
-            _ => return Err(EventError::UnsupportedAlgorithm)?,
+            _ => return Err(EventError::UnsupportedAlgorithm.into()),
         };
 
         let room_id = event.room_id.as_ref().unwrap();
@@ -1893,8 +1893,9 @@ mod test {
                 alice.account.identity_keys().curve25519(),
                 alice_session.session_id(),
             )
-            .await
-            .unwrap();
+            .await;
+
+        assert!(session.unwrap().is_some());
     }
 
     #[tokio::test]

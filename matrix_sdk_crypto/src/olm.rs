@@ -58,6 +58,13 @@ impl fmt::Debug for Account {
     }
 }
 
+#[cfg_attr(tarpaulin, skip)]
+impl Default for Account {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Account {
     /// Create a new account.
     pub fn new() -> Self {
@@ -182,7 +189,7 @@ impl Account {
             inner: Arc::new(Mutex::new(session)),
             session_id: Arc::new(session_id),
             sender_key: Arc::new(their_identity_key.to_owned()),
-            creation_time: Arc::new(now.clone()),
+            creation_time: Arc::new(now),
             last_use_time: Arc::new(now),
         })
     }
@@ -223,7 +230,7 @@ impl Account {
             inner: Arc::new(Mutex::new(session)),
             session_id: Arc::new(session_id),
             sender_key: Arc::new(their_identity_key.to_owned()),
-            creation_time: Arc::new(now.clone()),
+            creation_time: Arc::new(now),
             last_use_time: Arc::new(now),
         })
     }
