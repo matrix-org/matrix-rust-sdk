@@ -261,12 +261,15 @@ impl Client {
     /// Returns true if the room name changed, false otherwise.
     pub(crate) fn handle_push_rules(&mut self, event: &PushRulesEvent) -> bool {
         // TODO this is basically a stub
-        if self.push_ruleset.as_ref() == Some(&event.content.global) {
-            false
-        } else {
-            self.push_ruleset = Some(event.content.global.clone());
-            true
-        }
+        // TODO ruma removed PartialEq for evens, so this doesn't work anymore.
+        // Returning always true for now should be ok here since those don't
+        // change often.
+        // if self.push_ruleset.as_ref() == Some(&event.content.global) {
+        //     false
+        // } else {
+        self.push_ruleset = Some(event.content.global.clone());
+        true
+        // }
     }
 
     /// Receive a timeline event for a joined room and update the client state.
