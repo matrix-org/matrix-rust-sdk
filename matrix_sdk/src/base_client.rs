@@ -532,12 +532,15 @@ impl Client {
     ) -> Result<MessageEventContent> {
         let mut olm = self.olm.lock().await;
 
-        match &mut *olm {
-            Some(o) => Ok(MessageEventContent::Encrypted(
-                o.encrypt(room_id, content).await?,
-            )),
-            None => panic!("Olm machine wasn't started"),
-        }
+        // TODO enable this again once we can send encrypted event
+        // contents with ruma.
+        // match &mut *olm {
+        //     Some(o) => Ok(MessageEventContent::Encrypted(
+        //         o.encrypt(room_id, content).await?,
+        //     )),
+        //     None => panic!("Olm machine wasn't started"),
+        // }
+        Ok(content)
     }
 
     /// Get a tuple of device and one-time keys that need to be uploaded.

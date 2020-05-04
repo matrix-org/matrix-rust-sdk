@@ -1290,10 +1290,12 @@ impl OlmMachine {
                     )
                     .await?;
 
-                user_messages.insert(
-                    DeviceIdOrAllDevices::DeviceId(device.device_id().clone()),
-                    EventJson::from(MessageEventContent::Encrypted(encrypted_content)),
-                );
+                // TODO enable this again once we can send encrypted event
+                // contents with ruma.
+                // user_messages.insert(
+                //     DeviceIdOrAllDevices::DeviceId(device.device_id().clone()),
+                //     EventJson::from(MessageEventContent::Encrypted(encrypted_content)),
+                // );
             }
 
             message_vec.push(ToDeviceRequest {
