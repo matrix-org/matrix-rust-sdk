@@ -1120,7 +1120,6 @@ impl OlmMachine {
 
         Ok(EncryptedEventContent::MegolmV1AesSha2(
             MegolmV1AesSha2Content {
-                algorithm: Algorithm::MegolmV1AesSha2,
                 ciphertext,
                 sender_key: self.account.identity_keys().curve25519().to_owned(),
                 session_id: session.session_id().to_owned(),
@@ -1179,7 +1178,6 @@ impl OlmMachine {
 
         Ok(EncryptedEventContent::OlmV1Curve25519AesSha2(
             OlmV1Curve25519AesSha2Content {
-                algorithm: Algorithm::OlmV1Curve25519AesSha2,
                 sender_key: identity_keys.curve25519().to_owned(),
                 ciphertext: content,
             },
