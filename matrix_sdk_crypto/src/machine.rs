@@ -1555,7 +1555,7 @@ mod test {
             message::{MessageEventContent, TextMessageEventContent},
         },
         to_device::{AnyToDeviceEvent, ToDeviceEncrypted},
-        EventJson, EventType,
+        EventJson, EventType, UnsignedData,
     };
     use matrix_sdk_types::identifiers::{DeviceId, EventId, RoomId, UserId};
 
@@ -2046,9 +2046,9 @@ mod test {
 
         bob.decrypt_to_device_event(&event).await.unwrap();
 
-        let content = MessageEventContent::Text(TextMessageEventContent::new_plain(
-            "It is a secret to everybody",
-        ));
+        let plaintext = "It is a secret to everybody";
+
+        let content = MessageEventContent::Text(TextMessageEventContent::new_plain(plaintext));
 
         let encrypted_content = alice.encrypt(&room_id, content.clone()).await.unwrap();
 
@@ -2058,7 +2058,7 @@ mod test {
             room_id: Some(room_id.clone()),
             sender: alice.user_id().clone(),
             content: encrypted_content,
-            unsigned: BTreeMap::new(),
+            unsigned: UnsignedData::default(),
         };
 
         let decrypted_event = bob
@@ -2075,6 +2075,10 @@ mod test {
 
         assert_eq!(&decrypted_event.sender, alice.user_id());
         assert_eq!(&decrypted_event.room_id, &Some(room_id));
-        assert_eq!(&decrypted_event.content, &content);
+        if let MessageEventContent::Text(c) = &decrypted_event.content {
+            assert_eq!(&c.body, plaintext);
+        } else {
+            panic!("Decrypted event has a missmatched content");
+        }
     }
 }
