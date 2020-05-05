@@ -30,6 +30,7 @@ use crate::events::room::{
     power_levels::{NotificationPowerLevels, PowerLevelsEvent, PowerLevelsEventContent},
     tombstone::TombstoneEvent,
 };
+use crate::events::stripped::AnyStrippedStateEvent;
 use crate::events::EventType;
 use crate::identifiers::{RoomAliasId, RoomId, UserId};
 
@@ -183,7 +184,7 @@ impl RoomName {
                     })
                     .collect::<Vec<String>>();
                 names.sort();
-                // TODO what is the length the spec wants us to use here and in the `else`
+                // TODO what length does the spec want us to use here and in the `else`
                 format!("{}, and {} others", names.join(", "), (joined + invited))
             } else {
                 format!("Empty Room (was {} others)", members.len())
@@ -396,15 +397,15 @@ impl Room {
     pub fn receive_timeline_event(&mut self, event: &RoomEvent) -> bool {
         match event {
             // update to the current members of the room
-            RoomEvent::RoomMember(m) => self.handle_membership(m),
+            RoomEvent::RoomMember(member) => self.handle_membership(member),
             // finds all events related to the name of the room for later use
-            RoomEvent::RoomName(n) => self.handle_room_name(n),
-            RoomEvent::RoomCanonicalAlias(ca) => self.handle_canonical(ca),
-            RoomEvent::RoomAliases(a) => self.handle_room_aliases(a),
+            RoomEvent::RoomName(name) => self.handle_room_name(name),
+            RoomEvent::RoomCanonicalAlias(c_alias) => self.handle_canonical(c_alias),
+            RoomEvent::RoomAliases(alias) => self.handle_room_aliases(alias),
             // power levels of the room members
-            RoomEvent::RoomPowerLevels(p) => self.handle_power_level(p),
-            RoomEvent::RoomTombstone(t) => self.handle_tombstone(t),
-            RoomEvent::RoomEncryption(e) => self.handle_encryption_event(e),
+            RoomEvent::RoomPowerLevels(power) => self.handle_power_level(power),
+            RoomEvent::RoomTombstone(tomb) => self.handle_tombstone(tomb),
+            RoomEvent::RoomEncryption(encrypt) => self.handle_encryption_event(encrypt),
             _ => false,
         }
     }
@@ -418,15 +419,31 @@ impl Room {
     /// * `event` - The event of the room.
     pub fn receive_state_event(&mut self, event: &StateEvent) -> bool {
         match event {
-            StateEvent::RoomMember(m) => self.handle_membership(m),
-            StateEvent::RoomName(n) => self.handle_room_name(n),
-            StateEvent::RoomCanonicalAlias(ca) => self.handle_canonical(ca),
-            StateEvent::RoomAliases(a) => self.handle_room_aliases(a),
-            StateEvent::RoomPowerLevels(p) => self.handle_power_level(p),
-            StateEvent::RoomTombstone(t) => self.handle_tombstone(t),
-            StateEvent::RoomEncryption(e) => self.handle_encryption_event(e),
+            // update to the current members of the room
+            StateEvent::RoomMember(member) => self.handle_membership(member),
+            // finds all events related to the name of the room for later use
+            StateEvent::RoomName(name) => self.handle_room_name(name),
+            StateEvent::RoomCanonicalAlias(c_alias) => self.handle_canonical(c_alias),
+            StateEvent::RoomAliases(alias) => self.handle_room_aliases(alias),
+            // power levels of the room members
+            StateEvent::RoomPowerLevels(power) => self.handle_power_level(power),
+            StateEvent::RoomTombstone(tomb) => self.handle_tombstone(tomb),
+            StateEvent::RoomEncryption(encrypt) => self.handle_encryption_event(encrypt),
             _ => false,
         }
+    }
+
+    /// Receive a stripped state event for this room and update the room state.
+    ///
+    /// Returns true if the state of the `Room` has changed, false otherwise.
+    ///
+    /// # Arguments
+    ///
+    /// * `event` - The `AnyStrippedStateEvent` sent by the server for invited but not
+    /// joined rooms.
+    pub fn receive_stripped_state_event(&mut self, _event: &AnyStrippedStateEvent) -> bool {
+        // TODO do we want to do anything with the events from an invited room?
+        true
     }
 
     /// Receive a presence event from an `IncomingResponse` and updates the client state.

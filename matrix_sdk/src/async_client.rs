@@ -645,6 +645,22 @@ impl AsyncClient {
 
         let mut response = self.send(request).await?;
 
+        // when events change state updated signals to state store to update database
+        let mut updated = self.iter_joined_rooms(&mut response).await?;
+        if self.iter_invited_rooms(&mut response).await? {
+            updated = true;
+        }
+        if self.iter_left_rooms(&mut response).await? {
+            updated = true;
+        }
+
+        let mut client = self.base_client.write().await;
+        client.receive_sync_response(&mut response, updated).await?;
+
+        Ok(response)
+    }
+
+    async fn iter_joined_rooms(&self, response: &mut sync_events::Response) -> Result<bool> {
         let mut updated = false;
         for (room_id, room) in &mut response.rooms.join {
             let matrix_room = {
@@ -745,11 +761,92 @@ impl AsyncClient {
                 }
             }
         }
+        Ok(updated)
+    }
 
-        let mut client = self.base_client.write().await;
-        client.receive_sync_response(&mut response, updated).await?;
+    async fn iter_left_rooms(&self, response: &mut sync_events::Response) -> Result<bool> {
+        let mut updated = false;
+        for (room_id, left_room) in &mut response.rooms.leave {
+            let matrix_room = {
+                let mut client = self.base_client.write().await;
+                for mut event in &mut left_room.timeline.events {
+                    let decrypted_event = {
+                        let mut client = self.base_client.write().await;
+                        let (decrypt_ev, timeline_update) = client
+                            .receive_joined_timeline_event(room_id, &mut event)
+                            .await;
+                        if timeline_update {
+                            updated = true;
+                        };
+                        decrypt_ev
+                    };
 
-        Ok(response)
+                    if let Some(e) = decrypted_event {
+                        *event = e;
+                    }
+
+                    if let Ok(e) = event.deserialize() {
+                        let client = self.base_client.read().await;
+                        client.emit_timeline_event(&room_id, &e).await;
+                    }
+                }
+
+                client.get_or_create_room(&room_id).clone()
+            };
+
+            // re looping is not ideal here
+            for event in &mut left_room.state.events {
+                if let Ok(e) = event.deserialize() {
+                    let client = self.base_client.read().await;
+                    client.emit_state_event(&room_id, &e).await;
+                }
+            }
+
+            if updated {
+                if let Some(store) = self.base_client.read().await.state_store.as_ref() {
+                    store
+                        .store_room_state(matrix_room.read().await.deref())
+                        .await?;
+                }
+            }
+        }
+        Ok(updated)
+    }
+
+    async fn iter_invited_rooms(&self, response: &mut sync_events::Response) -> Result<bool> {
+        let mut updated = false;
+        // INVITED ROOMS
+        for (room_id, invited_room) in &mut response.rooms.invite {
+            let matrix_room = {
+                let mut client = self.base_client.write().await;
+                for event in &invited_room.invite_state.events {
+                    if let Ok(e) = event.deserialize() {
+                        if client.receive_invite_state_event(&room_id, &e).await {
+                            updated = true;
+                        }
+                    }
+                }
+
+                client.get_or_create_room(&room_id).clone()
+            };
+
+            // re looping is not ideal here
+            for event in &mut invited_room.invite_state.events {
+                if let Ok(e) = event.deserialize() {
+                    let client = self.base_client.read().await;
+                    client.emit_stripped_state_event(&room_id, &e).await;
+                }
+            }
+
+            if updated {
+                if let Some(store) = self.base_client.read().await.state_store.as_ref() {
+                    store
+                        .store_room_state(matrix_room.read().await.deref())
+                        .await?;
+                }
+            }
+        }
+        Ok(updated)
     }
 
     /// Repeatedly call sync to synchronize the client state with the server.

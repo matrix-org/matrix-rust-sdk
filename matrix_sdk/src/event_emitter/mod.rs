@@ -19,6 +19,7 @@ use crate::events::{
     ignored_user_list::IgnoredUserListEvent,
     presence::PresenceEvent,
     push_rules::PushRulesEvent,
+    receipt::ReceiptEvent,
     room::{
         aliases::AliasesEvent,
         avatar::AvatarEvent,
@@ -31,6 +32,11 @@ use crate::events::{
         redaction::RedactionEvent,
         tombstone::TombstoneEvent,
     },
+    stripped::{
+        StrippedRoomAliases, StrippedRoomAvatar, StrippedRoomCanonicalAlias, StrippedRoomJoinRules,
+        StrippedRoomMember, StrippedRoomName, StrippedRoomPowerLevels,
+    },
+    typing::TypingEvent,
 };
 use crate::models::Room;
 use tokio::sync::RwLock;
@@ -101,6 +107,10 @@ pub trait EventEmitter: Send + Sync {
     async fn on_room_power_levels(&self, _: Arc<RwLock<Room>>, _: &PowerLevelsEvent) {}
     /// Fires when `AsyncClient` receives a `RoomEvent::Tombstone` event.
     async fn on_room_tombstone(&self, _: Arc<RwLock<Room>>, _: &TombstoneEvent) {}
+    /// Fires when `AsyncClient` receives a `NonRoomEvent::Typing` event.
+    async fn on_account_data_typing(&self, _: Arc<RwLock<Room>>, _: &TypingEvent) {}
+    /// Fires when `AsyncClient` receives a `NonRoomEvent::Typing` event.
+    async fn on_account_data_receipt(&self, _: Arc<RwLock<Room>>, _: &ReceiptEvent) {}
 
     // `RoomEvent`s from `IncomingState`
     /// Fires when `AsyncClient` receives a `StateEvent::RoomMember` event.
@@ -117,6 +127,32 @@ pub trait EventEmitter: Send + Sync {
     async fn on_state_power_levels(&self, _: Arc<RwLock<Room>>, _: &PowerLevelsEvent) {}
     /// Fires when `AsyncClient` receives a `StateEvent::RoomJoinRules` event.
     async fn on_state_join_rules(&self, _: Arc<RwLock<Room>>, _: &JoinRulesEvent) {}
+
+    // `AnyStrippedStateEvent`s
+    /// Fires when `AsyncClient` receives a `StateEvent::RoomMember` event.
+    async fn on_stripped_state_member(&self, _: Arc<RwLock<Room>>, _: &StrippedRoomMember) {}
+    /// Fires when `AsyncClient` receives a `StateEvent::RoomName` event.
+    async fn on_stripped_state_name(&self, _: Arc<RwLock<Room>>, _: &StrippedRoomName) {}
+    /// Fires when `AsyncClient` receives a `StateEvent::RoomCanonicalAlias` event.
+    async fn on_stripped_state_canonical_alias(
+        &self,
+        _: Arc<RwLock<Room>>,
+        _: &StrippedRoomCanonicalAlias,
+    ) {
+    }
+    /// Fires when `AsyncClient` receives a `StateEvent::RoomAliases` event.
+    async fn on_stripped_state_aliases(&self, _: Arc<RwLock<Room>>, _: &StrippedRoomAliases) {}
+    /// Fires when `AsyncClient` receives a `StateEvent::RoomAvatar` event.
+    async fn on_stripped_state_avatar(&self, _: Arc<RwLock<Room>>, _: &StrippedRoomAvatar) {}
+    /// Fires when `AsyncClient` receives a `StateEvent::RoomPowerLevels` event.
+    async fn on_stripped_state_power_levels(
+        &self,
+        _: Arc<RwLock<Room>>,
+        _: &StrippedRoomPowerLevels,
+    ) {
+    }
+    /// Fires when `AsyncClient` receives a `StateEvent::RoomJoinRules` event.
+    async fn on_stripped_state_join_rules(&self, _: Arc<RwLock<Room>>, _: &StrippedRoomJoinRules) {}
 
     // `NonRoomEvent` (this is a type alias from ruma_events) from `IncomingAccountData`
     /// Fires when `AsyncClient` receives a `NonRoomEvent::RoomMember` event.

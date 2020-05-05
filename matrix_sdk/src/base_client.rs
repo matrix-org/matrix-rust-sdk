@@ -30,6 +30,7 @@ use crate::events::presence::PresenceEvent;
 use crate::events::collections::only::Event as NonRoomEvent;
 use crate::events::ignored_user_list::IgnoredUserListEvent;
 use crate::events::push_rules::{PushRulesEvent, Ruleset};
+use crate::events::stripped::AnyStrippedStateEvent;
 use crate::events::EventJson;
 use crate::identifiers::{RoomId, UserId};
 use crate::models::Room;
@@ -331,6 +332,25 @@ impl Client {
     ) -> bool {
         let mut room = self.get_or_create_room(room_id).write().await;
         room.receive_state_event(event)
+    }
+
+    /// Receive a state event for a room the user has been invited to.
+    ///
+    /// Returns true if the state of the room changed, false
+    /// otherwise.
+    ///
+    /// # Arguments
+    ///
+    /// * `room_id` - The unique id of the room the event belongs to.
+    ///
+    /// * `event` - A `AnyStrippedStateEvent` that should be handled by the client.
+    pub async fn receive_invite_state_event(
+        &mut self,
+        room_id: &RoomId,
+        event: &AnyStrippedStateEvent,
+    ) -> bool {
+        let mut room = self.get_or_create_room(room_id).write().await;
+        room.receive_stripped_state_event(event)
     }
 
     /// Receive a presence event from a sync response and updates the client state.
@@ -700,6 +720,71 @@ impl Client {
                 if let Some(ee) = &self.event_emitter {
                     if let Some(room) = self.get_room(&room_id) {
                         ee.on_room_tombstone(Arc::clone(&room), &tomb).await;
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+
+    pub(crate) async fn emit_stripped_state_event(
+        &self,
+        room_id: &RoomId,
+        event: &AnyStrippedStateEvent,
+    ) {
+        match event {
+            AnyStrippedStateEvent::RoomMember(member) => {
+                if let Some(ee) = &self.event_emitter {
+                    if let Some(room) = self.get_room(&room_id) {
+                        ee.on_stripped_state_member(Arc::clone(&room), &member)
+                            .await;
+                    }
+                }
+            }
+            AnyStrippedStateEvent::RoomName(name) => {
+                if let Some(ee) = &self.event_emitter {
+                    if let Some(room) = self.get_room(&room_id) {
+                        ee.on_stripped_state_name(Arc::clone(&room), &name).await;
+                    }
+                }
+            }
+            AnyStrippedStateEvent::RoomCanonicalAlias(canonical) => {
+                if let Some(ee) = &self.event_emitter {
+                    if let Some(room) = self.get_room(&room_id) {
+                        ee.on_stripped_state_canonical_alias(Arc::clone(&room), &canonical)
+                            .await;
+                    }
+                }
+            }
+            AnyStrippedStateEvent::RoomAliases(aliases) => {
+                if let Some(ee) = &self.event_emitter {
+                    if let Some(room) = self.get_room(&room_id) {
+                        ee.on_stripped_state_aliases(Arc::clone(&room), &aliases)
+                            .await;
+                    }
+                }
+            }
+            AnyStrippedStateEvent::RoomAvatar(avatar) => {
+                if let Some(ee) = &self.event_emitter {
+                    if let Some(room) = self.get_room(&room_id) {
+                        ee.on_stripped_state_avatar(Arc::clone(&room), &avatar)
+                            .await;
+                    }
+                }
+            }
+            AnyStrippedStateEvent::RoomPowerLevels(power) => {
+                if let Some(ee) = &self.event_emitter {
+                    if let Some(room) = self.get_room(&room_id) {
+                        ee.on_stripped_state_power_levels(Arc::clone(&room), &power)
+                            .await;
+                    }
+                }
+            }
+            AnyStrippedStateEvent::RoomJoinRules(rules) => {
+                if let Some(ee) = &self.event_emitter {
+                    if let Some(room) = self.get_room(&room_id) {
+                        ee.on_stripped_state_join_rules(Arc::clone(&room), &rules)
+                            .await;
                     }
                 }
             }
