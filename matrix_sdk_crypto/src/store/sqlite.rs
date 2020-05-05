@@ -35,6 +35,7 @@ use matrix_sdk_types::api::r0::keys::KeyAlgorithm;
 use matrix_sdk_types::events::Algorithm;
 use matrix_sdk_types::identifiers::{DeviceId, RoomId, UserId};
 
+/// SQLite based implementation of a `CryptoStore`.
 pub struct SqliteStore {
     user_id: Arc<String>,
     device_id: Arc<String>,
@@ -53,6 +54,17 @@ pub struct SqliteStore {
 static DATABASE_NAME: &str = "matrix-sdk-crypto.db";
 
 impl SqliteStore {
+    /// Open a new `SqliteStore`.
+    ///
+    /// # Arguments
+    ///
+    /// * `user_id` - The unique id of the user for which the store should be
+    /// opened.
+    ///
+    /// * `device_id` - The unique id of the device for which the store should
+    /// be opened.
+    ///
+    /// * `path` - The path where the database file should reside in.
     pub async fn open<P: AsRef<Path>>(
         user_id: &UserId,
         device_id: &str,
@@ -61,6 +73,20 @@ impl SqliteStore {
         SqliteStore::open_helper(user_id, device_id, path, None).await
     }
 
+    /// Open a new `SqliteStore`.
+    ///
+    /// # Arguments
+    ///
+    /// * `user_id` - The unique id of the user for which the store should be
+    /// opened.
+    ///
+    /// * `device_id` - The unique id of the device for which the store should
+    /// be opened.
+    ///
+    /// * `path` - The path where the database file should reside in.
+    ///
+    /// * `passphrase` - The passphrase that should be used to securely store
+    /// the encryption keys.
     pub async fn open_with_passphrase<P: AsRef<Path>>(
         user_id: &UserId,
         device_id: &str,
@@ -321,7 +347,8 @@ impl SqliteStore {
 
         for row in rows {
             let device_row_id = row.0;
-            let user_id = if let Ok(u) = UserId::try_from(&row.1 as &str) {
+            let user_id: &str = &row.1;
+            let user_id = if let Ok(u) = UserId::try_from(user_id) {
                 u
             } else {
                 continue;
@@ -339,7 +366,10 @@ impl SqliteStore {
 
             let algorithms = algorithm_rows
                 .iter()
-                .map(|row| Algorithm::from(&row.0 as &str))
+                .map(|row| {
+                    let algorithm: &str = &row.0;
+                    Algorithm::from(algorithm)
+                })
                 .collect::<Vec<Algorithm>>();
 
             let key_rows: Vec<(String, String)> =
@@ -351,7 +381,8 @@ impl SqliteStore {
             let mut keys = BTreeMap::new();
 
             for row in key_rows {
-                let algorithm = if let Ok(a) = KeyAlgorithm::try_from(&row.0 as &str) {
+                let algorithm: &str = &row.0;
+                let algorithm = if let Ok(a) = KeyAlgorithm::try_from(algorithm) {
                     a
                 } else {
                     continue;
@@ -480,12 +511,12 @@ impl CryptoStore for SqliteStore {
 
         let mut group_sessions = self.load_inbound_group_sessions().await?;
 
-        let _ = group_sessions
+        group_sessions
             .drain(..)
             .map(|s| {
                 self.inbound_group_sessions.add(s);
             })
-            .collect::<()>();
+            .for_each(drop);
 
         let devices = self.load_devices().await?;
         mem::replace(&mut self.devices, devices);
@@ -527,32 +558,35 @@ impl CryptoStore for SqliteStore {
         Ok(())
     }
 
-    async fn save_session(&mut self, session: Session) -> Result<()> {
-        self.lazy_load_sessions(&session.sender_key).await?;
-        self.sessions.add(session.clone()).await;
+    async fn save_sessions(&mut self, sessions: &[Session]) -> Result<()> {
+        // TODO turn this into a transaction
+        for session in sessions {
+            self.lazy_load_sessions(&session.sender_key).await?;
+            self.sessions.add(session.clone()).await;
 
-        let account_id = self.account_id.ok_or(CryptoStoreError::AccountUnset)?;
+            let account_id = self.account_id.ok_or(CryptoStoreError::AccountUnset)?;
 
-        let session_id = session.session_id();
-        let creation_time = serde_json::to_string(&session.creation_time.elapsed())?;
-        let last_use_time = serde_json::to_string(&session.last_use_time.elapsed())?;
-        let pickle = session.pickle(self.get_pickle_mode()).await;
+            let session_id = session.session_id();
+            let creation_time = serde_json::to_string(&session.creation_time.elapsed())?;
+            let last_use_time = serde_json::to_string(&session.last_use_time.elapsed())?;
+            let pickle = session.pickle(self.get_pickle_mode()).await;
 
-        let mut connection = self.connection.lock().await;
+            let mut connection = self.connection.lock().await;
 
-        query(
-            "REPLACE INTO sessions (
-                session_id, account_id, creation_time, last_use_time, sender_key, pickle
-             ) VALUES (?, ?, ?, ?, ?, ?)",
-        )
-        .bind(&session_id)
-        .bind(&account_id)
-        .bind(&*creation_time)
-        .bind(&*last_use_time)
-        .bind(&*session.sender_key)
-        .bind(&pickle)
-        .execute(&mut *connection)
-        .await?;
+            query(
+                "REPLACE INTO sessions (
+                    session_id, account_id, creation_time, last_use_time, sender_key, pickle
+                 ) VALUES (?, ?, ?, ?, ?, ?)",
+            )
+            .bind(&session_id)
+            .bind(&account_id)
+            .bind(&*creation_time)
+            .bind(&*last_use_time)
+            .bind(&*session.sender_key)
+            .bind(&pickle)
+            .execute(&mut *connection)
+            .await?;
+        }
 
         Ok(())
     }
@@ -608,15 +642,35 @@ impl CryptoStore for SqliteStore {
         Ok(self.tracked_users.insert(user.clone()))
     }
 
-    async fn save_device(&self, device: Device) -> Result<()> {
-        self.devices.add(device.clone());
-        self.save_device_helper(device).await
+    async fn save_devices(&self, devices: &[Device]) -> Result<()> {
+        // TODO turn this into a bulk transaction.
+        for device in devices {
+            self.devices.add(device.clone());
+            self.save_device_helper(device.clone()).await?
+        }
+
+        Ok(())
     }
 
     async fn delete_device(&self, device: Device) -> Result<()> {
-        todo!()
+        let account_id = self.account_id.ok_or(CryptoStoreError::AccountUnset)?;
+        let mut connection = self.connection.lock().await;
+
+        query(
+            "DELETE FROM devices
+             WHERE account_id = ?1 and user_id = ?2 and device_id = ?3
+             ",
+        )
+        .bind(account_id)
+        .bind(&device.user_id().to_string())
+        .bind(&device.device_id())
+        .execute(&mut *connection)
+        .await?;
+
+        Ok(())
     }
 
+    #[allow(clippy::ptr_arg)]
     async fn get_device(&self, user_id: &UserId, device_id: &DeviceId) -> Result<Option<Device>> {
         Ok(self.devices.get(user_id, device_id))
     }
@@ -801,14 +855,14 @@ mod test {
         let (mut store, _dir) = get_store(None).await;
         let (account, session) = get_account_and_session().await;
 
-        assert!(store.save_session(session.clone()).await.is_err());
+        assert!(store.save_sessions(&[session.clone()]).await.is_err());
 
         store
             .save_account(account.clone())
             .await
             .expect("Can't save account");
 
-        store.save_session(session).await.unwrap();
+        store.save_sessions(&[session]).await.unwrap();
     }
 
     #[tokio::test]
@@ -819,7 +873,7 @@ mod test {
             .save_account(account.clone())
             .await
             .expect("Can't save account");
-        store.save_session(session.clone()).await.unwrap();
+        store.save_sessions(&[session.clone()]).await.unwrap();
 
         let sessions = store
             .load_sessions_for(&session.sender_key)
@@ -841,7 +895,7 @@ mod test {
             .save_account(account.clone())
             .await
             .expect("Can't save account");
-        store.save_session(session).await.unwrap();
+        store.save_sessions(&[session]).await.unwrap();
 
         let sessions = store.get_sessions(&sender_key).await.unwrap().unwrap();
         let sessions_lock = sessions.lock().await;
@@ -937,7 +991,7 @@ mod test {
         let (_account, store, dir) = get_loaded_store().await;
         let device = get_device();
 
-        store.save_device(device.clone()).await.unwrap();
+        store.save_devices(&[device.clone()]).await.unwrap();
 
         drop(store);
 
@@ -965,5 +1019,28 @@ mod test {
         let user_devices = store.get_user_devices(device.user_id()).await.unwrap();
         assert_eq!(user_devices.keys().nth(0).unwrap(), device.device_id());
         assert_eq!(user_devices.devices().nth(0).unwrap(), &device);
+    }
+
+    #[tokio::test]
+    async fn device_deleting() {
+        let (_account, store, dir) = get_loaded_store().await;
+        let device = get_device();
+
+        store.save_devices(&[device.clone()]).await.unwrap();
+        store.delete_device(device.clone()).await.unwrap();
+
+        let mut store =
+            SqliteStore::open(&UserId::try_from(USER_ID).unwrap(), DEVICE_ID, dir.path())
+                .await
+                .expect("Can't create store");
+
+        store.load_account().await.unwrap();
+
+        let loaded_device = store
+            .get_device(device.user_id(), device.device_id())
+            .await
+            .unwrap();
+
+        assert!(loaded_device.is_none());
     }
 }

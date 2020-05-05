@@ -52,8 +52,11 @@ impl CryptoStore for MemoryStore {
         Ok(())
     }
 
-    async fn save_session(&mut self, session: Session) -> Result<()> {
-        self.sessions.add(session).await;
+    async fn save_sessions(&mut self, sessions: &[Session]) -> Result<()> {
+        for session in sessions {
+            let _ = self.sessions.add(session.clone()).await;
+        }
+
         Ok(())
     }
 
@@ -84,12 +87,13 @@ impl CryptoStore for MemoryStore {
         Ok(self.tracked_users.insert(user.clone()))
     }
 
+    #[allow(clippy::ptr_arg)]
     async fn get_device(&self, user_id: &UserId, device_id: &DeviceId) -> Result<Option<Device>> {
         Ok(self.devices.get(user_id, device_id))
     }
 
     async fn delete_device(&self, device: Device) -> Result<()> {
-        self.devices.remove(device.user_id(), device.device_id());
+        let _ = self.devices.remove(device.user_id(), device.device_id());
         Ok(())
     }
 
@@ -97,8 +101,11 @@ impl CryptoStore for MemoryStore {
         Ok(self.devices.user_devices(user_id))
     }
 
-    async fn save_device(&self, device: Device) -> Result<()> {
-        self.devices.add(device);
+    async fn save_devices(&self, devices: &[Device]) -> Result<()> {
+        for device in devices {
+            let _ = self.devices.add(device.clone());
+        }
+
         Ok(())
     }
 }
@@ -122,7 +129,7 @@ mod test {
         assert!(store.load_account().await.unwrap().is_none());
         store.save_account(account).await.unwrap();
 
-        store.save_session(session.clone()).await.unwrap();
+        store.save_sessions(&[session.clone()]).await.unwrap();
 
         let sessions = store
             .get_sessions(&session.sender_key)
@@ -150,7 +157,7 @@ mod test {
         .unwrap();
 
         let mut store = MemoryStore::new();
-        store
+        let _ = store
             .save_inbound_group_session(inbound.clone())
             .await
             .unwrap();
@@ -168,7 +175,7 @@ mod test {
         let device = get_device();
         let store = MemoryStore::new();
 
-        store.save_device(device.clone()).await.unwrap();
+        store.save_devices(&[device.clone()]).await.unwrap();
 
         let loaded_device = store
             .get_device(device.user_id(), device.device_id())
@@ -205,6 +212,6 @@ mod test {
 
         let tracked_users = store.tracked_users();
 
-        tracked_users.contains(device.user_id());
+        let _ = tracked_users.contains(device.user_id());
     }
 }

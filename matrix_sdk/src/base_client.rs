@@ -111,7 +111,7 @@ impl Client {
     pub fn new(session: Option<Session>) -> Result<Self> {
         #[cfg(feature = "encryption")]
         let olm = match &session {
-            Some(s) => Some(OlmMachine::new(&s.user_id, &s.device_id)?),
+            Some(s) => Some(OlmMachine::new(&s.user_id, &s.device_id)),
             None => None,
         };
 
@@ -199,7 +199,7 @@ impl Client {
         #[cfg(feature = "encryption")]
         {
             let mut olm = self.olm.lock().await;
-            *olm = Some(OlmMachine::new(&response.user_id, &response.device_id)?);
+            *olm = Some(OlmMachine::new(&response.user_id, &response.device_id));
         }
 
         Ok(())
@@ -261,12 +261,15 @@ impl Client {
     /// Returns true if the room name changed, false otherwise.
     pub(crate) fn handle_push_rules(&mut self, event: &PushRulesEvent) -> bool {
         // TODO this is basically a stub
-        if self.push_ruleset.as_ref() == Some(&event.content.global) {
-            false
-        } else {
-            self.push_ruleset = Some(event.content.global.clone());
-            true
-        }
+        // TODO ruma removed PartialEq for evens, so this doesn't work anymore.
+        // Returning always true for now should be ok here since those don't
+        // change often.
+        // if self.push_ruleset.as_ref() == Some(&event.content.global) {
+        //     false
+        // } else {
+        self.push_ruleset = Some(event.content.global.clone());
+        true
+        // }
     }
 
     /// Receive a timeline event for a joined room and update the client state.
@@ -294,16 +297,13 @@ impl Client {
 
                 #[cfg(feature = "encryption")]
                 {
-                    match e {
-                        RoomEvent::RoomEncrypted(ref mut e) => {
-                            e.room_id = Some(room_id.to_owned());
-                            let mut olm = self.olm.lock().await;
+                    if let RoomEvent::RoomEncrypted(ref mut e) = e {
+                        e.room_id = Some(room_id.to_owned());
+                        let mut olm = self.olm.lock().await;
 
-                            if let Some(o) = &mut *olm {
-                                decrypted_event = o.decrypt_room_event(&e).await.ok();
-                            }
+                        if let Some(o) = &mut *olm {
+                            decrypted_event = o.decrypt_room_event(&e).await.ok();
                         }
-                        _ => (),
                     }
                 }
 
@@ -535,12 +535,15 @@ impl Client {
     ) -> Result<MessageEventContent> {
         let mut olm = self.olm.lock().await;
 
-        match &mut *olm {
-            Some(o) => Ok(MessageEventContent::Encrypted(
-                o.encrypt(room_id, content).await?,
-            )),
-            None => panic!("Olm machine wasn't started"),
-        }
+        // TODO enable this again once we can send encrypted event
+        // contents with ruma.
+        // match &mut *olm {
+        //     Some(o) => Ok(MessageEventContent::Encrypted(
+        //         o.encrypt(room_id, content).await?,
+        //     )),
+        //     None => panic!("Olm machine wasn't started"),
+        // }
+        Ok(content)
     }
 
     /// Get a tuple of device and one-time keys that need to be uploaded.

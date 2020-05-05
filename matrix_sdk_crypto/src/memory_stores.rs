@@ -23,7 +23,7 @@ use super::olm::{InboundGroupSession, Session};
 use matrix_sdk_types::identifiers::{DeviceId, RoomId, UserId};
 
 /// In-memory store for Olm Sessions.
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct SessionStore {
     entries: HashMap<String, Arc<Mutex<Vec<Session>>>>,
 }
@@ -69,7 +69,7 @@ impl SessionStore {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 /// In-memory store that houlds inbound group sessions.
 pub struct GroupSessionStore {
     entries: HashMap<RoomId, HashMap<String, HashMap<String, InboundGroupSession>>>,
@@ -127,12 +127,13 @@ impl GroupSessionStore {
 }
 
 /// In-memory store holding the devices of users.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 pub struct DeviceStore {
     entries: Arc<DashMap<UserId, DashMap<String, Device>>>,
 }
 
 /// A read only view over all devices belonging to a user.
+#[derive(Debug)]
 pub struct UserDevices {
     entries: ReadOnlyView<DeviceId, Device>,
 }
@@ -192,7 +193,7 @@ impl DeviceStore {
         self.entries
             .get(user_id)
             .and_then(|m| m.remove(device_id))
-            .and_then(|(_, d)| Some(d))
+            .map(|(_, d)| d)
     }
 
     /// Get a read-only view over all devices of the given user.

@@ -38,9 +38,10 @@ pub use olm_rs::{
 use matrix_sdk_types::api::r0::keys::SignedKey;
 use matrix_sdk_types::identifiers::RoomId;
 
-/// The Olm account.
+/// Account holding identity keys for which sessions can be created.
+///
 /// An account is the central identity for encrypted communication between two
-/// devices. It holds the two identity key pairs for a device.
+/// devices.
 #[derive(Clone)]
 pub struct Account {
     inner: Arc<Mutex<OlmAccount>>,
@@ -58,8 +59,15 @@ impl fmt::Debug for Account {
     }
 }
 
+#[cfg_attr(tarpaulin, skip)]
+impl Default for Account {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Account {
-    /// Create a new account.
+    /// Create a fresh new account, this will generate the identity key-pair.
     pub fn new() -> Self {
         let account = OlmAccount::new();
         let identity_keys = account.parsed_identity_keys();
@@ -182,7 +190,7 @@ impl Account {
             inner: Arc::new(Mutex::new(session)),
             session_id: Arc::new(session_id),
             sender_key: Arc::new(their_identity_key.to_owned()),
-            creation_time: Arc::new(now.clone()),
+            creation_time: Arc::new(now),
             last_use_time: Arc::new(now),
         })
     }
@@ -223,7 +231,7 @@ impl Account {
             inner: Arc::new(Mutex::new(session)),
             session_id: Arc::new(session_id),
             sender_key: Arc::new(their_identity_key.to_owned()),
-            creation_time: Arc::new(now.clone()),
+            creation_time: Arc::new(now),
             last_use_time: Arc::new(now),
         })
     }
@@ -235,10 +243,8 @@ impl PartialEq for Account {
     }
 }
 
-/// The Olm Session.
-///
-/// Sessions are used to exchange encrypted messages between two
-/// accounts/devices.
+/// Cryptographic session that enables secure communication between two
+/// `Account`s
 #[derive(Clone)]
 pub struct Session {
     inner: Arc<Mutex<OlmSession>>,
@@ -371,7 +377,7 @@ impl PartialEq for Session {
 
 /// The private session key of a group session.
 /// Can be used to create a new inbound group session.
-#[derive(Clone, Serialize, Zeroize)]
+#[derive(Clone, Debug, Serialize, Zeroize)]
 #[zeroize(drop)]
 pub struct GroupSessionKey(pub String);
 

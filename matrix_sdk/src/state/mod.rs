@@ -31,7 +31,7 @@ use crate::{Result, Room, Session};
 /// When implementing `StateStore` for something other than the filesystem
 /// implement `From<ClientState> for YourDbType` this allows for easy conversion
 /// when needed in `StateStore::load/store_client_state`
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ClientState {
     /// The current sync token that should be used for the next sync call.
     pub sync_token: Option<Token>,
@@ -39,6 +39,12 @@ pub struct ClientState {
     pub ignored_users: Vec<UserId>,
     /// The push ruleset for the logged in user.
     pub push_ruleset: Option<Ruleset>,
+}
+
+impl PartialEq for ClientState {
+    fn eq(&self, other: &Self) -> bool {
+        self.sync_token == other.sync_token && self.ignored_users == other.ignored_users
+    }
 }
 
 impl ClientState {

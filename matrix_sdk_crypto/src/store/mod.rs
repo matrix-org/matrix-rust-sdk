@@ -37,33 +37,54 @@ pub mod sqlite;
 use sqlx::Error as SqlxError;
 
 #[derive(Error, Debug)]
+/// The crypto store's error type.
 pub enum CryptoStoreError {
-    #[error("can't read or write from the store")]
-    Io(#[from] IoError),
-    #[error("can't finish Olm Account operation {0}")]
-    OlmAccount(#[from] OlmAccountError),
-    #[error("can't finish Olm Session operation {0}")]
-    OlmSession(#[from] OlmSessionError),
-    #[error("can't finish Olm GruoupSession operation {0}")]
-    OlmGroupSession(#[from] OlmGroupSessionError),
-    #[error("URL can't be parsed")]
-    UrlParse(#[from] ParseError),
-    #[error("error serializing data for the database")]
-    Serialization(#[from] SerdeError),
-    #[error("can't load session timestamps")]
-    SessionTimestampError,
-    #[error("can't save/load sessions or group sessions in the store before a account is stored")]
+    /// The account that owns the sessions, group sessions, and devices wasn't
+    /// found.
+    #[error("can't save/load sessions or group sessions in the store before an account is stored")]
     AccountUnset,
+
+    /// SQL error occurred.
     // TODO flatten the SqlxError to make it easier for other store
     // implementations.
     #[cfg(feature = "sqlite-cryptostore")]
-    #[error("database error")]
+    #[error(transparent)]
     DatabaseError(#[from] SqlxError),
+
+    /// An IO error occurred.
+    #[error(transparent)]
+    Io(#[from] IoError),
+
+    /// The underlying Olm Account operation returned an error.
+    #[error(transparent)]
+    OlmAccount(#[from] OlmAccountError),
+
+    /// The underlying Olm session operation returned an error.
+    #[error(transparent)]
+    OlmSession(#[from] OlmSessionError),
+
+    /// The underlying Olm group session operation returned an error.
+    #[error(transparent)]
+    OlmGroupSession(#[from] OlmGroupSessionError),
+
+    /// A session time-stamp couldn't be loaded.
+    #[error("can't load session timestamps")]
+    SessionTimestampError,
+
+    /// The store failed to (de)serialize a data type.
+    #[error(transparent)]
+    Serialization(#[from] SerdeError),
+
+    /// An error occurred while parsing an URL.
+    #[error(transparent)]
+    UrlParse(#[from] ParseError),
 }
 
 pub type Result<T> = std::result::Result<T, CryptoStoreError>;
 
 #[async_trait]
+/// Trait abstracting a store that the `OlmMachine` uses to store cryptographic
+/// keys.
 pub trait CryptoStore: Debug + Send + Sync {
     /// Load an account that was previously stored.
     async fn load_account(&mut self) -> Result<Option<Account>>;
@@ -75,12 +96,12 @@ pub trait CryptoStore: Debug + Send + Sync {
     /// * `account` - The account that should be stored.
     async fn save_account(&mut self, account: Account) -> Result<()>;
 
-    /// Save the given session in the store.
+    /// Save the given sessions in the store.
     ///
     /// # Arguments
     ///
-    /// * `session` - The session that should be stored.
-    async fn save_session(&mut self, session: Session) -> Result<()>;
+    /// * `session` - The sessions that should be stored.
+    async fn save_sessions(&mut self, session: &[Session]) -> Result<()>;
 
     /// Get all the sessions that belong to the given sender key.
     ///
@@ -126,12 +147,12 @@ pub trait CryptoStore: Debug + Send + Sync {
     /// * `user` - The user that should be marked as tracked.
     async fn add_user_for_tracking(&mut self, user: &UserId) -> Result<bool>;
 
-    /// Save the given device in the store.
+    /// Save the given devices in the store.
     ///
     /// # Arguments
     ///
     /// * `device` - The device that should be stored.
-    async fn save_device(&self, device: Device) -> Result<()>;
+    async fn save_devices(&self, devices: &[Device]) -> Result<()>;
 
     /// Delete the given device from the store.
     ///
@@ -147,6 +168,7 @@ pub trait CryptoStore: Debug + Send + Sync {
     /// * `user_id` - The user that the device belongs to.
     ///
     /// * `device_id` - The unique id of the device.
+    #[allow(clippy::ptr_arg)]
     async fn get_device(&self, user_id: &UserId, device_id: &DeviceId) -> Result<Option<Device>>;
 
     /// Get all the devices of the given user.

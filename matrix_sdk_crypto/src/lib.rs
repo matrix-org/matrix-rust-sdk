@@ -15,6 +15,16 @@
 //! This is the encryption part of the matrix-sdk. It contains a state machine
 //! that will aid in adding encryption support to a client library.
 
+#![deny(
+    missing_debug_implementations,
+    missing_docs,
+    trivial_casts,
+    trivial_numeric_casts,
+    unused_extern_crates,
+    unused_import_braces,
+    unused_qualifications
+)]
+
 mod device;
 mod error;
 mod machine;
@@ -23,6 +33,10 @@ mod olm;
 mod store;
 
 pub use device::{Device, TrustState};
-pub use error::OlmError;
+pub use error::{MegolmError, OlmError};
 pub use machine::{OlmMachine, OneTimeKeys};
+pub use memory_stores::{DeviceStore, GroupSessionStore, SessionStore, UserDevices};
+pub use olm::{Account, InboundGroupSession, OutboundGroupSession, Session};
+#[cfg(feature = "sqlite-cryptostore")]
+pub use store::sqlite::SqliteStore;
 pub use store::{CryptoStore, CryptoStoreError};
