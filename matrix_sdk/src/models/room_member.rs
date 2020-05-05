@@ -117,7 +117,6 @@ impl RoomMember {
             None => false,
             // we ignore the error here as only a buggy or malicious server would send this
             Error => false,
-            _ => false,
         }
     }
 

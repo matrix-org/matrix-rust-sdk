@@ -49,12 +49,11 @@ use matrix_sdk_types::identifiers::{DeviceId, RoomId, UserId};
 
 use api::r0::keys;
 use api::r0::{
-    client_exchange::{send_event_to_device::Request as ToDeviceRequest, DeviceIdOrAllDevices},
     keys::{AlgorithmAndDeviceId, DeviceKeys, KeyAlgorithm, OneTimeKey, SignedKey},
     sync::sync_events::Response as SyncResponse,
+    to_device::{send_event_to_device::Request as ToDeviceRequest, DeviceIdOrAllDevices},
 };
 
-use cjson;
 use serde_json::{json, Value};
 use tracing::{debug, error, info, instrument, trace, warn};
 
@@ -1292,10 +1291,10 @@ impl OlmMachine {
 
                 // TODO enable this again once we can send encrypted event
                 // contents with ruma.
-                // user_messages.insert(
-                //     DeviceIdOrAllDevices::DeviceId(device.device_id().clone()),
-                //     EventJson::from(MessageEventContent::Encrypted(encrypted_content)),
-                // );
+                user_messages.insert(
+                    DeviceIdOrAllDevices::DeviceId(device.device_id().clone()),
+                    serde_json::value::to_raw_value(&encrypted_content)?,
+                );
             }
 
             message_vec.push(ToDeviceRequest {
@@ -1546,7 +1545,7 @@ mod test {
     use crate::Device;
 
     use matrix_sdk_types::api::r0::{
-        client_exchange::send_event_to_device::Request as ToDeviceRequest, keys,
+        keys, to_device::send_event_to_device::Request as ToDeviceRequest,
     };
     use matrix_sdk_types::events::{
         collections::all::RoomEvent,
@@ -1603,7 +1602,6 @@ mod test {
                 .values()
                 .next()
                 .unwrap()
-                .json()
                 .get(),
         )
         .unwrap();
@@ -1991,98 +1989,94 @@ mod test {
         }
     }
 
-    // TODO this is disabled so CI passes, we can't enable this until ruma gets
-    // the ability back to send encrypted content.
-    // #[tokio::test]
-    // async fn test_room_key_sharing() {
-    //     let (mut alice, mut bob) = get_machine_pair_with_session().await;
+    #[tokio::test]
+    async fn test_room_key_sharing() {
+        let (mut alice, mut bob) = get_machine_pair_with_session().await;
 
-    //     let room_id = RoomId::try_from("!test:example.org").unwrap();
+        let room_id = RoomId::try_from("!test:example.org").unwrap();
 
-    //     let to_device_requests = alice
-    //         .share_group_session(&room_id, [bob.user_id.clone()].iter())
-    //         .await
-    //         .unwrap();
+        let to_device_requests = alice
+            .share_group_session(&room_id, [bob.user_id.clone()].iter())
+            .await
+            .unwrap();
 
-    //     let event = ToDeviceEncrypted {
-    //         sender: alice.user_id.clone(),
-    //         content: to_device_requests_to_content(to_device_requests),
-    //     };
+        let event = ToDeviceEncrypted {
+            sender: alice.user_id.clone(),
+            content: to_device_requests_to_content(to_device_requests),
+        };
 
-    //     let alice_session = alice.outbound_group_sessions.get(&room_id).unwrap();
+        let alice_session = alice.outbound_group_sessions.get(&room_id).unwrap();
 
-    //     let event = bob.decrypt_to_device_event(&event).await.unwrap();
+        let event = bob.decrypt_to_device_event(&event).await.unwrap();
 
-    //     if let AnyToDeviceEvent::RoomKey(e) = event.deserialize().unwrap() {
-    //         assert_eq!(e.sender, alice.user_id);
-    //     } else {
-    //         panic!("Event had the wrong type");
-    //     }
+        if let AnyToDeviceEvent::RoomKey(e) = event.deserialize().unwrap() {
+            assert_eq!(e.sender, alice.user_id);
+        } else {
+            panic!("Event had the wrong type");
+        }
 
-    //     let session = bob
-    //         .store
-    //         .get_inbound_group_session(
-    //             &room_id,
-    //             alice.account.identity_keys().curve25519(),
-    //             alice_session.session_id(),
-    //         )
-    //         .await;
+        let session = bob
+            .store
+            .get_inbound_group_session(
+                &room_id,
+                alice.account.identity_keys().curve25519(),
+                alice_session.session_id(),
+            )
+            .await;
 
-    //     assert!(session.unwrap().is_some());
-    // }
+        assert!(session.unwrap().is_some());
+    }
 
-    // TODO this is disabled so CI passes, we can't enable this until ruma gets
-    // the ability back to send encrypted content.
-    // #[tokio::test]
-    // async fn test_megolm_encryption() {
-    //     let (mut alice, mut bob) = get_machine_pair_with_setup_sessions().await;
-    //     let room_id = RoomId::try_from("!test:example.org").unwrap();
+    #[tokio::test]
+    async fn test_megolm_encryption() {
+        let (mut alice, mut bob) = get_machine_pair_with_setup_sessions().await;
+        let room_id = RoomId::try_from("!test:example.org").unwrap();
 
-    //     let to_device_requests = alice
-    //         .share_group_session(&room_id, [bob.user_id().clone()].iter())
-    //         .await
-    //         .unwrap();
+        let to_device_requests = alice
+            .share_group_session(&room_id, [bob.user_id().clone()].iter())
+            .await
+            .unwrap();
 
-    //     let event = ToDeviceEncrypted {
-    //         sender: alice.user_id().clone(),
-    //         content: to_device_requests_to_content(to_device_requests),
-    //     };
+        let event = ToDeviceEncrypted {
+            sender: alice.user_id().clone(),
+            content: to_device_requests_to_content(to_device_requests),
+        };
 
-    //     bob.decrypt_to_device_event(&event).await.unwrap();
+        bob.decrypt_to_device_event(&event).await.unwrap();
 
-    //     let plaintext = "It is a secret to everybody";
+        let plaintext = "It is a secret to everybody";
 
-    //     let content = MessageEventContent::Text(TextMessageEventContent::new_plain(plaintext));
+        let content = MessageEventContent::Text(TextMessageEventContent::new_plain(plaintext));
 
-    //     let encrypted_content = alice.encrypt(&room_id, content.clone()).await.unwrap();
+        let encrypted_content = alice.encrypt(&room_id, content.clone()).await.unwrap();
 
-    //     let event = EncryptedEvent {
-    //         event_id: EventId::new("example.org").unwrap(),
-    //         origin_server_ts: SystemTime::now(),
-    //         room_id: Some(room_id.clone()),
-    //         sender: alice.user_id().clone(),
-    //         content: encrypted_content,
-    //         unsigned: UnsignedData::default(),
-    //     };
+        let event = EncryptedEvent {
+            event_id: EventId::new("example.org").unwrap(),
+            origin_server_ts: SystemTime::now(),
+            room_id: Some(room_id.clone()),
+            sender: alice.user_id().clone(),
+            content: encrypted_content,
+            unsigned: UnsignedData::default(),
+        };
 
-    //     let decrypted_event = bob
-    //         .decrypt_room_event(&event)
-    //         .await
-    //         .unwrap()
-    //         .deserialize()
-    //         .unwrap();
+        let decrypted_event = bob
+            .decrypt_room_event(&event)
+            .await
+            .unwrap()
+            .deserialize()
+            .unwrap();
 
-    //     let decrypted_event = match decrypted_event {
-    //         RoomEvent::RoomMessage(e) => e,
-    //         _ => panic!("Decrypted room event has the wrong type"),
-    //     };
+        let decrypted_event = match decrypted_event {
+            RoomEvent::RoomMessage(e) => e,
+            _ => panic!("Decrypted room event has the wrong type"),
+        };
 
-    //     assert_eq!(&decrypted_event.sender, alice.user_id());
-    //     assert_eq!(&decrypted_event.room_id, &Some(room_id));
-    //     if let MessageEventContent::Text(c) = &decrypted_event.content {
-    //         assert_eq!(&c.body, plaintext);
-    //     } else {
-    //         panic!("Decrypted event has a missmatched content");
-    //     }
-    // }
+        assert_eq!(&decrypted_event.sender, alice.user_id());
+        assert_eq!(&decrypted_event.room_id, &Some(room_id));
+        if let MessageEventContent::Text(c) = &decrypted_event.content {
+            assert_eq!(&c.body, plaintext);
+        } else {
+            panic!("Decrypted event has a missmatched content");
+        }
+    }
 }

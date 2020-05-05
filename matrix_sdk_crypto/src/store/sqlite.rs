@@ -23,7 +23,6 @@ use url::Url;
 
 use async_trait::async_trait;
 use olm_rs::PicklingMode;
-use serde_json;
 use sqlx::{query, query_as, sqlite::SqliteQueryAs, Connect, Executor, SqliteConnection};
 use tokio::sync::Mutex;
 use zeroize::Zeroizing;
