@@ -37,8 +37,8 @@ use reqwest::header::{HeaderValue, InvalidHeaderValue};
 use url::Url;
 
 use crate::events::room::message::MessageEventContent;
-use crate::events::EventType;
-use crate::identifiers::{RoomId, RoomIdOrAliasId, UserId};
+use crate::events::{EventJson, EventType};
+use crate::identifiers::{EventId, RoomId, RoomIdOrAliasId, UserId};
 use crate::Endpoint;
 
 #[cfg(feature = "encryption")]
@@ -214,21 +214,20 @@ impl SyncSettings {
 
 #[cfg(feature = "encryption")]
 use api::r0::keys::{claim_keys, get_keys, upload_keys, KeyAlgorithm};
-use api::r0::membership::join_room_by_id;
-use api::r0::membership::join_room_by_id_or_alias;
-use api::r0::membership::kick_user;
-use api::r0::membership::leave_room;
 use api::r0::membership::{
+    ban_user, forget_room,
     invite_user::{self, InvitationRecipient},
-    Invite3pid,
+    join_room_by_id, join_room_by_id_or_alias, kick_user, leave_room, Invite3pid,
 };
 use api::r0::message::create_message_event;
 use api::r0::message::get_message_events;
+use api::r0::receipt::create_receipt;
 use api::r0::room::create_room;
 use api::r0::session::login;
 use api::r0::sync::sync_events;
 #[cfg(feature = "encryption")]
 use api::r0::to_device::send_event_to_device;
+use api::r0::typing::create_typing_event;
 
 impl AsyncClient {
     /// Creates a new client for making HTTP requests to the given homeserver.
@@ -447,6 +446,45 @@ impl AsyncClient {
         self.send(request).await
     }
 
+    /// Forget a room by `RoomId`.
+    ///
+    /// Returns a `forget_room::Response`, an empty response.
+    ///
+    /// # Arguments
+    ///
+    /// * room_id - The `RoomId` of the room to be forget.
+    pub async fn forget_room_by_id(&self, room_id: &RoomId) -> Result<forget_room::Response> {
+        let request = forget_room::Request {
+            room_id: room_id.clone(),
+        };
+        self.send(request).await
+    }
+
+    /// Ban a user from a room by `RoomId` and `UserId`.
+    ///
+    /// Returns a `ban_user::Response`, an empty response.
+    ///
+    /// # Arguments
+    ///
+    /// * room_id - The `RoomId` of the room to ban the user from.
+    ///
+    /// * user_id - The user to ban by `UserId`.
+    ///
+    /// * reason - The reason for banning this user.
+    pub async fn ban_user(
+        &self,
+        room_id: RoomId,
+        user_id: UserId,
+        reason: Option<String>,
+    ) -> Result<ban_user::Response> {
+        let request = ban_user::Request {
+            reason,
+            room_id,
+            user_id,
+        };
+        self.send(request).await
+    }
+
     /// Kick a user out of the specified room.
     ///
     /// Returns a `kick_user::Response`, an empty response.
@@ -610,6 +648,57 @@ impl AsyncClient {
     ) -> Result<get_message_events::Response> {
         let req = request.into();
         self.send(req).await
+    }
+
+    /// Send a request to notify the room of a user typing.
+    ///
+    /// Returns a `create_typing_event::Response`, an empty response.
+    ///
+    /// # Arguments
+    ///
+    /// * room_id - The `RoomId` the user is typing in.
+    ///
+    /// * user_id - The `UserId` of the user that is typing.
+    ///
+    /// * typing - Whether the user is typing, if false `timeout` is not needed.
+    ///
+    /// * timeout - Length of time in milliseconds to mark user is typing.
+    pub async fn typing_notice(
+        &self,
+        room_id: &RoomId,
+        user_id: &UserId,
+        typing: bool,
+        timeout: Option<Duration>,
+    ) -> Result<create_typing_event::Response> {
+        let request = create_typing_event::Request {
+            room_id: room_id.clone(),
+            user_id: user_id.clone(),
+            timeout,
+            typing,
+        };
+        self.send(request).await
+    }
+
+    /// Send a request to notify the room of a user typing.
+    ///
+    /// Returns a `create_receipt::Response`, an empty response.
+    ///
+    /// # Arguments
+    ///
+    /// * room_id - The `RoomId` the user is typing in.
+    ///
+    /// * event_id - The `UserId` of the user that is typing.
+    pub async fn read_receipt(
+        &self,
+        room_id: &RoomId,
+        event_id: &EventId,
+    ) -> Result<create_receipt::Response> {
+        let request = create_receipt::Request {
+            room_id: room_id.clone(),
+            event_id: event_id.clone(),
+            receipt_type: create_receipt::ReceiptType::Read,
+        };
+        self.send(request).await
     }
 
     /// Synchronize the client's state with the latest state on the server.
