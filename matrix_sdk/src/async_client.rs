@@ -37,7 +37,7 @@ use reqwest::header::{HeaderValue, InvalidHeaderValue};
 use url::Url;
 
 use crate::events::room::message::MessageEventContent;
-use crate::events::{EventJson, EventType};
+use crate::events::EventType;
 use crate::identifiers::{EventId, RoomId, RoomIdOrAliasId, UserId};
 use crate::Endpoint;
 
