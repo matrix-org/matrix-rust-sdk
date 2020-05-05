@@ -213,8 +213,6 @@ impl SyncSettings {
 }
 
 #[cfg(feature = "encryption")]
-use api::r0::client_exchange::send_event_to_device;
-#[cfg(feature = "encryption")]
 use api::r0::keys::{claim_keys, get_keys, upload_keys, KeyAlgorithm};
 use api::r0::membership::join_room_by_id;
 use api::r0::membership::join_room_by_id_or_alias;
@@ -229,6 +227,8 @@ use api::r0::message::get_message_events;
 use api::r0::room::create_room;
 use api::r0::session::login;
 use api::r0::sync::sync_events;
+#[cfg(feature = "encryption")]
+use api::r0::to_device::send_event_to_device;
 
 impl AsyncClient {
     /// Creates a new client for making HTTP requests to the given homeserver.
@@ -441,7 +441,7 @@ impl AsyncClient {
     ) -> Result<join_room_by_id_or_alias::Response> {
         let request = join_room_by_id_or_alias::Request {
             room_id_or_alias: alias.clone(),
-            server_name: server_name.to_owned(),
+            server_name: vec![server_name.to_owned()],
             third_party_signed: None,
         };
         self.send(request).await
@@ -694,14 +694,16 @@ impl AsyncClient {
             }
 
             // look at AccountData to further cut down users by collecting ignored users
-            for account_data in &mut room.account_data.events {
-                {
-                    if let Ok(e) = account_data.deserialize() {
-                        let mut client = self.base_client.write().await;
-                        if client.receive_account_data_event(&room_id, &e).await {
-                            updated = true;
+            if let Some(room_account_data) = &mut room.account_data {
+                for account_data in &mut room_account_data.events {
+                    {
+                        if let Ok(e) = account_data.deserialize() {
+                            let mut client = self.base_client.write().await;
+                            if client.receive_account_data_event(&room_id, &e).await {
+                                updated = true;
+                            }
+                            client.emit_account_data_event(room_id, &e).await;
                         }
-                        client.emit_account_data_event(room_id, &e).await;
                     }
                 }
             }
@@ -1033,7 +1035,7 @@ impl AsyncClient {
             room_id: room_id.clone(),
             event_type,
             txn_id: txn_id.unwrap_or_else(Uuid::new_v4).to_string(),
-            data: EventJson::from(content),
+            data: serde_json::value::to_raw_value(&EventJson::from(content))?,
         };
 
         let response = self.send(request).await?;

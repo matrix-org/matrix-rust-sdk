@@ -49,9 +49,9 @@ use matrix_sdk_types::identifiers::{DeviceId, RoomId, UserId};
 
 use api::r0::keys;
 use api::r0::{
-    client_exchange::{send_event_to_device::Request as ToDeviceRequest, DeviceIdOrAllDevices},
     keys::{AlgorithmAndDeviceId, DeviceKeys, KeyAlgorithm, OneTimeKey, SignedKey},
     sync::sync_events::Response as SyncResponse,
+    to_device::{send_event_to_device::Request as ToDeviceRequest, DeviceIdOrAllDevices},
 };
 
 use cjson;
@@ -1546,7 +1546,7 @@ mod test {
     use crate::Device;
 
     use matrix_sdk_types::api::r0::{
-        client_exchange::send_event_to_device::Request as ToDeviceRequest, keys,
+        keys, to_device::send_event_to_device::Request as ToDeviceRequest,
     };
     use matrix_sdk_types::events::{
         collections::all::RoomEvent,
