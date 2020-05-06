@@ -17,7 +17,6 @@
 use std::collections::BTreeMap;
 use std::collections::HashMap;
 use std::convert::{TryFrom, TryInto};
-use std::ops::Deref;
 use std::result::Result as StdResult;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -339,7 +338,7 @@ impl AsyncClient {
     /// Returns the rooms this client knows about.
     ///
     /// A `HashMap` of room id to `matrix::models::Room`
-    pub async fn get_rooms(&self) -> HashMap<RoomId, Arc<tokio::sync::RwLock<Room>>> {
+    pub async fn get_rooms(&self) -> Arc<RwLock<HashMap<RoomId, Arc<tokio::sync::RwLock<Room>>>>> {
         self.base_client.read().await.joined_rooms.clone()
     }
 
@@ -645,109 +644,8 @@ impl AsyncClient {
 
         let mut response = self.send(request).await?;
 
-        let mut updated = false;
-        for (room_id, room) in &mut response.rooms.join {
-            let matrix_room = {
-                let mut client = self.base_client.write().await;
-                for event in &room.state.events {
-                    if let Ok(e) = event.deserialize() {
-                        if client.receive_joined_state_event(&room_id, &e).await {
-                            updated = true;
-                        }
-                    }
-                }
-
-                client.get_or_create_room(&room_id).clone()
-            };
-
-            // RoomSummary contains information for calculating room name
-            matrix_room.write().await.set_room_summary(&room.summary);
-
-            // re looping is not ideal here
-            for event in &mut room.state.events {
-                if let Ok(e) = event.deserialize() {
-                    let client = self.base_client.read().await;
-                    client.emit_state_event(&room_id, &e).await;
-                }
-            }
-
-            for mut event in &mut room.timeline.events {
-                let decrypted_event = {
-                    let mut client = self.base_client.write().await;
-                    let (decrypt_ev, timeline_update) = client
-                        .receive_joined_timeline_event(room_id, &mut event)
-                        .await;
-                    if timeline_update {
-                        updated = true;
-                    };
-                    decrypt_ev
-                };
-
-                if let Some(e) = decrypted_event {
-                    *event = e;
-                }
-
-                if let Ok(e) = event.deserialize() {
-                    let client = self.base_client.read().await;
-                    client.emit_timeline_event(&room_id, &e).await;
-                }
-            }
-
-            // look at AccountData to further cut down users by collecting ignored users
-            if let Some(account_data) = &room.account_data {
-                for account_data in &account_data.events {
-                    {
-                        if let Ok(e) = account_data.deserialize() {
-                            let mut client = self.base_client.write().await;
-                            if client.receive_account_data_event(&room_id, &e).await {
-                                updated = true;
-                            }
-                            client.emit_account_data_event(room_id, &e).await;
-                        }
-                    }
-                }
-            }
-
-            // After the room has been created and state/timeline events accounted for we use the room_id of the newly created
-            // room to add any presence events that relate to a user in the current room. This is not super
-            // efficient but we need a room_id so we would loop through now or later.
-            for presence in &mut response.presence.events {
-                {
-                    if let Ok(e) = presence.deserialize() {
-                        let mut client = self.base_client.write().await;
-                        if client.receive_presence_event(&room_id, &e).await {
-                            updated = true;
-                        }
-
-                        client.emit_presence_event(&room_id, &e).await;
-                    }
-                }
-            }
-
-            for ephemeral in &mut room.ephemeral.events {
-                {
-                    if let Ok(e) = ephemeral.deserialize() {
-                        let mut client = self.base_client.write().await;
-                        if client.receive_ephemeral_event(&room_id, &e).await {
-                            updated = true;
-                        }
-
-                        client.emit_ephemeral_event(&room_id, &e).await;
-                    }
-                }
-            }
-
-            if updated {
-                if let Some(store) = self.base_client.read().await.state_store.as_ref() {
-                    store
-                        .store_room_state(matrix_room.read().await.deref())
-                        .await?;
-                }
-            }
-        }
-
-        let mut client = self.base_client.write().await;
-        client.receive_sync_response(&mut response, updated).await?;
+        let client = self.base_client.read().await;
+        client.receive_sync_response(&mut response).await?;
 
         Ok(response)
     }
@@ -994,7 +892,7 @@ impl AsyncClient {
         {
             let encrypted = {
                 let client = self.base_client.read().await;
-                let room = client.joined_rooms.get(room_id);
+                let room = client.get_room(room_id).await;
 
                 match room {
                     Some(r) => r.read().await.is_encrypted(),
@@ -1005,7 +903,7 @@ impl AsyncClient {
             if encrypted {
                 let missing_sessions = {
                     let client = self.base_client.read().await;
-                    let room = client.joined_rooms.get(room_id);
+                    let room = client.get_room(room_id).await;
                     let room = room.as_ref().unwrap().read().await;
                     let users = room.members.keys();
                     self.base_client
@@ -1158,7 +1056,7 @@ impl AsyncClient {
     /// Get the current, if any, sync token of the client.
     /// This will be None if the client didn't sync at least once.
     pub async fn sync_token(&self) -> Option<String> {
-        self.base_client.read().await.sync_token.clone()
+        self.base_client.read().await.sync_token().await
     }
 
     /// Query the server for users device keys.

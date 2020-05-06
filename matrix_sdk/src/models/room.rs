@@ -493,7 +493,8 @@ mod test {
 
         let _response = client.sync(sync_settings).await.unwrap();
 
-        let rooms = &client.base_client.read().await.joined_rooms;
+        let rooms_lock = &client.base_client.read().await.joined_rooms;
+        let rooms = rooms_lock.read().await;
         let room = &rooms
             .get(&RoomId::try_from("!SVkFJHzfwvuaIEawgC:localhost").unwrap())
             .unwrap()

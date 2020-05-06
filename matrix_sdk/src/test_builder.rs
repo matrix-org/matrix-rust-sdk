@@ -343,7 +343,7 @@ impl ClientTestRunner {
     }
 
     async fn stream_client_events(&mut self) {
-        let mut cli = self
+        let cli = self
             .client
             .as_ref()
             .expect("`AsyncClient` must be set use `ClientTestRunner::set_client`")
