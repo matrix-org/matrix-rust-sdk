@@ -27,9 +27,6 @@ impl Deref for MessageWrapper {
 impl PartialEq for MessageWrapper {
     fn eq(&self, other: &MessageWrapper) -> bool {
         self.0.event_id == other.0.event_id
-            && self.0.room_id == other.0.room_id
-            && self.0.origin_server_ts == other.0.origin_server_ts
-            && self.0.sender == other.0.sender
     }
 }
 
@@ -113,14 +110,15 @@ pub(crate) mod ser_deser {
     where
         D: de::Deserializer<'de>,
     {
+        use serde::de::Error;
+
         let messages: Vec<EventJson<MessageEvent>> = de::Deserialize::deserialize(deserializer)?;
 
-        // TODO this should probably bail out if deserialization fails not skip the message
-        let msgs: Vec<MessageWrapper> = messages
-            .into_iter()
-            .flat_map(|json| json.deserialize())
-            .map(MessageWrapper)
-            .collect();
+        let mut msgs = vec![];
+        for json in messages {
+            let msg = json.deserialize().map_err(D::Error::custom)?;
+            msgs.push(MessageWrapper(msg));
+        }
 
         Ok(MessageQueue { msgs })
     }
