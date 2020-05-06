@@ -1677,7 +1677,7 @@ mod test {
 
         let mut bob_keys = BTreeMap::new();
 
-        let one_time_key = one_time_keys.iter().nth(0).unwrap();
+        let one_time_key = one_time_keys.iter().next().unwrap();
         let mut keys = BTreeMap::new();
         keys.insert(one_time_key.0.clone(), one_time_key.1.clone());
         bob_keys.insert(bob.device_id.clone(), keys);
@@ -1840,7 +1840,7 @@ mod test {
         let identity_keys = machine.account.identity_keys();
         let ed25519_key = identity_keys.ed25519();
 
-        let mut one_time_key = one_time_keys.values_mut().nth(0).unwrap();
+        let mut one_time_key = one_time_keys.values_mut().next().unwrap();
 
         let ret = machine.verify_json(
             &machine.user_id,
@@ -1868,7 +1868,7 @@ mod test {
             &machine.user_id,
             &machine.device_id,
             ed25519_key,
-            &mut json!(&mut one_time_keys.as_mut().unwrap().values_mut().nth(0)),
+            &mut json!(&mut one_time_keys.as_mut().unwrap().values_mut().next()),
         );
         assert!(ret.is_ok());
 
@@ -1943,7 +1943,7 @@ mod test {
 
         let mut bob_keys = BTreeMap::new();
 
-        let one_time_key = one_time_keys.iter().nth(0).unwrap();
+        let one_time_key = one_time_keys.iter().next().unwrap();
         let mut keys = BTreeMap::new();
         keys.insert(one_time_key.0.clone(), one_time_key.1.clone());
         bob_keys.insert(bob_machine.device_id.clone(), keys);
