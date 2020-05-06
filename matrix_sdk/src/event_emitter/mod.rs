@@ -129,29 +129,29 @@ pub trait EventEmitter: Send + Sync {
     async fn on_state_join_rules(&self, _: Arc<RwLock<Room>>, _: &JoinRulesEvent) {}
 
     // `AnyStrippedStateEvent`s
-    /// Fires when `AsyncClient` receives a `StateEvent::RoomMember` event.
+    /// Fires when `AsyncClient` receives a `AnyStrippedStateEvent::StrippedRoomMember` event.
     async fn on_stripped_state_member(&self, _: Arc<RwLock<Room>>, _: &StrippedRoomMember) {}
-    /// Fires when `AsyncClient` receives a `StateEvent::RoomName` event.
+    /// Fires when `AsyncClient` receives a `AnyStrippedStateEvent::StrippedRoomName` event.
     async fn on_stripped_state_name(&self, _: Arc<RwLock<Room>>, _: &StrippedRoomName) {}
-    /// Fires when `AsyncClient` receives a `StateEvent::RoomCanonicalAlias` event.
+    /// Fires when `AsyncClient` receives a `AnyStrippedStateEvent::StrippedRoomCanonicalAlias` event.
     async fn on_stripped_state_canonical_alias(
         &self,
         _: Arc<RwLock<Room>>,
         _: &StrippedRoomCanonicalAlias,
     ) {
     }
-    /// Fires when `AsyncClient` receives a `StateEvent::RoomAliases` event.
+    /// Fires when `AsyncClient` receives a `AnyStrippedStateEvent::StrippedRoomAliases` event.
     async fn on_stripped_state_aliases(&self, _: Arc<RwLock<Room>>, _: &StrippedRoomAliases) {}
-    /// Fires when `AsyncClient` receives a `StateEvent::RoomAvatar` event.
+    /// Fires when `AsyncClient` receives a `AnyStrippedStateEvent::StrippedRoomAvatar` event.
     async fn on_stripped_state_avatar(&self, _: Arc<RwLock<Room>>, _: &StrippedRoomAvatar) {}
-    /// Fires when `AsyncClient` receives a `StateEvent::RoomPowerLevels` event.
+    /// Fires when `AsyncClient` receives a `AnyStrippedStateEvent::StrippedRoomPowerLevels` event.
     async fn on_stripped_state_power_levels(
         &self,
         _: Arc<RwLock<Room>>,
         _: &StrippedRoomPowerLevels,
     ) {
     }
-    /// Fires when `AsyncClient` receives a `StateEvent::RoomJoinRules` event.
+    /// Fires when `AsyncClient` receives a `AnyStrippedStateEvent::StrippedRoomJoinRules` event.
     async fn on_stripped_state_join_rules(&self, _: Arc<RwLock<Room>>, _: &StrippedRoomJoinRules) {}
 
     // `NonRoomEvent` (this is a type alias from ruma_events) from `IncomingAccountData`
@@ -232,6 +232,52 @@ mod test {
             self.0.lock().await.push("state rules".to_string())
         }
 
+        async fn on_stripped_state_member(&self, _: Arc<RwLock<Room>>, _: &StrippedRoomMember) {
+            self.0
+                .lock()
+                .await
+                .push("stripped state member".to_string())
+        }
+        async fn on_stripped_state_name(&self, _: Arc<RwLock<Room>>, _: &StrippedRoomName) {
+            self.0.lock().await.push("stripped state name".to_string())
+        }
+        async fn on_stripped_state_canonical_alias(
+            &self,
+            _: Arc<RwLock<Room>>,
+            _: &StrippedRoomCanonicalAlias,
+        ) {
+            self.0
+                .lock()
+                .await
+                .push("stripped state canonical".to_string())
+        }
+        async fn on_stripped_state_aliases(&self, _: Arc<RwLock<Room>>, _: &StrippedRoomAliases) {
+            self.0
+                .lock()
+                .await
+                .push("stripped state aliases".to_string())
+        }
+        async fn on_stripped_state_avatar(&self, _: Arc<RwLock<Room>>, _: &StrippedRoomAvatar) {
+            self.0
+                .lock()
+                .await
+                .push("stripped state avatar".to_string())
+        }
+        async fn on_stripped_state_power_levels(
+            &self,
+            _: Arc<RwLock<Room>>,
+            _: &StrippedRoomPowerLevels,
+        ) {
+            self.0.lock().await.push("stripped state power".to_string())
+        }
+        async fn on_stripped_state_join_rules(
+            &self,
+            _: Arc<RwLock<Room>>,
+            _: &StrippedRoomJoinRules,
+        ) {
+            self.0.lock().await.push("stripped state rules".to_string())
+        }
+
         async fn on_account_presence(&self, _: Arc<RwLock<Room>>, _: &PresenceEvent) {
             self.0.lock().await.push("account presence".to_string())
         }
@@ -260,7 +306,7 @@ mod test {
     use std::time::Duration;
 
     #[tokio::test]
-    async fn event_emitter() {
+    async fn event_emitter_sync() {
         let homeserver = Url::from_str(&mockito::server_url()).unwrap();
 
         let session = Session {
@@ -279,7 +325,7 @@ mod test {
 
         let vec = Arc::new(Mutex::new(Vec::new()));
         let test_vec = Arc::clone(&vec);
-        let emitter = Box::new(EvEmitterTest(vec)) as Box<(dyn EventEmitter)>;
+        let emitter = Box::new(EvEmitterTest(vec));
         let mut client = AsyncClient::new(homeserver, Some(session)).unwrap();
         client.add_event_emitter(emitter).await;
 
@@ -301,6 +347,83 @@ mod test {
                 "account read",
                 "account ignore",
                 "presence event",
+            ],
+        )
+    }
+
+    #[tokio::test]
+    async fn event_emitter_invite() {
+        let homeserver = Url::from_str(&mockito::server_url()).unwrap();
+
+        let session = Session {
+            access_token: "1234".to_owned(),
+            user_id: UserId::try_from("@example:example.com").unwrap(),
+            device_id: "DEVICEID".to_owned(),
+        };
+
+        let _m = mock(
+            "GET",
+            Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_string()),
+        )
+        .with_status(200)
+        .with_body_from_file("../test_data/invite_sync.json")
+        .create();
+
+        let vec = Arc::new(Mutex::new(Vec::new()));
+        let test_vec = Arc::clone(&vec);
+        let emitter = Box::new(EvEmitterTest(vec));
+        let mut client = AsyncClient::new(homeserver, Some(session)).unwrap();
+        client.add_event_emitter(emitter).await;
+
+        let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
+        let _response = client.sync(sync_settings).await.unwrap();
+
+        let v = test_vec.lock().await;
+        assert_eq!(
+            v.as_slice(),
+            ["stripped state name", "stripped state member"],
+        )
+    }
+
+    #[tokio::test]
+    async fn event_emitter_leave() {
+        let homeserver = Url::from_str(&mockito::server_url()).unwrap();
+
+        let session = Session {
+            access_token: "1234".to_owned(),
+            user_id: UserId::try_from("@example:example.com").unwrap(),
+            device_id: "DEVICEID".to_owned(),
+        };
+
+        let _m = mock(
+            "GET",
+            Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_string()),
+        )
+        .with_status(200)
+        .with_body_from_file("../test_data/leave_sync.json")
+        .create();
+
+        let vec = Arc::new(Mutex::new(Vec::new()));
+        let test_vec = Arc::clone(&vec);
+        let emitter = Box::new(EvEmitterTest(vec));
+        let mut client = AsyncClient::new(homeserver, Some(session)).unwrap();
+        client.add_event_emitter(emitter).await;
+
+        let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
+        let _response = client.sync(sync_settings).await.unwrap();
+
+        let v = test_vec.lock().await;
+        assert_eq!(
+            v.as_slice(),
+            [
+                "message",
+                "state rules",
+                "state member",
+                "state aliases",
+                "state power",
+                "state canonical",
+                "state member",
+                "state member"
             ],
         )
     }

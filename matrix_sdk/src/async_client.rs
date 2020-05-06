@@ -621,6 +621,7 @@ impl AsyncClient {
     ///
     /// * `sync_settings` - Settings for the sync call.
     #[instrument]
+    #[allow(clippy::useless_let_if_seq)]
     pub async fn sync(&self, mut sync_settings: SyncSettings) -> Result<sync_events::Response> {
         {
             // if the client has been synced from the state store don't sync again
@@ -647,9 +648,11 @@ impl AsyncClient {
 
         // when events change state updated signals to state store to update database
         let mut updated = self.iter_joined_rooms(&mut response).await?;
-        if self.iter_invited_rooms(&mut response).await? {
+
+        if self.iter_invited_rooms(&response).await? {
             updated = true;
         }
+
         if self.iter_left_rooms(&mut response).await? {
             updated = true;
         }
@@ -660,6 +663,7 @@ impl AsyncClient {
         Ok(response)
     }
 
+    #[inline]
     async fn iter_joined_rooms(&self, response: &mut sync_events::Response) -> Result<bool> {
         let mut updated = false;
         for (room_id, room) in &mut response.rooms.join {
@@ -764,35 +768,32 @@ impl AsyncClient {
         Ok(updated)
     }
 
+    #[inline]
     async fn iter_left_rooms(&self, response: &mut sync_events::Response) -> Result<bool> {
         let mut updated = false;
         for (room_id, left_room) in &mut response.rooms.leave {
-            let matrix_room = {
-                let mut client = self.base_client.write().await;
-                for mut event in &mut left_room.timeline.events {
-                    let decrypted_event = {
-                        let mut client = self.base_client.write().await;
-                        let (decrypt_ev, timeline_update) = client
-                            .receive_joined_timeline_event(room_id, &mut event)
-                            .await;
-                        if timeline_update {
-                            updated = true;
-                        };
-                        decrypt_ev
+            for mut event in &mut left_room.timeline.events {
+                let decrypted_event = {
+                    let mut client = self.base_client.write().await;
+
+                    let (decrypt_ev, timeline_update) = client
+                        .receive_joined_timeline_event(room_id, &mut event)
+                        .await;
+                    if timeline_update {
+                        updated = true;
                     };
+                    decrypt_ev
+                };
 
-                    if let Some(e) = decrypted_event {
-                        *event = e;
-                    }
-
-                    if let Ok(e) = event.deserialize() {
-                        let client = self.base_client.read().await;
-                        client.emit_timeline_event(&room_id, &e).await;
-                    }
+                if let Some(e) = decrypted_event {
+                    *event = e;
                 }
 
-                client.get_or_create_room(&room_id).clone()
-            };
+                if let Ok(e) = event.deserialize() {
+                    let client = self.base_client.read().await;
+                    client.emit_timeline_event(&room_id, &e).await;
+                }
+            }
 
             // re looping is not ideal here
             for event in &mut left_room.state.events {
@@ -804,19 +805,19 @@ impl AsyncClient {
 
             if updated {
                 if let Some(store) = self.base_client.read().await.state_store.as_ref() {
-                    store
-                        .store_room_state(matrix_room.read().await.deref())
-                        .await?;
+                    let mut client = self.base_client.write().await;
+                    let room = client.get_or_create_room(&room_id).clone();
+                    store.store_room_state(room.read().await.deref()).await?;
                 }
             }
         }
         Ok(updated)
     }
 
-    async fn iter_invited_rooms(&self, response: &mut sync_events::Response) -> Result<bool> {
+    #[inline]
+    async fn iter_invited_rooms(&self, response: &sync_events::Response) -> Result<bool> {
         let mut updated = false;
-        // INVITED ROOMS
-        for (room_id, invited_room) in &mut response.rooms.invite {
+        for (room_id, invited_room) in &response.rooms.invite {
             let matrix_room = {
                 let mut client = self.base_client.write().await;
                 for event in &invited_room.invite_state.events {
@@ -831,7 +832,7 @@ impl AsyncClient {
             };
 
             // re looping is not ideal here
-            for event in &mut invited_room.invite_state.events {
+            for event in &invited_room.invite_state.events {
                 if let Ok(e) = event.deserialize() {
                     let client = self.base_client.read().await;
                     client.emit_stripped_state_event(&room_id, &e).await;

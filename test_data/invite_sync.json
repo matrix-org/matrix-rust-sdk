@@ -1,0 +1,56 @@
+{
+    "device_one_time_keys_count": {},
+    "next_batch": "s526_47314_0_7_1_1_1_11444_1",
+    "device_lists": {
+        "changed": [
+            "@example:example.org"
+        ],
+        "left": []
+    },
+    "rooms": {
+        "invite": {
+            "!696r7674:example.com": {
+              "invite_state": {
+                "events": [
+                  {
+                    "sender": "@alice:example.com",
+                    "type": "m.room.name",
+                    "state_key": "",
+                    "content": {
+                      "name": "My Room Name"
+                    }
+                  },
+                  {
+                    "sender": "@alice:example.com",
+                    "type": "m.room.member",
+                    "state_key": "@bob:example.com",
+                    "content": {
+                      "membership": "invite"
+                    }
+                  }
+                ]
+              }
+            }
+          },
+        "join": {},
+        "leave": {}
+    },
+    "to_device": {
+        "events": []
+    },
+    "presence": {
+        "events": [
+            {
+                "content": {
+                    "avatar_url": "mxc://localhost:wefuiwegh8742w",
+                    "currently_active": false,
+                    "last_active_ago": 1,
+                    "presence": "online",
+                    "status_msg": "Making cupcakes"
+                },
+                "sender": "@example:localhost",
+                "type": "m.presence"
+            }
+        ]
+    }
+}
