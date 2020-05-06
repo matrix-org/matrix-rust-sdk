@@ -28,7 +28,7 @@ use futures::future::Future;
 use tokio::sync::RwLock;
 use tokio::time::delay_for as sleep;
 #[cfg(feature = "encryption")]
-use tracing::debug;
+use tracing::{debug, warn};
 use tracing::{info, instrument, trace};
 
 use http::Method as HttpMethod;
@@ -37,7 +37,7 @@ use reqwest::header::{HeaderValue, InvalidHeaderValue};
 use url::Url;
 
 use crate::events::room::message::MessageEventContent;
-use crate::events::{EventJson, EventType};
+use crate::events::EventType;
 use crate::identifiers::{RoomId, RoomIdOrAliasId, UserId};
 use crate::Endpoint;
 
@@ -213,8 +213,6 @@ impl SyncSettings {
 }
 
 #[cfg(feature = "encryption")]
-use api::r0::client_exchange::send_event_to_device;
-#[cfg(feature = "encryption")]
 use api::r0::keys::{claim_keys, get_keys, upload_keys, KeyAlgorithm};
 use api::r0::membership::join_room_by_id;
 use api::r0::membership::join_room_by_id_or_alias;
@@ -229,6 +227,8 @@ use api::r0::message::get_message_events;
 use api::r0::room::create_room;
 use api::r0::session::login;
 use api::r0::sync::sync_events;
+#[cfg(feature = "encryption")]
+use api::r0::to_device::send_event_to_device;
 
 impl AsyncClient {
     /// Creates a new client for making HTTP requests to the given homeserver.
@@ -437,11 +437,11 @@ impl AsyncClient {
     pub async fn join_room_by_id_or_alias(
         &self,
         alias: &RoomIdOrAliasId,
-        server_name: &str,
+        server_names: &[String],
     ) -> Result<join_room_by_id_or_alias::Response> {
         let request = join_room_by_id_or_alias::Request {
             room_id_or_alias: alias.clone(),
-            server_name: server_name.to_owned(),
+            server_name: server_names.to_owned(),
             third_party_signed: None,
         };
         self.send(request).await
@@ -694,14 +694,16 @@ impl AsyncClient {
             }
 
             // look at AccountData to further cut down users by collecting ignored users
-            for account_data in &mut room.account_data.events {
-                {
-                    if let Ok(e) = account_data.deserialize() {
-                        let mut client = self.base_client.write().await;
-                        if client.receive_account_data_event(&room_id, &e).await {
-                            updated = true;
+            if let Some(account_data) = &room.account_data {
+                for account_data in &account_data.events {
+                    {
+                        if let Ok(e) = account_data.deserialize() {
+                            let mut client = self.base_client.write().await;
+                            if client.receive_account_data_event(&room_id, &e).await {
+                                updated = true;
+                            }
+                            client.emit_account_data_event(room_id, &e).await;
                         }
-                        client.emit_account_data_event(room_id, &e).await;
                     }
                 }
             }
@@ -833,11 +835,19 @@ impl AsyncClient {
             #[cfg(feature = "encryption")]
             {
                 if self.base_client.read().await.should_upload_keys().await {
-                    let _ = self.keys_upload().await;
+                    let response = self.keys_upload().await;
+
+                    if let Err(e) = response {
+                        warn!("Error while uploading E2EE keys {:?}", e);
+                    }
                 }
 
                 if self.base_client.read().await.should_query_keys().await {
-                    let _ = self.keys_query().await;
+                    let response = self.keys_query().await;
+
+                    if let Err(e) = response {
+                        warn!("Error while querying device keys {:?}", e);
+                    }
                 }
             }
 
@@ -972,11 +982,13 @@ impl AsyncClient {
     pub async fn room_send(
         &self,
         room_id: &RoomId,
-        #[allow(unused_mut)] mut content: MessageEventContent,
+        content: MessageEventContent,
         txn_id: Option<Uuid>,
     ) -> Result<create_message_event::Response> {
         #[allow(unused_mut)]
         let mut event_type = EventType::RoomMessage;
+        #[allow(unused_mut)]
+        let mut raw_content = serde_json::value::to_raw_value(&content)?;
 
         #[cfg(feature = "encryption")]
         {
@@ -1019,12 +1031,14 @@ impl AsyncClient {
                     self.share_group_session(room_id).await?;
                 }
 
-                content = self
-                    .base_client
-                    .read()
-                    .await
-                    .encrypt(room_id, content)
-                    .await?;
+                raw_content = serde_json::value::to_raw_value(
+                    &self
+                        .base_client
+                        .read()
+                        .await
+                        .encrypt(room_id, content)
+                        .await?,
+                )?;
                 event_type = EventType::RoomEncrypted;
             }
         }
@@ -1033,7 +1047,7 @@ impl AsyncClient {
             room_id: room_id.clone(),
             event_type,
             txn_id: txn_id.unwrap_or_else(Uuid::new_v4).to_string(),
-            data: EventJson::from(content),
+            data: raw_content,
         };
 
         let response = self.send(request).await?;

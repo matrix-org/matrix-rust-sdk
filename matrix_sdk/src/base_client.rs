@@ -42,14 +42,14 @@ use tokio::sync::Mutex;
 use tokio::sync::RwLock;
 
 #[cfg(feature = "encryption")]
-use crate::api::r0::client_exchange::send_event_to_device;
-#[cfg(feature = "encryption")]
 use crate::api::r0::keys::{
     claim_keys::Response as KeysClaimResponse, get_keys::Response as KeysQueryResponse,
     upload_keys::Response as KeysUploadResponse, DeviceKeys, KeyAlgorithm,
 };
 #[cfg(feature = "encryption")]
-use crate::events::room::message::MessageEventContent;
+use crate::api::r0::to_device::send_event_to_device;
+#[cfg(feature = "encryption")]
+use crate::events::room::{encrypted::EncryptedEventContent, message::MessageEventContent};
 #[cfg(feature = "encryption")]
 use crate::identifiers::DeviceId;
 #[cfg(feature = "encryption")]
@@ -532,18 +532,13 @@ impl Client {
         &self,
         room_id: &RoomId,
         content: MessageEventContent,
-    ) -> Result<MessageEventContent> {
+    ) -> Result<EncryptedEventContent> {
         let mut olm = self.olm.lock().await;
 
-        // TODO enable this again once we can send encrypted event
-        // contents with ruma.
-        // match &mut *olm {
-        //     Some(o) => Ok(MessageEventContent::Encrypted(
-        //         o.encrypt(room_id, content).await?,
-        //     )),
-        //     None => panic!("Olm machine wasn't started"),
-        // }
-        Ok(content)
+        match &mut *olm {
+            Some(o) => Ok(o.encrypt(room_id, content).await?),
+            None => panic!("Olm machine wasn't started"),
+        }
     }
 
     /// Get a tuple of device and one-time keys that need to be uploaded.

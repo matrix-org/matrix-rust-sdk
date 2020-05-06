@@ -20,39 +20,39 @@ async-trait = "0.1.30"
 
 matrix-sdk-types = { path = "../matrix_sdk_types" }
 
-olm-rs = { version = "0.5.0", features = ["serde"]}
+olm-rs = { version = "0.5.0", features = ["serde"] }
 serde = { version = "1.0.106", features = ["derive"] }
-serde_json = { version = "1.0.51" }
-cjson = { version = "0.1.0" }
+serde_json = "1.0.52"
+cjson = "0.1.0"
 zeroize = { version = "1.1.0", features = ["zeroize_derive"] }
 uuid = { version = "0.8.1", features = ["v4"] }
 url = "2.1.1"
 
 # Misc dependencies
-thiserror = "1.0.14"
+thiserror = "1.0.16"
 tracing = "0.1.13"
 atomic = "0.4.5"
-dashmap = "3.10.0"
+dashmap = "3.11.1"
 
 [dependencies.tracing-futures]
-version = "0.2.3"
+version = "0.2.4"
 default-features = false
 features = ["std", "std-future"]
 
 [dependencies.tokio]
-version = "0.2.16"
+version = "0.2.20"
 default-features = false
 features = ["sync", "time"]
 
 [dependencies.sqlx]
-version = "0.3.3"
+version = "0.3.4"
 optional = true
 default-features = false
 features = ["runtime-tokio", "sqlite"]
 
 [dev-dependencies]
-tokio = { version = "0.2.16", features = ["rt-threaded", "macros"] }
-ruma-identifiers = { version = "0.16.0", features = ["rand"] }
-serde_json = "1.0.51"
+tokio = { version = "0.2.20", features = ["rt-threaded", "macros"] }
+ruma-identifiers = { version = "0.16.1", features = ["rand"] }
+serde_json = "1.0.52"
 tempfile = "3.1.0"
-http = "*"
+http = "0.2.1"

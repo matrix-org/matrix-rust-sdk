@@ -138,7 +138,8 @@ impl Device {
             device_keys
                 .unsigned
                 .as_ref()
-                .map(|d| d.device_display_name.clone()),
+                .map(|d| d.device_display_name.clone())
+                .flatten(),
         );
 
         let _ = mem::replace(
@@ -202,7 +203,8 @@ impl From<&DeviceKeys> for Device {
                 device_keys
                     .unsigned
                     .as_ref()
-                    .map(|d| d.device_display_name.clone()),
+                    .map(|d| d.device_display_name.clone())
+                    .flatten(),
             ),
             deleted: Arc::new(AtomicBool::new(false)),
             trust_state: Arc::new(Atomic::new(TrustState::Unset)),
@@ -294,7 +296,7 @@ pub(crate) mod test {
 
         let mut device_keys = device_keys();
         device_keys.unsigned.as_mut().unwrap().device_display_name =
-            "Alice's work computer".to_owned();
+            Some("Alice's work computer".to_owned());
         device.update_device(&device_keys);
 
         assert_eq!(
