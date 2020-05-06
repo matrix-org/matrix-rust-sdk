@@ -50,7 +50,7 @@ use crate::models::Room;
 use crate::session::Session;
 use crate::state::StateStore;
 use crate::VERSION;
-use crate::{Error, EventEmitter, Result};
+use crate::{Error, EventEmitter, Result, RoomStateType};
 
 const DEFAULT_SYNC_TIMEOUT: Duration = Duration::from_secs(30);
 
@@ -322,6 +322,9 @@ impl AsyncClient {
     ///
     /// This is a human readable room name.
     pub async fn get_room_name(&self, room_id: &RoomId) -> Option<String> {
+        // TODO do we want to use the `RoomStateType` enum here or should we have
+        // 3 seperate `room_name` methods. The other option is to remove this and have
+        // the user get a `Room` and use `Room::calculate_name` method?
         self.base_client
             .read()
             .await
@@ -336,11 +339,25 @@ impl AsyncClient {
         self.base_client.read().await.calculate_room_names().await
     }
 
-    /// Returns the rooms this client knows about.
+    /// Returns the joined rooms this client knows about.
     ///
     /// A `HashMap` of room id to `matrix::models::Room`
-    pub async fn get_rooms(&self) -> HashMap<RoomId, Arc<tokio::sync::RwLock<Room>>> {
+    pub async fn get_joined_rooms(&self) -> HashMap<RoomId, Arc<tokio::sync::RwLock<Room>>> {
         self.base_client.read().await.joined_rooms.clone()
+    }
+
+    /// Returns the invited rooms this client knows about.
+    ///
+    /// A `HashMap` of room id to `matrix::models::Room`
+    pub async fn get_invited_rooms(&self) -> HashMap<RoomId, Arc<tokio::sync::RwLock<Room>>> {
+        self.base_client.read().await.invited_rooms.clone()
+    }
+
+    /// Returns the left rooms this client knows about.
+    ///
+    /// A `HashMap` of room id to `matrix::models::Room`
+    pub async fn get_left_rooms(&self) -> HashMap<RoomId, Arc<tokio::sync::RwLock<Room>>> {
+        self.base_client.read().await.lefted_rooms.clone()
     }
 
     /// This allows `AsyncClient` to manually sync state with the provided `StateStore`.
@@ -663,13 +680,12 @@ impl AsyncClient {
         Ok(response)
     }
 
-    #[inline]
     async fn iter_joined_rooms(&self, response: &mut sync_events::Response) -> Result<bool> {
         let mut updated = false;
-        for (room_id, room) in &mut response.rooms.join {
+        for (room_id, joined_room) in &mut response.rooms.join {
             let matrix_room = {
                 let mut client = self.base_client.write().await;
-                for event in &room.state.events {
+                for event in &joined_room.state.events {
                     if let Ok(e) = event.deserialize() {
                         if client.receive_joined_state_event(&room_id, &e).await {
                             updated = true;
@@ -677,21 +693,26 @@ impl AsyncClient {
                     }
                 }
 
-                client.get_or_create_room(&room_id).clone()
+                client.get_or_create_joined_room(&room_id).clone()
             };
 
             // RoomSummary contains information for calculating room name
-            matrix_room.write().await.set_room_summary(&room.summary);
+            matrix_room
+                .write()
+                .await
+                .set_room_summary(&joined_room.summary);
 
             // re looping is not ideal here
-            for event in &mut room.state.events {
+            for event in &mut joined_room.state.events {
                 if let Ok(e) = event.deserialize() {
                     let client = self.base_client.read().await;
-                    client.emit_state_event(&room_id, &e).await;
+                    client
+                        .emit_state_event(&room_id, &e, RoomStateType::Joined)
+                        .await;
                 }
             }
 
-            for mut event in &mut room.timeline.events {
+            for mut event in &mut joined_room.timeline.events {
                 let decrypted_event = {
                     let mut client = self.base_client.write().await;
                     let (decrypt_ev, timeline_update) = client
@@ -709,12 +730,14 @@ impl AsyncClient {
 
                 if let Ok(e) = event.deserialize() {
                     let client = self.base_client.read().await;
-                    client.emit_timeline_event(&room_id, &e).await;
+                    client
+                        .emit_timeline_event(&room_id, &e, RoomStateType::Joined)
+                        .await;
                 }
             }
 
             // look at AccountData to further cut down users by collecting ignored users
-            if let Some(account_data) = &room.account_data {
+            if let Some(account_data) = &joined_room.account_data {
                 for account_data in &account_data.events {
                     {
                         if let Ok(e) = account_data.deserialize() {
@@ -722,7 +745,9 @@ impl AsyncClient {
                             if client.receive_account_data_event(&room_id, &e).await {
                                 updated = true;
                             }
-                            client.emit_account_data_event(room_id, &e).await;
+                            client
+                                .emit_account_data_event(room_id, &e, RoomStateType::Joined)
+                                .await;
                         }
                     }
                 }
@@ -739,12 +764,14 @@ impl AsyncClient {
                             updated = true;
                         }
 
-                        client.emit_presence_event(&room_id, &e).await;
+                        client
+                            .emit_presence_event(&room_id, &e, RoomStateType::Joined)
+                            .await;
                     }
                 }
             }
 
-            for ephemeral in &mut room.ephemeral.events {
+            for ephemeral in &mut joined_room.ephemeral.events {
                 {
                     if let Ok(e) = ephemeral.deserialize() {
                         let mut client = self.base_client.write().await;
@@ -752,7 +779,9 @@ impl AsyncClient {
                             updated = true;
                         }
 
-                        client.emit_ephemeral_event(&room_id, &e).await;
+                        client
+                            .emit_ephemeral_event(&room_id, &e, RoomStateType::Joined)
+                            .await;
                     }
                 }
             }
@@ -768,16 +797,36 @@ impl AsyncClient {
         Ok(updated)
     }
 
-    #[inline]
     async fn iter_left_rooms(&self, response: &mut sync_events::Response) -> Result<bool> {
         let mut updated = false;
         for (room_id, left_room) in &mut response.rooms.leave {
+            let matrix_room = {
+                let mut client = self.base_client.write().await;
+                for event in &left_room.state.events {
+                    if let Ok(e) = event.deserialize() {
+                        if client.receive_left_state_event(&room_id, &e).await {
+                            updated = true;
+                        }
+                    }
+                }
+
+                client.get_or_create_left_room(&room_id).clone()
+            };
+
+            for event in &mut left_room.state.events {
+                if let Ok(e) = event.deserialize() {
+                    let client = self.base_client.read().await;
+                    client
+                        .emit_state_event(&room_id, &e, RoomStateType::Left)
+                        .await;
+                }
+            }
+
             for mut event in &mut left_room.timeline.events {
                 let decrypted_event = {
                     let mut client = self.base_client.write().await;
-
                     let (decrypt_ev, timeline_update) = client
-                        .receive_joined_timeline_event(room_id, &mut event)
+                        .receive_left_timeline_event(room_id, &mut event)
                         .await;
                     if timeline_update {
                         updated = true;
@@ -791,30 +840,23 @@ impl AsyncClient {
 
                 if let Ok(e) = event.deserialize() {
                     let client = self.base_client.read().await;
-                    client.emit_timeline_event(&room_id, &e).await;
-                }
-            }
-
-            // re looping is not ideal here
-            for event in &mut left_room.state.events {
-                if let Ok(e) = event.deserialize() {
-                    let client = self.base_client.read().await;
-                    client.emit_state_event(&room_id, &e).await;
+                    client
+                        .emit_timeline_event(&room_id, &e, RoomStateType::Left)
+                        .await;
                 }
             }
 
             if updated {
                 if let Some(store) = self.base_client.read().await.state_store.as_ref() {
-                    let mut client = self.base_client.write().await;
-                    let room = client.get_or_create_room(&room_id).clone();
-                    store.store_room_state(room.read().await.deref()).await?;
+                    store
+                        .store_room_state(matrix_room.read().await.deref())
+                        .await?;
                 }
             }
         }
         Ok(updated)
     }
 
-    #[inline]
     async fn iter_invited_rooms(&self, response: &sync_events::Response) -> Result<bool> {
         let mut updated = false;
         for (room_id, invited_room) in &response.rooms.invite {
@@ -828,14 +870,15 @@ impl AsyncClient {
                     }
                 }
 
-                client.get_or_create_room(&room_id).clone()
+                client.get_or_create_left_room(&room_id).clone()
             };
 
-            // re looping is not ideal here
             for event in &invited_room.invite_state.events {
                 if let Ok(e) = event.deserialize() {
                     let client = self.base_client.read().await;
-                    client.emit_stripped_state_event(&room_id, &e).await;
+                    client
+                        .emit_stripped_state_event(&room_id, &e, RoomStateType::Invited)
+                        .await;
                 }
             }
 

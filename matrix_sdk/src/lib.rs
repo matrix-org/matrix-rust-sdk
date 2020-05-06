@@ -43,7 +43,7 @@ mod state;
 pub mod test_builder;
 
 pub use async_client::{AsyncClient, AsyncClientConfig, SyncSettings};
-pub use base_client::Client;
+pub use base_client::{Client, RoomState, RoomStateType};
 pub use event_emitter::EventEmitter;
 #[cfg(feature = "encryption")]
 pub use matrix_sdk_crypto::{Device, TrustState};

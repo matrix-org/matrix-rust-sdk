@@ -58,6 +58,58 @@ use matrix_sdk_crypto::{OlmMachine, OneTimeKeys};
 
 pub type Token = String;
 
+/// Signals to the `BaseClient` which `RoomState` to send to `EventEmitter`.
+pub enum RoomStateType {
+    /// Represents a joined room, the `joined_rooms` HashMap will be used.
+    Joined,
+    /// Represents a left room, the `left_rooms` HashMap will be used.
+    Left,
+    /// Represents an invited room, the `invited_rooms` HashMap will be used.
+    Invited,
+}
+
+/// An enum that represents the state of the given `Room`.
+///
+/// If the event came from the `join`, `invite` or `leave` rooms map from the server
+/// the variant that holds the corresponding room is used.
+pub enum RoomState {
+    /// A room from the `join` section of a sync response.
+    Joined(Arc<RwLock<Room>>),
+    /// A room from the `leave` section of a sync response.
+    Left(Arc<RwLock<Room>>),
+    /// A room from the `invite` section of a sync response.
+    Invited(Arc<RwLock<Room>>),
+}
+
+macro_rules! emit_event {
+    ($this:ident, $id:ident, $event:ident, $state:ident, $($variant:path => $meth:ident,)*) => {
+        match &$event {
+            $($variant(ev) => {
+                if let Some(ee) = &$this.event_emitter {
+                    match $state {
+                        RoomStateType::Joined => {
+                            if let Some(room) = $this.get_joined_room(&$id) {
+                                ee.$meth(RoomState::Joined(Arc::clone(&room)), &ev).await;
+                            }
+                        }
+                        RoomStateType::Invited => {
+                            if let Some(room) = $this.get_invited_room(&$id) {
+                                ee.$meth(RoomState::Invited(Arc::clone(&room)), &ev).await;
+                            }
+                        }
+                        RoomStateType::Left => {
+                            if let Some(room) = $this.get_left_room(&$id) {
+                                ee.$meth(RoomState::Left(Arc::clone(&room)), &ev).await;
+                            }
+                        }
+                    }
+                }
+            })*
+            _ => {}
+        }
+    }
+}
+
 /// A no IO Client implementation.
 ///
 /// This Client is a state machine that receives responses and events and
@@ -70,6 +122,10 @@ pub struct Client {
     pub sync_token: Option<Token>,
     /// A map of the rooms our user is joined in.
     pub joined_rooms: HashMap<RoomId, Arc<RwLock<Room>>>,
+    /// A map of the rooms our user is invited to.
+    pub invited_rooms: HashMap<RoomId, Arc<RwLock<Room>>>,
+    /// A map of the rooms our user has left.
+    pub lefted_rooms: HashMap<RoomId, Arc<RwLock<Room>>>,
     /// A list of ignored users.
     pub ignored_users: Vec<UserId>,
     /// The push ruleset for the logged in user.
@@ -120,6 +176,8 @@ impl Client {
             session,
             sync_token: None,
             joined_rooms: HashMap::new(),
+            invited_rooms: HashMap::new(),
+            lefted_rooms: HashMap::new(),
             ignored_users: Vec::new(),
             push_ruleset: None,
             event_emitter: None,
@@ -224,7 +282,7 @@ impl Client {
         res
     }
 
-    pub(crate) fn get_or_create_room(&mut self, room_id: &RoomId) -> &mut Arc<RwLock<Room>> {
+    pub(crate) fn get_or_create_joined_room(&mut self, room_id: &RoomId) -> &mut Arc<RwLock<Room>> {
         #[allow(clippy::or_fun_call)]
         self.joined_rooms
             .entry(room_id.clone())
@@ -238,8 +296,47 @@ impl Client {
             ))))
     }
 
-    pub(crate) fn get_room(&self, room_id: &RoomId) -> Option<&Arc<RwLock<Room>>> {
+    pub(crate) fn get_joined_room(&self, room_id: &RoomId) -> Option<&Arc<RwLock<Room>>> {
         self.joined_rooms.get(room_id)
+    }
+
+    pub(crate) fn get_or_create_invited_room(
+        &mut self,
+        room_id: &RoomId,
+    ) -> &mut Arc<RwLock<Room>> {
+        #[allow(clippy::or_fun_call)]
+        self.invited_rooms
+            .entry(room_id.clone())
+            .or_insert(Arc::new(RwLock::new(Room::new(
+                room_id,
+                &self
+                    .session
+                    .as_ref()
+                    .expect("Receiving events while not being logged in")
+                    .user_id,
+            ))))
+    }
+
+    pub(crate) fn get_invited_room(&self, room_id: &RoomId) -> Option<&Arc<RwLock<Room>>> {
+        self.invited_rooms.get(room_id)
+    }
+
+    pub(crate) fn get_or_create_left_room(&mut self, room_id: &RoomId) -> &mut Arc<RwLock<Room>> {
+        #[allow(clippy::or_fun_call)]
+        self.lefted_rooms
+            .entry(room_id.clone())
+            .or_insert(Arc::new(RwLock::new(Room::new(
+                room_id,
+                &self
+                    .session
+                    .as_ref()
+                    .expect("Receiving events while not being logged in")
+                    .user_id,
+            ))))
+    }
+
+    pub(crate) fn get_left_room(&self, room_id: &RoomId) -> Option<&Arc<RwLock<Room>>> {
+        self.lefted_rooms.get(room_id)
     }
 
     /// Handle a m.ignored_user_list event, updating the room state if necessary.
@@ -308,7 +405,7 @@ impl Client {
                     }
                 }
 
-                let mut room = self.get_or_create_room(&room_id).write().await;
+                let mut room = self.get_or_create_joined_room(&room_id).write().await;
                 (decrypted_event, room.receive_timeline_event(&e))
             }
             _ => (None, false),
@@ -317,7 +414,7 @@ impl Client {
 
     /// Receive a state event for a joined room and update the client state.
     ///
-    /// Returns true if the membership list of the room changed, false
+    /// Returns true if the state of the room changed, false
     /// otherwise.
     ///
     /// # Arguments
@@ -330,7 +427,7 @@ impl Client {
         room_id: &RoomId,
         event: &StateEvent,
     ) -> bool {
-        let mut room = self.get_or_create_room(room_id).write().await;
+        let mut room = self.get_or_create_joined_room(room_id).write().await;
         room.receive_state_event(event)
     }
 
@@ -349,13 +446,70 @@ impl Client {
         room_id: &RoomId,
         event: &AnyStrippedStateEvent,
     ) -> bool {
-        let mut room = self.get_or_create_room(room_id).write().await;
+        let mut room = self.get_or_create_invited_room(room_id).write().await;
         room.receive_stripped_state_event(event)
+    }
+
+    /// Receive a timeline event for a room the user has left and update the client state.
+    ///
+    /// Returns a tuple of the successfully decrypted event, or None on failure and
+    /// a bool, true when the `Room` state has been updated.
+    ///
+    /// # Arguments
+    ///
+    /// * `room_id` - The unique id of the room the event belongs to.
+    ///
+    /// * `event` - The event that should be handled by the client.
+    pub async fn receive_left_timeline_event(
+        &mut self,
+        room_id: &RoomId,
+        event: &mut EventJson<RoomEvent>,
+    ) -> (Option<EventJson<RoomEvent>>, bool) {
+        match event.deserialize() {
+            #[allow(unused_mut)]
+            Ok(mut e) => {
+                #[cfg(feature = "encryption")]
+                let mut decrypted_event = None;
+                #[cfg(not(feature = "encryption"))]
+                let decrypted_event = None;
+
+                #[cfg(feature = "encryption")]
+                {
+                    if let RoomEvent::RoomEncrypted(ref mut e) = e {
+                        e.room_id = Some(room_id.to_owned());
+                        let mut olm = self.olm.lock().await;
+
+                        if let Some(o) = &mut *olm {
+                            decrypted_event = o.decrypt_room_event(&e).await.ok();
+                        }
+                    }
+                }
+
+                let mut room = self.get_or_create_left_room(&room_id).write().await;
+                (decrypted_event, room.receive_timeline_event(&e))
+            }
+            _ => (None, false),
+        }
+    }
+
+    /// Receive a state event for a room the user has left and update the client state.
+    ///
+    /// Returns true if the state of the room changed, false
+    /// otherwise.
+    ///
+    /// # Arguments
+    ///
+    /// * `room_id` - The unique id of the room the event belongs to.
+    ///
+    /// * `event` - The event that should be handled by the client.
+    pub async fn receive_left_state_event(&mut self, room_id: &RoomId, event: &StateEvent) -> bool {
+        let mut room = self.get_or_create_left_room(room_id).write().await;
+        room.receive_state_event(event)
     }
 
     /// Receive a presence event from a sync response and updates the client state.
     ///
-    /// Returns true if the membership list of the room changed, false
+    /// Returns true if the state of the room changed, false
     /// otherwise.
     ///
     /// # Arguments
@@ -369,7 +523,7 @@ impl Client {
         event: &PresenceEvent,
     ) -> bool {
         // this should be the room that was just created in the `Client::sync` loop.
-        if let Some(room) = self.get_room(room_id) {
+        if let Some(room) = self.get_joined_room(room_id) {
             let mut room = room.write().await;
             room.receive_presence_event(event)
         } else {
@@ -532,7 +686,7 @@ impl Client {
         &self,
         room_id: &RoomId,
     ) -> Result<Vec<send_event_to_device::Request>> {
-        let room = self.get_room(room_id).expect("No room found");
+        let room = self.get_joined_room(room_id).expect("No room found");
         let mut olm = self.olm.lock().await;
 
         match &mut *olm {
@@ -649,288 +803,117 @@ impl Client {
         Ok(())
     }
 
-    pub(crate) async fn emit_timeline_event(&self, room_id: &RoomId, event: &RoomEvent) {
-        match event {
-            RoomEvent::RoomMember(mem) => {
-                if let Some(ee) = &self.event_emitter {
-                    if let Some(room) = self.get_room(&room_id) {
-                        ee.on_room_member(Arc::clone(&room), &mem).await;
-                    }
-                }
-            }
-            RoomEvent::RoomName(name) => {
-                if let Some(ee) = &self.event_emitter {
-                    if let Some(room) = self.get_room(&room_id) {
-                        ee.on_room_name(Arc::clone(&room), &name).await;
-                    }
-                }
-            }
-            RoomEvent::RoomCanonicalAlias(canonical) => {
-                if let Some(ee) = &self.event_emitter {
-                    if let Some(room) = self.get_room(&room_id) {
-                        ee.on_room_canonical_alias(Arc::clone(&room), &canonical)
-                            .await;
-                    }
-                }
-            }
-            RoomEvent::RoomAliases(aliases) => {
-                if let Some(ee) = &self.event_emitter {
-                    if let Some(room) = self.get_room(&room_id) {
-                        ee.on_room_aliases(Arc::clone(&room), &aliases).await;
-                    }
-                }
-            }
-            RoomEvent::RoomAvatar(avatar) => {
-                if let Some(ee) = &self.event_emitter {
-                    if let Some(room) = self.get_room(&room_id) {
-                        ee.on_room_avatar(Arc::clone(&room), &avatar).await;
-                    }
-                }
-            }
-            RoomEvent::RoomMessage(msg) => {
-                if let Some(ee) = &self.event_emitter {
-                    if let Some(room) = self.get_room(&room_id) {
-                        ee.on_room_message(Arc::clone(&room), &msg).await;
-                    }
-                }
-            }
-            RoomEvent::RoomMessageFeedback(msg_feedback) => {
-                if let Some(ee) = &self.event_emitter {
-                    if let Some(room) = self.get_room(&room_id) {
-                        ee.on_room_message_feedback(Arc::clone(&room), &msg_feedback)
-                            .await;
-                    }
-                }
-            }
-            RoomEvent::RoomRedaction(redaction) => {
-                if let Some(ee) = &self.event_emitter {
-                    if let Some(room) = self.get_room(&room_id) {
-                        ee.on_room_redaction(Arc::clone(&room), &redaction).await;
-                    }
-                }
-            }
-            RoomEvent::RoomPowerLevels(power) => {
-                if let Some(ee) = &self.event_emitter {
-                    if let Some(room) = self.get_room(&room_id) {
-                        ee.on_room_power_levels(Arc::clone(&room), &power).await;
-                    }
-                }
-            }
-            RoomEvent::RoomTombstone(tomb) => {
-                if let Some(ee) = &self.event_emitter {
-                    if let Some(room) = self.get_room(&room_id) {
-                        ee.on_room_tombstone(Arc::clone(&room), &tomb).await;
-                    }
-                }
-            }
-            _ => {}
-        }
+    pub(crate) async fn emit_timeline_event(
+        &self,
+        room_id: &RoomId,
+        event: &RoomEvent,
+        room_state: RoomStateType,
+    ) {
+        emit_event!(
+            self, room_id, event, room_state,
+            RoomEvent::RoomMember => on_room_member,
+            RoomEvent::RoomName => on_room_name,
+            RoomEvent::RoomCanonicalAlias => on_room_canonical_alias,
+            RoomEvent::RoomAliases => on_room_aliases,
+            RoomEvent::RoomAvatar => on_room_avatar,
+            RoomEvent::RoomMessage => on_room_message,
+            RoomEvent::RoomMessageFeedback => on_room_message_feedback,
+            RoomEvent::RoomRedaction => on_room_redaction,
+            RoomEvent::RoomPowerLevels => on_room_power_levels,
+            RoomEvent::RoomTombstone => on_room_tombstone,
+        );
     }
 
     pub(crate) async fn emit_stripped_state_event(
         &self,
         room_id: &RoomId,
         event: &AnyStrippedStateEvent,
+        room_state: RoomStateType,
     ) {
-        match event {
-            AnyStrippedStateEvent::RoomMember(member) => {
-                if let Some(ee) = &self.event_emitter {
-                    if let Some(room) = self.get_room(&room_id) {
-                        ee.on_stripped_state_member(Arc::clone(&room), &member)
-                            .await;
-                    }
-                }
-            }
-            AnyStrippedStateEvent::RoomName(name) => {
-                if let Some(ee) = &self.event_emitter {
-                    if let Some(room) = self.get_room(&room_id) {
-                        ee.on_stripped_state_name(Arc::clone(&room), &name).await;
-                    }
-                }
-            }
-            AnyStrippedStateEvent::RoomCanonicalAlias(canonical) => {
-                if let Some(ee) = &self.event_emitter {
-                    if let Some(room) = self.get_room(&room_id) {
-                        ee.on_stripped_state_canonical_alias(Arc::clone(&room), &canonical)
-                            .await;
-                    }
-                }
-            }
-            AnyStrippedStateEvent::RoomAliases(aliases) => {
-                if let Some(ee) = &self.event_emitter {
-                    if let Some(room) = self.get_room(&room_id) {
-                        ee.on_stripped_state_aliases(Arc::clone(&room), &aliases)
-                            .await;
-                    }
-                }
-            }
-            AnyStrippedStateEvent::RoomAvatar(avatar) => {
-                if let Some(ee) = &self.event_emitter {
-                    if let Some(room) = self.get_room(&room_id) {
-                        ee.on_stripped_state_avatar(Arc::clone(&room), &avatar)
-                            .await;
-                    }
-                }
-            }
-            AnyStrippedStateEvent::RoomPowerLevels(power) => {
-                if let Some(ee) = &self.event_emitter {
-                    if let Some(room) = self.get_room(&room_id) {
-                        ee.on_stripped_state_power_levels(Arc::clone(&room), &power)
-                            .await;
-                    }
-                }
-            }
-            AnyStrippedStateEvent::RoomJoinRules(rules) => {
-                if let Some(ee) = &self.event_emitter {
-                    if let Some(room) = self.get_room(&room_id) {
-                        ee.on_stripped_state_join_rules(Arc::clone(&room), &rules)
-                            .await;
-                    }
-                }
-            }
-            _ => {}
-        }
+        emit_event!(
+            self, room_id, event, room_state,
+            AnyStrippedStateEvent::RoomMember => on_stripped_state_member,
+            AnyStrippedStateEvent::RoomName => on_stripped_state_name,
+            AnyStrippedStateEvent::RoomCanonicalAlias => on_stripped_state_canonical_alias,
+            AnyStrippedStateEvent::RoomAliases => on_stripped_state_aliases,
+            AnyStrippedStateEvent::RoomAvatar => on_stripped_state_avatar,
+        );
     }
 
-    pub(crate) async fn emit_state_event(&self, room_id: &RoomId, event: &StateEvent) {
-        match event {
-            StateEvent::RoomMember(member) => {
-                if let Some(ee) = &self.event_emitter {
-                    if let Some(room) = self.get_room(&room_id) {
-                        ee.on_state_member(Arc::clone(&room), &member).await;
-                    }
-                }
-            }
-            StateEvent::RoomName(name) => {
-                if let Some(ee) = &self.event_emitter {
-                    if let Some(room) = self.get_room(&room_id) {
-                        ee.on_state_name(Arc::clone(&room), &name).await;
-                    }
-                }
-            }
-            StateEvent::RoomCanonicalAlias(canonical) => {
-                if let Some(ee) = &self.event_emitter {
-                    if let Some(room) = self.get_room(&room_id) {
-                        ee.on_state_canonical_alias(Arc::clone(&room), &canonical)
-                            .await;
-                    }
-                }
-            }
-            StateEvent::RoomAliases(aliases) => {
-                if let Some(ee) = &self.event_emitter {
-                    if let Some(room) = self.get_room(&room_id) {
-                        ee.on_state_aliases(Arc::clone(&room), &aliases).await;
-                    }
-                }
-            }
-            StateEvent::RoomAvatar(avatar) => {
-                if let Some(ee) = &self.event_emitter {
-                    if let Some(room) = self.get_room(&room_id) {
-                        ee.on_state_avatar(Arc::clone(&room), &avatar).await;
-                    }
-                }
-            }
-            StateEvent::RoomPowerLevels(power) => {
-                if let Some(ee) = &self.event_emitter {
-                    if let Some(room) = self.get_room(&room_id) {
-                        ee.on_state_power_levels(Arc::clone(&room), &power).await;
-                    }
-                }
-            }
-            StateEvent::RoomJoinRules(rules) => {
-                if let Some(ee) = &self.event_emitter {
-                    if let Some(room) = self.get_room(&room_id) {
-                        ee.on_state_join_rules(Arc::clone(&room), &rules).await;
-                    }
-                }
-            }
-            StateEvent::RoomTombstone(tomb) => {
-                if let Some(ee) = &self.event_emitter {
-                    if let Some(room) = self.get_room(&room_id) {
-                        ee.on_room_tombstone(Arc::clone(&room), &tomb).await;
-                    }
-                }
-            }
-            _ => {}
-        }
+    pub(crate) async fn emit_state_event(
+        &self,
+        room_id: &RoomId,
+        event: &StateEvent,
+        room_state: RoomStateType,
+    ) {
+        emit_event!(
+            self, room_id, event, room_state,
+            StateEvent::RoomMember => on_state_member,
+            StateEvent::RoomName => on_state_name,
+            StateEvent::RoomCanonicalAlias => on_state_canonical_alias,
+            StateEvent::RoomAliases => on_state_aliases,
+            StateEvent::RoomAvatar => on_state_avatar,
+            StateEvent::RoomPowerLevels => on_state_power_levels,
+            StateEvent::RoomTombstone => on_room_tombstone,
+        );
     }
 
-    pub(crate) async fn emit_account_data_event(&self, room_id: &RoomId, event: &NonRoomEvent) {
-        match event {
-            NonRoomEvent::Presence(presence) => {
-                if let Some(ee) = &self.event_emitter {
-                    if let Some(room) = self.get_room(&room_id) {
-                        ee.on_account_presence(Arc::clone(&room), &presence).await;
-                    }
-                }
-            }
-            NonRoomEvent::IgnoredUserList(ignored) => {
-                if let Some(ee) = &self.event_emitter {
-                    if let Some(room) = self.get_room(&room_id) {
-                        ee.on_account_ignored_users(Arc::clone(&room), &ignored)
-                            .await;
-                    }
-                }
-            }
-            NonRoomEvent::PushRules(rules) => {
-                if let Some(ee) = &self.event_emitter {
-                    if let Some(room) = self.get_room(&room_id) {
-                        ee.on_account_push_rules(Arc::clone(&room), &rules).await;
-                    }
-                }
-            }
-            NonRoomEvent::FullyRead(full_read) => {
-                if let Some(ee) = &self.event_emitter {
-                    if let Some(room) = self.get_room(&room_id) {
-                        ee.on_account_data_fully_read(Arc::clone(&room), &full_read)
-                            .await;
-                    }
-                }
-            }
-            _ => {}
-        }
+    pub(crate) async fn emit_account_data_event(
+        &self,
+        room_id: &RoomId,
+        event: &NonRoomEvent,
+        room_state: RoomStateType,
+    ) {
+        emit_event!(
+            self, room_id, event, room_state,
+            NonRoomEvent::Presence => on_account_presence,
+            NonRoomEvent::IgnoredUserList => on_account_ignored_users,
+            NonRoomEvent::PushRules => on_account_push_rules,
+            NonRoomEvent::FullyRead => on_account_data_fully_read,
+        );
     }
 
-    pub(crate) async fn emit_ephemeral_event(&self, room_id: &RoomId, event: &NonRoomEvent) {
-        match event {
-            NonRoomEvent::Presence(presence) => {
-                if let Some(ee) = &self.event_emitter {
-                    if let Some(room) = self.get_room(&room_id) {
-                        ee.on_account_presence(Arc::clone(&room), &presence).await;
-                    }
-                }
-            }
-            NonRoomEvent::IgnoredUserList(ignored) => {
-                if let Some(ee) = &self.event_emitter {
-                    if let Some(room) = self.get_room(&room_id) {
-                        ee.on_account_ignored_users(Arc::clone(&room), &ignored)
-                            .await;
-                    }
-                }
-            }
-            NonRoomEvent::PushRules(rules) => {
-                if let Some(ee) = &self.event_emitter {
-                    if let Some(room) = self.get_room(&room_id) {
-                        ee.on_account_push_rules(Arc::clone(&room), &rules).await;
-                    }
-                }
-            }
-            NonRoomEvent::FullyRead(full_read) => {
-                if let Some(ee) = &self.event_emitter {
-                    if let Some(room) = self.get_room(&room_id) {
-                        ee.on_account_data_fully_read(Arc::clone(&room), &full_read)
-                            .await;
-                    }
-                }
-            }
-            _ => {}
-        }
+    pub(crate) async fn emit_ephemeral_event(
+        &self,
+        room_id: &RoomId,
+        event: &NonRoomEvent,
+        room_state: RoomStateType,
+    ) {
+        emit_event!(
+            self, room_id, event, room_state,
+            NonRoomEvent::Presence => on_account_presence,
+            NonRoomEvent::IgnoredUserList => on_account_ignored_users,
+            NonRoomEvent::PushRules => on_account_push_rules,
+            NonRoomEvent::FullyRead => on_account_data_fully_read,
+        );
     }
 
-    pub(crate) async fn emit_presence_event(&self, room_id: &RoomId, event: &PresenceEvent) {
+    pub(crate) async fn emit_presence_event(
+        &self,
+        room_id: &RoomId,
+        event: &PresenceEvent,
+        room_state: RoomStateType,
+    ) {
         if let Some(ee) = &self.event_emitter {
-            if let Some(room) = self.get_room(&room_id) {
-                ee.on_presence_event(Arc::clone(&room), &event).await;
+            match room_state {
+                RoomStateType::Invited => {
+                    if let Some(room) = self.get_invited_room(&room_id) {
+                        ee.on_presence_event(RoomState::Invited(Arc::clone(&room)), &event)
+                            .await;
+                    }
+                }
+                RoomStateType::Joined => {
+                    if let Some(room) = self.get_joined_room(&room_id) {
+                        ee.on_presence_event(RoomState::Joined(Arc::clone(&room)), &event)
+                            .await;
+                    }
+                }
+                RoomStateType::Left => {
+                    if let Some(room) = self.get_left_room(&room_id) {
+                        ee.on_presence_event(RoomState::Left(Arc::clone(&room)), &event)
+                            .await;
+                    }
+                }
             }
         }
     }

@@ -1,37 +1,37 @@
-use std::sync::Arc;
 use std::{env, process::exit};
 use url::Url;
 
 use matrix_sdk::{
     self,
     events::room::message::{MessageEvent, MessageEventContent, TextMessageEventContent},
-    AsyncClient, AsyncClientConfig, EventEmitter, Room, SyncSettings,
+    AsyncClient, AsyncClientConfig, EventEmitter, RoomState, SyncSettings,
 };
-use tokio::sync::RwLock;
 
 struct EventCallback;
 
 #[async_trait::async_trait]
 impl EventEmitter for EventCallback {
-    async fn on_room_message(&self, room: Arc<RwLock<Room>>, event: &MessageEvent) {
-        if let MessageEvent {
-            content: MessageEventContent::Text(TextMessageEventContent { body: msg_body, .. }),
-            sender,
-            ..
-        } = event
-        {
-            let name = {
-                // any reads should be held for the shortest time possible to
-                // avoid dead locks
-                let room = room.read().await;
-                let member = room.members.get(&sender).unwrap();
-                member
-                    .display_name
-                    .as_ref()
-                    .map(ToString::to_string)
-                    .unwrap_or(sender.to_string())
-            };
-            println!("{}: {}", name, msg_body);
+    async fn on_room_message(&self, room: RoomState, event: &MessageEvent) {
+        if let RoomState::Joined(room) = room {
+            if let MessageEvent {
+                content: MessageEventContent::Text(TextMessageEventContent { body: msg_body, .. }),
+                sender,
+                ..
+            } = event
+            {
+                let name = {
+                    // any reads should be held for the shortest time possible to
+                    // avoid dead locks
+                    let room = room.read().await;
+                    let member = room.members.get(&sender).unwrap();
+                    member
+                        .display_name
+                        .as_ref()
+                        .map(ToString::to_string)
+                        .unwrap_or(sender.to_string())
+                };
+                println!("{}: {}", name, msg_body);
+            }
         }
     }
 }

@@ -1,12 +1,10 @@
-use std::sync::Arc;
 use std::{env, process::exit};
 
 use matrix_sdk::{
     self,
     events::room::message::{MessageEvent, MessageEventContent, TextMessageEventContent},
-    AsyncClient, AsyncClientConfig, EventEmitter, JsonStore, Room, SyncSettings,
+    AsyncClient, AsyncClientConfig, EventEmitter, JsonStore, RoomState, SyncSettings,
 };
-use tokio::sync::RwLock;
 use url::Url;
 
 struct CommandBot {
@@ -23,37 +21,39 @@ impl CommandBot {
 
 #[async_trait::async_trait]
 impl EventEmitter for CommandBot {
-    async fn on_room_message(&self, room: Arc<RwLock<Room>>, event: &MessageEvent) {
-        let msg_body = if let MessageEvent {
-            content: MessageEventContent::Text(TextMessageEventContent { body: msg_body, .. }),
-            ..
-        } = event
-        {
-            msg_body.clone()
-        } else {
-            String::new()
-        };
+    async fn on_room_message(&self, room: RoomState, event: &MessageEvent) {
+        if let RoomState::Joined(room) = room {
+            let msg_body = if let MessageEvent {
+                content: MessageEventContent::Text(TextMessageEventContent { body: msg_body, .. }),
+                ..
+            } = event
+            {
+                msg_body.clone()
+            } else {
+                String::new()
+            };
 
-        if msg_body.contains("!party") {
-            let content = MessageEventContent::Text(TextMessageEventContent {
-                body: "🎉🎊🥳 let's PARTY!! 🥳🎊🎉".to_string(),
-                format: None,
-                formatted_body: None,
-                relates_to: None,
-            });
-            // we clone here to hold the lock for as little time as possible.
-            let room_id = room.read().await.room_id.clone();
+            if msg_body.contains("!party") {
+                let content = MessageEventContent::Text(TextMessageEventContent {
+                    body: "🎉🎊🥳 let's PARTY!! 🥳🎊🎉".to_string(),
+                    format: None,
+                    formatted_body: None,
+                    relates_to: None,
+                });
+                // we clone here to hold the lock for as little time as possible.
+                let room_id = room.read().await.room_id.clone();
 
-            println!("sending");
+                println!("sending");
 
-            self.client
-                // send our message to the room we found the "!party" command in
-                // the last parameter is an optional Uuid which we don't care about.
-                .room_send(&room_id, content, None)
-                .await
-                .unwrap();
+                self.client
+                    // send our message to the room we found the "!party" command in
+                    // the last parameter is an optional Uuid which we don't care about.
+                    .room_send(&room_id, content, None)
+                    .await
+                    .unwrap();
 
-            println!("message sent");
+                println!("message sent");
+            }
         }
     }
 }
