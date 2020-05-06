@@ -63,6 +63,7 @@ pub type Token = String;
 ///
 /// This Client is a state machine that receives responses and events and
 /// accordingly updates it's state.
+#[derive(Clone)]
 pub struct Client {
     /// The current client session containing our user id, device id and access
     /// token.
@@ -173,7 +174,7 @@ impl Client {
     /// When a client is provided the state store will load state from the `StateStore`.
     ///
     /// Returns `true` when a state store sync has successfully completed.
-    pub(crate) async fn sync_with_state_store(&mut self) -> Result<bool> {
+    pub(crate) async fn sync_with_state_store(&self) -> Result<bool> {
         let store = self.state_store.read().await;
         if let Some(store) = store.as_ref() {
             if let Some(sess) = self.session.read().await.as_ref() {
@@ -193,12 +194,10 @@ impl Client {
                 }
 
                 let mut rooms = store.load_all_rooms().await?;
-                self.joined_rooms = Arc::new(RwLock::new(
-                    rooms
-                        .drain()
-                        .map(|(k, room)| (k, Arc::new(RwLock::new(room))))
-                        .collect(),
-                ));
+                *self.joined_rooms.write().await = rooms
+                    .drain()
+                    .map(|(k, room)| (k, Arc::new(RwLock::new(room))))
+                    .collect();
 
                 self.needs_state_store_sync.store(false, Ordering::Relaxed);
             }
@@ -213,7 +212,7 @@ impl Client {
     /// * `response` - A successful login response that contains our access token
     /// and device id.
     pub async fn receive_login_response(
-        &mut self,
+        &self,
         response: &api::session::login::Response,
     ) -> Result<()> {
         let session = Session {
@@ -939,7 +938,7 @@ mod test {
 
         let _response = client.sync(sync_settings).await.unwrap();
 
-        let bc = &client.base_client.read().await;
+        let bc = &client.base_client;
         let ignored_users = bc.ignored_users.read().await;
         assert_eq!(1, ignored_users.len())
     }

@@ -343,13 +343,11 @@ impl ClientTestRunner {
     }
 
     async fn stream_client_events(&mut self) {
-        let cli = self
+        let cli = &self
             .client
             .as_ref()
             .expect("`AsyncClient` must be set use `ClientTestRunner::set_client`")
-            .base_client
-            .write()
-            .await;
+            .base_client;
 
         let room_id = &self.room_user_id.0;
 

@@ -287,7 +287,7 @@ mod test {
             AsyncClient::new_with_config(homeserver, Some(session.clone()), config).unwrap();
         client.sync(sync_settings).await.unwrap();
 
-        let base_client = client.base_client.read().await;
+        let base_client = &client.base_client;
 
         // assert the synced client and the logged in client are equal
         assert_eq!(*base_client.session.read().await, Some(session));

@@ -53,17 +53,17 @@ use crate::{Error, EventEmitter, Result};
 
 const DEFAULT_SYNC_TIMEOUT: Duration = Duration::from_secs(30);
 
-#[derive(Clone)]
 /// An async/await enabled Matrix client.
 ///
 /// All of the state is held in an `Arc` so the `AsyncClient` can be cloned freely.
+#[derive(Clone)]
 pub struct AsyncClient {
     /// The URL of the homeserver to connect to.
     homeserver: Url,
     /// The underlying HTTP client.
     http_client: reqwest::Client,
     /// User session data.
-    pub(crate) base_client: Arc<RwLock<BaseClient>>,
+    pub(crate) base_client: BaseClient,
 }
 
 impl std::fmt::Debug for AsyncClient {
@@ -294,13 +294,13 @@ impl AsyncClient {
         Ok(Self {
             homeserver,
             http_client,
-            base_client: Arc::new(RwLock::new(base_client)),
+            base_client,
         })
     }
 
     /// Is the client logged in.
     pub async fn logged_in(&self) -> bool {
-        self.base_client.read().await.logged_in().await
+        self.base_client.logged_in().await
     }
 
     /// The Homeserver of the client.
@@ -312,36 +312,28 @@ impl AsyncClient {
     ///
     /// The methods of `EventEmitter` are called when the respective `RoomEvents` occur.
     pub async fn add_event_emitter(&mut self, emitter: Box<dyn EventEmitter>) {
-        self.base_client
-            .read()
-            .await
-            .add_event_emitter(emitter)
-            .await;
+        self.base_client.add_event_emitter(emitter).await;
     }
 
     /// Returns an `Option` of the room name from a `RoomId`.
     ///
     /// This is a human readable room name.
     pub async fn get_room_name(&self, room_id: &RoomId) -> Option<String> {
-        self.base_client
-            .read()
-            .await
-            .calculate_room_name(room_id)
-            .await
+        self.base_client.calculate_room_name(room_id).await
     }
 
     /// Returns a `Vec` of the room names this client knows about.
     ///
     /// This is a human readable list of room names.
     pub async fn get_room_names(&self) -> Vec<String> {
-        self.base_client.read().await.calculate_room_names().await
+        self.base_client.calculate_room_names().await
     }
 
     /// Returns the rooms this client knows about.
     ///
     /// A `HashMap` of room id to `matrix::models::Room`
     pub async fn get_rooms(&self) -> Arc<RwLock<HashMap<RoomId, Arc<tokio::sync::RwLock<Room>>>>> {
-        self.base_client.read().await.joined_rooms.clone()
+        self.base_client.joined_rooms.clone()
     }
 
     /// This allows `AsyncClient` to manually sync state with the provided `StateStore`.
@@ -368,7 +360,7 @@ impl AsyncClient {
     /// # });
     /// ```
     pub async fn sync_with_state_store(&self) -> Result<bool> {
-        self.base_client.write().await.sync_with_state_store().await
+        self.base_client.sync_with_state_store().await
     }
 
     /// Login to the server.
@@ -403,9 +395,7 @@ impl AsyncClient {
         };
 
         let response = self.send(request).await?;
-        let mut client = self.base_client.write().await;
-
-        client.receive_login_response(&response).await?;
+        self.base_client.receive_login_response(&response).await?;
 
         Ok(response)
     }
@@ -625,7 +615,7 @@ impl AsyncClient {
     pub async fn sync(&self, mut sync_settings: SyncSettings) -> Result<sync_events::Response> {
         {
             // if the client has been synced from the state store don't sync again
-            if !self.base_client.read().await.is_state_store_synced() {
+            if !self.base_client.is_state_store_synced() {
                 // this will bail out returning false if the store has not been set up
                 if let Ok(synced) = self.sync_with_state_store().await {
                     if synced {
@@ -646,8 +636,9 @@ impl AsyncClient {
 
         let mut response = self.send(request).await?;
 
-        let client = self.base_client.read().await;
-        client.receive_sync_response(&mut response).await?;
+        self.base_client
+            .receive_sync_response(&mut response)
+            .await?;
 
         Ok(response)
     }
@@ -734,7 +725,7 @@ impl AsyncClient {
 
             #[cfg(feature = "encryption")]
             {
-                if self.base_client.read().await.should_upload_keys().await {
+                if self.base_client.should_upload_keys().await {
                     let response = self.keys_upload().await;
 
                     if let Err(e) = response {
@@ -742,7 +733,7 @@ impl AsyncClient {
                     }
                 }
 
-                if self.base_client.read().await.should_query_keys().await {
+                if self.base_client.should_query_keys().await {
                     let response = self.keys_query().await;
 
                     if let Err(e) = response {
@@ -807,8 +798,7 @@ impl AsyncClient {
         };
 
         let request_builder = if Request::METADATA.requires_authentication {
-            let client = self.base_client.read().await;
-            let session = client.session.read().await;
+            let session = self.base_client.session.read().await;
 
             if let Some(session) = session.as_ref() {
                 request_builder.bearer_auth(&session.access_token)
@@ -894,8 +884,7 @@ impl AsyncClient {
         #[cfg(feature = "encryption")]
         {
             let encrypted = {
-                let client = self.base_client.read().await;
-                let room = client.get_room(room_id).await;
+                let room = self.base_client.get_room(room_id).await;
 
                 match room {
                     Some(r) => r.read().await.is_encrypted(),
@@ -905,40 +894,24 @@ impl AsyncClient {
 
             if encrypted {
                 let missing_sessions = {
-                    let client = self.base_client.read().await;
-                    let room = client.get_room(room_id).await;
+                    let room = self.base_client.get_room(room_id).await;
                     let room = room.as_ref().unwrap().read().await;
                     let users = room.members.keys();
-                    self.base_client
-                        .read()
-                        .await
-                        .get_missing_sessions(users)
-                        .await?
+                    self.base_client.get_missing_sessions(users).await?
                 };
 
                 if !missing_sessions.is_empty() {
                     self.claim_one_time_keys(missing_sessions).await?;
                 }
 
-                if self
-                    .base_client
-                    .read()
-                    .await
-                    .should_share_group_session(room_id)
-                    .await
-                {
+                if self.base_client.should_share_group_session(room_id).await {
                     // TODO we need to make sure that only one such request is
                     // in flight per room at a time.
                     self.share_group_session(room_id).await?;
                 }
 
                 raw_content = serde_json::value::to_raw_value(
-                    &self
-                        .base_client
-                        .read()
-                        .await
-                        .encrypt(room_id, content)
-                        .await?,
+                    &self.base_client.encrypt(room_id, content).await?,
                 )?;
                 event_type = EventType::RoomEncrypted;
             }
@@ -979,8 +952,6 @@ impl AsyncClient {
 
         let response = self.send(request).await?;
         self.base_client
-            .read()
-            .await
             .receive_keys_claim_response(&response)
             .await?;
         Ok(response)
@@ -1002,8 +973,6 @@ impl AsyncClient {
     async fn share_group_session(&self, room_id: &RoomId) -> Result<()> {
         let mut requests = self
             .base_client
-            .read()
-            .await
             .share_group_session(room_id)
             .await
             .expect("Keys don't need to be uploaded");
@@ -1030,8 +999,6 @@ impl AsyncClient {
     async fn keys_upload(&self) -> Result<upload_keys::Response> {
         let (device_keys, one_time_keys) = self
             .base_client
-            .read()
-            .await
             .keys_for_upload()
             .await
             .expect("Keys don't need to be uploaded");
@@ -1049,8 +1016,6 @@ impl AsyncClient {
 
         let response = self.send(request).await?;
         self.base_client
-            .read()
-            .await
             .receive_keys_upload_response(&response)
             .await?;
         Ok(response)
@@ -1059,7 +1024,7 @@ impl AsyncClient {
     /// Get the current, if any, sync token of the client.
     /// This will be None if the client didn't sync at least once.
     pub async fn sync_token(&self) -> Option<String> {
-        self.base_client.read().await.sync_token().await
+        self.base_client.sync_token().await
     }
 
     /// Query the server for users device keys.
@@ -1073,8 +1038,6 @@ impl AsyncClient {
     async fn keys_query(&self) -> Result<get_keys::Response> {
         let mut users_for_query = self
             .base_client
-            .read()
-            .await
             .users_for_key_query()
             .await
             .expect("Keys don't need to be uploaded");
@@ -1098,8 +1061,6 @@ impl AsyncClient {
 
         let response = self.send(request).await?;
         self.base_client
-            .read()
-            .await
             .receive_keys_query_response(&response)
             .await?;
 
