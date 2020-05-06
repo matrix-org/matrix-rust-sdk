@@ -329,11 +329,11 @@ impl AsyncClient {
         self.base_client.calculate_room_names().await
     }
 
-    /// Returns the rooms this client knows about.
+    /// Returns the joined rooms this client knows about.
     ///
     /// A `HashMap` of room id to `matrix::models::Room`
-    pub async fn get_rooms(&self) -> Arc<RwLock<HashMap<RoomId, Arc<tokio::sync::RwLock<Room>>>>> {
-        self.base_client.joined_rooms.clone()
+    pub fn joined_rooms(&self) -> Arc<RwLock<HashMap<RoomId, Arc<tokio::sync::RwLock<Room>>>>> {
+        self.base_client.joined_rooms()
     }
 
     /// This allows `AsyncClient` to manually sync state with the provided `StateStore`.
@@ -798,7 +798,7 @@ impl AsyncClient {
         };
 
         let request_builder = if Request::METADATA.requires_authentication {
-            let session = self.base_client.session.read().await;
+            let session = self.base_client.session().read().await;
 
             if let Some(session) = session.as_ref() {
                 request_builder.bearer_auth(&session.access_token)
@@ -884,7 +884,7 @@ impl AsyncClient {
         #[cfg(feature = "encryption")]
         {
             let encrypted = {
-                let room = self.base_client.get_room(room_id).await;
+                let room = self.base_client.get_joined_room(room_id).await;
 
                 match room {
                     Some(r) => r.read().await.is_encrypted(),
@@ -894,7 +894,7 @@ impl AsyncClient {
 
             if encrypted {
                 let missing_sessions = {
-                    let room = self.base_client.get_room(room_id).await;
+                    let room = self.base_client.get_joined_room(room_id).await;
                     let room = room.as_ref().unwrap().read().await;
                     let users = room.members.keys();
                     self.base_client.get_missing_sessions(users).await?

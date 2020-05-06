@@ -67,23 +67,23 @@ pub type Token = String;
 pub struct Client {
     /// The current client session containing our user id, device id and access
     /// token.
-    pub session: Arc<RwLock<Option<Session>>>,
+    session: Arc<RwLock<Option<Session>>>,
     /// The current sync token that should be used for the next sync call.
-    pub sync_token: Arc<RwLock<Option<Token>>>,
+    pub(crate) sync_token: Arc<RwLock<Option<Token>>>,
     /// A map of the rooms our user is joined in.
-    pub joined_rooms: Arc<RwLock<HashMap<RoomId, Arc<RwLock<Room>>>>>,
+    joined_rooms: Arc<RwLock<HashMap<RoomId, Arc<RwLock<Room>>>>>,
     /// A list of ignored users.
-    pub ignored_users: Arc<RwLock<Vec<UserId>>>,
+    pub(crate) ignored_users: Arc<RwLock<Vec<UserId>>>,
     /// The push ruleset for the logged in user.
-    pub push_ruleset: Arc<RwLock<Option<Ruleset>>>,
+    pub(crate) push_ruleset: Arc<RwLock<Option<Ruleset>>>,
     /// Any implementor of EventEmitter will act as the callbacks for various
     /// events.
-    pub event_emitter: Arc<RwLock<Option<Box<dyn EventEmitter>>>>,
+    event_emitter: Arc<RwLock<Option<Box<dyn EventEmitter>>>>,
     /// Any implementor of `StateStore` will be called to save `Room` and
     /// some `BaseClient` state during `AsyncClient::sync` calls.
     ///
     /// There is a default implementation `JsonStore` that saves JSON to disk.
-    pub state_store: Arc<RwLock<Option<Box<dyn StateStore>>>>,
+    state_store: Arc<RwLock<Option<Box<dyn StateStore>>>>,
     /// Does the `Client` need to sync with the state store.
     needs_state_store_sync: Arc<AtomicBool>,
 
@@ -150,6 +150,12 @@ impl Client {
             #[cfg(feature = "encryption")]
             olm: Arc::new(Mutex::new(olm)),
         })
+    }
+
+    /// The current client session containing our user id, device id and access
+    /// token.
+    pub fn session(&self) -> &Arc<RwLock<Option<Session>>> {
+        &self.session
     }
 
     /// Is the client logged in.
@@ -267,8 +273,20 @@ impl Client {
             .clone()
     }
 
-    pub(crate) async fn get_room(&self, room_id: &RoomId) -> Option<Arc<RwLock<Room>>> {
+    /// Get a joined room with the given room id.
+    ///
+    /// # Arguments
+    ///
+    /// `room_id` - The unique id of the room that should be fetched.
+    pub(crate) async fn get_joined_room(&self, room_id: &RoomId) -> Option<Arc<RwLock<Room>>> {
         self.joined_rooms.read().await.get(room_id).cloned()
+    }
+
+    /// Returns the joined rooms this client knows about.
+    ///
+    /// A `HashMap` of room id to `matrix::models::Room`
+    pub fn joined_rooms(&self) -> Arc<RwLock<HashMap<RoomId, Arc<tokio::sync::RwLock<Room>>>>> {
+        self.joined_rooms.clone()
     }
 
     /// Handle a m.ignored_user_list event, updating the room state if necessary.
@@ -373,7 +391,7 @@ impl Client {
     /// * `event` - The event that should be handled by the client.
     pub async fn receive_presence_event(&self, room_id: &RoomId, event: &PresenceEvent) -> bool {
         // this should be the room that was just created in the `Client::sync` loop.
-        if let Some(room) = self.get_room(room_id).await {
+        if let Some(room) = self.get_joined_room(room_id).await {
             let mut room = room.write().await;
             room.receive_presence_event(event)
         } else {
@@ -631,7 +649,7 @@ impl Client {
         &self,
         room_id: &RoomId,
     ) -> Result<Vec<send_event_to_device::Request>> {
-        let room = self.get_room(room_id).await.expect("No room found");
+        let room = self.get_joined_room(room_id).await.expect("No room found");
         let mut olm = self.olm.lock().await;
 
         match &mut *olm {
@@ -756,7 +774,7 @@ impl Client {
             return;
         };
 
-        let room = if let Some(room) = self.get_room(&room_id).await {
+        let room = if let Some(room) = self.get_joined_room(&room_id).await {
             Arc::clone(&room)
         } else {
             return;
@@ -797,7 +815,7 @@ impl Client {
             return;
         };
 
-        let room = if let Some(room) = self.get_room(&room_id).await {
+        let room = if let Some(room) = self.get_joined_room(&room_id).await {
             Arc::clone(&room)
         } else {
             return;
@@ -834,7 +852,7 @@ impl Client {
             return;
         };
 
-        let room = if let Some(room) = self.get_room(&room_id).await {
+        let room = if let Some(room) = self.get_joined_room(&room_id).await {
             Arc::clone(&room)
         } else {
             return;
@@ -867,7 +885,7 @@ impl Client {
             return;
         };
 
-        let room = if let Some(room) = self.get_room(&room_id).await {
+        let room = if let Some(room) = self.get_joined_room(&room_id).await {
             Arc::clone(&room)
         } else {
             return;
@@ -894,7 +912,7 @@ impl Client {
 
     pub(crate) async fn emit_presence_event(&self, room_id: &RoomId, event: &PresenceEvent) {
         if let Some(ee) = &self.event_emitter.read().await.as_ref() {
-            if let Some(room) = self.get_room(&room_id).await {
+            if let Some(room) = self.get_joined_room(&room_id).await {
                 ee.on_presence_event(Arc::clone(&room), &event).await;
             }
         }
