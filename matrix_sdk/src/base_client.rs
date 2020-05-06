@@ -77,7 +77,7 @@ pub struct Client {
     pub push_ruleset: Arc<RwLock<Option<Ruleset>>>,
     /// Any implementor of EventEmitter will act as the callbacks for various
     /// events.
-    pub event_emitter: Option<Box<dyn EventEmitter>>,
+    pub event_emitter: Arc<RwLock<Option<Box<dyn EventEmitter>>>>,
     /// Any implementor of `StateStore` will be called to save `Room` and
     /// some `BaseClient` state during `AsyncClient::sync` calls.
     ///
@@ -123,7 +123,7 @@ impl Client {
             joined_rooms: Arc::new(RwLock::new(HashMap::new())),
             ignored_users: Arc::new(RwLock::new(Vec::new())),
             push_ruleset: Arc::new(RwLock::new(None)),
-            event_emitter: None,
+            event_emitter: Arc::new(RwLock::new(None)),
             state_store: None,
             needs_state_store_sync: Arc::new(AtomicBool::from(true)),
             #[cfg(feature = "encryption")]
@@ -141,8 +141,8 @@ impl Client {
     /// Add `EventEmitter` to `Client`.
     ///
     /// The methods of `EventEmitter` are called when the respective `RoomEvents` occur.
-    pub async fn add_event_emitter(&mut self, emitter: Box<dyn EventEmitter>) {
-        self.event_emitter = Some(emitter);
+    pub async fn add_event_emitter(&self, emitter: Box<dyn EventEmitter>) {
+        *self.event_emitter.write().await = Some(emitter);
     }
 
     /// Returns true if the state store has been loaded into the client.
@@ -725,220 +725,151 @@ impl Client {
     }
 
     pub(crate) async fn emit_timeline_event(&self, room_id: &RoomId, event: &RoomEvent) {
+        let lock = self.event_emitter.read().await;
+        let event_emitter = if let Some(ee) = lock.as_ref() {
+            ee
+        } else {
+            return;
+        };
+
+        let room = if let Some(room) = self.get_room(&room_id).await {
+            Arc::clone(&room)
+        } else {
+            return;
+        };
+
         match event {
-            RoomEvent::RoomMember(mem) => {
-                if let Some(ee) = &self.event_emitter {
-                    if let Some(room) = self.get_room(&room_id).await {
-                        ee.on_room_member(Arc::clone(&room), &mem).await;
-                    }
-                }
-            }
-            RoomEvent::RoomName(name) => {
-                if let Some(ee) = &self.event_emitter {
-                    if let Some(room) = self.get_room(&room_id).await {
-                        ee.on_room_name(Arc::clone(&room), &name).await;
-                    }
-                }
-            }
+            RoomEvent::RoomMember(mem) => event_emitter.on_room_member(room, &mem).await,
+            RoomEvent::RoomName(name) => event_emitter.on_room_name(room, &name).await,
             RoomEvent::RoomCanonicalAlias(canonical) => {
-                if let Some(ee) = &self.event_emitter {
-                    if let Some(room) = self.get_room(&room_id).await {
-                        ee.on_room_canonical_alias(Arc::clone(&room), &canonical)
-                            .await;
-                    }
-                }
+                event_emitter
+                    .on_room_canonical_alias(room, &canonical)
+                    .await
             }
-            RoomEvent::RoomAliases(aliases) => {
-                if let Some(ee) = &self.event_emitter {
-                    if let Some(room) = self.get_room(&room_id).await {
-                        ee.on_room_aliases(Arc::clone(&room), &aliases).await;
-                    }
-                }
-            }
-            RoomEvent::RoomAvatar(avatar) => {
-                if let Some(ee) = &self.event_emitter {
-                    if let Some(room) = self.get_room(&room_id).await {
-                        ee.on_room_avatar(Arc::clone(&room), &avatar).await;
-                    }
-                }
-            }
-            RoomEvent::RoomMessage(msg) => {
-                if let Some(ee) = &self.event_emitter {
-                    if let Some(room) = self.get_room(&room_id).await {
-                        ee.on_room_message(Arc::clone(&room), &msg).await;
-                    }
-                }
-            }
+            RoomEvent::RoomAliases(aliases) => event_emitter.on_room_aliases(room, &aliases).await,
+            RoomEvent::RoomAvatar(avatar) => event_emitter.on_room_avatar(room, &avatar).await,
+            RoomEvent::RoomMessage(msg) => event_emitter.on_room_message(room, &msg).await,
             RoomEvent::RoomMessageFeedback(msg_feedback) => {
-                if let Some(ee) = &self.event_emitter {
-                    if let Some(room) = self.get_room(&room_id).await {
-                        ee.on_room_message_feedback(Arc::clone(&room), &msg_feedback)
-                            .await;
-                    }
-                }
+                event_emitter
+                    .on_room_message_feedback(room, &msg_feedback)
+                    .await
             }
             RoomEvent::RoomRedaction(redaction) => {
-                if let Some(ee) = &self.event_emitter {
-                    if let Some(room) = self.get_room(&room_id).await {
-                        ee.on_room_redaction(Arc::clone(&room), &redaction).await;
-                    }
-                }
+                event_emitter.on_room_redaction(room, &redaction).await
             }
             RoomEvent::RoomPowerLevels(power) => {
-                if let Some(ee) = &self.event_emitter {
-                    if let Some(room) = self.get_room(&room_id).await {
-                        ee.on_room_power_levels(Arc::clone(&room), &power).await;
-                    }
-                }
+                event_emitter.on_room_power_levels(room, &power).await
             }
-            RoomEvent::RoomTombstone(tomb) => {
-                if let Some(ee) = &self.event_emitter {
-                    if let Some(room) = self.get_room(&room_id).await {
-                        ee.on_room_tombstone(Arc::clone(&room), &tomb).await;
-                    }
-                }
-            }
+            RoomEvent::RoomTombstone(tomb) => event_emitter.on_room_tombstone(room, &tomb).await,
             _ => {}
         }
     }
 
     pub(crate) async fn emit_state_event(&self, room_id: &RoomId, event: &StateEvent) {
+        let lock = self.event_emitter.read().await;
+        let event_emitter = if let Some(ee) = lock.as_ref() {
+            ee
+        } else {
+            return;
+        };
+
+        let room = if let Some(room) = self.get_room(&room_id).await {
+            Arc::clone(&room)
+        } else {
+            return;
+        };
+
         match event {
-            StateEvent::RoomMember(member) => {
-                if let Some(ee) = &self.event_emitter {
-                    if let Some(room) = self.get_room(&room_id).await {
-                        ee.on_state_member(Arc::clone(&room), &member).await;
-                    }
-                }
-            }
-            StateEvent::RoomName(name) => {
-                if let Some(ee) = &self.event_emitter {
-                    if let Some(room) = self.get_room(&room_id).await {
-                        ee.on_state_name(Arc::clone(&room), &name).await;
-                    }
-                }
-            }
+            StateEvent::RoomMember(member) => event_emitter.on_state_member(room, &member).await,
+            StateEvent::RoomName(name) => event_emitter.on_state_name(room, &name).await,
             StateEvent::RoomCanonicalAlias(canonical) => {
-                if let Some(ee) = &self.event_emitter {
-                    if let Some(room) = self.get_room(&room_id).await {
-                        ee.on_state_canonical_alias(Arc::clone(&room), &canonical)
-                            .await;
-                    }
-                }
+                event_emitter
+                    .on_state_canonical_alias(room, &canonical)
+                    .await
             }
             StateEvent::RoomAliases(aliases) => {
-                if let Some(ee) = &self.event_emitter {
-                    if let Some(room) = self.get_room(&room_id).await {
-                        ee.on_state_aliases(Arc::clone(&room), &aliases).await;
-                    }
-                }
+                event_emitter.on_state_aliases(room, &aliases).await
             }
-            StateEvent::RoomAvatar(avatar) => {
-                if let Some(ee) = &self.event_emitter {
-                    if let Some(room) = self.get_room(&room_id).await {
-                        ee.on_state_avatar(Arc::clone(&room), &avatar).await;
-                    }
-                }
-            }
+            StateEvent::RoomAvatar(avatar) => event_emitter.on_state_avatar(room, &avatar).await,
             StateEvent::RoomPowerLevels(power) => {
-                if let Some(ee) = &self.event_emitter {
-                    if let Some(room) = self.get_room(&room_id).await {
-                        ee.on_state_power_levels(Arc::clone(&room), &power).await;
-                    }
-                }
+                event_emitter.on_state_power_levels(room, &power).await
             }
             StateEvent::RoomJoinRules(rules) => {
-                if let Some(ee) = &self.event_emitter {
-                    if let Some(room) = self.get_room(&room_id).await {
-                        ee.on_state_join_rules(Arc::clone(&room), &rules).await;
-                    }
-                }
+                event_emitter.on_state_join_rules(room, &rules).await
             }
-            StateEvent::RoomTombstone(tomb) => {
-                if let Some(ee) = &self.event_emitter {
-                    if let Some(room) = self.get_room(&room_id).await {
-                        ee.on_room_tombstone(Arc::clone(&room), &tomb).await;
-                    }
-                }
-            }
+            StateEvent::RoomTombstone(tomb) => event_emitter.on_room_tombstone(room, &tomb).await,
             _ => {}
         }
     }
 
     pub(crate) async fn emit_account_data_event(&self, room_id: &RoomId, event: &NonRoomEvent) {
+        let lock = self.event_emitter.read().await;
+        let event_emitter = if let Some(ee) = lock.as_ref() {
+            ee
+        } else {
+            return;
+        };
+
+        let room = if let Some(room) = self.get_room(&room_id).await {
+            Arc::clone(&room)
+        } else {
+            return;
+        };
+
         match event {
             NonRoomEvent::Presence(presence) => {
-                if let Some(ee) = &self.event_emitter {
-                    if let Some(room) = self.get_room(&room_id).await {
-                        ee.on_account_presence(Arc::clone(&room), &presence).await;
-                    }
-                }
+                event_emitter.on_account_presence(room, &presence).await
             }
             NonRoomEvent::IgnoredUserList(ignored) => {
-                if let Some(ee) = &self.event_emitter {
-                    if let Some(room) = self.get_room(&room_id).await {
-                        ee.on_account_ignored_users(Arc::clone(&room), &ignored)
-                            .await;
-                    }
-                }
+                event_emitter.on_account_ignored_users(room, &ignored).await
             }
             NonRoomEvent::PushRules(rules) => {
-                if let Some(ee) = &self.event_emitter {
-                    if let Some(room) = self.get_room(&room_id).await {
-                        ee.on_account_push_rules(Arc::clone(&room), &rules).await;
-                    }
-                }
+                event_emitter.on_account_push_rules(room, &rules).await
             }
             NonRoomEvent::FullyRead(full_read) => {
-                if let Some(ee) = &self.event_emitter {
-                    if let Some(room) = self.get_room(&room_id).await {
-                        ee.on_account_data_fully_read(Arc::clone(&room), &full_read)
-                            .await;
-                    }
-                }
+                event_emitter
+                    .on_account_data_fully_read(room, &full_read)
+                    .await
             }
             _ => {}
         }
     }
 
     pub(crate) async fn emit_ephemeral_event(&self, room_id: &RoomId, event: &NonRoomEvent) {
+        let lock = self.event_emitter.read().await;
+        let event_emitter = if let Some(ee) = lock.as_ref() {
+            ee
+        } else {
+            return;
+        };
+
+        let room = if let Some(room) = self.get_room(&room_id).await {
+            Arc::clone(&room)
+        } else {
+            return;
+        };
+
         match event {
             NonRoomEvent::Presence(presence) => {
-                if let Some(ee) = &self.event_emitter {
-                    if let Some(room) = self.get_room(&room_id).await {
-                        ee.on_account_presence(Arc::clone(&room), &presence).await;
-                    }
-                }
+                event_emitter.on_account_presence(room, &presence).await
             }
             NonRoomEvent::IgnoredUserList(ignored) => {
-                if let Some(ee) = &self.event_emitter {
-                    if let Some(room) = self.get_room(&room_id).await {
-                        ee.on_account_ignored_users(Arc::clone(&room), &ignored)
-                            .await;
-                    }
-                }
+                event_emitter.on_account_ignored_users(room, &ignored).await
             }
             NonRoomEvent::PushRules(rules) => {
-                if let Some(ee) = &self.event_emitter {
-                    if let Some(room) = self.get_room(&room_id).await {
-                        ee.on_account_push_rules(Arc::clone(&room), &rules).await;
-                    }
-                }
+                event_emitter.on_account_push_rules(room, &rules).await
             }
             NonRoomEvent::FullyRead(full_read) => {
-                if let Some(ee) = &self.event_emitter {
-                    if let Some(room) = self.get_room(&room_id).await {
-                        ee.on_account_data_fully_read(Arc::clone(&room), &full_read)
-                            .await;
-                    }
-                }
+                event_emitter
+                    .on_account_data_fully_read(room, &full_read)
+                    .await
             }
             _ => {}
         }
     }
 
     pub(crate) async fn emit_presence_event(&self, room_id: &RoomId, event: &PresenceEvent) {
-        if let Some(ee) = &self.event_emitter {
+        if let Some(ee) = &self.event_emitter.read().await.as_ref() {
             if let Some(room) = self.get_room(&room_id).await {
                 ee.on_presence_event(Arc::clone(&room), &event).await;
             }

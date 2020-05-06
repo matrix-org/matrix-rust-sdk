@@ -312,7 +312,11 @@ impl AsyncClient {
     ///
     /// The methods of `EventEmitter` are called when the respective `RoomEvents` occur.
     pub async fn add_event_emitter(&mut self, emitter: Box<dyn EventEmitter>) {
-        self.base_client.write().await.event_emitter = Some(emitter);
+        self.base_client
+            .read()
+            .await
+            .add_event_emitter(emitter)
+            .await;
     }
 
     /// Returns an `Option` of the room name from a `RoomId`.
