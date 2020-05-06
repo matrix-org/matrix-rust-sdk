@@ -300,9 +300,7 @@ impl AsyncClient {
 
     /// Is the client logged in.
     pub async fn logged_in(&self) -> bool {
-        // TODO turn this into a atomic bool so this method doesn't need to be
-        // async.
-        self.base_client.read().await.logged_in()
+        self.base_client.read().await.logged_in().await
     }
 
     /// The Homeserver of the client.
@@ -806,8 +804,9 @@ impl AsyncClient {
 
         let request_builder = if Request::METADATA.requires_authentication {
             let client = self.base_client.read().await;
+            let session = client.session.read().await;
 
-            if let Some(ref session) = client.session {
+            if let Some(session) = session.as_ref() {
                 request_builder.bearer_auth(&session.access_token)
             } else {
                 return Err(Error::AuthenticationRequired);

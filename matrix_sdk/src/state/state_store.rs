@@ -290,7 +290,7 @@ mod test {
         let base_client = client.base_client.read().await;
 
         // assert the synced client and the logged in client are equal
-        assert_eq!(base_client.session, Some(session));
+        assert_eq!(*base_client.session.read().await, Some(session));
         assert_eq!(
             base_client.sync_token().await,
             Some("s526_47314_0_7_1_1_1_11444_1".to_string())

@@ -66,7 +66,7 @@ pub type Token = String;
 pub struct Client {
     /// The current client session containing our user id, device id and access
     /// token.
-    pub session: Option<Session>,
+    pub session: Arc<RwLock<Option<Session>>>,
     /// The current sync token that should be used for the next sync call.
     pub sync_token: Arc<RwLock<Option<Token>>>,
     /// A map of the rooms our user is joined in.
@@ -118,7 +118,7 @@ impl Client {
         };
 
         Ok(Client {
-            session,
+            session: Arc::new(RwLock::new(session)),
             sync_token: Arc::new(RwLock::new(None)),
             joined_rooms: Arc::new(RwLock::new(HashMap::new())),
             ignored_users: Arc::new(RwLock::new(Vec::new())),
@@ -132,8 +132,10 @@ impl Client {
     }
 
     /// Is the client logged in.
-    pub fn logged_in(&self) -> bool {
-        self.session.is_some()
+    pub async fn logged_in(&self) -> bool {
+        // TODO turn this into a atomic bool so this method doesn't need to be
+        // async.
+        self.session.read().await.is_some()
     }
 
     /// Add `EventEmitter` to `Client`.
@@ -153,7 +155,7 @@ impl Client {
     /// Returns `true` when a state store sync has successfully completed.
     pub(crate) async fn sync_with_state_store(&mut self) -> Result<bool> {
         if let Some(store) = self.state_store.as_ref() {
-            if let Some(sess) = self.session.as_ref() {
+            if let Some(sess) = self.session.read().await.as_ref() {
                 if let Some(client_state) = store.load_client_state(sess).await? {
                     let ClientState {
                         sync_token,
@@ -198,7 +200,7 @@ impl Client {
             device_id: response.device_id.clone(),
             user_id: response.user_id.clone(),
         };
-        self.session = Some(session);
+        *self.session.write().await = Some(session);
 
         #[cfg(feature = "encryption")]
         {
@@ -236,6 +238,8 @@ impl Client {
                 room_id,
                 &self
                     .session
+                    .read()
+                    .await
                     .as_ref()
                     .expect("Receiving events while not being logged in")
                     .user_id,
