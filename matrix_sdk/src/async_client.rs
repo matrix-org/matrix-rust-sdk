@@ -285,10 +285,10 @@ impl AsyncClient {
 
         let http_client = http_client.default_headers(headers).build()?;
 
-        let mut base_client = BaseClient::new(session)?;
-
-        if let Some(store) = config.state_store {
-            base_client.state_store = Some(store);
+        let base_client = if let Some(store) = config.state_store {
+            BaseClient::new_with_state_store(session, store)?
+        } else {
+            BaseClient::new(session)?
         };
 
         Ok(Self {

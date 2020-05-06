@@ -82,7 +82,7 @@ pub struct Client {
     /// some `BaseClient` state during `AsyncClient::sync` calls.
     ///
     /// There is a default implementation `JsonStore` that saves JSON to disk.
-    pub state_store: Option<Box<dyn StateStore>>,
+    pub state_store: Arc<RwLock<Option<Box<dyn StateStore>>>>,
     /// Does the `Client` need to sync with the state store.
     needs_state_store_sync: Arc<AtomicBool>,
 
@@ -111,6 +111,26 @@ impl Client {
     /// * `session` - An optional session if the user already has one from a
     /// previous login call.
     pub fn new(session: Option<Session>) -> Result<Self> {
+        Client::new_helper(session, None)
+    }
+
+    /// Create a new client.
+    ///
+    /// # Arguments
+    ///
+    /// * `session` - An optional session if the user already has one from a
+    /// previous login call.
+    ///
+    /// * `store` - An open state store implementation that will be used through
+    /// the lifetime of the client.
+    pub fn new_with_state_store(
+        session: Option<Session>,
+        store: Box<dyn StateStore>,
+    ) -> Result<Self> {
+        Client::new_helper(session, Some(store))
+    }
+
+    fn new_helper(session: Option<Session>, store: Option<Box<dyn StateStore>>) -> Result<Self> {
         #[cfg(feature = "encryption")]
         let olm = match &session {
             Some(s) => Some(OlmMachine::new(&s.user_id, &s.device_id)),
@@ -124,7 +144,7 @@ impl Client {
             ignored_users: Arc::new(RwLock::new(Vec::new())),
             push_ruleset: Arc::new(RwLock::new(None)),
             event_emitter: Arc::new(RwLock::new(None)),
-            state_store: None,
+            state_store: Arc::new(RwLock::new(store)),
             needs_state_store_sync: Arc::new(AtomicBool::from(true)),
             #[cfg(feature = "encryption")]
             olm: Arc::new(Mutex::new(olm)),
@@ -154,7 +174,8 @@ impl Client {
     ///
     /// Returns `true` when a state store sync has successfully completed.
     pub(crate) async fn sync_with_state_store(&mut self) -> Result<bool> {
-        if let Some(store) = self.state_store.as_ref() {
+        let store = self.state_store.read().await;
+        if let Some(store) = store.as_ref() {
             if let Some(sess) = self.session.read().await.as_ref() {
                 if let Some(client_state) = store.load_client_state(sess).await? {
                     let ClientState {
@@ -523,7 +544,9 @@ impl Client {
             }
 
             if updated {
-                if let Some(store) = self.state_store.as_ref() {
+                let store = self.state_store.read().await;
+
+                if let Some(store) = store.as_ref() {
                     store
                         .store_room_state(matrix_room.read().await.deref())
                         .await?;
@@ -532,7 +555,9 @@ impl Client {
         }
 
         if updated {
-            if let Some(store) = self.state_store.as_ref() {
+            let store = self.state_store.read().await;
+
+            if let Some(store) = store.as_ref() {
                 let state = ClientState::from_base_client(&self).await;
                 store.store_client_state(state).await?;
             }
