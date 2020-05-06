@@ -19,7 +19,6 @@ use crate::events::{
     ignored_user_list::IgnoredUserListEvent,
     presence::PresenceEvent,
     push_rules::PushRulesEvent,
-    receipt::ReceiptEvent,
     room::{
         aliases::AliasesEvent,
         avatar::AvatarEvent,
@@ -36,7 +35,6 @@ use crate::events::{
         StrippedRoomAliases, StrippedRoomAvatar, StrippedRoomCanonicalAlias, StrippedRoomJoinRules,
         StrippedRoomMember, StrippedRoomName, StrippedRoomPowerLevels,
     },
-    typing::TypingEvent,
 };
 use crate::models::Room;
 use tokio::sync::RwLock;
@@ -107,10 +105,6 @@ pub trait EventEmitter: Send + Sync {
     async fn on_room_power_levels(&self, _: Arc<RwLock<Room>>, _: &PowerLevelsEvent) {}
     /// Fires when `AsyncClient` receives a `RoomEvent::Tombstone` event.
     async fn on_room_tombstone(&self, _: Arc<RwLock<Room>>, _: &TombstoneEvent) {}
-    /// Fires when `AsyncClient` receives a `NonRoomEvent::Typing` event.
-    async fn on_account_data_typing(&self, _: Arc<RwLock<Room>>, _: &TypingEvent) {}
-    /// Fires when `AsyncClient` receives a `NonRoomEvent::Typing` event.
-    async fn on_account_data_receipt(&self, _: Arc<RwLock<Room>>, _: &ReceiptEvent) {}
 
     // `RoomEvent`s from `IncomingState`
     /// Fires when `AsyncClient` receives a `StateEvent::RoomMember` event.
@@ -306,7 +300,7 @@ mod test {
     use std::time::Duration;
 
     #[tokio::test]
-    async fn event_emitter_sync() {
+    async fn event_emitter_joined() {
         let homeserver = Url::from_str(&mockito::server_url()).unwrap();
 
         let session = Session {

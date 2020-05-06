@@ -397,15 +397,15 @@ impl Room {
     pub fn receive_timeline_event(&mut self, event: &RoomEvent) -> bool {
         match event {
             // update to the current members of the room
-            RoomEvent::RoomMember(member) => self.handle_membership(member),
+            RoomEvent::RoomMember(m) => self.handle_membership(m),
             // finds all events related to the name of the room for later use
-            RoomEvent::RoomName(name) => self.handle_room_name(name),
-            RoomEvent::RoomCanonicalAlias(c_alias) => self.handle_canonical(c_alias),
-            RoomEvent::RoomAliases(alias) => self.handle_room_aliases(alias),
+            RoomEvent::RoomName(n) => self.handle_room_name(n),
+            RoomEvent::RoomCanonicalAlias(ca) => self.handle_canonical(ca),
+            RoomEvent::RoomAliases(a) => self.handle_room_aliases(a),
             // power levels of the room members
-            RoomEvent::RoomPowerLevels(power) => self.handle_power_level(power),
-            RoomEvent::RoomTombstone(tomb) => self.handle_tombstone(tomb),
-            RoomEvent::RoomEncryption(encrypt) => self.handle_encryption_event(encrypt),
+            RoomEvent::RoomPowerLevels(p) => self.handle_power_level(p),
+            RoomEvent::RoomTombstone(t) => self.handle_tombstone(t),
+            RoomEvent::RoomEncryption(e) => self.handle_encryption_event(e),
             _ => false,
         }
     }
@@ -419,16 +419,13 @@ impl Room {
     /// * `event` - The event of the room.
     pub fn receive_state_event(&mut self, event: &StateEvent) -> bool {
         match event {
-            // update to the current members of the room
-            StateEvent::RoomMember(member) => self.handle_membership(member),
-            // finds all events related to the name of the room for later use
-            StateEvent::RoomName(name) => self.handle_room_name(name),
-            StateEvent::RoomCanonicalAlias(c_alias) => self.handle_canonical(c_alias),
-            StateEvent::RoomAliases(alias) => self.handle_room_aliases(alias),
-            // power levels of the room members
-            StateEvent::RoomPowerLevels(power) => self.handle_power_level(power),
-            StateEvent::RoomTombstone(tomb) => self.handle_tombstone(tomb),
-            StateEvent::RoomEncryption(encrypt) => self.handle_encryption_event(encrypt),
+            StateEvent::RoomMember(m) => self.handle_membership(m),
+            StateEvent::RoomName(n) => self.handle_room_name(n),
+            StateEvent::RoomCanonicalAlias(ca) => self.handle_canonical(ca),
+            StateEvent::RoomAliases(a) => self.handle_room_aliases(a),
+            StateEvent::RoomPowerLevels(p) => self.handle_power_level(p),
+            StateEvent::RoomTombstone(t) => self.handle_tombstone(t),
+            StateEvent::RoomEncryption(e) => self.handle_encryption_event(e),
             _ => false,
         }
     }
