@@ -12,6 +12,7 @@ version = "0.1.0"
 
 [features]
 default = ["encryption", "sqlite-cryptostore"]
+messages = []
 encryption = ["matrix-sdk-crypto"]
 sqlite-cryptostore = ["matrix-sdk-crypto/sqlite-cryptostore"]
 

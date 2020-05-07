@@ -1,4 +1,7 @@
 mod event_deser;
+#[cfg(feature = "messages")]
+#[cfg_attr(docsrs, doc(cfg(feature = "messages")))]
+mod message;
 mod room;
 mod room_member;
 
