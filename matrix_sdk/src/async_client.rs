@@ -315,24 +315,6 @@ impl AsyncClient {
         self.base_client.add_event_emitter(emitter).await;
     }
 
-    /// Returns an `Option` of the room name from a `RoomId`.
-    ///
-    /// This is a human readable room name.
-    pub async fn get_room_name(&self, room_id: &RoomId) -> Option<String> {
-        // TODO do we want to use the `RoomStateType` enum here or should we have
-        // 3 separate `room_name` methods. The other option is to remove this and have
-        // the user get a `Room` and use `Room::calculate_name` method?
-        self.base_client.calculate_room_name(room_id).await
-    }
-
-    /// Returns a `Vec` of the room names this client knows about.
-    ///
-    /// This is a human readable list of room names.
-    pub async fn get_room_names(&self) -> Vec<String> {
-        // TODO same as get_room_name
-        self.base_client.calculate_room_names().await
-    }
-
     /// Returns the joined rooms this client knows about.
     ///
     /// A `HashMap` of room id to `matrix::models::Room`
@@ -396,14 +378,18 @@ impl AsyncClient {
     /// # let homeserver = Url::parse("http://example.com").unwrap();
     /// let store = JsonStore::open("path/to/store").unwrap();
     /// let config = AsyncClientConfig::new().state_store(Box::new(store));
-    /// let mut cli = AsyncClient::new(homeserver, None).unwrap();
+    /// let mut client = AsyncClient::new(homeserver, None).unwrap();
     /// # use futures::executor::block_on;
     /// # block_on(async {
-    /// let _ = cli.login("name", "password", None, None).await.unwrap();
+    /// let _ = client.login("name", "password", None, None).await.unwrap();
     /// // returns true when a state store sync is successful
-    /// assert!(cli.sync_with_state_store().await.unwrap());
+    /// assert!(client.sync_with_state_store().await.unwrap());
     /// // now state is restored without a request to the server
-    /// assert_eq!(vec!["room".to_string(), "names".to_string()], cli.get_room_names().await)
+    /// let mut names = vec![];
+    /// for r in client.joined_rooms().read().await.values() {
+    ///     names.push(r.read().await.calculate_name());
+    /// }
+    /// assert_eq!(vec!["room".to_string(), "names".to_string()], names)
     /// # });
     /// ```
     pub async fn sync_with_state_store(&self) -> Result<bool> {

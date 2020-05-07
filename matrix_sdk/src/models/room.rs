@@ -633,6 +633,10 @@ mod test {
         let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
         let _response = client.sync(sync_settings).await.unwrap();
 
-        assert_eq!(vec!["example, example2"], client.get_room_names().await);
+        let mut names = vec![];
+        for r in client.joined_rooms().read().await.values() {
+            names.push(r.read().await.calculate_name());
+        }
+        assert_eq!(vec!["example, example2"], names);
     }
 }

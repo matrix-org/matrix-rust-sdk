@@ -267,24 +267,6 @@ impl Client {
         Ok(())
     }
 
-    pub(crate) async fn calculate_room_name(&self, room_id: &RoomId) -> Option<String> {
-        if let Some(room) = self.joined_rooms.read().await.get(room_id) {
-            let room = room.read().await;
-            Some(room.room_name.calculate_name(&room.members))
-        } else {
-            None
-        }
-    }
-
-    pub(crate) async fn calculate_room_names(&self) -> Vec<String> {
-        let mut res = Vec::new();
-        for room in self.joined_rooms.read().await.values() {
-            let room = room.read().await;
-            res.push(room.room_name.calculate_name(&room.members))
-        }
-        res
-    }
-
     pub(crate) async fn get_or_create_joined_room(&self, room_id: &RoomId) -> Arc<RwLock<Room>> {
         #[allow(clippy::or_fun_call)]
         let mut rooms = self.joined_rooms.write().await;
@@ -510,33 +492,15 @@ impl Client {
     pub async fn receive_left_timeline_event(
         &self,
         room_id: &RoomId,
-        event: &mut EventJson<RoomEvent>,
-    ) -> (Option<EventJson<RoomEvent>>, bool) {
+        event: &EventJson<RoomEvent>,
+    ) -> bool {
         match event.deserialize() {
-            #[allow(unused_mut)]
-            Ok(mut e) => {
-                #[cfg(feature = "encryption")]
-                let mut decrypted_event = None;
-                #[cfg(not(feature = "encryption"))]
-                let decrypted_event = None;
-
-                #[cfg(feature = "encryption")]
-                {
-                    if let RoomEvent::RoomEncrypted(ref mut e) = e {
-                        e.room_id = Some(room_id.to_owned());
-                        let mut olm = self.olm.lock().await;
-
-                        if let Some(o) = &mut *olm {
-                            decrypted_event = o.decrypt_room_event(&e).await.ok();
-                        }
-                    }
-                }
-
+            Ok(e) => {
                 let room_lock = self.get_or_create_left_room(room_id).await;
                 let mut room = room_lock.write().await;
-                (decrypted_event, room.receive_timeline_event(&e))
+                room.receive_timeline_event(&e)
             }
-            _ => (None, false),
+            _ => false,
         }
     }
 
@@ -652,7 +616,7 @@ impl Client {
             }
         }
 
-        // when events change state updated signals to state store to update database
+        // when events change state, updated signals to StateStore to update database
         let mut updated = self.iter_joined_rooms(response).await?;
 
         if self.iter_invited_rooms(&response).await? {
@@ -808,18 +772,9 @@ impl Client {
             }
 
             for mut event in &mut left_room.timeline.events {
-                let decrypted_event = {
-                    let (decrypt_ev, timeline_update) =
-                        self.receive_left_timeline_event(room_id, &mut event).await;
-                    if timeline_update {
-                        updated = true;
-                    };
-                    decrypt_ev
+                if self.receive_left_timeline_event(room_id, &mut event).await {
+                    updated = true;
                 };
-
-                if let Some(e) = decrypted_event {
-                    *event = e;
-                }
 
                 if let Ok(e) = event.deserialize() {
                     self.emit_timeline_event(&room_id, &e, RoomStateType::Left)
@@ -853,7 +808,7 @@ impl Client {
                     }
                 }
 
-                self.get_or_create_left_room(&room_id).await.clone()
+                self.get_or_create_invited_room(&room_id).await.clone()
             };
 
             for event in &invited_room.invite_state.events {

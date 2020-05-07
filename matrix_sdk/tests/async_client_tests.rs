@@ -81,11 +81,15 @@ async fn room_names() {
 
     let _response = client.sync(sync_settings).await.unwrap();
 
-    assert_eq!(vec!["tutorial"], client.get_room_names().await);
-    assert_eq!(
-        Some("tutorial".into()),
-        client
-            .get_room_name(&RoomId::try_from("!SVkFJHzfwvuaIEawgC:localhost").unwrap())
-            .await
-    );
+    let mut names = vec![];
+    for r in client.joined_rooms().read().await.values() {
+        names.push(r.read().await.calculate_name());
+    }
+    assert_eq!(vec!["tutorial"], names);
+    let room = client
+        .get_joined_room(&RoomId::try_from("!SVkFJHzfwvuaIEawgC:localhost").unwrap())
+        .await
+        .unwrap();
+
+    assert_eq!("tutorial".to_string(), room.read().await.calculate_name());
 }
