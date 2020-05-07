@@ -16,6 +16,7 @@
 use std::collections::{BTreeMap, HashMap};
 use std::convert::TryFrom;
 
+#[cfg(feature = "messages")]
 use super::message::MessageQueue;
 use super::RoomMember;
 
@@ -27,12 +28,15 @@ use crate::events::room::{
     canonical_alias::CanonicalAliasEvent,
     encryption::EncryptionEvent,
     member::{MemberEvent, MembershipChange},
-    message::MessageEvent,
     name::NameEvent,
     power_levels::{NotificationPowerLevels, PowerLevelsEvent, PowerLevelsEventContent},
     tombstone::TombstoneEvent,
 };
 use crate::events::EventType;
+
+#[cfg(feature = "messages")]
+use crate::events::room::message::MessageEvent;
+
 use crate::identifiers::{RoomAliasId, RoomId, UserId};
 
 use crate::js_int::{Int, UInt};
@@ -114,6 +118,8 @@ pub struct Room {
     ///
     /// This is helpful when using a `StateStore` to avoid multiple requests
     /// to the server for messages.
+    #[cfg(feature = "messages")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "messages")))]
     #[serde(with = "super::message::ser_deser")]
     pub messages: MessageQueue,
     /// A list of users that are currently typing.
@@ -219,6 +225,7 @@ impl Room {
             own_user_id: own_user_id.clone(),
             creator: None,
             members: HashMap::new(),
+            #[cfg(feature = "messages")]
             messages: MessageQueue::new(),
             typing_users: Vec::new(),
             power_levels: None,
@@ -336,6 +343,8 @@ impl Room {
     /// Handle a room.message event and update the `MessageQueue` if necessary.
     ///
     /// Returns true if `MessageQueue` was added to.
+    #[cfg(feature = "messages")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "messages")))]
     pub fn handle_message(&mut self, event: &MessageEvent) -> bool {
         self.messages.push(event.clone())
     }
@@ -425,6 +434,7 @@ impl Room {
             RoomEvent::RoomPowerLevels(power) => self.handle_power_level(power),
             RoomEvent::RoomTombstone(tomb) => self.handle_tombstone(tomb),
             RoomEvent::RoomEncryption(encrypt) => self.handle_encryption_event(encrypt),
+            #[cfg(feature = "messages")]
             RoomEvent::RoomMessage(msg) => self.handle_message(msg),
             _ => false,
         }

@@ -1,3 +1,8 @@
+//! A queue that holds at most ten of the most recent messages.
+//!
+//! The `Room` struct optionally holds a `MessageQueue` if the "messages"
+//! feature is enabled.
+
 use std::cmp::Ordering;
 use std::ops::Deref;
 use std::vec::IntoIter;
