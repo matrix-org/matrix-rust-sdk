@@ -21,7 +21,7 @@ use tokio::sync::Mutex;
 use super::{Account, CryptoStore, InboundGroupSession, Result, Session};
 use crate::device::Device;
 use crate::memory_stores::{DeviceStore, GroupSessionStore, SessionStore, UserDevices};
-use matrix_sdk_types::identifiers::{DeviceId, RoomId, UserId};
+use matrix_sdk_common::identifiers::{DeviceId, RoomId, UserId};
 
 #[derive(Debug)]
 pub struct MemoryStore {
@@ -119,7 +119,7 @@ mod test {
     use crate::olm::{InboundGroupSession, OutboundGroupSession};
     use crate::store::memorystore::MemoryStore;
     use crate::store::CryptoStore;
-    use matrix_sdk_types::identifiers::RoomId;
+    use matrix_sdk_common::identifiers::RoomId;
 
     #[tokio::test]
     async fn test_session_store() {
