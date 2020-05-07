@@ -13,12 +13,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 pub mod state_store;
 pub use state_store::JsonStore;
-
-use serde::{Deserialize, Serialize};
 
 use crate::base_client::{Client as BaseClient, Token};
 use crate::events::push_rules::Ruleset;
@@ -48,7 +47,7 @@ impl PartialEq for ClientState {
 }
 
 impl ClientState {
-    pub fn from_base_client(client: &BaseClient) -> ClientState {
+    pub async fn from_base_client(client: &BaseClient) -> ClientState {
         let BaseClient {
             sync_token,
             ignored_users,
@@ -56,9 +55,9 @@ impl ClientState {
             ..
         } = client;
         Self {
-            sync_token: sync_token.clone(),
-            ignored_users: ignored_users.clone(),
-            push_ruleset: push_ruleset.clone(),
+            sync_token: sync_token.read().await.clone(),
+            ignored_users: ignored_users.read().await.clone(),
+            push_ruleset: push_ruleset.read().await.clone(),
         }
     }
 }

@@ -984,7 +984,7 @@ impl OlmMachine {
                     .map_err(|_| EventError::UnsupportedOlmType)?;
 
             // Decrypt the OlmMessage and get a Ruma event out of it.
-            let (mut decrypted_event, signing_key) = self
+            let (decrypted_event, signing_key) = self
                 .decrypt_olm_message(&event.sender, &content.sender_key, message)
                 .await?;
 
@@ -992,14 +992,23 @@ impl OlmMachine {
 
             // Handle the decrypted event, e.g. fetch out Megolm sessions out of
             // the event.
-            self.handle_decrypted_to_device_event(
-                &content.sender_key,
-                &signing_key,
-                &mut decrypted_event,
-            )
-            .await?;
-
-            Ok(decrypted_event)
+            if let Some(event) = self
+                .handle_decrypted_to_device_event(
+                    &content.sender_key,
+                    &signing_key,
+                    &decrypted_event,
+                )
+                .await?
+            {
+                // Some events may have sensitive data e.g. private keys, while we
+                // wan't to notify our users that a private key was received we
+                // don't want them to be able to do silly things with it. Handling
+                // events modifies them and returns a modified one, so replace it
+                // here if we get one.
+                Ok(event)
+            } else {
+                Ok(decrypted_event)
+            }
         } else {
             warn!("Olm event doesn't contain a ciphertext for our key");
             Err(EventError::MissingCiphertext.into())
@@ -1012,7 +1021,7 @@ impl OlmMachine {
         sender_key: &str,
         signing_key: &str,
         event: &mut ToDeviceRoomKey,
-    ) -> OlmResult<()> {
+    ) -> OlmResult<Option<EventJson<ToDeviceEvent>>> {
         match event.content.algorithm {
             Algorithm::MegolmV1AesSha2 => {
                 let session_key = GroupSessionKey(mem::take(&mut event.content.session_key));
@@ -1024,14 +1033,24 @@ impl OlmMachine {
                     session_key,
                 )?;
                 let _ = self.store.save_inbound_group_session(session).await?;
-                Ok(())
+                // TODO ideally we would rewrap the event again just like so
+                // let event = EventJson::from(ToDeviceEvent::RoomKey(event.clone()));
+                // This saidly lacks a type once it's serialized again, fix
+                // this in Ruma.
+                let mut json = serde_json::to_value(event.clone())?;
+                json.as_object_mut()
+                    .unwrap()
+                    .insert("type".to_owned(), Value::String("m.room_key".to_owned()));
+                let event = serde_json::from_value::<EventJson<ToDeviceEvent>>(json)?;
+
+                Ok(Some(event))
             }
             _ => {
                 warn!(
                     "Received room key with unsupported key algorithm {}",
                     event.content.algorithm
                 );
-                Ok(())
+                Ok(None)
             }
         }
     }
@@ -1330,25 +1349,26 @@ impl OlmMachine {
         &mut self,
         sender_key: &str,
         signing_key: &str,
-        event: &mut EventJson<ToDeviceEvent>,
-    ) -> OlmResult<()> {
+        event: &EventJson<ToDeviceEvent>,
+    ) -> OlmResult<Option<EventJson<ToDeviceEvent>>> {
         let event = if let Ok(e) = event.deserialize() {
             e
         } else {
             warn!("Decrypted to-device event failed to be parsed correctly");
-            return Ok(());
+            return Ok(None);
         };
 
         match event {
             ToDeviceEvent::RoomKey(mut e) => {
-                self.add_room_key(sender_key, signing_key, &mut e).await
+                Ok(self.add_room_key(sender_key, signing_key, &mut e).await?)
             }
             ToDeviceEvent::ForwardedRoomKey(e) => {
-                self.add_forwarded_room_key(sender_key, signing_key, &e)
+                self.add_forwarded_room_key(sender_key, signing_key, &e)?;
+                Ok(None)
             }
             _ => {
                 warn!("Received a unexpected encrypted to-device event");
-                Ok(())
+                Ok(None)
             }
         }
     }
@@ -1657,7 +1677,7 @@ mod test {
 
         let mut bob_keys = BTreeMap::new();
 
-        let one_time_key = one_time_keys.iter().nth(0).unwrap();
+        let one_time_key = one_time_keys.iter().next().unwrap();
         let mut keys = BTreeMap::new();
         keys.insert(one_time_key.0.clone(), one_time_key.1.clone());
         bob_keys.insert(bob.device_id.clone(), keys);
@@ -1820,7 +1840,7 @@ mod test {
         let identity_keys = machine.account.identity_keys();
         let ed25519_key = identity_keys.ed25519();
 
-        let mut one_time_key = one_time_keys.values_mut().nth(0).unwrap();
+        let mut one_time_key = one_time_keys.values_mut().next().unwrap();
 
         let ret = machine.verify_json(
             &machine.user_id,
@@ -1848,7 +1868,7 @@ mod test {
             &machine.user_id,
             &machine.device_id,
             ed25519_key,
-            &mut json!(&mut one_time_keys.as_mut().unwrap().values_mut().nth(0)),
+            &mut json!(&mut one_time_keys.as_mut().unwrap().values_mut().next()),
         );
         assert!(ret.is_ok());
 
@@ -1923,7 +1943,7 @@ mod test {
 
         let mut bob_keys = BTreeMap::new();
 
-        let one_time_key = one_time_keys.iter().nth(0).unwrap();
+        let one_time_key = one_time_keys.iter().next().unwrap();
         let mut keys = BTreeMap::new();
         keys.insert(one_time_key.0.clone(), one_time_key.1.clone());
         bob_keys.insert(bob_machine.device_id.clone(), keys);
@@ -2011,6 +2031,7 @@ mod test {
 
         if let AnyToDeviceEvent::RoomKey(e) = event.deserialize().unwrap() {
             assert_eq!(e.sender, alice.user_id);
+            assert!(e.content.session_key.is_empty())
         } else {
             panic!("Event had the wrong type");
         }

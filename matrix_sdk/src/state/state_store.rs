@@ -287,16 +287,16 @@ mod test {
             AsyncClient::new_with_config(homeserver, Some(session.clone()), config).unwrap();
         client.sync(sync_settings).await.unwrap();
 
-        let base_client = client.base_client.read().await;
+        let base_client = &client.base_client;
 
         // assert the synced client and the logged in client are equal
-        assert_eq!(base_client.session, Some(session));
+        assert_eq!(*base_client.session().read().await, Some(session));
         assert_eq!(
-            base_client.sync_token,
+            base_client.sync_token().await,
             Some("s526_47314_0_7_1_1_1_11444_1".to_string())
         );
         assert_eq!(
-            base_client.ignored_users,
+            *base_client.ignored_users.read().await,
             vec![UserId::try_from("@someone:example.org").unwrap()]
         );
     }

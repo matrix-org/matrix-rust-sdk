@@ -266,7 +266,7 @@ mod test {
             self.0.lock().await.push("account ignore".to_string())
         }
         async fn on_account_push_rules(&self, _: RoomState, _: &PushRulesEvent) {
-            self.0.lock().await.push("".to_string())
+            self.0.lock().await.push("account push rules".to_string())
         }
         async fn on_account_data_fully_read(&self, _: RoomState, _: &FullyReadEvent) {
             self.0.lock().await.push("account read".to_string())
@@ -317,6 +317,7 @@ mod test {
         assert_eq!(
             v.as_slice(),
             [
+                "state rules",
                 "state member",
                 "state aliases",
                 "state power",
@@ -396,6 +397,7 @@ mod test {
         assert_eq!(
             v.as_slice(),
             [
+                "state rules",
                 "state member",
                 "state aliases",
                 "state power",

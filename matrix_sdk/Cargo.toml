@@ -32,8 +32,6 @@ matrix-sdk-crypto = { path = "../matrix_sdk_crypto", optional = true }
 # Misc dependencies
 thiserror = "1.0.16"
 tracing = "0.1.13"
-atomic = "0.4.5"
-dashmap = "3.11.1"
 
 [dependencies.tracing-futures]
 version = "0.2.4"
@@ -44,12 +42,6 @@ features = ["std", "std-future"]
 version = "0.2.20"
 default-features = false
 features = ["sync", "time", "fs"]
-
-[dependencies.sqlx]
-version = "0.3.4"
-optional = true
-default-features = false
-features = ["runtime-tokio", "sqlite"]
 
 [dev-dependencies]
 tokio = { version = "0.2.20", features = ["rt-threaded", "macros"] }
