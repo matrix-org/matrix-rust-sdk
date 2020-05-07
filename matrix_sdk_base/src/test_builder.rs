@@ -4,6 +4,7 @@ use std::fs;
 use std::panic;
 use std::path::Path;
 
+use crate::api::r0::sync::sync_events::Response as SyncResponse;
 use crate::events::{
     collections::{
         all::{RoomEvent, StateEvent},
@@ -12,12 +13,8 @@ use crate::events::{
     presence::PresenceEvent,
     EventJson, TryFromRaw,
 };
-use crate::identifiers::{RoomId, UserId};
-use crate::{AsyncClient, Error, SyncSettings};
-
-use mockito::{self, mock, Matcher, Mock};
-
-use crate::models::Room;
+use http::Response;
+use std::convert::TryFrom;
 
 /// Easily create events to stream into either a Client or a `Room` for testing.
 #[derive(Default)]
@@ -34,60 +31,6 @@ pub struct EventBuilder {
     account_data: Vec<Event>,
 }
 
-pub struct RoomTestRunner {
-    /// Used To test the models
-    room: Option<Room>,
-    /// The ephemeral room events that determine the state of a `Room`.
-    ephemeral: Vec<Event>,
-    /// The account data events that determine the state of a `Room`.
-    account_data: Vec<Event>,
-    /// The events that determine the state of a `Room`.
-    room_events: Vec<RoomEvent>,
-    /// The presence events that determine the presence state of a `RoomMember`.
-    presence_events: Vec<PresenceEvent>,
-    /// The state events that determine the state of a `Room`.
-    state_events: Vec<StateEvent>,
-}
-
-pub struct ClientTestRunner {
-    /// Used when testing the whole client
-    client: Option<AsyncClient>,
-    /// RoomId and UserId to use for the events.
-    ///
-    /// The RoomId must match the RoomId of the events to track.
-    room_user_id: (RoomId, UserId),
-    /// The ephemeral room events that determine the state of a `Room`.
-    ephemeral: Vec<Event>,
-    /// The account data events that determine the state of a `Room`.
-    account_data: Vec<Event>,
-    /// The events that determine the state of a `Room`.
-    room_events: Vec<RoomEvent>,
-    /// The presence events that determine the presence state of a `RoomMember`.
-    presence_events: Vec<PresenceEvent>,
-    /// The state events that determine the state of a `Room`.
-    state_events: Vec<StateEvent>,
-}
-
-#[allow(dead_code)]
-pub struct MockTestRunner {
-    /// Used when testing the whole client
-    client: Option<AsyncClient>,
-    /// The ephemeral room events that determine the state of a `Room`.
-    ephemeral: Vec<Event>,
-    /// The account data events that determine the state of a `Room`.
-    account_data: Vec<Event>,
-    /// The events that determine the state of a `Room`.
-    room_events: Vec<RoomEvent>,
-    /// The presence events that determine the presence state of a `RoomMember`.
-    presence_events: Vec<PresenceEvent>,
-    /// The state events that determine the state of a `Room`.
-    state_events: Vec<StateEvent>,
-    /// `mokito::Mock`
-    mock: Option<mockito::Mock>,
-}
-
-#[allow(dead_code)]
-#[allow(unused_mut)]
 impl EventBuilder {
     /// Add an event to the room events `Vec`.
     pub fn add_ephemeral_from_file<Ev: TryFromRaw, P: AsRef<Path>>(
@@ -165,38 +108,8 @@ impl EventBuilder {
         self
     }
 
-    /// Consumes `ResponseBuilder and returns a `TestRunner`.
-    ///
-    /// The `TestRunner` responds to requests made by the `AsyncClient`.
-    pub fn build_with_response<M, P>(mut self, path: P, method: &str, matcher: M) -> MockTestRunner
-    where
-        M: Into<mockito::Matcher>,
-        P: AsRef<Path>,
-    {
-        let body = fs::read_to_string(path.as_ref())
-            .unwrap_or_else(|_| panic!("file not found {:?}", path.as_ref()));
-        let mock = Some(
-            mock(method, matcher)
-                .with_status(200)
-                .with_body(body)
-                .create(),
-        );
-        MockTestRunner {
-            client: None,
-            ephemeral: Vec::new(),
-            account_data: Vec::new(),
-            room_events: Vec::new(),
-            presence_events: Vec::new(),
-            state_events: Vec::new(),
-            mock,
-        }
-    }
-
-    /// Consumes `ResponseBuilder and returns a `TestRunner`.
-    ///
-    /// The `TestRunner` streams the events to the client and holds methods to make assertions
-    /// about the state of the client.
-    pub fn build_mock_runner<P: Into<Matcher>>(mut self, method: &str, path: P) -> MockTestRunner {
+    /// Consumes `ResponseBuilder and returns SyncResponse.
+    pub fn build_sync_response(self) -> SyncResponse {
         let body = serde_json::json! {
             {
                 "device_one_time_keys_count": {},
@@ -240,166 +153,9 @@ impl EventBuilder {
                 }
             }
         };
-        let mock = Some(
-            mock(method, path)
-                .with_status(200)
-                .with_body(body.to_string())
-                .create(),
-        );
-        MockTestRunner {
-            client: None,
-            ephemeral: Vec::new(),
-            account_data: Vec::new(),
-            room_events: Vec::new(),
-            presence_events: Vec::new(),
-            state_events: Vec::new(),
-            mock,
-        }
-    }
-
-    /// Consumes `ResponseBuilder and returns a `TestRunner`.
-    ///
-    /// The `TestRunner` streams the events to the `AsyncClient` and holds methods to make assertions
-    /// about the state of the `AsyncClient`.
-    pub fn build_client_runner(self, room_id: RoomId, user_id: UserId) -> ClientTestRunner {
-        ClientTestRunner {
-            client: None,
-            room_user_id: (room_id, user_id),
-            ephemeral: self.ephemeral,
-            account_data: self.account_data,
-            room_events: self.room_events,
-            presence_events: self.presence_events,
-            state_events: self.state_events,
-        }
-    }
-
-    /// Consumes `ResponseBuilder and returns a `TestRunner`.
-    ///
-    /// The `TestRunner` streams the events to the `Room` and holds methods to make assertions
-    /// about the state of the `Room`.
-    pub fn build_room_runner(self, room_id: &RoomId, user_id: &UserId) -> RoomTestRunner {
-        RoomTestRunner {
-            room: Some(Room::new(room_id, user_id)),
-            ephemeral: self.ephemeral,
-            account_data: self.account_data,
-            room_events: self.room_events,
-            presence_events: self.presence_events,
-            state_events: self.state_events,
-        }
-    }
-}
-
-impl RoomTestRunner {
-    /// Set `Room`
-    pub fn set_room(&mut self, room: Room) -> &mut Self {
-        self.room = Some(room);
-        self
-    }
-
-    fn stream_room_events(&mut self) {
-        let room = self
-            .room
-            .as_mut()
-            .expect("`Room` must be set use `RoomTestRunner::set_room`");
-        for event in &self.account_data {
-            match event {
-                // Event::IgnoredUserList(iu) => room.handle_ignored_users(iu),
-                Event::Presence(p) => room.receive_presence_event(p),
-                // Event::PushRules(pr) => room.handle_push_rules(pr),
-                _ => todo!("implement more account data events"),
-            };
-        }
-
-        for event in &self.ephemeral {
-            match event {
-                // Event::IgnoredUserList(iu) => room.handle_ignored_users(iu),
-                Event::Presence(p) => room.receive_presence_event(p),
-                // Event::PushRules(pr) => room.handle_push_rules(pr),
-                _ => todo!("implement more account data events"),
-            };
-        }
-
-        for event in &self.room_events {
-            room.receive_timeline_event(event);
-        }
-        for event in &self.presence_events {
-            room.receive_presence_event(event);
-        }
-        for event in &self.state_events {
-            room.receive_state_event(event);
-        }
-    }
-
-    pub fn to_room(&mut self) -> &mut Room {
-        self.stream_room_events();
-        self.room.as_mut().unwrap()
-    }
-}
-
-impl ClientTestRunner {
-    pub fn set_client(&mut self, client: AsyncClient) -> &mut Self {
-        self.client = Some(client);
-        self
-    }
-
-    async fn stream_client_events(&mut self) {
-        let cli = &self
-            .client
-            .as_ref()
-            .expect("`AsyncClient` must be set use `ClientTestRunner::set_client`")
-            .base_client;
-
-        let room_id = &self.room_user_id.0;
-
-        for event in &self.account_data {
-            match event {
-                // Event::IgnoredUserList(iu) => room.handle_ignored_users(iu),
-                Event::Presence(p) => cli.receive_presence_event(room_id, p).await,
-                // Event::PushRules(pr) => room.handle_push_rules(pr),
-                _ => todo!("implement more account data events"),
-            };
-        }
-
-        for event in &self.ephemeral {
-            cli.receive_ephemeral_event(room_id, event).await;
-        }
-
-        for event in &self.room_events {
-            cli.receive_joined_timeline_event(room_id, &mut EventJson::from(event))
-                .await;
-        }
-        for event in &self.presence_events {
-            cli.receive_presence_event(room_id, event).await;
-        }
-        for event in &self.state_events {
-            cli.receive_joined_state_event(room_id, event).await;
-        }
-    }
-
-    pub async fn to_client(&mut self) -> &mut AsyncClient {
-        self.stream_client_events().await;
-        self.client.as_mut().unwrap()
-    }
-}
-
-impl MockTestRunner {
-    pub fn set_client(&mut self, client: AsyncClient) -> &mut Self {
-        self.client = Some(client);
-        self
-    }
-
-    pub fn set_mock(mut self, mock: Mock) -> Self {
-        self.mock = Some(mock);
-        self
-    }
-
-    pub async fn to_client(&mut self) -> Result<&mut AsyncClient, Error> {
-        self.client
-            .as_mut()
-            .unwrap()
-            .sync(SyncSettings::default())
-            .await?;
-
-        Ok(self.client.as_mut().unwrap())
+        let response = Response::builder()
+            .body(serde_json::to_vec(&body).unwrap())
+            .unwrap();
+        SyncResponse::try_from(response).unwrap()
     }
 }

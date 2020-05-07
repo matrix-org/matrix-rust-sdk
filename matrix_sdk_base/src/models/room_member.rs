@@ -200,27 +200,46 @@ impl RoomMember {
 #[cfg(test)]
 mod test {
     use crate::events::collections::all::RoomEvent;
-    use crate::events::presence::PresenceState;
     use crate::events::room::member::MembershipState;
     use crate::identifiers::{RoomId, UserId};
     use crate::test_builder::EventBuilder;
+    use crate::{Client, Session};
 
-    use crate::js_int::{Int, UInt};
+    use crate::js_int::Int;
 
     use std::convert::TryFrom;
 
-    #[test]
-    fn room_member_events() {
-        let rid = RoomId::try_from("!roomid:room.com").unwrap();
-        let uid = UserId::try_from("@example:localhost").unwrap();
-        let mut bld = EventBuilder::default()
+    fn get_client() -> Client {
+        let session = Session {
+            access_token: "1234".to_owned(),
+            user_id: UserId::try_from("@example:localhost").unwrap(),
+            device_id: "DEVICEID".to_owned(),
+        };
+        Client::new(Some(session)).unwrap()
+    }
+
+    fn get_room_id() -> RoomId {
+        RoomId::try_from("!SVkFJHzfwvuaIEawgC:localhost").unwrap()
+    }
+
+    #[tokio::test]
+    async fn room_member_events() {
+        let client = get_client();
+
+        let room_id = get_room_id();
+
+        let mut response = EventBuilder::default()
             .add_room_event_from_file("../test_data/events/member.json", RoomEvent::RoomMember)
             .add_room_event_from_file(
                 "../test_data/events/power_levels.json",
                 RoomEvent::RoomPowerLevels,
             )
-            .build_room_runner(&rid, &uid);
-        let room = bld.to_room();
+            .build_sync_response();
+
+        client.receive_sync_response(&mut response).await.unwrap();
+
+        let room = client.get_joined_room(&room_id).await.unwrap();
+        let room = room.read().await;
 
         let member = room
             .members
@@ -230,20 +249,25 @@ mod test {
         assert_eq!(member.power_level, Int::new(100));
     }
 
-    #[test]
-    fn member_presence_events() {
-        let rid = RoomId::try_from("!roomid:room.com").unwrap();
-        let uid = UserId::try_from("@example:localhost").unwrap();
-        let mut bld = EventBuilder::default()
+    #[tokio::test]
+    async fn member_presence_events() {
+        let client = get_client();
+
+        let room_id = get_room_id();
+
+        let mut response = EventBuilder::default()
             .add_room_event_from_file("../test_data/events/member.json", RoomEvent::RoomMember)
             .add_room_event_from_file(
                 "../test_data/events/power_levels.json",
                 RoomEvent::RoomPowerLevels,
             )
             .add_presence_event_from_file("../test_data/events/presence.json")
-            .build_room_runner(&rid, &uid);
+            .build_sync_response();
 
-        let room = bld.to_room();
+        client.receive_sync_response(&mut response).await.unwrap();
+
+        let room = client.get_joined_room(&room_id).await.unwrap();
+        let room = room.read().await;
 
         let member = room
             .members
@@ -253,8 +277,8 @@ mod test {
         assert_eq!(member.membership, MembershipState::Join);
         assert_eq!(member.power_level, Int::new(100));
 
-        assert!(member.avatar_url.is_some());
-        assert_eq!(member.last_active_ago, UInt::new(1));
-        assert_eq!(member.presence, Some(PresenceState::Online));
+        assert!(member.avatar_url.is_none());
+        assert_eq!(member.last_active_ago, None);
+        assert_eq!(member.presence, None);
     }
 }

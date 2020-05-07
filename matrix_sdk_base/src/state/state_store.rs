@@ -135,49 +135,30 @@ impl StateStore for JsonStore {
 mod test {
     use super::*;
 
+    use http::Response;
     use std::convert::TryFrom;
-    use std::fs;
-    use std::future::Future;
+    use std::fs::File;
+    use std::io::Read;
     use std::path::PathBuf;
-    use std::str::FromStr;
 
-    use lazy_static::lazy_static;
-    use mockito::{mock, Matcher};
-    use tokio::sync::Mutex;
+    use tempfile::tempdir;
 
+    use crate::api::r0::sync::sync_events::Response as SyncResponse;
     use crate::identifiers::{RoomId, UserId};
-    use crate::{AsyncClient, AsyncClientConfig, Session, SyncSettings};
+    use crate::{Client, Session};
 
-    lazy_static! {
-        /// Limit io tests to one thread at a time.
-        pub static ref MTX: Mutex<()> = Mutex::new(());
+    fn sync_response(file: &str) -> SyncResponse {
+        let mut file = File::open(file).unwrap();
+        let mut data = vec![];
+        file.read_to_end(&mut data).unwrap();
+        let response = Response::builder().body(data).unwrap();
+        SyncResponse::try_from(response).unwrap()
     }
 
-    lazy_static! {
-        /// Limit io tests to one thread at a time.
-        pub static ref PATH: PathBuf = {
-            let mut path = dirs::home_dir().unwrap();
-            path.push(".matrix_store");
-            path
-        };
-    }
-
-    async fn run_and_cleanup<Fut>(test: fn() -> Fut)
-    where
-        Fut: Future<Output = ()>,
-    {
-        let _lock = MTX.lock().await;
-
-        test().await;
-
-        if PATH.exists() {
-            let path: &Path = &PATH;
-            fs::remove_dir_all(path).unwrap();
-        }
-    }
-
+    #[tokio::test]
     async fn test_store_client_state() {
-        let path: &Path = &PATH;
+        let dir = tempdir().unwrap();
+        let path: &Path = dir.path();
 
         let user = UserId::try_from("@example:example.com").unwrap();
 
@@ -206,12 +187,9 @@ mod test {
     }
 
     #[tokio::test]
-    async fn store_client_state() {
-        run_and_cleanup(test_store_client_state).await;
-    }
-
     async fn test_store_room_state() {
-        let path: &Path = &PATH;
+        let dir = tempdir().unwrap();
+        let path: &Path = dir.path();
         let store = JsonStore::open(path).unwrap();
 
         let id = RoomId::try_from("!roomid:example.com").unwrap();
@@ -224,12 +202,9 @@ mod test {
     }
 
     #[tokio::test]
-    async fn store_room_state() {
-        run_and_cleanup(test_store_room_state).await;
-    }
-
     async fn test_load_rooms() {
-        let path: &Path = &PATH;
+        let dir = tempdir().unwrap();
+        let path: &Path = dir.path();
         let store = JsonStore::open(path).unwrap();
 
         let id = RoomId::try_from("!roomid:example.com").unwrap();
@@ -242,12 +217,9 @@ mod test {
     }
 
     #[tokio::test]
-    async fn load_rooms() {
-        run_and_cleanup(test_load_rooms).await;
-    }
-
     async fn test_client_sync_store() {
-        let homeserver = url::Url::from_str(&mockito::server_url()).unwrap();
+        let dir = tempdir().unwrap();
+        let path: &Path = dir.path();
 
         let session = Session {
             access_token: "1234".to_owned(),
@@ -255,54 +227,29 @@ mod test {
             device_id: "DEVICEID".to_owned(),
         };
 
-        let _m = mock(
-            "GET",
-            Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_string()),
-        )
-        .with_status(200)
-        .with_body_from_file("../test_data/sync.json")
-        .create();
-
-        let _m = mock("POST", "/_matrix/client/r0/login")
-            .with_status(200)
-            .with_body_from_file("../test_data/login_response.json")
-            .create();
-
-        let path: &Path = &PATH;
         // a sync response to populate our JSON store
-        let config =
-            AsyncClientConfig::default().state_store(Box::new(JsonStore::open(path).unwrap()));
-        let client =
-            AsyncClient::new_with_config(homeserver.clone(), Some(session.clone()), config)
-                .unwrap();
-        let sync_settings = SyncSettings::new().timeout(std::time::Duration::from_millis(3000));
+        let store = Box::new(JsonStore::open(path).unwrap());
+        let client = Client::new_with_state_store(Some(session.clone()), store).unwrap();
+
+        let mut response = sync_response("../test_data/sync.json");
 
         // gather state to save to the db, the first time through loading will be skipped
-        let _ = client.sync(sync_settings.clone()).await.unwrap();
+        client.receive_sync_response(&mut response).await.unwrap();
 
         // now syncing the client will update from the state store
-        let config =
-            AsyncClientConfig::default().state_store(Box::new(JsonStore::open(path).unwrap()));
-        let client =
-            AsyncClient::new_with_config(homeserver, Some(session.clone()), config).unwrap();
-        client.sync(sync_settings).await.unwrap();
-
-        let base_client = &client.base_client;
+        let store = Box::new(JsonStore::open(path).unwrap());
+        let client = Client::new_with_state_store(Some(session.clone()), store).unwrap();
+        client.sync_with_state_store().await.unwrap();
 
         // assert the synced client and the logged in client are equal
-        assert_eq!(*base_client.session().read().await, Some(session));
+        assert_eq!(*client.session().read().await, Some(session));
         assert_eq!(
-            base_client.sync_token().await,
+            client.sync_token().await,
             Some("s526_47314_0_7_1_1_1_11444_1".to_string())
         );
         assert_eq!(
-            *base_client.ignored_users.read().await,
+            *client.ignored_users.read().await,
             vec![UserId::try_from("@someone:example.org").unwrap()]
         );
-    }
-
-    #[tokio::test]
-    async fn client_sync_store() {
-        run_and_cleanup(test_client_sync_store).await;
     }
 }

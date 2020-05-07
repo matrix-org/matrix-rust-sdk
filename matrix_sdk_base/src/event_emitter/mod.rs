@@ -46,13 +46,13 @@ use crate::RoomState;
 /// # use std::sync::Arc;
 /// # use std::{env, process::exit};
 /// # use url::Url;
-/// use matrix_sdk::{
-///     self,
-///     events::{
-///         room::message::{MessageEvent, MessageEventContent, TextMessageEventContent},
-///     },
-///     AsyncClient, AsyncClientConfig, EventEmitter, RoomState, SyncSettings,
-/// };
+/// # use matrix_sdk_base::{
+/// #     self,
+/// #     events::{
+/// #         room::message::{MessageEvent, MessageEventContent, TextMessageEventContent},
+/// #     },
+/// #     EventEmitter, RoomState
+/// # };
 /// use tokio::sync::RwLock;
 ///
 /// struct EventCallback;
@@ -276,42 +276,43 @@ mod test {
         }
     }
 
+    use crate::api::r0::sync::sync_events::Response as SyncResponse;
     use crate::identifiers::UserId;
-    use crate::{AsyncClient, Session, SyncSettings};
+    use crate::{Client, Session};
 
-    use mockito::{mock, Matcher};
-    use url::Url;
-
+    use http::Response;
     use std::convert::TryFrom;
-    use std::str::FromStr;
-    use std::time::Duration;
+    use std::fs::File;
+    use std::io::Read;
 
-    #[tokio::test]
-    async fn event_emitter_joined() {
-        let homeserver = Url::from_str(&mockito::server_url()).unwrap();
+    fn sync_response(file: &str) -> SyncResponse {
+        let mut file = File::open(file).unwrap();
+        let mut data = vec![];
+        file.read_to_end(&mut data).unwrap();
+        let response = Response::builder().body(data).unwrap();
+        SyncResponse::try_from(response).unwrap()
+    }
 
+    fn get_client() -> Client {
         let session = Session {
             access_token: "1234".to_owned(),
             user_id: UserId::try_from("@example:example.com").unwrap(),
             device_id: "DEVICEID".to_owned(),
         };
+        Client::new(Some(session)).unwrap()
+    }
 
-        let _m = mock(
-            "GET",
-            Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_string()),
-        )
-        .with_status(200)
-        .with_body_from_file("../test_data/sync.json")
-        .create();
-
+    #[tokio::test]
+    async fn event_emitter_joined() {
         let vec = Arc::new(Mutex::new(Vec::new()));
         let test_vec = Arc::clone(&vec);
         let emitter = Box::new(EvEmitterTest(vec));
-        let mut client = AsyncClient::new(homeserver, Some(session)).unwrap();
+
+        let client = get_client();
         client.add_event_emitter(emitter).await;
 
-        let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
-        let _response = client.sync(sync_settings).await.unwrap();
+        let mut response = sync_response("../test_data/sync.json");
+        client.receive_sync_response(&mut response).await.unwrap();
 
         let v = test_vec.lock().await;
         assert_eq!(
@@ -334,30 +335,15 @@ mod test {
 
     #[tokio::test]
     async fn event_emitter_invite() {
-        let homeserver = Url::from_str(&mockito::server_url()).unwrap();
-
-        let session = Session {
-            access_token: "1234".to_owned(),
-            user_id: UserId::try_from("@example:example.com").unwrap(),
-            device_id: "DEVICEID".to_owned(),
-        };
-
-        let _m = mock(
-            "GET",
-            Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_string()),
-        )
-        .with_status(200)
-        .with_body_from_file("../test_data/invite_sync.json")
-        .create();
-
         let vec = Arc::new(Mutex::new(Vec::new()));
         let test_vec = Arc::clone(&vec);
         let emitter = Box::new(EvEmitterTest(vec));
-        let mut client = AsyncClient::new(homeserver, Some(session)).unwrap();
+
+        let client = get_client();
         client.add_event_emitter(emitter).await;
 
-        let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
-        let _response = client.sync(sync_settings).await.unwrap();
+        let mut response = sync_response("../test_data/invite_sync.json");
+        client.receive_sync_response(&mut response).await.unwrap();
 
         let v = test_vec.lock().await;
         assert_eq!(
@@ -368,30 +354,15 @@ mod test {
 
     #[tokio::test]
     async fn event_emitter_leave() {
-        let homeserver = Url::from_str(&mockito::server_url()).unwrap();
-
-        let session = Session {
-            access_token: "1234".to_owned(),
-            user_id: UserId::try_from("@example:example.com").unwrap(),
-            device_id: "DEVICEID".to_owned(),
-        };
-
-        let _m = mock(
-            "GET",
-            Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_string()),
-        )
-        .with_status(200)
-        .with_body_from_file("../test_data/leave_sync.json")
-        .create();
-
         let vec = Arc::new(Mutex::new(Vec::new()));
         let test_vec = Arc::clone(&vec);
         let emitter = Box::new(EvEmitterTest(vec));
-        let mut client = AsyncClient::new(homeserver, Some(session)).unwrap();
+
+        let client = get_client();
         client.add_event_emitter(emitter).await;
 
-        let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
-        let _response = client.sync(sync_settings).await.unwrap();
+        let mut response = sync_response("../test_data/leave_sync.json");
+        client.receive_sync_response(&mut response).await.unwrap();
 
         let v = test_vec.lock().await;
         assert_eq!(

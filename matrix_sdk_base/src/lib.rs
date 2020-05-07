@@ -34,7 +34,6 @@ mod base_client;
 mod error;
 mod event_emitter;
 mod models;
-mod request_builder;
 mod session;
 mod state;
 
@@ -46,5 +45,4 @@ pub use event_emitter::EventEmitter;
 #[cfg(feature = "encryption")]
 pub use matrix_sdk_crypto::{Device, TrustState};
 pub use models::Room;
-pub use request_builder::{MessagesRequestBuilder, RoomBuilder};
 pub use state::{JsonStore, StateStore};

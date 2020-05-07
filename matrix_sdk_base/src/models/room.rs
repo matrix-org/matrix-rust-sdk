@@ -537,17 +537,24 @@ mod test {
         SyncResponse::try_from(response).unwrap()
     }
 
-    #[tokio::test]
-    async fn user_presence() {
+    fn get_client() -> Client {
         let session = Session {
             access_token: "1234".to_owned(),
             user_id: UserId::try_from("@example:localhost").unwrap(),
             device_id: "DEVICEID".to_owned(),
         };
+        Client::new(Some(session)).unwrap()
+    }
+
+    fn get_room_id() -> RoomId {
+        RoomId::try_from("!SVkFJHzfwvuaIEawgC:localhost").unwrap()
+    }
+
+    #[tokio::test]
+    async fn user_presence() {
+        let client = get_client();
 
         let mut response = sync_response("../test_data/sync.json");
-
-        let client = Client::new(Some(session)).unwrap();
 
         client.receive_sync_response(&mut response).await.unwrap();
 
@@ -567,20 +574,24 @@ mod test {
         assert!(room.deref().power_levels.is_some())
     }
 
-    #[test]
-    fn room_events() {
-        let rid = RoomId::try_from("!roomid:room.com").unwrap();
-        let uid = UserId::try_from("@example:localhost").unwrap();
+    #[tokio::test]
+    async fn room_events() {
+        let client = get_client();
+        let room_id = get_room_id();
+        let user_id = UserId::try_from("@example:localhost").unwrap();
 
-        let mut bld = EventBuilder::default()
+        let mut response = EventBuilder::default()
             .add_room_event_from_file("../test_data/events/member.json", RoomEvent::RoomMember)
             .add_room_event_from_file(
                 "../test_data/events/power_levels.json",
                 RoomEvent::RoomPowerLevels,
             )
-            .build_room_runner(&rid, &uid);
+            .build_sync_response();
 
-        let room = bld.to_room();
+        client.receive_sync_response(&mut response).await.unwrap();
+
+        let room = client.get_joined_room(&room_id).await.unwrap();
+        let room = room.read().await;
 
         assert_eq!(room.members.len(), 1);
         assert!(room.power_levels.is_some());
@@ -588,57 +599,66 @@ mod test {
             room.power_levels.as_ref().unwrap().kick,
             crate::js_int::Int::new(50).unwrap()
         );
-        let admin = room
-            .members
-            .get(&UserId::try_from("@example:localhost").unwrap())
-            .unwrap();
+        let admin = room.members.get(&user_id).unwrap();
         assert_eq!(
             admin.power_level.unwrap(),
             crate::js_int::Int::new(100).unwrap()
         );
     }
 
-    #[test]
-    fn calculate_aliases() {
-        let rid = RoomId::try_from("!roomid:room.com").unwrap();
-        let uid = UserId::try_from("@example:localhost").unwrap();
+    #[tokio::test]
+    async fn calculate_aliases() {
+        let client = get_client();
 
-        let mut bld = EventBuilder::default()
+        let room_id = get_room_id();
+
+        let mut response = EventBuilder::default()
             .add_state_event_from_file("../test_data/events/aliases.json", StateEvent::RoomAliases)
-            .build_room_runner(&rid, &uid);
+            .build_sync_response();
 
-        let room = bld.to_room();
+        client.receive_sync_response(&mut response).await.unwrap();
+
+        let room = client.get_joined_room(&room_id).await.unwrap();
+        let room = room.read().await;
 
         assert_eq!("tutorial", room.display_name());
     }
 
-    #[test]
-    fn calculate_alias() {
-        let rid = RoomId::try_from("!roomid:room.com").unwrap();
-        let uid = UserId::try_from("@example:localhost").unwrap();
+    #[tokio::test]
+    async fn calculate_alias() {
+        let client = get_client();
 
-        let mut bld = EventBuilder::default()
+        let room_id = get_room_id();
+
+        let mut response = EventBuilder::default()
             .add_state_event_from_file(
                 "../test_data/events/alias.json",
                 StateEvent::RoomCanonicalAlias,
             )
-            .build_room_runner(&rid, &uid);
+            .build_sync_response();
 
-        let room = bld.to_room();
+        client.receive_sync_response(&mut response).await.unwrap();
+
+        let room = client.get_joined_room(&room_id).await.unwrap();
+        let room = room.read().await;
 
         assert_eq!("tutorial", room.display_name());
     }
 
-    #[test]
-    fn calculate_name() {
-        let rid = RoomId::try_from("!roomid:room.com").unwrap();
-        let uid = UserId::try_from("@example:localhost").unwrap();
+    #[tokio::test]
+    async fn calculate_name() {
+        let client = get_client();
 
-        let mut bld = EventBuilder::default()
+        let room_id = get_room_id();
+
+        let mut response = EventBuilder::default()
             .add_state_event_from_file("../test_data/events/name.json", StateEvent::RoomName)
-            .build_room_runner(&rid, &uid);
+            .build_sync_response();
 
-        let room = bld.to_room();
+        client.receive_sync_response(&mut response).await.unwrap();
+
+        let room = client.get_joined_room(&room_id).await.unwrap();
+        let room = room.read().await;
 
         assert_eq!("room name", room.display_name());
     }
