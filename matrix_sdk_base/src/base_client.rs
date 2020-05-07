@@ -616,6 +616,9 @@ impl Client {
             }
         }
 
+        // TODO do we want to move the rooms to the appropriate HashMaps when the corresponding
+        // event comes in e.g. move a joined room to a left room when leave event comes?
+
         // when events change state, updated signals to StateStore to update database
         let mut updated = self.iter_joined_rooms(response).await?;
 
