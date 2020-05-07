@@ -1164,8 +1164,9 @@ mod test {
         ban_user, create_receipt, create_typing_event, forget_room, invite_user, kick_user,
         leave_room,
     };
-    use super::{AsyncClient, Session, Url};
+    use super::{AsyncClient, Session, SyncSettings, Url};
     use crate::events::collections::all::RoomEvent;
+    use crate::events::room::member::MembershipState;
     use crate::identifiers::{EventId, RoomId, UserId};
 
     use crate::test_builder::EventBuilder;
@@ -1173,6 +1174,36 @@ mod test {
     use mockito::{mock, Matcher};
     use std::convert::TryFrom;
     use std::str::FromStr;
+    use std::time::Duration;
+
+    #[tokio::test]
+    async fn account_data() {
+        let homeserver = Url::from_str(&mockito::server_url()).unwrap();
+
+        let session = Session {
+            access_token: "1234".to_owned(),
+            user_id: UserId::try_from("@example:example.com").unwrap(),
+            device_id: "DEVICEID".to_owned(),
+        };
+
+        let _m = mock(
+            "GET",
+            Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_string()),
+        )
+        .with_status(200)
+        .with_body_from_file("../test_data/sync.json")
+        .create();
+
+        let client = AsyncClient::new(homeserver, Some(session)).unwrap();
+
+        let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
+
+        let _response = client.sync(sync_settings).await.unwrap();
+
+        let bc = &client.base_client;
+        let ignored_users = bc.ignored_users.read().await;
+        assert_eq!(1, ignored_users.len())
+    }
 
     #[tokio::test]
     async fn client_runner() {
@@ -1539,5 +1570,70 @@ mod test {
                 response
             )
         }
+    }
+
+    #[tokio::test]
+    async fn user_presence() {
+        let homeserver = Url::from_str(&mockito::server_url()).unwrap();
+
+        let session = Session {
+            access_token: "1234".to_owned(),
+            user_id: UserId::try_from("@example:localhost").unwrap(),
+            device_id: "DEVICEID".to_owned(),
+        };
+
+        let _m = mock(
+            "GET",
+            Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_string()),
+        )
+        .with_status(200)
+        .with_body_from_file("../test_data/sync.json")
+        .create();
+
+        let client = AsyncClient::new(homeserver, Some(session)).unwrap();
+
+        let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
+
+        let _response = client.sync(sync_settings).await.unwrap();
+
+        let rooms_lock = &client.base_client.joined_rooms();
+        let rooms = rooms_lock.read().await;
+        let room = &rooms
+            .get(&RoomId::try_from("!SVkFJHzfwvuaIEawgC:localhost").unwrap())
+            .unwrap()
+            .read()
+            .await;
+
+        assert_eq!(2, room.members.len());
+        for member in room.members.values() {
+            assert_eq!(MembershipState::Join, member.membership);
+        }
+
+        assert!(room.power_levels.is_some())
+    }
+
+    #[tokio::test]
+    async fn calculate_room_names_from_summary() {
+        let homeserver = Url::from_str(&mockito::server_url()).unwrap();
+
+        let mut bld = EventBuilder::default().build_with_response(
+            // this sync has no room.name or room.alias events so only relies on summary
+            "../test_data/sync_with_summary.json",
+            "GET",
+            Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_string()),
+        );
+
+        let session = Session {
+            access_token: "1234".to_owned(),
+            user_id: UserId::try_from("@example:localhost").unwrap(),
+            device_id: "DEVICEID".to_owned(),
+        };
+        let client = AsyncClient::new(homeserver, Some(session)).unwrap();
+        let client = bld.set_client(client).to_client().await.unwrap();
+
+        let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
+        let _response = client.sync(sync_settings).await.unwrap();
+
+        assert_eq!(vec!["example, example2"], client.get_room_names().await);
     }
 }

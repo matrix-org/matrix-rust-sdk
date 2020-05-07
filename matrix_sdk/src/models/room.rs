@@ -237,7 +237,7 @@ impl Room {
     }
 
     /// Return the display name of the room.
-    pub fn calculate_name(&self) -> String {
+    pub fn display_name(&self) -> String {
         self.room_name.calculate_name(&self.members)
     }
 
@@ -490,44 +490,42 @@ impl Room {
 #[cfg(test)]
 mod test {
     use super::*;
+    use crate::api::r0::sync::sync_events::Response as SyncResponse;
     use crate::events::room::member::MembershipState;
     use crate::identifiers::UserId;
     use crate::test_builder::EventBuilder;
-    use crate::{AsyncClient, Session, SyncSettings};
+    use crate::{Client, Session};
 
-    use mockito::{mock, Matcher};
-    use url::Url;
+    use http::Response;
 
     use std::convert::TryFrom;
+    use std::fs::File;
+    use std::io::Read;
     use std::ops::Deref;
-    use std::str::FromStr;
-    use std::time::Duration;
+
+    fn sync_response(file: &str) -> SyncResponse {
+        let mut file = File::open(file).unwrap();
+        let mut data = vec![];
+        file.read_to_end(&mut data).unwrap();
+        let response = Response::builder().body(data).unwrap();
+        SyncResponse::try_from(response).unwrap()
+    }
 
     #[tokio::test]
     async fn user_presence() {
-        let homeserver = Url::from_str(&mockito::server_url()).unwrap();
-
         let session = Session {
             access_token: "1234".to_owned(),
             user_id: UserId::try_from("@example:localhost").unwrap(),
             device_id: "DEVICEID".to_owned(),
         };
 
-        let _m = mock(
-            "GET",
-            Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_string()),
-        )
-        .with_status(200)
-        .with_body_from_file("../test_data/sync.json")
-        .create();
+        let mut response = sync_response("../test_data/sync.json");
 
-        let client = AsyncClient::new(homeserver, Some(session)).unwrap();
+        let client = Client::new(Some(session)).unwrap();
 
-        let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
+        client.receive_sync_response(&mut response).await.unwrap();
 
-        let _response = client.sync(sync_settings).await.unwrap();
-
-        let rooms_lock = &client.base_client.joined_rooms();
+        let rooms_lock = &client.joined_rooms();
         let rooms = rooms_lock.read().await;
         let room = &rooms
             .get(&RoomId::try_from("!SVkFJHzfwvuaIEawgC:localhost").unwrap())
@@ -585,7 +583,7 @@ mod test {
 
         let room = bld.to_room();
 
-        assert_eq!("tutorial", room.calculate_name());
+        assert_eq!("tutorial", room.display_name());
     }
 
     #[test]
@@ -602,7 +600,7 @@ mod test {
 
         let room = bld.to_room();
 
-        assert_eq!("tutorial", room.calculate_name());
+        assert_eq!("tutorial", room.display_name());
     }
 
     #[test]
@@ -616,31 +614,27 @@ mod test {
 
         let room = bld.to_room();
 
-        assert_eq!("room name", room.calculate_name());
+        assert_eq!("room name", room.display_name());
     }
 
     #[tokio::test]
     async fn calculate_room_names_from_summary() {
-        let homeserver = Url::from_str(&mockito::server_url()).unwrap();
-
-        let mut bld = EventBuilder::default().build_with_response(
-            // this sync has no room.name or room.alias events so only relies on summary
-            "../test_data/sync_with_summary.json",
-            "GET",
-            Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_string()),
-        );
+        let mut response = sync_response("../test_data/sync_with_summary.json");
 
         let session = Session {
             access_token: "1234".to_owned(),
             user_id: UserId::try_from("@example:localhost").unwrap(),
             device_id: "DEVICEID".to_owned(),
         };
-        let client = AsyncClient::new(homeserver, Some(session)).unwrap();
-        let client = bld.set_client(client).to_client().await.unwrap();
+        let client = Client::new(Some(session)).unwrap();
+        client.receive_sync_response(&mut response).await.unwrap();
 
-        let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
-        let _response = client.sync(sync_settings).await.unwrap();
+        let mut room_names = vec![];
 
-        assert_eq!(vec!["example, example2"], client.get_room_names().await);
+        for room in client.joined_rooms().read().await.values() {
+            room_names.push(room.read().await.display_name())
+        }
+
+        assert_eq!(vec!["example, example2"], room_names);
     }
 }
