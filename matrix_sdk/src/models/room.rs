@@ -30,7 +30,7 @@ use crate::events::room::{
     power_levels::{NotificationPowerLevels, PowerLevelsEvent, PowerLevelsEventContent},
     tombstone::TombstoneEvent,
 };
-use crate::events::stripped::AnyStrippedStateEvent;
+use crate::events::stripped::{AnyStrippedStateEvent, StrippedRoomName};
 use crate::events::EventType;
 use crate::identifiers::{RoomAliasId, RoomId, UserId};
 
@@ -352,6 +352,16 @@ impl Room {
         }
     }
 
+    /// Handle a room.name event, updating the room state if necessary.
+    ///
+    /// Returns true if the room name changed, false otherwise.
+    pub fn handle_stripped_room_name(&mut self, event: &StrippedRoomName) -> bool {
+        match event.content.name() {
+            Some(name) => self.set_room_name(name),
+            _ => false,
+        }
+    }
+
     /// Handle a room.power_levels event, updating the room state if necessary.
     ///
     /// Returns true if the room name changed, false otherwise.
@@ -438,9 +448,11 @@ impl Room {
     ///
     /// * `event` - The `AnyStrippedStateEvent` sent by the server for invited but not
     /// joined rooms.
-    pub fn receive_stripped_state_event(&mut self, _event: &AnyStrippedStateEvent) -> bool {
-        // TODO do we want to do anything with the events from an invited room?
-        true
+    pub fn receive_stripped_state_event(&mut self, event: &AnyStrippedStateEvent) -> bool {
+        match event {
+            AnyStrippedStateEvent::RoomName(n) => self.handle_stripped_room_name(n),
+            _ => false,
+        }
     }
 
     /// Receive a presence event from an `IncomingResponse` and updates the client state.
