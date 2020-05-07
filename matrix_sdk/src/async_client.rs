@@ -44,12 +44,12 @@ use crate::Endpoint;
 use crate::identifiers::DeviceId;
 
 use crate::api;
-use crate::base_client::Client as BaseClient;
-use crate::models::Room;
-use crate::session::Session;
-use crate::state::StateStore;
 use crate::VERSION;
 use crate::{Error, EventEmitter, Result};
+use matrix_sdk_base::Client as BaseClient;
+use matrix_sdk_base::Room;
+use matrix_sdk_base::Session;
+use matrix_sdk_base::StateStore;
 
 const DEFAULT_SYNC_TIMEOUT: Duration = Duration::from_secs(30);
 

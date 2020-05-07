@@ -26,15 +26,25 @@
 //! destroyed.
 #![deny(missing_docs)]
 
-pub use matrix_sdk_base::{Error, EventEmitter, Result, Room, Session};
-pub use matrix_sdk_base::{JsonStore, StateStore};
+pub use crate::{error::Error, error::Result, session::Session};
 pub use matrix_sdk_common::*;
 pub use reqwest::header::InvalidHeaderValue;
 
+mod base_client;
+mod error;
+mod event_emitter;
+mod models;
+mod request_builder;
+mod session;
+mod state;
+
+#[cfg(test)]
+pub mod test_builder;
+
+pub use base_client::{Client, RoomState, RoomStateType};
+pub use event_emitter::EventEmitter;
 #[cfg(feature = "encryption")]
-pub use matrix_sdk_base::{Device, TrustState};
-
-mod async_client;
-pub use async_client::{AsyncClient, AsyncClientConfig, SyncSettings};
-
-pub(crate) const VERSION: &str = env!("CARGO_PKG_VERSION");
+pub use matrix_sdk_crypto::{Device, TrustState};
+pub use models::Room;
+pub use request_builder::{MessagesRequestBuilder, RoomBuilder};
+pub use state::{JsonStore, StateStore};

@@ -210,7 +210,7 @@ impl Client {
     /// When a client is provided the state store will load state from the `StateStore`.
     ///
     /// Returns `true` when a state store sync has successfully completed.
-    pub(crate) async fn sync_with_state_store(&self) -> Result<bool> {
+    pub async fn sync_with_state_store(&self) -> Result<bool> {
         let store = self.state_store.read().await;
         if let Some(store) = store.as_ref() {
             if let Some(sess) = self.session.read().await.as_ref() {
@@ -290,7 +290,7 @@ impl Client {
     /// # Arguments
     ///
     /// `room_id` - The unique id of the room that should be fetched.
-    pub(crate) async fn get_joined_room(&self, room_id: &RoomId) -> Option<Arc<RwLock<Room>>> {
+    pub async fn get_joined_room(&self, room_id: &RoomId) -> Option<Arc<RwLock<Room>>> {
         self.joined_rooms.read().await.get(room_id).cloned()
     }
 
@@ -324,7 +324,7 @@ impl Client {
     /// # Arguments
     ///
     /// `room_id` - The unique id of the room that should be fetched.
-    pub(crate) async fn get_invited_room(&self, room_id: &RoomId) -> Option<Arc<RwLock<Room>>> {
+    pub async fn get_invited_room(&self, room_id: &RoomId) -> Option<Arc<RwLock<Room>>> {
         self.invited_rooms.read().await.get(room_id).cloned()
     }
 
@@ -358,7 +358,7 @@ impl Client {
     /// # Arguments
     ///
     /// `room_id` - The unique id of the room that should be fetched.
-    pub(crate) async fn get_left_room(&self, room_id: &RoomId) -> Option<Arc<RwLock<Room>>> {
+    pub async fn get_left_room(&self, room_id: &RoomId) -> Option<Arc<RwLock<Room>>> {
         self.left_rooms.read().await.get(room_id).cloned()
     }
 

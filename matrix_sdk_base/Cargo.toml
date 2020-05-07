@@ -5,7 +5,7 @@ edition = "2018"
 homepage = "https://github.com/matrix-org/matrix-rust-sdk"
 keywords = ["matrix", "chat", "messaging", "ruma", "nio"]
 license = "Apache-2.0"
-name = "matrix-sdk"
+name = "matrix-sdk-base"
 readme = "README.md"
 repository = "https://github.com/matrix-org/matrix-rust-sdk"
 version = "0.1.0"
@@ -27,7 +27,6 @@ serde = "1.0.106"
 serde_json = "1.0.52"
 uuid = { version = "0.8.1", features = ["v4"] }
 
-matrix-sdk-base = { path = "../matrix_sdk_base" }
 matrix-sdk-common = { path = "../matrix_sdk_common" }
 matrix-sdk-crypto = { path = "../matrix_sdk_crypto", optional = true }
 
