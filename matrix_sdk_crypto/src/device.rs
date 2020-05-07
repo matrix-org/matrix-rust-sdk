@@ -23,9 +23,9 @@ use atomic::Atomic;
 
 #[cfg(test)]
 use super::OlmMachine;
-use matrix_sdk_types::api::r0::keys::{DeviceKeys, KeyAlgorithm};
-use matrix_sdk_types::events::Algorithm;
-use matrix_sdk_types::identifiers::{DeviceId, UserId};
+use matrix_sdk_common::api::r0::keys::{DeviceKeys, KeyAlgorithm};
+use matrix_sdk_common::events::Algorithm;
+use matrix_sdk_common::identifiers::{DeviceId, UserId};
 
 /// A device represents a E2EE capable client of an user.
 #[derive(Debug, Clone)]
@@ -224,8 +224,8 @@ pub(crate) mod test {
     use std::convert::{From, TryFrom};
 
     use crate::device::{Device, TrustState};
-    use matrix_sdk_types::api::r0::keys::{DeviceKeys, KeyAlgorithm};
-    use matrix_sdk_types::identifiers::UserId;
+    use matrix_sdk_common::api::r0::keys::{DeviceKeys, KeyAlgorithm};
+    use matrix_sdk_common::identifiers::UserId;
 
     fn device_keys() -> DeviceKeys {
         let user_id = UserId::try_from("@alice:example.org").unwrap();

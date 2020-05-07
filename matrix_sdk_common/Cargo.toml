@@ -1,11 +1,11 @@
 [package]
 authors = ["Damir Jelić <poljar@termina.org.uk"]
-description = "Collection of Matrix types used in the matrix-sdk"
+description = "Collection of common types used in the matrix-sdk"
 edition = "2018"
 homepage = "https://github.com/matrix-org/matrix-rust-sdk"
 keywords = ["matrix", "chat", "messaging", "ruma", "nio"]
 license = "Apache-2.0"
-name = "matrix-sdk-types"
+name = "matrix-sdk-common"
 readme = "README.md"
 repository = "https://github.com/matrix-org/matrix-rust-sdk"
 version = "0.1.0"

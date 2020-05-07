@@ -2,5 +2,5 @@
 members = [
     "matrix_sdk",
     "matrix_sdk_crypto",
-    "matrix_sdk_types",
+    "matrix_sdk_common",
 ]

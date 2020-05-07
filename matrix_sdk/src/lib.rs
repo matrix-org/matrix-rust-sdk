@@ -27,7 +27,7 @@
 #![deny(missing_docs)]
 
 pub use crate::{error::Error, error::Result, session::Session};
-pub use matrix_sdk_types::*;
+pub use matrix_sdk_common::*;
 pub use reqwest::header::InvalidHeaderValue;
 
 mod async_client;

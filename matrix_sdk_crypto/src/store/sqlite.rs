@@ -30,9 +30,9 @@ use zeroize::Zeroizing;
 use super::{Account, CryptoStore, CryptoStoreError, InboundGroupSession, Result, Session};
 use crate::device::{Device, TrustState};
 use crate::memory_stores::{DeviceStore, GroupSessionStore, SessionStore, UserDevices};
-use matrix_sdk_types::api::r0::keys::KeyAlgorithm;
-use matrix_sdk_types::events::Algorithm;
-use matrix_sdk_types::identifiers::{DeviceId, RoomId, UserId};
+use matrix_sdk_common::api::r0::keys::KeyAlgorithm;
+use matrix_sdk_common::events::Algorithm;
+use matrix_sdk_common::identifiers::{DeviceId, RoomId, UserId};
 
 /// SQLite based implementation of a `CryptoStore`.
 pub struct SqliteStore {
@@ -694,7 +694,7 @@ impl std::fmt::Debug for SqliteStore {
 mod test {
     use crate::device::test::get_device;
     use crate::olm::GroupSessionKey;
-    use matrix_sdk_types::api::r0::keys::SignedKey;
+    use matrix_sdk_common::api::r0::keys::SignedKey;
     use olm_rs::outbound_group_session::OlmOutboundGroupSession;
     use std::collections::BTreeMap;
     use tempfile::tempdir;

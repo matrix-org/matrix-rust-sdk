@@ -83,7 +83,7 @@ async fn room_names() {
 
     let mut names = vec![];
     for r in client.joined_rooms().read().await.values() {
-        names.push(r.read().await.calculate_name());
+        names.push(r.read().await.display_name());
     }
     assert_eq!(vec!["tutorial"], names);
     let room = client
@@ -91,5 +91,5 @@ async fn room_names() {
         .await
         .unwrap();
 
-    assert_eq!("tutorial".to_string(), room.read().await.calculate_name());
+    assert_eq!("tutorial".to_string(), room.read().await.display_name());
 }

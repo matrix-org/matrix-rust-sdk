@@ -106,6 +106,8 @@ mod test {
 
         let mut joined_rooms = HashMap::new();
         joined_rooms.insert(id, room);
+
+        #[cfg(not(feature = "messages"))]
         assert_eq!(
             r#"{
   "!roomid:example.com": {
@@ -121,6 +123,34 @@ mod test {
     "own_user_id": "@example:example.com",
     "creator": null,
     "members": {},
+    "typing_users": [],
+    "power_levels": null,
+    "encrypted": false,
+    "unread_highlight": null,
+    "unread_notifications": null,
+    "tombstone": null
+  }
+}"#,
+            serde_json::to_string_pretty(&joined_rooms).unwrap()
+        );
+
+        #[cfg(feature = "messages")]
+        assert_eq!(
+            r#"{
+  "!roomid:example.com": {
+    "room_id": "!roomid:example.com",
+    "room_name": {
+      "name": null,
+      "canonical_alias": null,
+      "aliases": [],
+      "heroes": [],
+      "joined_member_count": null,
+      "invited_member_count": null
+    },
+    "own_user_id": "@example:example.com",
+    "creator": null,
+    "members": {},
+    "messages": [],
     "typing_users": [],
     "power_levels": null,
     "encrypted": false,

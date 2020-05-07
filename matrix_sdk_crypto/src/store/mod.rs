@@ -26,7 +26,7 @@ use tokio::sync::Mutex;
 use super::device::Device;
 use super::memory_stores::UserDevices;
 use super::olm::{Account, InboundGroupSession, Session};
-use matrix_sdk_types::identifiers::{DeviceId, RoomId, UserId};
+use matrix_sdk_common::identifiers::{DeviceId, RoomId, UserId};
 use olm_rs::errors::{OlmAccountError, OlmGroupSessionError, OlmSessionError};
 
 pub mod memorystore;

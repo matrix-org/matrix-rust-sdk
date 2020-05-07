@@ -35,8 +35,8 @@ pub use olm_rs::{
     utility::OlmUtility,
 };
 
-use matrix_sdk_types::api::r0::keys::SignedKey;
-use matrix_sdk_types::identifiers::RoomId;
+use matrix_sdk_common::api::r0::keys::SignedKey;
+use matrix_sdk_common::identifiers::RoomId;
 
 /// Account holding identity keys for which sessions can be created.
 ///
@@ -627,8 +627,8 @@ impl std::fmt::Debug for OutboundGroupSession {
 #[cfg(test)]
 pub(crate) mod test {
     use crate::olm::{Account, InboundGroupSession, OutboundGroupSession, Session};
-    use matrix_sdk_types::api::r0::keys::SignedKey;
-    use matrix_sdk_types::identifiers::RoomId;
+    use matrix_sdk_common::api::r0::keys::SignedKey;
+    use matrix_sdk_common::identifiers::RoomId;
     use olm_rs::session::OlmMessage;
     use std::collections::BTreeMap;
     use std::convert::TryFrom;

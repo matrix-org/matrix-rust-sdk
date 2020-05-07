@@ -16,6 +16,8 @@
 use std::collections::{BTreeMap, HashMap};
 use std::convert::TryFrom;
 
+#[cfg(feature = "messages")]
+use super::message::MessageQueue;
 use super::RoomMember;
 
 use crate::api::r0::sync::sync_events::RoomSummary;
@@ -32,11 +34,16 @@ use crate::events::room::{
 };
 use crate::events::stripped::{AnyStrippedStateEvent, StrippedRoomName};
 use crate::events::EventType;
+
+#[cfg(feature = "messages")]
+use crate::events::room::message::MessageEvent;
+
 use crate::identifiers::{RoomAliasId, RoomId, UserId};
 
 use crate::js_int::{Int, UInt};
 use serde::{Deserialize, Serialize};
 #[derive(Debug, Default, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(Clone))]
 /// `RoomName` allows the calculation of a text room name.
 pub struct RoomName {
     /// The displayed name of the room.
@@ -59,6 +66,7 @@ pub struct RoomName {
 }
 
 #[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(Clone))]
 pub struct PowerLevels {
     /// The level required to ban a user.
     pub ban: Int,
@@ -85,6 +93,7 @@ pub struct PowerLevels {
 }
 
 #[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(Clone))]
 pub struct Tombstone {
     /// A server-defined message.
     body: String,
@@ -93,6 +102,7 @@ pub struct Tombstone {
 }
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(Clone))]
 /// A Matrix room.
 pub struct Room {
     /// The unique id of the room.
@@ -105,6 +115,14 @@ pub struct Room {
     pub creator: Option<UserId>,
     /// The map of room members.
     pub members: HashMap<UserId, RoomMember>,
+    /// A queue of messages, holds no more than 10 of the most recent messages.
+    ///
+    /// This is helpful when using a `StateStore` to avoid multiple requests
+    /// to the server for messages.
+    #[cfg(feature = "messages")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "messages")))]
+    #[serde(with = "super::message::ser_deser")]
+    pub messages: MessageQueue,
     /// A list of users that are currently typing.
     pub typing_users: Vec<UserId>,
     /// The power level requirements for specific actions in this room
@@ -208,6 +226,8 @@ impl Room {
             own_user_id: own_user_id.clone(),
             creator: None,
             members: HashMap::new(),
+            #[cfg(feature = "messages")]
+            messages: MessageQueue::new(),
             typing_users: Vec::new(),
             power_levels: None,
             encrypted: false,
@@ -218,7 +238,7 @@ impl Room {
     }
 
     /// Return the display name of the room.
-    pub fn calculate_name(&self) -> String {
+    pub fn display_name(&self) -> String {
         self.room_name.calculate_name(&self.members)
     }
 
@@ -321,6 +341,15 @@ impl Room {
         }
     }
 
+    /// Handle a room.message event and update the `MessageQueue` if necessary.
+    ///
+    /// Returns true if `MessageQueue` was added to.
+    #[cfg(feature = "messages")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "messages")))]
+    pub fn handle_message(&mut self, event: &MessageEvent) -> bool {
+        self.messages.push(event.clone())
+    }
+
     /// Handle a room.aliases event, updating the room state if necessary.
     ///
     /// Returns true if the room name changed, false otherwise.
@@ -407,15 +436,17 @@ impl Room {
     pub fn receive_timeline_event(&mut self, event: &RoomEvent) -> bool {
         match event {
             // update to the current members of the room
-            RoomEvent::RoomMember(m) => self.handle_membership(m),
+            RoomEvent::RoomMember(member) => self.handle_membership(member),
             // finds all events related to the name of the room for later use
-            RoomEvent::RoomName(n) => self.handle_room_name(n),
-            RoomEvent::RoomCanonicalAlias(ca) => self.handle_canonical(ca),
-            RoomEvent::RoomAliases(a) => self.handle_room_aliases(a),
+            RoomEvent::RoomName(name) => self.handle_room_name(name),
+            RoomEvent::RoomCanonicalAlias(c_alias) => self.handle_canonical(c_alias),
+            RoomEvent::RoomAliases(alias) => self.handle_room_aliases(alias),
             // power levels of the room members
-            RoomEvent::RoomPowerLevels(p) => self.handle_power_level(p),
-            RoomEvent::RoomTombstone(t) => self.handle_tombstone(t),
-            RoomEvent::RoomEncryption(e) => self.handle_encryption_event(e),
+            RoomEvent::RoomPowerLevels(power) => self.handle_power_level(power),
+            RoomEvent::RoomTombstone(tomb) => self.handle_tombstone(tomb),
+            RoomEvent::RoomEncryption(encrypt) => self.handle_encryption_event(encrypt),
+            #[cfg(feature = "messages")]
+            RoomEvent::RoomMessage(msg) => self.handle_message(msg),
             _ => false,
         }
     }
@@ -429,13 +460,16 @@ impl Room {
     /// * `event` - The event of the room.
     pub fn receive_state_event(&mut self, event: &StateEvent) -> bool {
         match event {
-            StateEvent::RoomMember(m) => self.handle_membership(m),
-            StateEvent::RoomName(n) => self.handle_room_name(n),
-            StateEvent::RoomCanonicalAlias(ca) => self.handle_canonical(ca),
-            StateEvent::RoomAliases(a) => self.handle_room_aliases(a),
-            StateEvent::RoomPowerLevels(p) => self.handle_power_level(p),
-            StateEvent::RoomTombstone(t) => self.handle_tombstone(t),
-            StateEvent::RoomEncryption(e) => self.handle_encryption_event(e),
+            // update to the current members of the room
+            StateEvent::RoomMember(member) => self.handle_membership(member),
+            // finds all events related to the name of the room for later use
+            StateEvent::RoomName(name) => self.handle_room_name(name),
+            StateEvent::RoomCanonicalAlias(c_alias) => self.handle_canonical(c_alias),
+            StateEvent::RoomAliases(alias) => self.handle_room_aliases(alias),
+            // power levels of the room members
+            StateEvent::RoomPowerLevels(power) => self.handle_power_level(power),
+            StateEvent::RoomTombstone(tomb) => self.handle_tombstone(tomb),
+            StateEvent::RoomEncryption(encrypt) => self.handle_encryption_event(encrypt),
             _ => false,
         }
     }
@@ -482,44 +516,42 @@ impl Room {
 #[cfg(test)]
 mod test {
     use super::*;
+    use crate::api::r0::sync::sync_events::Response as SyncResponse;
     use crate::events::room::member::MembershipState;
     use crate::identifiers::UserId;
     use crate::test_builder::EventBuilder;
-    use crate::{AsyncClient, Session, SyncSettings};
+    use crate::{Client, Session};
 
-    use mockito::{mock, Matcher};
-    use url::Url;
+    use http::Response;
 
     use std::convert::TryFrom;
+    use std::fs::File;
+    use std::io::Read;
     use std::ops::Deref;
-    use std::str::FromStr;
-    use std::time::Duration;
+
+    fn sync_response(file: &str) -> SyncResponse {
+        let mut file = File::open(file).unwrap();
+        let mut data = vec![];
+        file.read_to_end(&mut data).unwrap();
+        let response = Response::builder().body(data).unwrap();
+        SyncResponse::try_from(response).unwrap()
+    }
 
     #[tokio::test]
     async fn user_presence() {
-        let homeserver = Url::from_str(&mockito::server_url()).unwrap();
-
         let session = Session {
             access_token: "1234".to_owned(),
             user_id: UserId::try_from("@example:localhost").unwrap(),
             device_id: "DEVICEID".to_owned(),
         };
 
-        let _m = mock(
-            "GET",
-            Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_string()),
-        )
-        .with_status(200)
-        .with_body_from_file("../test_data/sync.json")
-        .create();
+        let mut response = sync_response("../test_data/sync.json");
 
-        let client = AsyncClient::new(homeserver, Some(session)).unwrap();
+        let client = Client::new(Some(session)).unwrap();
 
-        let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
+        client.receive_sync_response(&mut response).await.unwrap();
 
-        let _response = client.sync(sync_settings).await.unwrap();
-
-        let rooms_lock = &client.base_client.joined_rooms();
+        let rooms_lock = &client.joined_rooms();
         let rooms = rooms_lock.read().await;
         let room = &rooms
             .get(&RoomId::try_from("!SVkFJHzfwvuaIEawgC:localhost").unwrap())
@@ -577,7 +609,7 @@ mod test {
 
         let room = bld.to_room();
 
-        assert_eq!("tutorial", room.calculate_name());
+        assert_eq!("tutorial", room.display_name());
     }
 
     #[test]
@@ -594,7 +626,7 @@ mod test {
 
         let room = bld.to_room();
 
-        assert_eq!("tutorial", room.calculate_name());
+        assert_eq!("tutorial", room.display_name());
     }
 
     #[test]
@@ -608,35 +640,26 @@ mod test {
 
         let room = bld.to_room();
 
-        assert_eq!("room name", room.calculate_name());
+        assert_eq!("room name", room.display_name());
     }
 
     #[tokio::test]
     async fn calculate_room_names_from_summary() {
-        let homeserver = Url::from_str(&mockito::server_url()).unwrap();
-
-        let mut bld = EventBuilder::default().build_with_response(
-            // this sync has no room.name or room.alias events so only relies on summary
-            "../test_data/sync_with_summary.json",
-            "GET",
-            Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_string()),
-        );
+        let mut response = sync_response("../test_data/sync_with_summary.json");
 
         let session = Session {
             access_token: "1234".to_owned(),
             user_id: UserId::try_from("@example:localhost").unwrap(),
             device_id: "DEVICEID".to_owned(),
         };
-        let client = AsyncClient::new(homeserver, Some(session)).unwrap();
-        let client = bld.set_client(client).to_client().await.unwrap();
+        let client = Client::new(Some(session)).unwrap();
+        client.receive_sync_response(&mut response).await.unwrap();
 
-        let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
-        let _response = client.sync(sync_settings).await.unwrap();
-
-        let mut names = vec![];
-        for r in client.joined_rooms().read().await.values() {
-            names.push(r.read().await.calculate_name());
+        let mut room_names = vec![];
+        for room in client.joined_rooms().read().await.values() {
+            room_names.push(room.read().await.display_name())
         }
-        assert_eq!(vec!["example, example2"], names);
+
+        assert_eq!(vec!["example, example2"], room_names);
     }
 }

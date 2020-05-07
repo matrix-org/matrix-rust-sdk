@@ -31,8 +31,8 @@ use super::store::memorystore::MemoryStore;
 use super::store::sqlite::SqliteStore;
 use super::{device::Device, store::Result as StoreError, CryptoStore};
 
-use matrix_sdk_types::api;
-use matrix_sdk_types::events::{
+use matrix_sdk_common::api;
+use matrix_sdk_common::events::{
     collections::all::RoomEvent,
     room::encrypted::{
         CiphertextInfo, EncryptedEvent, EncryptedEventContent, MegolmV1AesSha2Content,
@@ -45,7 +45,7 @@ use matrix_sdk_types::events::{
     },
     Algorithm, EventJson, EventType,
 };
-use matrix_sdk_types::identifiers::{DeviceId, RoomId, UserId};
+use matrix_sdk_common::identifiers::{DeviceId, RoomId, UserId};
 
 use api::r0::keys;
 use api::r0::{
@@ -1550,7 +1550,7 @@ mod test {
     static USER_ID: &str = "@bob:example.org";
     static DEVICE_ID: &str = "DEVICEID";
 
-    use matrix_sdk_types::js_int::UInt;
+    use matrix_sdk_common::js_int::UInt;
     use std::collections::BTreeMap;
     use std::convert::TryFrom;
     use std::fs::File;
@@ -1564,10 +1564,10 @@ mod test {
     use crate::machine::{OlmMachine, OneTimeKeys};
     use crate::Device;
 
-    use matrix_sdk_types::api::r0::{
+    use matrix_sdk_common::api::r0::{
         keys, to_device::send_event_to_device::Request as ToDeviceRequest,
     };
-    use matrix_sdk_types::events::{
+    use matrix_sdk_common::events::{
         collections::all::RoomEvent,
         room::{
             encrypted::{EncryptedEvent, EncryptedEventContent},
@@ -1576,7 +1576,7 @@ mod test {
         to_device::{AnyToDeviceEvent, ToDeviceEncrypted},
         EventJson, EventType, UnsignedData,
     };
-    use matrix_sdk_types::identifiers::{DeviceId, EventId, RoomId, UserId};
+    use matrix_sdk_common::identifiers::{DeviceId, EventId, RoomId, UserId};
 
     fn alice_id() -> UserId {
         UserId::try_from("@alice:example.org").unwrap()
