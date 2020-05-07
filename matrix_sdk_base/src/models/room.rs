@@ -20,7 +20,7 @@ use std::convert::TryFrom;
 use super::message::MessageQueue;
 use super::RoomMember;
 
-use crate::api::r0::sync::sync_events::RoomSummary;
+use crate::api::r0::sync::sync_events::{RoomSummary, UnreadNotificationsCount};
 use crate::events::collections::all::{RoomEvent, StateEvent};
 use crate::events::presence::PresenceEvent;
 use crate::events::room::{
@@ -318,6 +318,11 @@ impl Room {
         self.room_name.heroes = heroes.clone();
         self.room_name.invited_member_count = *invited_member_count;
         self.room_name.joined_member_count = *joined_member_count;
+    }
+
+    pub(crate) fn set_unread_notice_count(&mut self, notifications: &UnreadNotificationsCount) {
+        self.unread_highlight = notifications.highlight_count;
+        self.unread_notifications = notifications.notification_count;
     }
 
     /// Handle a room.member updating the room state if necessary.

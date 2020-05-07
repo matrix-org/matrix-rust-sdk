@@ -662,6 +662,12 @@ impl Client {
                 .await
                 .set_room_summary(&joined_room.summary);
 
+            // set unread notification count
+            matrix_room
+                .write()
+                .await
+                .set_unread_notice_count(&joined_room.unread_notifications);
+
             // re looping is not ideal here
             for event in &mut joined_room.state.events {
                 if let Ok(e) = event.deserialize() {

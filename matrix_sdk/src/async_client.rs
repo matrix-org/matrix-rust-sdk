@@ -324,16 +324,14 @@ impl AsyncClient {
     /// Returns the invited rooms this client knows about.
     ///
     /// A `HashMap` of room id to `matrix::models::Room`
-    pub async fn invited_rooms(
-        &self,
-    ) -> Arc<RwLock<HashMap<RoomId, Arc<tokio::sync::RwLock<Room>>>>> {
+    pub fn invited_rooms(&self) -> Arc<RwLock<HashMap<RoomId, Arc<tokio::sync::RwLock<Room>>>>> {
         self.base_client.invited_rooms()
     }
 
     /// Returns the left rooms this client knows about.
     ///
     /// A `HashMap` of room id to `matrix::models::Room`
-    pub async fn left_rooms(&self) -> Arc<RwLock<HashMap<RoomId, Arc<tokio::sync::RwLock<Room>>>>> {
+    pub fn left_rooms(&self) -> Arc<RwLock<HashMap<RoomId, Arc<tokio::sync::RwLock<Room>>>>> {
         self.base_client.left_rooms()
     }
 
@@ -1196,10 +1194,11 @@ impl AsyncClient {
 mod test {
     use super::{
         ban_user, create_receipt, create_typing_event, forget_room, invite_user, kick_user,
-        leave_room,
+        leave_room, Invite3pid, MessageEventContent, RoomIdOrAliasId,
     };
     use super::{AsyncClient, AsyncClientConfig, Session, SyncSettings, Url};
     use crate::events::room::member::MembershipState;
+    use crate::events::room::message::TextMessageEventContent;
     use crate::identifiers::{EventId, RoomId, UserId};
     use matrix_sdk_base::JsonStore;
 
@@ -1339,7 +1338,7 @@ mod test {
     }
 
     #[tokio::test]
-    async fn join_room() {
+    async fn join_room_by_id() {
         let homeserver = Url::from_str(&mockito::server_url()).unwrap();
 
         let session = Session {
@@ -1367,8 +1366,40 @@ mod test {
     }
 
     #[tokio::test]
+    async fn join_room_by_id_or_alias() {
+        let homeserver = Url::from_str(&mockito::server_url()).unwrap();
+
+        let session = Session {
+            access_token: "1234".to_owned(),
+            user_id: UserId::try_from("@example:localhost").unwrap(),
+            device_id: "DEVICEID".to_owned(),
+        };
+
+        let _m = mock(
+            "POST",
+            Matcher::Regex(r"^/_matrix/client/r0/join/".to_string()),
+        )
+        .with_status(200)
+        .with_body_from_file("../test_data/room_id.json")
+        .create();
+
+        let client = AsyncClient::new(homeserver, Some(session)).unwrap();
+        let room_id = RoomIdOrAliasId::try_from("!testroom:example.org").unwrap();
+
+        assert_eq!(
+            // this is the `join_by_room_id::Response` but since no PartialEq we check the RoomId field
+            client
+                .join_room_by_id_or_alias(&room_id, &["server.com".to_string()])
+                .await
+                .unwrap()
+                .room_id,
+            RoomId::try_from("!testroom:example.org").unwrap()
+        );
+    }
+
+    #[tokio::test]
     #[allow(irrefutable_let_patterns)]
-    async fn invite_room() {
+    async fn invite_user_by_id() {
         let homeserver = Url::from_str(&mockito::server_url()).unwrap();
         let user = UserId::try_from("@example:localhost").unwrap();
         let room_id = RoomId::try_from("!testroom:example.org").unwrap();
@@ -1390,6 +1421,44 @@ mod test {
         let client = AsyncClient::new(homeserver, Some(session)).unwrap();
 
         if let invite_user::Response = client.invite_user_by_id(&room_id, &user).await.unwrap() {}
+    }
+
+    #[tokio::test]
+    #[allow(irrefutable_let_patterns)]
+    async fn invite_user_by_3pid() {
+        let homeserver = Url::from_str(&mockito::server_url()).unwrap();
+        let user = UserId::try_from("@example:localhost").unwrap();
+        let room_id = RoomId::try_from("!testroom:example.org").unwrap();
+
+        let session = Session {
+            access_token: "1234".to_owned(),
+            user_id: user.clone(),
+            device_id: "DEVICEID".to_owned(),
+        };
+
+        let _m = mock(
+            "POST",
+            Matcher::Regex(r"^/_matrix/client/r0/rooms/.*/invite".to_string()),
+        )
+        .with_status(200)
+        .with_body_from_file("../test_data/logout_response.json")
+        .create();
+
+        let client = AsyncClient::new(homeserver, Some(session)).unwrap();
+
+        if let invite_user::Response = client
+            .invite_user_by_3pid(
+                &room_id,
+                &Invite3pid {
+                    id_server: "example.org".to_string(),
+                    id_access_token: "IdToken".to_string(),
+                    medium: crate::api::r0::thirdparty::Medium::Email,
+                    address: "address".to_string(),
+                },
+            )
+            .await
+            .unwrap()
+        {}
     }
 
     #[tokio::test]
@@ -1605,6 +1674,48 @@ mod test {
     }
 
     #[tokio::test]
+    async fn room_message_send() {
+        use uuid::Uuid;
+
+        let homeserver = Url::from_str(&mockito::server_url()).unwrap();
+        let user = UserId::try_from("@example:localhost").unwrap();
+        let room_id = RoomId::try_from("!testroom:example.org").unwrap();
+
+        let session = Session {
+            access_token: "1234".to_owned(),
+            user_id: user.clone(),
+            device_id: "DEVICEID".to_owned(),
+        };
+
+        let _m = mock(
+            "PUT",
+            Matcher::Regex(r"^/_matrix/client/r0/rooms/.*/send/".to_string()),
+        )
+        .with_status(200)
+        .with_body_from_file("../test_data/event_id.json")
+        .create();
+
+        let client = AsyncClient::new(homeserver, Some(session)).unwrap();
+
+        let content = MessageEventContent::Text(TextMessageEventContent {
+            body: "Hello world".to_owned(),
+            format: None,
+            formatted_body: None,
+            relates_to: None,
+        });
+        let txn_id = Uuid::new_v4();
+        let response = client
+            .room_send(&room_id, content, Some(txn_id))
+            .await
+            .unwrap();
+
+        assert_eq!(
+            EventId::try_from("$h29iv0s8:example.com").ok(),
+            response.event_id
+        )
+    }
+
+    #[tokio::test]
     async fn user_presence() {
         let homeserver = Url::from_str(&mockito::server_url()).unwrap();
 
@@ -1644,35 +1755,102 @@ mod test {
         assert!(room.power_levels.is_some())
     }
 
-    // #[tokio::test]
-    // async fn calculate_room_names_from_summary() {
-    //     let homeserver = Url::from_str(&mockito::server_url()).unwrap();
+    #[tokio::test]
+    async fn calculate_room_names_from_summary() {
+        let homeserver = Url::from_str(&mockito::server_url()).unwrap();
 
-    //     let mut bld = EventBuilder::default().build_with_response(
-    //         // this sync has no room.name or room.alias events so only relies on summary
-    //         "../test_data/sync_with_summary.json",
-    //         "GET",
-    //         Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_string()),
-    //     );
+        let session = Session {
+            access_token: "1234".to_owned(),
+            user_id: UserId::try_from("@example:localhost").unwrap(),
+            device_id: "DEVICEID".to_owned(),
+        };
 
-    //     let session = Session {
-    //         access_token: "1234".to_owned(),
-    //         user_id: UserId::try_from("@example:localhost").unwrap(),
-    //         device_id: "DEVICEID".to_owned(),
-    //     };
-    //     let client = AsyncClient::new(homeserver, Some(session)).unwrap();
-    //     let client = bld.set_client(client).to_client().await.unwrap();
+        let _m = mock(
+            "GET",
+            Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_string()),
+        )
+        .with_status(200)
+        .with_body_from_file("../test_data/sync_with_summary.json")
+        .create();
 
-    //     let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
-    //     let _response = client.sync(sync_settings).await.unwrap();
+        let client = AsyncClient::new(homeserver, Some(session)).unwrap();
 
-    //     let mut room_names = vec![];
-    //     for room in client.joined_rooms().read().await.values() {
-    //         room_names.push(room.read().await.display_name())
-    //     }
+        let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
+        let _response = client.sync(sync_settings).await.unwrap();
 
-    //     assert_eq!(vec!["example, example2"], room_names);
-    // }
+        let mut room_names = vec![];
+        for room in client.joined_rooms().read().await.values() {
+            room_names.push(room.read().await.display_name())
+        }
+
+        assert_eq!(vec!["example, example2"], room_names);
+    }
+
+    #[tokio::test]
+    async fn invited_rooms() {
+        use std::convert::TryFrom;
+
+        let session = crate::Session {
+            access_token: "12345".to_owned(),
+            user_id: UserId::try_from("@example:localhost").unwrap(),
+            device_id: "DEVICEID".to_owned(),
+        };
+
+        let homeserver = url::Url::parse(&mockito::server_url()).unwrap();
+        let client = AsyncClient::new(homeserver, Some(session)).unwrap();
+
+        let _m = mock(
+            "GET",
+            Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_string()),
+        )
+        .with_status(200)
+        .with_body_from_file("../test_data/invite_sync.json")
+        .create();
+
+        let _response = client.sync(SyncSettings::default()).await.unwrap();
+
+        assert!(client.joined_rooms().read().await.is_empty());
+        assert!(client.left_rooms().read().await.is_empty());
+        assert!(!client.invited_rooms().read().await.is_empty());
+
+        assert!(client
+            .get_invited_room(&RoomId::try_from("!696r7674:example.com").unwrap())
+            .await
+            .is_some());
+    }
+
+    #[tokio::test]
+    async fn left_rooms() {
+        use std::convert::TryFrom;
+
+        let session = crate::Session {
+            access_token: "12345".to_owned(),
+            user_id: UserId::try_from("@example:localhost").unwrap(),
+            device_id: "DEVICEID".to_owned(),
+        };
+
+        let homeserver = url::Url::parse(&mockito::server_url()).unwrap();
+        let client = AsyncClient::new(homeserver, Some(session)).unwrap();
+
+        let _m = mock(
+            "GET",
+            Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_string()),
+        )
+        .with_status(200)
+        .with_body_from_file("../test_data/leave_sync.json")
+        .create();
+
+        let _response = client.sync(SyncSettings::default()).await.unwrap();
+
+        assert!(client.joined_rooms().read().await.is_empty());
+        assert!(!client.left_rooms().read().await.is_empty());
+        assert!(client.invited_rooms().read().await.is_empty());
+
+        assert!(client
+            .get_left_room(&RoomId::try_from("!SVkFJHzfwvuaIEawgC:localhost").unwrap())
+            .await
+            .is_some())
+    }
 
     #[tokio::test]
     async fn test_client_sync_store() {

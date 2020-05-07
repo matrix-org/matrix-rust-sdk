@@ -18,6 +18,7 @@ use crate::events::{
     ignored_user_list::IgnoredUserListEvent,
     presence::PresenceEvent,
     push_rules::PushRulesEvent,
+    receipt::ReceiptEvent,
     room::{
         aliases::AliasesEvent,
         avatar::AvatarEvent,
@@ -34,6 +35,7 @@ use crate::events::{
         StrippedRoomAliases, StrippedRoomAvatar, StrippedRoomCanonicalAlias, StrippedRoomJoinRules,
         StrippedRoomMember, StrippedRoomName, StrippedRoomPowerLevels,
     },
+    typing::TypingEvent,
 };
 use crate::RoomState;
 
@@ -143,7 +145,7 @@ pub trait EventEmitter: Send + Sync {
     /// Fires when `AsyncClient` receives a `AnyStrippedStateEvent::StrippedRoomJoinRules` event.
     async fn on_stripped_state_join_rules(&self, _: RoomState, _: &StrippedRoomJoinRules) {}
 
-    // `NonRoomEvent` (this is a type alias from ruma_events) from `IncomingAccountData`
+    // `NonRoomEvent` (this is a type alias from ruma_events)
     /// Fires when `AsyncClient` receives a `NonRoomEvent::RoomMember` event.
     async fn on_account_presence(&self, _: RoomState, _: &PresenceEvent) {}
     /// Fires when `AsyncClient` receives a `NonRoomEvent::RoomName` event.
@@ -152,6 +154,12 @@ pub trait EventEmitter: Send + Sync {
     async fn on_account_push_rules(&self, _: RoomState, _: &PushRulesEvent) {}
     /// Fires when `AsyncClient` receives a `NonRoomEvent::RoomAliases` event.
     async fn on_account_data_fully_read(&self, _: RoomState, _: &FullyReadEvent) {}
+    /// Fires when `AsyncClient` receives a `NonRoomEvent::Typing` event.
+    async fn on_account_data_typing(&self, _: RoomState, _: &TypingEvent) {}
+    /// Fires when `AsyncClient` receives a `NonRoomEvent::Receipt` event.
+    ///
+    /// This is always a read receipt.
+    async fn on_account_data_receipt(&self, _: RoomState, _: &ReceiptEvent) {}
 
     // `PresenceEvent` is a struct so there is only the one method
     /// Fires when `AsyncClient` receives a `NonRoomEvent::RoomAliases` event.
