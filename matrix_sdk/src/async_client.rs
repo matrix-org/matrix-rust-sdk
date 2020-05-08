@@ -1197,10 +1197,13 @@ mod test {
         leave_room, Invite3pid, MessageEventContent, RoomIdOrAliasId,
     };
     use super::{AsyncClient, AsyncClientConfig, Session, SyncSettings, Url};
+    use crate::events::collections::all::RoomEvent;
     use crate::events::room::member::MembershipState;
     use crate::events::room::message::TextMessageEventContent;
     use crate::identifiers::{EventId, RoomId, UserId};
+
     use matrix_sdk_base::JsonStore;
+    use matrix_sdk_test::EventBuilder;
 
     use mockito::{mock, Matcher};
     use std::convert::TryFrom;
@@ -1236,66 +1239,39 @@ mod test {
         // assert_eq!(1, ignored_users.len())
     }
 
-    // #[tokio::test]
-    // async fn client_runner() {
-    //     let session = crate::Session {
-    //         access_token: "12345".to_owned(),
-    //         user_id: UserId::try_from("@example:localhost").unwrap(),
-    //         device_id: "DEVICEID".to_owned(),
-    //     };
-    //     let homeserver = url::Url::parse(&mockito::server_url()).unwrap();
-    //     let client = AsyncClient::new(homeserver, Some(session)).unwrap();
+    #[tokio::test]
+    async fn room_creation() {
+        let session = crate::Session {
+            access_token: "12345".to_owned(),
+            user_id: UserId::try_from("@example:localhost").unwrap(),
+            device_id: "DEVICEID".to_owned(),
+        };
+        let homeserver = url::Url::parse(&mockito::server_url()).unwrap();
+        let client = AsyncClient::new(homeserver, Some(session)).unwrap();
 
-    //     let rid = RoomId::try_from("!roomid:room.com").unwrap();
-    //     let uid = UserId::try_from("@example:localhost").unwrap();
+        let mut response = EventBuilder::default()
+            .add_room_event_from_file("../test_data/events/member.json", RoomEvent::RoomMember)
+            .add_room_event_from_file(
+                "../test_data/events/power_levels.json",
+                RoomEvent::RoomPowerLevels,
+            )
+            .build_sync_response();
 
-    //     let mut bld = EventBuilder::default()
-    //         .add_room_event_from_file("../test_data/events/member.json", RoomEvent::RoomMember)
-    //         .add_room_event_from_file(
-    //             "../test_data/events/power_levels.json",
-    //             RoomEvent::RoomPowerLevels,
-    //         )
-    //         .build_client_runner(rid, uid);
+        client
+            .base_client
+            .receive_sync_response(&mut response)
+            .await
+            .unwrap();
+        let room_id = RoomId::try_from("!SVkFJHzfwvuaIEawgC:localhost").unwrap();
 
-    //     let cli = bld.set_client(client).to_client().await;
+        assert_eq!(
+            client.homeserver(),
+            &Url::parse(&mockito::server_url()).unwrap()
+        );
 
-    //     assert_eq!(
-    //         cli.homeserver(),
-    //         &Url::parse(&mockito::server_url()).unwrap()
-    //     );
-    // }
-
-    // #[tokio::test]
-    // async fn mock_runner() {
-    //     use std::convert::TryFrom;
-
-    //     let session = crate::Session {
-    //         access_token: "12345".to_owned(),
-    //         user_id: UserId::try_from("@example:localhost").unwrap(),
-    //         device_id: "DEVICEID".to_owned(),
-    //     };
-
-    //     let homeserver = url::Url::parse(&mockito::server_url()).unwrap();
-    //     let client = AsyncClient::new(homeserver, Some(session)).unwrap();
-
-    //     let mut bld = EventBuilder::default()
-    //         .add_room_event_from_file("../test_data/events/member.json", RoomEvent::RoomMember)
-    //         .add_room_event_from_file(
-    //             "../test_data/events/power_levels.json",
-    //             RoomEvent::RoomPowerLevels,
-    //         )
-    //         .build_mock_runner(
-    //             "GET",
-    //             mockito::Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_string()),
-    //         );
-
-    //     let cli = bld.set_client(client).to_client().await.unwrap();
-
-    //     assert_eq!(
-    //         cli.homeserver(),
-    //         &Url::parse(&mockito::server_url()).unwrap()
-    //     );
-    // }
+        let room = client.get_joined_room(&room_id).await;
+        assert!(room.is_some());
+    }
 
     #[tokio::test]
     async fn login_error() {
