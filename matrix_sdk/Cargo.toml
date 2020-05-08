@@ -24,13 +24,16 @@ serde_json = "1.0.52"
 url = "2.1.1"
 uuid = { version = "0.8.1", features = ["v4"] }
 
-matrix-sdk-base = { version = "0.1.0", path = "../matrix_sdk_base" }
 matrix-sdk-common = { version = "0.1.0", path = "../matrix_sdk_common" }
-matrix-sdk-crypto = { version = "0.1.0", path = "../matrix_sdk_crypto", optional = true }
 
 # Misc dependencies
 thiserror = "1.0.16"
 tracing = "0.1.13"
+
+[dependencies.matrix-sdk-base]
+version = "0.1.0"
+path = "../matrix_sdk_base"
+default_features = false
 
 [dependencies.tracing-futures]
 version = "0.2.4"

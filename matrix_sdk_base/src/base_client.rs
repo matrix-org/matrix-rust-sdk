@@ -268,8 +268,8 @@ impl Client {
     }
 
     pub(crate) async fn get_or_create_joined_room(&self, room_id: &RoomId) -> Arc<RwLock<Room>> {
-        #[allow(clippy::or_fun_call)]
         let mut rooms = self.joined_rooms.write().await;
+        #[allow(clippy::or_fun_call)]
         rooms
             .entry(room_id.clone())
             .or_insert(Arc::new(RwLock::new(Room::new(
