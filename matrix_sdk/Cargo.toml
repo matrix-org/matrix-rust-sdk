@@ -17,19 +17,16 @@ encryption = ["matrix-sdk-base/encryption"]
 sqlite-cryptostore = ["matrix-sdk-base/sqlite-cryptostore"]
 
 [dependencies]
-dirs = "2.0.2"
 futures = "0.3.4"
-reqwest = "0.10.4"
 http = "0.2.1"
-url = "2.1.1"
-async-trait = "0.1.30"
-serde = "1.0.106"
+reqwest = "0.10.4"
 serde_json = "1.0.52"
+url = "2.1.1"
 uuid = { version = "0.8.1", features = ["v4"] }
 
-matrix-sdk-base = { path = "../matrix_sdk_base" }
-matrix-sdk-common = { path = "../matrix_sdk_common" }
-matrix-sdk-crypto = { path = "../matrix_sdk_crypto", optional = true }
+matrix-sdk-base = { version = "0.1.0", path = "../matrix_sdk_base" }
+matrix-sdk-common = { version = "0.1.0", path = "../matrix_sdk_common" }
+matrix-sdk-crypto = { version = "0.1.0", path = "../matrix_sdk_crypto", optional = true }
 
 # Misc dependencies
 thiserror = "1.0.16"
@@ -43,9 +40,11 @@ features = ["std", "std-future"]
 [dependencies.tokio]
 version = "0.2.20"
 default-features = false
-features = ["sync", "time", "fs"]
+features = ["time"]
 
 [dev-dependencies]
+async-trait = "0.1.30"
+dirs = "2.0.2"
 matrix-sdk-test = { version = "0.1.0", path = "../matrix_sdk_test" }
 tokio = { version = "0.2.20", features = ["rt-threaded", "macros"] }
 ruma-identifiers = { version = "0.16.1", features = ["rand"] }
