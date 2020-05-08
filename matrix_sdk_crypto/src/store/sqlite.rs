@@ -22,9 +22,9 @@ use std::time::{Duration, Instant};
 use url::Url;
 
 use async_trait::async_trait;
+use matrix_sdk_common::locks::Mutex;
 use olm_rs::PicklingMode;
 use sqlx::{query, query_as, sqlite::SqliteQueryAs, Connect, Executor, SqliteConnection};
-use tokio::sync::Mutex;
 use zeroize::Zeroizing;
 
 use super::{Account, CryptoStore, CryptoStoreError, InboundGroupSession, Result, Session};

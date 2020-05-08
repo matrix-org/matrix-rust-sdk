@@ -16,3 +16,15 @@ ruma-api = "0.16.0"
 ruma-client-api = "0.8.0"
 ruma-events = "0.21.0"
 ruma-identifiers = "0.16.1"
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+uuid = { version = "0.8.1", features = ["v4"] }
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies.tokio]
+version = "0.2.20"
+default-features = false
+features = ["sync", "time", "fs"]
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+futures-locks = { git = "https://github.com/asomers/futures-locks", default-features = false }
+uuid = { version = "0.8.1", features = ["v4", "wasm-bindgen"] }

@@ -199,7 +199,7 @@ impl RoomMember {
 
 #[cfg(test)]
 mod test {
-    use matrix_sdk_test::EventBuilder;
+    use matrix_sdk_test::{async_test, EventBuilder, EventsFile};
 
     use crate::events::collections::all::RoomEvent;
     use crate::events::room::member::MembershipState;
@@ -207,6 +207,9 @@ mod test {
     use crate::{BaseClient, Session};
 
     use crate::js_int::Int;
+
+    #[cfg(target_arch = "wasm32")]
+    use wasm_bindgen_test::*;
 
     use std::convert::TryFrom;
 
@@ -223,18 +226,15 @@ mod test {
         RoomId::try_from("!SVkFJHzfwvuaIEawgC:localhost").unwrap()
     }
 
-    #[tokio::test]
+    #[async_test]
     async fn room_member_events() {
         let client = get_client();
 
         let room_id = get_room_id();
 
         let mut response = EventBuilder::default()
-            .add_room_event_from_file("../test_data/events/member.json", RoomEvent::RoomMember)
-            .add_room_event_from_file(
-                "../test_data/events/power_levels.json",
-                RoomEvent::RoomPowerLevels,
-            )
+            .add_room_event(EventsFile::Member, RoomEvent::RoomMember)
+            .add_room_event(EventsFile::PowerLevels, RoomEvent::RoomPowerLevels)
             .build_sync_response();
 
         client.receive_sync_response(&mut response).await.unwrap();
@@ -250,19 +250,16 @@ mod test {
         assert_eq!(member.power_level, Int::new(100));
     }
 
-    #[tokio::test]
+    #[async_test]
     async fn member_presence_events() {
         let client = get_client();
 
         let room_id = get_room_id();
 
         let mut response = EventBuilder::default()
-            .add_room_event_from_file("../test_data/events/member.json", RoomEvent::RoomMember)
-            .add_room_event_from_file(
-                "../test_data/events/power_levels.json",
-                RoomEvent::RoomPowerLevels,
-            )
-            .add_presence_event_from_file("../test_data/events/presence.json")
+            .add_room_event(EventsFile::Member, RoomEvent::RoomMember)
+            .add_room_event(EventsFile::PowerLevels, RoomEvent::RoomPowerLevels)
+            .add_presence_event(EventsFile::Presence)
             .build_sync_response();
 
         client.receive_sync_response(&mut response).await.unwrap();

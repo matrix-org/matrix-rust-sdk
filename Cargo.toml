@@ -3,6 +3,10 @@ members = [
     "matrix_sdk",
     "matrix_sdk_base",
     "matrix_sdk_test",
+    "matrix_sdk_test_macros",
     "matrix_sdk_crypto",
     "matrix_sdk_common",
 ]
+
+[patch.crates-io]
+olm-sys = { git = "https://gitlab.gnome.org/stoically/olm-sys", branch = "wasm-target" }

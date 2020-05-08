@@ -16,7 +16,9 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
+#[cfg(not(target_arch = "wasm32"))]
 pub mod state_store;
+#[cfg(not(target_arch = "wasm32"))]
 pub use state_store::JsonStore;
 
 use crate::client::{BaseClient, Token};

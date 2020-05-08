@@ -16,7 +16,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use dashmap::{DashMap, ReadOnlyView};
-use tokio::sync::Mutex;
+use matrix_sdk_common::locks::Mutex;
 
 use super::device::Device;
 use super::olm::{InboundGroupSession, Session};

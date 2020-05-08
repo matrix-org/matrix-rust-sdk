@@ -41,4 +41,6 @@ pub use event_emitter::EventEmitter;
 #[cfg(feature = "encryption")]
 pub use matrix_sdk_crypto::{Device, TrustState};
 pub use models::Room;
-pub use state::{JsonStore, StateStore};
+#[cfg(not(target_arch = "wasm32"))]
+pub use state::JsonStore;
+pub use state::StateStore;

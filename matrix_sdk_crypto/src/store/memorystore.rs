@@ -16,7 +16,7 @@ use std::collections::HashSet;
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use tokio::sync::Mutex;
+use matrix_sdk_common::locks::Mutex;
 
 use super::{Account, CryptoStore, InboundGroupSession, Result, Session};
 use crate::device::Device;

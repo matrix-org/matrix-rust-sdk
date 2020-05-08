@@ -21,18 +21,18 @@ use std::result::Result as StdResult;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use uuid::Uuid;
+use matrix_sdk_common::locks::RwLock;
+use matrix_sdk_common::uuid::Uuid;
 
-use futures::future::Future;
-use tokio::sync::RwLock;
-use tokio::time::delay_for as sleep;
+use futures_timer::Delay as sleep;
+use std::future::Future;
 #[cfg(feature = "encryption")]
 use tracing::{debug, warn};
 use tracing::{info, instrument, trace};
 
 use http::Method as HttpMethod;
 use http::Response as HttpResponse;
-use reqwest::header::{HeaderValue, InvalidHeaderValue};
+use reqwest::header::{HeaderValue, InvalidHeaderValue, AUTHORIZATION};
 use url::Url;
 
 use crate::events::room::message::MessageEventContent;
@@ -98,6 +98,7 @@ impl std::fmt::Debug for Client {
 ///     .state_store(Box::new(store));
 /// ```
 pub struct ClientConfig {
+    #[cfg(not(target_arch = "wasm32"))]
     proxy: Option<reqwest::Proxy>,
     user_agent: Option<HeaderValue>,
     disable_ssl_verification: bool,
@@ -106,9 +107,12 @@ pub struct ClientConfig {
 
 impl std::fmt::Debug for ClientConfig {
     fn fmt(&self, fmt: &mut std::fmt::Formatter<'_>) -> StdResult<(), std::fmt::Error> {
-        fmt.debug_struct("ClientConfig")
-            .field("proxy", &self.proxy)
-            .field("user_agent", &self.user_agent)
+        let mut res = fmt.debug_struct("ClientConfig");
+
+        #[cfg(not(target_arch = "wasm32"))]
+        let res = res.field("proxy", &self.proxy);
+
+        res.field("user_agent", &self.user_agent)
             .field("disable_ssl_verification", &self.disable_ssl_verification)
             .finish()
     }
@@ -137,6 +141,7 @@ impl ClientConfig {
     ///     .proxy("http://localhost:8080")
     ///     .unwrap();
     /// ```
+    #[cfg(not(target_arch = "wasm32"))]
     pub fn proxy(mut self, proxy: &str) -> Result<Self> {
         self.proxy = Some(reqwest::Proxy::all(proxy)?);
         Ok(self)
@@ -262,27 +267,32 @@ impl Client {
 
         let http_client = reqwest::Client::builder();
 
-        let http_client = if config.disable_ssl_verification {
-            http_client.danger_accept_invalid_certs(true)
-        } else {
-            http_client
+        #[cfg(not(target_arch = "wasm32"))]
+        let http_client = {
+            let http_client = if config.disable_ssl_verification {
+                http_client.danger_accept_invalid_certs(true)
+            } else {
+                http_client
+            };
+
+            let http_client = match config.proxy {
+                Some(p) => http_client.proxy(p),
+                None => http_client,
+            };
+
+            let mut headers = reqwest::header::HeaderMap::new();
+
+            let user_agent = match config.user_agent {
+                Some(a) => a,
+                None => HeaderValue::from_str(&format!("matrix-rust-sdk {}", VERSION)).unwrap(),
+            };
+
+            headers.insert(reqwest::header::USER_AGENT, user_agent);
+
+            http_client.default_headers(headers)
         };
 
-        let http_client = match config.proxy {
-            Some(p) => http_client.proxy(p),
-            None => http_client,
-        };
-
-        let mut headers = reqwest::header::HeaderMap::new();
-
-        let user_agent = match config.user_agent {
-            Some(a) => a,
-            None => HeaderValue::from_str(&format!("matrix-rust-sdk {}", VERSION)).unwrap(),
-        };
-
-        headers.insert(reqwest::header::USER_AGENT, user_agent);
-
-        let http_client = http_client.default_headers(headers).build()?;
+        let http_client = http_client.build()?;
 
         let base_client = if let Some(store) = config.state_store {
             BaseClient::new_with_state_store(session, store)?
@@ -317,21 +327,21 @@ impl Client {
     /// Returns the joined rooms this client knows about.
     ///
     /// A `HashMap` of room id to `matrix::models::Room`
-    pub fn joined_rooms(&self) -> Arc<RwLock<HashMap<RoomId, Arc<tokio::sync::RwLock<Room>>>>> {
+    pub fn joined_rooms(&self) -> Arc<RwLock<HashMap<RoomId, Arc<RwLock<Room>>>>> {
         self.base_client.joined_rooms()
     }
 
     /// Returns the invited rooms this client knows about.
     ///
     /// A `HashMap` of room id to `matrix::models::Room`
-    pub fn invited_rooms(&self) -> Arc<RwLock<HashMap<RoomId, Arc<tokio::sync::RwLock<Room>>>>> {
+    pub fn invited_rooms(&self) -> Arc<RwLock<HashMap<RoomId, Arc<RwLock<Room>>>>> {
         self.base_client.invited_rooms()
     }
 
     /// Returns the left rooms this client knows about.
     ///
     /// A `HashMap` of room id to `matrix::models::Room`
-    pub fn left_rooms(&self) -> Arc<RwLock<HashMap<RoomId, Arc<tokio::sync::RwLock<Room>>>>> {
+    pub fn left_rooms(&self) -> Arc<RwLock<HashMap<RoomId, Arc<RwLock<Room>>>>> {
         self.base_client.left_rooms()
     }
 
@@ -837,7 +847,7 @@ impl Client {
             let response = if let Ok(r) = response {
                 r
             } else {
-                sleep(Duration::from_secs(1)).await;
+                sleep::new(Duration::from_secs(1)).await;
                 continue;
             };
 
@@ -871,7 +881,7 @@ impl Client {
             // the sync timeout.
             if let Some(t) = last_sync_time {
                 if now - t <= Duration::from_secs(1) {
-                    sleep(Duration::from_secs(1)).await;
+                    sleep::new(Duration::from_secs(1)).await;
                 }
             }
 
@@ -923,7 +933,8 @@ impl Client {
             let session = self.base_client.session().read().await;
 
             if let Some(session) = session.as_ref() {
-                request_builder.bearer_auth(&session.access_token)
+                let header_value = format!("Bearer {}", &session.access_token);
+                request_builder.header(AUTHORIZATION, header_value)
             } else {
                 return Err(Error::AuthenticationRequired);
             }
@@ -980,7 +991,7 @@ impl Client {
     /// # let homeserver = Url::parse("http://localhost:8080").unwrap();
     /// # let mut client = Client::new(homeserver, None).unwrap();
     /// # let room_id = RoomId::try_from("!test:localhost").unwrap();
-    /// use uuid::Uuid;
+    /// use matrix_sdk_common::uuid::Uuid;
     ///
     /// let content = MessageEventContent::Text(TextMessageEventContent {
     ///     body: "Hello world".to_owned(),
@@ -1203,7 +1214,7 @@ mod test {
     use crate::identifiers::{EventId, RoomId, UserId};
 
     use matrix_sdk_base::JsonStore;
-    use matrix_sdk_test::EventBuilder;
+    use matrix_sdk_test::{EventBuilder, EventsFile};
 
     use mockito::{mock, Matcher};
     use std::convert::TryFrom;
@@ -1250,11 +1261,8 @@ mod test {
         let client = Client::new(homeserver, Some(session)).unwrap();
 
         let mut response = EventBuilder::default()
-            .add_room_event_from_file("../test_data/events/member.json", RoomEvent::RoomMember)
-            .add_room_event_from_file(
-                "../test_data/events/power_levels.json",
-                RoomEvent::RoomPowerLevels,
-            )
+            .add_room_event(EventsFile::Member, RoomEvent::RoomMember)
+            .add_room_event(EventsFile::PowerLevels, RoomEvent::RoomPowerLevels)
             .build_sync_response();
 
         client
@@ -1651,7 +1659,7 @@ mod test {
 
     #[tokio::test]
     async fn room_message_send() {
-        use uuid::Uuid;
+        use matrix_sdk_common::uuid::Uuid;
 
         let homeserver = Url::from_str(&mockito::server_url()).unwrap();
         let user = UserId::try_from("@example:localhost").unwrap();

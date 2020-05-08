@@ -521,26 +521,16 @@ impl Room {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::api::r0::sync::sync_events::Response as SyncResponse;
     use crate::events::room::member::MembershipState;
     use crate::identifiers::UserId;
     use crate::{BaseClient, Session};
-    use matrix_sdk_test::EventBuilder;
+    use matrix_sdk_test::{async_test, sync_response, EventBuilder, EventsFile, SyncResponseFile};
 
-    use http::Response;
+    #[cfg(target_arch = "wasm32")]
+    use wasm_bindgen_test::*;
 
     use std::convert::TryFrom;
-    use std::fs::File;
-    use std::io::Read;
     use std::ops::Deref;
-
-    fn sync_response(file: &str) -> SyncResponse {
-        let mut file = File::open(file).unwrap();
-        let mut data = vec![];
-        file.read_to_end(&mut data).unwrap();
-        let response = Response::builder().body(data).unwrap();
-        SyncResponse::try_from(response).unwrap()
-    }
 
     fn get_client() -> BaseClient {
         let session = Session {
@@ -555,11 +545,11 @@ mod test {
         RoomId::try_from("!SVkFJHzfwvuaIEawgC:localhost").unwrap()
     }
 
-    #[tokio::test]
+    #[async_test]
     async fn user_presence() {
         let client = get_client();
 
-        let mut response = sync_response("../test_data/sync.json");
+        let mut response = sync_response(SyncResponseFile::Default);
 
         client.receive_sync_response(&mut response).await.unwrap();
 
@@ -579,18 +569,15 @@ mod test {
         assert!(room.deref().power_levels.is_some())
     }
 
-    #[tokio::test]
+    #[async_test]
     async fn room_events() {
         let client = get_client();
         let room_id = get_room_id();
         let user_id = UserId::try_from("@example:localhost").unwrap();
 
         let mut response = EventBuilder::default()
-            .add_room_event_from_file("../test_data/events/member.json", RoomEvent::RoomMember)
-            .add_room_event_from_file(
-                "../test_data/events/power_levels.json",
-                RoomEvent::RoomPowerLevels,
-            )
+            .add_room_event(EventsFile::Member, RoomEvent::RoomMember)
+            .add_room_event(EventsFile::PowerLevels, RoomEvent::RoomPowerLevels)
             .build_sync_response();
 
         client.receive_sync_response(&mut response).await.unwrap();
@@ -611,14 +598,14 @@ mod test {
         );
     }
 
-    #[tokio::test]
+    #[async_test]
     async fn calculate_aliases() {
         let client = get_client();
 
         let room_id = get_room_id();
 
         let mut response = EventBuilder::default()
-            .add_state_event_from_file("../test_data/events/aliases.json", StateEvent::RoomAliases)
+            .add_state_event(EventsFile::Aliases, StateEvent::RoomAliases)
             .build_sync_response();
 
         client.receive_sync_response(&mut response).await.unwrap();
@@ -629,17 +616,14 @@ mod test {
         assert_eq!("tutorial", room.display_name());
     }
 
-    #[tokio::test]
+    #[async_test]
     async fn calculate_alias() {
         let client = get_client();
 
         let room_id = get_room_id();
 
         let mut response = EventBuilder::default()
-            .add_state_event_from_file(
-                "../test_data/events/alias.json",
-                StateEvent::RoomCanonicalAlias,
-            )
+            .add_state_event(EventsFile::Alias, StateEvent::RoomCanonicalAlias)
             .build_sync_response();
 
         client.receive_sync_response(&mut response).await.unwrap();
@@ -650,14 +634,14 @@ mod test {
         assert_eq!("tutorial", room.display_name());
     }
 
-    #[tokio::test]
+    #[async_test]
     async fn calculate_name() {
         let client = get_client();
 
         let room_id = get_room_id();
 
         let mut response = EventBuilder::default()
-            .add_state_event_from_file("../test_data/events/name.json", StateEvent::RoomName)
+            .add_state_event(EventsFile::Name, StateEvent::RoomName)
             .build_sync_response();
 
         client.receive_sync_response(&mut response).await.unwrap();
@@ -668,9 +652,9 @@ mod test {
         assert_eq!("room name", room.display_name());
     }
 
-    #[tokio::test]
+    #[async_test]
     async fn calculate_room_names_from_summary() {
-        let mut response = sync_response("../test_data/sync_with_summary.json");
+        let mut response = sync_response(SyncResponseFile::DefaultWithSummary);
 
         let session = Session {
             access_token: "1234".to_owned(),

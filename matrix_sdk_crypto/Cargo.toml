@@ -15,7 +15,6 @@ default = []
 sqlite-cryptostore = ["sqlx"]
 
 [dependencies]
-futures = "0.3.4"
 async-trait = "0.1.30"
 
 matrix-sdk-common = { version = "0.1.0", path = "../matrix_sdk_common" }
@@ -23,9 +22,8 @@ matrix-sdk-common = { version = "0.1.0", path = "../matrix_sdk_common" }
 olm-rs = { version = "0.5.0", features = ["serde"] }
 serde = { version = "1.0.106", features = ["derive"] }
 serde_json = "1.0.52"
-cjson = "0.1.0"
+cjson = { git = "https://github.com/stoically/cjson", rev = "24a82d94e339e27a62434493869f3dce62c60e0d" }
 zeroize = { version = "1.1.0", features = ["zeroize_derive"] }
-uuid = { version = "0.8.1", features = ["v4"] }
 url = "2.1.1"
 
 # Misc dependencies
@@ -39,12 +37,7 @@ version = "0.2.4"
 default-features = false
 features = ["std", "std-future"]
 
-[dependencies.tokio]
-version = "0.2.20"
-default-features = false
-features = ["sync", "time"]
-
-[dependencies.sqlx]
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies.sqlx]
 version = "0.3.5"
 optional = true
 default-features = false
