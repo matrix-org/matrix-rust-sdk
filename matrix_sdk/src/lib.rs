@@ -37,7 +37,7 @@ pub use matrix_sdk_base::{Device, TrustState};
 mod client;
 mod error;
 mod request_builder;
-pub use client::{AsyncClient, AsyncClientConfig, SyncSettings};
+pub use client::{Client, ClientConfig, SyncSettings};
 pub use error::{Error, Result};
 pub use request_builder::{MessagesRequestBuilder, RoomBuilder};
 

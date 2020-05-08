@@ -3,18 +3,18 @@ use std::{env, process::exit};
 use matrix_sdk::{
     self,
     events::room::message::{MessageEvent, MessageEventContent, TextMessageEventContent},
-    AsyncClient, AsyncClientConfig, EventEmitter, JsonStore, RoomState, SyncSettings,
+    Client, ClientConfig, EventEmitter, JsonStore, RoomState, SyncSettings,
 };
 use url::Url;
 
 struct CommandBot {
-    /// This clone of the `AsyncClient` will send requests to the server,
+    /// This clone of the `Client` will send requests to the server,
     /// while the other keeps us in sync with the server using `sync_forever`.
-    client: AsyncClient,
+    client: Client,
 }
 
 impl CommandBot {
-    pub fn new(client: AsyncClient) -> Self {
+    pub fn new(client: Client) -> Self {
         Self { client }
     }
 }
@@ -68,14 +68,14 @@ async fn login_and_sync(
     home.push("party_bot");
 
     let store = JsonStore::open(&home)?;
-    let client_config = AsyncClientConfig::new()
+    let client_config = ClientConfig::new()
         .proxy("http://localhost:8080")?
         .disable_ssl_verification()
         .state_store(Box::new(store));
 
     let homeserver_url = Url::parse(&homeserver_url).expect("Couldn't parse the homeserver URL");
-    // create a new AsyncClient with the given homeserver url and config
-    let mut client = AsyncClient::new_with_config(homeserver_url, None, client_config).unwrap();
+    // create a new Client with the given homeserver url and config
+    let mut client = Client::new_with_config(homeserver_url, None, client_config).unwrap();
 
     client
         .login(

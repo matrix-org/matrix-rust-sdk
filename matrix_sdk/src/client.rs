@@ -55,9 +55,9 @@ const DEFAULT_SYNC_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// An async/await enabled Matrix client.
 ///
-/// All of the state is held in an `Arc` so the `AsyncClient` can be cloned freely.
+/// All of the state is held in an `Arc` so the `Client` can be cloned freely.
 #[derive(Clone)]
-pub struct AsyncClient {
+pub struct Client {
     /// The URL of the homeserver to connect to.
     homeserver: Url,
     /// The underlying HTTP client.
@@ -66,14 +66,14 @@ pub struct AsyncClient {
     pub(crate) base_client: BaseClient,
 }
 
-impl std::fmt::Debug for AsyncClient {
+impl std::fmt::Debug for Client {
     fn fmt(&self, fmt: &mut std::fmt::Formatter<'_>) -> StdResult<(), std::fmt::Error> {
-        write!(fmt, "AsyncClient {{ homeserver: {} }}", self.homeserver)
+        write!(fmt, "Client {{ homeserver: {} }}", self.homeserver)
     }
 }
 
 #[derive(Default)]
-/// Configuration for the creation of the `AsyncClient`.
+/// Configuration for the creation of the `Client`.
 ///
 /// When setting the `StateStore` it is up to the user to open/connect
 /// the storage backend before client creation.
@@ -81,32 +81,32 @@ impl std::fmt::Debug for AsyncClient {
 /// # Example
 ///
 /// ```
-/// # use matrix_sdk::AsyncClientConfig;
+/// # use matrix_sdk::ClientConfig;
 /// // To pass all the request through mitmproxy set the proxy and disable SSL
 /// // verification
-/// let client_config = AsyncClientConfig::new()
+/// let client_config = ClientConfig::new()
 ///     .proxy("http://localhost:8080")
 ///     .unwrap()
 ///     .disable_ssl_verification();
 /// ```
-/// An example of adding a default `JsonStore` to the `AsyncClient`.
+/// An example of adding a default `JsonStore` to the `Client`.
 /// ```no_run
-///  # use matrix_sdk::{AsyncClientConfig, JsonStore};
+///  # use matrix_sdk::{ClientConfig, JsonStore};
 ///
 /// let store = JsonStore::open("path/to/json").unwrap();
-/// let client_config = AsyncClientConfig::new()
+/// let client_config = ClientConfig::new()
 ///     .state_store(Box::new(store));
 /// ```
-pub struct AsyncClientConfig {
+pub struct ClientConfig {
     proxy: Option<reqwest::Proxy>,
     user_agent: Option<HeaderValue>,
     disable_ssl_verification: bool,
     state_store: Option<Box<dyn StateStore>>,
 }
 
-impl std::fmt::Debug for AsyncClientConfig {
+impl std::fmt::Debug for ClientConfig {
     fn fmt(&self, fmt: &mut std::fmt::Formatter<'_>) -> StdResult<(), std::fmt::Error> {
-        fmt.debug_struct("AsyncClientConfig")
+        fmt.debug_struct("ClientConfig")
             .field("proxy", &self.proxy)
             .field("user_agent", &self.user_agent)
             .field("disable_ssl_verification", &self.disable_ssl_verification)
@@ -114,8 +114,8 @@ impl std::fmt::Debug for AsyncClientConfig {
     }
 }
 
-impl AsyncClientConfig {
-    /// Create a new default `AsyncClientConfig`.
+impl ClientConfig {
+    /// Create a new default `ClientConfig`.
     pub fn new() -> Self {
         Default::default()
     }
@@ -131,9 +131,9 @@ impl AsyncClientConfig {
     /// # Example
     ///
     /// ```
-    /// use matrix_sdk::AsyncClientConfig;
+    /// use matrix_sdk::ClientConfig;
     ///
-    /// let client_config = AsyncClientConfig::new()
+    /// let client_config = ClientConfig::new()
     ///     .proxy("http://localhost:8080")
     ///     .unwrap();
     /// ```
@@ -228,7 +228,7 @@ use api::r0::sync::sync_events;
 use api::r0::to_device::send_event_to_device;
 use api::r0::typing::create_typing_event;
 
-impl AsyncClient {
+impl Client {
     /// Creates a new client for making HTTP requests to the given homeserver.
     ///
     /// # Arguments
@@ -237,8 +237,8 @@ impl AsyncClient {
     /// * `session` - If a previous login exists, the access token can be
     ///     reused by giving a session object here.
     pub fn new<U: TryInto<Url>>(homeserver_url: U, session: Option<Session>) -> Result<Self> {
-        let config = AsyncClientConfig::new();
-        AsyncClient::new_with_config(homeserver_url, session, config)
+        let config = ClientConfig::new();
+        Client::new_with_config(homeserver_url, session, config)
     }
 
     /// Create a new client with the given configuration.
@@ -252,7 +252,7 @@ impl AsyncClient {
     pub fn new_with_config<U: TryInto<Url>>(
         homeserver_url: U,
         session: Option<Session>,
-        config: AsyncClientConfig,
+        config: ClientConfig,
     ) -> Result<Self> {
         #[allow(clippy::match_wild_err_arm)]
         let homeserver: Url = match homeserver_url.try_into() {
@@ -307,7 +307,7 @@ impl AsyncClient {
         &self.homeserver
     }
 
-    /// Add `EventEmitter` to `AsyncClient`.
+    /// Add `EventEmitter` to `Client`.
     ///
     /// The methods of `EventEmitter` are called when the respective `RoomEvents` occur.
     pub async fn add_event_emitter(&mut self, emitter: Box<dyn EventEmitter>) {
@@ -362,21 +362,21 @@ impl AsyncClient {
         self.base_client.get_left_room(room_id).await
     }
 
-    /// This allows `AsyncClient` to manually sync state with the provided `StateStore`.
+    /// This allows `Client` to manually sync state with the provided `StateStore`.
     ///
     /// Returns true when a successful `StateStore` sync has completed.
     ///
     /// # Examples
     ///
     /// ```no_run
-    /// use matrix_sdk::{AsyncClient, AsyncClientConfig, JsonStore, RoomBuilder};
+    /// use matrix_sdk::{Client, ClientConfig, JsonStore, RoomBuilder};
     /// # use matrix_sdk::api::r0::room::Visibility;
     /// # use url::Url;
     ///
     /// # let homeserver = Url::parse("http://example.com").unwrap();
     /// let store = JsonStore::open("path/to/store").unwrap();
-    /// let config = AsyncClientConfig::new().state_store(Box::new(store));
-    /// let mut client = AsyncClient::new(homeserver, None).unwrap();
+    /// let config = ClientConfig::new().state_store(Box::new(store));
+    /// let mut client = Client::new(homeserver, None).unwrap();
     /// # use futures::executor::block_on;
     /// # block_on(async {
     /// let _ = client.login("name", "password", None, None).await.unwrap();
@@ -603,7 +603,7 @@ impl AsyncClient {
     ///
     /// # Examples
     /// ```no_run
-    /// use matrix_sdk::{AsyncClient, RoomBuilder};
+    /// use matrix_sdk::{Client, RoomBuilder};
     /// # use matrix_sdk::api::r0::room::Visibility;
     /// # use url::Url;
     ///
@@ -615,7 +615,7 @@ impl AsyncClient {
     ///     .name("name")
     ///     .room_version("v1.0");
     ///
-    /// let mut cli = AsyncClient::new(homeserver, None).unwrap();
+    /// let mut cli = Client::new(homeserver, None).unwrap();
     /// # use futures::executor::block_on;
     /// # block_on(async {
     /// assert!(cli.create_room(builder).await.is_ok());
@@ -644,7 +644,7 @@ impl AsyncClient {
     /// # Examples
     /// ```no_run
     /// # use std::convert::TryFrom;
-    /// use matrix_sdk::{AsyncClient, MessagesRequestBuilder};
+    /// use matrix_sdk::{Client, MessagesRequestBuilder};
     /// # use matrix_sdk::identifiers::RoomId;
     /// # use matrix_sdk::api::r0::filter::RoomEventFilter;
     /// # use matrix_sdk::api::r0::message::get_message_events::Direction;
@@ -659,7 +659,7 @@ impl AsyncClient {
     ///     .direction(Direction::Backward)
     ///     .limit(UInt::new(10).unwrap());
     ///
-    /// let mut cli = AsyncClient::new(homeserver, None).unwrap();
+    /// let mut cli = Client::new(homeserver, None).unwrap();
     /// # use futures::executor::block_on;
     /// # block_on(async {
     /// assert!(cli.room_messages(builder).await.is_ok());
@@ -789,12 +789,12 @@ impl AsyncClient {
     /// # };
     /// # use matrix_sdk::Room;
     /// # use std::sync::{Arc, RwLock};
-    /// # use matrix_sdk::{AsyncClient, SyncSettings};
+    /// # use matrix_sdk::{Client, SyncSettings};
     /// # use url::Url;
     /// # use futures::executor::block_on;
     /// # block_on(async {
     /// # let homeserver = Url::parse("http://localhost:8080").unwrap();
-    /// # let mut client = AsyncClient::new(homeserver, None).unwrap();
+    /// # let mut client = Client::new(homeserver, None).unwrap();
     ///
     /// use async_std::sync::channel;
     ///
@@ -970,7 +970,7 @@ impl AsyncClient {
     /// ```no_run
     /// # use matrix_sdk::Room;
     /// # use std::sync::{Arc, RwLock};
-    /// # use matrix_sdk::{AsyncClient, SyncSettings};
+    /// # use matrix_sdk::{Client, SyncSettings};
     /// # use url::Url;
     /// # use futures::executor::block_on;
     /// # use ruma_identifiers::RoomId;
@@ -978,7 +978,7 @@ impl AsyncClient {
     /// use matrix_sdk::events::room::message::{MessageEventContent, TextMessageEventContent};
     /// # block_on(async {
     /// # let homeserver = Url::parse("http://localhost:8080").unwrap();
-    /// # let mut client = AsyncClient::new(homeserver, None).unwrap();
+    /// # let mut client = Client::new(homeserver, None).unwrap();
     /// # let room_id = RoomId::try_from("!test:localhost").unwrap();
     /// use uuid::Uuid;
     ///
@@ -1196,7 +1196,7 @@ mod test {
         ban_user, create_receipt, create_typing_event, forget_room, invite_user, kick_user,
         leave_room, Invite3pid, MessageEventContent, RoomIdOrAliasId,
     };
-    use super::{AsyncClient, AsyncClientConfig, Session, SyncSettings, Url};
+    use super::{Client, ClientConfig, Session, SyncSettings, Url};
     use crate::events::collections::all::RoomEvent;
     use crate::events::room::member::MembershipState;
     use crate::events::room::message::TextMessageEventContent;
@@ -1228,7 +1228,7 @@ mod test {
         .with_body_from_file("../test_data/sync.json")
         .create();
 
-        let client = AsyncClient::new(homeserver, Some(session)).unwrap();
+        let client = Client::new(homeserver, Some(session)).unwrap();
 
         let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
 
@@ -1247,7 +1247,7 @@ mod test {
             device_id: "DEVICEID".to_owned(),
         };
         let homeserver = url::Url::parse(&mockito::server_url()).unwrap();
-        let client = AsyncClient::new(homeserver, Some(session)).unwrap();
+        let client = Client::new(homeserver, Some(session)).unwrap();
 
         let mut response = EventBuilder::default()
             .add_room_event_from_file("../test_data/events/member.json", RoomEvent::RoomMember)
@@ -1282,7 +1282,7 @@ mod test {
             .with_body_from_file("../test_data/login_response_error.json")
             .create();
 
-        let client = AsyncClient::new(homeserver, None).unwrap();
+        let client = Client::new(homeserver, None).unwrap();
 
         if let Err(err) = client.login("example", "wordpass", None, None).await {
             if let crate::Error::RumaResponse(crate::FromHttpResponseError::Http(
@@ -1331,7 +1331,7 @@ mod test {
         .with_body_from_file("../test_data/room_id.json")
         .create();
 
-        let client = AsyncClient::new(homeserver, Some(session)).unwrap();
+        let client = Client::new(homeserver, Some(session)).unwrap();
         let room_id = RoomId::try_from("!testroom:example.org").unwrap();
 
         assert_eq!(
@@ -1359,7 +1359,7 @@ mod test {
         .with_body_from_file("../test_data/room_id.json")
         .create();
 
-        let client = AsyncClient::new(homeserver, Some(session)).unwrap();
+        let client = Client::new(homeserver, Some(session)).unwrap();
         let room_id = RoomIdOrAliasId::try_from("!testroom:example.org").unwrap();
 
         assert_eq!(
@@ -1394,7 +1394,7 @@ mod test {
         .with_body_from_file("../test_data/logout_response.json")
         .create();
 
-        let client = AsyncClient::new(homeserver, Some(session)).unwrap();
+        let client = Client::new(homeserver, Some(session)).unwrap();
 
         if let invite_user::Response = client.invite_user_by_id(&room_id, &user).await.unwrap() {}
     }
@@ -1420,7 +1420,7 @@ mod test {
         .with_body_from_file("../test_data/logout_response.json")
         .create();
 
-        let client = AsyncClient::new(homeserver, Some(session)).unwrap();
+        let client = Client::new(homeserver, Some(session)).unwrap();
 
         if let invite_user::Response = client
             .invite_user_by_3pid(
@@ -1457,7 +1457,7 @@ mod test {
         .with_body_from_file("../test_data/logout_response.json")
         .create();
 
-        let client = AsyncClient::new(homeserver, Some(session)).unwrap();
+        let client = Client::new(homeserver, Some(session)).unwrap();
         let room_id = RoomId::try_from("!testroom:example.org").unwrap();
 
         let response = client.leave_room(&room_id).await.unwrap();
@@ -1492,7 +1492,7 @@ mod test {
         .with_body_from_file("../test_data/logout_response.json")
         .create();
 
-        let client = AsyncClient::new(homeserver, Some(session)).unwrap();
+        let client = Client::new(homeserver, Some(session)).unwrap();
 
         let response = client.ban_user(&room_id, &user, None).await.unwrap();
         if let ban_user::Response = response {
@@ -1526,7 +1526,7 @@ mod test {
         .with_body_from_file("../test_data/logout_response.json")
         .create();
 
-        let client = AsyncClient::new(homeserver, Some(session)).unwrap();
+        let client = Client::new(homeserver, Some(session)).unwrap();
 
         let response = client.kick_user(&room_id, &user, None).await.unwrap();
         if let kick_user::Response = response {
@@ -1560,7 +1560,7 @@ mod test {
         .with_body_from_file("../test_data/logout_response.json")
         .create();
 
-        let client = AsyncClient::new(homeserver, Some(session)).unwrap();
+        let client = Client::new(homeserver, Some(session)).unwrap();
 
         let response = client.forget_room_by_id(&room_id).await.unwrap();
         if let forget_room::Response = response {
@@ -1595,7 +1595,7 @@ mod test {
         .with_body_from_file("../test_data/logout_response.json")
         .create();
 
-        let client = AsyncClient::new(homeserver, Some(session)).unwrap();
+        let client = Client::new(homeserver, Some(session)).unwrap();
 
         let response = client.read_receipt(&room_id, &event_id).await.unwrap();
         if let create_receipt::Response = response {
@@ -1629,7 +1629,7 @@ mod test {
         .with_body_from_file("../test_data/logout_response.json")
         .create();
 
-        let client = AsyncClient::new(homeserver, Some(session)).unwrap();
+        let client = Client::new(homeserver, Some(session)).unwrap();
 
         let response = client
             .typing_notice(
@@ -1671,7 +1671,7 @@ mod test {
         .with_body_from_file("../test_data/event_id.json")
         .create();
 
-        let client = AsyncClient::new(homeserver, Some(session)).unwrap();
+        let client = Client::new(homeserver, Some(session)).unwrap();
 
         let content = MessageEventContent::Text(TextMessageEventContent {
             body: "Hello world".to_owned(),
@@ -1709,7 +1709,7 @@ mod test {
         .with_body_from_file("../test_data/sync.json")
         .create();
 
-        let client = AsyncClient::new(homeserver, Some(session)).unwrap();
+        let client = Client::new(homeserver, Some(session)).unwrap();
 
         let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
 
@@ -1749,7 +1749,7 @@ mod test {
         .with_body_from_file("../test_data/sync_with_summary.json")
         .create();
 
-        let client = AsyncClient::new(homeserver, Some(session)).unwrap();
+        let client = Client::new(homeserver, Some(session)).unwrap();
 
         let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
         let _response = client.sync(sync_settings).await.unwrap();
@@ -1773,7 +1773,7 @@ mod test {
         };
 
         let homeserver = url::Url::parse(&mockito::server_url()).unwrap();
-        let client = AsyncClient::new(homeserver, Some(session)).unwrap();
+        let client = Client::new(homeserver, Some(session)).unwrap();
 
         let _m = mock(
             "GET",
@@ -1806,7 +1806,7 @@ mod test {
         };
 
         let homeserver = url::Url::parse(&mockito::server_url()).unwrap();
-        let client = AsyncClient::new(homeserver, Some(session)).unwrap();
+        let client = Client::new(homeserver, Some(session)).unwrap();
 
         let _m = mock(
             "GET",
@@ -1853,21 +1853,19 @@ mod test {
 
         let dir = tempfile::tempdir().unwrap();
         // a sync response to populate our JSON store
-        let config = AsyncClientConfig::default()
-            .state_store(Box::new(JsonStore::open(dir.path()).unwrap()));
+        let config =
+            ClientConfig::default().state_store(Box::new(JsonStore::open(dir.path()).unwrap()));
         let client =
-            AsyncClient::new_with_config(homeserver.clone(), Some(session.clone()), config)
-                .unwrap();
+            Client::new_with_config(homeserver.clone(), Some(session.clone()), config).unwrap();
         let sync_settings = SyncSettings::new().timeout(std::time::Duration::from_millis(3000));
 
         // gather state to save to the db, the first time through loading will be skipped
         let _ = client.sync(sync_settings.clone()).await.unwrap();
 
         // now syncing the client will update from the state store
-        let config = AsyncClientConfig::default()
-            .state_store(Box::new(JsonStore::open(dir.path()).unwrap()));
-        let client =
-            AsyncClient::new_with_config(homeserver, Some(session.clone()), config).unwrap();
+        let config =
+            ClientConfig::default().state_store(Box::new(JsonStore::open(dir.path()).unwrap()));
+        let client = Client::new_with_config(homeserver, Some(session.clone()), config).unwrap();
         client.sync(sync_settings).await.unwrap();
 
         let base_client = &client.base_client;
@@ -1893,7 +1891,7 @@ mod test {
             .with_body_from_file("../test_data/login_response.json")
             .create();
 
-        let client = AsyncClient::new(homeserver, None).unwrap();
+        let client = Client::new(homeserver, None).unwrap();
 
         client
             .login("example", "wordpass", None, None)
@@ -1922,7 +1920,7 @@ mod test {
         .with_body_from_file("../test_data/sync.json")
         .create();
 
-        let client = AsyncClient::new(homeserver, Some(session)).unwrap();
+        let client = Client::new(homeserver, Some(session)).unwrap();
 
         let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
 
@@ -1951,7 +1949,7 @@ mod test {
         .with_body_from_file("../test_data/sync.json")
         .create();
 
-        let client = AsyncClient::new(homeserver, Some(session)).unwrap();
+        let client = Client::new(homeserver, Some(session)).unwrap();
 
         let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
 

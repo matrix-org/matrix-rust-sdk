@@ -17,7 +17,7 @@ use crate::js_int::UInt;
 /// # Examples
 /// ```
 /// # use std::convert::TryFrom;
-/// # use matrix_sdk::{AsyncClient, RoomBuilder};
+/// # use matrix_sdk::{Client, RoomBuilder};
 /// # use matrix_sdk::api::r0::room::Visibility;
 /// # use matrix_sdk::identifiers::UserId;
 /// # use url::Url;
@@ -30,7 +30,7 @@ use crate::js_int::UInt;
 ///     .visibility(Visibility::Public)
 ///     .name("name")
 ///     .room_version("v1.0");
-/// let mut cli = AsyncClient::new(homeserver, None).unwrap();
+/// let mut cli = Client::new(homeserver, None).unwrap();
 /// cli.create_room(builder).await;
 /// # })
 /// ```
@@ -179,7 +179,7 @@ impl Into<create_room::Request> for RoomBuilder {
 /// # Examples
 /// ```
 /// # use std::convert::TryFrom;
-/// # use matrix_sdk::{AsyncClient, MessagesRequestBuilder};
+/// # use matrix_sdk::{Client, MessagesRequestBuilder};
 /// # use matrix_sdk::api::r0::message::get_message_events::{self, Direction};
 /// # use matrix_sdk::identifiers::RoomId;
 /// # use url::Url;
@@ -188,7 +188,7 @@ impl Into<create_room::Request> for RoomBuilder {
 /// # rt.block_on(async {
 /// # let room_id = RoomId::try_from("!test:localhost").unwrap();
 /// # let last_sync_token = "".to_string();
-/// let mut cli = AsyncClient::new(homeserver, None).unwrap();
+/// let mut cli = Client::new(homeserver, None).unwrap();
 ///
 /// let mut builder = MessagesRequestBuilder::new();
 /// builder.room_id(room_id)
@@ -296,7 +296,7 @@ mod test {
     use crate::api::r0::filter::{LazyLoadOptions, RoomEventFilter};
     use crate::events::room::power_levels::NotificationPowerLevels;
     use crate::js_int::Int;
-    use crate::{identifiers::RoomId, AsyncClient, Session};
+    use crate::{identifiers::RoomId, Client, Session};
 
     use mockito::{mock, Matcher};
     use std::convert::TryFrom;
@@ -342,7 +342,7 @@ mod test {
             .room_alias_name("room_alias")
             .topic("room topic")
             .visibility(Visibility::Private);
-        let cli = AsyncClient::new(homeserver, Some(session)).unwrap();
+        let cli = Client::new(homeserver, Some(session)).unwrap();
         assert!(cli.create_room(builder).await.is_ok());
     }
 
@@ -378,7 +378,7 @@ mod test {
                 ..Default::default()
             });
 
-        let cli = AsyncClient::new(homeserver, Some(session)).unwrap();
+        let cli = Client::new(homeserver, Some(session)).unwrap();
         assert!(cli.room_messages(builder).await.is_ok());
     }
 }
