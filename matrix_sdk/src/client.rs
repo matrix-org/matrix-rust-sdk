@@ -391,7 +391,7 @@ impl AsyncClient {
     /// # });
     /// ```
     pub async fn sync_with_state_store(&self) -> Result<bool> {
-        self.base_client.sync_with_state_store().await
+        Ok(self.base_client.sync_with_state_store().await?)
     }
 
     /// Login to the server.

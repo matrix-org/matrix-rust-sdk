@@ -26,7 +26,7 @@
 //! destroyed.
 #![deny(missing_docs)]
 
-pub use matrix_sdk_base::{Error, EventEmitter, Result, Room, Session};
+pub use matrix_sdk_base::{EventEmitter, Room, Session};
 pub use matrix_sdk_base::{JsonStore, RoomState, StateStore};
 pub use matrix_sdk_common::*;
 pub use reqwest::header::InvalidHeaderValue;
@@ -35,8 +35,10 @@ pub use reqwest::header::InvalidHeaderValue;
 pub use matrix_sdk_base::{Device, TrustState};
 
 mod client;
+mod error;
 mod request_builder;
 pub use client::{AsyncClient, AsyncClientConfig, SyncSettings};
+pub use error::{Error, Result};
 pub use request_builder::{MessagesRequestBuilder, RoomBuilder};
 
 pub(crate) const VERSION: &str = env!("CARGO_PKG_VERSION");

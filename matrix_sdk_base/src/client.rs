@@ -302,8 +302,8 @@ impl Client {
     }
 
     pub(crate) async fn get_or_create_invited_room(&self, room_id: &RoomId) -> Arc<RwLock<Room>> {
-        #[allow(clippy::or_fun_call)]
         let mut rooms = self.invited_rooms.write().await;
+        #[allow(clippy::or_fun_call)]
         rooms
             .entry(room_id.clone())
             .or_insert(Arc::new(RwLock::new(Room::new(
@@ -336,8 +336,8 @@ impl Client {
     }
 
     pub(crate) async fn get_or_create_left_room(&self, room_id: &RoomId) -> Arc<RwLock<Room>> {
-        #[allow(clippy::or_fun_call)]
         let mut rooms = self.left_rooms.write().await;
+        #[allow(clippy::or_fun_call)]
         rooms
             .entry(room_id.clone())
             .or_insert(Arc::new(RwLock::new(Room::new(
@@ -620,17 +620,11 @@ impl Client {
         // event comes in e.g. move a joined room to a left room when leave event comes?
 
         // when events change state, updated signals to StateStore to update database
-        let mut updated = self.iter_joined_rooms(response).await?;
+        let updated_joined = self.iter_joined_rooms(response).await?;
+        let updated_invited = self.iter_invited_rooms(&response).await?;
+        let updated_left = self.iter_left_rooms(response).await?;
 
-        if self.iter_invited_rooms(&response).await? {
-            updated = true;
-        }
-
-        if self.iter_left_rooms(response).await? {
-            updated = true;
-        }
-
-        if updated {
+        if updated_joined || updated_invited || updated_left {
             let store = self.state_store.read().await;
 
             if let Some(store) = store.as_ref() {
@@ -780,8 +774,8 @@ impl Client {
                 }
             }
 
-            for mut event in &mut left_room.timeline.events {
-                if self.receive_left_timeline_event(room_id, &mut event).await {
+            for event in &mut left_room.timeline.events {
+                if self.receive_left_timeline_event(room_id, &event).await {
                     updated = true;
                 };
 

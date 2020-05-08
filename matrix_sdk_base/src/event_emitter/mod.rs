@@ -47,7 +47,6 @@ use crate::RoomState;
 /// # use std::ops::Deref;
 /// # use std::sync::Arc;
 /// # use std::{env, process::exit};
-/// # use url::Url;
 /// # use matrix_sdk_base::{
 /// #     self,
 /// #     events::{

@@ -1,4 +1,3 @@
-// Copyright 2020 Damir Jelić
 // Copyright 2020 The Matrix.org Foundation C.I.C.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -15,12 +14,15 @@
 
 //! Error conditions.
 
+use reqwest::Error as ReqwestError;
 use serde_json::Error as JsonError;
-use std::io::Error as IoError;
 use thiserror::Error;
 
-#[cfg(feature = "encryption")]
-use matrix_sdk_crypto::{MegolmError, OlmError};
+use matrix_sdk_base::Error as MatrixError;
+
+use crate::api::Error as RumaClientError;
+use crate::FromHttpResponseError as RumaResponseError;
+use crate::IntoHttpError as RumaIntoHttpError;
 
 /// Result type of the rust-sdk.
 pub type Result<T> = std::result::Result<T, Error>;
@@ -32,23 +34,35 @@ pub enum Error {
     #[error("the queried endpoint requires authentication but was called before logging in")]
     AuthenticationRequired,
 
+    /// An error at the HTTP layer.
+    #[error(transparent)]
+    Reqwest(#[from] ReqwestError),
+
     /// An error de/serializing type for the `StateStore`
     #[error(transparent)]
     SerdeJson(#[from] JsonError),
 
-    /// An error de/serializing type for the `StateStore`
-    #[error(transparent)]
-    IoError(#[from] IoError),
+    /// An error converting between ruma_client_api types and Hyper types.
+    #[error("can't parse the JSON response as a Matrix response")]
+    RumaResponse(RumaResponseError<RumaClientError>),
 
-    /// An error occurred during a E2EE operation.
-    #[cfg(feature = "encryption")]
-    #[cfg_attr(docsrs, doc(cfg(feature = "encryption")))]
-    #[error(transparent)]
-    OlmError(#[from] OlmError),
+    /// An error converting between ruma_client_api types and Hyper types.
+    #[error("can't convert between ruma_client_api and hyper types.")]
+    IntoHttp(RumaIntoHttpError),
 
-    /// An error occurred during a E2EE group operation.
-    #[cfg(feature = "encryption")]
-    #[cfg_attr(docsrs, doc(cfg(feature = "encryption")))]
+    /// An error occured in the Matrix client library.
     #[error(transparent)]
-    MegolmError(#[from] MegolmError),
+    MatrixError(#[from] MatrixError),
+}
+
+impl From<RumaResponseError<RumaClientError>> for Error {
+    fn from(error: RumaResponseError<RumaClientError>) -> Self {
+        Self::RumaResponse(error)
+    }
+}
+
+impl From<RumaIntoHttpError> for Error {
+    fn from(error: RumaIntoHttpError) -> Self {
+        Self::IntoHttp(error)
+    }
 }

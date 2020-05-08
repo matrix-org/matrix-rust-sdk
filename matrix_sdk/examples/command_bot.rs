@@ -73,7 +73,7 @@ async fn login_and_sync(
         .disable_ssl_verification()
         .state_store(Box::new(store));
 
-    let homeserver_url = Url::parse(&homeserver_url)?;
+    let homeserver_url = Url::parse(&homeserver_url).expect("Couldn't parse the homeserver URL");
     // create a new AsyncClient with the given homeserver url and config
     let mut client = AsyncClient::new_with_config(homeserver_url, None, client_config).unwrap();
 
