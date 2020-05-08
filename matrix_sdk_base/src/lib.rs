@@ -37,9 +37,6 @@ mod models;
 mod session;
 mod state;
 
-#[cfg(test)]
-pub mod test_builder;
-
 pub use base_client::{Client, RoomState, RoomStateType};
 pub use event_emitter::EventEmitter;
 #[cfg(feature = "encryption")]

@@ -45,6 +45,7 @@ default-features = false
 features = ["sync", "time", "fs"]
 
 [dev-dependencies]
+matrix-sdk-test = { version = "0.1.0", path = "../matrix_sdk_test" }
 tokio = { version = "0.2.20", features = ["rt-threaded", "macros"] }
 ruma-identifiers = { version = "0.16.1", features = ["rand"] }
 serde_json = "1.0.52"

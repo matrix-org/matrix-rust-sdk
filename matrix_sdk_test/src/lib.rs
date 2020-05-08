@@ -1,11 +1,12 @@
-#![cfg(test)]
-
+use std::convert::TryFrom;
 use std::fs;
 use std::panic;
 use std::path::Path;
 
-use crate::api::r0::sync::sync_events::Response as SyncResponse;
-use crate::events::{
+use http::Response;
+
+use matrix_sdk_common::api::r0::sync::sync_events::Response as SyncResponse;
+use matrix_sdk_common::events::{
     collections::{
         all::{RoomEvent, StateEvent},
         only::Event,
@@ -13,8 +14,6 @@ use crate::events::{
     presence::PresenceEvent,
     EventJson, TryFromRaw,
 };
-use http::Response;
-use std::convert::TryFrom;
 
 /// Easily create events to stream into either a Client or a `Room` for testing.
 #[derive(Default)]

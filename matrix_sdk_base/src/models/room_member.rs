@@ -199,10 +199,11 @@ impl RoomMember {
 
 #[cfg(test)]
 mod test {
+    use matrix_sdk_test::EventBuilder;
+
     use crate::events::collections::all::RoomEvent;
     use crate::events::room::member::MembershipState;
     use crate::identifiers::{RoomId, UserId};
-    use crate::test_builder::EventBuilder;
     use crate::{Client, Session};
 
     use crate::js_int::Int;

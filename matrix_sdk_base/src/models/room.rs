@@ -524,8 +524,8 @@ mod test {
     use crate::api::r0::sync::sync_events::Response as SyncResponse;
     use crate::events::room::member::MembershipState;
     use crate::identifiers::UserId;
-    use crate::test_builder::EventBuilder;
     use crate::{Client, Session};
+    use matrix_sdk_test::EventBuilder;
 
     use http::Response;
 
