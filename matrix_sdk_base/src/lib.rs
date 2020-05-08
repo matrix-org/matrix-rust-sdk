@@ -30,14 +30,14 @@ pub use crate::{error::Error, error::Result, session::Session};
 pub use matrix_sdk_common::*;
 pub use reqwest::header::InvalidHeaderValue;
 
-mod base_client;
+mod client;
 mod error;
 mod event_emitter;
 mod models;
 mod session;
 mod state;
 
-pub use base_client::{Client, RoomState, RoomStateType};
+pub use client::{Client, RoomState, RoomStateType};
 pub use event_emitter::EventEmitter;
 #[cfg(feature = "encryption")]
 pub use matrix_sdk_crypto::{Device, TrustState};
