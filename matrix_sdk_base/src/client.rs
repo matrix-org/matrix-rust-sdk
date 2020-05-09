@@ -241,6 +241,19 @@ impl Client {
         Ok(!self.needs_state_store_sync.load(Ordering::Relaxed))
     }
 
+    /// When a client is provided the state store will load state from the `StateStore`.
+    ///
+    /// Returns `true` when a state store sync has successfully completed.
+    pub async fn store_room_state(&self, room_id: &RoomId) -> Result<()> {
+        if let Some(store) = self.state_store.read().await.as_ref() {
+            if let Some(room) = self.get_joined_room(room_id).await {
+                let room = room.read().await;
+                store.store_room_state(room.deref()).await?;
+            }
+        }
+        Ok(())
+    }
+
     /// Receive a login response and update the session of the client.
     ///
     /// # Arguments
@@ -619,7 +632,7 @@ impl Client {
         // TODO do we want to move the rooms to the appropriate HashMaps when the corresponding
         // event comes in e.g. move a joined room to a left room when leave event comes?
 
-        // when events change state, updated signals to StateStore to update database
+        // when events change state, updated_* signals to StateStore to update database
         let updated_joined = self.iter_joined_rooms(response).await?;
         let updated_invited = self.iter_invited_rooms(&response).await?;
         let updated_left = self.iter_left_rooms(response).await?;
