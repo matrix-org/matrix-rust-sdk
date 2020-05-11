@@ -176,8 +176,6 @@ mod test {
     pub struct EvEmitterTest(Arc<Mutex<Vec<String>>>);
 
     #[async_trait::async_trait]
-    // we don't need to test our tests right?
-    #[cfg_attr(tarpaulin, skip)]
     impl EventEmitter for EvEmitterTest {
         async fn on_room_member(&self, _: SyncRoom, _: &MemberEvent) {
             self.0.lock().await.push("member".to_string())
