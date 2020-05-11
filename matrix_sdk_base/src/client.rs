@@ -36,7 +36,7 @@ use crate::events::EventJson;
 use crate::identifiers::{RoomId, UserId};
 use crate::models::Room;
 use crate::session::Session;
-use crate::state::{ClientState, StateStore};
+use crate::state::{AllRooms, ClientState, StateStore};
 use crate::EventEmitter;
 
 use std::ops::Deref;
@@ -73,14 +73,15 @@ pub enum RoomStateType {
 /// An enum that represents the state of the given `Room`.
 ///
 /// If the event came from the `join`, `invite` or `leave` rooms map from the server
-/// the variant that holds the corresponding room is used.
-pub enum RoomState {
+/// the variant that holds the corresponding room is used. `RoomState` is generic
+/// so it can be used to represent a `Room` or an `Arc<RwLock<Room>>`
+pub enum RoomState<R> {
     /// A room from the `join` section of a sync response.
-    Joined(Arc<RwLock<Room>>),
+    Joined(R),
     /// A room from the `leave` section of a sync response.
-    Left(Arc<RwLock<Room>>),
+    Left(R),
     /// A room from the `invite` section of a sync response.
-    Invited(Arc<RwLock<Room>>),
+    Invited(R),
 }
 
 /// A no IO Client implementation.
@@ -229,8 +230,20 @@ impl BaseClient {
                     return Ok(false);
                 }
 
-                let mut rooms = store.load_all_rooms().await?;
-                *self.joined_rooms.write().await = rooms
+                let AllRooms {
+                    mut joined,
+                    mut invited,
+                    mut left,
+                } = store.load_all_rooms().await?;
+                *self.joined_rooms.write().await = joined
+                    .drain()
+                    .map(|(k, room)| (k, Arc::new(RwLock::new(room))))
+                    .collect();
+                *self.invited_rooms.write().await = invited
+                    .drain()
+                    .map(|(k, room)| (k, Arc::new(RwLock::new(room))))
+                    .collect();
+                *self.left_rooms.write().await = left
                     .drain()
                     .map(|(k, room)| (k, Arc::new(RwLock::new(room))))
                     .collect();
@@ -248,7 +261,21 @@ impl BaseClient {
         if let Some(store) = self.state_store.read().await.as_ref() {
             if let Some(room) = self.get_joined_room(room_id).await {
                 let room = room.read().await;
-                store.store_room_state(room.deref()).await?;
+                store
+                    .store_room_state(RoomState::Joined(room.deref()))
+                    .await?;
+            }
+            if let Some(room) = self.get_invited_room(room_id).await {
+                let room = room.read().await;
+                store
+                    .store_room_state(RoomState::Invited(room.deref()))
+                    .await?;
+            }
+            if let Some(room) = self.get_left_room(room_id).await {
+                let room = room.read().await;
+                store
+                    .store_room_state(RoomState::Left(room.deref()))
+                    .await?;
             }
         }
         Ok(())
@@ -754,7 +781,7 @@ impl BaseClient {
             if updated {
                 if let Some(store) = self.state_store.read().await.as_ref() {
                     store
-                        .store_room_state(matrix_room.read().await.deref())
+                        .store_room_state(RoomState::Joined(matrix_room.read().await.deref()))
                         .await?;
                 }
             }
@@ -801,7 +828,7 @@ impl BaseClient {
             if updated {
                 if let Some(store) = self.state_store.read().await.as_ref() {
                     store
-                        .store_room_state(matrix_room.read().await.deref())
+                        .store_room_state(RoomState::Left(matrix_room.read().await.deref()))
                         .await?;
                 }
             }
@@ -837,7 +864,7 @@ impl BaseClient {
             if updated {
                 if let Some(store) = self.state_store.read().await.as_ref() {
                     store
-                        .store_room_state(matrix_room.read().await.deref())
+                        .store_room_state(RoomState::Invited(matrix_room.read().await.deref()))
                         .await?;
                 }
             }

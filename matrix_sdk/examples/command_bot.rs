@@ -3,7 +3,7 @@ use std::{env, process::exit};
 use matrix_sdk::{
     self,
     events::room::message::{MessageEvent, MessageEventContent, TextMessageEventContent},
-    Client, ClientConfig, EventEmitter, JsonStore, RoomState, SyncSettings,
+    Client, ClientConfig, EventEmitter, JsonStore, SyncRoom, SyncSettings,
 };
 use url::Url;
 
@@ -21,8 +21,8 @@ impl CommandBot {
 
 #[async_trait::async_trait]
 impl EventEmitter for CommandBot {
-    async fn on_room_message(&self, room: RoomState, event: &MessageEvent) {
-        if let RoomState::Joined(room) = room {
+    async fn on_room_message(&self, room: SyncRoom, event: &MessageEvent) {
+        if let SyncRoom::Joined(room) = room {
             let msg_body = if let MessageEvent {
                 content: MessageEventContent::Text(TextMessageEventContent { body: msg_body, .. }),
                 ..

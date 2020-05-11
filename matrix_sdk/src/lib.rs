@@ -26,8 +26,8 @@
 //! destroyed.
 #![deny(missing_docs)]
 
-pub use matrix_sdk_base::{EventEmitter, Room, Session};
-pub use matrix_sdk_base::{JsonStore, RoomState, StateStore};
+pub use matrix_sdk_base::{AllRooms, JsonStore, RoomState, StateStore};
+pub use matrix_sdk_base::{EventEmitter, Room, Session, SyncRoom};
 pub use matrix_sdk_common::*;
 pub use reqwest::header::InvalidHeaderValue;
 

@@ -4,15 +4,15 @@ use url::Url;
 use matrix_sdk::{
     self,
     events::room::message::{MessageEvent, MessageEventContent, TextMessageEventContent},
-    Client, ClientConfig, EventEmitter, RoomState, SyncSettings,
+    Client, ClientConfig, EventEmitter, SyncRoom, SyncSettings,
 };
 
 struct EventCallback;
 
 #[async_trait::async_trait]
 impl EventEmitter for EventCallback {
-    async fn on_room_message(&self, room: RoomState, event: &MessageEvent) {
-        if let RoomState::Joined(room) = room {
+    async fn on_room_message(&self, room: SyncRoom, event: &MessageEvent) {
+        if let SyncRoom::Joined(room) = room {
             if let MessageEvent {
                 content: MessageEventContent::Text(TextMessageEventContent { body: msg_body, .. }),
                 sender,
