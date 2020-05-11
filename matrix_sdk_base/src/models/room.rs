@@ -524,7 +524,7 @@ mod test {
     use crate::api::r0::sync::sync_events::Response as SyncResponse;
     use crate::events::room::member::MembershipState;
     use crate::identifiers::UserId;
-    use crate::{Client, Session};
+    use crate::{BaseClient, Session};
     use matrix_sdk_test::EventBuilder;
 
     use http::Response;
@@ -542,13 +542,13 @@ mod test {
         SyncResponse::try_from(response).unwrap()
     }
 
-    fn get_client() -> Client {
+    fn get_client() -> BaseClient {
         let session = Session {
             access_token: "1234".to_owned(),
             user_id: UserId::try_from("@example:localhost").unwrap(),
             device_id: "DEVICEID".to_owned(),
         };
-        Client::new(Some(session)).unwrap()
+        BaseClient::new(Some(session)).unwrap()
     }
 
     fn get_room_id() -> RoomId {
@@ -677,7 +677,7 @@ mod test {
             user_id: UserId::try_from("@example:localhost").unwrap(),
             device_id: "DEVICEID".to_owned(),
         };
-        let client = Client::new(Some(session)).unwrap();
+        let client = BaseClient::new(Some(session)).unwrap();
         client.receive_sync_response(&mut response).await.unwrap();
 
         let mut room_names = vec![];

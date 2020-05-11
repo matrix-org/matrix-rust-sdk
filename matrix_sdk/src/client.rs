@@ -46,7 +46,7 @@ use crate::identifiers::DeviceId;
 use crate::api;
 use crate::VERSION;
 use crate::{Error, EventEmitter, Result};
-use matrix_sdk_base::Client as BaseClient;
+use matrix_sdk_base::BaseClient;
 use matrix_sdk_base::Room;
 use matrix_sdk_base::Session;
 use matrix_sdk_base::StateStore;

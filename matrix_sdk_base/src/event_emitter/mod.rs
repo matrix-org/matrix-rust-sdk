@@ -285,7 +285,7 @@ mod test {
 
     use crate::api::r0::sync::sync_events::Response as SyncResponse;
     use crate::identifiers::UserId;
-    use crate::{Client, Session};
+    use crate::{BaseClient, Session};
 
     use http::Response;
     use std::convert::TryFrom;
@@ -300,13 +300,13 @@ mod test {
         SyncResponse::try_from(response).unwrap()
     }
 
-    fn get_client() -> Client {
+    fn get_client() -> BaseClient {
         let session = Session {
             access_token: "1234".to_owned(),
             user_id: UserId::try_from("@example:example.com").unwrap(),
             device_id: "DEVICEID".to_owned(),
         };
-        Client::new(Some(session)).unwrap()
+        BaseClient::new(Some(session)).unwrap()
     }
 
     #[tokio::test]

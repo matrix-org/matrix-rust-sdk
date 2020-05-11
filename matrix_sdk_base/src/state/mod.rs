@@ -19,7 +19,7 @@ use std::collections::HashMap;
 pub mod state_store;
 pub use state_store::JsonStore;
 
-use crate::client::{Client as BaseClient, Token};
+use crate::client::{BaseClient, Token};
 use crate::events::push_rules::Ruleset;
 use crate::identifiers::{RoomId, UserId};
 use crate::{Result, Room, Session};

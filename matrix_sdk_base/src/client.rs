@@ -88,7 +88,7 @@ pub enum RoomState {
 /// This Client is a state machine that receives responses and events and
 /// accordingly updates it's state.
 #[derive(Clone)]
-pub struct Client {
+pub struct BaseClient {
     /// The current client session containing our user id, device id and access
     /// token.
     session: Arc<RwLock<Option<Session>>>,
@@ -119,7 +119,7 @@ pub struct Client {
     olm: Arc<Mutex<Option<OlmMachine>>>,
 }
 
-impl fmt::Debug for Client {
+impl fmt::Debug for BaseClient {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Client")
             .field("session", &self.session)
@@ -132,7 +132,7 @@ impl fmt::Debug for Client {
     }
 }
 
-impl Client {
+impl BaseClient {
     /// Create a new client.
     ///
     /// # Arguments
@@ -140,7 +140,7 @@ impl Client {
     /// * `session` - An optional session if the user already has one from a
     /// previous login call.
     pub fn new(session: Option<Session>) -> Result<Self> {
-        Client::new_helper(session, None)
+        BaseClient::new_helper(session, None)
     }
 
     /// Create a new client.
@@ -156,7 +156,7 @@ impl Client {
         session: Option<Session>,
         store: Box<dyn StateStore>,
     ) -> Result<Self> {
-        Client::new_helper(session, Some(store))
+        BaseClient::new_helper(session, Some(store))
     }
 
     fn new_helper(session: Option<Session>, store: Option<Box<dyn StateStore>>) -> Result<Self> {
@@ -166,7 +166,7 @@ impl Client {
             None => None,
         };
 
-        Ok(Client {
+        Ok(BaseClient {
             session: Arc::new(RwLock::new(session)),
             sync_token: Arc::new(RwLock::new(None)),
             joined_rooms: Arc::new(RwLock::new(HashMap::new())),

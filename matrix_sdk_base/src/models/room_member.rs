@@ -204,19 +204,19 @@ mod test {
     use crate::events::collections::all::RoomEvent;
     use crate::events::room::member::MembershipState;
     use crate::identifiers::{RoomId, UserId};
-    use crate::{Client, Session};
+    use crate::{BaseClient, Session};
 
     use crate::js_int::Int;
 
     use std::convert::TryFrom;
 
-    fn get_client() -> Client {
+    fn get_client() -> BaseClient {
         let session = Session {
             access_token: "1234".to_owned(),
             user_id: UserId::try_from("@example:localhost").unwrap(),
             device_id: "DEVICEID".to_owned(),
         };
-        Client::new(Some(session)).unwrap()
+        BaseClient::new(Some(session)).unwrap()
     }
 
     fn get_room_id() -> RoomId {
