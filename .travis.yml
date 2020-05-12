@@ -38,7 +38,7 @@ jobs:
             cd -
 
             cd matrix_sdk_base
-            cargo test --target wasm32-unknown-unknown --no-default-features --features encryption
+            cargo test --target wasm32-unknown-unknown --no-default-features
 
 
 

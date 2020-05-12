@@ -22,7 +22,7 @@ matrix-sdk-common = { version = "0.1.0", path = "../matrix_sdk_common" }
 olm-rs = { version = "0.5.0", features = ["serde"] }
 serde = { version = "1.0.106", features = ["derive"] }
 serde_json = "1.0.52"
-cjson = { git = "https://github.com/stoically/cjson", rev = "24a82d94e339e27a62434493869f3dce62c60e0d" }
+cjson = "0.1.0"
 zeroize = { version = "1.1.0", features = ["zeroize_derive"] }
 url = "2.1.1"
 
