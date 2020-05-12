@@ -12,13 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use matrix_sdk_common::instant::{Duration, Instant};
 use std::collections::{BTreeMap, HashSet};
 use std::convert::TryFrom;
 use std::mem;
 use std::path::{Path, PathBuf};
 use std::result::Result as StdResult;
 use std::sync::Arc;
-use std::time::{Duration, Instant};
 use url::Url;
 
 use async_trait::async_trait;

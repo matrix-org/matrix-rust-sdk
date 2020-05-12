@@ -16,6 +16,7 @@ ruma-api = "0.16.0"
 ruma-client-api = "0.8.0"
 ruma-events = "0.21.0"
 ruma-identifiers = "0.16.1"
+instant = { version = "0.1.3", features = ["wasm-bindgen", "now"] }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 uuid = { version = "0.8.1", features = ["v4"] }

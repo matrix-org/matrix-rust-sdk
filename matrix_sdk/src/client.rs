@@ -19,8 +19,8 @@ use std::collections::HashMap;
 use std::convert::{TryFrom, TryInto};
 use std::result::Result as StdResult;
 use std::sync::Arc;
-use std::time::{Duration, Instant};
 
+use matrix_sdk_common::instant::{Duration, Instant};
 use matrix_sdk_common::locks::RwLock;
 use matrix_sdk_common::uuid::Uuid;
 

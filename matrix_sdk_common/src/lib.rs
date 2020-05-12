@@ -1,3 +1,4 @@
+pub use instant;
 pub use js_int;
 pub use ruma_api::{
     error::{FromHttpResponseError, IntoHttpError, ServerError},
