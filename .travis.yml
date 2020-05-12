@@ -33,7 +33,7 @@ jobs:
       script:
           - |
             source emsdk-master/emsdk_env.sh
-            cd matrix_sdk/examples/wasm_send_message
+            cd matrix_sdk/examples/wasm_command_bot
             cargo build --target wasm32-unknown-unknown
             cd -
 

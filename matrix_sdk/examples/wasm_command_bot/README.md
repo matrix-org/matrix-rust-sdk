@@ -1,7 +1,5 @@
 ## Example usage of matrix-rust-sdk from WASM
 
-This requires [emscripten](https://github.com/emscripten-core/emscripten) to be installed and in PATH to compile successfully.
-
 You can build the example locally with:
 
     npm install
@@ -9,5 +7,6 @@ You can build the example locally with:
 
 and then visiting http://localhost:8080 in a browser should run the example!
 
+Note: Encryption isn't supported yet
 
 This example is loosely based off of [this example](https://github.com/seanmonstar/reqwest/tree/master/examples/wasm_github_fetch), an example usage of `fetch` from `wasm-bindgen`.
