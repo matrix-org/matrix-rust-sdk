@@ -847,11 +847,12 @@ impl Client {
             let response = if let Ok(r) = response {
                 r
             } else {
-                sleep::new(Duration::from_secs(1)).await;
-                continue;
+                #[cfg(not(target_arch = "wasm32"))]
+                {
+                    sleep::new(Duration::from_secs(1)).await;
+                    continue;
+                }
             };
-
-            callback(response).await;
 
             // TODO send out to-device messages here
 
@@ -874,14 +875,19 @@ impl Client {
                 }
             }
 
+            callback(response).await;
+
             let now = Instant::now();
 
             // If the last sync happened less than a second ago, sleep for a
             // while to not hammer out requests if the server doesn't respect
             // the sync timeout.
-            if let Some(t) = last_sync_time {
-                if now - t <= Duration::from_secs(1) {
-                    sleep::new(Duration::from_secs(1)).await;
+            #[cfg(not(target_arch = "wasm32"))]
+            {
+                if let Some(t) = last_sync_time {
+                    if now - t <= Duration::from_secs(1) {
+                        sleep::new(Duration::from_secs(1)).await;
+                    }
                 }
             }
 
