@@ -848,10 +848,9 @@ impl Client {
                 r
             } else {
                 #[cfg(not(target_arch = "wasm32"))]
-                {
-                    sleep::new(Duration::from_secs(1)).await;
-                    continue;
-                }
+                sleep::new(Duration::from_secs(1)).await;
+
+                continue;
             };
 
             // TODO send out to-device messages here
