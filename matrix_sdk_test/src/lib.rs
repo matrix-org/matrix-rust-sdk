@@ -1,7 +1,5 @@
 use std::convert::TryFrom;
-use std::fs;
 use std::panic;
-use std::path::Path;
 
 use http::Response;
 
@@ -14,6 +12,34 @@ use matrix_sdk_common::events::{
     presence::PresenceEvent,
     EventJson, TryFromRaw,
 };
+
+pub use matrix_sdk_test_macros::async_test;
+
+/// Embedded event files
+#[derive(Debug)]
+pub enum EventsFile {
+    Alias,
+    Aliases,
+    Create,
+    FullyRead,
+    HistoryVisibility,
+    JoinRules,
+    Member,
+    MessageEmote,
+    MessageNotice,
+    MessageText,
+    Name,
+    PowerLevels,
+    Presence,
+    RedactedInvalid,
+    RedactedState,
+    Redacted,
+    Redaction,
+    RoomAvatar,
+    Tag,
+    Topic,
+    Typing,
+}
 
 /// Easily create events to stream into either a Client or a `Room` for testing.
 #[derive(Default)]
@@ -32,13 +58,16 @@ pub struct EventBuilder {
 
 impl EventBuilder {
     /// Add an event to the room events `Vec`.
-    pub fn add_ephemeral_from_file<Ev: TryFromRaw, P: AsRef<Path>>(
+    pub fn add_ephemeral<Ev: TryFromRaw>(
         mut self,
-        path: P,
+        file: EventsFile,
         variant: fn(Ev) -> Event,
     ) -> Self {
-        let val = fs::read_to_string(path.as_ref())
-            .unwrap_or_else(|_| panic!("file not found {:?}", path.as_ref()));
+        let val: &str = match file {
+            EventsFile::Typing => include_str!("../../test_data/events/typing.json"),
+            _ => panic!("unknown ephemeral event file {:?}", file),
+        };
+
         let event = serde_json::from_str::<EventJson<Ev>>(&val)
             .unwrap()
             .deserialize()
@@ -48,13 +77,16 @@ impl EventBuilder {
     }
 
     /// Add an event to the room events `Vec`.
-    pub fn add_account_from_file<Ev: TryFromRaw, P: AsRef<Path>>(
+    #[allow(clippy::match_single_binding, unused)]
+    pub fn add_account<Ev: TryFromRaw>(
         mut self,
-        path: P,
+        file: EventsFile,
         variant: fn(Ev) -> Event,
     ) -> Self {
-        let val = fs::read_to_string(path.as_ref())
-            .unwrap_or_else(|_| panic!("file not found {:?}", path.as_ref()));
+        let val: &str = match file {
+            _ => panic!("unknown account event file {:?}", file),
+        };
+
         let event = serde_json::from_str::<EventJson<Ev>>(&val)
             .unwrap()
             .deserialize()
@@ -64,13 +96,17 @@ impl EventBuilder {
     }
 
     /// Add an event to the room events `Vec`.
-    pub fn add_room_event_from_file<Ev: TryFromRaw, P: AsRef<Path>>(
+    pub fn add_room_event<Ev: TryFromRaw>(
         mut self,
-        path: P,
+        file: EventsFile,
         variant: fn(Ev) -> RoomEvent,
     ) -> Self {
-        let val = fs::read_to_string(path.as_ref())
-            .unwrap_or_else(|_| panic!("file not found {:?}", path.as_ref()));
+        let val = match file {
+            EventsFile::Member => include_str!("../../test_data/events/member.json"),
+            EventsFile::PowerLevels => include_str!("../../test_data/events/power_levels.json"),
+            _ => panic!("unknown room event file {:?}", file),
+        };
+
         let event = serde_json::from_str::<EventJson<Ev>>(&val)
             .unwrap()
             .deserialize()
@@ -80,13 +116,18 @@ impl EventBuilder {
     }
 
     /// Add a state event to the state events `Vec`.
-    pub fn add_state_event_from_file<Ev: TryFromRaw, P: AsRef<Path>>(
+    pub fn add_state_event<Ev: TryFromRaw>(
         mut self,
-        path: P,
+        file: EventsFile,
         variant: fn(Ev) -> StateEvent,
     ) -> Self {
-        let val = fs::read_to_string(path.as_ref())
-            .unwrap_or_else(|_| panic!("file not found {:?}", path.as_ref()));
+        let val = match file {
+            EventsFile::Alias => include_str!("../../test_data/events/alias.json"),
+            EventsFile::Aliases => include_str!("../../test_data/events/aliases.json"),
+            EventsFile::Name => include_str!("../../test_data/events/name.json"),
+            _ => panic!("unknown state event file {:?}", file),
+        };
+
         let event = serde_json::from_str::<EventJson<Ev>>(&val)
             .unwrap()
             .deserialize()
@@ -95,10 +136,13 @@ impl EventBuilder {
         self
     }
 
-    /// Add a presence event to the presence events `Vec`.
-    pub fn add_presence_event_from_file<P: AsRef<Path>>(mut self, path: P) -> Self {
-        let val = fs::read_to_string(path.as_ref())
-            .unwrap_or_else(|_| panic!("file not found {:?}", path.as_ref()));
+    /// Add an presence event to the presence events `Vec`.
+    pub fn add_presence_event(mut self, file: EventsFile) -> Self {
+        let val = match file {
+            EventsFile::Presence => include_str!("../../test_data/events/presence.json"),
+            _ => panic!("unknown presence event file {:?}", file),
+        };
+
         let event = serde_json::from_str::<EventJson<PresenceEvent>>(&val)
             .unwrap()
             .deserialize()
@@ -157,4 +201,27 @@ impl EventBuilder {
             .unwrap();
         SyncResponse::try_from(response).unwrap()
     }
+}
+
+/// Embedded sync reponse files
+pub enum SyncResponseFile {
+    Default,
+    DefaultWithSummary,
+    Invite,
+    Leave,
+}
+
+/// Get specific API responses for testing
+pub fn sync_response(kind: SyncResponseFile) -> SyncResponse {
+    let data = match kind {
+        SyncResponseFile::Default => include_bytes!("../../test_data/sync.json").to_vec(),
+        SyncResponseFile::DefaultWithSummary => {
+            include_bytes!("../../test_data/sync_with_summary.json").to_vec()
+        }
+        SyncResponseFile::Invite => include_bytes!("../../test_data/invite_sync.json").to_vec(),
+        SyncResponseFile::Leave => include_bytes!("../../test_data/leave_sync.json").to_vec(),
+    };
+
+    let response = Response::builder().body(data.to_vec()).unwrap();
+    SyncResponse::try_from(response).unwrap()
 }

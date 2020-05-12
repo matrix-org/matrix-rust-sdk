@@ -12,19 +12,19 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use matrix_sdk_common::instant::{Duration, Instant};
 use std::collections::{BTreeMap, HashSet};
 use std::convert::TryFrom;
 use std::mem;
 use std::path::{Path, PathBuf};
 use std::result::Result as StdResult;
 use std::sync::Arc;
-use std::time::{Duration, Instant};
 use url::Url;
 
 use async_trait::async_trait;
+use matrix_sdk_common::locks::Mutex;
 use olm_rs::PicklingMode;
 use sqlx::{query, query_as, sqlite::SqliteQueryAs, Connect, Executor, SqliteConnection};
-use tokio::sync::Mutex;
 use zeroize::Zeroizing;
 
 use super::{Account, CryptoStore, CryptoStoreError, InboundGroupSession, Result, Session};

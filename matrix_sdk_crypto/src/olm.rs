@@ -12,14 +12,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use matrix_sdk_common::instant::Instant;
 use std::fmt;
 use std::mem;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
-use std::time::Instant;
 
+use matrix_sdk_common::locks::Mutex;
 use serde::Serialize;
-use tokio::sync::Mutex;
 use zeroize::Zeroize;
 
 pub use olm_rs::account::IdentityKeys;

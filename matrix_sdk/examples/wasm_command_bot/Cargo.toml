@@ -1,0 +1,19 @@
+[package]
+name = "wasm"
+version = "0.1.0"
+authors = ["stoically <stoically@protonmail.com>"]
+edition = "2018"
+
+# Config mostly pulled from: https://github.com/rustwasm/wasm-bindgen/blob/master/examples/fetch/Cargo.toml
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+matrix-sdk = { path = "../..", default-features = false }
+url = "2.1.1"
+wasm-bindgen = { version = "0.2.62", features = ["serde-serialize"] }
+wasm-bindgen-futures = "0.4.12"
+web-sys = { version = "0.3.39", features = ["console"] }
+
+[workspace]

@@ -19,9 +19,9 @@ use std::sync::Arc;
 use url::ParseError;
 
 use async_trait::async_trait;
+use matrix_sdk_common::locks::Mutex;
 use serde_json::Error as SerdeError;
 use thiserror::Error;
-use tokio::sync::Mutex;
 
 use super::device::Device;
 use super::memory_stores::UserDevices;

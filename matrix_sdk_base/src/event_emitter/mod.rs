@@ -170,8 +170,13 @@ pub trait EventEmitter: Send + Sync {
 #[cfg(test)]
 mod test {
     use super::*;
+    use matrix_sdk_common::locks::Mutex;
+    use matrix_sdk_test::{async_test, sync_response, SyncResponseFile};
     use std::sync::Arc;
-    use tokio::sync::Mutex;
+
+    #[cfg(target_arch = "wasm32")]
+    pub use wasm_bindgen_test::*;
+
     #[derive(Clone)]
     pub struct EvEmitterTest(Arc<Mutex<Vec<String>>>);
 
@@ -285,22 +290,10 @@ mod test {
         }
     }
 
-    use crate::api::r0::sync::sync_events::Response as SyncResponse;
     use crate::identifiers::UserId;
     use crate::{BaseClient, Session};
 
-    use http::Response;
     use std::convert::TryFrom;
-    use std::fs::File;
-    use std::io::Read;
-
-    fn sync_response(file: &str) -> SyncResponse {
-        let mut file = File::open(file).unwrap();
-        let mut data = vec![];
-        file.read_to_end(&mut data).unwrap();
-        let response = Response::builder().body(data).unwrap();
-        SyncResponse::try_from(response).unwrap()
-    }
 
     fn get_client() -> BaseClient {
         let session = Session {
@@ -311,7 +304,7 @@ mod test {
         BaseClient::new(Some(session)).unwrap()
     }
 
-    #[tokio::test]
+    #[async_test]
     async fn event_emitter_joined() {
         let vec = Arc::new(Mutex::new(Vec::new()));
         let test_vec = Arc::clone(&vec);
@@ -320,7 +313,7 @@ mod test {
         let client = get_client();
         client.add_event_emitter(emitter).await;
 
-        let mut response = sync_response("../test_data/sync.json");
+        let mut response = sync_response(SyncResponseFile::Default);
         client.receive_sync_response(&mut response).await.unwrap();
 
         let v = test_vec.lock().await;
@@ -342,7 +335,7 @@ mod test {
         )
     }
 
-    #[tokio::test]
+    #[async_test]
     async fn event_emitter_invite() {
         let vec = Arc::new(Mutex::new(Vec::new()));
         let test_vec = Arc::clone(&vec);
@@ -351,7 +344,7 @@ mod test {
         let client = get_client();
         client.add_event_emitter(emitter).await;
 
-        let mut response = sync_response("../test_data/invite_sync.json");
+        let mut response = sync_response(SyncResponseFile::Invite);
         client.receive_sync_response(&mut response).await.unwrap();
 
         let v = test_vec.lock().await;
@@ -361,7 +354,7 @@ mod test {
         )
     }
 
-    #[tokio::test]
+    #[async_test]
     async fn event_emitter_leave() {
         let vec = Arc::new(Mutex::new(Vec::new()));
         let test_vec = Arc::clone(&vec);
@@ -370,7 +363,7 @@ mod test {
         let client = get_client();
         client.add_event_emitter(emitter).await;
 
-        let mut response = sync_response("../test_data/leave_sync.json");
+        let mut response = sync_response(SyncResponseFile::Leave);
         client.receive_sync_response(&mut response).await.unwrap();
 
         let v = test_vec.lock().await;

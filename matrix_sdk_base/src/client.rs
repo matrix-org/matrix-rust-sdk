@@ -39,10 +39,10 @@ use crate::session::Session;
 use crate::state::{AllRooms, ClientState, StateStore};
 use crate::EventEmitter;
 
-use std::ops::Deref;
 #[cfg(feature = "encryption")]
-use tokio::sync::Mutex;
-use tokio::sync::RwLock;
+use matrix_sdk_common::locks::Mutex;
+use matrix_sdk_common::locks::RwLock;
+use std::ops::Deref;
 
 #[cfg(feature = "encryption")]
 use crate::api::r0::keys::{
@@ -337,7 +337,7 @@ impl BaseClient {
     /// Returns the joined rooms this client knows about.
     ///
     /// A `HashMap` of room id to `matrix::models::Room`
-    pub fn joined_rooms(&self) -> Arc<RwLock<HashMap<RoomId, Arc<tokio::sync::RwLock<Room>>>>> {
+    pub fn joined_rooms(&self) -> Arc<RwLock<HashMap<RoomId, Arc<RwLock<Room>>>>> {
         self.joined_rooms.clone()
     }
 
@@ -371,7 +371,7 @@ impl BaseClient {
     /// Returns the invited rooms this client knows about.
     ///
     /// A `HashMap` of room id to `matrix::models::Room`
-    pub fn invited_rooms(&self) -> Arc<RwLock<HashMap<RoomId, Arc<tokio::sync::RwLock<Room>>>>> {
+    pub fn invited_rooms(&self) -> Arc<RwLock<HashMap<RoomId, Arc<RwLock<Room>>>>> {
         self.invited_rooms.clone()
     }
 
@@ -405,7 +405,7 @@ impl BaseClient {
     /// Returns the left rooms this client knows about.
     ///
     /// A `HashMap` of room id to `matrix::models::Room`
-    pub fn left_rooms(&self) -> Arc<RwLock<HashMap<RoomId, Arc<tokio::sync::RwLock<Room>>>>> {
+    pub fn left_rooms(&self) -> Arc<RwLock<HashMap<RoomId, Arc<RwLock<Room>>>>> {
         self.left_rooms.clone()
     }
 

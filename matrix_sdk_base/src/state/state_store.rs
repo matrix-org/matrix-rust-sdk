@@ -6,9 +6,9 @@ use std::sync::{
     Arc,
 };
 
+use matrix_sdk_common::locks::RwLock;
 use tokio::fs as async_fs;
 use tokio::io::AsyncWriteExt;
-use tokio::sync::RwLock;
 
 use super::{ClientState, StateStore};
 use crate::identifiers::RoomId;

@@ -20,6 +20,28 @@ jobs:
       after_success:
           - bash <(curl -s https://codecov.io/bash)
 
+    - os: linux
+      name: wasm32-unknown-unknown
+      before_script:
+          - |
+            cargo install wasm-bindgen-cli
+            rustup target add wasm32-unknown-unknown
+            wget https://github.com/emscripten-core/emsdk/archive/master.zip
+            unzip master.zip
+            ./emsdk-master/emsdk install latest
+            ./emsdk-master/emsdk activate latest
+      script:
+          - |
+            source emsdk-master/emsdk_env.sh
+            cd matrix_sdk/examples/wasm_command_bot
+            cargo build --target wasm32-unknown-unknown
+            cd -
+
+            cd matrix_sdk_base
+            cargo test --target wasm32-unknown-unknown --no-default-features
+
+
+
 before_script:
   - rustup component add rustfmt
 

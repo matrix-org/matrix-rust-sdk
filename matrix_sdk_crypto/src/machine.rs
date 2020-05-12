@@ -19,7 +19,6 @@ use std::mem;
 use std::path::Path;
 use std::result::Result as StdResult;
 use std::sync::atomic::{AtomicU64, Ordering};
-use uuid::Uuid;
 
 use super::error::{EventError, MegolmError, MegolmResult, OlmError, OlmResult, SignatureError};
 use super::olm::{
@@ -46,6 +45,7 @@ use matrix_sdk_common::events::{
     Algorithm, EventJson, EventType,
 };
 use matrix_sdk_common::identifiers::{DeviceId, RoomId, UserId};
+use matrix_sdk_common::uuid::Uuid;
 
 use api::r0::keys;
 use api::r0::{

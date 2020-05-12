@@ -15,8 +15,11 @@
 
 use serde::{Deserialize, Serialize};
 
+#[cfg(not(target_arch = "wasm32"))]
 pub mod state_store;
-pub use state_store::{AllRooms, JsonStore};
+pub use state_store::AllRooms;
+#[cfg(not(target_arch = "wasm32"))]
+pub use state_store::JsonStore;
 
 use crate::client::{BaseClient, Token};
 use crate::events::push_rules::Ruleset;

@@ -143,6 +143,9 @@ mod test {
     use std::collections::HashMap;
     use std::convert::TryFrom;
 
+    #[cfg(target_arch = "wasm32")]
+    use wasm_bindgen_test::*;
+
     use crate::events::{collections::all::RoomEvent, EventJson};
     use crate::identifiers::{RoomId, UserId};
     use crate::Room;
