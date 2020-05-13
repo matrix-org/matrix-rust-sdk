@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::convert::TryFrom;
 use std::panic;
 
@@ -10,8 +11,10 @@ use matrix_sdk_common::events::{
         only::Event,
     },
     presence::PresenceEvent,
+    stripped::AnyStrippedStateEvent,
     EventJson, TryFromRaw,
 };
+use matrix_sdk_common::identifiers::RoomId;
 
 pub use matrix_sdk_test_macros::async_test;
 
@@ -45,7 +48,11 @@ pub enum EventsFile {
 #[derive(Default)]
 pub struct EventBuilder {
     /// The events that determine the state of a `Room`.
-    room_events: Vec<RoomEvent>,
+    joined_room_events: HashMap<RoomId, Vec<RoomEvent>>,
+    /// The events that determine the state of a `Room`.
+    invited_room_events: Vec<AnyStrippedStateEvent>,
+    /// The events that determine the state of a `Room`.
+    left_room_events: Vec<RoomEvent>,
     /// The presence events that determine the presence state of a `RoomMember`.
     presence_events: Vec<PresenceEvent>,
     /// The state events that determine the state of a `Room`.
@@ -111,7 +118,59 @@ impl EventBuilder {
             .unwrap()
             .deserialize()
             .unwrap();
-        self.room_events.push(variant(event));
+        self.add_joined_event(
+            &RoomId::try_from("!SVkFJHzfwvuaIEawgC:localhost").unwrap(),
+            variant(event),
+        );
+        self
+    }
+
+    pub fn add_custom_joined_event<Ev: TryFromRaw>(
+        mut self,
+        event: serde_json::Value,
+        variant: fn(Ev) -> RoomEvent,
+    ) -> Self {
+        let event = serde_json::from_value::<EventJson<Ev>>(event)
+            .unwrap()
+            .deserialize()
+            .unwrap();
+        self.add_joined_event(
+            &RoomId::try_from("!SVkFJHzfwvuaIEawgC:localhost").unwrap(),
+            variant(event),
+        );
+        self
+    }
+
+    fn add_joined_event(&mut self, room_id: &RoomId, event: RoomEvent) {
+        self.joined_room_events
+            .entry(room_id.clone())
+            .or_insert_with(Vec::new)
+            .push(event);
+    }
+
+    pub fn add_custom_invited_event<Ev: TryFromRaw>(
+        mut self,
+        event: serde_json::Value,
+        variant: fn(Ev) -> AnyStrippedStateEvent,
+    ) -> Self {
+        let event = serde_json::from_value::<EventJson<Ev>>(event)
+            .unwrap()
+            .deserialize()
+            .unwrap();
+        self.invited_room_events.push(variant(event));
+        self
+    }
+
+    pub fn add_custom_left_event<Ev: TryFromRaw>(
+        mut self,
+        event: serde_json::Value,
+        variant: fn(Ev) -> RoomEvent,
+    ) -> Self {
+        let event = serde_json::from_value::<EventJson<Ev>>(event)
+            .unwrap()
+            .deserialize()
+            .unwrap();
+        self.left_room_events.push(variant(event));
         self
     }
 
@@ -152,7 +211,61 @@ impl EventBuilder {
     }
 
     /// Consumes `ResponseBuilder and returns SyncResponse.
-    pub fn build_sync_response(self) -> SyncResponse {
+    pub fn build_sync_response(mut self) -> SyncResponse {
+        let main_room_id = RoomId::try_from("!SVkFJHzfwvuaIEawgC:localhost").unwrap();
+
+        // TODO generalize this.
+        let joined_room = serde_json::json!({
+            "summary": {},
+            "account_data": {
+                "events": self.account_data
+            },
+            "ephemeral": {
+                "events": self.ephemeral
+            },
+            "state": {
+                "events": self.state_events
+            },
+            "timeline": {
+                "events": self.joined_room_events.remove(&main_room_id).unwrap_or_default(),
+                "limited": true,
+                "prev_batch": "t392-516_47314_0_7_1_1_1_11444_1"
+            },
+            "unread_notifications": {
+                "highlight_count": 0,
+                "notification_count": 11
+            }
+        });
+
+        let mut rooms: HashMap<RoomId, serde_json::Value> = HashMap::new();
+
+        rooms.insert(main_room_id, joined_room);
+
+        for (room_id, events) in self.joined_room_events.drain() {
+            let joined_room = serde_json::json!({
+                "summary": {},
+                "account_data": {
+                    "events": [],
+                },
+                "ephemeral": {
+                    "events": [],
+                },
+                "state": {
+                    "events": [],
+                },
+                "timeline": {
+                    "events": events,
+                    "limited": true,
+                    "prev_batch": "t392-516_47314_0_7_1_1_1_11444_1"
+                },
+                "unread_notifications": {
+                    "highlight_count": 0,
+                    "notification_count": 11
+                }
+            });
+            rooms.insert(room_id, joined_room);
+        }
+
         let body = serde_json::json! {
             {
                 "device_one_time_keys_count": {},
@@ -163,29 +276,7 @@ impl EventBuilder {
                 },
                 "rooms": {
                     "invite": {},
-                    "join": {
-                        "!SVkFJHzfwvuaIEawgC:localhost": {
-                            "summary": {},
-                            "account_data": {
-                                "events": self.account_data
-                            },
-                            "ephemeral": {
-                                "events": self.ephemeral
-                            },
-                            "state": {
-                                "events": self.state_events
-                            },
-                            "timeline": {
-                                "events": self.room_events,
-                                "limited": true,
-                                "prev_batch": "t392-516_47314_0_7_1_1_1_11444_1"
-                            },
-                            "unread_notifications": {
-                                "highlight_count": 0,
-                                "notification_count": 11
-                            }
-                        }
-                    },
+                    "join": rooms,
                     "leave": {}
                 },
                 "to_device": {

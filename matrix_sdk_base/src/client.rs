@@ -1428,3 +1428,41 @@ impl BaseClient {
         }
     }
 }
+
+#[cfg(test)]
+mod test {
+    use crate::identifiers::{RoomId, UserId};
+    use crate::{events::collections::all::RoomEvent, BaseClient, Session};
+    use matrix_sdk_test::{async_test, EventBuilder, EventsFile};
+    use std::convert::TryFrom;
+
+    fn get_client() -> BaseClient {
+        let session = Session {
+            access_token: "1234".to_owned(),
+            user_id: UserId::try_from("@example:localhost").unwrap(),
+            device_id: "DEVICEID".to_owned(),
+        };
+        BaseClient::new(Some(session)).unwrap()
+    }
+
+    fn get_room_id() -> RoomId {
+        RoomId::try_from("!SVkFJHzfwvuaIEawgC:localhost").unwrap()
+    }
+
+    #[async_test]
+    async fn test_joined_room_creation() {
+        let mut sync_response = EventBuilder::default()
+            .add_room_event(EventsFile::Member, RoomEvent::RoomMember)
+            .build_sync_response();
+        let client = get_client();
+        let room_id = get_room_id();
+
+        client
+            .receive_sync_response(&mut sync_response)
+            .await
+            .unwrap();
+
+        let room = client.get_joined_room(&room_id).await;
+        assert!(room.is_some());
+    }
+}
