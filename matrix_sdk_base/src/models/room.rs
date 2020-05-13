@@ -136,6 +136,8 @@ pub struct Room {
     pub unread_notifications: Option<UInt>,
     /// The tombstone state of this room.
     pub tombstone: Option<Tombstone>,
+    /// The map of display names
+    display_names: HashMap<UserId, String>,
 }
 
 impl RoomName {
@@ -234,6 +236,7 @@ impl Room {
             unread_highlight: None,
             unread_notifications: None,
             tombstone: None,
+            display_names: HashMap::new(),
         }
     }
 
@@ -247,6 +250,11 @@ impl Room {
         self.encrypted
     }
 
+    /// Get the resolved display name for a member of this room.
+    pub fn resolved_display_name(&self, id: &UserId) -> Option<&str> {
+        self.display_names.get(id).map(|s| s.as_str())
+    }
+
     fn add_member(&mut self, event: &MemberEvent) -> bool {
         if self
             .members
@@ -256,6 +264,63 @@ impl Room {
         }
 
         let member = RoomMember::new(event);
+
+        // find all users that share the same display name as the joining user
+        let users_with_same_name: Vec<_> = self
+            .display_names
+            .iter()
+            .filter(|(_, v)| {
+                member
+                    .display_name
+                    .as_ref()
+                    .map(|n| &n == v)
+                    .unwrap_or(false)
+            })
+            .map(|(k, _)| k)
+            .cloned()
+            .collect();
+
+        // if there is no other user with the same display name -> just use the display name
+        if users_with_same_name.is_empty() {
+            let display_name = member
+                .display_name
+                .as_ref()
+                .map(|s| s.to_string())
+                .unwrap_or_else(|| format!("{}", member.user_id));
+            self.display_names
+                .insert(member.user_id.clone(), display_name);
+        } else {
+            // else user `display_name (userid)`
+            let users_with_same_name = users_with_same_name
+                .into_iter()
+                .filter_map(|id| {
+                    self.members
+                        .get(&id)
+                        .map(|m| {
+                            m.display_name
+                                .as_ref()
+                                .map(|d| format!("{} ({})", d, m.user_id))
+                                .unwrap_or_else(|| format!("{}", m.user_id))
+                        })
+                        .map(|m| (id, m))
+                })
+                .collect::<Vec<_>>();
+
+            // update all existing users with same name
+            for (id, member) in users_with_same_name {
+                self.display_names.insert(id, member);
+            }
+
+            // insert new member's display name
+            self.display_names.insert(
+                member.user_id.clone(),
+                member
+                    .display_name
+                    .as_ref()
+                    .map(|n| format!("{} ({})", n, member.user_id))
+                    .unwrap_or_else(|| format!("{}", member.user_id)),
+            );
+        }
 
         self.members
             .insert(UserId::try_from(event.state_key.as_str()).unwrap(), member);
