@@ -24,7 +24,17 @@
 //! keys. If this is disabled and `encryption` support is enabled the keys will
 //! by default be stored only in memory and thus lost after the client is
 //! destroyed.
-#![deny(missing_docs)]
+
+#![deny(
+    missing_debug_implementations,
+    dead_code,
+    missing_docs,
+    trivial_casts,
+    trivial_numeric_casts,
+    unused_extern_crates,
+    unused_import_braces,
+    unused_qualifications
+)]
 
 #[cfg(not(target_arch = "wasm32"))]
 pub use matrix_sdk_base::JsonStore;

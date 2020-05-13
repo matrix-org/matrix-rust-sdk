@@ -34,7 +34,7 @@ use crate::js_int::UInt;
 /// cli.create_room(builder).await;
 /// # })
 /// ```
-#[derive(Clone, Default)]
+#[derive(Clone, Debug, Default)]
 pub struct RoomBuilder {
     /// Extra keys to be added to the content of the `m.room.create`.
     creation_content: Option<CreationContent>,
@@ -198,7 +198,7 @@ impl Into<create_room::Request> for RoomBuilder {
 /// cli.room_messages(builder).await.is_err();
 /// # })
 /// ```
-#[derive(Clone, Default)]
+#[derive(Clone, Debug, Default)]
 pub struct MessagesRequestBuilder {
     /// The room to get events from.
     room_id: Option<RoomId>,

@@ -1268,7 +1268,7 @@ mod test {
 
     #[tokio::test]
     async fn room_creation() {
-        let session = crate::Session {
+        let session = Session {
             access_token: "12345".to_owned(),
             user_id: UserId::try_from("@example:localhost").unwrap(),
             device_id: "DEVICEID".to_owned(),
@@ -1790,7 +1790,7 @@ mod test {
     async fn invited_rooms() {
         use std::convert::TryFrom;
 
-        let session = crate::Session {
+        let session = Session {
             access_token: "12345".to_owned(),
             user_id: UserId::try_from("@example:localhost").unwrap(),
             device_id: "DEVICEID".to_owned(),
@@ -1823,7 +1823,7 @@ mod test {
     async fn left_rooms() {
         use std::convert::TryFrom;
 
-        let session = crate::Session {
+        let session = Session {
             access_token: "12345".to_owned(),
             user_id: UserId::try_from("@example:localhost").unwrap(),
             device_id: "DEVICEID".to_owned(),
