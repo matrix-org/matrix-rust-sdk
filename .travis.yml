@@ -24,6 +24,7 @@ jobs:
       name: wasm32-unknown-unknown
       before_script:
           - |
+            set -e
             cargo install wasm-bindgen-cli
             rustup target add wasm32-unknown-unknown
             wget https://github.com/emscripten-core/emsdk/archive/master.zip
@@ -32,6 +33,7 @@ jobs:
             ./emsdk-master/emsdk activate latest
       script:
           - |
+            set -e
             source emsdk-master/emsdk_env.sh
             cd matrix_sdk/examples/wasm_command_bot
             cargo build --target wasm32-unknown-unknown
