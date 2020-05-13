@@ -44,6 +44,7 @@ use crate::Endpoint;
 use crate::identifiers::DeviceId;
 
 use crate::api;
+#[cfg(not(target_arch = "wasm32"))]
 use crate::VERSION;
 use crate::{Error, EventEmitter, Result};
 use matrix_sdk_base::BaseClient;
