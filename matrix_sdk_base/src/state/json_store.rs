@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::fmt;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::{
@@ -36,6 +37,14 @@ impl JsonStore {
             path: Arc::new(RwLock::new(p.to_path_buf())),
             user_path_set: AtomicBool::new(false),
         })
+    }
+}
+
+impl fmt::Debug for JsonStore {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("JsonStore")
+            .field("path", &self.path)
+            .finish()
     }
 }
 

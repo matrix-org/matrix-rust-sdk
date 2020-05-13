@@ -61,6 +61,7 @@ use matrix_sdk_crypto::{OlmMachine, OneTimeKeys};
 pub type Token = String;
 
 /// Signals to the `BaseClient` which `RoomState` to send to `EventEmitter`.
+#[derive(Debug)]
 pub enum RoomStateType {
     /// Represents a joined room, the `joined_rooms` HashMap will be used.
     Joined,
@@ -75,6 +76,7 @@ pub enum RoomStateType {
 /// If the event came from the `join`, `invite` or `leave` rooms map from the server
 /// the variant that holds the corresponding room is used. `RoomState` is generic
 /// so it can be used to represent a `Room` or an `Arc<RwLock<Room>>`
+#[derive(Debug)]
 pub enum RoomState<R> {
     /// A room from the `join` section of a sync response.
     Joined(R),

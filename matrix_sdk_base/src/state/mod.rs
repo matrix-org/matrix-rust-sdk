@@ -68,6 +68,7 @@ impl ClientState {
 /// `JsonStore::load_all_rooms` returns `AllRooms`.
 ///
 /// `AllRooms` is made of the `joined`, `invited` and `left` room maps.
+#[derive(Debug)]
 pub struct AllRooms {
     /// The joined room mapping of `RoomId` to `Room`.
     pub joined: HashMap<RoomId, Room>,
