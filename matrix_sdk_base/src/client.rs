@@ -633,6 +633,13 @@ impl BaseClient {
         &self,
         response: &mut api::sync::sync_events::Response,
     ) -> Result<()> {
+        // The server might respond multiple times with the same sync token, in
+        // that case we already received this response and there's nothing to
+        // do.
+        if self.sync_token.read().await.as_ref() == Some(&response.next_batch) {
+            return Ok(());
+        }
+
         *self.sync_token.write().await = Some(response.next_batch.clone());
 
         #[cfg(feature = "encryption")]
