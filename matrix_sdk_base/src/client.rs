@@ -109,7 +109,7 @@ pub struct BaseClient {
     /// events.
     event_emitter: Arc<RwLock<Option<Box<dyn EventEmitter>>>>,
     /// Any implementor of `StateStore` will be called to save `Room` and
-    /// some `BaseClient` state during `AsyncClient::sync` calls.
+    /// some `BaseClient` state after receiving a sync response.
     ///
     /// There is a default implementation `JsonStore` that saves JSON to disk.
     state_store: Arc<RwLock<Option<Box<dyn StateStore>>>>,

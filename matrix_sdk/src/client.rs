@@ -404,8 +404,8 @@ impl Client {
         Ok(self.base_client.sync_with_state_store().await?)
     }
 
-    /// This allows `AsyncClient` to manually store `Room`
-    /// state with the provided `StateStore`.
+    /// This allows `Client` to manually store `Room` state with the provided
+    /// `StateStore`.
     ///
     /// Returns Ok when a successful `Room` store occurs.
     pub async fn store_room_state(&self, room_id: &RoomId) -> Result<()> {

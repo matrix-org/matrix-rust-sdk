@@ -496,7 +496,8 @@ impl Room {
 
     /// Receive a presence event from an `IncomingResponse` and updates the client state.
     ///
-    /// This will only update the user if found in the current room looped through by `AsyncClient::sync`.
+    /// This will only update the user if found in the current room looped through
+    /// by `Client::sync`.
     /// Returns true if the specific users presence has changed, false otherwise.
     ///
     /// # Arguments
