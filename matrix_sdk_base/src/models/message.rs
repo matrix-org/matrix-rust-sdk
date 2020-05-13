@@ -170,7 +170,9 @@ mod test {
 
         let mut joined_rooms = HashMap::new();
         joined_rooms.insert(id, room);
-        println!("{}", serde_json::to_string_pretty(&joined_rooms).unwrap());
+
+        // println!("{}", serde_json::to_string_pretty(&joined_rooms).unwrap());
+
         // this is the correct JSON string changes to `ruma-events` have not been released
         // that would fix the doubling of fields
         // TODO uncomment when fixed

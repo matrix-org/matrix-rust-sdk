@@ -37,7 +37,7 @@ mod session;
 mod state;
 
 pub use client::{BaseClient, RoomState, RoomStateType};
-pub use event_emitter::EventEmitter;
+pub use event_emitter::{EventEmitter, SyncRoom};
 #[cfg(feature = "encryption")]
 pub use matrix_sdk_crypto::{Device, TrustState};
 pub use models::Room;

@@ -28,7 +28,7 @@
 
 #[cfg(not(target_arch = "wasm32"))]
 pub use matrix_sdk_base::JsonStore;
-pub use matrix_sdk_base::{EventEmitter, Room, Session};
+pub use matrix_sdk_base::{EventEmitter, Room, Session, SyncRoom};
 pub use matrix_sdk_base::{RoomState, StateStore};
 pub use matrix_sdk_common::*;
 pub use reqwest::header::InvalidHeaderValue;

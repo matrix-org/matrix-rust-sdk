@@ -36,7 +36,7 @@ use crate::events::EventJson;
 use crate::identifiers::{RoomId, UserId};
 use crate::models::Room;
 use crate::session::Session;
-use crate::state::{ClientState, StateStore};
+use crate::state::{AllRooms, ClientState, StateStore};
 use crate::EventEmitter;
 
 #[cfg(feature = "encryption")]
@@ -73,14 +73,15 @@ pub enum RoomStateType {
 /// An enum that represents the state of the given `Room`.
 ///
 /// If the event came from the `join`, `invite` or `leave` rooms map from the server
-/// the variant that holds the corresponding room is used.
-pub enum RoomState {
+/// the variant that holds the corresponding room is used. `RoomState` is generic
+/// so it can be used to represent a `Room` or an `Arc<RwLock<Room>>`
+pub enum RoomState<R> {
     /// A room from the `join` section of a sync response.
-    Joined(Arc<RwLock<Room>>),
+    Joined(R),
     /// A room from the `leave` section of a sync response.
-    Left(Arc<RwLock<Room>>),
+    Left(R),
     /// A room from the `invite` section of a sync response.
-    Invited(Arc<RwLock<Room>>),
+    Invited(R),
 }
 
 /// A no IO Client implementation.
@@ -229,8 +230,20 @@ impl BaseClient {
                     return Ok(false);
                 }
 
-                let mut rooms = store.load_all_rooms().await?;
-                *self.joined_rooms.write().await = rooms
+                let AllRooms {
+                    mut joined,
+                    mut invited,
+                    mut left,
+                } = store.load_all_rooms().await?;
+                *self.joined_rooms.write().await = joined
+                    .drain()
+                    .map(|(k, room)| (k, Arc::new(RwLock::new(room))))
+                    .collect();
+                *self.invited_rooms.write().await = invited
+                    .drain()
+                    .map(|(k, room)| (k, Arc::new(RwLock::new(room))))
+                    .collect();
+                *self.left_rooms.write().await = left
                     .drain()
                     .map(|(k, room)| (k, Arc::new(RwLock::new(room))))
                     .collect();
@@ -239,6 +252,33 @@ impl BaseClient {
             }
         }
         Ok(!self.needs_state_store_sync.load(Ordering::Relaxed))
+    }
+
+    /// When a client is provided the state store will load state from the `StateStore`.
+    ///
+    /// Returns `true` when a state store sync has successfully completed.
+    pub async fn store_room_state(&self, room_id: &RoomId) -> Result<()> {
+        if let Some(store) = self.state_store.read().await.as_ref() {
+            if let Some(room) = self.get_joined_room(room_id).await {
+                let room = room.read().await;
+                store
+                    .store_room_state(RoomState::Joined(room.deref()))
+                    .await?;
+            }
+            if let Some(room) = self.get_invited_room(room_id).await {
+                let room = room.read().await;
+                store
+                    .store_room_state(RoomState::Invited(room.deref()))
+                    .await?;
+            }
+            if let Some(room) = self.get_left_room(room_id).await {
+                let room = room.read().await;
+                store
+                    .store_room_state(RoomState::Left(room.deref()))
+                    .await?;
+            }
+        }
+        Ok(())
     }
 
     /// Receive a login response and update the session of the client.
@@ -619,7 +659,7 @@ impl BaseClient {
         // TODO do we want to move the rooms to the appropriate HashMaps when the corresponding
         // event comes in e.g. move a joined room to a left room when leave event comes?
 
-        // when events change state, updated signals to StateStore to update database
+        // when events change state, updated_* signals to StateStore to update database
         let updated_joined = self.iter_joined_rooms(response).await?;
         let updated_invited = self.iter_invited_rooms(&response).await?;
         let updated_left = self.iter_left_rooms(response).await?;
@@ -741,7 +781,7 @@ impl BaseClient {
             if updated {
                 if let Some(store) = self.state_store.read().await.as_ref() {
                     store
-                        .store_room_state(matrix_room.read().await.deref())
+                        .store_room_state(RoomState::Joined(matrix_room.read().await.deref()))
                         .await?;
                 }
             }
@@ -788,7 +828,7 @@ impl BaseClient {
             if updated {
                 if let Some(store) = self.state_store.read().await.as_ref() {
                     store
-                        .store_room_state(matrix_room.read().await.deref())
+                        .store_room_state(RoomState::Left(matrix_room.read().await.deref()))
                         .await?;
                 }
             }
@@ -824,7 +864,7 @@ impl BaseClient {
             if updated {
                 if let Some(store) = self.state_store.read().await.as_ref() {
                     store
-                        .store_room_state(matrix_room.read().await.deref())
+                        .store_room_state(RoomState::Invited(matrix_room.read().await.deref()))
                         .await?;
                 }
             }

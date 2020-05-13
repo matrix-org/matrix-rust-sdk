@@ -14,17 +14,17 @@
 // limitations under the License.
 
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 
 #[cfg(not(target_arch = "wasm32"))]
 pub mod state_store;
+pub use state_store::AllRooms;
 #[cfg(not(target_arch = "wasm32"))]
 pub use state_store::JsonStore;
 
 use crate::client::{BaseClient, Token};
 use crate::events::push_rules::Ruleset;
-use crate::identifiers::{RoomId, UserId};
-use crate::{Result, Room, Session};
+use crate::identifiers::UserId;
+use crate::{Result, Room, RoomState, Session};
 
 /// `ClientState` holds all the information to restore a `BaseClient`
 /// except the `access_token` as the default store is not secure.
@@ -75,11 +75,11 @@ pub trait StateStore: Send + Sync {
     /// Load the state of all `Room`s.
     ///
     /// This will be mapped over in the client in order to store `Room`s in an async safe way.
-    async fn load_all_rooms(&self) -> Result<HashMap<RoomId, Room>>;
+    async fn load_all_rooms(&self) -> Result<AllRooms>;
     /// Save the current state of the `BaseClient` using the `StateStore::Store` type.
     async fn store_client_state(&self, _: ClientState) -> Result<()>;
     /// Save the state a single `Room`.
-    async fn store_room_state(&self, _: &Room) -> Result<()>;
+    async fn store_room_state(&self, _: RoomState<&Room>) -> Result<()>;
 }
 
 #[cfg(test)]
@@ -88,6 +88,8 @@ mod test {
 
     use std::collections::HashMap;
     use std::convert::TryFrom;
+
+    use crate::identifiers::RoomId;
 
     #[test]
     fn serialize() {

@@ -12,6 +12,9 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
+use std::sync::Arc;
+
+use tokio::sync::RwLock;
 
 use crate::events::{
     fully_read::FullyReadEvent,
@@ -37,7 +40,10 @@ use crate::events::{
     },
     typing::TypingEvent,
 };
-use crate::RoomState;
+use crate::{Room, RoomState};
+
+/// Type alias for `RoomState` enum when passed to `EventEmitter` methods.
+pub type SyncRoom = RoomState<Arc<RwLock<Room>>>;
 
 /// This trait allows any type implementing `EventEmitter` to specify event callbacks for each event.
 /// The `AsyncClient` calls each method when the corresponding event is received.
@@ -52,7 +58,7 @@ use crate::RoomState;
 /// #     events::{
 /// #         room::message::{MessageEvent, MessageEventContent, TextMessageEventContent},
 /// #     },
-/// #     EventEmitter, RoomState
+/// #     EventEmitter, SyncRoom
 /// # };
 /// use tokio::sync::RwLock;
 ///
@@ -60,8 +66,8 @@ use crate::RoomState;
 ///
 /// #[async_trait::async_trait]
 /// impl EventEmitter for EventCallback {
-///     async fn on_room_message(&self, room: RoomState, event: &MessageEvent) {
-///         if let RoomState::Joined(room) = room {
+///     async fn on_room_message(&self, room: SyncRoom, event: &MessageEvent) {
+///         if let SyncRoom::Joined(room) = room {
 ///             if let MessageEvent {
 ///                 content: MessageEventContent::Text(TextMessageEventContent { body: msg_body, .. }),
 ///                 sender,
@@ -87,82 +93,78 @@ use crate::RoomState;
 pub trait EventEmitter: Send + Sync {
     // ROOM EVENTS from `IncomingTimeline`
     /// Fires when `AsyncClient` receives a `RoomEvent::RoomMember` event.
-    async fn on_room_member(&self, _: RoomState, _: &MemberEvent) {}
+    async fn on_room_member(&self, _: SyncRoom, _: &MemberEvent) {}
     /// Fires when `AsyncClient` receives a `RoomEvent::RoomName` event.
-    async fn on_room_name(&self, _: RoomState, _: &NameEvent) {}
+    async fn on_room_name(&self, _: SyncRoom, _: &NameEvent) {}
     /// Fires when `AsyncClient` receives a `RoomEvent::RoomCanonicalAlias` event.
-    async fn on_room_canonical_alias(&self, _: RoomState, _: &CanonicalAliasEvent) {}
+    async fn on_room_canonical_alias(&self, _: SyncRoom, _: &CanonicalAliasEvent) {}
     /// Fires when `AsyncClient` receives a `RoomEvent::RoomAliases` event.
-    async fn on_room_aliases(&self, _: RoomState, _: &AliasesEvent) {}
+    async fn on_room_aliases(&self, _: SyncRoom, _: &AliasesEvent) {}
     /// Fires when `AsyncClient` receives a `RoomEvent::RoomAvatar` event.
-    async fn on_room_avatar(&self, _: RoomState, _: &AvatarEvent) {}
+    async fn on_room_avatar(&self, _: SyncRoom, _: &AvatarEvent) {}
     /// Fires when `AsyncClient` receives a `RoomEvent::RoomMessage` event.
-    async fn on_room_message(&self, _: RoomState, _: &MessageEvent) {}
+    async fn on_room_message(&self, _: SyncRoom, _: &MessageEvent) {}
     /// Fires when `AsyncClient` receives a `RoomEvent::RoomMessageFeedback` event.
-    async fn on_room_message_feedback(&self, _: RoomState, _: &FeedbackEvent) {}
+    async fn on_room_message_feedback(&self, _: SyncRoom, _: &FeedbackEvent) {}
     /// Fires when `AsyncClient` receives a `RoomEvent::RoomRedaction` event.
-    async fn on_room_redaction(&self, _: RoomState, _: &RedactionEvent) {}
+    async fn on_room_redaction(&self, _: SyncRoom, _: &RedactionEvent) {}
     /// Fires when `AsyncClient` receives a `RoomEvent::RoomPowerLevels` event.
-    async fn on_room_power_levels(&self, _: RoomState, _: &PowerLevelsEvent) {}
+    async fn on_room_power_levels(&self, _: SyncRoom, _: &PowerLevelsEvent) {}
     /// Fires when `AsyncClient` receives a `RoomEvent::Tombstone` event.
-    async fn on_room_tombstone(&self, _: RoomState, _: &TombstoneEvent) {}
+    async fn on_room_tombstone(&self, _: SyncRoom, _: &TombstoneEvent) {}
 
     // `RoomEvent`s from `IncomingState`
     /// Fires when `AsyncClient` receives a `StateEvent::RoomMember` event.
-    async fn on_state_member(&self, _: RoomState, _: &MemberEvent) {}
+    async fn on_state_member(&self, _: SyncRoom, _: &MemberEvent) {}
     /// Fires when `AsyncClient` receives a `StateEvent::RoomName` event.
-    async fn on_state_name(&self, _: RoomState, _: &NameEvent) {}
+    async fn on_state_name(&self, _: SyncRoom, _: &NameEvent) {}
     /// Fires when `AsyncClient` receives a `StateEvent::RoomCanonicalAlias` event.
-    async fn on_state_canonical_alias(&self, _: RoomState, _: &CanonicalAliasEvent) {}
+    async fn on_state_canonical_alias(&self, _: SyncRoom, _: &CanonicalAliasEvent) {}
     /// Fires when `AsyncClient` receives a `StateEvent::RoomAliases` event.
-    async fn on_state_aliases(&self, _: RoomState, _: &AliasesEvent) {}
+    async fn on_state_aliases(&self, _: SyncRoom, _: &AliasesEvent) {}
     /// Fires when `AsyncClient` receives a `StateEvent::RoomAvatar` event.
-    async fn on_state_avatar(&self, _: RoomState, _: &AvatarEvent) {}
+    async fn on_state_avatar(&self, _: SyncRoom, _: &AvatarEvent) {}
     /// Fires when `AsyncClient` receives a `StateEvent::RoomPowerLevels` event.
-    async fn on_state_power_levels(&self, _: RoomState, _: &PowerLevelsEvent) {}
+    async fn on_state_power_levels(&self, _: SyncRoom, _: &PowerLevelsEvent) {}
     /// Fires when `AsyncClient` receives a `StateEvent::RoomJoinRules` event.
-    async fn on_state_join_rules(&self, _: RoomState, _: &JoinRulesEvent) {}
+    async fn on_state_join_rules(&self, _: SyncRoom, _: &JoinRulesEvent) {}
 
     // `AnyStrippedStateEvent`s
     /// Fires when `AsyncClient` receives a `AnyStrippedStateEvent::StrippedRoomMember` event.
-    async fn on_stripped_state_member(&self, _: RoomState, _: &StrippedRoomMember) {}
+    async fn on_stripped_state_member(&self, _: SyncRoom, _: &StrippedRoomMember) {}
     /// Fires when `AsyncClient` receives a `AnyStrippedStateEvent::StrippedRoomName` event.
-    async fn on_stripped_state_name(&self, _: RoomState, _: &StrippedRoomName) {}
+    async fn on_stripped_state_name(&self, _: SyncRoom, _: &StrippedRoomName) {}
     /// Fires when `AsyncClient` receives a `AnyStrippedStateEvent::StrippedRoomCanonicalAlias` event.
-    async fn on_stripped_state_canonical_alias(
-        &self,
-        _: RoomState,
-        _: &StrippedRoomCanonicalAlias,
-    ) {
+    async fn on_stripped_state_canonical_alias(&self, _: SyncRoom, _: &StrippedRoomCanonicalAlias) {
     }
     /// Fires when `AsyncClient` receives a `AnyStrippedStateEvent::StrippedRoomAliases` event.
-    async fn on_stripped_state_aliases(&self, _: RoomState, _: &StrippedRoomAliases) {}
+    async fn on_stripped_state_aliases(&self, _: SyncRoom, _: &StrippedRoomAliases) {}
     /// Fires when `AsyncClient` receives a `AnyStrippedStateEvent::StrippedRoomAvatar` event.
-    async fn on_stripped_state_avatar(&self, _: RoomState, _: &StrippedRoomAvatar) {}
+    async fn on_stripped_state_avatar(&self, _: SyncRoom, _: &StrippedRoomAvatar) {}
     /// Fires when `AsyncClient` receives a `AnyStrippedStateEvent::StrippedRoomPowerLevels` event.
-    async fn on_stripped_state_power_levels(&self, _: RoomState, _: &StrippedRoomPowerLevels) {}
+    async fn on_stripped_state_power_levels(&self, _: SyncRoom, _: &StrippedRoomPowerLevels) {}
     /// Fires when `AsyncClient` receives a `AnyStrippedStateEvent::StrippedRoomJoinRules` event.
-    async fn on_stripped_state_join_rules(&self, _: RoomState, _: &StrippedRoomJoinRules) {}
+    async fn on_stripped_state_join_rules(&self, _: SyncRoom, _: &StrippedRoomJoinRules) {}
 
     // `NonRoomEvent` (this is a type alias from ruma_events)
     /// Fires when `AsyncClient` receives a `NonRoomEvent::RoomMember` event.
-    async fn on_account_presence(&self, _: RoomState, _: &PresenceEvent) {}
+    async fn on_account_presence(&self, _: SyncRoom, _: &PresenceEvent) {}
     /// Fires when `AsyncClient` receives a `NonRoomEvent::RoomName` event.
-    async fn on_account_ignored_users(&self, _: RoomState, _: &IgnoredUserListEvent) {}
+    async fn on_account_ignored_users(&self, _: SyncRoom, _: &IgnoredUserListEvent) {}
     /// Fires when `AsyncClient` receives a `NonRoomEvent::RoomCanonicalAlias` event.
-    async fn on_account_push_rules(&self, _: RoomState, _: &PushRulesEvent) {}
+    async fn on_account_push_rules(&self, _: SyncRoom, _: &PushRulesEvent) {}
     /// Fires when `AsyncClient` receives a `NonRoomEvent::RoomAliases` event.
-    async fn on_account_data_fully_read(&self, _: RoomState, _: &FullyReadEvent) {}
+    async fn on_account_data_fully_read(&self, _: SyncRoom, _: &FullyReadEvent) {}
     /// Fires when `AsyncClient` receives a `NonRoomEvent::Typing` event.
-    async fn on_account_data_typing(&self, _: RoomState, _: &TypingEvent) {}
+    async fn on_account_data_typing(&self, _: SyncRoom, _: &TypingEvent) {}
     /// Fires when `AsyncClient` receives a `NonRoomEvent::Receipt` event.
     ///
     /// This is always a read receipt.
-    async fn on_account_data_receipt(&self, _: RoomState, _: &ReceiptEvent) {}
+    async fn on_account_data_receipt(&self, _: SyncRoom, _: &ReceiptEvent) {}
 
     // `PresenceEvent` is a struct so there is only the one method
     /// Fires when `AsyncClient` receives a `NonRoomEvent::RoomAliases` event.
-    async fn on_presence_event(&self, _: RoomState, _: &PresenceEvent) {}
+    async fn on_presence_event(&self, _: SyncRoom, _: &PresenceEvent) {}
 }
 
 #[cfg(test)]
@@ -180,71 +182,71 @@ mod test {
 
     #[async_trait::async_trait]
     impl EventEmitter for EvEmitterTest {
-        async fn on_room_member(&self, _: RoomState, _: &MemberEvent) {
+        async fn on_room_member(&self, _: SyncRoom, _: &MemberEvent) {
             self.0.lock().await.push("member".to_string())
         }
-        async fn on_room_name(&self, _: RoomState, _: &NameEvent) {
+        async fn on_room_name(&self, _: SyncRoom, _: &NameEvent) {
             self.0.lock().await.push("name".to_string())
         }
-        async fn on_room_canonical_alias(&self, _: RoomState, _: &CanonicalAliasEvent) {
+        async fn on_room_canonical_alias(&self, _: SyncRoom, _: &CanonicalAliasEvent) {
             self.0.lock().await.push("canonical".to_string())
         }
-        async fn on_room_aliases(&self, _: RoomState, _: &AliasesEvent) {
+        async fn on_room_aliases(&self, _: SyncRoom, _: &AliasesEvent) {
             self.0.lock().await.push("aliases".to_string())
         }
-        async fn on_room_avatar(&self, _: RoomState, _: &AvatarEvent) {
+        async fn on_room_avatar(&self, _: SyncRoom, _: &AvatarEvent) {
             self.0.lock().await.push("avatar".to_string())
         }
-        async fn on_room_message(&self, _: RoomState, _: &MessageEvent) {
+        async fn on_room_message(&self, _: SyncRoom, _: &MessageEvent) {
             self.0.lock().await.push("message".to_string())
         }
-        async fn on_room_message_feedback(&self, _: RoomState, _: &FeedbackEvent) {
+        async fn on_room_message_feedback(&self, _: SyncRoom, _: &FeedbackEvent) {
             self.0.lock().await.push("feedback".to_string())
         }
-        async fn on_room_redaction(&self, _: RoomState, _: &RedactionEvent) {
+        async fn on_room_redaction(&self, _: SyncRoom, _: &RedactionEvent) {
             self.0.lock().await.push("redaction".to_string())
         }
-        async fn on_room_power_levels(&self, _: RoomState, _: &PowerLevelsEvent) {
+        async fn on_room_power_levels(&self, _: SyncRoom, _: &PowerLevelsEvent) {
             self.0.lock().await.push("power".to_string())
         }
-        async fn on_room_tombstone(&self, _: RoomState, _: &TombstoneEvent) {
+        async fn on_room_tombstone(&self, _: SyncRoom, _: &TombstoneEvent) {
             self.0.lock().await.push("tombstone".to_string())
         }
 
-        async fn on_state_member(&self, _: RoomState, _: &MemberEvent) {
+        async fn on_state_member(&self, _: SyncRoom, _: &MemberEvent) {
             self.0.lock().await.push("state member".to_string())
         }
-        async fn on_state_name(&self, _: RoomState, _: &NameEvent) {
+        async fn on_state_name(&self, _: SyncRoom, _: &NameEvent) {
             self.0.lock().await.push("state name".to_string())
         }
-        async fn on_state_canonical_alias(&self, _: RoomState, _: &CanonicalAliasEvent) {
+        async fn on_state_canonical_alias(&self, _: SyncRoom, _: &CanonicalAliasEvent) {
             self.0.lock().await.push("state canonical".to_string())
         }
-        async fn on_state_aliases(&self, _: RoomState, _: &AliasesEvent) {
+        async fn on_state_aliases(&self, _: SyncRoom, _: &AliasesEvent) {
             self.0.lock().await.push("state aliases".to_string())
         }
-        async fn on_state_avatar(&self, _: RoomState, _: &AvatarEvent) {
+        async fn on_state_avatar(&self, _: SyncRoom, _: &AvatarEvent) {
             self.0.lock().await.push("state avatar".to_string())
         }
-        async fn on_state_power_levels(&self, _: RoomState, _: &PowerLevelsEvent) {
+        async fn on_state_power_levels(&self, _: SyncRoom, _: &PowerLevelsEvent) {
             self.0.lock().await.push("state power".to_string())
         }
-        async fn on_state_join_rules(&self, _: RoomState, _: &JoinRulesEvent) {
+        async fn on_state_join_rules(&self, _: SyncRoom, _: &JoinRulesEvent) {
             self.0.lock().await.push("state rules".to_string())
         }
 
-        async fn on_stripped_state_member(&self, _: RoomState, _: &StrippedRoomMember) {
+        async fn on_stripped_state_member(&self, _: SyncRoom, _: &StrippedRoomMember) {
             self.0
                 .lock()
                 .await
                 .push("stripped state member".to_string())
         }
-        async fn on_stripped_state_name(&self, _: RoomState, _: &StrippedRoomName) {
+        async fn on_stripped_state_name(&self, _: SyncRoom, _: &StrippedRoomName) {
             self.0.lock().await.push("stripped state name".to_string())
         }
         async fn on_stripped_state_canonical_alias(
             &self,
-            _: RoomState,
+            _: SyncRoom,
             _: &StrippedRoomCanonicalAlias,
         ) {
             self.0
@@ -252,38 +254,38 @@ mod test {
                 .await
                 .push("stripped state canonical".to_string())
         }
-        async fn on_stripped_state_aliases(&self, _: RoomState, _: &StrippedRoomAliases) {
+        async fn on_stripped_state_aliases(&self, _: SyncRoom, _: &StrippedRoomAliases) {
             self.0
                 .lock()
                 .await
                 .push("stripped state aliases".to_string())
         }
-        async fn on_stripped_state_avatar(&self, _: RoomState, _: &StrippedRoomAvatar) {
+        async fn on_stripped_state_avatar(&self, _: SyncRoom, _: &StrippedRoomAvatar) {
             self.0
                 .lock()
                 .await
                 .push("stripped state avatar".to_string())
         }
-        async fn on_stripped_state_power_levels(&self, _: RoomState, _: &StrippedRoomPowerLevels) {
+        async fn on_stripped_state_power_levels(&self, _: SyncRoom, _: &StrippedRoomPowerLevels) {
             self.0.lock().await.push("stripped state power".to_string())
         }
-        async fn on_stripped_state_join_rules(&self, _: RoomState, _: &StrippedRoomJoinRules) {
+        async fn on_stripped_state_join_rules(&self, _: SyncRoom, _: &StrippedRoomJoinRules) {
             self.0.lock().await.push("stripped state rules".to_string())
         }
 
-        async fn on_account_presence(&self, _: RoomState, _: &PresenceEvent) {
+        async fn on_account_presence(&self, _: SyncRoom, _: &PresenceEvent) {
             self.0.lock().await.push("account presence".to_string())
         }
-        async fn on_account_ignored_users(&self, _: RoomState, _: &IgnoredUserListEvent) {
+        async fn on_account_ignored_users(&self, _: SyncRoom, _: &IgnoredUserListEvent) {
             self.0.lock().await.push("account ignore".to_string())
         }
-        async fn on_account_push_rules(&self, _: RoomState, _: &PushRulesEvent) {
+        async fn on_account_push_rules(&self, _: SyncRoom, _: &PushRulesEvent) {
             self.0.lock().await.push("account push rules".to_string())
         }
-        async fn on_account_data_fully_read(&self, _: RoomState, _: &FullyReadEvent) {
+        async fn on_account_data_fully_read(&self, _: SyncRoom, _: &FullyReadEvent) {
             self.0.lock().await.push("account read".to_string())
         }
-        async fn on_presence_event(&self, _: RoomState, _: &PresenceEvent) {
+        async fn on_presence_event(&self, _: SyncRoom, _: &PresenceEvent) {
             self.0.lock().await.push("presence event".to_string())
         }
     }
