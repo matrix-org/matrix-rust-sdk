@@ -10,21 +10,8 @@ use matrix_sdk_common::locks::RwLock;
 use tokio::fs as async_fs;
 use tokio::io::AsyncWriteExt;
 
-use super::{ClientState, StateStore};
-use crate::identifiers::RoomId;
+use super::{AllRooms, ClientState, StateStore};
 use crate::{Error, Result, Room, RoomState, Session};
-
-/// `JsonStore::load_all_rooms` returns `AllRooms`.
-///
-/// `AllRooms` is made of the `joined`, `invited` and `left` room maps.
-pub struct AllRooms {
-    /// The joined room mapping of `RoomId` to `Room`.
-    pub joined: HashMap<RoomId, Room>,
-    /// The invited room mapping of `RoomId` to `Room`.
-    pub invited: HashMap<RoomId, Room>,
-    /// The left room mapping of `RoomId` to `Room`.
-    pub left: HashMap<RoomId, Room>,
-}
 
 /// A default `StateStore` implementation that serializes state as json
 /// and saves it to disk.

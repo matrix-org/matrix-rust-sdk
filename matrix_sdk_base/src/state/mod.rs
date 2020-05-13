@@ -13,17 +13,18 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::collections::HashMap;
+
 use serde::{Deserialize, Serialize};
 
 #[cfg(not(target_arch = "wasm32"))]
-pub mod state_store;
-pub use state_store::AllRooms;
+mod state_store;
 #[cfg(not(target_arch = "wasm32"))]
 pub use state_store::JsonStore;
 
 use crate::client::{BaseClient, Token};
 use crate::events::push_rules::Ruleset;
-use crate::identifiers::UserId;
+use crate::identifiers::{RoomId, UserId};
 use crate::{Result, Room, RoomState, Session};
 
 /// `ClientState` holds all the information to restore a `BaseClient`
@@ -62,6 +63,18 @@ impl ClientState {
             push_ruleset: push_ruleset.read().await.clone(),
         }
     }
+}
+
+/// `JsonStore::load_all_rooms` returns `AllRooms`.
+///
+/// `AllRooms` is made of the `joined`, `invited` and `left` room maps.
+pub struct AllRooms {
+    /// The joined room mapping of `RoomId` to `Room`.
+    pub joined: HashMap<RoomId, Room>,
+    /// The invited room mapping of `RoomId` to `Room`.
+    pub invited: HashMap<RoomId, Room>,
+    /// The left room mapping of `RoomId` to `Room`.
+    pub left: HashMap<RoomId, Room>,
 }
 
 /// Abstraction around the data store to avoid unnecessary request on client initialization.
