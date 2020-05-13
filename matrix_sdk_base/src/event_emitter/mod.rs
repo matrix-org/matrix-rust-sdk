@@ -14,7 +14,7 @@
 // limitations under the License.
 use std::sync::Arc;
 
-use tokio::sync::RwLock;
+use matrix_sdk_common::locks::RwLock;
 
 use crate::events::{
     fully_read::FullyReadEvent,
@@ -60,7 +60,7 @@ pub type SyncRoom = RoomState<Arc<RwLock<Room>>>;
 /// #     },
 /// #     EventEmitter, SyncRoom
 /// # };
-/// use tokio::sync::RwLock;
+/// # use matrix_sdk_common::locks::RwLock;
 ///
 /// struct EventCallback;
 ///
