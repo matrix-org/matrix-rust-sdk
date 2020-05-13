@@ -654,18 +654,6 @@ impl BaseClient {
                 // This makes sure that we have the deryption keys for the room
                 // events at hand.
                 o.receive_sync_response(response).await;
-
-                // TODO once the base client deals with callbacks move this into the
-                // part where we already iterate through the rooms to avoid yet
-                // another room loop.
-                for room in self.joined_rooms.read().await.values() {
-                    let room = room.read().await;
-                    if !room.is_encrypted() {
-                        continue;
-                    }
-
-                    o.update_tracked_users(room.members.keys()).await;
-                }
             }
         }
 
@@ -707,6 +695,20 @@ impl BaseClient {
 
                 self.get_or_create_joined_room(&room_id).await.clone()
             };
+
+            #[cfg(feature = "encryption")]
+            {
+                let mut olm = self.olm.lock().await;
+
+                if let Some(o) = &mut *olm {
+                    let room = matrix_room.read().await;
+
+                    // If the room is encrypted, update the tracked users.
+                    if room.is_encrypted() {
+                        o.update_tracked_users(room.members.keys()).await;
+                    }
+                }
+            }
 
             // RoomSummary contains information for calculating room name
             matrix_room
