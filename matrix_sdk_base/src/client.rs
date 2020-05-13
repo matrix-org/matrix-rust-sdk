@@ -310,6 +310,11 @@ impl BaseClient {
     }
 
     pub(crate) async fn get_or_create_joined_room(&self, room_id: &RoomId) -> Arc<RwLock<Room>> {
+        // If this used to be an invited or left room remove them from our other
+        // hashmaps.
+        self.invited_rooms.write().await.remove(room_id);
+        self.left_rooms.write().await.remove(room_id);
+
         let mut rooms = self.joined_rooms.write().await;
         #[allow(clippy::or_fun_call)]
         rooms
@@ -344,6 +349,10 @@ impl BaseClient {
     }
 
     pub(crate) async fn get_or_create_invited_room(&self, room_id: &RoomId) -> Arc<RwLock<Room>> {
+        // Remove the left rooms only here, since a join -> invite action per
+        // spec can't happen.
+        self.left_rooms.write().await.remove(room_id);
+
         let mut rooms = self.invited_rooms.write().await;
         #[allow(clippy::or_fun_call)]
         rooms
@@ -378,6 +387,11 @@ impl BaseClient {
     }
 
     pub(crate) async fn get_or_create_left_room(&self, room_id: &RoomId) -> Arc<RwLock<Room>> {
+        // If this used to be an invited or joined room remove them from our other
+        // hashmaps.
+        self.invited_rooms.write().await.remove(room_id);
+        self.joined_rooms.write().await.remove(room_id);
+
         let mut rooms = self.left_rooms.write().await;
         #[allow(clippy::or_fun_call)]
         rooms
