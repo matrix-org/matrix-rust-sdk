@@ -647,6 +647,10 @@ impl BaseClient {
             let mut olm = self.olm.lock().await;
 
             if let Some(o) = &mut *olm {
+                // Let the crypto machine handle the sync response, this
+                // decryptes to-device events, but leaves room events alone.
+                // This makes sure that we have the deryption keys for the room
+                // events at hand.
                 o.receive_sync_response(response).await;
 
                 // TODO once the base client deals with callbacks move this into the
@@ -667,18 +671,20 @@ impl BaseClient {
         // event comes in e.g. move a joined room to a left room when leave event comes?
 
         // when events change state, updated_* signals to StateStore to update database
-        let updated_joined = self.iter_joined_rooms(response).await?;
-        let updated_invited = self.iter_invited_rooms(&response).await?;
-        let updated_left = self.iter_left_rooms(response).await?;
+        self.iter_joined_rooms(response).await?;
+        self.iter_invited_rooms(&response).await?;
+        self.iter_left_rooms(response).await?;
 
-        if updated_joined || updated_invited || updated_left {
-            let store = self.state_store.read().await;
+        let store = self.state_store.read().await;
 
-            if let Some(store) = store.as_ref() {
-                let state = ClientState::from_base_client(&self).await;
-                store.store_client_state(state).await?;
-            }
+        // Store now the new sync token an other client specific state. Since we
+        // know the sync token changed we can assume that this needs to be done
+        // always.
+        if let Some(store) = store.as_ref() {
+            let state = ClientState::from_base_client(&self).await;
+            store.store_client_state(state).await?;
         }
+
         Ok(())
     }
 
