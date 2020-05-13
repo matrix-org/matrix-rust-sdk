@@ -1434,7 +1434,11 @@ mod test {
     use crate::identifiers::{RoomId, UserId};
     use crate::{events::collections::all::RoomEvent, BaseClient, Session};
     use matrix_sdk_test::{async_test, EventBuilder, EventsFile};
+    use serde_json::json;
     use std::convert::TryFrom;
+
+    #[cfg(target_arch = "wasm32")]
+    use wasm_bindgen_test::*;
 
     fn get_client() -> BaseClient {
         let session = Session {
@@ -1463,6 +1467,39 @@ mod test {
             .unwrap();
 
         let room = client.get_joined_room(&room_id).await;
+        assert!(room.is_some());
+    }
+
+    #[async_test]
+    async fn test_left_room_creation() {
+        let room_id = RoomId::try_from("!left_room:localhost").unwrap();
+        let mut sync_response = EventBuilder::default()
+            .add_custom_left_event(
+                &room_id,
+                json!({
+                    "content": {
+                        "displayname": "example",
+                        "membership": "join"
+                    },
+                    "event_id": "$151800140517rfvjc:localhost",
+                    "membership": "join",
+                    "origin_server_ts": 0,
+                    "sender": "@example:localhost",
+                    "state_key": "@example:localhost",
+                    "type": "m.room.member",
+                }),
+                RoomEvent::RoomMember,
+            )
+            .build_sync_response();
+
+        let client = get_client();
+
+        client
+            .receive_sync_response(&mut sync_response)
+            .await
+            .unwrap();
+
+        let room = client.get_left_room(&room_id).await;
         assert!(room.is_some());
     }
 }

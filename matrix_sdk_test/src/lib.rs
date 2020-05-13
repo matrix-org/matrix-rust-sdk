@@ -50,9 +50,9 @@ pub struct EventBuilder {
     /// The events that determine the state of a `Room`.
     joined_room_events: HashMap<RoomId, Vec<RoomEvent>>,
     /// The events that determine the state of a `Room`.
-    invited_room_events: Vec<AnyStrippedStateEvent>,
+    invited_room_events: HashMap<RoomId, Vec<AnyStrippedStateEvent>>,
     /// The events that determine the state of a `Room`.
-    left_room_events: Vec<RoomEvent>,
+    left_room_events: HashMap<RoomId, Vec<RoomEvent>>,
     /// The presence events that determine the presence state of a `RoomMember`.
     presence_events: Vec<PresenceEvent>,
     /// The state events that determine the state of a `Room`.
@@ -150,6 +150,7 @@ impl EventBuilder {
 
     pub fn add_custom_invited_event<Ev: TryFromRaw>(
         mut self,
+        room_id: &RoomId,
         event: serde_json::Value,
         variant: fn(Ev) -> AnyStrippedStateEvent,
     ) -> Self {
@@ -157,12 +158,16 @@ impl EventBuilder {
             .unwrap()
             .deserialize()
             .unwrap();
-        self.invited_room_events.push(variant(event));
+        self.invited_room_events
+            .entry(room_id.clone())
+            .or_insert_with(Vec::new)
+            .push(variant(event));
         self
     }
 
     pub fn add_custom_left_event<Ev: TryFromRaw>(
         mut self,
+        room_id: &RoomId,
         event: serde_json::Value,
         variant: fn(Ev) -> RoomEvent,
     ) -> Self {
@@ -170,7 +175,10 @@ impl EventBuilder {
             .unwrap()
             .deserialize()
             .unwrap();
-        self.left_room_events.push(variant(event));
+        self.left_room_events
+            .entry(room_id.clone())
+            .or_insert_with(Vec::new)
+            .push(variant(event));
         self
     }
 
@@ -237,9 +245,9 @@ impl EventBuilder {
             }
         });
 
-        let mut rooms: HashMap<RoomId, serde_json::Value> = HashMap::new();
+        let mut joined_rooms: HashMap<RoomId, serde_json::Value> = HashMap::new();
 
-        rooms.insert(main_room_id, joined_room);
+        joined_rooms.insert(main_room_id, joined_room);
 
         for (room_id, events) in self.joined_room_events.drain() {
             let joined_room = serde_json::json!({
@@ -263,7 +271,23 @@ impl EventBuilder {
                     "notification_count": 11
                 }
             });
-            rooms.insert(room_id, joined_room);
+            joined_rooms.insert(room_id, joined_room);
+        }
+
+        let mut left_rooms: HashMap<RoomId, serde_json::Value> = HashMap::new();
+
+        for (room_id, events) in self.left_room_events.drain() {
+            let room = serde_json::json!({
+                "state": {
+                    "events": [],
+                },
+                "timeline": {
+                    "events": events,
+                    "limited": false,
+                    "prev_batch": "t392-516_47314_0_7_1_1_1_11444_1"
+                },
+            });
+            left_rooms.insert(room_id, room);
         }
 
         let body = serde_json::json! {
@@ -276,8 +300,8 @@ impl EventBuilder {
                 },
                 "rooms": {
                     "invite": {},
-                    "join": rooms,
-                    "leave": {}
+                    "join": joined_rooms,
+                    "leave": left_rooms,
                 },
                 "to_device": {
                     "events": []
