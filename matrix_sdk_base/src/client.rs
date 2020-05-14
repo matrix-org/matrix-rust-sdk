@@ -1626,6 +1626,7 @@ mod test {
     }
 
     #[async_test]
+    #[cfg(feature = "encryption")]
     async fn test_group_session_invalidation() {
         let client = get_client();
         let room_id = get_room_id();
