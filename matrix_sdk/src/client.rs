@@ -469,27 +469,29 @@ impl Client {
         self.send(request).await
     }
 
-    /// Join a room by `RoomId`.
-    ///
-    /// Returns a `join_room_by_id_or_alias::Response` consisting of the
-    /// joined rooms `RoomId`.
-    ///
-    /// # Arguments
-    ///
-    /// * `alias` - The `RoomId` or `RoomAliasId` of the room to be joined.
-    /// An alias looks like this `#name:example.com`
-    pub async fn join_room_by_id_or_alias(
-        &self,
-        alias: &RoomIdOrAliasId,
-        server_names: &[String],
-    ) -> Result<join_room_by_id_or_alias::Response> {
-        let request = join_room_by_id_or_alias::Request {
-            room_id_or_alias: alias.clone(),
-            server_name: server_names.to_owned(),
-            third_party_signed: None,
-        };
-        self.send(request).await
-    }
+    // TODO enable this once Ruma supports proper serialization of the query
+    // string.
+    ///// Join a room by `RoomId`.
+    /////
+    ///// Returns a `join_room_by_id_or_alias::Response` consisting of the
+    ///// joined rooms `RoomId`.
+    /////
+    ///// # Arguments
+    /////
+    ///// * `alias` - The `RoomId` or `RoomAliasId` of the room to be joined.
+    ///// An alias looks like this `#name:example.com`
+    //pub async fn join_room_by_id_or_alias(
+    //    &self,
+    //    alias: &RoomIdOrAliasId,
+    //    server_names: &[String],
+    //) -> Result<join_room_by_id_or_alias::Response> {
+    //    let request = join_room_by_id_or_alias::Request {
+    //        room_id_or_alias: alias.clone(),
+    //        server_name: server_names.to_owned(),
+    //        third_party_signed: None,
+    //    };
+    //    self.send(request).await
+    //}
 
     /// Forget a room by `RoomId`.
     ///
@@ -1374,37 +1376,39 @@ mod test {
         );
     }
 
-    #[tokio::test]
-    async fn join_room_by_id_or_alias() {
-        let homeserver = Url::from_str(&mockito::server_url()).unwrap();
+    // TODO enable this once Ruma supports proper serialization of the query
+    // string.
+    // #[tokio::test]
+    // async fn join_room_by_id_or_alias() {
+    //     let homeserver = Url::from_str(&mockito::server_url()).unwrap();
 
-        let session = Session {
-            access_token: "1234".to_owned(),
-            user_id: UserId::try_from("@example:localhost").unwrap(),
-            device_id: "DEVICEID".to_owned(),
-        };
+    //     let session = Session {
+    //         access_token: "1234".to_owned(),
+    //         user_id: UserId::try_from("@example:localhost").unwrap(),
+    //         device_id: "DEVICEID".to_owned(),
+    //     };
 
-        let _m = mock(
-            "POST",
-            Matcher::Regex(r"^/_matrix/client/r0/join/".to_string()),
-        )
-        .with_status(200)
-        .with_body_from_file("../test_data/room_id.json")
-        .create();
+    //     let _m = mock(
+    //         "POST",
+    //         Matcher::Regex(r"^/_matrix/client/r0/join/".to_string()),
+    //     )
+    //     .with_status(200)
+    //     .with_body_from_file("../test_data/room_id.json")
+    //     .create();
 
-        let client = Client::new(homeserver, Some(session)).unwrap();
-        let room_id = RoomIdOrAliasId::try_from("!testroom:example.org").unwrap();
+    //     let client = Client::new(homeserver, Some(session)).unwrap();
+    //     let room_id = RoomIdOrAliasId::try_from("!testroom:example.org").unwrap();
 
-        assert_eq!(
-            // this is the `join_by_room_id::Response` but since no PartialEq we check the RoomId field
-            client
-                .join_room_by_id_or_alias(&room_id, &["server.com".to_string()])
-                .await
-                .unwrap()
-                .room_id,
-            RoomId::try_from("!testroom:example.org").unwrap()
-        );
-    }
+    //     assert_eq!(
+    //         // this is the `join_by_room_id::Response` but since no PartialEq we check the RoomId field
+    //         client
+    //             .join_room_by_id_or_alias(&room_id, &["server.com".to_string()])
+    //             .await
+    //             .unwrap()
+    //             .room_id,
+    //         RoomId::try_from("!testroom:example.org").unwrap()
+    //     );
+    // }
 
     #[tokio::test]
     #[allow(irrefutable_let_patterns)]
