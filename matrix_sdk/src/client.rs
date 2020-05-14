@@ -37,7 +37,7 @@ use url::Url;
 
 use crate::events::room::message::MessageEventContent;
 use crate::events::EventType;
-use crate::identifiers::{EventId, RoomId, RoomIdOrAliasId, UserId};
+use crate::identifiers::{EventId, RoomId, UserId};
 use crate::Endpoint;
 
 #[cfg(feature = "encryption")]
@@ -222,7 +222,7 @@ use api::r0::keys::{claim_keys, get_keys, upload_keys, KeyAlgorithm};
 use api::r0::membership::{
     ban_user, forget_room,
     invite_user::{self, InvitationRecipient},
-    join_room_by_id, join_room_by_id_or_alias, kick_user, leave_room, Invite3pid,
+    join_room_by_id, kick_user, leave_room, Invite3pid,
 };
 use api::r0::message::create_message_event;
 use api::r0::message::get_message_events;
@@ -1232,7 +1232,7 @@ impl Client {
 mod test {
     use super::{
         ban_user, create_receipt, create_typing_event, forget_room, invite_user, kick_user,
-        leave_room, Invite3pid, MessageEventContent, RoomIdOrAliasId,
+        leave_room, Invite3pid, MessageEventContent,
     };
     use super::{Client, ClientConfig, Session, SyncSettings, Url};
     use crate::events::collections::all::RoomEvent;
