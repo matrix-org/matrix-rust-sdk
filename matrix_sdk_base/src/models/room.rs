@@ -730,6 +730,7 @@ mod test {
     }
 
     #[async_test]
+    #[cfg(not(target_arch = "wasm32"))]
     async fn encryption_info_test() {
         let mut response = sync_response(SyncResponseFile::DefaultWithSummary);
         let user_id = UserId::try_from("@example:localhost").unwrap();
