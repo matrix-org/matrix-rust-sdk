@@ -1219,6 +1219,15 @@ impl OlmMachine {
         }
     }
 
+    /// Invalidate the currently active outbound group session for the given
+    /// room.
+    ///
+    /// Returns true if a session was invalidated, false if there was no session
+    /// to invalidate.
+    pub fn invalidate_group_session(&mut self, room_id: &RoomId) -> bool {
+        self.outbound_group_sessions.remove(room_id).is_some()
+    }
+
     // TODO accept an algorithm here
     /// Get to-device requests to share a group session with users in a room.
     ///
@@ -1814,6 +1823,22 @@ mod test {
             &mut json!(&mut device_keys),
         );
         assert!(ret.is_ok());
+    }
+
+    #[tokio::test]
+    async fn tests_session_invalidation() {
+        let mut machine = OlmMachine::new(&user_id(), DEVICE_ID);
+        let room_id = RoomId::try_from("!test:example.org").unwrap();
+
+        machine
+            .create_outbound_group_session(&room_id)
+            .await
+            .unwrap();
+        assert!(machine.outbound_group_sessions.get(&room_id).is_some());
+
+        machine.invalidate_group_session(&room_id);
+
+        assert!(machine.outbound_group_sessions.get(&room_id).is_none());
     }
 
     #[tokio::test]

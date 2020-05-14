@@ -1087,6 +1087,22 @@ impl BaseClient {
         Ok(())
     }
 
+    /// Invalidate the currently active outbound group session for the given
+    /// room.
+    ///
+    /// Returns true if a session was invalidated, false if there was no session
+    /// to invalidate.
+    #[cfg(feature = "encryption")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "encryption")))]
+    pub async fn invalidate_group_session(&self, room_id: &RoomId) -> bool {
+        let mut olm = self.olm.lock().await;
+
+        match &mut *olm {
+            Some(o) => o.invalidate_group_session(room_id),
+            None => false,
+        }
+    }
+
     pub(crate) async fn emit_timeline_event(
         &self,
         room_id: &RoomId,
@@ -1585,5 +1601,25 @@ mod test {
 
         let room = client.get_joined_room(&room_id).await;
         assert!(room.is_some());
+    }
+
+    #[async_test]
+    async fn test_group_session_invalidation() {
+        let client = get_client();
+        let room_id = get_room_id();
+
+        let mut sync_response = EventBuilder::default()
+            .add_room_event(EventsFile::Member, RoomEvent::RoomMember)
+            .build_sync_response();
+
+        client
+            .receive_sync_response(&mut sync_response)
+            .await
+            .unwrap();
+
+        assert!(client.should_share_group_session(&room_id).await);
+        let _ = client.share_group_session(&room_id).await.unwrap();
+        assert!(!client.should_share_group_session(&room_id).await);
+        client.invalidate_group_session(&room_id).await;
     }
 }

@@ -1057,7 +1057,15 @@ impl Client {
                 if self.base_client.should_share_group_session(room_id).await {
                     // TODO we need to make sure that only one such request is
                     // in flight per room at a time.
-                    self.share_group_session(room_id).await?;
+                    let response = self.share_group_session(room_id).await;
+
+                    // If one of the responses failed invalidate the group
+                    // session as using it would end up in undecryptable
+                    // messages.
+                    if let Err(r) = response {
+                        self.base_client.invalidate_group_session(room_id).await;
+                        return Err(r);
+                    }
                 }
 
                 raw_content = serde_json::value::to_raw_value(
