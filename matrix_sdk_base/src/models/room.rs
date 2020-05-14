@@ -131,7 +131,7 @@ impl From<&EncryptionEvent> for EncryptionInfo {
             rotation_period_ms: event
                 .content
                 .rotation_period_ms
-                .map_or(604800000, Into::into),
+                .map_or(604_800_000, Into::into),
             rotation_period_messages: event.content.rotation_period_msgs.map_or(100, Into::into),
         }
     }
