@@ -127,6 +127,7 @@ impl EventBuilder {
 
     pub fn add_custom_joined_event<Ev: TryFromRaw>(
         mut self,
+        room_id: &RoomId,
         event: serde_json::Value,
         variant: fn(Ev) -> RoomEvent,
     ) -> Self {
@@ -134,10 +135,7 @@ impl EventBuilder {
             .unwrap()
             .deserialize()
             .unwrap();
-        self.add_joined_event(
-            &RoomId::try_from("!SVkFJHzfwvuaIEawgC:localhost").unwrap(),
-            variant(event),
-        );
+        self.add_joined_event(room_id, variant(event));
         self
     }
 
@@ -290,6 +288,17 @@ impl EventBuilder {
             left_rooms.insert(room_id, room);
         }
 
+        let mut invited_rooms: HashMap<RoomId, serde_json::Value> = HashMap::new();
+
+        for (room_id, events) in self.invited_room_events.drain() {
+            let room = serde_json::json!({
+                "invite_state": {
+                    "events": events,
+                },
+            });
+            invited_rooms.insert(room_id, room);
+        }
+
         let body = serde_json::json! {
             {
                 "device_one_time_keys_count": {},
@@ -299,7 +308,7 @@ impl EventBuilder {
                     "left": []
                 },
                 "rooms": {
-                    "invite": {},
+                    "invite": invited_rooms,
                     "join": joined_rooms,
                     "leave": left_rooms,
                 },

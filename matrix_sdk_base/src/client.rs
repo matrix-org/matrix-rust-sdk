@@ -1432,7 +1432,10 @@ impl BaseClient {
 #[cfg(test)]
 mod test {
     use crate::identifiers::{RoomId, UserId};
-    use crate::{events::collections::all::RoomEvent, BaseClient, Session};
+    use crate::{
+        events::{collections::all::RoomEvent, stripped::AnyStrippedStateEvent},
+        BaseClient, Session,
+    };
     use matrix_sdk_test::{async_test, EventBuilder, EventsFile};
     use serde_json::json;
     use std::convert::TryFrom;
@@ -1453,6 +1456,21 @@ mod test {
         RoomId::try_from("!SVkFJHzfwvuaIEawgC:localhost").unwrap()
     }
 
+    fn member_event() -> serde_json::Value {
+        json!({
+            "content": {
+                "displayname": "example",
+                "membership": "join"
+            },
+            "event_id": "$151800140517rfvjc:localhost",
+            "membership": "join",
+            "origin_server_ts": 0,
+            "sender": "@example:localhost",
+            "state_key": "@example:localhost",
+            "type": "m.room.member",
+        })
+    }
+
     #[async_test]
     async fn test_joined_room_creation() {
         let mut sync_response = EventBuilder::default()
@@ -1461,38 +1479,8 @@ mod test {
         let client = get_client();
         let room_id = get_room_id();
 
-        client
-            .receive_sync_response(&mut sync_response)
-            .await
-            .unwrap();
-
         let room = client.get_joined_room(&room_id).await;
-        assert!(room.is_some());
-    }
-
-    #[async_test]
-    async fn test_left_room_creation() {
-        let room_id = RoomId::try_from("!left_room:localhost").unwrap();
-        let mut sync_response = EventBuilder::default()
-            .add_custom_left_event(
-                &room_id,
-                json!({
-                    "content": {
-                        "displayname": "example",
-                        "membership": "join"
-                    },
-                    "event_id": "$151800140517rfvjc:localhost",
-                    "membership": "join",
-                    "origin_server_ts": 0,
-                    "sender": "@example:localhost",
-                    "state_key": "@example:localhost",
-                    "type": "m.room.member",
-                }),
-                RoomEvent::RoomMember,
-            )
-            .build_sync_response();
-
-        let client = get_client();
+        assert!(room.is_none());
 
         client
             .receive_sync_response(&mut sync_response)
@@ -1500,6 +1488,102 @@ mod test {
             .unwrap();
 
         let room = client.get_left_room(&room_id).await;
+        assert!(room.is_none());
+
+        let room = client.get_joined_room(&room_id).await;
+        assert!(room.is_some());
+
+        let mut sync_response = EventBuilder::default()
+            .add_custom_left_event(&room_id, member_event(), RoomEvent::RoomMember)
+            .build_sync_response();
+
+        sync_response.next_batch = "Hello".to_owned();
+
+        client
+            .receive_sync_response(&mut sync_response)
+            .await
+            .unwrap();
+
+        let room = client.get_joined_room(&room_id).await;
+        assert!(room.is_none());
+
+        let room = client.get_left_room(&room_id).await;
+        assert!(room.is_some());
+    }
+
+    #[async_test]
+    async fn test_left_room_creation() {
+        let room_id = RoomId::try_from("!left_room:localhost").unwrap();
+        let mut sync_response = EventBuilder::default()
+            .add_custom_left_event(&room_id, member_event(), RoomEvent::RoomMember)
+            .build_sync_response();
+
+        let client = get_client();
+
+        let room = client.get_left_room(&room_id).await;
+        assert!(room.is_none());
+
+        client
+            .receive_sync_response(&mut sync_response)
+            .await
+            .unwrap();
+
+        let room = client.get_left_room(&room_id).await;
+        assert!(room.is_some());
+
+        let mut sync_response = EventBuilder::default()
+            .add_custom_joined_event(&room_id, member_event(), RoomEvent::RoomMember)
+            .build_sync_response();
+
+        sync_response.next_batch = "Hello".to_owned();
+
+        client
+            .receive_sync_response(&mut sync_response)
+            .await
+            .unwrap();
+
+        let room = client.get_left_room(&room_id).await;
+        assert!(room.is_none());
+
+        let room = client.get_joined_room(&room_id).await;
+        assert!(room.is_some());
+    }
+
+    #[async_test]
+    async fn test_invited_room_creation() {
+        let room_id = RoomId::try_from("!invited_room:localhost").unwrap();
+        let mut sync_response = EventBuilder::default()
+            .add_custom_invited_event(&room_id, member_event(), AnyStrippedStateEvent::RoomMember)
+            .build_sync_response();
+
+        let client = get_client();
+
+        let room = client.get_invited_room(&room_id).await;
+        assert!(room.is_none());
+
+        client
+            .receive_sync_response(&mut sync_response)
+            .await
+            .unwrap();
+
+        let room = client.get_invited_room(&room_id).await;
+        assert!(room.is_some());
+
+        let mut sync_response = EventBuilder::default()
+            .add_custom_joined_event(&room_id, member_event(), RoomEvent::RoomMember)
+            .build_sync_response();
+
+        sync_response.next_batch = "Hello".to_owned();
+
+        client
+            .receive_sync_response(&mut sync_response)
+            .await
+            .unwrap();
+
+        let room = client.get_invited_room(&room_id).await;
+        assert!(room.is_none());
+
+        let room = client.get_joined_room(&room_id).await;
         assert!(room.is_some());
     }
 }
