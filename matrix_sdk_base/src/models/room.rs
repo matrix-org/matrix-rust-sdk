@@ -700,6 +700,48 @@ mod test {
     }
 
     #[async_test]
+    async fn test_member_display_name() {
+        let client = get_client();
+
+        let client_2 = {
+            let session = Session {
+                access_token: "1234".to_owned(),
+                user_id: UserId::try_from("@example:hostlocal").unwrap(),
+                device_id: "DEVICEID".to_owned(),
+            };
+            BaseClient::new(Some(session)).unwrap()
+        };
+        let room_id = get_room_id();
+        let user_id = UserId::try_from("@example:localhost").unwrap();
+
+        let mut response = EventBuilder::default()
+            .add_room_event(EventsFile::Member, RoomEvent::RoomMember)
+            .build_sync_response();
+
+        client.receive_sync_response(&mut response).await.unwrap();
+
+        let room = client.get_joined_room(&room_id).await.unwrap();
+        let room = room.read().await;
+
+        let display_name = room.member_display_name(&user_id).unwrap();
+        assert_eq!("example", display_name);
+
+        let mut response = EventBuilder::default()
+            .add_room_event(EventsFile::Member, RoomEvent::RoomMember)
+            .build_sync_response();
+
+        client_2.receive_sync_response(&mut response).await.unwrap();
+
+        let room_2 = client_2.get_joined_room(&room_id).await.unwrap();
+        let room_2 = room_2.read().await;
+
+        let display_name_2 = room_2.member_display_name(&user_id).unwrap();
+
+        // TODO: this should change
+        assert_eq!("example", display_name_2);
+    }
+
+    #[async_test]
     async fn room_events() {
         let client = get_client().await;
         let room_id = get_room_id();
