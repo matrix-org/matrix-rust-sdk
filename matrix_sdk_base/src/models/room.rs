@@ -302,7 +302,7 @@ impl Room {
     }
 
     /// Get the resolved display name for a member of this room.
-    pub fn resolved_display_name(&self, id: &UserId) -> Option<&str> {
+    pub fn member_display_name(&self, id: &UserId) -> Option<&str> {
         self.display_names.get(id).map(|s| s.as_str())
     }
 
