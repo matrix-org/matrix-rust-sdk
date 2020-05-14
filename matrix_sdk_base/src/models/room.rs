@@ -743,7 +743,7 @@ mod test {
         client.receive_sync_response(&mut response).await.unwrap();
 
         let event = EncryptionEvent {
-            event_id: EventId::new("test").unwrap(),
+            event_id: EventId::try_from("$h29iv0s8:example.com").unwrap(),
             origin_server_ts: SystemTime::now(),
             sender: user_id,
             state_key: "".into(),
