@@ -493,7 +493,21 @@ impl BaseClient {
 
                 let room_lock = self.get_or_create_joined_room(&room_id).await;
                 let mut room = room_lock.write().await;
-                (decrypted_event, room.receive_timeline_event(&e))
+
+                if let RoomEvent::RoomMember(event) = &e {
+                    let changed = room.handle_membership(event);
+
+                    // The memberlist of the room changed, invalidate the group session
+                    // of the room.
+                    if changed {
+                        #[cfg(feature = "encryption")]
+                        self.invalidate_group_session(room_id).await;
+                    }
+
+                    (decrypted_event, changed)
+                } else {
+                    (decrypted_event, room.receive_timeline_event(&e))
+                }
             }
             _ => (None, false),
         }
@@ -512,7 +526,21 @@ impl BaseClient {
     pub async fn receive_joined_state_event(&self, room_id: &RoomId, event: &StateEvent) -> bool {
         let room_lock = self.get_or_create_joined_room(room_id).await;
         let mut room = room_lock.write().await;
-        room.receive_state_event(event)
+
+        if let StateEvent::RoomMember(e) = event {
+            let changed = room.handle_membership(e);
+
+            // The memberlist of the room changed, invalidate the group session
+            // of the room.
+            if changed {
+                #[cfg(feature = "encryption")]
+                self.invalidate_group_session(room_id).await;
+            }
+
+            changed
+        } else {
+            room.receive_state_event(event)
+        }
     }
 
     /// Receive a state event for a room the user has been invited to.
