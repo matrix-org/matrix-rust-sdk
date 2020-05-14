@@ -33,7 +33,7 @@ use crate::events::room::{
     tombstone::TombstoneEvent,
 };
 use crate::events::stripped::{AnyStrippedStateEvent, StrippedRoomName};
-use crate::events::EventType;
+use crate::events::{Algorithm, EventType};
 
 #[cfg(feature = "messages")]
 use crate::events::room::message::MessageEvent;
@@ -92,6 +92,51 @@ pub struct PowerLevels {
     pub notifications: Int,
 }
 
+#[derive(Debug, PartialEq, Serialize, Deserialize, Clone)]
+/// Encryption info of the room.
+pub struct EncryptionInfo {
+    /// The encryption algorithm that should be used to encrypt messages in the
+    /// room.
+    algorithm: Algorithm,
+    /// How long should a session be used before it is rotated.
+    rotation_period_ms: u64,
+    /// The maximum amount of messages that should be encrypted using the same
+    /// session.
+    rotation_period_messages: u64,
+}
+
+impl EncryptionInfo {
+    /// The encryption algorithm that should be used to encrypt messages in the
+    /// room.
+    pub fn algorithm(&self) -> &Algorithm {
+        &self.algorithm
+    }
+
+    /// How long should a session be used before it is rotated.
+    pub fn rotation_period(&self) -> u64 {
+        self.rotation_period_ms
+    }
+
+    /// The maximum amount of messages that should be encrypted using the same
+    /// session.
+    pub fn rotation_period_messages(&self) -> u64 {
+        self.rotation_period_messages
+    }
+}
+
+impl From<&EncryptionEvent> for EncryptionInfo {
+    fn from(event: &EncryptionEvent) -> Self {
+        EncryptionInfo {
+            algorithm: event.content.algorithm.clone(),
+            rotation_period_ms: event
+                .content
+                .rotation_period_ms
+                .map_or(604800000, Into::into),
+            rotation_period_messages: event.content.rotation_period_msgs.map_or(100, Into::into),
+        }
+    }
+}
+
 #[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(test, derive(Clone))]
 pub struct Tombstone {
@@ -127,9 +172,8 @@ pub struct Room {
     pub typing_users: Vec<UserId>,
     /// The power level requirements for specific actions in this room
     pub power_levels: Option<PowerLevels>,
-    // TODO when encryption events are handled we store algorithm used and rotation time.
-    /// A flag indicating if the room is encrypted.
-    pub encrypted: bool,
+    /// Optional encryption info, will be `Some` if the room is encrypted.
+    pub encrypted: Option<EncryptionInfo>,
     /// Number of unread notifications with highlight flag set.
     pub unread_highlight: Option<UInt>,
     /// Number of unread notifications.
@@ -230,7 +274,7 @@ impl Room {
             messages: MessageQueue::new(),
             typing_users: Vec::new(),
             power_levels: None,
-            encrypted: false,
+            encrypted: None,
             unread_highlight: None,
             unread_notifications: None,
             tombstone: None,
@@ -244,7 +288,14 @@ impl Room {
 
     /// Is the room a encrypted room.
     pub fn is_encrypted(&self) -> bool {
-        self.encrypted
+        self.encrypted.is_some()
+    }
+
+    /// Get the encryption info if any of the room.
+    ///
+    /// Returns None if the room is not encrypted.
+    pub fn encryption_info(&self) -> Option<&EncryptionInfo> {
+        self.encrypted.as_ref()
     }
 
     fn add_member(&mut self, event: &MemberEvent) -> bool {
@@ -426,8 +477,8 @@ impl Room {
         true
     }
 
-    fn handle_encryption_event(&mut self, _event: &EncryptionEvent) -> bool {
-        self.encrypted = true;
+    fn handle_encryption_event(&mut self, event: &EncryptionEvent) -> bool {
+        self.encrypted = Some(event.into());
         true
     }
 
@@ -522,10 +573,15 @@ impl Room {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::events::room::member::MembershipState;
-    use crate::identifiers::UserId;
+    use crate::events::{
+        room::{encryption::EncryptionEventContent, member::MembershipState},
+        UnsignedData,
+    };
+    use crate::identifiers::{EventId, UserId};
     use crate::{BaseClient, Session};
     use matrix_sdk_test::{async_test, sync_response, EventBuilder, EventsFile, SyncResponseFile};
+
+    use std::time::SystemTime;
 
     #[cfg(target_arch = "wasm32")]
     use wasm_bindgen_test::*;
@@ -671,5 +727,48 @@ mod test {
         }
 
         assert_eq!(vec!["example, example2"], room_names);
+    }
+
+    #[async_test]
+    async fn encryption_info_test() {
+        let mut response = sync_response(SyncResponseFile::DefaultWithSummary);
+        let user_id = UserId::try_from("@example:localhost").unwrap();
+
+        let session = Session {
+            access_token: "1234".to_owned(),
+            user_id: user_id.clone(),
+            device_id: "DEVICEID".to_owned(),
+        };
+        let client = BaseClient::new(Some(session)).unwrap();
+        client.receive_sync_response(&mut response).await.unwrap();
+
+        let event = EncryptionEvent {
+            event_id: EventId::new("test").unwrap(),
+            origin_server_ts: SystemTime::now(),
+            sender: user_id,
+            state_key: "".into(),
+            unsigned: UnsignedData::default(),
+            content: EncryptionEventContent {
+                algorithm: Algorithm::MegolmV1AesSha2,
+                rotation_period_ms: Some(100_000u32.into()),
+                rotation_period_msgs: Some(100u32.into()),
+            },
+            prev_content: None,
+            room_id: None,
+        };
+
+        let room_id = get_room_id();
+        let room = client.get_joined_room(&room_id).await.unwrap();
+
+        assert!(!room.read().await.is_encrypted());
+        room.write().await.handle_encryption_event(&event);
+        assert!(room.read().await.is_encrypted());
+
+        let room_lock = room.read().await;
+        let encryption_info = room_lock.encryption_info().unwrap();
+
+        assert_eq!(encryption_info.algorithm(), &Algorithm::MegolmV1AesSha2);
+        assert_eq!(encryption_info.rotation_period(), 100_000);
+        assert_eq!(encryption_info.rotation_period_messages(), 100);
     }
 }

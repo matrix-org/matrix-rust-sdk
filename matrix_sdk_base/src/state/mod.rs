@@ -143,7 +143,7 @@ mod test {
     "members": {},
     "typing_users": [],
     "power_levels": null,
-    "encrypted": false,
+    "encrypted": null,
     "unread_highlight": null,
     "unread_notifications": null,
     "tombstone": null
@@ -171,7 +171,7 @@ mod test {
     "messages": [],
     "typing_users": [],
     "power_levels": null,
-    "encrypted": false,
+    "encrypted": null,
     "unread_highlight": null,
     "unread_notifications": null,
     "tombstone": null
