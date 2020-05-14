@@ -122,6 +122,7 @@ pub struct BaseClient {
     olm: Arc<Mutex<Option<OlmMachine>>>,
 }
 
+#[cfg_attr(tarpaulin, skip)]
 impl fmt::Debug for BaseClient {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Client")
