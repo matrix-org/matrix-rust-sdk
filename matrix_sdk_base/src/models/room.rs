@@ -13,6 +13,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::borrow::Cow;
 use std::collections::{BTreeMap, HashMap};
 use std::convert::TryFrom;
 
@@ -302,8 +303,20 @@ impl Room {
     }
 
     /// Get the resolved display name for a member of this room.
-    pub fn member_display_name(&self, id: &UserId) -> Option<&str> {
-        self.display_names.get(id).map(|s| s.as_str())
+    pub fn member_display_name<'a>(&'a self, id: &UserId) -> Option<Cow<'a, str>> {
+        self.display_names
+            .get(id)
+            .map(|s| s.as_str().into())
+            .or_else(|| {
+                self.members.get(id).map(|member| {
+                    member
+                        .display_name
+                        .as_ref()
+                        .map(|s| s.to_string())
+                        .unwrap_or_else(|| format!("{}", member.user_id))
+                        .into()
+                })
+            })
     }
 
     fn add_member(&mut self, event: &MemberEvent) -> bool {
@@ -331,17 +344,8 @@ impl Room {
             .cloned()
             .collect();
 
-        // if there is no other user with the same display name -> just use the display name
-        if users_with_same_name.is_empty() {
-            let display_name = member
-                .display_name
-                .as_ref()
-                .map(|s| s.to_string())
-                .unwrap_or_else(|| format!("{}", member.user_id));
-            self.display_names
-                .insert(member.user_id.clone(), display_name);
-        } else {
-            // else user `display_name (userid)`
+        // if there is a other user with the same display name -> use `display_name (userid)`
+        if !users_with_same_name.is_empty() {
             let users_with_same_name = users_with_same_name
                 .into_iter()
                 .filter_map(|id| {
