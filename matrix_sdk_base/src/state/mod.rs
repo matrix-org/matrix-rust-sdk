@@ -140,57 +140,59 @@ mod test {
 
         #[cfg(not(feature = "messages"))]
         assert_eq!(
-            r#"{
-  "!roomid:example.com": {
-    "room_id": "!roomid:example.com",
-    "room_name": {
-      "name": null,
-      "canonical_alias": null,
-      "aliases": [],
-      "heroes": [],
-      "joined_member_count": null,
-      "invited_member_count": null
-    },
-    "own_user_id": "@example:example.com",
-    "creator": null,
-    "members": {},
-    "typing_users": [],
-    "power_levels": null,
-    "encrypted": null,
-    "unread_highlight": null,
-    "unread_notifications": null,
-    "tombstone": null
-  }
-}"#,
-            serde_json::to_string_pretty(&joined_rooms).unwrap()
+            serde_json::json!({
+                "!roomid:example.com": {
+                    "room_id": "!roomid:example.com",
+                    "room_name": {
+                        "name": null,
+                        "canonical_alias": null,
+                        "aliases": [],
+                        "heroes": [],
+                        "joined_member_count": null,
+                        "invited_member_count": null
+                    },
+                    "own_user_id": "@example:example.com",
+                    "creator": null,
+                    "members": {},
+                    "display_names": {},
+                    "typing_users": [],
+                    "power_levels": null,
+                    "encrypted": null,
+                    "unread_highlight": null,
+                    "unread_notifications": null,
+                    "tombstone": null
+                }
+            }),
+            serde_json::to_value(&joined_rooms).unwrap()
         );
 
         #[cfg(feature = "messages")]
         assert_eq!(
-            r#"{
-  "!roomid:example.com": {
-    "room_id": "!roomid:example.com",
-    "room_name": {
-      "name": null,
-      "canonical_alias": null,
-      "aliases": [],
-      "heroes": [],
-      "joined_member_count": null,
-      "invited_member_count": null
-    },
-    "own_user_id": "@example:example.com",
-    "creator": null,
-    "members": {},
-    "messages": [],
-    "typing_users": [],
-    "power_levels": null,
-    "encrypted": null,
-    "unread_highlight": null,
-    "unread_notifications": null,
-    "tombstone": null
-  }
-}"#,
-            serde_json::to_string_pretty(&joined_rooms).unwrap()
+            serde_json::json!({
+                "!roomid:example.com": {
+                    "room_id": "!roomid:example.com",
+                    "display_names": {},
+                    "room_name": {
+                        "name": null,
+                        "canonical_alias": null,
+                        "aliases": [],
+                        "heroes": [],
+                        "joined_member_count": null,
+                        "invited_member_count": null
+                    },
+                    "own_user_id": "@example:example.com",
+                    "creator": null,
+                    "members": {},
+                    "messages": [],
+                    "typing_users": [],
+                    "power_levels": null,
+                    "encrypted": null,
+                    "unread_highlight": null,
+                    "unread_notifications": null,
+                    "tombstone": null
+                }
+            }),
+            serde_json::to_value(&joined_rooms).unwrap()
         );
     }
 
