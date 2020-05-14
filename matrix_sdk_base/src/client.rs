@@ -732,6 +732,8 @@ impl BaseClient {
                         if self.receive_joined_state_event(&room_id, &e).await {
                             updated = true;
                         }
+                        self.emit_state_event(&room_id, &e, RoomStateType::Joined)
+                            .await;
                     }
                 }
 
@@ -763,14 +765,6 @@ impl BaseClient {
                 .write()
                 .await
                 .set_unread_notice_count(&joined_room.unread_notifications);
-
-            // re looping is not ideal here
-            for event in &mut joined_room.state.events {
-                if let Ok(e) = event.deserialize() {
-                    self.emit_state_event(&room_id, &e, RoomStateType::Joined)
-                        .await;
-                }
-            }
 
             for mut event in &mut joined_room.timeline.events {
                 let decrypted_event = {
