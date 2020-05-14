@@ -1508,6 +1508,23 @@ impl OlmMachine {
         Ok(decrypted_event)
     }
 
+    /// Mark that the given user has changed his devices.
+    ///
+    /// This will queue up the given user for a key query.
+    ///
+    /// Note: The user already needs to be tracked for it to be queued up for a
+    /// key query.
+    ///
+    /// Returns true if the user was queued up for a key query, false otherwise.
+    pub async fn mark_user_as_changed(&mut self, user_id: &UserId) -> bool {
+        if self.store.tracked_users().contains(user_id) {
+            self.users_for_key_query.insert(user_id.clone());
+            true
+        } else {
+            false
+        }
+    }
+
     /// Update the tracked users.
     ///
     /// # Arguments
@@ -1515,7 +1532,9 @@ impl OlmMachine {
     /// * `users` - An iterator over user ids that should be marked for
     /// tracking.
     ///
-    /// This will only not already seen users for a key query and user tracking.
+    /// This will mark users that weren't seen before for a key query and
+    /// tracking.
+    ///
     /// If the user is already known to the Olm machine it will not be
     /// considered for a key query.
     ///
@@ -1530,7 +1549,7 @@ impl OlmMachine {
             match ret {
                 Ok(newly_added) => {
                     if newly_added {
-                        self.users_for_key_query.insert(user.clone());
+                        self.mark_user_as_changed(user).await;
                     }
                 }
                 Err(e) => {
