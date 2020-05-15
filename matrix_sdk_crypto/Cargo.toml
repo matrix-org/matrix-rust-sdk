@@ -15,20 +15,20 @@ default = []
 sqlite-cryptostore = ["sqlx"]
 
 [dependencies]
-async-trait = "0.1.30"
+async-trait = "0.1.31"
 
 matrix-sdk-common = { version = "0.1.0", path = "../matrix_sdk_common" }
 
 olm-rs = { version = "0.5.0", features = ["serde"] }
-serde = { version = "1.0.106", features = ["derive"] }
-serde_json = "1.0.52"
+serde = { version = "1.0.110", features = ["derive"] }
+serde_json = "1.0.53"
 cjson = "0.1.0"
 zeroize = { version = "1.1.0", features = ["zeroize_derive"] }
 url = "2.1.1"
 
 # Misc dependencies
-thiserror = "1.0.16"
-tracing = "0.1.13"
+thiserror = "1.0.17"
+tracing = "0.1.14"
 atomic = "0.4.5"
 dashmap = "3.11.1"
 
@@ -44,8 +44,8 @@ default-features = false
 features = ["runtime-tokio", "sqlite"]
 
 [dev-dependencies]
-tokio = { version = "0.2.20", features = ["rt-threaded", "macros"] }
+tokio = { version = "0.2.21", features = ["rt-threaded", "macros"] }
 ruma-identifiers = { version = "0.16.1", features = ["rand"] }
-serde_json = "1.0.52"
+serde_json = "1.0.53"
 tempfile = "3.1.0"
 http = "0.2.1"
