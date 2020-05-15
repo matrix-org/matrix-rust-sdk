@@ -45,6 +45,7 @@ pub struct SqliteStore {
     inbound_group_sessions: GroupSessionStore,
     devices: DeviceStore,
     tracked_users: HashSet<UserId>,
+    users_for_key_query: HashSet<UserId>,
 
     connection: Arc<Mutex<SqliteConnection>>,
     pickle_passphrase: Option<Zeroizing<String>>,
@@ -121,6 +122,7 @@ impl SqliteStore {
             connection: Arc::new(Mutex::new(connection)),
             pickle_passphrase: passphrase,
             tracked_users: HashSet::new(),
+            users_for_key_query: HashSet::new(),
         };
         store.create_tables().await?;
         Ok(store)
@@ -169,6 +171,7 @@ impl SqliteStore {
                 "id" INTEGER NOT NULL PRIMARY KEY,
                 "account_id" INTEGER NOT NULL,
                 "user_id" TEXT NOT NULL,
+                "dirty" INTEGER NOT NULL,
                 FOREIGN KEY ("account_id") REFERENCES "accounts" ("id")
                     ON DELETE CASCADE
                 UNIQUE(account_id,user_id)
@@ -347,30 +350,33 @@ impl SqliteStore {
             .collect::<Result<Vec<InboundGroupSession>>>()?)
     }
 
-    async fn save_tracked_user(&self, user: &UserId) -> Result<()> {
+    async fn save_tracked_user(&self, user: &UserId, dirty: bool) -> Result<()> {
         let account_id = self.account_id.ok_or(CryptoStoreError::AccountUnset)?;
         let mut connection = self.connection.lock().await;
 
         query(
-            "INSERT OR IGNORE INTO tracked_users (
-                account_id, user_id
-             ) VALUES (?1, ?2)
+            "INSERT INTO tracked_users (
+                account_id, user_id, dirty
+             ) VALUES (?1, ?2, ?3)
+             ON CONFLICT(account_id, user_id) DO UPDATE SET
+                dirty = excluded.dirty
              ",
         )
         .bind(account_id)
         .bind(user.to_string())
+        .bind(dirty)
         .execute(&mut *connection)
         .await?;
 
         Ok(())
     }
 
-    async fn load_tracked_users(&self) -> Result<HashSet<UserId>> {
+    async fn load_tracked_users(&self) -> Result<(HashSet<UserId>, HashSet<UserId>)> {
         let account_id = self.account_id.ok_or(CryptoStoreError::AccountUnset)?;
         let mut connection = self.connection.lock().await;
 
-        let rows: Vec<(String,)> = query_as(
-            "SELECT user_id
+        let rows: Vec<(String, bool)> = query_as(
+            "SELECT user_id, dirty
              FROM tracked_users WHERE account_id = ?",
         )
         .bind(account_id)
@@ -378,18 +384,23 @@ impl SqliteStore {
         .await?;
 
         let mut users = HashSet::new();
+        let mut users_for_query = HashSet::new();
 
         for row in rows {
             let user_id: &str = &row.0;
+            let dirty: bool = row.1;
 
             if let Ok(u) = UserId::try_from(user_id) {
-                users.insert(u);
+                users.insert(u.clone());
+                if dirty {
+                    users_for_query.insert(u);
+                }
             } else {
                 continue;
             };
         }
 
-        Ok(users)
+        Ok((users, users_for_query))
     }
 
     async fn load_devices(&self) -> Result<DeviceStore> {
@@ -582,8 +593,9 @@ impl CryptoStore for SqliteStore {
         let devices = self.load_devices().await?;
         mem::replace(&mut self.devices, devices);
 
-        let tracked_users = self.load_tracked_users().await?;
+        let (tracked_users, users_for_query) = self.load_tracked_users().await?;
         mem::replace(&mut self.tracked_users, tracked_users);
+        mem::replace(&mut self.users_for_key_query, users_for_query);
 
         Ok(result)
     }
@@ -699,9 +711,22 @@ impl CryptoStore for SqliteStore {
         &self.tracked_users
     }
 
-    async fn add_user_for_tracking(&mut self, user: &UserId) -> Result<bool> {
-        self.save_tracked_user(user).await?;
-        Ok(self.tracked_users.insert(user.clone()))
+    fn users_for_key_query(&self) -> &HashSet<UserId> {
+        &self.users_for_key_query
+    }
+
+    async fn update_tracked_user(&mut self, user: &UserId, dirty: bool) -> Result<bool> {
+        let already_added = self.tracked_users.insert(user.clone());
+
+        if dirty {
+            self.users_for_key_query.insert(user.clone());
+        } else {
+            self.users_for_key_query.remove(user);
+        }
+
+        self.save_tracked_user(user, dirty).await?;
+
+        Ok(already_added)
     }
 
     async fn save_devices(&self, devices: &[Device]) -> Result<()> {
@@ -1040,12 +1065,24 @@ mod test {
         let (_account, mut store, dir) = get_loaded_store().await;
         let device = get_device();
 
-        assert!(store.add_user_for_tracking(device.user_id()).await.unwrap());
-        assert!(!store.add_user_for_tracking(device.user_id()).await.unwrap());
+        assert!(store
+            .update_tracked_user(device.user_id(), false)
+            .await
+            .unwrap());
+        assert!(!store
+            .update_tracked_user(device.user_id(), false)
+            .await
+            .unwrap());
 
         let tracked_users = store.tracked_users();
 
         assert!(tracked_users.contains(device.user_id()));
+        assert!(!store.users_for_key_query().contains(device.user_id()));
+        assert!(!store
+            .update_tracked_user(device.user_id(), true)
+            .await
+            .unwrap());
+        assert!(store.users_for_key_query().contains(device.user_id()));
         drop(store);
 
         let mut store =
@@ -1057,6 +1094,22 @@ mod test {
 
         let tracked_users = store.tracked_users();
         assert!(tracked_users.contains(device.user_id()));
+        assert!(store.users_for_key_query().contains(device.user_id()));
+
+        store
+            .update_tracked_user(device.user_id(), false)
+            .await
+            .unwrap();
+        assert!(!store.users_for_key_query().contains(device.user_id()));
+
+        let mut store =
+            SqliteStore::open(&UserId::try_from(USER_ID).unwrap(), DEVICE_ID, dir.path())
+                .await
+                .expect("Can't create store");
+
+        store.load_account().await.unwrap();
+
+        assert!(!store.users_for_key_query().contains(device.user_id()));
     }
 
     #[tokio::test]

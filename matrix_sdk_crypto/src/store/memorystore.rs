@@ -28,6 +28,7 @@ pub struct MemoryStore {
     sessions: SessionStore,
     inbound_group_sessions: GroupSessionStore,
     tracked_users: HashSet<UserId>,
+    users_for_key_query: HashSet<UserId>,
     devices: DeviceStore,
 }
 
@@ -37,6 +38,7 @@ impl MemoryStore {
             sessions: SessionStore::new(),
             inbound_group_sessions: GroupSessionStore::new(),
             tracked_users: HashSet::new(),
+            users_for_key_query: HashSet::new(),
             devices: DeviceStore::new(),
         }
     }
@@ -83,7 +85,17 @@ impl CryptoStore for MemoryStore {
         &self.tracked_users
     }
 
-    async fn add_user_for_tracking(&mut self, user: &UserId) -> Result<bool> {
+    fn users_for_key_query(&self) -> &HashSet<UserId> {
+        &self.users_for_key_query
+    }
+
+    async fn update_tracked_user(&mut self, user: &UserId, dirty: bool) -> Result<bool> {
+        if dirty {
+            self.users_for_key_query.insert(user.clone());
+        } else {
+            self.users_for_key_query.remove(user);
+        }
+
         Ok(self.tracked_users.insert(user.clone()))
     }
 
@@ -207,8 +219,14 @@ mod test {
         let device = get_device();
         let mut store = MemoryStore::new();
 
-        assert!(store.add_user_for_tracking(device.user_id()).await.unwrap());
-        assert!(!store.add_user_for_tracking(device.user_id()).await.unwrap());
+        assert!(store
+            .update_tracked_user(device.user_id(), false)
+            .await
+            .unwrap());
+        assert!(!store
+            .update_tracked_user(device.user_id(), false)
+            .await
+            .unwrap());
 
         let tracked_users = store.tracked_users();
 

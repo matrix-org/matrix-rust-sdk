@@ -80,9 +80,6 @@ pub struct OlmMachine {
     /// Persists all the encryption keys so a client can resume the session
     /// without the need to create new keys.
     store: Box<dyn CryptoStore>,
-    /// Set of users that we need to query keys for. This is a subset of
-    /// the tracked users in the CryptoStore.
-    users_for_key_query: HashSet<UserId>,
     /// The currently active outbound group sessions.
     outbound_group_sessions: HashMap<RoomId, OutboundGroupSession>,
 }
@@ -122,7 +119,6 @@ impl OlmMachine {
             account: Account::new(),
             uploaded_signed_key_count: None,
             store: Box::new(MemoryStore::new()),
-            users_for_key_query: HashSet::new(),
             outbound_group_sessions: HashMap::new(),
         }
     }
@@ -166,7 +162,6 @@ impl OlmMachine {
             account,
             uploaded_signed_key_count: None,
             store: Box::new(store),
-            users_for_key_query: HashSet::new(),
             outbound_group_sessions: HashMap::new(),
         })
     }
@@ -461,7 +456,7 @@ impl OlmMachine {
         let mut changed_devices = Vec::new();
 
         for (user_id, device_map) in &response.device_keys {
-            self.users_for_key_query.remove(&user_id);
+            self.store.update_tracked_user(user_id, false).await?;
 
             for (device_id, device_keys) in device_map.iter() {
                 // We don't need our own device in the device store.
@@ -1516,12 +1511,12 @@ impl OlmMachine {
     /// key query.
     ///
     /// Returns true if the user was queued up for a key query, false otherwise.
-    pub async fn mark_user_as_changed(&mut self, user_id: &UserId) -> bool {
+    pub async fn mark_user_as_changed(&mut self, user_id: &UserId) -> StoreError<bool> {
         if self.store.tracked_users().contains(user_id) {
-            self.users_for_key_query.insert(user_id.clone());
-            true
+            self.store.update_tracked_user(user_id, true).await?;
+            Ok(true)
         } else {
-            false
+            Ok(false)
         }
     }
 
@@ -1544,32 +1539,26 @@ impl OlmMachine {
         I: IntoIterator<Item = &'a UserId>,
     {
         for user in users {
-            let ret = self.store.add_user_for_tracking(user).await;
+            if self.store.tracked_users().contains(user) {
+                continue;
+            }
 
-            match ret {
-                Ok(newly_added) => {
-                    if newly_added {
-                        self.mark_user_as_changed(user).await;
-                    }
-                }
-                Err(e) => {
-                    warn!("Error storing users for tracking {}", e);
-                    self.users_for_key_query.insert(user.clone());
-                }
+            if let Err(e) = self.store.update_tracked_user(user, true).await {
+                warn!("Error storing users for tracking {}", e);
             }
         }
     }
 
     /// Should the client perform a key query request.
     pub fn should_query_keys(&self) -> bool {
-        !self.users_for_key_query.is_empty()
+        !self.store.users_for_key_query().is_empty()
     }
 
     /// Get the set of users that we need to query keys for.
     ///
     /// Returns a hash set of users that need to be queried for keys.
     pub fn users_for_key_query(&self) -> HashSet<UserId> {
-        self.users_for_key_query.clone()
+        self.store.users_for_key_query().clone()
     }
 }
 

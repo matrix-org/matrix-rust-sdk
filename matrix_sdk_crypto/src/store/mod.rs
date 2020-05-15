@@ -138,6 +138,10 @@ pub trait CryptoStore: Debug + Send + Sync {
     /// Get the set of tracked users.
     fn tracked_users(&self) -> &HashSet<UserId>;
 
+    /// Set of users that we need to query keys for. This is a subset of
+    /// the tracked users.
+    fn users_for_key_query(&self) -> &HashSet<UserId>;
+
     /// Add an user for tracking.
     ///
     /// Returns true if the user wasn't already tracked, false otherwise.
@@ -145,7 +149,9 @@ pub trait CryptoStore: Debug + Send + Sync {
     /// # Arguments
     ///
     /// * `user` - The user that should be marked as tracked.
-    async fn add_user_for_tracking(&mut self, user: &UserId) -> Result<bool>;
+    ///
+    /// * `dirty` - Should the user be also marked for a key query.
+    async fn update_tracked_user(&mut self, user: &UserId, dirty: bool) -> Result<bool>;
 
     /// Save the given devices in the store.
     ///
