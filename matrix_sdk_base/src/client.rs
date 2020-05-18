@@ -310,15 +310,31 @@ impl BaseClient {
         Ok(())
     }
 
-    pub(crate) async fn get_or_create_joined_room(&self, room_id: &RoomId) -> Arc<RwLock<Room>> {
+    pub(crate) async fn get_or_create_joined_room(
+        &self,
+        room_id: &RoomId,
+    ) -> Result<Arc<RwLock<Room>>> {
         // If this used to be an invited or left room remove them from our other
         // hashmaps.
-        self.invited_rooms.write().await.remove(room_id);
-        self.left_rooms.write().await.remove(room_id);
+        if self.invited_rooms.write().await.remove(room_id).is_some() {
+            if let Some(store) = self.state_store.read().await.as_ref() {
+                store
+                    .room_state_change(RoomState::Joined(room_id), RoomState::Invited(room_id))
+                    .await?;
+            }
+        }
+
+        if self.left_rooms.write().await.remove(room_id).is_some() {
+            if let Some(store) = self.state_store.read().await.as_ref() {
+                store
+                    .room_state_change(RoomState::Invited(room_id), RoomState::Left(room_id))
+                    .await?;
+            }
+        }
 
         let mut rooms = self.joined_rooms.write().await;
         #[allow(clippy::or_fun_call)]
-        rooms
+        Ok(rooms
             .entry(room_id.clone())
             .or_insert(Arc::new(RwLock::new(Room::new(
                 room_id,
@@ -330,7 +346,7 @@ impl BaseClient {
                     .expect("Receiving events while not being logged in")
                     .user_id,
             ))))
-            .clone()
+            .clone())
     }
 
     /// Get a joined room with the given room id.
@@ -349,14 +365,23 @@ impl BaseClient {
         self.joined_rooms.clone()
     }
 
-    pub(crate) async fn get_or_create_invited_room(&self, room_id: &RoomId) -> Arc<RwLock<Room>> {
+    pub(crate) async fn get_or_create_invited_room(
+        &self,
+        room_id: &RoomId,
+    ) -> Result<Arc<RwLock<Room>>> {
         // Remove the left rooms only here, since a join -> invite action per
         // spec can't happen.
-        self.left_rooms.write().await.remove(room_id);
+        if self.left_rooms.write().await.remove(room_id).is_some() {
+            if let Some(store) = self.state_store.read().await.as_ref() {
+                store
+                    .room_state_change(RoomState::Invited(room_id), RoomState::Left(room_id))
+                    .await?;
+            }
+        }
 
         let mut rooms = self.invited_rooms.write().await;
         #[allow(clippy::or_fun_call)]
-        rooms
+        Ok(rooms
             .entry(room_id.clone())
             .or_insert(Arc::new(RwLock::new(Room::new(
                 room_id,
@@ -368,7 +393,7 @@ impl BaseClient {
                     .expect("Receiving events while not being logged in")
                     .user_id,
             ))))
-            .clone()
+            .clone())
     }
 
     /// Get an invited room with the given room id.
@@ -387,15 +412,31 @@ impl BaseClient {
         self.invited_rooms.clone()
     }
 
-    pub(crate) async fn get_or_create_left_room(&self, room_id: &RoomId) -> Arc<RwLock<Room>> {
+    pub(crate) async fn get_or_create_left_room(
+        &self,
+        room_id: &RoomId,
+    ) -> Result<Arc<RwLock<Room>>> {
         // If this used to be an invited or joined room remove them from our other
         // hashmaps.
-        self.invited_rooms.write().await.remove(room_id);
-        self.joined_rooms.write().await.remove(room_id);
+        if self.invited_rooms.write().await.remove(room_id).is_some() {
+            if let Some(store) = self.state_store.read().await.as_ref() {
+                store
+                    .room_state_change(RoomState::Left(room_id), RoomState::Invited(room_id))
+                    .await?;
+            }
+        }
+
+        if self.joined_rooms.write().await.remove(room_id).is_some() {
+            if let Some(store) = self.state_store.read().await.as_ref() {
+                store
+                    .room_state_change(RoomState::Left(room_id), RoomState::Joined(room_id))
+                    .await?;
+            }
+        }
 
         let mut rooms = self.left_rooms.write().await;
         #[allow(clippy::or_fun_call)]
-        rooms
+        Ok(rooms
             .entry(room_id.clone())
             .or_insert(Arc::new(RwLock::new(Room::new(
                 room_id,
@@ -407,7 +448,7 @@ impl BaseClient {
                     .expect("Receiving events while not being logged in")
                     .user_id,
             ))))
-            .clone()
+            .clone())
     }
 
     /// Get an left room with the given room id.
@@ -471,7 +512,7 @@ impl BaseClient {
         &self,
         room_id: &RoomId,
         event: &mut EventJson<RoomEvent>,
-    ) -> (Option<EventJson<RoomEvent>>, bool) {
+    ) -> Result<(Option<EventJson<RoomEvent>>, bool)> {
         match event.deserialize() {
             #[allow(unused_mut)]
             Ok(mut e) => {
@@ -492,7 +533,7 @@ impl BaseClient {
                     }
                 }
 
-                let room_lock = self.get_or_create_joined_room(&room_id).await;
+                let room_lock = self.get_or_create_joined_room(&room_id).await?;
                 let mut room = room_lock.write().await;
 
                 if let RoomEvent::RoomMember(event) = &e {
@@ -505,12 +546,12 @@ impl BaseClient {
                         self.invalidate_group_session(room_id).await;
                     }
 
-                    (decrypted_event, changed)
+                    Ok((decrypted_event, changed))
                 } else {
-                    (decrypted_event, room.receive_timeline_event(&e))
+                    Ok((decrypted_event, room.receive_timeline_event(&e)))
                 }
             }
-            _ => (None, false),
+            _ => Ok((None, false)),
         }
     }
 
@@ -524,8 +565,12 @@ impl BaseClient {
     /// * `room_id` - The unique id of the room the event belongs to.
     ///
     /// * `event` - The event that should be handled by the client.
-    pub async fn receive_joined_state_event(&self, room_id: &RoomId, event: &StateEvent) -> bool {
-        let room_lock = self.get_or_create_joined_room(room_id).await;
+    pub async fn receive_joined_state_event(
+        &self,
+        room_id: &RoomId,
+        event: &StateEvent,
+    ) -> Result<bool> {
+        let room_lock = self.get_or_create_joined_room(room_id).await?;
         let mut room = room_lock.write().await;
 
         if let StateEvent::RoomMember(e) = event {
@@ -538,9 +583,9 @@ impl BaseClient {
                 self.invalidate_group_session(room_id).await;
             }
 
-            changed
+            Ok(changed)
         } else {
-            room.receive_state_event(event)
+            Ok(room.receive_state_event(event))
         }
     }
 
@@ -558,10 +603,10 @@ impl BaseClient {
         &self,
         room_id: &RoomId,
         event: &AnyStrippedStateEvent,
-    ) -> bool {
-        let room_lock = self.get_or_create_invited_room(room_id).await;
+    ) -> Result<bool> {
+        let room_lock = self.get_or_create_invited_room(room_id).await?;
         let mut room = room_lock.write().await;
-        room.receive_stripped_state_event(event)
+        Ok(room.receive_stripped_state_event(event))
     }
 
     /// Receive a timeline event for a room the user has left and update the client state.
@@ -578,14 +623,14 @@ impl BaseClient {
         &self,
         room_id: &RoomId,
         event: &EventJson<RoomEvent>,
-    ) -> bool {
+    ) -> Result<bool> {
         match event.deserialize() {
             Ok(e) => {
-                let room_lock = self.get_or_create_left_room(room_id).await;
+                let room_lock = self.get_or_create_left_room(room_id).await?;
                 let mut room = room_lock.write().await;
-                room.receive_timeline_event(&e)
+                Ok(room.receive_timeline_event(&e))
             }
-            _ => false,
+            _ => Ok(false),
         }
     }
 
@@ -599,10 +644,14 @@ impl BaseClient {
     /// * `room_id` - The unique id of the room the event belongs to.
     ///
     /// * `event` - The event that should be handled by the client.
-    pub async fn receive_left_state_event(&self, room_id: &RoomId, event: &StateEvent) -> bool {
-        let room_lock = self.get_or_create_left_room(room_id).await;
+    pub async fn receive_left_state_event(
+        &self,
+        room_id: &RoomId,
+        event: &StateEvent,
+    ) -> Result<bool> {
+        let room_lock = self.get_or_create_left_room(room_id).await?;
         let mut room = room_lock.write().await;
-        room.receive_state_event(event)
+        Ok(room.receive_state_event(event))
     }
 
     /// Receive a presence event from a sync response and updates the client state.
@@ -700,9 +749,6 @@ impl BaseClient {
             }
         }
 
-        // TODO do we want to move the rooms to the appropriate HashMaps when the corresponding
-        // event comes in e.g. move a joined room to a left room when leave event comes?
-
         // when events change state, updated_* signals to StateStore to update database
         self.iter_joined_rooms(response).await?;
         self.iter_invited_rooms(&response).await?;
@@ -730,7 +776,7 @@ impl BaseClient {
             let matrix_room = {
                 for event in &joined_room.state.events {
                     if let Ok(e) = event.deserialize() {
-                        if self.receive_joined_state_event(&room_id, &e).await {
+                        if self.receive_joined_state_event(&room_id, &e).await? {
                             updated = true;
                         }
                         self.emit_state_event(&room_id, &e, RoomStateType::Joined)
@@ -738,7 +784,7 @@ impl BaseClient {
                     }
                 }
 
-                self.get_or_create_joined_room(&room_id).await.clone()
+                self.get_or_create_joined_room(&room_id).await?.clone()
             };
 
             #[cfg(feature = "encryption")]
@@ -771,7 +817,7 @@ impl BaseClient {
                 let decrypted_event = {
                     let (decrypt_ev, timeline_update) = self
                         .receive_joined_timeline_event(room_id, &mut event)
-                        .await;
+                        .await?;
                     if timeline_update {
                         updated = true;
                     };
@@ -852,13 +898,13 @@ impl BaseClient {
             let matrix_room = {
                 for event in &left_room.state.events {
                     if let Ok(e) = event.deserialize() {
-                        if self.receive_left_state_event(&room_id, &e).await {
+                        if self.receive_left_state_event(&room_id, &e).await? {
                             updated = true;
                         }
                     }
                 }
 
-                self.get_or_create_left_room(&room_id).await.clone()
+                self.get_or_create_left_room(&room_id).await?.clone()
             };
 
             for event in &mut left_room.state.events {
@@ -869,7 +915,7 @@ impl BaseClient {
             }
 
             for event in &mut left_room.timeline.events {
-                if self.receive_left_timeline_event(room_id, &event).await {
+                if self.receive_left_timeline_event(room_id, &event).await? {
                     updated = true;
                 };
 
@@ -899,13 +945,13 @@ impl BaseClient {
             let matrix_room = {
                 for event in &invited_room.invite_state.events {
                     if let Ok(e) = event.deserialize() {
-                        if self.receive_invite_state_event(&room_id, &e).await {
+                        if self.receive_invite_state_event(&room_id, &e).await? {
                             updated = true;
                         }
                     }
                 }
 
-                self.get_or_create_invited_room(&room_id).await.clone()
+                self.get_or_create_invited_room(&room_id).await?.clone()
             };
 
             for event in &invited_room.invite_state.events {

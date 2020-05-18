@@ -1244,11 +1244,79 @@ mod test {
 
     use matrix_sdk_base::JsonStore;
     use matrix_sdk_test::{EventBuilder, EventsFile};
-
     use mockito::{mock, Matcher};
+    use tempfile::tempdir;
+
     use std::convert::TryFrom;
+    use std::path::Path;
     use std::str::FromStr;
     use std::time::Duration;
+
+    #[tokio::test]
+    async fn test_join_leave_room() {
+        let homeserver = Url::from_str(&mockito::server_url()).unwrap();
+
+        let room_id = RoomId::try_from("!SVkFJHzfwvuaIEawgC:localhost").unwrap();
+
+        let session = Session {
+            access_token: "1234".to_owned(),
+            user_id: UserId::try_from("@example:localhost").unwrap(),
+            device_id: "DEVICEID".to_owned(),
+        };
+
+        let _m = mock(
+            "GET",
+            Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_string()),
+        )
+        .with_status(200)
+        .with_body_from_file("../test_data/sync.json")
+        .create();
+
+        let dir = tempdir().unwrap();
+        let path: &Path = dir.path();
+        let store = Box::new(JsonStore::open(path).unwrap());
+
+        let config = ClientConfig::default().state_store(store);
+        let client =
+            Client::new_with_config(homeserver.clone(), Some(session.clone()), config).unwrap();
+
+        let room = client.get_joined_room(&room_id).await;
+        assert!(room.is_none());
+
+        client.sync(SyncSettings::default()).await.unwrap();
+
+        let room = client.get_left_room(&room_id).await;
+        assert!(room.is_none());
+
+        let room = client.get_joined_room(&room_id).await;
+        assert!(room.is_some());
+
+        // test store reloads with correct room state from JsonStore
+        let store = Box::new(JsonStore::open(path).unwrap());
+        let config = ClientConfig::default().state_store(store);
+        let joined_client = Client::new_with_config(homeserver, Some(session), config).unwrap();
+
+        // joined room reloaded from state store
+        joined_client.sync(SyncSettings::default()).await.unwrap();
+        let room = joined_client.get_joined_room(&room_id).await;
+        assert!(room.is_some());
+
+        let _m = mock(
+            "GET",
+            Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_string()),
+        )
+        .with_status(200)
+        .with_body_from_file("../test_data/leave_event_sync.json")
+        .create();
+
+        joined_client.sync(SyncSettings::default()).await.unwrap();
+
+        let room = joined_client.get_joined_room(&room_id).await;
+        assert!(room.is_none());
+
+        let room = joined_client.get_left_room(&room_id).await;
+        assert!(room.is_some());
+    }
 
     #[tokio::test]
     async fn account_data() {
@@ -1890,7 +1958,7 @@ mod test {
             .with_body_from_file("../test_data/login_response.json")
             .create();
 
-        let dir = tempfile::tempdir().unwrap();
+        let dir = tempdir().unwrap();
         // a sync response to populate our JSON store
         let config =
             ClientConfig::default().state_store(Box::new(JsonStore::open(dir.path()).unwrap()));

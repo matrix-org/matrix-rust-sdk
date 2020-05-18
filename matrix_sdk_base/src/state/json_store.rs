@@ -7,6 +7,7 @@ use std::sync::{
     Arc,
 };
 
+use matrix_sdk_common::identifiers::RoomId;
 use matrix_sdk_common::locks::RwLock;
 use tokio::fs as async_fs;
 use tokio::io::AsyncWriteExt;
@@ -166,6 +167,82 @@ impl StateStore for JsonStore {
             .await?;
         file.write_all(json.as_bytes()).await.map_err(Error::from)
     }
+
+    async fn room_state_change(
+        &self,
+        current_room: RoomState<&RoomId>,
+        previous_room: RoomState<&RoomId>,
+    ) -> Result<()> {
+        let (room_id, room_state) = match &previous_room {
+            RoomState::Joined(id) => (id, "joined"),
+            RoomState::Invited(id) => (id, "invited"),
+            RoomState::Left(id) => (id, "left"),
+        };
+
+        if !self.user_path_set.load(Ordering::SeqCst) {
+            return Err(Error::StateStore("path for JsonStore not set".into()));
+        }
+
+        let mut from = self.path.read().await.clone();
+        from.push("rooms");
+        from.push(&format!("{}/{}.json", room_state, room_id));
+
+        if !from.exists() {
+            return Err(Error::StateStore(format!(
+                "file {:?} not found for JsonStore",
+                from
+            )));
+        }
+
+        match current_room {
+            RoomState::Joined(room_id) => {
+                let mut to = self.path.read().await.clone();
+                to.push("rooms");
+                to.push("joined");
+                if !to.exists() {
+                    async_fs::create_dir_all(&to).await?;
+                }
+
+                to.push(&format!("{}.json", room_id));
+                if !to.exists() {
+                    async_fs::File::create(&to).await?;
+                }
+                // now that we know the `to` file exists move `from` to new correct state folder
+                tokio::fs::rename(from, to).await?;
+            }
+            RoomState::Invited(room_id) => {
+                let mut to = self.path.read().await.clone();
+                to.push("rooms");
+                to.push("invited");
+                if !to.exists() {
+                    async_fs::create_dir_all(&to).await?;
+                }
+
+                to.push(&format!("{}.json", room_id));
+                if !to.exists() {
+                    async_fs::File::create(&to).await?;
+                }
+                // now that we know the `to` file exists move `from` to new correct state folder
+                tokio::fs::rename(from, to).await?;
+            }
+            RoomState::Left(room_id) => {
+                let mut to = self.path.read().await.clone();
+                to.push("rooms");
+                to.push("left");
+                if !to.exists() {
+                    async_fs::create_dir_all(&to).await?;
+                }
+
+                to.push(&format!("{}.json", room_id));
+                if !to.exists() {
+                    async_fs::File::create(&to).await?;
+                }
+                // now that we know the `to` file exists move `from` to new correct state folder
+                tokio::fs::rename(from, to).await?;
+            }
+        }
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -275,6 +352,54 @@ mod test {
             .unwrap();
         let AllRooms { invited, .. } = store.load_all_rooms().await.unwrap();
         assert_eq!(invited.get(&id), Some(&Room::new(&id, &user)));
+    }
+
+    #[tokio::test]
+    async fn test_store_load_join_leave_room_state() {
+        let dir = tempdir().unwrap();
+        let path: &Path = dir.path();
+        let store = JsonStore::open(path).unwrap();
+
+        let id = RoomId::try_from("!roomid:example.com").unwrap();
+        let user = UserId::try_from("@example:example.com").unwrap();
+
+        let room = Room::new(&id, &user);
+        store
+            .store_room_state(RoomState::Joined(&room))
+            .await
+            .unwrap();
+        assert!(store
+            .room_state_change(RoomState::Left(&id), RoomState::Joined(&id))
+            .await
+            .is_ok());
+        let AllRooms { joined, left, .. } = store.load_all_rooms().await.unwrap();
+        assert_eq!(left.get(&id), Some(&Room::new(&id, &user)));
+        assert!(joined.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_store_load_invite_join_room_state() {
+        let dir = tempdir().unwrap();
+        let path: &Path = dir.path();
+        let store = JsonStore::open(path).unwrap();
+
+        let id = RoomId::try_from("!roomid:example.com").unwrap();
+        let user = UserId::try_from("@example:example.com").unwrap();
+
+        let room = Room::new(&id, &user);
+        store
+            .store_room_state(RoomState::Invited(&room))
+            .await
+            .unwrap();
+        assert!(store
+            .room_state_change(RoomState::Joined(&id), RoomState::Invited(&id))
+            .await
+            .is_ok());
+        let AllRooms {
+            invited, joined, ..
+        } = store.load_all_rooms().await.unwrap();
+        assert_eq!(joined.get(&id), Some(&Room::new(&id, &user)));
+        assert!(invited.is_empty());
     }
 
     #[tokio::test]

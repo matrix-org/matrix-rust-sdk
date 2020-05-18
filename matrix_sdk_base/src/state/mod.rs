@@ -50,6 +50,10 @@ impl PartialEq for ClientState {
 }
 
 impl ClientState {
+    /// Create a JSON serialize-able `ClientState`.
+    ///
+    /// This enables non sensitive information to be saved by `JsonStore`.
+    #[allow(clippy::eval_order_dependence)]
     pub async fn from_base_client(client: &BaseClient) -> ClientState {
         let BaseClient {
             sync_token,
@@ -94,6 +98,15 @@ pub trait StateStore: Send + Sync {
     async fn store_client_state(&self, _: ClientState) -> Result<()>;
     /// Save the state a single `Room`.
     async fn store_room_state(&self, _: RoomState<&Room>) -> Result<()>;
+    /// Signals to the `StateStore` a room has changed state.
+    ///
+    /// This enables implementing types to update the database when `RoomState` changes.
+    /// A `RoomState` change is when a user joins, is invited, or leaves a room.
+    async fn room_state_change(
+        &self,
+        _current: RoomState<&RoomId>,
+        _previous: RoomState<&RoomId>,
+    ) -> Result<()>;
 }
 
 #[cfg(test)]
