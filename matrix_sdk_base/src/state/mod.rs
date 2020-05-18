@@ -54,6 +54,7 @@ impl ClientState {
     ///
     /// This enables non sensitive information to be saved by `JsonStore`.
     #[allow(clippy::eval_order_dependence)]
+    // TODO is this ok ^^^?? https://github.com/rust-lang/rust-clippy/issues/4637
     pub async fn from_base_client(client: &BaseClient) -> ClientState {
         let BaseClient {
             sync_token,
