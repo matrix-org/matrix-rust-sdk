@@ -916,7 +916,17 @@ impl Client {
         }
     }
 
-    async fn send<Request: Endpoint<ResponseError = crate::api::Error> + std::fmt::Debug>(
+    /// Send an arbitrary request to the server, without updating client state
+    ///
+    /// **Warning:** Because this method *does not* update the client state, it is
+    /// important to make sure than you account for this yourself, and use wrapper methods
+    /// where available.  This method should *only* be used if a wrapper method for the
+    /// endpoint you'd like to use is not available.
+    ///
+    /// # Arguments
+    ///
+    /// * `request` - A filled out and valid request for the endpoint to be hit
+    pub async fn send<Request: Endpoint<ResponseError = crate::api::Error> + std::fmt::Debug>(
         &self,
         request: Request,
     ) -> Result<Request::Response> {
