@@ -168,11 +168,7 @@ impl StateStore for JsonStore {
         file.write_all(json.as_bytes()).await.map_err(Error::from)
     }
 
-    async fn room_state_change(
-        &self,
-        current_room: RoomState<&RoomId>,
-        previous_room: RoomState<&RoomId>,
-    ) -> Result<()> {
+    async fn room_state_change(&self, previous_room: RoomState<&RoomId>) -> Result<()> {
         let (room_id, room_state) = match &previous_room {
             RoomState::Joined(id) => (id, "joined"),
             RoomState::Invited(id) => (id, "invited"),
@@ -183,65 +179,15 @@ impl StateStore for JsonStore {
             return Err(Error::StateStore("path for JsonStore not set".into()));
         }
 
-        let mut from = self.path.read().await.clone();
-        from.push("rooms");
-        from.push(&format!("{}/{}.json", room_state, room_id));
+        let mut to_del = self.path.read().await.clone();
+        to_del.push("rooms");
+        to_del.push(&format!("{}/{}.json", room_state, room_id));
 
-        if !from.exists() {
-            return Err(Error::StateStore(format!(
-                "file {:?} not found for JsonStore",
-                from
-            )));
+        if !to_del.exists() {
+            return Err(Error::StateStore(format!("file {:?} not found", to_del)));
         }
 
-        match current_room {
-            RoomState::Joined(room_id) => {
-                let mut to = self.path.read().await.clone();
-                to.push("rooms");
-                to.push("joined");
-                if !to.exists() {
-                    async_fs::create_dir_all(&to).await?;
-                }
-
-                to.push(&format!("{}.json", room_id));
-                if !to.exists() {
-                    async_fs::File::create(&to).await?;
-                }
-                // now that we know the `to` file exists move `from` to new correct state folder
-                tokio::fs::rename(from, to).await?;
-            }
-            RoomState::Invited(room_id) => {
-                let mut to = self.path.read().await.clone();
-                to.push("rooms");
-                to.push("invited");
-                if !to.exists() {
-                    async_fs::create_dir_all(&to).await?;
-                }
-
-                to.push(&format!("{}.json", room_id));
-                if !to.exists() {
-                    async_fs::File::create(&to).await?;
-                }
-                // now that we know the `to` file exists move `from` to new correct state folder
-                tokio::fs::rename(from, to).await?;
-            }
-            RoomState::Left(room_id) => {
-                let mut to = self.path.read().await.clone();
-                to.push("rooms");
-                to.push("left");
-                if !to.exists() {
-                    async_fs::create_dir_all(&to).await?;
-                }
-
-                to.push(&format!("{}.json", room_id));
-                if !to.exists() {
-                    async_fs::File::create(&to).await?;
-                }
-                // now that we know the `to` file exists move `from` to new correct state folder
-                tokio::fs::rename(from, to).await?;
-            }
-        }
-        Ok(())
+        tokio::fs::remove_file(to_del).await.map_err(Error::from)
     }
 }
 
@@ -369,11 +315,12 @@ mod test {
             .await
             .unwrap();
         assert!(store
-            .room_state_change(RoomState::Left(&id), RoomState::Joined(&id))
+            .room_state_change(RoomState::Joined(&id))
             .await
             .is_ok());
-        let AllRooms { joined, left, .. } = store.load_all_rooms().await.unwrap();
-        assert_eq!(left.get(&id), Some(&Room::new(&id, &user)));
+        let AllRooms { joined, .. } = store.load_all_rooms().await.unwrap();
+
+        // test that we have removed the correct room
         assert!(joined.is_empty());
     }
 
@@ -392,13 +339,11 @@ mod test {
             .await
             .unwrap();
         assert!(store
-            .room_state_change(RoomState::Joined(&id), RoomState::Invited(&id))
+            .room_state_change(RoomState::Invited(&id))
             .await
             .is_ok());
-        let AllRooms {
-            invited, joined, ..
-        } = store.load_all_rooms().await.unwrap();
-        assert_eq!(joined.get(&id), Some(&Room::new(&id, &user)));
+        let AllRooms { invited, .. } = store.load_all_rooms().await.unwrap();
+        // test that we have removed the correct room
         assert!(invited.is_empty());
     }
 

@@ -318,17 +318,13 @@ impl BaseClient {
         // hashmaps.
         if self.invited_rooms.write().await.remove(room_id).is_some() {
             if let Some(store) = self.state_store.read().await.as_ref() {
-                store
-                    .room_state_change(RoomState::Joined(room_id), RoomState::Invited(room_id))
-                    .await?;
+                store.room_state_change(RoomState::Invited(room_id)).await?;
             }
         }
 
         if self.left_rooms.write().await.remove(room_id).is_some() {
             if let Some(store) = self.state_store.read().await.as_ref() {
-                store
-                    .room_state_change(RoomState::Invited(room_id), RoomState::Left(room_id))
-                    .await?;
+                store.room_state_change(RoomState::Left(room_id)).await?;
             }
         }
 
@@ -373,9 +369,7 @@ impl BaseClient {
         // spec can't happen.
         if self.left_rooms.write().await.remove(room_id).is_some() {
             if let Some(store) = self.state_store.read().await.as_ref() {
-                store
-                    .room_state_change(RoomState::Invited(room_id), RoomState::Left(room_id))
-                    .await?;
+                store.room_state_change(RoomState::Left(room_id)).await?;
             }
         }
 
@@ -420,17 +414,13 @@ impl BaseClient {
         // hashmaps.
         if self.invited_rooms.write().await.remove(room_id).is_some() {
             if let Some(store) = self.state_store.read().await.as_ref() {
-                store
-                    .room_state_change(RoomState::Left(room_id), RoomState::Invited(room_id))
-                    .await?;
+                store.room_state_change(RoomState::Invited(room_id)).await?;
             }
         }
 
         if self.joined_rooms.write().await.remove(room_id).is_some() {
             if let Some(store) = self.state_store.read().await.as_ref() {
-                store
-                    .room_state_change(RoomState::Left(room_id), RoomState::Joined(room_id))
-                    .await?;
+                store.room_state_change(RoomState::Joined(room_id)).await?;
             }
         }
 

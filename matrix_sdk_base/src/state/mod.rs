@@ -103,11 +103,7 @@ pub trait StateStore: Send + Sync {
     ///
     /// This enables implementing types to update the database when `RoomState` changes.
     /// A `RoomState` change is when a user joins, is invited, or leaves a room.
-    async fn room_state_change(
-        &self,
-        _current: RoomState<&RoomId>,
-        _previous: RoomState<&RoomId>,
-    ) -> Result<()>;
+    async fn room_state_change(&self, _previous: RoomState<&RoomId>) -> Result<()>;
 }
 
 #[cfg(test)]
