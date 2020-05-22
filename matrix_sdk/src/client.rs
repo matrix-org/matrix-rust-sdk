@@ -228,6 +228,7 @@ use api::r0::membership::{
 };
 use api::r0::message::create_message_event;
 use api::r0::message::get_message_events;
+use api::r0::read_marker::set_read_marker;
 use api::r0::receipt::create_receipt;
 use api::r0::room::create_room;
 use api::r0::session::login;
@@ -733,7 +734,7 @@ impl Client {
         self.send(request).await
     }
 
-    /// Send a request to notify the room of a user typing.
+    /// Send a request to notify the room the user has read specific event.
     ///
     /// Returns a `create_receipt::Response`, an empty response.
     ///
@@ -751,6 +752,31 @@ impl Client {
             room_id: room_id.clone(),
             event_id: event_id.clone(),
             receipt_type: create_receipt::ReceiptType::Read,
+        };
+        self.send(request).await
+    }
+
+    /// Send a request to notify the room user has read up to specific event.
+    ///
+    /// Returns a `create_typing_event::Response`, an empty response.
+    ///
+    /// # Arguments
+    ///
+    /// * room_id - The `RoomId` the user is typing in.
+    ///
+    /// * fully_read - The `EventId` of the event the user has read to.
+    ///
+    /// * read_receipt - The `EventId` to set the read receipt location at.
+    pub async fn read_marker(
+        &self,
+        room_id: &RoomId,
+        fully_read: &EventId,
+        read_receipt: Option<&EventId>,
+    ) -> Result<set_read_marker::Response> {
+        let request = set_read_marker::Request {
+            room_id: room_id.clone(),
+            fully_read: fully_read.clone(),
+            read_receipt: read_receipt.cloned(),
         };
         self.send(request).await
     }
