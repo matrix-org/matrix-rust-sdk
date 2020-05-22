@@ -168,8 +168,8 @@ impl StateStore for JsonStore {
         file.write_all(json.as_bytes()).await.map_err(Error::from)
     }
 
-    async fn room_state_change(&self, previous_room: RoomState<&RoomId>) -> Result<()> {
-        let (room_id, room_state) = match &previous_room {
+    async fn delete_room_state(&self, room: RoomState<&RoomId>) -> Result<()> {
+        let (room_id, room_state) = match &room {
             RoomState::Joined(id) => (id, "joined"),
             RoomState::Invited(id) => (id, "invited"),
             RoomState::Left(id) => (id, "left"),
@@ -315,7 +315,7 @@ mod test {
             .await
             .unwrap();
         assert!(store
-            .room_state_change(RoomState::Joined(&id))
+            .delete_room_state(RoomState::Joined(&id))
             .await
             .is_ok());
         let AllRooms { joined, .. } = store.load_all_rooms().await.unwrap();
@@ -339,7 +339,7 @@ mod test {
             .await
             .unwrap();
         assert!(store
-            .room_state_change(RoomState::Invited(&id))
+            .delete_room_state(RoomState::Invited(&id))
             .await
             .is_ok());
         let AllRooms { invited, .. } = store.load_all_rooms().await.unwrap();
