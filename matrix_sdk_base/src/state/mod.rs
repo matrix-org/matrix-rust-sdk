@@ -50,6 +50,11 @@ impl PartialEq for ClientState {
 }
 
 impl ClientState {
+    /// Create a JSON serialize-able `ClientState`.
+    ///
+    /// This enables non sensitive information to be saved by `JsonStore`.
+    #[allow(clippy::eval_order_dependence)]
+    // TODO is this ok ^^^?? https://github.com/rust-lang/rust-clippy/issues/4637
     pub async fn from_base_client(client: &BaseClient) -> ClientState {
         let BaseClient {
             sync_token,
@@ -86,14 +91,22 @@ pub trait StateStore: Send + Sync {
     /// An `Option::None` should be returned only if the `StateStore` tries to
     /// load but no state has been stored.
     async fn load_client_state(&self, _: &Session) -> Result<Option<ClientState>>;
+
     /// Load the state of all `Room`s.
     ///
     /// This will be mapped over in the client in order to store `Room`s in an async safe way.
     async fn load_all_rooms(&self) -> Result<AllRooms>;
+
     /// Save the current state of the `BaseClient` using the `StateStore::Store` type.
     async fn store_client_state(&self, _: ClientState) -> Result<()>;
+
     /// Save the state a single `Room`.
     async fn store_room_state(&self, _: RoomState<&Room>) -> Result<()>;
+
+    /// Remove state for a room.
+    ///
+    /// This is used when a user leaves a room or rejects an invitation.
+    async fn delete_room_state(&self, _room: RoomState<&RoomId>) -> Result<()>;
 }
 
 #[cfg(test)]

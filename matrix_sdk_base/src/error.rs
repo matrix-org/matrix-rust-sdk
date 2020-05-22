@@ -32,11 +32,16 @@ pub enum Error {
     #[error("the queried endpoint requires authentication but was called before logging in")]
     AuthenticationRequired,
 
-    /// An error de/serializing type for the `StateStore`
+    /// A generic error returned when the state store fails not due to
+    /// IO or (de)serialization.
+    #[error("state store: {0}")]
+    StateStore(String),
+
+    /// An error when (de)serializing JSON.
     #[error(transparent)]
     SerdeJson(#[from] JsonError),
 
-    /// An error de/serializing type for the `StateStore`
+    /// An error representing IO errors.
     #[error(transparent)]
     IoError(#[from] IoError),
 
