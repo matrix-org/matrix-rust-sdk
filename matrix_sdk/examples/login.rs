@@ -45,7 +45,7 @@ async fn login(
         .proxy("http://localhost:8080")?
         .disable_ssl_verification();
     let homeserver_url = Url::parse(&homeserver_url).expect("Couldn't parse the homeserver URL");
-    let mut client = Client::new_with_config(homeserver_url, None, client_config).unwrap();
+    let mut client = Client::new_with_config(homeserver_url, client_config).unwrap();
 
     client.add_event_emitter(Box::new(EventCallback)).await;
 

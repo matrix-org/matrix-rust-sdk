@@ -360,7 +360,8 @@ mod test {
 
         // a sync response to populate our JSON store
         let store = Box::new(JsonStore::open(path).unwrap());
-        let client = BaseClient::new_with_state_store(Some(session.clone()), store).unwrap();
+        let client = BaseClient::new_with_state_store(store).unwrap();
+        client.restore_login(session.clone()).await.unwrap();
 
         let mut response = sync_response("../test_data/sync.json");
 
@@ -369,7 +370,8 @@ mod test {
 
         // now syncing the client will update from the state store
         let store = Box::new(JsonStore::open(path).unwrap());
-        let client = BaseClient::new_with_state_store(Some(session.clone()), store).unwrap();
+        let client = BaseClient::new_with_state_store(store).unwrap();
+        client.restore_login(session.clone()).await.unwrap();
         client.sync_with_state_store().await.unwrap();
 
         // assert the synced client and the logged in client are equal

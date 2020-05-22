@@ -295,13 +295,15 @@ mod test {
 
     use std::convert::TryFrom;
 
-    fn get_client() -> BaseClient {
+    async fn get_client() -> BaseClient {
         let session = Session {
             access_token: "1234".to_owned(),
             user_id: UserId::try_from("@example:example.com").unwrap(),
             device_id: "DEVICEID".to_owned(),
         };
-        BaseClient::new(Some(session)).unwrap()
+        let client = BaseClient::new().unwrap();
+        client.restore_login(session).await.unwrap();
+        client
     }
 
     #[async_test]
@@ -310,7 +312,7 @@ mod test {
         let test_vec = Arc::clone(&vec);
         let emitter = Box::new(EvEmitterTest(vec));
 
-        let client = get_client();
+        let client = get_client().await;
         client.add_event_emitter(emitter).await;
 
         let mut response = sync_response(SyncResponseFile::Default);
@@ -341,7 +343,7 @@ mod test {
         let test_vec = Arc::clone(&vec);
         let emitter = Box::new(EvEmitterTest(vec));
 
-        let client = get_client();
+        let client = get_client().await;
         client.add_event_emitter(emitter).await;
 
         let mut response = sync_response(SyncResponseFile::Invite);
@@ -360,7 +362,7 @@ mod test {
         let test_vec = Arc::clone(&vec);
         let emitter = Box::new(EvEmitterTest(vec));
 
-        let client = get_client();
+        let client = get_client().await;
         client.add_event_emitter(emitter).await;
 
         let mut response = sync_response(SyncResponseFile::Leave);

@@ -143,8 +143,8 @@ impl BaseClient {
     ///
     /// * `session` - An optional session if the user already has one from a
     /// previous login call.
-    pub fn new(session: Option<Session>) -> Result<Self> {
-        BaseClient::new_helper(session, None)
+    pub fn new() -> Result<Self> {
+        BaseClient::new_helper(None)
     }
 
     /// Create a new client.
@@ -156,22 +156,13 @@ impl BaseClient {
     ///
     /// * `store` - An open state store implementation that will be used through
     /// the lifetime of the client.
-    pub fn new_with_state_store(
-        session: Option<Session>,
-        store: Box<dyn StateStore>,
-    ) -> Result<Self> {
-        BaseClient::new_helper(session, Some(store))
+    pub fn new_with_state_store(store: Box<dyn StateStore>) -> Result<Self> {
+        BaseClient::new_helper(Some(store))
     }
 
-    fn new_helper(session: Option<Session>, store: Option<Box<dyn StateStore>>) -> Result<Self> {
-        #[cfg(feature = "encryption")]
-        let olm = match &session {
-            Some(s) => Some(OlmMachine::new(&s.user_id, &s.device_id)),
-            None => None,
-        };
-
+    fn new_helper(store: Option<Box<dyn StateStore>>) -> Result<Self> {
         Ok(BaseClient {
-            session: Arc::new(RwLock::new(session)),
+            session: Arc::new(RwLock::new(None)),
             sync_token: Arc::new(RwLock::new(None)),
             joined_rooms: Arc::new(RwLock::new(HashMap::new())),
             invited_rooms: Arc::new(RwLock::new(HashMap::new())),
@@ -182,7 +173,7 @@ impl BaseClient {
             state_store: Arc::new(RwLock::new(store)),
             needs_state_store_sync: Arc::new(AtomicBool::from(true)),
             #[cfg(feature = "encryption")]
-            olm: Arc::new(Mutex::new(olm)),
+            olm: Arc::new(Mutex::new(None)),
         })
     }
 
@@ -299,13 +290,24 @@ impl BaseClient {
             device_id: response.device_id.clone(),
             user_id: response.user_id.clone(),
         };
-        *self.session.write().await = Some(session);
+        self.restore_login(session).await
+    }
 
+    /// Restore a previously logged in session.
+    ///
+    /// # Arguments
+    ///
+    /// * `session` - An session that the user already has from a
+    /// previous login call.
+    pub async fn restore_login(&self, session: Session) -> Result<()> {
         #[cfg(feature = "encryption")]
         {
             let mut olm = self.olm.lock().await;
-            *olm = Some(OlmMachine::new(&response.user_id, &response.device_id));
+            *olm = Some(OlmMachine::new(&session.user_id, &session.device_id));
         }
+        self.sync_with_state_store().await?;
+
+        *self.session.write().await = Some(session);
 
         Ok(())
     }
@@ -1518,13 +1520,15 @@ mod test {
     #[cfg(target_arch = "wasm32")]
     use wasm_bindgen_test::*;
 
-    fn get_client() -> BaseClient {
+    async fn get_client() -> BaseClient {
         let session = Session {
             access_token: "1234".to_owned(),
             user_id: UserId::try_from("@example:localhost").unwrap(),
             device_id: "DEVICEID".to_owned(),
         };
-        BaseClient::new(Some(session)).unwrap()
+        let client = BaseClient::new().unwrap();
+        client.restore_login(session).await.unwrap();
+        client
     }
 
     fn get_room_id() -> RoomId {
@@ -1551,7 +1555,7 @@ mod test {
         let mut sync_response = EventBuilder::default()
             .add_room_event(EventsFile::Member, RoomEvent::RoomMember)
             .build_sync_response();
-        let client = get_client();
+        let client = get_client().await;
         let room_id = get_room_id();
 
         let room = client.get_joined_room(&room_id).await;
@@ -1593,7 +1597,7 @@ mod test {
             .add_custom_left_event(&room_id, member_event(), RoomEvent::RoomMember)
             .build_sync_response();
 
-        let client = get_client();
+        let client = get_client().await;
 
         let room = client.get_left_room(&room_id).await;
         assert!(room.is_none());
@@ -1631,7 +1635,7 @@ mod test {
             .add_custom_invited_event(&room_id, member_event(), AnyStrippedStateEvent::RoomMember)
             .build_sync_response();
 
-        let client = get_client();
+        let client = get_client().await;
 
         let room = client.get_invited_room(&room_id).await;
         assert!(room.is_none());
@@ -1665,7 +1669,7 @@ mod test {
     #[async_test]
     #[cfg(feature = "encryption")]
     async fn test_group_session_invalidation() {
-        let client = get_client();
+        let client = get_client().await;
         let room_id = get_room_id();
 
         let mut sync_response = EventBuilder::default()

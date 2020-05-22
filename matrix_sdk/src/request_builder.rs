@@ -30,8 +30,8 @@ use crate::js_int::UInt;
 ///     .visibility(Visibility::Public)
 ///     .name("name")
 ///     .room_version("v1.0");
-/// let mut cli = Client::new(homeserver, None).unwrap();
-/// cli.create_room(builder).await;
+/// let mut client = Client::new(homeserver).unwrap();
+/// client.create_room(builder).await;
 /// # })
 /// ```
 #[derive(Clone, Debug, Default)]
@@ -188,14 +188,14 @@ impl Into<create_room::Request> for RoomBuilder {
 /// # rt.block_on(async {
 /// # let room_id = RoomId::try_from("!test:localhost").unwrap();
 /// # let last_sync_token = "".to_string();
-/// let mut cli = Client::new(homeserver, None).unwrap();
+/// let mut client = Client::new(homeserver).unwrap();
 ///
 /// let mut builder = MessagesRequestBuilder::new();
 /// builder.room_id(room_id)
 ///     .from(last_sync_token)
 ///     .direction(Direction::Forward);
 ///
-/// cli.room_messages(builder).await.is_err();
+/// client.room_messages(builder).await.is_err();
 /// # })
 /// ```
 #[derive(Clone, Debug, Default)]
@@ -342,7 +342,8 @@ mod test {
             .room_alias_name("room_alias")
             .topic("room topic")
             .visibility(Visibility::Private);
-        let cli = Client::new(homeserver, Some(session)).unwrap();
+        let cli = Client::new(homeserver).unwrap();
+        cli.restore_login(session).await.unwrap();
         assert!(cli.create_room(builder).await.is_ok());
     }
 
@@ -378,7 +379,8 @@ mod test {
                 ..Default::default()
             });
 
-        let cli = Client::new(homeserver, Some(session)).unwrap();
+        let cli = Client::new(homeserver).unwrap();
+        cli.restore_login(session).await.unwrap();
         assert!(cli.room_messages(builder).await.is_ok());
     }
 }

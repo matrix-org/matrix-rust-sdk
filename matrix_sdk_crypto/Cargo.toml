@@ -27,7 +27,7 @@ zeroize = { version = "1.1.0", features = ["zeroize_derive"] }
 url = "2.1.1"
 
 # Misc dependencies
-thiserror = "1.0.17"
+thiserror = "1.0.18"
 tracing = "0.1.14"
 atomic = "0.4.5"
 dashmap = "3.11.1"

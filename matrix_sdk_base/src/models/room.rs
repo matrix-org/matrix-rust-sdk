@@ -589,13 +589,15 @@ mod test {
     use std::convert::TryFrom;
     use std::ops::Deref;
 
-    fn get_client() -> BaseClient {
+    async fn get_client() -> BaseClient {
         let session = Session {
             access_token: "1234".to_owned(),
             user_id: UserId::try_from("@example:localhost").unwrap(),
             device_id: "DEVICEID".to_owned(),
         };
-        BaseClient::new(Some(session)).unwrap()
+        let client = BaseClient::new().unwrap();
+        client.restore_login(session).await.unwrap();
+        client
     }
 
     fn get_room_id() -> RoomId {
@@ -604,7 +606,7 @@ mod test {
 
     #[async_test]
     async fn user_presence() {
-        let client = get_client();
+        let client = get_client().await;
 
         let mut response = sync_response(SyncResponseFile::Default);
 
@@ -628,7 +630,7 @@ mod test {
 
     #[async_test]
     async fn room_events() {
-        let client = get_client();
+        let client = get_client().await;
         let room_id = get_room_id();
         let user_id = UserId::try_from("@example:localhost").unwrap();
 
@@ -657,7 +659,7 @@ mod test {
 
     #[async_test]
     async fn calculate_aliases() {
-        let client = get_client();
+        let client = get_client().await;
 
         let room_id = get_room_id();
 
@@ -675,7 +677,7 @@ mod test {
 
     #[async_test]
     async fn calculate_alias() {
-        let client = get_client();
+        let client = get_client().await;
 
         let room_id = get_room_id();
 
@@ -693,7 +695,7 @@ mod test {
 
     #[async_test]
     async fn calculate_name() {
-        let client = get_client();
+        let client = get_client().await;
 
         let room_id = get_room_id();
 
@@ -718,7 +720,8 @@ mod test {
             user_id: UserId::try_from("@example:localhost").unwrap(),
             device_id: "DEVICEID".to_owned(),
         };
-        let client = BaseClient::new(Some(session)).unwrap();
+        let client = BaseClient::new().unwrap();
+        client.restore_login(session).await.unwrap();
         client.receive_sync_response(&mut response).await.unwrap();
 
         let mut room_names = vec![];
@@ -740,7 +743,8 @@ mod test {
             user_id: user_id.clone(),
             device_id: "DEVICEID".to_owned(),
         };
-        let client = BaseClient::new(Some(session)).unwrap();
+        let client = BaseClient::new().unwrap();
+        client.restore_login(session).await.unwrap();
         client.receive_sync_response(&mut response).await.unwrap();
 
         let event = EncryptionEvent {
