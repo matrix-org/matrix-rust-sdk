@@ -213,13 +213,15 @@ mod test {
 
     use std::convert::TryFrom;
 
-    fn get_client() -> BaseClient {
+    async fn get_client() -> BaseClient {
         let session = Session {
             access_token: "1234".to_owned(),
             user_id: UserId::try_from("@example:localhost").unwrap(),
             device_id: "DEVICEID".to_owned(),
         };
-        BaseClient::new(Some(session)).unwrap()
+        let client = BaseClient::new().unwrap();
+        client.restore_login(session).await.unwrap();
+        client
     }
 
     fn get_room_id() -> RoomId {
@@ -228,7 +230,7 @@ mod test {
 
     #[async_test]
     async fn room_member_events() {
-        let client = get_client();
+        let client = get_client().await;
 
         let room_id = get_room_id();
 
@@ -252,7 +254,7 @@ mod test {
 
     #[async_test]
     async fn member_presence_events() {
-        let client = get_client();
+        let client = get_client().await;
 
         let room_id = get_room_id();
 

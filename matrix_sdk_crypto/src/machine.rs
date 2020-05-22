@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use std::collections::{BTreeMap, HashMap, HashSet};
-use std::convert::TryInto;
+use std::convert::{TryFrom, TryInto};
 use std::mem;
 #[cfg(feature = "sqlite-cryptostore")]
 use std::path::Path;
@@ -1403,6 +1403,20 @@ impl OlmMachine {
 
         let count: u64 = one_time_key_count.map_or(0, |c| (*c).into());
         self.update_key_count(count);
+
+        if let Some(device_list) = &response.device_lists {
+            for user_id in &device_list.changed {
+                let user_id = if let Ok(u) = UserId::try_from(user_id.to_owned()) {
+                    u
+                } else {
+                    continue;
+                };
+
+                if let Err(e) = self.mark_user_as_changed(&user_id).await {
+                    error!("Error marking a tracked user as changed {:?}", e);
+                }
+            }
+        }
 
         for event_result in &mut response.to_device.events {
             let event = if let Ok(e) = event_result.deserialize() {

@@ -7,6 +7,7 @@ use std::sync::{
     Arc,
 };
 
+use matrix_sdk_common::identifiers::RoomId;
 use matrix_sdk_common::locks::RwLock;
 use tokio::fs as async_fs;
 use tokio::io::AsyncWriteExt;
@@ -166,6 +167,28 @@ impl StateStore for JsonStore {
             .await?;
         file.write_all(json.as_bytes()).await.map_err(Error::from)
     }
+
+    async fn delete_room_state(&self, room: RoomState<&RoomId>) -> Result<()> {
+        let (room_id, room_state) = match &room {
+            RoomState::Joined(id) => (id, "joined"),
+            RoomState::Invited(id) => (id, "invited"),
+            RoomState::Left(id) => (id, "left"),
+        };
+
+        if !self.user_path_set.load(Ordering::SeqCst) {
+            return Err(Error::StateStore("path for JsonStore not set".into()));
+        }
+
+        let mut to_del = self.path.read().await.clone();
+        to_del.push("rooms");
+        to_del.push(&format!("{}/{}.json", room_state, room_id));
+
+        if !to_del.exists() {
+            return Err(Error::StateStore(format!("file {:?} not found", to_del)));
+        }
+
+        tokio::fs::remove_file(to_del).await.map_err(Error::from)
+    }
 }
 
 #[cfg(test)]
@@ -278,6 +301,53 @@ mod test {
     }
 
     #[tokio::test]
+    async fn test_store_load_join_leave_room_state() {
+        let dir = tempdir().unwrap();
+        let path: &Path = dir.path();
+        let store = JsonStore::open(path).unwrap();
+
+        let id = RoomId::try_from("!roomid:example.com").unwrap();
+        let user = UserId::try_from("@example:example.com").unwrap();
+
+        let room = Room::new(&id, &user);
+        store
+            .store_room_state(RoomState::Joined(&room))
+            .await
+            .unwrap();
+        assert!(store
+            .delete_room_state(RoomState::Joined(&id))
+            .await
+            .is_ok());
+        let AllRooms { joined, .. } = store.load_all_rooms().await.unwrap();
+
+        // test that we have removed the correct room
+        assert!(joined.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_store_load_invite_join_room_state() {
+        let dir = tempdir().unwrap();
+        let path: &Path = dir.path();
+        let store = JsonStore::open(path).unwrap();
+
+        let id = RoomId::try_from("!roomid:example.com").unwrap();
+        let user = UserId::try_from("@example:example.com").unwrap();
+
+        let room = Room::new(&id, &user);
+        store
+            .store_room_state(RoomState::Invited(&room))
+            .await
+            .unwrap();
+        assert!(store
+            .delete_room_state(RoomState::Invited(&id))
+            .await
+            .is_ok());
+        let AllRooms { invited, .. } = store.load_all_rooms().await.unwrap();
+        // test that we have removed the correct room
+        assert!(invited.is_empty());
+    }
+
+    #[tokio::test]
     async fn test_client_sync_store() {
         let dir = tempdir().unwrap();
         let path: &Path = dir.path();
@@ -290,7 +360,8 @@ mod test {
 
         // a sync response to populate our JSON store
         let store = Box::new(JsonStore::open(path).unwrap());
-        let client = BaseClient::new_with_state_store(Some(session.clone()), store).unwrap();
+        let client = BaseClient::new_with_state_store(store).unwrap();
+        client.restore_login(session.clone()).await.unwrap();
 
         let mut response = sync_response("../test_data/sync.json");
 
@@ -299,7 +370,8 @@ mod test {
 
         // now syncing the client will update from the state store
         let store = Box::new(JsonStore::open(path).unwrap());
-        let client = BaseClient::new_with_state_store(Some(session.clone()), store).unwrap();
+        let client = BaseClient::new_with_state_store(store).unwrap();
+        client.restore_login(session.clone()).await.unwrap();
         client.sync_with_state_store().await.unwrap();
 
         // assert the synced client and the logged in client are equal
