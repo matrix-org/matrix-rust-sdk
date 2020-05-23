@@ -85,22 +85,15 @@ fn deserialize_prev_content(event: &EventJson<RoomEvent>) -> Option<EventJson<Ro
         .map(|more_unsigned| more_unsigned.unsigned)
         .map(|additional| additional.prev_content)
         .ok()
-        .flatten();
+        .flatten()?;
 
-    if let Ok(mut ev) = event.deserialize() {
-        if let Some(prev) = prev_content {
-            match &mut ev {
-                RoomEvent::RoomMember(ref mut member) => {
-                    member.prev_content = prev.deserialize().ok();
-                    Some(EventJson::from(ev))
-                }
-                _ => None,
-            }
-        } else {
-            None
+    let mut ev = event.deserialize().ok()?;
+    match &mut ev {
+        RoomEvent::RoomMember(ref mut member) if member.prev_content.is_none() => {
+            member.prev_content = prev_content.deserialize().ok();
+            Some(EventJson::from(ev))
         }
-    } else {
-        None
+        _ => None,
     }
 }
 
