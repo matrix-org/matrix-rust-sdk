@@ -1255,7 +1255,7 @@ impl Client {
 mod test {
     use super::{
         ban_user, create_receipt, create_typing_event, forget_room, invite_user, kick_user,
-        leave_room, Invite3pid, MessageEventContent,
+        leave_room, set_read_marker, Invite3pid, MessageEventContent,
     };
     use super::{Client, ClientConfig, Session, SyncSettings, Url};
     use crate::events::collections::all::RoomEvent;
@@ -1742,6 +1742,42 @@ mod test {
         } else {
             panic!(
                 "expected `ruma_client_api::create_receipt::Response` found {:?}",
+                response
+            )
+        }
+    }
+
+    #[tokio::test]
+    #[allow(irrefutable_let_patterns)]
+    async fn read_marker() {
+        let homeserver = Url::from_str(&mockito::server_url()).unwrap();
+        let user_id = UserId::try_from("@example:localhost").unwrap();
+        let room_id = RoomId::try_from("!testroom:example.org").unwrap();
+        let event_id = EventId::new("example.org").unwrap();
+
+        let session = Session {
+            access_token: "1234".to_owned(),
+            user_id,
+            device_id: "DEVICEID".to_owned(),
+        };
+
+        let _m = mock(
+            "POST",
+            Matcher::Regex(r"^/_matrix/client/r0/rooms/.*/read_markers".to_string()),
+        )
+        .with_status(200)
+        // this is an empty JSON object
+        .with_body_from_file("../test_data/logout_response.json")
+        .create();
+
+        let client = Client::new(homeserver).unwrap();
+        client.restore_login(session).await.unwrap();
+
+        let response = client.read_marker(&room_id, &event_id, None).await.unwrap();
+        if let set_read_marker::Response = response {
+        } else {
+            panic!(
+                "expected `ruma_client_api::set_read_marker::Response` found {:?}",
                 response
             )
         }
