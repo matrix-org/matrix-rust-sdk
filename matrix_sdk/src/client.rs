@@ -858,7 +858,6 @@ impl Client {
             let response = if let Ok(r) = response {
                 r
             } else {
-                #[cfg(not(target_arch = "wasm32"))]
                 sleep::new(Duration::from_secs(1)).await;
 
                 continue;
@@ -892,12 +891,9 @@ impl Client {
             // If the last sync happened less than a second ago, sleep for a
             // while to not hammer out requests if the server doesn't respect
             // the sync timeout.
-            #[cfg(not(target_arch = "wasm32"))]
-            {
-                if let Some(t) = last_sync_time {
-                    if now - t <= Duration::from_secs(1) {
-                        sleep::new(Duration::from_secs(1)).await;
-                    }
+            if let Some(t) = last_sync_time {
+                if now - t <= Duration::from_secs(1) {
+                    sleep::new(Duration::from_secs(1)).await;
                 }
             }
 
