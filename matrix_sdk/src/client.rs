@@ -255,6 +255,7 @@ use api::r0::membership::{
 };
 use api::r0::message::create_message_event;
 use api::r0::message::get_message_events;
+use api::r0::read_marker::set_read_marker;
 use api::r0::receipt::create_receipt;
 use api::r0::room::create_room;
 use api::r0::session::login;
@@ -722,15 +723,15 @@ impl Client {
         self.send(request).await
     }
 
-    /// Send a request to notify the room of a user typing.
+    /// Send a request to notify the room the user has read specific event.
     ///
     /// Returns a `create_receipt::Response`, an empty response.
     ///
     /// # Arguments
     ///
-    /// * `room_id` - The `RoomId` the user is typing in.
+    /// * `room_id` - The `RoomId` the user is currently in.
     ///
-    /// * `event_id` - The `UserId` of the user that is typing.
+    /// * `event_id` - The `EventId` specifies the event to set the read receipt on.
     pub async fn read_receipt(
         &self,
         room_id: &RoomId,
@@ -740,6 +741,31 @@ impl Client {
             room_id: room_id.clone(),
             event_id: event_id.clone(),
             receipt_type: create_receipt::ReceiptType::Read,
+        };
+        self.send(request).await
+    }
+
+    /// Send a request to notify the room user has read up to specific event.
+    ///
+    /// Returns a `set_read_marker::Response`, an empty response.
+    ///
+    /// # Arguments
+    ///
+    /// * room_id - The `RoomId` the user is currently in.
+    ///
+    /// * fully_read - The `EventId` of the event the user has read to.
+    ///
+    /// * read_receipt - An `EventId` to specify the event to set the read receipt on.
+    pub async fn read_marker(
+        &self,
+        room_id: &RoomId,
+        fully_read: &EventId,
+        read_receipt: Option<&EventId>,
+    ) -> Result<set_read_marker::Response> {
+        let request = set_read_marker::Request {
+            room_id: room_id.clone(),
+            fully_read: fully_read.clone(),
+            read_receipt: read_receipt.cloned(),
         };
         self.send(request).await
     }
@@ -1214,7 +1240,7 @@ impl Client {
 mod test {
     use super::{
         ban_user, create_receipt, create_typing_event, forget_room, invite_user, kick_user,
-        leave_room, Invite3pid, MessageEventContent,
+        leave_room, set_read_marker, Invite3pid, MessageEventContent,
     };
     use super::{Client, ClientConfig, Session, SyncSettings, Url};
     use crate::events::collections::all::RoomEvent;
@@ -1699,6 +1725,42 @@ mod test {
         } else {
             panic!(
                 "expected `ruma_client_api::create_receipt::Response` found {:?}",
+                response
+            )
+        }
+    }
+
+    #[tokio::test]
+    #[allow(irrefutable_let_patterns)]
+    async fn read_marker() {
+        let homeserver = Url::from_str(&mockito::server_url()).unwrap();
+        let user_id = UserId::try_from("@example:localhost").unwrap();
+        let room_id = RoomId::try_from("!testroom:example.org").unwrap();
+        let event_id = EventId::new("example.org").unwrap();
+
+        let session = Session {
+            access_token: "1234".to_owned(),
+            user_id,
+            device_id: "DEVICEID".to_owned(),
+        };
+
+        let _m = mock(
+            "POST",
+            Matcher::Regex(r"^/_matrix/client/r0/rooms/.*/read_markers".to_string()),
+        )
+        .with_status(200)
+        // this is an empty JSON object
+        .with_body_from_file("../test_data/logout_response.json")
+        .create();
+
+        let client = Client::new(homeserver).unwrap();
+        client.restore_login(session).await.unwrap();
+
+        let response = client.read_marker(&room_id, &event_id, None).await.unwrap();
+        if let set_read_marker::Response = response {
+        } else {
+            panic!(
+                "expected `ruma_client_api::set_read_marker::Response` found {:?}",
                 response
             )
         }
