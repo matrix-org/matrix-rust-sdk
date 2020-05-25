@@ -740,9 +740,9 @@ impl Client {
     ///
     /// # Arguments
     ///
-    /// * `room_id` - The `RoomId` the user is typing in.
+    /// * `room_id` - The `RoomId` the user is currently in.
     ///
-    /// * `event_id` - The `UserId` of the user that is typing.
+    /// * `event_id` - The `EventId` specifies the event to set the read receipt on.
     pub async fn read_receipt(
         &self,
         room_id: &RoomId,
@@ -758,15 +758,15 @@ impl Client {
 
     /// Send a request to notify the room user has read up to specific event.
     ///
-    /// Returns a `create_typing_event::Response`, an empty response.
+    /// Returns a `set_read_marker::Response`, an empty response.
     ///
     /// # Arguments
     ///
-    /// * room_id - The `RoomId` the user is typing in.
+    /// * room_id - The `RoomId` the user is currently in.
     ///
     /// * fully_read - The `EventId` of the event the user has read to.
     ///
-    /// * read_receipt - The `EventId` to set the read receipt location at.
+    /// * read_receipt - An `EventId` to specify the event to set the read receipt on.
     pub async fn read_marker(
         &self,
         room_id: &RoomId,
