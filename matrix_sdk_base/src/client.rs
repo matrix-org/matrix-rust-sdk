@@ -59,7 +59,7 @@ use crate::identifiers::DeviceId;
 #[cfg(not(target_arch = "wasm32"))]
 use crate::JsonStore;
 #[cfg(feature = "encryption")]
-use matrix_sdk_crypto::{CryptoStore, OlmMachine, OneTimeKeys};
+use matrix_sdk_crypto::{CryptoStore, OlmError, OlmMachine, OneTimeKeys};
 
 pub type Token = String;
 
@@ -437,7 +437,7 @@ impl BaseClient {
                         store,
                     )
                     .await
-                    .unwrap(),
+                    .map_err(OlmError::from)?,
                 );
             } else if let Some(path) = self.store_path.as_ref() {
                 #[cfg(feature = "sqlite-cryptostore")]
@@ -450,7 +450,7 @@ impl BaseClient {
                             &self.store_passphrase,
                         )
                         .await
-                        .unwrap(),
+                        .map_err(OlmError::from)?,
                     );
                 }
                 #[cfg(not(feature = "sqlite-cryptostore"))]
