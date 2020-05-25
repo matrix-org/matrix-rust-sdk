@@ -31,6 +31,7 @@ use crate::events::presence::PresenceEvent;
 use crate::events::collections::only::Event as NonRoomEvent;
 use crate::events::ignored_user_list::IgnoredUserListEvent;
 use crate::events::push_rules::{PushRulesEvent, Ruleset};
+use crate::events::room::member::MemberEventContent;
 use crate::events::stripped::AnyStrippedStateEvent;
 use crate::events::EventJson;
 use crate::identifiers::{RoomId, UserId};
@@ -61,6 +62,50 @@ use crate::JsonStore;
 use matrix_sdk_crypto::{CryptoStore, OlmMachine, OneTimeKeys};
 
 pub type Token = String;
+
+/// A deserialization wrapper for extracting the prev_content field when
+/// found in an `unsigned` field.
+///
+/// Represents the outer `unsigned` field
+#[derive(serde::Deserialize)]
+pub struct AdditionalEventData {
+    unsigned: AdditionalUnsignedData,
+}
+
+/// A deserialization wrapper for extracting the prev_content field when
+/// found in an `unsigned` field.
+///
+/// Represents the inner `prev_content` field
+#[derive(serde::Deserialize)]
+pub struct AdditionalUnsignedData {
+    pub prev_content: Option<EventJson<MemberEventContent>>,
+}
+
+/// If a `prev_content` field is found inside of `unsigned` we move it up to the events `prev_content` field.
+fn deserialize_prev_content(event: &EventJson<RoomEvent>) -> Option<EventJson<RoomEvent>> {
+    let prev_content = serde_json::from_str::<AdditionalEventData>(event.json().get())
+        .map(|more_unsigned| more_unsigned.unsigned)
+        .map(|additional| additional.prev_content)
+        .ok()
+        .flatten()?;
+
+    let mut ev = event.deserialize().ok()?;
+    match &mut ev {
+        RoomEvent::RoomMember(ref mut member) if member.prev_content.is_none() => {
+            member.prev_content = prev_content.deserialize().ok();
+            Some(EventJson::from(ev))
+        }
+        _ => None,
+    }
+}
+
+fn stripped_deserialize_prev_content(
+    event: &EventJson<AnyStrippedStateEvent>,
+) -> Option<AdditionalUnsignedData> {
+    serde_json::from_str::<AdditionalEventData>(event.json().get())
+        .map(|more_unsigned| more_unsigned.unsigned)
+        .ok()
+}
 
 /// Signals to the `BaseClient` which `RoomState` to send to `EventEmitter`.
 #[derive(Debug)]
@@ -629,6 +674,13 @@ impl BaseClient {
         room_id: &RoomId,
         event: &mut EventJson<RoomEvent>,
     ) -> Result<(Option<EventJson<RoomEvent>>, bool)> {
+        // if the event is a m.room.member event the server will sometimes
+        // send the `prev_content` field as part of the unsigned field this extracts and
+        // places it where everything else expects it.
+        if let Some(e) = deserialize_prev_content(event) {
+            *event = e;
+        }
+
         match event.deserialize() {
             #[allow(unused_mut)]
             Ok(mut e) => {
@@ -652,8 +704,8 @@ impl BaseClient {
                 let room_lock = self.get_or_create_joined_room(&room_id).await?;
                 let mut room = room_lock.write().await;
 
-                if let RoomEvent::RoomMember(event) = &e {
-                    let changed = room.handle_membership(event);
+                if let RoomEvent::RoomMember(mem_event) = &mut e {
+                    let changed = room.handle_membership(mem_event);
 
                     // The memberlist of the room changed, invalidate the group session
                     // of the room.
@@ -942,6 +994,10 @@ impl BaseClient {
                     *event = e;
                 }
 
+                if let Some(e) = deserialize_prev_content(&event) {
+                    *event = e;
+                }
+
                 if let Ok(e) = event.deserialize() {
                     self.emit_timeline_event(&room_id, &e, RoomStateType::Joined)
                         .await;
@@ -1029,6 +1085,10 @@ impl BaseClient {
             }
 
             for event in &mut left_room.timeline.events {
+                if let Some(e) = deserialize_prev_content(&event) {
+                    *event = e;
+                }
+
                 if self.receive_left_timeline_event(room_id, &event).await? {
                     updated = true;
                 };
@@ -1069,8 +1129,26 @@ impl BaseClient {
             };
 
             for event in &invited_room.invite_state.events {
-                if let Ok(e) = event.deserialize() {
-                    self.emit_stripped_state_event(&room_id, &e, RoomStateType::Invited)
+                if let Ok(mut e) = event.deserialize() {
+                    // if the event is a m.room.member event the server will sometimes
+                    // send the `prev_content` field as part of the unsigned field.
+                    if let AnyStrippedStateEvent::RoomMember(_) = &mut e {
+                        if let Some(raw_content) = stripped_deserialize_prev_content(event) {
+                            let prev_content = match raw_content.prev_content {
+                                Some(json) => json.deserialize().ok(),
+                                None => None,
+                            };
+                            self.emit_stripped_state_event(
+                                &room_id,
+                                &e,
+                                prev_content,
+                                RoomStateType::Invited,
+                            )
+                            .await;
+                            continue;
+                        }
+                    }
+                    self.emit_stripped_state_event(&room_id, &e, None, RoomStateType::Invited)
                         .await;
                 }
             }
@@ -1414,6 +1492,7 @@ impl BaseClient {
         &self,
         room_id: &RoomId,
         event: &AnyStrippedStateEvent,
+        prev_content: Option<MemberEventContent>,
         room_state: RoomStateType,
     ) {
         let lock = self.event_emitter.read().await;
@@ -1449,7 +1528,9 @@ impl BaseClient {
 
         match event {
             AnyStrippedStateEvent::RoomMember(member) => {
-                event_emitter.on_stripped_state_member(room, &member).await
+                event_emitter
+                    .on_stripped_state_member(room, &member, prev_content)
+                    .await
             }
             AnyStrippedStateEvent::RoomName(name) => {
                 event_emitter.on_stripped_state_name(room, &name).await
@@ -1786,6 +1867,103 @@ mod test {
 
         let room = client.get_joined_room(&room_id).await;
         assert!(room.is_some());
+    }
+
+    #[async_test]
+    async fn test_prev_content_from_unsigned() {
+        use super::*;
+
+        use crate::{EventEmitter, SyncRoom};
+        use matrix_sdk_common::events::room::member::{MemberEvent, MembershipChange};
+        use matrix_sdk_common::locks::RwLock;
+        use std::sync::{
+            atomic::{AtomicBool, Ordering},
+            Arc,
+        };
+
+        struct EE(Arc<AtomicBool>);
+        #[async_trait::async_trait]
+        impl EventEmitter for EE {
+            async fn on_room_member(&self, room: SyncRoom, event: &MemberEvent) {
+                if let SyncRoom::Joined(_) = room {
+                    match event.membership_change() {
+                        MembershipChange::Joined => {
+                            self.0.swap(true, Ordering::SeqCst);
+                        }
+                        _ => {}
+                    };
+                }
+                if event.prev_content.is_none() {
+                    self.0.swap(false, Ordering::SeqCst);
+                }
+            }
+        }
+
+        let room_id = get_room_id();
+        let passed = Arc::new(AtomicBool::default());
+        let emitter = EE(Arc::clone(&passed));
+        let mut client = get_client().await;
+
+        client.event_emitter = Arc::new(RwLock::new(Some(Box::new(emitter))));
+
+        // This is needed other wise the `EventBuilder` goes through a de/ser cycle and the `prev_content` is lost.
+        let event = serde_json::from_str::<serde_json::Value>(include_str!(
+            "../../test_data/events/member.json"
+        ))
+        .unwrap();
+        let mut joined_rooms: HashMap<RoomId, serde_json::Value> = HashMap::new();
+        let joined_room = serde_json::json!({
+            "summary": {},
+            "account_data": {
+                "events": [],
+            },
+            "ephemeral": {
+                "events": [],
+            },
+            "state": {
+                "events": [],
+            },
+            "timeline": {
+                "events": vec![ event ],
+                "limited": true,
+                "prev_batch": "t392-516_47314_0_7_1_1_1_11444_1"
+            },
+            "unread_notifications": {
+                "highlight_count": 0,
+                "notification_count": 11
+            }
+        });
+        joined_rooms.insert(room_id, joined_room);
+
+        let empty_room: HashMap<RoomId, serde_json::Value> = HashMap::new();
+        let body = serde_json::json!({
+            "device_one_time_keys_count": {},
+            "next_batch": "s526_47314_0_7_1_1_1_11444_1",
+            "device_lists": {
+                "changed": [],
+                "left": []
+            },
+            "rooms": {
+                "invite": empty_room,
+                "join": joined_rooms,
+                "leave": empty_room,
+            },
+            "to_device": {
+                "events": []
+            },
+            "presence": {
+                "events": []
+            }
+        });
+        let response = http::Response::builder()
+            .body(serde_json::to_vec(&body).unwrap())
+            .unwrap();
+        let mut sync =
+            matrix_sdk_common::api::r0::sync::sync_events::Response::try_from(response).unwrap();
+
+        client.receive_sync_response(&mut sync).await.unwrap();
+
+        assert!(passed.load(Ordering::SeqCst))
     }
 
     #[async_test]

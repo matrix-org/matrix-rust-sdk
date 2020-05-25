@@ -12,6 +12,11 @@
     "type": "m.room.member",
     "unsigned": {
         "age": 2970366338,
-        "replaces_state": "$151800111315tsynI:localhost"
+        "replaces_state": "$151800111315tsynI:localhost",
+        "prev_content": {
+            "avatar_url": null,
+            "displayname": "example",
+            "membership": "invite"
+        }
     }
 }
