@@ -1,0 +1,21 @@
+{
+    "content": {
+        "body": " * f fjkdslasdf $$$$$$$$$$$$$$$$$$$$$$$$$$$$",
+        "m.new_content": {
+            "body": "f fjkdslasdf $$$$$$$$$$$$$$$$$$$$$$$$$$$$",
+            "msgtype": "m.text"
+        },
+        "m.relates_to": {
+            "event_id": "$MbS0nMfvub-CPbytp7KRmExAp3oVfdjWOvf2ifG1zWI",
+            "rel_type": "m.replace"
+        },
+        "msgtype": "m.text"
+    },
+    "event_id": "$xXL9cVB_10jkpxUFTsubeusygV0yv5b_63ADjgiQnOA",
+    "origin_server_ts": 1590262659984,
+    "sender": "@devinr528:matrix.org",
+    "type": "m.room.message",
+    "unsigned": {
+        "age": 85
+    }
+}
