@@ -17,10 +17,10 @@ use std::collections::HashMap;
 #[cfg(feature = "encryption")]
 use std::collections::{BTreeMap, HashSet};
 use std::fmt;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use zeroize::Zeroizing;
 
-#[cfg(feature = "encryption")]
 use std::result::Result as StdResult;
 
 use crate::api::r0 as api;
@@ -55,8 +55,10 @@ use crate::api::r0::to_device::send_event_to_device;
 use crate::events::room::{encrypted::EncryptedEventContent, message::MessageEventContent};
 #[cfg(feature = "encryption")]
 use crate::identifiers::DeviceId;
+#[cfg(not(target_arch = "wasm32"))]
+use crate::JsonStore;
 #[cfg(feature = "encryption")]
-use matrix_sdk_crypto::{OlmMachine, OneTimeKeys};
+use matrix_sdk_crypto::{CryptoStore, OlmMachine, OneTimeKeys};
 
 pub type Token = String;
 
@@ -115,11 +117,13 @@ pub struct BaseClient {
     ///
     /// There is a default implementation `JsonStore` that saves JSON to disk.
     state_store: Arc<RwLock<Option<Box<dyn StateStore>>>>,
-    /// Does the `Client` need to sync with the state store.
-    needs_state_store_sync: Arc<AtomicBool>,
 
     #[cfg(feature = "encryption")]
     olm: Arc<Mutex<Option<OlmMachine>>>,
+    #[cfg(feature = "encryption")]
+    cryptostore: Arc<Mutex<Option<Box<dyn CryptoStore>>>>,
+    store_path: Arc<Option<PathBuf>>,
+    store_passphrase: Arc<Zeroizing<String>>,
 }
 
 #[cfg_attr(tarpaulin, skip)]
@@ -136,31 +140,99 @@ impl fmt::Debug for BaseClient {
     }
 }
 
+/// Configuration for the creation of the `BaseClient`.
+///
+/// # Example
+///
+/// ```
+/// # use matrix_sdk_base::BaseClientConfig;
+///
+/// let client_config = BaseClientConfig::new()
+///     .store_path("/home/example/matrix-sdk-client")
+///     .passphrase("test-passphrase".to_owned());
+/// ```
+#[derive(Default)]
+pub struct BaseClientConfig {
+    state_store: Option<Box<dyn StateStore>>,
+    #[cfg(feature = "encryption")]
+    crypto_store: Option<Box<dyn CryptoStore>>,
+    store_path: Option<PathBuf>,
+    passphrase: Option<Zeroizing<String>>,
+}
+
+#[cfg_attr(tarpaulin, skip)]
+impl std::fmt::Debug for BaseClientConfig {
+    fn fmt(&self, fmt: &mut std::fmt::Formatter<'_>) -> StdResult<(), std::fmt::Error> {
+        fmt.debug_struct("BaseClientConfig").finish()
+    }
+}
+
+impl BaseClientConfig {
+    /// Create a new default `BaseClientConfig`.
+    pub fn new() -> Self {
+        Default::default()
+    }
+
+    /// Set a custom implementation of a `StateStore`.
+    ///
+    /// The state store should be opened before being set.
+    pub fn state_store(mut self, store: Box<dyn StateStore>) -> Self {
+        self.state_store = Some(store);
+        self
+    }
+
+    /// Set a custom implementation of a `CryptoStore`.
+    ///
+    /// The crypto store should be opened before being set.
+    #[cfg(feature = "encryption")]
+    pub fn crypto_store(mut self, store: Box<dyn CryptoStore>) -> Self {
+        self.crypto_store = Some(store);
+        self
+    }
+
+    /// Set the path for storage.
+    ///
+    /// # Arguments
+    ///
+    /// * `path` - The path where the stores should save data in. It is the
+    /// callers responsibility to make sure that the path exists.
+    ///
+    /// In the default configuration the client will open default
+    /// implementations for the crypto store and the state store. It will use
+    /// the given path to open the stores. If no path is provided no store will
+    /// be opened
+    pub fn store_path<P: AsRef<Path>>(mut self, path: P) -> Self {
+        self.store_path = Some(path.as_ref().into());
+        self
+    }
+
+    /// Set the passphrase to encrypt the crypto store.
+    ///
+    /// # Argument
+    ///
+    /// * `passphrase` - The passphrase that will be used to encrypt the data in
+    /// the cryptostore.
+    ///
+    /// This is only used if no custom cryptostore is set.
+    pub fn passphrase(mut self, passphrase: String) -> Self {
+        self.passphrase = Some(Zeroizing::new(passphrase));
+        self
+    }
+}
+
 impl BaseClient {
-    /// Create a new client.
-    ///
-    /// # Arguments
-    ///
-    /// * `session` - An optional session if the user already has one from a
-    /// previous login call.
+    /// Create a new default client.
     pub fn new() -> Result<Self> {
-        BaseClient::new_helper(None)
+        BaseClient::new_with_config(BaseClientConfig::default())
     }
 
     /// Create a new client.
     ///
     /// # Arguments
     ///
-    /// * `session` - An optional session if the user already has one from a
+    /// * `config` - An optional session if the user already has one from a
     /// previous login call.
-    ///
-    /// * `store` - An open state store implementation that will be used through
-    /// the lifetime of the client.
-    pub fn new_with_state_store(store: Box<dyn StateStore>) -> Result<Self> {
-        BaseClient::new_helper(Some(store))
-    }
-
-    fn new_helper(store: Option<Box<dyn StateStore>>) -> Result<Self> {
+    pub fn new_with_config(config: BaseClientConfig) -> Result<Self> {
         Ok(BaseClient {
             session: Arc::new(RwLock::new(None)),
             sync_token: Arc::new(RwLock::new(None)),
@@ -170,10 +242,17 @@ impl BaseClient {
             ignored_users: Arc::new(RwLock::new(Vec::new())),
             push_ruleset: Arc::new(RwLock::new(None)),
             event_emitter: Arc::new(RwLock::new(None)),
-            state_store: Arc::new(RwLock::new(store)),
-            needs_state_store_sync: Arc::new(AtomicBool::from(true)),
+            state_store: Arc::new(RwLock::new(config.state_store)),
             #[cfg(feature = "encryption")]
             olm: Arc::new(Mutex::new(None)),
+            #[cfg(feature = "encryption")]
+            cryptostore: Arc::new(Mutex::new(config.crypto_store)),
+            store_path: Arc::new(config.store_path),
+            store_passphrase: Arc::new(
+                config
+                    .passphrase
+                    .unwrap_or_else(|| Zeroizing::new("DEFAULT_PASSPHRASE".to_owned())),
+            ),
         })
     }
 
@@ -197,55 +276,55 @@ impl BaseClient {
         *self.event_emitter.write().await = Some(emitter);
     }
 
-    /// Returns true if the state store has been loaded into the client.
-    pub fn is_state_store_synced(&self) -> bool {
-        !self.needs_state_store_sync.load(Ordering::Relaxed)
-    }
-
     /// When a client is provided the state store will load state from the `StateStore`.
     ///
     /// Returns `true` when a state store sync has successfully completed.
-    pub async fn sync_with_state_store(&self) -> Result<bool> {
+    async fn sync_with_state_store(&self, session: &Session) -> Result<bool> {
         let store = self.state_store.read().await;
-        if let Some(store) = store.as_ref() {
-            if let Some(sess) = self.session.read().await.as_ref() {
-                if let Some(client_state) = store.load_client_state(sess).await? {
-                    let ClientState {
-                        sync_token,
-                        ignored_users,
-                        push_ruleset,
-                    } = client_state;
-                    *self.sync_token.write().await = sync_token;
-                    *self.ignored_users.write().await = ignored_users;
-                    *self.push_ruleset.write().await = push_ruleset;
-                } else {
-                    // return false and continues with a sync request then save the state and create
-                    // and populate the files during the sync
-                    return Ok(false);
-                }
 
-                let AllRooms {
-                    mut joined,
-                    mut invited,
-                    mut left,
-                } = store.load_all_rooms().await?;
-                *self.joined_rooms.write().await = joined
-                    .drain()
-                    .map(|(k, room)| (k, Arc::new(RwLock::new(room))))
-                    .collect();
-                *self.invited_rooms.write().await = invited
-                    .drain()
-                    .map(|(k, room)| (k, Arc::new(RwLock::new(room))))
-                    .collect();
-                *self.left_rooms.write().await = left
-                    .drain()
-                    .map(|(k, room)| (k, Arc::new(RwLock::new(room))))
-                    .collect();
-
-                self.needs_state_store_sync.store(false, Ordering::Relaxed);
+        let loaded = if let Some(store) = store.as_ref() {
+            if let Some(client_state) = store.load_client_state(session).await? {
+                let ClientState {
+                    sync_token,
+                    ignored_users,
+                    push_ruleset,
+                } = client_state;
+                *self.sync_token.write().await = sync_token;
+                *self.ignored_users.write().await = ignored_users;
+                *self.push_ruleset.write().await = push_ruleset;
+            } else {
+                // return false and continues with a sync request then save the state and create
+                // and populate the files during the sync
+                return Ok(false);
             }
-        }
-        Ok(!self.needs_state_store_sync.load(Ordering::Relaxed))
+
+            let AllRooms {
+                mut joined,
+                mut invited,
+                mut left,
+            } = store.load_all_rooms().await?;
+
+            *self.joined_rooms.write().await = joined
+                .drain()
+                .map(|(k, room)| (k, Arc::new(RwLock::new(room))))
+                .collect();
+
+            *self.invited_rooms.write().await = invited
+                .drain()
+                .map(|(k, room)| (k, Arc::new(RwLock::new(room))))
+                .collect();
+
+            *self.left_rooms.write().await = left
+                .drain()
+                .map(|(k, room)| (k, Arc::new(RwLock::new(room))))
+                .collect();
+
+            true
+        } else {
+            false
+        };
+
+        Ok(loaded)
     }
 
     /// When a client is provided the state store will load state from the `StateStore`.
@@ -303,9 +382,54 @@ impl BaseClient {
         #[cfg(feature = "encryption")]
         {
             let mut olm = self.olm.lock().await;
-            *olm = Some(OlmMachine::new(&session.user_id, &session.device_id));
+            let store = self.cryptostore.lock().await.take();
+
+            if let Some(store) = store {
+                *olm = Some(
+                    OlmMachine::new_with_store(
+                        session.user_id.to_owned(),
+                        session.device_id.to_owned(),
+                        store,
+                    )
+                    .await
+                    .unwrap(),
+                );
+            } else if let Some(path) = self.store_path.as_ref() {
+                #[cfg(feature = "sqlite-cryptostore")]
+                {
+                    *olm = Some(
+                        OlmMachine::new_with_default_store(
+                            &session.user_id,
+                            &session.device_id,
+                            path,
+                            &self.store_passphrase,
+                        )
+                        .await
+                        .unwrap(),
+                    );
+                }
+                #[cfg(not(feature = "sqlite-cryptostore"))]
+                {
+                    *olm = Some(OlmMachine::new(&session.user_id, &session.device_id));
+                }
+            } else {
+                *olm = Some(OlmMachine::new(&session.user_id, &session.device_id));
+            }
         }
-        self.sync_with_state_store().await?;
+
+        // If there wasn't a state store opened, try to open the default one if
+        // a store path was provided.
+        if self.state_store.read().await.is_none() {
+            #[cfg(not(target_arch = "wasm32"))]
+            {
+                if let Some(path) = &*self.store_path {
+                    let store = JsonStore::open(path)?;
+                    *self.state_store.write().await = Some(Box::new(store));
+                }
+            }
+        }
+
+        self.sync_with_state_store(&session).await?;
 
         *self.session.write().await = Some(session);
 
@@ -713,8 +837,6 @@ impl BaseClient {
     /// # Arguments
     ///
     /// * `response` - The response that we received after a successful sync.
-    ///
-    /// * `did_update` - Signals to the `StateStore` if the client state needs updating.
     pub async fn receive_sync_response(
         &self,
         response: &mut api::sync::sync_events::Response,

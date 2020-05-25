@@ -27,10 +27,10 @@ zeroize = { version = "1.1.0", features = ["zeroize_derive"] }
 url = "2.1.1"
 
 # Misc dependencies
-thiserror = "1.0.18"
+thiserror = "1.0.19"
 tracing = "0.1.14"
 atomic = "0.4.5"
-dashmap = "3.11.1"
+dashmap = "3.11.2"
 
 [dependencies.tracing-futures]
 version = "0.2.4"

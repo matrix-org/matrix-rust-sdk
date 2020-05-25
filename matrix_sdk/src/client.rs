@@ -17,6 +17,7 @@
 use std::collections::BTreeMap;
 use std::collections::HashMap;
 use std::convert::{TryFrom, TryInto};
+use std::path::Path;
 use std::result::Result as StdResult;
 use std::sync::Arc;
 
@@ -47,10 +48,7 @@ use crate::api;
 #[cfg(not(target_arch = "wasm32"))]
 use crate::VERSION;
 use crate::{Error, EventEmitter, Result};
-use matrix_sdk_base::BaseClient;
-use matrix_sdk_base::Room;
-use matrix_sdk_base::Session;
-use matrix_sdk_base::StateStore;
+use matrix_sdk_base::{BaseClient, BaseClientConfig, Room, Session, StateStore};
 
 const DEFAULT_SYNC_TIMEOUT: Duration = Duration::from_secs(30);
 
@@ -104,7 +102,7 @@ pub struct ClientConfig {
     proxy: Option<reqwest::Proxy>,
     user_agent: Option<HeaderValue>,
     disable_ssl_verification: bool,
-    state_store: Option<Box<dyn StateStore>>,
+    base_config: BaseClientConfig,
 }
 
 #[cfg_attr(tarpaulin, skip)]
@@ -166,7 +164,36 @@ impl ClientConfig {
     ///
     /// The state store should be opened before being set.
     pub fn state_store(mut self, store: Box<dyn StateStore>) -> Self {
-        self.state_store = Some(store);
+        self.base_config = self.base_config.state_store(store);
+        self
+    }
+
+    /// Set the path for storage.
+    ///
+    /// # Arguments
+    ///
+    /// * `path` - The path where the stores should save data in. It is the
+    /// callers responsibility to make sure that the path exists.
+    ///
+    /// In the default configuration the client will open default
+    /// implementations for the crypto store and the state store. It will use
+    /// the given path to open the stores. If no path is provided no store will
+    /// be opened
+    pub fn store_path<P: AsRef<Path>>(mut self, path: P) -> Self {
+        self.base_config = self.base_config.store_path(path);
+        self
+    }
+
+    /// Set the passphrase to encrypt the crypto store.
+    ///
+    /// # Argument
+    ///
+    /// * `passphrase` - The passphrase that will be used to encrypt the data in
+    /// the cryptostore.
+    ///
+    /// This is only used if no custom cryptostore is set.
+    pub fn passphrase(mut self, passphrase: String) -> Self {
+        self.base_config = self.base_config.passphrase(passphrase);
         self
     }
 }
@@ -293,11 +320,7 @@ impl Client {
 
         let http_client = http_client.build()?;
 
-        let base_client = if let Some(store) = config.state_store {
-            BaseClient::new_with_state_store(store)?
-        } else {
-            BaseClient::new()?
-        };
+        let base_client = BaseClient::new_with_config(config.base_config)?;
 
         Ok(Self {
             homeserver,
@@ -369,38 +392,6 @@ impl Client {
     /// `room_id` - The unique id of the room that should be fetched.
     pub async fn get_left_room(&self, room_id: &RoomId) -> Option<Arc<RwLock<Room>>> {
         self.base_client.get_left_room(room_id).await
-    }
-
-    /// This allows `Client` to manually sync state with the provided `StateStore`.
-    ///
-    /// Returns true when a successful `StateStore` sync has completed.
-    ///
-    /// # Examples
-    ///
-    /// ```no_run
-    /// use matrix_sdk::{Client, ClientConfig, JsonStore, RoomBuilder};
-    /// # use matrix_sdk::api::r0::room::Visibility;
-    /// # use url::Url;
-    ///
-    /// # let homeserver = Url::parse("http://example.com").unwrap();
-    /// let store = JsonStore::open("path/to/store").unwrap();
-    /// let config = ClientConfig::new().state_store(Box::new(store));
-    /// let mut client = Client::new(homeserver).unwrap();
-    /// # use futures::executor::block_on;
-    /// # block_on(async {
-    /// let _ = client.login("name", "password", None, None).await.unwrap();
-    /// // returns true when a state store sync is successful
-    /// assert!(client.sync_with_state_store().await.unwrap());
-    /// // now state is restored without a request to the server
-    /// let mut names = vec![];
-    /// for r in client.joined_rooms().read().await.values() {
-    ///     names.push(r.read().await.display_name());
-    /// }
-    /// assert_eq!(vec!["room".to_string(), "names".to_string()], names)
-    /// # });
-    /// ```
-    pub async fn sync_with_state_store(&self) -> Result<bool> {
-        Ok(self.base_client.sync_with_state_store().await?)
     }
 
     /// This allows `Client` to manually store `Room` state with the provided
@@ -477,8 +468,6 @@ impl Client {
         self.send(request).await
     }
 
-    // TODO enable this once Ruma supports proper serialization of the query
-    // string.
     /// Join a room by `RoomId`.
     ///
     /// Returns a `join_room_by_id_or_alias::Response` consisting of the
@@ -1441,8 +1430,6 @@ mod test {
         );
     }
 
-    // TODO enable this once Ruma supports proper serialization of the query
-    // string.
     #[tokio::test]
     async fn join_room_by_id_or_alias() {
         let homeserver = Url::from_str(&mockito::server_url()).unwrap();
@@ -1798,7 +1785,7 @@ mod test {
             .unwrap();
 
         assert_eq!(
-            EventId::try_from("$h29iv0s8:example.com").ok(),
+            EventId::try_from("$h29iv0s8:example.com").unwrap(),
             response.event_id
         )
     }

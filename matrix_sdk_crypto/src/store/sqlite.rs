@@ -91,9 +91,15 @@ impl SqliteStore {
         user_id: &UserId,
         device_id: &str,
         path: P,
-        passphrase: String,
+        passphrase: &str,
     ) -> Result<SqliteStore> {
-        SqliteStore::open_helper(user_id, device_id, path, Some(Zeroizing::new(passphrase))).await
+        SqliteStore::open_helper(
+            user_id,
+            device_id,
+            path,
+            Some(Zeroizing::new(passphrase.to_owned())),
+        )
+        .await
     }
 
     fn path_to_url(path: &Path) -> Result<Url> {
@@ -801,14 +807,9 @@ mod test {
         let user_id = &UserId::try_from(USER_ID).unwrap();
 
         let store = if let Some(passphrase) = passphrase {
-            SqliteStore::open_with_passphrase(
-                &user_id,
-                DEVICE_ID,
-                tmpdir_path,
-                passphrase.to_owned(),
-            )
-            .await
-            .expect("Can't create a passphrase protected store")
+            SqliteStore::open_with_passphrase(&user_id, DEVICE_ID, tmpdir_path, passphrase)
+                .await
+                .expect("Can't create a passphrase protected store")
         } else {
             SqliteStore::open(&user_id, DEVICE_ID, tmpdir_path)
                 .await
