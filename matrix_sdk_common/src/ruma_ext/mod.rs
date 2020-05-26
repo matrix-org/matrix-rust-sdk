@@ -69,9 +69,7 @@ fn test_message_edit_event() {
     .deserialize()
     .unwrap();
 
-    println!("{:#?}", ev);
     let json = serde_json::to_string_pretty(&ev).unwrap();
-    println!("{}", json);
     assert_eq!(
         ev,
         serde_json::from_str::<EventJson<RumaUnsupportedEvent>>(&json)
@@ -92,9 +90,7 @@ fn test_reaction_event() {
     .deserialize()
     .unwrap();
 
-    println!("{:#?}", ev);
     let json = serde_json::to_string_pretty(&ev).unwrap();
-    println!("{}", json);
     assert_eq!(
         ev,
         serde_json::from_str::<EventJson<RumaUnsupportedEvent>>(&json)

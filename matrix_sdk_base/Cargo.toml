@@ -11,7 +11,7 @@ repository = "https://github.com/matrix-org/matrix-rust-sdk"
 version = "0.1.0"
 
 [features]
-default = ["encryption", "sqlite-cryptostore"]
+default = ["encryption", "sqlite-cryptostore", "messages"]
 messages = []
 encryption = ["matrix-sdk-crypto"]
 sqlite-cryptostore = ["matrix-sdk-crypto/sqlite-cryptostore"]
@@ -20,12 +20,13 @@ sqlite-cryptostore = ["matrix-sdk-crypto/sqlite-cryptostore"]
 async-trait = "0.1.31"
 serde = "1.0.110"
 serde_json = "1.0.53"
+zeroize = "1.1.0"
 
 matrix-sdk-common = { version = "0.1.0", path = "../matrix_sdk_common" }
 matrix-sdk-crypto = { version = "0.1.0", path = "../matrix_sdk_crypto", optional = true }
 
 # Misc dependencies
-thiserror = "1.0.18"
+thiserror = "1.0.19"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies.tokio]
 version = "0.2.21"

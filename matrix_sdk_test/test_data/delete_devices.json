@@ -1,0 +1,18 @@
+{
+  "completed": [
+    "example.type.foo"
+  ],
+  "flows": [
+    {
+      "stages": [
+        "example.type.foo"
+      ]
+    }
+  ],
+  "params": {
+    "example.type.baz": {
+      "example_key": "foobar"
+    }
+  },
+  "session": "xxxxxxyz"
+}

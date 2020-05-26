@@ -1,0 +1,13 @@
+{
+    "content": {
+        "name": "room name"
+    },
+    "event_id": "$15139375513VdeRF:localhost",
+    "origin_server_ts": 1513937551461,
+    "sender": "@example:localhost",
+    "state_key": "",
+    "type": "m.room.name",
+    "unsigned": {
+        "age": 7034220433
+    }
+}

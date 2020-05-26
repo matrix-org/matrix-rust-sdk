@@ -20,7 +20,7 @@ sqlite-cryptostore = ["matrix-sdk-base/sqlite-cryptostore"]
 http = "0.2.1"
 reqwest = "0.10.4"
 serde_json = "1.0.53"
-thiserror = "1.0.18"
+thiserror = "1.0.19"
 tracing = "0.1.14"
 url = "2.1.1"
 futures-timer = { version = "3.0.2", features = ["wasm-bindgen"] }

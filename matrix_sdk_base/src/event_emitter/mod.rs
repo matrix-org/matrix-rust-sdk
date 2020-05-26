@@ -28,7 +28,7 @@ use crate::events::{
         avatar::AvatarEvent,
         canonical_alias::CanonicalAliasEvent,
         join_rules::JoinRulesEvent,
-        member::MemberEvent,
+        member::{MemberEvent, MemberEventContent},
         message::{feedback::FeedbackEvent, MessageEvent},
         name::NameEvent,
         power_levels::PowerLevelsEvent,
@@ -132,7 +132,13 @@ pub trait EventEmitter: Send + Sync {
 
     // `AnyStrippedStateEvent`s
     /// Fires when `Client` receives a `AnyStrippedStateEvent::StrippedRoomMember` event.
-    async fn on_stripped_state_member(&self, _: SyncRoom, _: &StrippedRoomMember) {}
+    async fn on_stripped_state_member(
+        &self,
+        _: SyncRoom,
+        _: &StrippedRoomMember,
+        _: Option<MemberEventContent>,
+    ) {
+    }
     /// Fires when `Client` receives a `AnyStrippedStateEvent::StrippedRoomName` event.
     async fn on_stripped_state_name(&self, _: SyncRoom, _: &StrippedRoomName) {}
     /// Fires when `Client` receives a `AnyStrippedStateEvent::StrippedRoomCanonicalAlias` event.
@@ -242,7 +248,12 @@ mod test {
             self.0.lock().await.push("state rules".to_string())
         }
 
-        async fn on_stripped_state_member(&self, _: SyncRoom, _: &StrippedRoomMember) {
+        async fn on_stripped_state_member(
+            &self,
+            _: SyncRoom,
+            _: &StrippedRoomMember,
+            _: Option<MemberEventContent>,
+        ) {
             self.0
                 .lock()
                 .await

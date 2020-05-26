@@ -380,6 +380,8 @@ impl Room {
     ///
     /// Returns true if the joined member list changed, false otherwise.
     pub fn handle_membership(&mut self, event: &MemberEvent) -> bool {
+        // TODO this would not be handled correctly as all the MemberEvents have the `prev_content`
+        // inside of `unsigned` field
         match event.membership_change() {
             MembershipChange::Invited | MembershipChange::Joined => self.add_member(event),
             _ => {

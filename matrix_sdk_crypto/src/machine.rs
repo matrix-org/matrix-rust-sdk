@@ -141,9 +141,9 @@ impl OlmMachine {
     /// * `store` - A `Cryptostore` implementation that will be used to store
     /// the encryption keys.
     pub async fn new_with_store(
-        user_id: &UserId,
-        device_id: &str,
-        mut store: impl CryptoStore + 'static,
+        user_id: UserId,
+        device_id: String,
+        mut store: Box<dyn CryptoStore>,
     ) -> StoreError<Self> {
         let account = match store.load_account().await? {
             Some(a) => {
@@ -161,7 +161,7 @@ impl OlmMachine {
             device_id: device_id.to_owned(),
             account,
             uploaded_signed_key_count: None,
-            store: Box::new(store),
+            store,
             outbound_group_sessions: HashMap::new(),
         })
     }
@@ -181,12 +181,12 @@ impl OlmMachine {
         user_id: &UserId,
         device_id: &str,
         path: P,
-        passphrase: String,
+        passphrase: &str,
     ) -> StoreError<Self> {
         let store =
             SqliteStore::open_with_passphrase(&user_id, device_id, path, passphrase).await?;
 
-        OlmMachine::new_with_store(user_id, device_id, store).await
+        OlmMachine::new_with_store(user_id.to_owned(), device_id.to_owned(), Box::new(store)).await
     }
 
     /// The unique user id that owns this identity.

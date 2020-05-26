@@ -1,0 +1,8 @@
+{
+    "joined": {
+      "@bar:example.com": {
+        "avatar_url": null,
+        "display_name": "Bar"
+      }
+    }
+}

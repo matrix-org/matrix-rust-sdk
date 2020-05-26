@@ -17,10 +17,10 @@ use std::collections::HashMap;
 #[cfg(feature = "encryption")]
 use std::collections::{BTreeMap, HashSet};
 use std::fmt;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use zeroize::Zeroizing;
 
-#[cfg(feature = "encryption")]
 use std::result::Result as StdResult;
 
 use crate::api::r0 as api;
@@ -31,6 +31,7 @@ use crate::events::presence::PresenceEvent;
 use crate::events::collections::only::Event as NonRoomEvent;
 use crate::events::ignored_user_list::IgnoredUserListEvent;
 use crate::events::push_rules::{PushRulesEvent, Ruleset};
+use crate::events::room::member::MemberEventContent;
 use crate::events::stripped::AnyStrippedStateEvent;
 use crate::events::EventJson;
 use crate::identifiers::{RoomId, UserId};
@@ -56,10 +57,56 @@ use crate::api::r0::to_device::send_event_to_device;
 use crate::events::room::{encrypted::EncryptedEventContent, message::MessageEventContent};
 #[cfg(feature = "encryption")]
 use crate::identifiers::DeviceId;
+#[cfg(not(target_arch = "wasm32"))]
+use crate::JsonStore;
 #[cfg(feature = "encryption")]
-use matrix_sdk_crypto::{OlmMachine, OneTimeKeys};
+use matrix_sdk_crypto::{CryptoStore, OlmError, OlmMachine, OneTimeKeys};
 
 pub type Token = String;
+
+/// A deserialization wrapper for extracting the prev_content field when
+/// found in an `unsigned` field.
+///
+/// Represents the outer `unsigned` field
+#[derive(serde::Deserialize)]
+pub struct AdditionalEventData {
+    unsigned: AdditionalUnsignedData,
+}
+
+/// A deserialization wrapper for extracting the prev_content field when
+/// found in an `unsigned` field.
+///
+/// Represents the inner `prev_content` field
+#[derive(serde::Deserialize)]
+pub struct AdditionalUnsignedData {
+    pub prev_content: Option<EventJson<MemberEventContent>>,
+}
+
+/// If a `prev_content` field is found inside of `unsigned` we move it up to the events `prev_content` field.
+fn deserialize_prev_content(event: &EventJson<RoomEvent>) -> Option<EventJson<RoomEvent>> {
+    let prev_content = serde_json::from_str::<AdditionalEventData>(event.json().get())
+        .map(|more_unsigned| more_unsigned.unsigned)
+        .map(|additional| additional.prev_content)
+        .ok()
+        .flatten()?;
+
+    let mut ev = event.deserialize().ok()?;
+    match &mut ev {
+        RoomEvent::RoomMember(ref mut member) if member.prev_content.is_none() => {
+            member.prev_content = prev_content.deserialize().ok();
+            Some(EventJson::from(ev))
+        }
+        _ => None,
+    }
+}
+
+fn stripped_deserialize_prev_content(
+    event: &EventJson<AnyStrippedStateEvent>,
+) -> Option<AdditionalUnsignedData> {
+    serde_json::from_str::<AdditionalEventData>(event.json().get())
+        .map(|more_unsigned| more_unsigned.unsigned)
+        .ok()
+}
 
 /// Signals to the `BaseClient` which `RoomState` to send to `EventEmitter`.
 #[derive(Debug)]
@@ -116,11 +163,13 @@ pub struct BaseClient {
     ///
     /// There is a default implementation `JsonStore` that saves JSON to disk.
     state_store: Arc<RwLock<Option<Box<dyn StateStore>>>>,
-    /// Does the `Client` need to sync with the state store.
-    needs_state_store_sync: Arc<AtomicBool>,
 
     #[cfg(feature = "encryption")]
     olm: Arc<Mutex<Option<OlmMachine>>>,
+    #[cfg(feature = "encryption")]
+    cryptostore: Arc<Mutex<Option<Box<dyn CryptoStore>>>>,
+    store_path: Arc<Option<PathBuf>>,
+    store_passphrase: Arc<Zeroizing<String>>,
 }
 
 #[cfg_attr(tarpaulin, skip)]
@@ -137,31 +186,99 @@ impl fmt::Debug for BaseClient {
     }
 }
 
+/// Configuration for the creation of the `BaseClient`.
+///
+/// # Example
+///
+/// ```
+/// # use matrix_sdk_base::BaseClientConfig;
+///
+/// let client_config = BaseClientConfig::new()
+///     .store_path("/home/example/matrix-sdk-client")
+///     .passphrase("test-passphrase".to_owned());
+/// ```
+#[derive(Default)]
+pub struct BaseClientConfig {
+    state_store: Option<Box<dyn StateStore>>,
+    #[cfg(feature = "encryption")]
+    crypto_store: Option<Box<dyn CryptoStore>>,
+    store_path: Option<PathBuf>,
+    passphrase: Option<Zeroizing<String>>,
+}
+
+#[cfg_attr(tarpaulin, skip)]
+impl std::fmt::Debug for BaseClientConfig {
+    fn fmt(&self, fmt: &mut std::fmt::Formatter<'_>) -> StdResult<(), std::fmt::Error> {
+        fmt.debug_struct("BaseClientConfig").finish()
+    }
+}
+
+impl BaseClientConfig {
+    /// Create a new default `BaseClientConfig`.
+    pub fn new() -> Self {
+        Default::default()
+    }
+
+    /// Set a custom implementation of a `StateStore`.
+    ///
+    /// The state store should be opened before being set.
+    pub fn state_store(mut self, store: Box<dyn StateStore>) -> Self {
+        self.state_store = Some(store);
+        self
+    }
+
+    /// Set a custom implementation of a `CryptoStore`.
+    ///
+    /// The crypto store should be opened before being set.
+    #[cfg(feature = "encryption")]
+    pub fn crypto_store(mut self, store: Box<dyn CryptoStore>) -> Self {
+        self.crypto_store = Some(store);
+        self
+    }
+
+    /// Set the path for storage.
+    ///
+    /// # Arguments
+    ///
+    /// * `path` - The path where the stores should save data in. It is the
+    /// callers responsibility to make sure that the path exists.
+    ///
+    /// In the default configuration the client will open default
+    /// implementations for the crypto store and the state store. It will use
+    /// the given path to open the stores. If no path is provided no store will
+    /// be opened
+    pub fn store_path<P: AsRef<Path>>(mut self, path: P) -> Self {
+        self.store_path = Some(path.as_ref().into());
+        self
+    }
+
+    /// Set the passphrase to encrypt the crypto store.
+    ///
+    /// # Argument
+    ///
+    /// * `passphrase` - The passphrase that will be used to encrypt the data in
+    /// the cryptostore.
+    ///
+    /// This is only used if no custom cryptostore is set.
+    pub fn passphrase(mut self, passphrase: String) -> Self {
+        self.passphrase = Some(Zeroizing::new(passphrase));
+        self
+    }
+}
+
 impl BaseClient {
-    /// Create a new client.
-    ///
-    /// # Arguments
-    ///
-    /// * `session` - An optional session if the user already has one from a
-    /// previous login call.
+    /// Create a new default client.
     pub fn new() -> Result<Self> {
-        BaseClient::new_helper(None)
+        BaseClient::new_with_config(BaseClientConfig::default())
     }
 
     /// Create a new client.
     ///
     /// # Arguments
     ///
-    /// * `session` - An optional session if the user already has one from a
+    /// * `config` - An optional session if the user already has one from a
     /// previous login call.
-    ///
-    /// * `store` - An open state store implementation that will be used through
-    /// the lifetime of the client.
-    pub fn new_with_state_store(store: Box<dyn StateStore>) -> Result<Self> {
-        BaseClient::new_helper(Some(store))
-    }
-
-    fn new_helper(store: Option<Box<dyn StateStore>>) -> Result<Self> {
+    pub fn new_with_config(config: BaseClientConfig) -> Result<Self> {
         Ok(BaseClient {
             session: Arc::new(RwLock::new(None)),
             sync_token: Arc::new(RwLock::new(None)),
@@ -171,10 +288,17 @@ impl BaseClient {
             ignored_users: Arc::new(RwLock::new(Vec::new())),
             push_ruleset: Arc::new(RwLock::new(None)),
             event_emitter: Arc::new(RwLock::new(None)),
-            state_store: Arc::new(RwLock::new(store)),
-            needs_state_store_sync: Arc::new(AtomicBool::from(true)),
+            state_store: Arc::new(RwLock::new(config.state_store)),
             #[cfg(feature = "encryption")]
             olm: Arc::new(Mutex::new(None)),
+            #[cfg(feature = "encryption")]
+            cryptostore: Arc::new(Mutex::new(config.crypto_store)),
+            store_path: Arc::new(config.store_path),
+            store_passphrase: Arc::new(
+                config
+                    .passphrase
+                    .unwrap_or_else(|| Zeroizing::new("DEFAULT_PASSPHRASE".to_owned())),
+            ),
         })
     }
 
@@ -198,55 +322,55 @@ impl BaseClient {
         *self.event_emitter.write().await = Some(emitter);
     }
 
-    /// Returns true if the state store has been loaded into the client.
-    pub fn is_state_store_synced(&self) -> bool {
-        !self.needs_state_store_sync.load(Ordering::Relaxed)
-    }
-
     /// When a client is provided the state store will load state from the `StateStore`.
     ///
     /// Returns `true` when a state store sync has successfully completed.
-    pub async fn sync_with_state_store(&self) -> Result<bool> {
+    async fn sync_with_state_store(&self, session: &Session) -> Result<bool> {
         let store = self.state_store.read().await;
-        if let Some(store) = store.as_ref() {
-            if let Some(sess) = self.session.read().await.as_ref() {
-                if let Some(client_state) = store.load_client_state(sess).await? {
-                    let ClientState {
-                        sync_token,
-                        ignored_users,
-                        push_ruleset,
-                    } = client_state;
-                    *self.sync_token.write().await = sync_token;
-                    *self.ignored_users.write().await = ignored_users;
-                    *self.push_ruleset.write().await = push_ruleset;
-                } else {
-                    // return false and continues with a sync request then save the state and create
-                    // and populate the files during the sync
-                    return Ok(false);
-                }
 
-                let AllRooms {
-                    mut joined,
-                    mut invited,
-                    mut left,
-                } = store.load_all_rooms().await?;
-                *self.joined_rooms.write().await = joined
-                    .drain()
-                    .map(|(k, room)| (k, Arc::new(RwLock::new(room))))
-                    .collect();
-                *self.invited_rooms.write().await = invited
-                    .drain()
-                    .map(|(k, room)| (k, Arc::new(RwLock::new(room))))
-                    .collect();
-                *self.left_rooms.write().await = left
-                    .drain()
-                    .map(|(k, room)| (k, Arc::new(RwLock::new(room))))
-                    .collect();
-
-                self.needs_state_store_sync.store(false, Ordering::Relaxed);
+        let loaded = if let Some(store) = store.as_ref() {
+            if let Some(client_state) = store.load_client_state(session).await? {
+                let ClientState {
+                    sync_token,
+                    ignored_users,
+                    push_ruleset,
+                } = client_state;
+                *self.sync_token.write().await = sync_token;
+                *self.ignored_users.write().await = ignored_users;
+                *self.push_ruleset.write().await = push_ruleset;
+            } else {
+                // return false and continues with a sync request then save the state and create
+                // and populate the files during the sync
+                return Ok(false);
             }
-        }
-        Ok(!self.needs_state_store_sync.load(Ordering::Relaxed))
+
+            let AllRooms {
+                mut joined,
+                mut invited,
+                mut left,
+            } = store.load_all_rooms().await?;
+
+            *self.joined_rooms.write().await = joined
+                .drain()
+                .map(|(k, room)| (k, Arc::new(RwLock::new(room))))
+                .collect();
+
+            *self.invited_rooms.write().await = invited
+                .drain()
+                .map(|(k, room)| (k, Arc::new(RwLock::new(room))))
+                .collect();
+
+            *self.left_rooms.write().await = left
+                .drain()
+                .map(|(k, room)| (k, Arc::new(RwLock::new(room))))
+                .collect();
+
+            true
+        } else {
+            false
+        };
+
+        Ok(loaded)
     }
 
     /// When a client is provided the state store will load state from the `StateStore`.
@@ -304,9 +428,54 @@ impl BaseClient {
         #[cfg(feature = "encryption")]
         {
             let mut olm = self.olm.lock().await;
-            *olm = Some(OlmMachine::new(&session.user_id, &session.device_id));
+            let store = self.cryptostore.lock().await.take();
+
+            if let Some(store) = store {
+                *olm = Some(
+                    OlmMachine::new_with_store(
+                        session.user_id.to_owned(),
+                        session.device_id.to_owned(),
+                        store,
+                    )
+                    .await
+                    .map_err(OlmError::from)?,
+                );
+            } else if let Some(path) = self.store_path.as_ref() {
+                #[cfg(feature = "sqlite-cryptostore")]
+                {
+                    *olm = Some(
+                        OlmMachine::new_with_default_store(
+                            &session.user_id,
+                            &session.device_id,
+                            path,
+                            &self.store_passphrase,
+                        )
+                        .await
+                        .map_err(OlmError::from)?,
+                    );
+                }
+                #[cfg(not(feature = "sqlite-cryptostore"))]
+                {
+                    *olm = Some(OlmMachine::new(&session.user_id, &session.device_id));
+                }
+            } else {
+                *olm = Some(OlmMachine::new(&session.user_id, &session.device_id));
+            }
         }
-        self.sync_with_state_store().await?;
+
+        // If there wasn't a state store opened, try to open the default one if
+        // a store path was provided.
+        if self.state_store.read().await.is_none() {
+            #[cfg(not(target_arch = "wasm32"))]
+            {
+                if let Some(path) = &*self.store_path {
+                    let store = JsonStore::open(path)?;
+                    *self.state_store.write().await = Some(Box::new(store));
+                }
+            }
+        }
+
+        self.sync_with_state_store(&session).await?;
 
         *self.session.write().await = Some(session);
 
@@ -506,6 +675,13 @@ impl BaseClient {
         room_id: &RoomId,
         event: &mut EventJson<RoomEvent>,
     ) -> Result<(Option<EventJson<RoomEvent>>, bool)> {
+        // if the event is a m.room.member event the server will sometimes
+        // send the `prev_content` field as part of the unsigned field this extracts and
+        // places it where everything else expects it.
+        if let Some(e) = deserialize_prev_content(event) {
+            *event = e;
+        }
+
         match event.deserialize() {
             #[allow(unused_mut)]
             Ok(mut e) => {
@@ -529,8 +705,8 @@ impl BaseClient {
                 let room_lock = self.get_or_create_joined_room(&room_id).await?;
                 let mut room = room_lock.write().await;
 
-                if let RoomEvent::RoomMember(event) = &e {
-                    let changed = room.handle_membership(event);
+                if let RoomEvent::RoomMember(mem_event) = &mut e {
+                    let changed = room.handle_membership(mem_event);
 
                     // The memberlist of the room changed, invalidate the group session
                     // of the room.
@@ -714,8 +890,6 @@ impl BaseClient {
     /// # Arguments
     ///
     /// * `response` - The response that we received after a successful sync.
-    ///
-    /// * `did_update` - Signals to the `StateStore` if the client state needs updating.
     pub async fn receive_sync_response(
         &self,
         response: &mut api::sync::sync_events::Response,
@@ -821,6 +995,10 @@ impl BaseClient {
                     *event = e;
                 }
 
+                if let Some(e) = deserialize_prev_content(&event) {
+                    *event = e;
+                }
+
                 // Some unsupported events are deserialized as `CustomRoomEvent` so deserialization does
                 // not fail but since we can be more specific we try these types first.
                 //
@@ -917,6 +1095,10 @@ impl BaseClient {
             }
 
             for event in &mut left_room.timeline.events {
+                if let Some(e) = deserialize_prev_content(&event) {
+                    *event = e;
+                }
+
                 if self.receive_left_timeline_event(room_id, &event).await? {
                     updated = true;
                 };
@@ -957,8 +1139,26 @@ impl BaseClient {
             };
 
             for event in &invited_room.invite_state.events {
-                if let Ok(e) = event.deserialize() {
-                    self.emit_stripped_state_event(&room_id, &e, RoomStateType::Invited)
+                if let Ok(mut e) = event.deserialize() {
+                    // if the event is a m.room.member event the server will sometimes
+                    // send the `prev_content` field as part of the unsigned field.
+                    if let AnyStrippedStateEvent::RoomMember(_) = &mut e {
+                        if let Some(raw_content) = stripped_deserialize_prev_content(event) {
+                            let prev_content = match raw_content.prev_content {
+                                Some(json) => json.deserialize().ok(),
+                                None => None,
+                            };
+                            self.emit_stripped_state_event(
+                                &room_id,
+                                &e,
+                                prev_content,
+                                RoomStateType::Invited,
+                            )
+                            .await;
+                            continue;
+                        }
+                    }
+                    self.emit_stripped_state_event(&room_id, &e, None, RoomStateType::Invited)
                         .await;
                 }
             }
@@ -1302,6 +1502,7 @@ impl BaseClient {
         &self,
         room_id: &RoomId,
         event: &AnyStrippedStateEvent,
+        prev_content: Option<MemberEventContent>,
         room_state: RoomStateType,
     ) {
         let lock = self.event_emitter.read().await;
@@ -1337,7 +1538,9 @@ impl BaseClient {
 
         match event {
             AnyStrippedStateEvent::RoomMember(member) => {
-                event_emitter.on_stripped_state_member(room, &member).await
+                event_emitter
+                    .on_stripped_state_member(room, &member, prev_content)
+                    .await
             }
             AnyStrippedStateEvent::RoomName(name) => {
                 event_emitter.on_stripped_state_name(room, &name).await
@@ -1848,6 +2051,103 @@ mod test {
         // This is needed other wise the `EventBuilder` goes through a de/ser cycle and the `prev_content` is lost.
         let event = serde_json::from_str::<serde_json::Value>(include_str!(
             "../../test_data/events/reaction.json"
+        ))
+        .unwrap();
+        let mut joined_rooms: HashMap<RoomId, serde_json::Value> = HashMap::new();
+        let joined_room = serde_json::json!({
+            "summary": {},
+            "account_data": {
+                "events": [],
+            },
+            "ephemeral": {
+                "events": [],
+            },
+            "state": {
+                "events": [],
+            },
+            "timeline": {
+                "events": vec![ event ],
+                "limited": true,
+                "prev_batch": "t392-516_47314_0_7_1_1_1_11444_1"
+            },
+            "unread_notifications": {
+                "highlight_count": 0,
+                "notification_count": 11
+            }
+        });
+        joined_rooms.insert(room_id, joined_room);
+
+        let empty_room: HashMap<RoomId, serde_json::Value> = HashMap::new();
+        let body = serde_json::json!({
+            "device_one_time_keys_count": {},
+            "next_batch": "s526_47314_0_7_1_1_1_11444_1",
+            "device_lists": {
+                "changed": [],
+                "left": []
+            },
+            "rooms": {
+                "invite": empty_room,
+                "join": joined_rooms,
+                "leave": empty_room,
+            },
+            "to_device": {
+                "events": []
+            },
+            "presence": {
+                "events": []
+            }
+        });
+        let response = http::Response::builder()
+            .body(serde_json::to_vec(&body).unwrap())
+            .unwrap();
+        let mut sync =
+            matrix_sdk_common::api::r0::sync::sync_events::Response::try_from(response).unwrap();
+
+        client.receive_sync_response(&mut sync).await.unwrap();
+
+        assert!(passed.load(Ordering::SeqCst))
+    }
+
+    #[async_test]
+    async fn test_prev_content_from_unsigned() {
+        use super::*;
+
+        use crate::{EventEmitter, SyncRoom};
+        use matrix_sdk_common::events::room::member::{MemberEvent, MembershipChange};
+        use matrix_sdk_common::locks::RwLock;
+        use std::sync::{
+            atomic::{AtomicBool, Ordering},
+            Arc,
+        };
+
+        struct EE(Arc<AtomicBool>);
+        #[async_trait::async_trait]
+        impl EventEmitter for EE {
+            async fn on_room_member(&self, room: SyncRoom, event: &MemberEvent) {
+                if let SyncRoom::Joined(_) = room {
+                    match event.membership_change() {
+                        MembershipChange::Joined => {
+                            self.0.swap(true, Ordering::SeqCst);
+                        }
+                        _ => {}
+                    };
+                }
+                if event.prev_content.is_none() {
+                    self.0.swap(false, Ordering::SeqCst);
+                }
+            }
+        }
+
+        let room_id = get_room_id();
+        let passed = Arc::new(AtomicBool::default());
+        let emitter = EE(Arc::clone(&passed));
+        let mut client = get_client().await;
+
+        client.event_emitter = Arc::new(RwLock::new(Some(Box::new(emitter))));
+
+        // This is needed other wise the `EventBuilder` goes through a de/ser cycle and the `prev_content` is lost.
+        let event = serde_json::from_str::<serde_json::Value>(include_str!(
+            "../../test_data/events/member.json"
         ))
         .unwrap();
         let mut joined_rooms: HashMap<RoomId, serde_json::Value> = HashMap::new();

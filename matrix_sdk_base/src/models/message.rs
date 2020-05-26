@@ -161,104 +161,42 @@ mod test {
         let event = serde_json::from_str::<EventJson<RoomEvent>>(&json).unwrap();
 
         let mut msgs = MessageQueue::new();
-        if let Ok(ev) = event.deserialize() {
-            if let RoomEvent::RoomMessage(msg) = ev {
-                msgs.push(msg);
-            }
-        }
-        room.messages = msgs;
+        let message = if let RoomEvent::RoomMessage(msg) = event.deserialize().unwrap() {
+            msgs.push(msg.clone());
+            msg
+        } else {
+            panic!("this should always be a RoomMessage")
+        };
+        room.messages = msgs.clone();
 
         let mut joined_rooms = HashMap::new();
         joined_rooms.insert(id, room);
 
-        // println!("{}", serde_json::to_string_pretty(&joined_rooms).unwrap());
-
-        // this is the correct JSON string changes to `ruma-events` have not been released
-        // that would fix the doubling of fields
-        // TODO uncomment when fixed
-        //         assert_eq!(
-        //             r#"{
-        //   "!roomid:example.com": {
-        //     "room_id": "!roomid:example.com",
-        //     "room_name": {
-        //       "name": null,
-        //       "canonical_alias": null,
-        //       "aliases": [],
-        //       "heroes": [],
-        //       "joined_member_count": null,
-        //       "invited_member_count": null
-        //     },
-        //     "own_user_id": "@example:example.com",
-        //     "creator": null,
-        //     "members": {},
-        //     "messages": [
-        //       {
-        //         "type": "m.room.message",
-        //         "content": {
-        //           "body": "is dancing",
-        //           "format": "org.matrix.custom.html",
-        //           "formatted_body": "<strong>is dancing</strong>",
-        //           "msgtype": "m.text"
-        //         },
-        //         "event_id": "$152037280074GZeOm:localhost",
-        //         "origin_server_ts": 1520372800469,
-        //         "sender": "@example:localhost",
-        //         "unsigned": {
-        //           "age": 598971425
-        //         }
-        //       }
-        //     ],
-        //     "typing_users": [],
-        //     "power_levels": null,
-        //     "encrypted": false,
-        //     "unread_highlight": null,
-        //     "unread_notifications": null,
-        //     "tombstone": null
-        //   }
-        // }"#,
-        //             serde_json::to_string_pretty(&joined_rooms).unwrap()
-        //         );
         assert_eq!(
-            r#"{
-  "!roomid:example.com": {
-    "room_id": "!roomid:example.com",
-    "room_name": {
-      "name": null,
-      "canonical_alias": null,
-      "aliases": [],
-      "heroes": [],
-      "joined_member_count": null,
-      "invited_member_count": null
-    },
-    "own_user_id": "@example:example.com",
-    "creator": null,
-    "members": {},
-    "messages": [
-      {
-        "content": {
-          "msgtype": "m.text",
-          "msgtype": "m.text",
-          "body": "is dancing",
-          "format": "org.matrix.custom.html",
-          "formatted_body": "<strong>is dancing</strong>"
-        },
-        "event_id": "$152037280074GZeOm:localhost",
-        "origin_server_ts": 1520372800469,
-        "sender": "@example:localhost",
-        "unsigned": {
-          "age": 598971425
-        }
-      }
-    ],
-    "typing_users": [],
-    "power_levels": null,
-    "encrypted": false,
-    "unread_highlight": null,
-    "unread_notifications": null,
-    "tombstone": null
-  }
-}"#,
-            serde_json::to_string_pretty(&joined_rooms).unwrap()
+            serde_json::json!({
+                "!roomid:example.com": {
+                    "room_id": "!roomid:example.com",
+                    "room_name": {
+                        "name": null,
+                        "canonical_alias": null,
+                        "aliases": [],
+                        "heroes": [],
+                        "joined_member_count": null,
+                        "invited_member_count": null
+                    },
+                    "own_user_id": "@example:example.com",
+                    "creator": null,
+                    "members": {},
+                    "messages": [ message ],
+                    "typing_users": [],
+                    "power_levels": null,
+                    "encrypted": null,
+                    "unread_highlight": null,
+                    "unread_notifications": null,
+                    "tombstone": null
+                }
+            }),
+            serde_json::to_value(&joined_rooms).unwrap()
         );
     }
 
@@ -273,58 +211,43 @@ mod test {
         let event = serde_json::from_str::<EventJson<RoomEvent>>(&json).unwrap();
 
         let mut msgs = MessageQueue::new();
-        if let Ok(ev) = event.deserialize() {
-            if let RoomEvent::RoomMessage(msg) = ev {
-                msgs.push(msg);
-            }
-        }
+        let message = if let RoomEvent::RoomMessage(msg) = event.deserialize().unwrap() {
+            msgs.push(msg.clone());
+            msg
+        } else {
+            panic!("this should always be a RoomMessage")
+        };
         room.messages = msgs;
 
         let mut joined_rooms = HashMap::new();
         joined_rooms.insert(id, room.clone());
 
-        let json = r#"{
-  "!roomid:example.com": {
-    "room_id": "!roomid:example.com",
-    "room_name": {
-      "name": null,
-      "canonical_alias": null,
-      "aliases": [],
-      "heroes": [],
-      "joined_member_count": null,
-      "invited_member_count": null
-    },
-    "own_user_id": "@example:example.com",
-    "creator": null,
-    "members": {},
-    "messages": [
-      {
-        "type": "m.room.message",
-        "content": {
-          "body": "is dancing",
-          "format": "org.matrix.custom.html",
-          "formatted_body": "<strong>is dancing</strong>",
-          "msgtype": "m.text"
-        },
-        "event_id": "$152037280074GZeOm:localhost",
-        "origin_server_ts": 1520372800469,
-        "sender": "@example:localhost",
-        "unsigned": {
-          "age": 598971425
-        }
-      }
-    ],
-    "typing_users": [],
-    "power_levels": null,
-    "encrypted": false,
-    "unread_highlight": null,
-    "unread_notifications": null,
-    "tombstone": null
-  }
-}"#;
+        let json = serde_json::json!({
+            "!roomid:example.com": {
+                "room_id": "!roomid:example.com",
+                "room_name": {
+                    "name": null,
+                    "canonical_alias": null,
+                    "aliases": [],
+                    "heroes": [],
+                    "joined_member_count": null,
+                    "invited_member_count": null
+                },
+                "own_user_id": "@example:example.com",
+                "creator": null,
+                "members": {},
+                "messages": [ message ],
+                "typing_users": [],
+                "power_levels": null,
+                "encrypted": null,
+                "unread_highlight": null,
+                "unread_notifications": null,
+                "tombstone": null
+            }
+        });
         assert_eq!(
             joined_rooms,
-            serde_json::from_str::<HashMap<RoomId, Room>>(json).unwrap()
+            serde_json::from_value::<HashMap<RoomId, Room>>(json).unwrap()
         );
     }
 }
