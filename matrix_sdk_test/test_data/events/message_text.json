@@ -1,0 +1,14 @@
+{
+    "content": {
+        "body": "is dancing", "format": "org.matrix.custom.html",
+        "formatted_body": "<strong>is dancing</strong>",
+        "msgtype": "m.text"
+    },
+    "event_id": "$152037280074GZeOm:localhost",
+    "origin_server_ts": 1520372800469,
+    "sender": "@example:localhost",
+    "type": "m.room.message",
+    "unsigned": {
+        "age": 598971425
+    }
+}

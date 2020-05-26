@@ -1,0 +1,22 @@
+{
+    "content": {},
+    "event_id": "$15275046980maRLj:localhost",
+    "origin_server_ts": 1527504698685,
+    "sender": "@example:localhost",
+    "type": "m.room.message",
+    "unsigned": {
+        "age": 19334,
+        "redacted_because": {
+            "content": {},
+            "event_id": "$15275047031IXQRi:localhost",
+            "origin_server_ts": 1527504703496,
+            "redacts": "$15275046980maRLj:localhost",
+            "sender": "@example:localhost",
+            "type": "m.room.redaction",
+            "unsigned": {
+                "age": 14523
+            }
+        },
+        "redacted_by": "$15275047031IXQRi:localhost"
+    }
+}

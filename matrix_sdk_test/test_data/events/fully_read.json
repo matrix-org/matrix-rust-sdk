@@ -1,0 +1,7 @@
+{
+    "content": {
+        "event_id": "$someplace:example.org"
+    },
+    "room_id": "!somewhere:example.org",
+    "type": "m.fully_read"
+}

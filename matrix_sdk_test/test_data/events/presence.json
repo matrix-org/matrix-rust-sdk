@@ -1,0 +1,11 @@
+{
+    "content": {
+        "avatar_url": "mxc://localhost:wefuiwegh8742w",
+        "currently_active": false,
+        "last_active_ago": 1,
+        "presence": "online",
+        "status_msg": "Making cupcakes"
+    },
+    "sender": "@example:localhost",
+    "type": "m.presence"
+}

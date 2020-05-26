@@ -1,0 +1,13 @@
+{
+    "content": {
+        "history_visibility": "world_readable"
+    },
+    "event_id": "$151957878235ricnD:localhost",
+    "origin_server_ts": 1519578782195,
+    "sender": "@example:localhost",
+    "state_key": "",
+    "type": "m.room.history_visibility",
+    "unsigned": {
+      "age": 1392989715
+    }
+}
