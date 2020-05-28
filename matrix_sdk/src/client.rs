@@ -926,6 +926,24 @@ impl Client {
     /// # Arguments
     ///
     /// * `request` - A filled out and valid request for the endpoint to be hit
+    ///
+    /// # Example
+    ///
+    /// ```compile_fail
+    /// use matrix_sdk::api::r0::profile;
+    ///
+    /// // First construct the request you want to make
+    /// // See https://docs.rs/ruma-client-api/latest/ruma_client_api/index.html
+    /// // for all available Endpoints
+    /// let request = profile::get_profile::Request {
+    ///     user_id: mxid.clone(),
+    /// };
+    ///
+    /// // Start the request using Client::send()
+    /// let resp = client.send(request).await.unwrap();
+    ///
+    /// // Check the corresponding Response struct to find out what types are returned
+    /// ```
     pub async fn send<Request: Endpoint<ResponseError = crate::api::Error> + std::fmt::Debug>(
         &self,
         request: Request,
