@@ -4,10 +4,7 @@ use std::{env, process::exit};
 use url::Url;
 
 use matrix_sdk::{
-    self,
-    identifiers::UserId,
-    api::r0::profile,
-    Client, ClientConfig, Result as MatrixResult,
+    self, api::r0::profile, identifiers::UserId, Client, ClientConfig, Result as MatrixResult,
 };
 
 #[derive(Debug)]
@@ -20,11 +17,10 @@ struct UserProfile {
 /// Spec: https://matrix.org/docs/spec/client_server/r0.6.1#get-matrix-client-r0-profile-userid
 /// Ruma: https://docs.rs/ruma-client-api/0.9.0/ruma_client_api/r0/profile/get_profile/index.html
 async fn get_profile(client: Client, mxid: UserId) -> MatrixResult<UserProfile> {
-
     // First construct the request you want to make
     // See https://docs.rs/ruma-client-api/0.9.0/ruma_client_api/index.html for all available Endpoints
     let request = profile::get_profile::Request {
-        user_id: mxid.clone()
+        user_id: mxid.clone(),
     };
 
     // Start the request using matrix_sdk::Client::send
@@ -33,7 +29,10 @@ async fn get_profile(client: Client, mxid: UserId) -> MatrixResult<UserProfile> 
     // Use the response and construct a UserProfile struct.
     // See https://docs.rs/ruma-client-api/0.9.0/ruma_client_api/r0/profile/get_profile/struct.Response.html
     // for details on the Response for this Request
-    let user_profile = UserProfile{ avatar_url: resp.avatar_url, displayname: resp.displayname };
+    let user_profile = UserProfile {
+        avatar_url: resp.avatar_url,
+        displayname: resp.displayname,
+    };
     Ok(user_profile)
 }
 
