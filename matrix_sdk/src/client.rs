@@ -856,7 +856,7 @@ impl Client {
     pub async fn sync_forever<C>(
         &self,
         sync_settings: SyncSettings,
-        callback: impl Fn(sync_events::Response) -> C + Send,
+        callback: impl Fn(sync_events::Response) -> C,
     ) where
         C: Future<Output = ()>,
     {
