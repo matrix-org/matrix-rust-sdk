@@ -15,6 +15,7 @@
 use std::sync::Arc;
 
 use matrix_sdk_common::locks::RwLock;
+use serde_json::value::RawValue as RawJsonValue;
 
 use crate::events::{
     fully_read::FullyReadEvent,
@@ -171,6 +172,12 @@ pub trait EventEmitter: Send + Sync {
     // `PresenceEvent` is a struct so there is only the one method
     /// Fires when `Client` receives a `NonRoomEvent::RoomAliases` event.
     async fn on_presence_event(&self, _: SyncRoom, _: &PresenceEvent) {}
+
+    /// Fires when `Client` receives a `Event::Custom` event or if deserialization fails
+    /// because the event was unknown to ruma.
+    ///
+    /// The only guarantee this method can give about the event is that it is valid JSON.
+    async fn on_unrecognized_event(&self, _: SyncRoom, _: &RawJsonValue) {}
 }
 
 #[cfg(test)]

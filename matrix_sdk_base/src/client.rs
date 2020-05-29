@@ -1001,6 +1001,9 @@ impl BaseClient {
                 if let Ok(e) = event.deserialize() {
                     self.emit_timeline_event(&room_id, &e, RoomStateType::Joined)
                         .await;
+                } else {
+                    self.emit_unrecognized_event(&room_id, &event, RoomStateType::Joined)
+                        .await;
                 }
             }
 
@@ -1424,6 +1427,11 @@ impl BaseClient {
                 event_emitter.on_room_power_levels(room, &power).await
             }
             RoomEvent::RoomTombstone(tomb) => event_emitter.on_room_tombstone(room, &tomb).await,
+            RoomEvent::CustomRoom(custom) => {
+                if let Ok(raw) = serde_json::value::to_raw_value(custom) {
+                    event_emitter.on_unrecognized_event(room, &raw).await
+                }
+            }
             _ => {}
         }
     }
@@ -1484,6 +1492,11 @@ impl BaseClient {
                 event_emitter.on_state_join_rules(room, &rules).await
             }
             StateEvent::RoomTombstone(tomb) => event_emitter.on_room_tombstone(room, &tomb).await,
+            StateEvent::CustomState(custom) => {
+                if let Ok(raw) = serde_json::value::to_raw_value(custom) {
+                    event_emitter.on_unrecognized_event(room, &raw).await
+                }
+            }
             _ => {}
         }
     }
@@ -1707,6 +1720,40 @@ impl BaseClient {
             ee.on_presence_event(room, &event).await;
         }
     }
+
+    pub(crate) async fn emit_unrecognized_event<T>(
+        &self,
+        room_id: &RoomId,
+        event: &EventJson<T>,
+        room_state: RoomStateType,
+    ) {
+        let room = match room_state {
+            RoomStateType::Invited => {
+                if let Some(room) = self.get_invited_room(&room_id).await {
+                    RoomState::Invited(Arc::clone(&room))
+                } else {
+                    return;
+                }
+            }
+            RoomStateType::Joined => {
+                if let Some(room) = self.get_joined_room(&room_id).await {
+                    RoomState::Joined(Arc::clone(&room))
+                } else {
+                    return;
+                }
+            }
+            RoomStateType::Left => {
+                if let Some(room) = self.get_left_room(&room_id).await {
+                    RoomState::Left(Arc::clone(&room))
+                } else {
+                    return;
+                }
+            }
+        };
+        if let Some(ee) = &self.event_emitter.read().await.as_ref() {
+            ee.on_unrecognized_event(room, event.json()).await;
+        }
+    }
 }
 
 #[cfg(test)]
@@ -1911,6 +1958,196 @@ mod test {
             "../../test_data/events/member.json"
         ))
         .unwrap();
+        let mut joined_rooms: HashMap<RoomId, serde_json::Value> = HashMap::new();
+        let joined_room = serde_json::json!({
+            "summary": {},
+            "account_data": {
+                "events": [],
+            },
+            "ephemeral": {
+                "events": [],
+            },
+            "state": {
+                "events": [],
+            },
+            "timeline": {
+                "events": vec![ event ],
+                "limited": true,
+                "prev_batch": "t392-516_47314_0_7_1_1_1_11444_1"
+            },
+            "unread_notifications": {
+                "highlight_count": 0,
+                "notification_count": 11
+            }
+        });
+        joined_rooms.insert(room_id, joined_room);
+
+        let empty_room: HashMap<RoomId, serde_json::Value> = HashMap::new();
+        let body = serde_json::json!({
+            "device_one_time_keys_count": {},
+            "next_batch": "s526_47314_0_7_1_1_1_11444_1",
+            "device_lists": {
+                "changed": [],
+                "left": []
+            },
+            "rooms": {
+                "invite": empty_room,
+                "join": joined_rooms,
+                "leave": empty_room,
+            },
+            "to_device": {
+                "events": []
+            },
+            "presence": {
+                "events": []
+            }
+        });
+        let response = http::Response::builder()
+            .body(serde_json::to_vec(&body).unwrap())
+            .unwrap();
+        let mut sync =
+            matrix_sdk_common::api::r0::sync::sync_events::Response::try_from(response).unwrap();
+
+        client.receive_sync_response(&mut sync).await.unwrap();
+
+        assert!(passed.load(Ordering::SeqCst))
+    }
+
+    #[async_test]
+    async fn test_unrecognized_events() {
+        use super::*;
+
+        use crate::{EventEmitter, SyncRoom};
+        use matrix_sdk_common::locks::RwLock;
+        use serde_json::value::RawValue;
+        use std::sync::{
+            atomic::{AtomicBool, Ordering},
+            Arc,
+        };
+
+        struct EE(Arc<AtomicBool>);
+        #[async_trait::async_trait]
+        impl EventEmitter for EE {
+            async fn on_unrecognized_event(&self, room: SyncRoom, event: &RawValue) {
+                if let SyncRoom::Joined(_) = room {
+                    let val = serde_json::to_value(event).unwrap();
+                    if val.get("type").unwrap() == &json! { "m.room.message" }
+                        && val.get("content").unwrap().get("m.relates_to").is_some()
+                    {
+                        self.0.swap(true, Ordering::SeqCst);
+                    }
+                }
+            }
+        }
+
+        let room_id = get_room_id();
+        let passed = Arc::new(AtomicBool::default());
+        let emitter = EE(Arc::clone(&passed));
+        let mut client = get_client().await;
+
+        client.event_emitter = Arc::new(RwLock::new(Some(Box::new(emitter))));
+
+        // This is needed other wise the `EventBuilder` goes through a de/ser cycle and the `prev_content` is lost.
+        let event = serde_json::from_str::<serde_json::Value>(include_str!(
+            "../../test_data/events/message_edit.json"
+        ))
+        .unwrap();
+
+        let mut joined_rooms: HashMap<RoomId, serde_json::Value> = HashMap::new();
+        let joined_room = serde_json::json!({
+            "summary": {},
+            "account_data": {
+                "events": [],
+            },
+            "ephemeral": {
+                "events": [],
+            },
+            "state": {
+                "events": [],
+            },
+            "timeline": {
+                "events": vec![ event ],
+                "limited": true,
+                "prev_batch": "t392-516_47314_0_7_1_1_1_11444_1"
+            },
+            "unread_notifications": {
+                "highlight_count": 0,
+                "notification_count": 11
+            }
+        });
+        joined_rooms.insert(room_id, joined_room);
+
+        let empty_room: HashMap<RoomId, serde_json::Value> = HashMap::new();
+        let body = serde_json::json!({
+            "device_one_time_keys_count": {},
+            "next_batch": "s526_47314_0_7_1_1_1_11444_1",
+            "device_lists": {
+                "changed": [],
+                "left": []
+            },
+            "rooms": {
+                "invite": empty_room,
+                "join": joined_rooms,
+                "leave": empty_room,
+            },
+            "to_device": {
+                "events": []
+            },
+            "presence": {
+                "events": []
+            }
+        });
+        let response = http::Response::builder()
+            .body(serde_json::to_vec(&body).unwrap())
+            .unwrap();
+        let mut sync =
+            matrix_sdk_common::api::r0::sync::sync_events::Response::try_from(response).unwrap();
+
+        client.receive_sync_response(&mut sync).await.unwrap();
+
+        assert!(passed.load(Ordering::SeqCst))
+    }
+
+    #[async_test]
+    async fn test_unrecognized_custom_event() {
+        use super::*;
+
+        use crate::{EventEmitter, SyncRoom};
+        use matrix_sdk_common::locks::RwLock;
+        use serde_json::value::RawValue;
+        use std::sync::{
+            atomic::{AtomicBool, Ordering},
+            Arc,
+        };
+
+        struct EE(Arc<AtomicBool>);
+        #[async_trait::async_trait]
+        impl EventEmitter for EE {
+            async fn on_unrecognized_event(&self, room: SyncRoom, event: &RawValue) {
+                if let SyncRoom::Joined(_) = room {
+                    let val = serde_json::to_value(event).unwrap();
+                    if val.get("type").unwrap() == &json! { "m.reaction" }
+                        && val.get("content").unwrap().get("m.relates_to").is_some()
+                    {
+                        self.0.swap(true, Ordering::SeqCst);
+                    }
+                }
+            }
+        }
+
+        let room_id = get_room_id();
+        let passed = Arc::new(AtomicBool::default());
+        let emitter = EE(Arc::clone(&passed));
+        let mut client = get_client().await;
+
+        client.event_emitter = Arc::new(RwLock::new(Some(Box::new(emitter))));
+
+        // This is needed other wise the `EventBuilder` goes through a de/ser cycle and the `prev_content` is lost.
+        let event = serde_json::from_str::<serde_json::Value>(include_str!(
+            "../../test_data/events/reaction.json"
+        ))
+        .unwrap();
+
         let mut joined_rooms: HashMap<RoomId, serde_json::Value> = HashMap::new();
         let joined_room = serde_json::json!({
             "summary": {},
