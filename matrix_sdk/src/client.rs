@@ -447,7 +447,7 @@ impl Client {
     ///
     /// # Arguments
     ///
-    /// * `session` - An session that the user already has from a
+    /// * `session` - A session that the user already has from a
     /// previous login call.
     pub async fn restore_login(&self, session: Session) -> Result<()> {
         Ok(self.base_client.restore_login(session).await?)
@@ -477,7 +477,7 @@ impl Client {
     /// # Arguments
     ///
     /// * `alias` - The `RoomId` or `RoomAliasId` of the room to be joined.
-    /// An alias looks like this `#name:example.com`
+    /// An alias looks like `#name:example.com`.
     pub async fn join_room_by_id_or_alias(
         &self,
         alias: &RoomIdOrAliasId,

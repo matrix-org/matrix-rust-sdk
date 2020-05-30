@@ -160,13 +160,13 @@ pub trait EventEmitter: Send + Sync {
     /// Fires when `Client` receives a `NonRoomEvent::RoomCanonicalAlias` event.
     async fn on_account_push_rules(&self, _: SyncRoom, _: &PushRulesEvent) {}
     /// Fires when `Client` receives a `NonRoomEvent::RoomAliases` event.
-    async fn on_account_data_fully_read(&self, _: SyncRoom, _: &FullyReadEvent) {}
+    async fn on_account_fully_read(&self, _: SyncRoom, _: &FullyReadEvent) {}
     /// Fires when `Client` receives a `NonRoomEvent::Typing` event.
-    async fn on_account_data_typing(&self, _: SyncRoom, _: &TypingEvent) {}
+    async fn on_account_typing(&self, _: SyncRoom, _: &TypingEvent) {}
     /// Fires when `Client` receives a `NonRoomEvent::Receipt` event.
     ///
     /// This is always a read receipt.
-    async fn on_account_data_receipt(&self, _: SyncRoom, _: &ReceiptEvent) {}
+    async fn on_account_receipt(&self, _: SyncRoom, _: &ReceiptEvent) {}
 
     // `PresenceEvent` is a struct so there is only the one method
     /// Fires when `Client` receives a `NonRoomEvent::RoomAliases` event.
@@ -293,7 +293,7 @@ mod test {
         async fn on_account_push_rules(&self, _: SyncRoom, _: &PushRulesEvent) {
             self.0.lock().await.push("account push rules".to_string())
         }
-        async fn on_account_data_fully_read(&self, _: SyncRoom, _: &FullyReadEvent) {
+        async fn on_account_fully_read(&self, _: SyncRoom, _: &FullyReadEvent) {
             self.0.lock().await.push("account read".to_string())
         }
         async fn on_presence_event(&self, _: SyncRoom, _: &PresenceEvent) {

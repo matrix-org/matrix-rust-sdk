@@ -1610,9 +1610,7 @@ impl BaseClient {
                 event_emitter.on_account_push_rules(room, &rules).await
             }
             NonRoomEvent::FullyRead(full_read) => {
-                event_emitter
-                    .on_account_data_fully_read(room, &full_read)
-                    .await
+                event_emitter.on_account_fully_read(room, &full_read).await
             }
             _ => {}
         }
@@ -1666,9 +1664,7 @@ impl BaseClient {
                 event_emitter.on_account_push_rules(room, &rules).await
             }
             NonRoomEvent::FullyRead(full_read) => {
-                event_emitter
-                    .on_account_data_fully_read(room, &full_read)
-                    .await
+                event_emitter.on_account_fully_read(room, &full_read).await
             }
             _ => {}
         }

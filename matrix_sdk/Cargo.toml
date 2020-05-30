@@ -31,7 +31,6 @@ matrix-sdk-common = { version = "0.1.0", path = "../matrix_sdk_common" }
 [dependencies.matrix-sdk-base]
 version = "0.1.0"
 path = "../matrix_sdk_base"
-default_features = false
 
 [dependencies.tracing-futures]
 version = "0.2.4"
