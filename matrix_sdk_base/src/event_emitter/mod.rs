@@ -40,11 +40,27 @@ use crate::events::{
         StrippedRoomMember, StrippedRoomName, StrippedRoomPowerLevels,
     },
     typing::TypingEvent,
+    CustomEvent, CustomRoomEvent, CustomStateEvent,
 };
 use crate::{Room, RoomState};
 
 /// Type alias for `RoomState` enum when passed to `EventEmitter` methods.
 pub type SyncRoom = RoomState<Arc<RwLock<Room>>>;
+
+/// This represents the various "unrecognized" events.
+#[derive(Clone, Copy, Debug)]
+pub enum CustomOrRawEvent<'c> {
+    /// When an event can not be deserialized by ruma.
+    ///
+    /// This will be mostly obsolete when ruma-events is updated.
+    RawJson(&'c RawJsonValue),
+    /// A custom event.
+    Custom(&'c CustomEvent),
+    /// A custom room event.
+    CustomRoom(&'c CustomRoomEvent),
+    /// A custom state event.
+    CustomState(&'c CustomStateEvent),
+}
 
 /// This trait allows any type implementing `EventEmitter` to specify event callbacks for each event.
 /// The `Client` calls each method when the corresponding event is received.
@@ -177,7 +193,7 @@ pub trait EventEmitter: Send + Sync {
     /// because the event was unknown to ruma.
     ///
     /// The only guarantee this method can give about the event is that it is valid JSON.
-    async fn on_unrecognized_event(&self, _: SyncRoom, _: &RawJsonValue) {}
+    async fn on_unrecognized_event(&self, _: SyncRoom, _: &CustomOrRawEvent<'_>) {}
 }
 
 #[cfg(test)]

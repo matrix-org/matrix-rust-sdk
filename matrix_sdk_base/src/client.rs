@@ -28,6 +28,7 @@ use crate::error::Result;
 use crate::events::collections::all::{RoomEvent, StateEvent};
 use crate::events::presence::PresenceEvent;
 // `NonRoomEvent` is what it is aliased as
+use crate::event_emitter::CustomOrRawEvent;
 use crate::events::collections::only::Event as NonRoomEvent;
 use crate::events::ignored_user_list::IgnoredUserListEvent;
 use crate::events::push_rules::{PushRulesEvent, Ruleset};
@@ -1428,9 +1429,9 @@ impl BaseClient {
             }
             RoomEvent::RoomTombstone(tomb) => event_emitter.on_room_tombstone(room, &tomb).await,
             RoomEvent::CustomRoom(custom) => {
-                if let Ok(raw) = serde_json::value::to_raw_value(custom) {
-                    event_emitter.on_unrecognized_event(room, &raw).await
-                }
+                event_emitter
+                    .on_unrecognized_event(room, &CustomOrRawEvent::CustomRoom(custom))
+                    .await
             }
             _ => {}
         }
@@ -1493,9 +1494,9 @@ impl BaseClient {
             }
             StateEvent::RoomTombstone(tomb) => event_emitter.on_room_tombstone(room, &tomb).await,
             StateEvent::CustomState(custom) => {
-                if let Ok(raw) = serde_json::value::to_raw_value(custom) {
-                    event_emitter.on_unrecognized_event(room, &raw).await
-                }
+                event_emitter
+                    .on_unrecognized_event(room, &CustomOrRawEvent::CustomState(custom))
+                    .await
             }
             _ => {}
         }
@@ -1751,7 +1752,8 @@ impl BaseClient {
             }
         };
         if let Some(ee) = &self.event_emitter.read().await.as_ref() {
-            ee.on_unrecognized_event(room, event.json()).await;
+            ee.on_unrecognized_event(room, &CustomOrRawEvent::RawJson(event.json()))
+                .await;
         }
     }
 }
@@ -2019,7 +2021,6 @@ mod test {
 
         use crate::{EventEmitter, SyncRoom};
         use matrix_sdk_common::locks::RwLock;
-        use serde_json::value::RawValue;
         use std::sync::{
             atomic::{AtomicBool, Ordering},
             Arc,
@@ -2028,13 +2029,15 @@ mod test {
         struct EE(Arc<AtomicBool>);
         #[async_trait::async_trait]
         impl EventEmitter for EE {
-            async fn on_unrecognized_event(&self, room: SyncRoom, event: &RawValue) {
+            async fn on_unrecognized_event(&self, room: SyncRoom, event: &CustomOrRawEvent<'_>) {
                 if let SyncRoom::Joined(_) = room {
-                    let val = serde_json::to_value(event).unwrap();
-                    if val.get("type").unwrap() == &json! { "m.room.message" }
-                        && val.get("content").unwrap().get("m.relates_to").is_some()
-                    {
-                        self.0.swap(true, Ordering::SeqCst);
+                    if let CustomOrRawEvent::RawJson(raw) = event {
+                        let val = serde_json::to_value(raw).unwrap();
+                        if val.get("type").unwrap() == &json! { "m.room.message" }
+                            && val.get("content").unwrap().get("m.relates_to").is_some()
+                        {
+                            self.0.swap(true, Ordering::SeqCst);
+                        }
                     }
                 }
             }
@@ -2114,7 +2117,6 @@ mod test {
 
         use crate::{EventEmitter, SyncRoom};
         use matrix_sdk_common::locks::RwLock;
-        use serde_json::value::RawValue;
         use std::sync::{
             atomic::{AtomicBool, Ordering},
             Arc,
@@ -2123,13 +2125,14 @@ mod test {
         struct EE(Arc<AtomicBool>);
         #[async_trait::async_trait]
         impl EventEmitter for EE {
-            async fn on_unrecognized_event(&self, room: SyncRoom, event: &RawValue) {
+            async fn on_unrecognized_event(&self, room: SyncRoom, event: &CustomOrRawEvent<'_>) {
                 if let SyncRoom::Joined(_) = room {
-                    let val = serde_json::to_value(event).unwrap();
-                    if val.get("type").unwrap() == &json! { "m.reaction" }
-                        && val.get("content").unwrap().get("m.relates_to").is_some()
-                    {
-                        self.0.swap(true, Ordering::SeqCst);
+                    if let CustomOrRawEvent::CustomRoom(custom) = event {
+                        if custom.event_type == "m.reaction"
+                            && custom.content.get("m.relates_to").is_some()
+                        {
+                            self.0.swap(true, Ordering::SeqCst);
+                        }
                     }
                 }
             }
