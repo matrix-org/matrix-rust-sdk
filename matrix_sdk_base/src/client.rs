@@ -1601,18 +1601,18 @@ impl BaseClient {
 
         match event {
             NonRoomEvent::Presence(presence) => {
-                event_emitter.on_account_presence(room, &presence).await
+                event_emitter.on_non_room_presence(room, &presence).await
             }
             NonRoomEvent::IgnoredUserList(ignored) => {
-                event_emitter.on_account_ignored_users(room, &ignored).await
+                event_emitter
+                    .on_non_room_ignored_users(room, &ignored)
+                    .await
             }
             NonRoomEvent::PushRules(rules) => {
-                event_emitter.on_account_push_rules(room, &rules).await
+                event_emitter.on_non_room_push_rules(room, &rules).await
             }
             NonRoomEvent::FullyRead(full_read) => {
-                event_emitter
-                    .on_account_data_fully_read(room, &full_read)
-                    .await
+                event_emitter.on_non_room_fully_read(room, &full_read).await
             }
             _ => {}
         }
@@ -1657,18 +1657,18 @@ impl BaseClient {
 
         match event {
             NonRoomEvent::Presence(presence) => {
-                event_emitter.on_account_presence(room, &presence).await
+                event_emitter.on_non_room_presence(room, &presence).await
             }
             NonRoomEvent::IgnoredUserList(ignored) => {
-                event_emitter.on_account_ignored_users(room, &ignored).await
+                event_emitter
+                    .on_non_room_ignored_users(room, &ignored)
+                    .await
             }
             NonRoomEvent::PushRules(rules) => {
-                event_emitter.on_account_push_rules(room, &rules).await
+                event_emitter.on_non_room_push_rules(room, &rules).await
             }
             NonRoomEvent::FullyRead(full_read) => {
-                event_emitter
-                    .on_account_data_fully_read(room, &full_read)
-                    .await
+                event_emitter.on_non_room_fully_read(room, &full_read).await
             }
             _ => {}
         }
