@@ -348,22 +348,16 @@ impl Client {
     }
 
     /// Returns the joined rooms this client knows about.
-    ///
-    /// A `HashMap` of room id to `matrix::models::Room`
     pub fn joined_rooms(&self) -> Arc<RwLock<HashMap<RoomId, Arc<RwLock<Room>>>>> {
         self.base_client.joined_rooms()
     }
 
     /// Returns the invited rooms this client knows about.
-    ///
-    /// A `HashMap` of room id to `matrix::models::Room`
     pub fn invited_rooms(&self) -> Arc<RwLock<HashMap<RoomId, Arc<RwLock<Room>>>>> {
         self.base_client.invited_rooms()
     }
 
     /// Returns the left rooms this client knows about.
-    ///
-    /// A `HashMap` of room id to `matrix::models::Room`
     pub fn left_rooms(&self) -> Arc<RwLock<HashMap<RoomId, Arc<RwLock<Room>>>>> {
         self.base_client.left_rooms()
     }
@@ -447,7 +441,7 @@ impl Client {
     ///
     /// # Arguments
     ///
-    /// * `session` - An session that the user already has from a
+    /// * `session` - A session that the user already has from a
     /// previous login call.
     pub async fn restore_login(&self, session: Session) -> Result<()> {
         Ok(self.base_client.restore_login(session).await?)
@@ -477,7 +471,7 @@ impl Client {
     /// # Arguments
     ///
     /// * `alias` - The `RoomId` or `RoomAliasId` of the room to be joined.
-    /// An alias looks like this `#name:example.com`
+    /// An alias looks like `#name:example.com`.
     pub async fn join_room_by_id_or_alias(
         &self,
         alias: &RoomIdOrAliasId,
@@ -659,7 +653,7 @@ impl Client {
     ///
     /// # Arguments
     ///
-    /// * `request` - The easiest way to create a `Request` is using the
+    /// * `request` - The easiest way to create this request is using the
     /// `MessagesRequestBuilder`.
     ///
     /// # Examples
@@ -768,6 +762,180 @@ impl Client {
             read_receipt: read_receipt.cloned(),
         };
         self.send(request).await
+    }
+
+    /// Send a room message to the homeserver.
+    ///
+    /// Returns the parsed response from the server.
+    ///
+    /// If the encryption feature is enabled this method will transparently
+    /// encrypt the room message if the given room is encrypted.
+    ///
+    /// # Arguments
+    ///
+    /// * `room_id` -  The id of the room that should receive the message.
+    ///
+    /// * `content` - The content of the message event.
+    ///
+    /// * `txn_id` - A unique `Uuid` that can be attached to a `MessageEvent` held
+    /// in it's unsigned field as `transaction_id`. If not given one is created for the
+    /// message.
+    ///
+    /// # Example
+    /// ```no_run
+    /// # use matrix_sdk::Room;
+    /// # use std::sync::{Arc, RwLock};
+    /// # use matrix_sdk::{Client, SyncSettings};
+    /// # use url::Url;
+    /// # use futures::executor::block_on;
+    /// # use ruma_identifiers::RoomId;
+    /// # use std::convert::TryFrom;
+    /// use matrix_sdk::events::room::message::{MessageEventContent, TextMessageEventContent};
+    /// # block_on(async {
+    /// # let homeserver = Url::parse("http://localhost:8080").unwrap();
+    /// # let mut client = Client::new(homeserver).unwrap();
+    /// # let room_id = RoomId::try_from("!test:localhost").unwrap();
+    /// use matrix_sdk_common::uuid::Uuid;
+    ///
+    /// let content = MessageEventContent::Text(TextMessageEventContent {
+    ///     body: "Hello world".to_owned(),
+    ///     format: None,
+    ///     formatted_body: None,
+    ///     relates_to: None,
+    /// });
+    /// let txn_id = Uuid::new_v4();
+    /// client.room_send(&room_id, content, Some(txn_id)).await.unwrap();
+    /// })
+    /// ```
+    pub async fn room_send(
+        &self,
+        room_id: &RoomId,
+        content: MessageEventContent,
+        txn_id: Option<Uuid>,
+    ) -> Result<create_message_event::Response> {
+        #[allow(unused_mut)]
+        let mut event_type = EventType::RoomMessage;
+        #[allow(unused_mut)]
+        let mut raw_content = serde_json::value::to_raw_value(&content)?;
+
+        #[cfg(feature = "encryption")]
+        {
+            let encrypted = {
+                let room = self.base_client.get_joined_room(room_id).await;
+
+                match room {
+                    Some(r) => r.read().await.is_encrypted(),
+                    None => false,
+                }
+            };
+
+            if encrypted {
+                let missing_sessions = {
+                    let room = self.base_client.get_joined_room(room_id).await;
+                    let room = room.as_ref().unwrap().read().await;
+                    let users = room.members.keys();
+                    self.base_client.get_missing_sessions(users).await?
+                };
+
+                if !missing_sessions.is_empty() {
+                    self.claim_one_time_keys(missing_sessions).await?;
+                }
+
+                if self.base_client.should_share_group_session(room_id).await {
+                    // TODO we need to make sure that only one such request is
+                    // in flight per room at a time.
+                    let response = self.share_group_session(room_id).await;
+
+                    // If one of the responses failed invalidate the group
+                    // session as using it would end up in undecryptable
+                    // messages.
+                    if let Err(r) = response {
+                        self.base_client.invalidate_group_session(room_id).await;
+                        return Err(r);
+                    }
+                }
+
+                raw_content = serde_json::value::to_raw_value(
+                    &self.base_client.encrypt(room_id, content).await?,
+                )?;
+                event_type = EventType::RoomEncrypted;
+            }
+        }
+
+        let request = create_message_event::Request {
+            room_id: room_id.clone(),
+            event_type,
+            txn_id: txn_id.unwrap_or_else(Uuid::new_v4).to_string(),
+            data: raw_content,
+        };
+
+        let response = self.send(request).await?;
+        Ok(response)
+    }
+
+    async fn send<Request: Endpoint<ResponseError = crate::api::Error> + std::fmt::Debug>(
+        &self,
+        request: Request,
+    ) -> Result<Request::Response> {
+        let request: http::Request<Vec<u8>> = request.try_into()?;
+        let url = request.uri();
+        let path_and_query = url.path_and_query().unwrap();
+        let mut url = self.homeserver.clone();
+
+        url.set_path(path_and_query.path());
+        url.set_query(path_and_query.query());
+
+        trace!("Doing request {:?}", url);
+
+        let request_builder = match Request::METADATA.method {
+            HttpMethod::GET => self.http_client.get(url),
+            HttpMethod::POST => {
+                let body = request.body().clone();
+                self.http_client
+                    .post(url)
+                    .body(body)
+                    .header(reqwest::header::CONTENT_TYPE, "application/json")
+            }
+            HttpMethod::PUT => {
+                let body = request.body().clone();
+                self.http_client
+                    .put(url)
+                    .body(body)
+                    .header(reqwest::header::CONTENT_TYPE, "application/json")
+            }
+            HttpMethod::DELETE => unimplemented!(),
+            _ => panic!("Unsuported method"),
+        };
+
+        let request_builder = if Request::METADATA.requires_authentication {
+            let session = self.base_client.session().read().await;
+
+            if let Some(session) = session.as_ref() {
+                let header_value = format!("Bearer {}", &session.access_token);
+                request_builder.header(AUTHORIZATION, header_value)
+            } else {
+                return Err(Error::AuthenticationRequired);
+            }
+        } else {
+            request_builder
+        };
+        let mut response = request_builder.send().await?;
+
+        trace!("Got response: {:?}", response);
+
+        let status = response.status();
+        let mut http_builder = HttpResponse::builder().status(status);
+        let headers = http_builder.headers_mut().unwrap();
+
+        for (k, v) in response.headers_mut().drain() {
+            if let Some(key) = k {
+                headers.insert(key, v);
+            }
+        }
+        let body = response.bytes().await?.as_ref().to_owned();
+        let http_response = http_builder.body(body).unwrap();
+
+        Ok(<Request::Response>::try_from(http_response)?)
     }
 
     /// Synchronize the client's state with the latest state on the server.
@@ -920,180 +1088,6 @@ impl Client {
                     .expect("No sync token found after initial sync"),
             );
         }
-    }
-
-    async fn send<Request: Endpoint<ResponseError = crate::api::Error> + std::fmt::Debug>(
-        &self,
-        request: Request,
-    ) -> Result<Request::Response> {
-        let request: http::Request<Vec<u8>> = request.try_into()?;
-        let url = request.uri();
-        let path_and_query = url.path_and_query().unwrap();
-        let mut url = self.homeserver.clone();
-
-        url.set_path(path_and_query.path());
-        url.set_query(path_and_query.query());
-
-        trace!("Doing request {:?}", url);
-
-        let request_builder = match Request::METADATA.method {
-            HttpMethod::GET => self.http_client.get(url),
-            HttpMethod::POST => {
-                let body = request.body().clone();
-                self.http_client
-                    .post(url)
-                    .body(body)
-                    .header(reqwest::header::CONTENT_TYPE, "application/json")
-            }
-            HttpMethod::PUT => {
-                let body = request.body().clone();
-                self.http_client
-                    .put(url)
-                    .body(body)
-                    .header(reqwest::header::CONTENT_TYPE, "application/json")
-            }
-            HttpMethod::DELETE => unimplemented!(),
-            _ => panic!("Unsuported method"),
-        };
-
-        let request_builder = if Request::METADATA.requires_authentication {
-            let session = self.base_client.session().read().await;
-
-            if let Some(session) = session.as_ref() {
-                let header_value = format!("Bearer {}", &session.access_token);
-                request_builder.header(AUTHORIZATION, header_value)
-            } else {
-                return Err(Error::AuthenticationRequired);
-            }
-        } else {
-            request_builder
-        };
-        let mut response = request_builder.send().await?;
-
-        trace!("Got response: {:?}", response);
-
-        let status = response.status();
-        let mut http_builder = HttpResponse::builder().status(status);
-        let headers = http_builder.headers_mut().unwrap();
-
-        for (k, v) in response.headers_mut().drain() {
-            if let Some(key) = k {
-                headers.insert(key, v);
-            }
-        }
-        let body = response.bytes().await?.as_ref().to_owned();
-        let http_response = http_builder.body(body).unwrap();
-
-        Ok(<Request::Response>::try_from(http_response)?)
-    }
-
-    /// Send a room message to the homeserver.
-    ///
-    /// Returns the parsed response from the server.
-    ///
-    /// If the encryption feature is enabled this method will transparently
-    /// encrypt the room message if the given room is encrypted.
-    ///
-    /// # Arguments
-    ///
-    /// * `room_id` -  The id of the room that should receive the message.
-    ///
-    /// * `content` - The content of the message event.
-    ///
-    /// * `txn_id` - A unique `Uuid` that can be attached to a `MessageEvent` held
-    /// in it's unsigned field as `transaction_id`. If not given one is created for the
-    /// message.
-    ///
-    /// # Example
-    /// ```no_run
-    /// # use matrix_sdk::Room;
-    /// # use std::sync::{Arc, RwLock};
-    /// # use matrix_sdk::{Client, SyncSettings};
-    /// # use url::Url;
-    /// # use futures::executor::block_on;
-    /// # use ruma_identifiers::RoomId;
-    /// # use std::convert::TryFrom;
-    /// use matrix_sdk::events::room::message::{MessageEventContent, TextMessageEventContent};
-    /// # block_on(async {
-    /// # let homeserver = Url::parse("http://localhost:8080").unwrap();
-    /// # let mut client = Client::new(homeserver).unwrap();
-    /// # let room_id = RoomId::try_from("!test:localhost").unwrap();
-    /// use matrix_sdk_common::uuid::Uuid;
-    ///
-    /// let content = MessageEventContent::Text(TextMessageEventContent {
-    ///     body: "Hello world".to_owned(),
-    ///     format: None,
-    ///     formatted_body: None,
-    ///     relates_to: None,
-    /// });
-    /// let txn_id = Uuid::new_v4();
-    /// client.room_send(&room_id, content, Some(txn_id)).await.unwrap();
-    /// })
-    /// ```
-    pub async fn room_send(
-        &self,
-        room_id: &RoomId,
-        content: MessageEventContent,
-        txn_id: Option<Uuid>,
-    ) -> Result<create_message_event::Response> {
-        #[allow(unused_mut)]
-        let mut event_type = EventType::RoomMessage;
-        #[allow(unused_mut)]
-        let mut raw_content = serde_json::value::to_raw_value(&content)?;
-
-        #[cfg(feature = "encryption")]
-        {
-            let encrypted = {
-                let room = self.base_client.get_joined_room(room_id).await;
-
-                match room {
-                    Some(r) => r.read().await.is_encrypted(),
-                    None => false,
-                }
-            };
-
-            if encrypted {
-                let missing_sessions = {
-                    let room = self.base_client.get_joined_room(room_id).await;
-                    let room = room.as_ref().unwrap().read().await;
-                    let users = room.members.keys();
-                    self.base_client.get_missing_sessions(users).await?
-                };
-
-                if !missing_sessions.is_empty() {
-                    self.claim_one_time_keys(missing_sessions).await?;
-                }
-
-                if self.base_client.should_share_group_session(room_id).await {
-                    // TODO we need to make sure that only one such request is
-                    // in flight per room at a time.
-                    let response = self.share_group_session(room_id).await;
-
-                    // If one of the responses failed invalidate the group
-                    // session as using it would end up in undecryptable
-                    // messages.
-                    if let Err(r) = response {
-                        self.base_client.invalidate_group_session(room_id).await;
-                        return Err(r);
-                    }
-                }
-
-                raw_content = serde_json::value::to_raw_value(
-                    &self.base_client.encrypt(room_id, content).await?,
-                )?;
-                event_type = EventType::RoomEncrypted;
-            }
-        }
-
-        let request = create_message_event::Request {
-            room_id: room_id.clone(),
-            event_type,
-            txn_id: txn_id.unwrap_or_else(Uuid::new_v4).to_string(),
-            data: raw_content,
-        };
-
-        let response = self.send(request).await?;
-        Ok(response)
     }
 
     /// Claim one-time keys creating new Olm sessions.
