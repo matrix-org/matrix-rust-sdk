@@ -805,7 +805,7 @@ impl Client {
     /// });
     /// let txn_id = Uuid::new_v4();
     /// client.room_send(&room_id, content, Some(txn_id)).await.unwrap();
-    /// })
+    /// # })
     /// ```
     pub async fn room_send(
         &self,
@@ -873,7 +873,45 @@ impl Client {
         Ok(response)
     }
 
-    async fn send<Request: Endpoint<ResponseError = crate::api::Error> + std::fmt::Debug>(
+    /// Send an arbitrary request to the server, without updating client state
+    ///
+    /// **Warning:** Because this method *does not* update the client state, it is
+    /// important to make sure than you account for this yourself, and use wrapper methods
+    /// where available.  This method should *only* be used if a wrapper method for the
+    /// endpoint you'd like to use is not available.
+    ///
+    /// # Arguments
+    ///
+    /// * `request` - A filled out and valid request for the endpoint to be hit
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// # use matrix_sdk::{Client, SyncSettings};
+    /// # use futures::executor::block_on;
+    /// # use url::Url;
+    /// # use std::convert::TryFrom;
+    /// # block_on(async {
+    /// # let homeserver = Url::parse("http://localhost:8080").unwrap();
+    /// # let mut client = Client::new(homeserver).unwrap();
+    /// use matrix_sdk::api::r0::profile;
+    /// use matrix_sdk::identifiers::UserId;
+    ///
+    /// // First construct the request you want to make
+    /// // See https://docs.rs/ruma-client-api/latest/ruma_client_api/index.html
+    /// // for all available Endpoints
+    /// let request = profile::get_profile::Request {
+    ///     user_id: UserId::try_from("@example:localhost").unwrap(),
+    /// };
+    ///
+    /// // Start the request using Client::send()
+    /// let response = client.send(request).await.unwrap();
+    ///
+    /// // Check the corresponding Response struct to find out what types are
+    /// // returned
+    /// # })
+    /// ```
+    pub async fn send<Request: Endpoint<ResponseError = crate::api::Error> + std::fmt::Debug>(
         &self,
         request: Request,
     ) -> Result<Request::Response> {
