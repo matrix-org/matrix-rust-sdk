@@ -929,20 +929,30 @@ impl Client {
     ///
     /// # Example
     ///
-    /// ```compile_fail
+    /// ```no_run
+    /// # use matrix_sdk::{Client, SyncSettings};
+    /// # use futures::executor::block_on;
+    /// # use url::Url;
+    /// # use std::convert::TryFrom;
+    /// # block_on(async {
+    /// # let homeserver = Url::parse("http://localhost:8080").unwrap();
+    /// # let mut client = Client::new(homeserver, None).unwrap();
     /// use matrix_sdk::api::r0::profile;
+    /// use matrix_sdk::identifiers::UserId;
     ///
     /// // First construct the request you want to make
     /// // See https://docs.rs/ruma-client-api/latest/ruma_client_api/index.html
     /// // for all available Endpoints
     /// let request = profile::get_profile::Request {
-    ///     user_id: mxid.clone(),
+    ///     user_id: UserId::try_from("@example:localhost").unwrap(),
     /// };
     ///
     /// // Start the request using Client::send()
-    /// let resp = client.send(request).await.unwrap();
+    /// let response = client.send(request).await.unwrap();
     ///
-    /// // Check the corresponding Response struct to find out what types are returned
+    /// // Check the corresponding Response struct to find out what types are
+    /// // returned
+    /// # })
     /// ```
     pub async fn send<Request: Endpoint<ResponseError = crate::api::Error> + std::fmt::Debug>(
         &self,
@@ -1050,7 +1060,7 @@ impl Client {
     /// });
     /// let txn_id = Uuid::new_v4();
     /// client.room_send(&room_id, content, Some(txn_id)).await.unwrap();
-    /// })
+    /// # })
     /// ```
     pub async fn room_send(
         &self,
