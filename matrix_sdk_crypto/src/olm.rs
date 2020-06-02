@@ -14,7 +14,6 @@
 
 use matrix_sdk_common::instant::Instant;
 use std::fmt;
-use std::mem;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
 
@@ -275,7 +274,7 @@ impl Session {
     /// * `message` - The Olm message that should be decrypted.
     pub async fn decrypt(&mut self, message: OlmMessage) -> Result<String, OlmSessionError> {
         let plaintext = self.inner.lock().await.decrypt(message)?;
-        mem::replace(&mut self.last_use_time, Arc::new(Instant::now()));
+        self.last_use_time = Arc::new(Instant::now());
         Ok(plaintext)
     }
 
@@ -288,7 +287,7 @@ impl Session {
     /// * `plaintext` - The plaintext that should be encrypted.
     pub async fn encrypt(&mut self, plaintext: &str) -> OlmMessage {
         let message = self.inner.lock().await.encrypt(plaintext);
-        mem::replace(&mut self.last_use_time, Arc::new(Instant::now()));
+        self.last_use_time = Arc::new(Instant::now());
         message
     }
 
