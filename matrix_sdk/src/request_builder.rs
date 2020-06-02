@@ -2,6 +2,7 @@ use crate::api;
 use crate::events::room::power_levels::PowerLevelsEventContent;
 use crate::events::EventJson;
 use crate::identifiers::{DeviceId, RoomId, UserId};
+use api::r0::account::register;
 use api::r0::account::register::RegistrationKind;
 use api::r0::filter::RoomEventFilter;
 use api::r0::membership::Invite3pid;
@@ -296,18 +297,16 @@ impl Into<get_message_events::Request> for MessagesRequestBuilder {
 /// ```
 /// # use std::convert::TryFrom;
 /// # use matrix_sdk::{Client, RegistrationBuilder};
-/// # use api::r0::account::register::RegistrationKind;
+/// # use matrix_sdk::api::r0::account::register::RegistrationKind;
 /// # use matrix_sdk::identifiers::DeviceId;
 /// # use url::Url;
 /// # let homeserver = Url::parse("http://example.com").unwrap();
 /// # let mut rt = tokio::runtime::Runtime::new().unwrap();
 /// # rt.block_on(async {
 /// let mut builder = RegistrationBuilder::default();
-/// builder.creation_content(false)
-///     .initial_state(vec![])
-///     .visibility(Visibility::Public)
-///     .name("name")
-///     .room_version("v1.0");
+/// builder.password("pass")
+///     .username("user")
+///     .kind(RegistrationKind::User);
 /// let mut client = Client::new(homeserver).unwrap();
 /// client.register_user(builder).await;
 /// # })
@@ -343,8 +342,8 @@ impl RegistrationBuilder {
     /// local part of the desired Matrix ID.
     ///
     /// If omitted, the homeserver MUST generate a Matrix ID local part.
-    pub fn username(&mut self, username: String) -> &mut Self {
-        self.username = Some(username);
+    pub fn username(&mut self, username: &str) -> &mut Self {
+        self.username = Some(username.to_string());
         self
     }
 
@@ -352,8 +351,8 @@ impl RegistrationBuilder {
     ///
     /// If this does not correspond to a known client device, a new device will be created.
     /// The server will auto-generate a device_id if this is not specified.
-    pub fn device_id(&mut self, device_id: String) -> &mut Self {
-        self.device_id = Some(device_id);
+    pub fn device_id(&mut self, device_id: &str) -> &mut Self {
+        self.device_id = Some(device_id.to_string());
         self
     }
 
@@ -389,6 +388,20 @@ impl RegistrationBuilder {
     pub fn inhibit_login(&mut self, inhibit_login: bool) -> &mut Self {
         self.inhibit_login = inhibit_login;
         self
+    }
+}
+
+impl Into<register::Request> for RegistrationBuilder {
+    fn into(self) -> register::Request {
+        register::Request {
+            password: self.password,
+            username: self.username,
+            device_id: self.device_id,
+            initial_device_display_name: self.initial_device_display_name,
+            auth: self.auth,
+            kind: self.kind,
+            inhibit_login: self.inhibit_login,
+        }
     }
 }
 

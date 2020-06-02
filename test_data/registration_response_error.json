@@ -1,0 +1,19 @@
+{
+    "errcode": "M_FORBIDDEN",
+    "error": "Invalid password",
+    "completed": ["example.type.foo"],
+    "flows": [
+        {
+            "stages": ["example.type.foo", "example.type.bar"]
+        },
+        {
+            "stages": ["example.type.foo", "example.type.baz"]
+        }
+    ],
+    "params": {
+        "example.type.baz": {
+            "example_key": "foobar"
+        }
+    },
+    "session": "xxxxxx"
+}

@@ -51,12 +51,16 @@ pub enum Error {
     #[error("can't convert between ruma_client_api and hyper types.")]
     IntoHttp(RumaIntoHttpError),
 
-    /// An error occured in the Matrix client library.
+    /// An error occurred in the Matrix client library.
     #[error(transparent)]
     MatrixError(#[from] MatrixError),
 
-    /// An error occured in the Matrix client library.
-    #[error("can't convert between ruma_client_api and hyper types.")]
+    /// An error occurred while authenticating.
+    ///
+    /// When registering or authenticating the Matrix server can send a `UiaaResponse`
+    /// as the error type, this is a User-Interactive Authentication API response. This
+    /// represents an error with information about how to authenticate the user.
+    #[error("User-Interactive Authentication required.")]
     UiaaError(RumaResponseError<UiaaError>),
 }
 
