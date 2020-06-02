@@ -1,0 +1,16 @@
+{
+    "content": {
+        "m.relates_to": {
+            "event_id": "$MDit176PkuBlpP7S6c64iuf74KC2HqZ3peV1NrV4PKA",
+            "key": "👍",
+            "rel_type": "m.annotation"
+        }
+    },
+    "event_id": "$QZn9xEx72PUfd2tAGFH-FFgsffZlVMobk47Tl5Lpdtg",
+    "origin_server_ts": 1590275813161,
+    "sender": "@devinr528:matrix.org",
+    "type": "m.reaction",
+    "unsigned": {
+        "age": 85
+    }
+}
