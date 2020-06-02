@@ -246,6 +246,7 @@ impl SyncSettings {
     }
 }
 
+use api::r0::account::register;
 #[cfg(feature = "encryption")]
 use api::r0::keys::{claim_keys, get_keys, upload_keys, KeyAlgorithm};
 use api::r0::membership::{
@@ -445,6 +446,28 @@ impl Client {
     /// previous login call.
     pub async fn restore_login(&self, session: Session) -> Result<()> {
         Ok(self.base_client.restore_login(session).await?)
+    }
+
+    /// Register a user to the server.
+    ///
+    /// # Arguments
+    ///
+    /// * `registration` - The easiest way to create this request is using the `RegistrationBuilder`.
+    ///
+    /// # Examples
+    /// ```
+    ///
+    /// ```
+    #[instrument(skip(registration))]
+    pub async fn register_user<R: Into<register::Request>>(
+        &self,
+        registration: R,
+    ) -> Result<register::Response> {
+        info!("Registering to {}", self.homeserver);
+
+        let request = registration.into();
+
+        self.send_uiaa(request).await
     }
 
     /// Join a room by `RoomId`.
@@ -974,6 +997,75 @@ impl Client {
         let http_response = http_builder.body(body).unwrap();
 
         Ok(<Request::Response>::try_from(http_response)?)
+    }
+
+    async fn send_uiaa<
+        Request: Endpoint<ResponseError = api::r0::uiaa::UiaaResponse> + std::fmt::Debug,
+    >(
+        &self,
+        request: Request,
+    ) -> Result<Request::Response> {
+        let request: http::Request<Vec<u8>> = request.try_into()?;
+        let url = request.uri();
+        let path_and_query = url.path_and_query().unwrap();
+        let mut url = self.homeserver.clone();
+
+        url.set_path(path_and_query.path());
+        url.set_query(path_and_query.query());
+
+        trace!("Doing request {:?}", url);
+
+        let request_builder = match Request::METADATA.method {
+            HttpMethod::GET => self.http_client.get(url),
+            HttpMethod::POST => {
+                let body = request.body().clone();
+                self.http_client
+                    .post(url)
+                    .body(body)
+                    .header(reqwest::header::CONTENT_TYPE, "application/json")
+            }
+            HttpMethod::PUT => {
+                let body = request.body().clone();
+                self.http_client
+                    .put(url)
+                    .body(body)
+                    .header(reqwest::header::CONTENT_TYPE, "application/json")
+            }
+            HttpMethod::DELETE => unimplemented!(),
+            _ => panic!("Unsuported method"),
+        };
+
+        let request_builder = if Request::METADATA.requires_authentication {
+            let session = self.base_client.session().read().await;
+
+            if let Some(session) = session.as_ref() {
+                let header_value = format!("Bearer {}", &session.access_token);
+                request_builder.header(AUTHORIZATION, header_value)
+            } else {
+                return Err(Error::AuthenticationRequired);
+            }
+        } else {
+            request_builder
+        };
+        let mut response = request_builder.send().await?;
+
+        trace!("Got response: {:?}", response);
+
+        let status = response.status();
+        let mut http_builder = HttpResponse::builder().status(status);
+        let headers = http_builder.headers_mut().unwrap();
+
+        for (k, v) in response.headers_mut().drain() {
+            if let Some(key) = k {
+                headers.insert(key, v);
+            }
+        }
+        let body = response.bytes().await?.as_ref().to_owned();
+        let http_response = http_builder.body(body).unwrap();
+
+        let uiaa: Result<_> = <Request::Response>::try_from(http_response).map_err(Into::into);
+
+        Ok(uiaa?)
     }
 
     /// Synchronize the client's state with the latest state on the server.

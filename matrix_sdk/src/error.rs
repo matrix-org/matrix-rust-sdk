@@ -20,6 +20,7 @@ use thiserror::Error;
 
 use matrix_sdk_base::Error as MatrixError;
 
+use crate::api::r0::uiaa::UiaaResponse as UiaaError;
 use crate::api::Error as RumaClientError;
 use crate::FromHttpResponseError as RumaResponseError;
 use crate::IntoHttpError as RumaIntoHttpError;
@@ -53,6 +54,16 @@ pub enum Error {
     /// An error occured in the Matrix client library.
     #[error(transparent)]
     MatrixError(#[from] MatrixError),
+
+    /// An error occured in the Matrix client library.
+    #[error("can't convert between ruma_client_api and hyper types.")]
+    UiaaError(RumaResponseError<UiaaError>),
+}
+
+impl From<RumaResponseError<UiaaError>> for Error {
+    fn from(error: RumaResponseError<UiaaError>) -> Self {
+        Self::UiaaError(error)
+    }
 }
 
 impl From<RumaResponseError<RumaClientError>> for Error {

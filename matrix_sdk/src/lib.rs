@@ -51,7 +51,7 @@ mod error;
 mod request_builder;
 pub use client::{Client, ClientConfig, SyncSettings};
 pub use error::{Error, Result};
-pub use request_builder::{MessagesRequestBuilder, RoomBuilder};
+pub use request_builder::{MessagesRequestBuilder, RegistrationBuilder, RoomBuilder};
 
 #[cfg(not(target_arch = "wasm32"))]
 pub(crate) const VERSION: &str = env!("CARGO_PKG_VERSION");
