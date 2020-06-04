@@ -546,17 +546,14 @@ impl OlmMachine {
         match &self.uploaded_signed_key_count {
             Some(count) => {
                 let count = count.load(Ordering::Relaxed);
-                let max_keys = self.account.max_one_time_keys().await as u64;
-                let max_on_server = max_keys / 2;
+                let max_keys = self.account.max_one_time_keys().await;
+                let max_on_server = (max_keys as u64) / 2;
 
                 if count >= (max_on_server) {
                     return Err(());
                 }
 
                 let key_count = (max_on_server) - count;
-
-                let max_keys = self.account.max_one_time_keys().await;
-
                 let key_count: usize = key_count.try_into().unwrap_or(max_keys);
 
                 self.account.generate_one_time_keys(key_count).await;
