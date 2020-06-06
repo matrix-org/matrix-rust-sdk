@@ -1628,6 +1628,7 @@ impl BaseClient {
             NonRoomEvent::FullyRead(full_read) => {
                 event_emitter.on_non_room_fully_read(room, &full_read).await
             }
+            NonRoomEvent::Typing(typing) => event_emitter.on_non_room_typing(room, &typing).await,
             _ => {}
         }
     }
@@ -1684,6 +1685,7 @@ impl BaseClient {
             NonRoomEvent::FullyRead(full_read) => {
                 event_emitter.on_non_room_fully_read(room, &full_read).await
             }
+            NonRoomEvent::Typing(typing) => event_emitter.on_non_room_typing(room, &typing).await,
             _ => {}
         }
     }

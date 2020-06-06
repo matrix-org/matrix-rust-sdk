@@ -319,8 +319,14 @@ mod test {
         async fn on_non_room_fully_read(&self, _: SyncRoom, _: &FullyReadEvent) {
             self.0.lock().await.push("account read".to_string())
         }
+        async fn on_non_room_typing(&self, _: SyncRoom, _: &TypingEvent) {
+            self.0.lock().await.push("typing event".to_string())
+        }
         async fn on_presence_event(&self, _: SyncRoom, _: &PresenceEvent) {
             self.0.lock().await.push("presence event".to_string())
+        }
+        async fn on_unrecognized_event(&self, _: SyncRoom, _: &CustomOrRawEvent<'_>) {
+            self.0.lock().await.push("unrecognized event".to_string())
         }
     }
 
@@ -414,6 +420,32 @@ mod test {
                 "state member",
                 "state member",
                 "message"
+            ],
+        )
+    }
+
+    #[async_test]
+    async fn event_emitter_more_events() {
+        let vec = Arc::new(Mutex::new(Vec::new()));
+        let test_vec = Arc::clone(&vec);
+        let emitter = Box::new(EvEmitterTest(vec));
+
+        let client = get_client().await;
+        client.add_event_emitter(emitter).await;
+
+        let mut response = sync_response(SyncResponseFile::All);
+        client.receive_sync_response(&mut response).await.unwrap();
+
+        let v = test_vec.lock().await;
+        assert_eq!(
+            v.as_slice(),
+            [
+                "message",
+                "unrecognized event",
+                "redaction",
+                "unrecognized event",
+                "unrecognized event",
+                "typing event"
             ],
         )
     }
