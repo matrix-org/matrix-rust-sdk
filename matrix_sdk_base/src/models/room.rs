@@ -701,44 +701,77 @@ mod test {
 
     #[async_test]
     async fn test_member_display_name() {
-        let client = get_client();
+        // Initialize
 
-        let client_2 = {
-            let session = Session {
-                access_token: "1234".to_owned(),
-                user_id: UserId::try_from("@example:hostlocal").unwrap(),
-                device_id: "DEVICEID".to_owned(),
-            };
-            BaseClient::new(Some(session)).unwrap()
-        };
+        let client = get_client().await;
         let room_id = get_room_id();
-        let user_id = UserId::try_from("@example:localhost").unwrap();
+        let user_id1 = UserId::try_from("@example:localhost").unwrap();
+        let user_id2 = UserId::try_from("@someone_else:localhost").unwrap();
 
-        let mut response = EventBuilder::default()
+        let member2_join_event = serde_json::json!({
+            "content": {
+                "avatar_url": null,
+                "displayname": "example",
+                "membership": "join"
+            },
+            "event_id": "$16345217l517tabbz:localhost",
+            "membership": "join",
+            "origin_server_ts": 1455123234,
+            "sender": "@someone_else:localhost",
+            "state_key": "@someone_else:localhost",
+            "type": "m.room.member",
+            "unsigned": {
+                "age": 1989321234,
+                "replaces_state": "$1622a2311315tkjoA:localhost",
+                "prev_content": {
+                    "avatar_url": null,
+                    "displayname": "example",
+                    "membership": "invite"
+                }
+            }
+        });
+
+        let mut event_builder = EventBuilder::new();
+
+        let mut member1_join_sync_response = event_builder
             .add_room_event(EventsFile::Member, RoomEvent::RoomMember)
             .build_sync_response();
 
-        client.receive_sync_response(&mut response).await.unwrap();
-
-        let room = client.get_joined_room(&room_id).await.unwrap();
-        let room = room.read().await;
-
-        let display_name = room.member_display_name(&user_id).unwrap();
-        assert_eq!("example", display_name);
-
-        let mut response = EventBuilder::default()
-            .add_room_event(EventsFile::Member, RoomEvent::RoomMember)
+        let mut member2_join_sync_response = event_builder
+            .add_custom_joined_event(&room_id, member2_join_event, |ev| RoomEvent::RoomMember(ev))
             .build_sync_response();
 
-        client_2.receive_sync_response(&mut response).await.unwrap();
+        // First member with display name "example" joins
+        client
+            .receive_sync_response(&mut member1_join_sync_response)
+            .await
+            .unwrap();
 
-        let room_2 = client_2.get_joined_room(&room_id).await.unwrap();
-        let room_2 = room_2.read().await;
+        // First member's disambiguated display name is "example"
+        {
+            let room = client.get_joined_room(&room_id).await.unwrap();
+            let room = room.read().await;
+            let display_name1 = room.member_display_name(&user_id1).unwrap();
 
-        let display_name_2 = room_2.member_display_name(&user_id).unwrap();
+            assert_eq!("example", display_name1);
+        }
 
-        // TODO: this should change
-        assert_eq!("example", display_name_2);
+        // Second member with display name "example" joins
+        client
+            .receive_sync_response(&mut member2_join_sync_response)
+            .await
+            .unwrap();
+
+        // Both of their display names are now disambiguated with MXIDs
+        {
+            let room = client.get_joined_room(&room_id).await.unwrap();
+            let room = room.read().await;
+            let display_name1 = room.member_display_name(&user_id1).unwrap();
+            let display_name2 = room.member_display_name(&user_id2).unwrap();
+
+            assert_eq!(format!("example ({})", user_id1), display_name1);
+            assert_eq!(format!("example ({})", user_id2), display_name2);
+        }
     }
 
     #[async_test]
