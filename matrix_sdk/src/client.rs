@@ -913,6 +913,72 @@ impl Client {
         Ok(response)
     }
 
+    async fn send_request(
+        &self,
+        requires_auth: bool,
+        method: HttpMethod,
+        request: http::Request<Vec<u8>>,
+    ) -> Result<reqwest::Response> {
+        let url = request.uri();
+        let path_and_query = url.path_and_query().unwrap();
+        let mut url = self.homeserver.clone();
+
+        url.set_path(path_and_query.path());
+        url.set_query(path_and_query.query());
+
+        let request_builder = match method {
+            HttpMethod::GET => self.http_client.get(url),
+            HttpMethod::POST => {
+                let body = request.body().clone();
+                self.http_client
+                    .post(url)
+                    .body(body)
+                    .header(reqwest::header::CONTENT_TYPE, "application/json")
+            }
+            HttpMethod::PUT => {
+                let body = request.body().clone();
+                self.http_client
+                    .put(url)
+                    .body(body)
+                    .header(reqwest::header::CONTENT_TYPE, "application/json")
+            }
+            HttpMethod::DELETE => unimplemented!(),
+            _ => panic!("Unsuported method"),
+        };
+
+        let request_builder = if requires_auth {
+            let session = self.base_client.session().read().await;
+
+            if let Some(session) = session.as_ref() {
+                let header_value = format!("Bearer {}", &session.access_token);
+                request_builder.header(AUTHORIZATION, header_value)
+            } else {
+                return Err(Error::AuthenticationRequired);
+            }
+        } else {
+            request_builder
+        };
+
+        Ok(request_builder.send().await?)
+    }
+
+    async fn response_to_http_response(
+        &self,
+        mut response: reqwest::Response,
+    ) -> Result<http::Response<Vec<u8>>> {
+        let status = response.status();
+        let mut http_builder = HttpResponse::builder().status(status);
+        let headers = http_builder.headers_mut().unwrap();
+
+        for (k, v) in response.headers_mut().drain() {
+            if let Some(key) = k {
+                headers.insert(key, v);
+            }
+        }
+        let body = response.bytes().await?.as_ref().to_owned();
+        Ok(http_builder.body(body).unwrap())
+    }
+
     /// Send an arbitrary request to the server, without updating client state.
     ///
     /// **Warning:** Because this method *does not* update the client state, it is
@@ -956,69 +1022,21 @@ impl Client {
         request: Request,
     ) -> Result<Request::Response> {
         let request: http::Request<Vec<u8>> = request.try_into()?;
-        let url = request.uri();
-        let path_and_query = url.path_and_query().unwrap();
-        let mut url = self.homeserver.clone();
-
-        url.set_path(path_and_query.path());
-        url.set_query(path_and_query.query());
-
-        trace!("Doing request {:?}", url);
-
-        let request_builder = match Request::METADATA.method {
-            HttpMethod::GET => self.http_client.get(url),
-            HttpMethod::POST => {
-                let body = request.body().clone();
-                self.http_client
-                    .post(url)
-                    .body(body)
-                    .header(reqwest::header::CONTENT_TYPE, "application/json")
-            }
-            HttpMethod::PUT => {
-                let body = request.body().clone();
-                self.http_client
-                    .put(url)
-                    .body(body)
-                    .header(reqwest::header::CONTENT_TYPE, "application/json")
-            }
-            HttpMethod::DELETE => unimplemented!(),
-            _ => panic!("Unsuported method"),
-        };
-
-        let request_builder = if Request::METADATA.requires_authentication {
-            let session = self.base_client.session().read().await;
-
-            if let Some(session) = session.as_ref() {
-                let header_value = format!("Bearer {}", &session.access_token);
-                request_builder.header(AUTHORIZATION, header_value)
-            } else {
-                return Err(Error::AuthenticationRequired);
-            }
-        } else {
-            request_builder
-        };
-        let mut response = request_builder.send().await?;
+        let response = self
+            .send_request(
+                Request::METADATA.requires_authentication,
+                Request::METADATA.method,
+                request,
+            )
+            .await?;
 
         trace!("Got response: {:?}", response);
 
-        let status = response.status();
-        let mut http_builder = HttpResponse::builder().status(status);
-        let headers = http_builder.headers_mut().unwrap();
+        let response = self.response_to_http_response(response).await?;
 
-        for (k, v) in response.headers_mut().drain() {
-            if let Some(key) = k {
-                headers.insert(key, v);
-            }
-        }
-        let body = response.bytes().await?.as_ref().to_owned();
-        let http_response = http_builder.body(body).unwrap();
-
-        Ok(<Request::Response>::try_from(http_response)?)
+        Ok(<Request::Response>::try_from(response)?)
     }
 
-    // TODO I couldn't figure out a way to share code between these two send methods
-    // as they are essentially completely different types?
-    //
     /// Send an arbitrary request to the server, without updating client state.
     ///
     /// This version allows the client to make registration requests.
@@ -1057,64 +1075,19 @@ impl Client {
         request: Request,
     ) -> Result<Request::Response> {
         let request: http::Request<Vec<u8>> = request.try_into()?;
-        let url = request.uri();
-        let path_and_query = url.path_and_query().unwrap();
-        let mut url = self.homeserver.clone();
-
-        url.set_path(path_and_query.path());
-        url.set_query(path_and_query.query());
-
-        trace!("Doing request {:?}", url);
-
-        let request_builder = match Request::METADATA.method {
-            HttpMethod::GET => self.http_client.get(url),
-            HttpMethod::POST => {
-                let body = request.body().clone();
-                self.http_client
-                    .post(url)
-                    .body(body)
-                    .header(reqwest::header::CONTENT_TYPE, "application/json")
-            }
-            HttpMethod::PUT => {
-                let body = request.body().clone();
-                self.http_client
-                    .put(url)
-                    .body(body)
-                    .header(reqwest::header::CONTENT_TYPE, "application/json")
-            }
-            HttpMethod::DELETE => unimplemented!(),
-            _ => panic!("Unsuported method"),
-        };
-
-        let request_builder = if Request::METADATA.requires_authentication {
-            let session = self.base_client.session().read().await;
-
-            if let Some(session) = session.as_ref() {
-                let header_value = format!("Bearer {}", &session.access_token);
-                request_builder.header(AUTHORIZATION, header_value)
-            } else {
-                return Err(Error::AuthenticationRequired);
-            }
-        } else {
-            request_builder
-        };
-        let mut response = request_builder.send().await?;
+        let response = self
+            .send_request(
+                Request::METADATA.requires_authentication,
+                Request::METADATA.method,
+                request,
+            )
+            .await?;
 
         trace!("Got response: {:?}", response);
 
-        let status = response.status();
-        let mut http_builder = HttpResponse::builder().status(status);
-        let headers = http_builder.headers_mut().unwrap();
+        let response = self.response_to_http_response(response).await?;
 
-        for (k, v) in response.headers_mut().drain() {
-            if let Some(key) = k {
-                headers.insert(key, v);
-            }
-        }
-        let body = response.bytes().await?.as_ref().to_owned();
-        let http_response = http_builder.body(body).unwrap();
-
-        let uiaa: Result<_> = <Request::Response>::try_from(http_response).map_err(Into::into);
+        let uiaa: Result<_> = <Request::Response>::try_from(response).map_err(Into::into);
 
         Ok(uiaa?)
     }
