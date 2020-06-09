@@ -1,7 +1,9 @@
 use crate::api;
 use crate::events::room::power_levels::PowerLevelsEventContent;
 use crate::events::EventJson;
-use crate::identifiers::{RoomId, UserId};
+use crate::identifiers::{DeviceId, RoomId, UserId};
+use api::r0::account::register;
+use api::r0::account::register::RegistrationKind;
 use api::r0::filter::RoomEventFilter;
 use api::r0::membership::Invite3pid;
 use api::r0::message::get_message_events::{self, Direction};
@@ -9,6 +11,7 @@ use api::r0::room::{
     create_room::{self, CreationContent, InitialStateEvent, RoomPreset},
     Visibility,
 };
+use api::r0::uiaa::AuthData;
 
 use crate::js_int::UInt;
 
@@ -284,6 +287,120 @@ impl Into<get_message_events::Request> for MessagesRequestBuilder {
             dir: self.direction.unwrap_or(Direction::Backward),
             limit: self.limit,
             filter: self.filter,
+        }
+    }
+}
+
+/// A builder used to register users.
+///
+/// # Examples
+/// ```
+/// # use std::convert::TryFrom;
+/// # use matrix_sdk::{Client, RegistrationBuilder};
+/// # use matrix_sdk::api::r0::account::register::RegistrationKind;
+/// # use matrix_sdk::identifiers::DeviceId;
+/// # use url::Url;
+/// # let homeserver = Url::parse("http://example.com").unwrap();
+/// # let mut rt = tokio::runtime::Runtime::new().unwrap();
+/// # rt.block_on(async {
+/// let mut builder = RegistrationBuilder::default();
+/// builder.password("pass")
+///     .username("user")
+///     .kind(RegistrationKind::User);
+/// let mut client = Client::new(homeserver).unwrap();
+/// client.register_user(builder).await;
+/// # })
+/// ```
+#[derive(Clone, Debug, Default)]
+pub struct RegistrationBuilder {
+    password: Option<String>,
+    username: Option<String>,
+    device_id: Option<DeviceId>,
+    initial_device_display_name: Option<String>,
+    auth: Option<AuthData>,
+    kind: Option<RegistrationKind>,
+    inhibit_login: bool,
+}
+
+impl RegistrationBuilder {
+    /// Create a `RegistrationBuilder` builder to make a `register::Request`.
+    ///
+    /// The `room_id` and `from`` fields **need to be set** to create the request.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// The desired password for the account.
+    ///
+    /// May be empty for accounts that should not be able to log in again
+    /// with a password, e.g., for guest or application service accounts.
+    pub fn password(&mut self, password: &str) -> &mut Self {
+        self.password = Some(password.to_string());
+        self
+    }
+
+    /// local part of the desired Matrix ID.
+    ///
+    /// If omitted, the homeserver MUST generate a Matrix ID local part.
+    pub fn username(&mut self, username: &str) -> &mut Self {
+        self.username = Some(username.to_string());
+        self
+    }
+
+    /// ID of the client device.
+    ///
+    /// If this does not correspond to a known client device, a new device will be created.
+    /// The server will auto-generate a device_id if this is not specified.
+    pub fn device_id(&mut self, device_id: &str) -> &mut Self {
+        self.device_id = Some(device_id.to_string());
+        self
+    }
+
+    /// A display name to assign to the newly-created device.
+    ///
+    /// Ignored if `device_id` corresponds to a known device.
+    pub fn initial_device_display_name(&mut self, initial_device_display_name: &str) -> &mut Self {
+        self.initial_device_display_name = Some(initial_device_display_name.to_string());
+        self
+    }
+
+    /// Additional authentication information for the user-interactive authentication API.
+    ///
+    /// Note that this information is not used to define how the registered user should be
+    /// authenticated, but is instead used to authenticate the register call itself.
+    /// It should be left empty, or omitted, unless an earlier call returned an response
+    /// with status code 401.
+    pub fn auth(&mut self, auth: AuthData) -> &mut Self {
+        self.auth = Some(auth);
+        self
+    }
+
+    /// Kind of account to register
+    ///
+    /// Defaults to `User` if omitted.
+    pub fn kind(&mut self, kind: RegistrationKind) -> &mut Self {
+        self.kind = Some(kind);
+        self
+    }
+
+    /// If `true`, an `access_token` and `device_id` should not be returned
+    /// from this call, therefore preventing an automatic login.
+    pub fn inhibit_login(&mut self, inhibit_login: bool) -> &mut Self {
+        self.inhibit_login = inhibit_login;
+        self
+    }
+}
+
+impl Into<register::Request> for RegistrationBuilder {
+    fn into(self) -> register::Request {
+        register::Request {
+            password: self.password,
+            username: self.username,
+            device_id: self.device_id,
+            initial_device_display_name: self.initial_device_display_name,
+            auth: self.auth,
+            kind: self.kind,
+            inhibit_login: self.inhibit_login,
         }
     }
 }

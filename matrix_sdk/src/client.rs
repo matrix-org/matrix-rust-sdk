@@ -17,6 +17,7 @@
 use std::collections::BTreeMap;
 use std::collections::HashMap;
 use std::convert::{TryFrom, TryInto};
+use std::fmt::{self, Debug};
 use std::path::Path;
 use std::result::Result as StdResult;
 use std::sync::Arc;
@@ -66,8 +67,8 @@ pub struct Client {
 }
 
 #[cfg_attr(tarpaulin, skip)]
-impl std::fmt::Debug for Client {
-    fn fmt(&self, fmt: &mut std::fmt::Formatter<'_>) -> StdResult<(), std::fmt::Error> {
+impl Debug for Client {
+    fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> StdResult<(), fmt::Error> {
         write!(fmt, "Client {{ homeserver: {} }}", self.homeserver)
     }
 }
@@ -106,8 +107,8 @@ pub struct ClientConfig {
 }
 
 #[cfg_attr(tarpaulin, skip)]
-impl std::fmt::Debug for ClientConfig {
-    fn fmt(&self, fmt: &mut std::fmt::Formatter<'_>) -> StdResult<(), std::fmt::Error> {
+impl Debug for ClientConfig {
+    fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
         let mut res = fmt.debug_struct("ClientConfig");
 
         #[cfg(not(target_arch = "wasm32"))]
@@ -246,6 +247,7 @@ impl SyncSettings {
     }
 }
 
+use api::r0::account::register;
 #[cfg(feature = "encryption")]
 use api::r0::keys::{claim_keys, get_keys, upload_keys, KeyAlgorithm};
 use api::r0::membership::{
@@ -263,6 +265,7 @@ use api::r0::sync::sync_events;
 #[cfg(feature = "encryption")]
 use api::r0::to_device::send_event_to_device;
 use api::r0::typing::create_typing_event;
+use api::r0::uiaa::UiaaResponse;
 
 impl Client {
     /// Creates a new client for making HTTP requests to the given homeserver.
@@ -413,7 +416,7 @@ impl Client {
     ///     device_id from a previous login call. Note that this should be done
     ///     only if the client also holds the encryption keys for this device.
     #[instrument(skip(password))]
-    pub async fn login<S: Into<String> + std::fmt::Debug>(
+    pub async fn login<S: Into<String> + Debug>(
         &self,
         user: S,
         password: S,
@@ -445,6 +448,43 @@ impl Client {
     /// previous login call.
     pub async fn restore_login(&self, session: Session) -> Result<()> {
         Ok(self.base_client.restore_login(session).await?)
+    }
+
+    /// Register a user to the server.
+    ///
+    /// # Arguments
+    ///
+    /// * `registration` - The easiest way to create this request is using the `RegistrationBuilder`.
+    ///
+    ///
+    /// # Examples
+    /// ```
+    /// # use std::convert::TryFrom;
+    /// # use matrix_sdk::{Client, RegistrationBuilder};
+    /// # use matrix_sdk::api::r0::account::register::RegistrationKind;
+    /// # use matrix_sdk::identifiers::DeviceId;
+    /// # use url::Url;
+    /// # let homeserver = Url::parse("http://example.com").unwrap();
+    /// # let mut rt = tokio::runtime::Runtime::new().unwrap();
+    /// # rt.block_on(async {
+    /// let mut builder = RegistrationBuilder::default();
+    /// builder.password("pass")
+    ///     .username("user")
+    ///     .kind(RegistrationKind::User);
+    /// let mut client = Client::new(homeserver).unwrap();
+    /// client.register_user(builder).await;
+    /// # })
+    /// ```
+    #[instrument(skip(registration))]
+    pub async fn register_user<R: Into<register::Request>>(
+        &self,
+        registration: R,
+    ) -> Result<register::Response> {
+        info!("Registering to {}", self.homeserver);
+
+        let request = registration.into();
+        println!("{:#?}", request);
+        self.send_uiaa(request).await
     }
 
     /// Join a room by `RoomId`.
@@ -873,7 +913,79 @@ impl Client {
         Ok(response)
     }
 
-    /// Send an arbitrary request to the server, without updating client state
+    async fn send_request(
+        &self,
+        requires_auth: bool,
+        method: HttpMethod,
+        request: http::Request<Vec<u8>>,
+    ) -> Result<reqwest::Response> {
+        let url = request.uri();
+        let path_and_query = url.path_and_query().unwrap();
+        let mut url = self.homeserver.clone();
+
+        url.set_path(path_and_query.path());
+        url.set_query(path_and_query.query());
+
+        let request_builder = match method {
+            HttpMethod::GET => self.http_client.get(url),
+            HttpMethod::POST => {
+                let body = request.body().clone();
+                self.http_client
+                    .post(url)
+                    .body(body)
+                    .header(reqwest::header::CONTENT_TYPE, "application/json")
+            }
+            HttpMethod::PUT => {
+                let body = request.body().clone();
+                self.http_client
+                    .put(url)
+                    .body(body)
+                    .header(reqwest::header::CONTENT_TYPE, "application/json")
+            }
+            HttpMethod::DELETE => {
+                let body = request.body().clone();
+                self.http_client
+                    .delete(url)
+                    .body(body)
+                    .header(reqwest::header::CONTENT_TYPE, "application/json")
+            }
+            method => panic!("Unsuported method {}", method),
+        };
+
+        let request_builder = if requires_auth {
+            let session = self.base_client.session().read().await;
+
+            if let Some(session) = session.as_ref() {
+                let header_value = format!("Bearer {}", &session.access_token);
+                request_builder.header(AUTHORIZATION, header_value)
+            } else {
+                return Err(Error::AuthenticationRequired);
+            }
+        } else {
+            request_builder
+        };
+
+        Ok(request_builder.send().await?)
+    }
+
+    async fn response_to_http_response(
+        &self,
+        mut response: reqwest::Response,
+    ) -> Result<http::Response<Vec<u8>>> {
+        let status = response.status();
+        let mut http_builder = HttpResponse::builder().status(status);
+        let headers = http_builder.headers_mut().unwrap();
+
+        for (k, v) in response.headers_mut().drain() {
+            if let Some(key) = k {
+                headers.insert(key, v);
+            }
+        }
+        let body = response.bytes().await?.as_ref().to_owned();
+        Ok(http_builder.body(body).unwrap())
+    }
+
+    /// Send an arbitrary request to the server, without updating client state.
     ///
     /// **Warning:** Because this method *does not* update the client state, it is
     /// important to make sure than you account for this yourself, and use wrapper methods
@@ -911,69 +1023,79 @@ impl Client {
     /// // returned
     /// # })
     /// ```
-    pub async fn send<Request: Endpoint<ResponseError = crate::api::Error> + std::fmt::Debug>(
+    pub async fn send<Request: Endpoint<ResponseError = crate::api::Error> + Debug>(
         &self,
         request: Request,
     ) -> Result<Request::Response> {
         let request: http::Request<Vec<u8>> = request.try_into()?;
-        let url = request.uri();
-        let path_and_query = url.path_and_query().unwrap();
-        let mut url = self.homeserver.clone();
-
-        url.set_path(path_and_query.path());
-        url.set_query(path_and_query.query());
-
-        trace!("Doing request {:?}", url);
-
-        let request_builder = match Request::METADATA.method {
-            HttpMethod::GET => self.http_client.get(url),
-            HttpMethod::POST => {
-                let body = request.body().clone();
-                self.http_client
-                    .post(url)
-                    .body(body)
-                    .header(reqwest::header::CONTENT_TYPE, "application/json")
-            }
-            HttpMethod::PUT => {
-                let body = request.body().clone();
-                self.http_client
-                    .put(url)
-                    .body(body)
-                    .header(reqwest::header::CONTENT_TYPE, "application/json")
-            }
-            HttpMethod::DELETE => unimplemented!(),
-            _ => panic!("Unsuported method"),
-        };
-
-        let request_builder = if Request::METADATA.requires_authentication {
-            let session = self.base_client.session().read().await;
-
-            if let Some(session) = session.as_ref() {
-                let header_value = format!("Bearer {}", &session.access_token);
-                request_builder.header(AUTHORIZATION, header_value)
-            } else {
-                return Err(Error::AuthenticationRequired);
-            }
-        } else {
-            request_builder
-        };
-        let mut response = request_builder.send().await?;
+        let response = self
+            .send_request(
+                Request::METADATA.requires_authentication,
+                Request::METADATA.method,
+                request,
+            )
+            .await?;
 
         trace!("Got response: {:?}", response);
 
-        let status = response.status();
-        let mut http_builder = HttpResponse::builder().status(status);
-        let headers = http_builder.headers_mut().unwrap();
+        let response = self.response_to_http_response(response).await?;
 
-        for (k, v) in response.headers_mut().drain() {
-            if let Some(key) = k {
-                headers.insert(key, v);
-            }
-        }
-        let body = response.bytes().await?.as_ref().to_owned();
-        let http_response = http_builder.body(body).unwrap();
+        Ok(<Request::Response>::try_from(response)?)
+    }
 
-        Ok(<Request::Response>::try_from(http_response)?)
+    /// Send an arbitrary request to the server, without updating client state.
+    ///
+    /// This version allows the client to make registration requests.
+    ///
+    /// **Warning:** Because this method *does not* update the client state, it is
+    /// important to make sure than you account for this yourself, and use wrapper methods
+    /// where available.  This method should *only* be used if a wrapper method for the
+    /// endpoint you'd like to use is not available.
+    ///
+    /// # Arguments
+    ///
+    /// * `request` - This version of send is for dealing with types that return
+    /// a `UiaaResponse` as the `Endpoint<ResponseError = UiaaResponse>` associated type.
+    ///
+    /// # Examples
+    /// ```
+    /// # use std::convert::TryFrom;
+    /// # use matrix_sdk::{Client, RegistrationBuilder};
+    /// # use matrix_sdk::api::r0::account::register::{RegistrationKind, Request};
+    /// # use matrix_sdk::identifiers::DeviceId;
+    /// # use url::Url;
+    /// # let homeserver = Url::parse("http://example.com").unwrap();
+    /// # let mut rt = tokio::runtime::Runtime::new().unwrap();
+    /// # rt.block_on(async {
+    /// let mut builder = RegistrationBuilder::default();
+    /// builder.password("pass")
+    ///     .username("user")
+    ///     .kind(RegistrationKind::User);
+    /// let mut client = Client::new(homeserver).unwrap();
+    /// let req: Request = builder.into();
+    /// client.send_uiaa(req).await;
+    /// # })
+    /// ```
+    pub async fn send_uiaa<Request: Endpoint<ResponseError = UiaaResponse> + Debug>(
+        &self,
+        request: Request,
+    ) -> Result<Request::Response> {
+        let request: http::Request<Vec<u8>> = request.try_into()?;
+        let response = self
+            .send_request(
+                Request::METADATA.requires_authentication,
+                Request::METADATA.method,
+                request,
+            )
+            .await?;
+
+        trace!("Got response: {:?}", response);
+
+        let response = self.response_to_http_response(response).await?;
+
+        let uiaa: Result<_> = <Request::Response>::try_from(response).map_err(Into::into);
+
+        Ok(uiaa?)
     }
 
     /// Synchronize the client's state with the latest state on the server.
@@ -1271,14 +1393,16 @@ impl Client {
 #[cfg(test)]
 mod test {
     use super::{
-        ban_user, create_receipt, create_typing_event, forget_room, invite_user, kick_user,
-        leave_room, set_read_marker, Invite3pid, MessageEventContent,
+        api::r0::uiaa::AuthData, ban_user, create_receipt, create_typing_event, forget_room,
+        invite_user, kick_user, leave_room, register::RegistrationKind, set_read_marker,
+        Invite3pid, MessageEventContent,
     };
     use super::{Client, ClientConfig, Session, SyncSettings, Url};
     use crate::events::collections::all::RoomEvent;
     use crate::events::room::member::MembershipState;
     use crate::events::room::message::TextMessageEventContent;
     use crate::identifiers::{EventId, RoomId, RoomIdOrAliasId, UserId};
+    use crate::RegistrationBuilder;
 
     use matrix_sdk_base::JsonStore;
     use matrix_sdk_test::{EventBuilder, EventsFile};
@@ -1451,6 +1575,44 @@ mod test {
             } else {
                 panic!(
                     "found the wrong `Error` type {:?}, expected `Error::RumaResponse",
+                    err
+                );
+            }
+        } else {
+            panic!("this request should return an `Err` variant")
+        }
+    }
+
+    #[tokio::test]
+    async fn register_error() {
+        let homeserver = Url::from_str(&mockito::server_url()).unwrap();
+
+        let _m = mock("POST", "/_matrix/client/r0/register")
+            .with_status(403)
+            .with_body_from_file("../test_data/registration_response_error.json")
+            .create();
+
+        let mut user = RegistrationBuilder::default();
+
+        user.username("user")
+            .password("password")
+            .auth(AuthData::FallbackAcknowledgement {
+                session: "foobar".to_string(),
+            })
+            .kind(RegistrationKind::User);
+
+        let client = Client::new(homeserver).unwrap();
+
+        if let Err(err) = client.register_user(user).await {
+            if let crate::Error::UiaaError(crate::FromHttpResponseError::Http(
+                // TODO this should be a UiaaError need to investigate
+                crate::ServerError::Unknown(e),
+            )) = err
+            {
+                assert!(e.to_string().starts_with("EOF while parsing"))
+            } else {
+                panic!(
+                    "found the wrong `Error` type {:#?}, expected `ServerError::Unknown",
                     err
                 );
             }
