@@ -340,7 +340,7 @@ impl Room {
         let new_member = RoomMember::new(event);
 
         // find all users that share the same display name as the joining user
-        let users_with_same_name: Vec<_> = self
+        let users_with_same_name: Vec<UserId> = self
             .members
             .iter()
             .filter(|(_, existing_member)| {
