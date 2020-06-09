@@ -302,7 +302,7 @@ impl Room {
         self.encrypted.as_ref()
     }
 
-    /// Get the resolved display name for a member of this room.
+    /// Get the disambiguated display name for a member of this room.
     pub fn member_display_name<'a>(&'a self, id: &UserId) -> Option<Cow<'a, str>> {
         self.disambiguated_display_names
             .get(id)
