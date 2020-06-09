@@ -304,15 +304,17 @@ impl Room {
 
     /// Get the disambiguated display name for a member of this room.
     ///
+    /// If a user has no display name set, returns the MXID as a fallback.
+    ///
     /// When displaying a room member's display name, clients *must* use this method to obtain the
     /// name instead of displaying the `RoomMember::display_name` directly. This is because
     /// multiple users can share the same display name in which case the display name has to be
     /// disambiguated.
-    pub fn member_display_name<'a>(&'a self, id: &UserId) -> Option<Cow<'a, str>> {
+    pub fn member_display_name<'a>(&'a self, id: &'a UserId) -> Cow<'a, str> {
         self.disambiguated_display_names
             .get(id)
             .map(|s| s.as_str().into())
-            .or_else(|| {
+            .unwrap_or_else(|| {
                 self.members.get(id).map(|member| {
                     member
                         .display_name
@@ -320,7 +322,7 @@ impl Room {
                         .map(|s| s.to_string())
                         .unwrap_or_else(|| format!("{}", member.user_id))
                         .into()
-                })
+                }).unwrap_or(id.as_ref().into())
             })
     }
 
@@ -765,7 +767,7 @@ mod test {
         {
             let room = client.get_joined_room(&room_id).await.unwrap();
             let room = room.read().await;
-            let display_name1 = room.member_display_name(&user_id1).unwrap();
+            let display_name1 = room.member_display_name(&user_id1);
 
             assert_eq!("example", display_name1);
         }
@@ -780,8 +782,8 @@ mod test {
         {
             let room = client.get_joined_room(&room_id).await.unwrap();
             let room = room.read().await;
-            let display_name1 = room.member_display_name(&user_id1).unwrap();
-            let display_name2 = room.member_display_name(&user_id2).unwrap();
+            let display_name1 = room.member_display_name(&user_id1);
+            let display_name2 = room.member_display_name(&user_id2);
 
             assert_eq!(format!("example ({})", user_id1), display_name1);
             assert_eq!(format!("example ({})", user_id2), display_name2);
