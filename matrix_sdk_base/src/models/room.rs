@@ -339,7 +339,7 @@ impl Room {
 
         let new_member = RoomMember::new(event);
 
-        // find all users that share the same display name as the joining user
+        // Find all users that share the same display name as the joining user.
         let users_with_same_name: Vec<UserId> = self
             .members
             .iter()
@@ -361,7 +361,8 @@ impl Room {
             .cloned()
             .collect();
 
-        // if there is a other user with the same display name -> use `display_name (userid)`
+        // If there is another user with the same display name, use "DISPLAY_NAME (MXID)" instead
+        // to disambiguate.
         if !users_with_same_name.is_empty() {
             let users_with_same_name = users_with_same_name
                 .into_iter()
@@ -378,12 +379,12 @@ impl Room {
                 })
                 .collect::<Vec<_>>();
 
-            // update all existing users with same name
+            // Update all existing users with same name.
             for (id, member) in users_with_same_name {
                 self.disambiguated_display_names.insert(id, member);
             }
 
-            // insert new member's display name
+            // Insert new member's display name.
             self.disambiguated_display_names.insert(
                 new_member.user_id.clone(),
                 new_member
