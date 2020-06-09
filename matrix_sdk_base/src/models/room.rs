@@ -377,7 +377,7 @@ impl Room {
                         })
                         .map(|m| (id, m))
                 })
-                .collect::<Vec<_>>();
+                .collect::<Vec<(UserId, String)>>();
 
             // Update all existing users with same name.
             for (id, member) in users_with_same_name {
