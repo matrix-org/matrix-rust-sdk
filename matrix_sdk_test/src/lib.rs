@@ -216,7 +216,7 @@ impl EventBuilder {
         self
     }
 
-    /// Consumes `ResponseBuilder and returns SyncResponse.
+    /// Consumes `ResponseBuilder` and returns `SyncResponse`.
     pub fn build_sync_response(mut self) -> SyncResponse {
         let main_room_id = RoomId::try_from("!SVkFJHzfwvuaIEawgC:localhost").unwrap();
 
