@@ -201,9 +201,14 @@ impl RoomName {
         true
     }
 
+    /// Calculate the canonical display name of a room, taking into account its name, aliases and
+    /// members.
+    ///
+    /// The display name is calculated according to [this algorithm][spec].
+    ///
+    /// [spec]:
+    /// <https://matrix.org/docs/spec/client_server/latest#calculating-the-display-name-for-a-room>
     pub fn calculate_name(&self, members: &HashMap<UserId, RoomMember>) -> String {
-        // https://matrix.org/docs/spec/client_server/latest#calculating-the-display-name-for-a-room.
-        // the order in which we check for a name ^^
         if let Some(name) = &self.name {
             let name = name.trim();
             name.to_string()
