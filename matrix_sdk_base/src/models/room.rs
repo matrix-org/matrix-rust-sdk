@@ -395,10 +395,7 @@ impl Room {
             );
         }
 
-        self.members.insert(
-            UserId::try_from(event.state_key.as_str()).unwrap(),
-            new_member,
-        );
+        self.members.insert(new_member.user_id.clone(), new_member);
 
         true
     }
