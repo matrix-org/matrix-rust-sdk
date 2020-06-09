@@ -154,7 +154,7 @@ mod test {
                     "own_user_id": "@example:example.com",
                     "creator": null,
                     "members": {},
-                    "display_names": {},
+                    "disambiguated_display_names": {},
                     "typing_users": [],
                     "power_levels": null,
                     "encrypted": null,
@@ -171,7 +171,7 @@ mod test {
             serde_json::json!({
                 "!roomid:example.com": {
                     "room_id": "!roomid:example.com",
-                    "display_names": {},
+                    "disambiguated_display_names": {},
                     "room_name": {
                         "name": null,
                         "canonical_alias": null,

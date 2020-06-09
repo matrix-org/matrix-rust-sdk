@@ -181,8 +181,8 @@ pub struct Room {
     pub unread_notifications: Option<UInt>,
     /// The tombstone state of this room.
     pub tombstone: Option<Tombstone>,
-    /// The map of display names
-    display_names: HashMap<UserId, String>,
+    /// The map of disambiguated display names for users who have the same display name
+    disambiguated_display_names: HashMap<UserId, String>,
 }
 
 impl RoomName {
@@ -281,7 +281,7 @@ impl Room {
             unread_highlight: None,
             unread_notifications: None,
             tombstone: None,
-            display_names: HashMap::new(),
+            disambiguated_display_names: HashMap::new(),
         }
     }
 
@@ -304,7 +304,7 @@ impl Room {
 
     /// Get the resolved display name for a member of this room.
     pub fn member_display_name<'a>(&'a self, id: &UserId) -> Option<Cow<'a, str>> {
-        self.display_names
+        self.disambiguated_display_names
             .get(id)
             .map(|s| s.as_str().into())
             .or_else(|| {
@@ -331,7 +331,7 @@ impl Room {
 
         // find all users that share the same display name as the joining user
         let users_with_same_name: Vec<_> = self
-            .display_names
+            .disambiguated_display_names
             .iter()
             .filter(|(_, v)| {
                 member
@@ -363,11 +363,11 @@ impl Room {
 
             // update all existing users with same name
             for (id, member) in users_with_same_name {
-                self.display_names.insert(id, member);
+                self.disambiguated_display_names.insert(id, member);
             }
 
             // insert new member's display name
-            self.display_names.insert(
+            self.disambiguated_display_names.insert(
                 member.user_id.clone(),
                 member
                     .display_name
