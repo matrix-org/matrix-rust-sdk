@@ -327,17 +327,24 @@ impl Room {
             return false;
         }
 
-        let member = RoomMember::new(event);
+        let new_member = RoomMember::new(event);
 
         // find all users that share the same display name as the joining user
         let users_with_same_name: Vec<_> = self
-            .disambiguated_display_names
+            .members
             .iter()
-            .filter(|(_, v)| {
-                member
+            .filter(|(_, existing_member)| {
+                new_member
                     .display_name
                     .as_ref()
-                    .map(|n| &n == v)
+                    .and_then(|new_member_name| {
+                        existing_member
+                            .display_name
+                            .as_ref()
+                            .and_then(|existing_member_name| {
+                                Some(new_member_name == existing_member_name)
+                            })
+                    })
                     .unwrap_or(false)
             })
             .map(|(k, _)| k)
@@ -368,17 +375,19 @@ impl Room {
 
             // insert new member's display name
             self.disambiguated_display_names.insert(
-                member.user_id.clone(),
-                member
+                new_member.user_id.clone(),
+                new_member
                     .display_name
                     .as_ref()
-                    .map(|n| format!("{} ({})", n, member.user_id))
-                    .unwrap_or_else(|| format!("{}", member.user_id)),
+                    .map(|n| format!("{} ({})", n, new_member.user_id))
+                    .unwrap_or_else(|| format!("{}", new_member.user_id)),
             );
         }
 
-        self.members
-            .insert(UserId::try_from(event.state_key.as_str()).unwrap(), member);
+        self.members.insert(
+            UserId::try_from(event.state_key.as_str()).unwrap(),
+            new_member,
+        );
 
         true
     }
