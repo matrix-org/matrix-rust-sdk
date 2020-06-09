@@ -942,8 +942,14 @@ impl Client {
                     .body(body)
                     .header(reqwest::header::CONTENT_TYPE, "application/json")
             }
-            HttpMethod::DELETE => unimplemented!(),
-            _ => panic!("Unsuported method"),
+            HttpMethod::DELETE => {
+                let body = request.body().clone();
+                self.http_client
+                    .delete(url)
+                    .body(body)
+                    .header(reqwest::header::CONTENT_TYPE, "application/json")
+            }
+            method => panic!("Unsuported method {}", method),
         };
 
         let request_builder = if requires_auth {
