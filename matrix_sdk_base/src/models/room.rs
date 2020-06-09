@@ -303,6 +303,11 @@ impl Room {
     }
 
     /// Get the disambiguated display name for a member of this room.
+    ///
+    /// When displaying a room member's display name, clients *must* use this method to obtain the
+    /// name instead of displaying the `RoomMember::display_name` directly. This is because
+    /// multiple users can share the same display name in which case the display name has to be
+    /// disambiguated.
     pub fn member_display_name<'a>(&'a self, id: &UserId) -> Option<Cow<'a, str>> {
         self.disambiguated_display_names
             .get(id)
