@@ -315,14 +315,17 @@ impl Room {
             .get(id)
             .map(|s| s.as_str().into())
             .unwrap_or_else(|| {
-                self.members.get(id).map(|member| {
-                    member
-                        .display_name
-                        .as_ref()
-                        .map(|s| s.to_string())
-                        .unwrap_or_else(|| format!("{}", member.user_id))
-                        .into()
-                }).unwrap_or(id.as_ref().into())
+                self.members
+                    .get(id)
+                    .map(|member| {
+                        member
+                            .display_name
+                            .as_ref()
+                            .map(|s| s.to_string())
+                            .unwrap_or_else(|| format!("{}", member.user_id))
+                            .into()
+                    })
+                    .unwrap_or(id.as_ref().into())
             })
     }
 
