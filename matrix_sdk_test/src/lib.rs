@@ -61,15 +61,22 @@ pub struct EventBuilder {
     ephemeral: Vec<Event>,
     /// The account data events that determine the state of a `Room`.
     account_data: Vec<Event>,
+    /// Internal counter to enable the `prev_batch` and `next_batch` of each sync response to vary.
+    batch_counter: i64,
 }
 
 impl EventBuilder {
+    pub fn new() -> Self {
+        let builder: EventBuilder = Default::default();
+        builder
+    }
+
     /// Add an event to the room events `Vec`.
     pub fn add_ephemeral<Ev: TryFromRaw>(
-        mut self,
+        &mut self,
         file: EventsFile,
         variant: fn(Ev) -> Event,
-    ) -> Self {
+    ) -> &mut Self {
         let val: &str = match file {
             EventsFile::Typing => include_str!("../test_data/events/typing.json"),
             _ => panic!("unknown ephemeral event file {:?}", file),
@@ -86,10 +93,10 @@ impl EventBuilder {
     /// Add an event to the room events `Vec`.
     #[allow(clippy::match_single_binding, unused)]
     pub fn add_account<Ev: TryFromRaw>(
-        mut self,
+        &mut self,
         file: EventsFile,
         variant: fn(Ev) -> Event,
-    ) -> Self {
+    ) -> &mut Self {
         let val: &str = match file {
             _ => panic!("unknown account event file {:?}", file),
         };
@@ -104,10 +111,10 @@ impl EventBuilder {
 
     /// Add an event to the room events `Vec`.
     pub fn add_room_event<Ev: TryFromRaw>(
-        mut self,
+        &mut self,
         file: EventsFile,
         variant: fn(Ev) -> RoomEvent,
-    ) -> Self {
+    ) -> &mut Self {
         let val = match file {
             EventsFile::Member => include_str!("../test_data/events/member.json"),
             EventsFile::PowerLevels => include_str!("../test_data/events/power_levels.json"),
@@ -126,11 +133,11 @@ impl EventBuilder {
     }
 
     pub fn add_custom_joined_event<Ev: TryFromRaw>(
-        mut self,
+        &mut self,
         room_id: &RoomId,
         event: serde_json::Value,
         variant: fn(Ev) -> RoomEvent,
-    ) -> Self {
+    ) -> &mut Self {
         let event = serde_json::from_value::<EventJson<Ev>>(event)
             .unwrap()
             .deserialize()
@@ -147,11 +154,11 @@ impl EventBuilder {
     }
 
     pub fn add_custom_invited_event<Ev: TryFromRaw>(
-        mut self,
+        &mut self,
         room_id: &RoomId,
         event: serde_json::Value,
         variant: fn(Ev) -> AnyStrippedStateEvent,
-    ) -> Self {
+    ) -> &mut Self {
         let event = serde_json::from_value::<EventJson<Ev>>(event)
             .unwrap()
             .deserialize()
@@ -164,11 +171,11 @@ impl EventBuilder {
     }
 
     pub fn add_custom_left_event<Ev: TryFromRaw>(
-        mut self,
+        &mut self,
         room_id: &RoomId,
         event: serde_json::Value,
         variant: fn(Ev) -> RoomEvent,
-    ) -> Self {
+    ) -> &mut Self {
         let event = serde_json::from_value::<EventJson<Ev>>(event)
             .unwrap()
             .deserialize()
@@ -182,10 +189,10 @@ impl EventBuilder {
 
     /// Add a state event to the state events `Vec`.
     pub fn add_state_event<Ev: TryFromRaw>(
-        mut self,
+        &mut self,
         file: EventsFile,
         variant: fn(Ev) -> StateEvent,
-    ) -> Self {
+    ) -> &mut Self {
         let val = match file {
             EventsFile::Alias => include_str!("../test_data/events/alias.json"),
             EventsFile::Aliases => include_str!("../test_data/events/aliases.json"),
@@ -202,7 +209,7 @@ impl EventBuilder {
     }
 
     /// Add an presence event to the presence events `Vec`.
-    pub fn add_presence_event(mut self, file: EventsFile) -> Self {
+    pub fn add_presence_event(&mut self, file: EventsFile) -> &mut Self {
         let val = match file {
             EventsFile::Presence => include_str!("../test_data/events/presence.json"),
             _ => panic!("unknown presence event file {:?}", file),
@@ -217,8 +224,13 @@ impl EventBuilder {
     }
 
     /// Consumes `ResponseBuilder` and returns `SyncResponse`.
-    pub fn build_sync_response(mut self) -> SyncResponse {
+    pub fn build_sync_response(&mut self) -> SyncResponse {
         let main_room_id = RoomId::try_from("!SVkFJHzfwvuaIEawgC:localhost").unwrap();
+
+        // First time building a sync response, so initialize the `prev_batch` to a default one.
+        let prev_batch = self.generate_sync_token();
+        self.batch_counter += 1;
+        let next_batch = self.generate_sync_token();
 
         // TODO generalize this.
         let joined_room = serde_json::json!({
@@ -235,7 +247,7 @@ impl EventBuilder {
             "timeline": {
                 "events": self.joined_room_events.remove(&main_room_id).unwrap_or_default(),
                 "limited": true,
-                "prev_batch": "t392-516_47314_0_7_1_1_1_11444_1"
+                "prev_batch": prev_batch
             },
             "unread_notifications": {
                 "highlight_count": 0,
@@ -262,7 +274,7 @@ impl EventBuilder {
                 "timeline": {
                     "events": events,
                     "limited": true,
-                    "prev_batch": "t392-516_47314_0_7_1_1_1_11444_1"
+                    "prev_batch": prev_batch
                 },
                 "unread_notifications": {
                     "highlight_count": 0,
@@ -282,7 +294,7 @@ impl EventBuilder {
                 "timeline": {
                     "events": events,
                     "limited": false,
-                    "prev_batch": "t392-516_47314_0_7_1_1_1_11444_1"
+                    "prev_batch": prev_batch
                 },
             });
             left_rooms.insert(room_id, room);
@@ -302,7 +314,7 @@ impl EventBuilder {
         let body = serde_json::json! {
             {
                 "device_one_time_keys_count": {},
-                "next_batch": "s526_47314_0_7_1_1_1_11444_1",
+                "next_batch": next_batch,
                 "device_lists": {
                     "changed": [],
                     "left": []
@@ -324,6 +336,10 @@ impl EventBuilder {
             .body(serde_json::to_vec(&body).unwrap())
             .unwrap();
         SyncResponse::try_from(response).unwrap()
+    }
+
+    fn generate_sync_token(&self) -> String {
+        format!("t392-516_47314_0_7_1_1_1_11444_{}", self.batch_counter)
     }
 }
 
