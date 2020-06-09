@@ -304,29 +304,35 @@ impl Room {
 
     /// Get the disambiguated display name for a member of this room.
     ///
-    /// If a user has no display name set, returns the MXID as a fallback.
+    /// If a member has no display name set, returns the MXID as a fallback. Additionally, we
+    /// return the MXID even if there is no such member in the room.
     ///
     /// When displaying a room member's display name, clients *must* use this method to obtain the
     /// name instead of displaying the `RoomMember::display_name` directly. This is because
-    /// multiple users can share the same display name in which case the display name has to be
+    /// multiple members can share the same display name in which case the display name has to be
     /// disambiguated.
     pub fn member_display_name<'a>(&'a self, id: &'a UserId) -> Cow<'a, str> {
-        self.disambiguated_display_names
+        let disambiguated_name = self
+            .disambiguated_display_names
             .get(id)
-            .map(|s| s.as_str().into())
-            .unwrap_or_else(|| {
-                self.members
-                    .get(id)
-                    .map(|member| {
-                        member
-                            .display_name
-                            .as_ref()
-                            .map(|s| s.to_string())
-                            .unwrap_or_else(|| format!("{}", member.user_id))
-                            .into()
-                    })
-                    .unwrap_or(id.as_ref().into())
-            })
+            .map(|s| s.as_str().into());
+
+        if let Some(name) = disambiguated_name {
+            // The display name of the member is non-unique so we return a disambiguated version.
+            name
+        } else if let Some(member) = self.members.get(id) {
+            // The display name of the member is unique so we can return it directly if it is set.
+            // If not, we return his MXID.
+            member
+                .display_name
+                .as_ref()
+                .map(|s| s.to_string())
+                .unwrap_or_else(|| format!("{}", member.user_id))
+                .into()
+        } else {
+            // There is no member with the requested MXID in the room. We still return the MXID.
+            id.as_ref().into()
+        }
     }
 
     fn add_member(&mut self, event: &MemberEvent) -> bool {
