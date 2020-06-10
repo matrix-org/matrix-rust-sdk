@@ -109,6 +109,17 @@ impl RoomMember {
             .unwrap_or_else(|| format!("{}", self.user_id))
     }
 
+    /// Returns a name for the member which is guaranteed to be unique.
+    ///
+    /// This is either of the format "DISPLAY_NAME (MXID)" if the display name is set for the
+    /// member, or simply "MXID" if not.
+    pub fn unique_name(&self) -> String {
+        self.display_name
+            .clone()
+            .map(|d| format!("{} ({})", d, self.user_id))
+            .unwrap_or_else(|| format!("{}", self.user_id))
+    }
+
     pub fn update_member(&mut self, event: &MemberEvent) -> bool {
         use MembershipChange::*;
 
