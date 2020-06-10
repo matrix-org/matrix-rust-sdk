@@ -360,9 +360,7 @@ impl Room {
                         existing_member
                             .display_name
                             .as_ref()
-                            .and_then(|existing_member_name| {
-                                Some(new_member_name == existing_member_name)
-                            })
+                            .map(|existing_member_name| new_member_name == existing_member_name)
                     })
                     .unwrap_or(false)
             })
@@ -475,23 +473,28 @@ impl Room {
     ///
     /// Returns true if the joined member list changed, false otherwise.
     pub fn handle_membership(&mut self, event: &MemberEvent) -> bool {
+        use MembershipChange::*;
+
         // TODO: This would not be handled correctly as all the MemberEvents have the `prev_content`
         // inside of `unsigned` field.
         match event.membership_change() {
-            MembershipChange::Invited | MembershipChange::Joined => self.add_member(event),
-            _ => {
-                let user = if let Ok(id) = UserId::try_from(event.state_key.as_str()) {
+            Invited | Joined => self.add_member(event),
+            ProfileChanged => {
+                let user_id = if let Ok(id) = UserId::try_from(event.state_key.as_str()) {
                     id
                 } else {
                     return false;
                 };
 
-                if let Some(member) = self.members.get_mut(&user) {
-                    member.update_member(event)
+                if let Some(member) = self.members.get_mut(&user_id) {
+                    member.update_profile(event)
                 } else {
                     false
                 }
             }
+
+            // Not interested in other events.
+            _ => false,
         }
     }
 
@@ -719,10 +722,6 @@ mod test {
             .await;
 
         assert_eq!(2, room.members.len());
-        for member in room.members.values() {
-            assert_eq!(MembershipState::Join, member.membership);
-        }
-
         assert!(room.deref().power_levels.is_some())
     }
 

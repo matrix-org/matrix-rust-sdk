@@ -1918,10 +1918,6 @@ mod test {
             .await;
 
         assert_eq!(2, room.members.len());
-        for member in room.members.values() {
-            assert_eq!(MembershipState::Join, member.membership);
-        }
-
         assert!(room.power_levels.is_some())
     }
 
