@@ -229,7 +229,7 @@ impl RoomName {
                 invited + joined - one
             };
 
-            // TODO this should use `self.heroes but it is always empty??
+            // TODO: This should use `self.heroes` but it is always empty??
             if heroes >= invited_joined {
                 let mut names = members
                     .values()
@@ -254,10 +254,11 @@ impl RoomName {
                     })
                     .collect::<Vec<String>>();
                 names.sort();
-                // TODO what length does the spec want us to use here and in the `else`
+
+                // TODO: What length does the spec want us to use here and in the `else`?
                 format!("{}, and {} others", names.join(", "), (joined + invited))
             } else {
-                format!("Empty Room (was {} others)", members.len())
+                format!("Empty room (was {} others)", members.len())
             }
         }
     }
@@ -474,8 +475,8 @@ impl Room {
     ///
     /// Returns true if the joined member list changed, false otherwise.
     pub fn handle_membership(&mut self, event: &MemberEvent) -> bool {
-        // TODO this would not be handled correctly as all the MemberEvents have the `prev_content`
-        // inside of `unsigned` field
+        // TODO: This would not be handled correctly as all the MemberEvents have the `prev_content`
+        // inside of `unsigned` field.
         match event.membership_change() {
             MembershipChange::Invited | MembershipChange::Joined => self.add_member(event),
             _ => {
