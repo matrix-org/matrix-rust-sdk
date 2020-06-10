@@ -341,14 +341,11 @@ impl Room {
     }
 
     fn add_member(&mut self, event: &MemberEvent) -> bool {
-        if self
-            .members
-            .contains_key(&UserId::try_from(event.state_key.as_str()).unwrap())
-        {
+        let new_member = RoomMember::new(event);
+
+        if self.members.contains_key(&new_member.user_id) {
             return false;
         }
-
-        let new_member = RoomMember::new(event);
 
         // Find all users that share the same display name as the joining user.
         let users_with_same_name: Vec<UserId> = self
@@ -487,6 +484,7 @@ impl Room {
                 } else {
                     return false;
                 };
+
                 if let Some(member) = self.members.get_mut(&user) {
                     member.update_member(event)
                 } else {
