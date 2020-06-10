@@ -963,7 +963,8 @@ impl BaseClient {
 
                     // If the room is encrypted, update the tracked users.
                     if room.is_encrypted() {
-                        o.update_tracked_users(room.members.keys()).await;
+                        o.update_tracked_users(room.joined_members.keys()).await;
+                        o.update_tracked_users(room.invited_members.keys()).await;
                     }
                 }
             }
@@ -1241,7 +1242,10 @@ impl BaseClient {
         match &mut *olm {
             Some(o) => {
                 let room = room.write().await;
-                let members = room.members.keys();
+                let members = room
+                    .joined_members
+                    .keys()
+                    .chain(room.invited_members.keys());
                 Ok(o.share_group_session(room_id, members).await?)
             }
             None => panic!("Olm machine wasn't started"),

@@ -833,8 +833,11 @@ impl Client {
                 let missing_sessions = {
                     let room = self.base_client.get_joined_room(room_id).await;
                     let room = room.as_ref().unwrap().read().await;
-                    let users = room.members.keys();
-                    self.base_client.get_missing_sessions(users).await?
+                    let members = room
+                        .joined_members
+                        .keys()
+                        .chain(room.invited_members.keys());
+                    self.base_client.get_missing_sessions(members).await?
                 };
 
                 if !missing_sessions.is_empty() {
@@ -1276,7 +1279,6 @@ mod test {
     };
     use super::{Client, ClientConfig, Session, SyncSettings, Url};
     use crate::events::collections::all::RoomEvent;
-    use crate::events::room::member::MembershipState;
     use crate::events::room::message::TextMessageEventContent;
     use crate::identifiers::{EventId, RoomId, RoomIdOrAliasId, UserId};
 
@@ -1917,7 +1919,7 @@ mod test {
             .read()
             .await;
 
-        assert_eq!(2, room.members.len());
+        assert_eq!(2, room.joined_members.len());
         assert!(room.power_levels.is_some())
     }
 

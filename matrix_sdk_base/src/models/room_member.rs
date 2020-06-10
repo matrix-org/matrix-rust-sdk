@@ -27,8 +27,7 @@ use crate::js_int::{Int, UInt};
 use serde::{Deserialize, Serialize};
 // Notes: if Alice invites Bob into a room we will get an event with the sender as Alice and the state key as Bob.
 
-#[derive(Debug, Serialize, Deserialize)]
-#[cfg_attr(test, derive(Clone))]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 /// A Matrix room member.
 ///
 pub struct RoomMember {
@@ -255,7 +254,7 @@ mod test {
         let room = room.read().await;
 
         let member = room
-            .members
+            .joined_members
             .get(&UserId::try_from("@example:localhost").unwrap())
             .unwrap();
         assert_eq!(member.power_level, Int::new(100));
@@ -279,7 +278,7 @@ mod test {
         let room = room.read().await;
 
         let member = room
-            .members
+            .joined_members
             .get(&UserId::try_from("@example:localhost").unwrap())
             .unwrap();
 
