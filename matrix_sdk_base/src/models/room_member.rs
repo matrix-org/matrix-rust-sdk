@@ -32,7 +32,7 @@ use serde::{Deserialize, Serialize};
 /// A Matrix room member.
 ///
 pub struct RoomMember {
-    /// The unique mxid of the user.
+    /// The unique MXID of the user.
     pub user_id: UserId,
     /// The human readable name of the user.
     pub display_name: Option<String>,
@@ -98,6 +98,15 @@ impl RoomMember {
             presence_events: Vec::default(),
             events: vec![Event::RoomMember(event.clone())],
         }
+    }
+
+    /// Returns the most ergonomic name available for the member.
+    ///
+    /// This is the member's display name if it is set, otherwise their MXID.
+    pub fn name(&self) -> String {
+        self.display_name
+            .clone()
+            .unwrap_or_else(|| format!("{}", self.user_id))
     }
 
     pub fn update_member(&mut self, event: &MemberEvent) -> bool {
