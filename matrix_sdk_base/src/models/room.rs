@@ -213,6 +213,7 @@ impl RoomName {
     /// <https://matrix.org/docs/spec/client_server/latest#calculating-the-display-name-for-a-room>
     pub fn calculate_name(
         &self,
+        own_user_id: &UserId,
         invited_members: &HashMap<UserId, RoomMember>,
         joined_members: &HashMap<UserId, RoomMember>,
     ) -> String {
@@ -241,6 +242,7 @@ impl RoomName {
             // TODO: This should use `self.heroes` but it is always empty??
             if heroes >= invited_joined {
                 let mut names = members
+                    .filter(|m| m.user_id != *own_user_id)
                     .take(3)
                     .map(|mem| {
                         mem.display_name
@@ -253,6 +255,7 @@ impl RoomName {
                 names.join(", ")
             } else if heroes < invited_joined && invited + joined > one {
                 let mut names = members
+                    .filter(|m| m.user_id != *own_user_id)
                     .take(3)
                     .map(|mem| {
                         mem.display_name
@@ -302,7 +305,7 @@ impl Room {
     /// Return the display name of the room.
     pub fn display_name(&self) -> String {
         self.room_name
-            .calculate_name(&self.invited_members, &self.joined_members)
+            .calculate_name(&self.own_user_id, &self.invited_members, &self.joined_members)
     }
 
     /// Is the room a encrypted room.
@@ -970,7 +973,7 @@ mod test {
             room_names.push(room.read().await.display_name())
         }
 
-        assert_eq!(vec!["example, example2"], room_names);
+        assert_eq!(vec!["example2"], room_names);
     }
 
     #[async_test]

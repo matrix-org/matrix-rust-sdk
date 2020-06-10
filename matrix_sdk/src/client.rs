@@ -1952,7 +1952,7 @@ mod test {
             room_names.push(room.read().await.display_name())
         }
 
-        assert_eq!(vec!["example, example2"], room_names);
+        assert_eq!(vec!["example2"], room_names);
     }
 
     #[tokio::test]
