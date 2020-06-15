@@ -36,6 +36,7 @@
     unused_qualifications
 )]
 
+pub use matrix_sdk_base::Error as BaseError;
 #[cfg(not(target_arch = "wasm32"))]
 pub use matrix_sdk_base::JsonStore;
 pub use matrix_sdk_base::{CustomOrRawEvent, EventEmitter, Room, Session, SyncRoom};
