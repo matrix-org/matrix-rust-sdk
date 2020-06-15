@@ -147,6 +147,12 @@ pub struct Tombstone {
     replacement: RoomId,
 }
 
+#[derive(Debug, PartialEq, Eq)]
+enum MemberDirection {
+    Entering,
+    Exiting,
+}
+
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(test, derive(Clone))]
 /// A Matrix room.
@@ -304,8 +310,11 @@ impl Room {
 
     /// Return the display name of the room.
     pub fn display_name(&self) -> String {
-        self.room_name
-            .calculate_name(&self.own_user_id, &self.invited_members, &self.joined_members)
+        self.room_name.calculate_name(
+            &self.own_user_id,
+            &self.invited_members,
+            &self.joined_members,
+        )
     }
 
     /// Is the room a encrypted room.
@@ -377,10 +386,12 @@ impl Room {
         };
 
         // Perform display name disambiguations, if necessary.
-        if let Some(disambiguations) = self.disambiguate_member(&new_member, true) {
-            for (id, name) in disambiguations.into_iter() {
-                self.disambiguated_display_names.insert(id, name);
-            }
+        let disambiguations = self.disambiguation_updates(&new_member, MemberDirection::Entering);
+        for (id, name) in disambiguations.into_iter() {
+            match name {
+                None => self.disambiguated_display_names.remove(&id),
+                Some(name) => self.disambiguated_display_names.insert(id, name),
+            };
         }
 
         true
@@ -391,6 +402,16 @@ impl Room {
     /// Returns true if this made a change to the room's state, false otherwise.
     fn remove_member(&mut self, event: &MemberEvent) -> bool {
         let leaving_member = RoomMember::new(event);
+
+        // Perform display name disambiguations, if necessary.
+        let disambiguations =
+            self.disambiguation_updates(&leaving_member, MemberDirection::Exiting);
+        for (id, name) in disambiguations.into_iter() {
+            match name {
+                None => self.disambiguated_display_names.remove(&id),
+                Some(name) => self.disambiguated_display_names.insert(id, name),
+            };
+        }
 
         if self.joined_members.contains_key(&leaving_member.user_id) {
             self.joined_members.remove(&leaving_member.user_id);
@@ -403,25 +424,18 @@ impl Room {
         }
     }
 
-    /// Given a room member, generate a map of member display name disambiguations required in
-    /// order to make everyone's display name unique.
+    /// Given a room `member`, return the list of members which have the same display name.
     ///
-    /// The `inclusive` parameter controls whether the member which we are disambiguating should
-    /// be considered a member of the room or not.
-    ///
-    /// Returns either the map of disambiguations or None if no disambiguations are necessary.
-    fn disambiguate_member(
-        &self,
-        member: &RoomMember,
-        inclusive: bool,
-    ) -> Option<HashMap<UserId, String>> {
+    /// The `inclusive` parameter controls whether the passed member should be included in the
+    /// list or not.
+    fn shares_displayname_with(&self, member: &RoomMember, inclusive: bool) -> Vec<UserId> {
         let members = self
             .invited_members
             .iter()
             .chain(self.joined_members.iter());
 
         // Find all other users that share the same display name as the joining user.
-        let users_with_same_name: Vec<UserId> = members
+        members
             .filter(|(_, existing_member)| {
                 member
                     .display_name
@@ -438,45 +452,74 @@ impl Room {
             .filter(|(id, _)| inclusive || **id != member.user_id)
             .map(|(id, _)| id)
             .cloned()
-            .collect();
+            .collect()
+    }
 
-        // There is at least one other user with the same display name.
-        if !users_with_same_name.is_empty() {
-            if users_with_same_name.len() == 1 {
-                // The ambiguous set is now of size 1, so we can revert to simply using the display
-                // name for this user.
-                Some(
-                    users_with_same_name
-                        .into_iter()
-                        .filter_map(|id| {
-                            self.joined_members
-                                .get(&id)
-                                .or_else(|| self.invited_members.get(&id))
-                                .map(|m| m.name())
-                                .map(|m| (id, m))
-                        })
-                        .collect::<HashMap<UserId, String>>(),
-                )
-            } else {
-                // Disambiguate everyone in the list by using "DISPLAY_NAME (MXID)" as their
-                // display name.
-                Some(
-                    users_with_same_name
-                        .into_iter()
-                        .filter_map(|id| {
-                            self.joined_members
-                                .get(&id)
-                                .or_else(|| self.invited_members.get(&id))
-                                .map(|m| m.unique_name())
-                                .map(|m| (id, m))
-                        })
-                        .collect::<HashMap<UserId, String>>(),
-                )
-            }
-        } else {
-            // Nothing to disambiguate.
-            None
+    /// Given a room member, generate a map of all display name disambiguations which are necessary
+    /// in order to make that member's display name unique.
+    ///
+    /// The `inclusive` parameter controls whether or not the member for which we are
+    /// disambiguating should be considered a current member of the room.
+    ///
+    /// Returns a map from MXID to disambiguated name.
+    fn member_disambiguations(
+        &self,
+        member: &RoomMember,
+        inclusive: bool,
+    ) -> HashMap<UserId, String> {
+        let users_with_same_name = self.shares_displayname_with(member, inclusive);
+        let disambiguate_with = |members: Vec<UserId>, f: fn(&RoomMember) -> String| {
+            members
+                .into_iter()
+                .filter_map(|id| {
+                    self.joined_members
+                        .get(&id)
+                        .or_else(|| self.invited_members.get(&id))
+                        .map(f)
+                        .map(|m| (id, m))
+                })
+                .collect::<HashMap<UserId, String>>()
+        };
+
+        match users_with_same_name.len() {
+            0 => HashMap::new(),
+            1 => disambiguate_with(users_with_same_name, |m: &RoomMember| m.name()),
+            _ => disambiguate_with(users_with_same_name, |m: &RoomMember| m.unique_name()),
         }
+    }
+
+    /// Calculate disambiguation updates needed when a room member either enters or exits.
+    fn disambiguation_updates(
+        &self,
+        member: &RoomMember,
+        when: MemberDirection,
+    ) -> HashMap<UserId, Option<String>> {
+        let before;
+        let after;
+
+        match when {
+            MemberDirection::Entering => {
+                before = self.member_disambiguations(member, false);
+                after = self.member_disambiguations(member, true);
+            }
+            MemberDirection::Exiting => {
+                before = self.member_disambiguations(member, true);
+                after = self.member_disambiguations(member, false);
+            }
+        }
+
+        let mut res = before;
+        res.extend(after.clone());
+
+        res.into_iter()
+            .map(|(user_id, name)| {
+                if !after.contains_key(&user_id) {
+                    (user_id, None)
+                } else {
+                    (user_id, Some(name))
+                }
+            })
+            .collect()
     }
 
     /// Add to the list of `RoomAliasId`s.
@@ -550,7 +593,9 @@ impl Room {
         // TODO: This would not be handled correctly as all the MemberEvents have the `prev_content`
         // inside of `unsigned` field.
         match event.membership_change() {
-            Invited | Joined => self.add_member(event),
+            Invited | Joined => {
+                self.add_member(event)
+            }
             Kicked | Banned | KickedAndBanned | InvitationRejected | Left => {
                 self.remove_member(event)
             }
@@ -804,7 +849,8 @@ mod test {
         let client = get_client().await;
         let room_id = get_room_id();
         let user_id1 = UserId::try_from("@example:localhost").unwrap();
-        let user_id2 = UserId::try_from("@someone_else:localhost").unwrap();
+        let user_id2 = UserId::try_from("@example2:localhost").unwrap();
+        let user_id3 = UserId::try_from("@example3:localhost").unwrap();
 
         let member2_join_event = serde_json::json!({
             "content": {
@@ -815,17 +861,86 @@ mod test {
             "event_id": "$16345217l517tabbz:localhost",
             "membership": "join",
             "origin_server_ts": 1455123234,
-            "sender": "@someone_else:localhost",
-            "state_key": "@someone_else:localhost",
+            "sender": format!("{}", user_id2),
+            "state_key": format!("{}", user_id2),
             "type": "m.room.member",
+            "prev_content": {
+                "avatar_url": null,
+                "displayname": "example",
+                "membership": "invite"
+            },
             "unsigned": {
                 "age": 1989321234,
-                "replaces_state": "$1622a2311315tkjoA:localhost",
-                "prev_content": {
-                    "avatar_url": null,
-                    "displayname": "example",
-                    "membership": "invite"
-                }
+                "replaces_state": "$1622a2311315tkjoA:localhost"
+            }
+        });
+
+        let member2_leave_event = serde_json::json!({
+            "content": {
+                "avatar_url": null,
+                "displayname": "example",
+                "membership": "leave"
+            },
+            "event_id": "$263452333l22bggbz:localhost",
+            "membership": "leave",
+            "origin_server_ts": 1455123228,
+            "sender": format!("{}", user_id2),
+            "state_key": format!("{}", user_id2),
+            "type": "m.room.member",
+            "prev_content": {
+                "avatar_url": null,
+                "displayname": "example",
+                "membership": "join"
+            },
+            "unsigned": {
+                "age": 1989321221,
+                "replaces_state": "$16345217l517tabbz:localhost"
+            }
+        });
+
+        let member3_join_event = serde_json::json!({
+            "content": {
+                "avatar_url": null,
+                "displayname": "example",
+                "membership": "join"
+            },
+            "event_id": "$16845287981ktggba:localhost",
+            "membership": "join",
+            "origin_server_ts": 1455123244,
+            "sender": format!("{}", user_id3),
+            "state_key": format!("{}", user_id3),
+            "type": "m.room.member",
+            "prev_content": {
+                "avatar_url": null,
+                "displayname": "example",
+                "membership": "invite"
+            },
+            "unsigned": {
+                "age": 1989321254,
+                "replaces_state": "$1622l2323445kabrA:localhost"
+            }
+        });
+
+        let member3_leave_event = serde_json::json!({
+            "content": {
+                "avatar_url": null,
+                "displayname": "example",
+                "membership": "leave"
+            },
+            "event_id": "$11121987981abfgr:localhost",
+            "membership": "leave",
+            "origin_server_ts": 1455123230,
+            "sender": format!("{}", user_id3),
+            "state_key": format!("{}", user_id3),
+            "type": "m.room.member",
+            "prev_content": {
+                "avatar_url": null,
+                "displayname": "example",
+                "membership": "join"
+            },
+            "unsigned": {
+                "age": 1989321244,
+                "replaces_state": "$16845287981ktggba:localhost"
             }
         });
 
@@ -837,6 +952,18 @@ mod test {
 
         let mut member2_join_sync_response = event_builder
             .add_custom_joined_event(&room_id, member2_join_event, RoomEvent::RoomMember)
+            .build_sync_response();
+
+        let mut member3_join_sync_response = event_builder
+            .add_custom_joined_event(&room_id, member3_join_event, RoomEvent::RoomMember)
+            .build_sync_response();
+
+        let mut member2_leave_sync_response = event_builder
+            .add_custom_joined_event(&room_id, member2_leave_event, RoomEvent::RoomMember)
+            .build_sync_response();
+
+        let mut member3_leave_sync_response = event_builder
+            .add_custom_joined_event(&room_id, member3_leave_event, RoomEvent::RoomMember)
             .build_sync_response();
 
         // First member with display name "example" joins
@@ -854,21 +981,46 @@ mod test {
             assert_eq!("example", display_name1);
         }
 
-        // Second member with display name "example" joins
+        // Second and third member with display name "example" join
         client
             .receive_sync_response(&mut member2_join_sync_response)
             .await
             .unwrap();
+        client
+            .receive_sync_response(&mut member3_join_sync_response)
+            .await
+            .unwrap();
 
-        // Both of their display names are now disambiguated with MXIDs
+        // All of their display names are now disambiguated with MXIDs
         {
             let room = client.get_joined_room(&room_id).await.unwrap();
             let room = room.read().await;
             let display_name1 = room.member_display_name(&user_id1);
             let display_name2 = room.member_display_name(&user_id2);
+            let display_name3 = room.member_display_name(&user_id3);
 
             assert_eq!(format!("example ({})", user_id1), display_name1);
             assert_eq!(format!("example ({})", user_id2), display_name2);
+            assert_eq!(format!("example ({})", user_id3), display_name3);
+        }
+
+        // Second and third member leave. The first's display name is now just "example" again.
+        client
+            .receive_sync_response(&mut member2_leave_sync_response)
+            .await
+            .unwrap();
+        client
+            .receive_sync_response(&mut member3_leave_sync_response)
+            .await
+            .unwrap();
+
+        {
+            let room = client.get_joined_room(&room_id).await.unwrap();
+            let room = room.read().await;
+
+            let display_name1 = room.member_display_name(&user_id1);
+
+            assert_eq!("example", display_name1);
         }
     }
 
