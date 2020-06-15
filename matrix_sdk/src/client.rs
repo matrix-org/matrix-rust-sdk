@@ -483,7 +483,6 @@ impl Client {
         info!("Registering to {}", self.homeserver);
 
         let request = registration.into();
-        println!("{:#?}", request);
         self.send_uiaa(request).await
     }
 
