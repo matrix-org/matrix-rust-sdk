@@ -793,7 +793,7 @@ mod test {
             .read()
             .await;
 
-        assert_eq!(2, room.joined_members.len());
+        assert_eq!(1, room.joined_members.len());
         assert!(room.deref().power_levels.is_some())
     }
 
