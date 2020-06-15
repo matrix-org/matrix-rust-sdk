@@ -1001,13 +1001,13 @@ impl BaseClient {
                 }
             }
 
-            // RoomSummary contains information for calculating room name
+            // RoomSummary contains information for calculating room name.
             matrix_room
                 .write()
                 .await
                 .set_room_summary(&joined_room.summary);
 
-            // set unread notification count
+            // Set unread notification count.
             matrix_room
                 .write()
                 .await
