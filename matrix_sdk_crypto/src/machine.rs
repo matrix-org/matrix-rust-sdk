@@ -215,6 +215,12 @@ impl OlmMachine {
         match &self.uploaded_signed_key_count {
             Some(count) => {
                 let max_keys = self.account.max_one_time_keys().await as u64;
+                // If there are more keys already uploaded than max_key / 2
+                // bail out returning false, this also avoids overflow.
+                if count.load(Ordering::Relaxed) > (max_keys / 2) {
+                    return false;
+                }
+
                 let key_count = (max_keys / 2) - count.load(Ordering::Relaxed);
                 key_count > 0
             }
