@@ -71,7 +71,7 @@ impl EventBuilder {
         variant: fn(Ev) -> Event,
     ) -> Self {
         let val: &str = match file {
-            EventsFile::Typing => include_str!("../test_data/events/typing.json"),
+            EventsFile::Typing => include_str!("../../test_data/events/typing.json"),
             _ => panic!("unknown ephemeral event file {:?}", file),
         };
 
@@ -109,8 +109,8 @@ impl EventBuilder {
         variant: fn(Ev) -> RoomEvent,
     ) -> Self {
         let val = match file {
-            EventsFile::Member => include_str!("../test_data/events/member.json"),
-            EventsFile::PowerLevels => include_str!("../test_data/events/power_levels.json"),
+            EventsFile::Member => include_str!("../../test_data/events/member.json"),
+            EventsFile::PowerLevels => include_str!("../../test_data/events/power_levels.json"),
             _ => panic!("unknown room event file {:?}", file),
         };
 
@@ -187,9 +187,9 @@ impl EventBuilder {
         variant: fn(Ev) -> StateEvent,
     ) -> Self {
         let val = match file {
-            EventsFile::Alias => include_str!("../test_data/events/alias.json"),
-            EventsFile::Aliases => include_str!("../test_data/events/aliases.json"),
-            EventsFile::Name => include_str!("../test_data/events/name.json"),
+            EventsFile::Alias => include_str!("../../test_data/events/alias.json"),
+            EventsFile::Aliases => include_str!("../../test_data/events/aliases.json"),
+            EventsFile::Name => include_str!("../../test_data/events/name.json"),
             _ => panic!("unknown state event file {:?}", file),
         };
 
@@ -204,7 +204,7 @@ impl EventBuilder {
     /// Add an presence event to the presence events `Vec`.
     pub fn add_presence_event(mut self, file: EventsFile) -> Self {
         let val = match file {
-            EventsFile::Presence => include_str!("../test_data/events/presence.json"),
+            EventsFile::Presence => include_str!("../../test_data/events/presence.json"),
             _ => panic!("unknown presence event file {:?}", file),
         };
 
@@ -339,13 +339,13 @@ pub enum SyncResponseFile {
 /// Get specific API responses for testing
 pub fn sync_response(kind: SyncResponseFile) -> SyncResponse {
     let data = match kind {
-        SyncResponseFile::All => include_bytes!("../test_data/more_sync.json").to_vec(),
-        SyncResponseFile::Default => include_bytes!("../test_data/sync.json").to_vec(),
+        SyncResponseFile::All => include_bytes!("../../test_data/more_sync.json").to_vec(),
+        SyncResponseFile::Default => include_bytes!("../../test_data/sync.json").to_vec(),
         SyncResponseFile::DefaultWithSummary => {
-            include_bytes!("../test_data/sync_with_summary.json").to_vec()
+            include_bytes!("../../test_data/sync_with_summary.json").to_vec()
         }
-        SyncResponseFile::Invite => include_bytes!("../test_data/invite_sync.json").to_vec(),
-        SyncResponseFile::Leave => include_bytes!("../test_data/leave_sync.json").to_vec(),
+        SyncResponseFile::Invite => include_bytes!("../../test_data/invite_sync.json").to_vec(),
+        SyncResponseFile::Leave => include_bytes!("../../test_data/leave_sync.json").to_vec(),
     };
 
     let response = Response::builder().body(data.to_vec()).unwrap();

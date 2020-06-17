@@ -1,8 +1,0 @@
-{
-    "flows": [
-        {
-            "type": "m.login.sso",
-            "type": "m.login.password"
-        }
-    ]
-}
