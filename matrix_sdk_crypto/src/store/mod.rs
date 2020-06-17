@@ -27,8 +27,8 @@ use super::device::Device;
 use super::memory_stores::UserDevices;
 use super::olm::{Account, InboundGroupSession, Session};
 use matrix_sdk_common::identifiers::{DeviceId, RoomId, UserId};
-use olm_rs::errors::{OlmAccountError, OlmGroupSessionError, OlmSessionError};
 use matrix_sdk_common_macros::send_sync;
+use olm_rs::errors::{OlmAccountError, OlmGroupSessionError, OlmSessionError};
 
 pub mod memorystore;
 

@@ -1767,8 +1767,8 @@ mod test {
         events::{collections::all::RoomEvent, stripped::AnyStrippedStateEvent},
         BaseClient, Session,
     };
-    use matrix_sdk_test::{async_test, EventBuilder, EventsFile};
     use matrix_sdk_common_macros::async_trait;
+    use matrix_sdk_test::{async_test, EventBuilder, EventsFile};
     use serde_json::json;
     use std::convert::TryFrom;
 

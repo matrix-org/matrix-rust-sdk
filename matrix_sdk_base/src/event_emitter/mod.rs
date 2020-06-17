@@ -202,9 +202,9 @@ pub trait EventEmitter: Send + Sync {
 mod test {
     use super::*;
     use matrix_sdk_common::locks::Mutex;
+    use matrix_sdk_common_macros::async_trait;
     use matrix_sdk_test::{async_test, sync_response, SyncResponseFile};
     use std::sync::Arc;
-    use matrix_sdk_common_macros::async_trait;
 
     #[cfg(target_arch = "wasm32")]
     pub use wasm_bindgen_test::*;
