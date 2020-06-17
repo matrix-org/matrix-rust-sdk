@@ -1768,6 +1768,7 @@ mod test {
         BaseClient, Session,
     };
     use matrix_sdk_test::{async_test, EventBuilder, EventsFile};
+    use matrix_sdk_common_macros::async_trait;
     use serde_json::json;
     use std::convert::TryFrom;
 
@@ -1933,7 +1934,7 @@ mod test {
         };
 
         struct EE(Arc<AtomicBool>);
-        #[async_trait::async_trait]
+        #[async_trait]
         impl EventEmitter for EE {
             async fn on_room_member(&self, room: SyncRoom, event: &MemberEvent) {
                 if let SyncRoom::Joined(_) = room {
@@ -2029,7 +2030,7 @@ mod test {
         };
 
         struct EE(Arc<AtomicBool>);
-        #[async_trait::async_trait]
+        #[async_trait]
         impl EventEmitter for EE {
             async fn on_unrecognized_event(&self, room: SyncRoom, event: &CustomOrRawEvent<'_>) {
                 if let SyncRoom::Joined(_) = room {
@@ -2125,7 +2126,7 @@ mod test {
         };
 
         struct EE(Arc<AtomicBool>);
-        #[async_trait::async_trait]
+        #[async_trait]
         impl EventEmitter for EE {
             async fn on_unrecognized_event(&self, room: SyncRoom, event: &CustomOrRawEvent<'_>) {
                 if let SyncRoom::Joined(_) = room {

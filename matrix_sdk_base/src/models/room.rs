@@ -42,8 +42,7 @@ use crate::identifiers::{RoomAliasId, RoomId, UserId};
 
 use crate::js_int::{Int, UInt};
 use serde::{Deserialize, Serialize};
-#[derive(Debug, Default, PartialEq, Serialize, Deserialize)]
-#[cfg_attr(test, derive(Clone))]
+#[derive(Debug, Default, PartialEq, Serialize, Deserialize, Clone)]
 /// `RoomName` allows the calculation of a text room name.
 pub struct RoomName {
     /// The displayed name of the room.
@@ -65,8 +64,7 @@ pub struct RoomName {
     pub invited_member_count: Option<UInt>,
 }
 
-#[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[cfg_attr(test, derive(Clone))]
+#[derive(Debug, PartialEq, Eq, Serialize, Deserialize, Clone)]
 pub struct PowerLevels {
     /// The level required to ban a user.
     pub ban: Int,
@@ -137,8 +135,7 @@ impl From<&EncryptionEvent> for EncryptionInfo {
     }
 }
 
-#[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[cfg_attr(test, derive(Clone))]
+#[derive(Debug, PartialEq, Eq, Serialize, Deserialize, Clone)]
 pub struct Tombstone {
     /// A server-defined message.
     body: String,
@@ -146,8 +143,7 @@ pub struct Tombstone {
     replacement: RoomId,
 }
 
-#[derive(Debug, PartialEq, Serialize, Deserialize)]
-#[cfg_attr(test, derive(Clone))]
+#[derive(Debug, PartialEq, Serialize, Deserialize, Clone)]
 /// A Matrix room.
 pub struct Room {
     /// The unique id of the room.

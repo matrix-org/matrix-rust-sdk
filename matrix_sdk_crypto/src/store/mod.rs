@@ -28,11 +28,15 @@ use super::memory_stores::UserDevices;
 use super::olm::{Account, InboundGroupSession, Session};
 use matrix_sdk_common::identifiers::{DeviceId, RoomId, UserId};
 use olm_rs::errors::{OlmAccountError, OlmGroupSessionError, OlmSessionError};
+use matrix_sdk_common_macros::send_sync;
 
 pub mod memorystore;
+
+#[cfg(not(target_arch = "wasm32"))]
 #[cfg(feature = "sqlite-cryptostore")]
 pub mod sqlite;
 
+#[cfg(not(target_arch = "wasm32"))]
 #[cfg(feature = "sqlite-cryptostore")]
 use sqlx::Error as SqlxError;
 
@@ -83,9 +87,10 @@ pub enum CryptoStoreError {
 pub type Result<T> = std::result::Result<T, CryptoStoreError>;
 
 #[async_trait]
+#[cfg_attr(not(target_arch = "wasm32"), send_sync)]
 /// Trait abstracting a store that the `OlmMachine` uses to store cryptographic
 /// keys.
-pub trait CryptoStore: Debug + Send + Sync {
+pub trait CryptoStore: Debug {
     /// Load an account that was previously stored.
     async fn load_account(&mut self) -> Result<Option<Account>>;
 
