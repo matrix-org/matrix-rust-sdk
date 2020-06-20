@@ -345,6 +345,7 @@ impl EventBuilder {
 
 /// Embedded sync reponse files
 pub enum SyncResponseFile {
+    All,
     Default,
     DefaultWithSummary,
     Invite,
@@ -354,6 +355,7 @@ pub enum SyncResponseFile {
 /// Get specific API responses for testing
 pub fn sync_response(kind: SyncResponseFile) -> SyncResponse {
     let data = match kind {
+        SyncResponseFile::All => include_bytes!("../test_data/more_sync.json").to_vec(),
         SyncResponseFile::Default => include_bytes!("../test_data/sync.json").to_vec(),
         SyncResponseFile::DefaultWithSummary => {
             include_bytes!("../test_data/sync_with_summary.json").to_vec()

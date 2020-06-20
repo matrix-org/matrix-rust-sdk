@@ -27,6 +27,9 @@ use crate::events::push_rules::Ruleset;
 use crate::identifiers::{RoomId, UserId};
 use crate::{Result, Room, RoomState, Session};
 
+#[cfg(not(target_arch = "wasm32"))]
+use matrix_sdk_common_macros::send_sync;
+
 /// `ClientState` holds all the information to restore a `BaseClient`
 /// except the `access_token` as the default store is not secure.
 ///
@@ -85,7 +88,8 @@ pub struct AllRooms {
 
 /// Abstraction around the data store to avoid unnecessary request on client initialization.
 #[async_trait::async_trait]
-pub trait StateStore: Send + Sync {
+#[cfg_attr(not(target_arch = "wasm32"), send_sync)]
+pub trait StateStore {
     /// Loads the state of `BaseClient` through `ClientState` type.
     ///
     /// An `Option::None` should be returned only if the `StateStore` tries to

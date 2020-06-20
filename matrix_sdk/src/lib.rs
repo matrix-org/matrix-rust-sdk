@@ -36,6 +36,7 @@
     unused_qualifications
 )]
 
+pub use matrix_sdk_base::Error as BaseError;
 #[cfg(not(target_arch = "wasm32"))]
 pub use matrix_sdk_base::JsonStore;
 pub use matrix_sdk_base::{CustomOrRawEvent, EventEmitter, Room, Session, SyncRoom};
@@ -51,7 +52,7 @@ mod error;
 mod request_builder;
 pub use client::{Client, ClientConfig, SyncSettings};
 pub use error::{Error, Result};
-pub use request_builder::{MessagesRequestBuilder, RoomBuilder};
+pub use request_builder::{MessagesRequestBuilder, RegistrationBuilder, RoomBuilder};
 
 #[cfg(not(target_arch = "wasm32"))]
 pub(crate) const VERSION: &str = env!("CARGO_PKG_VERSION");

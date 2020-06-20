@@ -1,5 +1,5 @@
 [package]
-authors = ["Damir Jelić <poljar@termina.org.uk"]
+authors = ["Damir Jelić <poljar@termina.org.uk>"]
 description = "Matrix encryption library"
 edition = "2018"
 homepage = "https://github.com/matrix-org/matrix-rust-sdk"
@@ -17,6 +17,7 @@ sqlite-cryptostore = ["sqlx"]
 [dependencies]
 async-trait = "0.1.31"
 
+matrix-sdk-common-macros = { version = "0.1.0", path = "../matrix_sdk_common_macros" }
 matrix-sdk-common = { version = "0.1.0", path = "../matrix_sdk_common" }
 
 olm-rs = { version = "0.5.0", features = ["serde"] }

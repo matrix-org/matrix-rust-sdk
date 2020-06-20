@@ -43,6 +43,7 @@ use crate::events::{
     CustomEvent, CustomRoomEvent, CustomStateEvent,
 };
 use crate::{Room, RoomState};
+use matrix_sdk_common_macros::async_trait;
 
 /// Type alias for `RoomState` enum when passed to `EventEmitter` methods.
 pub type SyncRoom = RoomState<Arc<RwLock<Room>>>;
@@ -78,10 +79,11 @@ pub enum CustomOrRawEvent<'c> {
 /// #     EventEmitter, SyncRoom
 /// # };
 /// # use matrix_sdk_common::locks::RwLock;
+/// # use matrix_sdk_common_macros::async_trait;
 ///
 /// struct EventCallback;
 ///
-/// #[async_trait::async_trait]
+/// #[async_trait]
 /// impl EventEmitter for EventCallback {
 ///     async fn on_room_message(&self, room: SyncRoom, event: &MessageEvent) {
 ///         if let SyncRoom::Joined(room) = room {
@@ -106,7 +108,7 @@ pub enum CustomOrRawEvent<'c> {
 ///     }
 /// }
 /// ```
-#[async_trait::async_trait]
+#[async_trait]
 pub trait EventEmitter: Send + Sync {
     // ROOM EVENTS from `IncomingTimeline`
     /// Fires when `Client` receives a `RoomEvent::RoomMember` event.
@@ -200,6 +202,7 @@ pub trait EventEmitter: Send + Sync {
 mod test {
     use super::*;
     use matrix_sdk_common::locks::Mutex;
+    use matrix_sdk_common_macros::async_trait;
     use matrix_sdk_test::{async_test, sync_response, SyncResponseFile};
     use std::sync::Arc;
 
@@ -209,7 +212,7 @@ mod test {
     #[derive(Clone)]
     pub struct EvEmitterTest(Arc<Mutex<Vec<String>>>);
 
-    #[async_trait::async_trait]
+    #[async_trait]
     impl EventEmitter for EvEmitterTest {
         async fn on_room_member(&self, _: SyncRoom, _: &MemberEvent) {
             self.0.lock().await.push("member".to_string())
@@ -319,8 +322,14 @@ mod test {
         async fn on_non_room_fully_read(&self, _: SyncRoom, _: &FullyReadEvent) {
             self.0.lock().await.push("account read".to_string())
         }
+        async fn on_non_room_typing(&self, _: SyncRoom, _: &TypingEvent) {
+            self.0.lock().await.push("typing event".to_string())
+        }
         async fn on_presence_event(&self, _: SyncRoom, _: &PresenceEvent) {
             self.0.lock().await.push("presence event".to_string())
+        }
+        async fn on_unrecognized_event(&self, _: SyncRoom, _: &CustomOrRawEvent<'_>) {
+            self.0.lock().await.push("unrecognized event".to_string())
         }
     }
 
@@ -414,6 +423,32 @@ mod test {
                 "state member",
                 "state member",
                 "message"
+            ],
+        )
+    }
+
+    #[async_test]
+    async fn event_emitter_more_events() {
+        let vec = Arc::new(Mutex::new(Vec::new()));
+        let test_vec = Arc::clone(&vec);
+        let emitter = Box::new(EvEmitterTest(vec));
+
+        let client = get_client().await;
+        client.add_event_emitter(emitter).await;
+
+        let mut response = sync_response(SyncResponseFile::All);
+        client.receive_sync_response(&mut response).await.unwrap();
+
+        let v = test_vec.lock().await;
+        assert_eq!(
+            v.as_slice(),
+            [
+                "message",
+                "unrecognized event",
+                "redaction",
+                "unrecognized event",
+                "unrecognized event",
+                "typing event"
             ],
         )
     }

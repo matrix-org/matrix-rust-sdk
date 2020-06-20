@@ -27,7 +27,7 @@ use crate::js_int::{Int, UInt};
 use serde::{Deserialize, Serialize};
 // Notes: if Alice invites Bob into a room we will get an event with the sender as Alice and the state key as Bob.
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 /// A Matrix room member.
 ///
 pub struct RoomMember {

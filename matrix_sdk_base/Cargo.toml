@@ -1,5 +1,5 @@
 [package]
-authors = ["Damir Jelić <poljar@termina.org.uk"]
+authors = ["Damir Jelić <poljar@termina.org.uk>"]
 description = "The base component to build a Matrix client library."
 edition = "2018"
 homepage = "https://github.com/matrix-org/matrix-rust-sdk"
@@ -22,6 +22,7 @@ serde = "1.0.110"
 serde_json = "1.0.53"
 zeroize = "1.1.0"
 
+matrix-sdk-common-macros = { version = "0.1.0", path = "../matrix_sdk_common_macros" }
 matrix-sdk-common = { version = "0.1.0", path = "../matrix_sdk_common" }
 matrix-sdk-crypto = { version = "0.1.0", path = "../matrix_sdk_crypto", optional = true }
 

@@ -1676,6 +1676,7 @@ impl BaseClient {
             NonRoomEvent::FullyRead(full_read) => {
                 event_emitter.on_non_room_fully_read(room, &full_read).await
             }
+            NonRoomEvent::Typing(typing) => event_emitter.on_non_room_typing(room, &typing).await,
             _ => {}
         }
     }
@@ -1732,6 +1733,7 @@ impl BaseClient {
             NonRoomEvent::FullyRead(full_read) => {
                 event_emitter.on_non_room_fully_read(room, &full_read).await
             }
+            NonRoomEvent::Typing(typing) => event_emitter.on_non_room_typing(room, &typing).await,
             _ => {}
         }
     }
@@ -1813,6 +1815,7 @@ mod test {
         events::{collections::all::RoomEvent, stripped::AnyStrippedStateEvent},
         BaseClient, Session,
     };
+    use matrix_sdk_common_macros::async_trait;
     use matrix_sdk_test::{async_test, EventBuilder, EventsFile};
     use serde_json::json;
     use std::convert::TryFrom;
@@ -1979,7 +1982,7 @@ mod test {
         };
 
         struct EE(Arc<AtomicBool>);
-        #[async_trait::async_trait]
+        #[async_trait]
         impl EventEmitter for EE {
             async fn on_room_member(&self, room: SyncRoom, event: &MemberEvent) {
                 if let SyncRoom::Joined(_) = room {
@@ -2075,7 +2078,7 @@ mod test {
         };
 
         struct EE(Arc<AtomicBool>);
-        #[async_trait::async_trait]
+        #[async_trait]
         impl EventEmitter for EE {
             async fn on_unrecognized_event(&self, room: SyncRoom, event: &CustomOrRawEvent<'_>) {
                 if let SyncRoom::Joined(_) = room {
@@ -2171,7 +2174,7 @@ mod test {
         };
 
         struct EE(Arc<AtomicBool>);
-        #[async_trait::async_trait]
+        #[async_trait]
         impl EventEmitter for EE {
             async fn on_unrecognized_event(&self, room: SyncRoom, event: &CustomOrRawEvent<'_>) {
                 if let SyncRoom::Joined(_) = room {
