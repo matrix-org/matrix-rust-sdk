@@ -87,6 +87,7 @@ pub enum CryptoStoreError {
 pub type Result<T> = std::result::Result<T, CryptoStoreError>;
 
 #[async_trait]
+#[warn(clippy::type_complexity)]
 #[cfg_attr(not(target_arch = "wasm32"), send_sync)]
 /// Trait abstracting a store that the `OlmMachine` uses to store cryptographic
 /// keys.
