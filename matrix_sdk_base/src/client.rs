@@ -100,7 +100,7 @@ fn hoist_room_event_prev_content(event: &mut EventJson<RoomEvent>) -> Option<Eve
     let mut ev = event.deserialize().ok()?;
     match &mut ev {
         RoomEvent::RoomMember(ref mut member) if member.prev_content.is_none() => {
-            if let Some(prev) = prev_content.deserialize().ok() {
+            if let Ok(prev) = prev_content.deserialize() {
                 member.prev_content = Some(prev)
             }
 
@@ -123,7 +123,7 @@ fn hoist_state_event_prev_content(event: &EventJson<StateEvent>) -> Option<Event
     let mut ev = event.deserialize().ok()?;
     match &mut ev {
         StateEvent::RoomMember(ref mut member) if member.prev_content.is_none() => {
-            if let Some(prev) = prev_content.deserialize().ok() {
+            if let Ok(prev) = prev_content.deserialize() {
                 member.prev_content = Some(prev)
             }
 

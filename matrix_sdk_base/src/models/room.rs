@@ -589,9 +589,7 @@ impl Room {
         // TODO: This would not be handled correctly as all the MemberEvents have the `prev_content`
         // inside of `unsigned` field.
         match event.membership_change() {
-            Invited | Joined => {
-                self.add_member(event)
-            }
+            Invited | Joined => self.add_member(event),
             Kicked | Banned | KickedAndBanned | InvitationRejected | Left => {
                 self.remove_member(event)
             }
