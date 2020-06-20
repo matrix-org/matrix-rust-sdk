@@ -93,7 +93,7 @@ pub enum CustomOrRawEvent<'c> {
 ///             {
 ///                 let name = {
 ///                    let room = room.read().await;
-///                    let member = room.members.get(&sender).unwrap();
+///                    let member = room.joined_members.get(&sender).unwrap();
 ///                    member
 ///                        .display_name
 ///                        .as_ref()

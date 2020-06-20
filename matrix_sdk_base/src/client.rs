@@ -1284,11 +1284,13 @@ impl BaseClient {
         match &mut *olm {
             Some(o) => {
                 let room = room.write().await;
-                let members = room
-                    .joined_members
-                    .keys()
-                    .chain(room.invited_members.keys());
-                Ok(o.share_group_session(room_id, members).await?)
+
+                // XXX: We construct members in a slightly roundabout way instead of chaining the
+                // iterators directly because of https://github.com/rust-lang/rust/issues/64552
+                let joined_members = room.joined_members.keys();
+                let invited_members = room.joined_members.keys();
+                let members: Vec<&UserId> = joined_members.chain(invited_members).collect();
+                Ok(o.share_group_session(room_id, members.into_iter()).await?)
             }
             None => panic!("Olm machine wasn't started"),
         }
