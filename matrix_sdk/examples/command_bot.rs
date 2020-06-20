@@ -2,7 +2,10 @@ use std::{env, process::exit};
 
 use matrix_sdk::{
     self,
-    events::room::message::{MessageEvent, MessageEventContent, TextMessageEventContent},
+    events::{
+        room::message::{MessageEventContent, TextMessageEventContent},
+        MessageEventStub,
+    },
     Client, ClientConfig, EventEmitter, JsonStore, SyncRoom, SyncSettings,
 };
 use matrix_sdk_common_macros::async_trait;
@@ -22,9 +25,9 @@ impl CommandBot {
 
 #[async_trait]
 impl EventEmitter for CommandBot {
-    async fn on_room_message(&self, room: SyncRoom, event: &MessageEvent) {
+    async fn on_room_message(&self, room: SyncRoom, event: &MessageEventStub<MessageEventContent>) {
         if let SyncRoom::Joined(room) = room {
-            let msg_body = if let MessageEvent {
+            let msg_body = if let MessageEventStub {
                 content: MessageEventContent::Text(TextMessageEventContent { body: msg_body, .. }),
                 ..
             } = event
@@ -37,8 +40,7 @@ impl EventEmitter for CommandBot {
             if msg_body.contains("!party") {
                 let content = MessageEventContent::Text(TextMessageEventContent {
                     body: "🎉🎊🥳 let's PARTY!! 🥳🎊🎉".to_string(),
-                    format: None,
-                    formatted_body: None,
+                    formatted: None,
                     relates_to: None,
                 });
                 // we clone here to hold the lock for as little time as possible.

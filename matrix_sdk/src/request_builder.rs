@@ -29,7 +29,7 @@ use matrix_sdk_common::{
 /// # let mut rt = tokio::runtime::Runtime::new().unwrap();
 /// # rt.block_on(async {
 /// let mut builder = RoomBuilder::default();
-/// builder.creation_content(false)
+/// builder.creation_content(false, None)
 ///     .initial_state(vec![])
 ///     .visibility(Visibility::Public)
 ///     .name("name")
@@ -63,9 +63,15 @@ impl RoomBuilder {
     /// Set the `CreationContent`.
     ///
     /// Weather users on other servers can join this room.
-    pub fn creation_content(&mut self, federate: bool) -> &mut Self {
-        let federate = Some(federate);
-        self.creation_content = Some(CreationContent { federate });
+    pub fn creation_content(
+        &mut self,
+        federate: bool,
+        predecessor: Option<PreviousRoom>,
+    ) -> &mut Self {
+        self.creation_content = Some(CreationContent {
+            federate,
+            predecessor,
+        });
         self
     }
 
@@ -500,7 +506,7 @@ mod test {
 
         let mut builder = RoomBuilder::new();
         builder
-            .creation_content(false)
+            .creation_content(false, None)
             .initial_state(vec![])
             .visibility(Visibility::Public)
             .name("room_name")

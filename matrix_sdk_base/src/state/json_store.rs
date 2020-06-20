@@ -201,6 +201,7 @@ mod test {
     use tempfile::tempdir;
 
     use crate::identifiers::{RoomId, UserId};
+    use crate::push::Ruleset;
     use crate::{BaseClient, BaseClientConfig, Session};
 
     use matrix_sdk_test::{sync_response, SyncResponseFile};
@@ -221,7 +222,7 @@ mod test {
         let state = ClientState {
             sync_token: Some("hello".into()),
             ignored_users: vec![user],
-            push_ruleset: None,
+            push_ruleset: None::<Ruleset>,
         };
 
         let mut path_with_user = PathBuf::from(path);

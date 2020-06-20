@@ -22,28 +22,35 @@ use super::message::MessageQueue;
 use super::RoomMember;
 
 use crate::api::r0::sync::sync_events::{RoomSummary, UnreadNotificationsCount};
-use crate::events::collections::all::{RoomEvent, StateEvent};
 use crate::events::presence::PresenceEvent;
 use crate::events::room::{
-    aliases::AliasesEvent,
-    canonical_alias::CanonicalAliasEvent,
-    encryption::EncryptionEvent,
-    member::{MemberEvent, MembershipChange},
-    name::NameEvent,
-    power_levels::{NotificationPowerLevels, PowerLevelsEvent, PowerLevelsEventContent},
-    tombstone::TombstoneEvent,
+    aliases::AliasesEventContent,
+    canonical_alias::CanonicalAliasEventContent,
+    encryption::EncryptionEventContent,
+    member::{MemberEventContent, MembershipChange},
+    name::NameEventContent,
+    power_levels::{NotificationPowerLevels, PowerLevelsEventContent},
+    tombstone::TombstoneEventContent,
 };
-use crate::events::stripped::{AnyStrippedStateEvent, StrippedRoomName};
-use crate::events::{Algorithm, EventType};
+
+use crate::events::{
+    Algorithm, AnyMessageEventStub, AnyRoomEventStub, AnyStateEventStub, AnyStrippedStateEventStub,
+    EventType, StateEventStub, StrippedStateEventStub,
+};
 
 #[cfg(feature = "messages")]
-use crate::events::room::message::MessageEvent;
+use crate::events::{room::message::MessageEventContent as MsgContent, MessageEventStub};
 
 use crate::identifiers::{RoomAliasId, RoomId, UserId};
 
 use crate::js_int::{Int, UInt};
 use serde::{Deserialize, Serialize};
+
+#[cfg(feature = "messages")]
+type SentMessageEvent = MessageEventStub<MsgContent>;
+
 #[derive(Debug, Default, PartialEq, Serialize, Deserialize, Clone)]
+#[cfg_attr(test, derive(Clone))]
 /// `RoomName` allows the calculation of a text room name.
 pub struct RoomName {
     /// The displayed name of the room.
@@ -123,8 +130,8 @@ impl EncryptionInfo {
     }
 }
 
-impl From<&EncryptionEvent> for EncryptionInfo {
-    fn from(event: &EncryptionEvent) -> Self {
+impl From<&StateEventStub<EncryptionEventContent>> for EncryptionInfo {
+    fn from(event: &StateEventStub<EncryptionEventContent>) -> Self {
         EncryptionInfo {
             algorithm: event.content.algorithm.clone(),
             rotation_period_ms: event
@@ -357,29 +364,15 @@ impl Room {
         }
     }
 
-    /// Process the member event of an entering user.
-    ///
-    /// Returns true if this made a change to the room's state, false otherwise.
-    fn add_member(&mut self, event: &MemberEvent) -> bool {
-        let new_member = RoomMember::new(event);
-
-        if self.joined_members.contains_key(&new_member.user_id)
-            || self.invited_members.contains_key(&new_member.user_id)
+    fn add_member(&mut self, event: &StateEventStub<MemberEventContent>, room_id: &RoomId) -> bool {
+        if self
+            .members
+            .contains_key(&UserId::try_from(event.state_key.as_str()).unwrap())
         {
             return false;
         }
 
-        match event.membership_change() {
-            MembershipChange::Joined => self
-                .joined_members
-                .insert(new_member.user_id.clone(), new_member.clone()),
-            MembershipChange::Invited => self
-                .invited_members
-                .insert(new_member.user_id.clone(), new_member.clone()),
-            _ => {
-                panic!("Room::add_member called on an event that is neither a join nor an invite.")
-            }
-        };
+        let member = RoomMember::new(event, room_id);
 
         // Perform display name disambiguations, if necessary.
         let disambiguations = self.disambiguation_updates(&new_member, MemberDirection::Entering);
@@ -396,7 +389,7 @@ impl Room {
     /// Process the member event of a leaving user.
     ///
     /// Returns true if this made a change to the room's state, false otherwise.
-    fn remove_member(&mut self, event: &MemberEvent) -> bool {
+    fn remove_member(&mut self, event: &StateEventStub<MemberEventContent>) -> bool {
         let leaving_member = RoomMember::new(event);
 
         // Perform display name disambiguations, if necessary.
@@ -535,7 +528,7 @@ impl Room {
         true
     }
 
-    fn set_room_power_level(&mut self, event: &PowerLevelsEvent) -> bool {
+    fn set_room_power_level(&mut self, event: &StateEventStub<PowerLevelsEventContent>) -> bool {
         let PowerLevelsEventContent {
             ban,
             events,
@@ -583,7 +576,11 @@ impl Room {
     /// Handle a room.member updating the room state if necessary.
     ///
     /// Returns true if the joined member list changed, false otherwise.
-    pub fn handle_membership(&mut self, event: &MemberEvent) -> bool {
+    pub fn handle_membership(
+        &mut self,
+        event: &StateEventStub<MemberEventContent>,
+        room_id: &RoomId,
+    ) -> bool {
         use MembershipChange::*;
 
         // TODO: This would not be handled correctly as all the MemberEvents have the `prev_content`
@@ -594,7 +591,7 @@ impl Room {
                 self.remove_member(event)
             }
             ProfileChanged => {
-                let user_id = if let Ok(id) = UserId::try_from(event.state_key.as_str()) {
+                let user = if let Ok(id) = UserId::try_from(event.state_key.as_str()) {
                     id
                 } else {
                     return false;
@@ -617,14 +614,14 @@ impl Room {
     /// Returns true if `MessageQueue` was added to.
     #[cfg(feature = "messages")]
     #[cfg_attr(docsrs, doc(cfg(feature = "messages")))]
-    pub fn handle_message(&mut self, event: &MessageEvent) -> bool {
+    pub fn handle_message(&mut self, event: &SentMessageEvent) -> bool {
         self.messages.push(event.clone())
     }
 
     /// Handle a room.aliases event, updating the room state if necessary.
     ///
     /// Returns true if the room name changed, false otherwise.
-    pub fn handle_room_aliases(&mut self, event: &AliasesEvent) -> bool {
+    pub fn handle_room_aliases(&mut self, event: &StateEventStub<AliasesEventContent>) -> bool {
         match event.content.aliases.as_slice() {
             [alias] => self.push_room_alias(alias),
             [alias, ..] => self.push_room_alias(alias),
@@ -635,7 +632,7 @@ impl Room {
     /// Handle a room.canonical_alias event, updating the room state if necessary.
     ///
     /// Returns true if the room name changed, false otherwise.
-    pub fn handle_canonical(&mut self, event: &CanonicalAliasEvent) -> bool {
+    pub fn handle_canonical(&mut self, event: &StateEventStub<CanonicalAliasEventContent>) -> bool {
         match &event.content.alias {
             Some(name) => self.canonical_alias(&name),
             _ => false,
@@ -645,7 +642,7 @@ impl Room {
     /// Handle a room.name event, updating the room state if necessary.
     ///
     /// Returns true if the room name changed, false otherwise.
-    pub fn handle_room_name(&mut self, event: &NameEvent) -> bool {
+    pub fn handle_room_name(&mut self, event: &StateEventStub<NameEventContent>) -> bool {
         match event.content.name() {
             Some(name) => self.set_room_name(name),
             _ => false,
@@ -655,7 +652,10 @@ impl Room {
     /// Handle a room.name event, updating the room state if necessary.
     ///
     /// Returns true if the room name changed, false otherwise.
-    pub fn handle_stripped_room_name(&mut self, event: &StrippedRoomName) -> bool {
+    pub fn handle_stripped_room_name(
+        &mut self,
+        event: &StrippedStateEventStub<NameEventContent>,
+    ) -> bool {
         match event.content.name() {
             Some(name) => self.set_room_name(name),
             _ => false,
@@ -665,7 +665,7 @@ impl Room {
     /// Handle a room.power_levels event, updating the room state if necessary.
     ///
     /// Returns true if the room name changed, false otherwise.
-    pub fn handle_power_level(&mut self, event: &PowerLevelsEvent) -> bool {
+    pub fn handle_power_level(&mut self, event: &StateEventStub<PowerLevelsEventContent>) -> bool {
         // NOTE: this is always true, we assume that if we get an event their is an update.
         let mut updated = self.set_room_power_level(event);
 
@@ -684,7 +684,7 @@ impl Room {
         updated
     }
 
-    fn handle_tombstone(&mut self, event: &TombstoneEvent) -> bool {
+    fn handle_tombstone(&mut self, event: &StateEventStub<TombstoneEventContent>) -> bool {
         self.tombstone = Some(Tombstone {
             body: event.content.body.clone(),
             replacement: event.content.replacement_room.clone(),
@@ -692,7 +692,7 @@ impl Room {
         true
     }
 
-    fn handle_encryption_event(&mut self, event: &EncryptionEvent) -> bool {
+    fn handle_encryption_event(&mut self, event: &StateEventStub<EncryptionEventContent>) -> bool {
         self.encrypted = Some(event.into());
         true
     }
@@ -704,21 +704,28 @@ impl Room {
     /// # Arguments
     ///
     /// * `event` - The event of the room.
-    pub fn receive_timeline_event(&mut self, event: &RoomEvent) -> bool {
-        match event {
-            // update to the current members of the room
-            RoomEvent::RoomMember(member) => self.handle_membership(member),
-            // finds all events related to the name of the room for later use
-            RoomEvent::RoomName(name) => self.handle_room_name(name),
-            RoomEvent::RoomCanonicalAlias(c_alias) => self.handle_canonical(c_alias),
-            RoomEvent::RoomAliases(alias) => self.handle_room_aliases(alias),
-            // power levels of the room members
-            RoomEvent::RoomPowerLevels(power) => self.handle_power_level(power),
-            RoomEvent::RoomTombstone(tomb) => self.handle_tombstone(tomb),
-            RoomEvent::RoomEncryption(encrypt) => self.handle_encryption_event(encrypt),
-            #[cfg(feature = "messages")]
-            RoomEvent::RoomMessage(msg) => self.handle_message(msg),
-            _ => false,
+    pub fn receive_timeline_event(&mut self, event: &AnyRoomEventStub, room_id: &RoomId) -> bool {
+        match &event {
+            AnyRoomEventStub::State(event) => match &event {
+                // update to the current members of the room
+                AnyStateEventStub::RoomMember(event) => self.handle_membership(&event, room_id),
+                // finds all events related to the name of the room for later use
+                AnyStateEventStub::RoomName(event) => self.handle_room_name(&event),
+                AnyStateEventStub::RoomCanonicalAlias(event) => self.handle_canonical(&event),
+                AnyStateEventStub::RoomAliases(event) => self.handle_room_aliases(&event),
+                // power levels of the room members
+                AnyStateEventStub::RoomPowerLevels(event) => self.handle_power_level(&event),
+                AnyStateEventStub::RoomTombstone(event) => self.handle_tombstone(&event),
+                AnyStateEventStub::RoomEncryption(event) => self.handle_encryption_event(&event),
+                _ => false,
+            },
+            AnyRoomEventStub::Message(event) => match &event {
+                #[cfg(feature = "messages")]
+                AnyMessageEventStub::RoomMessage(event) => self.handle_message(&event),
+                // TODO if a redaction event deletes one of our saved messages delete it?
+                AnyMessageEventStub::RoomRedaction(_) => false,
+                _ => false,
+            },
         }
     }
 
@@ -729,18 +736,18 @@ impl Room {
     /// # Arguments
     ///
     /// * `event` - The event of the room.
-    pub fn receive_state_event(&mut self, event: &StateEvent) -> bool {
+    pub fn receive_state_event(&mut self, event: &AnyStateEventStub, room_id: &RoomId) -> bool {
         match event {
             // update to the current members of the room
-            StateEvent::RoomMember(member) => self.handle_membership(member),
+            AnyStateEventStub::RoomMember(member) => self.handle_membership(member, room_id),
             // finds all events related to the name of the room for later use
-            StateEvent::RoomName(name) => self.handle_room_name(name),
-            StateEvent::RoomCanonicalAlias(c_alias) => self.handle_canonical(c_alias),
-            StateEvent::RoomAliases(alias) => self.handle_room_aliases(alias),
+            AnyStateEventStub::RoomName(name) => self.handle_room_name(name),
+            AnyStateEventStub::RoomCanonicalAlias(c_alias) => self.handle_canonical(c_alias),
+            AnyStateEventStub::RoomAliases(alias) => self.handle_room_aliases(alias),
             // power levels of the room members
-            StateEvent::RoomPowerLevels(power) => self.handle_power_level(power),
-            StateEvent::RoomTombstone(tomb) => self.handle_tombstone(tomb),
-            StateEvent::RoomEncryption(encrypt) => self.handle_encryption_event(encrypt),
+            AnyStateEventStub::RoomPowerLevels(power) => self.handle_power_level(power),
+            AnyStateEventStub::RoomTombstone(tomb) => self.handle_tombstone(tomb),
+            AnyStateEventStub::RoomEncryption(encrypt) => self.handle_encryption_event(encrypt),
             _ => false,
         }
     }
@@ -753,9 +760,9 @@ impl Room {
     ///
     /// * `event` - The `AnyStrippedStateEvent` sent by the server for invited but not
     /// joined rooms.
-    pub fn receive_stripped_state_event(&mut self, event: &AnyStrippedStateEvent) -> bool {
-        match event {
-            AnyStrippedStateEvent::RoomName(n) => self.handle_stripped_room_name(n),
+    pub fn receive_stripped_state_event(&mut self, event: &AnyStrippedStateEventStub) -> bool {
+        match &event {
+            AnyStrippedStateEventStub::RoomName(event) => self.handle_stripped_room_name(event),
             _ => false,
         }
     }
@@ -1025,8 +1032,8 @@ mod test {
         let user_id = UserId::try_from("@example:localhost").unwrap();
 
         let mut response = EventBuilder::default()
-            .add_room_event(EventsJson::Member, RoomEvent::RoomMember)
-            .add_room_event(EventsJson::PowerLevels, RoomEvent::RoomPowerLevels)
+            .add_state_event(EventsFile::Member)
+            .add_state_event(EventsFile::PowerLevels)
             .build_sync_response();
 
         client.receive_sync_response(&mut response).await.unwrap();
@@ -1054,7 +1061,7 @@ mod test {
         let room_id = get_room_id();
 
         let mut response = EventBuilder::default()
-            .add_state_event(EventsJson::Aliases, StateEvent::RoomAliases)
+            .add_state_event(EventsFile::Aliases)
             .build_sync_response();
 
         client.receive_sync_response(&mut response).await.unwrap();
@@ -1072,7 +1079,7 @@ mod test {
         let room_id = get_room_id();
 
         let mut response = EventBuilder::default()
-            .add_state_event(EventsJson::Alias, StateEvent::RoomCanonicalAlias)
+            .add_state_event(EventsFile::Alias)
             .build_sync_response();
 
         client.receive_sync_response(&mut response).await.unwrap();
@@ -1090,7 +1097,7 @@ mod test {
         let room_id = get_room_id();
 
         let mut response = EventBuilder::default()
-            .add_state_event(EventsJson::Name, StateEvent::RoomName)
+            .add_state_event(EventsFile::Name)
             .build_sync_response();
 
         client.receive_sync_response(&mut response).await.unwrap();
@@ -1125,6 +1132,8 @@ mod test {
     #[async_test]
     #[cfg(not(target_arch = "wasm32"))]
     async fn encryption_info_test() {
+        let room_id = get_room_id();
+
         let mut response = sync_response(SyncResponseFile::DefaultWithSummary);
         let user_id = UserId::try_from("@example:localhost").unwrap();
 
@@ -1137,7 +1146,7 @@ mod test {
         client.restore_login(session).await.unwrap();
         client.receive_sync_response(&mut response).await.unwrap();
 
-        let event = EncryptionEvent {
+        let event = StateEventStub {
             event_id: EventId::try_from("$h29iv0s8:example.com").unwrap(),
             origin_server_ts: SystemTime::now(),
             sender: user_id,
@@ -1149,10 +1158,8 @@ mod test {
                 rotation_period_msgs: Some(100u32.into()),
             },
             prev_content: None,
-            room_id: None,
         };
 
-        let room_id = get_room_id();
         let room = client.get_joined_room(&room_id).await.unwrap();
 
         assert!(!room.read().await.is_encrypted());

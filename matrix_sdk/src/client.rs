@@ -773,7 +773,7 @@ impl Client {
     ///
     /// # let homeserver = Url::parse("http://example.com").unwrap();
     /// let mut builder = RoomBuilder::default();
-    /// builder.creation_content(false)
+    /// builder.creation_content(false, None)
     ///     .initial_state(vec![])
     ///     .visibility(Visibility::Public)
     ///     .name("name")
@@ -939,9 +939,9 @@ impl Client {
     /// # use matrix_sdk::{Client, SyncSettings};
     /// # use url::Url;
     /// # use futures::executor::block_on;
-    /// # use ruma_identifiers::RoomId;
+    /// # use matrix_sdk::identifiers::RoomId;
     /// # use std::convert::TryFrom;
-    /// use matrix_sdk::events::room::message::{MessageEventContent, TextMessageEventContent};
+    /// use matrix_sdk::events::room::message::{FormattedBody, MessageEventContent, TextMessageEventContent};
     /// # block_on(async {
     /// # let homeserver = Url::parse("http://localhost:8080").unwrap();
     /// # let mut client = Client::new(homeserver).unwrap();
@@ -950,8 +950,7 @@ impl Client {
     ///
     /// let content = MessageEventContent::Text(TextMessageEventContent {
     ///     body: "Hello world".to_owned(),
-    ///     format: None,
-    ///     formatted_body: None,
+    ///     formatted: None,
     ///     relates_to: None,
     /// });
     /// let txn_id = Uuid::new_v4();
@@ -1515,8 +1514,9 @@ mod test {
         set_read_marker, Invite3pid, MessageEventContent,
     };
     use super::{Client, ClientConfig, Session, SyncSettings, Url};
-    use crate::events::collections::all::RoomEvent;
+    use crate::events::room::member::MembershipState;
     use crate::events::room::message::TextMessageEventContent;
+
     use crate::identifiers::{EventId, RoomId, RoomIdOrAliasId, UserId};
     use crate::{RegistrationBuilder, RoomListFilterBuilder};
 
@@ -1639,8 +1639,8 @@ mod test {
         client.restore_login(session).await.unwrap();
 
         let mut response = EventBuilder::default()
-            .add_room_event(EventsJson::Member, RoomEvent::RoomMember)
-            .add_room_event(EventsJson::PowerLevels, RoomEvent::RoomPowerLevels)
+            .add_state_event(EventsFile::Member)
+            .add_state_event(EventsFile::PowerLevels)
             .build_sync_response();
 
         client
@@ -2069,7 +2069,7 @@ mod test {
         let homeserver = Url::from_str(&mockito::server_url()).unwrap();
         let user_id = UserId::try_from("@example:localhost").unwrap();
         let room_id = RoomId::try_from("!testroom:example.org").unwrap();
-        let event_id = EventId::new("example.org").unwrap();
+        let event_id = EventId::try_from("$xxxxxx:example.org").unwrap();
 
         let session = Session {
             access_token: "1234".to_owned(),
@@ -2105,7 +2105,7 @@ mod test {
         let homeserver = Url::from_str(&mockito::server_url()).unwrap();
         let user_id = UserId::try_from("@example:localhost").unwrap();
         let room_id = RoomId::try_from("!testroom:example.org").unwrap();
-        let event_id = EventId::new("example.org").unwrap();
+        let event_id = EventId::try_from("$xxxxxx:example.org").unwrap();
 
         let session = Session {
             access_token: "1234".to_owned(),
@@ -2205,9 +2205,8 @@ mod test {
 
         let content = MessageEventContent::Text(TextMessageEventContent {
             body: "Hello world".to_owned(),
-            format: None,
-            formatted_body: None,
             relates_to: None,
+            formatted: None,
         });
         let txn_id = Uuid::new_v4();
         let response = client

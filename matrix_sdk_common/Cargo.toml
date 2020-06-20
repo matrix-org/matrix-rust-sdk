@@ -1,5 +1,5 @@
 [package]
-authors = ["Damir Jelić <poljar@termina.org.uk>"]
+authors = ["Damir Jelić <poljar@termina.org.uk"]
 description = "Collection of common types used in the matrix-sdk"
 edition = "2018"
 homepage = "https://github.com/matrix-org/matrix-rust-sdk"
@@ -11,12 +11,16 @@ repository = "https://github.com/matrix-org/matrix-rust-sdk"
 version = "0.1.0"
 
 [dependencies]
-js_int = "0.1.8"
-ruma-api = "0.16.1"
-ruma-client-api = "0.9.0"
-ruma-events = "0.21.3"
-ruma-identifiers = "0.16.2"
-instant = { version = "0.1.6", features = ["wasm-bindgen", "now"] }
+js_int = "0.1.5"
+# ruma-api = "0.16.1"
+# ruma-client-api = "0.9.0"
+# ruma-events = "0.21.2"
+# ruma-identifiers = "0.16.1"
+
+ruma = { git = "https://github.com/DevinR528/ruma", features = ["client-api", "rand"], branch = "matrix-sdk2"}
+# ruma = { path = "../../ruma/ruma", features = ["client-api", "rand"] }
+
+instant = { version = "0.1.4", features = ["wasm-bindgen", "now"] }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 uuid = { version = "0.8.1", features = ["v4"] }
