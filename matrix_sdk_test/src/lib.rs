@@ -15,12 +15,15 @@ use matrix_sdk_common::events::{
     EventJson, TryFromRaw,
 };
 use matrix_sdk_common::identifiers::RoomId;
+use serde_json::Value as JsonValue;
 
 pub use matrix_sdk_test_macros::async_test;
 
-/// Embedded event files
+pub mod test_json;
+
+/// Static `serde_json::Value`s
 #[derive(Debug)]
-pub enum EventsFile {
+pub enum EventsJson {
     Alias,
     Aliases,
     Create,
@@ -67,15 +70,15 @@ impl EventBuilder {
     /// Add an event to the room events `Vec`.
     pub fn add_ephemeral<Ev: TryFromRaw>(
         mut self,
-        file: EventsFile,
+        json: EventsJson,
         variant: fn(Ev) -> Event,
     ) -> Self {
-        let val: &str = match file {
-            EventsFile::Typing => include_str!("../../test_data/events/typing.json"),
-            _ => panic!("unknown ephemeral event file {:?}", file),
+        let val: &JsonValue = match json {
+            EventsJson::Typing => &test_json::TYPING,
+            _ => panic!("unknown ephemeral event {:?}", json),
         };
 
-        let event = serde_json::from_str::<EventJson<Ev>>(&val)
+        let event = serde_json::from_value::<EventJson<Ev>>(val.clone())
             .unwrap()
             .deserialize()
             .unwrap();
@@ -87,14 +90,14 @@ impl EventBuilder {
     #[allow(clippy::match_single_binding, unused)]
     pub fn add_account<Ev: TryFromRaw>(
         mut self,
-        file: EventsFile,
+        json: EventsJson,
         variant: fn(Ev) -> Event,
     ) -> Self {
-        let val: &str = match file {
-            _ => panic!("unknown account event file {:?}", file),
+        let val: &JsonValue = match json {
+            _ => panic!("unknown account event {:?}", json),
         };
 
-        let event = serde_json::from_str::<EventJson<Ev>>(&val)
+        let event = serde_json::from_value::<EventJson<Ev>>(val.clone())
             .unwrap()
             .deserialize()
             .unwrap();
@@ -105,16 +108,16 @@ impl EventBuilder {
     /// Add an event to the room events `Vec`.
     pub fn add_room_event<Ev: TryFromRaw>(
         mut self,
-        file: EventsFile,
+        json: EventsJson,
         variant: fn(Ev) -> RoomEvent,
     ) -> Self {
-        let val = match file {
-            EventsFile::Member => include_str!("../../test_data/events/member.json"),
-            EventsFile::PowerLevels => include_str!("../../test_data/events/power_levels.json"),
-            _ => panic!("unknown room event file {:?}", file),
+        let val: &JsonValue = match json {
+            EventsJson::Member => &test_json::MEMBER,
+            EventsJson::PowerLevels => &test_json::POWER_LEVELS,
+            _ => panic!("unknown room event json {:?}", json),
         };
 
-        let event = serde_json::from_str::<EventJson<Ev>>(&val)
+        let event = serde_json::from_value::<EventJson<Ev>>(val.clone())
             .unwrap()
             .deserialize()
             .unwrap();
@@ -183,17 +186,17 @@ impl EventBuilder {
     /// Add a state event to the state events `Vec`.
     pub fn add_state_event<Ev: TryFromRaw>(
         mut self,
-        file: EventsFile,
+        json: EventsJson,
         variant: fn(Ev) -> StateEvent,
     ) -> Self {
-        let val = match file {
-            EventsFile::Alias => include_str!("../../test_data/events/alias.json"),
-            EventsFile::Aliases => include_str!("../../test_data/events/aliases.json"),
-            EventsFile::Name => include_str!("../../test_data/events/name.json"),
-            _ => panic!("unknown state event file {:?}", file),
+        let val: &JsonValue = match json {
+            EventsJson::Alias => &test_json::ALIAS,
+            EventsJson::Aliases => &test_json::ALIASES,
+            EventsJson::Name => &test_json::NAME,
+            _ => panic!("unknown state event {:?}", json),
         };
 
-        let event = serde_json::from_str::<EventJson<Ev>>(&val)
+        let event = serde_json::from_value::<EventJson<Ev>>(val.clone())
             .unwrap()
             .deserialize()
             .unwrap();
@@ -202,13 +205,13 @@ impl EventBuilder {
     }
 
     /// Add an presence event to the presence events `Vec`.
-    pub fn add_presence_event(mut self, file: EventsFile) -> Self {
-        let val = match file {
-            EventsFile::Presence => include_str!("../../test_data/events/presence.json"),
-            _ => panic!("unknown presence event file {:?}", file),
+    pub fn add_presence_event(mut self, json: EventsJson) -> Self {
+        let val: &JsonValue = match json {
+            EventsJson::Presence => &test_json::PRESENCE,
+            _ => panic!("unknown presence event {:?}", json),
         };
 
-        let event = serde_json::from_str::<EventJson<PresenceEvent>>(&val)
+        let event = serde_json::from_value::<EventJson<PresenceEvent>>(val.clone())
             .unwrap()
             .deserialize()
             .unwrap();
@@ -338,16 +341,16 @@ pub enum SyncResponseFile {
 
 /// Get specific API responses for testing
 pub fn sync_response(kind: SyncResponseFile) -> SyncResponse {
-    let data = match kind {
-        SyncResponseFile::All => include_bytes!("../../test_data/more_sync.json").to_vec(),
-        SyncResponseFile::Default => include_bytes!("../../test_data/sync.json").to_vec(),
-        SyncResponseFile::DefaultWithSummary => {
-            include_bytes!("../../test_data/sync_with_summary.json").to_vec()
-        }
-        SyncResponseFile::Invite => include_bytes!("../../test_data/invite_sync.json").to_vec(),
-        SyncResponseFile::Leave => include_bytes!("../../test_data/leave_sync.json").to_vec(),
+    let data: &JsonValue = match kind {
+        SyncResponseFile::All => &test_json::MORE_SYNC,
+        SyncResponseFile::Default => &test_json::SYNC,
+        SyncResponseFile::DefaultWithSummary => &test_json::DEFAULT_SYNC,
+        SyncResponseFile::Invite => &test_json::INVITE_SYNC,
+        SyncResponseFile::Leave => &test_json::LEAVE_SYNC,
     };
 
-    let response = Response::builder().body(data.to_vec()).unwrap();
+    let response = Response::builder()
+        .body(data.to_string().as_bytes().to_vec())
+        .unwrap();
     SyncResponse::try_from(response).unwrap()
 }

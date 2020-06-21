@@ -1808,7 +1808,7 @@ mod test {
     #[async_test]
     async fn test_joined_room_creation() {
         let mut sync_response = EventBuilder::default()
-            .add_room_event(EventsFile::Member, RoomEvent::RoomMember)
+            .add_room_event(EventsJson::Member, RoomEvent::RoomMember)
             .build_sync_response();
         let client = get_client().await;
         let room_id = get_room_id();
@@ -2216,7 +2216,7 @@ mod test {
         let room_id = get_room_id();
 
         let mut sync_response = EventBuilder::default()
-            .add_room_event(EventsFile::Member, RoomEvent::RoomMember)
+            .add_room_event(EventsJson::Member, RoomEvent::RoomMember)
             .build_sync_response();
 
         client

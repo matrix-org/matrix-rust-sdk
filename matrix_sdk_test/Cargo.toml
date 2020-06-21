@@ -15,3 +15,4 @@ serde_json = "1.0.53"
 http = "0.2.1"
 matrix-sdk-common = { version = "0.1.0", path = "../matrix_sdk_common" }
 matrix-sdk-test-macros = { version = "0.1.0", path = "../matrix_sdk_test_macros" }
+lazy_static = "1.4.0"

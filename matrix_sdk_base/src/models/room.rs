@@ -577,7 +577,7 @@ mod test {
     };
     use crate::identifiers::{EventId, UserId};
     use crate::{BaseClient, Session};
-    use matrix_sdk_test::{async_test, sync_response, EventBuilder, EventsFile, SyncResponseFile};
+    use matrix_sdk_test::{async_test, sync_response, EventBuilder, EventsJson, SyncResponseFile};
 
     use std::time::SystemTime;
 
@@ -633,8 +633,8 @@ mod test {
         let user_id = UserId::try_from("@example:localhost").unwrap();
 
         let mut response = EventBuilder::default()
-            .add_room_event(EventsFile::Member, RoomEvent::RoomMember)
-            .add_room_event(EventsFile::PowerLevels, RoomEvent::RoomPowerLevels)
+            .add_room_event(EventsJson::Member, RoomEvent::RoomMember)
+            .add_room_event(EventsJson::PowerLevels, RoomEvent::RoomPowerLevels)
             .build_sync_response();
 
         client.receive_sync_response(&mut response).await.unwrap();
@@ -662,7 +662,7 @@ mod test {
         let room_id = get_room_id();
 
         let mut response = EventBuilder::default()
-            .add_state_event(EventsFile::Aliases, StateEvent::RoomAliases)
+            .add_state_event(EventsJson::Aliases, StateEvent::RoomAliases)
             .build_sync_response();
 
         client.receive_sync_response(&mut response).await.unwrap();
@@ -680,7 +680,7 @@ mod test {
         let room_id = get_room_id();
 
         let mut response = EventBuilder::default()
-            .add_state_event(EventsFile::Alias, StateEvent::RoomCanonicalAlias)
+            .add_state_event(EventsJson::Alias, StateEvent::RoomCanonicalAlias)
             .build_sync_response();
 
         client.receive_sync_response(&mut response).await.unwrap();
@@ -698,7 +698,7 @@ mod test {
         let room_id = get_room_id();
 
         let mut response = EventBuilder::default()
-            .add_state_event(EventsFile::Name, StateEvent::RoomName)
+            .add_state_event(EventsJson::Name, StateEvent::RoomName)
             .build_sync_response();
 
         client.receive_sync_response(&mut response).await.unwrap();

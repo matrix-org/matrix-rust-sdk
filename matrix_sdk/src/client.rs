@@ -1404,7 +1404,7 @@ mod test {
     use crate::RegistrationBuilder;
 
     use matrix_sdk_base::JsonStore;
-    use matrix_sdk_test::{EventBuilder, EventsFile};
+    use matrix_sdk_test::{EventBuilder, EventsJson};
     use mockito::{mock, Matcher};
     use tempfile::tempdir;
 
@@ -1522,8 +1522,8 @@ mod test {
         client.restore_login(session).await.unwrap();
 
         let mut response = EventBuilder::default()
-            .add_room_event(EventsFile::Member, RoomEvent::RoomMember)
-            .add_room_event(EventsFile::PowerLevels, RoomEvent::RoomPowerLevels)
+            .add_room_event(EventsJson::Member, RoomEvent::RoomMember)
+            .add_room_event(EventsJson::PowerLevels, RoomEvent::RoomPowerLevels)
             .build_sync_response();
 
         client

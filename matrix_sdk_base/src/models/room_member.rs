@@ -198,7 +198,7 @@ impl RoomMember {
 
 #[cfg(test)]
 mod test {
-    use matrix_sdk_test::{async_test, EventBuilder, EventsFile};
+    use matrix_sdk_test::{async_test, EventBuilder, EventsJson};
 
     use crate::events::collections::all::RoomEvent;
     use crate::events::room::member::MembershipState;
@@ -234,8 +234,8 @@ mod test {
         let room_id = get_room_id();
 
         let mut response = EventBuilder::default()
-            .add_room_event(EventsFile::Member, RoomEvent::RoomMember)
-            .add_room_event(EventsFile::PowerLevels, RoomEvent::RoomPowerLevels)
+            .add_room_event(EventsJson::Member, RoomEvent::RoomMember)
+            .add_room_event(EventsJson::PowerLevels, RoomEvent::RoomPowerLevels)
             .build_sync_response();
 
         client.receive_sync_response(&mut response).await.unwrap();
@@ -258,9 +258,9 @@ mod test {
         let room_id = get_room_id();
 
         let mut response = EventBuilder::default()
-            .add_room_event(EventsFile::Member, RoomEvent::RoomMember)
-            .add_room_event(EventsFile::PowerLevels, RoomEvent::RoomPowerLevels)
-            .add_presence_event(EventsFile::Presence)
+            .add_room_event(EventsJson::Member, RoomEvent::RoomMember)
+            .add_room_event(EventsJson::PowerLevels, RoomEvent::RoomPowerLevels)
+            .add_presence_event(EventsJson::Presence)
             .build_sync_response();
 
         client.receive_sync_response(&mut response).await.unwrap();
