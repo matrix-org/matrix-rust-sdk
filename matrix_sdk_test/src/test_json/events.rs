@@ -121,6 +121,30 @@ lazy_static! {
 }
 
 lazy_static! {
+    pub static ref MESSAGE_EDIT: JsonValue = json!({
+        "content": {
+            "body": " * edited message",
+            "m.new_content": {
+                "body": "edited message",
+                "msgtype": "m.text"
+            },
+            "m.relates_to": {
+                "event_id": "some event id",
+                "rel_type": "m.replace"
+            },
+            "msgtype": "m.text"
+        },
+        "event_id": "edit event id",
+        "origin_server_ts": 159026265,
+        "sender": "@alice:matrix.org",
+        "type": "m.room.message",
+        "unsigned": {
+            "age": 85
+        }
+    });
+}
+
+lazy_static! {
     pub static ref MESSAGE_EMOTE: JsonValue = json!({
         "content": {
             "body": "is dancing", "format": "org.matrix.custom.html",
@@ -235,6 +259,25 @@ lazy_static! {
         },
         "sender": "@example:localhost",
         "type": "m.presence"
+    });
+}
+
+lazy_static! {
+    pub static ref REACTION: JsonValue = json!({
+        "content": {
+            "m.relates_to": {
+                "event_id": "$MDitXXXXXXuBlpP7S6c6XXXXXXXC2HqZ3peV1NrV4PKA",
+                "key": "👍",
+                "rel_type": "m.annotation"
+            }
+        },
+        "event_id": "$QZn9xEXXXXXfd2tAGFH-XXgsffZlVMobk47Tl5Lpdtg",
+        "origin_server_ts": 159027581,
+        "sender": "@devinr528:matrix.org",
+        "type": "m.reaction",
+        "unsigned": {
+            "age": 85
+        }
     });
 }
 

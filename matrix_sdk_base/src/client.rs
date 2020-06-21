@@ -1768,7 +1768,7 @@ mod test {
         BaseClient, Session,
     };
     use matrix_sdk_common_macros::async_trait;
-    use matrix_sdk_test::{async_test, EventBuilder, EventsFile};
+    use matrix_sdk_test::{async_test, test_json, EventBuilder, EventsJson};
     use serde_json::json;
     use std::convert::TryFrom;
 
@@ -1959,10 +1959,8 @@ mod test {
         client.event_emitter = Arc::new(RwLock::new(Some(Box::new(emitter))));
 
         // This is needed other wise the `EventBuilder` goes through a de/ser cycle and the `prev_content` is lost.
-        let event = serde_json::from_str::<serde_json::Value>(include_str!(
-            "../../test_data/events/member.json"
-        ))
-        .unwrap();
+        let event: &serde_json::Value = &test_json::MEMBER;
+
         let mut joined_rooms: HashMap<RoomId, serde_json::Value> = HashMap::new();
         let joined_room = serde_json::json!({
             "summary": {},
@@ -2054,10 +2052,7 @@ mod test {
         client.event_emitter = Arc::new(RwLock::new(Some(Box::new(emitter))));
 
         // This is needed other wise the `EventBuilder` goes through a de/ser cycle and the `prev_content` is lost.
-        let event = serde_json::from_str::<serde_json::Value>(include_str!(
-            "../../test_data/events/message_edit.json"
-        ))
-        .unwrap();
+        let event: &serde_json::Value = &test_json::MESSAGE_EDIT;
 
         let mut joined_rooms: HashMap<RoomId, serde_json::Value> = HashMap::new();
         let joined_room = serde_json::json!({
@@ -2149,10 +2144,7 @@ mod test {
         client.event_emitter = Arc::new(RwLock::new(Some(Box::new(emitter))));
 
         // This is needed other wise the `EventBuilder` goes through a de/ser cycle and the `prev_content` is lost.
-        let event = serde_json::from_str::<serde_json::Value>(include_str!(
-            "../../test_data/events/reaction.json"
-        ))
-        .unwrap();
+        let event: &serde_json::Value = &test_json::REACTION;
 
         let mut joined_rooms: HashMap<RoomId, serde_json::Value> = HashMap::new();
         let joined_room = serde_json::json!({
