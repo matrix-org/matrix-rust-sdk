@@ -1587,8 +1587,6 @@ mod test {
     use matrix_sdk_common::js_int::UInt;
     use std::collections::BTreeMap;
     use std::convert::TryFrom;
-    use std::fs::File;
-    use std::io::prelude::*;
     use std::sync::atomic::AtomicU64;
     use std::time::SystemTime;
 
@@ -1611,6 +1609,7 @@ mod test {
         EventJson, EventType, UnsignedData,
     };
     use matrix_sdk_common::identifiers::{DeviceId, EventId, RoomId, UserId};
+    use matrix_sdk_test::test_json;
 
     fn alice_id() -> UserId {
         UserId::try_from("@alice:example.org").unwrap()
@@ -1624,23 +1623,20 @@ mod test {
         UserId::try_from(USER_ID).unwrap()
     }
 
-    fn response_from_file(path: &str) -> Response<Vec<u8>> {
-        let mut file = File::open(path)
-            .unwrap_or_else(|_| panic!(format!("No such data file found {}", path)));
-        let mut contents = Vec::new();
-        file.read_to_end(&mut contents)
-            .unwrap_or_else(|_| panic!(format!("Can't read data file {}", path)));
-
-        Response::builder().status(200).body(contents).unwrap()
+    fn response_from_file(json: &serde_json::Value) -> Response<Vec<u8>> {
+        Response::builder()
+            .status(200)
+            .body(json.to_string().as_bytes().to_vec())
+            .unwrap()
     }
 
     fn keys_upload_response() -> keys::upload_keys::Response {
-        let data = response_from_file("../test_data/keys_upload.json");
+        let data = response_from_file(&test_json::KEYS_UPLOAD);
         keys::upload_keys::Response::try_from(data).expect("Can't parse the keys upload response")
     }
 
     fn keys_query_response() -> keys::get_keys::Response {
-        let data = response_from_file("../test_data/keys_query.json");
+        let data = response_from_file(&test_json::KEYS_QUERY);
         keys::get_keys::Response::try_from(data).expect("Can't parse the keys upload response")
     }
 

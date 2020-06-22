@@ -344,7 +344,7 @@ pub fn sync_response(kind: SyncResponseFile) -> SyncResponse {
     let data: &JsonValue = match kind {
         SyncResponseFile::All => &test_json::MORE_SYNC,
         SyncResponseFile::Default => &test_json::SYNC,
-        SyncResponseFile::DefaultWithSummary => &test_json::DEFAULT_SYNC,
+        SyncResponseFile::DefaultWithSummary => &test_json::DEFAULT_SYNC_SUMMARY,
         SyncResponseFile::Invite => &test_json::INVITE_SYNC,
         SyncResponseFile::Leave => &test_json::LEAVE_SYNC,
     };

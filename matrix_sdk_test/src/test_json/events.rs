@@ -96,6 +96,71 @@ lazy_static! {
 }
 
 lazy_static! {
+    pub static ref KEYS_QUERY: JsonValue = json!({
+      "device_keys": {
+        "@alice:example.org": {
+          "JLAFKJWSCS": {
+              "algorithms": [
+                  "m.olm.v1.curve25519-aes-sha2",
+                  "m.megolm.v1.aes-sha2"
+              ],
+              "device_id": "JLAFKJWSCS",
+              "user_id": "@alice:example.org",
+              "keys": {
+                  "curve25519:JLAFKJWSCS": "wjLpTLRqbqBzLs63aYaEv2Boi6cFEbbM/sSRQ2oAKk4",
+                  "ed25519:JLAFKJWSCS": "nE6W2fCblxDcOFmeEtCHNl8/l8bXcu7GKyAswA4r3mM"
+              },
+              "signatures": {
+                  "@alice:example.org": {
+                      "ed25519:JLAFKJWSCS": "m53Wkbh2HXkc3vFApZvCrfXcX3AI51GsDHustMhKwlv3TuOJMj4wistcOTM8q2+e/Ro7rWFUb9ZfnNbwptSUBA"
+                  }
+              },
+              "unsigned": {
+                  "device_display_name": "Alice's mobile phone"
+              }
+          }
+        }
+      },
+      "failures": {}
+    });
+}
+
+lazy_static! {
+    pub static ref KEYS_UPLOAD: JsonValue = json!({
+      "one_time_key_counts": {
+        "curve25519": 10,
+        "signed_curve25519": 20
+      }
+    });
+}
+
+lazy_static! {
+    pub static ref LOGIN: JsonValue = json!({
+        "access_token": "abc123",
+        "device_id": "GHTYAJCE",
+        "home_server": "matrix.org",
+        "user_id": "@cheeky_monkey:matrix.org"
+    });
+}
+
+lazy_static! {
+    pub static ref LOGIN_RESPONSE_ERR: JsonValue = json!({
+      "errcode": "M_FORBIDDEN",
+      "error": "Invalid password"
+    });
+}
+
+lazy_static! {
+    pub static ref LOGOUT: JsonValue = json!({});
+}
+
+lazy_static! {
+    pub static ref EVENT_ID: JsonValue = json!({
+        "event_id": "$h29iv0s8:example.com"
+    });
+}
+
+lazy_static! {
     pub static ref MEMBER: JsonValue = json!({
         "content": {
             "avatar_url": null,
@@ -263,6 +328,28 @@ lazy_static! {
 }
 
 lazy_static! {
+    pub static ref REGISTRATION_RESPONSE_ERR: JsonValue = json!({
+        "errcode": "M_FORBIDDEN",
+        "error": "Invalid password",
+        "completed": ["example.type.foo"],
+        "flows": [
+            {
+                "stages": ["example.type.foo", "example.type.bar"]
+            },
+            {
+                "stages": ["example.type.foo", "example.type.baz"]
+            }
+        ],
+        "params": {
+            "example.type.baz": {
+                "example_key": "foobar"
+            }
+        },
+        "session": "xxxxxx"
+    });
+}
+
+lazy_static! {
     pub static ref REACTION: JsonValue = json!({
         "content": {
             "m.relates_to": {
@@ -373,6 +460,12 @@ lazy_static! {
         "unsigned": {
             "age": 1234
         }
+    });
+}
+
+lazy_static! {
+    pub static ref ROOM_ID: JsonValue = json!({
+        "room_id": "!testroom:example.org"
     });
 }
 

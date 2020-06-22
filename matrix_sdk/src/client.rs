@@ -1404,7 +1404,7 @@ mod test {
     use crate::RegistrationBuilder;
 
     use matrix_sdk_base::JsonStore;
-    use matrix_sdk_test::{EventBuilder, EventsJson};
+    use matrix_sdk_test::{test_json, EventBuilder, EventsJson};
     use mockito::{mock, Matcher};
     use tempfile::tempdir;
 
@@ -1430,7 +1430,7 @@ mod test {
             Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_string()),
         )
         .with_status(200)
-        .with_body_from_file("../test_data/sync.json")
+        .with_body(test_json::SYNC.to_string())
         .create();
 
         let dir = tempdir().unwrap();
@@ -1468,7 +1468,7 @@ mod test {
             Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_string()),
         )
         .with_status(200)
-        .with_body_from_file("../test_data/leave_event_sync.json")
+        .with_body(test_json::LEAVE_SYNC_EVENT.to_string())
         .create();
 
         joined_client.sync(SyncSettings::default()).await.unwrap();
@@ -1495,7 +1495,7 @@ mod test {
             Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_string()),
         )
         .with_status(200)
-        .with_body_from_file("../test_data/sync.json")
+        .with_body(test_json::SYNC.to_string())
         .create();
 
         let client = Client::new(homeserver).unwrap();
@@ -1548,7 +1548,7 @@ mod test {
 
         let _m = mock("POST", "/_matrix/client/r0/login")
             .with_status(403)
-            .with_body_from_file("../test_data/login_response_error.json")
+            .with_body(test_json::LOGIN_RESPONSE_ERR.to_string())
             .create();
 
         let client = Client::new(homeserver).unwrap();
@@ -1588,6 +1588,7 @@ mod test {
 
         let _m = mock("POST", "/_matrix/client/r0/register")
             .with_status(403)
+            .with_body(test_json::REGISTRATION_RESPONSE_ERR.to_string())
             .with_body_from_file("../test_data/registration_response_error.json")
             .create();
 
@@ -1635,7 +1636,7 @@ mod test {
             Matcher::Regex(r"^/_matrix/client/r0/rooms/.*/join".to_string()),
         )
         .with_status(200)
-        .with_body_from_file("../test_data/room_id.json")
+        .with_body(test_json::ROOM_ID.to_string())
         .create();
 
         let client = Client::new(homeserver).unwrap();
@@ -1664,7 +1665,7 @@ mod test {
             Matcher::Regex(r"^/_matrix/client/r0/join/".to_string()),
         )
         .with_status(200)
-        .with_body_from_file("../test_data/room_id.json")
+        .with_body(test_json::ROOM_ID.to_string())
         .create();
 
         let client = Client::new(homeserver).unwrap();
@@ -1700,7 +1701,7 @@ mod test {
             Matcher::Regex(r"^/_matrix/client/r0/rooms/.*/invite".to_string()),
         )
         .with_status(200)
-        .with_body_from_file("../test_data/logout_response.json")
+        .with_body(test_json::LOGOUT.to_string())
         .create();
 
         let client = Client::new(homeserver).unwrap();
@@ -1727,7 +1728,8 @@ mod test {
             Matcher::Regex(r"^/_matrix/client/r0/rooms/.*/invite".to_string()),
         )
         .with_status(200)
-        .with_body_from_file("../test_data/logout_response.json")
+        // empty JSON object
+        .with_body(test_json::LOGOUT.to_string())
         .create();
 
         let client = Client::new(homeserver).unwrap();
@@ -1765,7 +1767,7 @@ mod test {
         )
         .with_status(200)
         // this is an empty JSON object
-        .with_body_from_file("../test_data/logout_response.json")
+        .with_body(test_json::LOGOUT.to_string())
         .create();
 
         let client = Client::new(homeserver).unwrap();
@@ -1801,7 +1803,7 @@ mod test {
         )
         .with_status(200)
         // this is an empty JSON object
-        .with_body_from_file("../test_data/logout_response.json")
+        .with_body(test_json::LOGOUT.to_string())
         .create();
 
         let client = Client::new(homeserver).unwrap();
@@ -1836,7 +1838,7 @@ mod test {
         )
         .with_status(200)
         // this is an empty JSON object
-        .with_body_from_file("../test_data/logout_response.json")
+        .with_body(test_json::LOGOUT.to_string())
         .create();
 
         let client = Client::new(homeserver).unwrap();
@@ -1871,7 +1873,7 @@ mod test {
         )
         .with_status(200)
         // this is an empty JSON object
-        .with_body_from_file("../test_data/logout_response.json")
+        .with_body(test_json::LOGOUT.to_string())
         .create();
 
         let client = Client::new(homeserver).unwrap();
@@ -1907,7 +1909,7 @@ mod test {
         )
         .with_status(200)
         // this is an empty JSON object
-        .with_body_from_file("../test_data/logout_response.json")
+        .with_body(test_json::LOGOUT.to_string())
         .create();
 
         let client = Client::new(homeserver).unwrap();
@@ -1943,7 +1945,7 @@ mod test {
         )
         .with_status(200)
         // this is an empty JSON object
-        .with_body_from_file("../test_data/logout_response.json")
+        .with_body(test_json::LOGOUT.to_string())
         .create();
 
         let client = Client::new(homeserver).unwrap();
@@ -1978,7 +1980,7 @@ mod test {
         )
         .with_status(200)
         // this is an empty JSON object
-        .with_body_from_file("../test_data/logout_response.json")
+        .with_body(test_json::LOGOUT.to_string())
         .create();
 
         let client = Client::new(homeserver).unwrap();
@@ -2021,7 +2023,7 @@ mod test {
             Matcher::Regex(r"^/_matrix/client/r0/rooms/.*/send/".to_string()),
         )
         .with_status(200)
-        .with_body_from_file("../test_data/event_id.json")
+        .with_body(test_json::EVENT_ID.to_string())
         .create();
 
         let client = Client::new(homeserver).unwrap();
@@ -2060,7 +2062,7 @@ mod test {
             Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_string()),
         )
         .with_status(200)
-        .with_body_from_file("../test_data/sync.json")
+        .with_body(test_json::SYNC.to_string())
         .create();
 
         let client = Client::new(homeserver).unwrap();
@@ -2101,7 +2103,7 @@ mod test {
             Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_string()),
         )
         .with_status(200)
-        .with_body_from_file("../test_data/sync_with_summary.json")
+        .with_body(test_json::DEFAULT_SYNC_SUMMARY.to_string())
         .create();
 
         let client = Client::new(homeserver).unwrap();
@@ -2137,7 +2139,7 @@ mod test {
             Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_string()),
         )
         .with_status(200)
-        .with_body_from_file("../test_data/invite_sync.json")
+        .with_body(test_json::INVITE_SYNC.to_string())
         .create();
 
         let _response = client.sync(SyncSettings::default()).await.unwrap();
@@ -2171,7 +2173,7 @@ mod test {
             Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_string()),
         )
         .with_status(200)
-        .with_body_from_file("../test_data/leave_sync.json")
+        .with_body(test_json::LEAVE_SYNC.to_string())
         .create();
 
         let _response = client.sync(SyncSettings::default()).await.unwrap();
@@ -2201,12 +2203,12 @@ mod test {
             Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_string()),
         )
         .with_status(200)
-        .with_body_from_file("../test_data/sync.json")
+        .with_body(test_json::SYNC.to_string())
         .create();
 
         let _m = mock("POST", "/_matrix/client/r0/login")
             .with_status(200)
-            .with_body_from_file("../test_data/login_response.json")
+            .with_body(test_json::LOGIN.to_string())
             .create();
 
         let dir = tempdir().unwrap();
@@ -2247,7 +2249,7 @@ mod test {
 
         let _m = mock("POST", "/_matrix/client/r0/login")
             .with_status(200)
-            .with_body_from_file("../test_data/login_response.json")
+            .with_body(test_json::LOGIN.to_string())
             .create();
 
         let client = Client::new(homeserver).unwrap();
@@ -2276,7 +2278,7 @@ mod test {
             Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_string()),
         )
         .with_status(200)
-        .with_body_from_file("../test_data/sync.json")
+        .with_body(test_json::SYNC.to_string())
         .create();
 
         let client = Client::new(homeserver).unwrap();
@@ -2306,7 +2308,7 @@ mod test {
             Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_string()),
         )
         .with_status(200)
-        .with_body_from_file("../test_data/sync.json")
+        .with_body(test_json::SYNC.to_string())
         .create();
 
         let client = Client::new(homeserver).unwrap();

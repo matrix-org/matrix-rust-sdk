@@ -282,7 +282,7 @@ lazy_static! {
 }
 
 lazy_static! {
-    pub static ref DEFAULT_SYNC: JsonValue = json!({
+    pub static ref DEFAULT_SYNC_SUMMARY: JsonValue = json!({
         "device_one_time_keys_count": {},
         "next_batch": "s526_47314_0_7_1_1_1_11444_1",
         "device_lists": {
@@ -1030,5 +1030,72 @@ lazy_static! {
                 }
             ]
         }
+    });
+}
+
+lazy_static! {
+    pub static ref LEAVE_SYNC_EVENT: JsonValue = json!({
+        "account_data": {
+            "events": []
+        },
+        "to_device": {
+            "events": []
+        },
+        "device_lists": {
+            "changed": [],
+            "left": []
+        },
+        "presence": {
+            "events": []
+        },
+        "rooms": {
+            "join": {},
+            "invite": {},
+            "leave": {
+                "!SVkFJHzfwvuaIEawgC:localhost": {
+                    "timeline": {
+                        "events": [
+                            {
+                                "content": {
+                                    "membership": "leave"
+                                },
+                                "origin_server_ts": 158957809,
+                                "sender": "@example:localhost",
+                                "state_key": "@example:localhost",
+                                "type": "m.room.member",
+                                "unsigned": {
+                                    "replaces_state": "$blahblah",
+                                    "prev_content": {
+                                        "avatar_url": null,
+                                        "displayname": "me",
+                                        "membership": "invite"
+                                    },
+                                    "prev_sender": "@2example:localhost",
+                                    "age": 1757
+                                },
+                                "event_id": "$lQQ116Y-XqcjpSUGpuz36rNntUvOSpTjuaIvmtQ2AwA"
+                            }
+                        ],
+                        "prev_batch": "tokenTOKEN",
+                        "limited": false
+                    },
+                    "state": {
+                        "events": []
+                    },
+                    "account_data": {
+                        "events": []
+                    }
+                }
+            }
+        },
+        "groups": {
+            "join": {},
+            "invite": {},
+            "leave": {}
+        },
+        "device_one_time_keys_count": {
+            "signed_curve25519": 50
+        },
+        "next_batch": "s1380317562_757269739_1655566_503953763_334052043_1209862_55290918_65705002_101146"
     });
 }
