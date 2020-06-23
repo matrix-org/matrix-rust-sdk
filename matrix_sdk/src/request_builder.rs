@@ -4,6 +4,7 @@ use crate::events::EventJson;
 use crate::identifiers::{DeviceId, RoomId, UserId};
 use api::r0::account::register;
 use api::r0::account::register::RegistrationKind;
+use api::r0::directory::get_public_rooms_filtered::{self, Filter, RoomNetwork};
 use api::r0::filter::RoomEventFilter;
 use api::r0::membership::Invite3pid;
 use api::r0::message::get_message_events::{self, Direction};
@@ -401,6 +402,92 @@ impl Into<register::Request> for RegistrationBuilder {
             auth: self.auth,
             kind: self.kind,
             inhibit_login: self.inhibit_login,
+        }
+    }
+}
+
+/// Create a builder for making get_message_event requests.
+///
+/// # Examples
+/// ```
+/// # use std::convert::TryFrom;
+/// # use matrix_sdk::{Client, RoomSearchBuilder};
+/// # use matrix_sdk::api::r0::directory::get_public_rooms_filtered::{self, RoomNetwork, Filter};
+/// # use url::Url;
+/// # let homeserver = Url::parse("http://example.com").unwrap();
+/// # let mut rt = tokio::runtime::Runtime::new().unwrap();
+/// # rt.block_on(async {
+/// # let last_sync_token = "".to_string();
+/// let mut client = Client::new(homeserver).unwrap();
+///
+/// let generic_search_term = Some("matrix-rust-sdk".to_string());
+/// let mut builder = RoomSearchBuilder::new();
+/// builder
+///     .filter(Filter { generic_search_term, })
+///     .since(last_sync_token)
+///     .room_network(RoomNetwork::Matrix);
+///
+/// client.get_public_rooms_filtered(builder).await.is_err();
+/// # })
+/// ```
+#[derive(Clone, Debug, Default)]
+pub struct RoomSearchBuilder {
+    server: Option<String>,
+    limit: Option<UInt>,
+    since: Option<String>,
+    filter: Option<Filter>,
+    room_network: Option<RoomNetwork>,
+}
+
+impl RoomSearchBuilder {
+    /// Create a `RoomSearchBuilder` builder to make a `get_message_events::Request`.
+    ///
+    /// The `room_id` and `from`` fields **need to be set** to create the request.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// The server to fetch the public room lists from.
+    ///
+    /// `None` means the server this request is sent to.
+    pub fn server(&mut self, server: String) -> &mut Self {
+        self.server = Some(server);
+        self
+    }
+
+    /// Limit for the number of results to return.
+    pub fn limit(&mut self, limit: UInt) -> &mut Self {
+        self.limit = Some(limit);
+        self
+    }
+
+    /// Pagination token from a previous request.
+    pub fn since(&mut self, since: String) -> &mut Self {
+        self.since = Some(since);
+        self
+    }
+
+    /// Filter to apply to the results.
+    pub fn filter(&mut self, filter: Filter) -> &mut Self {
+        self.filter = Some(filter);
+        self
+    }
+
+    /// Network to fetch the public room lists from.
+    pub fn room_network(&mut self, room_network: RoomNetwork) -> &mut Self {
+        self.room_network = Some(room_network);
+        self
+    }
+}
+
+impl Into<get_public_rooms_filtered::Request> for RoomSearchBuilder {
+    fn into(self) -> get_public_rooms_filtered::Request {
+        get_public_rooms_filtered::Request {
+            room_network: self.room_network.unwrap_or_default(),
+            limit: self.limit,
+            server: self.server,
+            since: self.since,
+            filter: self.filter,
         }
     }
 }

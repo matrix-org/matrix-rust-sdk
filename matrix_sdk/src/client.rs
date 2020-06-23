@@ -23,6 +23,7 @@ use std::result::Result as StdResult;
 use std::sync::Arc;
 
 use matrix_sdk_common::instant::{Duration, Instant};
+use matrix_sdk_common::js_int::UInt;
 use matrix_sdk_common::locks::RwLock;
 use matrix_sdk_common::uuid::Uuid;
 
@@ -248,6 +249,8 @@ impl SyncSettings {
 }
 
 use api::r0::account::register;
+use api::r0::directory::get_public_rooms;
+use api::r0::directory::get_public_rooms_filtered;
 #[cfg(feature = "encryption")]
 use api::r0::keys::{claim_keys, get_keys, upload_keys, KeyAlgorithm};
 use api::r0::membership::{
@@ -646,6 +649,94 @@ impl Client {
         self.send(request).await
     }
 
+    /// Search the homeserver's directory of public rooms.
+    ///
+    /// Returns a `get_public_rooms::Response`, an empty response.
+    ///
+    /// # Arguments
+    ///
+    /// * `limit` - The number of `PublicRoomsChunk`s in each response.
+    ///
+    /// * `since` - Pagination token from a previous request.
+    ///
+    /// * `server` - The name of the server, if `None` the requested server is used.
+    ///
+    /// # Examples
+    /// ```no_run
+    /// use matrix_sdk::{Client, RoomSearchBuilder};
+    /// # use matrix_sdk::api::r0::directory::get_public_rooms;
+    /// # use url::Url;
+    /// # let homeserver = Url::parse("http://example.com").unwrap();
+    /// # let limit = Some(10);
+    /// # let since = Some("since token");
+    /// # let server = Some("server name");
+    ///
+    /// let mut cli = Client::new(homeserver).unwrap();
+    /// # use futures::executor::block_on;
+    /// # block_on(async {
+    /// assert!(cli.get_public_rooms(
+    ///     limit,
+    ///     since,
+    ///     server
+    /// ).await.is_ok());
+    /// # });
+    /// ```
+    pub async fn get_public_rooms(
+        &self,
+        limit: Option<u32>,
+        since: Option<&str>,
+        server: Option<&str>,
+    ) -> Result<get_public_rooms::Response> {
+        let limit = limit.map(|n| UInt::try_from(n).ok()).flatten();
+        let since = since.map(ToString::to_string);
+        let server = server.map(ToString::to_string);
+
+        let request = get_public_rooms::Request {
+            limit,
+            since,
+            server,
+        };
+        self.send(request).await
+    }
+
+    /// Search the homeserver's directory of public rooms filtered.
+    ///
+    /// Returns a `get_public_rooms_filtered::Response`, an empty response.
+    ///
+    /// # Arguments
+    ///
+    /// * `room_search` - The easiest way to create this request is using the `RoomSearchBuilder`.
+    ///
+    /// # Examples
+    /// ```
+    /// # use std::convert::TryFrom;
+    /// # use matrix_sdk::{Client, RoomSearchBuilder};
+    /// # use matrix_sdk::api::r0::directory::get_public_rooms_filtered::{self, RoomNetwork, Filter};
+    /// # use url::Url;
+    /// # let homeserver = Url::parse("http://example.com").unwrap();
+    /// # let mut rt = tokio::runtime::Runtime::new().unwrap();
+    /// # rt.block_on(async {
+    /// # let last_sync_token = "".to_string();
+    /// let mut client = Client::new(homeserver).unwrap();
+    ///
+    /// let generic_search_term = Some("matrix-rust-sdk".to_string());
+    /// let mut builder = RoomSearchBuilder::new();
+    /// builder
+    ///     .filter(Filter { generic_search_term, })
+    ///     .since(last_sync_token)
+    ///     .room_network(RoomNetwork::Matrix);
+    ///
+    /// client.get_public_rooms_filtered(builder).await.is_err();
+    /// # })
+    /// ```
+    pub async fn get_public_rooms_filtered<R: Into<get_public_rooms_filtered::Request>>(
+        &self,
+        room_search: R,
+    ) -> Result<get_public_rooms_filtered::Response> {
+        let request = room_search.into();
+        self.send(request).await
+    }
+
     /// Create a room using the `RoomBuilder` and send the request.
     ///
     /// Sends a request to `/_matrix/client/r0/createRoom`, returns a `create_room::Response`,
@@ -951,7 +1042,7 @@ impl Client {
                     .body(body)
                     .header(reqwest::header::CONTENT_TYPE, "application/json")
             }
-            method => panic!("Unsuported method {}", method),
+            method => panic!("Unsupported method {}", method),
         };
 
         let request_builder = if requires_auth {
@@ -1395,15 +1486,18 @@ impl Client {
 #[cfg(test)]
 mod test {
     use super::{
-        api::r0::uiaa::AuthData, ban_user, create_receipt, create_typing_event, forget_room,
-        invite_user, kick_user, leave_room, register::RegistrationKind, set_read_marker,
-        Invite3pid, MessageEventContent,
+        api::r0::uiaa::AuthData,
+        ban_user, create_receipt, create_typing_event, forget_room, get_public_rooms,
+        get_public_rooms_filtered::{self, Filter},
+        invite_user, kick_user, leave_room,
+        register::RegistrationKind,
+        set_read_marker, Invite3pid, MessageEventContent,
     };
     use super::{Client, ClientConfig, Session, SyncSettings, Url};
     use crate::events::collections::all::RoomEvent;
     use crate::events::room::message::TextMessageEventContent;
     use crate::identifiers::{EventId, RoomId, RoomIdOrAliasId, UserId};
-    use crate::RegistrationBuilder;
+    use crate::{RegistrationBuilder, RoomSearchBuilder};
 
     use matrix_sdk_base::JsonStore;
     use matrix_sdk_test::{test_json, EventBuilder, EventsJson};
@@ -1749,6 +1843,67 @@ mod test {
             .await
             .unwrap()
         {}
+    }
+
+    #[tokio::test]
+    #[allow(irrefutable_let_patterns)]
+    async fn room_search_all() {
+        let homeserver = Url::from_str(&mockito::server_url()).unwrap();
+
+        let _m = mock(
+            "GET",
+            Matcher::Regex(r"^/_matrix/client/r0/publicRooms".to_string()),
+        )
+        .with_status(200)
+        .with_body_from_file("../test_data/public_rooms.json")
+        .create();
+
+        let client = Client::new(homeserver).unwrap();
+
+        if let get_public_rooms::Response { chunk, .. } = client
+            // .get_public_rooms(Some(10), None, Some(&mockito::server_url().to_string()))
+            .get_public_rooms(Some(10), None, None)
+            .await
+            .unwrap()
+        {
+            assert_eq!(chunk.len(), 1)
+        }
+    }
+
+    #[tokio::test]
+    #[allow(irrefutable_let_patterns)]
+    async fn room_search_filtered() {
+        let homeserver = Url::from_str(&mockito::server_url()).unwrap();
+        let user = UserId::try_from("@example:localhost").unwrap();
+
+        let session = Session {
+            access_token: "1234".to_owned(),
+            user_id: user.clone(),
+            device_id: "DEVICEID".to_owned(),
+        };
+
+        let _m = mock(
+            "POST",
+            Matcher::Regex(r"^/_matrix/client/r0/publicRooms".to_string()),
+        )
+        .with_status(200)
+        .with_body_from_file("../test_data/public_rooms.json")
+        .create();
+
+        let client = Client::new(homeserver).unwrap();
+        client.restore_login(session).await.unwrap();
+
+        let generic_search_term = Some("cheese".to_string());
+        let mut request = RoomSearchBuilder::default();
+        request.filter(Filter {
+            generic_search_term,
+        });
+
+        if let get_public_rooms_filtered::Response { chunk, .. } =
+            client.get_public_rooms_filtered(request).await.unwrap()
+        {
+            assert_eq!(chunk.len(), 1)
+        }
     }
 
     #[tokio::test]
