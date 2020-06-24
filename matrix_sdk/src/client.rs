@@ -663,8 +663,7 @@ impl Client {
     ///
     /// # Examples
     /// ```no_run
-    /// use matrix_sdk::{Client, RoomSearchBuilder};
-    /// # use matrix_sdk::api::r0::directory::get_public_rooms;
+    /// use matrix_sdk::Client;
     /// # use url::Url;
     /// # let homeserver = Url::parse("http://example.com").unwrap();
     /// # let limit = Some(10);
@@ -674,14 +673,14 @@ impl Client {
     /// let mut cli = Client::new(homeserver).unwrap();
     /// # use futures::executor::block_on;
     /// # block_on(async {
-    /// assert!(cli.get_public_rooms(
+    /// assert!(cli.public_rooms(
     ///     limit,
     ///     since,
     ///     server
     /// ).await.is_ok());
     /// # });
     /// ```
-    pub async fn get_public_rooms(
+    pub async fn public_rooms(
         &self,
         limit: Option<u32>,
         since: Option<&str>,
@@ -699,18 +698,18 @@ impl Client {
         self.send(request).await
     }
 
-    /// Search the homeserver's directory of public rooms filtered.
+    /// Search the homeserver's directory of public rooms with a filter.
     ///
     /// Returns a `get_public_rooms_filtered::Response`, an empty response.
     ///
     /// # Arguments
     ///
-    /// * `room_search` - The easiest way to create this request is using the `RoomSearchBuilder`.
+    /// * `room_search` - The easiest way to create this request is using the `RoomListFilterBuilder`.
     ///
     /// # Examples
     /// ```
     /// # use std::convert::TryFrom;
-    /// # use matrix_sdk::{Client, RoomSearchBuilder};
+    /// # use matrix_sdk::{Client, RoomListFilterBuilder};
     /// # use matrix_sdk::api::r0::directory::get_public_rooms_filtered::{self, RoomNetwork, Filter};
     /// # use url::Url;
     /// # let homeserver = Url::parse("http://example.com").unwrap();
@@ -720,16 +719,16 @@ impl Client {
     /// let mut client = Client::new(homeserver).unwrap();
     ///
     /// let generic_search_term = Some("matrix-rust-sdk".to_string());
-    /// let mut builder = RoomSearchBuilder::new();
+    /// let mut builder = RoomListFilterBuilder::new();
     /// builder
     ///     .filter(Filter { generic_search_term, })
     ///     .since(last_sync_token)
     ///     .room_network(RoomNetwork::Matrix);
     ///
-    /// client.get_public_rooms_filtered(builder).await.is_err();
+    /// client.public_rooms_filtered(builder).await.is_err();
     /// # })
     /// ```
-    pub async fn get_public_rooms_filtered<R: Into<get_public_rooms_filtered::Request>>(
+    pub async fn public_rooms_filtered<R: Into<get_public_rooms_filtered::Request>>(
         &self,
         room_search: R,
     ) -> Result<get_public_rooms_filtered::Response> {
@@ -797,12 +796,14 @@ impl Client {
     /// # use matrix_sdk::js_int::UInt;
     ///
     /// # let homeserver = Url::parse("http://example.com").unwrap();
-    /// let mut builder = MessagesRequestBuilder::new();
-    /// builder.room_id(RoomId::try_from("!roomid:example.com").unwrap())
-    ///     .from("t47429-4392820_219380_26003_2265".to_string())
-    ///     .to("t4357353_219380_26003_2265".to_string())
+    /// let mut builder = MessagesRequestBuilder::new(
+    ///     RoomId::try_from("!roomid:example.com").unwrap(),
+    ///     "t47429-4392820_219380_26003_2265".to_string(),
+    /// );
+    ///
+    /// builder.to("t4357353_219380_26003_2265".to_string())
     ///     .direction(Direction::Backward)
-    ///     .limit(UInt::new(10).unwrap());
+    ///     .limit(10);
     ///
     /// let mut client = Client::new(homeserver).unwrap();
     /// # use futures::executor::block_on;
@@ -1497,7 +1498,7 @@ mod test {
     use crate::events::collections::all::RoomEvent;
     use crate::events::room::message::TextMessageEventContent;
     use crate::identifiers::{EventId, RoomId, RoomIdOrAliasId, UserId};
-    use crate::{RegistrationBuilder, RoomSearchBuilder};
+    use crate::{RegistrationBuilder, RoomListFilterBuilder};
 
     use matrix_sdk_base::JsonStore;
     use matrix_sdk_test::{test_json, EventBuilder, EventsJson};
@@ -1860,11 +1861,8 @@ mod test {
 
         let client = Client::new(homeserver).unwrap();
 
-        if let get_public_rooms::Response { chunk, .. } = client
-            // .get_public_rooms(Some(10), None, Some(&mockito::server_url().to_string()))
-            .get_public_rooms(Some(10), None, None)
-            .await
-            .unwrap()
+        if let get_public_rooms::Response { chunk, .. } =
+            client.public_rooms(Some(10), None, None).await.unwrap()
         {
             assert_eq!(chunk.len(), 1)
         }
@@ -1894,13 +1892,13 @@ mod test {
         client.restore_login(session).await.unwrap();
 
         let generic_search_term = Some("cheese".to_string());
-        let mut request = RoomSearchBuilder::default();
+        let mut request = RoomListFilterBuilder::default();
         request.filter(Filter {
             generic_search_term,
         });
 
         if let get_public_rooms_filtered::Response { chunk, .. } =
-            client.get_public_rooms_filtered(request).await.unwrap()
+            client.public_rooms_filtered(request).await.unwrap()
         {
             assert_eq!(chunk.len(), 1)
         }

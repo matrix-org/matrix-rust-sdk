@@ -53,7 +53,7 @@ mod request_builder;
 pub use client::{Client, ClientConfig, SyncSettings};
 pub use error::{Error, Result};
 pub use request_builder::{
-    MessagesRequestBuilder, RegistrationBuilder, RoomBuilder, RoomSearchBuilder,
+    MessagesRequestBuilder, RegistrationBuilder, RoomBuilder, RoomListFilterBuilder,
 };
 
 #[cfg(not(target_arch = "wasm32"))]
