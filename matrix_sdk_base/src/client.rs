@@ -82,8 +82,15 @@ pub struct AdditionalUnsignedData {
     pub prev_content: Option<EventJson<MemberEventContent>>,
 }
 
-/// If a `prev_content` field is found inside of `unsigned` we move it up to the events `prev_content` field.
-fn deserialize_prev_content(event: &EventJson<RoomEvent>) -> Option<EventJson<RoomEvent>> {
+/// Transform room event by hoisting `prev_content` field from `unsigned` to the top level.
+///
+/// Due to a [bug in synapse][synapse-bug], `prev_content` often ends up in `unsigned` contrary to
+/// the C2S spec. Some more discussion can be found [here][discussion]. Until this is fixed in
+/// synapse or handled in Ruma, we use this to hoist up `prev_content` to the top level.
+///
+/// [synapse-bug]: <https://github.com/matrix-org/matrix-doc/issues/684#issuecomment-641182668>
+/// [discussion]: <https://github.com/matrix-org/matrix-doc/issues/684#issuecomment-641182668>
+fn hoist_room_event_prev_content(event: &mut EventJson<RoomEvent>) -> Option<EventJson<RoomEvent>> {
     let prev_content = serde_json::from_str::<AdditionalEventData>(event.json().get())
         .map(|more_unsigned| more_unsigned.unsigned)
         .map(|additional| additional.prev_content)
@@ -93,7 +100,33 @@ fn deserialize_prev_content(event: &EventJson<RoomEvent>) -> Option<EventJson<Ro
     let mut ev = event.deserialize().ok()?;
     match &mut ev {
         RoomEvent::RoomMember(ref mut member) if member.prev_content.is_none() => {
-            member.prev_content = prev_content.deserialize().ok();
+            if let Ok(prev) = prev_content.deserialize() {
+                member.prev_content = Some(prev)
+            }
+
+            Some(EventJson::from(ev))
+        }
+        _ => None,
+    }
+}
+
+/// Transform state event by hoisting `prev_content` field from `unsigned` to the top level.
+///
+/// See comment of `hoist_room_event_prev_content`.
+fn hoist_state_event_prev_content(event: &EventJson<StateEvent>) -> Option<EventJson<StateEvent>> {
+    let prev_content = serde_json::from_str::<AdditionalEventData>(event.json().get())
+        .map(|more_unsigned| more_unsigned.unsigned)
+        .map(|additional| additional.prev_content)
+        .ok()
+        .flatten()?;
+
+    let mut ev = event.deserialize().ok()?;
+    match &mut ev {
+        StateEvent::RoomMember(ref mut member) if member.prev_content.is_none() => {
+            if let Ok(prev) = prev_content.deserialize() {
+                member.prev_content = Some(prev)
+            }
+
             Some(EventJson::from(ev))
         }
         _ => None,
@@ -675,13 +708,6 @@ impl BaseClient {
         room_id: &RoomId,
         event: &mut EventJson<RoomEvent>,
     ) -> Result<(Option<EventJson<RoomEvent>>, bool)> {
-        // if the event is a m.room.member event the server will sometimes
-        // send the `prev_content` field as part of the unsigned field this extracts and
-        // places it where everything else expects it.
-        if let Some(e) = deserialize_prev_content(event) {
-            *event = e;
-        }
-
         match event.deserialize() {
             #[allow(unused_mut)]
             Ok(mut e) => {
@@ -941,7 +967,13 @@ impl BaseClient {
         let mut updated = false;
         for (room_id, joined_room) in &mut response.rooms.join {
             let matrix_room = {
-                for event in &joined_room.state.events {
+                for event in &mut joined_room.state.events {
+                    // XXX: Related to `prev_content` and `unsigned`; see the doc comment of
+                    // `hoist_room_event_prev_content`
+                    if let Some(e) = hoist_state_event_prev_content(event) {
+                        *event = e;
+                    }
+
                     if let Ok(e) = event.deserialize() {
                         if self.receive_joined_state_event(&room_id, &e).await? {
                             updated = true;
@@ -963,18 +995,19 @@ impl BaseClient {
 
                     // If the room is encrypted, update the tracked users.
                     if room.is_encrypted() {
-                        o.update_tracked_users(room.members.keys()).await;
+                        o.update_tracked_users(room.joined_members.keys()).await;
+                        o.update_tracked_users(room.invited_members.keys()).await;
                     }
                 }
             }
 
-            // RoomSummary contains information for calculating room name
+            // RoomSummary contains information for calculating room name.
             matrix_room
                 .write()
                 .await
                 .set_room_summary(&joined_room.summary);
 
-            // set unread notification count
+            // Set unread notification count.
             matrix_room
                 .write()
                 .await
@@ -995,7 +1028,9 @@ impl BaseClient {
                     *event = e;
                 }
 
-                if let Some(e) = deserialize_prev_content(&event) {
+                // XXX: Related to `prev_content` and `unsigned`; see the doc comment of
+                // `hoist_room_event_prev_content`
+                if let Some(e) = hoist_room_event_prev_content(event) {
                     *event = e;
                 }
 
@@ -1070,7 +1105,13 @@ impl BaseClient {
         let mut updated = false;
         for (room_id, left_room) in &mut response.rooms.leave {
             let matrix_room = {
-                for event in &left_room.state.events {
+                for event in &mut left_room.state.events {
+                    // XXX: Related to `prev_content` and `unsigned`; see the doc comment of
+                    // `hoist_room_event_prev_content`
+                    if let Some(e) = hoist_state_event_prev_content(event) {
+                        *event = e;
+                    }
+
                     if let Ok(e) = event.deserialize() {
                         if self.receive_left_state_event(&room_id, &e).await? {
                             updated = true;
@@ -1089,7 +1130,9 @@ impl BaseClient {
             }
 
             for event in &mut left_room.timeline.events {
-                if let Some(e) = deserialize_prev_content(&event) {
+                // XXX: Related to `prev_content` and `unsigned`; see the doc comment of
+                // `hoist_room_event_prev_content`
+                if let Some(e) = hoist_room_event_prev_content(event) {
                     *event = e;
                 }
 
@@ -1241,8 +1284,13 @@ impl BaseClient {
         match &mut *olm {
             Some(o) => {
                 let room = room.write().await;
-                let members = room.members.keys();
-                Ok(o.share_group_session(room_id, members).await?)
+
+                // XXX: We construct members in a slightly roundabout way instead of chaining the
+                // iterators directly because of https://github.com/rust-lang/rust/issues/64552
+                let joined_members = room.joined_members.keys();
+                let invited_members = room.joined_members.keys();
+                let members: Vec<&UserId> = joined_members.chain(invited_members).collect();
+                Ok(o.share_group_session(room_id, members.into_iter()).await?)
             }
             None => panic!("Olm machine wasn't started"),
         }

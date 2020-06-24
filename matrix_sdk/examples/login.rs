@@ -24,12 +24,8 @@ impl EventEmitter for EventCallback {
                     // any reads should be held for the shortest time possible to
                     // avoid dead locks
                     let room = room.read().await;
-                    let member = room.members.get(&sender).unwrap();
-                    member
-                        .display_name
-                        .as_ref()
-                        .map(ToString::to_string)
-                        .unwrap_or(sender.to_string())
+                    let member = room.joined_members.get(&sender).unwrap();
+                    member.name()
                 };
                 println!("{}: {}", name, msg_body);
             }
