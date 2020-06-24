@@ -4,7 +4,7 @@
 //! feature is enabled.
 
 use std::cmp::Ordering;
-use std::ops::Deref;
+use std::ops::{Deref, DerefMut};
 use std::vec::IntoIter;
 
 use crate::events::room::message::MessageEventContent;
@@ -27,6 +27,12 @@ impl Deref for MessageWrapper {
 
     fn deref(&self) -> &Self::Target {
         &self.0
+    }
+}
+
+impl DerefMut for MessageWrapper {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
     }
 }
 
@@ -97,6 +103,10 @@ impl MessageQueue {
 
     pub fn iter(&self) -> impl Iterator<Item = &MessageWrapper> {
         self.msgs.iter()
+    }
+
+    pub fn iter_mut(&mut self) -> impl Iterator<Item = &mut MessageWrapper> {
+        self.msgs.iter_mut()
     }
 }
 

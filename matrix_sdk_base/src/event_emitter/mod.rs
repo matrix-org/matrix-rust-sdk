@@ -141,6 +141,8 @@ pub trait EventEmitter: Send + Sync {
     async fn on_room_power_levels(&self, _: SyncRoom, _: &StateEventStub<PowerLevelsEventContent>) {
     }
     /// Fires when `Client` receives a `RoomEvent::Tombstone` event.
+    async fn on_room_join_rules(&self, _: SyncRoom, _: &StateEventStub<JoinRulesEventContent>) {}
+    /// Fires when `Client` receives a `RoomEvent::Tombstone` event.
     async fn on_room_tombstone(&self, _: SyncRoom, _: &StateEventStub<TombstoneEventContent>) {}
 
     // `RoomEvent`s from `IncomingState`

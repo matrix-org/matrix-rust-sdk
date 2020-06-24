@@ -30,6 +30,7 @@ use crate::events::room::{
     member::{MemberEventContent, MembershipChange},
     name::NameEventContent,
     power_levels::{NotificationPowerLevels, PowerLevelsEventContent},
+    redaction::RedactionEventStub,
     tombstone::TombstoneEventContent,
 };
 
@@ -39,17 +40,17 @@ use crate::events::{
 };
 
 #[cfg(feature = "messages")]
-use crate::events::{room::message::MessageEventContent as MsgContent, MessageEventStub};
+use crate::events::{
+    room::message::{MessageEventContent, TextMessageEventContent},
+    MessageEventStub,
+};
 
 use crate::identifiers::{RoomAliasId, RoomId, UserId};
 
 use crate::js_int::{Int, UInt};
 use serde::{Deserialize, Serialize};
 
-#[cfg(feature = "messages")]
-type SentMessageEvent = MessageEventStub<MsgContent>;
-
-#[derive(Debug, Default, PartialEq, Serialize, Deserialize, Clone)]
+#[derive(Debug, Default, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(test, derive(Clone))]
 /// `RoomName` allows the calculation of a text room name.
 pub struct RoomName {
@@ -614,8 +615,27 @@ impl Room {
     /// Returns true if `MessageQueue` was added to.
     #[cfg(feature = "messages")]
     #[cfg_attr(docsrs, doc(cfg(feature = "messages")))]
-    pub fn handle_message(&mut self, event: &SentMessageEvent) -> bool {
+    pub fn handle_message(&mut self, event: &MessageEventStub<MessageEventContent>) -> bool {
         self.messages.push(event.clone())
+    }
+
+    /// Handle a room.redaction event and update the `MessageQueue` if necessary.
+    ///
+    /// Returns true if `MessageQueue` was updated.
+    #[cfg(feature = "messages")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "messages")))]
+    pub fn handle_redaction(&mut self, event: &RedactionEventStub) -> bool {
+        if let Some(msg) = self
+            .messages
+            .iter_mut()
+            .find(|msg| event.redacts == msg.event_id)
+        {
+            // TODO make msg an enum or use AnyMessageEventStub enum to represent
+            msg.content = MessageEventContent::Text(TextMessageEventContent::new_plain("Redacted"));
+            true
+        } else {
+            false
+        }
     }
 
     /// Handle a room.aliases event, updating the room state if necessary.
@@ -722,8 +742,8 @@ impl Room {
             AnyRoomEventStub::Message(event) => match &event {
                 #[cfg(feature = "messages")]
                 AnyMessageEventStub::RoomMessage(event) => self.handle_message(&event),
-                // TODO if a redaction event deletes one of our saved messages delete it?
-                AnyMessageEventStub::RoomRedaction(_) => false,
+                #[cfg(feature = "messages")]
+                AnyMessageEventStub::RoomRedaction(event) => self.handle_redaction(&event),
                 _ => false,
             },
         }

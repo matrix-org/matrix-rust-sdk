@@ -1492,11 +1492,8 @@ impl BaseClient {
                 AnyStateEventStub::RoomTombstone(e) => {
                     event_emitter.on_room_tombstone(room, &e).await
                 }
-                AnyStateEventStub::RoomJoinRules(_e) => {
-                    // TODO is this needed ??
-
-                    // event_emitter
-                    //     .on_room_join_rules(room, &e).await
+                AnyStateEventStub::RoomJoinRules(e) => {
+                    event_emitter.on_room_join_rules(room, &e).await
                 }
                 AnyStateEventStub::Custom(e) => {
                     event_emitter
