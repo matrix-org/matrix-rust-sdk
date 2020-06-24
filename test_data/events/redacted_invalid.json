@@ -1,7 +1,0 @@
-{
-    "content": {},
-    "event_id": "$15275046980maRLj:localhost",
-    "origin_server_ts": 1527504698685,
-    "sender": "@example:localhost",
-    "type": "m.room.message"
-}

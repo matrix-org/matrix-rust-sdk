@@ -1589,7 +1589,6 @@ mod test {
         let _m = mock("POST", "/_matrix/client/r0/register")
             .with_status(403)
             .with_body(test_json::REGISTRATION_RESPONSE_ERR.to_string())
-            .with_body_from_file("../test_data/registration_response_error.json")
             .create();
 
         let mut user = RegistrationBuilder::default();

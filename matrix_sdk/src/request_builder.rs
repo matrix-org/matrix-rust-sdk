@@ -415,6 +415,7 @@ mod test {
     use crate::js_int::Int;
     use crate::{identifiers::RoomId, Client, Session};
 
+    use matrix_sdk_test::test_json;
     use mockito::{mock, Matcher};
     use std::convert::TryFrom;
     use url::Url;
@@ -425,7 +426,7 @@ mod test {
 
         let _m = mock("POST", "/_matrix/client/r0/createRoom")
             .with_status(200)
-            .with_body_from_file("../test_data/room_id.json")
+            .with_body(test_json::ROOM_ID.to_string())
             .create();
 
         let session = Session {
@@ -473,7 +474,7 @@ mod test {
             Matcher::Regex(r"^/_matrix/client/r0/rooms/.*/messages".to_string()),
         )
         .with_status(200)
-        .with_body_from_file("../test_data/room_messages.json")
+        .with_body(test_json::ROOM_MESSAGES.to_string())
         .create();
 
         let session = Session {

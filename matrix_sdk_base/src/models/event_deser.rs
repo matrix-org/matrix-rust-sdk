@@ -34,15 +34,14 @@ where
 
 #[cfg(test)]
 mod test {
-    use std::fs;
-
     use crate::events::room::member::MemberEvent;
     use crate::events::EventJson;
     use crate::models::RoomMember;
+    use matrix_sdk_test::test_json;
 
     #[test]
     fn events_and_presence_deserialization() {
-        let ev_json = fs::read_to_string("../test_data/events/member.json").unwrap();
+        let ev_json = test_json::MEMBER.to_string();
         let ev = serde_json::from_str::<EventJson<MemberEvent>>(&ev_json)
             .unwrap()
             .deserialize()

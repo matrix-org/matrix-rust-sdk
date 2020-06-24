@@ -1,5 +1,0 @@
-{
-  "errcode": "M_LIMIT_EXCEEDED",
-  "error": "Too many requests",
-  "retry_after_ms": 500
-}
