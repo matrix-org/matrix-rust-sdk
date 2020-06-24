@@ -772,7 +772,7 @@ impl CryptoStore for SqliteStore {
     }
 }
 
-#[cfg_attr(tarpaulin, skip)]
+// #[cfg_attr(tarpaulin, skip)]
 impl std::fmt::Debug for SqliteStore {
     fn fmt(&self, fmt: &mut std::fmt::Formatter<'_>) -> StdResult<(), std::fmt::Error> {
         fmt.debug_struct("SqliteStore")

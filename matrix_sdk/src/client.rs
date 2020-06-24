@@ -66,7 +66,7 @@ pub struct Client {
     pub(crate) base_client: BaseClient,
 }
 
-#[cfg_attr(tarpaulin, skip)]
+// #[cfg_attr(tarpaulin, skip)]
 impl Debug for Client {
     fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> StdResult<(), fmt::Error> {
         write!(fmt, "Client {{ homeserver: {} }}", self.homeserver)
@@ -106,7 +106,7 @@ pub struct ClientConfig {
     base_config: BaseClientConfig,
 }
 
-#[cfg_attr(tarpaulin, skip)]
+// #[cfg_attr(tarpaulin, skip)]
 impl Debug for ClientConfig {
     fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
         let mut res = fmt.debug_struct("ClientConfig");
