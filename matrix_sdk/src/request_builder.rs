@@ -1,5 +1,3 @@
-use std::convert::TryFrom;
-
 use matrix_sdk_common::{
     api::r0::{
         account::register::{self, RegistrationKind},
@@ -42,38 +40,17 @@ use matrix_sdk_common::{
 /// ```
 #[derive(Clone, Debug, Default)]
 pub struct RoomBuilder {
-    /// Extra keys to be added to the content of the `m.room.create`.
     creation_content: Option<CreationContent>,
-    /// List of state events to send to the new room.
-    ///
-    /// Takes precedence over events set by preset, but gets overriden by
-    /// name and topic keys.
     initial_state: Vec<InitialStateEvent>,
-    /// A list of user IDs to invite to the room.
-    ///
-    /// This will tell the server to invite everyone in the list to the newly created room.
     invite: Vec<UserId>,
-    /// List of third party IDs of users to invite.
     invite_3pid: Vec<Invite3pid>,
-    /// If set, this sets the `is_direct` flag on room invites.
     is_direct: Option<bool>,
-    /// If this is included, an `m.room.name` event will be sent into the room to indicate
-    /// the name of the room.
     name: Option<String>,
-    /// Power level content to override in the default power level event.
     power_level_content_override: Option<PowerLevelsEventContent>,
-    /// Convenience parameter for setting various default state events based on a preset.
     preset: Option<RoomPreset>,
-    /// The desired room alias local part.
     room_alias_name: Option<String>,
-    /// Room version to set for the room. Defaults to homeserver's default if not specified.
     room_version: Option<String>,
-    /// If this is included, an `m.room.topic` event will be sent into the room to indicate
-    /// the topic for the room.
     topic: Option<String>,
-    /// A public visibility indicates that the room will be shown in the published room
-    /// list. A private visibility will hide the room from the published room list. Rooms
-    /// default to private visibility if this key is not included.
     visibility: Option<Visibility>,
 }
 
@@ -92,61 +69,68 @@ impl RoomBuilder {
         self
     }
 
-    /// Set the `InitialStateEvent` vector.
+    /// Sets a list of state events to send to the new room.
+    ///
+    /// Takes precedence over events set by preset, but gets overriden by
+    /// name and topic keys.
     pub fn initial_state(&mut self, state: Vec<InitialStateEvent>) -> &mut Self {
         self.initial_state = state;
         self
     }
 
-    /// Set the vec of `UserId`s.
+    /// Sets a list of user IDs to invite to the room.
+    ///
+    /// This will tell the server to invite everyone in the list to the newly created room.
     pub fn invite(&mut self, invite: Vec<UserId>) -> &mut Self {
         self.invite = invite;
         self
     }
 
-    /// Set the vec of `Invite3pid`s.
+    /// Sets a list of third party IDs of users to invite.
     pub fn invite_3pid(&mut self, invite: Vec<Invite3pid>) -> &mut Self {
         self.invite_3pid = invite;
         self
     }
 
-    /// Set the vec of `Invite3pid`s.
+    /// If set, this sets the `is_direct` flag on room invites.
     pub fn is_direct(&mut self, direct: bool) -> &mut Self {
         self.is_direct = Some(direct);
         self
     }
 
-    /// Set the room name. A `m.room.name` event will be sent to the room.
+    /// If this is included, an `m.room.name` event will be sent into the room to indicate
+    /// the name of the room.
     pub fn name<S: Into<String>>(&mut self, name: S) -> &mut Self {
         self.name = Some(name.into());
         self
     }
 
-    /// Set the room's power levels.
+    /// Power level content to override in the default power level event.
     pub fn power_level_override(&mut self, power: PowerLevelsEventContent) -> &mut Self {
         self.power_level_content_override = Some(power);
         self
     }
 
-    /// Convenience for setting various default state events based on a preset.
+    /// Convenience parameter for setting various default state events based on a preset.
     pub fn preset(&mut self, preset: RoomPreset) -> &mut Self {
         self.preset = Some(preset);
         self
     }
 
-    ///  The local part of a room alias.
+    /// The desired room alias local part.
     pub fn room_alias_name<S: Into<String>>(&mut self, alias: S) -> &mut Self {
         self.room_alias_name = Some(alias.into());
         self
     }
 
-    /// Room version, defaults to homeserver's version if left unspecified.
+    /// Room version to set for the room. Defaults to homeserver's default if not specified.
     pub fn room_version<S: Into<String>>(&mut self, version: S) -> &mut Self {
         self.room_version = Some(version.into());
         self
     }
 
-    /// If included, a `m.room.topic` event will be sent to the room.
+    /// If this is included, an `m.room.topic` event will be sent into the room to indicate
+    /// the topic for the room.
     pub fn topic<S: Into<String>>(&mut self, topic: S) -> &mut Self {
         self.topic = Some(topic.into());
         self
@@ -210,33 +194,24 @@ impl Into<create_room::Request> for RoomBuilder {
 /// ```
 #[derive(Clone, Debug)]
 pub struct MessagesRequestBuilder {
-    /// The room to get events from.
     room_id: RoomId,
-    /// The token to start returning events from.
-    ///
-    /// This token can be obtained from a
-    /// prev_batch token returned for each room by the sync API, or from a start or end token
-    /// returned by a previous request to this endpoint.
     from: String,
-    /// The token to stop returning events at.
-    ///
-    /// This token can be obtained from a prev_batch
-    /// token returned for each room by the sync endpoint, or from a start or end token returned
-    /// by a previous request to this endpoint.
     to: Option<String>,
-    /// The direction to return events from.
     direction: Option<Direction>,
-    /// The maximum number of events to return.
-    ///
-    /// Default: 10.
     limit: Option<u32>,
-    /// A filter of the returned events with.
     filter: Option<RoomEventFilter>,
 }
 
 impl MessagesRequestBuilder {
     /// Create a `MessagesRequestBuilder` builder to make a `get_message_events::Request`.
-    /// The `room_id` and `from`` fields **need to be set** to create the request.
+    ///
+    /// # Arguments
+    ///
+    /// * `room_id` -  The id of the room that is being requested.
+    ///
+    /// * `from` - The token to start returning events from. This token can be obtained from
+    /// a `prev_batch` token from a sync response, or a start or end token from a previous request
+    /// to this endpoint.
     pub fn new(room_id: RoomId, from: String) -> Self {
         Self {
             room_id,
@@ -286,7 +261,7 @@ impl Into<get_message_events::Request> for MessagesRequestBuilder {
             from: self.from,
             to: self.to,
             dir: self.direction.unwrap_or(Direction::Backward),
-            limit: self.limit.map_or(Ok(uint!(10)), UInt::try_from).ok(),
+            limit: self.limit.map(UInt::from),
             filter: self.filter,
         }
     }
@@ -485,7 +460,7 @@ impl Into<get_public_rooms_filtered::Request> for RoomListFilterBuilder {
     fn into(self) -> get_public_rooms_filtered::Request {
         get_public_rooms_filtered::Request {
             room_network: self.room_network.unwrap_or_default(),
-            limit: self.limit.map_or(Ok(uint!(0)), UInt::try_from).ok(),
+            limit: self.limit.map(UInt::from),
             server: self.server,
             since: self.since,
             filter: self.filter,

@@ -376,6 +376,28 @@ lazy_static! {
 }
 
 lazy_static! {
+    pub static ref PUBLIC_ROOMS: JsonValue = json!({
+        "chunk": [
+            {
+                "aliases": [
+                    "#murrays:cheese.bar"
+                ],
+                "avatar_url": "mxc://bleeker.street/CHEDDARandBRIE",
+                "guest_can_join": false,
+                "name": "CHEESE",
+                "num_joined_members": 37,
+                "room_id": "!ol19s:bleecker.street",
+                "topic": "Tasty tasty cheese",
+                "world_readable": true
+            }
+        ],
+        "next_batch": "p190q",
+        "prev_batch": "p1902",
+        "total_room_count_estimate": 115
+    });
+}
+
+lazy_static! {
     pub static ref REGISTRATION_RESPONSE_ERR: JsonValue = json!({
         "errcode": "M_FORBIDDEN",
         "error": "Invalid password",

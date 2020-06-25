@@ -651,7 +651,8 @@ impl Client {
 
     /// Search the homeserver's directory of public rooms.
     ///
-    /// Returns a `get_public_rooms::Response`, an empty response.
+    /// Sends a request to "_matrix/client/r0/publicRooms", returns
+    /// a `get_public_rooms::Response`.
     ///
     /// # Arguments
     ///
@@ -673,11 +674,8 @@ impl Client {
     /// let mut cli = Client::new(homeserver).unwrap();
     /// # use futures::executor::block_on;
     /// # block_on(async {
-    /// assert!(cli.public_rooms(
-    ///     limit,
-    ///     since,
-    ///     server
-    /// ).await.is_ok());
+    ///
+    /// cli.public_rooms(limit, since, server).await;
     /// # });
     /// ```
     pub async fn public_rooms(
@@ -700,7 +698,8 @@ impl Client {
 
     /// Search the homeserver's directory of public rooms with a filter.
     ///
-    /// Returns a `get_public_rooms_filtered::Response`, an empty response.
+    /// Sends a request to "_matrix/client/r0/publicRooms", returns
+    /// a `get_public_rooms_filtered::Response`.
     ///
     /// # Arguments
     ///
@@ -725,7 +724,7 @@ impl Client {
     ///     .since(last_sync_token)
     ///     .room_network(RoomNetwork::Matrix);
     ///
-    /// client.public_rooms_filtered(builder).await.is_err();
+    /// client.public_rooms_filtered(builder).await;
     /// # })
     /// ```
     pub async fn public_rooms_filtered<R: Into<get_public_rooms_filtered::Request>>(
@@ -1856,7 +1855,7 @@ mod test {
             Matcher::Regex(r"^/_matrix/client/r0/publicRooms".to_string()),
         )
         .with_status(200)
-        .with_body_from_file("../test_data/public_rooms.json")
+        .with_body(test_json::PUBLIC_ROOMS.to_string())
         .create();
 
         let client = Client::new(homeserver).unwrap();
@@ -1885,7 +1884,7 @@ mod test {
             Matcher::Regex(r"^/_matrix/client/r0/publicRooms".to_string()),
         )
         .with_status(200)
-        .with_body_from_file("../test_data/public_rooms.json")
+        .with_body(test_json::PUBLIC_ROOMS.to_string())
         .create();
 
         let client = Client::new(homeserver).unwrap();
