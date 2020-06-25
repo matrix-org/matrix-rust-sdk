@@ -1514,7 +1514,6 @@ mod test {
         set_read_marker, Invite3pid, MessageEventContent,
     };
     use super::{Client, ClientConfig, Session, SyncSettings, Url};
-    use crate::events::room::member::MembershipState;
     use crate::events::room::message::TextMessageEventContent;
 
     use crate::identifiers::{EventId, RoomId, RoomIdOrAliasId, UserId};

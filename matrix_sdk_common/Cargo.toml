@@ -1,5 +1,5 @@
 [package]
-authors = ["Damir Jelić <poljar@termina.org.uk"]
+authors = ["Damir Jelić <poljar@termina.org.uk>"]
 description = "Collection of common types used in the matrix-sdk"
 edition = "2018"
 homepage = "https://github.com/matrix-org/matrix-rust-sdk"

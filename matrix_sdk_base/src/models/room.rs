@@ -369,7 +369,17 @@ impl Room {
             return false;
         }
 
-        let member = RoomMember::new(event, room_id);
+        match event.membership_change() {
+            MembershipChange::Joined => self
+                .joined_members
+                .insert(new_member.user_id.clone(), new_member.clone()),
+            MembershipChange::Invited => self
+                .invited_members
+                .insert(new_member.user_id.clone(), new_member.clone()),
+            _ => {
+                panic!("Room::add_member called on an event that is neither a join nor an invite.")
+            }
+        };
 
         // Perform display name disambiguations, if necessary.
         let disambiguations = self.disambiguation_updates(&new_member, MemberDirection::Entering);

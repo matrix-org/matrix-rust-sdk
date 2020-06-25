@@ -461,8 +461,7 @@ mod test {
         async fn on_presence_event(&self, _: SyncRoom, _: &PresenceEvent) {
             self.0.lock().await.push("presence event".to_string())
         }
-        async fn on_unrecognized_event(&self, _: SyncRoom, event: &CustomOrRawEvent<'_>) {
-            println!("{:#?}", event);
+        async fn on_unrecognized_event(&self, _: SyncRoom, _: &CustomOrRawEvent<'_>) {
             self.0.lock().await.push("unrecognized event".to_string())
         }
     }

@@ -1845,9 +1845,9 @@ impl BaseClient {
 #[cfg(test)]
 mod test {
     use crate::identifiers::{RoomId, UserId};
-    use crate::{events::AnyRoomEventStub, BaseClient, Session};
+    use crate::{BaseClient, Session};
     use matrix_sdk_common_macros::async_trait;
-    use matrix_sdk_test::{async_test, test_json, EventBuilder, EventsFile};
+    use matrix_sdk_test::{async_test, test_json, EventBuilder, EventsJson};
     use serde_json::json;
     use std::convert::TryFrom;
 
