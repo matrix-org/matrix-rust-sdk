@@ -1058,26 +1058,13 @@ impl OlmMachine {
     /// This also creates a matching inbound group session and saves that one in
     /// the store.
     async fn create_outbound_group_session(&mut self, room_id: &RoomId) -> OlmResult<()> {
-        let session = OutboundGroupSession::new(room_id);
-        let identity_keys = self.account.identity_keys();
+        let (outbound, inbound) = self.account.create_group_session_pair(room_id).await;
 
-        let sender_key = identity_keys.curve25519();
-        let signing_key = identity_keys.ed25519();
-
-        let inbound_session = InboundGroupSession::new(
-            sender_key,
-            signing_key,
-            &room_id,
-            session.session_key().await,
-        )?;
-        let _ = self
-            .store
-            .save_inbound_group_session(inbound_session)
-            .await?;
+        let _ = self.store.save_inbound_group_session(inbound).await?;
 
         let _ = self
             .outbound_group_sessions
-            .insert(room_id.to_owned(), session);
+            .insert(room_id.to_owned(), outbound);
         Ok(())
     }
 
