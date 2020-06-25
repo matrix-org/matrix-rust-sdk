@@ -11,7 +11,10 @@ use matrix_sdk_common::{
         },
         uiaa::AuthData,
     },
-    events::{room::power_levels::PowerLevelsEventContent, EventJson},
+    events::{
+        room::{create::PreviousRoom, power_levels::PowerLevelsEventContent},
+        EventJson,
+    },
     identifiers::{DeviceId, RoomId, UserId},
     js_int::UInt,
 };
@@ -267,7 +270,7 @@ impl Into<get_message_events::Request> for MessagesRequestBuilder {
             from: self.from,
             to: self.to,
             dir: self.direction.unwrap_or(Direction::Backward),
-            limit: self.limit.map(UInt::from),
+            limit: self.limit.map(UInt::from).unwrap_or_default(),
             filter: self.filter,
         }
     }

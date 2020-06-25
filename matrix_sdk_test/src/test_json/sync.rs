@@ -20,13 +20,6 @@ lazy_static! {
                         "events": [
                             {
                                 "content": {
-                                    "event_id": "$someplace:example.org"
-                                },
-                                "room_id": "!roomid:room.com",
-                                "type": "m.fully_read"
-                            },
-                            {
-                                "content": {
                                     "ignored_users": {
                                         "@someone:example.org": {}
                                     }
@@ -47,7 +40,15 @@ lazy_static! {
                                         }
                                     }
                                 },
+                                "room_id": "!SVkFJHzfwvuaIEawgC:localhost",
                                 "type": "m.receipt"
+                            },
+                            {
+                                "content": {
+                                    "event_id": "$someplace:example.org"
+                                },
+                                "room_id": "!roomid:room.com",
+                                "type": "m.fully_read"
                             }
                         ]
                     },
@@ -307,13 +308,6 @@ lazy_static! {
                         "events": [
                             {
                                 "content": {
-                                    "event_id": "$someplace:example.org"
-                                },
-                                "room_id": "!roomid:room.com",
-                                "type": "m.fully_read"
-                            },
-                            {
-                                "content": {
                                     "ignored_users": {
                                         "@someone:example.org": {}
                                     }
@@ -335,6 +329,13 @@ lazy_static! {
                                     }
                                 },
                                 "type": "m.receipt"
+                            },
+                            {
+                                "content": {
+                                    "event_id": "$someplace:example.org"
+                                },
+                                "room_id": "!roomid:room.com",
+                                "type": "m.fully_read"
                             }
                         ]
                     },
@@ -570,6 +571,7 @@ lazy_static! {
                                         }
                                     }
                                 },
+                                "room_id": "!jEsUZKDJdhlrceRyVU:example.org",
                                 "type": "m.receipt"
                             },
                             {
@@ -773,13 +775,6 @@ lazy_static! {
                         "events": [
                             {
                                 "content": {
-                                    "event_id": "$someplace:example.org"
-                                },
-                                "room_id": "!roomid:room.com",
-                                "type": "m.fully_read"
-                            },
-                            {
-                                "content": {
                                     "ignored_users": {
                                         "@someone:example.org": {}
                                     }
@@ -801,6 +796,13 @@ lazy_static! {
                                     }
                                 },
                                 "type": "m.receipt"
+                            },
+                            {
+                                "content": {
+                                    "event_id": "$someplace:example.org"
+                                },
+                                "room_id": "!roomid:room.com",
+                                "type": "m.fully_read"
                             }
                         ]
                     },

@@ -13,7 +13,7 @@ version = "0.1.0"
 [dependencies]
 js_int = "0.1.5"
 
-ruma = { git = "https://github.com/ruma/ruma", features = ["client-api", "rand"] }
+ruma = { git = "https://github.com/ruma/ruma", features = ["client-api"] }
 
 instant = { version = "0.1.4", features = ["wasm-bindgen", "now"] }
 

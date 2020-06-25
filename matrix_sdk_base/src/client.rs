@@ -38,8 +38,8 @@ use crate::session::Session;
 use crate::state::{AllRooms, ClientState, StateStore};
 use crate::EventEmitter;
 use matrix_sdk_common::events::{
-    AnyBasicEvent, AnyEphemeralRoomEvent, AnyMessageEventStub, AnyRoomEventStub, AnyStateEventStub,
-    AnyStrippedStateEventStub, EventJson,
+    AnyBasicEvent, AnyEphemeralRoomEventStub, AnyMessageEventStub, AnyRoomEventStub,
+    AnyStateEventStub, AnyStrippedStateEventStub, EventJson,
 };
 
 #[cfg(feature = "encryption")]
@@ -105,7 +105,9 @@ fn hoist_room_event_prev_content(
     let mut ev = event.deserialize().ok()?;
 
     match &mut ev {
-        RoomEvent::RoomMember(ref mut member) if member.prev_content.is_none() => {
+        AnyRoomEventStub::State(AnyStateEventStub::RoomMember(ref mut member))
+            if member.prev_content.is_none() =>
+        {
             if let Ok(prev) = prev_content.deserialize() {
                 member.prev_content = Some(prev)
             }
@@ -130,9 +132,7 @@ fn hoist_state_event_prev_content(
 
     let mut ev = event.deserialize().ok()?;
     match &mut ev {
-        AnyRoomEventStub::State(AnyStateEventStub::RoomMember(ref mut member))
-            if member.prev_content.is_none() =>
-        {
+        AnyStateEventStub::RoomMember(ref mut member) if member.prev_content.is_none() => {
             member.prev_content = Some(prev_content.deserialize().ok()?);
             Some(EventJson::from(ev))
         }
@@ -907,12 +907,12 @@ impl BaseClient {
     pub async fn receive_ephemeral_event(
         &self,
         _room_id: &RoomId,
-        event: &AnyEphemeralRoomEvent,
+        event: &AnyEphemeralRoomEventStub,
     ) -> bool {
         match &event {
-            AnyEphemeralRoomEvent::FullyRead(_) => {}
-            AnyEphemeralRoomEvent::Receipt(_) => {}
-            AnyEphemeralRoomEvent::Typing(_) => {}
+            AnyEphemeralRoomEventStub::FullyRead(_) => {}
+            AnyEphemeralRoomEventStub::Receipt(_) => {}
+            AnyEphemeralRoomEventStub::Typing(_) => {}
             _ => {}
         };
         false
@@ -1724,7 +1724,7 @@ impl BaseClient {
     pub(crate) async fn emit_ephemeral_event(
         &self,
         room_id: &RoomId,
-        event: &AnyEphemeralRoomEvent,
+        event: &AnyEphemeralRoomEventStub,
         room_state: RoomStateType,
     ) {
         let lock = self.event_emitter.read().await;
@@ -1759,13 +1759,13 @@ impl BaseClient {
         };
 
         match event {
-            AnyEphemeralRoomEvent::FullyRead(full_read) => {
+            AnyEphemeralRoomEventStub::FullyRead(full_read) => {
                 event_emitter.on_non_room_fully_read(room, &full_read).await
             }
-            AnyEphemeralRoomEvent::Typing(typing) => {
+            AnyEphemeralRoomEventStub::Typing(typing) => {
                 event_emitter.on_non_room_typing(room, &typing).await
             }
-            AnyEphemeralRoomEvent::Receipt(receipt) => {
+            AnyEphemeralRoomEventStub::Receipt(receipt) => {
                 event_emitter.on_non_room_receipt(room, &receipt).await
             }
             _ => {}
@@ -1887,7 +1887,7 @@ mod test {
     #[async_test]
     async fn test_joined_room_creation() {
         let mut sync_response = EventBuilder::default()
-            .add_state_event(EventsFile::Member)
+            .add_state_event(EventsJson::Member)
             .build_sync_response();
         let client = get_client().await;
         let room_id = get_room_id();
@@ -1907,7 +1907,7 @@ mod test {
         assert!(room.is_some());
 
         let mut sync_response = EventBuilder::default()
-            .add_custom_left_event(&room_id, member_event(), AnyRoomEventStub::State)
+            .add_custom_left_event(&room_id, member_event())
             .build_sync_response();
 
         sync_response.next_batch = "Hello".to_owned();
@@ -1928,7 +1928,7 @@ mod test {
     async fn test_left_room_creation() {
         let room_id = RoomId::try_from("!left_room:localhost").unwrap();
         let mut sync_response = EventBuilder::default()
-            .add_custom_left_event(&room_id, member_event(), AnyRoomEventStub::State)
+            .add_custom_left_event(&room_id, member_event())
             .build_sync_response();
 
         let client = get_client().await;
@@ -1944,8 +1944,10 @@ mod test {
         let room = client.get_left_room(&room_id).await;
         assert!(room.is_some());
 
+        let mem = member_event();
+
         let mut sync_response = EventBuilder::default()
-            .add_custom_joined_event(&room_id, member_event(), AnyRoomEventStub::State)
+            .add_custom_joined_event(&room_id, mem)
             .build_sync_response();
 
         sync_response.next_batch = "Hello".to_owned();
@@ -1983,7 +1985,7 @@ mod test {
         assert!(room.is_some());
 
         let mut sync_response = EventBuilder::default()
-            .add_custom_joined_event(&room_id, member_event(), AnyRoomEventStub::State)
+            .add_custom_joined_event(&room_id, member_event())
             .build_sync_response();
 
         sync_response.next_batch = "Hello".to_owned();
@@ -2355,7 +2357,7 @@ mod test {
         let room_id = get_room_id();
 
         let mut sync_response = EventBuilder::default()
-            .add_state_event(EventsFile::Member)
+            .add_state_event(EventsJson::Member)
             .build_sync_response();
 
         client

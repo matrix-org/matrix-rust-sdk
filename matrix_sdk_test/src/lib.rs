@@ -73,76 +73,53 @@ impl EventBuilder {
     }
 
     /// Add an event to the room events `Vec`.
-    pub fn add_ephemeral<Ev: serde::de::DeserializeOwned>(
-        mut self,
-        file: EventsFile,
-        variant: fn(Ev) -> AnyEphemeralRoomEventStub,
-    ) -> Self {
+    pub fn add_ephemeral(&mut self, json: EventsJson) -> &mut Self {
         let val: &JsonValue = match json {
             EventsJson::Typing => &test_json::TYPING,
             _ => panic!("unknown ephemeral event {:?}", json),
         };
 
-        let event = serde_json::from_value::<EventJson<Ev>>(val.clone())
-            .unwrap()
-            .deserialize()
-            .unwrap();
-
-        self.ephemeral.push(variant(event));
+        let event = serde_json::from_value::<AnyEphemeralRoomEventStub>(val.clone()).unwrap();
+        self.ephemeral.push(event);
         self
     }
 
     /// Add an event to the room events `Vec`.
     #[allow(clippy::match_single_binding, unused)]
-    pub fn add_account<Ev: TryFromRaw>(
-        &mut self,
-        json: EventsJson,
-        variant: fn(Ev) -> Event,
-    ) -> &mut Self {
+    pub fn add_account(&mut self, json: EventsJson) -> &mut Self {
         let val: &JsonValue = match json {
             _ => panic!("unknown account event {:?}", json),
         };
 
-        let event = serde_json::from_value::<EventJson<Ev>>(val.clone())
-            .unwrap()
-            .deserialize()
-            .unwrap();
-        self.account_data.push(variant(event));
+        let event = serde_json::from_value::<AnyBasicEvent>(val.clone()).unwrap();
+        self.account_data.push(event);
         self
     }
 
-    // /// Add an event to the room events `Vec`.
-    // pub fn add_room_event<Ev: TryFromRaw>(
-    //     &mut self,
-    //     json: EventsJson,
-    //     variant: fn(Ev) -> AnyRoomEventStub,
-    // ) -> &mut Self {
-    //     let val: &JsonValue = match json {
-    //         EventsJson::Member => &test_json::MEMBER,
-    //         EventsJson::PowerLevels => &test_json::POWER_LEVELS,
-    //         _ => panic!("unknown room event json {:?}", json),
-    //     };
+    /// Add an event to the room events `Vec`.
+    pub fn add_room_event(&mut self, json: EventsJson) -> &mut Self {
+        let val: &JsonValue = match json {
+            EventsJson::Member => &test_json::MEMBER,
+            EventsJson::PowerLevels => &test_json::POWER_LEVELS,
+            _ => panic!("unknown room event json {:?}", json),
+        };
 
-    //     let event = serde_json::from_value::<EventJson<Ev>>(val.clone())
-    //         .unwrap()
-    //         .deserialize()
-    //         .unwrap();
+        let event = serde_json::from_value::<AnyRoomEventStub>(val.clone()).unwrap();
 
-    //     self.add_joined_event(
-    //         &RoomId::try_from("!SVkFJHzfwvuaIEawgC:localhost").unwrap(),
-    //         variant(event),
-    //     );
-    //     self
-    // }
+        self.add_joined_event(
+            &RoomId::try_from("!SVkFJHzfwvuaIEawgC:localhost").unwrap(),
+            event,
+        );
+        self
+    }
 
-    pub fn add_custom_joined_event<Ev: serde::de::DeserializeOwned>(
-        mut self,
+    pub fn add_custom_joined_event(
+        &mut self,
         room_id: &RoomId,
         event: serde_json::Value,
-        variant: fn(Ev) -> AnyRoomEventStub,
-    ) -> Self {
-        let event = serde_json::from_value::<Ev>(event).unwrap();
-        self.add_joined_event(room_id, variant(event));
+    ) -> &mut Self {
+        let event = serde_json::from_value::<AnyRoomEventStub>(event).unwrap();
+        self.add_joined_event(room_id, event);
         self
     }
 
@@ -153,7 +130,11 @@ impl EventBuilder {
             .push(event);
     }
 
-    pub fn add_custom_invited_event(mut self, room_id: &RoomId, event: serde_json::Value) -> Self {
+    pub fn add_custom_invited_event(
+        &mut self,
+        room_id: &RoomId,
+        event: serde_json::Value,
+    ) -> &mut Self {
         let event = serde_json::from_value::<AnyStateEventStub>(event).unwrap();
         self.invited_room_events
             .entry(room_id.clone())
@@ -162,35 +143,32 @@ impl EventBuilder {
         self
     }
 
-    pub fn add_custom_left_event<Ev: serde::de::DeserializeOwned>(
-        mut self,
+    pub fn add_custom_left_event(
+        &mut self,
         room_id: &RoomId,
         event: serde_json::Value,
-        variant: fn(Ev) -> AnyRoomEventStub,
-    ) -> Self {
-        let event = serde_json::from_value::<Ev>(event).unwrap();
+    ) -> &mut Self {
+        let event = serde_json::from_value::<AnyRoomEventStub>(event).unwrap();
         self.left_room_events
             .entry(room_id.clone())
             .or_insert_with(Vec::new)
-            .push(variant(event));
+            .push(event);
         self
     }
 
     /// Add a state event to the state events `Vec`.
-    pub fn add_state_event<Ev: TryFromRaw>(
-        &mut self,
-        json: EventsJson,
-    ) -> &mut Self {
+    pub fn add_state_event(&mut self, json: EventsJson) -> &mut Self {
         let val: &JsonValue = match json {
             EventsJson::Alias => &test_json::ALIAS,
             EventsJson::Aliases => &test_json::ALIASES,
             EventsJson::Name => &test_json::NAME,
+            EventsJson::Member => &test_json::MEMBER,
+            EventsJson::PowerLevels => &test_json::POWER_LEVELS,
             _ => panic!("unknown state event {:?}", json),
         };
 
-        let event = serde_json::from_value::<AnyStateEventStub>(val.clone())
-            .unwrap();
-        self.state_events.push(variant(event));
+        let event = serde_json::from_value::<AnyStateEventStub>(val.clone()).unwrap();
+        self.state_events.push(event);
         self
     }
 
@@ -201,8 +179,7 @@ impl EventBuilder {
             _ => panic!("unknown presence event {:?}", json),
         };
 
-        let event = serde_json::from_value::<PresenceEvent>(val.clone())
-            .unwrap();
+        let event = serde_json::from_value::<PresenceEvent>(val.clone()).unwrap();
         self.presence_events.push(event);
         self
     }

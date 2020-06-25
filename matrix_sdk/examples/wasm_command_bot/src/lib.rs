@@ -1,7 +1,9 @@
 use matrix_sdk::{
     api::r0::sync::sync_events::Response as SyncResponse,
-    events::room::message::{MessageEventContent, TextMessageEventContent},
-    events::MessageEventStub,
+    events::{
+        room::message::{MessageEventContent, TextMessageEventContent},
+        AnyMessageEventStub, AnyRoomEventStub, MessageEventStub,
+    },
     identifiers::RoomId,
     Client, ClientConfig, SyncSettings,
 };
@@ -43,7 +45,9 @@ impl WasmBot {
         for (room_id, room) in response.rooms.join {
             for event in room.timeline.events {
                 if let Ok(event) = event.deserialize() {
-                    self.on_room_message(&room_id, event).await
+                    if let AnyRoomEventStub::Message(AnyMessageEventStub::RoomMessage(ev)) = event {
+                        self.on_room_message(&room_id, ev).await
+                    }
                 }
             }
         }

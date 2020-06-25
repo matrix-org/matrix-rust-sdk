@@ -7,12 +7,12 @@ use std::cmp::Ordering;
 use std::ops::{Deref, DerefMut};
 use std::vec::IntoIter;
 
-use crate::events::room::message::MessageEventContent;
-use crate::events::MessageEventStub;
+use crate::events::AnyMessageEventStub;
 
 use serde::{de, ser, Serialize};
 
-type MessageEvent = MessageEventStub<MessageEventContent>;
+const MESSAGE_QUEUE_CAP: usize = 35;
+
 /// A queue that holds the 10 most recent messages received from the server.
 #[derive(Clone, Debug, Default)]
 pub struct MessageQueue {
@@ -20,10 +20,10 @@ pub struct MessageQueue {
 }
 
 #[derive(Clone, Debug, Serialize)]
-pub struct MessageWrapper(MessageEvent);
+pub struct MessageWrapper(pub AnyMessageEventStub);
 
 impl Deref for MessageWrapper {
-    type Target = MessageEvent;
+    type Target = AnyMessageEventStub;
 
     fn deref(&self) -> &Self::Target {
         &self.0
@@ -38,7 +38,7 @@ impl DerefMut for MessageWrapper {
 
 impl PartialEq for MessageWrapper {
     fn eq(&self, other: &MessageWrapper) -> bool {
-        self.0.event_id == other.0.event_id
+        self.0.event_id() == other.0.event_id()
     }
 }
 
@@ -46,7 +46,7 @@ impl Eq for MessageWrapper {}
 
 impl PartialOrd for MessageWrapper {
     fn partial_cmp(&self, other: &MessageWrapper) -> Option<Ordering> {
-        Some(self.0.origin_server_ts.cmp(&other.0.origin_server_ts))
+        Some(self.0.origin_server_ts().cmp(&other.0.origin_server_ts()))
     }
 }
 
@@ -63,7 +63,7 @@ impl PartialEq for MessageQueue {
                 .msgs
                 .iter()
                 .zip(other.msgs.iter())
-                .all(|(msg_a, msg_b)| msg_a.event_id == msg_b.event_id)
+                .all(|(msg_a, msg_b)| msg_a.event_id() == msg_b.event_id())
     }
 }
 
@@ -71,17 +71,17 @@ impl MessageQueue {
     /// Create a new empty `MessageQueue`.
     pub fn new() -> Self {
         Self {
-            msgs: Vec::with_capacity(20),
+            msgs: Vec::with_capacity(45),
         }
     }
 
     /// Inserts a `MessageEvent` into `MessageQueue`, sorted by by `origin_server_ts`.
     ///
     /// Removes the oldest element in the queue if there are more than 10 elements.
-    pub fn push(&mut self, msg: MessageEvent) -> bool {
+    pub fn push(&mut self, msg: AnyMessageEventStub) -> bool {
         // only push new messages into the queue
         if let Some(latest) = self.msgs.last() {
-            if msg.origin_server_ts < latest.origin_server_ts && self.msgs.len() >= 10 {
+            if msg.origin_server_ts() < latest.origin_server_ts() && self.msgs.len() >= 10 {
                 return false;
             }
         }
@@ -95,7 +95,7 @@ impl MessageQueue {
             }
             Err(pos) => self.msgs.insert(pos, message),
         }
-        if self.msgs.len() > 10 {
+        if self.msgs.len() > MESSAGE_QUEUE_CAP {
             self.msgs.remove(0);
         }
         true
@@ -126,7 +126,7 @@ pub(crate) mod ser_deser {
     where
         D: de::Deserializer<'de>,
     {
-        let messages: Vec<MessageEvent> = de::Deserialize::deserialize(deserializer)?;
+        let messages: Vec<AnyMessageEventStub> = de::Deserialize::deserialize(deserializer)?;
 
         let mut msgs = vec![];
         for msg in messages {
@@ -156,7 +156,6 @@ mod test {
 
     use matrix_sdk_test::test_json;
 
-    use crate::events::{collections::all::RoomEvent, EventJson};
     use crate::identifiers::{RoomId, UserId};
     use crate::Room;
 
@@ -168,7 +167,7 @@ mod test {
         let mut room = Room::new(&id, &user);
 
         let json: &serde_json::Value = &test_json::MESSAGE_TEXT;
-        let msg = serde_json::from_value::<MessageEvent>(json.clone()).unwrap();
+        let msg = serde_json::from_value::<AnyMessageEventStub>(json.clone()).unwrap();
 
         let mut msgs = MessageQueue::new();
         msgs.push(msg.clone());
@@ -214,7 +213,7 @@ mod test {
         let mut room = Room::new(&id, &user);
 
         let json: &serde_json::Value = &test_json::MESSAGE_TEXT;
-        let msg = serde_json::from_value::<MessageEvent>(json.clone()).unwrap();
+        let msg = serde_json::from_value::<AnyMessageEventStub>(json.clone()).unwrap();
 
         let mut msgs = MessageQueue::new();
         msgs.push(msg.clone());

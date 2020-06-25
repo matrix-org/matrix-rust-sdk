@@ -1639,8 +1639,8 @@ mod test {
         client.restore_login(session).await.unwrap();
 
         let mut response = EventBuilder::default()
-            .add_state_event(EventsFile::Member)
-            .add_state_event(EventsFile::PowerLevels)
+            .add_state_event(EventsJson::Member)
+            .add_state_event(EventsJson::PowerLevels)
             .build_sync_response();
 
         client
@@ -2406,6 +2406,8 @@ mod test {
             base_client.sync_token().await,
             Some("s526_47314_0_7_1_1_1_11444_1".to_string())
         );
+
+        // This is commented out because this field is private...
         // assert_eq!(
         //     *base_client.ignored_users.read().await,
         //     vec![UserId::try_from("@someone:example.org").unwrap()]
