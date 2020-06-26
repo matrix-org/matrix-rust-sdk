@@ -13,7 +13,7 @@ use matrix_sdk_common::{
     },
     events::{room::power_levels::PowerLevelsEventContent, EventJson},
     identifiers::{DeviceId, RoomId, UserId},
-    js_int::{uint, UInt},
+    js_int::UInt,
 };
 
 /// A builder used to create rooms.
