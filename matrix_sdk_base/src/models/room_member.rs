@@ -233,7 +233,9 @@ mod test {
         client
     }
 
-    fn get_room_id() -> RoomId {
+    // TODO: Move this to EventBuilder since it's a magic room ID used in EventBuilder's example
+    // events.
+    fn test_room_id() -> RoomId {
         RoomId::try_from("!SVkFJHzfwvuaIEawgC:localhost").unwrap()
     }
 
@@ -241,7 +243,7 @@ mod test {
     async fn room_member_events() {
         let client = get_client().await;
 
-        let room_id = get_room_id();
+        let room_id = test_room_id();
 
         let mut response = EventBuilder::default()
             .add_room_event(EventsJson::Member, RoomEvent::RoomMember)
@@ -264,7 +266,7 @@ mod test {
     async fn member_presence_events() {
         let client = get_client().await;
 
-        let room_id = get_room_id();
+        let room_id = test_room_id();
 
         let mut response = EventBuilder::default()
             .add_room_event(EventsJson::Member, RoomEvent::RoomMember)
