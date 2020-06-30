@@ -208,6 +208,7 @@ lazy_static! {
     });
 }
 
+// TODO: Move `prev_content` into `unsigned` once ruma supports it
 lazy_static! {
     pub static ref MEMBER: JsonValue = json!({
         "content": {
@@ -221,14 +222,14 @@ lazy_static! {
         "sender": "@example:localhost",
         "state_key": "@example:localhost",
         "type": "m.room.member",
+        "prev_content": {
+            "avatar_url": null,
+            "displayname": "example",
+            "membership": "invite"
+        },
         "unsigned": {
             "age": 297036,
-            "replaces_state": "$151800111315tsynI:localhost",
-            "prev_content": {
-                "avatar_url": null,
-                "displayname": "example",
-                "membership": "invite"
-            }
+            "replaces_state": "$151800111315tsynI:localhost"
         }
     });
 }
@@ -552,6 +553,7 @@ lazy_static! {
     });
 }
 
+// TODO: Move `prev_content` into `unsigned` once ruma supports it
 lazy_static! {
     pub static ref TOPIC: JsonValue = json!({
         "content": {
@@ -562,11 +564,11 @@ lazy_static! {
         "sender": "@example:localhost",
         "state_key": "",
         "type": "m.room.topic",
+        "prev_content": {
+            "topic": "test"
+        },
         "unsigned": {
           "age": 1392989,
-          "prev_content": {
-            "topic": "test"
-          },
           "prev_sender": "@example:localhost",
           "replaces_state": "$151957069225EVYKm:localhost"
         }
