@@ -18,7 +18,7 @@ use std::convert::TryFrom;
 use crate::events::collections::all::Event;
 use crate::events::presence::{PresenceEvent, PresenceEventContent, PresenceState};
 use crate::events::room::{
-    member::{MemberEvent, MembershipChange},
+    member::MemberEvent,
     power_levels::PowerLevelsEvent,
 };
 use crate::identifiers::UserId;
