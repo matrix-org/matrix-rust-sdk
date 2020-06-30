@@ -586,8 +586,6 @@ impl Room {
     pub fn handle_membership(&mut self, event: &MemberEvent) -> bool {
         use MembershipChange::*;
 
-        // TODO: This would not be handled correctly as all the MemberEvents have the `prev_content`
-        // inside of `unsigned` field.
         match event.membership_change() {
             Invited | Joined => self.add_member(event),
             Kicked | Banned | KickedAndBanned | InvitationRejected | Left => {
