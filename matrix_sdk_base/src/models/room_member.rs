@@ -117,18 +117,9 @@ impl RoomMember {
 
     /// Handle profile updates.
     pub(crate) fn update_profile(&mut self, event: &MemberEvent) -> bool {
-        use MembershipChange::*;
-
-        match event.membership_change() {
-            ProfileChanged => {
-                self.display_name = event.content.displayname.clone();
-                self.avatar_url = event.content.avatar_url.clone();
-                true
-            }
-
-            // We're only interested in profile changes here.
-            _ => false,
-        }
+        self.display_name = event.content.displayname.clone();
+        self.avatar_url = event.content.avatar_url.clone();
+        true
     }
 
     pub fn update_power(&mut self, event: &PowerLevelsEvent, max_power: Int) -> bool {
