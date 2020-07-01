@@ -475,8 +475,7 @@ impl Room {
         };
 
         match users_with_same_name.len() {
-            0 => HashMap::new(),
-            1 => disambiguate_with(users_with_same_name, |m: &RoomMember| m.name()),
+            0 | 1 => HashMap::new(),
             _ => disambiguate_with(users_with_same_name, |m: &RoomMember| m.unique_name()),
         }
     }
