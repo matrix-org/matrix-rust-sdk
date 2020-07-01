@@ -972,6 +972,47 @@ mod test {
             }
         });
 
+        let member1_invites_member2_event = serde_json::json!({
+            "content": {
+                "avatar_url": null,
+                "displayname": "example",
+                "membership": "invite"
+            },
+            "event_id": "$16345217l517tabbz:localhost",
+            "membership": "invite",
+            "origin_server_ts": 1455123238,
+            "sender": format!("{}", user_id1),
+            "state_key": format!("{}", user_id2),
+            "type": "m.room.member",
+            "unsigned": {
+                "age": 1989321238,
+                "replaces_state": "$1622a2311315tkjoA:localhost"
+            }
+        });
+
+        let member2_name_change_event = serde_json::json!({
+            "content": {
+                "avatar_url": null,
+                "displayname": "changed",
+                "membership": "join"
+            },
+            "event_id": "$16345217l517tabbz:localhost",
+            "membership": "join",
+            "origin_server_ts": 1455123238,
+            "sender": format!("{}", user_id2),
+            "state_key": format!("{}", user_id2),
+            "type": "m.room.member",
+            "prev_content": {
+                "avatar_url": null,
+                "displayname": "example",
+                "membership": "join"
+            },
+            "unsigned": {
+                "age": 1989321238,
+                "replaces_state": "$1622a2311315tkjoA:localhost"
+            }
+        });
+
         let member2_leave_event = serde_json::json!({
             "content": {
                 "avatar_url": null,
@@ -1048,19 +1089,29 @@ mod test {
             .build_sync_response();
 
         let mut member2_join_sync_response = event_builder
-            .add_custom_joined_event(&room_id, member2_join_event, RoomEvent::RoomMember)
+            .add_custom_joined_event(&room_id, member2_join_event.clone(), RoomEvent::RoomMember)
             .build_sync_response();
 
         let mut member3_join_sync_response = event_builder
             .add_custom_joined_event(&room_id, member3_join_event, RoomEvent::RoomMember)
             .build_sync_response();
 
-        let mut member2_leave_sync_response = event_builder
+        let mut member2_and_member3_leave_sync_response = event_builder
             .add_custom_joined_event(&room_id, member2_leave_event, RoomEvent::RoomMember)
+            .add_custom_joined_event(&room_id, member3_leave_event, RoomEvent::RoomMember)
             .build_sync_response();
 
-        let mut member3_leave_sync_response = event_builder
-            .add_custom_joined_event(&room_id, member3_leave_event, RoomEvent::RoomMember)
+        let mut member2_rejoins_when_invited_sync_response = event_builder
+            .add_custom_joined_event(&room_id, member1_invites_member2_event, RoomEvent::RoomMember)
+            .add_custom_joined_event(&room_id, member2_join_event, RoomEvent::RoomMember)
+            .build_sync_response();
+
+        let mut member1_name_change_sync_response = event_builder
+            .add_room_event(EventsJson::MemberNameChange, RoomEvent::RoomMember)
+            .build_sync_response();
+
+        let mut member2_name_change_sync_response = event_builder
+            .add_custom_joined_event(&room_id, member2_name_change_event, RoomEvent::RoomMember)
             .build_sync_response();
 
         // First member with display name "example" joins
@@ -1103,11 +1154,7 @@ mod test {
 
         // Second and third member leave. The first's display name is now just "example" again.
         client
-            .receive_sync_response(&mut member2_leave_sync_response)
-            .await
-            .unwrap();
-        client
-            .receive_sync_response(&mut member3_leave_sync_response)
+            .receive_sync_response(&mut member2_and_member3_leave_sync_response)
             .await
             .unwrap();
 
@@ -1118,6 +1165,60 @@ mod test {
             let display_name1 = room.member_display_name(&user_id1);
 
             assert_eq!("example", display_name1);
+        }
+
+        // Second member rejoins after being invited by first member. Both of their names are
+        // disambiguated.
+        client
+            .receive_sync_response(&mut member2_rejoins_when_invited_sync_response)
+            .await
+            .unwrap();
+
+        {
+            let room = client.get_joined_room(&room_id).await.unwrap();
+            let room = room.read().await;
+
+            let display_name1 = room.member_display_name(&user_id1);
+            let display_name2 = room.member_display_name(&user_id2);
+
+            assert_eq!(format!("example ({})", user_id1), display_name1);
+            assert_eq!(format!("example ({})", user_id2), display_name2);
+        }
+
+        // First member changes his display name to "changed". None of the display names are
+        // disambiguated.
+        client
+            .receive_sync_response(&mut member1_name_change_sync_response)
+            .await
+            .unwrap();
+
+        {
+            let room = client.get_joined_room(&room_id).await.unwrap();
+            let room = room.read().await;
+
+            let display_name1 = room.member_display_name(&user_id1);
+            let display_name2 = room.member_display_name(&user_id2);
+
+            assert_eq!("changed", display_name1);
+            assert_eq!("example", display_name2);
+        }
+
+        // Second member *also* changes his display name to "changed". Again, both display name are
+        // disambiguated.
+        client
+            .receive_sync_response(&mut member2_name_change_sync_response)
+            .await
+            .unwrap();
+
+        {
+            let room = client.get_joined_room(&room_id).await.unwrap();
+            let room = room.read().await;
+
+            let display_name1 = room.member_display_name(&user_id1);
+            let display_name2 = room.member_display_name(&user_id2);
+
+            assert_eq!(format!("changed ({})", user_id1), display_name1);
+            assert_eq!(format!("changed ({})", user_id2), display_name2);
         }
     }
 
