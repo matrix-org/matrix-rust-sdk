@@ -832,6 +832,114 @@ mod test {
     }
 
     #[async_test]
+    async fn member_is_not_both_invited_and_joined() {
+        let client = get_client().await;
+        let room_id = get_room_id();
+        let user_id1 = UserId::try_from("@example:localhost").unwrap();
+        let user_id2 = UserId::try_from("@example2:localhost").unwrap();
+
+        let member2_invite_event = serde_json::json!({
+            "content": {
+                "avatar_url": null,
+                "displayname": "example2",
+                "membership": "invite"
+            },
+            "event_id": "$16345217l517tabbz:localhost",
+            "membership": "join",
+            "origin_server_ts": 1455123234,
+            "sender": format!("{}", user_id1),
+            "state_key": format!("{}", user_id2),
+            "type": "m.room.member",
+            "unsigned": {
+                "age": 1989321234,
+                "replaces_state": "$1622a2311315tkjoA:localhost"
+            }
+        });
+
+        let member2_join_event = serde_json::json!({
+            "content": {
+                "avatar_url": null,
+                "displayname": "example2",
+                "membership": "join"
+            },
+            "event_id": "$163409224327jkbba:localhost",
+            "membership": "join",
+            "origin_server_ts": 1455123238,
+            "sender": format!("{}", user_id2),
+            "state_key": format!("{}", user_id2),
+            "type": "m.room.member",
+            "prev_content": {
+                "avatar_url": null,
+                "displayname": "example2",
+                "membership": "invite"
+            },
+            "unsigned": {
+                "age": 1989321214,
+                "replaces_state": "$16345217l517tabbz:localhost"
+            }
+        });
+
+        let mut event_builder = EventBuilder::new();
+
+        let mut member1_join_sync_response = event_builder
+            .add_room_event(EventsJson::Member, RoomEvent::RoomMember)
+            .build_sync_response();
+
+        let mut member2_invite_sync_response = event_builder
+            .add_custom_joined_event(&room_id, member2_invite_event, RoomEvent::RoomMember)
+            .build_sync_response();
+
+        let mut member2_join_sync_response = event_builder
+            .add_custom_joined_event(&room_id, member2_join_event, RoomEvent::RoomMember)
+            .build_sync_response();
+
+
+        // Test that `user` is either joined or invited to `room` but not both.
+        async fn invited_or_joined_but_not_both(client: &BaseClient, room: &RoomId, user: &UserId) {
+            let room = client.get_joined_room(&room).await.unwrap();
+            let room = room.read().await;
+
+            assert!(
+                room.invited_members.get(&user).is_none()
+                    || room.joined_members.get(&user).is_none()
+            );
+            assert!(
+                room.invited_members.get(&user).is_some()
+                    || room.joined_members.get(&user).is_some()
+            );
+        };
+
+        // First member joins.
+        client
+            .receive_sync_response(&mut member1_join_sync_response)
+            .await
+            .unwrap();
+
+        // The first member is not *both* invited and joined but it *is* one of those.
+        invited_or_joined_but_not_both(&client, &room_id, &user_id1).await;
+
+        // First member invites second member.
+        client
+            .receive_sync_response(&mut member2_invite_sync_response)
+            .await
+            .unwrap();
+
+        // Neither member is *both* invited and joined, but they are both *at least one* of those.
+        invited_or_joined_but_not_both(&client, &room_id, &user_id1).await;
+        invited_or_joined_but_not_both(&client, &room_id, &user_id2).await;
+
+        // Second member joins.
+        client
+            .receive_sync_response(&mut member2_join_sync_response)
+            .await
+            .unwrap();
+
+        // Repeat the previous test.
+        invited_or_joined_but_not_both(&client, &room_id, &user_id1).await;
+        invited_or_joined_but_not_both(&client, &room_id, &user_id2).await;
+    }
+
+    #[async_test]
     async fn test_member_display_name() {
         // Initialize
 
