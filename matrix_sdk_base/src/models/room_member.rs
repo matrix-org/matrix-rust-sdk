@@ -129,6 +129,7 @@ impl RoomMember {
     pub(crate) fn update_profile(&mut self, event: &MemberEvent) -> bool {
         self.display_name = event.content.displayname.clone();
         self.avatar_url = event.content.avatar_url.clone();
+
         true
     }
 
@@ -149,13 +150,13 @@ impl RoomMember {
         changed
     }
 
-    /// If the current `PresenceEvent` updated the state of this `User`.
+    /// If the current `PresenceEvent` updated the state of this `RoomMember`.
     ///
-    /// Returns true if the specific users presence has changed, false otherwise.
+    /// Returns true if the member's presence has changed, false otherwise.
     ///
     /// # Arguments
     ///
-    /// * `presence` - The presence event for a this room member.
+    /// * `presence` - The presence event for this room member.
     pub fn did_update_presence(&self, presence: &PresenceEvent) -> bool {
         let PresenceEvent {
             content:
@@ -177,13 +178,13 @@ impl RoomMember {
             && self.currently_active == *currently_active
     }
 
-    /// Updates the `User`s presence.
+    /// Updates the `RoomMember`'s presence.
     ///
     /// This should only be used if `did_update_presence` was true.
     ///
     /// # Arguments
     ///
-    /// * `presence` - The presence event for a this room member.
+    /// * `presence` - The presence event for this room member.
     pub fn update_presence(&mut self, presence_ev: &PresenceEvent) {
         let PresenceEvent {
             content:
