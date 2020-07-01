@@ -16,11 +16,8 @@
 use std::convert::TryFrom;
 
 use crate::events::collections::all::Event;
-use crate::events::presence::{PresenceEvent, PresenceEventContent, PresenceState};
-use crate::events::room::{
-    member::MemberEvent,
-    power_levels::PowerLevelsEvent,
-};
+use crate::events::presence::{PresenceEvent, PresenceState};
+use crate::events::room::member::MemberEvent;
 use crate::identifiers::UserId;
 
 use crate::js_int::{Int, UInt};
@@ -122,90 +119,6 @@ impl RoomMember {
             .clone()
             .map(|d| format!("{} ({})", d, self.user_id))
             .unwrap_or_else(|| format!("{}", self.user_id))
-    }
-
-    /// Handle profile updates.
-    // TODO: NEXT: Add disambiguation handling here
-    pub(crate) fn update_profile(&mut self, event: &MemberEvent) -> bool {
-        self.display_name = event.content.displayname.clone();
-        self.avatar_url = event.content.avatar_url.clone();
-
-        true
-    }
-
-    pub fn update_power(&mut self, event: &PowerLevelsEvent, max_power: Int) -> bool {
-        let changed;
-        if let Some(user_power) = event.content.users.get(&self.user_id) {
-            changed = self.power_level != Some(*user_power);
-            self.power_level = Some(*user_power);
-        } else {
-            changed = self.power_level != Some(event.content.users_default);
-            self.power_level = Some(event.content.users_default);
-        }
-
-        if max_power > Int::from(0) {
-            self.power_level_norm = Some((self.power_level.unwrap() * Int::from(100)) / max_power);
-        }
-
-        changed
-    }
-
-    /// If the current `PresenceEvent` updated the state of this `RoomMember`.
-    ///
-    /// Returns true if the member's presence has changed, false otherwise.
-    ///
-    /// # Arguments
-    ///
-    /// * `presence` - The presence event for this room member.
-    pub fn did_update_presence(&self, presence: &PresenceEvent) -> bool {
-        let PresenceEvent {
-            content:
-                PresenceEventContent {
-                    avatar_url,
-                    currently_active,
-                    displayname,
-                    last_active_ago,
-                    presence,
-                    status_msg,
-                },
-            ..
-        } = presence;
-        self.display_name == *displayname
-            && self.avatar_url == *avatar_url
-            && self.presence.as_ref() == Some(presence)
-            && self.status_msg == *status_msg
-            && self.last_active_ago == *last_active_ago
-            && self.currently_active == *currently_active
-    }
-
-    /// Updates the `RoomMember`'s presence.
-    ///
-    /// This should only be used if `did_update_presence` was true.
-    ///
-    /// # Arguments
-    ///
-    /// * `presence` - The presence event for this room member.
-    pub fn update_presence(&mut self, presence_ev: &PresenceEvent) {
-        let PresenceEvent {
-            content:
-                PresenceEventContent {
-                    avatar_url,
-                    currently_active,
-                    displayname,
-                    last_active_ago,
-                    presence,
-                    status_msg,
-                },
-            ..
-        } = presence_ev;
-
-        self.presence_events.push(presence_ev.clone());
-        self.avatar_url = avatar_url.clone();
-        self.currently_active = *currently_active;
-        self.display_name = displayname.clone();
-        self.last_active_ago = *last_active_ago;
-        self.presence = Some(*presence);
-        self.status_msg = status_msg.clone();
     }
 }
 

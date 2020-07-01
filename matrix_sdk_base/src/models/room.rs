@@ -23,7 +23,7 @@ use super::RoomMember;
 
 use crate::api::r0::sync::sync_events::{RoomSummary, UnreadNotificationsCount};
 use crate::events::collections::all::{RoomEvent, StateEvent};
-use crate::events::presence::PresenceEvent;
+use crate::events::presence::{PresenceEvent, PresenceEventContent};
 use crate::events::room::{
     aliases::AliasesEvent,
     canonical_alias::CanonicalAliasEvent,
@@ -584,22 +584,14 @@ impl Room {
         use MembershipChange::*;
 
         match event.membership_change() {
-            Invited | Joined => self.add_member(event),
+            Invited | Joined => {
+                self.add_member(event)
+            }
             Kicked | Banned | KickedAndBanned | InvitationRejected | Left => {
                 self.remove_member(event)
             }
             ProfileChanged => {
-                let user_id = if let Ok(id) = UserId::try_from(event.state_key.as_str()) {
-                    id
-                } else {
-                    return false;
-                };
-
-                if let Some(member) = self.joined_members.get_mut(&user_id) {
-                    member.update_profile(event)
-                } else {
-                    false
-                }
+                self.update_member_profile(event)
             }
 
             // Not interested in other events.
@@ -671,11 +663,12 @@ impl Room {
 
         for user in event.content.users.keys() {
             if let Some(member) = self.joined_members.get_mut(user) {
-                if member.update_power(event, max_power) {
+                if Room::update_member_power(member, event, max_power) {
                     updated = true;
                 }
             }
         }
+
         updated
     }
 
@@ -755,28 +748,106 @@ impl Room {
         }
     }
 
-    /// Receive a presence event from an `IncomingResponse` and updates the client state.
+    /// Receive a presence event for a member of the current room.
     ///
-    /// This will only update the user if found in the current room looped through
-    /// by `Client::sync`.
-    /// Returns true if the specific users presence has changed, false otherwise.
+    /// Returns true if the event causes a change to the member's presence, false otherwise.
     ///
     /// # Arguments
     ///
     /// * `event` - The presence event to receive and process.
     pub fn receive_presence_event(&mut self, event: &PresenceEvent) -> bool {
+        let PresenceEvent {
+            content:
+                PresenceEventContent {
+                    avatar_url,
+                    currently_active,
+                    displayname,
+                    last_active_ago,
+                    presence,
+                    status_msg,
+                },
+            ..
+        } = event;
+
         if let Some(member) = self.joined_members.get_mut(&event.sender) {
-            if member.did_update_presence(event) {
+            if member.display_name == *displayname
+                && member.avatar_url == *avatar_url
+                && member.presence.as_ref() == Some(presence)
+                && member.status_msg == *status_msg
+                && member.last_active_ago == *last_active_ago
+                && member.currently_active == *currently_active {
+
+                // Everything is the same, nothing to do.
                 false
             } else {
-                member.update_presence(event);
+                // Something changed, do the update.
+
+                member.presence_events.push(event.clone());
+                member.avatar_url = avatar_url.clone();
+                member.currently_active = *currently_active;
+                member.display_name = displayname.clone();
+                member.last_active_ago = *last_active_ago;
+                member.presence = Some(*presence);
+                member.status_msg = status_msg.clone();
+
                 true
             }
         } else {
-            // this is probably an error as we have a `PresenceEvent` for a user
-            // we don't know about
+            // This is probably an error as we have a `PresenceEvent` for a user
+            // we don't know about.
             false
         }
+
+    }
+
+    /// Process an update of a member's profile.
+    ///
+    /// # Arguments
+    ///
+    /// * `event` - The profile update event for a specified room member.
+    // TODO: NEXT: Add disambiguation handling here
+    pub(crate) fn update_member_profile(&mut self, event: &MemberEvent) -> bool {
+        let user_id = if let Ok(id) = UserId::try_from(event.state_key.as_str()) {
+            id
+        } else {
+            return false;
+        };
+
+        if let Some(member) = self.joined_members.get_mut(&user_id) {
+            member.display_name = event.content.displayname.clone();
+            member.avatar_url = event.content.avatar_url.clone();
+            true
+        } else if let Some(member) = self.invited_members.get_mut(&user_id) {
+            member.display_name = event.content.displayname.clone();
+            member.avatar_url = event.content.avatar_url.clone();
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Process an update of a member's power level.
+    ///
+    /// # Arguments
+    ///
+    /// * `event` - The power level event to process.
+    /// * `max_power` - Maximum power level allowed.
+    pub fn update_member_power(member: &mut RoomMember, event: &PowerLevelsEvent, max_power: Int) -> bool {
+        let changed;
+
+        if let Some(user_power) = event.content.users.get(&member.user_id) {
+            changed = member.power_level != Some(*user_power);
+            member.power_level = Some(*user_power);
+        } else {
+            changed = member.power_level != Some(event.content.users_default);
+            member.power_level = Some(event.content.users_default);
+        }
+
+        if max_power > Int::from(0) {
+            member.power_level_norm = Some((member.power_level.unwrap() * Int::from(100)) / max_power);
+        }
+
+        changed
     }
 }
 
