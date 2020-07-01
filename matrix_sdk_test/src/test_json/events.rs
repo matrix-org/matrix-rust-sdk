@@ -234,6 +234,32 @@ lazy_static! {
     });
 }
 
+// TODO: Move `prev_content` into `unsigned` once ruma supports it
+lazy_static! {
+    pub static ref MEMBER_NAME_CHANGE: JsonValue = json!({
+        "content": {
+            "avatar_url": null,
+            "displayname": "changed",
+            "membership": "join"
+        },
+        "event_id": "$151800234427abgho:localhost",
+        "membership": "join",
+        "origin_server_ts": 151800152,
+        "sender": "@example:localhost",
+        "state_key": "@example:localhost",
+        "type": "m.room.member",
+        "prev_content": {
+            "avatar_url": null,
+            "displayname": "example",
+            "membership": "join"
+        },
+        "unsigned": {
+            "age": 297032,
+            "replaces_state": "$151800140517rfvjc:localhost"
+        }
+    });
+}
+
 lazy_static! {
     pub static ref MESSAGE_EDIT: JsonValue = json!({
         "content": {

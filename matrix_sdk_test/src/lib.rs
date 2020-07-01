@@ -31,6 +31,7 @@ pub enum EventsJson {
     HistoryVisibility,
     JoinRules,
     Member,
+    MemberNameChange,
     MessageEmote,
     MessageNotice,
     MessageText,
@@ -154,6 +155,7 @@ impl EventBuilder {
     ) -> &mut Self {
         let val: &JsonValue = match json {
             EventsJson::Member => &test_json::MEMBER,
+            EventsJson::MemberNameChange => &test_json::MEMBER_NAME_CHANGE,
             EventsJson::PowerLevels => &test_json::POWER_LEVELS,
             _ => panic!("unknown room event json {:?}", json),
         };

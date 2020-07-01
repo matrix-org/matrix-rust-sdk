@@ -254,6 +254,50 @@ mod test {
     }
 
     #[async_test]
+    async fn room_member_display_name_change() {
+        let client = get_client().await;
+        let room_id = test_room_id();
+
+        let mut builder = EventBuilder::default();
+        let mut initial_response = builder
+            .add_room_event(EventsJson::Member, RoomEvent::RoomMember)
+            .build_sync_response();
+        let mut name_change_response = builder
+            .add_room_event(EventsJson::MemberNameChange, RoomEvent::RoomMember)
+            .build_sync_response();
+
+        client.receive_sync_response(&mut initial_response).await.unwrap();
+
+        let room = client.get_joined_room(&room_id).await.unwrap();
+
+        // Initially, the display name is "example".
+        {
+            let room = room.read().await;
+
+            let member = room
+                .joined_members
+                .get(&UserId::try_from("@example:localhost").unwrap())
+                .unwrap();
+
+            assert_eq!(member.display_name.as_ref().unwrap(), "example");
+        }
+
+        client.receive_sync_response(&mut name_change_response).await.unwrap();
+
+        // Afterwards, the display name is "changed".
+        {
+            let room = room.read().await;
+
+            let member = room
+                .joined_members
+                .get(&UserId::try_from("@example:localhost").unwrap())
+                .unwrap();
+
+            assert_eq!(member.display_name.as_ref().unwrap(), "changed");
+        }
+    }
+
+    #[async_test]
     async fn member_presence_events() {
         let client = get_client().await;
 
