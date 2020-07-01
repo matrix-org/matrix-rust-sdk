@@ -763,7 +763,7 @@ impl Room {
     ///
     /// # Arguments
     ///
-    /// * `event` - The presence event for a specified room member.
+    /// * `event` - The presence event to receive and process.
     pub fn receive_presence_event(&mut self, event: &PresenceEvent) -> bool {
         if let Some(member) = self.joined_members.get_mut(&event.sender) {
             if member.did_update_presence(event) {
