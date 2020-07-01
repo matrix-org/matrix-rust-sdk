@@ -363,19 +363,22 @@ impl Room {
     fn add_member(&mut self, event: &MemberEvent) -> bool {
         let new_member = RoomMember::new(event);
 
-        if self.joined_members.contains_key(&new_member.user_id)
-            || self.invited_members.contains_key(&new_member.user_id)
-        {
-            return false;
-        }
-
         match event.membership_change() {
-            MembershipChange::Joined => self
-                .joined_members
-                .insert(new_member.user_id.clone(), new_member.clone()),
+            MembershipChange::Joined => {
+                // Since the member is now joined, he shouldn't be tracked as an invited member any
+                // longer.
+                if self.invited_members.contains_key(&new_member.user_id) {
+                    self.invited_members.remove(&new_member.user_id);
+                }
+
+                self.joined_members
+                    .insert(new_member.user_id.clone(), new_member.clone())
+            }
+
             MembershipChange::Invited => self
                 .invited_members
                 .insert(new_member.user_id.clone(), new_member.clone()),
+
             _ => {
                 panic!("Room::add_member called on an event that is neither a join nor an invite.")
             }
