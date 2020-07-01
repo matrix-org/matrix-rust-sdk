@@ -25,6 +25,7 @@ use crate::identifiers::UserId;
 
 use crate::js_int::{Int, UInt};
 use serde::{Deserialize, Serialize};
+
 // Notes: if Alice invites Bob into a room we will get an event with the sender as Alice and the state key as Bob.
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -55,6 +56,14 @@ pub struct RoomMember {
     pub power_level_norm: Option<Int>,
     /// The human readable name of this room member.
     pub name: String,
+    // FIXME: The docstring below is currently a lie since we only store the initial event that
+    // creates the member (the one we pass to RoomMember::new).
+    //
+    // The intent of this field is to keep the last (or last few?) state events related to the room
+    // member cached so we can quickly go back to the previous one in case some of them get
+    // redacted. Keeping all state for each room member is probably too much.
+    //
+    // Needs design.
     /// The events that created the state of this room member.
     #[serde(deserialize_with = "super::event_deser::deserialize_events")]
     pub events: Vec<Event>,
@@ -116,6 +125,7 @@ impl RoomMember {
     }
 
     /// Handle profile updates.
+    // TODO: NEXT: Add disambiguation handling here
     pub(crate) fn update_profile(&mut self, event: &MemberEvent) -> bool {
         self.display_name = event.content.displayname.clone();
         self.avatar_url = event.content.avatar_url.clone();
