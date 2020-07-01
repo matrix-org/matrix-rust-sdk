@@ -358,9 +358,7 @@ impl Room {
     }
 
     /// Process the member event of an entering user.
-    ///
-    /// Returns true if this made a change to the room's state, false otherwise.
-    fn add_member(&mut self, event: &MemberEvent) -> bool {
+    fn add_member(&mut self, event: &MemberEvent) {
         let new_member = RoomMember::new(event);
 
         match event.membership_change() {
@@ -385,15 +383,15 @@ impl Room {
         };
 
         // Perform display name disambiguations, if necessary.
-        let disambiguations = self.disambiguation_updates(&new_member, MemberDirection::Entering);
+        let disambiguations =
+            self.disambiguation_updates(&new_member, MemberDirection::Entering);
+
         for (id, name) in disambiguations.into_iter() {
             match name {
                 None => self.disambiguated_display_names.remove(&id),
                 Some(name) => self.disambiguated_display_names.insert(id, name),
             };
         }
-
-        true
     }
 
     /// Process the member event of a leaving user.
@@ -584,7 +582,9 @@ impl Room {
 
         match event.membership_change() {
             Invited | Joined => {
-                self.add_member(event)
+                self.add_member(event);
+
+                true
             }
             Kicked | Banned | KickedAndBanned | InvitationRejected | Left => {
                 self.remove_member(event)
