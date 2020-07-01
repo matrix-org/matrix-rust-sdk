@@ -427,7 +427,7 @@ impl Room {
     ///
     /// The `inclusive` parameter controls whether the passed member should be included in the
     /// list or not.
-    fn shares_displayname_with(&self, member: &RoomMember, inclusive: bool) -> Vec<UserId> {
+    fn shares_displayname_with(&self, member: &RoomMember, inclusive: bool) -> Vec<RoomMember> {
         let members = self
             .invited_members
             .iter()
@@ -449,7 +449,7 @@ impl Room {
             })
             // If not an inclusive search, do not consider the member for which we are disambiguating.
             .filter(|(id, _)| inclusive || **id != member.user_id)
-            .map(|(id, _)| id)
+            .map(|(_, member)| member)
             .cloned()
             .collect()
     }
@@ -467,16 +467,10 @@ impl Room {
         inclusive: bool,
     ) -> HashMap<UserId, String> {
         let users_with_same_name = self.shares_displayname_with(member, inclusive);
-        let disambiguate_with = |members: Vec<UserId>, f: fn(&RoomMember) -> String| {
+        let disambiguate_with = |members: Vec<RoomMember>, f: fn(&RoomMember) -> String| {
             members
                 .into_iter()
-                .filter_map(|id| {
-                    self.joined_members
-                        .get(&id)
-                        .or_else(|| self.invited_members.get(&id))
-                        .map(f)
-                        .map(|m| (id, m))
-                })
+                .map(|ref m| (m.user_id.clone(), f(m)))
                 .collect::<HashMap<UserId, String>>()
         };
 
