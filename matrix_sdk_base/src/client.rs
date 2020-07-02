@@ -707,23 +707,25 @@ impl BaseClient {
         &self,
         room_id: &RoomId,
         event: &mut EventJson<RoomEvent>,
-    ) -> Result<(Option<EventJson<RoomEvent>>, bool)> {
+    ) -> Result<bool> {
         match event.deserialize() {
             #[allow(unused_mut)]
             Ok(mut e) => {
                 #[cfg(feature = "encryption")]
-                let mut decrypted_event = None;
-                #[cfg(not(feature = "encryption"))]
-                let decrypted_event = None;
-
-                #[cfg(feature = "encryption")]
                 {
-                    if let RoomEvent::RoomEncrypted(ref mut e) = e {
-                        e.room_id = Some(room_id.to_owned());
+                    if let RoomEvent::RoomEncrypted(ref mut encrypted_event) = e {
+                        encrypted_event.room_id = Some(room_id.to_owned());
                         let mut olm = self.olm.lock().await;
 
                         if let Some(o) = &mut *olm {
-                            decrypted_event = o.decrypt_room_event(&e).await.ok();
+                            if let Some(decrypted) =
+                                o.decrypt_room_event(&encrypted_event).await.ok()
+                            {
+                                if let Ok(d) = decrypted.deserialize() {
+                                    e = d
+                                }
+                                *event = decrypted;
+                            }
                         }
                     }
                 }
@@ -741,12 +743,12 @@ impl BaseClient {
                         self.invalidate_group_session(room_id).await;
                     }
 
-                    Ok((decrypted_event, changed))
+                    Ok(changed)
                 } else {
-                    Ok((decrypted_event, room.receive_timeline_event(&e)))
+                    Ok(room.receive_timeline_event(&e))
                 }
             }
-            _ => Ok((None, false)),
+            _ => Ok(false),
         }
     }
 
@@ -1014,19 +1016,12 @@ impl BaseClient {
                 .set_unread_notice_count(&joined_room.unread_notifications);
 
             for mut event in &mut joined_room.timeline.events {
-                let decrypted_event = {
-                    let (decrypt_ev, timeline_update) = self
-                        .receive_joined_timeline_event(room_id, &mut event)
-                        .await?;
-                    if timeline_update {
-                        updated = true;
-                    };
-                    decrypt_ev
+                let timeline_update = self
+                    .receive_joined_timeline_event(room_id, &mut event)
+                    .await?;
+                if timeline_update {
+                    updated = true;
                 };
-
-                if let Some(e) = decrypted_event {
-                    *event = e;
-                }
 
                 // XXX: Related to `prev_content` and `unsigned`; see the doc comment of
                 // `hoist_room_event_prev_content`
