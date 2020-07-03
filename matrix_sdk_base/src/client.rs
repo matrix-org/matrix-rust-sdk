@@ -977,6 +977,8 @@ impl BaseClient {
                     }
 
                     if let Ok(e) = event.deserialize() {
+                        // FIXME: receive_* and emit_* methods shouldn't be called in parallel. We
+                        // should only pass events to receive_* methods and then let *them* emit.
                         if self.receive_joined_state_event(&room_id, &e).await? {
                             updated = true;
                         }
@@ -1016,6 +1018,8 @@ impl BaseClient {
                 .set_unread_notice_count(&joined_room.unread_notifications);
 
             for mut event in &mut joined_room.timeline.events {
+                // FIXME: receive_* and emit_* methods shouldn't be called in parallel. We
+                // should only pass events to receive_* methods and then let *them* emit.
                 let timeline_update = self
                     .receive_joined_timeline_event(room_id, &mut event)
                     .await?;
@@ -1042,6 +1046,8 @@ impl BaseClient {
             if let Some(account_data) = &joined_room.account_data {
                 for account_data in &account_data.events {
                     {
+                        // FIXME: receive_* and emit_* methods shouldn't be called in parallel. We
+                        // should only pass events to receive_* methods and then let *them* emit.
                         if let Ok(e) = account_data.deserialize() {
                             if self.receive_account_data_event(&room_id, &e).await {
                                 updated = true;
@@ -1058,6 +1064,8 @@ impl BaseClient {
             // efficient but we need a room_id so we would loop through now or later.
             for presence in &mut response.presence.events {
                 {
+                    // FIXME: receive_* and emit_* methods shouldn't be called in parallel. We
+                    // should only pass events to receive_* methods and then let *them* emit.
                     if let Ok(e) = presence.deserialize() {
                         if self.receive_presence_event(&room_id, &e).await {
                             updated = true;
@@ -1072,6 +1080,8 @@ impl BaseClient {
             for ephemeral in &mut joined_room.ephemeral.events {
                 {
                     if let Ok(e) = ephemeral.deserialize() {
+                        // FIXME: receive_* and emit_* methods shouldn't be called in parallel. We
+                        // should only pass events to receive_* methods and then let *them* emit.
                         if self.receive_ephemeral_event(&room_id, &e).await {
                             updated = true;
                         }
@@ -1107,6 +1117,8 @@ impl BaseClient {
                         *event = e;
                     }
 
+                    // FIXME: receive_* and emit_* methods shouldn't be called in parallel. We
+                    // should only pass events to receive_* methods and then let *them* emit.
                     if let Ok(e) = event.deserialize() {
                         if self.receive_left_state_event(&room_id, &e).await? {
                             updated = true;
@@ -1131,6 +1143,8 @@ impl BaseClient {
                     *event = e;
                 }
 
+                // FIXME: receive_* and emit_* methods shouldn't be called in parallel. We
+                // should only pass events to receive_* methods and then let *them* emit.
                 if self.receive_left_timeline_event(room_id, &event).await? {
                     updated = true;
                 };
@@ -1161,6 +1175,8 @@ impl BaseClient {
             let matrix_room = {
                 for event in &invited_room.invite_state.events {
                     if let Ok(e) = event.deserialize() {
+                        // FIXME: receive_* and emit_* methods shouldn't be called in parallel. We
+                        // should only pass events to receive_* methods and then let *them* emit.
                         if self.receive_invite_state_event(&room_id, &e).await? {
                             updated = true;
                         }
