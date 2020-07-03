@@ -34,17 +34,33 @@ use crate::events::room::{
 };
 
 use crate::events::{
-    Algorithm, AnyRoomEventStub, AnyStateEventStub, AnyStrippedStateEventStub, EventType,
-    StateEventStub, StrippedStateEventStub,
+    Algorithm, AnyMessageEventContent, AnyRoomEventStub, AnyStateEventStub,
+    AnyStrippedStateEventStub, EventJson, EventType, StateEventStub, StrippedStateEventStub,
 };
 
 #[cfg(feature = "messages")]
-use crate::events::{room::redaction::RedactionEventStub, AnyMessageEventStub};
+use crate::events::{
+    room::redaction::{RedactionEvent, RedactionEventStub},
+    AnyMessageEventStub,
+};
 
 use crate::identifiers::{RoomAliasId, RoomId, UserId};
 
 use crate::js_int::{Int, UInt};
 use serde::{Deserialize, Serialize};
+
+#[cfg(feature = "messages")]
+fn full_event_from_stub(event: RedactionEventStub, room_id: RoomId) -> RedactionEvent {
+    RedactionEvent {
+        content: event.content,
+        redacts: event.redacts,
+        event_id: event.event_id,
+        unsigned: event.unsigned,
+        sender: event.sender,
+        origin_server_ts: event.origin_server_ts,
+        room_id,
+    }
+}
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 /// `RoomName` allows the calculation of a text room name.
@@ -618,7 +634,8 @@ impl Room {
     #[cfg(feature = "messages")]
     #[cfg_attr(docsrs, doc(cfg(feature = "messages")))]
     pub fn handle_message(&mut self, event: &AnyMessageEventStub) -> bool {
-        self.messages.push(event.clone())
+        let message = MessageWrapper::clone_into_any_content(event);
+        self.messages.push(message)
     }
 
     /// Handle a room.redaction event and update the `MessageQueue` if necessary.
@@ -630,9 +647,12 @@ impl Room {
         if let Some(msg) = self
             .messages
             .iter_mut()
-            .find(|msg| &event.redacts == msg.event_id())
+            .find(|msg| event.redacts == msg.event_id)
         {
-            *msg = MessageWrapper(AnyMessageEventStub::RoomRedaction(event.clone()));
+            msg.content = AnyMessageEventContent::RoomRedaction(event.content.clone());
+
+            let redaction = full_event_from_stub(event.clone(), self.room_id.clone());
+            msg.unsigned.redacted_because = Some(EventJson::from(redaction));
             true
         } else {
             false
@@ -1150,6 +1170,51 @@ mod test {
         }
 
         assert_eq!(vec!["example2"], room_names);
+    }
+
+    #[cfg(feature = "messages")]
+    #[async_test]
+    async fn message_queue_redaction_event() {
+        let room_id = get_room_id();
+
+        let mut response = sync_response(SyncResponseFile::DefaultWithSummary);
+
+        let session = Session {
+            access_token: "1234".to_owned(),
+            user_id: UserId::try_from("@example:localhost").unwrap(),
+            device_id: "DEVICEID".to_owned(),
+        };
+        let client = BaseClient::new().unwrap();
+        client.restore_login(session).await.unwrap();
+        client.receive_sync_response(&mut response).await.unwrap();
+
+        let json = serde_json::json!({
+            "content": {
+                "reason": "😀"
+            },
+            "event_id": "$151957878228ssqrJ:localhost",
+            "origin_server_ts": 151957878,
+            "sender": "@example:localhost",
+            "type": "m.room.redaction",
+            "redacts": "$152037280074GZeOm:localhost"
+        });
+        let mut event: EventJson<AnyRoomEventStub> = serde_json::from_value(json).unwrap();
+        client
+            .receive_joined_timeline_event(&room_id, &mut event)
+            .await
+            .unwrap();
+
+        for room in client.joined_rooms().read().await.values() {
+            let queue = &room.read().await.messages;
+            println!("{:?}", queue);
+            if let crate::events::AnyMessageEventContent::RoomRedaction(content) =
+                &queue.msgs[0].content
+            {
+                assert_eq!(content.reason, Some("😀".to_string()));
+            } else {
+                panic!("message event in message queue should be redacted")
+            }
+        }
     }
 
     #[async_test]

@@ -7,28 +7,42 @@ use std::cmp::Ordering;
 use std::ops::{Deref, DerefMut};
 use std::vec::IntoIter;
 
-use crate::events::AnyMessageEventStub;
+use crate::events::{AnyMessageEventContent, AnyMessageEventStub, MessageEventStub};
 
 use serde::{de, ser, Serialize};
 
 const MESSAGE_QUEUE_CAP: usize = 35;
 
+pub type SyncMessageEvent = MessageEventStub<AnyMessageEventContent>;
+
 /// A queue that holds the 35 most recent messages received from the server.
 #[derive(Clone, Debug, Default)]
 pub struct MessageQueue {
-    msgs: Vec<MessageWrapper>,
+    pub(crate) msgs: Vec<MessageWrapper>,
 }
 
-/// A wrapper for `ruma_events::AnyMessageEventStub` that allows implementation of
+/// A wrapper for `ruma_events::SyncMessageEvent` that allows implementation of
 /// Eq, Ord and the Partial versions of the traits.
 ///
 /// `MessageWrapper` also implements Deref and DerefMut so accessing the events contents
 /// are simplified.
 #[derive(Clone, Debug, Serialize)]
-pub struct MessageWrapper(pub AnyMessageEventStub);
+pub struct MessageWrapper(pub SyncMessageEvent);
+
+impl MessageWrapper {
+    pub fn clone_into_any_content(event: &AnyMessageEventStub) -> SyncMessageEvent {
+        MessageEventStub {
+            content: event.content().clone(),
+            sender: event.sender().clone(),
+            origin_server_ts: event.origin_server_ts().clone(),
+            event_id: event.event_id().clone(),
+            unsigned: event.unsigned().clone(),
+        }
+    }
+}
 
 impl Deref for MessageWrapper {
-    type Target = AnyMessageEventStub;
+    type Target = SyncMessageEvent;
 
     fn deref(&self) -> &Self::Target {
         &self.0
@@ -43,7 +57,7 @@ impl DerefMut for MessageWrapper {
 
 impl PartialEq for MessageWrapper {
     fn eq(&self, other: &MessageWrapper) -> bool {
-        self.0.event_id() == other.0.event_id()
+        self.0.event_id == other.0.event_id
     }
 }
 
@@ -51,7 +65,7 @@ impl Eq for MessageWrapper {}
 
 impl PartialOrd for MessageWrapper {
     fn partial_cmp(&self, other: &MessageWrapper) -> Option<Ordering> {
-        Some(self.0.origin_server_ts().cmp(&other.0.origin_server_ts()))
+        Some(self.0.origin_server_ts.cmp(&other.0.origin_server_ts))
     }
 }
 
@@ -68,7 +82,7 @@ impl PartialEq for MessageQueue {
                 .msgs
                 .iter()
                 .zip(other.msgs.iter())
-                .all(|(msg_a, msg_b)| msg_a.event_id() == msg_b.event_id())
+                .all(|(msg_a, msg_b)| msg_a.event_id == msg_b.event_id)
     }
 }
 
@@ -83,10 +97,10 @@ impl MessageQueue {
     /// Inserts a `MessageEvent` into `MessageQueue`, sorted by by `origin_server_ts`.
     ///
     /// Removes the oldest element in the queue if there are more than 10 elements.
-    pub fn push(&mut self, msg: AnyMessageEventStub) -> bool {
+    pub fn push(&mut self, msg: SyncMessageEvent) -> bool {
         // only push new messages into the queue
         if let Some(latest) = self.msgs.last() {
-            if msg.origin_server_ts() < latest.origin_server_ts() && self.msgs.len() >= 10 {
+            if msg.origin_server_ts < latest.origin_server_ts && self.msgs.len() >= 10 {
                 return false;
             }
         }
@@ -131,7 +145,7 @@ pub(crate) mod ser_deser {
     where
         D: de::Deserializer<'de>,
     {
-        let messages: Vec<AnyMessageEventStub> = de::Deserialize::deserialize(deserializer)?;
+        let messages: Vec<SyncMessageEvent> = de::Deserialize::deserialize(deserializer)?;
 
         let mut msgs = vec![];
         for msg in messages {
@@ -172,7 +186,7 @@ mod test {
         let mut room = Room::new(&id, &user);
 
         let json: &serde_json::Value = &test_json::MESSAGE_TEXT;
-        let msg = serde_json::from_value::<AnyMessageEventStub>(json.clone()).unwrap();
+        let msg = serde_json::from_value::<SyncMessageEvent>(json.clone()).unwrap();
 
         let mut msgs = MessageQueue::new();
         msgs.push(msg.clone());
@@ -218,7 +232,7 @@ mod test {
         let mut room = Room::new(&id, &user);
 
         let json: &serde_json::Value = &test_json::MESSAGE_TEXT;
-        let msg = serde_json::from_value::<AnyMessageEventStub>(json.clone()).unwrap();
+        let msg = serde_json::from_value::<SyncMessageEvent>(json.clone()).unwrap();
 
         let mut msgs = MessageQueue::new();
         msgs.push(msg.clone());
