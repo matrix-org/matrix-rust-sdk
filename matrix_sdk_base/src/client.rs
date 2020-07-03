@@ -713,20 +713,22 @@ impl BaseClient {
     pub async fn receive_joined_timeline_event(
         &self,
         room_id: &RoomId,
-        event: &mut EventJson<RoomEvent>,
+        event: &mut EventJson<AnyRoomEventStub>,
     ) -> Result<bool> {
         match event.deserialize() {
             #[allow(unused_mut)]
             Ok(mut e) => {
                 #[cfg(feature = "encryption")]
                 {
-                    if let RoomEvent::RoomEncrypted(ref mut encrypted_event) = e {
-                        encrypted_event.room_id = Some(room_id.to_owned());
+                    if let AnyRoomEventStub::Message(AnyMessageEventStub::RoomEncrypted(
+                        ref mut encrypted_event,
+                    )) = e
+                    {
                         let mut olm = self.olm.lock().await;
 
                         if let Some(o) = &mut *olm {
                             if let Some(decrypted) =
-                                o.decrypt_room_event(&encrypted_event).await.ok()
+                                o.decrypt_room_event(&encrypted_event, room_id).await.ok()
                             {
                                 if let Ok(d) = decrypted.deserialize() {
                                     e = d
@@ -752,7 +754,7 @@ impl BaseClient {
 
                     Ok(changed)
                 } else {
-                    Ok(room.receive_timeline_event(&e))
+                    Ok(room.receive_timeline_event(&e, room_id))
                 }
             }
             _ => Ok(false),
@@ -1054,17 +1056,13 @@ impl BaseClient {
             }
 
             // look at AccountData to further cut down users by collecting ignored users
-            if let Some(account_data) = &joined_room.account_data {
-                for account_data in &account_data.events {
-                    {
-                        // FIXME: receive_* and emit_* methods shouldn't be called in parallel. We
-                        // should only pass events to receive_* methods and then let *them* emit.
-                        if let Ok(e) = account_data.deserialize() {
-                            if self.receive_account_data_event(&room_id, &e).await {
-                                updated = true;
-                            }
-                            self.emit_account_data_event(room_id, &e, RoomStateType::Joined)
-                                .await;
+            for account_data in &joined_room.account_data.events {
+                {
+                    // FIXME: receive_* and emit_* methods shouldn't be called in parallel. We
+                    // should only pass events to receive_* methods and then let *them* emit.
+                    if let Ok(e) = account_data.deserialize() {
+                        if self.receive_account_data_event(&room_id, &e).await {
+                            updated = true;
                         }
                         self.emit_account_data_event(room_id, &e, RoomStateType::Joined)
                             .await;
@@ -2161,7 +2159,7 @@ mod test {
         assert_eq!(*member.display_name.as_ref().unwrap(), "changed");
 
         // The second part tests that the event is emitted correctly. If `prev_content` was
-        // missing, this bool would had been flipped.
+        // missing, this bool is reset to false.
         assert!(passed.load(Ordering::SeqCst))
     }
 
