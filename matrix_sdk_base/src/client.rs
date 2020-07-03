@@ -1018,6 +1018,12 @@ impl BaseClient {
                 .set_unread_notice_count(&joined_room.unread_notifications);
 
             for mut event in &mut joined_room.timeline.events {
+                // XXX: Related to `prev_content` and `unsigned`; see the doc comment of
+                // `hoist_room_event_prev_content`
+                if let Some(e) = hoist_room_event_prev_content(event) {
+                    *event = e;
+                }
+
                 // FIXME: receive_* and emit_* methods shouldn't be called in parallel. We
                 // should only pass events to receive_* methods and then let *them* emit.
                 let timeline_update = self
@@ -1026,12 +1032,6 @@ impl BaseClient {
                 if timeline_update {
                     updated = true;
                 };
-
-                // XXX: Related to `prev_content` and `unsigned`; see the doc comment of
-                // `hoist_room_event_prev_content`
-                if let Some(e) = hoist_room_event_prev_content(event) {
-                    *event = e;
-                }
 
                 if let Ok(e) = event.deserialize() {
                     self.emit_timeline_event(&room_id, &e, RoomStateType::Joined)
@@ -2011,14 +2011,62 @@ mod test {
         }
 
         let room_id = get_room_id();
+        let user_id = UserId::try_from("@example:localhost").unwrap();
+
         let passed = Arc::new(AtomicBool::default());
         let emitter = EE(Arc::clone(&passed));
         let mut client = get_client().await;
 
         client.event_emitter = Arc::new(RwLock::new(Some(Box::new(emitter))));
 
-        // This is needed other wise the `EventBuilder` goes through a de/ser cycle and the `prev_content` is lost.
-        let event: &serde_json::Value = &test_json::MEMBER;
+        // We can't do this through `EventBuilder` since it goes through a de/ser cycle and the
+        // `prev_content` is lost. Luckily, this test won't be needed once ruma fixes
+        // `prev_content` parsing.
+        let join_event: serde_json::Value = serde_json::json!({
+            "content": {
+                "avatar_url": null,
+                "displayname": "example",
+                "membership": "join"
+            },
+            "event_id": "$151800140517rfvjc:localhost",
+            "membership": "join",
+            "origin_server_ts": 151800140,
+            "sender": user_id.as_ref(),
+            "state_key": user_id.as_ref(),
+            "type": "m.room.member",
+            "unsigned": {
+                "age": 297036,
+                "replaces_state": "$151800111315tsynI:localhost",
+                "prev_content": {
+                    "avatar_url": null,
+                    "displayname": "example",
+                    "membership": "invite"
+                }
+            }
+        });
+
+        let display_name_change_event: serde_json::Value = serde_json::json!({
+            "content": {
+                "avatar_url": null,
+                "displayname": "changed",
+                "membership": "join"
+            },
+            "event_id": "$191804320221Tallh:localhost",
+            "membership": "join",
+            "origin_server_ts": 151800140,
+            "sender": user_id.as_ref(),
+            "state_key": user_id.as_ref(),
+            "type": "m.room.member",
+            "unsigned": {
+                "age": 297036,
+                "replaces_state": "$151800140517rfvjc:localhost",
+                "prev_content": {
+                    "avatar_url": null,
+                    "displayname": "example",
+                    "membership": "join"
+                }
+            }
+        });
 
         let mut joined_rooms: HashMap<RoomId, serde_json::Value> = HashMap::new();
         let joined_room = serde_json::json!({
@@ -2033,7 +2081,7 @@ mod test {
                 "events": [],
             },
             "timeline": {
-                "events": vec![ event ],
+                "events": vec![ join_event, display_name_change_event ],
                 "limited": true,
                 "prev_batch": "t392-516_47314_0_7_1_1_1_11444_1"
             },
@@ -2042,7 +2090,7 @@ mod test {
                 "notification_count": 11
             }
         });
-        joined_rooms.insert(room_id, joined_room);
+        joined_rooms.insert(room_id.clone(), joined_room);
 
         let empty_room: HashMap<RoomId, serde_json::Value> = HashMap::new();
         let body = serde_json::json!({
@@ -2072,6 +2120,22 @@ mod test {
 
         client.receive_sync_response(&mut sync).await.unwrap();
 
+        // This is a tricky test. Since we receive and emit the event separately, we have to test
+        // both paths.
+
+        // This first part tests that the event was received correctly (with
+        // `prev_content` hoisted).
+        //
+        // However, we can't simply test that the member is joined since a missing `prev_content`
+        // is considered to be `"membership": "invite"` by default, which would still work out
+        // correctly. Hence we test that his display name was changed.
+        let room = client.get_joined_room(&room_id).await.unwrap();
+        let room = room.read().await;
+        let member = room.joined_members.get(&user_id).unwrap();
+        assert_eq!(*member.display_name.as_ref().unwrap(), "changed");
+
+        // The second part tests that the event is emitted correctly. If `prev_content` was
+        // missing, this bool would had been flipped.
         assert!(passed.load(Ordering::SeqCst))
     }
 
