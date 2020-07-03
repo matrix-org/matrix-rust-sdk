@@ -32,7 +32,7 @@ use matrix_sdk_common::{
 /// # let mut rt = tokio::runtime::Runtime::new().unwrap();
 /// # rt.block_on(async {
 /// let mut builder = RoomBuilder::default();
-/// builder.creation_content(false, None)
+/// builder.federate(false)
 ///     .initial_state(vec![])
 ///     .visibility(Visibility::Public)
 ///     .name("name")
@@ -43,7 +43,8 @@ use matrix_sdk_common::{
 /// ```
 #[derive(Clone, Debug, Default)]
 pub struct RoomBuilder {
-    creation_content: Option<CreationContent>,
+    previous_room: Option<PreviousRoom>,
+    federate: bool,
     initial_state: Vec<InitialStateEvent>,
     invite: Vec<UserId>,
     invite_3pid: Vec<Invite3pid>,
@@ -60,21 +61,27 @@ pub struct RoomBuilder {
 impl RoomBuilder {
     /// Returns an empty `RoomBuilder` for creating rooms.
     pub fn new() -> Self {
-        Self::default()
+        Self {
+            // we can't send false as a default as it will overwrite the true default.
+            federate: true,
+            ..Default::default()
+        }
     }
 
-    /// Set the `CreationContent`.
+    /// A reference to the room this room replaces, if the previous room was upgraded.
     ///
-    /// Weather users on other servers can join this room.
-    pub fn creation_content(
-        &mut self,
-        federate: bool,
-        predecessor: Option<PreviousRoom>,
-    ) -> &mut Self {
-        self.creation_content = Some(CreationContent {
-            federate,
-            predecessor,
-        });
+    /// Note: this is used to create the `CreationContent`.
+    pub fn previous_room(&mut self, previous_room: PreviousRoom) -> &mut Self {
+        self.previous_room = Some(previous_room);
+        self
+    }
+
+    /// Whether users on other servers can join this room.
+    ///
+    /// Defaults to `true` if key does not exist.
+    /// Note: this is used to create the `CreationContent`.
+    pub fn federate(&mut self, federate: bool) -> &mut Self {
+        self.federate = federate;
         self
     }
 
@@ -156,8 +163,12 @@ impl RoomBuilder {
 
 impl Into<create_room::Request> for RoomBuilder {
     fn into(self) -> create_room::Request {
+        let creation_content = Some(CreationContent {
+            federate: self.federate,
+            predecessor: self.previous_room,
+        });
         create_room::Request {
-            creation_content: self.creation_content,
+            creation_content,
             initial_state: self.initial_state,
             invite: self.invite,
             invite_3pid: self.invite_3pid,
@@ -270,6 +281,7 @@ impl Into<get_message_events::Request> for MessagesRequestBuilder {
             from: self.from,
             to: self.to,
             dir: self.direction.unwrap_or(Direction::Backward),
+            // Will our default overwrite the normal default
             limit: self.limit.map(UInt::from).unwrap_or_default(),
             filter: self.filter,
         }
@@ -509,7 +521,7 @@ mod test {
 
         let mut builder = RoomBuilder::new();
         builder
-            .creation_content(false, None)
+            .federate(false)
             .initial_state(vec![])
             .visibility(Visibility::Public)
             .name("room_name")

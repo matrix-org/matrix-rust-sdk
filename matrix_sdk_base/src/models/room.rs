@@ -360,8 +360,8 @@ impl Room {
         }
     }
 
-    fn add_member(&mut self, event: &StateEventStub<MemberEventContent>, room_id: &RoomId) -> bool {
-        let new_member = RoomMember::new(event, room_id);
+    fn add_member(&mut self, event: &StateEventStub<MemberEventContent>) -> bool {
+        let new_member = RoomMember::new(event, &self.room_id);
 
         if self.joined_members.contains_key(&new_member.user_id)
             || self.invited_members.contains_key(&new_member.user_id)
@@ -396,12 +396,8 @@ impl Room {
     /// Process the member event of a leaving user.
     ///
     /// Returns true if this made a change to the room's state, false otherwise.
-    fn remove_member(
-        &mut self,
-        event: &StateEventStub<MemberEventContent>,
-        room_id: &RoomId,
-    ) -> bool {
-        let leaving_member = RoomMember::new(event, room_id);
+    fn remove_member(&mut self, event: &StateEventStub<MemberEventContent>) -> bool {
+        let leaving_member = RoomMember::new(event, &self.room_id);
 
         // Perform display name disambiguations, if necessary.
         let disambiguations =
@@ -587,19 +583,15 @@ impl Room {
     /// Handle a room.member updating the room state if necessary.
     ///
     /// Returns true if the joined member list changed, false otherwise.
-    pub fn handle_membership(
-        &mut self,
-        event: &StateEventStub<MemberEventContent>,
-        room_id: &RoomId,
-    ) -> bool {
+    pub fn handle_membership(&mut self, event: &StateEventStub<MemberEventContent>) -> bool {
         use MembershipChange::*;
 
         // TODO: This would not be handled correctly as all the MemberEvents have the `prev_content`
         // inside of `unsigned` field.
         match event.membership_change() {
-            Invited | Joined => self.add_member(event, room_id),
+            Invited | Joined => self.add_member(event),
             Kicked | Banned | KickedAndBanned | InvitationRejected | Left => {
-                self.remove_member(event, room_id)
+                self.remove_member(event)
             }
             ProfileChanged { .. } => {
                 let user_id = if let Ok(id) = UserId::try_from(event.state_key.as_str()) {
@@ -640,7 +632,6 @@ impl Room {
             .iter_mut()
             .find(|msg| &event.redacts == msg.event_id())
         {
-            // TODO make msg an enum or use AnyMessageEventStub enum to represent
             *msg = MessageWrapper(AnyMessageEventStub::RoomRedaction(event.clone()));
             true
         } else {
@@ -734,11 +725,11 @@ impl Room {
     /// # Arguments
     ///
     /// * `event` - The event of the room.
-    pub fn receive_timeline_event(&mut self, event: &AnyRoomEventStub, room_id: &RoomId) -> bool {
+    pub fn receive_timeline_event(&mut self, event: &AnyRoomEventStub) -> bool {
         match &event {
             AnyRoomEventStub::State(event) => match &event {
                 // update to the current members of the room
-                AnyStateEventStub::RoomMember(event) => self.handle_membership(&event, room_id),
+                AnyStateEventStub::RoomMember(event) => self.handle_membership(&event),
                 // finds all events related to the name of the room for later use
                 AnyStateEventStub::RoomName(event) => self.handle_room_name(&event),
                 AnyStateEventStub::RoomCanonicalAlias(event) => self.handle_canonical(&event),
@@ -768,10 +759,10 @@ impl Room {
     /// # Arguments
     ///
     /// * `event` - The event of the room.
-    pub fn receive_state_event(&mut self, event: &AnyStateEventStub, room_id: &RoomId) -> bool {
+    pub fn receive_state_event(&mut self, event: &AnyStateEventStub) -> bool {
         match event {
             // update to the current members of the room
-            AnyStateEventStub::RoomMember(member) => self.handle_membership(member, room_id),
+            AnyStateEventStub::RoomMember(member) => self.handle_membership(member),
             // finds all events related to the name of the room for later use
             AnyStateEventStub::RoomName(name) => self.handle_room_name(name),
             AnyStateEventStub::RoomCanonicalAlias(c_alias) => self.handle_canonical(c_alias),

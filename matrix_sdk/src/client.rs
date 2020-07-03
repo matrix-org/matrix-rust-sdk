@@ -773,7 +773,7 @@ impl Client {
     ///
     /// # let homeserver = Url::parse("http://example.com").unwrap();
     /// let mut builder = RoomBuilder::default();
-    /// builder.creation_content(false, None)
+    /// builder.federate(false)
     ///     .initial_state(vec![])
     ///     .visibility(Visibility::Public)
     ///     .name("name")

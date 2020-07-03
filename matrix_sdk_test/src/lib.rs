@@ -6,8 +6,8 @@ use http::Response;
 
 use matrix_sdk_common::api::r0::sync::sync_events::Response as SyncResponse;
 use matrix_sdk_common::events::{
-    presence::PresenceEvent, AnyBasicEvent, AnyEphemeralRoomEventContent, AnyRoomEventStub,
-    AnyStateEventStub, EphemeralRoomEventStub,
+    presence::PresenceEvent, AnyBasicEvent, AnyEphemeralRoomEventStub, AnyRoomEventStub,
+    AnyStateEventStub,
 };
 use matrix_sdk_common::identifiers::RoomId;
 use serde_json::Value as JsonValue;
@@ -15,9 +15,6 @@ use serde_json::Value as JsonValue;
 pub use matrix_sdk_test_macros::async_test;
 
 pub mod test_json;
-
-/// Static `serde_json::Value`s
-type AnyEphemeralRoomEventStub = EphemeralRoomEventStub<AnyEphemeralRoomEventContent>;
 
 /// Embedded event files
 #[derive(Debug)]

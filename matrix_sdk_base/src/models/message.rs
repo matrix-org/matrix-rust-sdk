@@ -13,12 +13,17 @@ use serde::{de, ser, Serialize};
 
 const MESSAGE_QUEUE_CAP: usize = 35;
 
-/// A queue that holds the 10 most recent messages received from the server.
+/// A queue that holds the 35 most recent messages received from the server.
 #[derive(Clone, Debug, Default)]
 pub struct MessageQueue {
     msgs: Vec<MessageWrapper>,
 }
 
+/// A wrapper for `ruma_events::AnyMessageEventStub` that allows implementation of
+/// Eq, Ord and the Partial versions of the traits.
+///
+/// `MessageWrapper` also implements Deref and DerefMut so accessing the events contents
+/// are simplified.
 #[derive(Clone, Debug, Serialize)]
 pub struct MessageWrapper(pub AnyMessageEventStub);
 

@@ -743,7 +743,7 @@ impl BaseClient {
                 let mut room = room_lock.write().await;
 
                 if let AnyRoomEventStub::State(AnyStateEventStub::RoomMember(mem_event)) = &mut e {
-                    let changed = room.handle_membership(mem_event, room_id);
+                    let changed = room.handle_membership(mem_event);
 
                     // The memberlist of the room changed, invalidate the group session
                     // of the room.
@@ -754,7 +754,7 @@ impl BaseClient {
 
                     Ok(changed)
                 } else {
-                    Ok(room.receive_timeline_event(&e, room_id))
+                    Ok(room.receive_timeline_event(&e))
                 }
             }
             _ => Ok(false),
@@ -780,7 +780,7 @@ impl BaseClient {
         let mut room = room_lock.write().await;
 
         if let AnyStateEventStub::RoomMember(e) = event {
-            let changed = room.handle_membership(e, room_id);
+            let changed = room.handle_membership(e);
 
             // The memberlist of the room changed, invalidate the group session
             // of the room.
@@ -791,7 +791,7 @@ impl BaseClient {
 
             Ok(changed)
         } else {
-            Ok(room.receive_state_event(event, room_id))
+            Ok(room.receive_state_event(event))
         }
     }
 
@@ -834,7 +834,7 @@ impl BaseClient {
             Ok(e) => {
                 let room_lock = self.get_or_create_left_room(room_id).await?;
                 let mut room = room_lock.write().await;
-                Ok(room.receive_timeline_event(&e, room_id))
+                Ok(room.receive_timeline_event(&e))
             }
             _ => Ok(false),
         }
@@ -857,7 +857,7 @@ impl BaseClient {
     ) -> Result<bool> {
         let room_lock = self.get_or_create_left_room(room_id).await?;
         let mut room = room_lock.write().await;
-        Ok(room.receive_state_event(event, room_id))
+        Ok(room.receive_state_event(event))
     }
 
     /// Receive a presence event from a sync response and updates the client state.
@@ -906,11 +906,7 @@ impl BaseClient {
     /// * `room_id` - The unique id of the room the event belongs to.
     ///
     /// * `event` - The presence event for a specified room member.
-    pub async fn receive_ephemeral_event(
-        &self,
-        _room_id: &RoomId,
-        event: &AnyEphemeralRoomEventStub,
-    ) -> bool {
+    pub async fn receive_ephemeral_event(&self, event: &AnyEphemeralRoomEventStub) -> bool {
         match &event {
             AnyEphemeralRoomEventStub::FullyRead(_) => {}
             AnyEphemeralRoomEventStub::Receipt(_) => {}
@@ -1093,7 +1089,7 @@ impl BaseClient {
                     if let Ok(e) = ephemeral.deserialize() {
                         // FIXME: receive_* and emit_* methods shouldn't be called in parallel. We
                         // should only pass events to receive_* methods and then let *them* emit.
-                        if self.receive_ephemeral_event(&room_id, &e).await {
+                        if self.receive_ephemeral_event(&e).await {
                             updated = true;
                         }
 

@@ -938,7 +938,6 @@ impl OlmMachine {
             .ok_or(EventError::MissingSigningKey)?;
 
         Ok((
-            // FIXME EventJson<Any*Event> fails to deserialize still?
             EventJson::from(serde_json::from_value::<AnyToDeviceEvent>(decrypted_json)?),
             signing_key.to_owned(),
         ))
@@ -999,7 +998,7 @@ impl OlmMachine {
                 .await?
             {
                 // Some events may have sensitive data e.g. private keys, while we
-                // wan't to notify our users that a private key was received we
+                // want to notify our users that a private key was received we
                 // don't want them to be able to do silly things with it. Handling
                 // events modifies them and returns a modified one, so replace it
                 // here if we get one.
