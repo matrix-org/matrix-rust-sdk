@@ -946,7 +946,7 @@ impl BaseClient {
 
         // when events change state, updated_* signals to StateStore to update database
         self.iter_joined_rooms(response).await?;
-        self.iter_invited_rooms(&response).await?;
+        self.iter_invited_rooms(response).await?;
         self.iter_left_rooms(response).await?;
 
         let store = self.state_store.read().await;
