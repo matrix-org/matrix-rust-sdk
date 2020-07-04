@@ -772,7 +772,7 @@ impl Client {
     /// # use url::Url;
     ///
     /// # let homeserver = Url::parse("http://example.com").unwrap();
-    /// let mut builder = RoomBuilder::default();
+    /// let mut builder = RoomBuilder::new();
     /// builder.federate(false)
     ///     .initial_state(vec![])
     ///     .visibility(Visibility::Public)

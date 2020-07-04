@@ -50,7 +50,10 @@ use crate::js_int::{Int, UInt};
 use serde::{Deserialize, Serialize};
 
 #[cfg(feature = "messages")]
-fn full_event_from_stub(event: RedactionEventStub, room_id: RoomId) -> RedactionEvent {
+fn redaction_event_from_redaction_stub(
+    event: RedactionEventStub,
+    room_id: RoomId,
+) -> RedactionEvent {
     RedactionEvent {
         content: event.content,
         redacts: event.redacts,
@@ -638,9 +641,11 @@ impl Room {
         self.messages.push(message)
     }
 
-    /// Handle a room.redaction event and update the `MessageQueue` if necessary.
+    /// Handle a room.redaction event and update the `MessageQueue`.
     ///
-    /// Returns true if `MessageQueue` was updated.
+    /// Returns true if `MessageQueue` was updated. The effected message event
+    /// has it's contents replaced with the `RedactionEventContents` and the whole
+    /// redaction event is added to the `Unsigned` `redacted_because` field.
     #[cfg(feature = "messages")]
     #[cfg_attr(docsrs, doc(cfg(feature = "messages")))]
     pub fn handle_redaction(&mut self, event: &RedactionEventStub) -> bool {
@@ -651,7 +656,8 @@ impl Room {
         {
             msg.content = AnyMessageEventContent::RoomRedaction(event.content.clone());
 
-            let redaction = full_event_from_stub(event.clone(), self.room_id.clone());
+            let redaction =
+                redaction_event_from_redaction_stub(event.clone(), self.room_id.clone());
             msg.unsigned.redacted_because = Some(EventJson::from(redaction));
             true
         } else {
