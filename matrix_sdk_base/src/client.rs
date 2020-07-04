@@ -1839,13 +1839,16 @@ impl BaseClient {
 #[cfg(test)]
 mod test {
     use crate::identifiers::{RoomId, UserId};
-    use crate::{BaseClient, BaseClientConfig, JsonStore, Session};
+    use crate::{BaseClient, BaseClientConfig, Session};
     use matrix_sdk_common::events::{AnyRoomEventStub, EventJson};
     use matrix_sdk_common_macros::async_trait;
     use matrix_sdk_test::{async_test, test_json, EventBuilder, EventsJson};
     use serde_json::json;
     use std::convert::TryFrom;
     use tempfile::tempdir;
+
+    #[cfg(feature = "messages")]
+    use crate::JsonStore;
 
     #[cfg(target_arch = "wasm32")]
     use wasm_bindgen_test::*;

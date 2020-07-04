@@ -34,14 +34,14 @@ use crate::events::room::{
 };
 
 use crate::events::{
-    Algorithm, AnyMessageEventContent, AnyRoomEventStub, AnyStateEventStub,
-    AnyStrippedStateEventStub, EventJson, EventType, StateEventStub, StrippedStateEventStub,
+    Algorithm, AnyRoomEventStub, AnyStateEventStub, AnyStrippedStateEventStub, EventType,
+    StateEventStub, StrippedStateEventStub,
 };
 
 #[cfg(feature = "messages")]
 use crate::events::{
     room::redaction::{RedactionEvent, RedactionEventStub},
-    AnyMessageEventStub,
+    AnyMessageEventContent, AnyMessageEventStub, EventJson,
 };
 
 use crate::identifiers::{RoomAliasId, RoomId, UserId};

@@ -40,7 +40,6 @@ http = "0.2.1"
 tracing-subscriber = "0.2.7"
 tempfile = "3.1.0"
 mockito = "0.25.1"
-url = "2.1.1"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
 tokio = { version = "0.2.21", features = ["rt-threaded", "macros"] }
