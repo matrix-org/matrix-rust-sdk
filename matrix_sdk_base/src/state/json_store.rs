@@ -93,7 +93,6 @@ impl StateStore for JsonStore {
                 }
 
                 let json = async_fs::read_to_string(&file).await?;
-
                 let room = serde_json::from_str::<Room>(&json).map_err(Error::from)?;
                 let room_id = room.room_id.clone();
 

@@ -1212,7 +1212,6 @@ mod test {
 
         for room in client.joined_rooms().read().await.values() {
             let queue = &room.read().await.messages;
-            println!("{:?}", queue);
             if let crate::events::AnyMessageEventContent::RoomRedaction(content) =
                 &queue.msgs[0].content
             {

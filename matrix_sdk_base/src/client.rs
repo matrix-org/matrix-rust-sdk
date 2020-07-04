@@ -1839,11 +1839,13 @@ impl BaseClient {
 #[cfg(test)]
 mod test {
     use crate::identifiers::{RoomId, UserId};
-    use crate::{BaseClient, Session};
+    use crate::{BaseClient, BaseClientConfig, JsonStore, Session};
+    use matrix_sdk_common::events::{AnyRoomEventStub, EventJson};
     use matrix_sdk_common_macros::async_trait;
     use matrix_sdk_test::{async_test, test_json, EventBuilder, EventsJson};
     use serde_json::json;
     use std::convert::TryFrom;
+    use tempfile::tempdir;
 
     #[cfg(target_arch = "wasm32")]
     use wasm_bindgen_test::*;
@@ -2342,6 +2344,93 @@ mod test {
         client.receive_sync_response(&mut sync).await.unwrap();
 
         assert!(passed.load(Ordering::SeqCst))
+    }
+
+    #[cfg(feature = "messages")]
+    #[async_test]
+    async fn message_queue_redaction_event_store_deser() {
+        use std::ops::Deref;
+
+        let room_id = RoomId::try_from("!SVkFJHzfwvuaIEawgC:localhost").unwrap();
+
+        let session = Session {
+            access_token: "1234".to_owned(),
+            user_id: UserId::try_from("@cheeky_monkey:matrix.org").unwrap(),
+            device_id: "DEVICEID".to_owned(),
+        };
+
+        let _m = mockito::mock(
+            "GET",
+            mockito::Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_string()),
+        )
+        .with_status(200)
+        .with_body(test_json::SYNC.to_string())
+        .create();
+
+        let dir = tempdir().unwrap();
+        // a sync response to populate our JSON store
+        let config =
+            BaseClientConfig::default().state_store(Box::new(JsonStore::open(dir.path()).unwrap()));
+        let client = BaseClient::new_with_config(config).unwrap();
+        client.restore_login(session.clone()).await.unwrap();
+
+        let response = http::Response::builder()
+            .body(serde_json::to_vec(test_json::SYNC.deref()).unwrap())
+            .unwrap();
+        let mut sync =
+            matrix_sdk_common::api::r0::sync::sync_events::Response::try_from(response).unwrap();
+
+        client.receive_sync_response(&mut sync).await.unwrap();
+
+        let json = serde_json::json!({
+            "content": {
+                "reason": "😀"
+            },
+            "event_id": "$XXXX:localhost",
+            "origin_server_ts": 151957878,
+            "sender": "@example:localhost",
+            "type": "m.room.redaction",
+            "redacts": "$152037280074GZeOm:localhost"
+        });
+        let mut event: EventJson<AnyRoomEventStub> = serde_json::from_value(json).unwrap();
+        client
+            .receive_joined_timeline_event(&room_id, &mut event)
+            .await
+            .unwrap();
+
+        // check that the message has actually been redacted
+        for room in client.joined_rooms().read().await.values() {
+            let queue = &room.read().await.messages;
+            if let crate::events::AnyMessageEventContent::RoomRedaction(content) =
+                &queue.msgs[0].content
+            {
+                assert_eq!(content.reason, Some("😀".to_string()));
+            } else {
+                panic!("[pre store sync] message event in message queue should be redacted")
+            }
+        }
+
+        // `receive_joined_timeline_event` does not save the state to the store so we must
+        client.store_room_state(&room_id).await.unwrap();
+
+        // we load state from the store only
+        let config =
+            BaseClientConfig::default().state_store(Box::new(JsonStore::open(dir.path()).unwrap()));
+        let client = BaseClient::new_with_config(config).unwrap();
+        client.restore_login(session).await.unwrap();
+
+        // make sure that our redacted message event is redacted and that ser/de works
+        // properly
+        for room in client.joined_rooms().read().await.values() {
+            let queue = &room.read().await.messages;
+            if let crate::events::AnyMessageEventContent::RoomRedaction(content) =
+                &queue.msgs[0].content
+            {
+                assert_eq!(content.reason, Some("😀".to_string()));
+            } else {
+                panic!("[post store sync] message event in message queue should be redacted")
+            }
+        }
     }
 
     #[async_test]
