@@ -346,6 +346,12 @@ impl Client {
         &self.homeserver
     }
 
+    /// Get the user id of the current owner of the client.
+    pub async fn user_id(&self) -> Option<UserId> {
+        let session = self.base_client.session().read().await;
+        session.as_ref().cloned().map(|s| s.user_id)
+    }
+
     /// Add `EventEmitter` to `Client`.
     ///
     /// The methods of `EventEmitter` are called when the respective `RoomEvents` occur.
