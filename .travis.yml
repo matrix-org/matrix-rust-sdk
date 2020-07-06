@@ -8,6 +8,8 @@ addons:
 jobs:
   allow_failures:
     - os: windows
+    - os: osx
+      name: macOS 10.15
 
   include:
     - stage: Lint
@@ -30,6 +32,10 @@ jobs:
       script:
           - cd matrix_sdk
           - cargo build --no-default-features
+
+    - os: osx
+      name: macOS 10.15
+      osx_image: xcode12
 
     - os: linux
       name: Coverage
