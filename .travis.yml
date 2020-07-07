@@ -7,10 +7,17 @@ addons:
 
 jobs:
   include:
+    - stage: Lint
+    - os: linux
+      script:
+          - cargo fmt --all -- --check
+
+    - stage: Test
     - os: linux
       dist: bionic
 
     - os: osx
+
     - os: linux
       name: Coverage
       before_script:
@@ -43,11 +50,9 @@ jobs:
             cargo test --target wasm32-unknown-unknown --no-default-features
 
 
-
 before_script:
   - rustup component add rustfmt
 
 script:
-  - cargo fmt --all -- --check
   - cargo build
   - cargo test
