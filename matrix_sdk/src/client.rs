@@ -414,6 +414,15 @@ impl Client {
 
     /// Login to the server.
     ///
+    /// This can be used for the first login as well as for subsequent logins,
+    /// note that if the device id isn't provided a new device will be created.
+    ///
+    /// If this isn't the first login a device id should be provided to restore
+    /// the correct stores.
+    ///
+    /// Alternatively the `restore_login()` method can be used to restore a
+    /// logged in client without the password.
+    ///
     /// # Arguments
     ///
     /// * `user` - The user that should be logged in to the homeserver.
@@ -450,6 +459,12 @@ impl Client {
     }
 
     /// Restore a previously logged in session.
+    ///
+    /// This can be used to restore the client to a logged in state, loading all
+    /// the stored state and encryption keys.
+    ///
+    /// Alternatively, if the whole session isn't stored the `login()` method
+    /// can be used with a device id.
     ///
     /// # Arguments
     ///
