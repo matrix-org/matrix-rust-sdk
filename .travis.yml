@@ -8,6 +8,8 @@ addons:
 jobs:
   allow_failures:
     - os: windows
+    - os: linux
+      name: wasm32-unknown-unknown
 
   include:
     - stage: Lint
