@@ -990,21 +990,6 @@ impl BaseClient {
                 self.get_or_create_joined_room(&room_id).await?.clone()
             };
 
-            #[cfg(feature = "encryption")]
-            {
-                let mut olm = self.olm.lock().await;
-
-                if let Some(o) = &mut *olm {
-                    let room = matrix_room.read().await;
-
-                    // If the room is encrypted, update the tracked users.
-                    if room.is_encrypted() {
-                        o.update_tracked_users(room.joined_members.keys()).await;
-                        o.update_tracked_users(room.invited_members.keys()).await;
-                    }
-                }
-            }
-
             // RoomSummary contains information for calculating room name.
             matrix_room
                 .write()
@@ -1039,6 +1024,21 @@ impl BaseClient {
                 } else {
                     self.emit_unrecognized_event(&room_id, &event, RoomStateType::Joined)
                         .await;
+                }
+            }
+
+            #[cfg(feature = "encryption")]
+            {
+                let mut olm = self.olm.lock().await;
+
+                if let Some(o) = &mut *olm {
+                    let room = matrix_room.read().await;
+
+                    // If the room is encrypted, update the tracked users.
+                    if room.is_encrypted() {
+                        o.update_tracked_users(room.joined_members.keys()).await;
+                        o.update_tracked_users(room.invited_members.keys()).await;
+                    }
                 }
             }
 
