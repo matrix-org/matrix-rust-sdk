@@ -6,6 +6,9 @@ addons:
       - libssl-dev
 
 jobs:
+  allow_failures:
+    - os: windows
+
   include:
     - stage: Lint
       os: linux
