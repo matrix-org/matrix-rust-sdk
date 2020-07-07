@@ -15,23 +15,23 @@ default = []
 sqlite-cryptostore = ["sqlx"]
 
 [dependencies]
-async-trait = "0.1.31"
+async-trait = "0.1.36"
 
 matrix-sdk-common-macros = { version = "0.1.0", path = "../matrix_sdk_common_macros" }
 matrix-sdk-common = { version = "0.1.0", path = "../matrix_sdk_common" }
 
 olm-rs = { version = "0.5.0", features = ["serde"] }
-serde = { version = "1.0.110", features = ["derive"] }
-serde_json = "1.0.53"
-cjson = "0.1.0"
+serde = { version = "1.0.114", features = ["derive"] }
+serde_json = "1.0.56"
+cjson = "0.1.1"
 zeroize = { version = "1.1.0", features = ["zeroize_derive"] }
 url = "2.1.1"
 
 # Misc dependencies
-thiserror = "1.0.19"
-tracing = "0.1.14"
-atomic = "0.4.5"
-dashmap = "3.11.2"
+thiserror = "1.0.20"
+tracing = "0.1.15"
+atomic = "0.4.6"
+dashmap = "3.11.7"
 
 [dependencies.tracing-futures]
 version = "0.2.4"
@@ -46,8 +46,8 @@ features = ["runtime-tokio", "sqlite"]
 
 [dev-dependencies]
 tokio = { version = "0.2.21", features = ["rt-threaded", "macros"] }
-ruma-identifiers = { version = "0.16.1", features = ["rand"] }
-serde_json = "1.0.53"
+ruma-identifiers = { version = "0.16.2", features = ["rand"] }
+serde_json = "1.0.56"
 tempfile = "3.1.0"
 http = "0.2.1"
 matrix-sdk-test = { version = "0.1.0", path = "../matrix_sdk_test" }
