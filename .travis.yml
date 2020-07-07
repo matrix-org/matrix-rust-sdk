@@ -8,12 +8,12 @@ addons:
 jobs:
   include:
     - stage: Lint
-    - os: linux
+      os: linux
       script:
           - cargo fmt --all -- --check
 
     - stage: Test
-    - os: linux
+      os: linux
       dist: bionic
 
     - os: osx
