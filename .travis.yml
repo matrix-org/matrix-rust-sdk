@@ -9,12 +9,16 @@ jobs:
   include:
     - stage: Lint
       os: linux
+      before_script:
+        - rustup component add rustfmt
       script:
-          - cargo fmt --all -- --check
+        - cargo fmt --all -- --check
 
     - stage: Test
       os: linux
       dist: bionic
+
+    - os: windows
 
     - os: osx
 
@@ -48,10 +52,6 @@ jobs:
 
             cd matrix_sdk_base
             cargo test --target wasm32-unknown-unknown --no-default-features
-
-
-before_script:
-  - rustup component add rustfmt
 
 script:
   - cargo build
