@@ -23,7 +23,6 @@ serde_json = "1.0.53"
 thiserror = "1.0.19"
 tracing = "0.1.14"
 url = "2.1.1"
-futures-timer = { version = "3.0.2", features = ["wasm-bindgen"] }
 
 matrix-sdk-common-macros = { version = "0.1.0", path = "../matrix_sdk_common_macros" }
 matrix-sdk-common = { version = "0.1.0", path = "../matrix_sdk_common" }
@@ -37,6 +36,13 @@ default_features = false
 version = "0.2.4"
 default-features = false
 features = ["std", "std-future"]
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies.futures-timer]
+version = "3.0.2"
+
+[target.'cfg(target_arch = "wasm32")'.dependencies.futures-timer]
+version = "3.0.2"
+features = ["wasm-bindgen"]
 
 [dev-dependencies]
 async-trait = "0.1.31"
