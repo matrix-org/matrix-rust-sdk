@@ -626,76 +626,37 @@ impl Room {
         };
 
         if state_event && !self.member_is_tracked(&target_user) {
+            debug!(
+                "handle_membership: User {user_id} is {state} the room {room_id} ({room_name})",
+                user_id = target_user,
+                state = event.content.membership.describe(),
+                room_id = self.room_id,
+                room_name = self.display_name(),
+            );
+
             match event.content.membership {
-                Join => {
-                    debug!(
-                        "handle_membership: User {} is now a member of the room {} ({})",
-                        event.state_key,
-                        self.room_id,
-                        self.display_name(),
-                    );
-
-                    self.add_member(&target_user, event)
-                }
-
-                Invite => {
-                    debug!(
-                        "handle_membership: User {} is now invited to the room {} ({})",
-                        event.state_key,
-                        self.room_id,
-                        self.display_name(),
-                    );
-
-                    self.add_member(&target_user, event)
-                }
+                Join | Invite => self.add_member(&target_user, event),
 
                 // We are not interested in tracking past members for now
                 _ => (false, HashMap::new()),
             }
         } else {
-            match event.membership_change() {
-                Invited => {
-                    debug!(
-                        "handle_membership: User {} got invited to the room {} ({})",
-                        event.state_key,
-                        self.room_id,
-                        self.display_name(),
-                    );
+            let change = event.membership_change();
 
-                    self.add_member(&target_user, event)
-                }
-                Joined => {
-                    debug!(
-                        "handle_membership: User {} joins the room {} ({})",
-                        event.state_key,
-                        self.room_id,
-                        self.display_name(),
-                    );
+            debug!(
+                "handle_membership: User {user_id} {action} the room {room_id} ({room_name})",
+                user_id = target_user,
+                action = change.describe(),
+                room_id = self.room_id,
+                room_name = self.display_name(),
+            );
 
-                    self.add_member(&target_user, event)
-                }
+            match change {
+                Invited | Joined => self.add_member(&target_user, event),
                 Kicked | Banned | KickedAndBanned | InvitationRejected | Left => {
-                    debug!(
-                        "handle_membership: User {} exiting room {} ({}) (leaving, kicked, banned or invitation rejected)",
-                        event.state_key,
-                        self.room_id,
-                        self.display_name(),
-                    );
-
                     self.remove_member(&target_user, event)
                 }
-                ProfileChanged => {
-                    debug!(
-                        "handle_membership: Profile changed for user {} in room {} ({}) (displayname={:?}, avatar={:?}",
-                        event.state_key,
-                        self.room_id,
-                        self.display_name(),
-                        event.content.displayname,
-                        event.content.avatar_url
-                    );
-
-                    self.update_member_profile(&target_user, event)
-                }
+                ProfileChanged => self.update_member_profile(&target_user, event),
 
                 // Not interested in other events.
                 _ => (false, HashMap::new()),
@@ -994,6 +955,48 @@ impl Room {
         }
 
         changed
+    }
+}
+
+trait Describe {
+    fn describe(&self) -> String;
+}
+
+impl Describe for MembershipState {
+    fn describe(&self) -> String {
+        use MembershipState::*;
+
+        match self {
+            Ban => "is banned in",
+            Invite => "is invited to",
+            Join => "is a member of",
+            Knock => "is requesting access",
+            Leave => "left",
+        }
+        .to_string()
+    }
+}
+
+impl Describe for MembershipChange {
+    fn describe(&self) -> String {
+        use MembershipChange::*;
+
+        match self {
+            Invited => "got invited to",
+            Joined => "joined",
+            Kicked => "got kicked from",
+            Banned => "got banned from",
+            Unbanned => "got unbanned from",
+            KickedAndBanned => "got kicked and banned from",
+            InvitationRejected => "rejected the invitation to",
+            InvitationRevoked => "got their invitation revoked from",
+            Left => "left",
+            ProfileChanged => "changed their profile",
+            None => "did nothing in",
+            NotImplemented => "NOT IMPLEMENTED",
+            Error => "ERROR",
+        }
+        .to_string()
     }
 }
 
