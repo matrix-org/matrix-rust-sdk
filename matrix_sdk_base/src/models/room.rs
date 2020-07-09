@@ -321,8 +321,10 @@ impl Room {
 
     /// Get the disambiguated display name for a member of this room.
     ///
-    /// If a member has no display name set, returns the MXID as a fallback. Additionally, we
-    /// return the MXID even if there is no such member in the room.
+    /// If a member has no display name set, returns the MXID as a fallback.
+    ///
+    /// This method never fails, even if user with the supplied MXID is not a member in the room.
+    /// In this case we still return the supplied MXID as a fallback.
     ///
     /// When displaying a room member's display name, clients *must* use this method to obtain the
     /// name instead of displaying the `RoomMember::display_name` directly. This is because
