@@ -734,7 +734,7 @@ impl BaseClient {
                 let mut room = room_lock.write().await;
 
                 if let RoomEvent::RoomMember(mem_event) = &mut e {
-                    let (changed, _) = room.handle_membership(mem_event);
+                    let (changed, _) = room.handle_membership(mem_event, false);
 
                     // The memberlist of the room changed, invalidate the group session
                     // of the room.
@@ -771,7 +771,7 @@ impl BaseClient {
         let mut room = room_lock.write().await;
 
         if let StateEvent::RoomMember(e) = event {
-            let (changed, _) = room.handle_membership(e);
+            let (changed, _) = room.handle_membership(e, true);
 
             // The memberlist of the room changed, invalidate the group session
             // of the room.
