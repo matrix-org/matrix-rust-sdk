@@ -426,6 +426,13 @@ impl Room {
         (true, disambiguations)
     }
 
+    /// Check whether the user with the MXID `user_id` is joined or invited to the room.
+    ///
+    /// Returns true if so, false otherwise.
+    pub fn member_is_tracked(&self, user_id: &UserId) -> bool {
+        self.invited_members.contains_key(&user_id) || self.joined_members.contains_key(&user_id)
+    }
+
     /// Get a room member by user ID.
     ///
     /// If there is no such member, returns `None`.
