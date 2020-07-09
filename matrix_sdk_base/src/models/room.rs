@@ -18,7 +18,7 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use std::convert::TryFrom;
 
 use serde::{Deserialize, Serialize};
-use tracing::{trace, debug, error};
+use tracing::{debug, error, trace};
 
 #[cfg(feature = "messages")]
 use super::message::MessageQueue;
@@ -31,7 +31,7 @@ use crate::events::room::{
     aliases::AliasesEvent,
     canonical_alias::CanonicalAliasEvent,
     encryption::EncryptionEvent,
-    member::{MemberEvent, MembershipState, MembershipChange},
+    member::{MemberEvent, MembershipChange, MembershipState},
     name::NameEvent,
     power_levels::{NotificationPowerLevels, PowerLevelsEvent, PowerLevelsEventContent},
     tombstone::TombstoneEvent,
@@ -340,7 +340,7 @@ impl Room {
                 } else {
                     member.name().into()
                 }
-            },
+            }
 
             // Even if there is no such member, we return the MXID that was given to us.
             None => id.as_ref().into(),
@@ -361,16 +361,18 @@ impl Room {
     ///
     /// * `target_member` - The ID of the member to add.
     /// * `event` - The join or invite event for the specified room member.
-    fn add_member(&mut self, target_member: &UserId, event: &MemberEvent) -> (bool, HashMap<UserId, bool>) {
+    fn add_member(
+        &mut self,
+        target_member: &UserId,
+        event: &MemberEvent,
+    ) -> (bool, HashMap<UserId, bool>) {
         let new_member = RoomMember::new(event);
 
         // Perform display name disambiguations, if necessary.
-        let disambiguations = self.disambiguation_updates(target_member, None, new_member.display_name.clone());
+        let disambiguations =
+            self.disambiguation_updates(target_member, None, new_member.display_name.clone());
 
-        debug!(
-            "add_member: disambiguations: {:#?}",
-            disambiguations
-        );
+        debug!("add_member: disambiguations: {:#?}", disambiguations);
 
         match event.content.membership {
             MembershipState::Join => {
@@ -386,9 +388,7 @@ impl Room {
                 .invited_members
                 .insert(target_member.clone(), new_member.clone()),
 
-            _ => {
-                panic!("Room::add_member called on event that is neither `join` nor `invite`.")
-            }
+            _ => panic!("Room::add_member called on event that is neither `join` nor `invite`."),
         };
 
         for (id, is_ambiguous) in disambiguations.iter() {
@@ -410,7 +410,11 @@ impl Room {
     ///
     /// * `target_member` - The ID of the member to remove.
     /// * `event` - The leaving event for the specified room member.
-    fn remove_member(&mut self, target_member: &UserId, event: &MemberEvent) -> (bool, HashMap<UserId, bool>) {
+    fn remove_member(
+        &mut self,
+        target_member: &UserId,
+        event: &MemberEvent,
+    ) -> (bool, HashMap<UserId, bool>) {
         let leaving_member = RoomMember::new(event);
 
         if self.get_member(target_member).is_none() {
@@ -421,10 +425,7 @@ impl Room {
         let disambiguations =
             self.disambiguation_updates(target_member, leaving_member.display_name.clone(), None);
 
-        debug!(
-            "remove_member: disambiguations: {:#?}",
-            disambiguations
-        );
+        debug!("remove_member: disambiguations: {:#?}", disambiguations);
 
         for (id, is_ambiguous) in disambiguations.iter() {
             self.get_member_mut(id).unwrap().display_name_ambiguous = *is_ambiguous;
@@ -432,7 +433,9 @@ impl Room {
 
         // TODO: factor this out to a method called `remove_member` and rename this method
         // to something like `process_member_leaving_event`.
-        self.joined_members.remove(target_member).or_else(|| self.invited_members.remove(target_member));
+        self.joined_members
+            .remove(target_member)
+            .or_else(|| self.invited_members.remove(target_member));
 
         (true, disambiguations)
     }
@@ -459,7 +462,7 @@ impl Room {
     pub fn get_member_mut(&mut self, user_id: &UserId) -> Option<&mut RoomMember> {
         match self.joined_members.get_mut(user_id) {
             None => self.invited_members.get_mut(user_id),
-            Some(m) => Some(m)
+            Some(m) => Some(m),
         }
     }
 
@@ -472,7 +475,13 @@ impl Room {
 
         // Find all other users that share the display name with the joining user.
         members
-            .filter(|(_, member)| member.display_name.as_ref().map(|other_name| other_name == name).unwrap_or(false))
+            .filter(|(_, member)| {
+                member
+                    .display_name
+                    .as_ref()
+                    .map(|other_name| other_name == name)
+                    .unwrap_or(false)
+            })
             .map(|(_, member)| member.user_id.clone())
             .collect()
     }
@@ -501,7 +510,7 @@ impl Room {
             n if n > 1 => vec![(member.clone(), false)].into_iter().collect(),
             1 => old_name_eq_class.into_iter().map(|m| (m, false)).collect(),
             0 => HashMap::new(),
-            _ => panic!("impossible")
+            _ => panic!("impossible"),
         };
 
         //
@@ -519,7 +528,10 @@ impl Room {
             _ => vec![(member.clone(), true)].into_iter().collect(),
         };
 
-        disambiguate_old.into_iter().chain(disambiguate_new.into_iter()).collect()
+        disambiguate_old
+            .into_iter()
+            .chain(disambiguate_new.into_iter())
+            .collect()
     }
 
     /// Add to the list of `RoomAliasId`s.
@@ -594,13 +606,16 @@ impl Room {
     pub fn handle_membership(
         &mut self,
         event: &MemberEvent,
-        state_event: bool
+        state_event: bool,
     ) -> (bool, HashMap<UserId, bool>) {
-        use MembershipState::*;
         use MembershipChange::*;
+        use MembershipState::*;
 
-        trace!("Received {} event: {}", if state_event { "state" } else { "timeline" },
-            event.event_id);
+        trace!(
+            "Received {} event: {}",
+            if state_event { "state" } else { "timeline" },
+            event.event_id
+        );
 
         let target_user = match UserId::try_from(event.state_key.clone()) {
             Ok(id) => id,
@@ -613,20 +628,22 @@ impl Room {
         if state_event && !self.member_is_tracked(&target_user) {
             match event.content.membership {
                 Join => {
-                    debug!("handle_membership: User {} is now a member of the room {} ({})",
-                            event.state_key,
-                            self.room_id,
-                            self.display_name(),
+                    debug!(
+                        "handle_membership: User {} is now a member of the room {} ({})",
+                        event.state_key,
+                        self.room_id,
+                        self.display_name(),
                     );
 
                     self.add_member(&target_user, event)
                 }
 
                 Invite => {
-                    debug!("handle_membership: User {} is now invited to the room {} ({})",
-                            event.state_key,
-                            self.room_id,
-                            self.display_name(),
+                    debug!(
+                        "handle_membership: User {} is now invited to the room {} ({})",
+                        event.state_key,
+                        self.room_id,
+                        self.display_name(),
                     );
 
                     self.add_member(&target_user, event)
@@ -903,14 +920,18 @@ impl Room {
         target_member: &UserId,
         event: &MemberEvent,
     ) -> (bool, HashMap<UserId, bool>) {
-        let old_name = self.get_member(target_member).map_or_else(|| None, |m| m.display_name.clone());
+        let old_name = self
+            .get_member(target_member)
+            .map_or_else(|| None, |m| m.display_name.clone());
         let new_name = event.content.displayname.clone();
 
-        debug!("update_member_profile [{}]: from nick {:#?} to nick {:#?}",
-            self.room_id,
-            old_name, &new_name);
+        debug!(
+            "update_member_profile [{}]: from nick {:#?} to nick {:#?}",
+            self.room_id, old_name, &new_name
+        );
 
-        let disambiguations = self.disambiguation_updates(target_member, old_name.clone(), new_name.clone());
+        let disambiguations =
+            self.disambiguation_updates(target_member, old_name.clone(), new_name.clone());
         for (id, is_ambiguous) in disambiguations.iter() {
             if self.get_member_mut(id).is_none() {
                 error!("update_member_profile: I'm about to fail for id {}. user_id = {}\nevent = {:#?}",
@@ -924,8 +945,7 @@ impl Room {
 
         debug!(
             "update_member_profile [{}]: disambiguations: {:#?}",
-            self.room_id,
-            &disambiguations
+            self.room_id, &disambiguations
         );
 
         let changed = match self.get_member_mut(target_member) {
@@ -937,12 +957,11 @@ impl Room {
             None => {
                 error!(
                     "update_member_profile [{}]: user {} does not exist",
-                    self.room_id,
-                    target_member
+                    self.room_id, target_member
                 );
 
                 false
-            },
+            }
         };
 
         (changed, disambiguations)

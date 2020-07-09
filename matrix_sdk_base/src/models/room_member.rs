@@ -194,7 +194,10 @@ mod test {
             .add_room_event(EventsJson::MemberNameChange, RoomEvent::RoomMember)
             .build_sync_response();
 
-        client.receive_sync_response(&mut initial_response).await.unwrap();
+        client
+            .receive_sync_response(&mut initial_response)
+            .await
+            .unwrap();
 
         let room = client.get_joined_room(&room_id).await.unwrap();
 
@@ -210,7 +213,10 @@ mod test {
             assert_eq!(member.display_name.as_ref().unwrap(), "example");
         }
 
-        client.receive_sync_response(&mut name_change_response).await.unwrap();
+        client
+            .receive_sync_response(&mut name_change_response)
+            .await
+            .unwrap();
 
         // Afterwards, the display name is "changed".
         {
