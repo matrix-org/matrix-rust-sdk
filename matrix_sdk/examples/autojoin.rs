@@ -2,7 +2,7 @@ use std::{env, process::exit};
 
 use matrix_sdk::{
     self,
-    events::{room::member::MemberEventContent, stripped::StrippedRoomMember},
+    events::{room::member::MemberEventContent, StrippedStateEventStub},
     Client, ClientConfig, EventEmitter, SyncRoom, SyncSettings,
 };
 use matrix_sdk_common_macros::async_trait;
@@ -23,7 +23,7 @@ impl EventEmitter for AutoJoinBot {
     async fn on_stripped_state_member(
         &self,
         room: SyncRoom,
-        room_member: &StrippedRoomMember,
+        room_member: &StrippedStateEventStub<MemberEventContent>,
         _: Option<MemberEventContent>,
     ) {
         if room_member.state_key != self.client.user_id().await.unwrap() {
