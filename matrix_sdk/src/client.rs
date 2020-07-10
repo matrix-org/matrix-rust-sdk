@@ -30,8 +30,7 @@ use matrix_sdk_common::uuid::Uuid;
 use futures_timer::Delay as sleep;
 use std::future::Future;
 #[cfg(feature = "encryption")]
-use tracing::{debug, warn};
-use tracing::{info, instrument, trace};
+use tracing::{debug, error, info, instrument, trace, warn};
 
 use http::Method as HttpMethod;
 use http::Response as HttpResponse;
@@ -1294,6 +1293,9 @@ impl Client {
             let response = if let Ok(r) = response {
                 r
             } else {
+                let err = response.unwrap_err();
+                error!("Received an invalid response: {}", err);
+
                 sleep::new(Duration::from_secs(1)).await;
 
                 continue;
