@@ -13,7 +13,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::borrow::Cow;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::convert::TryFrom;
 
@@ -317,34 +316,6 @@ impl Room {
     /// Returns None if the room is not encrypted.
     pub fn encryption_info(&self) -> Option<&EncryptionInfo> {
         self.encrypted.as_ref()
-    }
-
-    /// Get the disambiguated display name for a member of this room.
-    ///
-    /// If a member has no display name set, returns the MXID as a fallback.
-    ///
-    /// This method never fails, even if user with the supplied MXID is not a member in the room.
-    /// In this case we still return the supplied MXID as a fallback.
-    ///
-    /// When displaying a room member's display name, clients *must* use this method to obtain the
-    /// name instead of displaying the `RoomMember::display_name` directly. This is because
-    /// multiple members can share the same display name in which case the display name has to be
-    /// disambiguated.
-    pub fn member_display_name<'a>(&'a self, id: &'a UserId) -> Cow<'a, str> {
-        let member = self.get_member(id);
-
-        match member {
-            Some(member) => {
-                if member.display_name_ambiguous {
-                    member.unique_name().into()
-                } else {
-                    member.name().into()
-                }
-            }
-
-            // Even if there is no such member, we return the MXID that was given to us.
-            None => id.as_ref().into(),
-        }
     }
 
     /// Process the join or invite event for a new room member.
@@ -1347,7 +1318,7 @@ mod test {
         {
             let room = client.get_joined_room(&room_id).await.unwrap();
             let room = room.read().await;
-            let display_name1 = room.member_display_name(&user_id1);
+            let display_name1 = room.get_member(&user_id1).unwrap().disambiguated_name();
 
             assert_eq!("example", display_name1);
         }
@@ -1366,9 +1337,9 @@ mod test {
         {
             let room = client.get_joined_room(&room_id).await.unwrap();
             let room = room.read().await;
-            let display_name1 = room.member_display_name(&user_id1);
-            let display_name2 = room.member_display_name(&user_id2);
-            let display_name3 = room.member_display_name(&user_id3);
+            let display_name1 = room.get_member(&user_id1).unwrap().disambiguated_name();
+            let display_name2 = room.get_member(&user_id2).unwrap().disambiguated_name();
+            let display_name3 = room.get_member(&user_id3).unwrap().disambiguated_name();
 
             assert_eq!(format!("example ({})", user_id1), display_name1);
             assert_eq!(format!("example ({})", user_id2), display_name2);
@@ -1385,7 +1356,7 @@ mod test {
             let room = client.get_joined_room(&room_id).await.unwrap();
             let room = room.read().await;
 
-            let display_name1 = room.member_display_name(&user_id1);
+            let display_name1 = room.get_member(&user_id1).unwrap().disambiguated_name();
 
             assert_eq!("example", display_name1);
         }
@@ -1401,8 +1372,8 @@ mod test {
             let room = client.get_joined_room(&room_id).await.unwrap();
             let room = room.read().await;
 
-            let display_name1 = room.member_display_name(&user_id1);
-            let display_name2 = room.member_display_name(&user_id2);
+            let display_name1 = room.get_member(&user_id1).unwrap().disambiguated_name();
+            let display_name2 = room.get_member(&user_id2).unwrap().disambiguated_name();
 
             assert_eq!(format!("example ({})", user_id1), display_name1);
             assert_eq!(format!("example ({})", user_id2), display_name2);
@@ -1419,8 +1390,8 @@ mod test {
             let room = client.get_joined_room(&room_id).await.unwrap();
             let room = room.read().await;
 
-            let display_name1 = room.member_display_name(&user_id1);
-            let display_name2 = room.member_display_name(&user_id2);
+            let display_name1 = room.get_member(&user_id1).unwrap().disambiguated_name();
+            let display_name2 = room.get_member(&user_id2).unwrap().disambiguated_name();
 
             assert_eq!("changed", display_name1);
             assert_eq!("example", display_name2);
@@ -1437,8 +1408,8 @@ mod test {
             let room = client.get_joined_room(&room_id).await.unwrap();
             let room = room.read().await;
 
-            let display_name1 = room.member_display_name(&user_id1);
-            let display_name2 = room.member_display_name(&user_id2);
+            let display_name1 = room.get_member(&user_id1).unwrap().disambiguated_name();
+            let display_name2 = room.get_member(&user_id2).unwrap().disambiguated_name();
 
             assert_eq!(format!("changed ({})", user_id1), display_name1);
             assert_eq!(format!("changed ({})", user_id2), display_name2);

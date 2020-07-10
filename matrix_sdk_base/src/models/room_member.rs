@@ -105,7 +105,8 @@ impl RoomMember {
         }
     }
 
-    /// Returns the most ergonomic name available for the member.
+    /// Returns the most ergonomic (but potentially ambiguous/non-unique) name available for the
+    /// member.
     ///
     /// This is the member's display name if it is set, otherwise their MXID.
     pub fn name(&self) -> String {
@@ -114,15 +115,38 @@ impl RoomMember {
             .unwrap_or_else(|| format!("{}", self.user_id))
     }
 
-    /// Returns a name for the member which is guaranteed to be unique.
+    /// Returns a name for the member which is guaranteed to be unique, but not necessarily the
+    /// most ergonomic.
     ///
-    /// This is either of the format "DISPLAY_NAME (MXID)" if the display name is set for the
-    /// member, or simply "MXID" if not.
+    /// This is either a name in the format "DISPLAY_NAME (MXID)" if the member's display name is
+    /// set, or simply "MXID" if not.
     pub fn unique_name(&self) -> String {
         self.display_name
             .clone()
             .map(|d| format!("{} ({})", d, self.user_id))
             .unwrap_or_else(|| format!("{}", self.user_id))
+    }
+
+    /// Get the disambiguated display name for the member which is as ergonomic as possible while
+    /// still guaranteeing it is unique.
+    ///
+    /// If the member's display name is currently ambiguous (i.e. shared by other room members),
+    /// this method will return the same result as `RoomMember::unique_name`. Otherwise, this
+    /// method will return the same result as `RoomMember::name`.
+    ///
+    /// This is usually the name you want when showing room messages from the member or when
+    /// showing the member in the member list.
+    ///
+    /// **Warning**: When displaying a room member's display name, clients *must* use
+    /// a disambiguated name, so they *must not* use `RoomMember::display_name` directly. Clients
+    /// *should* use this method to obtain the name, but an acceptable alternative is to use
+    /// `RoomMember::unique_name` in certain situations.
+    pub fn disambiguated_name(&self) -> String {
+        if self.display_name_ambiguous {
+            self.unique_name().into()
+        } else {
+            self.name().into()
+        }
     }
 }
 
