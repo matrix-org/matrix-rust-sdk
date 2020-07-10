@@ -19,6 +19,8 @@ use std::sync::Arc;
 
 use matrix_sdk_common::locks::Mutex;
 use serde::Serialize;
+use serde_json::{json, Value};
+use std::collections::BTreeMap;
 use zeroize::Zeroize;
 
 pub use olm_rs::account::IdentityKeys;
@@ -34,8 +36,11 @@ pub use olm_rs::{
     utility::OlmUtility,
 };
 
-use matrix_sdk_common::api::r0::keys::SignedKey;
 use matrix_sdk_common::identifiers::{DeviceId, RoomId, UserId};
+use matrix_sdk_common::{
+    api::r0::keys::{AlgorithmAndDeviceId, DeviceKeys, KeyAlgorithm, SignedKey},
+    events::Algorithm,
+};
 
 /// Account holding identity keys for which sessions can be created.
 ///
@@ -61,6 +66,11 @@ impl fmt::Debug for Account {
 }
 
 impl Account {
+    const ALGORITHMS: &'static [&'static Algorithm] = &[
+        &Algorithm::OlmV1Curve25519AesSha2,
+        &Algorithm::MegolmV1AesSha2,
+    ];
+
     /// Create a fresh new account, this will generate the identity key-pair.
     pub fn new(user_id: &UserId, device_id: &DeviceId) -> Self {
         let account = OlmAccount::new();
@@ -160,6 +170,64 @@ impl Account {
             identity_keys: Arc::new(identity_keys),
             shared: Arc::new(AtomicBool::from(shared)),
         })
+    }
+
+    /// Sign the device keys of the account and return them so they can be
+    /// uploaded.
+    pub async fn device_keys(&self) -> DeviceKeys {
+        let identity_keys = self.identity_keys();
+
+        let mut keys = BTreeMap::new();
+
+        keys.insert(
+            AlgorithmAndDeviceId(KeyAlgorithm::Curve25519, (*self.device_id).clone()),
+            identity_keys.curve25519().to_owned(),
+        );
+        keys.insert(
+            AlgorithmAndDeviceId(KeyAlgorithm::Ed25519, (*self.device_id).clone()),
+            identity_keys.ed25519().to_owned(),
+        );
+
+        let device_keys = json!({
+            "user_id": (*self.user_id).clone(),
+            "device_id": (*self.device_id).clone(),
+            "algorithms": Account::ALGORITHMS,
+            "keys": keys,
+        });
+
+        let mut signatures = BTreeMap::new();
+
+        let mut signature = BTreeMap::new();
+        signature.insert(
+            AlgorithmAndDeviceId(KeyAlgorithm::Ed25519, (*self.device_id).clone()),
+            self.sign_json(&device_keys).await,
+        );
+        signatures.insert((*self.user_id).clone(), signature);
+
+        DeviceKeys {
+            user_id: (*self.user_id).clone(),
+            device_id: (*self.device_id).clone(),
+            algorithms: vec![
+                Algorithm::OlmV1Curve25519AesSha2,
+                Algorithm::MegolmV1AesSha2,
+            ],
+            keys,
+            signatures,
+            unsigned: None,
+        }
+    }
+
+    /// Convert a JSON value to the canonical representation and sign the JSON
+    /// string.
+    ///
+    /// # Arguments
+    ///
+    /// * `json` - The value that should be converted into a canonical JSON
+    /// string.
+    pub async fn sign_json(&self, json: &Value) -> String {
+        let canonical_json = cjson::to_string(json)
+            .unwrap_or_else(|_| panic!(format!("Can't serialize {} to canonical JSON", json)));
+        self.sign(&canonical_json).await
     }
 
     /// Create a new session with another account given a one-time key.

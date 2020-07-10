@@ -94,11 +94,6 @@ impl std::fmt::Debug for OlmMachine {
 }
 
 impl OlmMachine {
-    const ALGORITHMS: &'static [&'static Algorithm] = &[
-        &Algorithm::OlmV1Curve25519AesSha2,
-        &Algorithm::MegolmV1AesSha2,
-    ];
-
     const MAX_TO_DEVICE_MESSAGES: usize = 20;
 
     /// Create a new memory based OlmMachine.
@@ -568,50 +563,6 @@ impl OlmMachine {
         }
     }
 
-    /// Sign the device keys and return a JSON Value to upload them.
-    async fn device_keys(&self) -> DeviceKeys {
-        let identity_keys = self.account.identity_keys();
-
-        let mut keys = BTreeMap::new();
-
-        keys.insert(
-            AlgorithmAndDeviceId(KeyAlgorithm::Curve25519, self.device_id.clone()),
-            identity_keys.curve25519().to_owned(),
-        );
-        keys.insert(
-            AlgorithmAndDeviceId(KeyAlgorithm::Ed25519, self.device_id.clone()),
-            identity_keys.ed25519().to_owned(),
-        );
-
-        let device_keys = json!({
-            "user_id": self.user_id,
-            "device_id": self.device_id,
-            "algorithms": OlmMachine::ALGORITHMS,
-            "keys": keys,
-        });
-
-        let mut signatures = BTreeMap::new();
-
-        let mut signature = BTreeMap::new();
-        signature.insert(
-            AlgorithmAndDeviceId(KeyAlgorithm::Ed25519, self.device_id.clone()),
-            self.sign_json(&device_keys).await,
-        );
-        signatures.insert(self.user_id.clone(), signature);
-
-        DeviceKeys {
-            user_id: self.user_id.clone(),
-            device_id: self.device_id.clone(),
-            algorithms: vec![
-                Algorithm::OlmV1Curve25519AesSha2,
-                Algorithm::MegolmV1AesSha2,
-            ],
-            keys,
-            signatures,
-            unsigned: None,
-        }
-    }
-
     /// Generate, sign and prepare one-time keys to be uploaded.
     ///
     /// If no one-time keys need to be uploaded returns an empty error.
@@ -743,7 +694,7 @@ impl OlmMachine {
         let shared = self.account.shared();
 
         let device_keys = if !shared {
-            Some(self.device_keys().await)
+            Some(self.account.device_keys().await)
         } else {
             None
         };
@@ -1803,7 +1754,7 @@ mod test {
     async fn test_device_key_signing() {
         let machine = OlmMachine::new(&user_id(), &alice_device_id());
 
-        let mut device_keys = machine.device_keys().await;
+        let mut device_keys = machine.account.device_keys().await;
         let identity_keys = machine.account.identity_keys();
         let ed25519_key = identity_keys.ed25519();
 
@@ -1836,7 +1787,7 @@ mod test {
     async fn test_invalid_signature() {
         let machine = OlmMachine::new(&user_id(), &alice_device_id());
 
-        let mut device_keys = machine.device_keys().await;
+        let mut device_keys = machine.account.device_keys().await;
 
         let ret = machine.verify_json(
             &machine.user_id,
