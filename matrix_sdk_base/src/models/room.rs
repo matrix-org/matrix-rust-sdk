@@ -17,6 +17,8 @@ use std::borrow::Cow;
 use std::collections::{BTreeMap, HashMap};
 use std::convert::TryFrom;
 
+use serde::{Deserialize, Serialize};
+
 #[cfg(feature = "messages")]
 use super::message::MessageQueue;
 use super::RoomMember;
@@ -42,7 +44,7 @@ use crate::events::room::message::MessageEvent;
 use crate::identifiers::{RoomAliasId, RoomId, UserId};
 
 use crate::js_int::{Int, UInt};
-use serde::{Deserialize, Serialize};
+
 #[derive(Debug, Default, PartialEq, Serialize, Deserialize, Clone)]
 /// `RoomName` allows the calculation of a text room name.
 pub struct RoomName {
@@ -467,6 +469,7 @@ impl Room {
         inclusive: bool,
     ) -> HashMap<UserId, String> {
         let users_with_same_name = self.shares_displayname_with(member, inclusive);
+
         let disambiguate_with = |members: Vec<RoomMember>, f: fn(&RoomMember) -> String| {
             members
                 .into_iter()
@@ -831,7 +834,11 @@ impl Room {
     ///
     /// * `event` - The power level event to process.
     /// * `max_power` - Maximum power level allowed.
-    pub fn update_member_power(member: &mut RoomMember, event: &PowerLevelsEvent, max_power: Int) -> bool {
+    pub fn update_member_power(
+        member: &mut RoomMember,
+        event: &PowerLevelsEvent,
+        max_power: Int,
+    ) -> bool {
         let changed;
 
         if let Some(user_power) = event.content.users.get(&member.user_id) {
@@ -843,7 +850,8 @@ impl Room {
         }
 
         if max_power > Int::from(0) {
-            member.power_level_norm = Some((member.power_level.unwrap() * Int::from(100)) / max_power);
+            member.power_level_norm =
+                Some((member.power_level.unwrap() * Int::from(100)) / max_power);
         }
 
         changed
@@ -962,7 +970,6 @@ mod test {
         let mut member2_join_sync_response = event_builder
             .add_custom_joined_event(&room_id, member2_join_event, RoomEvent::RoomMember)
             .build_sync_response();
-
 
         // Test that `user` is either joined or invited to `room` but not both.
         async fn invited_or_joined_but_not_both(client: &BaseClient, room: &RoomId, user: &UserId) {
@@ -1172,7 +1179,11 @@ mod test {
             .build_sync_response();
 
         let mut member2_rejoins_when_invited_sync_response = event_builder
-            .add_custom_joined_event(&room_id, member1_invites_member2_event, RoomEvent::RoomMember)
+            .add_custom_joined_event(
+                &room_id,
+                member1_invites_member2_event,
+                RoomEvent::RoomMember,
+            )
             .add_custom_joined_event(&room_id, member2_join_event, RoomEvent::RoomMember)
             .build_sync_response();
 
