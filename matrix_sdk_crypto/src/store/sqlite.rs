@@ -35,7 +35,7 @@ use matrix_sdk_common::identifiers::{DeviceId, RoomId, UserId};
 
 /// SQLite based implementation of a `CryptoStore`.
 pub struct SqliteStore {
-    user_id: Arc<String>,
+    user_id: Arc<UserId>,
     device_id: Arc<String>,
     account_id: Option<i64>,
     path: PathBuf,
@@ -117,7 +117,7 @@ impl SqliteStore {
 
         let connection = SqliteConnection::connect(url.as_ref()).await?;
         let store = SqliteStore {
-            user_id: Arc::new(user_id.to_string()),
+            user_id: Arc::new(user_id.to_owned()),
             device_id: Arc::new(device_id.to_owned()),
             account_id: None,
             sessions: SessionStore::new(),
@@ -568,7 +568,7 @@ impl CryptoStore for SqliteStore {
             "SELECT id, pickle, shared FROM accounts
                       WHERE user_id = ? and device_id = ?",
         )
-        .bind(&*self.user_id)
+        .bind(self.user_id.as_str())
         .bind(&*self.device_id)
         .fetch_optional(&mut *connection)
         .await?;
@@ -579,6 +579,8 @@ impl CryptoStore for SqliteStore {
                 pickle,
                 self.get_pickle_mode(),
                 shared,
+                &self.user_id,
+                &self.device_id,
             )?)
         } else {
             return Ok(None);
@@ -788,13 +790,12 @@ mod test {
     use crate::device::test::get_device;
     use crate::olm::GroupSessionKey;
     use matrix_sdk_common::api::r0::keys::SignedKey;
+    use matrix_sdk_common::identifiers::{DeviceId, UserId};
     use olm_rs::outbound_group_session::OlmOutboundGroupSession;
     use std::collections::BTreeMap;
     use tempfile::tempdir;
 
-    use super::{
-        Account, CryptoStore, InboundGroupSession, RoomId, Session, SqliteStore, TryFrom, UserId,
-    };
+    use super::{Account, CryptoStore, InboundGroupSession, RoomId, Session, SqliteStore, TryFrom};
 
     static USER_ID: &str = "@example:localhost";
     static DEVICE_ID: &str = "DEVICEID";
@@ -829,14 +830,29 @@ mod test {
         (account, store, dir)
     }
 
+    fn alice_id() -> UserId {
+        UserId::try_from("@alice:example.org").unwrap()
+    }
+
+    fn alice_device_id() -> DeviceId {
+        "ALICEDEVICE".to_string()
+    }
+
+    fn bob_id() -> UserId {
+        UserId::try_from("@bob:example.org").unwrap()
+    }
+
+    fn bob_device_id() -> DeviceId {
+        "BOBDEVICE".to_string()
+    }
+
     fn get_account() -> Account {
-        Account::new()
+        Account::new(&alice_id(), &alice_device_id())
     }
 
     async fn get_account_and_session() -> (Account, Session) {
-        let alice = Account::new();
-
-        let bob = Account::new();
+        let alice = Account::new(&alice_id(), &alice_device_id());
+        let bob = Account::new(&bob_id(), &bob_device_id());
 
         bob.generate_one_time_keys(1).await;
         let one_time_key = bob

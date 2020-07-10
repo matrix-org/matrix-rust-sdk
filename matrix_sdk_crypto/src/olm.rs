@@ -35,7 +35,7 @@ pub use olm_rs::{
 };
 
 use matrix_sdk_common::api::r0::keys::SignedKey;
-use matrix_sdk_common::identifiers::RoomId;
+use matrix_sdk_common::identifiers::{DeviceId, RoomId, UserId};
 
 /// Account holding identity keys for which sessions can be created.
 ///
@@ -43,6 +43,8 @@ use matrix_sdk_common::identifiers::RoomId;
 /// devices.
 #[derive(Clone)]
 pub struct Account {
+    user_id: Arc<UserId>,
+    device_id: Arc<DeviceId>,
     inner: Arc<Mutex<OlmAccount>>,
     identity_keys: Arc<IdentityKeys>,
     shared: Arc<AtomicBool>,
@@ -58,20 +60,15 @@ impl fmt::Debug for Account {
     }
 }
 
-// #[cfg_attr(tarpaulin, skip)]
-impl Default for Account {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 impl Account {
     /// Create a fresh new account, this will generate the identity key-pair.
-    pub fn new() -> Self {
+    pub fn new(user_id: &UserId, device_id: &DeviceId) -> Self {
         let account = OlmAccount::new();
         let identity_keys = account.parsed_identity_keys();
 
         Account {
+            user_id: Arc::new(user_id.to_owned()),
+            device_id: Arc::new(device_id.to_owned()),
             inner: Arc::new(Mutex::new(account)),
             identity_keys: Arc::new(identity_keys),
             shared: Arc::new(AtomicBool::new(false)),
@@ -150,11 +147,15 @@ impl Account {
         pickle: String,
         pickle_mode: PicklingMode,
         shared: bool,
+        user_id: &UserId,
+        device_id: &DeviceId,
     ) -> Result<Self, OlmAccountError> {
         let account = OlmAccount::unpickle(pickle, pickle_mode)?;
         let identity_keys = account.parsed_identity_keys();
 
         Ok(Account {
+            user_id: Arc::new(user_id.to_owned()),
+            device_id: Arc::new(device_id.to_owned()),
             inner: Arc::new(Mutex::new(account)),
             identity_keys: Arc::new(identity_keys),
             shared: Arc::new(AtomicBool::from(shared)),
@@ -659,15 +660,30 @@ impl std::fmt::Debug for OutboundGroupSession {
 pub(crate) mod test {
     use crate::olm::{Account, InboundGroupSession, OutboundGroupSession, Session};
     use matrix_sdk_common::api::r0::keys::SignedKey;
-    use matrix_sdk_common::identifiers::RoomId;
+    use matrix_sdk_common::identifiers::{DeviceId, RoomId, UserId};
     use olm_rs::session::OlmMessage;
     use std::collections::BTreeMap;
     use std::convert::TryFrom;
 
-    pub(crate) async fn get_account_and_session() -> (Account, Session) {
-        let alice = Account::new();
+    fn alice_id() -> UserId {
+        UserId::try_from("@alice:example.org").unwrap()
+    }
 
-        let bob = Account::new();
+    fn alice_device_id() -> DeviceId {
+        "ALICEDEVICE".to_string()
+    }
+
+    fn bob_id() -> UserId {
+        UserId::try_from("@bob:example.org").unwrap()
+    }
+
+    fn bob_device_id() -> DeviceId {
+        "BOBDEVICE".to_string()
+    }
+
+    pub(crate) async fn get_account_and_session() -> (Account, Session) {
+        let alice = Account::new(&alice_id(), &alice_device_id());
+        let bob = Account::new(&bob_id(), &bob_device_id());
 
         bob.generate_one_time_keys(1).await;
         let one_time_key = bob
@@ -694,7 +710,7 @@ pub(crate) mod test {
 
     #[test]
     fn account_creation() {
-        let account = Account::new();
+        let account = Account::new(&alice_id(), &alice_device_id());
         let identyty_keys = account.identity_keys();
 
         assert!(!account.shared());
@@ -715,7 +731,7 @@ pub(crate) mod test {
 
     #[tokio::test]
     async fn one_time_keys_creation() {
-        let account = Account::new();
+        let account = Account::new(&alice_id(), &alice_device_id());
         let one_time_keys = account.one_time_keys().await;
 
         assert!(one_time_keys.curve25519().is_empty());
@@ -742,8 +758,8 @@ pub(crate) mod test {
 
     #[tokio::test]
     async fn session_creation() {
-        let alice = Account::new();
-        let bob = Account::new();
+        let alice = Account::new(&alice_id(), &alice_device_id());
+        let bob = Account::new(&bob_id(), &bob_device_id());
         let alice_keys = alice.identity_keys();
         alice.generate_one_time_keys(1).await;
         let one_time_keys = alice.one_time_keys().await;

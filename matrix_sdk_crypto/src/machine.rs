@@ -111,11 +111,11 @@ impl OlmMachine {
     /// * `user_id` - The unique id of the user that owns this machine.
     ///
     /// * `device_id` - The unique id of the device that owns this machine.
-    pub fn new(user_id: &UserId, device_id: &str) -> Self {
+    pub fn new(user_id: &UserId, device_id: &DeviceId) -> Self {
         OlmMachine {
             user_id: user_id.clone(),
             device_id: device_id.to_owned(),
-            account: Account::new(),
+            account: Account::new(user_id, &device_id),
             uploaded_signed_key_count: None,
             store: Box::new(MemoryStore::new()),
             outbound_group_sessions: HashMap::new(),
@@ -151,13 +151,13 @@ impl OlmMachine {
             }
             None => {
                 debug!("Creating a new account");
-                Account::new()
+                Account::new(&user_id, &device_id)
             }
         };
 
         Ok(OlmMachine {
-            user_id: user_id.clone(),
-            device_id: device_id.to_owned(),
+            user_id,
+            device_id,
             account,
             uploaded_signed_key_count: None,
             store,
@@ -1554,7 +1554,6 @@ impl OlmMachine {
 #[cfg(test)]
 mod test {
     static USER_ID: &str = "@bob:example.org";
-    static DEVICE_ID: &str = "DEVICEID";
 
     use matrix_sdk_common::js_int::UInt;
     use std::collections::BTreeMap;
@@ -1631,7 +1630,7 @@ mod test {
     }
 
     async fn get_prepared_machine() -> (OlmMachine, OneTimeKeys) {
-        let mut machine = OlmMachine::new(&user_id(), DEVICE_ID);
+        let mut machine = OlmMachine::new(&user_id(), &alice_device_id());
         machine.uploaded_signed_key_count = Some(AtomicU64::new(0));
         let (_, otk) = machine
             .keys_for_upload()
@@ -1731,13 +1730,13 @@ mod test {
 
     #[tokio::test]
     async fn create_olm_machine() {
-        let machine = OlmMachine::new(&user_id(), DEVICE_ID);
+        let machine = OlmMachine::new(&user_id(), &alice_device_id());
         assert!(machine.should_upload_keys().await);
     }
 
     #[tokio::test]
     async fn receive_keys_upload_response() {
-        let mut machine = OlmMachine::new(&user_id(), DEVICE_ID);
+        let mut machine = OlmMachine::new(&user_id(), &alice_device_id());
         let mut response = keys_upload_response();
 
         response
@@ -1775,7 +1774,7 @@ mod test {
 
     #[tokio::test]
     async fn generate_one_time_keys() {
-        let mut machine = OlmMachine::new(&user_id(), DEVICE_ID);
+        let mut machine = OlmMachine::new(&user_id(), &alice_device_id());
 
         let mut response = keys_upload_response();
 
@@ -1802,7 +1801,7 @@ mod test {
 
     #[tokio::test]
     async fn test_device_key_signing() {
-        let machine = OlmMachine::new(&user_id(), DEVICE_ID);
+        let machine = OlmMachine::new(&user_id(), &alice_device_id());
 
         let mut device_keys = machine.device_keys().await;
         let identity_keys = machine.account.identity_keys();
@@ -1819,7 +1818,7 @@ mod test {
 
     #[tokio::test]
     async fn tests_session_invalidation() {
-        let mut machine = OlmMachine::new(&user_id(), DEVICE_ID);
+        let mut machine = OlmMachine::new(&user_id(), &alice_device_id());
         let room_id = RoomId::try_from("!test:example.org").unwrap();
 
         machine
@@ -1835,7 +1834,7 @@ mod test {
 
     #[tokio::test]
     async fn test_invalid_signature() {
-        let machine = OlmMachine::new(&user_id(), DEVICE_ID);
+        let machine = OlmMachine::new(&user_id(), &alice_device_id());
 
         let mut device_keys = machine.device_keys().await;
 
@@ -1850,7 +1849,7 @@ mod test {
 
     #[tokio::test]
     async fn test_one_time_key_signing() {
-        let mut machine = OlmMachine::new(&user_id(), DEVICE_ID);
+        let mut machine = OlmMachine::new(&user_id(), &alice_device_id());
         machine.uploaded_signed_key_count = Some(AtomicU64::new(49));
 
         let mut one_time_keys = machine.signed_one_time_keys().await.unwrap();
@@ -1870,7 +1869,7 @@ mod test {
 
     #[tokio::test]
     async fn test_keys_for_upload() {
-        let mut machine = OlmMachine::new(&user_id(), DEVICE_ID);
+        let mut machine = OlmMachine::new(&user_id(), &alice_device_id());
         machine.uploaded_signed_key_count = Some(AtomicU64::default());
 
         let identity_keys = machine.account.identity_keys();
