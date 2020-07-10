@@ -32,9 +32,9 @@ pub struct MessageWrapper(pub SyncMessageEvent);
 impl MessageWrapper {
     pub fn clone_into_any_content(event: &AnyMessageEventStub) -> SyncMessageEvent {
         MessageEventStub {
-            content: event.content().clone(),
+            content: event.content(),
             sender: event.sender().clone(),
-            origin_server_ts: event.origin_server_ts().clone(),
+            origin_server_ts: *event.origin_server_ts(),
             event_id: event.event_id().clone(),
             unsigned: event.unsigned().clone(),
         }
