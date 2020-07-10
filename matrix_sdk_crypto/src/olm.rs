@@ -38,7 +38,7 @@ pub use olm_rs::{
 
 use matrix_sdk_common::identifiers::{DeviceId, RoomId, UserId};
 use matrix_sdk_common::{
-    api::r0::keys::{AlgorithmAndDeviceId, DeviceKeys, KeyAlgorithm, SignedKey},
+    api::r0::keys::{AlgorithmAndDeviceId, DeviceKeys, KeyAlgorithm, OneTimeKey, SignedKey},
     events::Algorithm,
 };
 
@@ -228,6 +228,44 @@ impl Account {
         let canonical_json = cjson::to_string(json)
             .unwrap_or_else(|_| panic!(format!("Can't serialize {} to canonical JSON", json)));
         self.sign(&canonical_json).await
+    }
+
+    /// Generate, sign and prepare one-time keys to be uploaded.
+    ///
+    /// If no one-time keys need to be uploaded returns an empty error.
+    pub async fn signed_one_time_keys(&self) -> BTreeMap<AlgorithmAndDeviceId, OneTimeKey> {
+        let one_time_keys = self.one_time_keys().await;
+        let mut one_time_key_map = BTreeMap::new();
+
+        for (key_id, key) in one_time_keys.curve25519().iter() {
+            let key_json = json!({
+                "key": key,
+            });
+
+            let signature = self.sign_json(&key_json).await;
+
+            let mut signature_map = BTreeMap::new();
+
+            signature_map.insert(
+                AlgorithmAndDeviceId(KeyAlgorithm::Ed25519, (*self.device_id).clone()),
+                signature,
+            );
+
+            let mut signatures = BTreeMap::new();
+            signatures.insert((*self.user_id).clone(), signature_map);
+
+            let signed_key = SignedKey {
+                key: key.to_owned(),
+                signatures,
+            };
+
+            one_time_key_map.insert(
+                AlgorithmAndDeviceId(KeyAlgorithm::SignedCurve25519, key_id.to_owned()),
+                OneTimeKey::SignedKey(signed_key),
+            );
+        }
+
+        one_time_key_map
     }
 
     /// Create a new session with another account given a one-time key.

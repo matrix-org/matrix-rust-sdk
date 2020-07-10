@@ -48,7 +48,7 @@ use matrix_sdk_common::uuid::Uuid;
 
 use api::r0::keys;
 use api::r0::{
-    keys::{AlgorithmAndDeviceId, DeviceKeys, KeyAlgorithm, OneTimeKey, SignedKey},
+    keys::{AlgorithmAndDeviceId, DeviceKeys, KeyAlgorithm, OneTimeKey},
     sync::sync_events::Response as SyncResponse,
     to_device::{send_event_to_device::Request as ToDeviceRequest, DeviceIdOrAllDevices},
 };
@@ -568,51 +568,7 @@ impl OlmMachine {
     /// If no one-time keys need to be uploaded returns an empty error.
     async fn signed_one_time_keys(&self) -> StdResult<OneTimeKeys, ()> {
         let _ = self.generate_one_time_keys().await?;
-        let one_time_keys = self.account.one_time_keys().await;
-        let mut one_time_key_map = BTreeMap::new();
-
-        for (key_id, key) in one_time_keys.curve25519().iter() {
-            let key_json = json!({
-                "key": key,
-            });
-
-            let signature = self.sign_json(&key_json).await;
-
-            let mut signature_map = BTreeMap::new();
-
-            signature_map.insert(
-                AlgorithmAndDeviceId(KeyAlgorithm::Ed25519, self.device_id.clone()),
-                signature,
-            );
-
-            let mut signatures = BTreeMap::new();
-            signatures.insert(self.user_id.clone(), signature_map);
-
-            let signed_key = SignedKey {
-                key: key.to_owned(),
-                signatures,
-            };
-
-            one_time_key_map.insert(
-                AlgorithmAndDeviceId(KeyAlgorithm::SignedCurve25519, key_id.to_owned()),
-                OneTimeKey::SignedKey(signed_key),
-            );
-        }
-
-        Ok(one_time_key_map)
-    }
-
-    /// Convert a JSON value to the canonical representation and sign the JSON
-    /// string.
-    ///
-    /// # Arguments
-    ///
-    /// * `json` - The value that should be converted into a canonical JSON
-    /// string.
-    async fn sign_json(&self, json: &Value) -> String {
-        let canonical_json = cjson::to_string(json)
-            .unwrap_or_else(|_| panic!(format!("Can't serialize {} to canonical JSON", json)));
-        self.account.sign(&canonical_json).await
+        Ok(self.account.signed_one_time_keys().await)
     }
 
     /// Verify a signed JSON object.
