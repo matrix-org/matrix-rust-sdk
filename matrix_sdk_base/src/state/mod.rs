@@ -159,7 +159,6 @@ mod test {
                     "creator": null,
                     "joined_members": {},
                     "invited_members": {},
-                    "disambiguated_display_names": {},
                     "typing_users": [],
                     "power_levels": null,
                     "encrypted": null,
@@ -176,7 +175,6 @@ mod test {
             serde_json::json!({
                 "!roomid:example.com": {
                     "room_id": "!roomid:example.com",
-                    "disambiguated_display_names": {},
                     "room_name": {
                         "name": null,
                         "canonical_alias": null,

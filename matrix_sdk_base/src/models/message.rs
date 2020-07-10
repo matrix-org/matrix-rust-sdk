@@ -178,7 +178,6 @@ mod test {
             serde_json::json!({
                 "!roomid:example.com": {
                     "room_id": "!roomid:example.com",
-                    "disambiguated_display_names": {},
                     "room_name": {
                         "name": null,
                         "canonical_alias": null,
@@ -229,7 +228,6 @@ mod test {
         let json = serde_json::json!({
             "!roomid:example.com": {
                 "room_id": "!roomid:example.com",
-                "disambiguated_display_names": {},
                 "room_name": {
                     "name": null,
                     "canonical_alias": null,

@@ -33,6 +33,8 @@ pub struct RoomMember {
     pub user_id: UserId,
     /// The human readable name of the user.
     pub display_name: Option<String>,
+    /// Whether the member's display name is ambiguous due to being shared with other members.
+    pub display_name_ambiguous: bool,
     /// The matrix url of the users avatar.
     pub avatar_url: Option<String>,
     /// The time, in ms, since the user interacted with the server.
@@ -76,6 +78,7 @@ impl PartialEq for RoomMember {
             && self.user_id == other.user_id
             && self.name == other.name
             && self.display_name == other.display_name
+            && self.display_name_ambiguous == other.display_name_ambiguous
             && self.avatar_url == other.avatar_url
             && self.last_active_ago == other.last_active_ago
     }
@@ -88,6 +91,7 @@ impl RoomMember {
             room_id: event.room_id.as_ref().map(|id| id.to_string()),
             user_id: UserId::try_from(event.state_key.as_str()).unwrap(),
             display_name: event.content.displayname.clone(),
+            display_name_ambiguous: false,
             avatar_url: event.content.avatar_url.clone(),
             presence: None,
             status_msg: None,
