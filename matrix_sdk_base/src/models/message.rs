@@ -32,9 +32,9 @@ pub struct MessageWrapper(pub SyncMessageEvent);
 impl MessageWrapper {
     pub fn clone_into_any_content(event: &AnyMessageEventStub) -> SyncMessageEvent {
         MessageEventStub {
-            content: event.content().clone(),
+            content: event.content(),
             sender: event.sender().clone(),
-            origin_server_ts: event.origin_server_ts().clone(),
+            origin_server_ts: *event.origin_server_ts(),
             event_id: event.event_id().clone(),
             unsigned: event.unsigned().clone(),
         }
@@ -139,20 +139,38 @@ impl IntoIterator for MessageQueue {
 }
 
 pub(crate) mod ser_deser {
+    use std::fmt;
+
     use super::*;
+
+    struct MessageQueueDeserializer;
+
+    impl<'de> de::Visitor<'de> for MessageQueueDeserializer {
+        type Value = MessageQueue;
+
+        fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+            formatter.write_str("an array of message events")
+        }
+
+        fn visit_seq<S>(self, mut access: S) -> Result<Self::Value, S::Error>
+        where
+            S: de::SeqAccess<'de>,
+        {
+            let mut msgs = Vec::with_capacity(access.size_hint().unwrap_or(0));
+
+            while let Some(msg) = access.next_element::<SyncMessageEvent>()? {
+                msgs.push(MessageWrapper(msg));
+            }
+
+            Ok(MessageQueue { msgs })
+        }
+    }
 
     pub fn deserialize<'de, D>(deserializer: D) -> Result<MessageQueue, D::Error>
     where
         D: de::Deserializer<'de>,
     {
-        let messages: Vec<SyncMessageEvent> = de::Deserialize::deserialize(deserializer)?;
-
-        let mut msgs = vec![];
-        for msg in messages {
-            msgs.push(MessageWrapper(msg));
-        }
-
-        Ok(MessageQueue { msgs })
+        deserializer.deserialize_seq(MessageQueueDeserializer)
     }
 
     pub fn serialize<S>(msgs: &MessageQueue, serializer: S) -> Result<S::Ok, S::Error>
