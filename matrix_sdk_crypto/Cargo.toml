@@ -46,7 +46,6 @@ features = ["runtime-tokio", "sqlite"]
 
 [dev-dependencies]
 tokio = { version = "0.2.21", features = ["rt-threaded", "macros"] }
-ruma-identifiers = { version = "0.16.2", features = ["rand"] }
 serde_json = "1.0.56"
 tempfile = "3.1.0"
 http = "0.2.1"
