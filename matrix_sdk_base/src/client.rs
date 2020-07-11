@@ -727,8 +727,8 @@ impl BaseClient {
                         let mut olm = self.olm.lock().await;
 
                         if let Some(o) = &mut *olm {
-                            if let Some(decrypted) =
-                                o.decrypt_room_event(&encrypted_event, room_id).await.ok()
+                            if let Ok(decrypted) =
+                                o.decrypt_room_event(&encrypted_event, room_id).await
                             {
                                 if let Ok(d) = decrypted.deserialize() {
                                     e = d

@@ -30,16 +30,13 @@ impl EventEmitter for AutoJoinBot {
             return;
         }
 
-        match room {
-            SyncRoom::Invited(room) => {
-                let room = room.read().await;
-                println!("Autojoining room {}", room.display_name());
-                self.client
-                    .join_room_by_id(&room.room_id)
-                    .await
-                    .expect("Can't join room");
-            }
-            _ => (),
+        if let SyncRoom::Invited(room) = room {
+            let room = room.read().await;
+            println!("Autojoining room {}", room.display_name());
+            self.client
+                .join_room_by_id(&room.room_id)
+                .await
+                .expect("Can't join room");
         }
     }
 }
