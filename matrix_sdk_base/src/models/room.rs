@@ -46,7 +46,7 @@ use crate::events::{
 
 use crate::identifiers::{RoomAliasId, RoomId, UserId};
 
-use crate::js_int::{Int, UInt};
+use crate::js_int::{uint, Int, UInt};
 use serde::{Deserialize, Serialize};
 
 #[cfg(feature = "messages")]
@@ -253,12 +253,11 @@ impl RoomName {
             let joined = self.joined_member_count.unwrap_or(UInt::MIN);
             let invited = self.invited_member_count.unwrap_or(UInt::MIN);
             let heroes = UInt::new(self.heroes.len() as u64).unwrap();
-            let one = UInt::new(1).unwrap();
 
             let invited_joined = if invited + joined == UInt::MIN {
                 UInt::MIN
             } else {
-                invited + joined - one
+                invited + joined - uint!(1)
             };
 
             let members = joined_members.values().chain(invited_members.values());
@@ -277,7 +276,7 @@ impl RoomName {
                 // stabilize ordering
                 names.sort();
                 names.join(", ")
-            } else if heroes < invited_joined && invited + joined > one {
+            } else if heroes < invited_joined && invited + joined > uint!(1) {
                 let mut names = members
                     .filter(|m| m.user_id != *own_user_id)
                     .take(3)
@@ -1094,13 +1093,10 @@ mod test {
         assert!(room.power_levels.is_some());
         assert_eq!(
             room.power_levels.as_ref().unwrap().kick,
-            crate::js_int::Int::new(50).unwrap()
+            crate::js_int::int!(50)
         );
         let admin = room.joined_members.get(&user_id).unwrap();
-        assert_eq!(
-            admin.power_level.unwrap(),
-            crate::js_int::Int::new(100).unwrap()
-        );
+        assert_eq!(admin.power_level.unwrap(), crate::js_int::int!(100));
     }
 
     #[async_test]

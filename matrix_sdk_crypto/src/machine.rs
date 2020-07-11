@@ -1485,9 +1485,10 @@ impl OlmMachine {
 mod test {
     static USER_ID: &str = "@bob:example.org";
 
-    use matrix_sdk_common::js_int::UInt;
+    use matrix_sdk_common::js_int::uint;
     use std::collections::BTreeMap;
     use std::convert::TryFrom;
+    use std::convert::TryInto;
     use std::sync::atomic::AtomicU64;
     use std::time::SystemTime;
 
@@ -1681,20 +1682,18 @@ mod test {
             .unwrap();
         assert!(machine.should_upload_keys().await);
 
-        response.one_time_key_counts.insert(
-            keys::KeyAlgorithm::SignedCurve25519,
-            UInt::try_from(10).unwrap(),
-        );
+        response
+            .one_time_key_counts
+            .insert(keys::KeyAlgorithm::SignedCurve25519, uint!(10));
         machine
             .receive_keys_upload_response(&response)
             .await
             .unwrap();
         assert!(machine.should_upload_keys().await);
 
-        response.one_time_key_counts.insert(
-            keys::KeyAlgorithm::SignedCurve25519,
-            UInt::try_from(50).unwrap(),
-        );
+        response
+            .one_time_key_counts
+            .insert(keys::KeyAlgorithm::SignedCurve25519, uint!(50));
         machine
             .receive_keys_upload_response(&response)
             .await
@@ -1718,10 +1717,9 @@ mod test {
         assert!(machine.should_upload_keys().await);
         assert!(machine.generate_one_time_keys().await.is_ok());
 
-        response.one_time_key_counts.insert(
-            keys::KeyAlgorithm::SignedCurve25519,
-            UInt::try_from(50).unwrap(),
-        );
+        response
+            .one_time_key_counts
+            .insert(keys::KeyAlgorithm::SignedCurve25519, uint!(50));
         machine
             .receive_keys_upload_response(&response)
             .await
@@ -1829,7 +1827,7 @@ mod test {
         let mut response = keys_upload_response();
         response.one_time_key_counts.insert(
             keys::KeyAlgorithm::SignedCurve25519,
-            UInt::new_wrapping(one_time_keys.unwrap().len() as u64),
+            (one_time_keys.unwrap().len() as u64).try_into().unwrap(),
         );
 
         machine
