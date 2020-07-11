@@ -184,7 +184,6 @@ pub trait CryptoStore: Debug {
 
     /// Get all the devices of the given user.
     ///
-    ///
     /// # Arguments
     ///
     /// * `user_id` - The user for which we should get all the devices.
