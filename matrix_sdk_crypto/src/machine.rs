@@ -464,6 +464,9 @@ impl OlmMachine {
                     continue;
                 }
 
+                // TODO this logic could go into the device struct, especially
+                // since we're gonna have cross signing identities soon.
+
                 if user_id != &device_keys.user_id || device_id != &device_keys.device_id {
                     warn!(
                         "Mismatch in device keys payload of device {} from user {}",
@@ -545,6 +548,8 @@ impl OlmMachine {
     async fn generate_one_time_keys(&self) -> StdResult<u64, ()> {
         match &self.uploaded_signed_key_count {
             Some(count) => {
+                // TODO if we store the uploaded key count with the Account all
+                // this logic could go into the account.
                 let count = count.load(Ordering::Relaxed);
                 let max_keys = self.account.max_one_time_keys().await;
                 let max_on_server = (max_keys as u64) / 2;
@@ -1039,6 +1044,13 @@ impl OlmMachine {
     ) -> OlmResult<EncryptedEventContent> {
         let identity_keys = self.account.identity_keys();
 
+        // TODO most of this could go into the session, the session already
+        // stores the curve key of the device, if we also store the ed25519 key
+        // with the session we'll only need to pass in the account to the
+        // session and all of this can live in the session.
+        //
+        // Storing a reference to the account is probably not worth the effort.
+
         let recipient_signing_key = recipient_device
             .get_key(KeyAlgorithm::Ed25519)
             .ok_or(EventError::MissingSigningKey)?;
@@ -1064,7 +1076,6 @@ impl OlmMachine {
             .unwrap_or_else(|_| panic!(format!("Can't serialize {} to canonical JSON", payload)));
 
         let ciphertext = session.encrypt(&plaintext).await.to_tuple();
-        self.store.save_sessions(&[session]).await?;
 
         let message_type: usize = ciphertext.0.into();
 
@@ -1076,6 +1087,8 @@ impl OlmMachine {
         let mut content = BTreeMap::new();
 
         content.insert(recipient_sender_key.to_owned(), ciphertext);
+
+        self.store.save_sessions(&[session]).await?;
 
         Ok(EncryptedEventContent::OlmV1Curve25519AesSha2(
             OlmV1Curve25519AesSha2Content {
@@ -1136,7 +1149,15 @@ impl OlmMachine {
         }
 
         let session_id = megolm_session.session_id().to_owned();
+
+        // TODO don't mark the session as shared automatically only, when all
+        // the requests are done, failure to send these requests will likely end
+        // up in wedged sessions. We'll need to store the requests and let the
+        // caller mark them as sent using an UUID.
         megolm_session.mark_as_shared();
+
+        // TODO the key content creation can go into the OutboundGroupSession
+        // struct.
 
         let key_content = json!({
             "algorithm": Algorithm::MegolmV1AesSha2,
@@ -1167,6 +1188,9 @@ impl OlmMachine {
 
                 if let Some(s) = sessions {
                     let session = &s.lock().await[0];
+                    // TODO once the session has the all the device info, we
+                    // won't need the device anymore to encrypt stuff with the
+                    // session.
                     user_map.push((session.clone(), device.clone()));
                 } else {
                     warn!(
@@ -1200,8 +1224,6 @@ impl OlmMachine {
                     )
                     .await?;
 
-                // TODO enable this again once we can send encrypted event
-                // contents with ruma.
                 user_messages.insert(
                     DeviceIdOrAllDevices::DeviceId(device.device_id().clone()),
                     serde_json::value::to_raw_value(&encrypted_content)?,
@@ -1368,6 +1390,7 @@ impl OlmMachine {
         // TODO check the message index.
         // TODO check if this is from a verified device.
 
+        // TODO move this logic into the group session.
         let mut decrypted_value = serde_json::from_str::<Value>(&plaintext)?;
         let decrypted_object = decrypted_value
             .as_object_mut()
