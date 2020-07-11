@@ -250,15 +250,10 @@ impl RoomName {
         } else if !self.aliases.is_empty() && !self.aliases[0].alias().is_empty() {
             self.aliases[0].alias().trim().to_string()
         } else {
-            let joined = self.joined_member_count.unwrap_or(UInt::MIN);
-            let invited = self.invited_member_count.unwrap_or(UInt::MIN);
+            let joined = self.joined_member_count.unwrap_or(uint!(0));
+            let invited = self.invited_member_count.unwrap_or(uint!(0));
             let heroes = UInt::new(self.heroes.len() as u64).unwrap();
-
-            let invited_joined = if invited + joined == UInt::MIN {
-                UInt::MIN
-            } else {
-                invited + joined - uint!(1)
-            };
+            let invited_joined = (invited + joined).saturating_sub(uint!(1));
 
             let members = joined_members.values().chain(invited_members.values());
 
