@@ -1333,7 +1333,7 @@ impl OlmMachine {
 
             match &event {
                 AnyToDeviceEvent::RoomEncrypted(e) => {
-                    let decrypted_event = match self.decrypt_to_device_event(&e).await {
+                    let decrypted_event = match self.decrypt_to_device_event(e).await {
                         Ok(e) => e,
                         Err(err) => {
                             warn!(
@@ -1350,7 +1350,7 @@ impl OlmMachine {
                     // before we replace the result.
                     *event_result = decrypted_event;
                 }
-                AnyToDeviceEvent::RoomKeyRequest(e) => self.handle_room_key_request(&e),
+                AnyToDeviceEvent::RoomKeyRequest(e) => self.handle_room_key_request(e),
                 AnyToDeviceEvent::KeyVerificationAccept(..)
                 | AnyToDeviceEvent::KeyVerificationCancel(..)
                 | AnyToDeviceEvent::KeyVerificationKey(..)

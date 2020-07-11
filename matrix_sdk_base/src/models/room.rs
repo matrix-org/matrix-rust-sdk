@@ -746,27 +746,27 @@ impl Room {
     ///
     /// * `event` - The event of the room.
     pub fn receive_timeline_event(&mut self, event: &AnyRoomEventStub) -> bool {
-        match &event {
-            AnyRoomEventStub::State(event) => match &event {
+        match event {
+            AnyRoomEventStub::State(event) => match event {
                 // update to the current members of the room
-                AnyStateEventStub::RoomMember(event) => self.handle_membership(&event),
+                AnyStateEventStub::RoomMember(event) => self.handle_membership(event),
                 // finds all events related to the name of the room for later use
-                AnyStateEventStub::RoomName(event) => self.handle_room_name(&event),
-                AnyStateEventStub::RoomCanonicalAlias(event) => self.handle_canonical(&event),
-                AnyStateEventStub::RoomAliases(event) => self.handle_room_aliases(&event),
+                AnyStateEventStub::RoomName(event) => self.handle_room_name(event),
+                AnyStateEventStub::RoomCanonicalAlias(event) => self.handle_canonical(event),
+                AnyStateEventStub::RoomAliases(event) => self.handle_room_aliases(event),
                 // power levels of the room members
-                AnyStateEventStub::RoomPowerLevels(event) => self.handle_power_level(&event),
-                AnyStateEventStub::RoomTombstone(event) => self.handle_tombstone(&event),
-                AnyStateEventStub::RoomEncryption(event) => self.handle_encryption_event(&event),
+                AnyStateEventStub::RoomPowerLevels(event) => self.handle_power_level(event),
+                AnyStateEventStub::RoomTombstone(event) => self.handle_tombstone(event),
+                AnyStateEventStub::RoomEncryption(event) => self.handle_encryption_event(event),
                 _ => false,
             },
-            AnyRoomEventStub::Message(event) => match &event {
+            AnyRoomEventStub::Message(event) => match event {
                 #[cfg(feature = "messages")]
                 // We ignore this variants event because `handle_message` takes the enum
                 // to store AnyMessageEventStub events in the `MessageQueue`.
-                AnyMessageEventStub::RoomMessage(_) => self.handle_message(&event),
+                AnyMessageEventStub::RoomMessage(_) => self.handle_message(event),
                 #[cfg(feature = "messages")]
-                AnyMessageEventStub::RoomRedaction(event) => self.handle_redaction(&event),
+                AnyMessageEventStub::RoomRedaction(event) => self.handle_redaction(event),
                 _ => false,
             },
         }
@@ -804,7 +804,7 @@ impl Room {
     /// * `event` - The `AnyStrippedStateEvent` sent by the server for invited but not
     /// joined rooms.
     pub fn receive_stripped_state_event(&mut self, event: &AnyStrippedStateEventStub) -> bool {
-        match &event {
+        match event {
             AnyStrippedStateEventStub::RoomName(event) => self.handle_stripped_room_name(event),
             _ => false,
         }
