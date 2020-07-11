@@ -46,7 +46,7 @@ use crate::events::{
 
 use crate::identifiers::{RoomAliasId, RoomId, UserId};
 
-use crate::js_int::{Int, UInt};
+use crate::js_int::{uint, Int, UInt};
 use serde::{Deserialize, Serialize};
 
 #[cfg(feature = "messages")]
@@ -250,16 +250,10 @@ impl RoomName {
         } else if !self.aliases.is_empty() && !self.aliases[0].alias().is_empty() {
             self.aliases[0].alias().trim().to_string()
         } else {
-            let joined = self.joined_member_count.unwrap_or(UInt::MIN);
-            let invited = self.invited_member_count.unwrap_or(UInt::MIN);
+            let joined = self.joined_member_count.unwrap_or(uint!(0));
+            let invited = self.invited_member_count.unwrap_or(uint!(0));
             let heroes = UInt::new(self.heroes.len() as u64).unwrap();
-            let one = UInt::new(1).unwrap();
-
-            let invited_joined = if invited + joined == UInt::MIN {
-                UInt::MIN
-            } else {
-                invited + joined - one
-            };
+            let invited_joined = (invited + joined).saturating_sub(uint!(1));
 
             let members = joined_members.values().chain(invited_members.values());
 
@@ -277,7 +271,7 @@ impl RoomName {
                 // stabilize ordering
                 names.sort();
                 names.join(", ")
-            } else if heroes < invited_joined && invited + joined > one {
+            } else if heroes < invited_joined && invited + joined > uint!(1) {
                 let mut names = members
                     .filter(|m| m.user_id != *own_user_id)
                     .take(3)
@@ -752,27 +746,27 @@ impl Room {
     ///
     /// * `event` - The event of the room.
     pub fn receive_timeline_event(&mut self, event: &AnyRoomEventStub) -> bool {
-        match &event {
-            AnyRoomEventStub::State(event) => match &event {
+        match event {
+            AnyRoomEventStub::State(event) => match event {
                 // update to the current members of the room
-                AnyStateEventStub::RoomMember(event) => self.handle_membership(&event),
+                AnyStateEventStub::RoomMember(event) => self.handle_membership(event),
                 // finds all events related to the name of the room for later use
-                AnyStateEventStub::RoomName(event) => self.handle_room_name(&event),
-                AnyStateEventStub::RoomCanonicalAlias(event) => self.handle_canonical(&event),
-                AnyStateEventStub::RoomAliases(event) => self.handle_room_aliases(&event),
+                AnyStateEventStub::RoomName(event) => self.handle_room_name(event),
+                AnyStateEventStub::RoomCanonicalAlias(event) => self.handle_canonical(event),
+                AnyStateEventStub::RoomAliases(event) => self.handle_room_aliases(event),
                 // power levels of the room members
-                AnyStateEventStub::RoomPowerLevels(event) => self.handle_power_level(&event),
-                AnyStateEventStub::RoomTombstone(event) => self.handle_tombstone(&event),
-                AnyStateEventStub::RoomEncryption(event) => self.handle_encryption_event(&event),
+                AnyStateEventStub::RoomPowerLevels(event) => self.handle_power_level(event),
+                AnyStateEventStub::RoomTombstone(event) => self.handle_tombstone(event),
+                AnyStateEventStub::RoomEncryption(event) => self.handle_encryption_event(event),
                 _ => false,
             },
-            AnyRoomEventStub::Message(event) => match &event {
+            AnyRoomEventStub::Message(event) => match event {
                 #[cfg(feature = "messages")]
                 // We ignore this variants event because `handle_message` takes the enum
                 // to store AnyMessageEventStub events in the `MessageQueue`.
-                AnyMessageEventStub::RoomMessage(_) => self.handle_message(&event),
+                AnyMessageEventStub::RoomMessage(_) => self.handle_message(event),
                 #[cfg(feature = "messages")]
-                AnyMessageEventStub::RoomRedaction(event) => self.handle_redaction(&event),
+                AnyMessageEventStub::RoomRedaction(event) => self.handle_redaction(event),
                 _ => false,
             },
         }
@@ -810,7 +804,7 @@ impl Room {
     /// * `event` - The `AnyStrippedStateEvent` sent by the server for invited but not
     /// joined rooms.
     pub fn receive_stripped_state_event(&mut self, event: &AnyStrippedStateEventStub) -> bool {
-        match &event {
+        match event {
             AnyStrippedStateEventStub::RoomName(event) => self.handle_stripped_room_name(event),
             _ => false,
         }
@@ -1094,13 +1088,10 @@ mod test {
         assert!(room.power_levels.is_some());
         assert_eq!(
             room.power_levels.as_ref().unwrap().kick,
-            crate::js_int::Int::new(50).unwrap()
+            crate::js_int::int!(50)
         );
         let admin = room.joined_members.get(&user_id).unwrap();
-        assert_eq!(
-            admin.power_level.unwrap(),
-            crate::js_int::Int::new(100).unwrap()
-        );
+        assert_eq!(admin.power_level.unwrap(), crate::js_int::int!(100));
     }
 
     #[async_test]

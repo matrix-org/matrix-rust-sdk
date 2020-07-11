@@ -727,8 +727,8 @@ impl BaseClient {
                         let mut olm = self.olm.lock().await;
 
                         if let Some(o) = &mut *olm {
-                            if let Some(decrypted) =
-                                o.decrypt_room_event(&encrypted_event, room_id).await.ok()
+                            if let Ok(decrypted) =
+                                o.decrypt_room_event(&encrypted_event, room_id).await
                             {
                                 if let Ok(d) = decrypted.deserialize() {
                                     e = d
@@ -890,9 +890,9 @@ impl BaseClient {
     ///
     /// * `event` - The presence event for a specified room member.
     pub async fn receive_account_data_event(&self, _: &RoomId, event: &AnyBasicEvent) -> bool {
-        match &event {
-            AnyBasicEvent::IgnoredUserList(event) => self.handle_ignored_users(&event).await,
-            AnyBasicEvent::PushRules(event) => self.handle_push_rules(&event).await,
+        match event {
+            AnyBasicEvent::IgnoredUserList(event) => self.handle_ignored_users(event).await,
+            AnyBasicEvent::PushRules(event) => self.handle_push_rules(event).await,
             _ => false,
         }
     }
@@ -907,7 +907,7 @@ impl BaseClient {
     ///
     /// * `event` - The presence event for a specified room member.
     pub async fn receive_ephemeral_event(&self, event: &AnyEphemeralRoomEventStub) -> bool {
-        match &event {
+        match event {
             AnyEphemeralRoomEventStub::FullyRead(_) => {}
             AnyEphemeralRoomEventStub::Receipt(_) => {}
             AnyEphemeralRoomEventStub::Typing(_) => {}
@@ -1471,44 +1471,42 @@ impl BaseClient {
             }
         };
 
-        match &event {
-            AnyRoomEventStub::State(event) => match &event {
-                AnyStateEventStub::RoomMember(e) => event_emitter.on_room_member(room, &e).await,
-                AnyStateEventStub::RoomName(e) => event_emitter.on_room_name(room, &e).await,
+        match event {
+            AnyRoomEventStub::State(event) => match event {
+                AnyStateEventStub::RoomMember(e) => event_emitter.on_room_member(room, e).await,
+                AnyStateEventStub::RoomName(e) => event_emitter.on_room_name(room, e).await,
                 AnyStateEventStub::RoomCanonicalAlias(e) => {
-                    event_emitter.on_room_canonical_alias(room, &e).await
+                    event_emitter.on_room_canonical_alias(room, e).await
                 }
-                AnyStateEventStub::RoomAliases(e) => event_emitter.on_room_aliases(room, &e).await,
-                AnyStateEventStub::RoomAvatar(e) => event_emitter.on_room_avatar(room, &e).await,
+                AnyStateEventStub::RoomAliases(e) => event_emitter.on_room_aliases(room, e).await,
+                AnyStateEventStub::RoomAvatar(e) => event_emitter.on_room_avatar(room, e).await,
                 AnyStateEventStub::RoomPowerLevels(e) => {
-                    event_emitter.on_room_power_levels(room, &e).await
+                    event_emitter.on_room_power_levels(room, e).await
                 }
                 AnyStateEventStub::RoomTombstone(e) => {
-                    event_emitter.on_room_tombstone(room, &e).await
+                    event_emitter.on_room_tombstone(room, e).await
                 }
                 AnyStateEventStub::RoomJoinRules(e) => {
-                    event_emitter.on_room_join_rules(room, &e).await
+                    event_emitter.on_room_join_rules(room, e).await
                 }
                 AnyStateEventStub::Custom(e) => {
                     event_emitter
-                        .on_unrecognized_event(room, &CustomOrRawEvent::State(&e))
+                        .on_unrecognized_event(room, &CustomOrRawEvent::State(e))
                         .await
                 }
                 _ => {}
             },
-            AnyRoomEventStub::Message(event) => match &event {
-                AnyMessageEventStub::RoomMessage(e) => {
-                    event_emitter.on_room_message(room, &e).await
-                }
+            AnyRoomEventStub::Message(event) => match event {
+                AnyMessageEventStub::RoomMessage(e) => event_emitter.on_room_message(room, e).await,
                 AnyMessageEventStub::RoomMessageFeedback(e) => {
-                    event_emitter.on_room_message_feedback(room, &e).await
+                    event_emitter.on_room_message_feedback(room, e).await
                 }
                 AnyMessageEventStub::RoomRedaction(e) => {
                     event_emitter.on_room_redaction(room, e).await
                 }
                 AnyMessageEventStub::Custom(e) => {
                     event_emitter
-                        .on_unrecognized_event(room, &CustomOrRawEvent::Message(&e))
+                        .on_unrecognized_event(room, &CustomOrRawEvent::Message(e))
                         .await
                 }
                 _ => {}

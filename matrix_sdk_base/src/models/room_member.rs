@@ -23,7 +23,7 @@ use crate::events::room::{
 use crate::events::StateEventStub;
 use crate::identifiers::{RoomId, UserId};
 
-use crate::js_int::{Int, UInt};
+use crate::js_int::{int, Int, UInt};
 use serde::{Deserialize, Serialize};
 // Notes: if Alice invites Bob into a room we will get an event with the sender as Alice and the state key as Bob.
 
@@ -143,8 +143,8 @@ impl RoomMember {
             self.power_level = Some(event.content.users_default);
         }
 
-        if max_power > Int::from(0) {
-            self.power_level_norm = Some((self.power_level.unwrap() * Int::from(100)) / max_power);
+        if max_power > int!(0) {
+            self.power_level_norm = Some((self.power_level.unwrap() * int!(100)) / max_power);
         }
 
         changed
@@ -216,7 +216,7 @@ mod test {
     use crate::identifiers::{RoomId, UserId};
     use crate::{BaseClient, Session};
 
-    use crate::js_int::Int;
+    use crate::js_int::int;
 
     #[cfg(target_arch = "wasm32")]
     use wasm_bindgen_test::*;
@@ -258,7 +258,7 @@ mod test {
             .joined_members
             .get(&UserId::try_from("@example:localhost").unwrap())
             .unwrap();
-        assert_eq!(member.power_level, Int::new(100));
+        assert_eq!(member.power_level, Some(int!(100)));
     }
 
     #[async_test]
@@ -283,7 +283,7 @@ mod test {
             .get(&UserId::try_from("@example:localhost").unwrap())
             .unwrap();
 
-        assert_eq!(member.power_level, Int::new(100));
+        assert_eq!(member.power_level, Some(int!(100)));
 
         assert!(member.avatar_url.is_none());
         assert_eq!(member.last_active_ago, None);
