@@ -20,22 +20,21 @@ use serde::{Deserialize, Serialize};
 use tracing::{debug, error, trace};
 
 #[cfg(feature = "messages")]
-use super::message::{MessageQueue, MessageWrapper};
+use super::message::{FullOrRedactedEvent, MessageQueue};
 use super::RoomMember;
 
 use crate::api::r0::sync::sync_events::{RoomSummary, UnreadNotificationsCount};
-use crate::events::presence::{PresenceEvent, PresenceEventContent};
-use crate::events::room::{
-    aliases::AliasesEventContent,
-    canonical_alias::CanonicalAliasEventContent,
-    encryption::EncryptionEventContent,
-    member::{MemberEventContent, MembershipChange, MembershipState},
-    name::NameEventContent,
-    power_levels::{NotificationPowerLevels, PowerLevelsEventContent},
-    tombstone::TombstoneEventContent,
-};
-
 use crate::events::{
+    presence::PresenceEvent,
+    room::{
+        aliases::AliasesEventContent,
+        canonical_alias::CanonicalAliasEventContent,
+        encryption::EncryptionEventContent,
+        member::{MemberEventContent, MembershipChange},
+        name::NameEventContent,
+        power_levels::{NotificationPowerLevels, PowerLevelsEventContent},
+        tombstone::TombstoneEventContent,
+    },
     Algorithm, AnyRoomEventStub, AnyStateEventStub, AnyStrippedStateEventStub, EventType,
     StateEventStub, StrippedStateEventStub,
 };
@@ -43,7 +42,7 @@ use crate::events::{
 #[cfg(feature = "messages")]
 use crate::events::{
     room::redaction::{RedactionEvent, RedactionEventStub},
-    AnyMessageEventContent, AnyMessageEventStub, EventJson,
+    AnyMessageEventStub, EventJson,
 };
 
 use crate::identifiers::{RoomAliasId, RoomId, UserId};
@@ -674,8 +673,7 @@ impl Room {
     #[cfg(feature = "messages")]
     #[cfg_attr(docsrs, doc(cfg(feature = "messages")))]
     pub fn handle_message(&mut self, event: &AnyMessageEventStub) -> bool {
-        let message = MessageWrapper::clone_into_any_content(event);
-        self.messages.push(message)
+        self.messages.push(FullOrRedactedEvent::Full(event.clone()))
     }
 
     /// Handle a room.redaction event and update the `MessageQueue`.
@@ -686,17 +684,72 @@ impl Room {
     /// field.
     #[cfg(feature = "messages")]
     #[cfg_attr(docsrs, doc(cfg(feature = "messages")))]
-    pub fn handle_redaction(&mut self, event: &RedactionEventStub) -> bool {
+    pub fn handle_redaction(&mut self, redacted_event: &RedactionEventStub) -> bool {
+        use matrix_sdk_common::events::{
+            AnyRedactedMessageEventStub, MessageEventStub, RedactedMessageEventStub,
+        };
+        use std::ops::DerefMut;
+
         if let Some(msg) = self
             .messages
             .iter_mut()
-            .find(|msg| event.redacts == msg.event_id)
+            .find(|msg| &redacted_event.redacts == msg.event_id())
         {
-            msg.content = AnyMessageEventContent::RoomRedaction(event.content.clone());
-
-            let redaction =
-                redaction_event_from_redaction_stub(event.clone(), self.room_id.clone());
-            msg.unsigned.redacted_because = Some(EventJson::from(redaction));
+            match msg.deref_mut() {
+                FullOrRedactedEvent::Full(event) => match event {
+                    AnyMessageEventStub::RoomMessage(event) => {
+                        let MessageEventStub {
+                            content,
+                            event_id,
+                            sender,
+                            origin_server_ts,
+                            mut unsigned,
+                        } = event.clone();
+                        unsigned.redacted_because =
+                            Some(EventJson::from(redaction_event_from_redaction_stub(
+                                redacted_event.clone(),
+                                self.room_id.clone(),
+                            )));
+                        let redacted = content.redact();
+                        msg.0 = FullOrRedactedEvent::Redacted(
+                            AnyRedactedMessageEventStub::RoomMessage(RedactedMessageEventStub {
+                                content: redacted,
+                                event_id,
+                                origin_server_ts,
+                                sender,
+                                unsigned,
+                            }),
+                        )
+                    }
+                    AnyMessageEventStub::Sticker(event) => {
+                        let MessageEventStub {
+                            content,
+                            event_id,
+                            sender,
+                            origin_server_ts,
+                            mut unsigned,
+                        } = event.clone();
+                        unsigned.redacted_because =
+                            Some(EventJson::from(redaction_event_from_redaction_stub(
+                                redacted_event.clone(),
+                                self.room_id.clone(),
+                            )));
+                        let redacted = content.redact();
+                        msg.0 = FullOrRedactedEvent::Redacted(AnyRedactedMessageEventStub::Sticker(
+                            RedactedMessageEventStub {
+                                content: redacted,
+                                event_id,
+                                origin_server_ts,
+                                sender,
+                                unsigned,
+                            },
+                        ))
+                    }
+                    // TODO handle the rest of the message events
+                    _ => {}
+                },
+                FullOrRedactedEvent::Redacted(_) => return false,
+            }
             true
         } else {
             false
@@ -815,6 +868,7 @@ impl Room {
                 AnyMessageEventStub::RoomRedaction(event) => self.handle_redaction(event),
                 _ => false,
             },
+            AnyRoomEventStub::RedactedMessage(_) | AnyRoomEventStub::RedactedState(_) => false,
         }
     }
 
@@ -1661,10 +1715,15 @@ mod test {
 
         for room in client.joined_rooms().read().await.values() {
             let queue = &room.read().await.messages;
-            if let crate::events::AnyMessageEventContent::RoomRedaction(content) =
-                &queue.msgs[0].content
+            if let crate::models::message::FullOrRedactedEvent::Redacted(
+                crate::events::AnyRedactedMessageEventStub::RoomMessage(event),
+            ) = &queue.msgs[0].deref()
             {
-                assert_eq!(content.reason, Some("😀".to_string()));
+                // this is the id from the message event in the sync response
+                assert_eq!(
+                    event.event_id,
+                    EventId::try_from("$152037280074GZeOm:localhost").unwrap()
+                )
             } else {
                 panic!("message event in message queue should be redacted")
             }

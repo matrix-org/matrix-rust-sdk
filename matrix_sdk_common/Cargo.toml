@@ -17,7 +17,7 @@ js_int = "0.1.8"
 [dependencies.ruma]
 git = "https://github.com/ruma/ruma"
 features = ["client-api"]
-rev = "c19bcaab"
+rev = "5e428ac"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 uuid = { version = "0.8.1", features = ["v4"] }

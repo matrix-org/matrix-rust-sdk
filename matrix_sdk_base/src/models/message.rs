@@ -3,17 +3,50 @@
 //! The `Room` struct optionally holds a `MessageQueue` if the "messages"
 //! feature is enabled.
 
-use std::cmp::Ordering;
-use std::ops::{Deref, DerefMut};
-use std::vec::IntoIter;
+use std::{
+    cmp::Ordering,
+    ops::{Deref, DerefMut},
+    time::SystemTime,
+    vec::IntoIter,
+};
 
-use crate::events::{AnyMessageEventContent, AnyMessageEventStub, MessageEventStub};
+use matrix_sdk_common::identifiers::EventId;
+use serde::{de, ser, Deserialize, Serialize};
 
-use serde::{de, ser, Serialize};
+use crate::events::{AnyMessageEventStub, AnyRedactedMessageEventStub};
+
+/// Represents either a redacted event or a non-redacted event.
+///
+/// Note: ruma may create types that solve this.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub enum FullOrRedactedEvent {
+    /// A non-redacted event.
+    Full(AnyMessageEventStub),
+    /// An event that has been redacted.
+    Redacted(AnyRedactedMessageEventStub),
+}
+
+impl FullOrRedactedEvent {
+    /// Access the underlying events `event_id`.
+    pub fn event_id(&self) -> &EventId {
+        match self {
+            Self::Full(e) => e.event_id(),
+            Self::Redacted(e) => e.event_id(),
+        }
+    }
+
+    /// Access the underlying events `origin_server_ts`.
+    pub fn origin_server_ts(&self) -> &SystemTime {
+        match self {
+            Self::Full(e) => e.origin_server_ts(),
+            Self::Redacted(e) => e.origin_server_ts(),
+        }
+    }
+}
 
 const MESSAGE_QUEUE_CAP: usize = 35;
 
-pub type SyncMessageEvent = MessageEventStub<AnyMessageEventContent>;
+pub type SyncMessageEvent = FullOrRedactedEvent;
 
 /// A queue that holds the 35 most recent messages received from the server.
 #[derive(Clone, Debug, Default)]
@@ -28,18 +61,6 @@ pub struct MessageQueue {
 /// are simplified.
 #[derive(Clone, Debug, Serialize)]
 pub struct MessageWrapper(pub SyncMessageEvent);
-
-impl MessageWrapper {
-    pub fn clone_into_any_content(event: &AnyMessageEventStub) -> SyncMessageEvent {
-        MessageEventStub {
-            content: event.content(),
-            sender: event.sender().clone(),
-            origin_server_ts: *event.origin_server_ts(),
-            event_id: event.event_id().clone(),
-            unsigned: event.unsigned().clone(),
-        }
-    }
-}
 
 impl Deref for MessageWrapper {
     type Target = SyncMessageEvent;
@@ -57,7 +78,7 @@ impl DerefMut for MessageWrapper {
 
 impl PartialEq for MessageWrapper {
     fn eq(&self, other: &MessageWrapper) -> bool {
-        self.0.event_id == other.0.event_id
+        self.0.event_id() == other.0.event_id()
     }
 }
 
@@ -65,7 +86,7 @@ impl Eq for MessageWrapper {}
 
 impl PartialOrd for MessageWrapper {
     fn partial_cmp(&self, other: &MessageWrapper) -> Option<Ordering> {
-        Some(self.0.origin_server_ts.cmp(&other.0.origin_server_ts))
+        Some(self.0.origin_server_ts().cmp(&other.0.origin_server_ts()))
     }
 }
 
@@ -82,7 +103,7 @@ impl PartialEq for MessageQueue {
                 .msgs
                 .iter()
                 .zip(other.msgs.iter())
-                .all(|(msg_a, msg_b)| msg_a.event_id == msg_b.event_id)
+                .all(|(msg_a, msg_b)| msg_a.event_id() == msg_b.event_id())
     }
 }
 
@@ -100,7 +121,7 @@ impl MessageQueue {
     pub fn push(&mut self, msg: SyncMessageEvent) -> bool {
         // only push new messages into the queue
         if let Some(latest) = self.msgs.last() {
-            if msg.origin_server_ts < latest.origin_server_ts && self.msgs.len() >= 10 {
+            if msg.origin_server_ts() < latest.origin_server_ts() && self.msgs.len() >= 10 {
                 return false;
             }
         }
@@ -120,10 +141,12 @@ impl MessageQueue {
         true
     }
 
+    /// Iterate over the messages in the queue.
     pub fn iter(&self) -> impl Iterator<Item = &MessageWrapper> {
         self.msgs.iter()
     }
 
+    /// Iterate over each message mutably.
     pub fn iter_mut(&mut self) -> impl Iterator<Item = &mut MessageWrapper> {
         self.msgs.iter_mut()
     }
@@ -204,7 +227,9 @@ mod test {
         let mut room = Room::new(&id, &user);
 
         let json: &serde_json::Value = &test_json::MESSAGE_TEXT;
-        let msg = serde_json::from_value::<SyncMessageEvent>(json.clone()).unwrap();
+        let msg = FullOrRedactedEvent::Full(
+            serde_json::from_value::<AnyMessageEventStub>(json.clone()).unwrap(),
+        );
 
         let mut msgs = MessageQueue::new();
         msgs.push(msg.clone());
@@ -249,7 +274,9 @@ mod test {
         let mut room = Room::new(&id, &user);
 
         let json: &serde_json::Value = &test_json::MESSAGE_TEXT;
-        let msg = serde_json::from_value::<SyncMessageEvent>(json.clone()).unwrap();
+        let msg = FullOrRedactedEvent::Full(
+            serde_json::from_value::<AnyMessageEventStub>(json.clone()).unwrap(),
+        );
 
         let mut msgs = MessageQueue::new();
         msgs.push(msg.clone());

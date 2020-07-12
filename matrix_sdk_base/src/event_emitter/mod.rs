@@ -581,7 +581,7 @@ mod test {
                 "unrecognized event",
                 "redaction",
                 "unrecognized event",
-                "unrecognized event",
+                // "unrecognized event", this is actually a redacted "m.room.messages" event
                 "receipt event",
                 "typing event"
             ],

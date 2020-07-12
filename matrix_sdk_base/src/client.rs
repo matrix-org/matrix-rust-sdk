@@ -1511,6 +1511,8 @@ impl BaseClient {
                 }
                 _ => {}
             },
+            AnyRoomEventStub::RedactedState(_event) => {}
+            AnyRoomEventStub::RedactedMessage(_event) => {}
         }
     }
 
@@ -1836,7 +1838,7 @@ impl BaseClient {
 
 #[cfg(test)]
 mod test {
-    use crate::identifiers::{RoomId, UserId};
+    use crate::identifiers::{EventId, RoomId, UserId};
     use crate::{BaseClient, BaseClientConfig, Session};
     use matrix_sdk_common::events::{AnyRoomEventStub, EventJson};
     use matrix_sdk_common_macros::async_trait;
@@ -2402,12 +2404,17 @@ mod test {
         // check that the message has actually been redacted
         for room in client.joined_rooms().read().await.values() {
             let queue = &room.read().await.messages;
-            if let crate::events::AnyMessageEventContent::RoomRedaction(content) =
-                &queue.msgs[0].content
+            if let crate::models::FullOrRedactedEvent::Redacted(
+                crate::events::AnyRedactedMessageEventStub::RoomMessage(event),
+            ) = &queue.msgs[0].deref()
             {
-                assert_eq!(content.reason, Some("😀".to_string()));
+                // this is the id from the message event in the sync response
+                assert_eq!(
+                    event.event_id,
+                    EventId::try_from("$152037280074GZeOm:localhost").unwrap()
+                )
             } else {
-                panic!("[pre store sync] message event in message queue should be redacted")
+                panic!("message event in message queue should be redacted")
             }
         }
 
@@ -2425,10 +2432,15 @@ mod test {
         // properly
         for room in client.joined_rooms().read().await.values() {
             let queue = &room.read().await.messages;
-            if let crate::events::AnyMessageEventContent::RoomRedaction(content) =
-                &queue.msgs[0].content
+            if let crate::models::FullOrRedactedEvent::Redacted(
+                crate::events::AnyRedactedMessageEventStub::RoomMessage(event),
+            ) = &queue.msgs[0].deref()
             {
-                assert_eq!(content.reason, Some("😀".to_string()));
+                // this is the id from the message event in the sync response
+                assert_eq!(
+                    event.event_id,
+                    EventId::try_from("$152037280074GZeOm:localhost").unwrap()
+                )
             } else {
                 panic!("[post store sync] message event in message queue should be redacted")
             }
