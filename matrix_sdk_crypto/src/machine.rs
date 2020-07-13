@@ -1006,7 +1006,7 @@ impl OlmMachine {
             panic!("Session is expired");
         }
 
-        Ok(session.encrypt(self.account.clone(), content).await)
+        Ok(session.encrypt(content).await)
     }
 
     /// Encrypt some JSON content using the given Olm session.

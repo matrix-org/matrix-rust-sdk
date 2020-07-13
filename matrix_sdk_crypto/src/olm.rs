@@ -365,7 +365,8 @@ impl Account {
         &self,
         room_id: &RoomId,
     ) -> (OutboundGroupSession, InboundGroupSession) {
-        let outbound = OutboundGroupSession::new(room_id);
+        let outbound =
+            OutboundGroupSession::new(self.device_id.clone(), self.identity_keys.clone(), room_id);
         let identity_keys = self.identity_keys();
 
         let sender_key = identity_keys.curve25519();
@@ -719,6 +720,8 @@ impl PartialEq for InboundGroupSession {
 #[derive(Clone)]
 pub struct OutboundGroupSession {
     inner: Arc<Mutex<OlmOutboundGroupSession>>,
+    device_id: Arc<DeviceId>,
+    account_identity_keys: Arc<IdentityKeys>,
     session_id: Arc<String>,
     room_id: Arc<RoomId>,
     creation_time: Arc<Instant>,
@@ -733,14 +736,21 @@ impl OutboundGroupSession {
     ///
     /// # Arguments
     ///
+    /// * `device_id` - The id of the device that created this session.
+    ///
+    /// * `identity_keys` - The identity keys of the account that created this
+    /// session.
+    ///
     /// * `room_id` - The id of the room that the session is used in.
-    pub fn new(room_id: &RoomId) -> Self {
+    fn new(device_id: Arc<DeviceId>, identity_keys: Arc<IdentityKeys>, room_id: &RoomId) -> Self {
         let session = OlmOutboundGroupSession::new();
         let session_id = session.session_id();
 
         OutboundGroupSession {
             inner: Arc::new(Mutex::new(session)),
             room_id: Arc::new(room_id.to_owned()),
+            device_id,
+            account_identity_keys: identity_keys,
             session_id: Arc::new(session_id),
             creation_time: Arc::new(Instant::now()),
             message_count: Arc::new(AtomicUsize::new(0)),
@@ -772,20 +782,13 @@ impl OutboundGroupSession {
     ///
     /// # Arguments
     ///
-    /// * `account` - The account that owns created the outbound session.
-    /// encrypted.
-    ///
     /// * `content` - The plaintext content of the message that should be
     /// encrypted.
     ///
     /// # Panics
     ///
     /// Panics if the content can't be serialized.
-    pub async fn encrypt(
-        &self,
-        account: Account,
-        content: MessageEventContent,
-    ) -> EncryptedEventContent {
+    pub async fn encrypt(&self, content: MessageEventContent) -> EncryptedEventContent {
         let json_content = json!({
             "content": content,
             "room_id": &*self.room_id,
@@ -803,9 +806,9 @@ impl OutboundGroupSession {
 
         EncryptedEventContent::MegolmV1AesSha2(MegolmV1AesSha2Content {
             ciphertext,
-            sender_key: account.identity_keys().curve25519().to_owned(),
+            sender_key: self.account_identity_keys.curve25519().to_owned(),
             session_id: self.session_id().to_owned(),
-            device_id: (&*account.device_id).to_owned(),
+            device_id: (&*self.device_id).to_owned(),
         })
     }
 
@@ -868,7 +871,7 @@ impl std::fmt::Debug for OutboundGroupSession {
 
 #[cfg(test)]
 pub(crate) mod test {
-    use crate::olm::{Account, InboundGroupSession, OutboundGroupSession, Session};
+    use crate::olm::{Account, InboundGroupSession, Session};
     use matrix_sdk_common::api::r0::keys::SignedKey;
     use matrix_sdk_common::identifiers::{DeviceId, RoomId, UserId};
     use olm_rs::session::OlmMessage;
@@ -1021,9 +1024,10 @@ pub(crate) mod test {
 
     #[tokio::test]
     async fn group_session_creation() {
+        let alice = Account::new(&alice_id(), &alice_device_id());
         let room_id = RoomId::try_from("!test:localhost").unwrap();
 
-        let outbound = OutboundGroupSession::new(&room_id);
+        let (outbound, _) = alice.create_group_session_pair(&room_id).await;
 
         assert_eq!(0, outbound.message_index().await);
         assert!(!outbound.shared());

@@ -214,7 +214,7 @@ mod test {
     use crate::device::test::get_device;
     use crate::memory_stores::{DeviceStore, GroupSessionStore, SessionStore};
     use crate::olm::test::get_account_and_session;
-    use crate::olm::{InboundGroupSession, OutboundGroupSession};
+    use crate::olm::InboundGroupSession;
     use matrix_sdk_common::identifiers::RoomId;
 
     #[tokio::test]
@@ -251,9 +251,10 @@ mod test {
 
     #[tokio::test]
     async fn test_group_session_store() {
+        let (account, _) = get_account_and_session().await;
         let room_id = RoomId::try_from("!test:localhost").unwrap();
 
-        let outbound = OutboundGroupSession::new(&room_id);
+        let (outbound, _) = account.create_group_session_pair(&room_id).await;
 
         assert_eq!(0, outbound.message_index().await);
         assert!(!outbound.shared());
