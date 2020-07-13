@@ -33,10 +33,7 @@ use super::{device::Device, store::Result as StoreError, CryptoStore};
 use matrix_sdk_common::api;
 use matrix_sdk_common::events::{
     forwarded_room_key::ForwardedRoomKeyEventContent,
-    room::encrypted::{
-        CiphertextInfo, EncryptedEventContent, MegolmV1AesSha2Content,
-        OlmV1Curve25519AesSha2Content,
-    },
+    room::encrypted::{CiphertextInfo, EncryptedEventContent, OlmV1Curve25519AesSha2Content},
     room::message::MessageEventContent,
     room_key::RoomKeyEventContent,
     room_key_request::RoomKeyRequestEventContent,
@@ -1009,29 +1006,7 @@ impl OlmMachine {
             panic!("Session is expired");
         }
 
-        let json_content = json!({
-            "content": content,
-            "room_id": room_id,
-            "type": EventType::RoomMessage,
-        });
-
-        let plaintext = cjson::to_string(&json_content).unwrap_or_else(|_| {
-            panic!(format!(
-                "Can't serialize {} to canonical JSON",
-                json_content
-            ))
-        });
-
-        let ciphertext = session.encrypt(plaintext).await;
-
-        Ok(EncryptedEventContent::MegolmV1AesSha2(
-            MegolmV1AesSha2Content {
-                ciphertext,
-                sender_key: self.account.identity_keys().curve25519().to_owned(),
-                session_id: session.session_id().to_owned(),
-                device_id: self.device_id.to_owned(),
-            },
-        ))
+        Ok(session.encrypt(self.account.clone(), content).await)
     }
 
     /// Encrypt some JSON content using the given Olm session.

@@ -39,7 +39,13 @@ pub use olm_rs::{
 use matrix_sdk_common::identifiers::{DeviceId, RoomId, UserId};
 use matrix_sdk_common::{
     api::r0::keys::{AlgorithmAndDeviceId, DeviceKeys, KeyAlgorithm, OneTimeKey, SignedKey},
-    events::Algorithm,
+    events::{
+        room::{
+            encrypted::{EncryptedEventContent, MegolmV1AesSha2Content},
+            message::MessageEventContent,
+        },
+        Algorithm, EventType,
+    },
 };
 
 /// Account holding identity keys for which sessions can be created.
@@ -700,9 +706,58 @@ impl OutboundGroupSession {
     /// # Arguments
     ///
     /// * `plaintext` - The plaintext that should be encrypted.
-    pub async fn encrypt(&self, plaintext: String) -> String {
+    async fn encrypt_helper(&self, plaintext: String) -> String {
         let session = self.inner.lock().await;
         session.encrypt(plaintext)
+    }
+
+    /// Encrypt a room message for the given room.
+    ///
+    /// Beware that a group session needs to be shared before this method can be
+    /// called using the `share_group_session()` method.
+    ///
+    /// Since group sessions can expire or become invalid if the room membership
+    /// changes client authors should check with the
+    /// `should_share_group_session()` method if a new group session needs to
+    /// be shared.
+    ///
+    /// # Arguments
+    ///
+    /// * `account` - The account that owns created the outbound session.
+    /// encrypted.
+    ///
+    /// * `content` - The plaintext content of the message that should be
+    /// encrypted.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the content can't be serialized.
+    pub async fn encrypt(
+        &self,
+        account: Account,
+        content: MessageEventContent,
+    ) -> EncryptedEventContent {
+        let json_content = json!({
+            "content": content,
+            "room_id": &*self.room_id,
+            "type": EventType::RoomMessage,
+        });
+
+        let plaintext = cjson::to_string(&json_content).unwrap_or_else(|_| {
+            panic!(format!(
+                "Can't serialize {} to canonical JSON",
+                json_content
+            ))
+        });
+
+        let ciphertext = self.encrypt_helper(plaintext).await;
+
+        EncryptedEventContent::MegolmV1AesSha2(MegolmV1AesSha2Content {
+            ciphertext,
+            sender_key: account.identity_keys().curve25519().to_owned(),
+            session_id: self.session_id().to_owned(),
+            device_id: (&*account.device_id).to_owned(),
+        })
     }
 
     /// Check if the session has expired and if it should be rotated.
@@ -939,7 +994,7 @@ pub(crate) mod test {
         assert_eq!(outbound.session_id(), inbound.session_id());
 
         let plaintext = "This is a secret to everybody".to_owned();
-        let ciphertext = outbound.encrypt(plaintext.clone()).await;
+        let ciphertext = outbound.encrypt_helper(plaintext.clone()).await;
 
         assert_eq!(plaintext, inbound.decrypt(ciphertext).await.unwrap().0);
     }
