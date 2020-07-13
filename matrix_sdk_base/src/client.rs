@@ -743,7 +743,7 @@ impl BaseClient {
                 let mut room = room_lock.write().await;
 
                 if let AnyRoomEventStub::State(AnyStateEventStub::RoomMember(mem_event)) = &mut e {
-                    let changed = room.handle_membership(mem_event);
+                    let (changed, _) = room.handle_membership(mem_event, false);
 
                     // The memberlist of the room changed, invalidate the group session
                     // of the room.
@@ -780,7 +780,7 @@ impl BaseClient {
         let mut room = room_lock.write().await;
 
         if let AnyStateEventStub::RoomMember(e) = event {
-            let changed = room.handle_membership(e);
+            let (changed, _) = room.handle_membership(e, true);
 
             // The memberlist of the room changed, invalidate the group session
             // of the room.
@@ -2157,8 +2157,8 @@ mod test {
         let member = room.joined_members.get(&user_id).unwrap();
         assert_eq!(*member.display_name.as_ref().unwrap(), "changed");
 
-        // The second part tests that the event is emitted correctly. If `prev_content` was
-        // missing, this bool is reset to false.
+        // The second part tests that the event is emitted correctly. If `prev_content` were
+        // missing, this bool would had been flipped.
         assert!(passed.load(Ordering::SeqCst))
     }
 
@@ -2411,7 +2411,8 @@ mod test {
             }
         }
 
-        // `receive_joined_timeline_event` does not save the state to the store so we must
+        // `receive_joined_timeline_event` does not save the state to the store
+        // so we must do it ourselves
         client.store_room_state(&room_id).await.unwrap();
 
         // we load state from the store only
