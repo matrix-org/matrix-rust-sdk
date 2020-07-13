@@ -189,23 +189,7 @@ impl OlmMachine {
 
     /// Should account or one-time keys be uploaded to the server.
     pub async fn should_upload_keys(&self) -> bool {
-        if !self.account.shared() {
-            return true;
-        }
-
-        let count = self.account.uploaded_key_count() as u64;
-
-        // If we have a known key count, check that we have more than
-        // max_one_time_Keys() / 2, otherwise tell the client to upload more.
-        let max_keys = self.account.max_one_time_keys().await as u64;
-        // If there are more keys already uploaded than max_key / 2
-        // bail out returning false, this also avoids overflow.
-        if count > (max_keys / 2) {
-            return false;
-        }
-
-        let key_count = (max_keys / 2) - count;
-        key_count > 0
+        self.account.should_upload_keys().await
     }
 
     /// Update the count of one-time keys that are currently on the server.
@@ -522,36 +506,6 @@ impl OlmMachine {
         Ok(changed_devices)
     }
 
-    /// Generate new one-time keys.
-    ///
-    /// Returns the number of newly generated one-time keys. If no keys can be
-    /// generated returns an empty error.
-    async fn generate_one_time_keys(&self) -> StdResult<u64, ()> {
-        let count = self.account.uploaded_key_count() as u64;
-        // TODO if we store the uploaded key count with the Account all
-        // this logic could go into the account.
-        let max_keys = self.account.max_one_time_keys().await;
-        let max_on_server = (max_keys as u64) / 2;
-
-        if count >= (max_on_server) {
-            return Err(());
-        }
-
-        let key_count = (max_on_server) - count;
-        let key_count: usize = key_count.try_into().unwrap_or(max_keys);
-
-        self.account.generate_one_time_keys(key_count).await;
-        Ok(key_count as u64)
-    }
-
-    /// Generate, sign and prepare one-time keys to be uploaded.
-    ///
-    /// If no one-time keys need to be uploaded returns an empty error.
-    async fn signed_one_time_keys(&self) -> StdResult<OneTimeKeys, ()> {
-        let _ = self.generate_one_time_keys().await?;
-        Ok(self.account.signed_one_time_keys().await)
-    }
-
     /// Verify a signed JSON object.
     ///
     /// The object must have a signatures key associated  with an object of the
@@ -624,21 +578,7 @@ impl OlmMachine {
     pub async fn keys_for_upload(
         &self,
     ) -> StdResult<(Option<DeviceKeys>, Option<OneTimeKeys>), ()> {
-        if !self.should_upload_keys().await {
-            return Err(());
-        }
-
-        let shared = self.account.shared();
-
-        let device_keys = if !shared {
-            Some(self.account.device_keys().await)
-        } else {
-            None
-        };
-
-        let one_time_keys: Option<OneTimeKeys> = self.signed_one_time_keys().await.ok();
-
-        Ok((device_keys, one_time_keys))
+        self.account.keys_for_upload().await
     }
 
     /// Try to decrypt an Olm message.
@@ -1642,7 +1582,7 @@ mod test {
             .await
             .unwrap();
         assert!(machine.should_upload_keys().await);
-        assert!(machine.generate_one_time_keys().await.is_ok());
+        assert!(machine.account.generate_one_time_keys().await.is_ok());
 
         response
             .one_time_key_counts
@@ -1651,7 +1591,7 @@ mod test {
             .receive_keys_upload_response(&response)
             .await
             .unwrap();
-        assert!(machine.generate_one_time_keys().await.is_err());
+        assert!(machine.account.generate_one_time_keys().await.is_err());
     }
 
     #[tokio::test]
@@ -1707,7 +1647,7 @@ mod test {
         let machine = OlmMachine::new(&user_id(), &alice_device_id());
         machine.account.update_uploaded_key_count(49);
 
-        let mut one_time_keys = machine.signed_one_time_keys().await.unwrap();
+        let mut one_time_keys = machine.account.signed_one_time_keys().await.unwrap();
         let identity_keys = machine.account.identity_keys();
         let ed25519_key = identity_keys.ed25519();
 

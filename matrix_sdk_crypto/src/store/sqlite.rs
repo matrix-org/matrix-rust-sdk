@@ -857,7 +857,7 @@ mod test {
         let alice = Account::new(&alice_id(), &alice_device_id());
         let bob = Account::new(&bob_id(), &bob_device_id());
 
-        bob.generate_one_time_keys(1).await;
+        bob.generate_one_time_keys_helper(1).await;
         let one_time_key = bob
             .one_time_keys()
             .await
