@@ -1344,6 +1344,8 @@ impl OlmMachine {
     /// # Arguments
     ///
     /// * `event` - The event that should be decrypted.
+    ///
+    /// * `room_id` - The ID of the room where the event was sent to.
     pub async fn decrypt_room_event(
         &mut self,
         event: &MessageEventStub<EncryptedEventContent>,
@@ -1361,35 +1363,10 @@ impl OlmMachine {
         // TODO check if the Olm session is wedged and re-request the key.
         let session = session.ok_or(MegolmError::MissingSession)?;
 
-        let (plaintext, _) = session.decrypt(content.ciphertext.clone()).await?;
         // TODO check the message index.
         // TODO check if this is from a verified device.
+        let (decrypted_event, _) = session.decrypt(event).await?;
 
-        // TODO move this logic into the group session.
-        let mut decrypted_value = serde_json::from_str::<Value>(&plaintext)?;
-        let decrypted_object = decrypted_value
-            .as_object_mut()
-            .ok_or(EventError::NotAnObject)?;
-
-        // TODO better number conversion here.
-        let server_ts = event
-            .origin_server_ts
-            .duration_since(std::time::SystemTime::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_millis();
-        let server_ts: i64 = server_ts.try_into().unwrap_or_default();
-
-        decrypted_object.insert("sender".to_owned(), event.sender.to_string().into());
-        decrypted_object.insert("event_id".to_owned(), event.event_id.to_string().into());
-        decrypted_object.insert("origin_server_ts".to_owned(), server_ts.into());
-
-        decrypted_object.insert(
-            "unsigned".to_owned(),
-            serde_json::to_value(&event.unsigned).unwrap_or_default(),
-        );
-
-        let decrypted_event =
-            serde_json::from_value::<EventJson<AnyRoomEventStub>>(decrypted_value)?;
         trace!("Successfully decrypted Megolm event {:?}", decrypted_event);
         // TODO set the encryption info on the event (is it verified, was it
         // decrypted, sender key...)

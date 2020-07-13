@@ -13,6 +13,7 @@
 // limitations under the License.
 
 use matrix_sdk_common::instant::Instant;
+use std::convert::TryInto;
 use std::fmt;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
@@ -31,6 +32,7 @@ use olm_rs::outbound_group_session::OlmOutboundGroupSession;
 use olm_rs::session::OlmSession;
 use olm_rs::PicklingMode;
 
+use crate::error::{EventError, MegolmResult};
 pub use olm_rs::{
     session::{OlmMessage, PreKeyMessage},
     utility::OlmUtility,
@@ -44,7 +46,7 @@ use matrix_sdk_common::{
             encrypted::{EncryptedEventContent, MegolmV1AesSha2Content},
             message::MessageEventContent,
         },
-        Algorithm, EventType,
+        Algorithm, AnyRoomEventStub, EventJson, EventType, MessageEventStub,
     },
 };
 
@@ -642,8 +644,55 @@ impl InboundGroupSession {
     /// # Arguments
     ///
     /// * `message` - The message that should be decrypted.
-    pub async fn decrypt(&self, message: String) -> Result<(String, u32), OlmGroupSessionError> {
+    pub async fn decrypt_helper(
+        &self,
+        message: String,
+    ) -> Result<(String, u32), OlmGroupSessionError> {
         self.inner.lock().await.decrypt(message)
+    }
+
+    /// Decrypt an event from a room timeline.
+    ///
+    /// # Arguments
+    ///
+    /// * `event` - The event that should be decrypted.
+    pub async fn decrypt(
+        &self,
+        event: &MessageEventStub<EncryptedEventContent>,
+    ) -> MegolmResult<(EventJson<AnyRoomEventStub>, u32)> {
+        let content = match &event.content {
+            EncryptedEventContent::MegolmV1AesSha2(c) => c,
+            _ => return Err(EventError::UnsupportedAlgorithm.into()),
+        };
+
+        let (plaintext, message_index) = self.decrypt_helper(content.ciphertext.clone()).await?;
+
+        let mut decrypted_value = serde_json::from_str::<Value>(&plaintext)?;
+        let decrypted_object = decrypted_value
+            .as_object_mut()
+            .ok_or(EventError::NotAnObject)?;
+
+        // TODO better number conversion here.
+        let server_ts = event
+            .origin_server_ts
+            .duration_since(std::time::SystemTime::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis();
+        let server_ts: i64 = server_ts.try_into().unwrap_or_default();
+
+        decrypted_object.insert("sender".to_owned(), event.sender.to_string().into());
+        decrypted_object.insert("event_id".to_owned(), event.event_id.to_string().into());
+        decrypted_object.insert("origin_server_ts".to_owned(), server_ts.into());
+
+        decrypted_object.insert(
+            "unsigned".to_owned(),
+            serde_json::to_value(&event.unsigned).unwrap_or_default(),
+        );
+
+        Ok((
+            serde_json::from_value::<EventJson<AnyRoomEventStub>>(decrypted_value)?,
+            message_index,
+        ))
     }
 }
 
@@ -996,6 +1045,9 @@ pub(crate) mod test {
         let plaintext = "This is a secret to everybody".to_owned();
         let ciphertext = outbound.encrypt_helper(plaintext.clone()).await;
 
-        assert_eq!(plaintext, inbound.decrypt(ciphertext).await.unwrap().0);
+        assert_eq!(
+            plaintext,
+            inbound.decrypt_helper(ciphertext).await.unwrap().0
+        );
     }
 }
