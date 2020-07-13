@@ -50,6 +50,8 @@ pub use event_emitter::{CustomOrRawEvent, EventEmitter, SyncRoom};
 #[cfg(feature = "encryption")]
 pub use matrix_sdk_crypto::{Device, TrustState};
 pub use models::Room;
+pub use state::AllRooms;
+pub use state::ClientState;
 #[cfg(not(target_arch = "wasm32"))]
 pub use state::JsonStore;
 pub use state::StateStore;
