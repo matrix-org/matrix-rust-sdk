@@ -144,6 +144,7 @@ impl SqliteStore {
                 "device_id" TEXT NOT NULL,
                 "pickle" BLOB NOT NULL,
                 "shared" INTEGER NOT NULL,
+                "uploaded_key_count" INTEGER NOT NULL,
                 UNIQUE(user_id,device_id)
             );
         "#,
@@ -564,8 +565,8 @@ impl CryptoStore for SqliteStore {
     async fn load_account(&mut self) -> Result<Option<Account>> {
         let mut connection = self.connection.lock().await;
 
-        let row: Option<(i64, String, bool)> = query_as(
-            "SELECT id, pickle, shared FROM accounts
+        let row: Option<(i64, String, bool, i64)> = query_as(
+            "SELECT id, pickle, shared, uploaded_key_count FROM accounts
                       WHERE user_id = ? and device_id = ?",
         )
         .bind(self.user_id.as_str())
@@ -573,12 +574,13 @@ impl CryptoStore for SqliteStore {
         .fetch_optional(&mut *connection)
         .await?;
 
-        let result = if let Some((id, pickle, shared)) = row {
+        let result = if let Some((id, pickle, shared, uploaded_key_count)) = row {
             self.account_id = Some(id);
             Some(Account::from_pickle(
                 pickle,
                 self.get_pickle_mode(),
                 shared,
+                uploaded_key_count,
                 &self.user_id,
                 &self.device_id,
             )?)
@@ -613,8 +615,8 @@ impl CryptoStore for SqliteStore {
 
         query(
             "INSERT INTO accounts (
-                user_id, device_id, pickle, shared
-             ) VALUES (?1, ?2, ?3, ?4)
+                user_id, device_id, pickle, shared, uploaded_key_count
+             ) VALUES (?1, ?2, ?3, ?4, ?5)
              ON CONFLICT(user_id, device_id) DO UPDATE SET
                 pickle = excluded.pickle,
                 shared = excluded.shared
@@ -624,6 +626,7 @@ impl CryptoStore for SqliteStore {
         .bind(&*self.device_id.to_string())
         .bind(&pickle)
         .bind(account.shared())
+        .bind(account.uploaded_key_count())
         .execute(&mut *connection)
         .await?;
 

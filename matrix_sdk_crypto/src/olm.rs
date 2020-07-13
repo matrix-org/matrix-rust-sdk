@@ -13,9 +13,10 @@
 // limitations under the License.
 
 use matrix_sdk_common::instant::Instant;
+use std::convert::TryFrom;
 use std::convert::TryInto;
 use std::fmt;
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI64, AtomicUsize, Ordering};
 use std::sync::Arc;
 
 use matrix_sdk_common::locks::Mutex;
@@ -61,6 +62,11 @@ pub struct Account {
     inner: Arc<Mutex<OlmAccount>>,
     identity_keys: Arc<IdentityKeys>,
     shared: Arc<AtomicBool>,
+    /// The number of signed one-time keys we have uploaded to the server. If
+    /// this is None, no action will be taken. After a sync request the client
+    /// needs to set this for us, depending on the count we will suggest the
+    /// client to upload new keys.
+    uploaded_signed_key_count: Arc<AtomicI64>,
 }
 
 // #[cfg_attr(tarpaulin, skip)]
@@ -90,12 +96,29 @@ impl Account {
             inner: Arc::new(Mutex::new(account)),
             identity_keys: Arc::new(identity_keys),
             shared: Arc::new(AtomicBool::new(false)),
+            uploaded_signed_key_count: Arc::new(AtomicI64::new(0)),
         }
     }
 
     /// Get the public parts of the identity keys for the account.
     pub fn identity_keys(&self) -> &IdentityKeys {
         &self.identity_keys
+    }
+
+    /// Update the uploaded key count.
+    ///
+    /// # Arguments
+    ///
+    /// * `new_count` - The new count that was reported by the server.
+    pub fn update_uploaded_key_count(&self, new_count: u64) {
+        let key_count = i64::try_from(new_count).unwrap_or(i64::MAX);
+        self.uploaded_signed_key_count
+            .store(key_count, Ordering::Relaxed);
+    }
+
+    /// Get the currently known uploaded key count.
+    pub fn uploaded_key_count(&self) -> i64 {
+        self.uploaded_signed_key_count.load(Ordering::Relaxed)
     }
 
     /// Has the account been shared with the server.
@@ -165,6 +188,7 @@ impl Account {
         pickle: String,
         pickle_mode: PicklingMode,
         shared: bool,
+        uploaded_signed_key_count: i64,
         user_id: &UserId,
         device_id: &DeviceId,
     ) -> Result<Self, OlmAccountError> {
@@ -177,6 +201,7 @@ impl Account {
             inner: Arc::new(Mutex::new(account)),
             identity_keys: Arc::new(identity_keys),
             shared: Arc::new(AtomicBool::from(shared)),
+            uploaded_signed_key_count: Arc::new(AtomicI64::new(uploaded_signed_key_count)),
         })
     }
 
