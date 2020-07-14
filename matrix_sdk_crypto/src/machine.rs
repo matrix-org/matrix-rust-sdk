@@ -28,7 +28,7 @@ use super::olm::{
 use super::store::memorystore::MemoryStore;
 #[cfg(feature = "sqlite-cryptostore")]
 use super::store::sqlite::SqliteStore;
-use super::{device::Device, store::Result as StoreError, CryptoStore};
+use super::{device::Device, store::Result as StoreResult, CryptoStore};
 
 use matrix_sdk_common::api;
 use matrix_sdk_common::events::{
@@ -129,7 +129,7 @@ impl OlmMachine {
         user_id: UserId,
         device_id: String,
         mut store: Box<dyn CryptoStore>,
-    ) -> StoreError<Self> {
+    ) -> StoreResult<Self> {
         let account = match store.load_account().await? {
             Some(a) => {
                 debug!("Restored account");
@@ -166,7 +166,7 @@ impl OlmMachine {
         device_id: &str,
         path: P,
         passphrase: &str,
-    ) -> StoreError<Self> {
+    ) -> StoreResult<Self> {
         let store =
             SqliteStore::open_with_passphrase(&user_id, device_id, path, passphrase).await?;
 
@@ -397,7 +397,7 @@ impl OlmMachine {
     async fn handle_devices_from_key_query(
         &mut self,
         device_keys_map: &BTreeMap<UserId, BTreeMap<DeviceId, DeviceKeys>>,
-    ) -> StoreError<Vec<Device>> {
+    ) -> StoreResult<Vec<Device>> {
         let mut changed_devices = Vec::new();
 
         for (user_id, device_map) in device_keys_map {
@@ -1211,7 +1211,7 @@ impl OlmMachine {
     /// key query.
     ///
     /// Returns true if the user was queued up for a key query, false otherwise.
-    pub async fn mark_user_as_changed(&mut self, user_id: &UserId) -> StoreError<bool> {
+    pub async fn mark_user_as_changed(&mut self, user_id: &UserId) -> StoreResult<bool> {
         if self.store.tracked_users().contains(user_id) {
             self.store.update_tracked_user(user_id, true).await?;
             Ok(true)
