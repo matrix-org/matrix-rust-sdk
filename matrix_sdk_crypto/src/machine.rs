@@ -13,6 +13,7 @@
 // limitations under the License.
 
 use std::collections::{BTreeMap, HashMap, HashSet};
+use std::convert::TryFrom;
 use std::convert::TryInto;
 use std::mem;
 #[cfg(feature = "sqlite-cryptostore")]
@@ -429,9 +430,6 @@ impl OlmMachine {
                     continue;
                 }
 
-                // TODO this logic could go into the device struct, especially
-                // since we're gonna have cross signing identities soon.
-
                 if user_id != &device_keys.user_id || device_id != &device_keys.device_id {
                     warn!(
                         "Mismatch in device keys payload of device {} from user {}",
@@ -440,46 +438,28 @@ impl OlmMachine {
                     continue;
                 }
 
-                let ed_key_id = AlgorithmAndDeviceId(KeyAlgorithm::Ed25519, device_id.to_owned());
-
-                let signing_key = if let Some(k) = device_keys.keys.get(&ed_key_id) {
-                    k
-                } else {
-                    warn!(
-                        "Ed25519 identity key wasn't found for user/device {} {}",
-                        user_id, device_id
-                    );
-                    continue;
-                };
-
-                if self
-                    .verify_json(user_id, device_id, signing_key, &mut json!(&device_keys))
-                    .is_err()
-                {
-                    warn!(
-                        "Failed to verify the device key signatures for {} {}",
-                        user_id, device_id
-                    );
-                    continue;
-                }
-
                 let device = self.store.get_device(&user_id, device_id).await?;
 
-                let device = if let Some(mut d) = device {
-                    let stored_signing_key = d.get_key(KeyAlgorithm::Ed25519);
-
-                    if let Some(stored_signing_key) = stored_signing_key {
-                        if stored_signing_key != signing_key {
-                            warn!("Ed25519 key has changed for {} {}", user_id, device_id);
+                let device = if let Some(mut device) = device {
+                    if let Err(e) = device.update_device(device_keys) {
+                        warn!(
+                            "Failed to update the device keys for {} {}: {:?}",
+                            user_id, device_id, e
+                        );
+                        continue;
+                    }
+                    device
+                } else {
+                    let device = match Device::try_from(device_keys) {
+                        Ok(d) => d,
+                        Err(e) => {
+                            warn!(
+                                "Failed to create a new device for {} {}: {:?}",
+                                user_id, device_id, e
+                            );
                             continue;
                         }
-                    }
-
-                    d.update_device(device_keys);
-
-                    d
-                } else {
-                    let device = Device::from(device_keys);
+                    };
                     info!("Adding a new device to the device store {:?}", device);
                     device
                 };

@@ -104,7 +104,10 @@ pub enum EventError {
 }
 
 #[derive(Error, Debug)]
-pub(crate) enum SignatureError {
+pub enum SignatureError {
+    #[error("the signing key is missing from the object that signed the message")]
+    MissingSigningKey,
+
     #[error("the provided JSON value isn't an object")]
     NotAnObject,
 
