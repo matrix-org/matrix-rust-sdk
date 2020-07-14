@@ -18,7 +18,6 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 use atomic::Atomic;
-use olm_rs::utility::OlmUtility;
 use serde_json::{json, Value};
 
 #[cfg(test)]
@@ -28,6 +27,7 @@ use matrix_sdk_common::events::Algorithm;
 use matrix_sdk_common::identifiers::{DeviceId, UserId};
 
 use crate::error::SignatureError;
+use crate::verify_json;
 
 /// A device represents a E2EE capable client of an user.
 #[derive(Debug, Clone)]
@@ -152,44 +152,7 @@ impl Device {
             .get_key(KeyAlgorithm::Ed25519)
             .ok_or(SignatureError::MissingSigningKey)?;
 
-        let json_object = json.as_object_mut().ok_or(SignatureError::NotAnObject)?;
-        let unsigned = json_object.remove("unsigned");
-        let signatures = json_object.remove("signatures");
-
-        let canonical_json = cjson::to_string(json_object)?;
-
-        if let Some(u) = unsigned {
-            json_object.insert("unsigned".to_string(), u);
-        }
-
-        let key_id = AlgorithmAndDeviceId(KeyAlgorithm::Ed25519, self.device_id.to_string());
-
-        let signatures = signatures.ok_or(SignatureError::NoSignatureFound)?;
-        let signature_object = signatures
-            .as_object()
-            .ok_or(SignatureError::NoSignatureFound)?;
-        let signature = signature_object
-            .get(&self.user_id.to_string())
-            .ok_or(SignatureError::NoSignatureFound)?;
-        let signature = signature
-            .get(key_id.to_string())
-            .ok_or(SignatureError::NoSignatureFound)?;
-        let signature = signature.as_str().ok_or(SignatureError::NoSignatureFound)?;
-
-        let utility = OlmUtility::new();
-
-        let ret = if utility
-            .ed25519_verify(signing_key, &canonical_json, signature)
-            .is_ok()
-        {
-            Ok(())
-        } else {
-            Err(SignatureError::VerificationError)
-        };
-
-        json_object.insert("signatures".to_string(), signatures);
-
-        ret
+        verify_json(&self.user_id, &self.device_id, signing_key, json)
     }
 
     pub(crate) fn verify_device_keys(

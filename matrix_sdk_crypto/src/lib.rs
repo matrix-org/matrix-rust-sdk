@@ -41,3 +41,55 @@ pub use olm::{Account, InboundGroupSession, OutboundGroupSession, Session};
 #[cfg(feature = "sqlite-cryptostore")]
 pub use store::sqlite::SqliteStore;
 pub use store::{CryptoStore, CryptoStoreError};
+
+use error::SignatureError;
+use matrix_sdk_common::api::r0::keys::{AlgorithmAndDeviceId, KeyAlgorithm};
+use matrix_sdk_common::identifiers::UserId;
+use olm_rs::utility::OlmUtility;
+use serde_json::Value;
+
+pub(crate) fn verify_json(
+    user_id: &UserId,
+    key_id: &str,
+    signing_key: &str,
+    json: &mut Value,
+) -> Result<(), SignatureError> {
+    let json_object = json.as_object_mut().ok_or(SignatureError::NotAnObject)?;
+    let unsigned = json_object.remove("unsigned");
+    let signatures = json_object.remove("signatures");
+
+    let canonical_json = cjson::to_string(json_object)?;
+
+    if let Some(u) = unsigned {
+        json_object.insert("unsigned".to_string(), u);
+    }
+
+    let key_id = AlgorithmAndDeviceId(KeyAlgorithm::Ed25519, key_id.to_string());
+
+    let signatures = signatures.ok_or(SignatureError::NoSignatureFound)?;
+    let signature_object = signatures
+        .as_object()
+        .ok_or(SignatureError::NoSignatureFound)?;
+    let signature = signature_object
+        .get(user_id.as_str())
+        .ok_or(SignatureError::NoSignatureFound)?;
+    let signature = signature
+        .get(key_id.to_string())
+        .ok_or(SignatureError::NoSignatureFound)?;
+    let signature = signature.as_str().ok_or(SignatureError::NoSignatureFound)?;
+
+    let utility = OlmUtility::new();
+
+    let ret = if utility
+        .ed25519_verify(signing_key, &canonical_json, signature)
+        .is_ok()
+    {
+        Ok(())
+    } else {
+        Err(SignatureError::VerificationError)
+    };
+
+    json_object.insert("signatures".to_string(), signatures);
+
+    ret
+}

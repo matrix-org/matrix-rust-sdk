@@ -22,13 +22,14 @@ use std::result::Result as StdResult;
 
 use super::error::{EventError, MegolmError, MegolmResult, OlmError, OlmResult, SignatureError};
 use super::olm::{
-    Account, GroupSessionKey, IdentityKeys, InboundGroupSession, OlmMessage, OlmUtility,
-    OutboundGroupSession, Session,
+    Account, GroupSessionKey, IdentityKeys, InboundGroupSession, OlmMessage, OutboundGroupSession,
+    Session,
 };
 use super::store::memorystore::MemoryStore;
 #[cfg(feature = "sqlite-cryptostore")]
 use super::store::sqlite::SqliteStore;
 use super::{device::Device, store::Result as StoreError, CryptoStore};
+use crate::verify_json;
 
 use matrix_sdk_common::api;
 use matrix_sdk_common::events::{
@@ -511,45 +512,7 @@ impl OlmMachine {
         user_key: &str,
         json: &mut Value,
     ) -> Result<(), SignatureError> {
-        let json_object = json.as_object_mut().ok_or(SignatureError::NotAnObject)?;
-        let unsigned = json_object.remove("unsigned");
-        let signatures = json_object.remove("signatures");
-
-        let canonical_json = cjson::to_string(json_object)?;
-
-        if let Some(u) = unsigned {
-            json_object.insert("unsigned".to_string(), u);
-        }
-
-        // TODO this should be part of ruma-client-api.
-        let key_id_string = format!("{}:{}", KeyAlgorithm::Ed25519, device_id);
-
-        let signatures = signatures.ok_or(SignatureError::NoSignatureFound)?;
-        let signature_object = signatures
-            .as_object()
-            .ok_or(SignatureError::NoSignatureFound)?;
-        let signature = signature_object
-            .get(&user_id.to_string())
-            .ok_or(SignatureError::NoSignatureFound)?;
-        let signature = signature
-            .get(key_id_string)
-            .ok_or(SignatureError::NoSignatureFound)?;
-        let signature = signature.as_str().ok_or(SignatureError::NoSignatureFound)?;
-
-        let utility = OlmUtility::new();
-
-        let ret = if utility
-            .ed25519_verify(&user_key, &canonical_json, signature)
-            .is_ok()
-        {
-            Ok(())
-        } else {
-            Err(SignatureError::VerificationError)
-        };
-
-        json_object.insert("signatures".to_string(), signatures);
-
-        ret
+        verify_json(user_id, device_id, user_key, json)
     }
 
     /// Get a tuple of device and one-time keys that need to be uploaded.
