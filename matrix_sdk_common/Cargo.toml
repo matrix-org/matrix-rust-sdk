@@ -15,7 +15,7 @@ instant = { version = "0.1.4", features = ["wasm-bindgen", "now"] }
 js_int = "0.1.8"
 
 [dependencies.ruma]
-git = "https://github.com/ruma/ruma"
+path = "/home/poljar/werk/priv/ruma/ruma"
 features = ["client-api"]
 rev = "c19bcaab"
 

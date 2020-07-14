@@ -32,6 +32,7 @@ mod machine;
 mod memory_stores;
 mod olm;
 mod store;
+mod verification;
 
 pub use device::{Device, TrustState};
 pub use error::{MegolmError, OlmError};
