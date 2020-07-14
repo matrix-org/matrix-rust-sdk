@@ -20,7 +20,7 @@ use std::mem;
 use std::path::Path;
 use std::result::Result as StdResult;
 
-use super::error::{EventError, MegolmError, MegolmResult, OlmError, OlmResult, SignatureError};
+use super::error::{EventError, MegolmError, MegolmResult, OlmError, OlmResult};
 use super::olm::{
     Account, GroupSessionKey, IdentityKeys, InboundGroupSession, OlmMessage, OutboundGroupSession,
     Session,
@@ -29,7 +29,6 @@ use super::store::memorystore::MemoryStore;
 #[cfg(feature = "sqlite-cryptostore")]
 use super::store::sqlite::SqliteStore;
 use super::{device::Device, store::Result as StoreError, CryptoStore};
-use crate::verify_json;
 
 use matrix_sdk_common::api;
 use matrix_sdk_common::events::{
@@ -343,24 +342,10 @@ impl OlmMachine {
                     continue;
                 };
 
-                let signing_key = if let Some(k) = device.get_key(KeyAlgorithm::Ed25519) {
-                    k
-                } else {
+                if let Err(e) = device.verify_one_time_key(&one_time_key) {
                     warn!(
-                        "Tried to create an Olm session for {} {}, but the
-                           device is missing the signing key",
-                        user_id, device_id
-                    );
-                    continue;
-                };
-
-                if self
-                    .verify_json(user_id, device_id, signing_key, &mut json!(&one_time_key))
-                    .is_err()
-                {
-                    warn!(
-                        "Failed to verify the one-time key signatures for {} {}",
-                        user_id, device_id
+                        "Failed to verify the one-time key signatures for {} {}: {:?}",
+                        user_id, device_id, e
                     );
                     continue;
                 }
@@ -485,34 +470,6 @@ impl OlmMachine {
         self.store.save_devices(&changed_devices).await?;
 
         Ok(changed_devices)
-    }
-
-    /// Verify a signed JSON object.
-    ///
-    /// The object must have a signatures key associated  with an object of the
-    /// form `user_id: {key_id: signature}`.
-    ///
-    /// Returns Ok if the signature was successfully verified, otherwise an
-    /// SignatureError.
-    ///
-    /// # Arguments
-    ///
-    /// * `user_id` - The user who signed the JSON object.
-    ///
-    /// * `device_id` - The device that signed the JSON object.
-    ///
-    /// * `user_key` - The public ed25519 key which was used to sign the JSON
-    ///     object.
-    ///
-    /// * `json` - The JSON object that should be verified.
-    fn verify_json(
-        &self,
-        user_id: &UserId,
-        device_id: &str,
-        user_key: &str,
-        json: &mut Value,
-    ) -> Result<(), SignatureError> {
-        verify_json(user_id, device_id, user_key, json)
     }
 
     /// Get a tuple of device and one-time keys that need to be uploaded.
@@ -1307,7 +1264,7 @@ mod test {
     use serde_json::json;
 
     use crate::machine::{OlmMachine, OneTimeKeys};
-    use crate::Device;
+    use crate::{verify_json, Device};
 
     use matrix_sdk_common::api::r0::{
         keys, to_device::send_event_to_device::Request as ToDeviceRequest,
@@ -1545,7 +1502,7 @@ mod test {
         let identity_keys = machine.account.identity_keys();
         let ed25519_key = identity_keys.ed25519();
 
-        let ret = machine.verify_json(
+        let ret = verify_json(
             &machine.user_id,
             &machine.device_id,
             ed25519_key,
@@ -1576,7 +1533,7 @@ mod test {
 
         let mut device_keys = machine.account.device_keys().await;
 
-        let ret = machine.verify_json(
+        let ret = verify_json(
             &machine.user_id,
             &machine.device_id,
             "fake_key",
@@ -1596,7 +1553,7 @@ mod test {
 
         let mut one_time_key = one_time_keys.values_mut().next().unwrap();
 
-        let ret = machine.verify_json(
+        let ret = verify_json(
             &machine.user_id,
             &machine.device_id,
             ed25519_key,
@@ -1618,7 +1575,7 @@ mod test {
             .await
             .expect("Can't prepare initial key upload");
 
-        let ret = machine.verify_json(
+        let ret = verify_json(
             &machine.user_id,
             &machine.device_id,
             ed25519_key,
@@ -1626,7 +1583,7 @@ mod test {
         );
         assert!(ret.is_ok());
 
-        let ret = machine.verify_json(
+        let ret = verify_json(
             &machine.user_id,
             &machine.device_id,
             ed25519_key,

@@ -22,7 +22,7 @@ use serde_json::{json, Value};
 
 #[cfg(test)]
 use super::OlmMachine;
-use matrix_sdk_common::api::r0::keys::{AlgorithmAndDeviceId, DeviceKeys, KeyAlgorithm};
+use matrix_sdk_common::api::r0::keys::{AlgorithmAndDeviceId, DeviceKeys, KeyAlgorithm, SignedKey};
 use matrix_sdk_common::events::Algorithm;
 use matrix_sdk_common::identifiers::{DeviceId, UserId};
 
@@ -160,6 +160,13 @@ impl Device {
         device_keys: &DeviceKeys,
     ) -> Result<(), SignatureError> {
         self.is_signed_by_device(&mut json!(&device_keys))
+    }
+
+    pub(crate) fn verify_one_time_key(
+        &self,
+        one_time_key: &SignedKey,
+    ) -> Result<(), SignatureError> {
+        self.is_signed_by_device(&mut json!(&one_time_key))
     }
 
     /// Mark the device as deleted.

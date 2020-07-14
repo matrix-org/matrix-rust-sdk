@@ -48,6 +48,24 @@ use matrix_sdk_common::identifiers::UserId;
 use olm_rs::utility::OlmUtility;
 use serde_json::Value;
 
+/// Verify a signed JSON object.
+///
+/// The object must have a signatures key associated  with an object of the
+/// form `user_id: {key_id: signature}`.
+///
+/// Returns Ok if the signature was successfully verified, otherwise an
+/// SignatureError.
+///
+/// # Arguments
+///
+/// * `user_id` - The user who signed the JSON object.
+///
+/// * `key_id` - The id of the key that signed the JSON object.
+///
+/// * `signing_key` - The public ed25519 key which was used to sign the JSON
+///     object.
+///
+/// * `json` - The JSON object that should be verified.
 pub(crate) fn verify_json(
     user_id: &UserId,
     key_id: &str,
