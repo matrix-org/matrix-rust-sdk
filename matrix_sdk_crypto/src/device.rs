@@ -24,7 +24,7 @@ use serde_json::{json, Value};
 
 #[cfg(test)]
 use super::OlmMachine;
-use matrix_sdk_common::api::r0::keys::{DeviceKeys, KeyAlgorithm};
+use matrix_sdk_common::api::r0::keys::{AlgorithmAndDeviceId, DeviceKeys, KeyAlgorithm};
 use matrix_sdk_common::events::Algorithm;
 use matrix_sdk_common::identifiers::{DeviceId, UserId};
 
@@ -158,7 +158,10 @@ impl Device {
     }
 
     fn is_signed_by_device(&self, json: &mut Value) -> Result<(), SignatureError> {
-        let signing_key = self.keys.get(&KeyAlgorithm::Ed25519).unwrap();
+        let signing_key = self
+            .keys
+            .get(&KeyAlgorithm::Ed25519)
+            .ok_or(SignatureError::MissingSigningKey)?;
 
         let json_object = json.as_object_mut().ok_or(SignatureError::NotAnObject)?;
         let unsigned = json_object.remove("unsigned");
@@ -170,8 +173,7 @@ impl Device {
             json_object.insert("unsigned".to_string(), u);
         }
 
-        // TODO this should be part of ruma-client-api.
-        let key_id_string = format!("{}:{}", KeyAlgorithm::Ed25519, self.device_id);
+        let key_id = AlgorithmAndDeviceId(KeyAlgorithm::Ed25519, self.device_id.to_string());
 
         let signatures = signatures.ok_or(SignatureError::NoSignatureFound)?;
         let signature_object = signatures
@@ -181,7 +183,7 @@ impl Device {
             .get(&self.user_id.to_string())
             .ok_or(SignatureError::NoSignatureFound)?;
         let signature = signature
-            .get(key_id_string)
+            .get(key_id.to_string())
             .ok_or(SignatureError::NoSignatureFound)?;
         let signature = signature.as_str().ok_or(SignatureError::NoSignatureFound)?;
 
