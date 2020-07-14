@@ -648,7 +648,7 @@ impl Room {
                 Kicked | Banned | KickedAndBanned | InvitationRejected | Left => {
                     self.remove_member(&target_user, event)
                 }
-                ProfileChanged{..} => self.update_member_profile(&target_user, event, change),
+                ProfileChanged { .. } => self.update_member_profile(&target_user, event, change),
 
                 // Not interested in other events.
                 _ => (false, HashMap::new()),
@@ -909,13 +909,11 @@ impl Room {
         &mut self,
         target_member: &UserId,
         event: &StateEventStub<MemberEventContent>,
-        change: MembershipChange
+        change: MembershipChange,
     ) -> (bool, HashMap<UserId, bool>) {
         let member = self.get_member(target_member);
         let member = match member {
-            Some(member) => {
-                member
-            }
+            Some(member) => member,
 
             None => {
                 debug!("update_member_profile [{}]: Got a profile update for user {} but he's not a room member",
@@ -928,25 +926,32 @@ impl Room {
         let new_name = event.content.displayname.clone();
 
         match change {
-            MembershipChange::ProfileChanged { displayname_changed, avatar_url_changed } => {
+            MembershipChange::ProfileChanged {
+                displayname_changed,
+                avatar_url_changed,
+            } => {
                 if displayname_changed {
-                    debug!("update_member_profile [{}]: {} changed display name from {:#?} to {:#?}",
+                    debug!(
+                        "update_member_profile [{}]: {} changed display name from {:#?} to {:#?}",
                         self.room_id, target_member, old_name, &new_name
                     );
                 }
 
                 if avatar_url_changed {
-                    debug!("update_member_profile [{}]: {} changed avatar URL from {:#?} to {:#?}",
+                    debug!(
+                        "update_member_profile [{}]: {} changed avatar URL from {:#?} to {:#?}",
                         self.room_id, target_member, &member.avatar_url, &new_name
                     );
                 }
             }
 
             _ => {
-                error!("update_member_profile [{}]: got a ProfileChanged but nothing changed",
-                    self.room_id);
+                error!(
+                    "update_member_profile [{}]: got a ProfileChanged but nothing changed",
+                    self.room_id
+                );
                 return (false, HashMap::new());
-            },
+            }
         }
 
         let disambiguations =
@@ -1007,8 +1012,7 @@ impl Room {
         }
 
         if max_power > int!(0) {
-            member.power_level_norm =
-                Some((member.power_level.unwrap() * int!(100)) / max_power);
+            member.power_level_norm = Some((member.power_level.unwrap() * int!(100)) / max_power);
         }
 
         changed
@@ -1045,15 +1049,16 @@ impl Describe for MembershipChange {
             Self::InvitationRejected => "rejected the invitation to",
             Self::InvitationRevoked => "got their invitation revoked from",
             Self::Left => "left",
-            Self::ProfileChanged { displayname_changed, avatar_url_changed } => {
-                match (*displayname_changed, *avatar_url_changed) {
-                    (true, true) => "changed their displayname and avatar",
-                    (true, false) => "changed their displayname",
-                    (false, true) => "changed their avatar",
-                    _ => {
-                        error!("Got ProfileChanged but nothing changed");
-                        "impossible: changed nothing in their profile"
-                    },
+            Self::ProfileChanged {
+                displayname_changed,
+                avatar_url_changed,
+            } => match (*displayname_changed, *avatar_url_changed) {
+                (true, true) => "changed their displayname and avatar",
+                (true, false) => "changed their displayname",
+                (false, true) => "changed their avatar",
+                _ => {
+                    error!("Got ProfileChanged but nothing changed");
+                    "impossible: changed nothing in their profile"
                 }
             },
             Self::None => "did nothing in",
@@ -1386,10 +1391,7 @@ mod test {
             .build_sync_response();
 
         let mut member2_rejoins_when_invited_sync_response = event_builder
-            .add_custom_joined_event(
-                &room_id,
-                member1_invites_member2_event,
-            )
+            .add_custom_joined_event(&room_id, member1_invites_member2_event)
             .add_custom_joined_event(&room_id, member2_join_event)
             .build_sync_response();
 
