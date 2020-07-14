@@ -58,15 +58,14 @@ pub enum EventsJson {
 ///
 /// ```rust
 /// use matrix_sdk_test::{EventBuilder, EventsJson};
-/// use matrix_sdk_common::events::collections::all::RoomEvent;
 ///
 /// let mut builder = EventBuilder::new();
 ///
 /// // response1 now contains events that add an example member to the room and change their power
 /// // level
 /// let response1 = builder
-///     .add_room_event(EventsJson::Member, RoomEvent::RoomMember)
-///     .add_room_event(EventsJson::PowerLevels, RoomEvent::RoomPowerLevels)
+///     .add_room_event(EventsJson::Member)
+///     .add_room_event(EventsJson::PowerLevels)
 ///     .build_sync_response();
 ///
 /// // response2 is now empty (nothing changed)
@@ -74,7 +73,7 @@ pub enum EventsJson {
 ///
 /// // response3 contains a display name change for member example
 /// let response3 = builder
-///     .add_room_event(EventsJson::MemberNameChange, RoomEvent::RoomMember)
+///     .add_room_event(EventsJson::MemberNameChange)
 ///     .build_sync_response();
 /// ```
 
