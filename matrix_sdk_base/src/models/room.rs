@@ -250,8 +250,8 @@ impl RoomName {
         } else if !self.aliases.is_empty() && !self.aliases[0].alias().is_empty() {
             self.aliases[0].alias().trim().to_string()
         } else {
-            let joined = self.joined_member_count.unwrap_or(uint!(0));
-            let invited = self.invited_member_count.unwrap_or(uint!(0));
+            let joined = self.joined_member_count.unwrap_or_else(|| uint!(0));
+            let invited = self.invited_member_count.unwrap_or_else(|| uint!(0));
             let heroes = UInt::new(self.heroes.len() as u64).unwrap();
             let invited_joined = (invited + joined).saturating_sub(uint!(1));
 
