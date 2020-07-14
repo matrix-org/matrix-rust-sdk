@@ -321,6 +321,8 @@ impl OlmMachine {
                     continue;
                 };
 
+                // TODO move this logic into the account, pass the device to the
+                // account when creating an outbound session.
                 let one_time_key = if let Some(k) = key_map.values().next() {
                     match k {
                         OneTimeKey::SignedKey(k) => k,
@@ -392,22 +394,13 @@ impl OlmMachine {
         Ok(())
     }
 
-    /// Receive a successful keys query response.
-    ///
-    /// Returns a list of devices newly discovered devices and devices that
-    /// changed.
-    ///
-    /// # Arguments
-    ///
-    /// * `response` - The keys query response of the request that the client
-    /// performed.
-    pub async fn receive_keys_query_response(
+    async fn handle_devices_from_key_query(
         &mut self,
-        response: &keys::get_keys::Response,
-    ) -> OlmResult<Vec<Device>> {
+        device_keys_map: &BTreeMap<UserId, BTreeMap<DeviceId, DeviceKeys>>,
+    ) -> StoreError<Vec<Device>> {
         let mut changed_devices = Vec::new();
 
-        for (user_id, device_map) in &response.device_keys {
+        for (user_id, device_map) in device_keys_map {
             self.store.update_tracked_user(user_id, false).await?;
 
             for (device_id, device_keys) in device_map.iter() {
@@ -467,6 +460,25 @@ impl OlmMachine {
             }
         }
 
+        Ok(changed_devices)
+    }
+
+    /// Receive a successful keys query response.
+    ///
+    /// Returns a list of devices newly discovered devices and devices that
+    /// changed.
+    ///
+    /// # Arguments
+    ///
+    /// * `response` - The keys query response of the request that the client
+    /// performed.
+    pub async fn receive_keys_query_response(
+        &mut self,
+        response: &keys::get_keys::Response,
+    ) -> OlmResult<Vec<Device>> {
+        let changed_devices = self
+            .handle_devices_from_key_query(&response.device_keys)
+            .await?;
         self.store.save_devices(&changed_devices).await?;
 
         Ok(changed_devices)
