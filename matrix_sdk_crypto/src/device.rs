@@ -36,7 +36,7 @@ pub struct Device {
     user_id: Arc<UserId>,
     device_id: Arc<DeviceId>,
     algorithms: Arc<Vec<Algorithm>>,
-    keys: Arc<BTreeMap<KeyAlgorithm, String>>,
+    keys: Arc<BTreeMap<AlgorithmAndDeviceId, String>>,
     display_name: Arc<Option<String>>,
     deleted: Arc<AtomicBool>,
     trust_state: Arc<Atomic<TrustState>>,
@@ -75,7 +75,7 @@ impl Device {
         display_name: Option<String>,
         trust_state: TrustState,
         algorithms: Vec<Algorithm>,
-        keys: BTreeMap<KeyAlgorithm, String>,
+        keys: BTreeMap<AlgorithmAndDeviceId, String>,
     ) -> Self {
         Device {
             user_id: Arc::new(user_id),
@@ -105,11 +105,12 @@ impl Device {
 
     /// Get the key of the given key algorithm belonging to this device.
     pub fn get_key(&self, algorithm: KeyAlgorithm) -> Option<&String> {
-        self.keys.get(&algorithm)
+        self.keys
+            .get(&AlgorithmAndDeviceId(algorithm, self.device_id.to_string()))
     }
 
     /// Get a map containing all the device keys.
-    pub fn keys(&self) -> &BTreeMap<KeyAlgorithm, String> {
+    pub fn keys(&self) -> &BTreeMap<AlgorithmAndDeviceId, String> {
         &self.keys
     }
 
@@ -132,13 +133,6 @@ impl Device {
     pub(crate) fn update_device(&mut self, device_keys: &DeviceKeys) -> Result<(), SignatureError> {
         self.verify_device_keys(device_keys)?;
 
-        let mut keys = BTreeMap::new();
-
-        for (key_id, key) in device_keys.keys.iter() {
-            let key_id = key_id.0;
-            let _ = keys.insert(key_id, key.clone());
-        }
-
         let display_name = Arc::new(
             device_keys
                 .unsigned
@@ -151,7 +145,7 @@ impl Device {
             &mut self.algorithms,
             Arc::new(device_keys.algorithms.clone()),
         );
-        let _ = mem::replace(&mut self.keys, Arc::new(keys));
+        let _ = mem::replace(&mut self.keys, Arc::new(device_keys.keys.clone()));
         let _ = mem::replace(&mut self.display_name, display_name);
 
         Ok(())
@@ -159,8 +153,7 @@ impl Device {
 
     fn is_signed_by_device(&self, json: &mut Value) -> Result<(), SignatureError> {
         let signing_key = self
-            .keys
-            .get(&KeyAlgorithm::Ed25519)
+            .get_key(KeyAlgorithm::Ed25519)
             .ok_or(SignatureError::MissingSigningKey)?;
 
         let json_object = json.as_object_mut().ok_or(SignatureError::NotAnObject)?;
@@ -232,7 +225,10 @@ impl From<&OlmMachine> for Device {
                     .iter()
                     .map(|(key, value)| {
                         (
-                            KeyAlgorithm::try_from(key.as_ref()).unwrap(),
+                            AlgorithmAndDeviceId(
+                                KeyAlgorithm::try_from(key.as_ref()).unwrap(),
+                                machine.device_id().clone(),
+                            ),
                             value.to_owned(),
                         )
                     })
@@ -249,18 +245,11 @@ impl TryFrom<&DeviceKeys> for Device {
     type Error = SignatureError;
 
     fn try_from(device_keys: &DeviceKeys) -> Result<Self, Self::Error> {
-        let mut keys = BTreeMap::new();
-
-        for (key_id, key) in device_keys.keys.iter() {
-            let key_id = key_id.0;
-            let _ = keys.insert(key_id, key.clone());
-        }
-
         let device = Device {
             user_id: Arc::new(device_keys.user_id.clone()),
             device_id: Arc::new(device_keys.device_id.clone()),
             algorithms: Arc::new(device_keys.algorithms.clone()),
-            keys: Arc::new(keys),
+            keys: Arc::new(device_keys.keys.clone()),
             display_name: Arc::new(
                 device_keys
                     .unsigned

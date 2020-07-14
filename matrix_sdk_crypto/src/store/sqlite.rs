@@ -29,7 +29,7 @@ use zeroize::Zeroizing;
 use super::{Account, CryptoStore, CryptoStoreError, InboundGroupSession, Result, Session};
 use crate::device::{Device, TrustState};
 use crate::memory_stores::{DeviceStore, GroupSessionStore, SessionStore, UserDevices};
-use matrix_sdk_common::api::r0::keys::KeyAlgorithm;
+use matrix_sdk_common::api::r0::keys::{AlgorithmAndDeviceId, KeyAlgorithm};
 use matrix_sdk_common::events::Algorithm;
 use matrix_sdk_common::identifiers::{DeviceId, RoomId, UserId};
 
@@ -468,7 +468,10 @@ impl SqliteStore {
 
                 let key = &row.1;
 
-                keys.insert(algorithm, key.to_owned());
+                keys.insert(
+                    AlgorithmAndDeviceId(algorithm, device_id.clone()),
+                    key.to_owned(),
+                );
             }
 
             let device = Device::new(
@@ -541,7 +544,7 @@ impl SqliteStore {
                  ",
             )
             .bind(device_row_id)
-            .bind(key_algorithm.to_string())
+            .bind(key_algorithm.0.to_string())
             .bind(key)
             .execute(&mut *connection)
             .await?;
