@@ -14,7 +14,6 @@
 
 use std::collections::BTreeMap;
 use std::convert::TryFrom;
-use std::mem;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
@@ -141,12 +140,9 @@ impl Device {
                 .flatten(),
         );
 
-        let _ = mem::replace(
-            &mut self.algorithms,
-            Arc::new(device_keys.algorithms.clone()),
-        );
-        let _ = mem::replace(&mut self.keys, Arc::new(device_keys.keys.clone()));
-        let _ = mem::replace(&mut self.display_name, display_name);
+        self.algorithms = Arc::new(device_keys.algorithms.clone());
+        self.keys = Arc::new(device_keys.keys.clone());
+        self.display_name = display_name;
 
         Ok(())
     }
