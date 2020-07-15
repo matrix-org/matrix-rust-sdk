@@ -71,20 +71,20 @@ fn redaction_event_from_redaction_stub(
 pub struct RoomName {
     /// The displayed name of the room.
     name: Option<String>,
-    /// The canonical alias of the room ex. `#room-name:example.com` and port number.
+    /// The canonical alias of the room ex. `#room-name:example.com` and port
+    /// number.
     canonical_alias: Option<RoomAliasId>,
     /// List of `RoomAliasId`s the room has been given.
     aliases: Vec<RoomAliasId>,
-    /// Users which can be used to generate a room name if the room does not have
-    /// one. Required if room name or canonical aliases are not set or empty.
+    /// Users which can be used to generate a room name if the room does not
+    /// have one. Required if room name or canonical aliases are not set or
+    /// empty.
     pub heroes: Vec<String>,
-    /// Number of users whose membership status is `join`.
-    /// Required if field has changed since last sync; otherwise, it may be
-    /// omitted.
+    /// Number of users whose membership status is `join`. Required if field
+    /// has changed since last sync; otherwise, it may be omitted.
     pub joined_member_count: Option<UInt>,
-    /// Number of users whose membership status is `invite`.
-    /// Required if field has changed since last sync; otherwise, it may be
-    /// omitted.
+    /// Number of users whose membership status is `invite`. Required if field
+    /// has changed since last sync; otherwise, it may be omitted.
     pub invited_member_count: Option<UInt>,
 }
 
@@ -185,8 +185,8 @@ pub struct Room {
     pub joined_members: HashMap<UserId, RoomMember>,
     /// A queue of messages, holds no more than 10 of the most recent messages.
     ///
-    /// This is helpful when using a `StateStore` to avoid multiple requests
-    /// to the server for messages.
+    /// This is helpful when using a `StateStore` to avoid multiple requests to
+    /// the server for messages.
     #[cfg(feature = "messages")]
     #[cfg_attr(docsrs, doc(cfg(feature = "messages")))]
     #[serde(with = "super::message::ser_deser")]
@@ -221,8 +221,8 @@ impl RoomName {
         true
     }
 
-    /// Calculate the canonical display name of a room, taking into account its name, aliases and
-    /// members.
+    /// Calculate the canonical display name of the room, taking into account
+    /// its name, aliases and members.
     ///
     /// The display name is calculated according to [this algorithm][spec].
     ///
@@ -276,7 +276,8 @@ impl RoomName {
                     .collect::<Vec<String>>();
                 names.sort();
 
-                // TODO: What length does the spec want us to use here and in the `else`?
+                // TODO: What length does the spec want us to use here and in
+                // the `else`?
                 format!("{}, and {} others", names.join(", "), (joined + invited))
             } else {
                 "Empty room".to_string()
@@ -335,14 +336,14 @@ impl Room {
 
     /// Process the join or invite event for a new room member.
     ///
-    /// This method should only be called on events which add new members, not those related to
-    /// existing ones.
+    /// This method should only be called on events which add new members, not
+    /// those related to existing ones.
     ///
     /// Returns a tuple of:
     ///
     /// 1. True if the event made changes to the room's state, false otherwise.
-    /// 2. Returns a map of display name disambiguations which tells us which members need to have
-    ///    their display names disambiguated and to what.
+    /// 2. Returns a map of display name disambiguations which tells us which
+    ///    members need to have their display names disambiguated and to what.
     ///
     /// # Arguments
     ///
@@ -395,8 +396,8 @@ impl Room {
     /// Returns a tuple of:
     ///
     /// 1. True if the event made changes to the room's state, false otherwise.
-    /// 2. Returns a map of display name disambiguations which tells us which members need to have
-    ///    their display names disambiguated and to what.
+    /// 2. Returns a map of display name disambiguations which tells us which
+    ///    members need to have their display names disambiguated and to what.
     ///
     /// # Arguments
     ///
@@ -432,7 +433,8 @@ impl Room {
         (true, disambiguations)
     }
 
-    /// Check whether the user with the MXID `user_id` is joined or invited to the room.
+    /// Check whether the user with the MXID `user_id` is joined or invited to
+    /// the room.
     ///
     /// Returns true if so, false otherwise.
     pub fn member_is_tracked(&self, user_id: &UserId) -> bool {
@@ -605,8 +607,8 @@ impl Room {
     /// Returns a tuple of:
     ///
     /// 1. True if the joined member list changed, false otherwise.
-    /// 2. A map of display name disambiguations which tells us which members need to have their
-    ///    display names disambiguated and to what.
+    /// 2. A map of display name disambiguations which tells us which members
+    ///    need to have their display names disambiguated and to what.
     pub fn handle_membership(
         &mut self,
         event: &StateEventStub<MemberEventContent>,
@@ -681,8 +683,9 @@ impl Room {
     /// Handle a room.redaction event and update the `MessageQueue`.
     ///
     /// Returns true if `MessageQueue` was updated. The effected message event
-    /// has it's contents replaced with the `RedactionEventContents` and the whole
-    /// redaction event is added to the `Unsigned` `redacted_because` field.
+    /// has it's contents replaced with the `RedactionEventContents` and the
+    /// whole redaction event is added to the `Unsigned` `redacted_because`
+    /// field.
     #[cfg(feature = "messages")]
     #[cfg_attr(docsrs, doc(cfg(feature = "messages")))]
     pub fn handle_redaction(&mut self, event: &RedactionEventStub) -> bool {
@@ -713,7 +716,8 @@ impl Room {
         }
     }
 
-    /// Handle a room.canonical_alias event, updating the room state if necessary.
+    /// Handle a room.canonical_alias event, updating the room state if
+    /// necessary.
     ///
     /// Returns true if the room name changed, false otherwise.
     pub fn handle_canonical(&mut self, event: &StateEventStub<CanonicalAliasEventContent>) -> bool {
@@ -845,8 +849,8 @@ impl Room {
     ///
     /// # Arguments
     ///
-    /// * `event` - The `AnyStrippedStateEvent` sent by the server for invited but not
-    /// joined rooms.
+    /// * `event` - The `AnyStrippedStateEvent` sent by the server for invited
+    ///   but not joined rooms.
     pub fn receive_stripped_state_event(&mut self, event: &AnyStrippedStateEventStub) -> bool {
         match event {
             AnyStrippedStateEventStub::RoomName(event) => self.handle_stripped_room_name(event),
@@ -856,7 +860,8 @@ impl Room {
 
     /// Receive a presence event for a member of the current room.
     ///
-    /// Returns true if the event causes a change to the member's presence, false otherwise.
+    /// Returns true if the event causes a change to the member's presence,
+    /// false otherwise.
     ///
     /// # Arguments
     ///
@@ -910,8 +915,8 @@ impl Room {
     /// Returns a tuple of:
     ///
     /// 1. True if the event made changes to the room's state, false otherwise.
-    /// 2. A map of display name disambiguations which tells us which members need to have their
-    ///    display names disambiguated and to what.
+    /// 2. A map of display name disambiguations which tells us which members
+    ///    need to have their display names disambiguated and to what.
     ///
     /// # Arguments
     ///

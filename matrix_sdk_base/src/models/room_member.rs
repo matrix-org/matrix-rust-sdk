@@ -32,7 +32,8 @@ pub struct RoomMember {
     pub user_id: UserId,
     /// The human readable name of the user.
     pub display_name: Option<String>,
-    /// Whether the member's display name is ambiguous due to being shared with other members.
+    /// Whether the member's display name is ambiguous due to being shared with
+    /// other members.
     pub display_name_ambiguous: bool,
     /// The matrix url of the users avatar.
     pub avatar_url: Option<String>,
@@ -102,8 +103,8 @@ impl RoomMember {
         }
     }
 
-    /// Returns the most ergonomic (but potentially ambiguous/non-unique) name available for the
-    /// member.
+    /// Returns the most ergonomic (but potentially ambiguous/non-unique) name
+    /// available for the member.
     ///
     /// This is the member's display name if it is set, otherwise their MXID.
     pub fn name(&self) -> String {
@@ -112,11 +113,11 @@ impl RoomMember {
             .unwrap_or_else(|| format!("{}", self.user_id))
     }
 
-    /// Returns a name for the member which is guaranteed to be unique, but not necessarily the
-    /// most ergonomic.
+    /// Returns a name for the member which is guaranteed to be unique, but not
+    /// necessarily the most ergonomic.
     ///
-    /// This is either a name in the format "DISPLAY_NAME (MXID)" if the member's display name is
-    /// set, or simply "MXID" if not.
+    /// This is either a name in the format "DISPLAY_NAME (MXID)" if the
+    /// member's display name is set, or simply "MXID" if not.
     pub fn unique_name(&self) -> String {
         self.display_name
             .clone()
@@ -124,19 +125,21 @@ impl RoomMember {
             .unwrap_or_else(|| format!("{}", self.user_id))
     }
 
-    /// Get the disambiguated display name for the member which is as ergonomic as possible while
-    /// still guaranteeing it is unique.
+    /// Get the disambiguated display name for the member which is as ergonomic
+    /// as possible while still guaranteeing it is unique.
     ///
-    /// If the member's display name is currently ambiguous (i.e. shared by other room members),
-    /// this method will return the same result as `RoomMember::unique_name`. Otherwise, this
-    /// method will return the same result as `RoomMember::name`.
+    /// If the member's display name is currently ambiguous (i.e. shared by
+    /// other room members), this method will return the same result as
+    /// `RoomMember::unique_name`. Otherwise, this method will return the same
+    /// result as `RoomMember::name`.
     ///
-    /// This is usually the name you want when showing room messages from the member or when
-    /// showing the member in the member list.
+    /// This is usually the name you want when showing room messages from the
+    /// member or when showing the member in the member list.
     ///
-    /// **Warning**: When displaying a room member's display name, clients *must* use
-    /// a disambiguated name, so they *must not* use `RoomMember::display_name` directly. Clients
-    /// *should* use this method to obtain the name, but an acceptable alternative is to use
+    /// **Warning**: When displaying a room member's display name, clients
+    /// *must* use a disambiguated name, so they *must not* use
+    /// `RoomMember::display_name` directly. Clients *should* use this method to
+    /// obtain the name, but an acceptable alternative is to use
     /// `RoomMember::unique_name` in certain situations.
     pub fn disambiguated_name(&self) -> String {
         if self.display_name_ambiguous {
