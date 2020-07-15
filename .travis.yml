@@ -26,10 +26,8 @@ jobs:
       script:
         - cargo clippy --all-targets --all-features -- -D warnings
 
-
     - stage: Test
       os: linux
-      dist: bionic
 
     - os: windows
 
