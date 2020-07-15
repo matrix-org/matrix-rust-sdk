@@ -505,8 +505,6 @@ impl Room {
         old_name: Option<String>,
         new_name: Option<String>,
     ) -> HashMap<UserId, bool> {
-        // Must be called *before* any changes to the model.
-
         let old_name_eq_class = match old_name {
             None => HashSet::new(),
             Some(name) => self.display_name_equivalence_class(&name),
