@@ -12,12 +12,20 @@ jobs:
       name: macOS 10.15
 
   include:
-    - stage: Lint
+    - stage: Format
       os: linux
       before_script:
         - rustup component add rustfmt
       script:
         - cargo fmt --all -- --check
+
+    - stage: Clippy
+      os: linux
+      before_script:
+        - rustup component add clippy
+      script:
+        - cargo clippy --all-targets --all-features -- -D warnings
+
 
     - stage: Test
       os: linux
