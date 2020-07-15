@@ -461,7 +461,7 @@ impl Room {
     }
 
     /// Given a display name, return the set of members which share it.
-    fn display_name_equivalence_class(&self, name: &str) -> HashSet<UserId> {
+    fn display_name_equivalence_set(&self, name: &str) -> HashSet<UserId> {
         let members = self
             .invited_members
             .iter()
@@ -505,30 +505,30 @@ impl Room {
         old_name: Option<String>,
         new_name: Option<String>,
     ) -> HashMap<UserId, bool> {
-        let old_name_eq_class = match old_name {
+        let old_name_eq_set = match old_name {
             None => HashSet::new(),
-            Some(name) => self.display_name_equivalence_class(&name),
+            Some(name) => self.display_name_equivalence_set(&name),
         };
 
-        let disambiguate_old = match old_name_eq_class.len().saturating_sub(1) {
+        let disambiguate_old = match old_name_eq_set.len().saturating_sub(1) {
             n if n > 1 => vec![(member.clone(), false)].into_iter().collect(),
-            1 => old_name_eq_class.into_iter().map(|m| (m, false)).collect(),
+            1 => old_name_eq_set.into_iter().map(|m| (m, false)).collect(),
             0 => HashMap::new(),
             _ => panic!("impossible"),
         };
 
         //
 
-        let mut new_name_eq_class = match new_name {
+        let mut new_name_eq_set = match new_name {
             None => HashSet::new(),
-            Some(name) => self.display_name_equivalence_class(&name),
+            Some(name) => self.display_name_equivalence_set(&name),
         };
 
-        new_name_eq_class.insert(member.clone());
+        new_name_eq_set.insert(member.clone());
 
-        let disambiguate_new = match new_name_eq_class.len() {
+        let disambiguate_new = match new_name_eq_set.len() {
             1 => HashMap::new(),
-            2 => new_name_eq_class.into_iter().map(|m| (m, true)).collect(),
+            2 => new_name_eq_set.into_iter().map(|m| (m, true)).collect(),
             _ => vec![(member.clone(), true)].into_iter().collect(),
         };
 
