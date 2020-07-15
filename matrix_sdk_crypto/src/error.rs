@@ -13,6 +13,7 @@
 // limitations under the License.
 
 use cjson::Error as CjsonError;
+use matrix_sdk_common::identifiers::{DeviceId, UserId};
 use olm_rs::errors::{OlmGroupSessionError, OlmSessionError};
 use serde_json::Error as SerdeError;
 use thiserror::Error;
@@ -119,6 +120,29 @@ pub enum SignatureError {
 
     #[error("the signature didn't match the provided key")]
     VerificationError,
+}
+
+#[derive(Error, Debug)]
+pub(crate) enum SessionCreationError {
+    #[error(
+        "Failed to create a new Olm session for {0} {1}, the requested \
+        one-time key isn't a signed curve key"
+    )]
+    OneTimeKeyNotSigned(UserId, DeviceId),
+    #[error(
+        "Tried to create a new Olm session for {0} {1}, but the signed \
+        one-time key is missing"
+    )]
+    OneTimeKeyMissing(UserId, DeviceId),
+    #[error("Failed to verify the one-time key signatures for {0} {1}: {2:?}")]
+    InvalidSignature(UserId, DeviceId, SignatureError),
+    #[error(
+        "Tried to create an Olm session for {0} {1}, but the device is missing \
+        a curve25519 key"
+    )]
+    DeviceMissingCurveKey(UserId, DeviceId),
+    #[error("Error creating new Olm session for {0} {1}: {2:?}")]
+    OlmError(UserId, DeviceId, OlmSessionError),
 }
 
 impl From<CjsonError> for SignatureError {

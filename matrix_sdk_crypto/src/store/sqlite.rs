@@ -876,7 +876,7 @@ mod test {
         };
         let sender_key = bob.identity_keys().curve25519().to_owned();
         let session = alice
-            .create_outbound_session(&sender_key, &one_time_key)
+            .create_outbound_session_helper(&sender_key, &one_time_key)
             .await
             .unwrap();
 

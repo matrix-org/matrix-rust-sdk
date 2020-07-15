@@ -33,7 +33,8 @@ use olm_rs::outbound_group_session::OlmOutboundGroupSession;
 use olm_rs::session::OlmSession;
 use olm_rs::PicklingMode;
 
-use crate::error::{EventError, MegolmResult};
+use crate::device::Device;
+use crate::error::{EventError, MegolmResult, SessionCreationError};
 pub use olm_rs::{
     session::{OlmMessage, PreKeyMessage},
     utility::OlmUtility,
@@ -386,7 +387,7 @@ impl Account {
     ///
     /// * `their_one_time_key` - A signed one-time key that the other account
     /// created and shared with us.
-    pub(crate) async fn create_outbound_session(
+    pub(crate) async fn create_outbound_session_helper(
         &self,
         their_identity_key: &str,
         their_one_time_key: &SignedKey,
@@ -407,6 +408,67 @@ impl Account {
             creation_time: Arc::new(now),
             last_use_time: Arc::new(now),
         })
+    }
+
+    /// Create a new session with another account given a one-time key and a
+    /// device.
+    ///
+    /// Returns the newly created session or a `OlmSessionError` if creating a
+    /// session failed.
+    ///
+    /// # Arguments
+    /// * `device` - The other account's device.
+    ///
+    /// * `key_map` - A map from the algorithm and device id to the one-time
+    ///     key that the other account created and shared with us.
+    pub(crate) async fn create_outbound_session(
+        &self,
+        device: Device,
+        key_map: &BTreeMap<AlgorithmAndDeviceId, OneTimeKey>,
+    ) -> Result<Session, SessionCreationError> {
+        let one_time_key =
+            key_map
+                .values()
+                .next()
+                .ok_or(SessionCreationError::OneTimeKeyMissing(
+                    device.user_id().to_owned(),
+                    device.device_id().to_owned(),
+                ))?;
+
+        let one_time_key = match one_time_key {
+            OneTimeKey::SignedKey(k) => k,
+            OneTimeKey::Key(_) => {
+                return Err(SessionCreationError::OneTimeKeyNotSigned(
+                    device.user_id().to_owned(),
+                    device.device_id().to_owned(),
+                ));
+            }
+        };
+
+        device.verify_one_time_key(&one_time_key).map_err(|e| {
+            SessionCreationError::InvalidSignature(
+                device.user_id().to_owned(),
+                device.device_id().to_owned(),
+                e,
+            )
+        })?;
+
+        let curve_key = device.get_key(KeyAlgorithm::Curve25519).ok_or(
+            SessionCreationError::DeviceMissingCurveKey(
+                device.user_id().to_owned(),
+                device.device_id().to_owned(),
+            ),
+        )?;
+
+        self.create_outbound_session_helper(curve_key, &one_time_key)
+            .await
+            .map_err(|e| {
+                SessionCreationError::OlmError(
+                    device.user_id().to_owned(),
+                    device.device_id().to_owned(),
+                    e,
+                )
+            })
     }
 
     /// Create a new session with another account given a pre-key Olm message.
@@ -1014,7 +1076,7 @@ pub(crate) mod test {
         };
         let sender_key = bob.identity_keys().curve25519().to_owned();
         let session = alice
-            .create_outbound_session(&sender_key, &one_time_key)
+            .create_outbound_session_helper(&sender_key, &one_time_key)
             .await
             .unwrap();
 
@@ -1092,7 +1154,7 @@ pub(crate) mod test {
         };
 
         let mut bob_session = bob
-            .create_outbound_session(alice_keys.curve25519(), &one_time_key)
+            .create_outbound_session_helper(alice_keys.curve25519(), &one_time_key)
             .await
             .unwrap();
 

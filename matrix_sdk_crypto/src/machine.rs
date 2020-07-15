@@ -306,76 +306,35 @@ impl OlmMachine {
 
         for (user_id, user_devices) in &response.one_time_keys {
             for (device_id, key_map) in user_devices {
-                let device = if let Some(d) = self
-                    .store
-                    .get_device(&user_id, device_id)
-                    .await
-                    .expect("Can't get devices")
-                {
-                    d
-                } else {
-                    warn!(
-                        "Tried to create an Olm session for {} {}, but the device is unknown",
-                        user_id, device_id
-                    );
-                    continue;
-                };
-
-                // TODO move this logic into the account, pass the device to the
-                // account when creating an outbound session.
-                let one_time_key = if let Some(k) = key_map.values().next() {
-                    match k {
-                        OneTimeKey::SignedKey(k) => k,
-                        OneTimeKey::Key(_) => {
+                let device: Device = match self.store.get_device(&user_id, device_id).await {
+                    Ok(d) => {
+                        if let Some(d) = d {
+                            d
+                        } else {
                             warn!(
-                                "Tried to create an Olm session for {} {}, but
-                                   the requested key isn't a signed curve key",
+                                "Tried to create an Olm session for {} {}, but \
+                                the device is unknown",
                                 user_id, device_id
                             );
                             continue;
                         }
                     }
-                } else {
-                    warn!(
-                        "Tried to create an Olm session for {} {}, but the
-                           signed one-time key is missing",
-                        user_id, device_id
-                    );
-                    continue;
-                };
-
-                if let Err(e) = device.verify_one_time_key(&one_time_key) {
-                    warn!(
-                        "Failed to verify the one-time key signatures for {} {}: {:?}",
-                        user_id, device_id, e
-                    );
-                    continue;
-                }
-
-                let curve_key = if let Some(k) = device.get_key(KeyAlgorithm::Curve25519) {
-                    k
-                } else {
-                    warn!(
-                        "Tried to create an Olm session for {} {}, but the
-                           device is missing the curve key",
-                        user_id, device_id
-                    );
-                    continue;
+                    Err(e) => {
+                        warn!(
+                            "Tried to create an Olm session for {} {}, but \
+                            can't fetch the device from the store {:?}",
+                            user_id, device_id, e
+                        );
+                        continue;
+                    }
                 };
 
                 info!("Creating outbound Session for {} {}", user_id, device_id);
 
-                let session = match self
-                    .account
-                    .create_outbound_session(curve_key, &one_time_key)
-                    .await
-                {
+                let session = match self.account.create_outbound_session(device, &key_map).await {
                     Ok(s) => s,
                     Err(e) => {
-                        warn!(
-                            "Error creating new Olm session for {} {}: {}",
-                            user_id, device_id, e
-                        );
+                        warn!("{:?}", e);
                         continue;
                     }
                 };
