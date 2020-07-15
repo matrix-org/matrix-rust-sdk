@@ -478,13 +478,25 @@ impl Room {
             .collect()
     }
 
-    /// Given a room member, generate a map of all display name disambiguations which are necessary
-    /// in order to make that member's display name unique.
+    /// Answers the question "If `member` changed their display name from
+    /// `old_name` to `new_name`, which members' display names would become
+    /// ambiguous and which would no longer be ambiguous?".
     ///
-    /// The `inclusive` parameter controls whether or not the member for which we are
-    /// disambiguating should be considered a current member of the room.
+    /// Returns the map of ambiguity status changes for those members which
+    /// would be affected by the change.
     ///
-    /// Returns a map from MXID to disambiguated name.
+    /// It is important that this method be called *before* any changes are made
+    /// to the model, i.e. before any actual display name changes.
+    ///
+    /// # Arguments
+    ///
+    /// - `member`: The MXID of the member who is changing their display name.
+    /// - `old_name`: The old display name of `member`. May be `None` if
+    ///   `member` had no display name in the room before (because he had not
+    ///   set it or he is just entering the room).
+    /// - `new_name`: The new display name of `member`. May be `None` if
+    ///   `member` will no longer have a display name in the room after the
+    ///   change (because he is removing it or exiting the room).
     fn disambiguation_updates(
         &self,
         member: &UserId,
