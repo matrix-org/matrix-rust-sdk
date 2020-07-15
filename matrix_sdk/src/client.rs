@@ -30,8 +30,7 @@ use matrix_sdk_common::uuid::Uuid;
 use futures_timer::Delay as sleep;
 use std::future::Future;
 #[cfg(feature = "encryption")]
-use tracing::{debug, warn};
-use tracing::{info, instrument, trace};
+use tracing::{debug, error, info, instrument, trace, warn};
 
 use http::Method as HttpMethod;
 use http::Response as HttpResponse;
@@ -1311,12 +1310,13 @@ impl Client {
         loop {
             let response = self.sync(sync_settings.clone()).await;
 
-            let response = if let Ok(r) = response {
-                r
-            } else {
-                sleep::new(Duration::from_secs(1)).await;
-
-                continue;
+            let response = match response {
+                Ok(r) => r,
+                Err(e) => {
+                    error!("Received an invalid response: {}", e);
+                    sleep::new(Duration::from_secs(1)).await;
+                    continue;
+                }
             };
 
             // TODO send out to-device messages here

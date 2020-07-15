@@ -15,16 +15,14 @@
 
 use std::convert::TryFrom;
 
-use crate::events::presence::{PresenceEvent, PresenceEventContent, PresenceState};
-use crate::events::room::{
-    member::{MemberEventContent, MembershipChange, MembershipState},
-    power_levels::PowerLevelsEventContent,
-};
+use crate::events::presence::{PresenceEvent, PresenceState};
+use crate::events::room::member::MemberEventContent;
 use crate::events::StateEventStub;
 use crate::identifiers::{RoomId, UserId};
 
-use crate::js_int::{int, Int, UInt};
+use crate::js_int::{Int, UInt};
 use serde::{Deserialize, Serialize};
+
 // Notes: if Alice invites Bob into a room we will get an event with the sender as Alice and the state key as Bob.
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -34,6 +32,9 @@ pub struct RoomMember {
     pub user_id: UserId,
     /// The human readable name of the user.
     pub display_name: Option<String>,
+    /// Whether the member's display name is ambiguous due to being shared with
+    /// other members.
+    pub display_name_ambiguous: bool,
     /// The matrix url of the users avatar.
     pub avatar_url: Option<String>,
     /// The time, in ms, since the user interacted with the server.
@@ -52,10 +53,18 @@ pub struct RoomMember {
     pub power_level: Option<Int>,
     /// The normalized power level of this `RoomMember` (0-100).
     pub power_level_norm: Option<Int>,
-    /// The `MembershipState` of this `RoomMember`.
-    pub membership: MembershipState,
     /// The human readable name of this room member.
     pub name: String,
+    // FIXME: The docstring below is currently a lie since we only store the initial event that
+    // creates the member (the one we pass to RoomMember::new).
+    //
+    // The intent of this field is to keep the last (or last few?) state events related to the room
+    // member cached so we can quickly go back to the previous one in case some of them get
+    // redacted. Keeping all state for each room member is probably too much.
+    //
+    // Needs design.
+    /// The events that created the state of this room member.
+    pub events: Vec<StateEventStub<MemberEventContent>>,
     /// The `PresenceEvent`s connected to this user.
     pub presence_events: Vec<PresenceEvent>,
 }
@@ -67,6 +76,7 @@ impl PartialEq for RoomMember {
             && self.user_id == other.user_id
             && self.name == other.name
             && self.display_name == other.display_name
+            && self.display_name_ambiguous == other.display_name_ambiguous
             && self.avatar_url == other.avatar_url
             && self.last_active_ago == other.last_active_ago
     }
@@ -79,6 +89,7 @@ impl RoomMember {
             room_id: room_id.clone(),
             user_id: UserId::try_from(event.state_key.as_str()).unwrap(),
             display_name: event.content.displayname.clone(),
+            display_name_ambiguous: false,
             avatar_url: event.content.avatar_url.clone(),
             presence: None,
             status_msg: None,
@@ -87,12 +98,13 @@ impl RoomMember {
             typing: None,
             power_level: None,
             power_level_norm: None,
-            membership: event.content.membership,
-            presence_events: vec![],
+            presence_events: Vec::default(),
+            events: vec![event.clone()],
         }
     }
 
-    /// Returns the most ergonomic name available for the member.
+    /// Returns the most ergonomic (but potentially ambiguous/non-unique) name
+    /// available for the member.
     ///
     /// This is the member's display name if it is set, otherwise their MXID.
     pub fn name(&self) -> String {
@@ -101,10 +113,11 @@ impl RoomMember {
             .unwrap_or_else(|| format!("{}", self.user_id))
     }
 
-    /// Returns a name for the member which is guaranteed to be unique.
+    /// Returns a name for the member which is guaranteed to be unique, but not
+    /// necessarily the most ergonomic.
     ///
-    /// This is either of the format "DISPLAY_NAME (MXID)" if the display name is set for the
-    /// member, or simply "MXID" if not.
+    /// This is either a name in the format "DISPLAY_NAME (MXID)" if the
+    /// member's display name is set, or simply "MXID" if not.
     pub fn unique_name(&self) -> String {
         self.display_name
             .clone()
@@ -112,100 +125,28 @@ impl RoomMember {
             .unwrap_or_else(|| format!("{}", self.user_id))
     }
 
-    /// Handle profile updates.
-    pub(crate) fn update_profile(&mut self, event: &StateEventStub<MemberEventContent>) -> bool {
-        use MembershipChange::*;
-
-        match event.membership_change() {
-            // we assume that the profile has changed
-            ProfileChanged { .. } => {
-                self.display_name = event.content.displayname.clone();
-                self.avatar_url = event.content.avatar_url.clone();
-                true
-            }
-
-            // We're only interested in profile changes here.
-            _ => false,
-        }
-    }
-
-    pub fn update_power(
-        &mut self,
-        event: &StateEventStub<PowerLevelsEventContent>,
-        max_power: Int,
-    ) -> bool {
-        let changed;
-        if let Some(user_power) = event.content.users.get(&self.user_id) {
-            changed = self.power_level != Some(*user_power);
-            self.power_level = Some(*user_power);
+    /// Get the disambiguated display name for the member which is as ergonomic
+    /// as possible while still guaranteeing it is unique.
+    ///
+    /// If the member's display name is currently ambiguous (i.e. shared by
+    /// other room members), this method will return the same result as
+    /// `RoomMember::unique_name`. Otherwise, this method will return the same
+    /// result as `RoomMember::name`.
+    ///
+    /// This is usually the name you want when showing room messages from the
+    /// member or when showing the member in the member list.
+    ///
+    /// **Warning**: When displaying a room member's display name, clients
+    /// *must* use a disambiguated name, so they *must not* use
+    /// `RoomMember::display_name` directly. Clients *should* use this method to
+    /// obtain the name, but an acceptable alternative is to use
+    /// `RoomMember::unique_name` in certain situations.
+    pub fn disambiguated_name(&self) -> String {
+        if self.display_name_ambiguous {
+            self.unique_name().into()
         } else {
-            changed = self.power_level != Some(event.content.users_default);
-            self.power_level = Some(event.content.users_default);
+            self.name().into()
         }
-
-        if max_power > int!(0) {
-            self.power_level_norm = Some((self.power_level.unwrap() * int!(100)) / max_power);
-        }
-
-        changed
-    }
-
-    /// If the current `PresenceEvent` updated the state of this `User`.
-    ///
-    /// Returns true if the specific users presence has changed, false otherwise.
-    ///
-    /// # Arguments
-    ///
-    /// * `presence` - The presence event for a this room member.
-    pub fn did_update_presence(&self, presence: &PresenceEvent) -> bool {
-        let PresenceEvent {
-            content:
-                PresenceEventContent {
-                    avatar_url,
-                    currently_active,
-                    displayname,
-                    last_active_ago,
-                    presence,
-                    status_msg,
-                },
-            ..
-        } = presence;
-        self.display_name == *displayname
-            && self.avatar_url == *avatar_url
-            && self.presence.as_ref() == Some(presence)
-            && self.status_msg == *status_msg
-            && self.last_active_ago == *last_active_ago
-            && self.currently_active == *currently_active
-    }
-
-    /// Updates the `User`s presence.
-    ///
-    /// This should only be used if `did_update_presence` was true.
-    ///
-    /// # Arguments
-    ///
-    /// * `presence` - The presence event for a this room member.
-    pub fn update_presence(&mut self, presence_ev: &PresenceEvent) {
-        let PresenceEvent {
-            content:
-                PresenceEventContent {
-                    avatar_url,
-                    currently_active,
-                    displayname,
-                    last_active_ago,
-                    presence,
-                    status_msg,
-                },
-            ..
-        } = presence_ev;
-
-        self.presence_events.push(presence_ev.clone());
-        self.avatar_url = avatar_url.clone();
-        self.currently_active = *currently_active;
-        self.display_name = displayname.clone();
-        self.last_active_ago = *last_active_ago;
-        self.presence = Some(*presence);
-        self.status_msg = status_msg.clone();
     }
 }
 
@@ -234,7 +175,9 @@ mod test {
         client
     }
 
-    fn get_room_id() -> RoomId {
+    // TODO: Move this to EventBuilder since it's a magic room ID used in EventBuilder's example
+    // events.
+    fn test_room_id() -> RoomId {
         RoomId::try_from("!SVkFJHzfwvuaIEawgC:localhost").unwrap()
     }
 
@@ -242,11 +185,11 @@ mod test {
     async fn room_member_events() {
         let client = get_client().await;
 
-        let room_id = get_room_id();
+        let room_id = test_room_id();
 
         let mut response = EventBuilder::default()
-            .add_state_event(EventsJson::Member)
-            .add_state_event(EventsJson::PowerLevels)
+            .add_room_event(EventsJson::Member)
+            .add_room_event(EventsJson::PowerLevels)
             .build_sync_response();
 
         client.receive_sync_response(&mut response).await.unwrap();
@@ -262,14 +205,64 @@ mod test {
     }
 
     #[async_test]
+    async fn room_member_display_name_change() {
+        let client = get_client().await;
+        let room_id = test_room_id();
+
+        let mut builder = EventBuilder::default();
+        let mut initial_response = builder
+            .add_room_event(EventsJson::Member)
+            .build_sync_response();
+        let mut name_change_response = builder
+            .add_room_event(EventsJson::MemberNameChange)
+            .build_sync_response();
+
+        client
+            .receive_sync_response(&mut initial_response)
+            .await
+            .unwrap();
+
+        let room = client.get_joined_room(&room_id).await.unwrap();
+
+        // Initially, the display name is "example".
+        {
+            let room = room.read().await;
+
+            let member = room
+                .joined_members
+                .get(&UserId::try_from("@example:localhost").unwrap())
+                .unwrap();
+
+            assert_eq!(member.display_name.as_ref().unwrap(), "example");
+        }
+
+        client
+            .receive_sync_response(&mut name_change_response)
+            .await
+            .unwrap();
+
+        // Afterwards, the display name is "changed".
+        {
+            let room = room.read().await;
+
+            let member = room
+                .joined_members
+                .get(&UserId::try_from("@example:localhost").unwrap())
+                .unwrap();
+
+            assert_eq!(member.display_name.as_ref().unwrap(), "changed");
+        }
+    }
+
+    #[async_test]
     async fn member_presence_events() {
         let client = get_client().await;
 
-        let room_id = get_room_id();
+        let room_id = test_room_id();
 
         let mut response = EventBuilder::default()
-            .add_state_event(EventsJson::Member)
-            .add_state_event(EventsJson::PowerLevels)
+            .add_room_event(EventsJson::Member)
+            .add_room_event(EventsJson::PowerLevels)
             .add_presence_event(EventsJson::Presence)
             .build_sync_response();
 
