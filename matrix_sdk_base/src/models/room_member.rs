@@ -143,9 +143,9 @@ impl RoomMember {
     /// `RoomMember::unique_name` in certain situations.
     pub fn disambiguated_name(&self) -> String {
         if self.display_name_ambiguous {
-            self.unique_name().into()
+            self.unique_name()
         } else {
-            self.name().into()
+            self.name()
         }
     }
 }

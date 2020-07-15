@@ -87,6 +87,7 @@ impl Account {
     ];
 
     /// Create a fresh new account, this will generate the identity key-pair.
+    #[allow(clippy::ptr_arg)]
     pub fn new(user_id: &UserId, device_id: &DeviceId) -> Self {
         let account = OlmAccount::new();
         let identity_keys = account.parsed_identity_keys();
@@ -252,6 +253,7 @@ impl Account {
     ///
     /// * `shared` - Boolean determining if the account was uploaded to the
     /// server.
+    #[allow(clippy::ptr_arg)]
     pub fn from_pickle(
         pickle: String,
         pickle_mode: PicklingMode,
@@ -426,14 +428,12 @@ impl Account {
         device: Device,
         key_map: &BTreeMap<AlgorithmAndDeviceId, OneTimeKey>,
     ) -> Result<Session, SessionCreationError> {
-        let one_time_key =
-            key_map
-                .values()
-                .next()
-                .ok_or(SessionCreationError::OneTimeKeyMissing(
-                    device.user_id().to_owned(),
-                    device.device_id().to_owned(),
-                ))?;
+        let one_time_key = key_map.values().next().ok_or_else(|| {
+            SessionCreationError::OneTimeKeyMissing(
+                device.user_id().to_owned(),
+                device.device_id().to_owned(),
+            )
+        })?;
 
         let one_time_key = match one_time_key {
             OneTimeKey::SignedKey(k) => k,
@@ -453,12 +453,12 @@ impl Account {
             )
         })?;
 
-        let curve_key = device.get_key(KeyAlgorithm::Curve25519).ok_or(
+        let curve_key = device.get_key(KeyAlgorithm::Curve25519).ok_or_else(|| {
             SessionCreationError::DeviceMissingCurveKey(
                 device.user_id().to_owned(),
                 device.device_id().to_owned(),
-            ),
-        )?;
+            )
+        })?;
 
         self.create_outbound_session_helper(curve_key, &one_time_key)
             .await

@@ -152,6 +152,12 @@ impl RoomBuilder {
     }
 }
 
+impl Default for RoomBuilder {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Into<create_room::Request> for RoomBuilder {
     fn into(mut self) -> create_room::Request {
         self.req.creation_content = Some(self.creation_content);

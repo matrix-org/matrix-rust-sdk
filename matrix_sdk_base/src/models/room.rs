@@ -374,12 +374,12 @@ impl Room {
                 self.invited_members.remove(target_member);
 
                 self.joined_members
-                    .insert(target_member.clone(), new_member.clone())
+                    .insert(target_member.clone(), new_member)
             }
 
             MembershipState::Invite => self
                 .invited_members
-                .insert(target_member.clone(), new_member.clone()),
+                .insert(target_member.clone(), new_member),
 
             _ => panic!("Room::add_member called on event that is neither `join` nor `invite`."),
         };
@@ -416,7 +416,7 @@ impl Room {
 
         // Perform display name disambiguations, if necessary.
         let disambiguations =
-            self.disambiguation_updates(target_member, leaving_member.display_name.clone(), None);
+            self.disambiguation_updates(target_member, leaving_member.display_name, None);
 
         debug!("remove_member: disambiguations: {:#?}", disambiguations);
 
@@ -970,7 +970,7 @@ impl Room {
         }
 
         let disambiguations =
-            self.disambiguation_updates(target_member, old_name.clone(), new_name.clone());
+            self.disambiguation_updates(target_member, old_name, new_name.clone());
         for (id, is_ambiguous) in disambiguations.iter() {
             if self.get_member_mut(id).is_none() {
                 debug!("update_member_profile [{}]: Tried disambiguating display name for {} but he's not there",

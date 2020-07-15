@@ -98,6 +98,7 @@ impl OlmMachine {
     /// * `user_id` - The unique id of the user that owns this machine.
     ///
     /// * `device_id` - The unique id of the device that owns this machine.
+    #[allow(clippy::ptr_arg)]
     pub fn new(user_id: &UserId, device_id: &DeviceId) -> Self {
         OlmMachine {
             user_id: user_id.clone(),
