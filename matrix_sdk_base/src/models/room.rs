@@ -342,8 +342,8 @@ impl Room {
     /// Returns a tuple of:
     ///
     /// 1. True if the event made changes to the room's state, false otherwise.
-    /// 2. Returns a map of display name disambiguations which tells us which
-    ///    members need to have their display names disambiguated and to what.
+    /// 2. A map of display name ambiguity status changes (see
+    ///    `disambiguation_updates`).
     ///
     /// # Arguments
     ///
@@ -396,8 +396,8 @@ impl Room {
     /// Returns a tuple of:
     ///
     /// 1. True if the event made changes to the room's state, false otherwise.
-    /// 2. Returns a map of display name disambiguations which tells us which
-    ///    members need to have their display names disambiguated and to what.
+    /// 2. A map of display name ambiguity status changes (see
+    ///    `disambiguation_updates`).
     ///
     /// # Arguments
     ///
@@ -605,8 +605,8 @@ impl Room {
     /// Returns a tuple of:
     ///
     /// 1. True if the joined member list changed, false otherwise.
-    /// 2. A map of display name disambiguations which tells us which members
-    ///    need to have their display names disambiguated and to what.
+    /// 2. A map of display name ambiguity status changes (see
+    ///    `disambiguation_updates`).
     pub fn handle_membership(
         &mut self,
         event: &StateEventStub<MemberEventContent>,
@@ -913,8 +913,8 @@ impl Room {
     /// Returns a tuple of:
     ///
     /// 1. True if the event made changes to the room's state, false otherwise.
-    /// 2. A map of display name disambiguations which tells us which members
-    ///    need to have their display names disambiguated and to what.
+    /// 2. A map of display name ambiguity status changes (see
+    ///    `disambiguation_updates`).
     ///
     /// # Arguments
     ///
