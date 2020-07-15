@@ -1150,8 +1150,6 @@ impl OlmMachine {
                         }
                     };
 
-                    // TODO make sure private keys are cleared from the event
-                    // before we replace the result.
                     *event_result = decrypted_event;
                 }
                 AnyToDeviceEvent::RoomKeyRequest(e) => self.handle_room_key_request(e),
