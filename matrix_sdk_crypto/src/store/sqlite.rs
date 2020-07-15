@@ -866,7 +866,7 @@ mod test {
             .await
             .curve25519()
             .iter()
-            .nth(0)
+            .next()
             .unwrap()
             .1
             .to_owned();
@@ -1165,8 +1165,8 @@ mod test {
         assert_eq!(device.keys(), loaded_device.keys());
 
         let user_devices = store.get_user_devices(device.user_id()).await.unwrap();
-        assert_eq!(user_devices.keys().nth(0).unwrap(), device.device_id());
-        assert_eq!(user_devices.devices().nth(0).unwrap(), &device);
+        assert_eq!(user_devices.keys().next().unwrap(), device.device_id());
+        assert_eq!(user_devices.devices().next().unwrap(), &device);
     }
 
     #[tokio::test]

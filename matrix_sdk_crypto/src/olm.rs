@@ -1066,7 +1066,7 @@ pub(crate) mod test {
             .await
             .curve25519()
             .iter()
-            .nth(0)
+            .next()
             .unwrap()
             .1
             .to_owned();
@@ -1143,7 +1143,7 @@ pub(crate) mod test {
         let one_time_key = one_time_keys
             .curve25519()
             .iter()
-            .nth(0)
+            .next()
             .unwrap()
             .1
             .to_owned();
