@@ -28,6 +28,11 @@ jobs:
     - os: osx
 
     - os: linux
+      name: Minimal build
+      script:
+          - cargo build --no-default-features
+
+    - os: linux
       name: Coverage
       before_script:
           - cargo install cargo-tarpaulin
