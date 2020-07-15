@@ -30,6 +30,7 @@ jobs:
     - os: linux
       name: Minimal build
       script:
+          - cd matrix_sdk
           - cargo build --no-default-features
 
     - os: linux
