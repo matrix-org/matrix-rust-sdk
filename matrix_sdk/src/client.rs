@@ -1310,15 +1310,13 @@ impl Client {
         loop {
             let response = self.sync(sync_settings.clone()).await;
 
-            let response = if let Ok(r) = response {
-                r
-            } else {
-                let err = response.unwrap_err();
-                error!("Received an invalid response: {}", err);
-
-                sleep::new(Duration::from_secs(1)).await;
-
-                continue;
+            let response = match response {
+                Ok(r) => r,
+                Err(e) => {
+                    error!("Received an invalid response: {}", e);
+                    sleep::new(Duration::from_secs(1)).await;
+                    continue;
+                }
             };
 
             // TODO send out to-device messages here
