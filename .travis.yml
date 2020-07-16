@@ -32,7 +32,7 @@ jobs:
     - os: windows
       script:
           - cd matrix_sdk
-          - cargo build --no-default-features --features "messages"
+          - cargo test --no-default-features --features "messages"
 
     - os: osx
 
