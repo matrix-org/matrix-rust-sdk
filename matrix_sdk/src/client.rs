@@ -1220,13 +1220,9 @@ impl Client {
     ///
     /// * `sync_settings` - Settings for the sync call.
     #[instrument]
-    pub async fn sync(
-        &self,
-        sync_settings: SyncSettings,
-        filter: Option<sync_events::Filter>,
-    ) -> Result<sync_events::Response> {
+    pub async fn sync(&self, sync_settings: SyncSettings) -> Result<sync_events::Response> {
         let request = sync_events::Request {
-            filter,
+            filter: None,
             since: sync_settings.token,
             full_state: sync_settings.full_state,
             set_presence: sync_events::SetPresence::Online,
@@ -1301,7 +1297,6 @@ impl Client {
     pub async fn sync_forever<C>(
         &self,
         sync_settings: SyncSettings,
-        filter: Option<sync_events::Filter>,
         callback: impl Fn(sync_events::Response) -> C,
     ) where
         C: Future<Output = ()>,
@@ -1314,7 +1309,7 @@ impl Client {
         }
 
         loop {
-            let response = self.sync(sync_settings.clone(), None).await;
+            let response = self.sync(sync_settings.clone()).await;
 
             let response = match response {
                 Ok(r) => r,
@@ -1566,7 +1561,7 @@ mod test {
         let room = client.get_joined_room(&room_id).await;
         assert!(room.is_none());
 
-        client.sync(SyncSettings::default(), None).await.unwrap();
+        client.sync(SyncSettings::default()).await.unwrap();
 
         let room = client.get_left_room(&room_id).await;
         assert!(room.is_none());
@@ -1581,7 +1576,7 @@ mod test {
         joined_client.restore_login(session).await.unwrap();
 
         // joined room reloaded from state store
-        joined_client.sync(SyncSettings::default(), None).await.unwrap();
+        joined_client.sync(SyncSettings::default()).await.unwrap();
         let room = joined_client.get_joined_room(&room_id).await;
         assert!(room.is_some());
 
@@ -1593,7 +1588,7 @@ mod test {
         .with_body(test_json::LEAVE_SYNC_EVENT.to_string())
         .create();
 
-        joined_client.sync(SyncSettings::default(), None).await.unwrap();
+        joined_client.sync(SyncSettings::default()).await.unwrap();
 
         let room = joined_client.get_joined_room(&room_id).await;
         assert!(room.is_none());
@@ -1625,7 +1620,7 @@ mod test {
 
         let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
 
-        let _response = client.sync(sync_settings, None).await.unwrap();
+        let _response = client.sync(sync_settings).await.unwrap();
 
         // let bc = &client.base_client;
         // let ignored_users = bc.ignored_users.read().await;
@@ -2248,7 +2243,7 @@ mod test {
 
         let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
 
-        let _response = client.sync(sync_settings, None).await.unwrap();
+        let _response = client.sync(sync_settings).await.unwrap();
 
         let rooms_lock = &client.base_client.joined_rooms();
         let rooms = rooms_lock.read().await;
@@ -2284,7 +2279,7 @@ mod test {
         client.restore_login(session).await.unwrap();
 
         let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
-        let _response = client.sync(sync_settings, None).await.unwrap();
+        let _response = client.sync(sync_settings).await.unwrap();
 
         let mut room_names = vec![];
         for room in client.joined_rooms().read().await.values() {
@@ -2316,7 +2311,7 @@ mod test {
         .with_body(test_json::INVITE_SYNC.to_string())
         .create();
 
-        let _response = client.sync(SyncSettings::default(), None).await.unwrap();
+        let _response = client.sync(SyncSettings::default()).await.unwrap();
 
         assert!(client.joined_rooms().read().await.is_empty());
         assert!(client.left_rooms().read().await.is_empty());
@@ -2350,7 +2345,7 @@ mod test {
         .with_body(test_json::LEAVE_SYNC.to_string())
         .create();
 
-        let _response = client.sync(SyncSettings::default(), None).await.unwrap();
+        let _response = client.sync(SyncSettings::default()).await.unwrap();
 
         assert!(client.joined_rooms().read().await.is_empty());
         assert!(!client.left_rooms().read().await.is_empty());
@@ -2394,14 +2389,14 @@ mod test {
         let sync_settings = SyncSettings::new().timeout(std::time::Duration::from_millis(3000));
 
         // gather state to save to the db, the first time through loading will be skipped
-        let _ = client.sync(sync_settings.clone(), None).await.unwrap();
+        let _ = client.sync(sync_settings.clone()).await.unwrap();
 
         // now syncing the client will update from the state store
         let config =
             ClientConfig::default().state_store(Box::new(JsonStore::open(dir.path()).unwrap()));
         let client = Client::new_with_config(homeserver, config).unwrap();
         client.restore_login(session.clone()).await.unwrap();
-        client.sync(sync_settings, None).await.unwrap();
+        client.sync(sync_settings).await.unwrap();
 
         let base_client = &client.base_client;
 
@@ -2462,7 +2457,7 @@ mod test {
 
         let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
 
-        let response = client.sync(sync_settings, None).await.unwrap();
+        let response = client.sync(sync_settings).await.unwrap();
 
         assert_ne!(response.next_batch, "");
 
@@ -2492,7 +2487,7 @@ mod test {
 
         let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
 
-        let _response = client.sync(sync_settings, None).await.unwrap();
+        let _response = client.sync(sync_settings).await.unwrap();
 
         let mut names = vec![];
         for r in client.joined_rooms().read().await.values() {
