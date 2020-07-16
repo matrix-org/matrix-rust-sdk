@@ -307,13 +307,13 @@ impl Client {
 
         let http_client = reqwest::Client::builder();
 
-        let http_client = match config.timeout {
-            Some(x) => http_client.timeout(x),
-            None => http_client,
-        };
-
         #[cfg(not(target_arch = "wasm32"))]
         let http_client = {
+            let http_client = match config.timeout {
+                Some(x) => http_client.timeout(x),
+                None => http_client,
+            };
+
             let http_client = if config.disable_ssl_verification {
                 http_client.danger_accept_invalid_certs(true)
             } else {
