@@ -7,7 +7,6 @@ addons:
 
 jobs:
   allow_failures:
-    - os: windows
     - os: osx
       name: macOS 10.15
 
