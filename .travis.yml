@@ -33,6 +33,8 @@ jobs:
       script:
           - cd matrix_sdk
           - cargo test --no-default-features --features "messages"
+          - cd ../matrix_sdk_base
+          - cargo test --no-default-features --features "messages"
 
     - os: osx
 
