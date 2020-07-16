@@ -105,7 +105,7 @@ pub struct ClientConfig {
     user_agent: Option<HeaderValue>,
     disable_ssl_verification: bool,
     base_config: BaseClientConfig,
-	timeout: Duration
+    timeout: Duration,
 }
 
 // #[cfg_attr(tarpaulin, skip)]
@@ -200,11 +200,11 @@ impl ClientConfig {
         self
     }
 
-	/// Set a timeout duration for all HTTP requests. The default is no timeout.
-	pub fn timeout(mut self, timeout: Duration) -> Self {
-		self.timeout = timeout;
-		self
-	}
+    /// Set a timeout duration for all HTTP requests. The default is no timeout.
+    pub fn timeout(mut self, timeout: Duration) -> Self {
+        self.timeout = timeout;
+        self
+    }
 }
 
 #[derive(Debug, Default, Clone)]
