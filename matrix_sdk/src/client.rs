@@ -307,7 +307,7 @@ impl Client {
 
         let http_client = reqwest::Client::builder();
 
-        let http_client = match (config.timeout) {
+        let http_client = match config.timeout {
             Some(x) => http_client.timeout(x),
             None => http_client,
         };
