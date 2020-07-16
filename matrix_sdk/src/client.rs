@@ -105,6 +105,7 @@ pub struct ClientConfig {
     user_agent: Option<HeaderValue>,
     disable_ssl_verification: bool,
     base_config: BaseClientConfig,
+	timeout: Duration
 }
 
 // #[cfg_attr(tarpaulin, skip)]
@@ -198,6 +199,12 @@ impl ClientConfig {
         self.base_config = self.base_config.passphrase(passphrase);
         self
     }
+
+	/// Set a timeout duration for all HTTP requests. The default is no timeout.
+	pub fn timeout(mut self, timeout: Duration) -> Self {
+		self.timeout = timeout;
+		self
+	}
 }
 
 #[derive(Debug, Default, Clone)]
@@ -298,7 +305,7 @@ impl Client {
             Err(_e) => panic!("Error parsing homeserver url"),
         };
 
-        let http_client = reqwest::Client::builder();
+        let http_client = reqwest::Client::builder().timeout(config.timeout);
 
         #[cfg(not(target_arch = "wasm32"))]
         let http_client = {
