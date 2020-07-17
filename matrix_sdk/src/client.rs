@@ -203,6 +203,7 @@ impl ClientConfig {
 #[derive(Debug, Default, Clone)]
 /// Settings for a sync call.
 pub struct SyncSettings {
+    pub(crate) filter: Option<sync_events::Filter>,
     pub(crate) timeout: Option<Duration>,
     pub(crate) token: Option<String>,
     pub(crate) full_state: bool,
@@ -232,6 +233,17 @@ impl SyncSettings {
     /// * `timeout` - The time the server is allowed to wait.
     pub fn timeout(mut self, timeout: Duration) -> Self {
         self.timeout = Some(timeout);
+        self
+    }
+
+    /// Set the sync filter.
+    /// It can be either the filter ID, or the definition for the filter.
+    ///
+    /// # Arguments
+    ///
+    /// * `filter` - The filter configuration that should be used for the sync call.
+    pub fn filter(mut self, filter: sync_events::Filter) -> Self {
+        self.filter = Some(filter);
         self
     }
 
@@ -1222,7 +1234,7 @@ impl Client {
     #[instrument]
     pub async fn sync(&self, sync_settings: SyncSettings) -> Result<sync_events::Response> {
         let request = sync_events::Request {
-            filter: None,
+            filter: sync_settings.filter,
             since: sync_settings.token,
             full_state: sync_settings.full_state,
             set_presence: sync_events::SetPresence::Online,
@@ -1302,6 +1314,7 @@ impl Client {
         C: Future<Output = ()>,
     {
         let mut sync_settings = sync_settings;
+        let filter = sync_settings.filter.clone();
         let mut last_sync_time: Option<Instant> = None;
 
         if sync_settings.token.is_none() {
@@ -1361,6 +1374,9 @@ impl Client {
                     .await
                     .expect("No sync token found after initial sync"),
             );
+            if let Some(f) = filter.as_ref() {
+                sync_settings = sync_settings.filter(f.clone());
+            }
         }
     }
 
