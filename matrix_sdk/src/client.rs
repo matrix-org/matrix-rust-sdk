@@ -105,6 +105,7 @@ pub struct ClientConfig {
     user_agent: Option<HeaderValue>,
     disable_ssl_verification: bool,
     base_config: BaseClientConfig,
+    timeout: Option<Duration>,
 }
 
 // #[cfg_attr(tarpaulin, skip)]
@@ -196,6 +197,12 @@ impl ClientConfig {
     /// This is only used if no custom cryptostore is set.
     pub fn passphrase(mut self, passphrase: String) -> Self {
         self.base_config = self.base_config.passphrase(passphrase);
+        self
+    }
+
+    /// Set a timeout duration for all HTTP requests. The default is no timeout.
+    pub fn timeout(mut self, timeout: Duration) -> Self {
+        self.timeout = Some(timeout);
         self
     }
 }
@@ -314,6 +321,11 @@ impl Client {
 
         #[cfg(not(target_arch = "wasm32"))]
         let http_client = {
+            let http_client = match config.timeout {
+                Some(x) => http_client.timeout(x),
+                None => http_client,
+            };
+
             let http_client = if config.disable_ssl_verification {
                 http_client.danger_accept_invalid_certs(true)
             } else {
