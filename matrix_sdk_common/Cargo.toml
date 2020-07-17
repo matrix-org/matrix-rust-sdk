@@ -11,7 +11,7 @@ repository = "https://github.com/matrix-org/matrix-rust-sdk"
 version = "0.1.0"
 
 [dependencies]
-instant = { version = "0.1.4", features = ["wasm-bindgen", "now"] }
+instant = { version = "0.1.6", features = ["wasm-bindgen", "now"] }
 js_int = "0.1.8"
 
 [dependencies.ruma]
