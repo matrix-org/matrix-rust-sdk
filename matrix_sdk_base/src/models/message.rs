@@ -13,7 +13,7 @@ use std::{
 use matrix_sdk_common::identifiers::EventId;
 use serde::{de, ser, Deserialize, Serialize};
 
-use crate::events::{AnyMessageEventStub, AnyRedactedMessageEventStub};
+use crate::events::{AnyRedactedSyncMessageEvent, AnySyncMessageEvent};
 
 /// Represents either a redacted event or a non-redacted event.
 ///
@@ -21,9 +21,9 @@ use crate::events::{AnyMessageEventStub, AnyRedactedMessageEventStub};
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub enum FullOrRedactedEvent {
     /// A non-redacted event.
-    Full(AnyMessageEventStub),
+    Full(AnySyncMessageEvent),
     /// An event that has been redacted.
-    Redacted(AnyRedactedMessageEventStub),
+    Redacted(AnyRedactedSyncMessageEvent),
 }
 
 impl FullOrRedactedEvent {
@@ -228,7 +228,7 @@ mod test {
 
         let json: &serde_json::Value = &test_json::MESSAGE_TEXT;
         let msg = FullOrRedactedEvent::Full(
-            serde_json::from_value::<AnyMessageEventStub>(json.clone()).unwrap(),
+            serde_json::from_value::<AnySyncMessageEvent>(json.clone()).unwrap(),
         );
 
         let mut msgs = MessageQueue::new();
@@ -275,7 +275,7 @@ mod test {
 
         let json: &serde_json::Value = &test_json::MESSAGE_TEXT;
         let msg = FullOrRedactedEvent::Full(
-            serde_json::from_value::<AnyMessageEventStub>(json.clone()).unwrap(),
+            serde_json::from_value::<AnySyncMessageEvent>(json.clone()).unwrap(),
         );
 
         let mut msgs = MessageQueue::new();

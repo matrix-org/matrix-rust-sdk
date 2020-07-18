@@ -15,12 +15,15 @@
 
 use std::convert::TryFrom;
 
-use crate::events::presence::{PresenceEvent, PresenceState};
-use crate::events::room::member::MemberEventContent;
-use crate::events::StateEventStub;
-use crate::identifiers::{RoomId, UserId};
-
-use crate::js_int::{Int, UInt};
+use matrix_sdk_common::{
+    events::{
+        presence::{PresenceEvent, PresenceState},
+        room::member::MemberEventContent,
+        SyncStateEvent,
+    },
+    identifiers::{RoomId, UserId},
+    js_int::{Int, UInt},
+};
 use serde::{Deserialize, Serialize};
 
 // Notes: if Alice invites Bob into a room we will get an event with the sender as Alice and the state key as Bob.
@@ -64,7 +67,7 @@ pub struct RoomMember {
     //
     // Needs design.
     /// The events that created the state of this room member.
-    pub events: Vec<StateEventStub<MemberEventContent>>,
+    pub events: Vec<SyncStateEvent<MemberEventContent>>,
     /// The `PresenceEvent`s connected to this user.
     pub presence_events: Vec<PresenceEvent>,
 }
@@ -83,7 +86,7 @@ impl PartialEq for RoomMember {
 }
 
 impl RoomMember {
-    pub fn new(event: &StateEventStub<MemberEventContent>, room_id: &RoomId) -> Self {
+    pub fn new(event: &SyncStateEvent<MemberEventContent>, room_id: &RoomId) -> Self {
         Self {
             name: event.state_key.clone(),
             room_id: room_id.clone(),

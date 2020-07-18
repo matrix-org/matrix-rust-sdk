@@ -4,7 +4,7 @@ use matrix_sdk::{
     self,
     events::{
         room::message::{MessageEventContent, TextMessageEventContent},
-        MessageEventStub,
+        SyncMessageEvent,
     },
     Client, ClientConfig, EventEmitter, JsonStore, SyncRoom, SyncSettings,
 };
@@ -25,9 +25,9 @@ impl CommandBot {
 
 #[async_trait]
 impl EventEmitter for CommandBot {
-    async fn on_room_message(&self, room: SyncRoom, event: &MessageEventStub<MessageEventContent>) {
+    async fn on_room_message(&self, room: SyncRoom, event: &SyncMessageEvent<MessageEventContent>) {
         if let SyncRoom::Joined(room) = room {
-            let msg_body = if let MessageEventStub {
+            let msg_body = if let SyncMessageEvent {
                 content: MessageEventContent::Text(TextMessageEventContent { body: msg_body, .. }),
                 ..
             } = event

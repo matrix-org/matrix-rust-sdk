@@ -37,7 +37,7 @@ use matrix_sdk_common::events::{
     room::message::MessageEventContent,
     room_key::RoomKeyEventContent,
     room_key_request::RoomKeyRequestEventContent,
-    Algorithm, AnyRoomEventStub, AnyToDeviceEvent, EventJson, EventType, MessageEventStub,
+    Algorithm, AnySyncRoomEvent, AnyToDeviceEvent, EventJson, EventType, SyncMessageEvent,
     ToDeviceEvent,
 };
 use matrix_sdk_common::identifiers::{DeviceId, RoomId, UserId};
@@ -1135,9 +1135,9 @@ impl OlmMachine {
     /// * `room_id` - The ID of the room where the event was sent to.
     pub async fn decrypt_room_event(
         &mut self,
-        event: &MessageEventStub<EncryptedEventContent>,
+        event: &SyncMessageEvent<EncryptedEventContent>,
         room_id: &RoomId,
-    ) -> MegolmResult<EventJson<AnyRoomEventStub>> {
+    ) -> MegolmResult<EventJson<AnySyncRoomEvent>> {
         let content = match &event.content {
             EncryptedEventContent::MegolmV1AesSha2(c) => c,
             _ => return Err(EventError::UnsupportedAlgorithm.into()),
@@ -1244,8 +1244,8 @@ mod test {
             encrypted::EncryptedEventContent,
             message::{MessageEventContent, TextMessageEventContent},
         },
-        AnyMessageEventStub, AnyRoomEventStub, AnyToDeviceEvent, EventJson, EventType,
-        MessageEventStub, ToDeviceEvent, UnsignedData,
+        AnySyncMessageEvent, AnySyncRoomEvent, AnyToDeviceEvent, EventJson, EventType,
+        SyncMessageEvent, ToDeviceEvent, Unsigned,
     };
     use matrix_sdk_common::identifiers::{DeviceId, EventId, RoomId, UserId};
     use matrix_sdk_test::test_json;
@@ -1762,12 +1762,12 @@ mod test {
 
         let encrypted_content = alice.encrypt(&room_id, content.clone()).await.unwrap();
 
-        let event = MessageEventStub {
+        let event = SyncMessageEvent {
             event_id: EventId::try_from("$xxxxx:example.org").unwrap(),
             origin_server_ts: SystemTime::now(),
             sender: alice.user_id().clone(),
             content: encrypted_content,
-            unsigned: UnsignedData::default(),
+            unsigned: Unsigned::default(),
         };
 
         let decrypted_event = bob
@@ -1778,7 +1778,7 @@ mod test {
             .unwrap();
 
         match decrypted_event {
-            AnyRoomEventStub::Message(AnyMessageEventStub::RoomMessage(MessageEventStub {
+            AnySyncRoomEvent::Message(AnySyncMessageEvent::RoomMessage(SyncMessageEvent {
                 sender,
                 content,
                 ..
