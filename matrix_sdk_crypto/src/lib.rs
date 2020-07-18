@@ -82,7 +82,7 @@ pub(crate) fn verify_json(
         json_object.insert("unsigned".to_string(), u);
     }
 
-    let key_id = AlgorithmAndDeviceId(KeyAlgorithm::Ed25519, key_id.to_string());
+    let key_id = AlgorithmAndDeviceId(KeyAlgorithm::Ed25519, key_id.into());
 
     let signatures = signatures.ok_or(SignatureError::NoSignatureFound)?;
     let signature_object = signatures

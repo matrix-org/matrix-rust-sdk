@@ -40,7 +40,6 @@ pub use olm_rs::{
     utility::OlmUtility,
 };
 
-use matrix_sdk_common::identifiers::{DeviceId, RoomId, UserId};
 use matrix_sdk_common::{
     api::r0::keys::{AlgorithmAndDeviceId, DeviceKeys, KeyAlgorithm, OneTimeKey, SignedKey},
     events::{
@@ -48,8 +47,9 @@ use matrix_sdk_common::{
             encrypted::{EncryptedEventContent, MegolmV1AesSha2Content},
             message::MessageEventContent,
         },
-        Algorithm, AnyRoomEventStub, EventJson, EventType, MessageEventStub,
+        Algorithm, AnySyncRoomEvent, EventJson, EventType, SyncMessageEvent,
     },
+    identifiers::{DeviceId, RoomId, UserId},
 };
 
 /// Account holding identity keys for which sessions can be created.
@@ -59,7 +59,7 @@ use matrix_sdk_common::{
 #[derive(Clone)]
 pub struct Account {
     user_id: Arc<UserId>,
-    device_id: Arc<DeviceId>,
+    device_id: Arc<Box<DeviceId>>,
     inner: Arc<Mutex<OlmAccount>>,
     identity_keys: Arc<IdentityKeys>,
     shared: Arc<AtomicBool>,
@@ -94,7 +94,7 @@ impl Account {
 
         Account {
             user_id: Arc::new(user_id.to_owned()),
-            device_id: Arc::new(device_id.to_owned()),
+            device_id: Arc::new(device_id.into()),
             inner: Arc::new(Mutex::new(account)),
             identity_keys: Arc::new(identity_keys),
             shared: Arc::new(AtomicBool::new(false)),
@@ -267,7 +267,7 @@ impl Account {
 
         Ok(Account {
             user_id: Arc::new(user_id.to_owned()),
-            device_id: Arc::new(device_id.to_owned()),
+            device_id: Arc::new(device_id.into()),
             inner: Arc::new(Mutex::new(account)),
             identity_keys: Arc::new(identity_keys),
             shared: Arc::new(AtomicBool::from(shared)),
@@ -371,7 +371,7 @@ impl Account {
             };
 
             one_time_key_map.insert(
-                AlgorithmAndDeviceId(KeyAlgorithm::SignedCurve25519, key_id.to_owned()),
+                AlgorithmAndDeviceId(KeyAlgorithm::SignedCurve25519, key_id.as_str().into()),
                 OneTimeKey::SignedKey(signed_key),
             );
         }
@@ -431,7 +431,7 @@ impl Account {
         let one_time_key = key_map.values().next().ok_or_else(|| {
             SessionCreationError::OneTimeKeyMissing(
                 device.user_id().to_owned(),
-                device.device_id().to_owned(),
+                device.device_id().into(),
             )
         })?;
 
@@ -440,7 +440,7 @@ impl Account {
             OneTimeKey::Key(_) => {
                 return Err(SessionCreationError::OneTimeKeyNotSigned(
                     device.user_id().to_owned(),
-                    device.device_id().to_owned(),
+                    device.device_id().into(),
                 ));
             }
         };
@@ -448,7 +448,7 @@ impl Account {
         device.verify_one_time_key(&one_time_key).map_err(|e| {
             SessionCreationError::InvalidSignature(
                 device.user_id().to_owned(),
-                device.device_id().to_owned(),
+                device.device_id().into(),
                 e,
             )
         })?;
@@ -456,7 +456,7 @@ impl Account {
         let curve_key = device.get_key(KeyAlgorithm::Curve25519).ok_or_else(|| {
             SessionCreationError::DeviceMissingCurveKey(
                 device.user_id().to_owned(),
-                device.device_id().to_owned(),
+                device.device_id().into(),
             )
         })?;
 
@@ -465,7 +465,7 @@ impl Account {
             .map_err(|e| {
                 SessionCreationError::OlmError(
                     device.user_id().to_owned(),
-                    device.device_id().to_owned(),
+                    device.device_id().into(),
                     e,
                 )
             })
@@ -821,8 +821,8 @@ impl InboundGroupSession {
     /// * `event` - The event that should be decrypted.
     pub async fn decrypt(
         &self,
-        event: &MessageEventStub<EncryptedEventContent>,
-    ) -> MegolmResult<(EventJson<AnyRoomEventStub>, u32)> {
+        event: &SyncMessageEvent<EncryptedEventContent>,
+    ) -> MegolmResult<(EventJson<AnySyncRoomEvent>, u32)> {
         let content = match &event.content {
             EncryptedEventContent::MegolmV1AesSha2(c) => c,
             _ => return Err(EventError::UnsupportedAlgorithm.into()),
@@ -853,7 +853,7 @@ impl InboundGroupSession {
         );
 
         Ok((
-            serde_json::from_value::<EventJson<AnyRoomEventStub>>(decrypted_value)?,
+            serde_json::from_value::<EventJson<AnySyncRoomEvent>>(decrypted_value)?,
             message_index,
         ))
     }
@@ -882,7 +882,7 @@ impl PartialEq for InboundGroupSession {
 #[derive(Clone)]
 pub struct OutboundGroupSession {
     inner: Arc<Mutex<OlmOutboundGroupSession>>,
-    device_id: Arc<DeviceId>,
+    device_id: Arc<Box<DeviceId>>,
     account_identity_keys: Arc<IdentityKeys>,
     session_id: Arc<String>,
     room_id: Arc<RoomId>,
@@ -904,7 +904,11 @@ impl OutboundGroupSession {
     /// session.
     ///
     /// * `room_id` - The id of the room that the session is used in.
-    fn new(device_id: Arc<DeviceId>, identity_keys: Arc<IdentityKeys>, room_id: &RoomId) -> Self {
+    fn new(
+        device_id: Arc<Box<DeviceId>>,
+        identity_keys: Arc<IdentityKeys>,
+        room_id: &RoomId,
+    ) -> Self {
         let session = OlmOutboundGroupSession::new();
         let session_id = session.session_id();
 
@@ -966,12 +970,14 @@ impl OutboundGroupSession {
 
         let ciphertext = self.encrypt_helper(plaintext).await;
 
-        EncryptedEventContent::MegolmV1AesSha2(MegolmV1AesSha2Content {
-            ciphertext,
-            sender_key: self.account_identity_keys.curve25519().to_owned(),
-            session_id: self.session_id().to_owned(),
-            device_id: (&*self.device_id).to_owned(),
-        })
+        EncryptedEventContent::MegolmV1AesSha2(MegolmV1AesSha2Content::new(
+            matrix_sdk_common::events::room::encrypted::MegolmV1AesSha2ContentInit {
+                ciphertext,
+                sender_key: self.account_identity_keys.curve25519().to_owned(),
+                session_id: self.session_id().to_owned(),
+                device_id: (&*self.device_id).to_owned(),
+            },
+        ))
     }
 
     /// Check if the session has expired and if it should be rotated.
@@ -1044,16 +1050,16 @@ pub(crate) mod test {
         UserId::try_from("@alice:example.org").unwrap()
     }
 
-    fn alice_device_id() -> DeviceId {
-        "ALICEDEVICE".to_string()
+    fn alice_device_id() -> Box<DeviceId> {
+        "ALICEDEVICE".into()
     }
 
     fn bob_id() -> UserId {
         UserId::try_from("@bob:example.org").unwrap()
     }
 
-    fn bob_device_id() -> DeviceId {
-        "BOBDEVICE".to_string()
+    fn bob_device_id() -> Box<DeviceId> {
+        "BOBDEVICE".into()
     }
 
     pub(crate) async fn get_account_and_session() -> (Account, Session) {

@@ -472,7 +472,7 @@ impl Client {
             login_info: login::LoginInfo::Password {
                 password: password.into(),
             },
-            device_id: device_id.map(|d| d.into()),
+            device_id: device_id.map(|d| d.into().into_boxed_str()),
             initial_device_display_name: initial_device_display_name.map(|d| d.into()),
         };
 
@@ -1407,7 +1407,7 @@ impl Client {
     #[instrument]
     async fn claim_one_time_keys(
         &self,
-        one_time_keys: BTreeMap<UserId, BTreeMap<DeviceId, KeyAlgorithm>>,
+        one_time_keys: BTreeMap<UserId, BTreeMap<Box<DeviceId>, KeyAlgorithm>>,
     ) -> Result<claim_keys::Response> {
         let request = claim_keys::Request {
             timeout: None,
@@ -1511,7 +1511,7 @@ impl Client {
             users_for_query
         );
 
-        let mut device_keys: BTreeMap<UserId, Vec<DeviceId>> = BTreeMap::new();
+        let mut device_keys: BTreeMap<UserId, Vec<Box<DeviceId>>> = BTreeMap::new();
 
         for user in users_for_query.drain() {
             device_keys.insert(user, Vec::new());

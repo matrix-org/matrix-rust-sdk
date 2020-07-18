@@ -129,13 +129,13 @@ impl GroupSessionStore {
 /// In-memory store holding the devices of users.
 #[derive(Clone, Debug, Default)]
 pub struct DeviceStore {
-    entries: Arc<DashMap<UserId, DashMap<String, Device>>>,
+    entries: Arc<DashMap<UserId, DashMap<Box<DeviceId>, Device>>>,
 }
 
 /// A read only view over all devices belonging to a user.
 #[derive(Debug)]
 pub struct UserDevices {
-    entries: ReadOnlyView<DeviceId, Device>,
+    entries: ReadOnlyView<Box<DeviceId>, Device>,
 }
 
 impl UserDevices {
@@ -146,7 +146,7 @@ impl UserDevices {
 
     /// Iterator over all the device ids of the user devices.
     pub fn keys(&self) -> impl Iterator<Item = &DeviceId> {
-        self.entries.keys()
+        self.entries.keys().map(|id| id.as_ref())
     }
 
     /// Iterator over all the devices of the user devices.
@@ -175,7 +175,9 @@ impl DeviceStore {
         let device_map = self.entries.get_mut(&user_id).unwrap();
 
         device_map
-            .insert(device.device_id().to_owned(), device)
+            // TODO this is ok if this is for sure a valid device_id otherwise
+            // Box::<DeviceId>::try_from(&str) is the validated version
+            .insert(device.device_id().into(), device)
             .is_none()
     }
 
@@ -202,7 +204,12 @@ impl DeviceStore {
             self.entries.insert(user_id.clone(), DashMap::new());
         }
         UserDevices {
-            entries: self.entries.get(user_id).unwrap().clone().into_read_only(),
+            entries: self
+                .entries
+                .get(user_id)
+                .map(|d| d.clone()) // TODO I'm sure this is not ok but I'm not sure what to do??
+                .unwrap()
+                .into_read_only(),
         }
     }
 }

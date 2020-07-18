@@ -64,7 +64,7 @@ pub struct OlmMachine {
     /// The unique user id that owns this account.
     user_id: UserId,
     /// The unique device id of the device that holds this account.
-    device_id: DeviceId,
+    device_id: Box<DeviceId>,
     /// Our underlying Olm Account holding our identity keys.
     account: Account,
     /// Store for the encryption keys.
@@ -102,7 +102,7 @@ impl OlmMachine {
     pub fn new(user_id: &UserId, device_id: &DeviceId) -> Self {
         OlmMachine {
             user_id: user_id.clone(),
-            device_id: device_id.to_owned(),
+            device_id: device_id.into(),
             account: Account::new(user_id, &device_id),
             store: Box::new(MemoryStore::new()),
             outbound_group_sessions: HashMap::new(),
@@ -128,7 +128,7 @@ impl OlmMachine {
     /// the encryption keys.
     pub async fn new_with_store(
         user_id: UserId,
-        device_id: String,
+        device_id: Box<DeviceId>,
         mut store: Box<dyn CryptoStore>,
     ) -> StoreResult<Self> {
         let account = match store.load_account().await? {
@@ -171,7 +171,7 @@ impl OlmMachine {
         let store =
             SqliteStore::open_with_passphrase(&user_id, device_id, path, passphrase).await?;
 
-        OlmMachine::new_with_store(user_id.to_owned(), device_id.to_owned(), Box::new(store)).await
+        OlmMachine::new_with_store(user_id.to_owned(), device_id.into(), Box::new(store)).await
     }
 
     /// The unique user id that owns this identity.
@@ -255,7 +255,7 @@ impl OlmMachine {
     pub async fn get_missing_sessions(
         &mut self,
         users: impl Iterator<Item = &UserId>,
-    ) -> OlmResult<BTreeMap<UserId, BTreeMap<DeviceId, KeyAlgorithm>>> {
+    ) -> OlmResult<BTreeMap<UserId, BTreeMap<Box<DeviceId>, KeyAlgorithm>>> {
         let mut missing = BTreeMap::new();
 
         for user_id in users {
@@ -282,10 +282,8 @@ impl OlmMachine {
                     }
 
                     let user_map = missing.get_mut(user_id).unwrap();
-                    let _ = user_map.insert(
-                        device.device_id().to_owned(),
-                        KeyAlgorithm::SignedCurve25519,
-                    );
+                    let _ =
+                        user_map.insert(device.device_id().into(), KeyAlgorithm::SignedCurve25519);
                 }
             }
         }
@@ -356,7 +354,7 @@ impl OlmMachine {
 
     async fn handle_devices_from_key_query(
         &mut self,
-        device_keys_map: &BTreeMap<UserId, BTreeMap<DeviceId, DeviceKeys>>,
+        device_keys_map: &BTreeMap<UserId, BTreeMap<Box<DeviceId>, DeviceKeys>>,
     ) -> StoreResult<Vec<Device>> {
         let mut changed_devices = Vec::new();
 
@@ -406,7 +404,8 @@ impl OlmMachine {
                 changed_devices.push(device);
             }
 
-            let current_devices: HashSet<&DeviceId> = device_map.keys().collect();
+            let current_devices: HashSet<&DeviceId> =
+                device_map.keys().map(|id| id.as_ref()).collect();
             let stored_devices = self.store.get_user_devices(&user_id).await.unwrap();
             let stored_devices_set: HashSet<&DeviceId> = stored_devices.keys().collect();
 
@@ -843,10 +842,7 @@ impl OlmMachine {
 
         let message_type: usize = ciphertext.0.into();
 
-        let ciphertext = CiphertextInfo {
-            body: ciphertext.1,
-            message_type: (message_type as u32).into(),
-        };
+        let ciphertext = CiphertextInfo::new(ciphertext.1, (message_type as u32).into());
 
         let mut content = BTreeMap::new();
 
@@ -855,10 +851,7 @@ impl OlmMachine {
         self.store.save_sessions(&[session]).await?;
 
         Ok(EncryptedEventContent::OlmV1Curve25519AesSha2(
-            OlmV1Curve25519AesSha2Content {
-                sender_key: identity_keys.curve25519().to_owned(),
-                ciphertext: content,
-            },
+            OlmV1Curve25519AesSha2Content::new(content, identity_keys.curve25519().to_owned()),
         ))
     }
 
@@ -989,7 +982,7 @@ impl OlmMachine {
                     .await?;
 
                 user_messages.insert(
-                    DeviceIdOrAllDevices::DeviceId(device.device_id().clone()),
+                    DeviceIdOrAllDevices::DeviceId(device.device_id().into()),
                     serde_json::value::to_raw_value(&encrypted_content)?,
                 );
             }
@@ -1254,8 +1247,8 @@ mod test {
         UserId::try_from("@alice:example.org").unwrap()
     }
 
-    fn alice_device_id() -> DeviceId {
-        "JLAFKJWSCS".to_string()
+    fn alice_device_id() -> Box<DeviceId> {
+        "JLAFKJWSCS".into()
     }
 
     fn user_id() -> UserId {

@@ -33,7 +33,7 @@ use crate::verify_json;
 #[derive(Debug, Clone)]
 pub struct Device {
     user_id: Arc<UserId>,
-    device_id: Arc<DeviceId>,
+    device_id: Arc<Box<DeviceId>>,
     algorithms: Arc<Vec<Algorithm>>,
     keys: Arc<BTreeMap<AlgorithmAndDeviceId, String>>,
     display_name: Arc<Option<String>>,
@@ -70,7 +70,7 @@ impl Device {
     /// Create a new Device.
     pub fn new(
         user_id: UserId,
-        device_id: DeviceId,
+        device_id: Box<DeviceId>,
         display_name: Option<String>,
         trust_state: TrustState,
         algorithms: Vec<Algorithm>,
@@ -104,8 +104,10 @@ impl Device {
 
     /// Get the key of the given key algorithm belonging to this device.
     pub fn get_key(&self, algorithm: KeyAlgorithm) -> Option<&String> {
-        self.keys
-            .get(&AlgorithmAndDeviceId(algorithm, self.device_id.to_string()))
+        self.keys.get(&AlgorithmAndDeviceId(
+            algorithm,
+            self.device_id.as_ref().clone(),
+        ))
     }
 
     /// Get a map containing all the device keys.
@@ -180,7 +182,7 @@ impl From<&OlmMachine> for Device {
     fn from(machine: &OlmMachine) -> Self {
         Device {
             user_id: Arc::new(machine.user_id().clone()),
-            device_id: Arc::new(machine.device_id().clone()),
+            device_id: Arc::new(machine.device_id().into()),
             algorithms: Arc::new(vec![
                 Algorithm::MegolmV1AesSha2,
                 Algorithm::OlmV1Curve25519AesSha2,
@@ -193,7 +195,7 @@ impl From<&OlmMachine> for Device {
                         (
                             AlgorithmAndDeviceId(
                                 KeyAlgorithm::try_from(key.as_ref()).unwrap(),
-                                machine.device_id().clone(),
+                                machine.device_id().into(),
                             ),
                             value.to_owned(),
                         )

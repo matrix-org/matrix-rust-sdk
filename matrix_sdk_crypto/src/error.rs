@@ -128,21 +128,21 @@ pub(crate) enum SessionCreationError {
         "Failed to create a new Olm session for {0} {1}, the requested \
         one-time key isn't a signed curve key"
     )]
-    OneTimeKeyNotSigned(UserId, DeviceId),
+    OneTimeKeyNotSigned(UserId, Box<DeviceId>),
     #[error(
         "Tried to create a new Olm session for {0} {1}, but the signed \
         one-time key is missing"
     )]
-    OneTimeKeyMissing(UserId, DeviceId),
+    OneTimeKeyMissing(UserId, Box<DeviceId>),
     #[error("Failed to verify the one-time key signatures for {0} {1}: {2:?}")]
-    InvalidSignature(UserId, DeviceId, SignatureError),
+    InvalidSignature(UserId, Box<DeviceId>, SignatureError),
     #[error(
         "Tried to create an Olm session for {0} {1}, but the device is missing \
         a curve25519 key"
     )]
-    DeviceMissingCurveKey(UserId, DeviceId),
+    DeviceMissingCurveKey(UserId, Box<DeviceId>),
     #[error("Error creating new Olm session for {0} {1}: {2:?}")]
-    OlmError(UserId, DeviceId, OlmSessionError),
+    OlmError(UserId, Box<DeviceId>, OlmSessionError),
 }
 
 impl From<CjsonError> for SignatureError {

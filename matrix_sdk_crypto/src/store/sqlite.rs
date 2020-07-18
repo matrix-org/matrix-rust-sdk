@@ -469,14 +469,14 @@ impl SqliteStore {
                 let key = &row.1;
 
                 keys.insert(
-                    AlgorithmAndDeviceId(algorithm, device_id.clone()),
+                    AlgorithmAndDeviceId(algorithm, device_id.as_str().into()),
                     key.to_owned(),
                 );
             }
 
             let device = Device::new(
                 user_id,
-                device_id.to_owned(),
+                device_id.as_str().into(),
                 display_name.clone(),
                 trust_state,
                 algorithms,
@@ -840,16 +840,16 @@ mod test {
         UserId::try_from("@alice:example.org").unwrap()
     }
 
-    fn alice_device_id() -> DeviceId {
-        "ALICEDEVICE".to_string()
+    fn alice_device_id() -> Box<DeviceId> {
+        "ALICEDEVICE".into()
     }
 
     fn bob_id() -> UserId {
         UserId::try_from("@bob:example.org").unwrap()
     }
 
-    fn bob_device_id() -> DeviceId {
-        "BOBDEVICE".to_string()
+    fn bob_device_id() -> Box<DeviceId> {
+        "BOBDEVICE".into()
     }
 
     fn get_account() -> Account {
