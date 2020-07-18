@@ -14,16 +14,16 @@ repos:
         types: [file, rust]
         entry: cargo fmt -- --check
 
-      # - id: clippy
-      #   name: clippy
-      #   language: system
-      #   types: [file, rust]
-      #   entry: cargo clippy --all-targets --all
-      #   pass_filenames: false
+      - id: clippy
+        name: clippy
+        language: system
+        types: [file, rust]
+        entry: cargo clippy --all-targets --all
+        pass_filenames: false
 
-      # - id: test
-      #   name: test
-      #   language: system
-      #   files: '\.rs$'
-      #   entry: cargo test --lib
-      #   pass_filenames: false
+      - id: test
+        name: test
+        language: system
+        files: '\.rs$'
+        entry: cargo test --lib
+        pass_filenames: false

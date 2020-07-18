@@ -22,7 +22,7 @@ use serde::{Deserialize, Serialize};
 use tracing::{debug, error, trace};
 
 #[cfg(feature = "messages")]
-use super::message::{FullOrRedactedEvent, MessageQueue};
+use super::message::MessageQueue;
 use super::RoomMember;
 use crate::api::r0::sync::sync_events::{RoomSummary, UnreadNotificationsCount};
 use crate::events::{
@@ -42,29 +42,12 @@ use crate::events::{
 
 #[cfg(feature = "messages")]
 use crate::events::{
-    room::redaction::{RedactionEvent, SyncRedactionEvent},
-    AnySyncMessageEvent,
+    room::redaction::SyncRedactionEvent, AnyPossiblyRedactedSyncMessageEvent, AnySyncMessageEvent,
 };
 
 use crate::identifiers::{RoomAliasId, RoomId, UserId};
 
 use crate::js_int::{int, uint, Int, UInt};
-
-#[cfg(feature = "messages")]
-fn redaction_event_from_redaction_stub(
-    event: SyncRedactionEvent,
-    room_id: RoomId,
-) -> RedactionEvent {
-    RedactionEvent {
-        content: event.content,
-        redacts: event.redacts,
-        event_id: event.event_id,
-        unsigned: event.unsigned,
-        sender: event.sender,
-        origin_server_ts: event.origin_server_ts,
-        room_id,
-    }
-}
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 /// `RoomName` allows the calculation of a text room name.
@@ -674,7 +657,8 @@ impl Room {
     #[cfg(feature = "messages")]
     #[cfg_attr(docsrs, doc(cfg(feature = "messages")))]
     pub fn handle_message(&mut self, event: &AnySyncMessageEvent) -> bool {
-        self.messages.push(FullOrRedactedEvent::Full(event.clone()))
+        self.messages
+            .push(AnyPossiblyRedactedSyncMessageEvent::Regular(event.clone()))
     }
 
     /// Handle a room.redaction event and update the `MessageQueue`.
@@ -686,68 +670,23 @@ impl Room {
     #[cfg(feature = "messages")]
     #[cfg_attr(docsrs, doc(cfg(feature = "messages")))]
     pub fn handle_redaction(&mut self, redacted_event: &SyncRedactionEvent) -> bool {
-        use matrix_sdk_common::events::{
-            AnyRedactedSyncMessageEvent, EventJson, RedactedSyncMessageEvent, SyncMessageEvent,
-        };
+        use crate::identifiers::RoomVersionId;
+        use crate::models::message::PossiblyRedactedExt;
+
         if let Some(msg) = self
             .messages
             .iter_mut()
             .find(|msg| &redacted_event.redacts == msg.event_id())
         {
             match msg.deref_mut() {
-                FullOrRedactedEvent::Full(event) => match event {
-                    AnySyncMessageEvent::RoomMessage(event) => {
-                        let SyncMessageEvent {
-                            content,
-                            event_id,
-                            sender,
-                            origin_server_ts,
-                            mut unsigned,
-                        } = event.clone();
-                        unsigned.redacted_because =
-                            Some(EventJson::from(redaction_event_from_redaction_stub(
-                                redacted_event.clone(),
-                                self.room_id.clone(),
-                            )));
-                        let redacted = content.redact();
-                        msg.0 = FullOrRedactedEvent::Redacted(
-                            AnyRedactedSyncMessageEvent::RoomMessage(RedactedSyncMessageEvent {
-                                content: redacted,
-                                event_id,
-                                origin_server_ts,
-                                sender,
-                                unsigned,
-                            }),
-                        )
-                    }
-                    AnySyncMessageEvent::Sticker(event) => {
-                        let SyncMessageEvent {
-                            content,
-                            event_id,
-                            sender,
-                            origin_server_ts,
-                            mut unsigned,
-                        } = event.clone();
-                        unsigned.redacted_because =
-                            Some(EventJson::from(redaction_event_from_redaction_stub(
-                                redacted_event.clone(),
-                                self.room_id.clone(),
-                            )));
-                        let redacted = content.redact();
-                        msg.0 = FullOrRedactedEvent::Redacted(AnyRedactedSyncMessageEvent::Sticker(
-                            RedactedSyncMessageEvent {
-                                content: redacted,
-                                event_id,
-                                origin_server_ts,
-                                sender,
-                                unsigned,
-                            },
-                        ))
-                    }
-                    // TODO handle the rest of the message events
-                    _ => {}
-                },
-                FullOrRedactedEvent::Redacted(_) => return false,
+                AnyPossiblyRedactedSyncMessageEvent::Regular(event) => {
+                    msg.0 = AnyPossiblyRedactedSyncMessageEvent::Redacted(
+                        event
+                            .clone()
+                            .redact(redacted_event.clone(), RoomVersionId::version_6()),
+                    );
+                }
+                AnyPossiblyRedactedSyncMessageEvent::Redacted(_) => return false,
             }
             true
         } else {
@@ -1141,7 +1080,7 @@ impl Describe for MembershipChange {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::events::{room::encryption::EncryptionEventContent, EventJson, UnsignedData};
+    use crate::events::{room::encryption::EncryptionEventContent, EventJson, Unsigned};
     use crate::identifiers::{EventId, UserId};
     use crate::{BaseClient, Session};
     use matrix_sdk_test::{async_test, sync_response, EventBuilder, EventsJson, SyncResponseFile};
@@ -1714,7 +1653,7 @@ mod test {
 
         for room in client.joined_rooms().read().await.values() {
             let queue = &room.read().await.messages;
-            if let crate::models::message::FullOrRedactedEvent::Redacted(
+            if let crate::events::AnyPossiblyRedactedSyncMessageEvent::Redacted(
                 crate::events::AnyRedactedSyncMessageEvent::RoomMessage(event),
             ) = &queue.msgs[0].deref()
             {
@@ -1746,17 +1685,17 @@ mod test {
         client.restore_login(session).await.unwrap();
         client.receive_sync_response(&mut response).await.unwrap();
 
+        let mut content = EncryptionEventContent::new(Algorithm::MegolmV1AesSha2);
+        content.rotation_period_ms = Some(100_000u32.into());
+        content.rotation_period_msgs = Some(100u32.into());
+
         let event = SyncStateEvent {
             event_id: EventId::try_from("$h29iv0s8:example.com").unwrap(),
             origin_server_ts: SystemTime::now(),
             sender: user_id,
             state_key: "".into(),
-            unsigned: UnsignedData::default(),
-            content: EncryptionEventContent {
-                algorithm: Algorithm::MegolmV1AesSha2,
-                rotation_period_ms: Some(100_000u32.into()),
-                rotation_period_msgs: Some(100u32.into()),
-            },
+            unsigned: Unsigned::default(),
+            content,
             prev_content: None,
         };
 

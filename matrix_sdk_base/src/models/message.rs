@@ -11,34 +11,34 @@ use std::{
 };
 
 use matrix_sdk_common::identifiers::EventId;
-use serde::{de, ser, Deserialize, Serialize};
+use serde::{de, ser, Serialize};
 
-use crate::events::{AnyRedactedSyncMessageEvent, AnySyncMessageEvent};
+use crate::events::AnyPossiblyRedactedSyncMessageEvent;
 
-/// Represents either a redacted event or a non-redacted event.
+/// Exposes some of the field access methods found in the event held by
+/// `AnyPossiblyRedacted*` enums.
 ///
-/// Note: ruma may create types that solve this.
-#[derive(Clone, Debug, Deserialize, Serialize)]
-pub enum FullOrRedactedEvent {
-    /// A non-redacted event.
-    Full(AnySyncMessageEvent),
-    /// An event that has been redacted.
-    Redacted(AnyRedactedSyncMessageEvent),
+/// This is just an extension trait to aid the ease of use of certain event enums.
+pub trait PossiblyRedactedExt {
+    /// Access the redacted or full events `event_id` field.
+    fn event_id(&self) -> &EventId;
+    /// Access the redacted or full events `origin_server_ts` field.
+    fn origin_server_ts(&self) -> &SystemTime;
 }
 
-impl FullOrRedactedEvent {
+impl PossiblyRedactedExt for AnyPossiblyRedactedSyncMessageEvent {
     /// Access the underlying events `event_id`.
-    pub fn event_id(&self) -> &EventId {
+    fn event_id(&self) -> &EventId {
         match self {
-            Self::Full(e) => e.event_id(),
+            Self::Regular(e) => e.event_id(),
             Self::Redacted(e) => e.event_id(),
         }
     }
 
     /// Access the underlying events `origin_server_ts`.
-    pub fn origin_server_ts(&self) -> &SystemTime {
+    fn origin_server_ts(&self) -> &SystemTime {
         match self {
-            Self::Full(e) => e.origin_server_ts(),
+            Self::Regular(e) => e.origin_server_ts(),
             Self::Redacted(e) => e.origin_server_ts(),
         }
     }
@@ -46,7 +46,7 @@ impl FullOrRedactedEvent {
 
 const MESSAGE_QUEUE_CAP: usize = 35;
 
-pub type SyncMessageEvent = FullOrRedactedEvent;
+pub type SyncMessageEvent = AnyPossiblyRedactedSyncMessageEvent;
 
 /// A queue that holds the 35 most recent messages received from the server.
 #[derive(Clone, Debug, Default)]
@@ -206,17 +206,18 @@ pub(crate) mod ser_deser {
 
 #[cfg(test)]
 mod test {
-    use super::*;
-
     use std::collections::HashMap;
     use std::convert::TryFrom;
 
+    use matrix_sdk_common::{
+        events::{AnyPossiblyRedactedSyncMessageEvent, AnySyncMessageEvent},
+        identifiers::{RoomId, UserId},
+    };
+    use matrix_sdk_test::test_json;
     #[cfg(target_arch = "wasm32")]
     use wasm_bindgen_test::*;
 
-    use matrix_sdk_test::test_json;
-
-    use crate::identifiers::{RoomId, UserId};
+    use super::*;
     use crate::Room;
 
     #[test]
@@ -227,7 +228,7 @@ mod test {
         let mut room = Room::new(&id, &user);
 
         let json: &serde_json::Value = &test_json::MESSAGE_TEXT;
-        let msg = FullOrRedactedEvent::Full(
+        let msg = AnyPossiblyRedactedSyncMessageEvent::Regular(
             serde_json::from_value::<AnySyncMessageEvent>(json.clone()).unwrap(),
         );
 
@@ -274,7 +275,7 @@ mod test {
         let mut room = Room::new(&id, &user);
 
         let json: &serde_json::Value = &test_json::MESSAGE_TEXT;
-        let msg = FullOrRedactedEvent::Full(
+        let msg = AnyPossiblyRedactedSyncMessageEvent::Regular(
             serde_json::from_value::<AnySyncMessageEvent>(json.clone()).unwrap(),
         );
 
