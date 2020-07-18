@@ -175,8 +175,6 @@ impl DeviceStore {
         let device_map = self.entries.get_mut(&user_id).unwrap();
 
         device_map
-            // TODO this is ok if this is for sure a valid device_id otherwise
-            // Box::<DeviceId>::try_from(&str) is the validated version
             .insert(device.device_id().into(), device)
             .is_none()
     }
