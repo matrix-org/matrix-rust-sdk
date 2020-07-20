@@ -197,18 +197,12 @@ impl DeviceStore {
     }
 
     /// Get a read-only view over all devices of the given user.
-    #[allow(clippy::map_clone)]
     pub fn user_devices(&self, user_id: &UserId) -> UserDevices {
         if !self.entries.contains_key(user_id) {
             self.entries.insert(user_id.clone(), DashMap::new());
         }
         UserDevices {
-            entries: self
-                .entries
-                .get(user_id)
-                .map(|map| map.clone()) // TODO I'm sure this is not ok but I'm not sure what to do??
-                .unwrap()
-                .into_read_only(),
+            entries: self.entries.get(user_id).unwrap().clone().into_read_only(),
         }
     }
 }
