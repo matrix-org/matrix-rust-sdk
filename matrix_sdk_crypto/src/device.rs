@@ -36,6 +36,7 @@ pub struct Device {
     device_id: Arc<Box<DeviceId>>,
     algorithms: Arc<Vec<Algorithm>>,
     keys: Arc<BTreeMap<AlgorithmAndDeviceId, String>>,
+    signatures: Arc<BTreeMap<UserId, BTreeMap<AlgorithmAndDeviceId, String>>>,
     display_name: Arc<Option<String>>,
     deleted: Arc<AtomicBool>,
     trust_state: Arc<Atomic<TrustState>>,
@@ -75,12 +76,14 @@ impl Device {
         trust_state: TrustState,
         algorithms: Vec<Algorithm>,
         keys: BTreeMap<AlgorithmAndDeviceId, String>,
+        signatures: BTreeMap<UserId, BTreeMap<AlgorithmAndDeviceId, String>>,
     ) -> Self {
         Device {
             user_id: Arc::new(user_id),
             device_id: Arc::new(device_id),
             display_name: Arc::new(display_name),
             trust_state: Arc::new(Atomic::new(trust_state)),
+            signatures: Arc::new(signatures),
             algorithms: Arc::new(algorithms),
             keys: Arc::new(keys),
             deleted: Arc::new(AtomicBool::new(false)),
@@ -115,6 +118,11 @@ impl Device {
         &self.keys
     }
 
+    /// Get a map containing all the device signatures.
+    pub fn signatures(&self) -> &BTreeMap<UserId, BTreeMap<AlgorithmAndDeviceId, String>> {
+        &self.signatures
+    }
+
     /// Get the trust state of the device.
     pub fn trust_state(&self) -> TrustState {
         self.trust_state.load(Ordering::Relaxed)
@@ -144,6 +152,7 @@ impl Device {
 
         self.algorithms = Arc::new(device_keys.algorithms.clone());
         self.keys = Arc::new(device_keys.keys.clone());
+        self.signatures = Arc::new(device_keys.signatures.clone());
         self.display_name = display_name;
 
         Ok(())
@@ -180,6 +189,8 @@ impl Device {
 #[cfg(test)]
 impl From<&OlmMachine> for Device {
     fn from(machine: &OlmMachine) -> Self {
+        let signatures = BTreeMap::new();
+
         Device {
             user_id: Arc::new(machine.user_id().clone()),
             device_id: Arc::new(machine.device_id().into()),
@@ -204,6 +215,7 @@ impl From<&OlmMachine> for Device {
             ),
             display_name: Arc::new(None),
             deleted: Arc::new(AtomicBool::new(false)),
+            signatures: Arc::new(signatures),
             trust_state: Arc::new(Atomic::new(TrustState::Unset)),
         }
     }
@@ -217,6 +229,7 @@ impl TryFrom<&DeviceKeys> for Device {
             user_id: Arc::new(device_keys.user_id.clone()),
             device_id: Arc::new(device_keys.device_id.clone()),
             algorithms: Arc::new(device_keys.algorithms.clone()),
+            signatures: Arc::new(device_keys.signatures.clone()),
             keys: Arc::new(device_keys.keys.clone()),
             display_name: Arc::new(
                 device_keys

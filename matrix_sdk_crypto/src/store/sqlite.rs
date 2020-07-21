@@ -272,6 +272,25 @@ impl SqliteStore {
             )
             .await?;
 
+        connection
+            .execute(
+                r#"
+            CREATE TABLE IF NOT EXISTS device_signatures (
+                "id" INTEGER NOT NULL PRIMARY KEY,
+                "device_id" INTEGER NOT NULL,
+                "user_id" TEXT NOT NULL,
+                "key_algorithm" TEXT NOT NULL,
+                "signature" TEXT NOT NULL,
+                FOREIGN KEY ("device_id") REFERENCES "devices" ("id")
+                    ON DELETE CASCADE
+                UNIQUE(device_id, user_id, key_algorithm)
+            );
+
+            CREATE INDEX IF NOT EXISTS "device_keys_device_id" ON "device_keys" ("device_id");
+        "#,
+            )
+            .await?;
+
         Ok(())
     }
 
@@ -473,18 +492,54 @@ impl SqliteStore {
                     .await?;
 
             let keys: BTreeMap<AlgorithmAndDeviceId, String> = key_rows
-                .iter()
+                .into_iter()
                 .filter_map(|row| {
-                    let algorithm: &str = &row.0;
-                    let algorithm = KeyAlgorithm::try_from(algorithm).ok()?;
-                    let key = &row.1;
+                    let algorithm = KeyAlgorithm::try_from(&*row.0).ok()?;
+                    let key = row.1;
 
                     Some((
                         AlgorithmAndDeviceId(algorithm, device_id.as_str().into()),
-                        key.to_owned(),
+                        key,
                     ))
                 })
                 .collect();
+
+            let signature_rows: Vec<(String, String, String)> = query_as(
+                "SELECT user_id, key_algorithm, signature
+                         FROM device_signatures WHERE device_id = ?",
+            )
+            .bind(device_row_id)
+            .fetch_all(&mut *connection)
+            .await?;
+
+            let mut signatures: BTreeMap<UserId, BTreeMap<AlgorithmAndDeviceId, String>> =
+                BTreeMap::new();
+
+            for row in signature_rows {
+                let user_id = if let Ok(u) = UserId::try_from(&*row.0) {
+                    u
+                } else {
+                    continue;
+                };
+
+                let key_algorithm = if let Ok(k) = KeyAlgorithm::try_from(&*row.1) {
+                    k
+                } else {
+                    continue;
+                };
+
+                let signature = row.2;
+
+                if !signatures.contains_key(&user_id) {
+                    let _ = signatures.insert(user_id.clone(), BTreeMap::new());
+                }
+                let user_map = signatures.get_mut(&user_id).unwrap();
+
+                user_map.insert(
+                    AlgorithmAndDeviceId(key_algorithm, device_id.as_str().into()),
+                    signature.to_owned(),
+                );
+            }
 
             let device = Device::new(
                 user_id,
@@ -493,6 +548,7 @@ impl SqliteStore {
                 trust_state,
                 algorithms,
                 keys,
+                signatures,
             );
 
             store.add(device);
@@ -560,6 +616,23 @@ impl SqliteStore {
             .bind(key)
             .execute(&mut *connection)
             .await?;
+        }
+
+        for (user_id, signature_map) in device.signatures() {
+            for (key_id, signature) in signature_map {
+                query(
+                    "INSERT OR IGNORE INTO device_signatures (
+                        device_id, user_id, key_algorithm, signature
+                     ) VALUES (?1, ?2, ?3, ?4)
+                     ",
+                )
+                .bind(device_row_id)
+                .bind(user_id.as_str())
+                .bind(key_id.0.to_string())
+                .bind(signature)
+                .execute(&mut *connection)
+                .await?;
+            }
         }
 
         Ok(())
