@@ -41,7 +41,7 @@ use matrix_sdk_common::{
             encrypted::{EncryptedEventContent, MegolmV1AesSha2Content},
             message::MessageEventContent,
         },
-        AnySyncRoomEvent, EventJson, EventType, SyncMessageEvent,
+        Algorithm, AnySyncRoomEvent, EventJson, EventType, SyncMessageEvent,
     },
     identifiers::{DeviceId, RoomId},
 };
@@ -384,6 +384,18 @@ impl OutboundGroupSession {
     pub async fn message_index(&self) -> u32 {
         let session = self.inner.lock().await;
         session.session_message_index()
+    }
+
+    /// Get the outbound group session key as a json value that can be sent as a
+    /// m.room_key.
+    pub async fn as_json(&self) -> Value {
+        json!({
+            "algorithm": Algorithm::MegolmV1AesSha2,
+            "room_id": &*self.room_id,
+            "session_id": &*self.session_id,
+            "session_key": self.session_key().await,
+            "chain_index": self.message_index().await,
+        })
     }
 }
 

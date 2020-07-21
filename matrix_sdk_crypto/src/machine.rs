@@ -899,30 +899,19 @@ impl OlmMachine {
         I: IntoIterator<Item = &'a UserId>,
     {
         self.create_outbound_group_session(room_id).await?;
-        let megolm_session = self.outbound_group_sessions.get(room_id).unwrap();
+        let session = self.outbound_group_sessions.get(room_id).unwrap();
 
-        if megolm_session.shared() {
+        if session.shared() {
             panic!("Session is already shared");
         }
-
-        let session_id = megolm_session.session_id().to_owned();
 
         // TODO don't mark the session as shared automatically only, when all
         // the requests are done, failure to send these requests will likely end
         // up in wedged sessions. We'll need to store the requests and let the
         // caller mark them as sent using an UUID.
-        megolm_session.mark_as_shared();
+        session.mark_as_shared();
 
-        // TODO the key content creation can go into the OutboundGroupSession
-        // struct.
-
-        let key_content = json!({
-            "algorithm": Algorithm::MegolmV1AesSha2,
-            "room_id": room_id,
-            "session_id": session_id.clone(),
-            "session_key": megolm_session.session_key().await,
-            "chain_index": megolm_session.message_index().await,
-        });
+        let key_content = session.as_json().await;
 
         let mut user_map = Vec::new();
 
