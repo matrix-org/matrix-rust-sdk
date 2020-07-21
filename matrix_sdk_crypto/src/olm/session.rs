@@ -196,6 +196,7 @@ impl Session {
     ///
     /// * `last_use_time` - The timestamp that marks when the session was
     /// last used to encrypt or decrypt an Olm message.
+    #[allow(clippy::too_many_arguments)]
     pub fn from_pickle(
         user_id: Arc<UserId>,
         device_id: Arc<Box<DeviceId>>,
