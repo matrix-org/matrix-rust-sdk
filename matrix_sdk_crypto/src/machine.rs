@@ -23,7 +23,6 @@ use std::result::Result as StdResult;
 use super::error::{EventError, MegolmError, MegolmResult, OlmError, OlmResult};
 use super::olm::{
     Account, GroupSessionKey, IdentityKeys, InboundGroupSession, OlmMessage, OutboundGroupSession,
-    Session,
 };
 use super::store::memorystore::MemoryStore;
 #[cfg(feature = "sqlite-cryptostore")]
@@ -796,14 +795,47 @@ impl OlmMachine {
         Ok(session.encrypt(content).await)
     }
 
-    /// Encrypt some JSON content using the given Olm session.
+    /// Encrypt the given event for the given Device
+    ///
+    /// # Arguments
+    ///
+    /// * `reciepient_device` - The device that the event should be encrypted
+    ///     for.
+    ///
+    /// * `event_type` - The type of the event.
+    ///
+    /// * `content` - The content of the event that should be encrypted.
     async fn olm_encrypt(
         &mut self,
-        mut session: Session,
         recipient_device: &Device,
         event_type: EventType,
         content: Value,
     ) -> OlmResult<EncryptedEventContent> {
+        let sender_key = if let Some(k) = recipient_device.get_key(KeyAlgorithm::Curve25519) {
+            k
+        } else {
+            warn!(
+                "Trying to encrypt a Megolm session for user {} on device {}, \
+                but the device doesn't have a curve25519 key",
+                recipient_device.user_id(),
+                recipient_device.device_id()
+            );
+            return Err(EventError::MissingSenderKey.into());
+        };
+
+        let mut session = if let Some(s) = self.store.get_sessions(sender_key).await? {
+            let session = &s.lock().await[0];
+            session.clone()
+        } else {
+            warn!(
+                "Trying to encrypt a Megolm session for user {} on device {}, \
+                but no Olm session is found",
+                recipient_device.user_id(),
+                recipient_device.device_id()
+            );
+            return Err(OlmError::MissingSession);
+        };
+
         let message = session.encrypt(recipient_device, event_type, content).await;
         self.store.save_sessions(&[session]).await?;
 
@@ -866,79 +898,55 @@ impl OlmMachine {
         // caller mark them as sent using an UUID.
         session.mark_as_shared();
 
-        let key_content = session.as_json().await;
-
-        let mut user_map = Vec::new();
+        let mut devices = Vec::new();
 
         for user_id in users {
             for device in self.store.get_user_devices(user_id).await?.devices() {
-                let sender_key = if let Some(k) = device.get_key(KeyAlgorithm::Curve25519) {
-                    k
-                } else {
-                    warn!(
-                        "The device {} of user {} doesn't have a curve 25519 key",
-                        user_id,
-                        device.device_id()
-                    );
-                    // TODO mark the user for a key query.
-                    continue;
-                };
-
                 // TODO abort if the device isn't verified
-                let sessions = self.store.get_sessions(sender_key).await?;
-
-                if let Some(s) = sessions {
-                    let session = &s.lock().await[0];
-                    // TODO once the session has the all the device info, we
-                    // won't need the device anymore to encrypt stuff with the
-                    // session.
-                    user_map.push((session.clone(), device.clone()));
-                } else {
-                    warn!(
-                        "Trying to encrypt a Megolm session for user
-                          {} on device {}, but no Olm session is found",
-                        user_id,
-                        device.device_id()
-                    );
-                }
+                devices.push(device.clone());
             }
         }
 
-        let mut message_vec = Vec::new();
+        let mut requests = Vec::new();
+        let key_content = session.as_json().await;
 
-        for user_map_chunk in user_map.chunks(OlmMachine::MAX_TO_DEVICE_MESSAGES) {
+        for device_map_chunk in devices.chunks(OlmMachine::MAX_TO_DEVICE_MESSAGES) {
             let mut messages = BTreeMap::new();
 
-            for (session, device) in user_map_chunk {
+            for device in device_map_chunk {
+                let encrypted = self
+                    .olm_encrypt(&device, EventType::RoomKey, key_content.clone())
+                    .await;
+
+                let encrypted = match encrypted {
+                    Ok(c) => c,
+                    Err(OlmError::MissingSession)
+                    | Err(OlmError::EventError(EventError::MissingSenderKey)) => {
+                        continue;
+                    }
+                    Err(e) => return Err(e),
+                };
+
                 if !messages.contains_key(device.user_id()) {
                     messages.insert(device.user_id().clone(), BTreeMap::new());
                 };
 
                 let user_messages = messages.get_mut(device.user_id()).unwrap();
 
-                let encrypted_content = self
-                    .olm_encrypt(
-                        session.clone(),
-                        &device,
-                        EventType::RoomKey,
-                        key_content.clone(),
-                    )
-                    .await?;
-
                 user_messages.insert(
                     DeviceIdOrAllDevices::DeviceId(device.device_id().into()),
-                    serde_json::value::to_raw_value(&encrypted_content)?,
+                    serde_json::value::to_raw_value(&encrypted)?,
                 );
             }
 
-            message_vec.push(ToDeviceRequest {
+            requests.push(ToDeviceRequest {
                 event_type: EventType::RoomEncrypted,
                 txn_id: Uuid::new_v4().to_string(),
                 messages,
             });
         }
 
-        Ok(message_vec)
+        Ok(requests)
     }
 
     fn add_forwarded_room_key(
@@ -1304,16 +1312,6 @@ mod test {
     async fn get_machine_pair_with_setup_sessions() -> (OlmMachine, OlmMachine) {
         let (mut alice, mut bob) = get_machine_pair_with_session().await;
 
-        let session = alice
-            .store
-            .get_sessions(bob.account.identity_keys().curve25519())
-            .await
-            .unwrap()
-            .unwrap()
-            .lock()
-            .await[0]
-            .clone();
-
         let bob_device = alice
             .store
             .get_device(&bob.user_id, &bob.device_id)
@@ -1324,7 +1322,7 @@ mod test {
         let event = ToDeviceEvent {
             sender: alice.user_id.clone(),
             content: alice
-                .olm_encrypt(session, &bob_device, EventType::Dummy, json!({}))
+                .olm_encrypt(&bob_device, EventType::Dummy, json!({}))
                 .await
                 .unwrap(),
         };
@@ -1593,16 +1591,6 @@ mod test {
     async fn test_olm_encryption() {
         let (mut alice, mut bob) = get_machine_pair_with_session().await;
 
-        let session = alice
-            .store
-            .get_sessions(bob.account.identity_keys().curve25519())
-            .await
-            .unwrap()
-            .unwrap()
-            .lock()
-            .await[0]
-            .clone();
-
         let bob_device = alice
             .store
             .get_device(&bob.user_id, &bob.device_id)
@@ -1613,7 +1601,7 @@ mod test {
         let event = ToDeviceEvent {
             sender: alice.user_id.clone(),
             content: alice
-                .olm_encrypt(session, &bob_device, EventType::Dummy, json!({}))
+                .olm_encrypt(&bob_device, EventType::Dummy, json!({}))
                 .await
                 .unwrap(),
         };

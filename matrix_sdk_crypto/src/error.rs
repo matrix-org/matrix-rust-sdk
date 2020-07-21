@@ -50,6 +50,14 @@ pub enum OlmError {
     /// The session with a device has become corrupted.
     #[error("decryption failed likely because a Olm session was wedged")]
     SessionWedged,
+
+    /// Encryption failed because the device does not have a valid Olm session
+    /// with us.
+    #[error(
+        "encryption failed because the device does not \
+            have a valid Olm session with us"
+    )]
+    MissingSession,
 }
 
 /// Error representing a failure during a group encryption operation.
@@ -93,6 +101,9 @@ pub enum EventError {
 
     #[error("the Encrypted message is missing the signing key of the sender")]
     MissingSigningKey,
+
+    #[error("the Encrypted message is missing the sender key")]
+    MissingSenderKey,
 
     #[error("the Encrypted message is missing the field {0}")]
     MissingField(String),
