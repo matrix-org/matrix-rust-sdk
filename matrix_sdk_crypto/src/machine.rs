@@ -164,7 +164,7 @@ impl OlmMachine {
     /// * `device_id` - The unique id of the device that owns this machine.
     pub async fn new_with_default_store<P: AsRef<Path>>(
         user_id: &UserId,
-        device_id: &str,
+        device_id: &DeviceId,
         path: P,
         passphrase: &str,
     ) -> StoreResult<Self> {

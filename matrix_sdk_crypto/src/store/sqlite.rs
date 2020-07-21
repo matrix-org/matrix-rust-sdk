@@ -66,7 +66,7 @@ impl SqliteStore {
     /// * `path` - The path where the database file should reside in.
     pub async fn open<P: AsRef<Path>>(
         user_id: &UserId,
-        device_id: &str,
+        device_id: &DeviceId,
         path: P,
     ) -> Result<SqliteStore> {
         SqliteStore::open_helper(user_id, device_id, path, None).await
@@ -88,7 +88,7 @@ impl SqliteStore {
     /// the encryption keys.
     pub async fn open_with_passphrase<P: AsRef<Path>>(
         user_id: &UserId,
-        device_id: &str,
+        device_id: &DeviceId,
         path: P,
         passphrase: &str,
     ) -> Result<SqliteStore> {
@@ -109,7 +109,7 @@ impl SqliteStore {
 
     async fn open_helper<P: AsRef<Path>>(
         user_id: &UserId,
-        device_id: &str,
+        device_id: &DeviceId,
         path: P,
         passphrase: Option<Zeroizing<String>>,
     ) -> Result<SqliteStore> {
@@ -804,7 +804,7 @@ mod test {
     use super::{Account, CryptoStore, InboundGroupSession, RoomId, Session, SqliteStore, TryFrom};
 
     static USER_ID: &str = "@example:localhost";
-    static DEVICE_ID: &str = "DEVICEID";
+    static DEVICE_ID: &DeviceId = "DEVICEID";
 
     async fn get_store(passphrase: Option<&str>) -> (SqliteStore, tempfile::TempDir) {
         let tmpdir = tempdir().unwrap();
