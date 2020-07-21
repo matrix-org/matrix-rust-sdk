@@ -52,7 +52,7 @@ pub struct Account {
     pub(crate) user_id: Arc<UserId>,
     pub(crate) device_id: Arc<Box<DeviceId>>,
     inner: Arc<Mutex<OlmAccount>>,
-    identity_keys: Arc<IdentityKeys>,
+    pub(crate) identity_keys: Arc<IdentityKeys>,
     shared: Arc<AtomicBool>,
     /// The number of signed one-time keys we have uploaded to the server. If
     /// this is None, no action will be taken. After a sync request the client
@@ -395,6 +395,9 @@ impl Account {
         let session_id = session.session_id();
 
         Ok(Session {
+            user_id: self.user_id.clone(),
+            device_id: self.device_id.clone(),
+            our_identity_keys: self.identity_keys.clone(),
             inner: Arc::new(Mutex::new(session)),
             session_id: Arc::new(session_id),
             sender_key: Arc::new(their_identity_key.to_owned()),
@@ -495,6 +498,9 @@ impl Account {
         let session_id = session.session_id();
 
         Ok(Session {
+            user_id: self.user_id.clone(),
+            device_id: self.device_id.clone(),
+            our_identity_keys: self.identity_keys.clone(),
             inner: Arc::new(Mutex::new(session)),
             session_id: Arc::new(session_id),
             sender_key: Arc::new(their_identity_key.to_owned()),

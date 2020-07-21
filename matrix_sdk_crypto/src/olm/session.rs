@@ -27,7 +27,7 @@ pub use olm_rs::{
     utility::OlmUtility,
 };
 
-use super::Account;
+use super::{Account, IdentityKeys};
 use crate::error::{EventError, OlmResult};
 use crate::Device;
 
@@ -37,6 +37,7 @@ use matrix_sdk_common::{
         room::encrypted::{CiphertextInfo, EncryptedEventContent, OlmV1Curve25519AesSha2Content},
         EventType,
     },
+    identifiers::{DeviceId, UserId},
     instant::Instant,
     locks::Mutex,
 };
@@ -45,6 +46,9 @@ use matrix_sdk_common::{
 /// `Account`s
 #[derive(Clone)]
 pub struct Session {
+    pub(crate) user_id: Arc<UserId>,
+    pub(crate) device_id: Arc<Box<DeviceId>>,
+    pub(crate) our_identity_keys: Arc<IdentityKeys>,
     pub(crate) inner: Arc<Mutex<OlmSession>>,
     pub(crate) session_id: Arc<String>,
     pub(crate) sender_key: Arc<String>,
@@ -197,6 +201,9 @@ impl Session {
     /// * `last_use_time` - The timestamp that marks when the session was
     /// last used to encrypt or decrypt an Olm message.
     pub fn from_pickle(
+        user_id: Arc<UserId>,
+        device_id: Arc<Box<DeviceId>>,
+        our_identity_keys: Arc<IdentityKeys>,
         pickle: String,
         pickle_mode: PicklingMode,
         sender_key: String,
@@ -207,6 +214,9 @@ impl Session {
         let session_id = session.session_id();
 
         Ok(Session {
+            user_id,
+            device_id,
+            our_identity_keys,
             inner: Arc::new(Mutex::new(session)),
             session_id: Arc::new(session_id),
             sender_key: Arc::new(sender_key),

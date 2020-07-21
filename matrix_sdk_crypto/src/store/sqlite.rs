@@ -26,9 +26,10 @@ use olm_rs::PicklingMode;
 use sqlx::{query, query_as, sqlite::SqliteQueryAs, Connect, Executor, SqliteConnection};
 use zeroize::Zeroizing;
 
-use super::{Account, CryptoStore, CryptoStoreError, InboundGroupSession, Result, Session};
+use super::{CryptoStore, CryptoStoreError, Result};
 use crate::device::{Device, TrustState};
 use crate::memory_stores::{DeviceStore, GroupSessionStore, SessionStore, UserDevices};
+use crate::{Account, IdentityKeys, InboundGroupSession, Session};
 use matrix_sdk_common::api::r0::keys::{AlgorithmAndDeviceId, KeyAlgorithm};
 use matrix_sdk_common::events::Algorithm;
 use matrix_sdk_common::identifiers::{DeviceId, RoomId, UserId};
@@ -36,8 +37,8 @@ use matrix_sdk_common::identifiers::{DeviceId, RoomId, UserId};
 /// SQLite based implementation of a `CryptoStore`.
 pub struct SqliteStore {
     user_id: Arc<UserId>,
-    device_id: Arc<String>,
-    account_id: Option<i64>,
+    device_id: Arc<Box<DeviceId>>,
+    account_info: Option<AccountInfo>,
     path: PathBuf,
 
     sessions: SessionStore,
@@ -48,6 +49,11 @@ pub struct SqliteStore {
 
     connection: Arc<Mutex<SqliteConnection>>,
     pickle_passphrase: Option<Zeroizing<String>>,
+}
+
+struct AccountInfo {
+    account_id: i64,
+    identity_keys: Arc<IdentityKeys>,
 }
 
 static DATABASE_NAME: &str = "matrix-sdk-crypto.db";
@@ -118,8 +124,8 @@ impl SqliteStore {
         let connection = SqliteConnection::connect(url.as_ref()).await?;
         let store = SqliteStore {
             user_id: Arc::new(user_id.to_owned()),
-            device_id: Arc::new(device_id.to_owned()),
-            account_id: None,
+            device_id: Arc::new(device_id.into()),
+            account_info: None,
             sessions: SessionStore::new(),
             inbound_group_sessions: GroupSessionStore::new(),
             devices: DeviceStore::new(),
@@ -131,6 +137,10 @@ impl SqliteStore {
         };
         store.create_tables().await?;
         Ok(store)
+    }
+
+    fn account_id(&self) -> Option<i64> {
+        self.account_info.as_ref().map(|i| i.account_id)
     }
 
     async fn create_tables(&self) -> Result<()> {
@@ -288,14 +298,17 @@ impl SqliteStore {
     }
 
     async fn load_sessions_for(&mut self, sender_key: &str) -> Result<Vec<Session>> {
-        let account_id = self.account_id.ok_or(CryptoStoreError::AccountUnset)?;
+        let account_info = self
+            .account_info
+            .as_ref()
+            .ok_or(CryptoStoreError::AccountUnset)?;
         let mut connection = self.connection.lock().await;
 
         let rows: Vec<(String, String, String, String)> = query_as(
             "SELECT pickle, sender_key, creation_time, last_use_time
              FROM sessions WHERE account_id = ? and sender_key = ?",
         )
-        .bind(account_id)
+        .bind(account_info.account_id)
         .bind(sender_key)
         .fetch_all(&mut *connection)
         .await?;
@@ -315,6 +328,9 @@ impl SqliteStore {
                     .ok_or(CryptoStoreError::SessionTimestampError)?;
 
                 Ok(Session::from_pickle(
+                    self.user_id.clone(),
+                    self.device_id.clone(),
+                    account_info.identity_keys.clone(),
                     pickle.to_string(),
                     self.get_pickle_mode(),
                     sender_key.to_string(),
@@ -326,7 +342,7 @@ impl SqliteStore {
     }
 
     async fn load_inbound_group_sessions(&self) -> Result<Vec<InboundGroupSession>> {
-        let account_id = self.account_id.ok_or(CryptoStoreError::AccountUnset)?;
+        let account_id = self.account_id().ok_or(CryptoStoreError::AccountUnset)?;
         let mut connection = self.connection.lock().await;
 
         let rows: Vec<(String, String, String, String)> = query_as(
@@ -357,7 +373,7 @@ impl SqliteStore {
     }
 
     async fn save_tracked_user(&self, user: &UserId, dirty: bool) -> Result<()> {
-        let account_id = self.account_id.ok_or(CryptoStoreError::AccountUnset)?;
+        let account_id = self.account_id().ok_or(CryptoStoreError::AccountUnset)?;
         let mut connection = self.connection.lock().await;
 
         query(
@@ -378,7 +394,7 @@ impl SqliteStore {
     }
 
     async fn load_tracked_users(&self) -> Result<(HashSet<UserId>, HashSet<UserId>)> {
-        let account_id = self.account_id.ok_or(CryptoStoreError::AccountUnset)?;
+        let account_id = self.account_id().ok_or(CryptoStoreError::AccountUnset)?;
         let mut connection = self.connection.lock().await;
 
         let rows: Vec<(String, bool)> = query_as(
@@ -410,7 +426,7 @@ impl SqliteStore {
     }
 
     async fn load_devices(&self) -> Result<DeviceStore> {
-        let account_id = self.account_id.ok_or(CryptoStoreError::AccountUnset)?;
+        let account_id = self.account_id().ok_or(CryptoStoreError::AccountUnset)?;
         let mut connection = self.connection.lock().await;
 
         let rows: Vec<(i64, String, String, Option<String>, i64)> = query_as(
@@ -490,7 +506,7 @@ impl SqliteStore {
     }
 
     async fn save_device_helper(&self, device: Device) -> Result<()> {
-        let account_id = self.account_id.ok_or(CryptoStoreError::AccountUnset)?;
+        let account_id = self.account_id().ok_or(CryptoStoreError::AccountUnset)?;
 
         let mut connection = self.connection.lock().await;
 
@@ -573,20 +589,26 @@ impl CryptoStore for SqliteStore {
                       WHERE user_id = ? and device_id = ?",
         )
         .bind(self.user_id.as_str())
-        .bind(&*self.device_id)
+        .bind((&*self.device_id).as_ref())
         .fetch_optional(&mut *connection)
         .await?;
 
         let result = if let Some((id, pickle, shared, uploaded_key_count)) = row {
-            self.account_id = Some(id);
-            Some(Account::from_pickle(
+            let account = Account::from_pickle(
                 pickle,
                 self.get_pickle_mode(),
                 shared,
                 uploaded_key_count,
                 &self.user_id,
                 &self.device_id,
-            )?)
+            )?;
+
+            self.account_info = Some(AccountInfo {
+                account_id: id,
+                identity_keys: account.identity_keys.clone(),
+            });
+
+            Some(account)
         } else {
             return Ok(None);
         };
@@ -640,18 +662,21 @@ impl CryptoStore for SqliteStore {
                 .fetch_one(&mut *connection)
                 .await?;
 
-        self.account_id = Some(account_id.0);
+        self.account_info = Some(AccountInfo {
+            account_id: account_id.0,
+            identity_keys: account.identity_keys.clone(),
+        });
 
         Ok(())
     }
 
     async fn save_sessions(&mut self, sessions: &[Session]) -> Result<()> {
+        let account_id = self.account_id().ok_or(CryptoStoreError::AccountUnset)?;
+
         // TODO turn this into a transaction
         for session in sessions {
             self.lazy_load_sessions(&session.sender_key).await?;
             self.sessions.add(session.clone()).await;
-
-            let account_id = self.account_id.ok_or(CryptoStoreError::AccountUnset)?;
 
             let session_id = session.session_id();
             let creation_time = serde_json::to_string(&session.creation_time.elapsed())?;
@@ -683,7 +708,7 @@ impl CryptoStore for SqliteStore {
     }
 
     async fn save_inbound_group_session(&mut self, session: InboundGroupSession) -> Result<bool> {
-        let account_id = self.account_id.ok_or(CryptoStoreError::AccountUnset)?;
+        let account_id = self.account_id().ok_or(CryptoStoreError::AccountUnset)?;
         let pickle = session.pickle(self.get_pickle_mode()).await;
         let mut connection = self.connection.lock().await;
         let session_id = session.session_id();
@@ -753,7 +778,7 @@ impl CryptoStore for SqliteStore {
     }
 
     async fn delete_device(&self, device: Device) -> Result<()> {
-        let account_id = self.account_id.ok_or(CryptoStoreError::AccountUnset)?;
+        let account_id = self.account_id().ok_or(CryptoStoreError::AccountUnset)?;
         let mut connection = self.connection.lock().await;
 
         query(
