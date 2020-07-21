@@ -804,9 +804,7 @@ impl OlmMachine {
         event_type: EventType,
         content: Value,
     ) -> OlmResult<EncryptedEventContent> {
-        let message = session
-            .encrypt(self.account.clone(), recipient_device, event_type, content)
-            .await;
+        let message = session.encrypt(recipient_device, event_type, content).await;
         self.store.save_sessions(&[session]).await?;
 
         message

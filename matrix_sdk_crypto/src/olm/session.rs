@@ -27,7 +27,7 @@ pub use olm_rs::{
     utility::OlmUtility,
 };
 
-use super::{Account, IdentityKeys};
+use super::IdentityKeys;
 use crate::error::{EventError, OlmResult};
 use crate::Device;
 
@@ -98,7 +98,6 @@ impl Session {
     /// content.
     pub async fn encrypt(
         &mut self,
-        account: Account,
         recipient_device: &Device,
         event_type: EventType,
         content: Value,
@@ -106,15 +105,12 @@ impl Session {
         let recipient_signing_key = recipient_device
             .get_key(KeyAlgorithm::Ed25519)
             .ok_or(EventError::MissingSigningKey)?;
-        let recipient_sender_key = recipient_device
-            .get_key(KeyAlgorithm::Curve25519)
-            .ok_or(EventError::MissingSigningKey)?;
 
         let payload = json!({
-            "sender": account.user_id.to_string(),
-            "sender_device": account.device_id.as_ref(),
+            "sender": self.user_id.as_str(),
+            "sender_device": self.device_id.as_ref(),
             "keys": {
-                "ed25519": account.identity_keys().ed25519(),
+                "ed25519": self.our_identity_keys.ed25519(),
             },
             "recipient": recipient_device.user_id(),
             "recipient_keys": {
@@ -133,12 +129,12 @@ impl Session {
         let ciphertext = CiphertextInfo::new(ciphertext.1, (message_type as u32).into());
 
         let mut content = BTreeMap::new();
-        content.insert(recipient_sender_key.to_owned(), ciphertext);
+        content.insert((&*self.sender_key).to_owned(), ciphertext);
 
         Ok(EncryptedEventContent::OlmV1Curve25519AesSha2(
             OlmV1Curve25519AesSha2Content::new(
                 content,
-                account.identity_keys().curve25519().to_owned(),
+                self.our_identity_keys.curve25519().to_string(),
             ),
         ))
     }
