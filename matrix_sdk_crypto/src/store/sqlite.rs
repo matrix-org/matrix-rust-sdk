@@ -472,23 +472,19 @@ impl SqliteStore {
                     .fetch_all(&mut *connection)
                     .await?;
 
-            let mut keys = BTreeMap::new();
+            let keys: BTreeMap<AlgorithmAndDeviceId, String> = key_rows
+                .iter()
+                .filter_map(|row| {
+                    let algorithm: &str = &row.0;
+                    let algorithm = KeyAlgorithm::try_from(algorithm).ok()?;
+                    let key = &row.1;
 
-            for row in key_rows {
-                let algorithm: &str = &row.0;
-                let algorithm = if let Ok(a) = KeyAlgorithm::try_from(algorithm) {
-                    a
-                } else {
-                    continue;
-                };
-
-                let key = &row.1;
-
-                keys.insert(
-                    AlgorithmAndDeviceId(algorithm, device_id.as_str().into()),
-                    key.to_owned(),
-                );
-            }
+                    Some((
+                        AlgorithmAndDeviceId(algorithm, device_id.as_str().into()),
+                        key.to_owned(),
+                    ))
+                })
+                .collect();
 
             let device = Device::new(
                 user_id,
