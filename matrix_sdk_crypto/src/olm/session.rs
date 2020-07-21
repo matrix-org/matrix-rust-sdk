@@ -96,6 +96,16 @@ impl Session {
 
     /// Encrypt the given event content content as an m.room.encrypted event
     /// content.
+    ///
+    /// # Arguments
+    ///
+    /// * `recipient_device` - The device for which this message is going to be
+    ///     encrypted, this needs to be the device that was used to create this
+    ///     session with.
+    ///
+    /// * `event_type` - The type of the event.
+    ///
+    /// * `content` - The content of the event.
     pub async fn encrypt(
         &mut self,
         recipient_device: &Device,
