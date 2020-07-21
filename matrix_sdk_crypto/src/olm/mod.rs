@@ -149,7 +149,7 @@ pub(crate) mod test {
 
         let plaintext = "Hello world";
 
-        let message = bob_session.encrypt(plaintext).await;
+        let message = bob_session.encrypt_helper(plaintext).await;
 
         let prekey_message = match message.clone() {
             OlmMessage::PreKey(m) => m,

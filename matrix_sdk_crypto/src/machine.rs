@@ -32,13 +32,10 @@ use super::{device::Device, store::Result as StoreResult, CryptoStore};
 
 use matrix_sdk_common::api;
 use matrix_sdk_common::events::{
-    forwarded_room_key::ForwardedRoomKeyEventContent,
-    room::encrypted::{CiphertextInfo, EncryptedEventContent, OlmV1Curve25519AesSha2Content},
-    room::message::MessageEventContent,
-    room_key::RoomKeyEventContent,
-    room_key_request::RoomKeyRequestEventContent,
-    Algorithm, AnySyncRoomEvent, AnyToDeviceEvent, EventJson, EventType, SyncMessageEvent,
-    ToDeviceEvent,
+    forwarded_room_key::ForwardedRoomKeyEventContent, room::encrypted::EncryptedEventContent,
+    room::message::MessageEventContent, room_key::RoomKeyEventContent,
+    room_key_request::RoomKeyRequestEventContent, Algorithm, AnySyncRoomEvent, AnyToDeviceEvent,
+    EventJson, EventType, SyncMessageEvent, ToDeviceEvent,
 };
 use matrix_sdk_common::identifiers::{DeviceId, RoomId, UserId};
 use matrix_sdk_common::uuid::Uuid;
@@ -50,7 +47,7 @@ use api::r0::{
     to_device::{send_event_to_device::Request as ToDeviceRequest, DeviceIdOrAllDevices},
 };
 
-use serde_json::{json, Value};
+use serde_json::Value;
 use tracing::{debug, error, info, instrument, trace, warn};
 
 /// A map from the algorithm and device id to a one-time key.
@@ -807,52 +804,12 @@ impl OlmMachine {
         event_type: EventType,
         content: Value,
     ) -> OlmResult<EncryptedEventContent> {
-        let identity_keys = self.account.identity_keys();
-
-        // TODO most of this could go into the session, the session already
-        // stores the curve key of the device, if we also store the ed25519 key
-        // with the session we'll only need to pass in the account to the
-        // session and all of this can live in the session.
-
-        let recipient_signing_key = recipient_device
-            .get_key(KeyAlgorithm::Ed25519)
-            .ok_or(EventError::MissingSigningKey)?;
-        let recipient_sender_key = recipient_device
-            .get_key(KeyAlgorithm::Curve25519)
-            .ok_or(EventError::MissingSigningKey)?;
-
-        let payload = json!({
-            "sender": self.user_id,
-            "sender_device": self.device_id,
-            "keys": {
-                "ed25519": identity_keys.ed25519(),
-            },
-            "recipient": recipient_device.user_id(),
-            "recipient_keys": {
-                "ed25519": recipient_signing_key,
-            },
-            "type": event_type,
-            "content": content,
-        });
-
-        let plaintext = cjson::to_string(&payload)
-            .unwrap_or_else(|_| panic!(format!("Can't serialize {} to canonical JSON", payload)));
-
-        let ciphertext = session.encrypt(&plaintext).await.to_tuple();
-
-        let message_type: usize = ciphertext.0.into();
-
-        let ciphertext = CiphertextInfo::new(ciphertext.1, (message_type as u32).into());
-
-        let mut content = BTreeMap::new();
-
-        content.insert(recipient_sender_key.to_owned(), ciphertext);
-
+        let message = session
+            .encrypt(self.account.clone(), recipient_device, event_type, content)
+            .await;
         self.store.save_sessions(&[session]).await?;
 
-        Ok(EncryptedEventContent::OlmV1Curve25519AesSha2(
-            OlmV1Curve25519AesSha2Content::new(content, identity_keys.curve25519().to_owned()),
-        ))
+        message
     }
 
     /// Should the client share a group session for the given room.

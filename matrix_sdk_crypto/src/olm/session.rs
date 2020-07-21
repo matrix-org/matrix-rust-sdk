@@ -12,20 +12,33 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use matrix_sdk_common::instant::Instant;
+use std::collections::BTreeMap;
 use std::fmt;
 use std::sync::Arc;
 
-use matrix_sdk_common::locks::Mutex;
-
-pub use olm_rs::account::IdentityKeys;
 use olm_rs::errors::OlmSessionError;
 use olm_rs::session::OlmSession;
 use olm_rs::PicklingMode;
 
+use serde_json::{json, Value};
+
 pub use olm_rs::{
     session::{OlmMessage, PreKeyMessage},
     utility::OlmUtility,
+};
+
+use super::Account;
+use crate::error::{EventError, OlmResult};
+use crate::Device;
+
+use matrix_sdk_common::{
+    api::r0::keys::KeyAlgorithm,
+    events::{
+        room::encrypted::{CiphertextInfo, EncryptedEventContent, OlmV1Curve25519AesSha2Content},
+        EventType,
+    },
+    instant::Instant,
+    locks::Mutex,
 };
 
 /// Cryptographic session that enables secure communication between two
@@ -71,10 +84,59 @@ impl Session {
     /// # Arguments
     ///
     /// * `plaintext` - The plaintext that should be encrypted.
-    pub async fn encrypt(&mut self, plaintext: &str) -> OlmMessage {
+    pub(crate) async fn encrypt_helper(&mut self, plaintext: &str) -> OlmMessage {
         let message = self.inner.lock().await.encrypt(plaintext);
         self.last_use_time = Arc::new(Instant::now());
         message
+    }
+
+    /// Encrypt the given event content content as an m.room.encrypted event
+    /// content.
+    pub async fn encrypt(
+        &mut self,
+        account: Account,
+        recipient_device: &Device,
+        event_type: EventType,
+        content: Value,
+    ) -> OlmResult<EncryptedEventContent> {
+        let recipient_signing_key = recipient_device
+            .get_key(KeyAlgorithm::Ed25519)
+            .ok_or(EventError::MissingSigningKey)?;
+        let recipient_sender_key = recipient_device
+            .get_key(KeyAlgorithm::Curve25519)
+            .ok_or(EventError::MissingSigningKey)?;
+
+        let payload = json!({
+            "sender": account.user_id.to_string(),
+            "sender_device": account.device_id.as_ref(),
+            "keys": {
+                "ed25519": account.identity_keys().ed25519(),
+            },
+            "recipient": recipient_device.user_id(),
+            "recipient_keys": {
+                "ed25519": recipient_signing_key,
+            },
+            "type": event_type,
+            "content": content,
+        });
+
+        let plaintext = cjson::to_string(&payload)
+            .unwrap_or_else(|_| panic!(format!("Can't serialize {} to canonical JSON", payload)));
+
+        let ciphertext = self.encrypt_helper(&plaintext).await.to_tuple();
+
+        let message_type = ciphertext.0;
+        let ciphertext = CiphertextInfo::new(ciphertext.1, (message_type as u32).into());
+
+        let mut content = BTreeMap::new();
+        content.insert(recipient_sender_key.to_owned(), ciphertext);
+
+        Ok(EncryptedEventContent::OlmV1Curve25519AesSha2(
+            OlmV1Curve25519AesSha2Content::new(
+                content,
+                account.identity_keys().curve25519().to_owned(),
+            ),
+        ))
     }
 
     /// Check if a pre-key Olm message was encrypted for this session.

@@ -49,8 +49,8 @@ use super::{InboundGroupSession, OutboundGroupSession, Session};
 /// devices.
 #[derive(Clone)]
 pub struct Account {
-    user_id: Arc<UserId>,
-    device_id: Arc<Box<DeviceId>>,
+    pub(crate) user_id: Arc<UserId>,
+    pub(crate) device_id: Arc<Box<DeviceId>>,
     inner: Arc<Mutex<OlmAccount>>,
     identity_keys: Arc<IdentityKeys>,
     shared: Arc<AtomicBool>,
