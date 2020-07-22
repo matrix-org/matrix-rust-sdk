@@ -57,6 +57,76 @@ impl<S> Sas<S> {
     }
 }
 
+fn get_emoji(index: u8) -> (&'static str, &'static str) {
+    match index {
+        0 => ("🐶", "Dog"),
+        1 => ("🐱", "Cat"),
+        2 => ("🦁", "Lion"),
+        3 => ("🐎", "Horse"),
+        4 => ("🦄", "Unicorn"),
+        5 => ("🐷", "Pig"),
+        6 => ("🐘", "Elephant"),
+        7 => ("🐰", "Rabbit"),
+        8 => ("🐼", "Panda"),
+        9 => ("🐓", "Rooster"),
+        10 => ("🐧", "Penguin"),
+        11 => ("🐢", "Turtle"),
+        12 => ("🐟", "Fish"),
+        13 => ("🐙", "Octopus"),
+        14 => ("🦋", "Butterfly"),
+        15 => ("🌷", "Flower"),
+        16 => ("🌳", "Tree"),
+        17 => ("🌵", "Cactus"),
+        18 => ("🍄", "Mushroom"),
+        19 => ("🌏", "Globe"),
+        20 => ("🌙", "Moon"),
+        21 => ("☁️", "Cloud"),
+        22 => ("🔥", "Fire"),
+        23 => ("🍌", "Banana"),
+        24 => ("🍎", "Apple"),
+        25 => ("🍓", "Strawberry"),
+        26 => ("🌽", "Corn"),
+        27 => ("🍕", "Pizza"),
+        28 => ("🎂", "Cake"),
+        29 => ("❤️", "Heart"),
+        30 => ("😀", "Smiley"),
+        31 => ("🤖", "Robot"),
+        32 => ("🎩", "Hat"),
+        33 => ("👓", "Glasses"),
+        34 => ("🔧", "Spanner"),
+        35 => ("🎅", "Santa"),
+        36 => ("👍", "Thumbs up"),
+        37 => ("☂️", "Umbrella"),
+        38 => ("⌛", "Hourglass"),
+        39 => ("⏰", "Clock"),
+        40 => ("🎁", "Gift"),
+        41 => ("💡", "Light Bulb"),
+        42 => ("📕", "Book"),
+        43 => ("✏️", "Pencil"),
+        44 => ("📎", "Paperclip"),
+        45 => ("✂️", "Scissors"),
+        46 => ("🔒", "Lock"),
+        47 => ("🔑", "Key"),
+        48 => ("🔨", "Hammer"),
+        49 => ("☎️", "Telephone"),
+        50 => ("🏁", "Flag"),
+        51 => ("🚂", "Train"),
+        52 => ("🚲", "Bicycle"),
+        53 => ("✈️", "Airplane"),
+        54 => ("🚀", "Rocket"),
+        55 => ("🏆", "Trophy"),
+        56 => ("⚽", "Ball"),
+        57 => ("🎸", "Guitar"),
+        58 => ("🎺", "Trumpet"),
+        59 => ("🔔", "Bell"),
+        60 => ("⚓", "Anchor"),
+        61 => ("🎧", "Headphones"),
+        62 => ("📁", "Folder"),
+        63 => ("📌", "Pin"),
+        _ => panic!("Trying to fetch an SAS emoji outside the allowed range"),
+    }
+}
+
 impl Sas<Created> {
     fn new(own_user_id: UserId, own_device_id: &DeviceId, other_device: Device) -> Sas<Created> {
         let verification_flow_id = Uuid::new_v4().to_string();
@@ -247,17 +317,42 @@ impl Sas<KeyReceived> {
         }
     }
 
-    fn get_emoji(&self) -> Vec<(String, String)> {
-        todo!()
+    fn get_emoji(&self) -> Vec<(&'static str, &'static str)> {
+        let bytes: Vec<u64> = self
+            .inner
+            .generate_bytes(&self.extra_info(), 6)
+            .expect("Can't generate bytes")
+            .into_iter()
+            .map(|b| b as u64)
+            .collect();
+
+        let mut num: u64 = bytes[0] << 40;
+        num += bytes[1] << 32;
+        num += bytes[2] << 24;
+        num += bytes[3] << 16;
+        num += bytes[4] << 8;
+        num += bytes[5];
+
+        let numbers = vec![
+            ((num >> 42) & 63) as u8,
+            ((num >> 36) & 63) as u8,
+            ((num >> 30) & 63) as u8,
+            ((num >> 24) & 63) as u8,
+            ((num >> 18) & 63) as u8,
+            ((num >> 12) & 63) as u8,
+            ((num >> 6) & 63) as u8,
+        ];
+
+        numbers.into_iter().map(get_emoji).collect()
     }
 
-    fn get_decimal(&self) -> (i32, i32, i32) {
-        let bytes: Vec<i32> = self
+    fn get_decimal(&self) -> (u32, u32, u32) {
+        let bytes: Vec<u32> = self
             .inner
             .generate_bytes(&self.extra_info(), 5)
             .expect("Can't generate bytes")
             .into_iter()
-            .map(|b| b as i32)
+            .map(|b| b as u32)
             .collect();
 
         let first = (bytes[0] << 5 | bytes[1] >> 3) + 1000;
@@ -383,5 +478,6 @@ mod test {
         let alice = alice.into_key_received(&mut event);
 
         assert_eq!(alice.get_decimal(), bob.get_decimal());
+        assert_eq!(alice.get_emoji(), bob.get_emoji());
     }
 }
