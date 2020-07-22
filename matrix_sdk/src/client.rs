@@ -22,6 +22,7 @@ use std::path::Path;
 use std::result::Result as StdResult;
 use std::sync::Arc;
 
+use matrix_sdk_common::identifiers::ServerName;
 use matrix_sdk_common::instant::{Duration, Instant};
 use matrix_sdk_common::js_int::UInt;
 use matrix_sdk_common::locks::RwLock;
@@ -472,7 +473,7 @@ impl Client {
             login_info: login::LoginInfo::Password {
                 password: password.into(),
             },
-            device_id: device_id.map(|d| d.into().into_boxed_str()),
+            device_id: device_id.map(|d| d.into().into()),
             initial_device_display_name: initial_device_display_name.map(|d| d.into()),
         };
 
@@ -562,7 +563,7 @@ impl Client {
     pub async fn join_room_by_id_or_alias(
         &self,
         alias: &RoomIdOrAliasId,
-        server_names: &[String],
+        server_names: &[Box<ServerName>],
     ) -> Result<join_room_by_id_or_alias::Response> {
         let request = join_room_by_id_or_alias::Request {
             room_id_or_alias: alias.clone(),
@@ -1553,7 +1554,7 @@ mod test {
     use mockito::{mock, Matcher};
     use tempfile::tempdir;
 
-    use std::convert::TryFrom;
+    use std::convert::{TryFrom, TryInto};
     use std::path::Path;
     use std::str::FromStr;
     use std::time::Duration;
@@ -1567,7 +1568,7 @@ mod test {
         let session = Session {
             access_token: "1234".to_owned(),
             user_id: UserId::try_from("@example:localhost").unwrap(),
-            device_id: "DEVICEID".to_owned(),
+            device_id: "DEVICEID".into(),
         };
 
         let _m = mock(
@@ -1632,7 +1633,7 @@ mod test {
         let session = Session {
             access_token: "1234".to_owned(),
             user_id: UserId::try_from("@example:example.com").unwrap(),
-            device_id: "DEVICEID".to_owned(),
+            device_id: "DEVICEID".into(),
         };
 
         let _m = mock(
@@ -1660,7 +1661,7 @@ mod test {
         let session = Session {
             access_token: "12345".to_owned(),
             user_id: UserId::try_from("@example:localhost").unwrap(),
-            device_id: "DEVICEID".to_owned(),
+            device_id: "DEVICEID".into(),
         };
         let homeserver = url::Url::parse(&mockito::server_url()).unwrap();
         let client = Client::new(homeserver).unwrap();
@@ -1772,7 +1773,7 @@ mod test {
         let session = Session {
             access_token: "1234".to_owned(),
             user_id: UserId::try_from("@example:localhost").unwrap(),
-            device_id: "DEVICEID".to_owned(),
+            device_id: "DEVICEID".into(),
         };
 
         let _m = mock(
@@ -1801,7 +1802,7 @@ mod test {
         let session = Session {
             access_token: "1234".to_owned(),
             user_id: UserId::try_from("@example:localhost").unwrap(),
-            device_id: "DEVICEID".to_owned(),
+            device_id: "DEVICEID".into(),
         };
 
         let _m = mock(
@@ -1819,7 +1820,7 @@ mod test {
         assert_eq!(
             // this is the `join_by_room_id::Response` but since no PartialEq we check the RoomId field
             client
-                .join_room_by_id_or_alias(&room_id, &["server.com".to_string()])
+                .join_room_by_id_or_alias(&room_id, &["server.com".try_into().unwrap()])
                 .await
                 .unwrap()
                 .room_id,
@@ -1837,7 +1838,7 @@ mod test {
         let session = Session {
             access_token: "1234".to_owned(),
             user_id: user.clone(),
-            device_id: "DEVICEID".to_owned(),
+            device_id: "DEVICEID".into(),
         };
 
         let _m = mock(
@@ -1864,7 +1865,7 @@ mod test {
         let session = Session {
             access_token: "1234".to_owned(),
             user_id: user.clone(),
-            device_id: "DEVICEID".to_owned(),
+            device_id: "DEVICEID".into(),
         };
 
         let _m = mock(
@@ -1925,7 +1926,7 @@ mod test {
         let session = Session {
             access_token: "1234".to_owned(),
             user_id: user.clone(),
-            device_id: "DEVICEID".to_owned(),
+            device_id: "DEVICEID".into(),
         };
 
         let _m = mock(
@@ -1960,7 +1961,7 @@ mod test {
         let session = Session {
             access_token: "1234".to_owned(),
             user_id: UserId::try_from("@example:localhost").unwrap(),
-            device_id: "DEVICEID".to_owned(),
+            device_id: "DEVICEID".into(),
         };
 
         let _m = mock(
@@ -1996,7 +1997,7 @@ mod test {
         let session = Session {
             access_token: "1234".to_owned(),
             user_id: user.clone(),
-            device_id: "DEVICEID".to_owned(),
+            device_id: "DEVICEID".into(),
         };
 
         let _m = mock(
@@ -2031,7 +2032,7 @@ mod test {
         let session = Session {
             access_token: "1234".to_owned(),
             user_id: user.clone(),
-            device_id: "DEVICEID".to_owned(),
+            device_id: "DEVICEID".into(),
         };
 
         let _m = mock(
@@ -2066,7 +2067,7 @@ mod test {
         let session = Session {
             access_token: "1234".to_owned(),
             user_id: user.clone(),
-            device_id: "DEVICEID".to_owned(),
+            device_id: "DEVICEID".into(),
         };
 
         let _m = mock(
@@ -2102,7 +2103,7 @@ mod test {
         let session = Session {
             access_token: "1234".to_owned(),
             user_id,
-            device_id: "DEVICEID".to_owned(),
+            device_id: "DEVICEID".into(),
         };
 
         let _m = mock(
@@ -2138,7 +2139,7 @@ mod test {
         let session = Session {
             access_token: "1234".to_owned(),
             user_id,
-            device_id: "DEVICEID".to_owned(),
+            device_id: "DEVICEID".into(),
         };
 
         let _m = mock(
@@ -2173,7 +2174,7 @@ mod test {
         let session = Session {
             access_token: "1234".to_owned(),
             user_id: user.clone(),
-            device_id: "DEVICEID".to_owned(),
+            device_id: "DEVICEID".into(),
         };
 
         let _m = mock(
@@ -2217,7 +2218,7 @@ mod test {
         let session = Session {
             access_token: "1234".to_owned(),
             user_id: user.clone(),
-            device_id: "DEVICEID".to_owned(),
+            device_id: "DEVICEID".into(),
         };
 
         let _m = mock(
@@ -2255,7 +2256,7 @@ mod test {
         let session = Session {
             access_token: "1234".to_owned(),
             user_id: UserId::try_from("@example:localhost").unwrap(),
-            device_id: "DEVICEID".to_owned(),
+            device_id: "DEVICEID".into(),
         };
 
         let _m = mock(
@@ -2292,7 +2293,7 @@ mod test {
         let session = Session {
             access_token: "1234".to_owned(),
             user_id: UserId::try_from("@example:localhost").unwrap(),
-            device_id: "DEVICEID".to_owned(),
+            device_id: "DEVICEID".into(),
         };
 
         let _m = mock(
@@ -2324,7 +2325,7 @@ mod test {
         let session = Session {
             access_token: "12345".to_owned(),
             user_id: UserId::try_from("@example:localhost").unwrap(),
-            device_id: "DEVICEID".to_owned(),
+            device_id: "DEVICEID".into(),
         };
 
         let homeserver = url::Url::parse(&mockito::server_url()).unwrap();
@@ -2358,7 +2359,7 @@ mod test {
         let session = Session {
             access_token: "12345".to_owned(),
             user_id: UserId::try_from("@example:localhost").unwrap(),
-            device_id: "DEVICEID".to_owned(),
+            device_id: "DEVICEID".into(),
         };
 
         let homeserver = url::Url::parse(&mockito::server_url()).unwrap();
@@ -2392,7 +2393,7 @@ mod test {
         let session = Session {
             access_token: "1234".to_owned(),
             user_id: UserId::try_from("@cheeky_monkey:matrix.org").unwrap(),
-            device_id: "DEVICEID".to_owned(),
+            device_id: "DEVICEID".into(),
         };
 
         let _m = mock(
@@ -2469,7 +2470,7 @@ mod test {
         let session = Session {
             access_token: "1234".to_owned(),
             user_id: UserId::try_from("@example:localhost").unwrap(),
-            device_id: "DEVICEID".to_owned(),
+            device_id: "DEVICEID".into(),
         };
 
         let _m = mock(
@@ -2499,7 +2500,7 @@ mod test {
         let session = Session {
             access_token: "1234".to_owned(),
             user_id: UserId::try_from("@example:localhost").unwrap(),
-            device_id: "DEVICEID".to_owned(),
+            device_id: "DEVICEID".into(),
         };
 
         let _m = mock(

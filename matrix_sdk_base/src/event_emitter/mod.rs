@@ -37,7 +37,7 @@ use crate::events::{
         tombstone::TombstoneEventContent,
     },
     typing::TypingEventContent,
-    BasicEvent, EphemeralRoomEvent, StrippedStateEvent, SyncMessageEvent, SyncStateEvent,
+    BasicEvent, StrippedStateEvent, SyncEphemeralRoomEvent, SyncMessageEvent, SyncStateEvent,
 };
 use crate::{Room, RoomState};
 use matrix_sdk_common_macros::async_trait;
@@ -53,7 +53,7 @@ pub enum CustomOrRawEvent<'c> {
     /// A custom basic event.
     Basic(&'c BasicEvent<CustomEventContent>),
     /// A custom basic event.
-    EphemeralRoom(&'c EphemeralRoomEvent<CustomEventContent>),
+    EphemeralRoom(&'c SyncEphemeralRoomEvent<CustomEventContent>),
     /// A custom room event.
     Message(&'c SyncMessageEvent<CustomEventContent>),
     /// A custom state event.
@@ -234,15 +234,25 @@ pub trait EventEmitter: Send + Sync {
     async fn on_non_room_fully_read(
         &self,
         _: SyncRoom,
-        _: &EphemeralRoomEvent<FullyReadEventContent>,
+        _: &SyncEphemeralRoomEvent<FullyReadEventContent>,
     ) {
     }
     /// Fires when `Client` receives a `NonRoomEvent::Typing` event.
-    async fn on_non_room_typing(&self, _: SyncRoom, _: &EphemeralRoomEvent<TypingEventContent>) {}
+    async fn on_non_room_typing(
+        &self,
+        _: SyncRoom,
+        _: &SyncEphemeralRoomEvent<TypingEventContent>,
+    ) {
+    }
     /// Fires when `Client` receives a `NonRoomEvent::Receipt` event.
     ///
     /// This is always a read receipt.
-    async fn on_non_room_receipt(&self, _: SyncRoom, _: &EphemeralRoomEvent<ReceiptEventContent>) {}
+    async fn on_non_room_receipt(
+        &self,
+        _: SyncRoom,
+        _: &SyncEphemeralRoomEvent<ReceiptEventContent>,
+    ) {
+    }
 
     // `PresenceEvent` is a struct so there is only the one method
     /// Fires when `Client` receives a `NonRoomEvent::RoomAliases` event.
@@ -435,21 +445,21 @@ mod test {
         async fn on_non_room_fully_read(
             &self,
             _: SyncRoom,
-            _: &EphemeralRoomEvent<FullyReadEventContent>,
+            _: &SyncEphemeralRoomEvent<FullyReadEventContent>,
         ) {
             self.0.lock().await.push("account read".to_string())
         }
         async fn on_non_room_typing(
             &self,
             _: SyncRoom,
-            _: &EphemeralRoomEvent<TypingEventContent>,
+            _: &SyncEphemeralRoomEvent<TypingEventContent>,
         ) {
             self.0.lock().await.push("typing event".to_string())
         }
         async fn on_non_room_receipt(
             &self,
             _: SyncRoom,
-            _: &EphemeralRoomEvent<ReceiptEventContent>,
+            _: &SyncEphemeralRoomEvent<ReceiptEventContent>,
         ) {
             self.0.lock().await.push("receipt event".to_string())
         }
@@ -470,7 +480,7 @@ mod test {
         let session = Session {
             access_token: "1234".to_owned(),
             user_id: UserId::try_from("@example:example.com").unwrap(),
-            device_id: "DEVICEID".to_owned(),
+            device_id: "DEVICEID".into(),
         };
         let client = BaseClient::new().unwrap();
         client.restore_login(session).await.unwrap();

@@ -1754,13 +1754,13 @@ impl BaseClient {
 
         match event {
             AnySyncEphemeralRoomEvent::FullyRead(full_read) => {
-                event_emitter.on_non_room_fully_read(room, &full_read).await
+                event_emitter.on_non_room_fully_read(room, full_read).await
             }
             AnySyncEphemeralRoomEvent::Typing(typing) => {
-                event_emitter.on_non_room_typing(room, &typing).await
+                event_emitter.on_non_room_typing(room, typing).await
             }
             AnySyncEphemeralRoomEvent::Receipt(receipt) => {
-                event_emitter.on_non_room_receipt(room, &receipt).await
+                event_emitter.on_non_room_receipt(room, receipt).await
             }
             _ => {}
         }
@@ -1859,7 +1859,7 @@ mod test {
         let session = Session {
             access_token: "1234".to_owned(),
             user_id: UserId::try_from("@example:localhost").unwrap(),
-            device_id: "DEVICEID".to_owned(),
+            device_id: "DEVICEID".into(),
         };
         let client = BaseClient::new().unwrap();
         client.restore_login(session).await.unwrap();
@@ -2361,7 +2361,7 @@ mod test {
         let session = Session {
             access_token: "1234".to_owned(),
             user_id: UserId::try_from("@cheeky_monkey:matrix.org").unwrap(),
-            device_id: "DEVICEID".to_owned(),
+            device_id: "DEVICEID".into(),
         };
 
         let _m = mockito::mock(

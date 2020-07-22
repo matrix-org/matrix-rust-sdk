@@ -683,7 +683,7 @@ impl Room {
                     msg.0 = AnyPossiblyRedactedSyncMessageEvent::Redacted(
                         event
                             .clone()
-                            .redact(redacted_event.clone(), RoomVersionId::version_6()),
+                            .redact(redacted_event.clone(), RoomVersionId::Version6),
                     );
                 }
                 AnyPossiblyRedactedSyncMessageEvent::Redacted(_) => return false,
@@ -1097,7 +1097,7 @@ mod test {
         let session = Session {
             access_token: "1234".to_owned(),
             user_id: UserId::try_from("@example:localhost").unwrap(),
-            device_id: "DEVICEID".to_owned(),
+            device_id: "DEVICEID".into(),
         };
         let client = BaseClient::new().unwrap();
         client.restore_login(session).await.unwrap();
@@ -1605,7 +1605,7 @@ mod test {
         let session = Session {
             access_token: "1234".to_owned(),
             user_id: UserId::try_from("@example:localhost").unwrap(),
-            device_id: "DEVICEID".to_owned(),
+            device_id: "DEVICEID".into(),
         };
         let client = BaseClient::new().unwrap();
         client.restore_login(session).await.unwrap();
@@ -1629,7 +1629,7 @@ mod test {
         let session = Session {
             access_token: "1234".to_owned(),
             user_id: UserId::try_from("@example:localhost").unwrap(),
-            device_id: "DEVICEID".to_owned(),
+            device_id: "DEVICEID".into(),
         };
         let client = BaseClient::new().unwrap();
         client.restore_login(session).await.unwrap();
@@ -1679,7 +1679,7 @@ mod test {
         let session = Session {
             access_token: "1234".to_owned(),
             user_id: user_id.clone(),
-            device_id: "DEVICEID".to_owned(),
+            device_id: "DEVICEID".into(),
         };
         let client = BaseClient::new().unwrap();
         client.restore_login(session).await.unwrap();
