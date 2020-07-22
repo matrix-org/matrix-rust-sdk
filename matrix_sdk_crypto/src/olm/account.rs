@@ -93,6 +93,16 @@ impl Account {
         }
     }
 
+    /// Get the user id of the owner of the account.
+    pub fn user_id(&self) -> &UserId {
+        &self.user_id
+    }
+
+    /// Get the device id that owns this account.
+    pub fn device_id(&self) -> &DeviceId {
+        &self.device_id
+    }
+
     /// Get the public parts of the identity keys for the account.
     pub fn identity_keys(&self) -> &IdentityKeys {
         &self.identity_keys
