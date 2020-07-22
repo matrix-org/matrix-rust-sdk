@@ -62,7 +62,7 @@ pub struct OlmMachine {
     /// The unique device id of the device that holds this account.
     device_id: Box<DeviceId>,
     /// Our underlying Olm Account holding our identity keys.
-    account: Account,
+    pub(crate) account: Account,
     /// Store for the encryption keys.
     /// Persists all the encryption keys so a client can resume the session
     /// without the need to create new keys.
@@ -1278,8 +1278,8 @@ mod test {
         let alice_device = alice_device_id();
         let alice = OlmMachine::new(&alice_id, &alice_device);
 
-        let alice_deivce = Device::from(&alice);
-        let bob_device = Device::from(&bob);
+        let alice_deivce = Device::from_machine(&alice).await;
+        let bob_device = Device::from_machine(&bob).await;
         alice.store.save_devices(&[bob_device]).await.unwrap();
         bob.store.save_devices(&[alice_deivce]).await.unwrap();
 

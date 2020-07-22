@@ -184,40 +184,11 @@ impl Device {
     pub(crate) fn mark_as_deleted(&self) {
         self.deleted.store(true, Ordering::Relaxed);
     }
-}
 
-#[cfg(test)]
-impl From<&OlmMachine> for Device {
-    fn from(machine: &OlmMachine) -> Self {
-        let signatures = BTreeMap::new();
-
-        Device {
-            user_id: Arc::new(machine.user_id().clone()),
-            device_id: Arc::new(machine.device_id().into()),
-            algorithms: Arc::new(vec![
-                Algorithm::MegolmV1AesSha2,
-                Algorithm::OlmV1Curve25519AesSha2,
-            ]),
-            keys: Arc::new(
-                machine
-                    .identity_keys()
-                    .iter()
-                    .map(|(key, value)| {
-                        (
-                            AlgorithmAndDeviceId(
-                                KeyAlgorithm::try_from(key.as_ref()).unwrap(),
-                                machine.device_id().into(),
-                            ),
-                            value.to_owned(),
-                        )
-                    })
-                    .collect(),
-            ),
-            display_name: Arc::new(None),
-            deleted: Arc::new(AtomicBool::new(false)),
-            signatures: Arc::new(signatures),
-            trust_state: Arc::new(Atomic::new(TrustState::Unset)),
-        }
+    #[cfg(test)]
+    pub async fn from_machine(machine: &OlmMachine) -> Device {
+        let device_keys = machine.account.device_keys().await;
+        Device::try_from(&device_keys).unwrap()
     }
 }
 
