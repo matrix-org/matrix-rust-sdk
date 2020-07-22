@@ -38,7 +38,7 @@ pub use device::{Device, TrustState};
 pub use error::{MegolmError, OlmError};
 pub use machine::{OlmMachine, OneTimeKeys};
 pub use memory_stores::{DeviceStore, GroupSessionStore, SessionStore, UserDevices};
-pub use olm::{Account, InboundGroupSession, OutboundGroupSession, Session};
+pub use olm::{Account, IdentityKeys, InboundGroupSession, OutboundGroupSession, Session};
 #[cfg(feature = "sqlite-cryptostore")]
 pub use store::sqlite::SqliteStore;
 pub use store::{CryptoStore, CryptoStoreError};
@@ -83,7 +83,7 @@ pub(crate) fn verify_json(
         json_object.insert("unsigned".to_string(), u);
     }
 
-    let key_id = AlgorithmAndDeviceId(KeyAlgorithm::Ed25519, key_id.to_string());
+    let key_id = AlgorithmAndDeviceId(KeyAlgorithm::Ed25519, key_id.into());
 
     let signatures = signatures.ok_or(SignatureError::NoSignatureFound)?;
     let signature_object = signatures

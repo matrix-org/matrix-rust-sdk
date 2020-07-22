@@ -11,13 +11,13 @@ repository = "https://github.com/matrix-org/matrix-rust-sdk"
 version = "0.1.0"
 
 [dependencies]
-instant = { version = "0.1.4", features = ["wasm-bindgen", "now"] }
+instant = { version = "0.1.6", features = ["wasm-bindgen", "now"] }
 js_int = "0.1.8"
 
 [dependencies.ruma]
-path = "/home/poljar/werk/priv/ruma/ruma"
+git = "https://github.com/ruma/ruma"
 features = ["client-api"]
-rev = "c19bcaab"
+rev = "848b22568106d05c5444f3fe46070d5aa16e422b"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 uuid = { version = "0.8.1", features = ["v4"] }

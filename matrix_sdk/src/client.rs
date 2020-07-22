@@ -31,7 +31,7 @@ use futures_timer::Delay as sleep;
 use std::future::Future;
 #[cfg(feature = "encryption")]
 use tracing::{debug, warn};
-use tracing::{info, instrument, trace};
+use tracing::{error, info, instrument, trace};
 
 use http::Method as HttpMethod;
 use http::Response as HttpResponse;
@@ -105,6 +105,7 @@ pub struct ClientConfig {
     user_agent: Option<HeaderValue>,
     disable_ssl_verification: bool,
     base_config: BaseClientConfig,
+    timeout: Option<Duration>,
 }
 
 // #[cfg_attr(tarpaulin, skip)]
@@ -198,11 +199,18 @@ impl ClientConfig {
         self.base_config = self.base_config.passphrase(passphrase);
         self
     }
+
+    /// Set a timeout duration for all HTTP requests. The default is no timeout.
+    pub fn timeout(mut self, timeout: Duration) -> Self {
+        self.timeout = Some(timeout);
+        self
+    }
 }
 
 #[derive(Debug, Default, Clone)]
 /// Settings for a sync call.
 pub struct SyncSettings {
+    pub(crate) filter: Option<sync_events::Filter>,
     pub(crate) timeout: Option<Duration>,
     pub(crate) token: Option<String>,
     pub(crate) full_state: bool,
@@ -232,6 +240,17 @@ impl SyncSettings {
     /// * `timeout` - The time the server is allowed to wait.
     pub fn timeout(mut self, timeout: Duration) -> Self {
         self.timeout = Some(timeout);
+        self
+    }
+
+    /// Set the sync filter.
+    /// It can be either the filter ID, or the definition for the filter.
+    ///
+    /// # Arguments
+    ///
+    /// * `filter` - The filter configuration that should be used for the sync call.
+    pub fn filter(mut self, filter: sync_events::Filter) -> Self {
+        self.filter = Some(filter);
         self
     }
 
@@ -302,6 +321,11 @@ impl Client {
 
         #[cfg(not(target_arch = "wasm32"))]
         let http_client = {
+            let http_client = match config.timeout {
+                Some(x) => http_client.timeout(x),
+                None => http_client,
+            };
+
             let http_client = if config.disable_ssl_verification {
                 http_client.danger_accept_invalid_certs(true)
             } else {
@@ -448,7 +472,7 @@ impl Client {
             login_info: login::LoginInfo::Password {
                 password: password.into(),
             },
-            device_id: device_id.map(|d| d.into()),
+            device_id: device_id.map(|d| d.into().into_boxed_str()),
             initial_device_display_name: initial_device_display_name.map(|d| d.into()),
         };
 
@@ -1222,7 +1246,7 @@ impl Client {
     #[instrument]
     pub async fn sync(&self, sync_settings: SyncSettings) -> Result<sync_events::Response> {
         let request = sync_events::Request {
-            filter: None,
+            filter: sync_settings.filter,
             since: sync_settings.token,
             full_state: sync_settings.full_state,
             set_presence: sync_events::SetPresence::Online,
@@ -1302,6 +1326,7 @@ impl Client {
         C: Future<Output = ()>,
     {
         let mut sync_settings = sync_settings;
+        let filter = sync_settings.filter.clone();
         let mut last_sync_time: Option<Instant> = None;
 
         if sync_settings.token.is_none() {
@@ -1311,12 +1336,13 @@ impl Client {
         loop {
             let response = self.sync(sync_settings.clone()).await;
 
-            let response = if let Ok(r) = response {
-                r
-            } else {
-                sleep::new(Duration::from_secs(1)).await;
-
-                continue;
+            let response = match response {
+                Ok(r) => r,
+                Err(e) => {
+                    error!("Received an invalid response: {}", e);
+                    sleep::new(Duration::from_secs(1)).await;
+                    continue;
+                }
             };
 
             // TODO send out to-device messages here
@@ -1360,6 +1386,9 @@ impl Client {
                     .await
                     .expect("No sync token found after initial sync"),
             );
+            if let Some(f) = filter.as_ref() {
+                sync_settings = sync_settings.filter(f.clone());
+            }
         }
     }
 
@@ -1378,7 +1407,7 @@ impl Client {
     #[instrument]
     async fn claim_one_time_keys(
         &self,
-        one_time_keys: BTreeMap<UserId, BTreeMap<DeviceId, KeyAlgorithm>>,
+        one_time_keys: BTreeMap<UserId, BTreeMap<Box<DeviceId>, KeyAlgorithm>>,
     ) -> Result<claim_keys::Response> {
         let request = claim_keys::Request {
             timeout: None,
@@ -1482,7 +1511,7 @@ impl Client {
             users_for_query
         );
 
-        let mut device_keys: BTreeMap<UserId, Vec<DeviceId>> = BTreeMap::new();
+        let mut device_keys: BTreeMap<UserId, Vec<Box<DeviceId>>> = BTreeMap::new();
 
         for user in users_for_query.drain() {
             device_keys.insert(user, Vec::new());

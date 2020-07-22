@@ -3,17 +3,50 @@
 //! The `Room` struct optionally holds a `MessageQueue` if the "messages"
 //! feature is enabled.
 
-use std::cmp::Ordering;
-use std::ops::{Deref, DerefMut};
-use std::vec::IntoIter;
+use std::{
+    cmp::Ordering,
+    ops::{Deref, DerefMut},
+    time::SystemTime,
+    vec::IntoIter,
+};
 
-use crate::events::{AnyMessageEventContent, AnyMessageEventStub, MessageEventStub};
-
+use matrix_sdk_common::identifiers::EventId;
 use serde::{de, ser, Serialize};
+
+use crate::events::AnyPossiblyRedactedSyncMessageEvent;
+
+/// Exposes some of the field access methods found in the event held by
+/// `AnyPossiblyRedacted*` enums.
+///
+/// This is just an extension trait to aid the ease of use of certain event enums.
+pub trait PossiblyRedactedExt {
+    /// Access the redacted or full events `event_id` field.
+    fn event_id(&self) -> &EventId;
+    /// Access the redacted or full events `origin_server_ts` field.
+    fn origin_server_ts(&self) -> &SystemTime;
+}
+
+impl PossiblyRedactedExt for AnyPossiblyRedactedSyncMessageEvent {
+    /// Access the underlying events `event_id`.
+    fn event_id(&self) -> &EventId {
+        match self {
+            Self::Regular(e) => e.event_id(),
+            Self::Redacted(e) => e.event_id(),
+        }
+    }
+
+    /// Access the underlying events `origin_server_ts`.
+    fn origin_server_ts(&self) -> &SystemTime {
+        match self {
+            Self::Regular(e) => e.origin_server_ts(),
+            Self::Redacted(e) => e.origin_server_ts(),
+        }
+    }
+}
 
 const MESSAGE_QUEUE_CAP: usize = 35;
 
-pub type SyncMessageEvent = MessageEventStub<AnyMessageEventContent>;
+pub type SyncMessageEvent = AnyPossiblyRedactedSyncMessageEvent;
 
 /// A queue that holds the 35 most recent messages received from the server.
 #[derive(Clone, Debug, Default)]
@@ -28,18 +61,6 @@ pub struct MessageQueue {
 /// are simplified.
 #[derive(Clone, Debug, Serialize)]
 pub struct MessageWrapper(pub SyncMessageEvent);
-
-impl MessageWrapper {
-    pub fn clone_into_any_content(event: &AnyMessageEventStub) -> SyncMessageEvent {
-        MessageEventStub {
-            content: event.content(),
-            sender: event.sender().clone(),
-            origin_server_ts: *event.origin_server_ts(),
-            event_id: event.event_id().clone(),
-            unsigned: event.unsigned().clone(),
-        }
-    }
-}
 
 impl Deref for MessageWrapper {
     type Target = SyncMessageEvent;
@@ -57,7 +78,7 @@ impl DerefMut for MessageWrapper {
 
 impl PartialEq for MessageWrapper {
     fn eq(&self, other: &MessageWrapper) -> bool {
-        self.0.event_id == other.0.event_id
+        self.0.event_id() == other.0.event_id()
     }
 }
 
@@ -65,7 +86,7 @@ impl Eq for MessageWrapper {}
 
 impl PartialOrd for MessageWrapper {
     fn partial_cmp(&self, other: &MessageWrapper) -> Option<Ordering> {
-        Some(self.0.origin_server_ts.cmp(&other.0.origin_server_ts))
+        Some(self.0.origin_server_ts().cmp(&other.0.origin_server_ts()))
     }
 }
 
@@ -82,7 +103,7 @@ impl PartialEq for MessageQueue {
                 .msgs
                 .iter()
                 .zip(other.msgs.iter())
-                .all(|(msg_a, msg_b)| msg_a.event_id == msg_b.event_id)
+                .all(|(msg_a, msg_b)| msg_a.event_id() == msg_b.event_id())
     }
 }
 
@@ -100,7 +121,7 @@ impl MessageQueue {
     pub fn push(&mut self, msg: SyncMessageEvent) -> bool {
         // only push new messages into the queue
         if let Some(latest) = self.msgs.last() {
-            if msg.origin_server_ts < latest.origin_server_ts && self.msgs.len() >= 10 {
+            if msg.origin_server_ts() < latest.origin_server_ts() && self.msgs.len() >= 10 {
                 return false;
             }
         }
@@ -120,10 +141,12 @@ impl MessageQueue {
         true
     }
 
+    /// Iterate over the messages in the queue.
     pub fn iter(&self) -> impl Iterator<Item = &MessageWrapper> {
         self.msgs.iter()
     }
 
+    /// Iterate over each message mutably.
     pub fn iter_mut(&mut self) -> impl Iterator<Item = &mut MessageWrapper> {
         self.msgs.iter_mut()
     }
@@ -183,17 +206,18 @@ pub(crate) mod ser_deser {
 
 #[cfg(test)]
 mod test {
-    use super::*;
-
     use std::collections::HashMap;
     use std::convert::TryFrom;
 
+    use matrix_sdk_common::{
+        events::{AnyPossiblyRedactedSyncMessageEvent, AnySyncMessageEvent},
+        identifiers::{RoomId, UserId},
+    };
+    use matrix_sdk_test::test_json;
     #[cfg(target_arch = "wasm32")]
     use wasm_bindgen_test::*;
 
-    use matrix_sdk_test::test_json;
-
-    use crate::identifiers::{RoomId, UserId};
+    use super::*;
     use crate::Room;
 
     #[test]
@@ -204,7 +228,9 @@ mod test {
         let mut room = Room::new(&id, &user);
 
         let json: &serde_json::Value = &test_json::MESSAGE_TEXT;
-        let msg = serde_json::from_value::<SyncMessageEvent>(json.clone()).unwrap();
+        let msg = AnyPossiblyRedactedSyncMessageEvent::Regular(
+            serde_json::from_value::<AnySyncMessageEvent>(json.clone()).unwrap(),
+        );
 
         let mut msgs = MessageQueue::new();
         msgs.push(msg.clone());
@@ -216,7 +242,6 @@ mod test {
             serde_json::json!({
                 "!roomid:example.com": {
                     "room_id": "!roomid:example.com",
-                    "disambiguated_display_names": {},
                     "room_name": {
                         "name": null,
                         "canonical_alias": null,
@@ -250,7 +275,9 @@ mod test {
         let mut room = Room::new(&id, &user);
 
         let json: &serde_json::Value = &test_json::MESSAGE_TEXT;
-        let msg = serde_json::from_value::<SyncMessageEvent>(json.clone()).unwrap();
+        let msg = AnyPossiblyRedactedSyncMessageEvent::Regular(
+            serde_json::from_value::<AnySyncMessageEvent>(json.clone()).unwrap(),
+        );
 
         let mut msgs = MessageQueue::new();
         msgs.push(msg.clone());
@@ -262,7 +289,6 @@ mod test {
         let json = serde_json::json!({
             "!roomid:example.com": {
                 "room_id": "!roomid:example.com",
-                "disambiguated_display_names": {},
                 "room_name": {
                     "name": null,
                     "canonical_alias": null,

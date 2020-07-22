@@ -21,6 +21,7 @@ async-trait = "0.1.36"
 serde = "1.0.114"
 serde_json = "1.0.56"
 zeroize = "1.1.0"
+tracing = "0.1.16"
 
 matrix-sdk-common-macros = { version = "0.1.0", path = "../matrix_sdk_common_macros" }
 matrix-sdk-common = { version = "0.1.0", path = "../matrix_sdk_common" }
@@ -45,4 +46,4 @@ mockito = "0.26.0"
 tokio = { version = "0.2.21", features = ["rt-threaded", "macros"] }
 
 [target.'cfg(target_arch = "wasm32")'.dev-dependencies]
-wasm-bindgen-test = "0.3.14"
+wasm-bindgen-test = "0.3.15"

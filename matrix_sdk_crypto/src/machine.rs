@@ -23,7 +23,6 @@ use std::result::Result as StdResult;
 use super::error::{EventError, MegolmError, MegolmResult, OlmError, OlmResult};
 use super::olm::{
     Account, GroupSessionKey, IdentityKeys, InboundGroupSession, OlmMessage, OutboundGroupSession,
-    Session,
 };
 use super::store::memorystore::MemoryStore;
 #[cfg(feature = "sqlite-cryptostore")]
@@ -32,13 +31,10 @@ use super::{device::Device, store::Result as StoreResult, CryptoStore};
 
 use matrix_sdk_common::api;
 use matrix_sdk_common::events::{
-    forwarded_room_key::ForwardedRoomKeyEventContent,
-    room::encrypted::{CiphertextInfo, EncryptedEventContent, OlmV1Curve25519AesSha2Content},
-    room::message::MessageEventContent,
-    room_key::RoomKeyEventContent,
-    room_key_request::RoomKeyRequestEventContent,
-    Algorithm, AnyRoomEventStub, AnyToDeviceEvent, EventJson, EventType, MessageEventStub,
-    ToDeviceEvent,
+    forwarded_room_key::ForwardedRoomKeyEventContent, room::encrypted::EncryptedEventContent,
+    room::message::MessageEventContent, room_key::RoomKeyEventContent,
+    room_key_request::RoomKeyRequestEventContent, Algorithm, AnySyncRoomEvent, AnyToDeviceEvent,
+    EventJson, EventType, SyncMessageEvent, ToDeviceEvent,
 };
 use matrix_sdk_common::identifiers::{DeviceId, RoomId, UserId};
 use matrix_sdk_common::uuid::Uuid;
@@ -50,7 +46,7 @@ use api::r0::{
     to_device::{send_event_to_device::Request as ToDeviceRequest, DeviceIdOrAllDevices},
 };
 
-use serde_json::{json, Value};
+use serde_json::Value;
 use tracing::{debug, error, info, instrument, trace, warn};
 
 /// A map from the algorithm and device id to a one-time key.
@@ -64,9 +60,9 @@ pub struct OlmMachine {
     /// The unique user id that owns this account.
     user_id: UserId,
     /// The unique device id of the device that holds this account.
-    device_id: DeviceId,
+    device_id: Box<DeviceId>,
     /// Our underlying Olm Account holding our identity keys.
-    account: Account,
+    pub(crate) account: Account,
     /// Store for the encryption keys.
     /// Persists all the encryption keys so a client can resume the session
     /// without the need to create new keys.
@@ -98,10 +94,11 @@ impl OlmMachine {
     /// * `user_id` - The unique id of the user that owns this machine.
     ///
     /// * `device_id` - The unique id of the device that owns this machine.
+    #[allow(clippy::ptr_arg)]
     pub fn new(user_id: &UserId, device_id: &DeviceId) -> Self {
         OlmMachine {
             user_id: user_id.clone(),
-            device_id: device_id.to_owned(),
+            device_id: device_id.into(),
             account: Account::new(user_id, &device_id),
             store: Box::new(MemoryStore::new()),
             outbound_group_sessions: HashMap::new(),
@@ -127,7 +124,7 @@ impl OlmMachine {
     /// the encryption keys.
     pub async fn new_with_store(
         user_id: UserId,
-        device_id: String,
+        device_id: Box<DeviceId>,
         mut store: Box<dyn CryptoStore>,
     ) -> StoreResult<Self> {
         let account = match store.load_account().await? {
@@ -163,14 +160,14 @@ impl OlmMachine {
     /// * `device_id` - The unique id of the device that owns this machine.
     pub async fn new_with_default_store<P: AsRef<Path>>(
         user_id: &UserId,
-        device_id: &str,
+        device_id: &DeviceId,
         path: P,
         passphrase: &str,
     ) -> StoreResult<Self> {
         let store =
             SqliteStore::open_with_passphrase(&user_id, device_id, path, passphrase).await?;
 
-        OlmMachine::new_with_store(user_id.to_owned(), device_id.to_owned(), Box::new(store)).await
+        OlmMachine::new_with_store(user_id.to_owned(), device_id.into(), Box::new(store)).await
     }
 
     /// The unique user id that owns this identity.
@@ -254,7 +251,7 @@ impl OlmMachine {
     pub async fn get_missing_sessions(
         &mut self,
         users: impl Iterator<Item = &UserId>,
-    ) -> OlmResult<BTreeMap<UserId, BTreeMap<DeviceId, KeyAlgorithm>>> {
+    ) -> OlmResult<BTreeMap<UserId, BTreeMap<Box<DeviceId>, KeyAlgorithm>>> {
         let mut missing = BTreeMap::new();
 
         for user_id in users {
@@ -281,10 +278,8 @@ impl OlmMachine {
                     }
 
                     let user_map = missing.get_mut(user_id).unwrap();
-                    let _ = user_map.insert(
-                        device.device_id().to_owned(),
-                        KeyAlgorithm::SignedCurve25519,
-                    );
+                    let _ =
+                        user_map.insert(device.device_id().into(), KeyAlgorithm::SignedCurve25519);
                 }
             }
         }
@@ -306,76 +301,35 @@ impl OlmMachine {
 
         for (user_id, user_devices) in &response.one_time_keys {
             for (device_id, key_map) in user_devices {
-                let device = if let Some(d) = self
-                    .store
-                    .get_device(&user_id, device_id)
-                    .await
-                    .expect("Can't get devices")
-                {
-                    d
-                } else {
-                    warn!(
-                        "Tried to create an Olm session for {} {}, but the device is unknown",
-                        user_id, device_id
-                    );
-                    continue;
-                };
-
-                // TODO move this logic into the account, pass the device to the
-                // account when creating an outbound session.
-                let one_time_key = if let Some(k) = key_map.values().next() {
-                    match k {
-                        OneTimeKey::SignedKey(k) => k,
-                        OneTimeKey::Key(_) => {
+                let device: Device = match self.store.get_device(&user_id, device_id).await {
+                    Ok(d) => {
+                        if let Some(d) = d {
+                            d
+                        } else {
                             warn!(
-                                "Tried to create an Olm session for {} {}, but
-                                   the requested key isn't a signed curve key",
+                                "Tried to create an Olm session for {} {}, but \
+                                the device is unknown",
                                 user_id, device_id
                             );
                             continue;
                         }
                     }
-                } else {
-                    warn!(
-                        "Tried to create an Olm session for {} {}, but the
-                           signed one-time key is missing",
-                        user_id, device_id
-                    );
-                    continue;
-                };
-
-                if let Err(e) = device.verify_one_time_key(&one_time_key) {
-                    warn!(
-                        "Failed to verify the one-time key signatures for {} {}: {:?}",
-                        user_id, device_id, e
-                    );
-                    continue;
-                }
-
-                let curve_key = if let Some(k) = device.get_key(KeyAlgorithm::Curve25519) {
-                    k
-                } else {
-                    warn!(
-                        "Tried to create an Olm session for {} {}, but the
-                           device is missing the curve key",
-                        user_id, device_id
-                    );
-                    continue;
+                    Err(e) => {
+                        warn!(
+                            "Tried to create an Olm session for {} {}, but \
+                            can't fetch the device from the store {:?}",
+                            user_id, device_id, e
+                        );
+                        continue;
+                    }
                 };
 
                 info!("Creating outbound Session for {} {}", user_id, device_id);
 
-                let session = match self
-                    .account
-                    .create_outbound_session(curve_key, &one_time_key)
-                    .await
-                {
+                let session = match self.account.create_outbound_session(device, &key_map).await {
                     Ok(s) => s,
                     Err(e) => {
-                        warn!(
-                            "Error creating new Olm session for {} {}: {}",
-                            user_id, device_id, e
-                        );
+                        warn!("{:?}", e);
                         continue;
                     }
                 };
@@ -396,7 +350,7 @@ impl OlmMachine {
 
     async fn handle_devices_from_key_query(
         &mut self,
-        device_keys_map: &BTreeMap<UserId, BTreeMap<DeviceId, DeviceKeys>>,
+        device_keys_map: &BTreeMap<UserId, BTreeMap<Box<DeviceId>, DeviceKeys>>,
     ) -> StoreResult<Vec<Device>> {
         let mut changed_devices = Vec::new();
 
@@ -446,7 +400,8 @@ impl OlmMachine {
                 changed_devices.push(device);
             }
 
-            let current_devices: HashSet<&DeviceId> = device_map.keys().collect();
+            let current_devices: HashSet<&DeviceId> =
+                device_map.keys().map(|id| id.as_ref()).collect();
             let stored_devices = self.store.get_user_devices(&user_id).await.unwrap();
             let stored_devices_set: HashSet<&DeviceId> = stored_devices.keys().collect();
 
@@ -840,66 +795,51 @@ impl OlmMachine {
         Ok(session.encrypt(content).await)
     }
 
-    /// Encrypt some JSON content using the given Olm session.
+    /// Encrypt the given event for the given Device
+    ///
+    /// # Arguments
+    ///
+    /// * `reciepient_device` - The device that the event should be encrypted
+    ///     for.
+    ///
+    /// * `event_type` - The type of the event.
+    ///
+    /// * `content` - The content of the event that should be encrypted.
     async fn olm_encrypt(
         &mut self,
-        mut session: Session,
         recipient_device: &Device,
         event_type: EventType,
         content: Value,
     ) -> OlmResult<EncryptedEventContent> {
-        let identity_keys = self.account.identity_keys();
-
-        // TODO most of this could go into the session, the session already
-        // stores the curve key of the device, if we also store the ed25519 key
-        // with the session we'll only need to pass in the account to the
-        // session and all of this can live in the session.
-
-        let recipient_signing_key = recipient_device
-            .get_key(KeyAlgorithm::Ed25519)
-            .ok_or(EventError::MissingSigningKey)?;
-        let recipient_sender_key = recipient_device
-            .get_key(KeyAlgorithm::Curve25519)
-            .ok_or(EventError::MissingSigningKey)?;
-
-        let payload = json!({
-            "sender": self.user_id,
-            "sender_device": self.device_id,
-            "keys": {
-                "ed25519": identity_keys.ed25519(),
-            },
-            "recipient": recipient_device.user_id(),
-            "recipient_keys": {
-                "ed25519": recipient_signing_key,
-            },
-            "type": event_type,
-            "content": content,
-        });
-
-        let plaintext = cjson::to_string(&payload)
-            .unwrap_or_else(|_| panic!(format!("Can't serialize {} to canonical JSON", payload)));
-
-        let ciphertext = session.encrypt(&plaintext).await.to_tuple();
-
-        let message_type: usize = ciphertext.0.into();
-
-        let ciphertext = CiphertextInfo {
-            body: ciphertext.1,
-            message_type: (message_type as u32).into(),
+        let sender_key = if let Some(k) = recipient_device.get_key(KeyAlgorithm::Curve25519) {
+            k
+        } else {
+            warn!(
+                "Trying to encrypt a Megolm session for user {} on device {}, \
+                but the device doesn't have a curve25519 key",
+                recipient_device.user_id(),
+                recipient_device.device_id()
+            );
+            return Err(EventError::MissingSenderKey.into());
         };
 
-        let mut content = BTreeMap::new();
+        let mut session = if let Some(s) = self.store.get_sessions(sender_key).await? {
+            let session = &s.lock().await[0];
+            session.clone()
+        } else {
+            warn!(
+                "Trying to encrypt a Megolm session for user {} on device {}, \
+                but no Olm session is found",
+                recipient_device.user_id(),
+                recipient_device.device_id()
+            );
+            return Err(OlmError::MissingSession);
+        };
 
-        content.insert(recipient_sender_key.to_owned(), ciphertext);
-
+        let message = session.encrypt(recipient_device, event_type, content).await;
         self.store.save_sessions(&[session]).await?;
 
-        Ok(EncryptedEventContent::OlmV1Curve25519AesSha2(
-            OlmV1Curve25519AesSha2Content {
-                sender_key: identity_keys.curve25519().to_owned(),
-                ciphertext: content,
-            },
-        ))
+        message
     }
 
     /// Should the client share a group session for the given room.
@@ -946,102 +886,67 @@ impl OlmMachine {
         I: IntoIterator<Item = &'a UserId>,
     {
         self.create_outbound_group_session(room_id).await?;
-        let megolm_session = self.outbound_group_sessions.get(room_id).unwrap();
+        let session = self.outbound_group_sessions.get(room_id).unwrap();
 
-        if megolm_session.shared() {
+        if session.shared() {
             panic!("Session is already shared");
         }
-
-        let session_id = megolm_session.session_id().to_owned();
 
         // TODO don't mark the session as shared automatically only, when all
         // the requests are done, failure to send these requests will likely end
         // up in wedged sessions. We'll need to store the requests and let the
         // caller mark them as sent using an UUID.
-        megolm_session.mark_as_shared();
+        session.mark_as_shared();
 
-        // TODO the key content creation can go into the OutboundGroupSession
-        // struct.
-
-        let key_content = json!({
-            "algorithm": Algorithm::MegolmV1AesSha2,
-            "room_id": room_id,
-            "session_id": session_id.clone(),
-            "session_key": megolm_session.session_key().await,
-            "chain_index": megolm_session.message_index().await,
-        });
-
-        let mut user_map = Vec::new();
+        let mut devices = Vec::new();
 
         for user_id in users {
             for device in self.store.get_user_devices(user_id).await?.devices() {
-                let sender_key = if let Some(k) = device.get_key(KeyAlgorithm::Curve25519) {
-                    k
-                } else {
-                    warn!(
-                        "The device {} of user {} doesn't have a curve 25519 key",
-                        user_id,
-                        device.device_id()
-                    );
-                    // TODO mark the user for a key query.
-                    continue;
-                };
-
                 // TODO abort if the device isn't verified
-                let sessions = self.store.get_sessions(sender_key).await?;
-
-                if let Some(s) = sessions {
-                    let session = &s.lock().await[0];
-                    // TODO once the session has the all the device info, we
-                    // won't need the device anymore to encrypt stuff with the
-                    // session.
-                    user_map.push((session.clone(), device.clone()));
-                } else {
-                    warn!(
-                        "Trying to encrypt a Megolm session for user
-                          {} on device {}, but no Olm session is found",
-                        user_id,
-                        device.device_id()
-                    );
-                }
+                devices.push(device.clone());
             }
         }
 
-        let mut message_vec = Vec::new();
+        let mut requests = Vec::new();
+        let key_content = session.as_json().await;
 
-        for user_map_chunk in user_map.chunks(OlmMachine::MAX_TO_DEVICE_MESSAGES) {
+        for device_map_chunk in devices.chunks(OlmMachine::MAX_TO_DEVICE_MESSAGES) {
             let mut messages = BTreeMap::new();
 
-            for (session, device) in user_map_chunk {
+            for device in device_map_chunk {
+                let encrypted = self
+                    .olm_encrypt(&device, EventType::RoomKey, key_content.clone())
+                    .await;
+
+                let encrypted = match encrypted {
+                    Ok(c) => c,
+                    Err(OlmError::MissingSession)
+                    | Err(OlmError::EventError(EventError::MissingSenderKey)) => {
+                        continue;
+                    }
+                    Err(e) => return Err(e),
+                };
+
                 if !messages.contains_key(device.user_id()) {
                     messages.insert(device.user_id().clone(), BTreeMap::new());
                 };
 
                 let user_messages = messages.get_mut(device.user_id()).unwrap();
 
-                let encrypted_content = self
-                    .olm_encrypt(
-                        session.clone(),
-                        &device,
-                        EventType::RoomKey,
-                        key_content.clone(),
-                    )
-                    .await?;
-
                 user_messages.insert(
-                    DeviceIdOrAllDevices::DeviceId(device.device_id().clone()),
-                    serde_json::value::to_raw_value(&encrypted_content)?,
+                    DeviceIdOrAllDevices::DeviceId(device.device_id().into()),
+                    serde_json::value::to_raw_value(&encrypted)?,
                 );
             }
 
-            message_vec.push(ToDeviceRequest {
+            requests.push(ToDeviceRequest {
                 event_type: EventType::RoomEncrypted,
                 txn_id: Uuid::new_v4().to_string(),
                 messages,
             });
         }
 
-        Ok(message_vec)
+        Ok(requests)
     }
 
     fn add_forwarded_room_key(
@@ -1150,8 +1055,6 @@ impl OlmMachine {
                         }
                     };
 
-                    // TODO make sure private keys are cleared from the event
-                    // before we replace the result.
                     *event_result = decrypted_event;
                 }
                 AnyToDeviceEvent::RoomKeyRequest(e) => self.handle_room_key_request(e),
@@ -1177,9 +1080,9 @@ impl OlmMachine {
     /// * `room_id` - The ID of the room where the event was sent to.
     pub async fn decrypt_room_event(
         &mut self,
-        event: &MessageEventStub<EncryptedEventContent>,
+        event: &SyncMessageEvent<EncryptedEventContent>,
         room_id: &RoomId,
-    ) -> MegolmResult<EventJson<AnyRoomEventStub>> {
+    ) -> MegolmResult<EventJson<AnySyncRoomEvent>> {
         let content = match &event.content {
             EncryptedEventContent::MegolmV1AesSha2(c) => c,
             _ => return Err(EventError::UnsupportedAlgorithm.into()),
@@ -1286,8 +1189,8 @@ mod test {
             encrypted::EncryptedEventContent,
             message::{MessageEventContent, TextMessageEventContent},
         },
-        AnyMessageEventStub, AnyRoomEventStub, AnyToDeviceEvent, EventJson, EventType,
-        MessageEventStub, ToDeviceEvent, UnsignedData,
+        AnySyncMessageEvent, AnySyncRoomEvent, AnyToDeviceEvent, EventJson, EventType,
+        SyncMessageEvent, ToDeviceEvent, Unsigned,
     };
     use matrix_sdk_common::identifiers::{DeviceId, EventId, RoomId, UserId};
     use matrix_sdk_test::test_json;
@@ -1296,8 +1199,8 @@ mod test {
         UserId::try_from("@alice:example.org").unwrap()
     }
 
-    fn alice_device_id() -> DeviceId {
-        "JLAFKJWSCS".to_string()
+    fn alice_device_id() -> Box<DeviceId> {
+        "JLAFKJWSCS".into()
     }
 
     fn user_id() -> UserId {
@@ -1375,8 +1278,8 @@ mod test {
         let alice_device = alice_device_id();
         let alice = OlmMachine::new(&alice_id, &alice_device);
 
-        let alice_deivce = Device::from(&alice);
-        let bob_device = Device::from(&bob);
+        let alice_deivce = Device::from_machine(&alice).await;
+        let bob_device = Device::from_machine(&bob).await;
         alice.store.save_devices(&[bob_device]).await.unwrap();
         bob.store.save_devices(&[alice_deivce]).await.unwrap();
 
@@ -1409,16 +1312,6 @@ mod test {
     async fn get_machine_pair_with_setup_sessions() -> (OlmMachine, OlmMachine) {
         let (mut alice, mut bob) = get_machine_pair_with_session().await;
 
-        let session = alice
-            .store
-            .get_sessions(bob.account.identity_keys().curve25519())
-            .await
-            .unwrap()
-            .unwrap()
-            .lock()
-            .await[0]
-            .clone();
-
         let bob_device = alice
             .store
             .get_device(&bob.user_id, &bob.device_id)
@@ -1429,7 +1322,7 @@ mod test {
         let event = ToDeviceEvent {
             sender: alice.user_id.clone(),
             content: alice
-                .olm_encrypt(session, &bob_device, EventType::Dummy, json!({}))
+                .olm_encrypt(&bob_device, EventType::Dummy, json!({}))
                 .await
                 .unwrap(),
         };
@@ -1698,16 +1591,6 @@ mod test {
     async fn test_olm_encryption() {
         let (mut alice, mut bob) = get_machine_pair_with_session().await;
 
-        let session = alice
-            .store
-            .get_sessions(bob.account.identity_keys().curve25519())
-            .await
-            .unwrap()
-            .unwrap()
-            .lock()
-            .await[0]
-            .clone();
-
         let bob_device = alice
             .store
             .get_device(&bob.user_id, &bob.device_id)
@@ -1718,7 +1601,7 @@ mod test {
         let event = ToDeviceEvent {
             sender: alice.user_id.clone(),
             content: alice
-                .olm_encrypt(session, &bob_device, EventType::Dummy, json!({}))
+                .olm_encrypt(&bob_device, EventType::Dummy, json!({}))
                 .await
                 .unwrap(),
         };
@@ -1804,12 +1687,12 @@ mod test {
 
         let encrypted_content = alice.encrypt(&room_id, content.clone()).await.unwrap();
 
-        let event = MessageEventStub {
+        let event = SyncMessageEvent {
             event_id: EventId::try_from("$xxxxx:example.org").unwrap(),
             origin_server_ts: SystemTime::now(),
             sender: alice.user_id().clone(),
             content: encrypted_content,
-            unsigned: UnsignedData::default(),
+            unsigned: Unsigned::default(),
         };
 
         let decrypted_event = bob
@@ -1820,7 +1703,7 @@ mod test {
             .unwrap();
 
         match decrypted_event {
-            AnyRoomEventStub::Message(AnyMessageEventStub::RoomMessage(MessageEventStub {
+            AnySyncRoomEvent::Message(AnySyncMessageEvent::RoomMessage(SyncMessageEvent {
                 sender,
                 content,
                 ..

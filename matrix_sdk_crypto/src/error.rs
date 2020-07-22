@@ -13,6 +13,7 @@
 // limitations under the License.
 
 use cjson::Error as CjsonError;
+use matrix_sdk_common::identifiers::{DeviceId, UserId};
 use olm_rs::errors::{OlmGroupSessionError, OlmSessionError};
 use serde_json::Error as SerdeError;
 use thiserror::Error;
@@ -49,6 +50,14 @@ pub enum OlmError {
     /// The session with a device has become corrupted.
     #[error("decryption failed likely because a Olm session was wedged")]
     SessionWedged,
+
+    /// Encryption failed because the device does not have a valid Olm session
+    /// with us.
+    #[error(
+        "encryption failed because the device does not \
+            have a valid Olm session with us"
+    )]
+    MissingSession,
 }
 
 /// Error representing a failure during a group encryption operation.
@@ -93,6 +102,9 @@ pub enum EventError {
     #[error("the Encrypted message is missing the signing key of the sender")]
     MissingSigningKey,
 
+    #[error("the Encrypted message is missing the sender key")]
+    MissingSenderKey,
+
     #[error("the Encrypted message is missing the field {0}")]
     MissingField(String),
 
@@ -119,6 +131,29 @@ pub enum SignatureError {
 
     #[error("the signature didn't match the provided key")]
     VerificationError,
+}
+
+#[derive(Error, Debug)]
+pub(crate) enum SessionCreationError {
+    #[error(
+        "Failed to create a new Olm session for {0} {1}, the requested \
+        one-time key isn't a signed curve key"
+    )]
+    OneTimeKeyNotSigned(UserId, Box<DeviceId>),
+    #[error(
+        "Tried to create a new Olm session for {0} {1}, but the signed \
+        one-time key is missing"
+    )]
+    OneTimeKeyMissing(UserId, Box<DeviceId>),
+    #[error("Failed to verify the one-time key signatures for {0} {1}: {2:?}")]
+    InvalidSignature(UserId, Box<DeviceId>, SignatureError),
+    #[error(
+        "Tried to create an Olm session for {0} {1}, but the device is missing \
+        a curve25519 key"
+    )]
+    DeviceMissingCurveKey(UserId, Box<DeviceId>),
+    #[error("Error creating new Olm session for {0} {1}: {2:?}")]
+    OlmError(UserId, Box<DeviceId>, OlmSessionError),
 }
 
 impl From<CjsonError> for SignatureError {

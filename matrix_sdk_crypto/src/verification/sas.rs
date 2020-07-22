@@ -1,8 +1,8 @@
 use crate::Device;
 
 use matrix_sdk_common::events::key::verification::{
-    start::{StartEvent, StartEventContent},
     accept::AcceptEvent,
+    start::{StartEvent, StartEventContent},
     HashAlgorithm, KeyAgreementProtocol, MessageAuthenticationCode, ShortAuthenticationString,
     VerificationMethod,
 };
@@ -11,7 +11,7 @@ use matrix_sdk_common::uuid::Uuid;
 
 struct SasIds {
     own_user_id: UserId,
-    own_device_id: DeviceId,
+    own_device_id: Box<DeviceId>,
     other_device: Device,
 }
 
@@ -27,7 +27,7 @@ struct AcceptedProtocols {
     key_agreement_protocol: KeyAgreementProtocol,
     hash: HashAlgorithm,
     message_auth_code: MessageAuthenticationCode,
-    short_auth_string: Vec<ShortAuthenticationString>
+    short_auth_string: Vec<ShortAuthenticationString>,
 }
 
 struct Sas<S> {
@@ -38,11 +38,11 @@ struct Sas<S> {
 }
 
 impl Sas<Created> {
-    fn new(own_user_id: UserId, own_device_id: DeviceId, other_device: Device) -> Sas<Created> {
+    fn new(own_user_id: UserId, own_device_id: &DeviceId, other_device: Device) -> Sas<Created> {
         Sas {
             ids: SasIds {
                 own_user_id,
-                own_device_id,
+                own_device_id: own_device_id.into(),
                 other_device,
             },
             verification_flow_id: Uuid::new_v4(),
@@ -71,12 +71,12 @@ impl Sas<Created> {
             state: Accepted {
                 commitment: content.commitment.clone(),
                 accepted_protocols: AcceptedProtocols {
-                   method: content.method,
-                   hash: content.hash,
-                   key_agreement_protocol: content.key_agreement_protocol,
-                   message_auth_code: content.message_authentication_code,
-                   short_auth_string: content.short_authentication_string.clone(),
-                }
+                    method: content.method,
+                    hash: content.hash,
+                    key_agreement_protocol: content.key_agreement_protocol,
+                    message_auth_code: content.message_authentication_code,
+                    short_auth_string: content.short_authentication_string.clone(),
+                },
             },
         }
     }
@@ -89,7 +89,7 @@ struct Started {}
 impl Sas<Started> {
     fn from_start_event(
         own_user_id: UserId,
-        own_device_id: DeviceId,
+        own_device_id: &DeviceId,
         other_device: Device,
         event: &StartEvent,
     ) -> Sas<Started> {
@@ -102,7 +102,7 @@ impl Sas<Started> {
         Sas {
             ids: SasIds {
                 own_user_id,
-                own_device_id,
+                own_device_id: own_device_id.into(),
                 other_device,
             },
             verification_flow_id: Uuid::new_v4(),

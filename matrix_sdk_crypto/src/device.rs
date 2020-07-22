@@ -33,9 +33,10 @@ use crate::verify_json;
 #[derive(Debug, Clone)]
 pub struct Device {
     user_id: Arc<UserId>,
-    device_id: Arc<DeviceId>,
+    device_id: Arc<Box<DeviceId>>,
     algorithms: Arc<Vec<Algorithm>>,
     keys: Arc<BTreeMap<AlgorithmAndDeviceId, String>>,
+    signatures: Arc<BTreeMap<UserId, BTreeMap<AlgorithmAndDeviceId, String>>>,
     display_name: Arc<Option<String>>,
     deleted: Arc<AtomicBool>,
     trust_state: Arc<Atomic<TrustState>>,
@@ -70,17 +71,19 @@ impl Device {
     /// Create a new Device.
     pub fn new(
         user_id: UserId,
-        device_id: DeviceId,
+        device_id: Box<DeviceId>,
         display_name: Option<String>,
         trust_state: TrustState,
         algorithms: Vec<Algorithm>,
         keys: BTreeMap<AlgorithmAndDeviceId, String>,
+        signatures: BTreeMap<UserId, BTreeMap<AlgorithmAndDeviceId, String>>,
     ) -> Self {
         Device {
             user_id: Arc::new(user_id),
             device_id: Arc::new(device_id),
             display_name: Arc::new(display_name),
             trust_state: Arc::new(Atomic::new(trust_state)),
+            signatures: Arc::new(signatures),
             algorithms: Arc::new(algorithms),
             keys: Arc::new(keys),
             deleted: Arc::new(AtomicBool::new(false)),
@@ -104,13 +107,20 @@ impl Device {
 
     /// Get the key of the given key algorithm belonging to this device.
     pub fn get_key(&self, algorithm: KeyAlgorithm) -> Option<&String> {
-        self.keys
-            .get(&AlgorithmAndDeviceId(algorithm, self.device_id.to_string()))
+        self.keys.get(&AlgorithmAndDeviceId(
+            algorithm,
+            self.device_id.as_ref().clone(),
+        ))
     }
 
     /// Get a map containing all the device keys.
     pub fn keys(&self) -> &BTreeMap<AlgorithmAndDeviceId, String> {
         &self.keys
+    }
+
+    /// Get a map containing all the device signatures.
+    pub fn signatures(&self) -> &BTreeMap<UserId, BTreeMap<AlgorithmAndDeviceId, String>> {
+        &self.signatures
     }
 
     /// Get the trust state of the device.
@@ -142,6 +152,7 @@ impl Device {
 
         self.algorithms = Arc::new(device_keys.algorithms.clone());
         self.keys = Arc::new(device_keys.keys.clone());
+        self.signatures = Arc::new(device_keys.signatures.clone());
         self.display_name = display_name;
 
         Ok(())
@@ -173,37 +184,11 @@ impl Device {
     pub(crate) fn mark_as_deleted(&self) {
         self.deleted.store(true, Ordering::Relaxed);
     }
-}
 
-#[cfg(test)]
-impl From<&OlmMachine> for Device {
-    fn from(machine: &OlmMachine) -> Self {
-        Device {
-            user_id: Arc::new(machine.user_id().clone()),
-            device_id: Arc::new(machine.device_id().clone()),
-            algorithms: Arc::new(vec![
-                Algorithm::MegolmV1AesSha2,
-                Algorithm::OlmV1Curve25519AesSha2,
-            ]),
-            keys: Arc::new(
-                machine
-                    .identity_keys()
-                    .iter()
-                    .map(|(key, value)| {
-                        (
-                            AlgorithmAndDeviceId(
-                                KeyAlgorithm::try_from(key.as_ref()).unwrap(),
-                                machine.device_id().clone(),
-                            ),
-                            value.to_owned(),
-                        )
-                    })
-                    .collect(),
-            ),
-            display_name: Arc::new(None),
-            deleted: Arc::new(AtomicBool::new(false)),
-            trust_state: Arc::new(Atomic::new(TrustState::Unset)),
-        }
+    #[cfg(test)]
+    pub async fn from_machine(machine: &OlmMachine) -> Device {
+        let device_keys = machine.account.device_keys().await;
+        Device::try_from(&device_keys).unwrap()
     }
 }
 
@@ -215,6 +200,7 @@ impl TryFrom<&DeviceKeys> for Device {
             user_id: Arc::new(device_keys.user_id.clone()),
             device_id: Arc::new(device_keys.device_id.clone()),
             algorithms: Arc::new(device_keys.algorithms.clone()),
+            signatures: Arc::new(device_keys.signatures.clone()),
             keys: Arc::new(device_keys.keys.clone()),
             display_name: Arc::new(
                 device_keys

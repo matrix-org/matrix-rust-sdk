@@ -7,25 +7,45 @@ addons:
 
 jobs:
   allow_failures:
-    - os: windows
-    - os: linux
-      name: wasm32-unknown-unknown
+    - os: osx
+      name: macOS 10.15
 
   include:
-    - stage: Lint
+    - stage: Format
       os: linux
       before_script:
         - rustup component add rustfmt
       script:
         - cargo fmt --all -- --check
 
+    - stage: Clippy
+      os: linux
+      before_script:
+        - rustup component add clippy
+      script:
+        - cargo clippy --all-targets --all-features -- -D warnings
+
     - stage: Test
       os: linux
-      dist: bionic
 
     - os: windows
+      script:
+          - cd matrix_sdk
+          - cargo test --no-default-features --features "messages"
+          - cd ../matrix_sdk_base
+          - cargo test --no-default-features --features "messages"
 
     - os: osx
+
+    - os: linux
+      name: Minimal build
+      script:
+          - cd matrix_sdk
+          - cargo build --no-default-features
+
+    - os: osx
+      name: macOS 10.15
+      osx_image: xcode12
 
     - os: linux
       name: Coverage

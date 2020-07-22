@@ -152,6 +152,12 @@ impl RoomBuilder {
     }
 }
 
+impl Default for RoomBuilder {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Into<create_room::Request> for RoomBuilder {
     fn into(mut self) -> create_room::Request {
         self.req.creation_content = Some(self.creation_content);
@@ -269,7 +275,7 @@ impl Into<get_message_events::Request> for MessagesRequestBuilder {
 pub struct RegistrationBuilder {
     password: Option<String>,
     username: Option<String>,
-    device_id: Option<DeviceId>,
+    device_id: Option<Box<DeviceId>>,
     initial_device_display_name: Option<String>,
     auth: Option<AuthData>,
     kind: Option<RegistrationKind>,
@@ -303,7 +309,7 @@ impl RegistrationBuilder {
     ///
     /// If this does not correspond to a known client device, a new device will be created.
     /// The server will auto-generate a device_id if this is not specified.
-    pub fn device_id<S: Into<String>>(&mut self, device_id: S) -> &mut Self {
+    pub fn device_id<S: Into<Box<str>>>(&mut self, device_id: S) -> &mut Self {
         self.device_id = Some(device_id.into());
         self
     }

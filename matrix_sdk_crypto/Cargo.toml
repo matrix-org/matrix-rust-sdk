@@ -29,7 +29,7 @@ url = "2.1.1"
 
 # Misc dependencies
 thiserror = "1.0.20"
-tracing = "0.1.15"
+tracing = "0.1.16"
 atomic = "0.4.6"
 dashmap = "3.11.7"
 

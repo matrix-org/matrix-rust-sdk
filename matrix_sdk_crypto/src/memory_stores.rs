@@ -129,24 +129,24 @@ impl GroupSessionStore {
 /// In-memory store holding the devices of users.
 #[derive(Clone, Debug, Default)]
 pub struct DeviceStore {
-    entries: Arc<DashMap<UserId, DashMap<String, Device>>>,
+    entries: Arc<DashMap<UserId, DashMap<Box<DeviceId>, Device>>>,
 }
 
 /// A read only view over all devices belonging to a user.
 #[derive(Debug)]
 pub struct UserDevices {
-    entries: ReadOnlyView<DeviceId, Device>,
+    entries: ReadOnlyView<Box<DeviceId>, Device>,
 }
 
 impl UserDevices {
     /// Get the specific device with the given device id.
-    pub fn get(&self, device_id: &str) -> Option<Device> {
+    pub fn get(&self, device_id: &DeviceId) -> Option<Device> {
         self.entries.get(device_id).cloned()
     }
 
     /// Iterator over all the device ids of the user devices.
     pub fn keys(&self) -> impl Iterator<Item = &DeviceId> {
-        self.entries.keys()
+        self.entries.keys().map(|id| id.as_ref())
     }
 
     /// Iterator over all the devices of the user devices.
@@ -175,12 +175,12 @@ impl DeviceStore {
         let device_map = self.entries.get_mut(&user_id).unwrap();
 
         device_map
-            .insert(device.device_id().to_owned(), device)
+            .insert(device.device_id().into(), device)
             .is_none()
     }
 
     /// Get the device with the given device_id and belonging to the given user.
-    pub fn get(&self, user_id: &UserId, device_id: &str) -> Option<Device> {
+    pub fn get(&self, user_id: &UserId, device_id: &DeviceId) -> Option<Device> {
         self.entries
             .get(user_id)
             .and_then(|m| m.get(device_id).map(|d| d.value().clone()))
@@ -189,7 +189,7 @@ impl DeviceStore {
     /// Remove the device with the given device_id and belonging to the given user.
     ///
     /// Returns the device if it was removed, None if it wasn't in the store.
-    pub fn remove(&self, user_id: &UserId, device_id: &str) -> Option<Device> {
+    pub fn remove(&self, user_id: &UserId, device_id: &DeviceId) -> Option<Device> {
         self.entries
             .get(user_id)
             .and_then(|m| m.remove(device_id))
@@ -292,8 +292,8 @@ mod test {
 
         let user_devices = store.user_devices(device.user_id());
 
-        assert_eq!(user_devices.keys().nth(0).unwrap(), device.device_id());
-        assert_eq!(user_devices.devices().nth(0).unwrap(), &device);
+        assert_eq!(user_devices.keys().next().unwrap(), device.device_id());
+        assert_eq!(user_devices.devices().next().unwrap(), &device);
 
         let loaded_device = user_devices.get(device.device_id()).unwrap();
 
