@@ -21,7 +21,7 @@ use atomic::Atomic;
 use serde_json::{json, Value};
 
 #[cfg(test)]
-use super::OlmMachine;
+use super::{Account, OlmMachine};
 use matrix_sdk_common::api::r0::keys::{AlgorithmAndDeviceId, DeviceKeys, KeyAlgorithm, SignedKey};
 use matrix_sdk_common::events::Algorithm;
 use matrix_sdk_common::identifiers::{DeviceId, UserId};
@@ -187,7 +187,12 @@ impl Device {
 
     #[cfg(test)]
     pub async fn from_machine(machine: &OlmMachine) -> Device {
-        let device_keys = machine.account.device_keys().await;
+        Device::from_account(&machine.account).await
+    }
+
+    #[cfg(test)]
+    pub async fn from_account(account: &Account) -> Device {
+        let device_keys = account.device_keys().await;
         Device::try_from(&device_keys).unwrap()
     }
 }
