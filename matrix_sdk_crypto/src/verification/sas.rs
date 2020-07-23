@@ -12,12 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::collections::BTreeMap;
 use std::mem;
 
 use olm_rs::sas::OlmSas;
 
-use matrix_sdk_common::api::r0::keys::{AlgorithmAndDeviceId, KeyAlgorithm};
 use matrix_sdk_common::events::{
     key::verification::{
         accept::AcceptEventContent,
@@ -32,7 +30,7 @@ use matrix_sdk_common::events::{
 use matrix_sdk_common::identifiers::{DeviceId, UserId};
 use matrix_sdk_common::uuid::Uuid;
 
-use super::{get_emoji, receive_mac_event, SasIds};
+use super::{get_emoji, get_mac_content, receive_mac_event, SasIds};
 use crate::{Account, Device};
 
 struct AcceptedProtocols {
@@ -333,46 +331,6 @@ impl Sas<KeyReceived> {
 
 struct Confirmed {
     accepted_protocols: AcceptedProtocols,
-}
-
-fn extra_mac_info_send(ids: &SasIds, flow_id: &str) -> String {
-    format!(
-        "MATRIX_KEY_VERIFICATION_MAC{first_user}{first_device}\
-        {second_user}{second_device}{transaction_id}",
-        first_user = ids.account.user_id(),
-        first_device = ids.account.device_id(),
-        second_user = ids.other_device.user_id(),
-        second_device = ids.other_device.device_id(),
-        transaction_id = flow_id,
-    )
-}
-
-fn get_mac_content(sas: &OlmSas, ids: &SasIds, flow_id: &str) -> MacEventContent {
-    let mut mac: BTreeMap<String, String> = BTreeMap::new();
-
-    let key_id = AlgorithmAndDeviceId(KeyAlgorithm::Ed25519, ids.account.device_id().into());
-    let key = ids.account.identity_keys().ed25519();
-    let info = extra_mac_info_send(ids, flow_id);
-
-    mac.insert(
-        key_id.to_string(),
-        sas.calculate_mac(key, &format!("{}{}", info, key_id))
-            .expect("Can't calculate SAS MAC"),
-    );
-
-    // TODO Add the cross signing master key here if we trust/have it.
-
-    let mut keys = mac.keys().cloned().collect::<Vec<String>>();
-    keys.sort();
-    let keys = sas
-        .calculate_mac(&keys.join(","), &format!("{}KEYIDS", &info))
-        .expect("Can't calculate SAS MAC");
-
-    MacEventContent {
-        transaction_id: flow_id.to_owned(),
-        keys,
-        mac,
-    }
 }
 
 impl Sas<Confirmed> {
