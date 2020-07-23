@@ -33,6 +33,8 @@ use matrix_sdk_common::uuid::Uuid;
 use super::{get_decimal, get_emoji, get_mac_content, receive_mac_event, SasIds};
 use crate::{Account, Device};
 
+/// Struct containing the protocols that were agreed to be used for the SAS
+/// flow.
 struct AcceptedProtocols {
     method: VerificationMethod,
     key_agreement_protocol: KeyAgreementProtocol,
@@ -53,24 +55,99 @@ impl From<AcceptEventContent> for AcceptedProtocols {
     }
 }
 
+// TODO each of our state transitions can fail and return a canceled state. We
+// need to check the senders at each transition, the commitment, the
+// verification flow id (transaction id).
+
+/// A type level state machine modeling the Sas flow.
+///
+/// This is the generic struc holding common data between the different states
+/// and the specific state.
 struct Sas<S> {
+    /// The Olm SAS struct.
     inner: OlmSas,
+    /// Struct holding the identities that are doing the SAS dance.
     ids: SasIds,
+    /// The unique identifier of this SAS flow.
+    ///
+    /// This will be the transaction id for to-device events and the relates_to
+    /// field for in-room events.
     verification_flow_id: String,
+    /// The SAS state we're in.
     state: S,
 }
 
+/// The initial SAS state.
+struct Created {
+    protocol_definitions: MSasV1ContentOptions,
+}
+
+/// The initial SAS state if the other side started the SAS verification.
+struct Started {
+    protocol_definitions: MSasV1Content,
+}
+
+/// The SAS state we're going to be in after the other side accepted our
+/// verification start event.
+struct Accepted {
+    accepted_protocols: AcceptedProtocols,
+    commitment: String,
+}
+
+/// The SAS state we're going to be in after we received the public key of the
+/// other participant.
+///
+/// From now on we can show the short auth string to the user.
+struct KeyReceived {
+    we_started: bool,
+    accepted_protocols: AcceptedProtocols,
+}
+
+/// The SAS state we're going to be in after the user has confirmed that the
+/// short auth string matches. We still need to receive a MAC event from the
+/// other side.
+struct Confirmed {
+    accepted_protocols: AcceptedProtocols,
+}
+
+/// The SAS state we're going to be in after we receive a MAC event from the
+/// other side. Our own user still needs to confirm that the short auth string
+/// matches.
+struct MacReceived {
+    we_started: bool,
+    verified_devices: Vec<Box<DeviceId>>,
+    verified_master_keys: Vec<String>,
+}
+
+/// The SAS state indicating that the verification finished successfully.
+///
+/// We can now mark the device in our verified devices lits as verified and sign
+/// the master keys in the verified devices list.
+struct Done {
+    verified_devices: Vec<Box<DeviceId>>,
+    verified_master_keys: Vec<String>,
+}
+
 impl<S> Sas<S> {
+    /// Get our own user id.
     pub fn user_id(&self) -> &UserId {
         &self.ids.account.user_id()
     }
 
+    /// Get our own device id.
     pub fn device_id(&self) -> &DeviceId {
         &self.ids.account.device_id()
     }
 }
 
 impl Sas<Created> {
+    /// Create a new SAS verification flow.
+    ///
+    /// # Arguments
+    ///
+    /// * `account` - Our own account.
+    ///
+    /// * `other_device` - The other device which we are going to verify.
     fn new(account: Account, other_device: Device) -> Sas<Created> {
         let verification_flow_id = Uuid::new_v4().to_string();
         let from_device: Box<DeviceId> = account.device_id().into();
@@ -99,6 +176,9 @@ impl Sas<Created> {
         }
     }
 
+    /// Get the content for the start event.
+    ///
+    /// The content needs to be sent to the other device.
     fn get_start_event(&self) -> StartEventContent {
         StartEventContent::MSasV1(
             MSasV1Content::new(self.state.protocol_definitions.clone())
@@ -106,8 +186,17 @@ impl Sas<Created> {
         )
     }
 
+    /// Receive a m.key.verification.accept event, changing the state into
+    /// an Accepted one.
+    ///
+    /// # Arguments
+    ///
+    /// * `event` - The m.key.verification.accept event that was sent to us by
+    /// the other side.
     fn into_accepted(self, event: &ToDeviceEvent<AcceptEventContent>) -> Sas<Accepted> {
         let content = &event.content;
+
+        // TODO check that we support the agreed upon protocols, cancel if not.
 
         Sas {
             inner: self.inner,
@@ -121,20 +210,27 @@ impl Sas<Created> {
     }
 }
 
-struct Created {
-    protocol_definitions: MSasV1ContentOptions,
-}
-
-struct Started {
-    protocol_definitions: MSasV1Content,
-}
-
 impl Sas<Started> {
+    /// Create a new SAS verification flow from a m.key.verification.start
+    /// event.
+    ///
+    /// This will put us in the `started` state.
+    ///
+    /// # Arguments
+    ///
+    /// * `account` - Our own account.
+    ///
+    /// * `other_device` - The other device which we are going to verify.
+    ///
+    /// * `event` - The m.key.verification.start event that was sent to us by
+    /// the other side.
     fn from_start_event(
         account: Account,
         other_device: Device,
         event: &ToDeviceEvent<StartEventContent>,
     ) -> Sas<Started> {
+        // TODO check if we support the suggested protocols and cancel if we
+        // don't
         let content = if let StartEventContent::MSasV1(content) = &event.content {
             content
         } else {
@@ -157,10 +253,18 @@ impl Sas<Started> {
         }
     }
 
+    /// Get the content for the accept event.
+    ///
+    /// The content needs to be sent to the other device.
+    ///
+    /// This should be sent out automatically if the SAS verification flow has
+    /// been started because of a
+    /// m.key.verification.request -> m.key.verification.ready flow.
     fn get_accept_content(&self) -> AcceptEventContent {
         AcceptEventContent {
             method: VerificationMethod::MSasV1,
             transaction_id: self.verification_flow_id.to_string(),
+            // TODO calculate the commitment.
             commitment: "".to_owned(),
             hash: HashAlgorithm::Sha256,
             key_agreement_protocol: KeyAgreementProtocol::Curve25519HkdfSha256,
@@ -173,6 +277,14 @@ impl Sas<Started> {
         }
     }
 
+    /// Receive a m.key.verification.key event, changing the state into
+    /// a `KeyReceived` one
+    ///
+    /// # Arguments
+    ///
+    /// * `event` - The m.key.verification.key event that was sent to us by
+    /// the other side. The event will be modified so it doesn't contain any key
+    /// anymore.
     fn into_key_received(mut self, event: &mut ToDeviceEvent<KeyEventContent>) -> Sas<KeyReceived> {
         let accepted_protocols: AcceptedProtocols = self.get_accept_content().into();
         self.inner
@@ -191,13 +303,17 @@ impl Sas<Started> {
     }
 }
 
-struct Accepted {
-    accepted_protocols: AcceptedProtocols,
-    commitment: String,
-}
-
 impl Sas<Accepted> {
+    /// Receive a m.key.verification.key event, changing the state into
+    /// a `KeyReceived` one
+    ///
+    /// # Arguments
+    ///
+    /// * `event` - The m.key.verification.key event that was sent to us by
+    /// the other side. The event will be modified so it doesn't contain any key
+    /// anymore.
     fn into_key_received(mut self, event: &mut ToDeviceEvent<KeyEventContent>) -> Sas<KeyReceived> {
+        // TODO check the commitment here since we started the SAS dance.
         self.inner
             .set_their_public_key(&mem::take(&mut event.content.key))
             .expect("Can't set public key");
@@ -213,20 +329,22 @@ impl Sas<Accepted> {
         }
     }
 
+    /// Get the content for the key event.
+    ///
+    /// The content needs to be automatically sent to the other side.
     fn get_key_content(&self) -> KeyEventContent {
         KeyEventContent {
             transaction_id: self.verification_flow_id.to_string(),
             key: self.inner.public_key(),
         }
     }
-}
-
-struct KeyReceived {
-    we_started: bool,
-    accepted_protocols: AcceptedProtocols,
 }
 
 impl Sas<KeyReceived> {
+    /// Get the content for the key event.
+    ///
+    /// The content needs to be automatically sent to the other side if and only
+    /// if we_started is false.
     fn get_key_content(&self) -> KeyEventContent {
         KeyEventContent {
             transaction_id: self.verification_flow_id.to_string(),
@@ -234,6 +352,10 @@ impl Sas<KeyReceived> {
         }
     }
 
+    /// Get the emoji version of the short authentication string.
+    ///
+    /// Returns a vector of tuples where the first element is the emoji and the
+    /// second element the English description of the emoji.
     fn get_emoji(&self) -> Vec<(&'static str, &'static str)> {
         get_emoji(
             &self.inner,
@@ -243,6 +365,10 @@ impl Sas<KeyReceived> {
         )
     }
 
+    /// Get the decimal version of the short authentication string.
+    ///
+    /// Returns a tuple containing three 4 digit integer numbers that represent
+    /// the short auth string.
     fn get_decimal(&self) -> (u32, u32, u32) {
         get_decimal(
             &self.inner,
@@ -252,6 +378,13 @@ impl Sas<KeyReceived> {
         )
     }
 
+    /// Receive a m.key.verification.mac event, changing the state into
+    /// a `MacReceived` one
+    ///
+    /// # Arguments
+    ///
+    /// * `event` - The m.key.verification.mac event that was sent to us by
+    /// the other side.
     fn into_mac_received(self, event: &ToDeviceEvent<MacEventContent>) -> Sas<MacReceived> {
         let (devices, master_keys) =
             receive_mac_event(&self.inner, &self.ids, &self.verification_flow_id, event);
@@ -267,6 +400,10 @@ impl Sas<KeyReceived> {
         }
     }
 
+    /// Confirm that the short auth string matches.
+    ///
+    /// This needs to be done by the user, this will put us in the `Confirmed`
+    /// state.
     fn confirm(self) -> Sas<Confirmed> {
         Sas {
             inner: self.inner,
@@ -279,11 +416,14 @@ impl Sas<KeyReceived> {
     }
 }
 
-struct Confirmed {
-    accepted_protocols: AcceptedProtocols,
-}
-
 impl Sas<Confirmed> {
+    /// Receive a m.key.verification.mac event, changing the state into
+    /// a `Done` one
+    ///
+    /// # Arguments
+    ///
+    /// * `event` - The m.key.verification.mac event that was sent to us by
+    /// the other side.
     fn into_done(self, event: &ToDeviceEvent<MacEventContent>) -> Sas<Done> {
         let (devices, master_keys) =
             receive_mac_event(&self.inner, &self.ids, &self.verification_flow_id, event);
@@ -300,18 +440,19 @@ impl Sas<Confirmed> {
         }
     }
 
+    /// Get the content for the mac event.
+    ///
+    /// The content needs to be automatically sent to the other side.
     fn get_mac_event_content(&self) -> MacEventContent {
         get_mac_content(&self.inner, &self.ids, &self.verification_flow_id)
     }
 }
 
-struct MacReceived {
-    we_started: bool,
-    verified_devices: Vec<Box<DeviceId>>,
-    verified_master_keys: Vec<String>,
-}
-
 impl Sas<MacReceived> {
+    /// Confirm that the short auth string matches.
+    ///
+    /// This needs to be done by the user, this will put us in the `Done`
+    /// state since the other side already confirmed and sent us a MAC event.
     fn confirm(self) -> Sas<Done> {
         Sas {
             inner: self.inner,
@@ -324,6 +465,10 @@ impl Sas<MacReceived> {
         }
     }
 
+    /// Get the emoji version of the short authentication string.
+    ///
+    /// Returns a vector of tuples where the first element is the emoji and the
+    /// second element the English description of the emoji.
     fn get_emoji(&self) -> Vec<(&'static str, &'static str)> {
         get_emoji(
             &self.inner,
@@ -333,6 +478,10 @@ impl Sas<MacReceived> {
         )
     }
 
+    /// Get the decimal version of the short authentication string.
+    ///
+    /// Returns a tuple containing three 4 digit integer numbers that represent
+    /// the short auth string.
     fn get_decimal(&self) -> (u32, u32, u32) {
         get_decimal(
             &self.inner,
@@ -343,20 +492,21 @@ impl Sas<MacReceived> {
     }
 }
 
-struct Done {
-    verified_devices: Vec<Box<DeviceId>>,
-    verified_master_keys: Vec<String>,
-}
-
 impl Sas<Done> {
+    /// Get the content for the mac event.
+    ///
+    /// The content needs to be automatically sent to the other side if it
+    /// wasn't already sent.
     fn get_mac_event_content(&self) -> MacEventContent {
         get_mac_content(&self.inner, &self.ids, &self.verification_flow_id)
     }
 
+    /// Get the list of verified devices.
     fn verified_devices(&self) -> &Vec<Box<DeviceId>> {
         &self.state.verified_devices
     }
 
+    /// Get the list of verified master keys.
     fn verified_master_keys(&self) -> &[String] {
         &self.state.verified_master_keys
     }
@@ -446,7 +596,7 @@ mod test {
     }
 
     #[tokio::test]
-    async fn sas_mac() {
+    async fn sas_full() {
         let (alice, bob) = get_sas_pair().await;
 
         let event = wrap_to_device_event(bob.user_id(), bob.get_accept_content());
