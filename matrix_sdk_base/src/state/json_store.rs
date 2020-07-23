@@ -239,7 +239,7 @@ mod test {
         let sess = Session {
             access_token: "32nj9zu034btz90".to_string(),
             user_id: user.clone(),
-            device_id: "Tester".to_string(),
+            device_id: "Tester".into(),
         };
 
         let state = ClientState {
@@ -369,7 +369,7 @@ mod test {
         let session = Session {
             access_token: "1234".to_owned(),
             user_id: UserId::try_from("@cheeky_monkey:matrix.org").unwrap(),
-            device_id: "DEVICEID".to_owned(),
+            device_id: "DEVICEID".into(),
         };
 
         // a sync response to populate our JSON store

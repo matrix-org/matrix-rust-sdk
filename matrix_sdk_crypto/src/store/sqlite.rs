@@ -573,8 +573,8 @@ impl SqliteStore {
              ",
         )
         .bind(account_id)
-        .bind(&device.user_id().to_string())
-        .bind(device.device_id())
+        .bind(device.user_id().as_str())
+        .bind(device.device_id().as_str())
         .bind(device.display_name())
         .bind(device.trust_state() as i64)
         .execute(&mut *connection)
@@ -584,8 +584,8 @@ impl SqliteStore {
             "SELECT id FROM devices
                       WHERE user_id = ? and device_id = ?",
         )
-        .bind(&device.user_id().to_string())
-        .bind(device.device_id())
+        .bind(device.user_id().as_str())
+        .bind(device.device_id().as_str())
         .fetch_one(&mut *connection)
         .await?;
 
@@ -658,7 +658,7 @@ impl CryptoStore for SqliteStore {
                       WHERE user_id = ? and device_id = ?",
         )
         .bind(self.user_id.as_str())
-        .bind((&*self.device_id).as_ref())
+        .bind(self.device_id.as_str())
         .fetch_optional(&mut *connection)
         .await?;
 
@@ -857,7 +857,7 @@ impl CryptoStore for SqliteStore {
         )
         .bind(account_id)
         .bind(&device.user_id().to_string())
-        .bind(&device.device_id())
+        .bind(device.device_id().as_str())
         .execute(&mut *connection)
         .await?;
 
@@ -897,21 +897,27 @@ mod test {
 
     use super::{Account, CryptoStore, InboundGroupSession, RoomId, Session, SqliteStore, TryFrom};
 
-    static USER_ID: &str = "@example:localhost";
-    static DEVICE_ID: &DeviceId = "DEVICEID";
+    fn example_user_id() -> UserId {
+        UserId::try_from("@example:localhost").unwrap()
+    }
+
+    fn example_device_id() -> &'static DeviceId {
+        "DEVICEID".into()
+    }
 
     async fn get_store(passphrase: Option<&str>) -> (SqliteStore, tempfile::TempDir) {
         let tmpdir = tempdir().unwrap();
         let tmpdir_path = tmpdir.path().to_str().unwrap();
 
-        let user_id = &UserId::try_from(USER_ID).unwrap();
+        let user_id = &example_user_id();
+        let device_id = example_device_id();
 
         let store = if let Some(passphrase) = passphrase {
-            SqliteStore::open_with_passphrase(&user_id, DEVICE_ID, tmpdir_path, passphrase)
+            SqliteStore::open_with_passphrase(&user_id, device_id, tmpdir_path, passphrase)
                 .await
                 .expect("Can't create a passphrase protected store")
         } else {
-            SqliteStore::open(&user_id, DEVICE_ID, tmpdir_path)
+            SqliteStore::open(&user_id, device_id, tmpdir_path)
                 .await
                 .expect("Can't create store")
         };
@@ -981,7 +987,7 @@ mod test {
     async fn create_store() {
         let tmpdir = tempdir().unwrap();
         let tmpdir_path = tmpdir.path().to_str().unwrap();
-        let _ = SqliteStore::open(&UserId::try_from(USER_ID).unwrap(), "DEVICEID", tmpdir_path)
+        let _ = SqliteStore::open(&example_user_id(), "DEVICEID".into(), tmpdir_path)
             .await
             .expect("Can't create store");
     }
@@ -1108,10 +1114,9 @@ mod test {
 
         drop(store);
 
-        let mut store =
-            SqliteStore::open(&UserId::try_from(USER_ID).unwrap(), DEVICE_ID, dir.path())
-                .await
-                .expect("Can't create store");
+        let mut store = SqliteStore::open(&example_user_id(), example_device_id(), dir.path())
+            .await
+            .expect("Can't create store");
 
         let loaded_account = store.load_account().await.unwrap().unwrap();
         assert_eq!(account, loaded_account);
@@ -1201,10 +1206,9 @@ mod test {
         assert!(store.users_for_key_query().contains(device.user_id()));
         drop(store);
 
-        let mut store =
-            SqliteStore::open(&UserId::try_from(USER_ID).unwrap(), DEVICE_ID, dir.path())
-                .await
-                .expect("Can't create store");
+        let mut store = SqliteStore::open(&example_user_id(), example_device_id(), dir.path())
+            .await
+            .expect("Can't create store");
 
         store.load_account().await.unwrap();
 
@@ -1218,10 +1222,9 @@ mod test {
             .unwrap();
         assert!(!store.users_for_key_query().contains(device.user_id()));
 
-        let mut store =
-            SqliteStore::open(&UserId::try_from(USER_ID).unwrap(), DEVICE_ID, dir.path())
-                .await
-                .expect("Can't create store");
+        let mut store = SqliteStore::open(&example_user_id(), example_device_id(), dir.path())
+            .await
+            .expect("Can't create store");
 
         store.load_account().await.unwrap();
 
@@ -1237,10 +1240,9 @@ mod test {
 
         drop(store);
 
-        let mut store =
-            SqliteStore::open(&UserId::try_from(USER_ID).unwrap(), DEVICE_ID, dir.path())
-                .await
-                .expect("Can't create store");
+        let mut store = SqliteStore::open(&example_user_id(), example_device_id(), dir.path())
+            .await
+            .expect("Can't create store");
 
         store.load_account().await.unwrap();
 
@@ -1271,10 +1273,9 @@ mod test {
         store.save_devices(&[device.clone()]).await.unwrap();
         store.delete_device(device.clone()).await.unwrap();
 
-        let mut store =
-            SqliteStore::open(&UserId::try_from(USER_ID).unwrap(), DEVICE_ID, dir.path())
-                .await
-                .expect("Can't create store");
+        let mut store = SqliteStore::open(&example_user_id(), example_device_id(), dir.path())
+            .await
+            .expect("Can't create store");
 
         store.load_account().await.unwrap();
 

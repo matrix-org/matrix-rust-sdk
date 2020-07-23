@@ -309,7 +309,7 @@ impl RegistrationBuilder {
     ///
     /// If this does not correspond to a known client device, a new device will be created.
     /// The server will auto-generate a device_id if this is not specified.
-    pub fn device_id<S: Into<Box<str>>>(&mut self, device_id: S) -> &mut Self {
+    pub fn device_id<S: Into<Box<DeviceId>>>(&mut self, device_id: S) -> &mut Self {
         self.device_id = Some(device_id.into());
         self
     }
@@ -479,7 +479,7 @@ mod test {
         let session = Session {
             access_token: "1234".to_owned(),
             user_id: UserId::try_from("@example:localhost").unwrap(),
-            device_id: "DEVICEID".to_owned(),
+            device_id: "DEVICEID".into(),
         };
 
         let mut builder = RoomBuilder::new();
@@ -527,7 +527,7 @@ mod test {
         let session = Session {
             access_token: "1234".to_owned(),
             user_id: UserId::try_from("@example:localhost").unwrap(),
-            device_id: "DEVICEID".to_owned(),
+            device_id: "DEVICEID".into(),
         };
 
         let mut builder = MessagesRequestBuilder::new(

@@ -1409,7 +1409,7 @@ mod test {
 
         let ret = verify_json(
             &machine.user_id,
-            &machine.device_id,
+            machine.device_id.as_str(),
             ed25519_key,
             &mut json!(&mut device_keys),
         );
@@ -1440,7 +1440,7 @@ mod test {
 
         let ret = verify_json(
             &machine.user_id,
-            &machine.device_id,
+            machine.device_id.as_str(),
             "fake_key",
             &mut json!(&mut device_keys),
         );
@@ -1460,7 +1460,7 @@ mod test {
 
         let ret = verify_json(
             &machine.user_id,
-            &machine.device_id,
+            machine.device_id.as_str(),
             ed25519_key,
             &mut json!(&mut one_time_key),
         );
@@ -1482,7 +1482,7 @@ mod test {
 
         let ret = verify_json(
             &machine.user_id,
-            &machine.device_id,
+            machine.device_id.as_str(),
             ed25519_key,
             &mut json!(&mut one_time_keys.as_mut().unwrap().values_mut().next()),
         );
@@ -1490,7 +1490,7 @@ mod test {
 
         let ret = verify_json(
             &machine.user_id,
-            &machine.device_id,
+            machine.device_id.as_str(),
             ed25519_key,
             &mut json!(&mut device_keys.unwrap()),
         );
@@ -1516,7 +1516,7 @@ mod test {
         let (mut machine, _) = get_prepared_machine().await;
         let response = keys_query_response();
         let alice_id = UserId::try_from("@alice:example.org").unwrap();
-        let alice_device_id = "JLAFKJWSCS".to_owned();
+        let alice_device_id: &DeviceId = "JLAFKJWSCS".into();
 
         let alice_devices = machine.store.get_user_devices(&alice_id).await.unwrap();
         assert!(alice_devices.devices().peekable().peek().is_none());
@@ -1528,12 +1528,12 @@ mod test {
 
         let device = machine
             .store
-            .get_device(&alice_id, &alice_device_id)
+            .get_device(&alice_id, alice_device_id)
             .await
             .unwrap()
             .unwrap();
         assert_eq!(device.user_id(), &alice_id);
-        assert_eq!(device.device_id(), &alice_device_id);
+        assert_eq!(device.device_id(), alice_device_id);
     }
 
     #[tokio::test]

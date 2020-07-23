@@ -171,7 +171,7 @@ mod test {
         let session = Session {
             access_token: "1234".to_owned(),
             user_id: UserId::try_from("@example:localhost").unwrap(),
-            device_id: "DEVICEID".to_owned(),
+            device_id: "DEVICEID".into(),
         };
         let client = BaseClient::new().unwrap();
         client.restore_login(session).await.unwrap();
