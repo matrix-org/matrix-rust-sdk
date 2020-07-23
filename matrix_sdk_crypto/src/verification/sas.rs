@@ -15,7 +15,7 @@
 use std::collections::BTreeMap;
 use std::mem;
 
-use crate::Device;
+use crate::{Account, Device};
 
 use olm_rs::sas::OlmSas;
 
@@ -35,8 +35,7 @@ use matrix_sdk_common::identifiers::{DeviceId, UserId};
 use matrix_sdk_common::uuid::Uuid;
 
 struct SasIds {
-    own_user_id: UserId,
-    own_device_id: Box<DeviceId>,
+    account: Account,
     other_device: Device,
 }
 
@@ -69,7 +68,7 @@ struct Sas<S> {
 
 impl<S> Sas<S> {
     pub fn user_id(&self) -> &UserId {
-        &self.ids.own_user_id
+        &self.ids.account.user_id()
     }
 }
 
@@ -144,14 +143,14 @@ fn get_emoji(index: u8) -> (&'static str, &'static str) {
 }
 
 impl Sas<Created> {
-    fn new(own_user_id: UserId, own_device_id: &DeviceId, other_device: Device) -> Sas<Created> {
+    fn new(account: Account, other_device: Device) -> Sas<Created> {
         let verification_flow_id = Uuid::new_v4().to_string();
+        let from_device: Box<DeviceId> = account.device_id().into();
 
         Sas {
             inner: OlmSas::new(),
             ids: SasIds {
-                own_user_id,
-                own_device_id: own_device_id.into(),
+                account,
                 other_device,
             },
             verification_flow_id: verification_flow_id.clone(),
@@ -159,7 +158,7 @@ impl Sas<Created> {
             state: Created {
                 protocol_definitions: MSasV1ContentOptions {
                     transaction_id: verification_flow_id,
-                    from_device: own_device_id.into(),
+                    from_device,
                     short_authentication_string: vec![
                         ShortAuthenticationString::Decimal,
                         ShortAuthenticationString::Emoji,
@@ -204,8 +203,7 @@ struct Started {
 
 impl Sas<Started> {
     fn from_start_event(
-        own_user_id: &UserId,
-        own_device_id: &DeviceId,
+        account: Account,
         other_device: Device,
         event: &ToDeviceEvent<StartEventContent>,
     ) -> Sas<Started> {
@@ -219,8 +217,7 @@ impl Sas<Started> {
             inner: OlmSas::new(),
 
             ids: SasIds {
-                own_user_id: own_user_id.clone(),
-                own_device_id: own_device_id.into(),
+                account,
                 other_device,
             },
 
@@ -314,8 +311,8 @@ impl Sas<KeyReceived> {
             format!(
                 "MATRIX_KEY_VERIFICATION_SAS{first_user}{first_device}\
                 {second_user}{second_device}{transaction_id}",
-                first_user = self.ids.own_user_id,
-                first_device = self.ids.own_device_id,
+                first_user = self.ids.account.user_id(),
+                first_device = self.ids.account.device_id(),
                 second_user = self.ids.other_device.user_id(),
                 second_device = self.ids.other_device.device_id(),
                 transaction_id = self.verification_flow_id,
@@ -326,8 +323,8 @@ impl Sas<KeyReceived> {
                 {second_user}{second_device}{transaction_id}",
                 first_user = self.ids.other_device.user_id(),
                 first_device = self.ids.other_device.device_id(),
-                second_user = self.ids.own_user_id,
-                second_device = self.ids.own_device_id,
+                second_user = self.ids.account.user_id(),
+                second_device = self.ids.account.device_id(),
                 transaction_id = self.verification_flow_id,
             )
         }
@@ -400,8 +397,8 @@ impl Sas<Confirmed> {
         format!(
             "MATRIX_KEY_VERIFICATION_MAC{first_user}{first_device}\
             {second_user}{second_device}{transaction_id}",
-            first_user = self.ids.own_user_id,
-            first_device = self.ids.own_device_id,
+            first_user = self.ids.account.user_id(),
+            first_device = self.ids.account.device_id(),
             second_user = self.ids.other_device.user_id(),
             second_device = self.ids.other_device.device_id(),
             transaction_id = self.verification_flow_id,
@@ -413,13 +410,14 @@ impl Sas<Confirmed> {
 
         let info = self.get_mac_info();
 
-        let key_id = AlgorithmAndDeviceId(KeyAlgorithm::Ed25519, self.ids.own_device_id.clone());
+        let key_id =
+            AlgorithmAndDeviceId(KeyAlgorithm::Ed25519, self.ids.account.device_id().into());
+        let key = self.ids.account.identity_keys().ed25519();
 
-        // TODO the MAC needs to include our own ed25519 key.
         mac.insert(
             key_id.to_string(),
             self.inner
-                .calculate_mac("TODO", &format!("{}{}", info, key_id))
+                .calculate_mac(key, &format!("{}{}", info, key_id))
                 .expect("Can't calculate SAS MAC"),
         );
 
@@ -496,13 +494,12 @@ mod test {
         let bob = Account::new(&bob_id(), &bob_device_id());
         let bob_device = Device::from_account(&bob).await;
 
-        let alice_sas = Sas::<Created>::new(alice_id(), &alice_device_id(), bob_device);
+        let alice_sas = Sas::<Created>::new(alice.clone(), bob_device);
 
         let start_content = alice_sas.get_start_event();
         let event = wrap_to_device_event(alice_sas.user_id(), start_content);
 
-        let bob_sas =
-            Sas::<Started>::from_start_event(bob.user_id(), bob.device_id(), alice_device, &event);
+        let bob_sas = Sas::<Started>::from_start_event(bob.clone(), alice_device, &event);
 
         (alice_sas, bob_sas)
     }
