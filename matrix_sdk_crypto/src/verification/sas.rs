@@ -12,17 +12,19 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::collections::BTreeMap;
 use std::mem;
 
 use crate::Device;
 
 use olm_rs::sas::OlmSas;
 
+use matrix_sdk_common::api::r0::keys::{AlgorithmAndDeviceId, KeyAlgorithm};
 use matrix_sdk_common::events::{
     key::verification::{
         accept::AcceptEventContent,
         key::KeyEventContent,
-        mac::MacEvent,
+        mac::{MacEvent, MacEventContent},
         start::{MSasV1Content, MSasV1ContentOptions, StartEventContent},
         HashAlgorithm, KeyAgreementProtocol, MessageAuthenticationCode, ShortAuthenticationString,
         VerificationMethod,
@@ -390,8 +392,51 @@ struct Confirmed {
 }
 
 impl Sas<Confirmed> {
-    fn confirm(self) -> Sas<Done> {
+    fn into_done(self, event: &MacEvent) -> Sas<Done> {
         todo!()
+    }
+
+    fn get_mac_info(&self) -> String {
+        format!(
+            "MATRIX_KEY_VERIFICATION_MAC{first_user}{first_device}\
+            {second_user}{second_device}{transaction_id}",
+            first_user = self.ids.own_user_id,
+            first_device = self.ids.own_device_id,
+            second_user = self.ids.other_device.user_id(),
+            second_device = self.ids.other_device.device_id(),
+            transaction_id = self.verification_flow_id,
+        )
+    }
+
+    fn get_mac_event_content(&self) -> MacEventContent {
+        let mut mac: BTreeMap<String, String> = BTreeMap::new();
+
+        let info = self.get_mac_info();
+
+        let key_id = AlgorithmAndDeviceId(KeyAlgorithm::Ed25519, self.ids.own_device_id.clone());
+
+        // TODO the MAC needs to include our own ed25519 key.
+        mac.insert(
+            key_id.to_string(),
+            self.inner
+                .calculate_mac("TODO", &format!("{}{}", info, key_id))
+                .expect("Can't calculate SAS MAC"),
+        );
+
+        // TODO Add the cross signing master key here if we trust/have it.
+
+        let mut keys = mac.keys().cloned().collect::<Vec<String>>();
+        keys.sort();
+        let keys = self
+            .inner
+            .calculate_mac(&keys.join(","), &format!("{}KEYIDS", &info))
+            .expect("Can't calculate SAS MAC");
+
+        MacEventContent {
+            transaction_id: self.verification_flow_id.clone(),
+            keys,
+            mac,
+        }
     }
 }
 
@@ -401,7 +446,7 @@ struct MacReceived {
 }
 
 impl Sas<MacReceived> {
-    fn into_done(self, event: &MacEvent) -> Sas<Done> {
+    fn confirm(self) -> Sas<Done> {
         todo!()
     }
 }
