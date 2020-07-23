@@ -13,6 +13,7 @@
 // limitations under the License.
 
 use std::collections::BTreeMap;
+use std::convert::TryInto;
 use std::mem;
 
 use crate::{Account, Device};
@@ -24,7 +25,7 @@ use matrix_sdk_common::events::{
     key::verification::{
         accept::AcceptEventContent,
         key::KeyEventContent,
-        mac::{MacEvent, MacEventContent},
+        mac::MacEventContent,
         start::{MSasV1Content, MSasV1ContentOptions, StartEventContent},
         HashAlgorithm, KeyAgreementProtocol, MessageAuthenticationCode, ShortAuthenticationString,
         VerificationMethod,
@@ -69,6 +70,10 @@ struct Sas<S> {
 impl<S> Sas<S> {
     pub fn user_id(&self) -> &UserId {
         &self.ids.account.user_id()
+    }
+
+    pub fn device_id(&self) -> &DeviceId {
+        &self.ids.account.device_id()
     }
 }
 
@@ -298,6 +303,57 @@ struct KeyReceived {
     accepted_protocols: AcceptedProtocols,
 }
 
+fn receive_mac_event(
+    sas: &OlmSas,
+    ids: &SasIds,
+    flow_id: &str,
+    event: &ToDeviceEvent<MacEventContent>,
+) -> (Vec<Box<DeviceId>>, Vec<String>) {
+    let mut verified_devices: Vec<Box<DeviceId>> = Vec::new();
+
+    let info = extra_mac_info_receive(&ids, flow_id);
+
+    let mut keys = event.content.mac.keys().cloned().collect::<Vec<String>>();
+    keys.sort();
+    let keys = sas
+        .calculate_mac(&keys.join(","), &format!("{}KEYIDS", &info))
+        .expect("Can't calculate SAS MAC");
+
+    if keys != event.content.keys {
+        panic!("Keys mac mismatch")
+    }
+
+    for (key_id, key_mac) in &event.content.mac {
+        let split: Vec<&str> = key_id.splitn(2, ":").collect();
+
+        if split.len() != 2 {
+            continue;
+        }
+
+        let algorithm: KeyAlgorithm = if let Ok(a) = split[0].try_into() {
+            a
+        } else {
+            continue;
+        };
+
+        let id = split[1];
+        let device_key_id = AlgorithmAndDeviceId(algorithm, id.into());
+
+        if let Some(key) = ids.other_device.keys().get(&device_key_id) {
+            if key_mac
+                == &sas
+                    .calculate_mac(key, &format!("{}{}", info, key_id))
+                    .expect("Can't calculate SAS MAC")
+            {
+                verified_devices.push(ids.other_device.device_id().into());
+            }
+        }
+        // TODO add an else branch for the master key here
+    }
+
+    (verified_devices, vec![])
+}
+
 impl Sas<KeyReceived> {
     fn get_key_content(&self) -> KeyEventContent {
         KeyEventContent {
@@ -368,19 +424,36 @@ impl Sas<KeyReceived> {
             .map(|b| b as u32)
             .collect();
 
-        let first = (bytes[0] << 5 | bytes[1] >> 3) + 1000;
-        let second = ((bytes[1] & 0x7) << 10 | bytes[2] << 2 | bytes[3] >> 6) + 1000;
-        let third = ((bytes[3] & 0x3F) << 7 | bytes[4] >> 1) + 1000;
+        let first = bytes[0] << 5 | bytes[1] >> 3;
+        let second = (bytes[1] & 0x7) << 10 | bytes[2] << 2 | bytes[3] >> 6;
+        let third = (bytes[3] & 0x3F) << 7 | bytes[4] >> 1;
 
-        (first, second, third)
+        (first + 1000, second + 1000, third + 1000)
     }
 
-    fn into_mac_received(self, event: &MacEvent) -> Sas<MacReceived> {
-        todo!()
+    fn into_mac_received(self, event: &ToDeviceEvent<MacEventContent>) -> Sas<MacReceived> {
+        let (devices, master_keys) =
+            receive_mac_event(&self.inner, &self.ids, &self.verification_flow_id, event);
+        Sas {
+            inner: self.inner,
+            verification_flow_id: self.verification_flow_id,
+            ids: self.ids,
+            state: MacReceived {
+                verified_devices: devices,
+                verified_master_keys: master_keys,
+            },
+        }
     }
 
     fn confirm(self) -> Sas<Confirmed> {
-        todo!()
+        Sas {
+            inner: self.inner,
+            verification_flow_id: self.verification_flow_id,
+            ids: self.ids,
+            state: Confirmed {
+                accepted_protocols: self.state.accepted_protocols,
+            },
+        }
     }
 }
 
@@ -388,70 +461,116 @@ struct Confirmed {
     accepted_protocols: AcceptedProtocols,
 }
 
-impl Sas<Confirmed> {
-    fn into_done(self, event: &MacEvent) -> Sas<Done> {
-        todo!()
-    }
+fn extra_mac_info_send(ids: &SasIds, flow_id: &str) -> String {
+    format!(
+        "MATRIX_KEY_VERIFICATION_MAC{first_user}{first_device}\
+        {second_user}{second_device}{transaction_id}",
+        first_user = ids.account.user_id(),
+        first_device = ids.account.device_id(),
+        second_user = ids.other_device.user_id(),
+        second_device = ids.other_device.device_id(),
+        transaction_id = flow_id,
+    )
+}
 
-    fn get_mac_info(&self) -> String {
-        format!(
-            "MATRIX_KEY_VERIFICATION_MAC{first_user}{first_device}\
-            {second_user}{second_device}{transaction_id}",
-            first_user = self.ids.account.user_id(),
-            first_device = self.ids.account.device_id(),
-            second_user = self.ids.other_device.user_id(),
-            second_device = self.ids.other_device.device_id(),
-            transaction_id = self.verification_flow_id,
-        )
+fn extra_mac_info_receive(ids: &SasIds, flow_id: &str) -> String {
+    format!(
+        "MATRIX_KEY_VERIFICATION_MAC{first_user}{first_device}\
+        {second_user}{second_device}{transaction_id}",
+        first_user = ids.other_device.user_id(),
+        first_device = ids.other_device.device_id(),
+        second_user = ids.account.user_id(),
+        second_device = ids.account.device_id(),
+        transaction_id = flow_id,
+    )
+}
+
+fn get_mac_content(sas: &OlmSas, ids: &SasIds, flow_id: &str) -> MacEventContent {
+    let mut mac: BTreeMap<String, String> = BTreeMap::new();
+
+    let key_id = AlgorithmAndDeviceId(KeyAlgorithm::Ed25519, ids.account.device_id().into());
+    let key = ids.account.identity_keys().ed25519();
+    let info = extra_mac_info_send(ids, flow_id);
+
+    mac.insert(
+        key_id.to_string(),
+        sas.calculate_mac(key, &format!("{}{}", info, key_id))
+            .expect("Can't calculate SAS MAC"),
+    );
+
+    // TODO Add the cross signing master key here if we trust/have it.
+
+    let mut keys = mac.keys().cloned().collect::<Vec<String>>();
+    keys.sort();
+    let keys = sas
+        .calculate_mac(&keys.join(","), &format!("{}KEYIDS", &info))
+        .expect("Can't calculate SAS MAC");
+
+    MacEventContent {
+        transaction_id: flow_id.to_owned(),
+        keys,
+        mac,
+    }
+}
+
+impl Sas<Confirmed> {
+    fn into_done(self, event: &ToDeviceEvent<MacEventContent>) -> Sas<Done> {
+        let (devices, master_keys) =
+            receive_mac_event(&self.inner, &self.ids, &self.verification_flow_id, event);
+
+        Sas {
+            inner: self.inner,
+            verification_flow_id: self.verification_flow_id,
+            ids: self.ids,
+
+            state: Done {
+                verified_devices: devices,
+                verified_master_keys: master_keys,
+            },
+        }
     }
 
     fn get_mac_event_content(&self) -> MacEventContent {
-        let mut mac: BTreeMap<String, String> = BTreeMap::new();
-
-        let info = self.get_mac_info();
-
-        let key_id =
-            AlgorithmAndDeviceId(KeyAlgorithm::Ed25519, self.ids.account.device_id().into());
-        let key = self.ids.account.identity_keys().ed25519();
-
-        mac.insert(
-            key_id.to_string(),
-            self.inner
-                .calculate_mac(key, &format!("{}{}", info, key_id))
-                .expect("Can't calculate SAS MAC"),
-        );
-
-        // TODO Add the cross signing master key here if we trust/have it.
-
-        let mut keys = mac.keys().cloned().collect::<Vec<String>>();
-        keys.sort();
-        let keys = self
-            .inner
-            .calculate_mac(&keys.join(","), &format!("{}KEYIDS", &info))
-            .expect("Can't calculate SAS MAC");
-
-        MacEventContent {
-            transaction_id: self.verification_flow_id.clone(),
-            keys,
-            mac,
-        }
+        get_mac_content(&self.inner, &self.ids, &self.verification_flow_id)
     }
 }
 
 struct MacReceived {
-    verified_devices: Vec<String>,
+    verified_devices: Vec<Box<DeviceId>>,
     verified_master_keys: Vec<String>,
 }
 
 impl Sas<MacReceived> {
     fn confirm(self) -> Sas<Done> {
-        todo!()
+        Sas {
+            inner: self.inner,
+            verification_flow_id: self.verification_flow_id,
+            ids: self.ids,
+            state: Done {
+                verified_devices: self.state.verified_devices,
+                verified_master_keys: self.state.verified_master_keys,
+            },
+        }
     }
 }
 
 struct Done {
-    verified_devices: Vec<String>,
+    verified_devices: Vec<Box<DeviceId>>,
     verified_master_keys: Vec<String>,
+}
+
+impl Sas<Done> {
+    fn get_mac_event_content(&self) -> MacEventContent {
+        get_mac_content(&self.inner, &self.ids, &self.verification_flow_id)
+    }
+
+    fn verified_devices(&self) -> &Vec<Box<DeviceId>> {
+        &self.state.verified_devices
+    }
+
+    fn verified_master_keys(&self) -> &[String] {
+        &self.state.verified_master_keys
+    }
 }
 
 #[cfg(test)]
@@ -535,5 +654,38 @@ mod test {
 
         assert_eq!(alice.get_decimal(), bob.get_decimal());
         assert_eq!(alice.get_emoji(), bob.get_emoji());
+    }
+
+    #[tokio::test]
+    async fn sas_mac() {
+        let (alice, bob) = get_sas_pair().await;
+
+        let event = wrap_to_device_event(bob.user_id(), bob.get_accept_content());
+
+        let alice: Sas<Accepted> = alice.into_accepted(&event);
+        let mut event = wrap_to_device_event(alice.user_id(), alice.get_key_content());
+
+        let bob = bob.into_key_received(&mut event);
+
+        let mut event = wrap_to_device_event(bob.user_id(), bob.get_key_content());
+
+        let alice = alice.into_key_received(&mut event);
+
+        assert_eq!(alice.get_decimal(), bob.get_decimal());
+        assert_eq!(alice.get_emoji(), bob.get_emoji());
+
+        let bob = bob.confirm();
+
+        let event = wrap_to_device_event(bob.user_id(), bob.get_mac_event_content());
+
+        let alice = alice.into_mac_received(&event);
+        // assert!(!alice.get_emoji().is_empty());
+        let alice = alice.confirm();
+
+        let event = wrap_to_device_event(alice.user_id(), alice.get_mac_event_content());
+        let bob = bob.into_done(&event);
+
+        assert!(bob.verified_devices().contains(&alice.device_id().into()));
+        assert!(alice.verified_devices().contains(&bob.device_id().into()));
     }
 }
