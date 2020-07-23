@@ -48,7 +48,7 @@ impl From<AcceptEventContent> for AcceptedProtocols {
             hash: content.hash,
             key_agreement_protocol: content.key_agreement_protocol,
             message_auth_code: content.message_authentication_code,
-            short_auth_string: content.short_authentication_string.clone(),
+            short_auth_string: content.short_authentication_string,
         }
     }
 }

@@ -134,7 +134,7 @@ fn receive_mac_event(
     }
 
     for (key_id, key_mac) in &event.content.mac {
-        let split: Vec<&str> = key_id.splitn(2, ":").collect();
+        let split: Vec<&str> = key_id.splitn(2, ':').collect();
 
         if split.len() != 2 {
             continue;
