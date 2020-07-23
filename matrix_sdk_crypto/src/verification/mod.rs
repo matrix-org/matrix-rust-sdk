@@ -31,7 +31,7 @@ struct SasIds {
     other_device: Device,
 }
 
-fn get_emoji(index: u8) -> (&'static str, &'static str) {
+fn emoji_from_index(index: u8) -> (&'static str, &'static str) {
     match index {
         0 => ("🐶", "Dog"),
         1 => ("🐱", "Cat"),
@@ -202,4 +202,76 @@ fn get_mac_content(sas: &OlmSas, ids: &SasIds, flow_id: &str) -> MacEventContent
         keys,
         mac,
     }
+}
+
+fn extra_info_sas(ids: &SasIds, flow_id: &str, we_started: bool) -> String {
+    if we_started {
+        format!(
+            "MATRIX_KEY_VERIFICATION_SAS{first_user}{first_device}\
+            {second_user}{second_device}{transaction_id}",
+            first_user = ids.account.user_id(),
+            first_device = ids.account.device_id(),
+            second_user = ids.other_device.user_id(),
+            second_device = ids.other_device.device_id(),
+            transaction_id = flow_id,
+        )
+    } else {
+        format!(
+            "MATRIX_KEY_VERIFICATION_SAS{first_user}{first_device}\
+            {second_user}{second_device}{transaction_id}",
+            first_user = ids.other_device.user_id(),
+            first_device = ids.other_device.device_id(),
+            second_user = ids.account.user_id(),
+            second_device = ids.account.device_id(),
+            transaction_id = flow_id,
+        )
+    }
+}
+
+fn get_emoji(
+    sas: &OlmSas,
+    ids: &SasIds,
+    flow_id: &str,
+    we_started: bool,
+) -> Vec<(&'static str, &'static str)> {
+    let bytes: Vec<u64> = sas
+        .generate_bytes(&extra_info_sas(&ids, &flow_id, we_started), 6)
+        .expect("Can't generate bytes")
+        .into_iter()
+        .map(|b| b as u64)
+        .collect();
+
+    let mut num: u64 = bytes[0] << 40;
+    num += bytes[1] << 32;
+    num += bytes[2] << 24;
+    num += bytes[3] << 16;
+    num += bytes[4] << 8;
+    num += bytes[5];
+
+    let numbers = vec![
+        ((num >> 42) & 63) as u8,
+        ((num >> 36) & 63) as u8,
+        ((num >> 30) & 63) as u8,
+        ((num >> 24) & 63) as u8,
+        ((num >> 18) & 63) as u8,
+        ((num >> 12) & 63) as u8,
+        ((num >> 6) & 63) as u8,
+    ];
+
+    numbers.into_iter().map(emoji_from_index).collect()
+}
+
+fn get_decimal(sas: &OlmSas, ids: &SasIds, flow_id: &str, we_started: bool) -> (u32, u32, u32) {
+    let bytes: Vec<u32> = sas
+        .generate_bytes(&extra_info_sas(&ids, &flow_id, we_started), 5)
+        .expect("Can't generate bytes")
+        .into_iter()
+        .map(|b| b as u32)
+        .collect();
+
+    let first = bytes[0] << 5 | bytes[1] >> 3;
+    let second = (bytes[1] & 0x7) << 10 | bytes[2] << 2 | bytes[3] >> 6;
+    let third = (bytes[3] & 0x3F) << 7 | bytes[4] >> 1;
+
+    (first + 1000, second + 1000, third + 1000)
 }

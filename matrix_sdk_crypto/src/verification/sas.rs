@@ -30,7 +30,7 @@ use matrix_sdk_common::events::{
 use matrix_sdk_common::identifiers::{DeviceId, UserId};
 use matrix_sdk_common::uuid::Uuid;
 
-use super::{get_emoji, get_mac_content, receive_mac_event, SasIds};
+use super::{get_decimal, get_emoji, get_mac_content, receive_mac_event, SasIds};
 use crate::{Account, Device};
 
 struct AcceptedProtocols {
@@ -234,73 +234,22 @@ impl Sas<KeyReceived> {
         }
     }
 
-    fn extra_info(&self) -> String {
-        if self.state.we_started {
-            format!(
-                "MATRIX_KEY_VERIFICATION_SAS{first_user}{first_device}\
-                {second_user}{second_device}{transaction_id}",
-                first_user = self.ids.account.user_id(),
-                first_device = self.ids.account.device_id(),
-                second_user = self.ids.other_device.user_id(),
-                second_device = self.ids.other_device.device_id(),
-                transaction_id = self.verification_flow_id,
-            )
-        } else {
-            format!(
-                "MATRIX_KEY_VERIFICATION_SAS{first_user}{first_device}\
-                {second_user}{second_device}{transaction_id}",
-                first_user = self.ids.other_device.user_id(),
-                first_device = self.ids.other_device.device_id(),
-                second_user = self.ids.account.user_id(),
-                second_device = self.ids.account.device_id(),
-                transaction_id = self.verification_flow_id,
-            )
-        }
-    }
-
     fn get_emoji(&self) -> Vec<(&'static str, &'static str)> {
-        let bytes: Vec<u64> = self
-            .inner
-            .generate_bytes(&self.extra_info(), 6)
-            .expect("Can't generate bytes")
-            .into_iter()
-            .map(|b| b as u64)
-            .collect();
-
-        let mut num: u64 = bytes[0] << 40;
-        num += bytes[1] << 32;
-        num += bytes[2] << 24;
-        num += bytes[3] << 16;
-        num += bytes[4] << 8;
-        num += bytes[5];
-
-        let numbers = vec![
-            ((num >> 42) & 63) as u8,
-            ((num >> 36) & 63) as u8,
-            ((num >> 30) & 63) as u8,
-            ((num >> 24) & 63) as u8,
-            ((num >> 18) & 63) as u8,
-            ((num >> 12) & 63) as u8,
-            ((num >> 6) & 63) as u8,
-        ];
-
-        numbers.into_iter().map(get_emoji).collect()
+        get_emoji(
+            &self.inner,
+            &self.ids,
+            &self.verification_flow_id,
+            self.state.we_started,
+        )
     }
 
     fn get_decimal(&self) -> (u32, u32, u32) {
-        let bytes: Vec<u32> = self
-            .inner
-            .generate_bytes(&self.extra_info(), 5)
-            .expect("Can't generate bytes")
-            .into_iter()
-            .map(|b| b as u32)
-            .collect();
-
-        let first = bytes[0] << 5 | bytes[1] >> 3;
-        let second = (bytes[1] & 0x7) << 10 | bytes[2] << 2 | bytes[3] >> 6;
-        let third = (bytes[3] & 0x3F) << 7 | bytes[4] >> 1;
-
-        (first + 1000, second + 1000, third + 1000)
+        get_decimal(
+            &self.inner,
+            &self.ids,
+            &self.verification_flow_id,
+            self.state.we_started,
+        )
     }
 
     fn into_mac_received(self, event: &ToDeviceEvent<MacEventContent>) -> Sas<MacReceived> {
