@@ -260,6 +260,7 @@ impl Sas<KeyReceived> {
             verification_flow_id: self.verification_flow_id,
             ids: self.ids,
             state: MacReceived {
+                we_started: self.state.we_started,
                 verified_devices: devices,
                 verified_master_keys: master_keys,
             },
@@ -305,6 +306,7 @@ impl Sas<Confirmed> {
 }
 
 struct MacReceived {
+    we_started: bool,
     verified_devices: Vec<Box<DeviceId>>,
     verified_master_keys: Vec<String>,
 }
@@ -320,6 +322,24 @@ impl Sas<MacReceived> {
                 verified_master_keys: self.state.verified_master_keys,
             },
         }
+    }
+
+    fn get_emoji(&self) -> Vec<(&'static str, &'static str)> {
+        get_emoji(
+            &self.inner,
+            &self.ids,
+            &self.verification_flow_id,
+            self.state.we_started,
+        )
+    }
+
+    fn get_decimal(&self) -> (u32, u32, u32) {
+        get_decimal(
+            &self.inner,
+            &self.ids,
+            &self.verification_flow_id,
+            self.state.we_started,
+        )
     }
 }
 
@@ -448,7 +468,7 @@ mod test {
         let event = wrap_to_device_event(bob.user_id(), bob.get_mac_event_content());
 
         let alice = alice.into_mac_received(&event);
-        // assert!(!alice.get_emoji().is_empty());
+        assert!(!alice.get_emoji().is_empty());
         let alice = alice.confirm();
 
         let event = wrap_to_device_event(alice.user_id(), alice.get_mac_event_content());
