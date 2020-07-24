@@ -65,7 +65,7 @@ impl From<AcceptEventContent> for AcceptedProtocols {
 ///
 /// This is the generic struc holding common data between the different states
 /// and the specific state.
-struct Sas<S> {
+struct SasState<S> {
     /// The Olm SAS struct.
     inner: Arc<Mutex<OlmSas>>,
     /// Struct holding the identities that are doing the SAS dance.
@@ -130,7 +130,7 @@ struct Done {
     verified_master_keys: Arc<Vec<String>>,
 }
 
-impl<S> Sas<S> {
+impl<S> SasState<S> {
     /// Get our own user id.
     pub fn user_id(&self) -> &UserId {
         &self.ids.account.user_id()
@@ -142,7 +142,7 @@ impl<S> Sas<S> {
     }
 }
 
-impl Sas<Created> {
+impl SasState<Created> {
     /// Create a new SAS verification flow.
     ///
     /// # Arguments
@@ -150,11 +150,11 @@ impl Sas<Created> {
     /// * `account` - Our own account.
     ///
     /// * `other_device` - The other device which we are going to verify.
-    fn new(account: Account, other_device: Device) -> Sas<Created> {
+    fn new(account: Account, other_device: Device) -> SasState<Created> {
         let verification_flow_id = Uuid::new_v4().to_string();
         let from_device: Box<DeviceId> = account.device_id().into();
 
-        Sas {
+        SasState {
             inner: Arc::new(Mutex::new(OlmSas::new())),
             ids: SasIds {
                 account,
@@ -195,12 +195,12 @@ impl Sas<Created> {
     ///
     /// * `event` - The m.key.verification.accept event that was sent to us by
     /// the other side.
-    fn into_accepted(self, event: &ToDeviceEvent<AcceptEventContent>) -> Sas<Accepted> {
+    fn into_accepted(self, event: &ToDeviceEvent<AcceptEventContent>) -> SasState<Accepted> {
         let content = &event.content;
 
         // TODO check that we support the agreed upon protocols, cancel if not.
 
-        Sas {
+        SasState {
             inner: self.inner,
             ids: self.ids,
             verification_flow_id: self.verification_flow_id,
@@ -212,7 +212,7 @@ impl Sas<Created> {
     }
 }
 
-impl Sas<Started> {
+impl SasState<Started> {
     /// Create a new SAS verification flow from a m.key.verification.start
     /// event.
     ///
@@ -230,7 +230,7 @@ impl Sas<Started> {
         account: Account,
         other_device: Device,
         event: &ToDeviceEvent<StartEventContent>,
-    ) -> Sas<Started> {
+    ) -> SasState<Started> {
         // TODO check if we support the suggested protocols and cancel if we
         // don't
         let content = if let StartEventContent::MSasV1(content) = &event.content {
@@ -239,7 +239,7 @@ impl Sas<Started> {
             panic!("Invalid sas version")
         };
 
-        Sas {
+        SasState {
             inner: Arc::new(Mutex::new(OlmSas::new())),
 
             ids: SasIds {
@@ -287,7 +287,10 @@ impl Sas<Started> {
     /// * `event` - The m.key.verification.key event that was sent to us by
     /// the other side. The event will be modified so it doesn't contain any key
     /// anymore.
-    fn into_key_received(self, event: &mut ToDeviceEvent<KeyEventContent>) -> Sas<KeyReceived> {
+    fn into_key_received(
+        self,
+        event: &mut ToDeviceEvent<KeyEventContent>,
+    ) -> SasState<KeyReceived> {
         let accepted_protocols: AcceptedProtocols = self.get_accept_content().into();
         self.inner
             .lock()
@@ -295,7 +298,7 @@ impl Sas<Started> {
             .set_their_public_key(&mem::take(&mut event.content.key))
             .expect("Can't set public key");
 
-        Sas {
+        SasState {
             inner: self.inner,
             ids: self.ids,
             verification_flow_id: self.verification_flow_id,
@@ -307,7 +310,7 @@ impl Sas<Started> {
     }
 }
 
-impl Sas<Accepted> {
+impl SasState<Accepted> {
     /// Receive a m.key.verification.key event, changing the state into
     /// a `KeyReceived` one
     ///
@@ -316,7 +319,10 @@ impl Sas<Accepted> {
     /// * `event` - The m.key.verification.key event that was sent to us by
     /// the other side. The event will be modified so it doesn't contain any key
     /// anymore.
-    fn into_key_received(self, event: &mut ToDeviceEvent<KeyEventContent>) -> Sas<KeyReceived> {
+    fn into_key_received(
+        self,
+        event: &mut ToDeviceEvent<KeyEventContent>,
+    ) -> SasState<KeyReceived> {
         // TODO check the commitment here since we started the SAS dance.
         self.inner
             .lock()
@@ -324,7 +330,7 @@ impl Sas<Accepted> {
             .set_their_public_key(&mem::take(&mut event.content.key))
             .expect("Can't set public key");
 
-        Sas {
+        SasState {
             inner: self.inner,
             ids: self.ids,
             verification_flow_id: self.verification_flow_id,
@@ -346,7 +352,7 @@ impl Sas<Accepted> {
     }
 }
 
-impl Sas<KeyReceived> {
+impl SasState<KeyReceived> {
     /// Get the content for the key event.
     ///
     /// The content needs to be automatically sent to the other side if and only
@@ -391,14 +397,14 @@ impl Sas<KeyReceived> {
     ///
     /// * `event` - The m.key.verification.mac event that was sent to us by
     /// the other side.
-    fn into_mac_received(self, event: &ToDeviceEvent<MacEventContent>) -> Sas<MacReceived> {
+    fn into_mac_received(self, event: &ToDeviceEvent<MacEventContent>) -> SasState<MacReceived> {
         let (devices, master_keys) = receive_mac_event(
             &self.inner.lock().unwrap(),
             &self.ids,
             &self.verification_flow_id,
             event,
         );
-        Sas {
+        SasState {
             inner: self.inner,
             verification_flow_id: self.verification_flow_id,
             ids: self.ids,
@@ -414,8 +420,8 @@ impl Sas<KeyReceived> {
     ///
     /// This needs to be done by the user, this will put us in the `Confirmed`
     /// state.
-    fn confirm(self) -> Sas<Confirmed> {
-        Sas {
+    fn confirm(self) -> SasState<Confirmed> {
+        SasState {
             inner: self.inner,
             verification_flow_id: self.verification_flow_id,
             ids: self.ids,
@@ -426,7 +432,7 @@ impl Sas<KeyReceived> {
     }
 }
 
-impl Sas<Confirmed> {
+impl SasState<Confirmed> {
     /// Receive a m.key.verification.mac event, changing the state into
     /// a `Done` one
     ///
@@ -434,7 +440,7 @@ impl Sas<Confirmed> {
     ///
     /// * `event` - The m.key.verification.mac event that was sent to us by
     /// the other side.
-    fn into_done(self, event: &ToDeviceEvent<MacEventContent>) -> Sas<Done> {
+    fn into_done(self, event: &ToDeviceEvent<MacEventContent>) -> SasState<Done> {
         let (devices, master_keys) = receive_mac_event(
             &self.inner.lock().unwrap(),
             &self.ids,
@@ -442,7 +448,7 @@ impl Sas<Confirmed> {
             event,
         );
 
-        Sas {
+        SasState {
             inner: self.inner,
             verification_flow_id: self.verification_flow_id,
             ids: self.ids,
@@ -466,13 +472,13 @@ impl Sas<Confirmed> {
     }
 }
 
-impl Sas<MacReceived> {
+impl SasState<MacReceived> {
     /// Confirm that the short auth string matches.
     ///
     /// This needs to be done by the user, this will put us in the `Done`
     /// state since the other side already confirmed and sent us a MAC event.
-    fn confirm(self) -> Sas<Done> {
-        Sas {
+    fn confirm(self) -> SasState<Done> {
+        SasState {
             inner: self.inner,
             verification_flow_id: self.verification_flow_id,
             ids: self.ids,
@@ -510,7 +516,7 @@ impl Sas<MacReceived> {
     }
 }
 
-impl Sas<Done> {
+impl SasState<Done> {
     /// Get the content for the mac event.
     ///
     /// The content needs to be automatically sent to the other side if it
@@ -542,7 +548,7 @@ mod test {
     use matrix_sdk_common::events::{EventContent, ToDeviceEvent};
     use matrix_sdk_common::identifiers::{DeviceId, UserId};
 
-    use super::{Accepted, Created, Sas, Started};
+    use super::{Accepted, Created, SasState, Started};
 
     fn alice_id() -> UserId {
         UserId::try_from("@alice:example.org").unwrap()
@@ -567,19 +573,19 @@ mod test {
         }
     }
 
-    async fn get_sas_pair() -> (Sas<Created>, Sas<Started>) {
+    async fn get_sas_pair() -> (SasState<Created>, SasState<Started>) {
         let alice = Account::new(&alice_id(), &alice_device_id());
         let alice_device = Device::from_account(&alice).await;
 
         let bob = Account::new(&bob_id(), &bob_device_id());
         let bob_device = Device::from_account(&bob).await;
 
-        let alice_sas = Sas::<Created>::new(alice.clone(), bob_device);
+        let alice_sas = SasState::<Created>::new(alice.clone(), bob_device);
 
         let start_content = alice_sas.get_start_event();
         let event = wrap_to_device_event(alice_sas.user_id(), start_content);
 
-        let bob_sas = Sas::<Started>::from_start_event(bob.clone(), alice_device, &event);
+        let bob_sas = SasState::<Started>::from_start_event(bob.clone(), alice_device, &event);
 
         (alice_sas, bob_sas)
     }
@@ -604,7 +610,7 @@ mod test {
 
         let event = wrap_to_device_event(bob.user_id(), bob.get_accept_content());
 
-        let alice: Sas<Accepted> = alice.into_accepted(&event);
+        let alice: SasState<Accepted> = alice.into_accepted(&event);
         let mut event = wrap_to_device_event(alice.user_id(), alice.get_key_content());
 
         let bob = bob.into_key_received(&mut event);
@@ -623,7 +629,7 @@ mod test {
 
         let event = wrap_to_device_event(bob.user_id(), bob.get_accept_content());
 
-        let alice: Sas<Accepted> = alice.into_accepted(&event);
+        let alice: SasState<Accepted> = alice.into_accepted(&event);
         let mut event = wrap_to_device_event(alice.user_id(), alice.get_key_content());
 
         let bob = bob.into_key_received(&mut event);
