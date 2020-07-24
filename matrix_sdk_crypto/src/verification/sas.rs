@@ -914,9 +914,9 @@ mod test {
         let bob_device = Device::from_account(&bob).await;
 
         let (alice, content) = Sas::start(alice, bob_device);
-        let mut event = wrap_to_device_event(alice.user_id(), content);
+        let event = wrap_to_device_event(alice.user_id(), content);
 
-        let bob = Sas::from_start_event(bob, alice_device, &mut event);
+        let bob = Sas::from_start_event(bob, alice_device, &event);
         let event = wrap_to_device_event(bob.user_id(), bob.accept().unwrap());
 
         let content = alice.receive_event(&mut AnyToDeviceEvent::KeyVerificationAccept(event));
