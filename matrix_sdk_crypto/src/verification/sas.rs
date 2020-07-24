@@ -20,6 +20,7 @@ use olm_rs::sas::OlmSas;
 use matrix_sdk_common::events::{
     key::verification::{
         accept::AcceptEventContent,
+        cancel::CancelCode,
         key::KeyEventContent,
         mac::MacEventContent,
         start::{MSasV1Content, MSasV1ContentOptions, StartEventContent},
@@ -35,6 +36,7 @@ use super::{get_decimal, get_emoji, get_mac_content, receive_mac_event, SasIds};
 use crate::{Account, Device};
 
 #[derive(Clone)]
+/// Short authentication string object.
 struct Sas {
     inner: Arc<Mutex<InnerSas>>,
     account: Account,
@@ -42,14 +44,26 @@ struct Sas {
 }
 
 impl Sas {
+    /// Get our own user id.
     fn user_id(&self) -> &UserId {
         self.account.user_id()
     }
 
+    /// Get our own device id.
     fn device_id(&self) -> &DeviceId {
         self.account.device_id()
     }
 
+    /// Start a new SAS auth flow with the given device.
+    ///
+    /// # Arguments
+    ///
+    /// * `account` - Our own account.
+    ///
+    /// * `other_device` - The other device which we are going to verify.
+    ///
+    /// Returns the new `Sas` object and a `StartEventContent` that needs to be
+    /// sent out through the server to the other device.
     fn start(account: Account, other_device: Device) -> (Sas, StartEventContent) {
         let (inner, content) = InnerSas::start(account.clone(), other_device.clone());
 
@@ -62,6 +76,16 @@ impl Sas {
         (sas, content)
     }
 
+    /// Create a new Sas object from a m.key.verification.start request.
+    ///
+    /// # Arguments
+    ///
+    /// * `account` - Our own account.
+    ///
+    /// * `other_device` - The other device which we are going to verify.
+    ///
+    /// * `event` - The m.key.verification.start event that was sent to us by
+    /// the other side.
     fn from_start_event(
         account: Account,
         other_device: Device,
@@ -126,6 +150,7 @@ enum InnerSas {
     Confirmed(SasState<Confirmed>),
     MacReceived(SasState<MacReceived>),
     Done(SasState<Done>),
+    Canceled(SasState<Canceled>),
 }
 
 impl InnerSas {
@@ -140,11 +165,10 @@ impl InnerSas {
         other_device: Device,
         event: &ToDeviceEvent<StartEventContent>,
     ) -> InnerSas {
-        InnerSas::Started(SasState::<Started>::from_start_event(
-            account,
-            other_device,
-            event,
-        ))
+        match SasState::<Started>::from_start_event(account, other_device, event) {
+            Ok(s) => InnerSas::Started(s),
+            Err(s) => InnerSas::Canceled(s),
+        }
     }
 
     fn accept(&self) -> Option<AcceptEventContent> {
@@ -304,21 +328,31 @@ struct SasState<S: Clone> {
     state: Arc<S>,
 }
 
+impl<S: Clone + std::fmt::Debug> std::fmt::Debug for SasState<S> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("SasState")
+            .field("ids", &self.ids)
+            .field("flow_id", &self.verification_flow_id)
+            .field("state", &self.state)
+            .finish()
+    }
+}
+
 /// The initial SAS state.
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 struct Created {
     protocol_definitions: MSasV1ContentOptions,
 }
 
 /// The initial SAS state if the other side started the SAS verification.
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 struct Started {
     protocol_definitions: MSasV1Content,
 }
 
 /// The SAS state we're going to be in after the other side accepted our
 /// verification start event.
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 struct Accepted {
     accepted_protocols: Arc<AcceptedProtocols>,
     commitment: String,
@@ -328,7 +362,7 @@ struct Accepted {
 /// other participant.
 ///
 /// From now on we can show the short auth string to the user.
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 struct KeyReceived {
     we_started: bool,
     accepted_protocols: Arc<AcceptedProtocols>,
@@ -337,7 +371,7 @@ struct KeyReceived {
 /// The SAS state we're going to be in after the user has confirmed that the
 /// short auth string matches. We still need to receive a MAC event from the
 /// other side.
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 struct Confirmed {
     accepted_protocols: Arc<AcceptedProtocols>,
 }
@@ -345,7 +379,7 @@ struct Confirmed {
 /// The SAS state we're going to be in after we receive a MAC event from the
 /// other side. Our own user still needs to confirm that the short auth string
 /// matches.
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 struct MacReceived {
     we_started: bool,
     verified_devices: Arc<Vec<Box<DeviceId>>>,
@@ -356,10 +390,16 @@ struct MacReceived {
 ///
 /// We can now mark the device in our verified devices lits as verified and sign
 /// the master keys in the verified devices list.
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 struct Done {
     verified_devices: Arc<Vec<Box<DeviceId>>>,
     verified_master_keys: Arc<Vec<String>>,
+}
+
+#[derive(Clone, Debug)]
+struct Canceled {
+    cancel_code: CancelCode,
+    reason: &'static str,
 }
 
 impl<S: Clone> SasState<S> {
@@ -462,28 +502,64 @@ impl SasState<Started> {
         account: Account,
         other_device: Device,
         event: &ToDeviceEvent<StartEventContent>,
-    ) -> SasState<Started> {
-        // TODO check if we support the suggested protocols and cancel if we
-        // don't
-        let content = if let StartEventContent::MSasV1(content) = &event.content {
-            content
+    ) -> Result<SasState<Started>, SasState<Canceled>> {
+        if let StartEventContent::MSasV1(content) = &event.content {
+            if !content
+                .key_agreement_protocols
+                .contains(&KeyAgreementProtocol::Curve25519HkdfSha256)
+                || !content
+                    .message_authentication_codes
+                    .contains(&MessageAuthenticationCode::HkdfHmacSha256)
+                || !content.hashes.contains(&HashAlgorithm::Sha256)
+                || (!content
+                    .short_authentication_string
+                    .contains(&ShortAuthenticationString::Decimal)
+                    && !content
+                        .short_authentication_string
+                        .contains(&ShortAuthenticationString::Emoji))
+            {
+                Err(SasState {
+                    inner: Arc::new(Mutex::new(OlmSas::new())),
+
+                    ids: SasIds {
+                        account,
+                        other_device,
+                    },
+                    verification_flow_id: Arc::new(content.transaction_id.clone()),
+
+                    state: Arc::new(Canceled::new(CancelCode::UnknownMethod)),
+                })
+            } else {
+                Ok(SasState {
+                    inner: Arc::new(Mutex::new(OlmSas::new())),
+
+                    ids: SasIds {
+                        account,
+                        other_device,
+                    },
+
+                    verification_flow_id: Arc::new(content.transaction_id.clone()),
+
+                    state: Arc::new(Started {
+                        protocol_definitions: content.clone(),
+                    }),
+                })
+            }
         } else {
-            panic!("Invalid sas version")
-        };
+            Err(SasState {
+                inner: Arc::new(Mutex::new(OlmSas::new())),
 
-        SasState {
-            inner: Arc::new(Mutex::new(OlmSas::new())),
+                ids: SasIds {
+                    account,
+                    other_device,
+                },
 
-            ids: SasIds {
-                account,
-                other_device,
-            },
+                // TODO we can't get to the transaction id currently since it's
+                // behind the an enum.
+                verification_flow_id: Arc::new("".to_owned()),
 
-            verification_flow_id: Arc::new(content.transaction_id.clone()),
-
-            state: Arc::new(Started {
-                protocol_definitions: content.clone(),
-            }),
+                state: Arc::new(Canceled::new(CancelCode::UnknownMethod)),
+            })
         }
     }
 
@@ -772,6 +848,34 @@ impl SasState<Done> {
     }
 }
 
+impl Canceled {
+    fn new(code: CancelCode) -> Canceled {
+        let reason = match code {
+            CancelCode::Accepted => {
+                "A m.key.verification.request was accepted by a different device."
+            }
+            CancelCode::InvalidMessage => "The received message was invalid.",
+            CancelCode::KeyMismatch => "The expected key did not match the verified one",
+            CancelCode::Timeout => "The verification process timed out.",
+            CancelCode::UnexpectedMessage => "The device received an unexpected message.",
+            CancelCode::UnknownMethod => {
+                "The device does not know how to handle the requested method."
+            }
+            CancelCode::UnknownTransaction => {
+                "The device does not know about the given transaction ID."
+            }
+            CancelCode::User => "The user cancelled the verification.",
+            CancelCode::UserMismatch => "The expected user did not match the verified user",
+            _ => unimplemented!(),
+        };
+
+        Canceled {
+            cancel_code: code,
+            reason,
+        }
+    }
+}
+
 #[cfg(test)]
 mod test {
     use std::convert::TryFrom;
@@ -836,7 +940,7 @@ mod test {
 
         let bob_sas = SasState::<Started>::from_start_event(bob.clone(), alice_device, &event);
 
-        (alice_sas, bob_sas)
+        (alice_sas, bob_sas.unwrap())
     }
 
     #[tokio::test]
