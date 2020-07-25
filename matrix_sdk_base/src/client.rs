@@ -1199,10 +1199,9 @@ impl BaseClient {
                     // send the `prev_content` field as part of the unsigned field.
                     if let AnyStrippedStateEvent::RoomMember(_) = &mut e {
                         if let Some(raw_content) = stripped_deserialize_prev_content(event) {
-                            let prev_content = match raw_content.prev_content {
-                                Some(json) => json.deserialize().ok(),
-                                None => None,
-                            };
+                            let prev_content = raw_content
+                                .prev_content
+                                .and_then(|json| json.deserialize().ok());
                             self.emit_stripped_state_event(
                                 &room_id,
                                 &e,
