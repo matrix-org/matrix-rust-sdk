@@ -302,17 +302,13 @@ impl OlmMachine {
         for (user_id, user_devices) in &response.one_time_keys {
             for (device_id, key_map) in user_devices {
                 let device: Device = match self.store.get_device(&user_id, device_id).await {
-                    Ok(d) => {
-                        if let Some(d) = d {
-                            d
-                        } else {
-                            warn!(
-                                "Tried to create an Olm session for {} {}, but \
-                                the device is unknown",
-                                user_id, device_id
-                            );
-                            continue;
-                        }
+                    Ok(Some(d)) => d,
+                    Ok(None) => {
+                        warn!(
+                            "Tried to create an Olm session for {} {}, but the device is unknown",
+                            user_id, device_id
+                        );
+                        continue;
                     }
                     Err(e) => {
                         warn!(
@@ -1683,7 +1679,7 @@ mod test {
 
         let plaintext = "It is a secret to everybody";
 
-        let content = MessageEventContent::Text(TextMessageEventContent::new_plain(plaintext));
+        let content = MessageEventContent::Text(TextMessageEventContent::plain(plaintext));
 
         let encrypted_content = alice.encrypt(&room_id, content.clone()).await.unwrap();
 

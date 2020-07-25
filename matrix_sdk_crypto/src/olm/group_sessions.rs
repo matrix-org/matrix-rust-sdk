@@ -37,10 +37,7 @@ pub use olm_rs::{
 
 use matrix_sdk_common::{
     events::{
-        room::{
-            encrypted::{EncryptedEventContent, MegolmV1AesSha2Content},
-            message::MessageEventContent,
-        },
+        room::{encrypted::EncryptedEventContent, message::MessageEventContent},
         Algorithm, AnySyncRoomEvent, EventJson, EventType, SyncMessageEvent,
     },
     identifiers::{DeviceId, RoomId},
@@ -332,14 +329,15 @@ impl OutboundGroupSession {
 
         let ciphertext = self.encrypt_helper(plaintext).await;
 
-        EncryptedEventContent::MegolmV1AesSha2(MegolmV1AesSha2Content::new(
+        EncryptedEventContent::MegolmV1AesSha2(
             matrix_sdk_common::events::room::encrypted::MegolmV1AesSha2ContentInit {
                 ciphertext,
                 sender_key: self.account_identity_keys.curve25519().to_owned(),
                 session_id: self.session_id().to_owned(),
                 device_id: (&*self.device_id).to_owned(),
-            },
-        ))
+            }
+            .into(),
+        )
     }
 
     /// Check if the session has expired and if it should be rotated.
