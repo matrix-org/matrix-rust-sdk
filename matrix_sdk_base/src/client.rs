@@ -469,11 +469,9 @@ impl BaseClient {
         // a store path was provided.
         if self.state_store.read().await.is_none() {
             #[cfg(not(target_arch = "wasm32"))]
-            {
-                if let Some(path) = &*self.store_path {
-                    let store = JsonStore::open(path)?;
-                    *self.state_store.write().await = Some(Box::new(store));
-                }
+            if let Some(path) = &*self.store_path {
+                let store = JsonStore::open(path)?;
+                *self.state_store.write().await = Some(Box::new(store));
             }
         }
 
@@ -719,22 +717,19 @@ impl BaseClient {
             #[allow(unused_mut)]
             Ok(mut e) => {
                 #[cfg(feature = "encryption")]
+                if let AnySyncRoomEvent::Message(AnySyncMessageEvent::RoomEncrypted(
+                    ref mut encrypted_event,
+                )) = e
                 {
-                    if let AnySyncRoomEvent::Message(AnySyncMessageEvent::RoomEncrypted(
-                        ref mut encrypted_event,
-                    )) = e
-                    {
-                        let mut olm = self.olm.lock().await;
+                    let mut olm = self.olm.lock().await;
 
-                        if let Some(o) = &mut *olm {
-                            if let Ok(decrypted) =
-                                o.decrypt_room_event(&encrypted_event, room_id).await
-                            {
-                                if let Ok(d) = decrypted.deserialize() {
-                                    e = d
-                                }
-                                *event = decrypted;
+                    if let Some(o) = &mut *olm {
+                        if let Ok(decrypted) = o.decrypt_room_event(&encrypted_event, room_id).await
+                        {
+                            if let Ok(d) = decrypted.deserialize() {
+                                e = d
                             }
+                            *event = decrypted;
                         }
                     }
                 }
