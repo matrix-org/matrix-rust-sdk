@@ -966,18 +966,14 @@ impl Client {
     /// # use futures::executor::block_on;
     /// # use matrix_sdk::identifiers::RoomId;
     /// # use std::convert::TryFrom;
-    /// use matrix_sdk::events::room::message::{FormattedBody, MessageEventContent, TextMessageEventContent};
+    /// use matrix_sdk::events::room::message::{MessageEventContent, TextMessageEventContent};
     /// # block_on(async {
     /// # let homeserver = Url::parse("http://localhost:8080").unwrap();
     /// # let mut client = Client::new(homeserver).unwrap();
     /// # let room_id = RoomId::try_from("!test:localhost").unwrap();
     /// use matrix_sdk_common::uuid::Uuid;
     ///
-    /// let content = MessageEventContent::Text(TextMessageEventContent {
-    ///     body: "Hello world".to_owned(),
-    ///     formatted: None,
-    ///     relates_to: None,
-    /// });
+    /// let content = MessageEventContent::Text(TextMessageEventContent::plain("Hello world"));
     /// let txn_id = Uuid::new_v4();
     /// client.room_send(&room_id, content, Some(txn_id)).await.unwrap();
     /// # })

@@ -1683,7 +1683,7 @@ mod test {
 
         let plaintext = "It is a secret to everybody";
 
-        let content = MessageEventContent::Text(TextMessageEventContent::new_plain(plaintext));
+        let content = MessageEventContent::Text(TextMessageEventContent::plain(plaintext));
 
         let encrypted_content = alice.encrypt(&room_id, content.clone()).await.unwrap();
 
