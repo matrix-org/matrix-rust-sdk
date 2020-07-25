@@ -556,7 +556,7 @@ impl SasState<Started> {
                 },
 
                 // TODO we can't get to the transaction id currently since it's
-                // behind the an enum.
+                // behind the content specific enum.
                 verification_flow_id: Arc::new("".to_owned()),
 
                 state: Arc::new(Canceled::new(CancelCode::UnknownMethod)),
