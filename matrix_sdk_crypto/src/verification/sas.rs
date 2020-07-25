@@ -412,6 +412,15 @@ impl<S: Clone> SasState<S> {
     pub fn device_id(&self) -> &DeviceId {
         &self.ids.account.device_id()
     }
+
+    pub fn cancel(self, cancel_code: CancelCode) -> SasState<Canceled> {
+        SasState {
+            inner: self.inner,
+            ids: self.ids,
+            verification_flow_id: self.verification_flow_id,
+            state: Arc::new(Canceled::new(cancel_code)),
+        }
+    }
 }
 
 impl SasState<Created> {
@@ -504,6 +513,21 @@ impl SasState<Started> {
         event: &ToDeviceEvent<StartEventContent>,
     ) -> Result<SasState<Started>, SasState<Canceled>> {
         if let StartEventContent::MSasV1(content) = &event.content {
+            let sas = SasState {
+                inner: Arc::new(Mutex::new(OlmSas::new())),
+
+                ids: SasIds {
+                    account,
+                    other_device,
+                },
+
+                verification_flow_id: Arc::new(content.transaction_id.clone()),
+
+                state: Arc::new(Started {
+                    protocol_definitions: content.clone(),
+                }),
+            };
+
             if !content
                 .key_agreement_protocols
                 .contains(&KeyAgreementProtocol::Curve25519HkdfSha256)
@@ -518,32 +542,9 @@ impl SasState<Started> {
                         .short_authentication_string
                         .contains(&ShortAuthenticationString::Emoji))
             {
-                Err(SasState {
-                    inner: Arc::new(Mutex::new(OlmSas::new())),
-
-                    ids: SasIds {
-                        account,
-                        other_device,
-                    },
-                    verification_flow_id: Arc::new(content.transaction_id.clone()),
-
-                    state: Arc::new(Canceled::new(CancelCode::UnknownMethod)),
-                })
+                Err(sas.cancel(CancelCode::UnknownMethod))
             } else {
-                Ok(SasState {
-                    inner: Arc::new(Mutex::new(OlmSas::new())),
-
-                    ids: SasIds {
-                        account,
-                        other_device,
-                    },
-
-                    verification_flow_id: Arc::new(content.transaction_id.clone()),
-
-                    state: Arc::new(Started {
-                        protocol_definitions: content.clone(),
-                    }),
-                })
+                Ok(sas)
             }
         } else {
             Err(SasState {
