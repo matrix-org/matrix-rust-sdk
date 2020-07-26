@@ -26,6 +26,7 @@ use matrix_sdk_common::identifiers::ServerName;
 use matrix_sdk_common::instant::{Duration, Instant};
 use matrix_sdk_common::js_int::UInt;
 use matrix_sdk_common::locks::RwLock;
+use matrix_sdk_common::presence::PresenceState;
 use matrix_sdk_common::uuid::Uuid;
 
 use futures_timer::Delay as sleep;
@@ -1246,7 +1247,7 @@ impl Client {
             filter: sync_settings.filter,
             since: sync_settings.token,
             full_state: sync_settings.full_state,
-            set_presence: sync_events::SetPresence::Online,
+            set_presence: PresenceState::Online,
             timeout: sync_settings.timeout,
         };
 

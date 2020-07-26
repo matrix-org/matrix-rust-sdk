@@ -11,10 +11,7 @@ use matrix_sdk_common::{
         },
         uiaa::AuthData,
     },
-    events::{
-        room::{create::PreviousRoom, power_levels::PowerLevelsEventContent},
-        EventJson,
-    },
+    events::room::{create::PreviousRoom, power_levels::PowerLevelsEventContent},
     identifiers::{DeviceId, RoomId, UserId},
     js_int::UInt,
 };
@@ -114,7 +111,7 @@ impl RoomBuilder {
 
     /// Power level content to override in the default power level event.
     pub fn power_level_override(&mut self, power: PowerLevelsEventContent) -> &mut Self {
-        self.req.power_level_content_override = Some(EventJson::from(power));
+        self.req.power_level_content_override = Some(power.into());
         self
     }
 

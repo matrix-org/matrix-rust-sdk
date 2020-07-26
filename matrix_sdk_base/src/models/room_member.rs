@@ -16,13 +16,10 @@
 use std::convert::TryFrom;
 
 use matrix_sdk_common::{
-    events::{
-        presence::{PresenceEvent, PresenceState},
-        room::member::MemberEventContent,
-        SyncStateEvent,
-    },
+    events::{presence::PresenceEvent, room::member::MemberEventContent, SyncStateEvent},
     identifiers::{RoomId, UserId},
     js_int::{Int, UInt},
+    presence::PresenceState,
 };
 use serde::{Deserialize, Serialize};
 

@@ -39,8 +39,9 @@ use crate::state::{AllRooms, ClientState, StateStore};
 use crate::EventEmitter;
 use matrix_sdk_common::events::{
     AnyBasicEvent, AnyStrippedStateEvent, AnySyncEphemeralRoomEvent, AnySyncMessageEvent,
-    AnySyncRoomEvent, AnySyncStateEvent, EventJson,
+    AnySyncRoomEvent, AnySyncStateEvent,
 };
+use matrix_sdk_common::Raw;
 
 #[cfg(feature = "encryption")]
 use matrix_sdk_common::locks::Mutex;
@@ -82,7 +83,7 @@ pub struct AdditionalEventData {
 /// Represents the inner `prev_content` field
 #[derive(serde::Deserialize)]
 pub struct AdditionalUnsignedData {
-    pub prev_content: Option<EventJson<MemberEventContent>>,
+    pub prev_content: Option<Raw<MemberEventContent>>,
 }
 
 /// Transform room event by hoisting `prev_content` field from `unsigned` to the top level.
@@ -93,9 +94,7 @@ pub struct AdditionalUnsignedData {
 ///
 /// [synapse-bug]: <https://github.com/matrix-org/matrix-doc/issues/684#issuecomment-641182668>
 /// [discussion]: <https://github.com/matrix-org/matrix-doc/issues/684#issuecomment-641182668>
-fn hoist_room_event_prev_content(
-    event: &EventJson<AnySyncRoomEvent>,
-) -> Option<EventJson<AnySyncRoomEvent>> {
+fn hoist_room_event_prev_content(event: &Raw<AnySyncRoomEvent>) -> Option<Raw<AnySyncRoomEvent>> {
     let prev_content = serde_json::from_str::<AdditionalEventData>(event.json().get())
         .map(|more_unsigned| more_unsigned.unsigned)
         .map(|additional| additional.prev_content)
@@ -112,7 +111,7 @@ fn hoist_room_event_prev_content(
                 member.prev_content = Some(prev)
             }
 
-            Some(EventJson::from(ev))
+            Some(Raw::from(ev))
         }
         _ => None,
     }
@@ -122,8 +121,8 @@ fn hoist_room_event_prev_content(
 ///
 /// See comment of `hoist_room_event_prev_content`.
 fn hoist_state_event_prev_content(
-    event: &EventJson<AnySyncStateEvent>,
-) -> Option<EventJson<AnySyncStateEvent>> {
+    event: &Raw<AnySyncStateEvent>,
+) -> Option<Raw<AnySyncStateEvent>> {
     let prev_content = serde_json::from_str::<AdditionalEventData>(event.json().get())
         .map(|more_unsigned| more_unsigned.unsigned)
         .map(|additional| additional.prev_content)
@@ -134,14 +133,14 @@ fn hoist_state_event_prev_content(
     match &mut ev {
         AnySyncStateEvent::RoomMember(ref mut member) if member.prev_content.is_none() => {
             member.prev_content = Some(prev_content.deserialize().ok()?);
-            Some(EventJson::from(ev))
+            Some(Raw::from(ev))
         }
         _ => None,
     }
 }
 
 fn stripped_deserialize_prev_content(
-    event: &EventJson<AnyStrippedStateEvent>,
+    event: &Raw<AnyStrippedStateEvent>,
 ) -> Option<AdditionalUnsignedData> {
     serde_json::from_str::<AdditionalEventData>(event.json().get())
         .map(|more_unsigned| more_unsigned.unsigned)
@@ -711,7 +710,7 @@ impl BaseClient {
     pub async fn receive_joined_timeline_event(
         &self,
         room_id: &RoomId,
-        event: &mut EventJson<AnySyncRoomEvent>,
+        event: &mut Raw<AnySyncRoomEvent>,
     ) -> Result<bool> {
         match event.deserialize() {
             #[allow(unused_mut)]
@@ -823,7 +822,7 @@ impl BaseClient {
     pub async fn receive_left_timeline_event(
         &self,
         room_id: &RoomId,
-        event: &EventJson<AnySyncRoomEvent>,
+        event: &Raw<AnySyncRoomEvent>,
     ) -> Result<bool> {
         match event.deserialize() {
             Ok(e) => {
@@ -1797,7 +1796,7 @@ impl BaseClient {
     pub(crate) async fn emit_unrecognized_event<T>(
         &self,
         room_id: &RoomId,
-        event: &EventJson<T>,
+        event: &Raw<T>,
         room_state: RoomStateType,
     ) {
         let room = match room_state {
@@ -1834,11 +1833,7 @@ impl BaseClient {
 mod test {
     use crate::identifiers::{RoomId, UserId};
     #[cfg(feature = "messages")]
-    use crate::{
-        events::{AnySyncRoomEvent, EventJson},
-        identifiers::EventId,
-        BaseClientConfig, JsonStore,
-    };
+    use crate::{events::AnySyncRoomEvent, identifiers::EventId, BaseClientConfig, JsonStore, Raw};
     use crate::{BaseClient, Session};
     use matrix_sdk_common_macros::async_trait;
     use matrix_sdk_test::{async_test, test_json, EventBuilder, EventsJson};
@@ -2391,7 +2386,7 @@ mod test {
             "type": "m.room.redaction",
             "redacts": "$152037280074GZeOm:localhost"
         });
-        let mut event: EventJson<AnySyncRoomEvent> = serde_json::from_value(json).unwrap();
+        let mut event: Raw<AnySyncRoomEvent> = serde_json::from_value(json).unwrap();
         client
             .receive_joined_timeline_event(&room_id, &mut event)
             .await
