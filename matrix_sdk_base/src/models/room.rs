@@ -1080,9 +1080,9 @@ impl Describe for MembershipChange {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::events::{room::encryption::EncryptionEventContent, EventJson, Unsigned};
+    use crate::events::{room::encryption::EncryptionEventContent, Unsigned};
     use crate::identifiers::{EventId, UserId};
-    use crate::{BaseClient, Session};
+    use crate::{BaseClient, Raw, Session};
     use matrix_sdk_test::{async_test, sync_response, EventBuilder, EventsJson, SyncResponseFile};
 
     use std::time::SystemTime;
@@ -1645,7 +1645,7 @@ mod test {
             "type": "m.room.redaction",
             "redacts": "$152037280074GZeOm:localhost"
         });
-        let mut event: EventJson<AnySyncRoomEvent> = serde_json::from_value(json).unwrap();
+        let mut event: Raw<AnySyncRoomEvent> = serde_json::from_value(json).unwrap();
         client
             .receive_joined_timeline_event(&room_id, &mut event)
             .await

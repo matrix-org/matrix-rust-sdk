@@ -29,15 +29,15 @@ use super::store::memorystore::MemoryStore;
 use super::store::sqlite::SqliteStore;
 use super::{device::Device, store::Result as StoreResult, CryptoStore};
 
-use matrix_sdk_common::api;
 use matrix_sdk_common::events::{
     forwarded_room_key::ForwardedRoomKeyEventContent, room::encrypted::EncryptedEventContent,
     room::message::MessageEventContent, room_key::RoomKeyEventContent,
     room_key_request::RoomKeyRequestEventContent, Algorithm, AnySyncRoomEvent, AnyToDeviceEvent,
-    EventJson, EventType, SyncMessageEvent, ToDeviceEvent,
+    EventType, SyncMessageEvent, ToDeviceEvent,
 };
 use matrix_sdk_common::identifiers::{DeviceId, RoomId, UserId};
 use matrix_sdk_common::uuid::Uuid;
+use matrix_sdk_common::{api, Raw};
 
 use api::r0::keys;
 use api::r0::{
@@ -515,7 +515,7 @@ impl OlmMachine {
         sender: &UserId,
         sender_key: &str,
         message: OlmMessage,
-    ) -> OlmResult<(EventJson<AnyToDeviceEvent>, String)> {
+    ) -> OlmResult<(Raw<AnyToDeviceEvent>, String)> {
         // First try to decrypt using an existing session.
         let plaintext = if let Some(p) = self
             .try_decrypt_olm_message(sender, sender_key, &message)
@@ -584,7 +584,7 @@ impl OlmMachine {
         &self,
         sender: &UserId,
         plaintext: &str,
-    ) -> OlmResult<(EventJson<AnyToDeviceEvent>, String)> {
+    ) -> OlmResult<(Raw<AnyToDeviceEvent>, String)> {
         // TODO make the errors a bit more specific.
         let decrypted_json: Value = serde_json::from_str(&plaintext)?;
 
@@ -629,7 +629,7 @@ impl OlmMachine {
             .ok_or(EventError::MissingSigningKey)?;
 
         Ok((
-            EventJson::from(serde_json::from_value::<AnyToDeviceEvent>(decrypted_json)?),
+            Raw::from(serde_json::from_value::<AnyToDeviceEvent>(decrypted_json)?),
             signing_key.to_owned(),
         ))
     }
@@ -645,7 +645,7 @@ impl OlmMachine {
     async fn decrypt_to_device_event(
         &mut self,
         event: &ToDeviceEvent<EncryptedEventContent>,
-    ) -> OlmResult<EventJson<AnyToDeviceEvent>> {
+    ) -> OlmResult<Raw<AnyToDeviceEvent>> {
         info!("Decrypting to-device event");
 
         let content = if let EncryptedEventContent::OlmV1Curve25519AesSha2(c) = &event.content {
@@ -709,7 +709,7 @@ impl OlmMachine {
         sender_key: &str,
         signing_key: &str,
         event: &mut ToDeviceEvent<RoomKeyEventContent>,
-    ) -> OlmResult<Option<EventJson<AnyToDeviceEvent>>> {
+    ) -> OlmResult<Option<Raw<AnyToDeviceEvent>>> {
         match event.content.algorithm {
             Algorithm::MegolmV1AesSha2 => {
                 let session_key = GroupSessionKey(mem::take(&mut event.content.session_key));
@@ -722,7 +722,7 @@ impl OlmMachine {
                 )?;
                 let _ = self.store.save_inbound_group_session(session).await?;
 
-                let event = EventJson::from(AnyToDeviceEvent::RoomKey(event.clone()));
+                let event = Raw::from(AnyToDeviceEvent::RoomKey(event.clone()));
                 Ok(Some(event))
             }
             _ => {
@@ -968,8 +968,8 @@ impl OlmMachine {
         &mut self,
         sender_key: &str,
         signing_key: &str,
-        event: &EventJson<AnyToDeviceEvent>,
-    ) -> OlmResult<Option<EventJson<AnyToDeviceEvent>>> {
+        event: &Raw<AnyToDeviceEvent>,
+    ) -> OlmResult<Option<Raw<AnyToDeviceEvent>>> {
         let event = if let Ok(e) = event.deserialize() {
             e
         } else {
@@ -1078,7 +1078,7 @@ impl OlmMachine {
         &mut self,
         event: &SyncMessageEvent<EncryptedEventContent>,
         room_id: &RoomId,
-    ) -> MegolmResult<EventJson<AnySyncRoomEvent>> {
+    ) -> MegolmResult<Raw<AnySyncRoomEvent>> {
         let content = match &event.content {
             EncryptedEventContent::MegolmV1AesSha2(c) => c,
             _ => return Err(EventError::UnsupportedAlgorithm.into()),
@@ -1185,10 +1185,11 @@ mod test {
             encrypted::EncryptedEventContent,
             message::{MessageEventContent, TextMessageEventContent},
         },
-        AnySyncMessageEvent, AnySyncRoomEvent, AnyToDeviceEvent, EventJson, EventType,
-        SyncMessageEvent, ToDeviceEvent, Unsigned,
+        AnySyncMessageEvent, AnySyncRoomEvent, AnyToDeviceEvent, EventType, SyncMessageEvent,
+        ToDeviceEvent, Unsigned,
     };
     use matrix_sdk_common::identifiers::{DeviceId, EventId, RoomId, UserId};
+    use matrix_sdk_common::Raw;
     use matrix_sdk_test::test_json;
 
     fn alice_id() -> UserId {
@@ -1223,7 +1224,7 @@ mod test {
     fn to_device_requests_to_content(requests: Vec<ToDeviceRequest>) -> EncryptedEventContent {
         let to_device_request = &requests[0];
 
-        let content: EventJson<EncryptedEventContent> = serde_json::from_str(
+        let content: Raw<EncryptedEventContent> = serde_json::from_str(
             to_device_request
                 .messages
                 .values()

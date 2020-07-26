@@ -38,9 +38,10 @@ pub use olm_rs::{
 use matrix_sdk_common::{
     events::{
         room::{encrypted::EncryptedEventContent, message::MessageEventContent},
-        Algorithm, AnySyncRoomEvent, EventJson, EventType, SyncMessageEvent,
+        Algorithm, AnySyncRoomEvent, EventType, SyncMessageEvent,
     },
     identifiers::{DeviceId, RoomId},
+    Raw,
 };
 
 /// The private session key of a group session.
@@ -181,7 +182,7 @@ impl InboundGroupSession {
     pub async fn decrypt(
         &self,
         event: &SyncMessageEvent<EncryptedEventContent>,
-    ) -> MegolmResult<(EventJson<AnySyncRoomEvent>, u32)> {
+    ) -> MegolmResult<(Raw<AnySyncRoomEvent>, u32)> {
         let content = match &event.content {
             EncryptedEventContent::MegolmV1AesSha2(c) => c,
             _ => return Err(EventError::UnsupportedAlgorithm.into()),
@@ -212,7 +213,7 @@ impl InboundGroupSession {
         );
 
         Ok((
-            serde_json::from_value::<EventJson<AnySyncRoomEvent>>(decrypted_value)?,
+            serde_json::from_value::<Raw<AnySyncRoomEvent>>(decrypted_value)?,
             message_index,
         ))
     }
