@@ -103,7 +103,7 @@ impl Sas {
         account: Account,
         other_device: Device,
         event: &ToDeviceEvent<StartEventContent>,
-    ) -> Result<Sas, CancelEventContent> {
+    ) -> Result<Sas, AnyToDeviceEventContent> {
         let inner = InnerSas::from_start_event(account.clone(), other_device.clone(), event)?;
         Ok(Sas {
             inner: Arc::new(Mutex::new(inner)),
@@ -177,7 +177,7 @@ impl InnerSas {
         account: Account,
         other_device: Device,
         event: &ToDeviceEvent<StartEventContent>,
-    ) -> Result<InnerSas, CancelEventContent> {
+    ) -> Result<InnerSas, AnyToDeviceEventContent> {
         match SasState::<Started>::from_start_event(account, other_device, event) {
             Ok(s) => Ok(InnerSas::Started(s)),
             Err(s) => Err(s.as_content()),
@@ -224,8 +224,7 @@ impl InnerSas {
                             )
                         }
                         Err(s) => {
-                            let content =
-                                AnyToDeviceEventContent::KeyVerificationCancel(s.as_content());
+                            let content = s.as_content();
                             (InnerSas::Canceled(s), Some(content))
                         }
                     }
@@ -236,7 +235,10 @@ impl InnerSas {
             AnyToDeviceEvent::KeyVerificationKey(e) => match self {
                 InnerSas::Accepted(s) => match s.into_key_received(e) {
                     Ok(s) => (InnerSas::KeyRecieved(s), None),
-                    Err(s) => (InnerSas::Canceled(s), None),
+                    Err(s) => {
+                        let content = s.as_content();
+                        (InnerSas::Canceled(s), Some(content))
+                    }
                 },
                 InnerSas::Started(s) => match s.into_key_received(e) {
                     Ok(s) => {
@@ -246,18 +248,27 @@ impl InnerSas {
                             Some(AnyToDeviceEventContent::KeyVerificationKey(content)),
                         )
                     }
-                    Err(s) => (InnerSas::Canceled(s), None),
+                    Err(s) => {
+                        let content = s.as_content();
+                        (InnerSas::Canceled(s), Some(content))
+                    }
                 },
                 _ => (self, None),
             },
             AnyToDeviceEvent::KeyVerificationMac(e) => match self {
                 InnerSas::KeyRecieved(s) => match s.into_mac_received(e) {
                     Ok(s) => (InnerSas::MacReceived(s), None),
-                    Err(s) => (InnerSas::Canceled(s), None),
+                    Err(s) => {
+                        let content = s.as_content();
+                        (InnerSas::Canceled(s), Some(content))
+                    }
                 },
                 InnerSas::Confirmed(s) => match s.into_done(e) {
                     Ok(s) => (InnerSas::Done(s), None),
-                    Err(s) => (InnerSas::Canceled(s), None),
+                    Err(s) => {
+                        let content = s.as_content();
+                        (InnerSas::Canceled(s), Some(content))
+                    }
                 },
                 _ => (self, None),
             },
@@ -336,10 +347,6 @@ impl From<AcceptEventContent> for AcceptedProtocols {
         }
     }
 }
-
-// TODO each of our state transitions can fail and return a canceled state. We
-// need to check the senders at each transition, the commitment, the
-// verification flow id (transaction id).
 
 /// A type level state machine modeling the Sas flow.
 ///
@@ -708,6 +715,9 @@ impl SasState<Accepted> {
         self,
         event: &mut ToDeviceEvent<KeyEventContent>,
     ) -> Result<SasState<KeyReceived>, SasState<Canceled>> {
+        self.check_sender_and_txid(&event.sender, &event.content.transaction_id)
+            .map_err(|c| self.clone().cancel(c))?;
+
         let utility = OlmUtility::new();
         let commitment = utility.sha256_utf8_msg(&format!(
             "{}{}",
@@ -975,12 +985,12 @@ impl Canceled {
 }
 
 impl SasState<Canceled> {
-    fn as_content(&self) -> CancelEventContent {
-        CancelEventContent {
+    fn as_content(&self) -> AnyToDeviceEventContent {
+        AnyToDeviceEventContent::KeyVerificationCancel(CancelEventContent {
             transaction_id: self.verification_flow_id.to_string(),
             reason: self.state.reason.to_string(),
             code: self.state.cancel_code.clone(),
-        }
+        })
     }
 }
 
