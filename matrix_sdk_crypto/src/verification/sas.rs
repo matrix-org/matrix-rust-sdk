@@ -464,7 +464,7 @@ impl<S: Clone> SasState<S> {
     }
 
     fn check_sender_and_txid(&self, sender: &UserId, flow_id: &str) -> Result<(), CancelCode> {
-        if flow_id != &*self.verification_flow_id {
+        if flow_id != *self.verification_flow_id {
             Err(CancelCode::UnknownTransaction)
         } else if sender != self.ids.other_device.user_id() {
             Err(CancelCode::UserMismatch)
