@@ -238,14 +238,16 @@ impl InnerSas {
                     Ok(s) => (InnerSas::KeyRecieved(s), None),
                     Err(s) => (InnerSas::Canceled(s), None),
                 },
-                InnerSas::Started(s) => {
-                    let sas = s.into_key_received(e);
-                    let content = sas.as_content();
-                    (
-                        InnerSas::KeyRecieved(sas),
-                        Some(AnyToDeviceEventContent::KeyVerificationKey(content)),
-                    )
-                }
+                InnerSas::Started(s) => match s.into_key_received(e) {
+                    Ok(s) => {
+                        let content = s.as_content();
+                        (
+                            InnerSas::KeyRecieved(s),
+                            Some(AnyToDeviceEventContent::KeyVerificationKey(content)),
+                        )
+                    }
+                    Err(s) => (InnerSas::Canceled(s), None),
+                },
                 _ => (self, None),
             },
             AnyToDeviceEvent::KeyVerificationMac(e) => match self {
@@ -430,21 +432,31 @@ struct Canceled {
 
 impl<S: Clone> SasState<S> {
     /// Get our own user id.
-    pub fn user_id(&self) -> &UserId {
+    fn user_id(&self) -> &UserId {
         &self.ids.account.user_id()
     }
 
     /// Get our own device id.
-    pub fn device_id(&self) -> &DeviceId {
+    fn device_id(&self) -> &DeviceId {
         &self.ids.account.device_id()
     }
 
-    pub fn cancel(self, cancel_code: CancelCode) -> SasState<Canceled> {
+    fn cancel(self, cancel_code: CancelCode) -> SasState<Canceled> {
         SasState {
             inner: self.inner,
             ids: self.ids,
             verification_flow_id: self.verification_flow_id,
             state: Arc::new(Canceled::new(cancel_code)),
+        }
+    }
+
+    fn check_sender_and_txid(&self, sender: &UserId, flow_id: &str) -> Result<(), CancelCode> {
+        if flow_id != &*self.verification_flow_id {
+            Err(CancelCode::UnknownTransaction)
+        } else if sender != self.ids.other_device.user_id() {
+            Err(CancelCode::UserMismatch)
+        } else {
+            Ok(())
         }
     }
 }
@@ -506,8 +518,10 @@ impl SasState<Created> {
         self,
         event: &ToDeviceEvent<AcceptEventContent>,
     ) -> Result<SasState<Accepted>, SasState<Canceled>> {
-        let content = &event.content;
+        self.check_sender_and_txid(&event.sender, &event.content.transaction_id)
+            .map_err(|c| self.clone().cancel(c))?;
 
+        let content = &event.content;
         if !Sas::KEY_AGREEMENT_PROTOCOLS.contains(&event.content.key_agreement_protocol)
             || !Sas::HASHES.contains(&event.content.hash)
             || !Sas::MACS.contains(&event.content.message_authentication_code)
@@ -652,7 +666,10 @@ impl SasState<Started> {
     fn into_key_received(
         self,
         event: &mut ToDeviceEvent<KeyEventContent>,
-    ) -> SasState<KeyReceived> {
+    ) -> Result<SasState<KeyReceived>, SasState<Canceled>> {
+        self.check_sender_and_txid(&event.sender, &event.content.transaction_id)
+            .map_err(|c| self.clone().cancel(c))?;
+
         let accepted_protocols: AcceptedProtocols = self.as_content().into();
         self.inner
             .lock()
@@ -660,7 +677,7 @@ impl SasState<Started> {
             .set_their_public_key(&mem::take(&mut event.content.key))
             .expect("Can't set public key");
 
-        SasState {
+        Ok(SasState {
             inner: self.inner,
             ids: self.ids,
             verification_flow_id: self.verification_flow_id,
@@ -668,7 +685,7 @@ impl SasState<Started> {
                 we_started: false,
                 accepted_protocols: Arc::new(accepted_protocols),
             }),
-        }
+        })
     }
 }
 
@@ -1039,7 +1056,7 @@ mod test {
         let alice: SasState<Accepted> = alice.into_accepted(&event).unwrap();
         let mut event = wrap_to_device_event(alice.user_id(), alice.as_content());
 
-        let bob = bob.into_key_received(&mut event);
+        let bob = bob.into_key_received(&mut event).unwrap();
 
         let mut event = wrap_to_device_event(bob.user_id(), bob.as_content());
 
@@ -1058,7 +1075,7 @@ mod test {
         let alice: SasState<Accepted> = alice.into_accepted(&event).unwrap();
         let mut event = wrap_to_device_event(alice.user_id(), alice.as_content());
 
-        let bob = bob.into_key_received(&mut event);
+        let bob = bob.into_key_received(&mut event).unwrap();
 
         let mut event = wrap_to_device_event(bob.user_id(), bob.as_content());
 
