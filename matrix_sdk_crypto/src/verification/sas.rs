@@ -251,8 +251,14 @@ impl InnerSas {
                 _ => (self, None),
             },
             AnyToDeviceEvent::KeyVerificationMac(e) => match self {
-                InnerSas::KeyRecieved(s) => (InnerSas::MacReceived(s.into_mac_received(e)), None),
-                InnerSas::Confirmed(s) => (InnerSas::Done(s.into_done(e)), None),
+                InnerSas::KeyRecieved(s) => match s.into_mac_received(e) {
+                    Ok(s) => (InnerSas::MacReceived(s), None),
+                    Err(s) => (InnerSas::Canceled(s), None),
+                },
+                InnerSas::Confirmed(s) => match s.into_done(e) {
+                    Ok(s) => (InnerSas::Done(s), None),
+                    Err(s) => (InnerSas::Canceled(s), None),
+                },
                 _ => (self, None),
             },
             _ => (self, None),
@@ -785,14 +791,21 @@ impl SasState<KeyReceived> {
     ///
     /// * `event` - The m.key.verification.mac event that was sent to us by
     /// the other side.
-    fn into_mac_received(self, event: &ToDeviceEvent<MacEventContent>) -> SasState<MacReceived> {
+    fn into_mac_received(
+        self,
+        event: &ToDeviceEvent<MacEventContent>,
+    ) -> Result<SasState<MacReceived>, SasState<Canceled>> {
+        self.check_sender_and_txid(&event.sender, &event.content.transaction_id)
+            .map_err(|c| self.clone().cancel(c))?;
+
         let (devices, master_keys) = receive_mac_event(
             &self.inner.lock().unwrap(),
             &self.ids,
             &self.verification_flow_id,
             event,
         );
-        SasState {
+
+        Ok(SasState {
             inner: self.inner,
             verification_flow_id: self.verification_flow_id,
             ids: self.ids,
@@ -801,7 +814,7 @@ impl SasState<KeyReceived> {
                 verified_devices: Arc::new(devices),
                 verified_master_keys: Arc::new(master_keys),
             }),
-        }
+        })
     }
 
     /// Confirm that the short auth string matches.
@@ -828,7 +841,12 @@ impl SasState<Confirmed> {
     ///
     /// * `event` - The m.key.verification.mac event that was sent to us by
     /// the other side.
-    fn into_done(self, event: &ToDeviceEvent<MacEventContent>) -> SasState<Done> {
+    fn into_done(
+        self,
+        event: &ToDeviceEvent<MacEventContent>,
+    ) -> Result<SasState<Done>, SasState<Canceled>> {
+        self.check_sender_and_txid(&event.sender, &event.content.transaction_id)
+            .map_err(|c| self.clone().cancel(c))?;
         let (devices, master_keys) = receive_mac_event(
             &self.inner.lock().unwrap(),
             &self.ids,
@@ -836,7 +854,7 @@ impl SasState<Confirmed> {
             event,
         );
 
-        SasState {
+        Ok(SasState {
             inner: self.inner,
             verification_flow_id: self.verification_flow_id,
             ids: self.ids,
@@ -845,7 +863,7 @@ impl SasState<Confirmed> {
                 verified_devices: Arc::new(devices),
                 verified_master_keys: Arc::new(master_keys),
             }),
-        }
+        })
     }
 
     /// Get the content for the mac event.
@@ -1088,12 +1106,12 @@ mod test {
 
         let event = wrap_to_device_event(bob.user_id(), bob.as_content());
 
-        let alice = alice.into_mac_received(&event);
+        let alice = alice.into_mac_received(&event).unwrap();
         assert!(!alice.get_emoji().is_empty());
         let alice = alice.confirm();
 
         let event = wrap_to_device_event(alice.user_id(), alice.as_content());
-        let bob = bob.into_done(&event);
+        let bob = bob.into_done(&event).unwrap();
 
         assert!(bob.verified_devices().contains(&alice.device_id().into()));
         assert!(alice.verified_devices().contains(&bob.device_id().into()));
