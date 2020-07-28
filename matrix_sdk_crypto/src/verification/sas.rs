@@ -45,6 +45,7 @@ pub struct Sas {
     inner: Arc<Mutex<InnerSas>>,
     account: Account,
     other_device: Device,
+    flow_id: Arc<String>,
 }
 
 impl Sas {
@@ -67,6 +68,21 @@ impl Sas {
         self.account.device_id()
     }
 
+    /// Get the user id of the other side.
+    pub fn other_user_id(&self) -> &UserId {
+        self.other_device.user_id()
+    }
+
+    /// Get the device id of the other side.
+    pub fn other_device_id(&self) -> &DeviceId {
+        self.other_device.device_id()
+    }
+
+    /// Get the unique ID that identifies this SAS verification flow.
+    pub fn flow_id(&self) -> &str {
+        &self.flow_id
+    }
+
     /// Start a new SAS auth flow with the given device.
     ///
     /// # Arguments
@@ -77,13 +93,15 @@ impl Sas {
     ///
     /// Returns the new `Sas` object and a `StartEventContent` that needs to be
     /// sent out through the server to the other device.
-    fn start(account: Account, other_device: Device) -> (Sas, StartEventContent) {
+    pub(crate) fn start(account: Account, other_device: Device) -> (Sas, StartEventContent) {
         let (inner, content) = InnerSas::start(account.clone(), other_device.clone());
+        let flow_id = inner.verification_flow_id();
 
         let sas = Sas {
             inner: Arc::new(Mutex::new(inner)),
             account,
             other_device,
+            flow_id,
         };
 
         (sas, content)
@@ -99,16 +117,18 @@ impl Sas {
     ///
     /// * `event` - The m.key.verification.start event that was sent to us by
     /// the other side.
-    fn from_start_event(
+    pub(crate) fn from_start_event(
         account: Account,
         other_device: Device,
         event: &ToDeviceEvent<StartEventContent>,
     ) -> Result<Sas, AnyToDeviceEventContent> {
         let inner = InnerSas::from_start_event(account.clone(), other_device.clone(), event)?;
+        let flow_id = inner.verification_flow_id();
         Ok(Sas {
             inner: Arc::new(Mutex::new(inner)),
             account,
             other_device,
+            flow_id,
         })
     }
 
@@ -162,7 +182,10 @@ impl Sas {
         self.inner.lock().unwrap().decimals()
     }
 
-    fn receive_event(&self, event: &mut AnyToDeviceEvent) -> Option<AnyToDeviceEventContent> {
+    pub(crate) fn receive_event(
+        &self,
+        event: &mut AnyToDeviceEvent,
+    ) -> Option<AnyToDeviceEventContent> {
         let mut guard = self.inner.lock().unwrap();
         let sas: InnerSas = (*guard).clone();
         let (sas, content) = sas.receive_event(event);
@@ -171,7 +194,7 @@ impl Sas {
         content
     }
 
-    fn verified_devices(&self) -> Option<Arc<Vec<Box<DeviceId>>>> {
+    pub(crate) fn verified_devices(&self) -> Option<Arc<Vec<Box<DeviceId>>>> {
         self.inner.lock().unwrap().verified_devices()
     }
 }
@@ -311,6 +334,19 @@ impl InnerSas {
             true
         } else {
             false
+        }
+    }
+
+    fn verification_flow_id(&self) -> Arc<String> {
+        match self {
+            InnerSas::Created(s) => s.verification_flow_id.clone(),
+            InnerSas::Started(s) => s.verification_flow_id.clone(),
+            InnerSas::Canceled(s) => s.verification_flow_id.clone(),
+            InnerSas::Accepted(s) => s.verification_flow_id.clone(),
+            InnerSas::KeyRecieved(s) => s.verification_flow_id.clone(),
+            InnerSas::Confirmed(s) => s.verification_flow_id.clone(),
+            InnerSas::MacReceived(s) => s.verification_flow_id.clone(),
+            InnerSas::Done(s) => s.verification_flow_id.clone(),
         }
     }
 
@@ -1017,10 +1053,9 @@ impl SasState<Canceled> {
 mod test {
     use std::convert::TryFrom;
 
+    use crate::verification::test::wrap_any_to_device_content;
     use crate::{Account, Device};
-    use matrix_sdk_common::events::{
-        AnyToDeviceEvent, AnyToDeviceEventContent, EventContent, ToDeviceEvent,
-    };
+    use matrix_sdk_common::events::{AnyToDeviceEvent, EventContent, ToDeviceEvent};
     use matrix_sdk_common::identifiers::{DeviceId, UserId};
 
     use super::{Accepted, Created, Sas, SasState, Started};
@@ -1045,21 +1080,6 @@ mod test {
         ToDeviceEvent {
             sender: sender.clone(),
             content,
-        }
-    }
-
-    fn wrap_any_to_device_content(
-        sender: &UserId,
-        content: AnyToDeviceEventContent,
-    ) -> AnyToDeviceEvent {
-        match content {
-            AnyToDeviceEventContent::KeyVerificationKey(c) => {
-                AnyToDeviceEvent::KeyVerificationKey(ToDeviceEvent {
-                    sender: sender.clone(),
-                    content: c,
-                })
-            }
-            _ => unreachable!(),
         }
     }
 

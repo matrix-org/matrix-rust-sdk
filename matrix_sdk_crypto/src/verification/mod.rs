@@ -24,6 +24,8 @@ use matrix_sdk_common::identifiers::DeviceId;
 use crate::{Account, Device};
 
 #[allow(dead_code)]
+mod machine;
+#[allow(dead_code)]
 mod sas;
 
 pub use sas::Sas;
@@ -395,4 +397,44 @@ fn get_decimal(sas: &OlmSas, ids: &SasIds, flow_id: &str, we_started: bool) -> (
     let third = (bytes[3] & 0x3F) << 7 | bytes[4] >> 1;
 
     (first + 1000, second + 1000, third + 1000)
+}
+
+#[cfg(test)]
+mod test {
+    use matrix_sdk_common::events::{AnyToDeviceEvent, AnyToDeviceEventContent, ToDeviceEvent};
+    use matrix_sdk_common::identifiers::UserId;
+
+    pub(crate) fn wrap_any_to_device_content(
+        sender: &UserId,
+        content: AnyToDeviceEventContent,
+    ) -> AnyToDeviceEvent {
+        match content {
+            AnyToDeviceEventContent::KeyVerificationKey(c) => {
+                AnyToDeviceEvent::KeyVerificationKey(ToDeviceEvent {
+                    sender: sender.clone(),
+                    content: c,
+                })
+            }
+            AnyToDeviceEventContent::KeyVerificationStart(c) => {
+                AnyToDeviceEvent::KeyVerificationStart(ToDeviceEvent {
+                    sender: sender.clone(),
+                    content: c,
+                })
+            }
+            AnyToDeviceEventContent::KeyVerificationAccept(c) => {
+                AnyToDeviceEvent::KeyVerificationAccept(ToDeviceEvent {
+                    sender: sender.clone(),
+                    content: c,
+                })
+            }
+            AnyToDeviceEventContent::KeyVerificationMac(c) => {
+                AnyToDeviceEvent::KeyVerificationMac(ToDeviceEvent {
+                    sender: sender.clone(),
+                    content: c,
+                })
+            }
+
+            _ => unreachable!(),
+        }
+    }
 }

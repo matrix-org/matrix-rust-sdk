@@ -180,7 +180,6 @@ pub trait CryptoStore: Debug {
     /// * `user_id` - The user that the device belongs to.
     ///
     /// * `device_id` - The unique id of the device.
-    #[allow(clippy::ptr_arg)]
     async fn get_device(&self, user_id: &UserId, device_id: &DeviceId) -> Result<Option<Device>>;
 
     /// Get all the devices of the given user.
