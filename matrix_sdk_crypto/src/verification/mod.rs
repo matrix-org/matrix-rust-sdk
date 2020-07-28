@@ -26,6 +26,8 @@ use crate::{Account, Device};
 #[allow(dead_code)]
 mod sas;
 
+pub use sas::Sas;
+
 #[derive(Clone, Debug)]
 struct SasIds {
     account: Account,

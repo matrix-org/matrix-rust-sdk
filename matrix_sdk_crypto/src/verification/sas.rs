@@ -39,9 +39,9 @@ use matrix_sdk_common::{
 use super::{get_decimal, get_emoji, get_mac_content, receive_mac_event, SasIds};
 use crate::{Account, Device};
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 /// Short authentication string object.
-struct Sas {
+pub struct Sas {
     inner: Arc<Mutex<InnerSas>>,
     account: Account,
     other_device: Device,
@@ -58,12 +58,12 @@ impl Sas {
     ];
 
     /// Get our own user id.
-    fn user_id(&self) -> &UserId {
+    pub fn user_id(&self) -> &UserId {
         self.account.user_id()
     }
 
     /// Get our own device id.
-    fn device_id(&self) -> &DeviceId {
+    pub fn device_id(&self) -> &DeviceId {
         self.account.device_id()
     }
 
@@ -112,11 +112,22 @@ impl Sas {
         })
     }
 
-    fn accept(&self) -> Option<AcceptEventContent> {
+    /// Accept the SAS verification.
+    ///
+    /// This does nothing if the verification was already accepted, otherwise it
+    /// returns an `AcceptEventContent` that needs to be sent out.
+    pub fn accept(&self) -> Option<AcceptEventContent> {
         self.inner.lock().unwrap().accept()
     }
 
-    fn confirm(&self) -> Option<MacEventContent> {
+    /// Confirm the Sas verification.
+    ///
+    /// This confirms that the short auth strings match on both sides.
+    ///
+    /// Does nothing if we're not in a state where we can confirm the short auth
+    /// string, otherwise returns a `MacEventContent` that needs to be sent to
+    /// the server.
+    pub fn confirm(&self) -> Option<MacEventContent> {
         let mut guard = self.inner.lock().unwrap();
         let sas: InnerSas = (*guard).clone();
         let (sas, content) = sas.confirm();
@@ -124,19 +135,30 @@ impl Sas {
         content
     }
 
-    fn can_be_presented(&self) -> bool {
+    /// Are we in a state where we can show the short auth string.
+    pub fn can_be_presented(&self) -> bool {
         self.inner.lock().unwrap().can_be_presented()
     }
 
-    fn is_done(&self) -> bool {
+    /// Is the SAS flow done.
+    pub fn is_done(&self) -> bool {
         self.inner.lock().unwrap().is_done()
     }
 
-    fn emoji(&self) -> Option<Vec<(&'static str, &'static str)>> {
+    /// Get the emoji version of the short auth string.
+    ///
+    /// Returns None if we can't yet present the short auth string, otherwise a
+    /// Vec of tuples with the emoji and description.
+    pub fn emoji(&self) -> Option<Vec<(&'static str, &'static str)>> {
         self.inner.lock().unwrap().emoji()
     }
 
-    fn decimals(&self) -> Option<(u32, u32, u32)> {
+    /// Get the decimal version of the short auth string.
+    ///
+    /// Returns None if we can't yet present the short auth string, otherwise a
+    /// tuple containing three 4-digit integers that represent the short auth
+    /// string.
+    pub fn decimals(&self) -> Option<(u32, u32, u32)> {
         self.inner.lock().unwrap().decimals()
     }
 
@@ -154,7 +176,7 @@ impl Sas {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 enum InnerSas {
     Created(SasState<Created>),
     Started(SasState<Started>),
@@ -498,13 +520,10 @@ impl SasState<Created> {
                 protocol_definitions: MSasV1ContentOptions {
                     transaction_id: verification_flow_id,
                     from_device,
-                    short_authentication_string: vec![
-                        ShortAuthenticationString::Decimal,
-                        ShortAuthenticationString::Emoji,
-                    ],
-                    key_agreement_protocols: vec![KeyAgreementProtocol::Curve25519HkdfSha256],
-                    message_authentication_codes: vec![MessageAuthenticationCode::HkdfHmacSha256],
-                    hashes: vec![HashAlgorithm::Sha256],
+                    short_authentication_string: Sas::STRINGS.to_vec(),
+                    key_agreement_protocols: Sas::KEY_AGREEMENT_PROTOCOLS.to_vec(),
+                    message_authentication_codes: Sas::MACS.to_vec(),
+                    hashes: Sas::HASHES.to_vec(),
                 },
             }),
         }

@@ -42,6 +42,7 @@ pub use olm::{Account, IdentityKeys, InboundGroupSession, OutboundGroupSession, 
 #[cfg(feature = "sqlite-cryptostore")]
 pub use store::sqlite::SqliteStore;
 pub use store::{CryptoStore, CryptoStoreError};
+pub use verification::Sas;
 
 use error::SignatureError;
 use matrix_sdk_common::api::r0::keys::{AlgorithmAndDeviceId, KeyAlgorithm};
