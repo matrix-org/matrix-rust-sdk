@@ -1260,7 +1260,7 @@ impl BaseClient {
         let olm = self.olm.lock().await;
 
         match &*olm {
-            Some(o) => o.should_query_keys(),
+            Some(o) => o.should_query_keys().await,
             None => false,
         }
     }
@@ -1348,7 +1348,7 @@ impl BaseClient {
         let olm = self.olm.lock().await;
 
         match &*olm {
-            Some(o) => Ok(o.users_for_key_query()),
+            Some(o) => Ok(o.users_for_key_query().await),
             None => Err(()),
         }
     }
