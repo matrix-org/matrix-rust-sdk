@@ -54,7 +54,7 @@ use crate::api::r0::keys::{
     upload_keys::Response as KeysUploadResponse, DeviceKeys, KeyAlgorithm,
 };
 #[cfg(feature = "encryption")]
-use crate::api::r0::to_device::send_event_to_device;
+use crate::api::r0::to_device::send_event_to_device::Request as ToDeviceRequest;
 #[cfg(feature = "encryption")]
 use crate::events::room::{
     encrypted::EncryptedEventContent, message::MessageEventContent as MsgEventContent,
@@ -64,7 +64,7 @@ use crate::identifiers::DeviceId;
 #[cfg(not(target_arch = "wasm32"))]
 use crate::JsonStore;
 #[cfg(feature = "encryption")]
-use matrix_sdk_crypto::{CryptoStore, OlmError, OlmMachine, OneTimeKeys};
+use matrix_sdk_crypto::{CryptoStore, OlmError, OlmMachine, OneTimeKeys, Sas};
 
 pub type Token = String;
 
@@ -1285,10 +1285,7 @@ impl BaseClient {
     /// Get a to-device request that will share a group session for a room.
     #[cfg(feature = "encryption")]
     #[cfg_attr(docsrs, doc(cfg(feature = "encryption")))]
-    pub async fn share_group_session(
-        &self,
-        room_id: &RoomId,
-    ) -> Result<Vec<send_event_to_device::Request>> {
+    pub async fn share_group_session(&self, room_id: &RoomId) -> Result<Vec<ToDeviceRequest>> {
         let room = self.get_joined_room(room_id).await.expect("No room found");
         let mut olm = self.olm.lock().await;
 
@@ -1826,6 +1823,36 @@ impl BaseClient {
             ee.on_unrecognized_event(room, &CustomOrRawEvent::RawJson(event.json()))
                 .await;
         }
+    }
+
+    /// Get the to-device requests that need to be sent out.
+    #[cfg(feature = "encryption")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "encryption")))]
+    pub async fn outgoing_to_device_requests(&self) -> Vec<ToDeviceRequest> {
+        self.olm
+            .lock()
+            .await
+            .as_ref()
+            .map(|o| o.outgoing_to_device_requests())
+            .unwrap_or_default()
+    }
+
+    /// Mark an outgoing to-device requests as sent.
+    #[cfg(feature = "encryption")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "encryption")))]
+    pub async fn mark_to_device_request_as_sent(&self, request_id: &str) {
+        if let Some(olm) = self.olm.lock().await.as_ref() {
+            olm.mark_to_device_request_as_sent(request_id)
+        }
+    }
+
+    /// Get a `Sas` verification object with the given flow id.
+    pub async fn get_verification(&self, flow_id: &str) -> Option<Sas> {
+        self.olm
+            .lock()
+            .await
+            .as_ref()
+            .and_then(|o| o.get_verification(flow_id))
     }
 }
 
