@@ -28,6 +28,7 @@ mod machine;
 #[allow(dead_code)]
 mod sas;
 
+pub use machine::VerificationMachine;
 pub use sas::Sas;
 
 #[derive(Clone, Debug)]

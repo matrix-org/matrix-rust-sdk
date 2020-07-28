@@ -28,6 +28,7 @@ use super::store::memorystore::MemoryStore;
 #[cfg(feature = "sqlite-cryptostore")]
 use super::store::sqlite::SqliteStore;
 use super::{device::Device, store::Result as StoreResult, CryptoStore};
+use crate::verification::VerificationMachine;
 
 use matrix_sdk_common::events::{
     forwarded_room_key::ForwardedRoomKeyEventContent, room::encrypted::EncryptedEventContent,
@@ -70,6 +71,9 @@ pub struct OlmMachine {
     store: Arc<RwLock<Box<dyn CryptoStore>>>,
     /// The currently active outbound group sessions.
     outbound_group_sessions: HashMap<RoomId, OutboundGroupSession>,
+    /// A state machine that is responsible to handle and keep track of SAS
+    /// verification flows.
+    verification_machine: VerificationMachine,
 }
 
 // #[cfg_attr(tarpaulin, skip)]
@@ -97,12 +101,17 @@ impl OlmMachine {
     /// * `device_id` - The unique id of the device that owns this machine.
     #[allow(clippy::ptr_arg)]
     pub fn new(user_id: &UserId, device_id: &DeviceId) -> Self {
+        let store: Box<dyn CryptoStore> = Box::new(MemoryStore::new());
+        let store = Arc::new(RwLock::new(store));
+        let account = Account::new(user_id, device_id);
+
         OlmMachine {
             user_id: user_id.clone(),
             device_id: device_id.into(),
-            account: Account::new(user_id, &device_id),
-            store: Arc::new(RwLock::new(Box::new(MemoryStore::new()))),
+            account: account.clone(),
+            store: store.clone(),
             outbound_group_sessions: HashMap::new(),
+            verification_machine: VerificationMachine::new(account, store),
         }
     }
 
@@ -139,12 +148,16 @@ impl OlmMachine {
             }
         };
 
+        let store = Arc::new(RwLock::new(store));
+        let verification_machine = VerificationMachine::new(account.clone(), store.clone());
+
         Ok(OlmMachine {
             user_id,
             device_id,
             account,
-            store: Arc::new(RwLock::new(store)),
+            store,
             outbound_group_sessions: HashMap::new(),
+            verification_machine,
         })
     }
 
@@ -1048,8 +1061,10 @@ impl OlmMachine {
         // TODO handle room key requests here.
     }
 
-    fn handle_verification_event(&self, _: &AnyToDeviceEvent) {
-        // TODO handle to-device verification events here.
+    async fn handle_verification_event(&self, mut event: &mut AnyToDeviceEvent) {
+        if let Err(e) = self.verification_machine.receive_event(&mut event).await {
+            error!("Error handling a verification event: {:?}", e);
+        }
     }
 
     /// Handle a sync response and update the internal state of the Olm machine.
@@ -1078,7 +1093,7 @@ impl OlmMachine {
         }
 
         for event_result in &mut response.to_device.events {
-            let event = if let Ok(e) = event_result.deserialize() {
+            let mut event = if let Ok(e) = event_result.deserialize() {
                 e
             } else {
                 // Skip invalid events.
@@ -1088,7 +1103,7 @@ impl OlmMachine {
 
             info!("Received a to-device event {:?}", event);
 
-            match &event {
+            match &mut event {
                 AnyToDeviceEvent::RoomEncrypted(e) => {
                     let decrypted_event = match self.decrypt_to_device_event(e).await {
                         Ok(e) => e,
@@ -1112,7 +1127,7 @@ impl OlmMachine {
                 | AnyToDeviceEvent::KeyVerificationMac(..)
                 | AnyToDeviceEvent::KeyVerificationRequest(..)
                 | AnyToDeviceEvent::KeyVerificationStart(..) => {
-                    self.handle_verification_event(&event)
+                    self.handle_verification_event(&mut event).await;
                 }
                 _ => continue,
             }

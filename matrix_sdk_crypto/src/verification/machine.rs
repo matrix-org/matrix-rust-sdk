@@ -24,6 +24,7 @@ use matrix_sdk_common::{
         EventType,
     },
     identifiers::{DeviceId, UserId},
+    locks::RwLock,
     uuid::Uuid,
 };
 
@@ -31,18 +32,18 @@ use super::Sas;
 use crate::{Account, CryptoStore, CryptoStoreError};
 
 #[derive(Clone, Debug)]
-struct VerificationMachine {
+pub struct VerificationMachine {
     account: Account,
-    store: Arc<Box<dyn CryptoStore>>,
+    store: Arc<RwLock<Box<dyn CryptoStore>>>,
     verifications: Arc<DashMap<String, Sas>>,
     outgoing_to_device_messages: Arc<DashMap<String, ToDeviceRequest>>,
 }
 
 impl VerificationMachine {
-    pub(crate) fn new(account: Account, store: Box<dyn CryptoStore>) -> Self {
+    pub(crate) fn new(account: Account, store: Arc<RwLock<Box<dyn CryptoStore>>>) -> Self {
         Self {
             account,
-            store: Arc::new(store),
+            store,
             verifications: Arc::new(DashMap::new()),
             outgoing_to_device_messages: Arc::new(DashMap::new()),
         }
@@ -96,12 +97,17 @@ impl VerificationMachine {
         self.outgoing_to_device_messages.remove(uuid);
     }
 
-    async fn receive_event(&self, event: &mut AnyToDeviceEvent) -> Result<(), CryptoStoreError> {
+    pub async fn receive_event(
+        &self,
+        event: &mut AnyToDeviceEvent,
+    ) -> Result<(), CryptoStoreError> {
         match event {
             AnyToDeviceEvent::KeyVerificationStart(e) => match &e.content {
                 StartEventContent::MSasV1(content) => {
                     if let Some(d) = self
                         .store
+                        .read()
+                        .await
                         .get_device(&e.sender, &content.from_device)
                         .await?
                     {
@@ -143,10 +149,12 @@ impl VerificationMachine {
 mod test {
 
     use std::convert::TryFrom;
+    use std::sync::Arc;
 
     use matrix_sdk_common::{
         events::AnyToDeviceEventContent,
         identifiers::{DeviceId, UserId},
+        locks::RwLock,
     };
 
     use super::{Sas, VerificationMachine};
@@ -179,7 +187,7 @@ mod test {
 
         store.save_devices(&[bob_device]).await.unwrap();
 
-        let machine = VerificationMachine::new(alice, Box::new(store));
+        let machine = VerificationMachine::new(alice, Arc::new(RwLock::new(Box::new(store))));
         let (bob_sas, start_content) = Sas::start(bob, alice_device);
         machine
             .receive_event(&mut wrap_any_to_device_content(
@@ -196,7 +204,7 @@ mod test {
     fn create() {
         let alice = Account::new(&alice_id(), &alice_device_id());
         let store = MemoryStore::new();
-        let _ = VerificationMachine::new(alice, Box::new(store));
+        let _ = VerificationMachine::new(alice, Arc::new(RwLock::new(Box::new(store))));
     }
 
     #[tokio::test]
