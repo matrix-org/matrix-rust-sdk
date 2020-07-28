@@ -28,7 +28,7 @@ use super::store::memorystore::MemoryStore;
 #[cfg(feature = "sqlite-cryptostore")]
 use super::store::sqlite::SqliteStore;
 use super::{device::Device, store::Result as StoreResult, CryptoStore};
-use crate::verification::VerificationMachine;
+use crate::verification::{Sas, VerificationMachine};
 
 use matrix_sdk_common::events::{
     forwarded_room_key::ForwardedRoomKeyEventContent, room::encrypted::EncryptedEventContent,
@@ -1065,6 +1065,21 @@ impl OlmMachine {
         if let Err(e) = self.verification_machine.receive_event(&mut event).await {
             error!("Error handling a verification event: {:?}", e);
         }
+    }
+
+    /// Get the to-device requests that need to be sent out.
+    pub fn outgoing_to_device_requests(&self) -> Vec<ToDeviceRequest> {
+        self.verification_machine.outgoing_to_device_requests()
+    }
+
+    /// Mark an outgoing to-device requests as sent.
+    pub fn mark_to_device_request_as_sent(&self, request_id: &str) {
+        self.verification_machine.mark_requests_as_sent(request_id);
+    }
+
+    /// Get a `Sas` verification object with the given flow id.
+    pub fn get_verification(&self, flow_id: &str) -> Option<Sas> {
+        self.verification_machine.get_sas(flow_id)
     }
 
     /// Handle a sync response and update the internal state of the Olm machine.

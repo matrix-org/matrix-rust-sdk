@@ -49,7 +49,7 @@ impl VerificationMachine {
         }
     }
 
-    fn get_sas(&self, transaction_id: &str) -> Option<Sas> {
+    pub fn get_sas(&self, transaction_id: &str) -> Option<Sas> {
         self.verifications.get(transaction_id).map(|s| s.clone())
     }
 
@@ -95,6 +95,13 @@ impl VerificationMachine {
 
     pub fn mark_requests_as_sent(&self, uuid: &str) {
         self.outgoing_to_device_messages.remove(uuid);
+    }
+
+    pub fn outgoing_to_device_requests(&self) -> Vec<ToDeviceRequest> {
+        self.outgoing_to_device_messages
+            .iter()
+            .map(|r| r.clone())
+            .collect()
     }
 
     pub async fn receive_event(
