@@ -231,13 +231,13 @@ mod test {
 
         let mut event = wrap_any_to_device_content(
             alice.user_id(),
-            AnyToDeviceEventContent::KeyVerificationMac(alice.confirm().unwrap()),
+            get_content_from_request(&alice.confirm().unwrap()),
         );
         bob.receive_event(&mut event);
 
         let mut event = wrap_any_to_device_content(
             bob.user_id(),
-            AnyToDeviceEventContent::KeyVerificationMac(bob.confirm().unwrap()),
+            get_content_from_request(&bob.confirm().unwrap()),
         );
         alice.receive_event(&mut event);
 

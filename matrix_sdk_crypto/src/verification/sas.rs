@@ -153,12 +153,16 @@ impl Sas {
     /// Does nothing if we're not in a state where we can confirm the short auth
     /// string, otherwise returns a `MacEventContent` that needs to be sent to
     /// the server.
-    pub fn confirm(&self) -> Option<MacEventContent> {
+    pub fn confirm(&self) -> Option<ToDeviceRequest> {
         let mut guard = self.inner.lock().unwrap();
         let sas: InnerSas = (*guard).clone();
         let (sas, content) = sas.confirm();
         *guard = sas;
-        content
+
+        content.map(|c| {
+            let content = AnyToDeviceEventContent::KeyVerificationMac(c);
+            self.content_to_request(content)
+        })
     }
 
     /// Are we in a state where we can show the short auth string.
@@ -1210,11 +1214,17 @@ mod test {
         assert_eq!(alice.emoji().unwrap(), bob.emoji().unwrap());
         assert_eq!(alice.decimals().unwrap(), bob.decimals().unwrap());
 
-        let event = wrap_to_device_event(alice.user_id(), alice.confirm().unwrap());
-        bob.receive_event(&mut AnyToDeviceEvent::KeyVerificationMac(event));
+        let mut event = wrap_any_to_device_content(
+            alice.user_id(),
+            get_content_from_request(&alice.confirm().unwrap()),
+        );
+        bob.receive_event(&mut event);
 
-        let event = wrap_to_device_event(bob.user_id(), bob.confirm().unwrap());
-        alice.receive_event(&mut AnyToDeviceEvent::KeyVerificationMac(event));
+        let mut event = wrap_any_to_device_content(
+            bob.user_id(),
+            get_content_from_request(&bob.confirm().unwrap()),
+        );
+        alice.receive_event(&mut event);
 
         assert!(alice
             .verified_devices()
