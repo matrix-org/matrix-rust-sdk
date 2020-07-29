@@ -58,6 +58,7 @@ mod sas;
 
 pub use client::{Client, ClientConfig, SyncSettings};
 pub use error::{Error, Result};
+pub use http_client::{DefaultHttpClient, HttpClient};
 pub use request_builder::{
     MessagesRequestBuilder, RegistrationBuilder, RoomBuilder, RoomListFilterBuilder,
 };

@@ -17,6 +17,7 @@ encryption = ["matrix-sdk-base/encryption"]
 sqlite-cryptostore = ["matrix-sdk-base/sqlite-cryptostore"]
 
 [dependencies]
+async-trait = "0.1.36"
 http = "0.2.1"
 reqwest = "0.10.6"
 serde_json = "1.0.56"

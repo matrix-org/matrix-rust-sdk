@@ -39,6 +39,7 @@ use std::future::Future;
 use tracing::{debug, warn};
 use tracing::{error, info, instrument};
 
+use http::Response as HttpResponse;
 use reqwest::header::{HeaderValue, InvalidHeaderValue};
 use url::Url;
 
@@ -51,9 +52,9 @@ use crate::{
 #[cfg(feature = "encryption")]
 use crate::{identifiers::DeviceId, sas::Sas};
 
-#[cfg(not(target_arch = "wasm32"))]
-use crate::VERSION;
-use crate::{api, http_client::HttpClient, EventEmitter, Result};
+use crate::api;
+
+use crate::{DefaultHttpClient, EventEmitter, HttpClient, Result};
 use matrix_sdk_base::{BaseClient, BaseClientConfig, Room, Session, StateStore};
 
 const DEFAULT_SYNC_TIMEOUT: Duration = Duration::from_secs(30);
@@ -66,7 +67,7 @@ pub struct Client {
     /// The URL of the homeserver to connect to.
     homeserver: Arc<Url>,
     /// The underlying HTTP client.
-    http_client: HttpClient,
+    http_client: Arc<dyn HttpClient>,
     /// User session data.
     pub(crate) base_client: BaseClient,
 }
@@ -105,11 +106,11 @@ impl Debug for Client {
 #[derive(Default)]
 pub struct ClientConfig {
     #[cfg(not(target_arch = "wasm32"))]
-    proxy: Option<reqwest::Proxy>,
-    user_agent: Option<HeaderValue>,
-    disable_ssl_verification: bool,
-    base_config: BaseClientConfig,
-    timeout: Option<Duration>,
+    pub(crate) proxy: Option<reqwest::Proxy>,
+    pub(crate) user_agent: Option<HeaderValue>,
+    pub(crate) disable_ssl_verification: bool,
+    pub(crate) base_config: BaseClientConfig,
+    pub(crate) timeout: Option<Duration>,
 }
 
 // #[cfg_attr(tarpaulin, skip)]
@@ -321,44 +322,7 @@ impl Client {
             panic!("Error parsing homeserver url")
         };
 
-        let http_client = reqwest::Client::builder();
-
-        #[cfg(not(target_arch = "wasm32"))]
-        let http_client = {
-            let http_client = match config.timeout {
-                Some(x) => http_client.timeout(x),
-                None => http_client,
-            };
-
-            let http_client = if config.disable_ssl_verification {
-                http_client.danger_accept_invalid_certs(true)
-            } else {
-                http_client
-            };
-
-            let http_client = match config.proxy {
-                Some(p) => http_client.proxy(p),
-                None => http_client,
-            };
-
-            let mut headers = reqwest::header::HeaderMap::new();
-
-            let user_agent = match config.user_agent {
-                Some(a) => a,
-                None => HeaderValue::from_str(&format!("matrix-rust-sdk {}", VERSION)).unwrap(),
-            };
-
-            headers.insert(reqwest::header::USER_AGENT, user_agent);
-
-            http_client.default_headers(headers)
-        };
-
-        let homeserver = Arc::new(homeserver);
-
-        let http_client = HttpClient {
-            homeserver: homeserver.clone(),
-            inner: http_client.build()?,
-        };
+        let http_client = Arc::new(DefaultHttpClient::with_config(&config)?);
 
         let base_client = BaseClient::new_with_config(config.base_config)?;
 
@@ -1055,6 +1019,23 @@ impl Client {
         Ok(response)
     }
 
+    async fn response_to_http_response(
+        &self,
+        mut response: reqwest::Response,
+    ) -> Result<http::Response<Vec<u8>>> {
+        let status = response.status();
+        let mut http_builder = HttpResponse::builder().status(status);
+        let headers = http_builder.headers_mut().unwrap();
+
+        for (k, v) in response.headers_mut().drain() {
+            if let Some(key) = k {
+                headers.insert(key, v);
+            }
+        }
+        let body = response.bytes().await?.as_ref().to_owned();
+        Ok(http_builder.body(body).unwrap())
+    }
+
     /// Send an arbitrary request to the server, without updating client state.
     ///
     /// **Warning:** Because this method *does not* update the client state, it is
@@ -1097,9 +1078,23 @@ impl Client {
         &self,
         request: Request,
     ) -> Result<Request::Response> {
-        self.http_client
-            .send(request, self.base_client.session().clone())
-            .await
+        let request: http::Request<Vec<u8>> = request.try_into()?;
+        let response = self
+            .http_client
+            .send_request(
+                Request::METADATA.requires_authentication,
+                &self.homeserver,
+                self.base_client.session(),
+                Request::METADATA.method,
+                request,
+            )
+            .await?;
+
+        trace!("Got response: {:?}", response);
+
+        let response = self.response_to_http_response(response).await?;
+
+        Ok(<Request::Response>::try_from(response)?)
     }
 
     /// Send an arbitrary request to the server, without updating client state.
@@ -1139,9 +1134,25 @@ impl Client {
         &self,
         request: Request,
     ) -> Result<Request::Response> {
-        self.http_client
-            .send_uiaa(request, self.base_client.session().clone())
-            .await
+        let request: http::Request<Vec<u8>> = request.try_into()?;
+        let response = self
+            .http_client
+            .send_request(
+                Request::METADATA.requires_authentication,
+                &self.homeserver,
+                self.base_client.session(),
+                Request::METADATA.method,
+                request,
+            )
+            .await?;
+
+        trace!("Got response: {:?}", response);
+
+        let response = self.response_to_http_response(response).await?;
+
+        let uiaa: Result<_> = <Request::Response>::try_from(response).map_err(Into::into);
+
+        Ok(uiaa?)
     }
 
     /// Synchronize the client's state with the latest state on the server.
