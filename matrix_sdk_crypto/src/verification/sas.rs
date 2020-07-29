@@ -165,6 +165,21 @@ impl Sas {
         })
     }
 
+    /// Cancel the verification.
+    ///
+    /// This cancels the verification with the `CancelCode::User`.
+    ///
+    /// Returns None if the `Sas` object is already in a canceled state,
+    /// otherwise it returns a request that needs to be sent out.
+    pub fn cancel(&self) -> Option<ToDeviceRequest> {
+        let mut guard = self.inner.lock().unwrap();
+        let sas: InnerSas = (*guard).clone();
+        let (sas, content) = sas.cancel();
+        *guard = sas;
+
+        content.map(|c| self.content_to_request(c))
+    }
+
     /// Are we in a state where we can show the short auth string.
     pub fn can_be_presented(&self) -> bool {
         self.inner.lock().unwrap().can_be_presented()
@@ -249,6 +264,21 @@ impl InnerSas {
         } else {
             None
         }
+    }
+
+    fn cancel(self) -> (InnerSas, Option<AnyToDeviceEventContent>) {
+        let sas = match self {
+            InnerSas::Created(s) => s.cancel(CancelCode::User),
+            InnerSas::Started(s) => s.cancel(CancelCode::User),
+            InnerSas::Accepted(s) => s.cancel(CancelCode::User),
+            InnerSas::KeyRecieved(s) => s.cancel(CancelCode::User),
+            InnerSas::MacReceived(s) => s.cancel(CancelCode::User),
+            _ => return (self, None),
+        };
+
+        let content = sas.as_content();
+
+        (InnerSas::Canceled(sas), Some(content))
     }
 
     fn confirm(self) -> (InnerSas, Option<MacEventContent>) {
