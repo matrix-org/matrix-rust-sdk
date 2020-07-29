@@ -312,6 +312,33 @@ impl Client {
     /// * `homeserver_url` - The homeserver that the client should connect to.
     ///
     /// * `config` - Configuration for the client.
+    pub fn new_with_client<U: TryInto<Url>>(
+        homeserver_url: U,
+        config: ClientConfig,
+        http_client: Arc<dyn HttpClient>,
+    ) -> Result<Self> {
+        #[allow(clippy::match_wild_err_arm)]
+        let homeserver: Url = match homeserver_url.try_into() {
+            Ok(u) => u,
+            Err(_e) => panic!("Error parsing homeserver url"),
+        };
+
+        let base_client = BaseClient::new_with_config(config.base_config)?;
+
+        Ok(Self {
+            homeserver,
+            http_client,
+            base_client,
+        })
+    }
+
+    /// Create a new client with the given configuration.
+    ///
+    /// # Arguments
+    ///
+    /// * `homeserver_url` - The homeserver that the client should connect to.
+    ///
+    /// * `config` - Configuration for the client.
     pub fn new_with_config<U: TryInto<Url>>(
         homeserver_url: U,
         config: ClientConfig,
