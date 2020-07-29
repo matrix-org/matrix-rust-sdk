@@ -25,10 +25,13 @@ use matrix_sdk_common_macros::async_trait;
 
 use crate::{ClientConfig, Error, Result};
 
-/// Abstract the http layer.
+/// Abstraction around the http layer. The allows implementors to use different
+/// http libraries.
 #[async_trait]
 pub trait HttpClient: Sync + Send {
     /// The method abstracting sending request types and receiving response types.
+    ///
+    /// This is called by the client every time it wants to send anything to a homeserver.
     async fn send_request(
         &self,
         requires_auth: bool,
