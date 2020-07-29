@@ -17,9 +17,17 @@ use std::convert::TryInto;
 
 use olm_rs::sas::OlmSas;
 
-use matrix_sdk_common::api::r0::keys::{AlgorithmAndDeviceId, KeyAlgorithm};
-use matrix_sdk_common::events::{key::verification::mac::MacEventContent, ToDeviceEvent};
-use matrix_sdk_common::identifiers::DeviceId;
+use matrix_sdk_common::{
+    api::r0::{
+        keys::{AlgorithmAndDeviceId, KeyAlgorithm},
+        to_device::{send_event_to_device::Request as ToDeviceRequest, DeviceIdOrAllDevices},
+    },
+    events::{
+        key::verification::mac::MacEventContent, AnyToDeviceEventContent, EventType, ToDeviceEvent,
+    },
+    identifiers::{DeviceId, UserId},
+    uuid::Uuid,
+};
 
 use crate::{Account, Device};
 
@@ -400,10 +408,45 @@ fn get_decimal(sas: &OlmSas, ids: &SasIds, flow_id: &str, we_started: bool) -> (
     (first + 1000, second + 1000, third + 1000)
 }
 
+pub(crate) fn content_to_request(
+    recipient: &UserId,
+    recipient_device: &DeviceId,
+    content: AnyToDeviceEventContent,
+) -> ToDeviceRequest {
+    let mut messages = BTreeMap::new();
+    let mut user_messages = BTreeMap::new();
+
+    user_messages.insert(
+        DeviceIdOrAllDevices::DeviceId(recipient_device.into()),
+        serde_json::value::to_raw_value(&content).expect("Can't serialize to-device content"),
+    );
+    messages.insert(recipient.clone(), user_messages);
+
+    let event_type = match content {
+        AnyToDeviceEventContent::KeyVerificationAccept(_) => EventType::KeyVerificationAccept,
+        AnyToDeviceEventContent::KeyVerificationStart(_) => EventType::KeyVerificationStart,
+        AnyToDeviceEventContent::KeyVerificationKey(_) => EventType::KeyVerificationKey,
+        AnyToDeviceEventContent::KeyVerificationMac(_) => EventType::KeyVerificationMac,
+        AnyToDeviceEventContent::KeyVerificationCancel(_) => EventType::KeyVerificationCancel,
+        _ => unreachable!(),
+    };
+
+    ToDeviceRequest {
+        txn_id: Uuid::new_v4().to_string(),
+        event_type,
+        messages,
+    }
+}
+
 #[cfg(test)]
 mod test {
-    use matrix_sdk_common::events::{AnyToDeviceEvent, AnyToDeviceEventContent, ToDeviceEvent};
-    use matrix_sdk_common::identifiers::UserId;
+    use serde_json::Value;
+
+    use matrix_sdk_common::{
+        api::r0::to_device::send_event_to_device::Request as ToDeviceRequest,
+        events::{AnyToDeviceEvent, AnyToDeviceEventContent, EventType, ToDeviceEvent},
+        identifiers::UserId,
+    };
 
     pub(crate) fn wrap_any_to_device_content(
         sender: &UserId,
@@ -435,6 +478,40 @@ mod test {
                 })
             }
 
+            _ => unreachable!(),
+        }
+    }
+
+    pub(crate) fn get_content_from_request(request: &ToDeviceRequest) -> AnyToDeviceEventContent {
+        let json: Value = serde_json::from_str(
+            request
+                .messages
+                .values()
+                .next()
+                .unwrap()
+                .values()
+                .next()
+                .unwrap()
+                .get(),
+        )
+        .unwrap();
+
+        match request.event_type {
+            EventType::KeyVerificationStart => {
+                AnyToDeviceEventContent::KeyVerificationStart(serde_json::from_value(json).unwrap())
+            }
+            EventType::KeyVerificationKey => {
+                AnyToDeviceEventContent::KeyVerificationKey(serde_json::from_value(json).unwrap())
+            }
+            EventType::KeyVerificationAccept => AnyToDeviceEventContent::KeyVerificationAccept(
+                serde_json::from_value(json).unwrap(),
+            ),
+            EventType::KeyVerificationMac => {
+                AnyToDeviceEventContent::KeyVerificationMac(serde_json::from_value(json).unwrap())
+            }
+            EventType::KeyVerificationCancel => AnyToDeviceEventContent::KeyVerificationCancel(
+                serde_json::from_value(json).unwrap(),
+            ),
             _ => unreachable!(),
         }
     }

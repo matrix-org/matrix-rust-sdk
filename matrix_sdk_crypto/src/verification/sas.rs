@@ -20,6 +20,7 @@ use std::{
 use olm_rs::{sas::OlmSas, utility::OlmUtility};
 
 use matrix_sdk_common::{
+    api::r0::to_device::send_event_to_device::Request as ToDeviceRequest,
     events::{
         key::verification::{
             accept::AcceptEventContent,
@@ -36,7 +37,9 @@ use matrix_sdk_common::{
     uuid::Uuid,
 };
 
-use super::{get_decimal, get_emoji, get_mac_content, receive_mac_event, SasIds};
+use super::{
+    content_to_request, get_decimal, get_emoji, get_mac_content, receive_mac_event, SasIds,
+};
 use crate::{Account, Device};
 
 #[derive(Clone, Debug)]
@@ -136,8 +139,11 @@ impl Sas {
     ///
     /// This does nothing if the verification was already accepted, otherwise it
     /// returns an `AcceptEventContent` that needs to be sent out.
-    pub fn accept(&self) -> Option<AcceptEventContent> {
-        self.inner.lock().unwrap().accept()
+    pub fn accept(&self) -> Option<ToDeviceRequest> {
+        self.inner.lock().unwrap().accept().map(|c| {
+            let content = AnyToDeviceEventContent::KeyVerificationAccept(c);
+            self.content_to_request(content)
+        })
     }
 
     /// Confirm the Sas verification.
@@ -196,6 +202,10 @@ impl Sas {
 
     pub(crate) fn verified_devices(&self) -> Option<Arc<Vec<Box<DeviceId>>>> {
         self.inner.lock().unwrap().verified_devices()
+    }
+
+    pub(crate) fn content_to_request(&self, content: AnyToDeviceEventContent) -> ToDeviceRequest {
+        content_to_request(self.other_user_id(), self.other_device_id(), content)
     }
 }
 
@@ -1053,7 +1063,7 @@ impl SasState<Canceled> {
 mod test {
     use std::convert::TryFrom;
 
-    use crate::verification::test::wrap_any_to_device_content;
+    use crate::verification::test::{get_content_from_request, wrap_any_to_device_content};
     use crate::{Account, Device};
     use matrix_sdk_common::events::{AnyToDeviceEvent, EventContent, ToDeviceEvent};
     use matrix_sdk_common::identifiers::{DeviceId, UserId};
@@ -1178,9 +1188,12 @@ mod test {
         let event = wrap_to_device_event(alice.user_id(), content);
 
         let bob = Sas::from_start_event(bob, alice_device, &event).unwrap();
-        let event = wrap_to_device_event(bob.user_id(), bob.accept().unwrap());
+        let mut event = wrap_any_to_device_content(
+            bob.user_id(),
+            get_content_from_request(&bob.accept().unwrap()),
+        );
 
-        let content = alice.receive_event(&mut AnyToDeviceEvent::KeyVerificationAccept(event));
+        let content = alice.receive_event(&mut event);
 
         assert!(!alice.can_be_presented());
         assert!(!bob.can_be_presented());

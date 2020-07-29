@@ -12,23 +12,20 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use dashmap::DashMap;
 
 use matrix_sdk_common::{
-    api::r0::to_device::{send_event_to_device::Request as ToDeviceRequest, DeviceIdOrAllDevices},
+    api::r0::to_device::send_event_to_device::Request as ToDeviceRequest,
     events::{
         key::verification::start::StartEventContent, AnyToDeviceEvent, AnyToDeviceEventContent,
-        EventType,
     },
     identifiers::{DeviceId, UserId},
     locks::RwLock,
-    uuid::Uuid,
 };
 
-use super::Sas;
+use super::{content_to_request, Sas};
 use crate::{Account, CryptoStore, CryptoStoreError};
 
 #[derive(Clone, Debug)]
@@ -53,35 +50,13 @@ impl VerificationMachine {
         self.verifications.get(transaction_id).map(|s| s.clone())
     }
 
-    fn content_to_request(
-        &self,
-        recipient: &UserId,
-        recipient_device: &DeviceId,
-        content: AnyToDeviceEventContent,
-    ) -> ToDeviceRequest {
-        let mut messages = BTreeMap::new();
-        let mut user_messages = BTreeMap::new();
-
-        user_messages.insert(
-            DeviceIdOrAllDevices::DeviceId(recipient_device.into()),
-            serde_json::value::to_raw_value(&content).expect("Can't serialize to-device content"),
-        );
-        messages.insert(recipient.clone(), user_messages);
-
-        ToDeviceRequest {
-            txn_id: Uuid::new_v4().to_string(),
-            event_type: EventType::KeyVerificationAccept,
-            messages,
-        }
-    }
-
     fn queue_up_content(
         &self,
         recipient: &UserId,
         recipient_device: &DeviceId,
         content: AnyToDeviceEventContent,
     ) {
-        let request = self.content_to_request(recipient, recipient_device, content);
+        let request = content_to_request(recipient, recipient_device, content);
 
         self.outgoing_to_device_messages
             .insert(request.txn_id.clone(), request);
@@ -165,7 +140,7 @@ mod test {
     };
 
     use super::{Sas, VerificationMachine};
-    use crate::verification::test::wrap_any_to_device_content;
+    use crate::verification::test::{get_content_from_request, wrap_any_to_device_content};
     use crate::{store::memorystore::MemoryStore, Account, CryptoStore, Device};
 
     fn alice_id() -> UserId {
@@ -222,12 +197,7 @@ mod test {
 
         let mut event = alice
             .accept()
-            .map(|c| {
-                wrap_any_to_device_content(
-                    alice.user_id(),
-                    AnyToDeviceEventContent::KeyVerificationAccept(c),
-                )
-            })
+            .map(|c| wrap_any_to_device_content(alice.user_id(), get_content_from_request(&c)))
             .unwrap();
 
         let mut event = bob
@@ -247,23 +217,8 @@ mod test {
 
         let txn_id = request.txn_id.clone();
 
-        let mut event = wrap_any_to_device_content(
-            alice.user_id(),
-            AnyToDeviceEventContent::KeyVerificationKey(
-                serde_json::from_str(
-                    request
-                        .messages
-                        .values()
-                        .next()
-                        .unwrap()
-                        .values()
-                        .next()
-                        .unwrap()
-                        .get(),
-                )
-                .unwrap(),
-            ),
-        );
+        let mut event =
+            wrap_any_to_device_content(alice.user_id(), get_content_from_request(&request));
         drop(request);
         alice_machine.mark_requests_as_sent(&txn_id);
 

@@ -51,7 +51,7 @@ pub use models::Room;
 pub use state::{AllRooms, ClientState};
 
 #[cfg(feature = "encryption")]
-pub use matrix_sdk_crypto::{Device, TrustState};
+pub use matrix_sdk_crypto::{Device, Sas, TrustState};
 
 #[cfg(feature = "messages")]
 #[cfg_attr(docsrs, doc(cfg(feature = "messages")))]
