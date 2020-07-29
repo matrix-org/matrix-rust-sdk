@@ -51,6 +51,7 @@ pub use matrix_sdk_base::{Device, TrustState};
 
 mod client;
 mod error;
+mod http_client;
 mod request_builder;
 pub use client::{Client, ClientConfig, SyncSettings};
 pub use error::{Error, Result};
