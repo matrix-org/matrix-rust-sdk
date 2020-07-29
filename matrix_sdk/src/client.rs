@@ -46,6 +46,9 @@ use crate::Endpoint;
 #[cfg(feature = "encryption")]
 use crate::identifiers::DeviceId;
 
+#[cfg(feature = "encryption")]
+use crate::Sas;
+
 use crate::api;
 use crate::http_client::HttpClient;
 #[cfg(not(target_arch = "wasm32"))]
@@ -1435,6 +1438,22 @@ impl Client {
             .await?;
 
         Ok(response)
+    }
+
+    #[cfg(feature = "encryption")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "encryption")))]
+    #[instrument]
+    /// Get a `Sas` verification object with the given flow id.
+    pub async fn get_verification(&self, flow_id: &str) -> Option<Sas> {
+        self.base_client
+            .get_verification(flow_id)
+            .await
+            .map(|sas| Sas {
+                inner: sas,
+                session: self.base_client.session().clone(),
+                http_client: self.http_client.clone(),
+                homeserver: self.homeserver.clone(),
+            })
     }
 }
 

@@ -47,6 +47,7 @@ impl VerificationMachine {
     }
 
     pub fn get_sas(&self, transaction_id: &str) -> Option<Sas> {
+        #[allow(clippy::map_clone)]
         self.verifications.get(transaction_id).map(|s| s.clone())
     }
 
@@ -73,6 +74,7 @@ impl VerificationMachine {
     }
 
     pub fn outgoing_to_device_requests(&self) -> Vec<ToDeviceRequest> {
+        #[allow(clippy::map_clone)]
         self.outgoing_to_device_messages
             .iter()
             .map(|r| r.clone())

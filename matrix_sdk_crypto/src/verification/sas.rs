@@ -1099,7 +1099,7 @@ mod test {
 
     use crate::verification::test::{get_content_from_request, wrap_any_to_device_content};
     use crate::{Account, Device};
-    use matrix_sdk_common::events::{AnyToDeviceEvent, EventContent, ToDeviceEvent};
+    use matrix_sdk_common::events::{EventContent, ToDeviceEvent};
     use matrix_sdk_common::identifiers::{DeviceId, UserId};
 
     use super::{Accepted, Created, Sas, SasState, Started};
