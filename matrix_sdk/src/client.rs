@@ -1095,7 +1095,7 @@ impl Client {
         request: Request,
     ) -> Result<Request::Response> {
         self.http_client
-            .send(request, self.base_client.session().read().await.as_ref())
+            .send(request, self.base_client.session().clone())
             .await
     }
 
@@ -1137,7 +1137,7 @@ impl Client {
         request: Request,
     ) -> Result<Request::Response> {
         self.http_client
-            .send_uiaa(request, self.base_client.session().read().await.as_ref())
+            .send_uiaa(request, self.base_client.session().clone())
             .await
     }
 

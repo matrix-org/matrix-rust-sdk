@@ -20,6 +20,8 @@ use reqwest::{header::AUTHORIZATION, Client, Response};
 use tracing::trace;
 use url::Url;
 
+use matrix_sdk_common::locks::RwLock;
+
 use crate::{api::r0::uiaa::UiaaResponse, Endpoint, Error, Result, Session};
 
 #[derive(Clone, Debug)]
@@ -34,7 +36,7 @@ impl HttpClient {
         requires_auth: bool,
         method: HttpMethod,
         request: http::Request<Vec<u8>>,
-        session: Option<&Session>,
+        session: Arc<RwLock<Option<Session>>>,
     ) -> Result<Response> {
         let url = request.uri();
         let path_and_query = url.path_and_query().unwrap();
@@ -70,7 +72,7 @@ impl HttpClient {
         };
 
         let request_builder = if requires_auth {
-            if let Some(session) = session {
+            if let Some(session) = session.read().await.as_ref() {
                 let header_value = format!("Bearer {}", &session.access_token);
                 request_builder.header(AUTHORIZATION, header_value)
             } else {
@@ -103,7 +105,7 @@ impl HttpClient {
     pub async fn send<Request: Endpoint<ResponseError = crate::api::Error> + std::fmt::Debug>(
         &self,
         request: Request,
-        session: Option<&Session>,
+        session: Arc<RwLock<Option<Session>>>,
     ) -> Result<Request::Response> {
         let request: http::Request<Vec<u8>> = request.try_into()?;
         let response = self
@@ -125,7 +127,7 @@ impl HttpClient {
     pub async fn send_uiaa<Request: Endpoint<ResponseError = UiaaResponse> + std::fmt::Debug>(
         &self,
         request: Request,
-        session: Option<&Session>,
+        session: Arc<RwLock<Option<Session>>>,
     ) -> Result<Request::Response> {
         let request: http::Request<Vec<u8>> = request.try_into()?;
         let response = self
