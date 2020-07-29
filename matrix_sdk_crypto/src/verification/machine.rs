@@ -86,8 +86,8 @@ impl VerificationMachine {
         event: &mut AnyToDeviceEvent,
     ) -> Result<(), CryptoStoreError> {
         match event {
-            AnyToDeviceEvent::KeyVerificationStart(e) => match &e.content {
-                StartEventContent::MSasV1(content) => {
+            AnyToDeviceEvent::KeyVerificationStart(e) => {
+                if let StartEventContent::MSasV1(content) = &e.content {
                     if let Some(d) = self
                         .store
                         .read()
@@ -103,8 +103,7 @@ impl VerificationMachine {
                         }
                     };
                 }
-                _ => (),
-            },
+            }
             AnyToDeviceEvent::KeyVerificationCancel(e) => {
                 self.verifications.remove(&e.content.transaction_id);
             }
