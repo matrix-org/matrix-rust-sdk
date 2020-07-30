@@ -128,6 +128,14 @@ impl Device {
         self.trust_state.load(Ordering::Relaxed)
     }
 
+    /// Set the trust state of the device to the given state.
+    ///
+    /// Note: This should only done in the cryptostore where the trust state can
+    /// be stored.
+    pub(crate) fn set_trust_state(&self, state: TrustState) {
+        self.trust_state.store(state, Ordering::Relaxed)
+    }
+
     /// Get the list of algorithms this device supports.
     pub fn algorithms(&self) -> &[Algorithm] {
         &self.algorithms

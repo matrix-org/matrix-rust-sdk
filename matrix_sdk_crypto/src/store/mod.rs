@@ -23,7 +23,7 @@ use matrix_sdk_common::locks::Mutex;
 use serde_json::Error as SerdeError;
 use thiserror::Error;
 
-use super::device::Device;
+use super::device::{Device, TrustState};
 use super::memory_stores::UserDevices;
 use super::olm::{Account, InboundGroupSession, Session};
 use matrix_sdk_common::identifiers::{DeviceId, RoomId, UserId};
@@ -188,4 +188,19 @@ pub trait CryptoStore: Debug {
     ///
     /// * `user_id` - The user for which we should get all the devices.
     async fn get_user_devices(&self, user_id: &UserId) -> Result<UserDevices>;
+
+    /// Set the trust state of the given device.
+    ///
+    /// # Arguments
+    ///
+    /// * `device` - The device that should have its trust state changed.
+    ///
+    /// * `state` - The new state that should be set on the device.
+    async fn set_device_verification(&self, device: Device, state: TrustState) -> Result<()>
+    where
+        Self: Sized,
+    {
+        device.set_trust_state(state);
+        self.save_devices(&[device]).await
+    }
 }
