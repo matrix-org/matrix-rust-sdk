@@ -12,14 +12,15 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::collections::HashMap;
-use std::sync::Arc;
+use std::{collections::HashMap, sync::Arc};
 
 use dashmap::{DashMap, ReadOnlyView};
 use matrix_sdk_common::locks::Mutex;
 
-use super::device::Device;
-use super::olm::{InboundGroupSession, Session};
+use super::{
+    device::Device,
+    olm::{InboundGroupSession, Session},
+};
 use matrix_sdk_common::identifiers::{DeviceId, RoomId, UserId};
 
 /// In-memory store for Olm Sessions.
@@ -211,10 +212,11 @@ impl DeviceStore {
 mod test {
     use std::convert::TryFrom;
 
-    use crate::device::test::get_device;
-    use crate::memory_stores::{DeviceStore, GroupSessionStore, SessionStore};
-    use crate::olm::test::get_account_and_session;
-    use crate::olm::InboundGroupSession;
+    use crate::{
+        device::test::get_device,
+        memory_stores::{DeviceStore, GroupSessionStore, SessionStore},
+        olm::{test::get_account_and_session, InboundGroupSession},
+    };
     use matrix_sdk_common::identifiers::RoomId;
 
     #[tokio::test]

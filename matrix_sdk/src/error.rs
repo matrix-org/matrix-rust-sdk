@@ -20,10 +20,10 @@ use thiserror::Error;
 
 use matrix_sdk_base::Error as MatrixError;
 
-use crate::api::r0::uiaa::UiaaResponse as UiaaError;
-use crate::api::Error as RumaClientError;
-use crate::FromHttpResponseError as RumaResponseError;
-use crate::IntoHttpError as RumaIntoHttpError;
+use crate::{
+    api::{r0::uiaa::UiaaResponse as UiaaError, Error as RumaClientError},
+    FromHttpResponseError as RumaResponseError, IntoHttpError as RumaIntoHttpError,
+};
 
 /// Result type of the rust-sdk.
 pub type Result<T> = std::result::Result<T, Error>;

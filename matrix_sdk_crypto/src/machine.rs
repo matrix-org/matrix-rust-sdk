@@ -12,35 +12,44 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::collections::{BTreeMap, HashMap, HashSet};
-use std::convert::TryFrom;
-use std::convert::TryInto;
-use std::mem;
 #[cfg(feature = "sqlite-cryptostore")]
 use std::path::Path;
-use std::result::Result as StdResult;
-
-use super::error::{EventError, MegolmError, MegolmResult, OlmError, OlmResult};
-use super::olm::{
-    Account, GroupSessionKey, IdentityKeys, InboundGroupSession, OlmMessage, OutboundGroupSession,
+use std::{
+    collections::{BTreeMap, HashMap, HashSet},
+    convert::{TryFrom, TryInto},
+    mem,
+    result::Result as StdResult,
 };
-use super::store::memorystore::MemoryStore;
+
 #[cfg(feature = "sqlite-cryptostore")]
 use super::store::sqlite::SqliteStore;
-use super::{device::Device, store::Result as StoreResult, CryptoStore};
-
-use matrix_sdk_common::events::{
-    forwarded_room_key::ForwardedRoomKeyEventContent, room::encrypted::EncryptedEventContent,
-    room::message::MessageEventContent, room_key::RoomKeyEventContent,
-    room_key_request::RoomKeyRequestEventContent, Algorithm, AnySyncRoomEvent, AnyToDeviceEvent,
-    EventType, SyncMessageEvent, ToDeviceEvent,
+use super::{
+    device::Device,
+    error::{EventError, MegolmError, MegolmResult, OlmError, OlmResult},
+    olm::{
+        Account, GroupSessionKey, IdentityKeys, InboundGroupSession, OlmMessage,
+        OutboundGroupSession,
+    },
+    store::{memorystore::MemoryStore, Result as StoreResult},
+    CryptoStore,
 };
-use matrix_sdk_common::identifiers::{DeviceId, RoomId, UserId};
-use matrix_sdk_common::uuid::Uuid;
-use matrix_sdk_common::{api, Raw};
 
-use api::r0::keys;
+use matrix_sdk_common::{
+    api,
+    events::{
+        forwarded_room_key::ForwardedRoomKeyEventContent,
+        room::{encrypted::EncryptedEventContent, message::MessageEventContent},
+        room_key::RoomKeyEventContent,
+        room_key_request::RoomKeyRequestEventContent,
+        Algorithm, AnySyncRoomEvent, AnyToDeviceEvent, EventType, SyncMessageEvent, ToDeviceEvent,
+    },
+    identifiers::{DeviceId, RoomId, UserId},
+    uuid::Uuid,
+    Raw,
+};
+
 use api::r0::{
+    keys,
     keys::{AlgorithmAndDeviceId, DeviceKeys, KeyAlgorithm, OneTimeKey},
     sync::sync_events::Response as SyncResponse,
     to_device::{send_event_to_device::Request as ToDeviceRequest, DeviceIdOrAllDevices},
@@ -1166,30 +1175,33 @@ mod test {
     static USER_ID: &str = "@bob:example.org";
 
     use matrix_sdk_common::js_int::uint;
-    use std::collections::BTreeMap;
-    use std::convert::TryFrom;
-    use std::convert::TryInto;
-    use std::time::SystemTime;
+    use std::{
+        collections::BTreeMap,
+        convert::{TryFrom, TryInto},
+        time::SystemTime,
+    };
 
     use http::Response;
     use serde_json::json;
 
-    use crate::machine::{OlmMachine, OneTimeKeys};
-    use crate::{verify_json, Device};
+    use crate::{
+        machine::{OlmMachine, OneTimeKeys},
+        verify_json, Device,
+    };
 
-    use matrix_sdk_common::api::r0::{
-        keys, to_device::send_event_to_device::Request as ToDeviceRequest,
-    };
-    use matrix_sdk_common::events::{
-        room::{
-            encrypted::EncryptedEventContent,
-            message::{MessageEventContent, TextMessageEventContent},
+    use matrix_sdk_common::{
+        api::r0::{keys, to_device::send_event_to_device::Request as ToDeviceRequest},
+        events::{
+            room::{
+                encrypted::EncryptedEventContent,
+                message::{MessageEventContent, TextMessageEventContent},
+            },
+            AnySyncMessageEvent, AnySyncRoomEvent, AnyToDeviceEvent, EventType, SyncMessageEvent,
+            ToDeviceEvent, Unsigned,
         },
-        AnySyncMessageEvent, AnySyncRoomEvent, AnyToDeviceEvent, EventType, SyncMessageEvent,
-        ToDeviceEvent, Unsigned,
+        identifiers::{DeviceId, EventId, RoomId, UserId},
+        Raw,
     };
-    use matrix_sdk_common::identifiers::{DeviceId, EventId, RoomId, UserId};
-    use matrix_sdk_common::Raw;
     use matrix_sdk_test::test_json;
 
     fn alice_id() -> UserId {

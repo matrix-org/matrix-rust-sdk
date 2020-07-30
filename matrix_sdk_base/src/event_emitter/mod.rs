@@ -17,29 +17,31 @@ use std::sync::Arc;
 use matrix_sdk_common::locks::RwLock;
 use serde_json::value::RawValue as RawJsonValue;
 
-use crate::events::{
-    custom::CustomEventContent,
-    fully_read::FullyReadEventContent,
-    ignored_user_list::IgnoredUserListEventContent,
-    presence::PresenceEvent,
-    push_rules::PushRulesEventContent,
-    receipt::ReceiptEventContent,
-    room::{
-        aliases::AliasesEventContent,
-        avatar::AvatarEventContent,
-        canonical_alias::CanonicalAliasEventContent,
-        join_rules::JoinRulesEventContent,
-        member::MemberEventContent,
-        message::{feedback::FeedbackEventContent, MessageEventContent as MsgEventContent},
-        name::NameEventContent,
-        power_levels::PowerLevelsEventContent,
-        redaction::SyncRedactionEvent,
-        tombstone::TombstoneEventContent,
+use crate::{
+    events::{
+        custom::CustomEventContent,
+        fully_read::FullyReadEventContent,
+        ignored_user_list::IgnoredUserListEventContent,
+        presence::PresenceEvent,
+        push_rules::PushRulesEventContent,
+        receipt::ReceiptEventContent,
+        room::{
+            aliases::AliasesEventContent,
+            avatar::AvatarEventContent,
+            canonical_alias::CanonicalAliasEventContent,
+            join_rules::JoinRulesEventContent,
+            member::MemberEventContent,
+            message::{feedback::FeedbackEventContent, MessageEventContent as MsgEventContent},
+            name::NameEventContent,
+            power_levels::PowerLevelsEventContent,
+            redaction::SyncRedactionEvent,
+            tombstone::TombstoneEventContent,
+        },
+        typing::TypingEventContent,
+        BasicEvent, StrippedStateEvent, SyncEphemeralRoomEvent, SyncMessageEvent, SyncStateEvent,
     },
-    typing::TypingEventContent,
-    BasicEvent, StrippedStateEvent, SyncEphemeralRoomEvent, SyncMessageEvent, SyncStateEvent,
+    Room, RoomState,
 };
-use crate::{Room, RoomState};
 use matrix_sdk_common_macros::async_trait;
 
 /// Type alias for `RoomState` enum when passed to `EventEmitter` methods.
@@ -471,8 +473,7 @@ mod test {
         }
     }
 
-    use crate::identifiers::UserId;
-    use crate::{BaseClient, Session};
+    use crate::{identifiers::UserId, BaseClient, Session};
 
     use std::convert::TryFrom;
 

@@ -13,9 +13,7 @@
 // limitations under the License.
 
 use core::fmt::Debug;
-use std::collections::HashSet;
-use std::io::Error as IoError;
-use std::sync::Arc;
+use std::{collections::HashSet, io::Error as IoError, sync::Arc};
 use url::ParseError;
 
 use async_trait::async_trait;
@@ -23,9 +21,11 @@ use matrix_sdk_common::locks::Mutex;
 use serde_json::Error as SerdeError;
 use thiserror::Error;
 
-use super::device::Device;
-use super::memory_stores::UserDevices;
-use super::olm::{Account, InboundGroupSession, Session};
+use super::{
+    device::Device,
+    memory_stores::UserDevices,
+    olm::{Account, InboundGroupSession, Session},
+};
 use matrix_sdk_common::identifiers::{DeviceId, RoomId, UserId};
 use matrix_sdk_common_macros::send_sync;
 use olm_rs::errors::{OlmAccountError, OlmGroupSessionError, OlmSessionError};

@@ -12,22 +12,27 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::collections::BTreeMap;
-use std::convert::TryFrom;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
+use std::{
+    collections::BTreeMap,
+    convert::TryFrom,
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    },
+};
 
 use atomic::Atomic;
 use serde_json::{json, Value};
 
 #[cfg(test)]
 use super::OlmMachine;
-use matrix_sdk_common::api::r0::keys::{AlgorithmAndDeviceId, DeviceKeys, KeyAlgorithm, SignedKey};
-use matrix_sdk_common::events::Algorithm;
-use matrix_sdk_common::identifiers::{DeviceId, UserId};
+use matrix_sdk_common::{
+    api::r0::keys::{AlgorithmAndDeviceId, DeviceKeys, KeyAlgorithm, SignedKey},
+    events::Algorithm,
+    identifiers::{DeviceId, UserId},
+};
 
-use crate::error::SignatureError;
-use crate::verify_json;
+use crate::{error::SignatureError, verify_json};
 
 /// A device represents a E2EE capable client of an user.
 #[derive(Debug, Clone)]
@@ -230,8 +235,10 @@ pub(crate) mod test {
     use std::convert::TryFrom;
 
     use crate::device::{Device, TrustState};
-    use matrix_sdk_common::api::r0::keys::{DeviceKeys, KeyAlgorithm};
-    use matrix_sdk_common::identifiers::UserId;
+    use matrix_sdk_common::{
+        api::r0::keys::{DeviceKeys, KeyAlgorithm},
+        identifiers::UserId,
+    };
 
     fn device_keys() -> DeviceKeys {
         let device_keys = json!({

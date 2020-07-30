@@ -160,8 +160,7 @@ pub(crate) mod ser_deser {
 
 #[cfg(test)]
 mod test {
-    use std::collections::HashMap;
-    use std::convert::TryFrom;
+    use std::{collections::HashMap, convert::TryFrom};
 
     use matrix_sdk_common::{
         events::{AnyPossiblyRedactedSyncMessageEvent, AnySyncMessageEvent},

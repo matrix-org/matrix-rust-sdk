@@ -12,15 +12,16 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::collections::HashSet;
-use std::sync::Arc;
+use std::{collections::HashSet, sync::Arc};
 
 use async_trait::async_trait;
 use matrix_sdk_common::locks::Mutex;
 
 use super::{Account, CryptoStore, InboundGroupSession, Result, Session};
-use crate::device::Device;
-use crate::memory_stores::{DeviceStore, GroupSessionStore, SessionStore, UserDevices};
+use crate::{
+    device::Device,
+    memory_stores::{DeviceStore, GroupSessionStore, SessionStore, UserDevices},
+};
 use matrix_sdk_common::identifiers::{DeviceId, RoomId, UserId};
 
 #[derive(Debug)]
@@ -126,11 +127,11 @@ impl CryptoStore for MemoryStore {
 mod test {
     use std::convert::TryFrom;
 
-    use crate::device::test::get_device;
-    use crate::olm::test::get_account_and_session;
-    use crate::olm::InboundGroupSession;
-    use crate::store::memorystore::MemoryStore;
-    use crate::store::CryptoStore;
+    use crate::{
+        device::test::get_device,
+        olm::{test::get_account_and_session, InboundGroupSession},
+        store::{memorystore::MemoryStore, CryptoStore},
+    };
     use matrix_sdk_common::identifiers::RoomId;
 
     #[tokio::test]

@@ -43,8 +43,10 @@ pub use store::sqlite::SqliteStore;
 pub use store::{CryptoStore, CryptoStoreError};
 
 use error::SignatureError;
-use matrix_sdk_common::api::r0::keys::{AlgorithmAndDeviceId, KeyAlgorithm};
-use matrix_sdk_common::identifiers::UserId;
+use matrix_sdk_common::{
+    api::r0::keys::{AlgorithmAndDeviceId, KeyAlgorithm},
+    identifiers::UserId,
+};
 use olm_rs::utility::OlmUtility;
 use serde_json::Value;
 

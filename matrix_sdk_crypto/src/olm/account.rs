@@ -13,23 +13,27 @@
 // limitations under the License.
 
 use matrix_sdk_common::instant::Instant;
-use std::convert::TryFrom;
-use std::convert::TryInto;
-use std::fmt;
-use std::sync::atomic::{AtomicBool, AtomicI64, Ordering};
-use std::sync::Arc;
+use std::{
+    convert::{TryFrom, TryInto},
+    fmt,
+    sync::{
+        atomic::{AtomicBool, AtomicI64, Ordering},
+        Arc,
+    },
+};
 
 use matrix_sdk_common::locks::Mutex;
 use serde_json::{json, Value};
 use std::collections::BTreeMap;
 
 pub use olm_rs::account::IdentityKeys;
-use olm_rs::account::{OlmAccount, OneTimeKeys};
-use olm_rs::errors::{OlmAccountError, OlmSessionError};
-use olm_rs::PicklingMode;
+use olm_rs::{
+    account::{OlmAccount, OneTimeKeys},
+    errors::{OlmAccountError, OlmSessionError},
+    PicklingMode,
+};
 
-use crate::device::Device;
-use crate::error::SessionCreationError;
+use crate::{device::Device, error::SessionCreationError};
 pub use olm_rs::{
     session::{OlmMessage, PreKeyMessage},
     utility::OlmUtility,

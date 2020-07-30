@@ -13,35 +13,40 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::collections::HashMap;
 #[cfg(feature = "encryption")]
 use std::collections::{BTreeMap, HashSet};
-use std::fmt;
-use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::{
+    collections::HashMap,
+    fmt,
+    path::{Path, PathBuf},
+    sync::Arc,
+};
 use zeroize::Zeroizing;
 
 use std::result::Result as StdResult;
 
-use crate::api::r0 as api;
-use crate::error::Result;
-use crate::events::presence::PresenceEvent;
+use crate::{api::r0 as api, error::Result, events::presence::PresenceEvent};
 // `NonRoomEvent` is what it is aliased as
-use crate::event_emitter::CustomOrRawEvent;
-use crate::events::ignored_user_list::IgnoredUserListEvent;
-use crate::events::push_rules::PushRulesEvent;
-use crate::events::room::member::MemberEventContent;
-use crate::identifiers::{RoomId, UserId};
-use crate::models::Room;
-use crate::push::Ruleset;
-use crate::session::Session;
-use crate::state::{AllRooms, ClientState, StateStore};
-use crate::EventEmitter;
-use matrix_sdk_common::events::{
-    AnyBasicEvent, AnyStrippedStateEvent, AnySyncEphemeralRoomEvent, AnySyncMessageEvent,
-    AnySyncRoomEvent, AnySyncStateEvent,
+use crate::{
+    event_emitter::CustomOrRawEvent,
+    events::{
+        ignored_user_list::IgnoredUserListEvent, push_rules::PushRulesEvent,
+        room::member::MemberEventContent,
+    },
+    identifiers::{RoomId, UserId},
+    models::Room,
+    push::Ruleset,
+    session::Session,
+    state::{AllRooms, ClientState, StateStore},
+    EventEmitter,
 };
-use matrix_sdk_common::Raw;
+use matrix_sdk_common::{
+    events::{
+        AnyBasicEvent, AnyStrippedStateEvent, AnySyncEphemeralRoomEvent, AnySyncMessageEvent,
+        AnySyncRoomEvent, AnySyncStateEvent,
+    },
+    Raw,
+};
 
 #[cfg(feature = "encryption")]
 use matrix_sdk_common::locks::Mutex;
@@ -1831,10 +1836,12 @@ impl BaseClient {
 
 #[cfg(test)]
 mod test {
-    use crate::identifiers::{RoomId, UserId};
     #[cfg(feature = "messages")]
     use crate::{events::AnySyncRoomEvent, identifiers::EventId, BaseClientConfig, JsonStore, Raw};
-    use crate::{BaseClient, Session};
+    use crate::{
+        identifiers::{RoomId, UserId},
+        BaseClient, Session,
+    };
     use matrix_sdk_common_macros::async_trait;
     use matrix_sdk_test::{async_test, test_json, EventBuilder, EventsJson};
     use serde_json::json;
@@ -1997,11 +2004,13 @@ mod test {
         use super::*;
 
         use crate::{EventEmitter, SyncRoom};
-        use matrix_sdk_common::events::{
-            room::member::{MemberEventContent, MembershipChange},
-            SyncStateEvent,
+        use matrix_sdk_common::{
+            events::{
+                room::member::{MemberEventContent, MembershipChange},
+                SyncStateEvent,
+            },
+            locks::RwLock,
         };
-        use matrix_sdk_common::locks::RwLock;
         use std::sync::{
             atomic::{AtomicBool, Ordering},
             Arc,
@@ -2253,8 +2262,7 @@ mod test {
         use super::*;
 
         use crate::{EventEmitter, SyncRoom};
-        use matrix_sdk_common::api::r0::sync::sync_events;
-        use matrix_sdk_common::locks::RwLock;
+        use matrix_sdk_common::{api::r0::sync::sync_events, locks::RwLock};
         use std::sync::{
             atomic::{AtomicBool, Ordering},
             Arc,

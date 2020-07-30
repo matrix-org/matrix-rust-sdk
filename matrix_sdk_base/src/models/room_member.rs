@@ -154,8 +154,10 @@ impl RoomMember {
 mod test {
     use matrix_sdk_test::{async_test, EventBuilder, EventsJson};
 
-    use crate::identifiers::{RoomId, UserId};
-    use crate::{BaseClient, Session};
+    use crate::{
+        identifiers::{RoomId, UserId},
+        BaseClient, Session,
+    };
 
     use crate::js_int::int;
 

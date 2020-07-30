@@ -23,11 +23,12 @@ pub use session::{OlmMessage, Session};
 #[cfg(test)]
 pub(crate) mod test {
     use crate::olm::{Account, InboundGroupSession, Session};
-    use matrix_sdk_common::api::r0::keys::SignedKey;
-    use matrix_sdk_common::identifiers::{DeviceId, RoomId, UserId};
+    use matrix_sdk_common::{
+        api::r0::keys::SignedKey,
+        identifiers::{DeviceId, RoomId, UserId},
+    };
     use olm_rs::session::OlmMessage;
-    use std::collections::BTreeMap;
-    use std::convert::TryFrom;
+    use std::{collections::BTreeMap, convert::TryFrom};
 
     fn alice_id() -> UserId {
         UserId::try_from("@alice:example.org").unwrap()

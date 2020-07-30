@@ -22,10 +22,12 @@ mod json_store;
 #[cfg(not(target_arch = "wasm32"))]
 pub use json_store::JsonStore;
 
-use crate::client::{BaseClient, Token};
-use crate::identifiers::{RoomId, UserId};
-use crate::push::Ruleset;
-use crate::{Result, Room, RoomState, Session};
+use crate::{
+    client::{BaseClient, Token},
+    identifiers::{RoomId, UserId},
+    push::Ruleset,
+    Result, Room, RoomState, Session,
+};
 
 #[cfg(not(target_arch = "wasm32"))]
 use matrix_sdk_common_macros::send_sync;
@@ -117,8 +119,7 @@ pub trait StateStore {
 mod test {
     use super::*;
 
-    use std::collections::HashMap;
-    use std::convert::TryFrom;
+    use std::{collections::HashMap, convert::TryFrom};
 
     use crate::identifiers::RoomId;
 

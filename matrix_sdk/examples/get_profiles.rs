@@ -1,5 +1,4 @@
-use std::convert::TryFrom;
-use std::{env, process::exit};
+use std::{convert::TryFrom, env, process::exit};
 
 use url::Url;
 

@@ -12,13 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::collections::BTreeMap;
-use std::fmt;
-use std::sync::Arc;
+use std::{collections::BTreeMap, fmt, sync::Arc};
 
-use olm_rs::errors::OlmSessionError;
-use olm_rs::session::OlmSession;
-use olm_rs::PicklingMode;
+use olm_rs::{errors::OlmSessionError, session::OlmSession, PicklingMode};
 
 use serde_json::{json, Value};
 
@@ -28,8 +24,10 @@ pub use olm_rs::{
 };
 
 use super::IdentityKeys;
-use crate::error::{EventError, OlmResult};
-use crate::Device;
+use crate::{
+    error::{EventError, OlmResult},
+    Device,
+};
 
 use matrix_sdk_common::{
     api::r0::keys::KeyAlgorithm,
