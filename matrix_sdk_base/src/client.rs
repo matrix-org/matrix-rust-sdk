@@ -1847,6 +1847,15 @@ impl BaseClient {
     }
 
     /// Get a `Sas` verification object with the given flow id.
+    ///
+    /// # Arguments
+    /// * `flow_id` - The unique id that identifies a interactive verification
+    ///     flow. For in-room verifications this will be the event id of the
+    ///     *m.key.verification.request* event that started the flow, for the
+    ///     to-device verification flows this will be the transaction id of the
+    ///     *m.key.verification.start* event.
+    #[cfg(feature = "encryption")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "encryption")))]
     pub async fn get_verification(&self, flow_id: &str) -> Option<Sas> {
         self.olm
             .lock()
