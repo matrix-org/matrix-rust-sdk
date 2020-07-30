@@ -10,7 +10,7 @@ use std::{
     vec::IntoIter,
 };
 
-use matrix_sdk_common::identifiers::EventId;
+use matrix_sdk_common::identifiers::{UserId, EventId};
 use serde::{de, ser, Serialize};
 
 use crate::events::AnyPossiblyRedactedSyncMessageEvent;
@@ -18,16 +18,18 @@ use crate::events::AnyPossiblyRedactedSyncMessageEvent;
 /// Exposes some of the field access methods found in the event held by
 /// `AnyPossiblyRedacted*` enums.
 ///
-/// This is just an extension trait to aid the ease of use of certain event enums.
+/// This is just an extension trait to ease the use of certain event enums.
 pub trait PossiblyRedactedExt {
-    /// Access the redacted or full events `event_id` field.
+    /// Access the redacted or full event's `event_id` field.
     fn event_id(&self) -> &EventId;
-    /// Access the redacted or full events `origin_server_ts` field.
+    /// Access the redacted or full event's `origin_server_ts` field.
     fn origin_server_ts(&self) -> &SystemTime;
+    /// Access the redacted or full event's `sender` field.
+    fn sender(&self) -> &UserId;
 }
 
 impl PossiblyRedactedExt for AnyPossiblyRedactedSyncMessageEvent {
-    /// Access the underlying events `event_id`.
+    /// Access the underlying event's `event_id`.
     fn event_id(&self) -> &EventId {
         match self {
             Self::Regular(e) => e.event_id(),
@@ -35,11 +37,19 @@ impl PossiblyRedactedExt for AnyPossiblyRedactedSyncMessageEvent {
         }
     }
 
-    /// Access the underlying events `origin_server_ts`.
+    /// Access the underlying event's `origin_server_ts`.
     fn origin_server_ts(&self) -> &SystemTime {
         match self {
             Self::Regular(e) => e.origin_server_ts(),
             Self::Redacted(e) => e.origin_server_ts(),
+        }
+    }
+
+    /// Access the underlying event's `sender`.
+    fn sender(&self) -> &UserId {
+        match self {
+            Self::Regular(e) => e.sender(),
+            Self::Redacted(e) => e.sender(),
         }
     }
 }
