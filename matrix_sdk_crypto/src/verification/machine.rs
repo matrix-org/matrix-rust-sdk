@@ -18,9 +18,7 @@ use dashmap::DashMap;
 
 use matrix_sdk_common::{
     api::r0::to_device::send_event_to_device::Request as ToDeviceRequest,
-    events::{
-        key::verification::start::StartEventContent, AnyToDeviceEvent, AnyToDeviceEventContent,
-    },
+    events::{AnyToDeviceEvent, AnyToDeviceEventContent},
     identifiers::{DeviceId, UserId},
     locks::RwLock,
 };
@@ -87,22 +85,21 @@ impl VerificationMachine {
     ) -> Result<(), CryptoStoreError> {
         match event {
             AnyToDeviceEvent::KeyVerificationStart(e) => {
-                if let StartEventContent::MSasV1(content) = &e.content {
-                    if let Some(d) = self
-                        .store
-                        .read()
-                        .await
-                        .get_device(&e.sender, &content.from_device)
-                        .await?
-                    {
-                        match Sas::from_start_event(self.account.clone(), d, e) {
-                            Ok(s) => {
-                                self.verifications.insert(content.transaction_id.clone(), s);
-                            }
-                            Err(c) => self.queue_up_content(&e.sender, &content.from_device, c),
+                if let Some(d) = self
+                    .store
+                    .read()
+                    .await
+                    .get_device(&e.sender, &e.content.from_device)
+                    .await?
+                {
+                    match Sas::from_start_event(self.account.clone(), d, e) {
+                        Ok(s) => {
+                            self.verifications
+                                .insert(e.content.transaction_id.clone(), s);
                         }
-                    };
-                }
+                        Err(c) => self.queue_up_content(&e.sender, &e.content.from_device, c),
+                    }
+                };
             }
             AnyToDeviceEvent::KeyVerificationCancel(e) => {
                 self.verifications.remove(&e.content.transaction_id);

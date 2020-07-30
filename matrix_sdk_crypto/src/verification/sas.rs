@@ -23,11 +23,11 @@ use matrix_sdk_common::{
     api::r0::to_device::send_event_to_device::Request as ToDeviceRequest,
     events::{
         key::verification::{
-            accept::AcceptEventContent,
+            accept::{AcceptEventContent, AcceptMethod, MSasV1Content as AcceptV1Content},
             cancel::{CancelCode, CancelEventContent},
             key::KeyEventContent,
             mac::MacEventContent,
-            start::{MSasV1Content, MSasV1ContentOptions, StartEventContent},
+            start::{MSasV1Content, MSasV1ContentInit, StartEventContent, StartMethod},
             HashAlgorithm, KeyAgreementProtocol, MessageAuthenticationCode,
             ShortAuthenticationString, VerificationMethod,
         },
@@ -438,14 +438,29 @@ struct AcceptedProtocols {
     short_auth_string: Vec<ShortAuthenticationString>,
 }
 
-impl From<AcceptEventContent> for AcceptedProtocols {
-    fn from(content: AcceptEventContent) -> Self {
+impl From<AcceptV1Content> for AcceptedProtocols {
+    fn from(content: AcceptV1Content) -> Self {
         Self {
-            method: content.method,
+            method: VerificationMethod::MSasV1,
             hash: content.hash,
             key_agreement_protocol: content.key_agreement_protocol,
             message_auth_code: content.message_authentication_code,
             short_auth_string: content.short_authentication_string,
+        }
+    }
+}
+
+impl Default for AcceptedProtocols {
+    fn default() -> Self {
+        AcceptedProtocols {
+            method: VerificationMethod::MSasV1,
+            hash: HashAlgorithm::Sha256,
+            key_agreement_protocol: KeyAgreementProtocol::Curve25519HkdfSha256,
+            message_auth_code: MessageAuthenticationCode::HkdfHmacSha256,
+            short_auth_string: vec![
+                ShortAuthenticationString::Decimal,
+                ShortAuthenticationString::Emoji,
+            ],
         }
     }
 }
@@ -482,7 +497,7 @@ impl<S: Clone + std::fmt::Debug> std::fmt::Debug for SasState<S> {
 /// The initial SAS state.
 #[derive(Clone, Debug)]
 struct Created {
-    protocol_definitions: MSasV1ContentOptions,
+    protocol_definitions: MSasV1ContentInit,
 }
 
 /// The initial SAS state if the other side started the SAS verification.
@@ -586,7 +601,6 @@ impl SasState<Created> {
     /// * `other_device` - The other device which we are going to verify.
     fn new(account: Account, other_device: Device) -> SasState<Created> {
         let verification_flow_id = Uuid::new_v4().to_string();
-        let from_device: Box<DeviceId> = account.device_id().into();
 
         SasState {
             inner: Arc::new(Mutex::new(OlmSas::new())),
@@ -597,9 +611,7 @@ impl SasState<Created> {
             verification_flow_id: Arc::new(verification_flow_id.clone()),
 
             state: Arc::new(Created {
-                protocol_definitions: MSasV1ContentOptions {
-                    transaction_id: verification_flow_id,
-                    from_device,
+                protocol_definitions: MSasV1ContentInit {
                     short_authentication_string: Sas::STRINGS.to_vec(),
                     key_agreement_protocols: Sas::KEY_AGREEMENT_PROTOCOLS.to_vec(),
                     message_authentication_codes: Sas::MACS.to_vec(),
@@ -613,10 +625,14 @@ impl SasState<Created> {
     ///
     /// The content needs to be sent to the other device.
     fn as_content(&self) -> StartEventContent {
-        StartEventContent::MSasV1(
-            MSasV1Content::new(self.state.protocol_definitions.clone())
-                .expect("Invalid initial protocol definitions."),
-        )
+        StartEventContent {
+            transaction_id: self.verification_flow_id.to_string(),
+            from_device: self.device_id().into(),
+            method: StartMethod::MSasV1(
+                MSasV1Content::new(self.state.protocol_definitions.clone())
+                    .expect("Invalid initial protocol definitions."),
+            ),
+        }
     }
 
     /// Receive a m.key.verification.accept event, changing the state into
@@ -633,34 +649,35 @@ impl SasState<Created> {
         self.check_sender_and_txid(&event.sender, &event.content.transaction_id)
             .map_err(|c| self.clone().cancel(c))?;
 
-        let content = &event.content;
-        if !Sas::KEY_AGREEMENT_PROTOCOLS.contains(&event.content.key_agreement_protocol)
-            || !Sas::HASHES.contains(&event.content.hash)
-            || !Sas::MACS.contains(&event.content.message_authentication_code)
-            || (!event
-                .content
-                .short_authentication_string
-                .contains(&ShortAuthenticationString::Emoji)
-                && !event
-                    .content
+        if let AcceptMethod::MSasV1(content) = &event.content.method {
+            if !Sas::KEY_AGREEMENT_PROTOCOLS.contains(&content.key_agreement_protocol)
+                || !Sas::HASHES.contains(&content.hash)
+                || !Sas::MACS.contains(&content.message_authentication_code)
+                || (!content
                     .short_authentication_string
-                    .contains(&ShortAuthenticationString::Decimal))
-        {
-            Err(self.cancel(CancelCode::UnknownMethod))
-        } else {
-            let json_start_content = cjson::to_string(&self.as_content())
-                .expect("Can't deserialize start event content");
+                    .contains(&ShortAuthenticationString::Emoji)
+                    && !content
+                        .short_authentication_string
+                        .contains(&ShortAuthenticationString::Decimal))
+            {
+                Err(self.cancel(CancelCode::UnknownMethod))
+            } else {
+                let json_start_content = cjson::to_string(&self.as_content())
+                    .expect("Can't deserialize start event content");
 
-            Ok(SasState {
-                inner: self.inner,
-                ids: self.ids,
-                verification_flow_id: self.verification_flow_id,
-                state: Arc::new(Accepted {
-                    json_start_content,
-                    commitment: content.commitment.clone(),
-                    accepted_protocols: Arc::new(content.clone().into()),
-                }),
-            })
+                Ok(SasState {
+                    inner: self.inner,
+                    ids: self.ids,
+                    verification_flow_id: self.verification_flow_id,
+                    state: Arc::new(Accepted {
+                        json_start_content,
+                        commitment: content.commitment.clone(),
+                        accepted_protocols: Arc::new(content.clone().into()),
+                    }),
+                })
+            }
+        } else {
+            Err(self.cancel(CancelCode::UnknownMethod))
         }
     }
 }
@@ -684,7 +701,7 @@ impl SasState<Started> {
         other_device: Device,
         event: &ToDeviceEvent<StartEventContent>,
     ) -> Result<SasState<Started>, SasState<Canceled>> {
-        if let StartEventContent::MSasV1(content) = &event.content {
+        if let StartMethod::MSasV1(content) = &event.content.method {
             let sas = OlmSas::new();
             let utility = OlmUtility::new();
 
@@ -700,7 +717,7 @@ impl SasState<Started> {
                     other_device,
                 },
 
-                verification_flow_id: Arc::new(content.transaction_id.clone()),
+                verification_flow_id: Arc::new(event.content.transaction_id.clone()),
 
                 state: Arc::new(Started {
                     protocol_definitions: content.clone(),
@@ -735,10 +752,7 @@ impl SasState<Started> {
                     other_device,
                 },
 
-                // TODO we can't get to the transaction id currently since it's
-                // behind the content specific enum.
-                verification_flow_id: Arc::new("".to_owned()),
-
+                verification_flow_id: Arc::new(event.content.transaction_id.clone()),
                 state: Arc::new(Canceled::new(CancelCode::UnknownMethod)),
             })
         }
@@ -752,18 +766,21 @@ impl SasState<Started> {
     /// been started because of a
     /// m.key.verification.request -> m.key.verification.ready flow.
     fn as_content(&self) -> AcceptEventContent {
+        let accepted_protocols = AcceptedProtocols::default();
+
         AcceptEventContent {
-            method: VerificationMethod::MSasV1,
             transaction_id: self.verification_flow_id.to_string(),
-            commitment: self.state.commitment.clone(),
-            hash: HashAlgorithm::Sha256,
-            key_agreement_protocol: KeyAgreementProtocol::Curve25519HkdfSha256,
-            message_authentication_code: MessageAuthenticationCode::HkdfHmacSha256,
-            short_authentication_string: self
-                .state
-                .protocol_definitions
-                .short_authentication_string
-                .clone(),
+            method: AcceptMethod::MSasV1(AcceptV1Content {
+                commitment: self.state.commitment.clone(),
+                hash: accepted_protocols.hash,
+                key_agreement_protocol: accepted_protocols.key_agreement_protocol,
+                message_authentication_code: accepted_protocols.message_auth_code,
+                short_authentication_string: self
+                    .state
+                    .protocol_definitions
+                    .short_authentication_string
+                    .clone(),
+            }),
         }
     }
 
@@ -782,7 +799,8 @@ impl SasState<Started> {
         self.check_sender_and_txid(&event.sender, &event.content.transaction_id)
             .map_err(|c| self.clone().cancel(c))?;
 
-        let accepted_protocols: AcceptedProtocols = self.as_content().into();
+        let accepted_protocols = AcceptedProtocols::default();
+
         self.inner
             .lock()
             .unwrap()
