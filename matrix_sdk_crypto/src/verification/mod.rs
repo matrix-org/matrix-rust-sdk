@@ -174,7 +174,7 @@ fn receive_mac_event(
     let mut keys = event.content.mac.keys().cloned().collect::<Vec<String>>();
     keys.sort();
     let keys = sas
-        .calculate_mac(&keys.join(","), &format!("{}KEYIDS", &info))
+        .calculate_mac(&keys.join(","), &format!("{}KEY_IDS", &info))
         .expect("Can't calculate SAS MAC");
 
     if keys != event.content.keys {
@@ -267,7 +267,7 @@ fn get_mac_content(sas: &OlmSas, ids: &SasIds, flow_id: &str) -> MacEventContent
     let mut keys = mac.keys().cloned().collect::<Vec<String>>();
     keys.sort();
     let keys = sas
-        .calculate_mac(&keys.join(","), &format!("{}KEYIDS", &info))
+        .calculate_mac(&keys.join(","), &format!("{}KEY_IDS", &info))
         .expect("Can't calculate SAS MAC");
 
     MacEventContent {
