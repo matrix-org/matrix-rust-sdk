@@ -1254,8 +1254,6 @@ impl Client {
                 }
             };
 
-            // TODO send out to-device messages here
-
             #[cfg(feature = "encryption")]
             {
                 if self.base_client.should_upload_keys().await {
@@ -1271,6 +1269,16 @@ impl Client {
 
                     if let Err(e) = response {
                         warn!("Error while querying device keys {:?}", e);
+                    }
+                }
+
+                for request in self.base_client.outgoing_to_device_requests().await {
+                    let transaction_id = request.txn_id.clone();
+
+                    if let Ok(_) = self.send(request).await {
+                        self.base_client
+                            .mark_to_device_request_as_sent(&transaction_id)
+                            .await;
                     }
                 }
             }
