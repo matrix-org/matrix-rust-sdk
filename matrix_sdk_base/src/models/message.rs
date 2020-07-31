@@ -10,7 +10,7 @@ use std::{
     vec::IntoIter,
 };
 
-use matrix_sdk_common::identifiers::{UserId, EventId};
+use matrix_sdk_common::identifiers::{EventId, UserId};
 use serde::{de, ser, Serialize};
 
 use crate::events::AnyPossiblyRedactedSyncMessageEvent;
