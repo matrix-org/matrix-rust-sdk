@@ -43,11 +43,11 @@ use super::helpers::{get_decimal, get_emoji, get_mac_content, receive_mac_event,
 
 use crate::{Account, Device};
 
-const KEY_AGREEMENT_PROTOCOLS: &'static [KeyAgreementProtocol] =
+const KEY_AGREEMENT_PROTOCOLS: &[KeyAgreementProtocol] =
     &[KeyAgreementProtocol::Curve25519HkdfSha256];
-const HASHES: &'static [HashAlgorithm] = &[HashAlgorithm::Sha256];
-const MACS: &'static [MessageAuthenticationCode] = &[MessageAuthenticationCode::HkdfHmacSha256];
-const STRINGS: &'static [ShortAuthenticationString] = &[
+const HASHES: &[HashAlgorithm] = &[HashAlgorithm::Sha256];
+const MACS: &[MessageAuthenticationCode] = &[MessageAuthenticationCode::HkdfHmacSha256];
+const STRINGS: &[ShortAuthenticationString] = &[
     ShortAuthenticationString::Decimal,
     ShortAuthenticationString::Emoji,
 ];
@@ -233,7 +233,7 @@ impl SasState<Created> {
                 account,
                 other_device,
             },
-            verification_flow_id: Arc::new(verification_flow_id.clone()),
+            verification_flow_id: Arc::new(verification_flow_id),
 
             state: Arc::new(Created {
                 protocol_definitions: MSasV1ContentInit {
