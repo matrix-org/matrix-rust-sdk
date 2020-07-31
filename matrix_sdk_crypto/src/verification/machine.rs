@@ -23,7 +23,7 @@ use matrix_sdk_common::{
     locks::RwLock,
 };
 
-use super::{content_to_request, Sas};
+use super::sas::{content_to_request, Sas};
 use crate::{Account, CryptoStore, CryptoStoreError};
 
 #[derive(Clone, Debug)]
