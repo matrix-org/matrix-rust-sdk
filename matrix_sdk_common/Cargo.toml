@@ -15,8 +15,9 @@ instant = { version = "0.1.6", features = ["wasm-bindgen", "now"] }
 js_int = "0.1.8"
 
 [dependencies.ruma]
-path = "/home/poljar/werk/priv/ruma/ruma"
+git = "https://github.com/matrix-org/ruma"
 features = ["client-api"]
+branch = "verification-event-improvements2"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 uuid = { version = "0.8.1", features = ["v4"] }
