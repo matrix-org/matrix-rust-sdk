@@ -46,24 +46,22 @@ impl PossiblyRedactedExt for AnyPossiblyRedactedSyncMessageEvent {
 
 const MESSAGE_QUEUE_CAP: usize = 35;
 
-pub type SyncMessageEvent = AnyPossiblyRedactedSyncMessageEvent;
-
 /// A queue that holds the 35 most recent messages received from the server.
 #[derive(Clone, Debug, Default)]
 pub struct MessageQueue {
     pub(crate) msgs: Vec<MessageWrapper>,
 }
 
-/// A wrapper for `ruma_events::SyncMessageEvent` that allows implementation of
-/// Eq, Ord and the Partial versions of the traits.
+/// A wrapper for `ruma_events::AnyPossiblyRedactedSyncMessageEvent` that allows
+/// implementation of Eq, Ord and the Partial versions of the traits.
 ///
-/// `MessageWrapper` also implements Deref and DerefMut so accessing the events contents
-/// are simplified.
+/// `MessageWrapper` also implements Deref and DerefMut so accessing the events
+/// contents are simplified.
 #[derive(Clone, Debug, Serialize)]
-pub struct MessageWrapper(pub SyncMessageEvent);
+pub struct MessageWrapper(pub AnyPossiblyRedactedSyncMessageEvent);
 
 impl Deref for MessageWrapper {
-    type Target = SyncMessageEvent;
+    type Target = AnyPossiblyRedactedSyncMessageEvent;
 
     fn deref(&self) -> &Self::Target {
         &self.0
@@ -118,7 +116,7 @@ impl MessageQueue {
     /// Inserts a `MessageEvent` into `MessageQueue`, sorted by by `origin_server_ts`.
     ///
     /// Removes the oldest element in the queue if there are more than 10 elements.
-    pub fn push(&mut self, msg: SyncMessageEvent) -> bool {
+    pub fn push(&mut self, msg: AnyPossiblyRedactedSyncMessageEvent) -> bool {
         // only push new messages into the queue
         if let Some(latest) = self.msgs.last() {
             if msg.origin_server_ts() < latest.origin_server_ts() && self.msgs.len() >= 10 {
@@ -181,7 +179,7 @@ pub(crate) mod ser_deser {
         {
             let mut msgs = Vec::with_capacity(access.size_hint().unwrap_or(0));
 
-            while let Some(msg) = access.next_element::<SyncMessageEvent>()? {
+            while let Some(msg) = access.next_element::<AnyPossiblyRedactedSyncMessageEvent>()? {
                 msgs.push(MessageWrapper(msg));
             }
 
