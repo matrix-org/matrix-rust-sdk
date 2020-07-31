@@ -316,10 +316,10 @@ impl Client {
         homeserver_url: U,
         config: ClientConfig,
     ) -> Result<Self> {
-        #[allow(clippy::match_wild_err_arm)]
-        let homeserver: Url = match homeserver_url.try_into() {
-            Ok(u) => u,
-            Err(_e) => panic!("Error parsing homeserver url"),
+        let homeserver = if let Ok(u) = homeserver_url.try_into() {
+            u
+        } else {
+            panic!("Error parsing homeserver url")
         };
 
         let http_client = reqwest::Client::builder();
