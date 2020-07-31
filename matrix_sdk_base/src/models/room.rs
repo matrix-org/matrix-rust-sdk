@@ -673,14 +673,14 @@ impl Room {
         use crate::identifiers::RoomVersionId;
         use crate::models::message::PossiblyRedactedExt;
 
-        if let Some(msg) = self
+        if let Some(mut msg) = self
             .messages
             .iter_mut()
             .find(|msg| &redacted_event.redacts == msg.event_id())
         {
             match msg.deref_mut() {
                 AnyPossiblyRedactedSyncMessageEvent::Regular(event) => {
-                    msg.0 = AnyPossiblyRedactedSyncMessageEvent::Redacted(
+                    *msg = AnyPossiblyRedactedSyncMessageEvent::Redacted(
                         event
                             .clone()
                             .redact(redacted_event.clone(), RoomVersionId::Version6),
@@ -1655,7 +1655,7 @@ mod test {
             let queue = &room.read().await.messages;
             if let crate::events::AnyPossiblyRedactedSyncMessageEvent::Redacted(
                 crate::events::AnyRedactedSyncMessageEvent::RoomMessage(event),
-            ) = &queue.msgs[0].deref()
+            ) = &queue.msgs[0]
             {
                 // this is the id from the message event in the sync response
                 assert_eq!(

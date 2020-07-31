@@ -41,7 +41,7 @@ pub use matrix_sdk_base::Error as BaseError;
 pub use matrix_sdk_base::JsonStore;
 pub use matrix_sdk_base::{CustomOrRawEvent, EventEmitter, Room, Session, SyncRoom};
 #[cfg(feature = "messages")]
-pub use matrix_sdk_base::{MessageQueue, MessageWrapper, PossiblyRedactedExt};
+pub use matrix_sdk_base::{MessageQueue, PossiblyRedactedExt};
 pub use matrix_sdk_base::{RoomState, StateStore};
 pub use matrix_sdk_common::*;
 pub use reqwest::header::InvalidHeaderValue;
