@@ -10,7 +10,7 @@ use std::{
     vec::IntoIter,
 };
 
-use matrix_sdk_common::identifiers::EventId;
+use matrix_sdk_common::identifiers::{EventId, UserId};
 use serde::{de, ser, Serialize};
 
 use crate::events::AnyPossiblyRedactedSyncMessageEvent;
@@ -18,16 +18,18 @@ use crate::events::AnyPossiblyRedactedSyncMessageEvent;
 /// Exposes some of the field access methods found in the event held by
 /// `AnyPossiblyRedacted*` enums.
 ///
-/// This is just an extension trait to aid the ease of use of certain event enums.
+/// This is just an extension trait to ease the use of certain event enums.
 pub trait PossiblyRedactedExt {
-    /// Access the redacted or full events `event_id` field.
+    /// Access the redacted or full event's `event_id` field.
     fn event_id(&self) -> &EventId;
-    /// Access the redacted or full events `origin_server_ts` field.
+    /// Access the redacted or full event's `origin_server_ts` field.
     fn origin_server_ts(&self) -> &SystemTime;
+    /// Access the redacted or full event's `sender` field.
+    fn sender(&self) -> &UserId;
 }
 
 impl PossiblyRedactedExt for AnyPossiblyRedactedSyncMessageEvent {
-    /// Access the underlying events `event_id`.
+    /// Access the underlying event's `event_id`.
     fn event_id(&self) -> &EventId {
         match self {
             Self::Regular(e) => e.event_id(),
@@ -35,18 +37,24 @@ impl PossiblyRedactedExt for AnyPossiblyRedactedSyncMessageEvent {
         }
     }
 
-    /// Access the underlying events `origin_server_ts`.
+    /// Access the underlying event's `origin_server_ts`.
     fn origin_server_ts(&self) -> &SystemTime {
         match self {
             Self::Regular(e) => e.origin_server_ts(),
             Self::Redacted(e) => e.origin_server_ts(),
         }
     }
+
+    /// Access the underlying event's `sender`.
+    fn sender(&self) -> &UserId {
+        match self {
+            Self::Regular(e) => e.sender(),
+            Self::Redacted(e) => e.sender(),
+        }
+    }
 }
 
 const MESSAGE_QUEUE_CAP: usize = 35;
-
-pub type SyncMessageEvent = AnyPossiblyRedactedSyncMessageEvent;
 
 /// A queue that holds the 35 most recent messages received from the server.
 #[derive(Clone, Debug, Default)]
@@ -54,16 +62,16 @@ pub struct MessageQueue {
     pub(crate) msgs: Vec<MessageWrapper>,
 }
 
-/// A wrapper for `ruma_events::SyncMessageEvent` that allows implementation of
-/// Eq, Ord and the Partial versions of the traits.
+/// A wrapper for `ruma_events::AnyPossiblyRedactedSyncMessageEvent` that allows
+/// implementation of Eq, Ord and the Partial versions of the traits.
 ///
-/// `MessageWrapper` also implements Deref and DerefMut so accessing the events contents
-/// are simplified.
+/// `MessageWrapper` also implements Deref and DerefMut so accessing the events
+/// contents are simplified.
 #[derive(Clone, Debug, Serialize)]
-pub struct MessageWrapper(pub SyncMessageEvent);
+pub struct MessageWrapper(pub AnyPossiblyRedactedSyncMessageEvent);
 
 impl Deref for MessageWrapper {
-    type Target = SyncMessageEvent;
+    type Target = AnyPossiblyRedactedSyncMessageEvent;
 
     fn deref(&self) -> &Self::Target {
         &self.0
@@ -118,7 +126,7 @@ impl MessageQueue {
     /// Inserts a `MessageEvent` into `MessageQueue`, sorted by by `origin_server_ts`.
     ///
     /// Removes the oldest element in the queue if there are more than 10 elements.
-    pub fn push(&mut self, msg: SyncMessageEvent) -> bool {
+    pub fn push(&mut self, msg: AnyPossiblyRedactedSyncMessageEvent) -> bool {
         // only push new messages into the queue
         if let Some(latest) = self.msgs.last() {
             if msg.origin_server_ts() < latest.origin_server_ts() && self.msgs.len() >= 10 {
@@ -181,7 +189,7 @@ pub(crate) mod ser_deser {
         {
             let mut msgs = Vec::with_capacity(access.size_hint().unwrap_or(0));
 
-            while let Some(msg) = access.next_element::<SyncMessageEvent>()? {
+            while let Some(msg) = access.next_element::<AnyPossiblyRedactedSyncMessageEvent>()? {
                 msgs.push(MessageWrapper(msg));
             }
 
