@@ -23,7 +23,10 @@ use matrix_sdk_common::{
     api::r0::to_device::send_event_to_device::Request as ToDeviceRequest,
     events::{
         key::verification::{
-            accept::{AcceptEventContent, AcceptMethod, MSasV1Content as AcceptV1Content},
+            accept::{
+                AcceptEventContent, AcceptMethod, MSasV1Content as AcceptV1Content,
+                MSasV1ContentInit as AcceptV1ContentInit,
+            },
             cancel::{CancelCode, CancelEventContent},
             key::KeyEventContent,
             mac::MacEventContent,
@@ -770,17 +773,20 @@ impl SasState<Started> {
 
         AcceptEventContent {
             transaction_id: self.verification_flow_id.to_string(),
-            method: AcceptMethod::MSasV1(AcceptV1Content {
-                commitment: self.state.commitment.clone(),
-                hash: accepted_protocols.hash,
-                key_agreement_protocol: accepted_protocols.key_agreement_protocol,
-                message_authentication_code: accepted_protocols.message_auth_code,
-                short_authentication_string: self
-                    .state
-                    .protocol_definitions
-                    .short_authentication_string
-                    .clone(),
-            }),
+            method: AcceptMethod::MSasV1(
+                AcceptV1ContentInit {
+                    commitment: self.state.commitment.clone(),
+                    hash: accepted_protocols.hash,
+                    key_agreement_protocol: accepted_protocols.key_agreement_protocol,
+                    message_authentication_code: accepted_protocols.message_auth_code,
+                    short_authentication_string: self
+                        .state
+                        .protocol_definitions
+                        .short_authentication_string
+                        .clone(),
+                }
+                .into(),
+            ),
         }
     }
 
