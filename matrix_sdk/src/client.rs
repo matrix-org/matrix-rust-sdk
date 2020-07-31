@@ -31,6 +31,7 @@ use matrix_sdk_common::{
     locks::RwLock,
     presence::PresenceState,
     uuid::Uuid,
+    FromHttpRequestError, FromHttpResponseError, Outgoing,
 };
 
 use futures_timer::Delay as sleep;
@@ -290,7 +291,6 @@ use api::r0::{
     session::login,
     sync::sync_events,
     typing::create_typing_event,
-    uiaa::UiaaResponse,
 };
 
 impl Client {
@@ -540,7 +540,7 @@ impl Client {
         info!("Registering to {}", self.homeserver);
 
         let request = registration.into();
-        self.send_uiaa(request).await
+        self.send(request).await
     }
 
     /// Join a room by `RoomId`.
@@ -1093,54 +1093,22 @@ impl Client {
     /// // returned
     /// # })
     /// ```
-    pub async fn send<Request: Endpoint<ResponseError = crate::api::Error> + Debug>(
+    pub async fn send<Request>(
         &self,
         request: Request,
-    ) -> Result<Request::Response> {
+    ) -> Result<<Request::Response as Outgoing>::Incoming>
+    where
+        Request: Endpoint + Debug,
+        <Request as Outgoing>::Incoming:
+            TryFrom<http::Request<Vec<u8>>, Error = FromHttpRequestError>,
+        <Request::Response as Outgoing>::Incoming: TryFrom<
+            http::Response<Vec<u8>>,
+            Error = FromHttpResponseError<<Request as Endpoint>::ResponseError>,
+        >,
+        crate::Error: From<FromHttpResponseError<<Request as Endpoint>::ResponseError>>,
+    {
         self.http_client
             .send(request, self.base_client.session().clone())
-            .await
-    }
-
-    /// Send an arbitrary request to the server, without updating client state.
-    ///
-    /// This version allows the client to make registration requests.
-    ///
-    /// **Warning:** Because this method *does not* update the client state, it is
-    /// important to make sure than you account for this yourself, and use wrapper methods
-    /// where available.  This method should *only* be used if a wrapper method for the
-    /// endpoint you'd like to use is not available.
-    ///
-    /// # Arguments
-    ///
-    /// * `request` - This version of send is for dealing with types that return
-    /// a `UiaaResponse` as the `Endpoint<ResponseError = UiaaResponse>` associated type.
-    ///
-    /// # Examples
-    /// ```
-    /// # use std::convert::TryFrom;
-    /// # use matrix_sdk::{Client, RegistrationBuilder};
-    /// # use matrix_sdk::api::r0::account::register::{RegistrationKind, Request};
-    /// # use matrix_sdk::identifiers::DeviceId;
-    /// # use url::Url;
-    /// # let homeserver = Url::parse("http://example.com").unwrap();
-    /// # let mut rt = tokio::runtime::Runtime::new().unwrap();
-    /// # rt.block_on(async {
-    /// let mut builder = RegistrationBuilder::default();
-    /// builder.password("pass")
-    ///     .username("user")
-    ///     .kind(RegistrationKind::User);
-    /// let mut client = Client::new(homeserver).unwrap();
-    /// let req: Request = builder.into();
-    /// client.send_uiaa(req).await;
-    /// # })
-    /// ```
-    pub async fn send_uiaa<Request: Endpoint<ResponseError = UiaaResponse> + Debug>(
-        &self,
-        request: Request,
-    ) -> Result<Request::Response> {
-        self.http_client
-            .send_uiaa(request, self.base_client.session().clone())
             .await
     }
 

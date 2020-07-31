@@ -4,7 +4,7 @@ pub use ruma::{
     api::{
         client as api,
         error::{FromHttpRequestError, FromHttpResponseError, IntoHttpError, ServerError},
-        Endpoint, EndpointError,
+        Endpoint, EndpointError, Outgoing,
     },
     events, identifiers, presence, push, Raw,
 };

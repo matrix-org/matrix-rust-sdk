@@ -15,13 +15,13 @@
 use std::{convert::TryFrom, sync::Arc};
 
 use http::{Method as HttpMethod, Response as HttpResponse};
-use reqwest::{header::AUTHORIZATION, Client, Response};
+use reqwest::{Client, Response};
 use tracing::trace;
 use url::Url;
 
-use matrix_sdk_common::locks::RwLock;
+use matrix_sdk_common::{locks::RwLock, FromHttpRequestError, FromHttpResponseError, Outgoing};
 
-use crate::{api::r0::uiaa::UiaaResponse, Endpoint, Error, Result, Session};
+use crate::{Endpoint, Error, Result, Session};
 
 #[derive(Clone, Debug)]
 pub(crate) struct HttpClient {
@@ -30,19 +30,40 @@ pub(crate) struct HttpClient {
 }
 
 impl HttpClient {
-    async fn send_request(
+    async fn send_request<Request>(
         &self,
         requires_auth: bool,
         method: HttpMethod,
-        request: http::Request<Vec<u8>>,
+        request: Request,
         session: Arc<RwLock<Option<Session>>>,
-    ) -> Result<Response> {
-        let url = request.uri();
-        let path_and_query = url.path_and_query().unwrap();
-        let mut url = (&*self.homeserver).clone();
+    ) -> Result<Response>
+    where
+        Request: Endpoint,
+        <Request as Outgoing>::Incoming:
+            TryFrom<http::Request<Vec<u8>>, Error = FromHttpRequestError>,
+        <Request::Response as Outgoing>::Incoming: TryFrom<
+            http::Response<Vec<u8>>,
+            Error = FromHttpResponseError<<Request as Endpoint>::ResponseError>,
+        >,
+    {
+        let request = {
+            let read_guard;
+            let access_token = if requires_auth {
+                read_guard = session.read().await;
 
-        url.set_path(path_and_query.path());
-        url.set_query(path_and_query.query());
+                if let Some(session) = read_guard.as_ref() {
+                    Some(session.access_token.as_str())
+                } else {
+                    return Err(Error::AuthenticationRequired);
+                }
+            } else {
+                None
+            };
+
+            request.try_into_http_request(&self.homeserver.to_string(), access_token)?
+        };
+
+        let url = &request.uri().to_string();
 
         let request_builder = match method {
             HttpMethod::GET => self.inner.get(url),
@@ -70,17 +91,6 @@ impl HttpClient {
             method => panic!("Unsupported method {}", method),
         };
 
-        let request_builder = if requires_auth {
-            if let Some(session) = session.read().await.as_ref() {
-                let header_value = format!("Bearer {}", &session.access_token);
-                request_builder.header(AUTHORIZATION, header_value)
-            } else {
-                return Err(Error::AuthenticationRequired);
-            }
-        } else {
-            request_builder
-        };
-
         Ok(request_builder.send().await?)
     }
 
@@ -101,12 +111,21 @@ impl HttpClient {
         Ok(http_builder.body(body).unwrap())
     }
 
-    pub async fn send<Request: Endpoint<ResponseError = crate::api::Error> + std::fmt::Debug>(
+    pub async fn send<Request>(
         &self,
         request: Request,
         session: Arc<RwLock<Option<Session>>>,
-    ) -> Result<Request::Response> {
-        let request: http::Request<Vec<u8>> = request.try_into()?;
+    ) -> Result<<Request::Response as Outgoing>::Incoming>
+    where
+        Request: Endpoint,
+        <Request as Outgoing>::Incoming:
+            TryFrom<http::Request<Vec<u8>>, Error = FromHttpRequestError>,
+        <Request::Response as Outgoing>::Incoming: TryFrom<
+            http::Response<Vec<u8>>,
+            Error = FromHttpResponseError<<Request as Endpoint>::ResponseError>,
+        >,
+        Error: From<FromHttpResponseError<<Request as Endpoint>::ResponseError>>,
+    {
         let response = self
             .send_request(
                 Request::METADATA.requires_authentication,
@@ -120,30 +139,8 @@ impl HttpClient {
 
         let response = self.response_to_http_response(response).await?;
 
-        Ok(<Request::Response>::try_from(response)?)
-    }
-
-    pub async fn send_uiaa<Request: Endpoint<ResponseError = UiaaResponse> + std::fmt::Debug>(
-        &self,
-        request: Request,
-        session: Arc<RwLock<Option<Session>>>,
-    ) -> Result<Request::Response> {
-        let request: http::Request<Vec<u8>> = request.try_into()?;
-        let response = self
-            .send_request(
-                Request::METADATA.requires_authentication,
-                Request::METADATA.method,
-                request,
-                session,
-            )
-            .await?;
-
-        trace!("Got response: {:?}", response);
-
-        let response = self.response_to_http_response(response).await?;
-
-        let uiaa: Result<_> = <Request::Response>::try_from(response).map_err(Into::into);
-
-        Ok(uiaa?)
+        Ok(<Request::Response as Outgoing>::Incoming::try_from(
+            response,
+        )?)
     }
 }
