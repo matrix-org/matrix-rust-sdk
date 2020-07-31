@@ -55,7 +55,7 @@ pub use matrix_sdk_crypto::{Device, Sas, TrustState};
 
 #[cfg(feature = "messages")]
 #[cfg_attr(docsrs, doc(cfg(feature = "messages")))]
-pub use models::{MessageQueue, MessageWrapper, PossiblyRedactedExt};
+pub use models::{MessageQueue, PossiblyRedactedExt};
 
 #[cfg(not(target_arch = "wasm32"))]
 pub use state::JsonStore;

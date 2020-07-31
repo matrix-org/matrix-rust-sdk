@@ -3,12 +3,7 @@
 //! The `Room` struct optionally holds a `MessageQueue` if the "messages"
 //! feature is enabled.
 
-use std::{
-    cmp::Ordering,
-    ops::{Deref, DerefMut},
-    time::SystemTime,
-    vec::IntoIter,
-};
+use std::{time::SystemTime, vec::IntoIter};
 
 use matrix_sdk_common::identifiers::{EventId, UserId};
 use serde::{de, ser, Serialize};
@@ -59,60 +54,7 @@ const MESSAGE_QUEUE_CAP: usize = 35;
 /// A queue that holds the 35 most recent messages received from the server.
 #[derive(Clone, Debug, Default)]
 pub struct MessageQueue {
-    pub(crate) msgs: Vec<MessageWrapper>,
-}
-
-/// A wrapper for `ruma_events::AnyPossiblyRedactedSyncMessageEvent` that allows
-/// implementation of Eq, Ord and the Partial versions of the traits.
-///
-/// `MessageWrapper` also implements Deref and DerefMut so accessing the events
-/// contents are simplified.
-#[derive(Clone, Debug, Serialize)]
-pub struct MessageWrapper(pub AnyPossiblyRedactedSyncMessageEvent);
-
-impl Deref for MessageWrapper {
-    type Target = AnyPossiblyRedactedSyncMessageEvent;
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
-impl DerefMut for MessageWrapper {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.0
-    }
-}
-
-impl PartialEq for MessageWrapper {
-    fn eq(&self, other: &MessageWrapper) -> bool {
-        self.0.event_id() == other.0.event_id()
-    }
-}
-
-impl Eq for MessageWrapper {}
-
-impl PartialOrd for MessageWrapper {
-    fn partial_cmp(&self, other: &MessageWrapper) -> Option<Ordering> {
-        Some(self.0.origin_server_ts().cmp(&other.0.origin_server_ts()))
-    }
-}
-
-impl Ord for MessageWrapper {
-    fn cmp(&self, other: &MessageWrapper) -> Ordering {
-        self.partial_cmp(other).unwrap_or(Ordering::Equal)
-    }
-}
-
-impl PartialEq for MessageQueue {
-    fn eq(&self, other: &MessageQueue) -> bool {
-        self.msgs.len() == other.msgs.len()
-            && self
-                .msgs
-                .iter()
-                .zip(other.msgs.iter())
-                .all(|(msg_a, msg_b)| msg_a.event_id() == msg_b.event_id())
-    }
+    pub(crate) msgs: Vec<AnyPossiblyRedactedSyncMessageEvent>,
 }
 
 impl MessageQueue {
@@ -134,34 +76,38 @@ impl MessageQueue {
             }
         }
 
-        let message = MessageWrapper(msg);
-        match self.msgs.binary_search_by(|m| m.cmp(&message)) {
-            Ok(pos) => {
-                if self.msgs[pos] != message {
-                    self.msgs.insert(pos, message)
-                }
-            }
-            Err(pos) => self.msgs.insert(pos, message),
+        if self.msgs.iter().all(|old| old.event_id() != msg.event_id()) {
+            self.msgs.push(msg)
         }
+
         if self.msgs.len() > MESSAGE_QUEUE_CAP {
-            self.msgs.remove(0);
+            self.msgs.pop();
         }
         true
     }
 
     /// Iterate over the messages in the queue.
-    pub fn iter(&self) -> impl Iterator<Item = &MessageWrapper> {
+    pub fn iter(&self) -> impl Iterator<Item = &AnyPossiblyRedactedSyncMessageEvent> {
         self.msgs.iter()
     }
 
     /// Iterate over each message mutably.
-    pub fn iter_mut(&mut self) -> impl Iterator<Item = &mut MessageWrapper> {
+    pub fn iter_mut(&mut self) -> impl Iterator<Item = &mut AnyPossiblyRedactedSyncMessageEvent> {
         self.msgs.iter_mut()
     }
 }
 
+impl PartialEq for MessageQueue {
+    fn eq(&self, other: &MessageQueue) -> bool {
+        self.msgs
+            .iter()
+            .zip(other.msgs.iter())
+            .all(|(a, b)| a.event_id() == b.event_id())
+    }
+}
+
 impl IntoIterator for MessageQueue {
-    type Item = MessageWrapper;
+    type Item = AnyPossiblyRedactedSyncMessageEvent;
     type IntoIter = IntoIter<Self::Item>;
 
     fn into_iter(self) -> Self::IntoIter {
@@ -190,7 +136,7 @@ pub(crate) mod ser_deser {
             let mut msgs = Vec::with_capacity(access.size_hint().unwrap_or(0));
 
             while let Some(msg) = access.next_element::<AnyPossiblyRedactedSyncMessageEvent>()? {
-                msgs.push(MessageWrapper(msg));
+                msgs.push(msg);
             }
 
             Ok(MessageQueue { msgs })

@@ -6,6 +6,6 @@ mod room_member;
 
 #[cfg(feature = "messages")]
 #[cfg_attr(docsrs, doc(cfg(feature = "messages")))]
-pub use message::{MessageQueue, MessageWrapper, PossiblyRedactedExt};
+pub use message::{MessageQueue, PossiblyRedactedExt};
 pub use room::{Room, RoomName};
 pub use room_member::RoomMember;

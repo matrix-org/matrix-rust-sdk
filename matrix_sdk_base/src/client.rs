@@ -2433,7 +2433,7 @@ mod test {
             let queue = &room.read().await.messages;
             if let crate::events::AnyPossiblyRedactedSyncMessageEvent::Redacted(
                 crate::events::AnyRedactedSyncMessageEvent::RoomMessage(event),
-            ) = &queue.msgs[0].deref()
+            ) = &queue.msgs[0]
             {
                 // this is the id from the message event in the sync response
                 assert_eq!(
@@ -2461,7 +2461,7 @@ mod test {
             let queue = &room.read().await.messages;
             if let crate::events::AnyPossiblyRedactedSyncMessageEvent::Redacted(
                 crate::events::AnyRedactedSyncMessageEvent::RoomMessage(event),
-            ) = &queue.msgs[0].deref()
+            ) = &queue.msgs[0]
             {
                 // this is the id from the message event in the sync response
                 assert_eq!(
