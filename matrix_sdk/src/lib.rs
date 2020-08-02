@@ -42,17 +42,17 @@ pub use matrix_sdk_base::{
     CustomOrRawEvent, Error as BaseError, EventEmitter, Room, RoomState, Session, StateStore,
     SyncRoom,
 };
-#[cfg(feature = "messages")]
-pub use matrix_sdk_base::{MessageQueue, MessageWrapper, PossiblyRedactedExt};
-pub use matrix_sdk_common::*;
-pub use reqwest::header::InvalidHeaderValue;
-
 #[cfg(feature = "encryption")]
 pub use matrix_sdk_base::{Device, TrustState};
+#[cfg(feature = "messages")]
+pub use matrix_sdk_base::{MessageQueue, PossiblyRedactedExt};
+pub use matrix_sdk_common::*;
+pub use reqwest::header::InvalidHeaderValue;
 
 mod client;
 mod error;
 mod request_builder;
+
 pub use client::{Client, ClientConfig, SyncSettings};
 pub use error::{Error, Result};
 pub use request_builder::{

@@ -22,16 +22,15 @@ use std::{
 };
 
 use atomic::Atomic;
-use serde_json::{json, Value};
-
-#[cfg(test)]
-use super::OlmMachine;
 use matrix_sdk_common::{
     api::r0::keys::{AlgorithmAndDeviceId, DeviceKeys, KeyAlgorithm, SignedKey},
     events::Algorithm,
     identifiers::{DeviceId, UserId},
 };
+use serde_json::{json, Value};
 
+#[cfg(test)]
+use super::OlmMachine;
 use crate::{error::SignatureError, verify_json};
 
 /// A device represents a E2EE capable client of an user.

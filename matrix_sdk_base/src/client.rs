@@ -18,58 +18,53 @@ use std::collections::{BTreeMap, HashSet};
 use std::{
     collections::HashMap,
     fmt,
+    ops::Deref,
     path::{Path, PathBuf},
+    result::Result as StdResult,
     sync::Arc,
-};
-use zeroize::Zeroizing;
-
-use std::result::Result as StdResult;
-
-use crate::{api::r0 as api, error::Result, events::presence::PresenceEvent};
-// `NonRoomEvent` is what it is aliased as
-use crate::{
-    event_emitter::CustomOrRawEvent,
-    events::{
-        ignored_user_list::IgnoredUserListEvent, push_rules::PushRulesEvent,
-        room::member::MemberEventContent,
-    },
-    identifiers::{RoomId, UserId},
-    models::Room,
-    push::Ruleset,
-    session::Session,
-    state::{AllRooms, ClientState, StateStore},
-    EventEmitter,
-};
-use matrix_sdk_common::{
-    events::{
-        AnyBasicEvent, AnyStrippedStateEvent, AnySyncEphemeralRoomEvent, AnySyncMessageEvent,
-        AnySyncRoomEvent, AnySyncStateEvent,
-    },
-    Raw,
 };
 
 #[cfg(feature = "encryption")]
 use matrix_sdk_common::locks::Mutex;
-use matrix_sdk_common::locks::RwLock;
-use std::ops::Deref;
-
 #[cfg(feature = "encryption")]
-use crate::api::r0::keys::{
-    claim_keys::Response as KeysClaimResponse, get_keys::Response as KeysQueryResponse,
-    upload_keys::Response as KeysUploadResponse, DeviceKeys, KeyAlgorithm,
+use matrix_sdk_common::{
+    api::r0 as api,
+    api::r0::keys::{
+        claim_keys::Response as KeysClaimResponse, get_keys::Response as KeysQueryResponse,
+        upload_keys::Response as KeysUploadResponse, DeviceKeys, KeyAlgorithm,
+    },
+    api::r0::to_device::send_event_to_device,
+    events::room::{
+        encrypted::EncryptedEventContent, message::MessageEventContent as MsgEventContent,
+    },
+    identifiers::DeviceId,
 };
-#[cfg(feature = "encryption")]
-use crate::api::r0::to_device::send_event_to_device;
-#[cfg(feature = "encryption")]
-use crate::events::room::{
-    encrypted::EncryptedEventContent, message::MessageEventContent as MsgEventContent,
+use matrix_sdk_common::{
+    events::{
+        ignored_user_list::IgnoredUserListEvent, push_rules::PushRulesEvent,
+        room::member::MemberEventContent, AnyBasicEvent, AnyStrippedStateEvent,
+        AnySyncEphemeralRoomEvent, AnySyncMessageEvent, AnySyncRoomEvent, AnySyncStateEvent,
+    },
+    identifiers::{RoomId, UserId},
+    locks::RwLock,
+    push::Ruleset,
+    Raw,
 };
-#[cfg(feature = "encryption")]
-use crate::identifiers::DeviceId;
-#[cfg(not(target_arch = "wasm32"))]
-use crate::JsonStore;
 #[cfg(feature = "encryption")]
 use matrix_sdk_crypto::{CryptoStore, OlmError, OlmMachine, OneTimeKeys};
+use zeroize::Zeroizing;
+
+#[cfg(not(target_arch = "wasm32"))]
+use crate::JsonStore;
+use crate::{
+    error::Result,
+    event_emitter::CustomOrRawEvent,
+    events::presence::PresenceEvent,
+    models::Room,
+    session::Session,
+    state::{AllRooms, ClientState, StateStore},
+    EventEmitter,
+};
 
 pub type Token = String;
 

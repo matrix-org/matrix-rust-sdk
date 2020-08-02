@@ -15,6 +15,10 @@
 
 use std::collections::HashMap;
 
+use matrix_sdk_common::{
+    identifiers::{RoomId, UserId},
+    push::Ruleset,
+};
 use serde::{Deserialize, Serialize};
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -24,8 +28,6 @@ pub use json_store::JsonStore;
 
 use crate::{
     client::{BaseClient, Token},
-    identifiers::{RoomId, UserId},
-    push::Ruleset,
     Result, Room, RoomState, Session,
 };
 

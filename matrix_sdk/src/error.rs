@@ -14,16 +14,14 @@
 
 //! Error conditions.
 
-use reqwest::Error as ReqwestError;
-use serde_json::Error as JsonError;
-use thiserror::Error;
-
 use matrix_sdk_base::Error as MatrixError;
-
-use crate::{
+use matrix_sdk_common::{
     api::{r0::uiaa::UiaaResponse as UiaaError, Error as RumaClientError},
     FromHttpResponseError as RumaResponseError, IntoHttpError as RumaIntoHttpError,
 };
+use reqwest::Error as ReqwestError;
+use serde_json::Error as JsonError;
+use thiserror::Error;
 
 /// Result type of the rust-sdk.
 pub type Result<T> = std::result::Result<T, Error>;

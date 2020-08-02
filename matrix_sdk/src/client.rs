@@ -19,43 +19,36 @@ use std::{
     collections::HashMap,
     convert::{TryFrom, TryInto},
     fmt::{self, Debug},
+    future::Future,
     path::Path,
     result::Result as StdResult,
     sync::Arc,
 };
 
+#[cfg(not(target_arch = "wasm32"))]
+use crate::VERSION;
+use crate::{Error, EventEmitter, Result};
+use futures_timer::Delay as sleep;
+use http::{Method as HttpMethod, Response as HttpResponse};
+use matrix_sdk_base::{BaseClient, BaseClientConfig, Room, Session, StateStore};
+#[cfg(feature = "encryption")]
+use matrix_sdk_common::identifiers::DeviceId;
 use matrix_sdk_common::{
-    identifiers::ServerName,
+    api,
+    events::{room::message::MessageEventContent, EventType},
+    identifiers::{EventId, RoomId, RoomIdOrAliasId, ServerName, UserId},
     instant::{Duration, Instant},
     js_int::UInt,
     locks::RwLock,
     presence::PresenceState,
     uuid::Uuid,
+    Endpoint,
 };
-
-use futures_timer::Delay as sleep;
-use std::future::Future;
+use reqwest::header::{HeaderValue, InvalidHeaderValue, AUTHORIZATION};
 #[cfg(feature = "encryption")]
 use tracing::{debug, warn};
 use tracing::{error, info, instrument, trace};
-
-use http::{Method as HttpMethod, Response as HttpResponse};
-use reqwest::header::{HeaderValue, InvalidHeaderValue, AUTHORIZATION};
 use url::Url;
-
-use crate::{
-    events::{room::message::MessageEventContent, EventType},
-    identifiers::{EventId, RoomId, RoomIdOrAliasId, UserId},
-    Endpoint,
-};
-
-#[cfg(feature = "encryption")]
-use crate::identifiers::DeviceId;
-
-#[cfg(not(target_arch = "wasm32"))]
-use crate::VERSION;
-use crate::{api, Error, EventEmitter, Result};
-use matrix_sdk_base::{BaseClient, BaseClientConfig, Room, Session, StateStore};
 
 const DEFAULT_SYNC_TIMEOUT: Duration = Duration::from_secs(30);
 

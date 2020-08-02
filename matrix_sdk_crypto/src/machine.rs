@@ -21,19 +21,12 @@ use std::{
     result::Result as StdResult,
 };
 
-#[cfg(feature = "sqlite-cryptostore")]
-use super::store::sqlite::SqliteStore;
-use super::{
-    device::Device,
-    error::{EventError, MegolmError, MegolmResult, OlmError, OlmResult},
-    olm::{
-        Account, GroupSessionKey, IdentityKeys, InboundGroupSession, OlmMessage,
-        OutboundGroupSession,
-    },
-    store::{memorystore::MemoryStore, Result as StoreResult},
-    CryptoStore,
+use api::r0::{
+    keys,
+    keys::{AlgorithmAndDeviceId, DeviceKeys, KeyAlgorithm, OneTimeKey},
+    sync::sync_events::Response as SyncResponse,
+    to_device::{send_event_to_device::Request as ToDeviceRequest, DeviceIdOrAllDevices},
 };
-
 use matrix_sdk_common::{
     api,
     events::{
@@ -47,16 +40,21 @@ use matrix_sdk_common::{
     uuid::Uuid,
     Raw,
 };
-
-use api::r0::{
-    keys,
-    keys::{AlgorithmAndDeviceId, DeviceKeys, KeyAlgorithm, OneTimeKey},
-    sync::sync_events::Response as SyncResponse,
-    to_device::{send_event_to_device::Request as ToDeviceRequest, DeviceIdOrAllDevices},
-};
-
 use serde_json::Value;
 use tracing::{debug, error, info, instrument, trace, warn};
+
+#[cfg(feature = "sqlite-cryptostore")]
+use super::store::sqlite::SqliteStore;
+use super::{
+    device::Device,
+    error::{EventError, MegolmError, MegolmResult, OlmError, OlmResult},
+    olm::{
+        Account, GroupSessionKey, IdentityKeys, InboundGroupSession, OlmMessage,
+        OutboundGroupSession,
+    },
+    store::{memorystore::MemoryStore, Result as StoreResult},
+    CryptoStore,
+};
 
 /// A map from the algorithm and device id to a one-time key.
 ///

@@ -1,6 +1,5 @@
 pub use instant;
 pub use js_int;
-
 pub use ruma::{
     api::{
         client as api,

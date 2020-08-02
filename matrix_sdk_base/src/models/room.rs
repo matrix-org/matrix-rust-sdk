@@ -20,13 +20,11 @@ use std::{
     convert::TryFrom,
 };
 
-use serde::{Deserialize, Serialize};
-use tracing::{debug, error, trace};
-
 #[cfg(feature = "messages")]
-use super::message::MessageQueue;
-use super::RoomMember;
-use crate::{
+use matrix_sdk_common::events::{
+    room::redaction::SyncRedactionEvent, AnyPossiblyRedactedSyncMessageEvent, AnySyncMessageEvent,
+};
+use matrix_sdk_common::{
     api::r0::sync::sync_events::{RoomSummary, UnreadNotificationsCount},
     events::{
         presence::{PresenceEvent, PresenceEventContent},
@@ -42,16 +40,15 @@ use crate::{
         Algorithm, AnyStrippedStateEvent, AnySyncRoomEvent, AnySyncStateEvent, EventType,
         StrippedStateEvent, SyncStateEvent,
     },
+    identifiers::{RoomAliasId, RoomId, UserId},
+    js_int::{int, uint, Int, UInt},
 };
+use serde::{Deserialize, Serialize};
+use tracing::{debug, error, trace};
 
 #[cfg(feature = "messages")]
-use crate::events::{
-    room::redaction::SyncRedactionEvent, AnyPossiblyRedactedSyncMessageEvent, AnySyncMessageEvent,
-};
-
-use crate::identifiers::{RoomAliasId, RoomId, UserId};
-
-use crate::js_int::{int, uint, Int, UInt};
+use super::message::MessageQueue;
+use super::RoomMember;
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 /// `RoomName` allows the calculation of a text room name.

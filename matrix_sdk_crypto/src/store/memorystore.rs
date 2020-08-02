@@ -15,15 +15,16 @@
 use std::{collections::HashSet, sync::Arc};
 
 use async_trait::async_trait;
-use matrix_sdk_common::locks::Mutex;
+use matrix_sdk_common::{
+    identifiers::{DeviceId, RoomId, UserId},
+    locks::Mutex,
+};
 
 use super::{Account, CryptoStore, InboundGroupSession, Result, Session};
 use crate::{
     device::Device,
     memory_stores::{DeviceStore, GroupSessionStore, SessionStore, UserDevices},
 };
-use matrix_sdk_common::identifiers::{DeviceId, RoomId, UserId};
-
 #[derive(Debug)]
 pub struct MemoryStore {
     sessions: SessionStore,

@@ -15,13 +15,15 @@
 use std::{collections::HashMap, sync::Arc};
 
 use dashmap::{DashMap, ReadOnlyView};
-use matrix_sdk_common::locks::Mutex;
+use matrix_sdk_common::{
+    identifiers::{DeviceId, RoomId, UserId},
+    locks::Mutex,
+};
 
 use super::{
     device::Device,
     olm::{InboundGroupSession, Session},
 };
-use matrix_sdk_common::identifiers::{DeviceId, RoomId, UserId};
 
 /// In-memory store for Olm Sessions.
 #[derive(Debug, Default)]

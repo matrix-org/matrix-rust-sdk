@@ -12,8 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use matrix_sdk_common::instant::Instant;
 use std::{
+    collections::BTreeMap,
     convert::{TryFrom, TryInto},
     fmt,
     sync::{
@@ -22,30 +22,28 @@ use std::{
     },
 };
 
-use matrix_sdk_common::locks::Mutex;
-use serde_json::{json, Value};
-use std::collections::BTreeMap;
-
-pub use olm_rs::account::IdentityKeys;
+use matrix_sdk_common::{
+    api::r0::keys::{AlgorithmAndDeviceId, DeviceKeys, KeyAlgorithm, OneTimeKey, SignedKey},
+    events::Algorithm,
+    identifiers::{DeviceId, RoomId, UserId},
+    instant::Instant,
+    locks::Mutex,
+};
 use olm_rs::{
     account::{OlmAccount, OneTimeKeys},
     errors::{OlmAccountError, OlmSessionError},
     PicklingMode,
 };
+use serde_json::{json, Value};
 
-use crate::{device::Device, error::SessionCreationError};
 pub use olm_rs::{
+    account::IdentityKeys,
     session::{OlmMessage, PreKeyMessage},
     utility::OlmUtility,
 };
 
-use matrix_sdk_common::{
-    api::r0::keys::{AlgorithmAndDeviceId, DeviceKeys, KeyAlgorithm, OneTimeKey, SignedKey},
-    events::Algorithm,
-    identifiers::{DeviceId, RoomId, UserId},
-};
-
 use super::{InboundGroupSession, OutboundGroupSession, Session};
+use crate::{device::Device, error::SessionCreationError};
 
 /// Account holding identity keys for which sessions can be created.
 ///
