@@ -153,13 +153,19 @@ impl Sas {
     /// string, otherwise returns a `MacEventContent` that needs to be sent to
     /// the server.
     pub async fn confirm(&self) -> Result<Option<ToDeviceRequest>, CryptoStoreError> {
-        let mut guard = self.inner.lock().unwrap();
-        let sas: InnerSas = (*guard).clone();
-        let (sas, content) = sas.confirm();
-        *guard = sas;
+        let (content, done) = {
+            let mut guard = self.inner.lock().unwrap();
+            let sas: InnerSas = (*guard).clone();
+            let (sas, content) = sas.confirm();
 
-        if guard.is_done() {
-            self.mark_device_as_verified().await?;
+            *guard = sas;
+            (content, guard.is_done())
+        };
+
+        if done {
+            if !self.mark_device_as_verified().await? {
+                return Ok(self.cancel());
+            }
         }
 
         Ok(content.map(|c| {
@@ -599,6 +605,13 @@ mod test {
             Arc::new(RwLock::new(Box::new(MemoryStore::new())));
         let bob_store: Arc<RwLock<Box<dyn CryptoStore>>> =
             Arc::new(RwLock::new(Box::new(MemoryStore::new())));
+
+        bob_store
+            .read()
+            .await
+            .save_devices(&[alice_device.clone()])
+            .await
+            .unwrap();
 
         let (alice, content) = Sas::start(alice, bob_device, alice_store);
         let event = wrap_to_device_event(alice.user_id(), content);

@@ -196,6 +196,12 @@ mod test {
         let alice_device = Device::from_account(&alice).await;
 
         store.save_devices(&[bob_device]).await.unwrap();
+        bob_store
+            .read()
+            .await
+            .save_devices(&[alice_device.clone()])
+            .await
+            .unwrap();
 
         let machine = VerificationMachine::new(alice, Arc::new(RwLock::new(Box::new(store))));
         let (bob_sas, start_content) = Sas::start(bob, alice_device, bob_store);
