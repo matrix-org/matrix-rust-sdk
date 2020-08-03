@@ -16,6 +16,8 @@ use std::sync::Arc;
 
 use dashmap::DashMap;
 
+use tracing::{trace, warn};
+
 use matrix_sdk_common::{
     api::r0::to_device::send_event_to_device::Request as ToDeviceRequest,
     events::{AnyToDeviceEvent, AnyToDeviceEventContent},
@@ -61,7 +63,7 @@ impl VerificationMachine {
             .insert(request.txn_id.clone(), request);
     }
 
-    fn recieve_event_helper(&self, sas: &Sas, event: &mut AnyToDeviceEvent) {
+    fn receive_event_helper(&self, sas: &Sas, event: &mut AnyToDeviceEvent) {
         if let Some(c) = sas.receive_event(event) {
             self.queue_up_content(sas.other_user_id(), sas.other_device_id(), c);
         }
@@ -83,8 +85,16 @@ impl VerificationMachine {
         &self,
         event: &mut AnyToDeviceEvent,
     ) -> Result<(), CryptoStoreError> {
+        trace!("Received a key verification event {:?}", event);
+
         match event {
             AnyToDeviceEvent::KeyVerificationStart(e) => {
+                trace!(
+                    "Received a m.key.verification start event from {} {}",
+                    e.sender,
+                    e.content.from_device
+                );
+
                 if let Some(d) = self
                     .store
                     .read()
@@ -97,26 +107,44 @@ impl VerificationMachine {
                             self.verifications
                                 .insert(e.content.transaction_id.clone(), s);
                         }
-                        Err(c) => self.queue_up_content(&e.sender, &e.content.from_device, c),
+                        Err(c) => {
+                            warn!(
+                                "Can't start key verification with {} {}, canceling: {:?}",
+                                e.sender, e.content.from_device, c
+                            );
+                            self.queue_up_content(&e.sender, &e.content.from_device, c)
+                        }
                     }
-                };
+                } else {
+                    warn!(
+                        "Received a key verification start event from an unknown device {} {}",
+                        e.sender, e.content.from_device
+                    );
+                }
             }
             AnyToDeviceEvent::KeyVerificationCancel(e) => {
                 self.verifications.remove(&e.content.transaction_id);
             }
             AnyToDeviceEvent::KeyVerificationAccept(e) => {
                 if let Some(s) = self.get_sas(&e.content.transaction_id) {
-                    self.recieve_event_helper(&s, event)
+                    self.receive_event_helper(&s, event)
                 };
             }
             AnyToDeviceEvent::KeyVerificationKey(e) => {
                 if let Some(s) = self.get_sas(&e.content.transaction_id) {
-                    self.recieve_event_helper(&s, event)
+                    self.receive_event_helper(&s, event)
                 };
             }
             AnyToDeviceEvent::KeyVerificationMac(e) => {
                 if let Some(s) = self.get_sas(&e.content.transaction_id) {
-                    self.recieve_event_helper(&s, event)
+                    self.receive_event_helper(&s, event);
+                    if s.is_done() {
+                        if !s.mark_device_as_verified().await? {
+                            if let Some(r) = s.cancel() {
+                                self.outgoing_to_device_messages.insert(r.txn_id.clone(), r);
+                            }
+                        }
+                    }
                 };
             }
             _ => (),

@@ -16,7 +16,7 @@ use std::sync::Arc;
 
 use url::Url;
 
-use matrix_sdk_base::{Sas as BaseSas, Session};
+use matrix_sdk_base::{Device, Sas as BaseSas, Session};
 use matrix_sdk_common::locks::RwLock;
 
 use crate::{error::Result, http_client::HttpClient};
@@ -65,5 +65,20 @@ impl Sas {
     /// Get the decimal version of the short auth string.
     pub fn decimals(&self) -> Option<(u32, u32, u32)> {
         self.inner.decimals()
+    }
+
+    /// Is the verification process done.
+    pub fn is_done(&self) -> bool {
+        self.inner.is_done()
+    }
+
+    /// Is the verification process canceled.
+    pub fn is_canceled(&self) -> bool {
+        self.inner.is_canceled()
+    }
+
+    /// Get the other users device that we're veryfying.
+    pub fn other_device(&self) -> Device {
+        self.inner.other_device()
     }
 }

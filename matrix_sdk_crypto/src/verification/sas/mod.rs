@@ -16,6 +16,7 @@ mod helpers;
 mod sas_state;
 
 use std::sync::{Arc, Mutex};
+use tracing::{info, trace, warn};
 
 use matrix_sdk_common::{
     api::r0::to_device::send_event_to_device::Request as ToDeviceRequest,
@@ -65,6 +66,11 @@ impl Sas {
     /// Get the device id of the other side.
     pub fn other_device_id(&self) -> &DeviceId {
         self.other_device.device_id()
+    }
+
+    /// Get the device of the other user.
+    pub fn other_device(&self) -> Device {
+        self.other_device.clone()
     }
 
     /// Get the unique ID that identifies this SAS verification flow.
@@ -162,7 +168,7 @@ impl Sas {
         }))
     }
 
-    async fn mark_device_as_verified(&self) -> Result<bool, CryptoStoreError> {
+    pub(crate) async fn mark_device_as_verified(&self) -> Result<bool, CryptoStoreError> {
         let device = self
             .store
             .read()
@@ -206,6 +212,11 @@ impl Sas {
     /// Is the SAS flow done.
     pub fn is_done(&self) -> bool {
         self.inner.lock().unwrap().is_done()
+    }
+
+    /// Is the SAS flow done.
+    pub fn is_canceled(&self) -> bool {
+        self.inner.lock().unwrap().is_canceled()
     }
 
     /// Get the emoji version of the short auth string.
@@ -393,6 +404,14 @@ impl InnerSas {
 
     fn is_done(&self) -> bool {
         if let InnerSas::Done(_) = self {
+            true
+        } else {
+            false
+        }
+    }
+
+    fn is_canceled(&self) -> bool {
+        if let InnerSas::Canceled(_) = self {
             true
         } else {
             false
