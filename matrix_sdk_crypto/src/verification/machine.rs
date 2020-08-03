@@ -81,6 +81,11 @@ impl VerificationMachine {
             .collect()
     }
 
+    pub fn garbage_collect(&self) {
+        self.verifications
+            .retain(|_, s| !(s.is_canceled() || s.is_done()));
+    }
+
     pub async fn receive_event(
         &self,
         event: &mut AnyToDeviceEvent,

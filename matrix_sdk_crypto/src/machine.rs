@@ -1094,6 +1094,8 @@ impl OlmMachine {
     /// * `response` - The sync latest sync response.
     #[instrument(skip(response))]
     pub async fn receive_sync_response(&mut self, response: &mut SyncResponse) {
+        self.verification_machine.garbage_collect();
+
         let one_time_key_count = response
             .device_one_time_keys_count
             .get(&keys::KeyAlgorithm::SignedCurve25519);
