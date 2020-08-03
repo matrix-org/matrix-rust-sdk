@@ -184,13 +184,34 @@ impl Sas {
 
         if let Some(device) = device {
             if device.keys() == self.other_device.keys() {
+                trace!(
+                    "Marking device {} {} as verified.",
+                    device.user_id(),
+                    device.device_id()
+                );
+
                 device.set_trust_state(TrustState::Verified);
                 self.store.read().await.save_devices(&[device]).await?;
+
                 Ok(true)
             } else {
+                warn!(
+                    "The device keys of {} {} have changed while an interactive \
+                      verification was going on, not marking the device as verified.",
+                    device.user_id(),
+                    device.device_id()
+                );
                 Ok(false)
             }
         } else {
+            let device = self.other_device();
+
+            info!(
+                "The device {} {} was deleted while a interactive \
+                  verification was going on.",
+                device.user_id(),
+                device.device_id()
+            );
             Ok(false)
         }
     }
