@@ -58,6 +58,7 @@ pub enum Error {
     MatrixError(#[from] MatrixError),
 
     /// An error occurred in the crypto store.
+    #[cfg(feature = "encryption")]
     #[error(transparent)]
     CryptoStoreError(#[from] CryptoStoreError),
 
