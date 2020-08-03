@@ -92,7 +92,7 @@ impl VerificationMachine {
                     .get_device(&e.sender, &e.content.from_device)
                     .await?
                 {
-                    match Sas::from_start_event(self.account.clone(), d, e) {
+                    match Sas::from_start_event(self.account.clone(), d, self.store.clone(), e) {
                         Ok(s) => {
                             self.verifications
                                 .insert(e.content.transaction_id.clone(), s);
@@ -161,6 +161,8 @@ mod test {
         let alice = Account::new(&alice_id(), &alice_device_id());
         let bob = Account::new(&bob_id(), &bob_device_id());
         let store = MemoryStore::new();
+        let bob_store: Arc<RwLock<Box<dyn CryptoStore>>> =
+            Arc::new(RwLock::new(Box::new(MemoryStore::new())));
 
         let bob_device = Device::from_account(&bob).await;
         let alice_device = Device::from_account(&alice).await;
@@ -168,7 +170,7 @@ mod test {
         store.save_devices(&[bob_device]).await.unwrap();
 
         let machine = VerificationMachine::new(alice, Arc::new(RwLock::new(Box::new(store))));
-        let (bob_sas, start_content) = Sas::start(bob, alice_device);
+        let (bob_sas, start_content) = Sas::start(bob, alice_device, bob_store);
         machine
             .receive_event(&mut wrap_any_to_device_content(
                 bob_sas.user_id(),
@@ -229,13 +231,13 @@ mod test {
 
         let mut event = wrap_any_to_device_content(
             alice.user_id(),
-            get_content_from_request(&alice.confirm().unwrap()),
+            get_content_from_request(&alice.confirm().await.unwrap().unwrap()),
         );
         bob.receive_event(&mut event);
 
         let mut event = wrap_any_to_device_content(
             bob.user_id(),
-            get_content_from_request(&bob.confirm().unwrap()),
+            get_content_from_request(&bob.confirm().await.unwrap().unwrap()),
         );
         alice.receive_event(&mut event);
 

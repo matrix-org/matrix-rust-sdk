@@ -42,9 +42,10 @@ impl Sas {
 
     /// Confirm that the short auth strings match on both sides.
     pub async fn confirm(&self) -> Result<()> {
-        if let Some(request) = self.inner.confirm() {
+        if let Some(request) = self.inner.confirm().await? {
             self.http_client.send(request, self.session.clone()).await?;
         }
+
         Ok(())
     }
 

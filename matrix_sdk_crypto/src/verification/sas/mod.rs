@@ -27,9 +27,10 @@ use matrix_sdk_common::{
         AnyToDeviceEvent, AnyToDeviceEventContent, ToDeviceEvent,
     },
     identifiers::{DeviceId, UserId},
+    locks::RwLock,
 };
 
-use crate::{Account, Device};
+use crate::{Account, CryptoStore, CryptoStoreError, Device, TrustState};
 pub use helpers::content_to_request;
 use sas_state::{
     Accepted, Canceled, Confirmed, Created, Done, KeyReceived, MacReceived, SasState, Started,
@@ -39,6 +40,7 @@ use sas_state::{
 /// Short authentication string object.
 pub struct Sas {
     inner: Arc<Mutex<InnerSas>>,
+    store: Arc<RwLock<Box<dyn CryptoStore>>>,
     account: Account,
     other_device: Device,
     flow_id: Arc<String>,
@@ -80,13 +82,18 @@ impl Sas {
     ///
     /// Returns the new `Sas` object and a `StartEventContent` that needs to be
     /// sent out through the server to the other device.
-    pub(crate) fn start(account: Account, other_device: Device) -> (Sas, StartEventContent) {
+    pub(crate) fn start(
+        account: Account,
+        other_device: Device,
+        store: Arc<RwLock<Box<dyn CryptoStore>>>,
+    ) -> (Sas, StartEventContent) {
         let (inner, content) = InnerSas::start(account.clone(), other_device.clone());
         let flow_id = inner.verification_flow_id();
 
         let sas = Sas {
             inner: Arc::new(Mutex::new(inner)),
             account,
+            store,
             other_device,
             flow_id,
         };
@@ -107,6 +114,7 @@ impl Sas {
     pub(crate) fn from_start_event(
         account: Account,
         other_device: Device,
+        store: Arc<RwLock<Box<dyn CryptoStore>>>,
         event: &ToDeviceEvent<StartEventContent>,
     ) -> Result<Sas, AnyToDeviceEventContent> {
         let inner = InnerSas::from_start_event(account.clone(), other_device.clone(), event)?;
@@ -115,6 +123,7 @@ impl Sas {
             inner: Arc::new(Mutex::new(inner)),
             account,
             other_device,
+            store,
             flow_id,
         })
     }
@@ -137,16 +146,41 @@ impl Sas {
     /// Does nothing if we're not in a state where we can confirm the short auth
     /// string, otherwise returns a `MacEventContent` that needs to be sent to
     /// the server.
-    pub fn confirm(&self) -> Option<ToDeviceRequest> {
+    pub async fn confirm(&self) -> Result<Option<ToDeviceRequest>, CryptoStoreError> {
         let mut guard = self.inner.lock().unwrap();
         let sas: InnerSas = (*guard).clone();
         let (sas, content) = sas.confirm();
         *guard = sas;
 
-        content.map(|c| {
+        if guard.is_done() {
+            self.mark_device_as_verified().await?;
+        }
+
+        Ok(content.map(|c| {
             let content = AnyToDeviceEventContent::KeyVerificationMac(c);
             self.content_to_request(content)
-        })
+        }))
+    }
+
+    async fn mark_device_as_verified(&self) -> Result<bool, CryptoStoreError> {
+        let device = self
+            .store
+            .read()
+            .await
+            .get_device(self.other_user_id(), self.other_device_id())
+            .await?;
+
+        if let Some(device) = device {
+            if device.keys() == self.other_device.keys() {
+                device.set_trust_state(TrustState::Verified);
+                self.store.read().await.save_devices(&[device]).await?;
+                Ok(true)
+            } else {
+                Ok(false)
+            }
+        } else {
+            Ok(false)
+        }
     }
 
     /// Cancel the verification.
@@ -414,13 +448,16 @@ impl InnerSas {
 #[cfg(test)]
 mod test {
     use std::convert::TryFrom;
+    use std::sync::Arc;
 
     use matrix_sdk_common::events::{EventContent, ToDeviceEvent};
     use matrix_sdk_common::identifiers::{DeviceId, UserId};
+    use matrix_sdk_common::locks::RwLock;
 
     use crate::{
+        store::memorystore::MemoryStore,
         verification::test::{get_content_from_request, wrap_any_to_device_content},
-        Account, Device,
+        Account, CryptoStore, Device,
     };
 
     use super::{Accepted, Created, Sas, SasState, Started};
@@ -539,10 +576,15 @@ mod test {
         let bob = Account::new(&bob_id(), &bob_device_id());
         let bob_device = Device::from_account(&bob).await;
 
-        let (alice, content) = Sas::start(alice, bob_device);
+        let alice_store: Arc<RwLock<Box<dyn CryptoStore>>> =
+            Arc::new(RwLock::new(Box::new(MemoryStore::new())));
+        let bob_store: Arc<RwLock<Box<dyn CryptoStore>>> =
+            Arc::new(RwLock::new(Box::new(MemoryStore::new())));
+
+        let (alice, content) = Sas::start(alice, bob_device, alice_store);
         let event = wrap_to_device_event(alice.user_id(), content);
 
-        let bob = Sas::from_start_event(bob, alice_device, &event).unwrap();
+        let bob = Sas::from_start_event(bob, alice_device, bob_store, &event).unwrap();
         let mut event = wrap_any_to_device_content(
             bob.user_id(),
             get_content_from_request(&bob.accept().unwrap()),
@@ -567,13 +609,13 @@ mod test {
 
         let mut event = wrap_any_to_device_content(
             alice.user_id(),
-            get_content_from_request(&alice.confirm().unwrap()),
+            get_content_from_request(&alice.confirm().await.unwrap().unwrap()),
         );
         bob.receive_event(&mut event);
 
         let mut event = wrap_any_to_device_content(
             bob.user_id(),
-            get_content_from_request(&bob.confirm().unwrap()),
+            get_content_from_request(&bob.confirm().await.unwrap().unwrap()),
         );
         alice.receive_event(&mut event);
 
