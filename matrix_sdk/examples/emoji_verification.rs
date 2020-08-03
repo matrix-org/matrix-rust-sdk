@@ -1,7 +1,38 @@
 use std::{env, io, process::exit};
 use url::Url;
 
-use matrix_sdk::{self, events::AnyToDeviceEvent, Client, ClientConfig, SyncSettings};
+use matrix_sdk::{self, events::AnyToDeviceEvent, Client, ClientConfig, Sas, SyncSettings};
+
+async fn wait_for_confirmation(sas: Sas) {
+    println!("Emoji: {:?}", sas.emoji());
+
+    let mut input = String::new();
+    io::stdin()
+        .read_line(&mut input)
+        .expect("error: unable to read user input");
+
+    match input.trim().to_lowercase().as_ref() {
+        "yes" | "true" | "ok" => {
+            sas.confirm().await.unwrap();
+
+            if sas.is_done() {
+                print_result(sas);
+            }
+        }
+        _ => sas.cancel().await.unwrap(),
+    }
+}
+
+fn print_result(sas: Sas) {
+    let device = sas.other_device();
+
+    println!(
+        "Successfully verified device {} {} {:?}",
+        device.user_id(),
+        device.device_id(),
+        device.trust_state()
+    );
+}
 
 async fn login(
     homeserver_url: String,
@@ -29,7 +60,6 @@ async fn login(
                     .deserialize()
                     .expect("Can't deserialize to-device event");
 
-                println!("Received to-device event {:?}", e);
                 match e {
                     AnyToDeviceEvent::KeyVerificationStart(e) => {
                         let sas = client
@@ -38,23 +68,27 @@ async fn login(
                             .expect("Sas object wasn't created");
                         sas.accept().await.unwrap();
                     }
+
                     AnyToDeviceEvent::KeyVerificationKey(e) => {
                         let sas = client
                             .get_verification(&e.content.transaction_id)
                             .await
                             .expect("Sas object wasn't created");
-                        println!("Emoji: {:?}", sas.emoji());
 
-                        let mut input = String::new();
-                        io::stdin()
-                            .read_line(&mut input)
-                            .expect("error: unable to read user input");
+                        tokio::spawn(wait_for_confirmation(sas));
+                    }
 
-                        match input.trim().to_lowercase().as_ref() {
-                            "yes" | "true" | "ok" => sas.confirm().await.unwrap(),
-                            _ => sas.cancel().await.unwrap(),
+                    AnyToDeviceEvent::KeyVerificationMac(e) => {
+                        let sas = client
+                            .get_verification(&e.content.transaction_id)
+                            .await
+                            .expect("Sas object wasn't created");
+
+                        if sas.is_done() {
+                            print_result(sas);
                         }
                     }
+
                     _ => (),
                 }
             }
