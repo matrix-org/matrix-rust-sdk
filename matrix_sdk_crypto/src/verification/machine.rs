@@ -138,11 +138,10 @@ impl VerificationMachine {
             AnyToDeviceEvent::KeyVerificationMac(e) => {
                 if let Some(s) = self.get_sas(&e.content.transaction_id) {
                     self.receive_event_helper(&s, event);
-                    if s.is_done() {
-                        if !s.mark_device_as_verified().await? {
-                            if let Some(r) = s.cancel() {
-                                self.outgoing_to_device_messages.insert(r.txn_id.clone(), r);
-                            }
+
+                    if s.is_done() && !s.mark_device_as_verified().await? {
+                        if let Some(r) = s.cancel() {
+                            self.outgoing_to_device_messages.insert(r.txn_id.clone(), r);
                         }
                     }
                 };

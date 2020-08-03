@@ -162,10 +162,8 @@ impl Sas {
             (content, guard.is_done())
         };
 
-        if done {
-            if !self.mark_device_as_verified().await? {
-                return Ok(self.cancel());
-            }
+        if done && !self.mark_device_as_verified().await? {
+            return Ok(self.cancel());
         }
 
         Ok(content.map(|c| {
