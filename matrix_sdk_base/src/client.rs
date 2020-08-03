@@ -2201,7 +2201,7 @@ mod test {
         use super::*;
 
         use crate::{EventEmitter, SyncRoom};
-        use matrix_sdk_common::locks::RwLock;
+        use matrix_sdk_common::{events::EventContent, locks::RwLock};
         use std::sync::{
             atomic::{AtomicBool, Ordering},
             Arc,
@@ -2212,11 +2212,8 @@ mod test {
         impl EventEmitter for EE {
             async fn on_unrecognized_event(&self, room: SyncRoom, event: &CustomOrRawEvent<'_>) {
                 if let SyncRoom::Joined(_) = room {
-                    if let CustomOrRawEvent::RawJson(raw) = event {
-                        let val = serde_json::to_value(raw).unwrap();
-                        if val.get("type").unwrap() == &json! { "m.room.message" }
-                            && val.get("content").unwrap().get("m.relates_to").is_some()
-                        {
+                    if let CustomOrRawEvent::Message(event) = event {
+                        if event.content.event_type() == "m.room.not_real" {
                             self.0.swap(true, Ordering::SeqCst);
                         }
                     }
@@ -2232,7 +2229,18 @@ mod test {
         client.event_emitter = Arc::new(RwLock::new(Some(Box::new(emitter))));
 
         // This is needed other wise the `EventBuilder` goes through a de/ser cycle and the `prev_content` is lost.
-        let event: &serde_json::Value = &test_json::MESSAGE_EDIT;
+        let event = json!({
+            "content": {
+                "whatever": "you want"
+            },
+            "event_id": "$eventid:foo",
+            "origin_server_ts": 159026265,
+            "sender": "@alice:matrix.org",
+            "type": "m.room.not_real",
+            "unsigned": {
+                "age": 85
+            }
+        });
 
         let mut joined_rooms: HashMap<RoomId, serde_json::Value> = HashMap::new();
         let joined_room = serde_json::json!({

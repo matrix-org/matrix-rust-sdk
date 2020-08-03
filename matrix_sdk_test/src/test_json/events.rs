@@ -269,12 +269,12 @@ lazy_static! {
                 "msgtype": "m.text"
             },
             "m.relates_to": {
-                "event_id": "some event id",
+                "event_id": "$someeventid:foo",
                 "rel_type": "m.replace"
             },
             "msgtype": "m.text"
         },
-        "event_id": "edit event id",
+        "event_id": "$eventid:foo",
         "origin_server_ts": 159026265,
         "sender": "@alice:matrix.org",
         "type": "m.room.message",
