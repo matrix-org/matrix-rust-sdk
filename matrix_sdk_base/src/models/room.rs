@@ -1129,6 +1129,23 @@ mod test {
         assert!(room.deref().power_levels.is_some())
     }
 
+    #[test]
+    fn message_edit_deser() {
+        let json = matrix_sdk_test::test_json::MESSAGE_EDIT.deref();
+        let event = serde_json::from_value::<Raw<AnySyncMessageEvent>>(json.clone()).unwrap();
+
+        if let Ok(AnySyncMessageEvent::RoomMessage(ev)) = event.deserialize() {
+            if let matrix_sdk_common::events::room::message::MessageEventContent::Text(content) =
+                ev.content
+            {
+                assert_eq!(content.body, " * edited message");
+                assert!(content.relates_to.is_some());
+            }
+        } else {
+            panic!("{:?}", event);
+        }
+    }
+
     #[async_test]
     async fn member_is_not_both_invited_and_joined() {
         let client = get_client().await;
