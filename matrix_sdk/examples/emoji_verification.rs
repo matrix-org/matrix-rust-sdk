@@ -39,9 +39,7 @@ async fn login(
     username: String,
     password: String,
 ) -> Result<(), matrix_sdk::Error> {
-    let client_config = ClientConfig::new()
-        .proxy("http://localhost:8080")?
-        .disable_ssl_verification();
+    let client_config = ClientConfig::new();
     let homeserver_url = Url::parse(&homeserver_url).expect("Couldn't parse the homeserver URL");
     let client = Client::new_with_config(homeserver_url, client_config).unwrap();
 
