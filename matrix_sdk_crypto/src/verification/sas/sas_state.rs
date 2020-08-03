@@ -530,7 +530,7 @@ impl SasState<KeyReceived> {
     ///
     /// Returns a tuple containing three 4 digit integer numbers that represent
     /// the short auth string.
-    pub fn get_decimal(&self) -> (u32, u32, u32) {
+    pub fn get_decimal(&self) -> (u16, u16, u16) {
         get_decimal(
             &self.inner.lock().unwrap(),
             &self.ids,
@@ -667,7 +667,7 @@ impl SasState<MacReceived> {
     ///
     /// Returns a tuple containing three 4 digit integer numbers that represent
     /// the short auth string.
-    pub fn get_decimal(&self) -> (u32, u32, u32) {
+    pub fn get_decimal(&self) -> (u16, u16, u16) {
         get_decimal(
             &self.inner.lock().unwrap(),
             &self.ids,

@@ -257,7 +257,7 @@ impl Sas {
     /// Returns None if we can't yet present the short auth string, otherwise a
     /// tuple containing three 4-digit integers that represent the short auth
     /// string.
-    pub fn decimals(&self) -> Option<(u32, u32, u32)> {
+    pub fn decimals(&self) -> Option<(u16, u16, u16)> {
         self.inner.lock().unwrap().decimals()
     }
 
@@ -464,7 +464,7 @@ impl InnerSas {
         }
     }
 
-    fn decimals(&self) -> Option<(u32, u32, u32)> {
+    fn decimals(&self) -> Option<(u16, u16, u16)> {
         match self {
             InnerSas::KeyRecieved(s) => Some(s.get_decimal()),
             InnerSas::MacReceived(s) => Some(s.get_decimal()),

@@ -63,7 +63,7 @@ impl Sas {
     }
 
     /// Get the decimal version of the short auth string.
-    pub fn decimals(&self) -> Option<(u32, u32, u32)> {
+    pub fn decimals(&self) -> Option<(u16, u16, u16)> {
         self.inner.decimals()
     }
 
