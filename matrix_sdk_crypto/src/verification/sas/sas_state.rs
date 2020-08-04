@@ -165,7 +165,7 @@ pub struct Confirmed {
 #[derive(Clone, Debug)]
 pub struct MacReceived {
     we_started: bool,
-    verified_devices: Arc<Vec<Box<DeviceId>>>,
+    verified_devices: Arc<Vec<Device>>,
     verified_master_keys: Arc<Vec<String>>,
 }
 
@@ -175,7 +175,7 @@ pub struct MacReceived {
 /// the master keys in the verified devices list.
 #[derive(Clone, Debug)]
 pub struct Done {
-    verified_devices: Arc<Vec<Box<DeviceId>>>,
+    verified_devices: Arc<Vec<Device>>,
     verified_master_keys: Arc<Vec<String>>,
 }
 
@@ -194,6 +194,10 @@ impl<S: Clone> SasState<S> {
     /// Get our own device id.
     pub fn device_id(&self) -> &DeviceId {
         &self.ids.account.device_id()
+    }
+
+    pub fn other_device(&self) -> Device {
+        self.ids.other_device.clone()
     }
 
     pub fn cancel(self, cancel_code: CancelCode) -> SasState<Canceled> {
@@ -691,7 +695,7 @@ impl SasState<Done> {
     }
 
     /// Get the list of verified devices.
-    pub fn verified_devices(&self) -> Arc<Vec<Box<DeviceId>>> {
+    pub fn verified_devices(&self) -> Arc<Vec<Device>> {
         self.state.verified_devices.clone()
     }
 
@@ -853,7 +857,7 @@ mod test {
         let event = wrap_to_device_event(alice.user_id(), alice.as_content());
         let bob = bob.into_done(&event).unwrap();
 
-        assert!(bob.verified_devices().contains(&alice.device_id().into()));
-        assert!(alice.verified_devices().contains(&bob.device_id().into()));
+        assert!(bob.verified_devices().contains(&bob.other_device()));
+        assert!(alice.verified_devices().contains(&alice.other_device()));
     }
 }

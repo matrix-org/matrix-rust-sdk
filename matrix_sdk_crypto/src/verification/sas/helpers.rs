@@ -142,9 +142,9 @@ pub fn receive_mac_event(
     ids: &SasIds,
     flow_id: &str,
     event: &ToDeviceEvent<MacEventContent>,
-) -> (Vec<Box<DeviceId>>, Vec<String>) {
+) -> (Vec<Device>, Vec<String>) {
     // TODO check the event and cancel if it isn't ok (sender, transaction id)
-    let mut verified_devices: Vec<Box<DeviceId>> = Vec::new();
+    let mut verified_devices = Vec::new();
 
     let info = extra_mac_info_receive(&ids, flow_id);
 
@@ -180,7 +180,7 @@ pub fn receive_mac_event(
                     .calculate_mac(key, &format!("{}{}", info, key_id))
                     .expect("Can't calculate SAS MAC")
             {
-                verified_devices.push(ids.other_device.device_id().into());
+                verified_devices.push(ids.other_device.clone());
             } else {
                 // TODO cancel here
             }

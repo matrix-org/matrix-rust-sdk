@@ -182,16 +182,30 @@ impl Sas {
 
         if let Some(device) = device {
             if device.keys() == self.other_device.keys() {
-                trace!(
-                    "Marking device {} {} as verified.",
-                    device.user_id(),
-                    device.device_id()
-                );
+                if self
+                    .verified_devices()
+                    .map_or(false, |v| v.contains(&device))
+                {
+                    trace!(
+                        "Marking device {} {} as verified.",
+                        device.user_id(),
+                        device.device_id()
+                    );
 
-                device.set_trust_state(TrustState::Verified);
-                self.store.read().await.save_devices(&[device]).await?;
+                    device.set_trust_state(TrustState::Verified);
+                    self.store.read().await.save_devices(&[device]).await?;
 
-                Ok(true)
+                    Ok(true)
+                } else {
+                    info!(
+                        "The interactive verification process didn't contain a \
+                        MAC for the device {} {}",
+                        device.user_id(),
+                        device.device_id()
+                    );
+
+                    Ok(false)
+                }
             } else {
                 warn!(
                     "The device keys of {} {} have changed while an interactive \
@@ -273,7 +287,7 @@ impl Sas {
         content
     }
 
-    pub(crate) fn verified_devices(&self) -> Option<Arc<Vec<Box<DeviceId>>>> {
+    pub(crate) fn verified_devices(&self) -> Option<Arc<Vec<Device>>> {
         self.inner.lock().unwrap().verified_devices()
     }
 
@@ -472,7 +486,7 @@ impl InnerSas {
         }
     }
 
-    fn verified_devices(&self) -> Option<Arc<Vec<Box<DeviceId>>>> {
+    fn verified_devices(&self) -> Option<Arc<Vec<Device>>> {
         if let InnerSas::Done(s) = self {
             Some(s.verified_devices())
         } else {
@@ -609,8 +623,8 @@ mod test {
         let event = wrap_to_device_event(alice.user_id(), alice.as_content());
         let bob = bob.into_done(&event).unwrap();
 
-        assert!(bob.verified_devices().contains(&alice.device_id().into()));
-        assert!(alice.verified_devices().contains(&bob.device_id().into()));
+        assert!(bob.verified_devices().contains(&bob.other_device()));
+        assert!(alice.verified_devices().contains(&alice.other_device()));
     }
 
     #[tokio::test]
@@ -674,10 +688,10 @@ mod test {
         assert!(alice
             .verified_devices()
             .unwrap()
-            .contains(&bob.device_id().into()));
+            .contains(&alice.other_device()));
         assert!(bob
             .verified_devices()
             .unwrap()
-            .contains(&alice.device_id().into()));
+            .contains(&bob.other_device()));
     }
 }
