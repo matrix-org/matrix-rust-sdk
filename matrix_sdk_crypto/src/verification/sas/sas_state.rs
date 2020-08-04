@@ -150,6 +150,7 @@ pub struct Accepted {
 /// From now on we can show the short auth string to the user.
 #[derive(Clone, Debug)]
 pub struct KeyReceived {
+    their_pubkey: String,
     we_started: bool,
     accepted_protocols: Arc<AcceptedProtocols>,
 }
@@ -168,6 +169,7 @@ pub struct Confirmed {
 #[derive(Clone, Debug)]
 pub struct MacReceived {
     we_started: bool,
+    their_pubkey: String,
     verified_devices: Arc<Vec<Device>>,
     verified_master_keys: Arc<Vec<String>>,
 }
@@ -436,10 +438,15 @@ impl SasState<Started> {
 
         let accepted_protocols = AcceptedProtocols::default();
 
+        let their_pubkey = mem::take(&mut event.content.key);
+
+        // The SAS object clears the public key, so we make a copy.
+        let pubkey_copy = their_pubkey.clone();
+
         self.inner
             .lock()
             .unwrap()
-            .set_their_public_key(&mem::take(&mut event.content.key))
+            .set_their_public_key(&pubkey_copy)
             .expect("Can't set public key");
 
         Ok(SasState {
@@ -448,6 +455,7 @@ impl SasState<Started> {
             verification_flow_id: self.verification_flow_id,
             state: Arc::new(KeyReceived {
                 we_started: false,
+                their_pubkey,
                 accepted_protocols: Arc::new(accepted_protocols),
             }),
         })
@@ -479,10 +487,15 @@ impl SasState<Accepted> {
         if self.state.commitment != commitment {
             Err(self.cancel(CancelCode::InvalidMessage))
         } else {
+            let their_pubkey = mem::take(&mut event.content.key);
+
+            // The SAS object clears the public key, so we make a copy.
+            let pubkey_copy = their_pubkey.clone();
+
             self.inner
                 .lock()
                 .unwrap()
-                .set_their_public_key(&mem::take(&mut event.content.key))
+                .set_their_public_key(&pubkey_copy)
                 .expect("Can't set public key");
 
             Ok(SasState {
@@ -490,6 +503,7 @@ impl SasState<Accepted> {
                 ids: self.ids,
                 verification_flow_id: self.verification_flow_id,
                 state: Arc::new(KeyReceived {
+                    their_pubkey,
                     we_started: true,
                     accepted_protocols: self.state.accepted_protocols.clone(),
                 }),
@@ -528,6 +542,7 @@ impl SasState<KeyReceived> {
         get_emoji(
             &self.inner.lock().unwrap(),
             &self.ids,
+            &self.state.their_pubkey,
             &self.verification_flow_id,
             self.state.we_started,
         )
@@ -541,6 +556,7 @@ impl SasState<KeyReceived> {
         get_decimal(
             &self.inner.lock().unwrap(),
             &self.ids,
+            &self.state.their_pubkey,
             &self.verification_flow_id,
             self.state.we_started,
         )
@@ -574,6 +590,7 @@ impl SasState<KeyReceived> {
             ids: self.ids,
             state: Arc::new(MacReceived {
                 we_started: self.state.we_started,
+                their_pubkey: self.state.their_pubkey.clone(),
                 verified_devices: Arc::new(devices),
                 verified_master_keys: Arc::new(master_keys),
             }),
@@ -668,6 +685,7 @@ impl SasState<MacReceived> {
         get_emoji(
             &self.inner.lock().unwrap(),
             &self.ids,
+            &self.state.their_pubkey,
             &self.verification_flow_id,
             self.state.we_started,
         )
@@ -681,6 +699,7 @@ impl SasState<MacReceived> {
         get_decimal(
             &self.inner.lock().unwrap(),
             &self.ids,
+            &self.state.their_pubkey,
             &self.verification_flow_id,
             self.state.we_started,
         )

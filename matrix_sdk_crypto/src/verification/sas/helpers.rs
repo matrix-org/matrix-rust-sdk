@@ -1,5 +1,7 @@
 use std::{collections::BTreeMap, convert::TryInto};
 
+use tracing::trace;
+
 use olm_rs::sas::OlmSas;
 
 use matrix_sdk_common::{
@@ -264,32 +266,42 @@ pub fn get_mac_content(sas: &OlmSas, ids: &SasIds, flow_id: &str) -> MacEventCon
 /// * `flow_id` - The unique id that identifies this SAS verification process.
 ///
 /// * `we_started` - Flag signaling if the SAS process was started on our side.
-fn extra_info_sas(ids: &SasIds, flow_id: &str, we_started: bool) -> String {
-    let (first_user, first_device, second_user, second_device) = if we_started {
-        (
-            ids.account.user_id(),
-            ids.account.device_id(),
-            ids.other_device.user_id(),
-            ids.other_device.device_id(),
-        )
+fn extra_info_sas(
+    ids: &SasIds,
+    own_pubkey: &str,
+    their_pubkey: &str,
+    flow_id: &str,
+    we_started: bool,
+) -> String {
+    let our_info = format!(
+        "{}|{}|{}",
+        ids.account.user_id(),
+        ids.account.device_id(),
+        own_pubkey
+    );
+    let their_info = format!(
+        "{}|{}|{}",
+        ids.other_device.user_id(),
+        ids.other_device.device_id(),
+        their_pubkey
+    );
+
+    let (first_info, second_info) = if we_started {
+        (our_info, their_info)
     } else {
-        (
-            ids.other_device.user_id(),
-            ids.other_device.device_id(),
-            ids.account.user_id(),
-            ids.account.device_id(),
-        )
+        (their_info, our_info)
     };
 
-    format!(
-        "MATRIX_KEY_VERIFICATION_SAS{first_user}{first_device}\
-        {second_user}{second_device}{transaction_id}",
-        first_user = first_user,
-        first_device = first_device,
-        second_user = second_user,
-        second_device = second_device,
-        transaction_id = flow_id,
-    )
+    let info = format!(
+        "MATRIX_KEY_VERIFICATION_SAS|{first_info}|{second_info}|{flow_id}",
+        first_info = first_info,
+        second_info = second_info,
+        flow_id = flow_id,
+    );
+
+    trace!("Generated a SAS extra info: {}", info);
+
+    info
 }
 
 /// Get the emoji version of the short authentication string.
@@ -314,11 +326,15 @@ fn extra_info_sas(ids: &SasIds, flow_id: &str, we_started: bool) -> String {
 pub fn get_emoji(
     sas: &OlmSas,
     ids: &SasIds,
+    their_pubkey: &str,
     flow_id: &str,
     we_started: bool,
 ) -> Vec<(&'static str, &'static str)> {
     let bytes = sas
-        .generate_bytes(&extra_info_sas(&ids, &flow_id, we_started), 6)
+        .generate_bytes(
+            &extra_info_sas(&ids, &sas.public_key(), their_pubkey, &flow_id, we_started),
+            6,
+        )
         .expect("Can't generate bytes");
 
     bytes_to_emoji(bytes)
@@ -374,9 +390,18 @@ fn bytes_to_emoji(bytes: Vec<u8>) -> Vec<(&'static str, &'static str)> {
 /// # Panics
 ///
 /// This will panic if the public key of the other side wasn't set.
-pub fn get_decimal(sas: &OlmSas, ids: &SasIds, flow_id: &str, we_started: bool) -> (u16, u16, u16) {
+pub fn get_decimal(
+    sas: &OlmSas,
+    ids: &SasIds,
+    their_pubkey: &str,
+    flow_id: &str,
+    we_started: bool,
+) -> (u16, u16, u16) {
     let bytes = sas
-        .generate_bytes(&extra_info_sas(&ids, &flow_id, we_started), 5)
+        .generate_bytes(
+            &extra_info_sas(&ids, &sas.public_key(), their_pubkey, &flow_id, we_started),
+            5,
+        )
         .expect("Can't generate bytes");
 
     bytes_to_decimal(bytes)
