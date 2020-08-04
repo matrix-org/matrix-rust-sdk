@@ -39,8 +39,7 @@
 #[cfg(not(target_arch = "wasm32"))]
 pub use matrix_sdk_base::JsonStore;
 pub use matrix_sdk_base::{
-    CustomEvent, Error as BaseError, EventEmitter, Room, RoomState, Session, StateStore,
-    SyncRoom,
+    CustomEvent, Error as BaseError, EventEmitter, Room, RoomState, Session, StateStore, SyncRoom,
 };
 #[cfg(feature = "encryption")]
 pub use matrix_sdk_base::{Device, TrustState};

@@ -442,19 +442,11 @@ impl InnerSas {
     }
 
     fn is_done(&self) -> bool {
-        if let InnerSas::Done(_) = self {
-            true
-        } else {
-            false
-        }
+        matches!(self, InnerSas::Done(_))
     }
 
     fn is_canceled(&self) -> bool {
-        if let InnerSas::Canceled(_) = self {
-            true
-        } else {
-            false
-        }
+        matches!(self, InnerSas::Canceled(_))
     }
 
     fn verification_flow_id(&self) -> Arc<String> {
