@@ -26,20 +26,8 @@ use std::{
 
 #[cfg(feature = "encryption")]
 use matrix_sdk_common::locks::Mutex;
-#[cfg(feature = "encryption")]
 use matrix_sdk_common::{
     api::r0 as api,
-    api::r0::keys::{
-        claim_keys::Response as KeysClaimResponse, get_keys::Response as KeysQueryResponse,
-        upload_keys::Response as KeysUploadResponse, DeviceKeys, KeyAlgorithm,
-    },
-    api::r0::to_device::send_event_to_device,
-    events::room::{
-        encrypted::EncryptedEventContent, message::MessageEventContent as MsgEventContent,
-    },
-    identifiers::DeviceId,
-};
-use matrix_sdk_common::{
     events::{
         ignored_user_list::IgnoredUserListEvent, push_rules::PushRulesEvent,
         room::member::MemberEventContent, AnyBasicEvent, AnyStrippedStateEvent,
@@ -49,6 +37,18 @@ use matrix_sdk_common::{
     locks::RwLock,
     push::Ruleset,
     Raw,
+};
+#[cfg(feature = "encryption")]
+use matrix_sdk_common::{
+    api::r0::keys::{
+        claim_keys::Response as KeysClaimResponse, get_keys::Response as KeysQueryResponse,
+        upload_keys::Response as KeysUploadResponse, DeviceKeys, KeyAlgorithm,
+    },
+    api::r0::to_device::send_event_to_device,
+    events::room::{
+        encrypted::EncryptedEventContent, message::MessageEventContent as MsgEventContent,
+    },
+    identifiers::DeviceId,
 };
 #[cfg(feature = "encryption")]
 use matrix_sdk_crypto::{CryptoStore, OlmError, OlmMachine, OneTimeKeys};
