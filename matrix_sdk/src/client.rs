@@ -49,11 +49,11 @@ use crate::{
 };
 
 #[cfg(feature = "encryption")]
-use crate::identifiers::DeviceId;
+use crate::{identifiers::DeviceId, sas::Sas};
 
 #[cfg(not(target_arch = "wasm32"))]
 use crate::VERSION;
-use crate::{api, http_client::HttpClient, sas::Sas, EventEmitter, Result};
+use crate::{api, http_client::HttpClient, EventEmitter, Result};
 use matrix_sdk_base::{BaseClient, BaseClientConfig, Room, Session, StateStore};
 
 const DEFAULT_SYNC_TIMEOUT: Duration = Duration::from_secs(30);
@@ -1448,10 +1448,10 @@ impl Client {
         Ok(response)
     }
 
+    /// Get a `Sas` verification object with the given flow id.
     #[cfg(feature = "encryption")]
     #[cfg_attr(docsrs, doc(cfg(feature = "encryption")))]
     #[instrument]
-    /// Get a `Sas` verification object with the given flow id.
     pub async fn get_verification(&self, flow_id: &str) -> Option<Sas> {
         self.base_client
             .get_verification(flow_id)

@@ -53,6 +53,8 @@ mod client;
 mod error;
 mod http_client;
 mod request_builder;
+
+#[cfg(feature = "encryption")]
 mod sas;
 
 pub use client::{Client, ClientConfig, SyncSettings};
