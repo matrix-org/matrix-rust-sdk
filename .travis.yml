@@ -52,7 +52,7 @@ jobs:
       before_script:
           - cargo install cargo-tarpaulin
       script:
-          - cargo tarpaulin --out Xml
+          - cargo tarpaulin --ignore-config --exclude-files "matrix_sdk/examples/*,matrix_sdk_common,matrix_sdk_test" --out Xml
       after_success:
           - bash <(curl -s https://codecov.io/bash)
 
