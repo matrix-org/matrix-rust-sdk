@@ -32,7 +32,7 @@ impl WasmBot {
         console::log_1(&format!("Received message event {:?}", &msg_body).into());
 
         if msg_body.starts_with("!party") {
-            let content = MessageEventContent::Text(TextMessageEventContent::new_plain(
+            let content = MessageEventContent::Text(TextMessageEventContent::plain(
                 "🎉🎊🥳 let's PARTY with wasm!! 🥳🎊🎉".to_string(),
             ));
 

@@ -59,7 +59,7 @@ use crate::JsonStore;
 
 use crate::{
     error::Result,
-    event_emitter::CustomOrRawEvent,
+    event_emitter::CustomEvent,
     events::presence::PresenceEvent,
     models::Room,
     session::Session,
@@ -1482,7 +1482,7 @@ impl BaseClient {
                 }
                 AnySyncStateEvent::Custom(e) => {
                     event_emitter
-                        .on_unrecognized_event(room, &CustomOrRawEvent::State(e))
+                        .on_custom_event(room, &CustomEvent::State(e))
                         .await
                 }
                 _ => {}
@@ -1497,7 +1497,7 @@ impl BaseClient {
                 }
                 AnySyncMessageEvent::Custom(e) => {
                     event_emitter
-                        .on_unrecognized_event(room, &CustomOrRawEvent::Message(e))
+                        .on_custom_event(room, &CustomEvent::Message(e))
                         .await
                 }
                 _ => {}
@@ -1572,7 +1572,7 @@ impl BaseClient {
             }
             AnySyncStateEvent::Custom(custom) => {
                 event_emitter
-                    .on_unrecognized_event(room, &CustomOrRawEvent::State(custom))
+                    .on_custom_event(room, &CustomEvent::State(custom))
                     .await
             }
             _ => {}
@@ -1821,8 +1821,7 @@ impl BaseClient {
             }
         };
         if let Some(ee) = &self.event_emitter.read().await.as_ref() {
-            ee.on_unrecognized_event(room, &CustomOrRawEvent::RawJson(event.json()))
-                .await;
+            ee.on_unrecognized_event(room, event.json()).await;
         }
     }
 
@@ -2210,9 +2209,9 @@ mod test {
         struct EE(Arc<AtomicBool>);
         #[async_trait]
         impl EventEmitter for EE {
-            async fn on_unrecognized_event(&self, room: SyncRoom, event: &CustomOrRawEvent<'_>) {
+            async fn on_custom_event(&self, room: SyncRoom, event: &CustomEvent<'_>) {
                 if let SyncRoom::Joined(_) = room {
-                    if let CustomOrRawEvent::Message(event) = event {
+                    if let CustomEvent::Message(event) = event {
                         if event.content.event_type() == "m.room.not_real" {
                             self.0.swap(true, Ordering::SeqCst);
                         }
@@ -2311,9 +2310,9 @@ mod test {
         struct EE(Arc<AtomicBool>);
         #[async_trait]
         impl EventEmitter for EE {
-            async fn on_unrecognized_event(&self, room: SyncRoom, event: &CustomOrRawEvent<'_>) {
+            async fn on_custom_event(&self, room: SyncRoom, event: &CustomEvent<'_>) {
                 if let SyncRoom::Joined(_) = room {
-                    if let CustomOrRawEvent::Message(custom) = event {
+                    if let CustomEvent::Message(custom) = event {
                         if custom.content.event_type == "m.reaction"
                             && custom.content.json.get("m.relates_to").is_some()
                         {

@@ -49,9 +49,7 @@ pub type SyncRoom = RoomState<Arc<RwLock<Room>>>;
 
 /// This represents the various "unrecognized" events.
 #[derive(Clone, Copy, Debug)]
-pub enum CustomOrRawEvent<'c> {
-    /// When an event can not be deserialized by ruma.
-    RawJson(&'c RawJsonValue),
+pub enum CustomEvent<'c> {
     /// A custom basic event.
     Basic(&'c BasicEvent<CustomEventContent>),
     /// A custom basic event.
@@ -264,7 +262,14 @@ pub trait EventEmitter: Send + Sync {
     /// because the event was unknown to ruma.
     ///
     /// The only guarantee this method can give about the event is that it is valid JSON.
-    async fn on_unrecognized_event(&self, _: SyncRoom, _: &CustomOrRawEvent<'_>) {}
+    async fn on_unrecognized_event(&self, _: SyncRoom, _: &RawJsonValue) {}
+
+    /// Fires when `Client` receives a `Event::Custom` event or if deserialization fails
+    /// because the event was unknown to ruma.
+    ///
+    /// The only guarantee this method can give about the event is that it is in the
+    /// shape of a valid matrix event.
+    async fn on_custom_event(&self, _: SyncRoom, _: &CustomEvent<'_>) {}
 }
 
 #[cfg(test)]
@@ -468,8 +473,11 @@ mod test {
         async fn on_presence_event(&self, _: SyncRoom, _: &PresenceEvent) {
             self.0.lock().await.push("presence event".to_string())
         }
-        async fn on_unrecognized_event(&self, _: SyncRoom, _: &CustomOrRawEvent<'_>) {
+        async fn on_unrecognized_event(&self, _: SyncRoom, _: &RawJsonValue) {
             self.0.lock().await.push("unrecognized event".to_string())
+        }
+        async fn on_custom_event(&self, _: SyncRoom, _: &CustomEvent<'_>) {
+            self.0.lock().await.push("custom event".to_string())
         }
     }
 
@@ -584,10 +592,12 @@ mod test {
             v.as_slice(),
             [
                 "message",
-                "unrecognized event",
+                "message", // this is a message edit event
                 "redaction",
                 "unrecognized event",
                 // "unrecognized event", this is actually a redacted "m.room.messages" event
+
+                // the ephemeral room events are looped over after the room events
                 "receipt event",
                 "typing event"
             ],

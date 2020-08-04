@@ -1129,6 +1129,7 @@ mod test {
         assert!(room.deref().power_levels.is_some())
     }
 
+    #[cfg(feature = "messages")]
     #[test]
     fn message_edit_deser() {
         let json = matrix_sdk_test::test_json::MESSAGE_EDIT.deref();
