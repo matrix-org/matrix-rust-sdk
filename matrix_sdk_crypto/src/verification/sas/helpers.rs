@@ -8,7 +8,8 @@ use matrix_sdk_common::{
         to_device::{send_event_to_device::Request as ToDeviceRequest, DeviceIdOrAllDevices},
     },
     events::{
-        key::verification::mac::MacEventContent, AnyToDeviceEventContent, EventType, ToDeviceEvent,
+        key::verification::{cancel::CancelCode, mac::MacEventContent},
+        AnyToDeviceEventContent, EventType, ToDeviceEvent,
     },
     identifiers::{DeviceId, UserId},
     uuid::Uuid,
@@ -142,8 +143,7 @@ pub fn receive_mac_event(
     ids: &SasIds,
     flow_id: &str,
     event: &ToDeviceEvent<MacEventContent>,
-) -> (Vec<Device>, Vec<String>) {
-    // TODO check the event and cancel if it isn't ok (sender, transaction id)
+) -> Result<(Vec<Device>, Vec<String>), CancelCode> {
     let mut verified_devices = Vec::new();
 
     let info = extra_mac_info_receive(&ids, flow_id);
@@ -155,7 +155,7 @@ pub fn receive_mac_event(
         .expect("Can't calculate SAS MAC");
 
     if keys != event.content.keys {
-        panic!("Keys mac mismatch")
+        return Err(CancelCode::KeyMismatch);
     }
 
     for (key_id, key_mac) in &event.content.mac {
@@ -182,13 +182,13 @@ pub fn receive_mac_event(
             {
                 verified_devices.push(ids.other_device.clone());
             } else {
-                // TODO cancel here
+                return Err(CancelCode::KeyMismatch);
             }
         }
         // TODO add an else branch for the master key here
     }
 
-    (verified_devices, vec![])
+    Ok((verified_devices, vec![]))
 }
 
 /// Get the extra info that will be used when we generate a MAC and need to send

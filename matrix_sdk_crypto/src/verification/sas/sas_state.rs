@@ -562,7 +562,8 @@ impl SasState<KeyReceived> {
             &self.ids,
             &self.verification_flow_id,
             event,
-        );
+        )
+        .map_err(|c| self.clone().cancel(c))?;
 
         Ok(SasState {
             inner: self.inner,
@@ -606,12 +607,14 @@ impl SasState<Confirmed> {
     ) -> Result<SasState<Done>, SasState<Canceled>> {
         self.check_sender_and_txid(&event.sender, &event.content.transaction_id)
             .map_err(|c| self.clone().cancel(c))?;
+
         let (devices, master_keys) = receive_mac_event(
             &self.inner.lock().unwrap(),
             &self.ids,
             &self.verification_flow_id,
             event,
-        );
+        )
+        .map_err(|c| self.clone().cancel(c))?;
 
         Ok(SasState {
             inner: self.inner,
