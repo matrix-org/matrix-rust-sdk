@@ -896,16 +896,16 @@ mod test {
     use crate::{device::test::get_device, olm::GroupSessionKey};
     use matrix_sdk_common::{
         api::r0::keys::SignedKey,
-        identifiers::{DeviceId, UserId},
+        identifiers::{room_id, user_id, DeviceId, UserId},
     };
     use olm_rs::outbound_group_session::OlmOutboundGroupSession;
     use std::collections::BTreeMap;
     use tempfile::tempdir;
 
-    use super::{Account, CryptoStore, InboundGroupSession, RoomId, Session, SqliteStore, TryFrom};
+    use super::{Account, CryptoStore, InboundGroupSession, Session, SqliteStore};
 
     fn example_user_id() -> UserId {
-        UserId::try_from("@example:localhost").unwrap()
+        user_id!("@example:localhost")
     }
 
     fn example_device_id() -> &'static DeviceId {
@@ -944,7 +944,7 @@ mod test {
     }
 
     fn alice_id() -> UserId {
-        UserId::try_from("@alice:example.org").unwrap()
+        user_id!("@alice:example.org")
     }
 
     fn alice_device_id() -> Box<DeviceId> {
@@ -952,7 +952,7 @@ mod test {
     }
 
     fn bob_id() -> UserId {
-        UserId::try_from("@bob:example.org").unwrap()
+        user_id!("@bob:example.org")
     }
 
     fn bob_device_id() -> Box<DeviceId> {
@@ -1144,7 +1144,7 @@ mod test {
         let session = InboundGroupSession::new(
             identity_keys.curve25519(),
             identity_keys.ed25519(),
-            &RoomId::try_from("!test:localhost").unwrap(),
+            &room_id!("!test:localhost"),
             GroupSessionKey(outbound_session.session_key()),
         )
         .expect("Can't create session");
@@ -1164,7 +1164,7 @@ mod test {
         let session = InboundGroupSession::new(
             identity_keys.curve25519(),
             identity_keys.ed25519(),
-            &RoomId::try_from("!test:localhost").unwrap(),
+            &room_id!("!test:localhost"),
             GroupSessionKey(outbound_session.session_key()),
         )
         .expect("Can't create session");

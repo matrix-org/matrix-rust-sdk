@@ -155,21 +155,18 @@ mod test {
     use matrix_sdk_test::{async_test, EventBuilder, EventsJson};
 
     use crate::{
-        identifiers::{RoomId, UserId},
+        identifiers::{room_id, user_id, RoomId},
+        js_int::int,
         BaseClient, Session,
     };
-
-    use crate::js_int::int;
 
     #[cfg(target_arch = "wasm32")]
     use wasm_bindgen_test::*;
 
-    use std::convert::TryFrom;
-
     async fn get_client() -> BaseClient {
         let session = Session {
             access_token: "1234".to_owned(),
-            user_id: UserId::try_from("@example:localhost").unwrap(),
+            user_id: user_id!("@example:localhost"),
             device_id: "DEVICEID".into(),
         };
         let client = BaseClient::new().unwrap();
@@ -180,7 +177,7 @@ mod test {
     // TODO: Move this to EventBuilder since it's a magic room ID used in EventBuilder's example
     // events.
     fn test_room_id() -> RoomId {
-        RoomId::try_from("!SVkFJHzfwvuaIEawgC:localhost").unwrap()
+        room_id!("!SVkFJHzfwvuaIEawgC:localhost")
     }
 
     #[async_test]
@@ -201,7 +198,7 @@ mod test {
 
         let member = room
             .joined_members
-            .get(&UserId::try_from("@example:localhost").unwrap())
+            .get(&user_id!("@example:localhost"))
             .unwrap();
         assert_eq!(member.power_level, Some(int!(100)));
     }
@@ -232,7 +229,7 @@ mod test {
 
             let member = room
                 .joined_members
-                .get(&UserId::try_from("@example:localhost").unwrap())
+                .get(&user_id!("@example:localhost"))
                 .unwrap();
 
             assert_eq!(member.display_name.as_ref().unwrap(), "example");
@@ -249,7 +246,7 @@ mod test {
 
             let member = room
                 .joined_members
-                .get(&UserId::try_from("@example:localhost").unwrap())
+                .get(&user_id!("@example:localhost"))
                 .unwrap();
 
             assert_eq!(member.display_name.as_ref().unwrap(), "changed");
@@ -275,7 +272,7 @@ mod test {
 
         let member = room
             .joined_members
-            .get(&UserId::try_from("@example:localhost").unwrap())
+            .get(&user_id!("@example:localhost"))
             .unwrap();
 
         assert_eq!(member.power_level, Some(int!(100)));

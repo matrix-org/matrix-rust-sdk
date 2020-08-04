@@ -250,7 +250,7 @@ pub(crate) mod test {
     use crate::device::{Device, TrustState};
     use matrix_sdk_common::{
         api::r0::keys::{DeviceKeys, KeyAlgorithm},
-        identifiers::UserId,
+        identifiers::user_id,
     };
 
     fn device_keys() -> DeviceKeys {
@@ -285,7 +285,7 @@ pub(crate) mod test {
 
     #[test]
     fn create_a_device() {
-        let user_id = UserId::try_from("@example:localhost").unwrap();
+        let user_id = user_id!("@example:localhost");
         let device_id = "BNYQQWUMXO";
 
         let device = get_device();

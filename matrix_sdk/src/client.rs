@@ -842,7 +842,7 @@ impl Client {
     /// ```no_run
     /// # use std::convert::TryFrom;
     /// use matrix_sdk::{Client, MessagesRequestBuilder};
-    /// # use matrix_sdk::identifiers::RoomId;
+    /// # use matrix_sdk::identifiers::room_id;
     /// # use matrix_sdk::api::r0::filter::RoomEventFilter;
     /// # use matrix_sdk::api::r0::message::get_message_events::Direction;
     /// # use url::Url;
@@ -850,7 +850,7 @@ impl Client {
     ///
     /// # let homeserver = Url::parse("http://example.com").unwrap();
     /// let mut builder = MessagesRequestBuilder::new(
-    ///     RoomId::try_from("!roomid:example.com").unwrap(),
+    ///     room_id!("!roomid:example.com"),
     ///     "t47429-4392820_219380_26003_2265".to_string(),
     /// );
     ///
@@ -972,13 +972,13 @@ impl Client {
     /// # use matrix_sdk::{Client, SyncSettings};
     /// # use url::Url;
     /// # use futures::executor::block_on;
-    /// # use matrix_sdk::identifiers::RoomId;
+    /// # use matrix_sdk::identifiers::room_id;
     /// # use std::convert::TryFrom;
     /// use matrix_sdk::events::room::message::{MessageEventContent, TextMessageEventContent};
     /// # block_on(async {
     /// # let homeserver = Url::parse("http://localhost:8080").unwrap();
     /// # let mut client = Client::new(homeserver).unwrap();
-    /// # let room_id = RoomId::try_from("!test:localhost").unwrap();
+    /// # let room_id = room_id!("!test:localhost");
     /// use matrix_sdk_common::uuid::Uuid;
     ///
     /// let content = MessageEventContent::Text(TextMessageEventContent::plain("Hello world"));
@@ -1077,13 +1077,13 @@ impl Client {
     /// # let homeserver = Url::parse("http://localhost:8080").unwrap();
     /// # let mut client = Client::new(homeserver).unwrap();
     /// use matrix_sdk::api::r0::profile;
-    /// use matrix_sdk::identifiers::UserId;
+    /// use matrix_sdk::identifiers::user_id;
     ///
     /// // First construct the request you want to make
     /// // See https://docs.rs/ruma-client-api/latest/ruma_client_api/index.html
     /// // for all available Endpoints
     /// let request = profile::get_profile::Request {
-    ///     user_id: UserId::try_from("@example:localhost").unwrap(),
+    ///     user_id: user_id!("@example:localhost"),
     /// };
     ///
     /// // Start the request using Client::send()
@@ -1447,7 +1447,7 @@ mod test {
     use crate::events::room::message::TextMessageEventContent;
 
     use crate::{
-        identifiers::{EventId, RoomId, RoomIdOrAliasId, UserId},
+        identifiers::{event_id, room_id, user_id},
         RegistrationBuilder, RoomListFilterBuilder,
     };
 
@@ -1456,22 +1456,17 @@ mod test {
     use mockito::{mock, Matcher};
     use tempfile::tempdir;
 
-    use std::{
-        convert::{TryFrom, TryInto},
-        path::Path,
-        str::FromStr,
-        time::Duration,
-    };
+    use std::{convert::TryInto, path::Path, str::FromStr, time::Duration};
 
     #[tokio::test]
     async fn test_join_leave_room() {
         let homeserver = Url::from_str(&mockito::server_url()).unwrap();
 
-        let room_id = RoomId::try_from("!SVkFJHzfwvuaIEawgC:localhost").unwrap();
+        let room_id = room_id!("!SVkFJHzfwvuaIEawgC:localhost");
 
         let session = Session {
             access_token: "1234".to_owned(),
-            user_id: UserId::try_from("@example:localhost").unwrap(),
+            user_id: user_id!("@example:localhost"),
             device_id: "DEVICEID".into(),
         };
 
@@ -1536,7 +1531,7 @@ mod test {
 
         let session = Session {
             access_token: "1234".to_owned(),
-            user_id: UserId::try_from("@example:example.com").unwrap(),
+            user_id: user_id!("@example:example.com"),
             device_id: "DEVICEID".into(),
         };
 
@@ -1564,7 +1559,7 @@ mod test {
     async fn room_creation() {
         let session = Session {
             access_token: "12345".to_owned(),
-            user_id: UserId::try_from("@example:localhost").unwrap(),
+            user_id: user_id!("@example:localhost"),
             device_id: "DEVICEID".into(),
         };
         let homeserver = url::Url::parse(&mockito::server_url()).unwrap();
@@ -1581,7 +1576,7 @@ mod test {
             .receive_sync_response(&mut response)
             .await
             .unwrap();
-        let room_id = RoomId::try_from("!SVkFJHzfwvuaIEawgC:localhost").unwrap();
+        let room_id = room_id!("!SVkFJHzfwvuaIEawgC:localhost");
 
         assert_eq!(
             client.homeserver(),
@@ -1676,7 +1671,7 @@ mod test {
 
         let session = Session {
             access_token: "1234".to_owned(),
-            user_id: UserId::try_from("@example:localhost").unwrap(),
+            user_id: user_id!("@example:localhost"),
             device_id: "DEVICEID".into(),
         };
 
@@ -1690,7 +1685,7 @@ mod test {
 
         let client = Client::new(homeserver).unwrap();
         client.restore_login(session).await.unwrap();
-        let room_id = RoomId::try_from("!testroom:example.org").unwrap();
+        let room_id = room_id!("!testroom:example.org");
 
         assert_eq!(
             // this is the `join_by_room_id::Response` but since no PartialEq we check the RoomId field
@@ -1705,7 +1700,7 @@ mod test {
 
         let session = Session {
             access_token: "1234".to_owned(),
-            user_id: UserId::try_from("@example:localhost").unwrap(),
+            user_id: user_id!("@example:localhost"),
             device_id: "DEVICEID".into(),
         };
 
@@ -1719,7 +1714,7 @@ mod test {
 
         let client = Client::new(homeserver).unwrap();
         client.restore_login(session).await.unwrap();
-        let room_id = RoomIdOrAliasId::try_from("!testroom:example.org").unwrap();
+        let room_id = room_id!("!testroom:example.org").into();
 
         assert_eq!(
             // this is the `join_by_room_id::Response` but since no PartialEq we check the RoomId field
@@ -1728,7 +1723,7 @@ mod test {
                 .await
                 .unwrap()
                 .room_id,
-            RoomId::try_from("!testroom:example.org").unwrap()
+            room_id!("!testroom:example.org")
         );
     }
 
@@ -1736,8 +1731,8 @@ mod test {
     #[allow(irrefutable_let_patterns)]
     async fn invite_user_by_id() {
         let homeserver = Url::from_str(&mockito::server_url()).unwrap();
-        let user = UserId::try_from("@example:localhost").unwrap();
-        let room_id = RoomId::try_from("!testroom:example.org").unwrap();
+        let user = user_id!("@example:localhost");
+        let room_id = room_id!("!testroom:example.org");
 
         let session = Session {
             access_token: "1234".to_owned(),
@@ -1763,8 +1758,8 @@ mod test {
     #[allow(irrefutable_let_patterns)]
     async fn invite_user_by_3pid() {
         let homeserver = Url::from_str(&mockito::server_url()).unwrap();
-        let user = UserId::try_from("@example:localhost").unwrap();
-        let room_id = RoomId::try_from("!testroom:example.org").unwrap();
+        let user = user_id!("@example:localhost");
+        let room_id = room_id!("!testroom:example.org");
 
         let session = Session {
             access_token: "1234".to_owned(),
@@ -1825,7 +1820,7 @@ mod test {
     #[allow(irrefutable_let_patterns)]
     async fn room_search_filtered() {
         let homeserver = Url::from_str(&mockito::server_url()).unwrap();
-        let user = UserId::try_from("@example:localhost").unwrap();
+        let user = user_id!("@example:localhost");
 
         let session = Session {
             access_token: "1234".to_owned(),
@@ -1864,7 +1859,7 @@ mod test {
 
         let session = Session {
             access_token: "1234".to_owned(),
-            user_id: UserId::try_from("@example:localhost").unwrap(),
+            user_id: user_id!("@example:localhost"),
             device_id: "DEVICEID".into(),
         };
 
@@ -1879,7 +1874,7 @@ mod test {
 
         let client = Client::new(homeserver).unwrap();
         client.restore_login(session).await.unwrap();
-        let room_id = RoomId::try_from("!testroom:example.org").unwrap();
+        let room_id = room_id!("!testroom:example.org");
 
         let response = client.leave_room(&room_id).await.unwrap();
         if let leave_room::Response = response {
@@ -1895,8 +1890,8 @@ mod test {
     #[allow(irrefutable_let_patterns)]
     async fn ban_user() {
         let homeserver = Url::from_str(&mockito::server_url()).unwrap();
-        let user = UserId::try_from("@example:localhost").unwrap();
-        let room_id = RoomId::try_from("!testroom:example.org").unwrap();
+        let user = user_id!("@example:localhost");
+        let room_id = room_id!("!testroom:example.org");
 
         let session = Session {
             access_token: "1234".to_owned(),
@@ -1930,8 +1925,8 @@ mod test {
     #[allow(irrefutable_let_patterns)]
     async fn kick_user() {
         let homeserver = Url::from_str(&mockito::server_url()).unwrap();
-        let user = UserId::try_from("@example:localhost").unwrap();
-        let room_id = RoomId::try_from("!testroom:example.org").unwrap();
+        let user = user_id!("@example:localhost");
+        let room_id = room_id!("!testroom:example.org");
 
         let session = Session {
             access_token: "1234".to_owned(),
@@ -1965,8 +1960,8 @@ mod test {
     #[allow(irrefutable_let_patterns)]
     async fn forget_room() {
         let homeserver = Url::from_str(&mockito::server_url()).unwrap();
-        let user = UserId::try_from("@example:localhost").unwrap();
-        let room_id = RoomId::try_from("!testroom:example.org").unwrap();
+        let user = user_id!("@example:localhost");
+        let room_id = room_id!("!testroom:example.org");
 
         let session = Session {
             access_token: "1234".to_owned(),
@@ -2000,9 +1995,9 @@ mod test {
     #[allow(irrefutable_let_patterns)]
     async fn read_receipt() {
         let homeserver = Url::from_str(&mockito::server_url()).unwrap();
-        let user_id = UserId::try_from("@example:localhost").unwrap();
-        let room_id = RoomId::try_from("!testroom:example.org").unwrap();
-        let event_id = EventId::try_from("$xxxxxx:example.org").unwrap();
+        let user_id = user_id!("@example:localhost");
+        let room_id = room_id!("!testroom:example.org");
+        let event_id = event_id!("$xxxxxx:example.org");
 
         let session = Session {
             access_token: "1234".to_owned(),
@@ -2036,9 +2031,9 @@ mod test {
     #[allow(irrefutable_let_patterns)]
     async fn read_marker() {
         let homeserver = Url::from_str(&mockito::server_url()).unwrap();
-        let user_id = UserId::try_from("@example:localhost").unwrap();
-        let room_id = RoomId::try_from("!testroom:example.org").unwrap();
-        let event_id = EventId::try_from("$xxxxxx:example.org").unwrap();
+        let user_id = user_id!("@example:localhost");
+        let room_id = room_id!("!testroom:example.org");
+        let event_id = event_id!("$xxxxxx:example.org");
 
         let session = Session {
             access_token: "1234".to_owned(),
@@ -2072,8 +2067,8 @@ mod test {
     #[allow(irrefutable_let_patterns)]
     async fn typing_notice() {
         let homeserver = Url::from_str(&mockito::server_url()).unwrap();
-        let user = UserId::try_from("@example:localhost").unwrap();
-        let room_id = RoomId::try_from("!testroom:example.org").unwrap();
+        let user = user_id!("@example:localhost");
+        let room_id = room_id!("!testroom:example.org");
 
         let session = Session {
             access_token: "1234".to_owned(),
@@ -2116,8 +2111,8 @@ mod test {
         use matrix_sdk_common::uuid::Uuid;
 
         let homeserver = Url::from_str(&mockito::server_url()).unwrap();
-        let user = UserId::try_from("@example:localhost").unwrap();
-        let room_id = RoomId::try_from("!testroom:example.org").unwrap();
+        let user = user_id!("@example:localhost");
+        let room_id = room_id!("!testroom:example.org");
 
         let session = Session {
             access_token: "1234".to_owned(),
@@ -2147,10 +2142,7 @@ mod test {
             .await
             .unwrap();
 
-        assert_eq!(
-            EventId::try_from("$h29iv0s8:example.com").unwrap(),
-            response.event_id
-        )
+        assert_eq!(event_id!("$h29iv0s8:example.com"), response.event_id)
     }
 
     #[tokio::test]
@@ -2159,7 +2151,7 @@ mod test {
 
         let session = Session {
             access_token: "1234".to_owned(),
-            user_id: UserId::try_from("@example:localhost").unwrap(),
+            user_id: user_id!("@example:localhost"),
             device_id: "DEVICEID".into(),
         };
 
@@ -2181,7 +2173,7 @@ mod test {
         let rooms_lock = &client.base_client.joined_rooms();
         let rooms = rooms_lock.read().await;
         let room = &rooms
-            .get(&RoomId::try_from("!SVkFJHzfwvuaIEawgC:localhost").unwrap())
+            .get(&room_id!("!SVkFJHzfwvuaIEawgC:localhost"))
             .unwrap()
             .read()
             .await;
@@ -2196,7 +2188,7 @@ mod test {
 
         let session = Session {
             access_token: "1234".to_owned(),
-            user_id: UserId::try_from("@example:localhost").unwrap(),
+            user_id: user_id!("@example:localhost"),
             device_id: "DEVICEID".into(),
         };
 
@@ -2224,11 +2216,9 @@ mod test {
 
     #[tokio::test]
     async fn invited_rooms() {
-        use std::convert::TryFrom;
-
         let session = Session {
             access_token: "12345".to_owned(),
-            user_id: UserId::try_from("@example:localhost").unwrap(),
+            user_id: user_id!("@example:localhost"),
             device_id: "DEVICEID".into(),
         };
 
@@ -2251,18 +2241,16 @@ mod test {
         assert!(!client.invited_rooms().read().await.is_empty());
 
         assert!(client
-            .get_invited_room(&RoomId::try_from("!696r7674:example.com").unwrap())
+            .get_invited_room(&room_id!("!696r7674:example.com"))
             .await
             .is_some());
     }
 
     #[tokio::test]
     async fn left_rooms() {
-        use std::convert::TryFrom;
-
         let session = Session {
             access_token: "12345".to_owned(),
-            user_id: UserId::try_from("@example:localhost").unwrap(),
+            user_id: user_id!("@example:localhost"),
             device_id: "DEVICEID".into(),
         };
 
@@ -2285,7 +2273,7 @@ mod test {
         assert!(client.invited_rooms().read().await.is_empty());
 
         assert!(client
-            .get_left_room(&RoomId::try_from("!SVkFJHzfwvuaIEawgC:localhost").unwrap())
+            .get_left_room(&room_id!("!SVkFJHzfwvuaIEawgC:localhost"))
             .await
             .is_some())
     }
@@ -2296,7 +2284,7 @@ mod test {
 
         let session = Session {
             access_token: "1234".to_owned(),
-            user_id: UserId::try_from("@cheeky_monkey:matrix.org").unwrap(),
+            user_id: user_id!("@cheeky_monkey:matrix.org"),
             device_id: "DEVICEID".into(),
         };
 
@@ -2343,7 +2331,7 @@ mod test {
         // This is commented out because this field is private...
         // assert_eq!(
         //     *base_client.ignored_users.read().await,
-        //     vec![UserId::try_from("@someone:example.org").unwrap()]
+        //     vec![user_id!("@someone:example.org")]
         // );
     }
 
@@ -2393,7 +2381,7 @@ mod test {
 
         let session = Session {
             access_token: "1234".to_owned(),
-            user_id: UserId::try_from("@example:localhost").unwrap(),
+            user_id: user_id!("@example:localhost"),
             device_id: "DEVICEID".into(),
         };
 
@@ -2423,7 +2411,7 @@ mod test {
 
         let session = Session {
             access_token: "1234".to_owned(),
-            user_id: UserId::try_from("@example:localhost").unwrap(),
+            user_id: user_id!("@example:localhost"),
             device_id: "DEVICEID".into(),
         };
 
@@ -2448,7 +2436,7 @@ mod test {
         }
         assert_eq!(vec!["tutorial"], names);
         let room = client
-            .get_joined_room(&RoomId::try_from("!SVkFJHzfwvuaIEawgC:localhost").unwrap())
+            .get_joined_room(&room_id!("!SVkFJHzfwvuaIEawgC:localhost"))
             .await
             .unwrap();
 

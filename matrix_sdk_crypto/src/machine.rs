@@ -1294,13 +1294,13 @@ mod test {
             AnySyncMessageEvent, AnySyncRoomEvent, AnyToDeviceEvent, EventType, SyncMessageEvent,
             ToDeviceEvent, Unsigned,
         },
-        identifiers::{DeviceId, EventId, RoomId, UserId},
+        identifiers::{event_id, room_id, user_id, DeviceId, UserId},
         Raw,
     };
     use matrix_sdk_test::test_json;
 
     fn alice_id() -> UserId {
-        UserId::try_from("@alice:example.org").unwrap()
+        user_id!("@alice:example.org")
     }
 
     fn alice_device_id() -> Box<DeviceId> {
@@ -1536,7 +1536,7 @@ mod test {
     #[tokio::test]
     async fn tests_session_invalidation() {
         let mut machine = OlmMachine::new(&user_id(), &alice_device_id());
-        let room_id = RoomId::try_from("!test:example.org").unwrap();
+        let room_id = room_id!("!test:example.org");
 
         machine
             .create_outbound_group_session(&room_id)
@@ -1632,7 +1632,7 @@ mod test {
     async fn test_keys_query() {
         let (mut machine, _) = get_prepared_machine().await;
         let response = keys_query_response();
-        let alice_id = UserId::try_from("@alice:example.org").unwrap();
+        let alice_id = user_id!("@alice:example.org");
         let alice_device_id: &DeviceId = "JLAFKJWSCS".into();
 
         let alice_devices = machine
@@ -1753,7 +1753,7 @@ mod test {
     async fn test_room_key_sharing() {
         let (mut alice, mut bob) = get_machine_pair_with_session().await;
 
-        let room_id = RoomId::try_from("!test:example.org").unwrap();
+        let room_id = room_id!("!test:example.org");
 
         let to_device_requests = alice
             .share_group_session(&room_id, [bob.user_id.clone()].iter())
@@ -1798,7 +1798,7 @@ mod test {
     #[tokio::test]
     async fn test_megolm_encryption() {
         let (mut alice, mut bob) = get_machine_pair_with_setup_sessions().await;
-        let room_id = RoomId::try_from("!test:example.org").unwrap();
+        let room_id = room_id!("!test:example.org");
 
         let to_device_requests = alice
             .share_group_session(&room_id, [bob.user_id().clone()].iter())
@@ -1819,7 +1819,7 @@ mod test {
         let encrypted_content = alice.encrypt(&room_id, content.clone()).await.unwrap();
 
         let event = SyncMessageEvent {
-            event_id: EventId::try_from("$xxxxx:example.org").unwrap(),
+            event_id: event_id!("$xxxxx:example.org"),
             origin_server_ts: SystemTime::now(),
             sender: alice.user_id().clone(),
             content: encrypted_content,

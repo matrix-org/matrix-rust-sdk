@@ -217,12 +217,12 @@ impl StateStore for JsonStore {
 mod test {
     use super::*;
 
-    use std::{convert::TryFrom, path::PathBuf};
+    use std::path::PathBuf;
 
     use tempfile::tempdir;
 
     use crate::{
-        identifiers::{RoomId, UserId},
+        identifiers::{room_id, user_id},
         push::Ruleset,
         BaseClient, BaseClientConfig, Session,
     };
@@ -234,7 +234,7 @@ mod test {
         let dir = tempdir().unwrap();
         let path: &Path = dir.path();
 
-        let user = UserId::try_from("@example:example.com").unwrap();
+        let user = user_id!("@example:example.com");
 
         let sess = Session {
             access_token: "32nj9zu034btz90".to_string(),
@@ -266,8 +266,8 @@ mod test {
         let path: &Path = dir.path();
         let store = JsonStore::open(path).unwrap();
 
-        let id = RoomId::try_from("!roomid:example.com").unwrap();
-        let user = UserId::try_from("@example:example.com").unwrap();
+        let id = room_id!("!roomid:example.com");
+        let user = user_id!("@example:example.com");
 
         let room = Room::new(&id, &user);
         store
@@ -284,8 +284,8 @@ mod test {
         let path: &Path = dir.path();
         let store = JsonStore::open(path).unwrap();
 
-        let id = RoomId::try_from("!roomid:example.com").unwrap();
-        let user = UserId::try_from("@example:example.com").unwrap();
+        let id = room_id!("!roomid:example.com");
+        let user = user_id!("@example:example.com");
 
         let room = Room::new(&id, &user);
         store
@@ -302,8 +302,8 @@ mod test {
         let path: &Path = dir.path();
         let store = JsonStore::open(path).unwrap();
 
-        let id = RoomId::try_from("!roomid:example.com").unwrap();
-        let user = UserId::try_from("@example:example.com").unwrap();
+        let id = room_id!("!roomid:example.com");
+        let user = user_id!("@example:example.com");
 
         let room = Room::new(&id, &user);
         store
@@ -320,8 +320,8 @@ mod test {
         let path: &Path = dir.path();
         let store = JsonStore::open(path).unwrap();
 
-        let id = RoomId::try_from("!roomid:example.com").unwrap();
-        let user = UserId::try_from("@example:example.com").unwrap();
+        let id = room_id!("!roomid:example.com");
+        let user = user_id!("@example:example.com");
 
         let room = Room::new(&id, &user);
         store
@@ -344,8 +344,8 @@ mod test {
         let path: &Path = dir.path();
         let store = JsonStore::open(path).unwrap();
 
-        let id = RoomId::try_from("!roomid:example.com").unwrap();
-        let user = UserId::try_from("@example:example.com").unwrap();
+        let id = room_id!("!roomid:example.com");
+        let user = user_id!("@example:example.com");
 
         let room = Room::new(&id, &user);
         store
@@ -368,7 +368,7 @@ mod test {
 
         let session = Session {
             access_token: "1234".to_owned(),
-            user_id: UserId::try_from("@cheeky_monkey:matrix.org").unwrap(),
+            user_id: user_id!("@cheeky_monkey:matrix.org"),
             device_id: "DEVICEID".into(),
         };
 
@@ -397,7 +397,7 @@ mod test {
         );
         assert_eq!(
             *client.ignored_users.read().await,
-            vec![UserId::try_from("@someone:example.org").unwrap()]
+            vec![user_id!("@someone:example.org")]
         );
     }
 }

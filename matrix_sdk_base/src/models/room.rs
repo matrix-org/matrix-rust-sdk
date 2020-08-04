@@ -1083,10 +1083,12 @@ mod test {
     #[cfg(not(target_arch = "wasm32"))]
     use crate::{
         events::{room::encryption::EncryptionEventContent, Unsigned},
-        identifiers::EventId,
         Raw,
     };
-    use crate::{identifiers::UserId, BaseClient, Session};
+    use crate::{
+        identifiers::{event_id, room_id, user_id, UserId},
+        BaseClient, Session,
+    };
     use matrix_sdk_test::{async_test, sync_response, EventBuilder, EventsJson, SyncResponseFile};
 
     #[cfg(not(target_arch = "wasm32"))]
@@ -1095,12 +1097,12 @@ mod test {
     #[cfg(target_arch = "wasm32")]
     use wasm_bindgen_test::*;
 
-    use std::{convert::TryFrom, ops::Deref};
+    use std::ops::Deref;
 
     async fn get_client() -> BaseClient {
         let session = Session {
             access_token: "1234".to_owned(),
-            user_id: UserId::try_from("@example:localhost").unwrap(),
+            user_id: user_id!("@example:localhost"),
             device_id: "DEVICEID".into(),
         };
         let client = BaseClient::new().unwrap();
@@ -1109,7 +1111,7 @@ mod test {
     }
 
     fn get_room_id() -> RoomId {
-        RoomId::try_from("!SVkFJHzfwvuaIEawgC:localhost").unwrap()
+        room_id!("!SVkFJHzfwvuaIEawgC:localhost")
     }
 
     #[async_test]
@@ -1123,7 +1125,7 @@ mod test {
         let rooms_lock = &client.joined_rooms();
         let rooms = rooms_lock.read().await;
         let room = &rooms
-            .get(&RoomId::try_from("!SVkFJHzfwvuaIEawgC:localhost").unwrap())
+            .get(&room_id!("!SVkFJHzfwvuaIEawgC:localhost"))
             .unwrap()
             .read()
             .await;
@@ -1154,8 +1156,8 @@ mod test {
     async fn member_is_not_both_invited_and_joined() {
         let client = get_client().await;
         let room_id = get_room_id();
-        let user_id1 = UserId::try_from("@example:localhost").unwrap();
-        let user_id2 = UserId::try_from("@example2:localhost").unwrap();
+        let user_id1 = user_id!("@example:localhost");
+        let user_id2 = user_id!("@example2:localhost");
 
         let member2_invite_event = serde_json::json!({
             "content": {
@@ -1263,9 +1265,9 @@ mod test {
 
         let client = get_client().await;
         let room_id = get_room_id();
-        let user_id1 = UserId::try_from("@example:localhost").unwrap();
-        let user_id2 = UserId::try_from("@example2:localhost").unwrap();
-        let user_id3 = UserId::try_from("@example3:localhost").unwrap();
+        let user_id1 = user_id!("@example:localhost");
+        let user_id2 = user_id!("@example2:localhost");
+        let user_id3 = user_id!("@example3:localhost");
 
         let member2_join_event = serde_json::json!({
             "content": {
@@ -1544,7 +1546,7 @@ mod test {
     async fn room_events() {
         let client = get_client().await;
         let room_id = get_room_id();
-        let user_id = UserId::try_from("@example:localhost").unwrap();
+        let user_id = user_id!("@example:localhost");
 
         let mut response = EventBuilder::default()
             .add_state_event(EventsJson::Member)
@@ -1626,7 +1628,7 @@ mod test {
 
         let session = Session {
             access_token: "1234".to_owned(),
-            user_id: UserId::try_from("@example:localhost").unwrap(),
+            user_id: user_id!("@example:localhost"),
             device_id: "DEVICEID".into(),
         };
         let client = BaseClient::new().unwrap();
@@ -1650,7 +1652,7 @@ mod test {
 
         let session = Session {
             access_token: "1234".to_owned(),
-            user_id: UserId::try_from("@example:localhost").unwrap(),
+            user_id: user_id!("@example:localhost"),
             device_id: "DEVICEID".into(),
         };
         let client = BaseClient::new().unwrap();
@@ -1680,10 +1682,7 @@ mod test {
             ) = &queue.msgs[0]
             {
                 // this is the id from the message event in the sync response
-                assert_eq!(
-                    event.event_id,
-                    EventId::try_from("$152037280074GZeOm:localhost").unwrap()
-                )
+                assert_eq!(event.event_id, event_id!("$152037280074GZeOm:localhost"))
             } else {
                 panic!("message event in message queue should be redacted")
             }
@@ -1696,7 +1695,7 @@ mod test {
         let room_id = get_room_id();
 
         let mut response = sync_response(SyncResponseFile::DefaultWithSummary);
-        let user_id = UserId::try_from("@example:localhost").unwrap();
+        let user_id = user_id!("@example:localhost");
 
         let session = Session {
             access_token: "1234".to_owned(),
@@ -1712,7 +1711,7 @@ mod test {
         content.rotation_period_msgs = Some(100u32.into());
 
         let event = SyncStateEvent {
-            event_id: EventId::try_from("$h29iv0s8:example.com").unwrap(),
+            event_id: event_id!("$h29iv0s8:example.com"),
             origin_server_ts: SystemTime::now(),
             sender: user_id,
             state_key: "".into(),

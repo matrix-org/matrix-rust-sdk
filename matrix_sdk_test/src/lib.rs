@@ -8,7 +8,7 @@ use matrix_sdk_common::{
         presence::PresenceEvent, AnyBasicEvent, AnySyncEphemeralRoomEvent, AnySyncRoomEvent,
         AnySyncStateEvent,
     },
-    identifiers::RoomId,
+    identifiers::{room_id, RoomId},
 };
 use serde_json::Value as JsonValue;
 
@@ -138,10 +138,7 @@ impl EventBuilder {
 
         let event = serde_json::from_value::<AnySyncRoomEvent>(val.clone()).unwrap();
 
-        self.add_joined_event(
-            &RoomId::try_from("!SVkFJHzfwvuaIEawgC:localhost").unwrap(),
-            event,
-        );
+        self.add_joined_event(&room_id!("!SVkFJHzfwvuaIEawgC:localhost"), event);
         self
     }
 
@@ -219,7 +216,7 @@ impl EventBuilder {
     /// Builds a `SyncResponse` containing the events we queued so far. The next response returned
     /// by `build_sync_response` will then be empty if no further events were queued.
     pub fn build_sync_response(&mut self) -> SyncResponse {
-        let main_room_id = RoomId::try_from("!SVkFJHzfwvuaIEawgC:localhost").unwrap();
+        let main_room_id = room_id!("!SVkFJHzfwvuaIEawgC:localhost");
 
         // First time building a sync response, so initialize the `prev_batch` to a default one.
         let prev_batch = self.generate_sync_token();

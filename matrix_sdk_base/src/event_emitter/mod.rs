@@ -481,14 +481,12 @@ mod test {
         }
     }
 
-    use crate::{identifiers::UserId, BaseClient, Session};
-
-    use std::convert::TryFrom;
+    use crate::{identifiers::user_id, BaseClient, Session};
 
     async fn get_client() -> BaseClient {
         let session = Session {
             access_token: "1234".to_owned(),
-            user_id: UserId::try_from("@example:example.com").unwrap(),
+            user_id: user_id!("@example:example.com"),
             device_id: "DEVICEID".into(),
         };
         let client = BaseClient::new().unwrap();

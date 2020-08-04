@@ -25,13 +25,13 @@ pub(crate) mod test {
     use crate::olm::{Account, InboundGroupSession, Session};
     use matrix_sdk_common::{
         api::r0::keys::SignedKey,
-        identifiers::{DeviceId, RoomId, UserId},
+        identifiers::{room_id, user_id, DeviceId, UserId},
     };
     use olm_rs::session::OlmMessage;
-    use std::{collections::BTreeMap, convert::TryFrom};
+    use std::collections::BTreeMap;
 
     fn alice_id() -> UserId {
-        UserId::try_from("@alice:example.org").unwrap()
+        user_id!("@alice:example.org")
     }
 
     fn alice_device_id() -> Box<DeviceId> {
@@ -39,7 +39,7 @@ pub(crate) mod test {
     }
 
     fn bob_id() -> UserId {
-        UserId::try_from("@bob:example.org").unwrap()
+        user_id!("@bob:example.org")
     }
 
     fn bob_device_id() -> Box<DeviceId> {
@@ -177,7 +177,7 @@ pub(crate) mod test {
     #[tokio::test]
     async fn group_session_creation() {
         let alice = Account::new(&alice_id(), &alice_device_id());
-        let room_id = RoomId::try_from("!test:localhost").unwrap();
+        let room_id = room_id!("!test:localhost");
 
         let (outbound, _) = alice.create_group_session_pair(&room_id).await;
 

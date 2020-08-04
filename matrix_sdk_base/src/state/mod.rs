@@ -121,14 +121,14 @@ pub trait StateStore {
 mod test {
     use super::*;
 
-    use std::{collections::HashMap, convert::TryFrom};
+    use std::collections::HashMap;
 
-    use crate::identifiers::RoomId;
+    use crate::identifiers::{room_id, user_id};
 
     #[test]
     fn serialize() {
-        let id = RoomId::try_from("!roomid:example.com").unwrap();
-        let user = UserId::try_from("@example:example.com").unwrap();
+        let id = room_id!("!roomid:example.com");
+        let user = user_id!("@example:example.com");
 
         let room = Room::new(&id, &user);
 
@@ -205,8 +205,8 @@ mod test {
 
     #[test]
     fn deserialize() {
-        let id = RoomId::try_from("!roomid:example.com").unwrap();
-        let user = UserId::try_from("@example:example.com").unwrap();
+        let id = room_id!("!roomid:example.com");
+        let user = user_id!("@example:example.com");
 
         let room = Room::new(&id, &user);
 

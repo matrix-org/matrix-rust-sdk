@@ -126,14 +126,12 @@ impl CryptoStore for MemoryStore {
 
 #[cfg(test)]
 mod test {
-    use std::convert::TryFrom;
-
     use crate::{
         device::test::get_device,
         olm::{test::get_account_and_session, InboundGroupSession},
         store::{memorystore::MemoryStore, CryptoStore},
     };
-    use matrix_sdk_common::identifiers::RoomId;
+    use matrix_sdk_common::identifiers::room_id;
 
     #[tokio::test]
     async fn test_session_store() {
@@ -160,7 +158,7 @@ mod test {
     #[tokio::test]
     async fn test_group_session_store() {
         let (account, _) = get_account_and_session().await;
-        let room_id = RoomId::try_from("!test:localhost").unwrap();
+        let room_id = room_id!("!test:localhost");
 
         let (outbound, _) = account.create_group_session_pair(&room_id).await;
         let inbound = InboundGroupSession::new(

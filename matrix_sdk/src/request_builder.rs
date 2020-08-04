@@ -169,17 +169,17 @@ impl Into<create_room::Request> for RoomBuilder {
 /// # use std::convert::TryFrom;
 /// # use matrix_sdk::{Client, MessagesRequestBuilder};
 /// # use matrix_sdk::api::r0::message::get_message_events::{self, Direction};
-/// # use matrix_sdk::identifiers::RoomId;
+/// # use matrix_sdk::identifiers::room_id;
 /// # use url::Url;
 /// # let homeserver = Url::parse("http://example.com").unwrap();
 /// # let mut rt = tokio::runtime::Runtime::new().unwrap();
 /// # rt.block_on(async {
-/// # let room_id = RoomId::try_from("!test:localhost").unwrap();
+/// # let room_id = room_id!("!test:localhost");
 /// # let last_sync_token = "".to_string();
 /// let mut client = Client::new(homeserver).unwrap();
 ///
 /// let mut builder = MessagesRequestBuilder::new(
-///     RoomId::try_from("!roomid:example.com").unwrap(),
+///     room_id!("!roomid:example.com"),
 ///     "t47429-4392820_219380_26003_2265".to_string(),
 /// );
 ///
@@ -457,14 +457,13 @@ mod test {
     use crate::{
         api::r0::filter::{LazyLoadOptions, RoomEventFilter},
         events::room::power_levels::NotificationPowerLevels,
-        identifiers::RoomId,
+        identifiers::{room_id, user_id},
         js_int::Int,
         Client, Session,
     };
 
     use matrix_sdk_test::test_json;
     use mockito::{mock, Matcher};
-    use std::convert::TryFrom;
     use url::Url;
 
     #[tokio::test]
@@ -478,7 +477,7 @@ mod test {
 
         let session = Session {
             access_token: "1234".to_owned(),
-            user_id: UserId::try_from("@example:localhost").unwrap(),
+            user_id: user_id!("@example:localhost"),
             device_id: "DEVICEID".into(),
         };
 
@@ -526,12 +525,12 @@ mod test {
 
         let session = Session {
             access_token: "1234".to_owned(),
-            user_id: UserId::try_from("@example:localhost").unwrap(),
+            user_id: user_id!("@example:localhost"),
             device_id: "DEVICEID".into(),
         };
 
         let mut builder = MessagesRequestBuilder::new(
-            RoomId::try_from("!roomid:example.com").unwrap(),
+            room_id!("!roomid:example.com"),
             "t47429-4392820_219380_26003_2265".to_string(),
         );
         builder

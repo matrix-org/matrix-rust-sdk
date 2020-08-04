@@ -1868,9 +1868,11 @@ impl BaseClient {
 #[cfg(test)]
 mod test {
     #[cfg(feature = "messages")]
-    use crate::{events::AnySyncRoomEvent, identifiers::EventId, BaseClientConfig, JsonStore, Raw};
     use crate::{
-        identifiers::{RoomId, UserId},
+        events::AnySyncRoomEvent, identifiers::event_id, BaseClientConfig, JsonStore, Raw,
+    };
+    use crate::{
+        identifiers::{room_id, user_id, RoomId},
         BaseClient, Session,
     };
     use matrix_sdk_common_macros::async_trait;
@@ -1886,7 +1888,7 @@ mod test {
     async fn get_client() -> BaseClient {
         let session = Session {
             access_token: "1234".to_owned(),
-            user_id: UserId::try_from("@example:localhost").unwrap(),
+            user_id: user_id!("@example:localhost"),
             device_id: "DEVICEID".into(),
         };
         let client = BaseClient::new().unwrap();
@@ -1895,7 +1897,7 @@ mod test {
     }
 
     fn get_room_id() -> RoomId {
-        RoomId::try_from("!SVkFJHzfwvuaIEawgC:localhost").unwrap()
+        room_id!("!SVkFJHzfwvuaIEawgC:localhost")
     }
 
     fn member_event() -> serde_json::Value {
@@ -1955,7 +1957,7 @@ mod test {
 
     #[async_test]
     async fn test_left_room_creation() {
-        let room_id = RoomId::try_from("!left_room:localhost").unwrap();
+        let room_id = room_id!("!left_room:localhost");
         let mut sync_response = EventBuilder::default()
             .add_custom_left_event(&room_id, member_event())
             .build_sync_response();
@@ -1995,7 +1997,7 @@ mod test {
 
     #[async_test]
     async fn test_invited_room_creation() {
-        let room_id = RoomId::try_from("!invited_room:localhost").unwrap();
+        let room_id = room_id!("!invited_room:localhost");
         let mut sync_response = EventBuilder::default()
             .add_custom_invited_event(&room_id, member_event())
             .build_sync_response();
@@ -2068,7 +2070,7 @@ mod test {
         }
 
         let room_id = get_room_id();
-        let user_id = UserId::try_from("@example:localhost").unwrap();
+        let user_id = user_id!("@example:localhost");
 
         let passed = Arc::new(AtomicBool::default());
         let emitter = EE(Arc::clone(&passed));
@@ -2393,11 +2395,11 @@ mod test {
     async fn message_queue_redaction_event_store_deser() {
         use std::ops::Deref;
 
-        let room_id = RoomId::try_from("!SVkFJHzfwvuaIEawgC:localhost").unwrap();
+        let room_id = room_id!("!SVkFJHzfwvuaIEawgC:localhost");
 
         let session = Session {
             access_token: "1234".to_owned(),
-            user_id: UserId::try_from("@cheeky_monkey:matrix.org").unwrap(),
+            user_id: user_id!("@cheeky_monkey:matrix.org"),
             device_id: "DEVICEID".into(),
         };
 
@@ -2448,10 +2450,7 @@ mod test {
             ) = &queue.msgs[0]
             {
                 // this is the id from the message event in the sync response
-                assert_eq!(
-                    event.event_id,
-                    EventId::try_from("$152037280074GZeOm:localhost").unwrap()
-                )
+                assert_eq!(event.event_id, event_id!("$152037280074GZeOm:localhost"))
             } else {
                 panic!("message event in message queue should be redacted")
             }
@@ -2476,10 +2475,7 @@ mod test {
             ) = &queue.msgs[0]
             {
                 // this is the id from the message event in the sync response
-                assert_eq!(
-                    event.event_id,
-                    EventId::try_from("$152037280074GZeOm:localhost").unwrap()
-                )
+                assert_eq!(event.event_id, event_id!("$152037280074GZeOm:localhost"))
             } else {
                 panic!("[post store sync] message event in message queue should be redacted")
             }
