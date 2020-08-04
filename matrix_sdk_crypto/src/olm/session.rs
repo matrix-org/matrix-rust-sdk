@@ -12,24 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::collections::BTreeMap;
-use std::fmt;
-use std::sync::Arc;
-
-use olm_rs::errors::OlmSessionError;
-use olm_rs::session::OlmSession;
-use olm_rs::PicklingMode;
-
-use serde_json::{json, Value};
-
-pub use olm_rs::{
-    session::{OlmMessage, PreKeyMessage},
-    utility::OlmUtility,
-};
-
-use super::IdentityKeys;
-use crate::error::{EventError, OlmResult};
-use crate::Device;
+use std::{collections::BTreeMap, fmt, sync::Arc};
 
 use matrix_sdk_common::{
     api::r0::keys::KeyAlgorithm,
@@ -40,6 +23,19 @@ use matrix_sdk_common::{
     identifiers::{DeviceId, UserId},
     instant::Instant,
     locks::Mutex,
+};
+use olm_rs::{errors::OlmSessionError, session::OlmSession, PicklingMode};
+use serde_json::{json, Value};
+
+use super::IdentityKeys;
+use crate::{
+    error::{EventError, OlmResult},
+    Device,
+};
+
+pub use olm_rs::{
+    session::{OlmMessage, PreKeyMessage},
+    utility::OlmUtility,
 };
 
 /// Cryptographic session that enables secure communication between two

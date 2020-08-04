@@ -15,7 +15,7 @@
 
 //! User sessions.
 
-use crate::identifiers::{DeviceId, UserId};
+use matrix_sdk_common::identifiers::{DeviceId, UserId};
 
 /// A user session, containing an access token and information about the
 /// associated user account.

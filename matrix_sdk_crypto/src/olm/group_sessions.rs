@@ -12,27 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use matrix_sdk_common::instant::Instant;
-use std::convert::TryInto;
-use std::fmt;
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-use std::sync::Arc;
-
-use matrix_sdk_common::locks::Mutex;
-use serde::Serialize;
-use serde_json::{json, Value};
-use zeroize::Zeroize;
-
-pub use olm_rs::account::IdentityKeys;
-use olm_rs::errors::OlmGroupSessionError;
-use olm_rs::inbound_group_session::OlmInboundGroupSession;
-use olm_rs::outbound_group_session::OlmOutboundGroupSession;
-use olm_rs::PicklingMode;
-
-use crate::error::{EventError, MegolmResult};
-pub use olm_rs::{
-    session::{OlmMessage, PreKeyMessage},
-    utility::OlmUtility,
+use std::{
+    convert::TryInto,
+    fmt,
+    sync::{
+        atomic::{AtomicBool, AtomicUsize, Ordering},
+        Arc,
+    },
 };
 
 use matrix_sdk_common::{
@@ -41,8 +27,25 @@ use matrix_sdk_common::{
         Algorithm, AnySyncRoomEvent, EventType, SyncMessageEvent,
     },
     identifiers::{DeviceId, RoomId},
+    instant::Instant,
+    locks::Mutex,
     Raw,
 };
+use olm_rs::{
+    errors::OlmGroupSessionError, inbound_group_session::OlmInboundGroupSession,
+    outbound_group_session::OlmOutboundGroupSession, PicklingMode,
+};
+use serde::Serialize;
+use serde_json::{json, Value};
+use zeroize::Zeroize;
+
+pub use olm_rs::{
+    account::IdentityKeys,
+    session::{OlmMessage, PreKeyMessage},
+    utility::OlmUtility,
+};
+
+use crate::error::{EventError, MegolmResult};
 
 /// The private session key of a group session.
 /// Can be used to create a new inbound group session.

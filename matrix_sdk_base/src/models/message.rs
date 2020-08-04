@@ -5,10 +5,11 @@
 
 use std::{time::SystemTime, vec::IntoIter};
 
-use matrix_sdk_common::identifiers::{EventId, UserId};
+use matrix_sdk_common::{
+    events::AnyPossiblyRedactedSyncMessageEvent,
+    identifiers::{EventId, UserId},
+};
 use serde::{de, ser, Serialize};
-
-use crate::events::AnyPossiblyRedactedSyncMessageEvent;
 
 /// Exposes some of the field access methods found in the event held by
 /// `AnyPossiblyRedacted*` enums.
@@ -160,8 +161,7 @@ pub(crate) mod ser_deser {
 
 #[cfg(test)]
 mod test {
-    use std::collections::HashMap;
-    use std::convert::TryFrom;
+    use std::{collections::HashMap, convert::TryFrom};
 
     use matrix_sdk_common::{
         events::{AnyPossiblyRedactedSyncMessageEvent, AnySyncMessageEvent},

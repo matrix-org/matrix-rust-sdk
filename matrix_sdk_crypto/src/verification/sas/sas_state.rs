@@ -744,8 +744,10 @@ mod test {
     use std::convert::TryFrom;
 
     use crate::{Account, Device};
-    use matrix_sdk_common::events::{EventContent, ToDeviceEvent};
-    use matrix_sdk_common::identifiers::{DeviceId, UserId};
+    use matrix_sdk_common::{
+        events::{EventContent, ToDeviceEvent},
+        identifiers::{DeviceId, UserId},
+    };
 
     use super::{Accepted, Created, SasState, Started};
 

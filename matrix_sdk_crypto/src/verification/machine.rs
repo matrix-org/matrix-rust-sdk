@@ -160,8 +160,7 @@ impl VerificationMachine {
 #[cfg(test)]
 mod test {
 
-    use std::convert::TryFrom;
-    use std::sync::Arc;
+    use std::{convert::TryFrom, sync::Arc};
 
     use matrix_sdk_common::{
         events::AnyToDeviceEventContent,
@@ -170,8 +169,11 @@ mod test {
     };
 
     use super::{Sas, VerificationMachine};
-    use crate::verification::test::{get_content_from_request, wrap_any_to_device_content};
-    use crate::{store::memorystore::MemoryStore, Account, CryptoStore, Device};
+    use crate::{
+        store::memorystore::MemoryStore,
+        verification::test::{get_content_from_request, wrap_any_to_device_content},
+        Account, CryptoStore, Device,
+    };
 
     fn alice_id() -> UserId {
         UserId::try_from("@alice:example.org").unwrap()

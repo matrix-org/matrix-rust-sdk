@@ -12,27 +12,33 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use matrix_sdk_common::instant::{Duration, Instant};
-use std::collections::{BTreeMap, HashSet};
-use std::convert::TryFrom;
-use std::path::{Path, PathBuf};
-use std::result::Result as StdResult;
-use std::sync::Arc;
-use url::Url;
+use std::{
+    collections::{BTreeMap, HashSet},
+    convert::TryFrom,
+    path::{Path, PathBuf},
+    result::Result as StdResult,
+    sync::Arc,
+};
 
 use async_trait::async_trait;
-use matrix_sdk_common::locks::Mutex;
+use matrix_sdk_common::{
+    api::r0::keys::{AlgorithmAndDeviceId, KeyAlgorithm},
+    events::Algorithm,
+    identifiers::{DeviceId, RoomId, UserId},
+    instant::{Duration, Instant},
+    locks::Mutex,
+};
 use olm_rs::PicklingMode;
 use sqlx::{query, query_as, sqlite::SqliteQueryAs, Connect, Executor, SqliteConnection};
+use url::Url;
 use zeroize::Zeroizing;
 
 use super::{CryptoStore, CryptoStoreError, Result};
-use crate::device::{Device, TrustState};
-use crate::memory_stores::{DeviceStore, GroupSessionStore, SessionStore, UserDevices};
-use crate::{Account, IdentityKeys, InboundGroupSession, Session};
-use matrix_sdk_common::api::r0::keys::{AlgorithmAndDeviceId, KeyAlgorithm};
-use matrix_sdk_common::events::Algorithm;
-use matrix_sdk_common::identifiers::{DeviceId, RoomId, UserId};
+use crate::{
+    device::{Device, TrustState},
+    memory_stores::{DeviceStore, GroupSessionStore, SessionStore, UserDevices},
+    Account, IdentityKeys, InboundGroupSession, Session,
+};
 
 /// SQLite based implementation of a `CryptoStore`.
 pub struct SqliteStore {
@@ -887,10 +893,11 @@ impl std::fmt::Debug for SqliteStore {
 
 #[cfg(test)]
 mod test {
-    use crate::device::test::get_device;
-    use crate::olm::GroupSessionKey;
-    use matrix_sdk_common::api::r0::keys::SignedKey;
-    use matrix_sdk_common::identifiers::{DeviceId, UserId};
+    use crate::{device::test::get_device, olm::GroupSessionKey};
+    use matrix_sdk_common::{
+        api::r0::keys::SignedKey,
+        identifiers::{DeviceId, UserId},
+    };
     use olm_rs::outbound_group_session::OlmOutboundGroupSession;
     use std::collections::BTreeMap;
     use tempfile::tempdir;

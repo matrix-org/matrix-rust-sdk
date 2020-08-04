@@ -12,8 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::convert::TryFrom;
-use std::sync::Arc;
+use std::{convert::TryFrom, sync::Arc};
 
 use http::{Method as HttpMethod, Response as HttpResponse};
 use reqwest::{header::AUTHORIZATION, Client, Response};

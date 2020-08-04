@@ -36,24 +36,23 @@
     unused_qualifications
 )]
 
-pub use matrix_sdk_base::Error as BaseError;
 #[cfg(not(target_arch = "wasm32"))]
 pub use matrix_sdk_base::JsonStore;
-pub use matrix_sdk_base::{CustomOrRawEvent, EventEmitter, Room, Session, SyncRoom};
-#[cfg(feature = "messages")]
-pub use matrix_sdk_base::{MessageQueue, PossiblyRedactedExt};
-pub use matrix_sdk_base::{RoomState, StateStore};
-pub use matrix_sdk_common::*;
-pub use reqwest::header::InvalidHeaderValue;
-
+pub use matrix_sdk_base::{
+    CustomOrRawEvent, Error as BaseError, EventEmitter, Room, RoomState, Session, StateStore,
+    SyncRoom,
+};
 #[cfg(feature = "encryption")]
 pub use matrix_sdk_base::{Device, TrustState};
+#[cfg(feature = "messages")]
+pub use matrix_sdk_base::{MessageQueue, PossiblyRedactedExt};
+pub use matrix_sdk_common::*;
+pub use reqwest::header::InvalidHeaderValue;
 
 mod client;
 mod error;
 mod http_client;
 mod request_builder;
-#[cfg(feature = "encryption")]
 mod sas;
 
 pub use client::{Client, ClientConfig, SyncSettings};

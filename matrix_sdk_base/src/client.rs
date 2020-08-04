@@ -13,58 +13,59 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::collections::HashMap;
 #[cfg(feature = "encryption")]
 use std::collections::{BTreeMap, HashSet};
-use std::fmt;
-use std::path::{Path, PathBuf};
-use std::sync::Arc;
-use zeroize::Zeroizing;
-
-use std::result::Result as StdResult;
-
-use crate::api::r0 as api;
-use crate::error::Result;
-use crate::events::presence::PresenceEvent;
-// `NonRoomEvent` is what it is aliased as
-use crate::event_emitter::CustomOrRawEvent;
-use crate::events::ignored_user_list::IgnoredUserListEvent;
-use crate::events::push_rules::PushRulesEvent;
-use crate::events::room::member::MemberEventContent;
-use crate::identifiers::{RoomId, UserId};
-use crate::models::Room;
-use crate::push::Ruleset;
-use crate::session::Session;
-use crate::state::{AllRooms, ClientState, StateStore};
-use crate::EventEmitter;
-use matrix_sdk_common::events::{
-    AnyBasicEvent, AnyStrippedStateEvent, AnySyncEphemeralRoomEvent, AnySyncMessageEvent,
-    AnySyncRoomEvent, AnySyncStateEvent,
+use std::{
+    collections::HashMap,
+    fmt,
+    ops::Deref,
+    path::{Path, PathBuf},
+    result::Result as StdResult,
+    sync::Arc,
 };
-use matrix_sdk_common::Raw;
 
 #[cfg(feature = "encryption")]
 use matrix_sdk_common::locks::Mutex;
-use matrix_sdk_common::locks::RwLock;
-use std::ops::Deref;
-
-#[cfg(feature = "encryption")]
-use crate::api::r0::keys::{
-    claim_keys::Response as KeysClaimResponse, get_keys::Response as KeysQueryResponse,
-    upload_keys::Response as KeysUploadResponse, DeviceKeys, KeyAlgorithm,
+use matrix_sdk_common::{
+    api::r0 as api,
+    events::{
+        ignored_user_list::IgnoredUserListEvent, push_rules::PushRulesEvent,
+        room::member::MemberEventContent, AnyBasicEvent, AnyStrippedStateEvent,
+        AnySyncEphemeralRoomEvent, AnySyncMessageEvent, AnySyncRoomEvent, AnySyncStateEvent,
+    },
+    identifiers::{RoomId, UserId},
+    locks::RwLock,
+    push::Ruleset,
+    Raw,
 };
 #[cfg(feature = "encryption")]
-use crate::api::r0::to_device::send_event_to_device::Request as ToDeviceRequest;
-#[cfg(feature = "encryption")]
-use crate::events::room::{
-    encrypted::EncryptedEventContent, message::MessageEventContent as MsgEventContent,
+use matrix_sdk_common::{
+    api::r0::keys::{
+        claim_keys::Response as KeysClaimResponse, get_keys::Response as KeysQueryResponse,
+        upload_keys::Response as KeysUploadResponse, DeviceKeys, KeyAlgorithm,
+    },
+    api::r0::to_device::send_event_to_device::Request as ToDeviceRequest,
+    events::room::{
+        encrypted::EncryptedEventContent, message::MessageEventContent as MsgEventContent,
+    },
+    identifiers::DeviceId,
 };
-#[cfg(feature = "encryption")]
-use crate::identifiers::DeviceId;
-#[cfg(not(target_arch = "wasm32"))]
-use crate::JsonStore;
 #[cfg(feature = "encryption")]
 use matrix_sdk_crypto::{CryptoStore, OlmError, OlmMachine, OneTimeKeys, Sas};
+use zeroize::Zeroizing;
+
+#[cfg(not(target_arch = "wasm32"))]
+use crate::JsonStore;
+
+use crate::{
+    error::Result,
+    event_emitter::CustomOrRawEvent,
+    events::presence::PresenceEvent,
+    models::Room,
+    session::Session,
+    state::{AllRooms, ClientState, StateStore},
+    EventEmitter,
+};
 
 pub type Token = String;
 
@@ -1867,10 +1868,12 @@ impl BaseClient {
 
 #[cfg(test)]
 mod test {
-    use crate::identifiers::{RoomId, UserId};
     #[cfg(feature = "messages")]
     use crate::{events::AnySyncRoomEvent, identifiers::EventId, BaseClientConfig, JsonStore, Raw};
-    use crate::{BaseClient, Session};
+    use crate::{
+        identifiers::{RoomId, UserId},
+        BaseClient, Session,
+    };
     use matrix_sdk_common_macros::async_trait;
     use matrix_sdk_test::{async_test, test_json, EventBuilder, EventsJson};
     use serde_json::json;
@@ -2033,11 +2036,13 @@ mod test {
         use super::*;
 
         use crate::{EventEmitter, SyncRoom};
-        use matrix_sdk_common::events::{
-            room::member::{MemberEventContent, MembershipChange},
-            SyncStateEvent,
+        use matrix_sdk_common::{
+            events::{
+                room::member::{MemberEventContent, MembershipChange},
+                SyncStateEvent,
+            },
+            locks::RwLock,
         };
-        use matrix_sdk_common::locks::RwLock;
         use std::sync::{
             atomic::{AtomicBool, Ordering},
             Arc,
@@ -2289,8 +2294,7 @@ mod test {
         use super::*;
 
         use crate::{EventEmitter, SyncRoom};
-        use matrix_sdk_common::api::r0::sync::sync_events;
-        use matrix_sdk_common::locks::RwLock;
+        use matrix_sdk_common::{api::r0::sync::sync_events, locks::RwLock};
         use std::sync::{
             atomic::{AtomicBool, Ordering},
             Arc,

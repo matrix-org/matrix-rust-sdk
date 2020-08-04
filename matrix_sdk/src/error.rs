@@ -14,18 +14,17 @@
 
 //! Error conditions.
 
+use matrix_sdk_base::Error as MatrixError;
+use matrix_sdk_common::{
+    api::{r0::uiaa::UiaaResponse as UiaaError, Error as RumaClientError},
+    FromHttpResponseError as RumaResponseError, IntoHttpError as RumaIntoHttpError,
+};
 use reqwest::Error as ReqwestError;
 use serde_json::Error as JsonError;
 use thiserror::Error;
 
 #[cfg(feature = "encryption")]
 use matrix_sdk_base::CryptoStoreError;
-use matrix_sdk_base::Error as MatrixError;
-
-use crate::api::r0::uiaa::UiaaResponse as UiaaError;
-use crate::api::Error as RumaClientError;
-use crate::FromHttpResponseError as RumaResponseError;
-use crate::IntoHttpError as RumaIntoHttpError;
 
 /// Result type of the rust-sdk.
 pub type Result<T> = std::result::Result<T, Error>;

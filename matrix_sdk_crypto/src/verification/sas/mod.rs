@@ -491,12 +491,13 @@ impl InnerSas {
 
 #[cfg(test)]
 mod test {
-    use std::convert::TryFrom;
-    use std::sync::Arc;
+    use std::{convert::TryFrom, sync::Arc};
 
-    use matrix_sdk_common::events::{EventContent, ToDeviceEvent};
-    use matrix_sdk_common::identifiers::{DeviceId, UserId};
-    use matrix_sdk_common::locks::RwLock;
+    use matrix_sdk_common::{
+        events::{EventContent, ToDeviceEvent},
+        identifiers::{DeviceId, UserId},
+        locks::RwLock,
+    };
 
     use crate::{
         store::memorystore::MemoryStore,

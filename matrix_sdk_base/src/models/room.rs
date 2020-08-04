@@ -13,41 +13,42 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::collections::{BTreeMap, HashMap, HashSet};
-use std::convert::TryFrom;
 #[cfg(feature = "messages")]
 use std::ops::DerefMut;
+use std::{
+    collections::{BTreeMap, HashMap, HashSet},
+    convert::TryFrom,
+};
 
+#[cfg(feature = "messages")]
+use matrix_sdk_common::events::{
+    room::redaction::SyncRedactionEvent, AnyPossiblyRedactedSyncMessageEvent, AnySyncMessageEvent,
+};
+use matrix_sdk_common::{
+    api::r0::sync::sync_events::{RoomSummary, UnreadNotificationsCount},
+    events::{
+        presence::{PresenceEvent, PresenceEventContent},
+        room::{
+            aliases::AliasesEventContent,
+            canonical_alias::CanonicalAliasEventContent,
+            encryption::EncryptionEventContent,
+            member::{MemberEventContent, MembershipChange, MembershipState},
+            name::NameEventContent,
+            power_levels::{NotificationPowerLevels, PowerLevelsEventContent},
+            tombstone::TombstoneEventContent,
+        },
+        Algorithm, AnyStrippedStateEvent, AnySyncRoomEvent, AnySyncStateEvent, EventType,
+        StrippedStateEvent, SyncStateEvent,
+    },
+    identifiers::{RoomAliasId, RoomId, UserId},
+    js_int::{int, uint, Int, UInt},
+};
 use serde::{Deserialize, Serialize};
 use tracing::{debug, error, trace};
 
 #[cfg(feature = "messages")]
 use super::message::MessageQueue;
 use super::RoomMember;
-use crate::api::r0::sync::sync_events::{RoomSummary, UnreadNotificationsCount};
-use crate::events::{
-    presence::{PresenceEvent, PresenceEventContent},
-    room::{
-        aliases::AliasesEventContent,
-        canonical_alias::CanonicalAliasEventContent,
-        encryption::EncryptionEventContent,
-        member::{MemberEventContent, MembershipChange, MembershipState},
-        name::NameEventContent,
-        power_levels::{NotificationPowerLevels, PowerLevelsEventContent},
-        tombstone::TombstoneEventContent,
-    },
-    Algorithm, AnyStrippedStateEvent, AnySyncRoomEvent, AnySyncStateEvent, EventType,
-    StrippedStateEvent, SyncStateEvent,
-};
-
-#[cfg(feature = "messages")]
-use crate::events::{
-    room::redaction::SyncRedactionEvent, AnyPossiblyRedactedSyncMessageEvent, AnySyncMessageEvent,
-};
-
-use crate::identifiers::{RoomAliasId, RoomId, UserId};
-
-use crate::js_int::{int, uint, Int, UInt};
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 /// `RoomName` allows the calculation of a text room name.
@@ -670,8 +671,7 @@ impl Room {
     #[cfg(feature = "messages")]
     #[cfg_attr(docsrs, doc(cfg(feature = "messages")))]
     pub fn handle_redaction(&mut self, redacted_event: &SyncRedactionEvent) -> bool {
-        use crate::identifiers::RoomVersionId;
-        use crate::models::message::PossiblyRedactedExt;
+        use crate::{identifiers::RoomVersionId, models::message::PossiblyRedactedExt};
 
         if let Some(mut msg) = self
             .messages
@@ -1080,9 +1080,11 @@ impl Describe for MembershipChange {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::events::{room::encryption::EncryptionEventContent, Unsigned};
-    use crate::identifiers::{EventId, UserId};
-    use crate::{BaseClient, Raw, Session};
+    use crate::{
+        events::{room::encryption::EncryptionEventContent, Unsigned},
+        identifiers::{EventId, UserId},
+        BaseClient, Raw, Session,
+    };
     use matrix_sdk_test::{async_test, sync_response, EventBuilder, EventsJson, SyncResponseFile};
 
     use std::time::SystemTime;
@@ -1090,8 +1092,7 @@ mod test {
     #[cfg(target_arch = "wasm32")]
     use wasm_bindgen_test::*;
 
-    use std::convert::TryFrom;
-    use std::ops::Deref;
+    use std::{convert::TryFrom, ops::Deref};
 
     async fn get_client() -> BaseClient {
         let session = Session {

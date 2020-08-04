@@ -1,16 +1,15 @@
-use std::collections::HashMap;
-use std::fmt;
-use std::fs;
-use std::path::{Path, PathBuf};
-use std::sync::{
-    atomic::{AtomicBool, Ordering},
-    Arc,
+use std::{
+    collections::HashMap,
+    fmt, fs,
+    path::{Path, PathBuf},
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    },
 };
 
-use matrix_sdk_common::identifiers::RoomId;
-use matrix_sdk_common::locks::RwLock;
-use tokio::fs as async_fs;
-use tokio::io::AsyncWriteExt;
+use matrix_sdk_common::{identifiers::RoomId, locks::RwLock};
+use tokio::{fs as async_fs, io::AsyncWriteExt};
 
 use super::{AllRooms, ClientState, StateStore};
 use crate::{Error, Result, Room, RoomState, Session};
@@ -218,14 +217,15 @@ impl StateStore for JsonStore {
 mod test {
     use super::*;
 
-    use std::convert::TryFrom;
-    use std::path::PathBuf;
+    use std::{convert::TryFrom, path::PathBuf};
 
     use tempfile::tempdir;
 
-    use crate::identifiers::{RoomId, UserId};
-    use crate::push::Ruleset;
-    use crate::{BaseClient, BaseClientConfig, Session};
+    use crate::{
+        identifiers::{RoomId, UserId},
+        push::Ruleset,
+        BaseClient, BaseClientConfig, Session,
+    };
 
     use matrix_sdk_test::{sync_response, SyncResponseFile};
 

@@ -12,36 +12,38 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use matrix_sdk_common::instant::Instant;
-use std::convert::TryFrom;
-use std::convert::TryInto;
-use std::fmt;
-use std::sync::atomic::{AtomicBool, AtomicI64, Ordering};
-use std::sync::Arc;
-
-use matrix_sdk_common::locks::Mutex;
-use serde_json::{json, Value};
-use std::collections::BTreeMap;
-
-pub use olm_rs::account::IdentityKeys;
-use olm_rs::account::{OlmAccount, OneTimeKeys};
-use olm_rs::errors::{OlmAccountError, OlmSessionError};
-use olm_rs::PicklingMode;
-
-use crate::device::Device;
-use crate::error::SessionCreationError;
-pub use olm_rs::{
-    session::{OlmMessage, PreKeyMessage},
-    utility::OlmUtility,
+use std::{
+    collections::BTreeMap,
+    convert::{TryFrom, TryInto},
+    fmt,
+    sync::{
+        atomic::{AtomicBool, AtomicI64, Ordering},
+        Arc,
+    },
 };
 
 use matrix_sdk_common::{
     api::r0::keys::{AlgorithmAndDeviceId, DeviceKeys, KeyAlgorithm, OneTimeKey, SignedKey},
     events::Algorithm,
     identifiers::{DeviceId, RoomId, UserId},
+    instant::Instant,
+    locks::Mutex,
+};
+use olm_rs::{
+    account::{OlmAccount, OneTimeKeys},
+    errors::{OlmAccountError, OlmSessionError},
+    PicklingMode,
+};
+use serde_json::{json, Value};
+
+pub use olm_rs::{
+    account::IdentityKeys,
+    session::{OlmMessage, PreKeyMessage},
+    utility::OlmUtility,
 };
 
 use super::{InboundGroupSession, OutboundGroupSession, Session};
+use crate::{device::Device, error::SessionCreationError};
 
 /// Account holding identity keys for which sessions can be created.
 ///

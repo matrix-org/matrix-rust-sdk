@@ -1,15 +1,15 @@
-use std::collections::HashMap;
-use std::convert::TryFrom;
-use std::panic;
+use std::{collections::HashMap, convert::TryFrom, panic};
 
 use http::Response;
 
-use matrix_sdk_common::api::r0::sync::sync_events::Response as SyncResponse;
-use matrix_sdk_common::events::{
-    presence::PresenceEvent, AnyBasicEvent, AnySyncEphemeralRoomEvent, AnySyncRoomEvent,
-    AnySyncStateEvent,
+use matrix_sdk_common::{
+    api::r0::sync::sync_events::Response as SyncResponse,
+    events::{
+        presence::PresenceEvent, AnyBasicEvent, AnySyncEphemeralRoomEvent, AnySyncRoomEvent,
+        AnySyncStateEvent,
+    },
+    identifiers::RoomId,
 };
-use matrix_sdk_common::identifiers::RoomId;
 use serde_json::Value as JsonValue;
 
 pub use matrix_sdk_test_macros::async_test;

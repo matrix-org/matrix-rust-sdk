@@ -35,7 +35,10 @@
     unused_qualifications
 )]
 
-pub use crate::{error::Error, error::Result, session::Session};
+pub use crate::{
+    error::{Error, Result},
+    session::Session,
+};
 pub use matrix_sdk_common::*;
 
 mod client;

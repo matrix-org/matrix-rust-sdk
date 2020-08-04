@@ -454,10 +454,13 @@ mod test {
     use std::collections::BTreeMap;
 
     use super::*;
-    use crate::api::r0::filter::{LazyLoadOptions, RoomEventFilter};
-    use crate::events::room::power_levels::NotificationPowerLevels;
-    use crate::js_int::Int;
-    use crate::{identifiers::RoomId, Client, Session};
+    use crate::{
+        api::r0::filter::{LazyLoadOptions, RoomEventFilter},
+        events::room::power_levels::NotificationPowerLevels,
+        identifiers::RoomId,
+        js_int::Int,
+        Client, Session,
+    };
 
     use matrix_sdk_test::test_json;
     use mockito::{mock, Matcher};

@@ -1,5 +1,4 @@
-use std::collections::BTreeMap;
-use std::convert::TryInto;
+use std::{collections::BTreeMap, convert::TryInto};
 
 use olm_rs::sas::OlmSas;
 

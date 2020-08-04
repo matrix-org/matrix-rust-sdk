@@ -15,19 +15,23 @@
 
 #[cfg(feature = "encryption")]
 use std::collections::BTreeMap;
-use std::collections::HashMap;
-use std::convert::{TryFrom, TryInto};
-use std::fmt::{self, Debug};
-use std::path::Path;
-use std::result::Result as StdResult;
-use std::sync::Arc;
+use std::{
+    collections::HashMap,
+    convert::{TryFrom, TryInto},
+    fmt::{self, Debug},
+    path::Path,
+    result::Result as StdResult,
+    sync::Arc,
+};
 
-use matrix_sdk_common::identifiers::ServerName;
-use matrix_sdk_common::instant::{Duration, Instant};
-use matrix_sdk_common::js_int::UInt;
-use matrix_sdk_common::locks::RwLock;
-use matrix_sdk_common::presence::PresenceState;
-use matrix_sdk_common::uuid::Uuid;
+use matrix_sdk_common::{
+    identifiers::ServerName,
+    instant::{Duration, Instant},
+    js_int::UInt,
+    locks::RwLock,
+    presence::PresenceState,
+    uuid::Uuid,
+};
 
 use futures_timer::Delay as sleep;
 use std::future::Future;
@@ -38,22 +42,18 @@ use tracing::{error, info, instrument};
 use reqwest::header::{HeaderValue, InvalidHeaderValue};
 use url::Url;
 
-use crate::events::room::message::MessageEventContent;
-use crate::events::EventType;
-use crate::identifiers::{EventId, RoomId, RoomIdOrAliasId, UserId};
-use crate::Endpoint;
+use crate::{
+    events::{room::message::MessageEventContent, EventType},
+    identifiers::{EventId, RoomId, RoomIdOrAliasId, UserId},
+    Endpoint,
+};
 
 #[cfg(feature = "encryption")]
 use crate::identifiers::DeviceId;
 
-#[cfg(feature = "encryption")]
-use crate::Sas;
-
-use crate::api;
-use crate::http_client::HttpClient;
 #[cfg(not(target_arch = "wasm32"))]
 use crate::VERSION;
-use crate::{EventEmitter, Result};
+use crate::{api, http_client::HttpClient, sas::Sas, EventEmitter, Result};
 use matrix_sdk_base::{BaseClient, BaseClientConfig, Room, Session, StateStore};
 
 const DEFAULT_SYNC_TIMEOUT: Duration = Duration::from_secs(30);
@@ -271,27 +271,27 @@ impl SyncSettings {
     }
 }
 
-use api::r0::account::register;
-use api::r0::directory::get_public_rooms;
-use api::r0::directory::get_public_rooms_filtered;
 #[cfg(feature = "encryption")]
 use api::r0::keys::{claim_keys, get_keys, upload_keys, KeyAlgorithm};
-use api::r0::membership::{
-    ban_user, forget_room,
-    invite_user::{self, InvitationRecipient},
-    join_room_by_id, join_room_by_id_or_alias, kick_user, leave_room, Invite3pid,
-};
-use api::r0::message::create_message_event;
-use api::r0::message::get_message_events;
-use api::r0::read_marker::set_read_marker;
-use api::r0::receipt::create_receipt;
-use api::r0::room::create_room;
-use api::r0::session::login;
-use api::r0::sync::sync_events;
 #[cfg(feature = "encryption")]
 use api::r0::to_device::send_event_to_device;
-use api::r0::typing::create_typing_event;
-use api::r0::uiaa::UiaaResponse;
+use api::r0::{
+    account::register,
+    directory::{get_public_rooms, get_public_rooms_filtered},
+    membership::{
+        ban_user, forget_room,
+        invite_user::{self, InvitationRecipient},
+        join_room_by_id, join_room_by_id_or_alias, kick_user, leave_room, Invite3pid,
+    },
+    message::{create_message_event, get_message_events},
+    read_marker::set_read_marker,
+    receipt::create_receipt,
+    room::create_room,
+    session::login,
+    sync::sync_events,
+    typing::create_typing_event,
+    uiaa::UiaaResponse,
+};
 
 impl Client {
     /// Creates a new client for making HTTP requests to the given homeserver.
@@ -315,10 +315,10 @@ impl Client {
         homeserver_url: U,
         config: ClientConfig,
     ) -> Result<Self> {
-        #[allow(clippy::match_wild_err_arm)]
-        let homeserver: Url = match homeserver_url.try_into() {
-            Ok(u) => u,
-            Err(_e) => panic!("Error parsing homeserver url"),
+        let homeserver = if let Ok(u) = homeserver_url.try_into() {
+            u
+        } else {
+            panic!("Error parsing homeserver url")
         };
 
         let http_client = reqwest::Client::builder();
@@ -1473,23 +1473,27 @@ mod test {
         get_public_rooms_filtered::{self, Filter},
         invite_user, kick_user, leave_room,
         register::RegistrationKind,
-        set_read_marker, Invite3pid, MessageEventContent,
+        set_read_marker, Client, ClientConfig, Invite3pid, MessageEventContent, Session,
+        SyncSettings, Url,
     };
-    use super::{Client, ClientConfig, Session, SyncSettings, Url};
     use crate::events::room::message::TextMessageEventContent;
 
-    use crate::identifiers::{EventId, RoomId, RoomIdOrAliasId, UserId};
-    use crate::{RegistrationBuilder, RoomListFilterBuilder};
+    use crate::{
+        identifiers::{EventId, RoomId, RoomIdOrAliasId, UserId},
+        RegistrationBuilder, RoomListFilterBuilder,
+    };
 
     use matrix_sdk_base::JsonStore;
     use matrix_sdk_test::{test_json, EventBuilder, EventsJson};
     use mockito::{mock, Matcher};
     use tempfile::tempdir;
 
-    use std::convert::{TryFrom, TryInto};
-    use std::path::Path;
-    use std::str::FromStr;
-    use std::time::Duration;
+    use std::{
+        convert::{TryFrom, TryInto},
+        path::Path,
+        str::FromStr,
+        time::Duration,
+    };
 
     #[tokio::test]
     async fn test_join_leave_room() {
@@ -2377,6 +2381,26 @@ mod test {
 
     #[tokio::test]
     async fn login() {
+        let homeserver = Url::from_str(&mockito::server_url()).unwrap();
+
+        let _m = mock("POST", "/_matrix/client/r0/login")
+            .with_status(200)
+            .with_body(test_json::LOGIN.to_string())
+            .create();
+
+        let client = Client::new(homeserver).unwrap();
+
+        client
+            .login("example", "wordpass", None, None)
+            .await
+            .unwrap();
+
+        let logged_in = client.logged_in().await;
+        assert!(logged_in, "Clint should be logged in");
+    }
+
+    #[tokio::test]
+    async fn login_with_device() {
         let homeserver = Url::from_str(&mockito::server_url()).unwrap();
 
         let _m = mock("POST", "/_matrix/client/r0/login")
