@@ -1080,13 +1080,16 @@ impl Describe for MembershipChange {
 #[cfg(test)]
 mod test {
     use super::*;
+    #[cfg(not(target_arch = "wasm32"))]
     use crate::{
         events::{room::encryption::EncryptionEventContent, Unsigned},
-        identifiers::{EventId, UserId},
-        BaseClient, Raw, Session,
+        identifiers::EventId,
+        Raw,
     };
+    use crate::{identifiers::UserId, BaseClient, Session};
     use matrix_sdk_test::{async_test, sync_response, EventBuilder, EventsJson, SyncResponseFile};
 
+    #[cfg(not(target_arch = "wasm32"))]
     use std::time::SystemTime;
 
     #[cfg(target_arch = "wasm32")]

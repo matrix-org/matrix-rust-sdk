@@ -1877,6 +1877,7 @@ mod test {
     use matrix_sdk_test::{async_test, test_json, EventBuilder, EventsJson};
     use serde_json::json;
     use std::convert::TryFrom;
+    #[cfg(not(target_arch = "wasm32"))]
     use tempfile::tempdir;
 
     #[cfg(target_arch = "wasm32")]
