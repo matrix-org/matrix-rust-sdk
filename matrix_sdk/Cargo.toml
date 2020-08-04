@@ -55,3 +55,7 @@ tempfile = "3.1.0"
 mockito = "0.26.0"
 lazy_static = "1.4.0"
 futures = "0.3.5"
+
+[[example]]
+name = "emoji_verification"
+required-features = ["encryption"]
