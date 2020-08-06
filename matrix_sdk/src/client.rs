@@ -111,6 +111,7 @@ pub struct ClientConfig {
     pub(crate) disable_ssl_verification: bool,
     pub(crate) base_config: BaseClientConfig,
     pub(crate) timeout: Option<Duration>,
+    pub(crate) client: Option<Arc<dyn HttpClient>>,
 }
 
 // #[cfg_attr(tarpaulin, skip)]
@@ -208,6 +209,15 @@ impl ClientConfig {
     /// Set a timeout duration for all HTTP requests. The default is no timeout.
     pub fn timeout(mut self, timeout: Duration) -> Self {
         self.timeout = Some(timeout);
+        self
+    }
+
+    /// Specify a client to handle sending requests and receiving responses.
+    ///
+    /// Any type that implements the `HttpClient` trait can be used to send/receive
+    /// `http` types.
+    pub fn client(mut self, client: Arc<dyn HttpClient>) -> Self {
+        self.client = Some(client);
         self
     }
 }
@@ -312,33 +322,6 @@ impl Client {
     /// * `homeserver_url` - The homeserver that the client should connect to.
     ///
     /// * `config` - Configuration for the client.
-    pub fn new_with_client<U: TryInto<Url>>(
-        homeserver_url: U,
-        config: ClientConfig,
-        http_client: Arc<dyn HttpClient>,
-    ) -> Result<Self> {
-        #[allow(clippy::match_wild_err_arm)]
-        let homeserver: Url = match homeserver_url.try_into() {
-            Ok(u) => u,
-            Err(_e) => panic!("Error parsing homeserver url"),
-        };
-
-        let base_client = BaseClient::new_with_config(config.base_config)?;
-
-        Ok(Self {
-            homeserver: Arc::new(homeserver),
-            http_client,
-            base_client,
-        })
-    }
-
-    /// Create a new client with the given configuration.
-    ///
-    /// # Arguments
-    ///
-    /// * `homeserver_url` - The homeserver that the client should connect to.
-    ///
-    /// * `config` - Configuration for the client.
     pub fn new_with_config<U: TryInto<Url>>(
         homeserver_url: U,
         config: ClientConfig,
@@ -349,7 +332,11 @@ impl Client {
             panic!("Error parsing homeserver url")
         };
 
-        let http_client = Arc::new(DefaultHttpClient::with_config(&config, homeserver.clone())?);
+        let http_client = if let Some(client) = config.client {
+            client
+        } else {
+            Arc::new(DefaultHttpClient::with_config(&config, homeserver.clone())?)
+        };
 
         let base_client = BaseClient::new_with_config(config.base_config)?;
 
