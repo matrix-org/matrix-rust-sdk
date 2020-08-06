@@ -12,22 +12,24 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::sync::Arc;
+use std::{convert::TryInto, sync::Arc};
 
 use url::Url;
 
 use matrix_sdk_base::{Device, Sas as BaseSas, Session};
-use matrix_sdk_common::locks::RwLock;
+use matrix_sdk_common::{
+    api::r0::to_device::send_event_to_device::Request as ToDeviceRequest, locks::RwLock, Endpoint,
+};
 
 use crate::{error::Result, http_client::HttpClient};
 
 #[allow(dead_code)]
-#[derive(Debug, Clone)]
-/// An object controling the interactive verification flow.
+#[derive(Clone, Debug)]
+/// An object controlling the interactive verification flow.
 pub struct Sas {
     pub(crate) inner: BaseSas,
     pub(crate) homeserver: Arc<Url>,
-    pub(crate) http_client: HttpClient,
+    pub(crate) http_client: Arc<dyn HttpClient>,
     pub(crate) session: Arc<RwLock<Option<Session>>>,
 }
 
@@ -35,7 +37,16 @@ impl Sas {
     /// Accept the interactive verification flow.
     pub async fn accept(&self) -> Result<()> {
         if let Some(request) = self.inner.accept() {
-            self.http_client.send(request, self.session.clone()).await?;
+            let request: http::Request<Vec<u8>> = request.try_into()?;
+            self.http_client
+                .send_request(
+                    ToDeviceRequest::METADATA.requires_authentication,
+                    ToDeviceRequest::METADATA.method,
+                    self.homeserver.as_ref(),
+                    &self.session,
+                    request,
+                )
+                .await?;
         }
         Ok(())
     }
@@ -43,7 +54,16 @@ impl Sas {
     /// Confirm that the short auth strings match on both sides.
     pub async fn confirm(&self) -> Result<()> {
         if let Some(request) = self.inner.confirm().await? {
-            self.http_client.send(request, self.session.clone()).await?;
+            let request: http::Request<Vec<u8>> = request.try_into()?;
+            self.http_client
+                .send_request(
+                    ToDeviceRequest::METADATA.requires_authentication,
+                    ToDeviceRequest::METADATA.method,
+                    self.homeserver.as_ref(),
+                    &self.session,
+                    request,
+                )
+                .await?;
         }
 
         Ok(())
@@ -52,7 +72,16 @@ impl Sas {
     /// Cancel the interactive verification flow.
     pub async fn cancel(&self) -> Result<()> {
         if let Some(request) = self.inner.cancel() {
-            self.http_client.send(request, self.session.clone()).await?;
+            let request: http::Request<Vec<u8>> = request.try_into()?;
+            self.http_client
+                .send_request(
+                    ToDeviceRequest::METADATA.requires_authentication,
+                    ToDeviceRequest::METADATA.method,
+                    self.homeserver.as_ref(),
+                    &self.session,
+                    request,
+                )
+                .await?;
         }
         Ok(())
     }

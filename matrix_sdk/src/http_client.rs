@@ -12,13 +12,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{fmt::Debug, sync::Arc};
-
-use matrix_sdk_common::locks::RwLock;
+use std::fmt::{self, Debug, Formatter};
+use std::sync::Arc;
 
 use http::Method as HttpMethod;
-use reqwest::header::{HeaderValue, AUTHORIZATION};
+use reqwest::{header::HeaderValue, header::AUTHORIZATION, Client, Response};
 use url::Url;
+
+use matrix_sdk_common::locks::RwLock;
 
 use matrix_sdk_base::Session;
 use matrix_sdk_common_macros::async_trait;
@@ -35,33 +36,33 @@ pub trait HttpClient: Sync + Send {
     async fn send_request(
         &self,
         requires_auth: bool,
+        method: HttpMethod,
         homeserver: &Url,
         session: &Arc<RwLock<Option<Session>>>,
-        method: HttpMethod,
         request: http::Request<Vec<u8>>,
-    ) -> Result<reqwest::Response>;
+    ) -> Result<Response>;
 }
 
+impl Debug for dyn HttpClient {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        write!(f, "<dyn HttpClient>")
+    }
+}
 /// Default http client used if none is specified using `Client::with_client`.
 #[derive(Clone, Debug)]
 pub struct DefaultHttpClient {
-    inner: reqwest::Client,
-}
-
-impl Default for DefaultHttpClient {
-    fn default() -> Self {
-        Self::new()
-    }
+    inner: Client,
+    homeserver: Arc<Url>,
 }
 
 impl DefaultHttpClient {
     /// Returns a `DefaultHttpClient` built with the default config.
-    pub fn new() -> Self {
-        Self::with_config(&ClientConfig::default()).unwrap()
+    pub fn new(homeserver: Arc<Url>) -> Self {
+        Self::with_config(&ClientConfig::default(), homeserver).unwrap()
     }
 
     /// Build a client with the specified configuration.
-    pub fn with_config(config: &ClientConfig) -> Result<Self> {
+    pub fn with_config(config: &ClientConfig, homeserver: Arc<Url>) -> Result<Self> {
         let http_client = reqwest::Client::builder();
 
         #[cfg(not(target_arch = "wasm32"))]
@@ -98,6 +99,7 @@ impl DefaultHttpClient {
 
         Ok(Self {
             inner: http_client.build()?,
+            homeserver,
         })
     }
 }
@@ -107,11 +109,11 @@ impl HttpClient for DefaultHttpClient {
     async fn send_request(
         &self,
         requires_auth: bool,
+        method: HttpMethod,
         homeserver: &Url,
         session: &Arc<RwLock<Option<Session>>>,
-        method: http::Method,
         request: http::Request<Vec<u8>>,
-    ) -> Result<reqwest::Response> {
+    ) -> Result<Response> {
         let url = request.uri();
         let path_and_query = url.path_and_query().unwrap();
         let mut url = homeserver.clone();

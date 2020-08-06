@@ -37,7 +37,7 @@ use futures_timer::Delay as sleep;
 use std::future::Future;
 #[cfg(feature = "encryption")]
 use tracing::{debug, warn};
-use tracing::{error, info, instrument};
+use tracing::{error, info, instrument, trace};
 
 use http::Response as HttpResponse;
 use reqwest::header::{HeaderValue, InvalidHeaderValue};
@@ -326,7 +326,7 @@ impl Client {
         let base_client = BaseClient::new_with_config(config.base_config)?;
 
         Ok(Self {
-            homeserver,
+            homeserver: Arc::new(homeserver),
             http_client,
             base_client,
         })
@@ -344,12 +344,12 @@ impl Client {
         config: ClientConfig,
     ) -> Result<Self> {
         let homeserver = if let Ok(u) = homeserver_url.try_into() {
-            u
+            Arc::new(u)
         } else {
             panic!("Error parsing homeserver url")
         };
 
-        let http_client = Arc::new(DefaultHttpClient::with_config(&config)?);
+        let http_client = Arc::new(DefaultHttpClient::with_config(&config, homeserver.clone())?);
 
         let base_client = BaseClient::new_with_config(config.base_config)?;
 
@@ -1110,9 +1110,9 @@ impl Client {
             .http_client
             .send_request(
                 Request::METADATA.requires_authentication,
+                Request::METADATA.method,
                 &self.homeserver,
                 self.base_client.session(),
-                Request::METADATA.method,
                 request,
             )
             .await?;
@@ -1166,9 +1166,9 @@ impl Client {
             .http_client
             .send_request(
                 Request::METADATA.requires_authentication,
+                Request::METADATA.method,
                 &self.homeserver,
                 self.base_client.session(),
-                Request::METADATA.method,
                 request,
             )
             .await?;
