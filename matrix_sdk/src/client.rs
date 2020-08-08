@@ -2391,6 +2391,7 @@ mod test {
         )
         .with_status(200)
         .with_body(test_json::SYNC.to_string())
+        .match_header("authorization", "Bearer 1234")
         .create();
 
         let client = Client::new(homeserver).unwrap();
