@@ -12,9 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{convert::TryFrom, sync::Arc};
+use std::{
+    convert::{TryFrom, TryInto},
+    sync::Arc,
+};
 
-use http::{Method as HttpMethod, Response as HttpResponse};
+use http::{HeaderValue, Method as HttpMethod, Response as HttpResponse};
 use reqwest::{Client, Response};
 use tracing::trace;
 use url::Url;
@@ -32,8 +35,6 @@ pub(crate) struct HttpClient {
 impl HttpClient {
     async fn send_request<Request>(
         &self,
-        requires_auth: bool,
-        method: HttpMethod,
         request: Request,
         session: Arc<RwLock<Option<Session>>>,
     ) -> Result<Response>
@@ -46,9 +47,9 @@ impl HttpClient {
             Error = FromHttpResponseError<<Request as Endpoint>::ResponseError>,
         >,
     {
-        let request = {
+        let mut request = {
             let read_guard;
-            let access_token = if requires_auth {
+            let access_token = if Request::METADATA.requires_authentication {
                 read_guard = session.read().await;
 
                 if let Some(session) = read_guard.as_ref() {
@@ -63,35 +64,14 @@ impl HttpClient {
             request.try_into_http_request(&self.homeserver.to_string(), access_token)?
         };
 
-        let url = &request.uri().to_string();
+        if let HttpMethod::POST | HttpMethod::PUT | HttpMethod::DELETE = *request.method() {
+            request.headers_mut().append(
+                http::header::CONTENT_TYPE,
+                HeaderValue::from_static("application/json"),
+            );
+        }
 
-        let request_builder = match method {
-            HttpMethod::GET => self.inner.get(url),
-            HttpMethod::POST => {
-                let body = request.body().clone();
-                self.inner
-                    .post(url)
-                    .body(body)
-                    .header(reqwest::header::CONTENT_TYPE, "application/json")
-            }
-            HttpMethod::PUT => {
-                let body = request.body().clone();
-                self.inner
-                    .put(url)
-                    .body(body)
-                    .header(reqwest::header::CONTENT_TYPE, "application/json")
-            }
-            HttpMethod::DELETE => {
-                let body = request.body().clone();
-                self.inner
-                    .delete(url)
-                    .body(body)
-                    .header(reqwest::header::CONTENT_TYPE, "application/json")
-            }
-            method => panic!("Unsupported method {}", method),
-        };
-
-        Ok(request_builder.send().await?)
+        Ok(self.inner.execute(request.try_into()?).await?)
     }
 
     async fn response_to_http_response(
@@ -126,14 +106,7 @@ impl HttpClient {
         >,
         Error: From<FromHttpResponseError<<Request as Endpoint>::ResponseError>>,
     {
-        let response = self
-            .send_request(
-                Request::METADATA.requires_authentication,
-                Request::METADATA.method,
-                request,
-                session,
-            )
-            .await?;
+        let response = self.send_request(request, session).await?;
 
         trace!("Got response: {:?}", response);
 
