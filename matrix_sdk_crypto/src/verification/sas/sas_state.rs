@@ -57,7 +57,7 @@ const STRINGS: &[ShortAuthenticationString] = &[
 const MAX_AGE: Duration = Duration::from_secs(60 * 5);
 
 // The max time a SAS object will wait for a new event to arrive.
-const MAX_EVENT_TIMEOUT: Duration = Duration::from_secs(60 * 1);
+const MAX_EVENT_TIMEOUT: Duration = Duration::from_secs(60);
 
 /// Struct containing the protocols that were agreed to be used for the SAS
 /// flow.
@@ -244,6 +244,8 @@ impl<S: Clone> SasState<S> {
             Err(CancelCode::UnknownTransaction)
         } else if sender != self.ids.other_device.user_id() {
             Err(CancelCode::UserMismatch)
+        } else if self.timed_out() {
+            Err(CancelCode::Timeout)
         } else {
             Ok(())
         }
