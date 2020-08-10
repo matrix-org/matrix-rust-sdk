@@ -307,11 +307,7 @@ mod test {
         assert!(!alice.timed_out());
         assert!(alice_machine.outgoing_to_device_messages.is_empty());
 
-        alice.set_creation_time(
-            Instant::now()
-                .checked_sub(Duration::from_secs(60 * 15))
-                .unwrap(),
-        );
+        alice.set_creation_time(Instant::now() - Duration::from_secs(60 * 15));
         assert!(alice.timed_out());
         assert!(alice_machine.outgoing_to_device_messages.is_empty());
         alice_machine.garbage_collect();
