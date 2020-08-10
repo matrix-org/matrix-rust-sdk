@@ -17,7 +17,7 @@ use crate::{Error, Result, Room, RoomState, Session};
 /// A default `StateStore` implementation that serializes state as json
 /// and saves it to disk.
 ///
-/// When logged in the `JsonStore` appends the user_id to it's folder path,
+/// When logged in the `JsonStore` appends the user_id to its folder path,
 /// so all files are saved in `my_client/user_id_localpart/*`.
 pub struct JsonStore {
     path: Arc<RwLock<PathBuf>>,

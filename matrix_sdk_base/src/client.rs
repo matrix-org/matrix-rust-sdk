@@ -177,7 +177,7 @@ pub enum RoomState<R> {
 /// A no IO Client implementation.
 ///
 /// This Client is a state machine that receives responses and events and
-/// accordingly updates it's state.
+/// accordingly updates its state.
 #[derive(Clone)]
 pub struct BaseClient {
     /// The current client session containing our user id, device id and access

@@ -966,7 +966,7 @@ impl Client {
     /// * `content` - The content of the message event.
     ///
     /// * `txn_id` - A unique `Uuid` that can be attached to a `MessageEvent` held
-    /// in it's unsigned field as `transaction_id`. If not given one is created for the
+    /// in its unsigned field as `transaction_id`. If not given one is created for the
     /// message.
     ///
     /// # Example
@@ -2357,7 +2357,7 @@ mod test {
             .unwrap();
 
         let logged_in = client.logged_in().await;
-        assert!(logged_in, "Clint should be logged in");
+        assert!(logged_in, "Client should be logged in");
     }
 
     #[tokio::test]
@@ -2377,7 +2377,7 @@ mod test {
             .unwrap();
 
         let logged_in = client.logged_in().await;
-        assert!(logged_in, "Clint should be logged in");
+        assert!(logged_in, "Client should be logged in");
     }
 
     #[tokio::test]
