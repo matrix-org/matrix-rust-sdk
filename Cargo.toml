@@ -10,5 +10,5 @@ members = [
 ]
 
 [patch.crates-io]
-olm-rs = { git = 'https://gitlab.gnome.org/poljar/olm-rs/', branch='pk-sas'}
+olm-rs = { git = 'https://gitlab.gnome.org/jhaye/olm-rs/'}
 olm-sys = { git = 'https://gitlab.gnome.org/BrainBlasted/olm-sys' }
