@@ -235,7 +235,7 @@ impl<S: Clone> SasState<S> {
     }
 
     /// Did our SAS verification time out.
-    fn timed_out(&self) -> bool {
+    pub fn timed_out(&self) -> bool {
         self.creation_time.elapsed() > MAX_AGE || self.last_event_time.elapsed() > MAX_EVENT_TIMEOUT
     }
 

@@ -32,6 +32,7 @@ use matrix_sdk_common::{
 };
 
 use crate::{Account, CryptoStore, CryptoStoreError, Device, TrustState};
+
 pub use helpers::content_to_request;
 use sas_state::{
     Accepted, Canceled, Confirmed, Created, Done, KeyReceived, MacReceived, SasState, Started,
@@ -237,10 +238,29 @@ impl Sas {
     pub fn cancel(&self) -> Option<OwnedToDeviceRequest> {
         let mut guard = self.inner.lock().unwrap();
         let sas: InnerSas = (*guard).clone();
-        let (sas, content) = sas.cancel();
+        let (sas, content) = sas.cancel(CancelCode::User);
         *guard = sas;
 
         content.map(|c| self.content_to_request(c))
+    }
+
+    pub(crate) fn cancel_if_timed_out(&self) -> Option<OwnedToDeviceRequest> {
+        if self.is_canceled() || self.is_done() {
+            None
+        } else if self.timed_out() {
+            let mut guard = self.inner.lock().unwrap();
+            let sas: InnerSas = (*guard).clone();
+            let (sas, content) = sas.cancel(CancelCode::Timeout);
+            *guard = sas;
+            content.map(|c| self.content_to_request(c))
+        } else {
+            None
+        }
+    }
+
+    /// Has the SAS verification flow timed out.
+    pub fn timed_out(&self) -> bool {
+        self.inner.lock().unwrap().is_timed_out()
     }
 
     /// Are we in a state where we can show the short auth string.
@@ -337,13 +357,13 @@ impl InnerSas {
         }
     }
 
-    fn cancel(self) -> (InnerSas, Option<AnyToDeviceEventContent>) {
+    fn cancel(self, code: CancelCode) -> (InnerSas, Option<AnyToDeviceEventContent>) {
         let sas = match self {
-            InnerSas::Created(s) => s.cancel(CancelCode::User),
-            InnerSas::Started(s) => s.cancel(CancelCode::User),
-            InnerSas::Accepted(s) => s.cancel(CancelCode::User),
-            InnerSas::KeyRecieved(s) => s.cancel(CancelCode::User),
-            InnerSas::MacReceived(s) => s.cancel(CancelCode::User),
+            InnerSas::Created(s) => s.cancel(code),
+            InnerSas::Started(s) => s.cancel(code),
+            InnerSas::Accepted(s) => s.cancel(code),
+            InnerSas::KeyRecieved(s) => s.cancel(code),
+            InnerSas::MacReceived(s) => s.cancel(code),
             _ => return (self, None),
         };
 
@@ -450,6 +470,19 @@ impl InnerSas {
 
     fn is_canceled(&self) -> bool {
         matches!(self, InnerSas::Canceled(_))
+    }
+
+    fn is_timed_out(&self) -> bool {
+        match self {
+            InnerSas::Created(s) => s.timed_out(),
+            InnerSas::Started(s) => s.timed_out(),
+            InnerSas::Canceled(s) => s.timed_out(),
+            InnerSas::Accepted(s) => s.timed_out(),
+            InnerSas::KeyRecieved(s) => s.timed_out(),
+            InnerSas::Confirmed(s) => s.timed_out(),
+            InnerSas::MacReceived(s) => s.timed_out(),
+            InnerSas::Done(s) => s.timed_out(),
+        }
     }
 
     fn verification_flow_id(&self) -> Arc<String> {

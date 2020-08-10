@@ -88,6 +88,12 @@ impl VerificationMachine {
     pub fn garbage_collect(&self) {
         self.verifications
             .retain(|_, s| !(s.is_canceled() || s.is_done()));
+
+        for sas in self.verifications.iter() {
+            if let Some(r) = sas.cancel_if_timed_out() {
+                self.outgoing_to_device_messages.insert(r.txn_id.clone(), r);
+            }
+        }
     }
 
     pub async fn receive_event(
