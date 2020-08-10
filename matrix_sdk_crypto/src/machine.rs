@@ -213,7 +213,7 @@ impl OlmMachine {
     }
 
     /// Update the count of one-time keys that are currently on the server.
-    fn update_key_count(&mut self, count: u64) {
+    fn update_key_count(&self, count: u64) {
         self.account.update_uploaded_key_count(count);
     }
 
@@ -225,7 +225,7 @@ impl OlmMachine {
     /// performed.
     #[instrument]
     pub async fn receive_keys_upload_response(
-        &mut self,
+        &self,
         response: &keys::upload_keys::Response,
     ) -> OlmResult<()> {
         if !self.account.shared() {
@@ -275,7 +275,7 @@ impl OlmMachine {
     /// `users` - The list of users that we should check if we lack a session
     /// with one of their devices.
     pub async fn get_missing_sessions(
-        &mut self,
+        &self,
         users: impl Iterator<Item = &UserId>,
     ) -> OlmResult<BTreeMap<UserId, BTreeMap<Box<DeviceId>, KeyAlgorithm>>> {
         let mut missing = BTreeMap::new();
@@ -320,7 +320,7 @@ impl OlmMachine {
     ///
     /// * `response` - The response containing the claimed one-time keys.
     pub async fn receive_keys_claim_response(
-        &mut self,
+        &self,
         response: &keys::claim_keys::Response,
     ) -> OlmResult<()> {
         // TODO log the failures here
@@ -377,7 +377,7 @@ impl OlmMachine {
     }
 
     async fn handle_devices_from_key_query(
-        &mut self,
+        &self,
         device_keys_map: &BTreeMap<UserId, BTreeMap<Box<DeviceId>, DeviceKeys>>,
     ) -> StoreResult<Vec<Device>> {
         let mut changed_devices = Vec::new();
@@ -471,7 +471,7 @@ impl OlmMachine {
     /// * `response` - The keys query response of the request that the client
     /// performed.
     pub async fn receive_keys_query_response(
-        &mut self,
+        &self,
         response: &keys::get_keys::Response,
     ) -> OlmResult<Vec<Device>> {
         let changed_devices = self
@@ -500,7 +500,7 @@ impl OlmMachine {
     /// This try to decrypt an Olm message using all the sessions we share
     /// have with the given sender.
     async fn try_decrypt_olm_message(
-        &mut self,
+        &self,
         sender: &UserId,
         sender_key: &str,
         message: &OlmMessage,
@@ -562,7 +562,7 @@ impl OlmMachine {
     }
 
     async fn decrypt_olm_message(
-        &mut self,
+        &self,
         sender: &UserId,
         sender_key: &str,
         message: OlmMessage,
@@ -698,7 +698,7 @@ impl OlmMachine {
     ///
     /// * `event` - The to-device event that should be decrypted.
     async fn decrypt_to_device_event(
-        &mut self,
+        &self,
         event: &ToDeviceEvent<EncryptedEventContent>,
     ) -> OlmResult<Raw<AnyToDeviceEvent>> {
         info!("Decrypting to-device event");
@@ -760,7 +760,7 @@ impl OlmMachine {
 
     /// Create a group session from a room key and add it to our crypto store.
     async fn add_room_key(
-        &mut self,
+        &self,
         sender_key: &str,
         signing_key: &str,
         event: &mut ToDeviceEvent<RoomKeyEventContent>,
@@ -867,7 +867,7 @@ impl OlmMachine {
     ///
     /// * `content` - The content of the event that should be encrypted.
     async fn olm_encrypt(
-        &mut self,
+        &self,
         recipient_device: &Device,
         event_type: EventType,
         content: Value,
@@ -1038,7 +1038,7 @@ impl OlmMachine {
     ///
     /// * `event` - The decrypted to-device event.
     async fn handle_decrypted_to_device_event(
-        &mut self,
+        &self,
         sender_key: &str,
         signing_key: &str,
         event: &Raw<AnyToDeviceEvent>,
@@ -1101,7 +1101,7 @@ impl OlmMachine {
     ///
     /// * `response` - The sync latest sync response.
     #[instrument(skip(response))]
-    pub async fn receive_sync_response(&mut self, response: &mut SyncResponse) {
+    pub async fn receive_sync_response(&self, response: &mut SyncResponse) {
         self.verification_machine.garbage_collect();
 
         let one_time_key_count = response
@@ -1167,7 +1167,7 @@ impl OlmMachine {
     ///
     /// * `room_id` - The ID of the room where the event was sent to.
     pub async fn decrypt_room_event(
-        &mut self,
+        &self,
         event: &SyncMessageEvent<EncryptedEventContent>,
         room_id: &RoomId,
     ) -> MegolmResult<Raw<AnySyncRoomEvent>> {
@@ -1204,7 +1204,7 @@ impl OlmMachine {
     /// key query.
     ///
     /// Returns true if the user was queued up for a key query, false otherwise.
-    pub async fn mark_user_as_changed(&mut self, user_id: &UserId) -> StoreResult<bool> {
+    pub async fn mark_user_as_changed(&self, user_id: &UserId) -> StoreResult<bool> {
         if self.store.read().await.tracked_users().contains(user_id) {
             self.store
                 .write()
@@ -1231,7 +1231,7 @@ impl OlmMachine {
     /// considered for a key query.
     ///
     /// Use the `mark_user_as_changed()` if the user really needs a key query.
-    pub async fn update_tracked_users<'a, I>(&mut self, users: I)
+    pub async fn update_tracked_users<'a, I>(&self, users: I)
     where
         I: IntoIterator<Item = &'a UserId>,
     {

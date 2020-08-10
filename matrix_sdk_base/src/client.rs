@@ -721,9 +721,9 @@ impl BaseClient {
                     ref mut encrypted_event,
                 )) = e
                 {
-                    let mut olm = self.olm.lock().await;
+                    let olm = self.olm.lock().await;
 
-                    if let Some(o) = &mut *olm {
+                    if let Some(o) = &*olm {
                         if let Ok(decrypted) = o.decrypt_room_event(&encrypted_event, room_id).await
                         {
                             if let Ok(d) = decrypted.deserialize() {
@@ -937,9 +937,9 @@ impl BaseClient {
 
         #[cfg(feature = "encryption")]
         {
-            let mut olm = self.olm.lock().await;
+            let olm = self.olm.lock().await;
 
-            if let Some(o) = &mut *olm {
+            if let Some(o) = &*olm {
                 // Let the crypto machine handle the sync response, this
                 // decryptes to-device events, but leaves room events alone.
                 // This makes sure that we have the deryption keys for the room
@@ -1033,9 +1033,9 @@ impl BaseClient {
 
             #[cfg(feature = "encryption")]
             {
-                let mut olm = self.olm.lock().await;
+                let olm = self.olm.lock().await;
 
-                if let Some(o) = &mut *olm {
+                if let Some(o) = &*olm {
                     let room = matrix_room.read().await;
 
                     // If the room is encrypted, update the tracked users.
@@ -1275,9 +1275,9 @@ impl BaseClient {
         &self,
         users: impl Iterator<Item = &UserId>,
     ) -> Result<BTreeMap<UserId, BTreeMap<Box<DeviceId>, KeyAlgorithm>>> {
-        let mut olm = self.olm.lock().await;
+        let olm = self.olm.lock().await;
 
-        match &mut *olm {
+        match &*olm {
             Some(o) => Ok(o.get_missing_sessions(users).await?),
             None => Ok(BTreeMap::new()),
         }
@@ -1313,9 +1313,9 @@ impl BaseClient {
         room_id: &RoomId,
         content: MsgEventContent,
     ) -> Result<EncryptedEventContent> {
-        let mut olm = self.olm.lock().await;
+        let olm = self.olm.lock().await;
 
-        match &mut *olm {
+        match &*olm {
             Some(o) => Ok(o.encrypt(room_id, content).await?),
             None => panic!("Olm machine wasn't started"),
         }
@@ -1363,9 +1363,9 @@ impl BaseClient {
     #[cfg(feature = "encryption")]
     #[cfg_attr(docsrs, doc(cfg(feature = "encryption")))]
     pub async fn receive_keys_upload_response(&self, response: &KeysUploadResponse) -> Result<()> {
-        let mut olm = self.olm.lock().await;
+        let olm = self.olm.lock().await;
 
-        let o = olm.as_mut().expect("Client isn't logged in.");
+        let o = olm.as_ref().expect("Client isn't logged in.");
         o.receive_keys_upload_response(response).await?;
         Ok(())
     }
@@ -1382,9 +1382,9 @@ impl BaseClient {
     #[cfg(feature = "encryption")]
     #[cfg_attr(docsrs, doc(cfg(feature = "encryption")))]
     pub async fn receive_keys_claim_response(&self, response: &KeysClaimResponse) -> Result<()> {
-        let mut olm = self.olm.lock().await;
+        let olm = self.olm.lock().await;
 
-        let o = olm.as_mut().expect("Client isn't logged in.");
+        let o = olm.as_ref().expect("Client isn't logged in.");
         o.receive_keys_claim_response(response).await?;
         Ok(())
     }
@@ -1401,9 +1401,9 @@ impl BaseClient {
     #[cfg(feature = "encryption")]
     #[cfg_attr(docsrs, doc(cfg(feature = "encryption")))]
     pub async fn receive_keys_query_response(&self, response: &KeysQueryResponse) -> Result<()> {
-        let mut olm = self.olm.lock().await;
+        let olm = self.olm.lock().await;
 
-        let o = olm.as_mut().expect("Client isn't logged in.");
+        let o = olm.as_ref().expect("Client isn't logged in.");
         o.receive_keys_query_response(response).await?;
         // TODO notify our callers of new devices via some callback.
         Ok(())
