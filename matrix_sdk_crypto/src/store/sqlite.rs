@@ -22,9 +22,8 @@ use std::{
 
 use async_trait::async_trait;
 use matrix_sdk_common::{
-    api::r0::keys::{AlgorithmAndDeviceId, KeyAlgorithm},
     events::Algorithm,
-    identifiers::{DeviceId, RoomId, UserId},
+    identifiers::{DeviceId, DeviceKeyAlgorithm, DeviceKeyId, RoomId, UserId},
     instant::{Duration, Instant},
     locks::Mutex,
 };
@@ -497,14 +496,14 @@ impl SqliteStore {
                     .fetch_all(&mut *connection)
                     .await?;
 
-            let keys: BTreeMap<AlgorithmAndDeviceId, String> = key_rows
+            let keys: BTreeMap<DeviceKeyId, String> = key_rows
                 .into_iter()
                 .filter_map(|row| {
-                    let algorithm = KeyAlgorithm::try_from(&*row.0).ok()?;
+                    let algorithm = row.0.parse::<DeviceKeyAlgorithm>().ok()?;
                     let key = row.1;
 
                     Some((
-                        AlgorithmAndDeviceId(algorithm, device_id.as_str().into()),
+                        DeviceKeyId::from_parts(algorithm, device_id.as_str().into()),
                         key,
                     ))
                 })
@@ -518,8 +517,7 @@ impl SqliteStore {
             .fetch_all(&mut *connection)
             .await?;
 
-            let mut signatures: BTreeMap<UserId, BTreeMap<AlgorithmAndDeviceId, String>> =
-                BTreeMap::new();
+            let mut signatures: BTreeMap<UserId, BTreeMap<DeviceKeyId, String>> = BTreeMap::new();
 
             for row in signature_rows {
                 let user_id = if let Ok(u) = UserId::try_from(&*row.0) {
@@ -528,7 +526,7 @@ impl SqliteStore {
                     continue;
                 };
 
-                let key_algorithm = if let Ok(k) = KeyAlgorithm::try_from(&*row.1) {
+                let key_algorithm = if let Ok(k) = row.1.parse::<DeviceKeyAlgorithm>() {
                     k
                 } else {
                     continue;
@@ -542,7 +540,7 @@ impl SqliteStore {
                 let user_map = signatures.get_mut(&user_id).unwrap();
 
                 user_map.insert(
-                    AlgorithmAndDeviceId(key_algorithm, device_id.as_str().into()),
+                    DeviceKeyId::from_parts(key_algorithm, device_id.as_str().into()),
                     signature.to_owned(),
                 );
             }
@@ -610,7 +608,7 @@ impl SqliteStore {
             .await?;
         }
 
-        for (key_algorithm, key) in device.keys() {
+        for (key_id, key) in device.keys() {
             query(
                 "INSERT OR IGNORE INTO device_keys (
                     device_id, algorithm, key
@@ -618,7 +616,7 @@ impl SqliteStore {
                  ",
             )
             .bind(device_row_id)
-            .bind(key_algorithm.0.to_string())
+            .bind(key_id.algorithm().to_string())
             .bind(key)
             .execute(&mut *connection)
             .await?;
@@ -634,7 +632,7 @@ impl SqliteStore {
                 )
                 .bind(device_row_id)
                 .bind(user_id.as_str())
-                .bind(key_id.0.to_string())
+                .bind(key_id.algorithm().to_string())
                 .bind(signature)
                 .execute(&mut *connection)
                 .await?;

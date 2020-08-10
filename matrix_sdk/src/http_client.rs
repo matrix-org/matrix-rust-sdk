@@ -22,7 +22,7 @@ use reqwest::{Client, Response};
 use tracing::trace;
 use url::Url;
 
-use matrix_sdk_common::{locks::RwLock, FromHttpRequestError, FromHttpResponseError, Outgoing};
+use matrix_sdk_common::{locks::RwLock, FromHttpResponseError};
 
 use crate::{Endpoint, Error, Result, Session};
 
@@ -33,20 +33,11 @@ pub(crate) struct HttpClient {
 }
 
 impl HttpClient {
-    async fn send_request<Request>(
+    async fn send_request<Request: Endpoint>(
         &self,
         request: Request,
         session: Arc<RwLock<Option<Session>>>,
-    ) -> Result<Response>
-    where
-        Request: Endpoint,
-        <Request as Outgoing>::Incoming:
-            TryFrom<http::Request<Vec<u8>>, Error = FromHttpRequestError>,
-        <Request::Response as Outgoing>::Incoming: TryFrom<
-            http::Response<Vec<u8>>,
-            Error = FromHttpResponseError<<Request as Endpoint>::ResponseError>,
-        >,
-    {
+    ) -> Result<Response> {
         let mut request = {
             let read_guard;
             let access_token = if Request::METADATA.requires_authentication {
@@ -95,16 +86,10 @@ impl HttpClient {
         &self,
         request: Request,
         session: Arc<RwLock<Option<Session>>>,
-    ) -> Result<<Request::Response as Outgoing>::Incoming>
+    ) -> Result<Request::IncomingResponse>
     where
         Request: Endpoint,
-        <Request as Outgoing>::Incoming:
-            TryFrom<http::Request<Vec<u8>>, Error = FromHttpRequestError>,
-        <Request::Response as Outgoing>::Incoming: TryFrom<
-            http::Response<Vec<u8>>,
-            Error = FromHttpResponseError<<Request as Endpoint>::ResponseError>,
-        >,
-        Error: From<FromHttpResponseError<<Request as Endpoint>::ResponseError>>,
+        Error: From<FromHttpResponseError<Request::ResponseError>>,
     {
         let response = self.send_request(request, session).await?;
 
@@ -112,8 +97,6 @@ impl HttpClient {
 
         let response = self.response_to_http_response(response).await?;
 
-        Ok(<Request::Response as Outgoing>::Incoming::try_from(
-            response,
-        )?)
+        Ok(Request::IncomingResponse::try_from(response)?)
     }
 }

@@ -23,9 +23,9 @@ use std::{
 
 use atomic::Atomic;
 use matrix_sdk_common::{
-    api::r0::keys::{AlgorithmAndDeviceId, DeviceKeys, KeyAlgorithm, SignedKey},
+    api::r0::keys::{DeviceKeys, SignedKey},
     events::Algorithm,
-    identifiers::{DeviceId, UserId},
+    identifiers::{DeviceId, DeviceKeyAlgorithm, DeviceKeyId, UserId},
 };
 use serde_json::{json, Value};
 
@@ -40,8 +40,8 @@ pub struct Device {
     user_id: Arc<UserId>,
     device_id: Arc<Box<DeviceId>>,
     algorithms: Arc<Vec<Algorithm>>,
-    keys: Arc<BTreeMap<AlgorithmAndDeviceId, String>>,
-    signatures: Arc<BTreeMap<UserId, BTreeMap<AlgorithmAndDeviceId, String>>>,
+    keys: Arc<BTreeMap<DeviceKeyId, String>>,
+    signatures: Arc<BTreeMap<UserId, BTreeMap<DeviceKeyId, String>>>,
     display_name: Arc<Option<String>>,
     deleted: Arc<AtomicBool>,
     trust_state: Arc<Atomic<TrustState>>,
@@ -80,8 +80,8 @@ impl Device {
         display_name: Option<String>,
         trust_state: TrustState,
         algorithms: Vec<Algorithm>,
-        keys: BTreeMap<AlgorithmAndDeviceId, String>,
-        signatures: BTreeMap<UserId, BTreeMap<AlgorithmAndDeviceId, String>>,
+        keys: BTreeMap<DeviceKeyId, String>,
+        signatures: BTreeMap<UserId, BTreeMap<DeviceKeyId, String>>,
     ) -> Self {
         Device {
             user_id: Arc::new(user_id),
@@ -111,20 +111,18 @@ impl Device {
     }
 
     /// Get the key of the given key algorithm belonging to this device.
-    pub fn get_key(&self, algorithm: KeyAlgorithm) -> Option<&String> {
-        self.keys.get(&AlgorithmAndDeviceId(
-            algorithm,
-            self.device_id.as_ref().clone(),
-        ))
+    pub fn get_key(&self, algorithm: DeviceKeyAlgorithm) -> Option<&String> {
+        self.keys
+            .get(&DeviceKeyId::from_parts(algorithm, &self.device_id))
     }
 
     /// Get a map containing all the device keys.
-    pub fn keys(&self) -> &BTreeMap<AlgorithmAndDeviceId, String> {
+    pub fn keys(&self) -> &BTreeMap<DeviceKeyId, String> {
         &self.keys
     }
 
     /// Get a map containing all the device signatures.
-    pub fn signatures(&self) -> &BTreeMap<UserId, BTreeMap<AlgorithmAndDeviceId, String>> {
+    pub fn signatures(&self) -> &BTreeMap<UserId, BTreeMap<DeviceKeyId, String>> {
         &self.signatures
     }
 
@@ -173,7 +171,7 @@ impl Device {
 
     fn is_signed_by_device(&self, json: &mut Value) -> Result<(), SignatureError> {
         let signing_key = self
-            .get_key(KeyAlgorithm::Ed25519)
+            .get_key(DeviceKeyAlgorithm::Ed25519)
             .ok_or(SignatureError::MissingSigningKey)?;
 
         verify_json(&self.user_id, &self.device_id.as_str(), signing_key, json)
@@ -249,8 +247,8 @@ pub(crate) mod test {
 
     use crate::device::{Device, TrustState};
     use matrix_sdk_common::{
-        api::r0::keys::{DeviceKeys, KeyAlgorithm},
-        identifiers::user_id,
+        api::r0::keys::DeviceKeys,
+        identifiers::{user_id, DeviceKeyAlgorithm},
     };
 
     fn device_keys() -> DeviceKeys {
@@ -299,11 +297,11 @@ pub(crate) mod test {
             device.display_name().as_ref().unwrap()
         );
         assert_eq!(
-            device.get_key(KeyAlgorithm::Curve25519).unwrap(),
+            device.get_key(DeviceKeyAlgorithm::Curve25519).unwrap(),
             "xfgbLIC5WAl1OIkpOzoxpCe8FsRDT6nch7NQsOb15nc"
         );
         assert_eq!(
-            device.get_key(KeyAlgorithm::Ed25519).unwrap(),
+            device.get_key(DeviceKeyAlgorithm::Ed25519).unwrap(),
             "2/5LWJMow5zhJqakV88SIc7q/1pa8fmkfgAzx72w9G4"
         );
     }

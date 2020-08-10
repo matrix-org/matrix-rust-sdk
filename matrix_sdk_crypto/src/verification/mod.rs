@@ -25,7 +25,7 @@ pub(crate) mod test {
     use serde_json::Value;
 
     use matrix_sdk_common::{
-        api::r0::to_device::send_event_to_device::Request as ToDeviceRequest,
+        api::r0::to_device::send_event_to_device::IncomingRequest as OwnedToDeviceRequest,
         events::{AnyToDeviceEvent, AnyToDeviceEventContent, EventType, ToDeviceEvent},
         identifiers::UserId,
     };
@@ -64,7 +64,9 @@ pub(crate) mod test {
         }
     }
 
-    pub(crate) fn get_content_from_request(request: &ToDeviceRequest) -> AnyToDeviceEventContent {
+    pub(crate) fn get_content_from_request(
+        request: &OwnedToDeviceRequest,
+    ) -> AnyToDeviceEventContent {
         let json: Value = serde_json::from_str(
             request
                 .messages

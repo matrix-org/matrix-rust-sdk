@@ -23,10 +23,11 @@ use std::{
 };
 
 use api::r0::{
-    keys,
-    keys::{AlgorithmAndDeviceId, DeviceKeys, KeyAlgorithm, OneTimeKey},
+    keys::{claim_keys, get_keys, upload_keys, DeviceKeys, OneTimeKey},
     sync::sync_events::Response as SyncResponse,
-    to_device::{send_event_to_device::Request as ToDeviceRequest, DeviceIdOrAllDevices},
+    to_device::{
+        send_event_to_device::IncomingRequest as OwnedToDeviceRequest, DeviceIdOrAllDevices,
+    },
 };
 use matrix_sdk_common::{
     api,
@@ -37,7 +38,7 @@ use matrix_sdk_common::{
         room_key_request::RoomKeyRequestEventContent,
         Algorithm, AnySyncRoomEvent, AnyToDeviceEvent, EventType, SyncMessageEvent, ToDeviceEvent,
     },
-    identifiers::{DeviceId, RoomId, UserId},
+    identifiers::{DeviceId, DeviceKeyAlgorithm, DeviceKeyId, RoomId, UserId},
     locks::RwLock,
     uuid::Uuid,
     Raw,
@@ -62,7 +63,7 @@ use super::{
 /// A map from the algorithm and device id to a one-time key.
 ///
 /// These keys need to be periodically uploaded to the server.
-pub type OneTimeKeys = BTreeMap<AlgorithmAndDeviceId, OneTimeKey>;
+pub type OneTimeKeys = BTreeMap<DeviceKeyId, OneTimeKey>;
 
 /// State machine implementation of the Olm/Megolm encryption protocol used for
 /// Matrix end to end encryption.
@@ -226,7 +227,7 @@ impl OlmMachine {
     #[instrument]
     pub async fn receive_keys_upload_response(
         &self,
-        response: &keys::upload_keys::Response,
+        response: &upload_keys::Response,
     ) -> OlmResult<()> {
         if !self.account.shared() {
             debug!("Marking account as shared");
@@ -235,7 +236,7 @@ impl OlmMachine {
 
         let one_time_key_count = response
             .one_time_key_counts
-            .get(&keys::KeyAlgorithm::SignedCurve25519);
+            .get(&DeviceKeyAlgorithm::SignedCurve25519);
 
         let count: u64 = one_time_key_count.map_or(0, |c| (*c).into());
         debug!(
@@ -277,14 +278,14 @@ impl OlmMachine {
     pub async fn get_missing_sessions(
         &self,
         users: impl Iterator<Item = &UserId>,
-    ) -> OlmResult<BTreeMap<UserId, BTreeMap<Box<DeviceId>, KeyAlgorithm>>> {
+    ) -> OlmResult<BTreeMap<UserId, BTreeMap<Box<DeviceId>, DeviceKeyAlgorithm>>> {
         let mut missing = BTreeMap::new();
 
         for user_id in users {
             let user_devices = self.store.read().await.get_user_devices(user_id).await?;
 
             for device in user_devices.devices() {
-                let sender_key = if let Some(k) = device.get_key(KeyAlgorithm::Curve25519) {
+                let sender_key = if let Some(k) = device.get_key(DeviceKeyAlgorithm::Curve25519) {
                     k
                 } else {
                     continue;
@@ -304,8 +305,10 @@ impl OlmMachine {
                     }
 
                     let user_map = missing.get_mut(user_id).unwrap();
-                    let _ =
-                        user_map.insert(device.device_id().into(), KeyAlgorithm::SignedCurve25519);
+                    let _ = user_map.insert(
+                        device.device_id().into(),
+                        DeviceKeyAlgorithm::SignedCurve25519,
+                    );
                 }
             }
         }
@@ -321,7 +324,7 @@ impl OlmMachine {
     /// * `response` - The response containing the claimed one-time keys.
     pub async fn receive_keys_claim_response(
         &self,
-        response: &keys::claim_keys::Response,
+        response: &claim_keys::Response,
     ) -> OlmResult<()> {
         // TODO log the failures here
 
@@ -472,7 +475,7 @@ impl OlmMachine {
     /// performed.
     pub async fn receive_keys_query_response(
         &self,
-        response: &keys::get_keys::Response,
+        response: &get_keys::Response,
     ) -> OlmResult<Vec<Device>> {
         let changed_devices = self
             .handle_devices_from_key_query(&response.device_keys)
@@ -654,13 +657,13 @@ impl OlmMachine {
             .ok_or_else(|| EventError::MissingField("recipient".to_string()))?;
         let recipient: UserId = serde_json::from_value(recipient)?;
 
-        let recipient_keys: BTreeMap<KeyAlgorithm, String> = serde_json::from_value(
+        let recipient_keys: BTreeMap<DeviceKeyAlgorithm, String> = serde_json::from_value(
             decrypted_json
                 .get("recipient_keys")
                 .cloned()
                 .ok_or_else(|| EventError::MissingField("recipient_keys".to_string()))?,
         )?;
-        let keys: BTreeMap<KeyAlgorithm, String> = serde_json::from_value(
+        let keys: BTreeMap<DeviceKeyAlgorithm, String> = serde_json::from_value(
             decrypted_json
                 .get("keys")
                 .cloned()
@@ -673,14 +676,14 @@ impl OlmMachine {
 
         if self.account.identity_keys().ed25519()
             != recipient_keys
-                .get(&KeyAlgorithm::Ed25519)
+                .get(&DeviceKeyAlgorithm::Ed25519)
                 .ok_or(EventError::MissingSigningKey)?
         {
             return Err(EventError::MissmatchedKeys.into());
         }
 
         let signing_key = keys
-            .get(&KeyAlgorithm::Ed25519)
+            .get(&DeviceKeyAlgorithm::Ed25519)
             .ok_or(EventError::MissingSigningKey)?;
 
         Ok((
@@ -872,7 +875,7 @@ impl OlmMachine {
         event_type: EventType,
         content: Value,
     ) -> OlmResult<EncryptedEventContent> {
-        let sender_key = if let Some(k) = recipient_device.get_key(KeyAlgorithm::Curve25519) {
+        let sender_key = if let Some(k) = recipient_device.get_key(DeviceKeyAlgorithm::Curve25519) {
             k
         } else {
             warn!(
@@ -943,7 +946,7 @@ impl OlmMachine {
         &mut self,
         room_id: &RoomId,
         users: I,
-    ) -> OlmResult<Vec<ToDeviceRequest>>
+    ) -> OlmResult<Vec<OwnedToDeviceRequest>>
     where
         I: IntoIterator<Item = &'a UserId>,
     {
@@ -1008,7 +1011,7 @@ impl OlmMachine {
                 );
             }
 
-            requests.push(ToDeviceRequest {
+            requests.push(OwnedToDeviceRequest {
                 event_type: EventType::RoomEncrypted,
                 txn_id: Uuid::new_v4().to_string(),
                 messages,
@@ -1076,7 +1079,7 @@ impl OlmMachine {
     }
 
     /// Get the to-device requests that need to be sent out.
-    pub fn outgoing_to_device_requests(&self) -> Vec<ToDeviceRequest> {
+    pub fn outgoing_to_device_requests(&self) -> Vec<OwnedToDeviceRequest> {
         self.verification_machine.outgoing_to_device_requests()
     }
 
@@ -1106,7 +1109,7 @@ impl OlmMachine {
 
         let one_time_key_count = response
             .device_one_time_keys_count
-            .get(&keys::KeyAlgorithm::SignedCurve25519);
+            .get(&DeviceKeyAlgorithm::SignedCurve25519);
 
         let count: u64 = one_time_key_count.map_or(0, |c| (*c).into());
         self.update_key_count(count);
@@ -1285,7 +1288,7 @@ mod test {
     };
 
     use matrix_sdk_common::{
-        api::r0::{keys, to_device::send_event_to_device::Request as ToDeviceRequest},
+        api::r0::{keys, to_device::send_event_to_device::IncomingRequest as OwnedToDeviceRequest},
         events::{
             room::{
                 encrypted::EncryptedEventContent,
@@ -1294,7 +1297,7 @@ mod test {
             AnySyncMessageEvent, AnySyncRoomEvent, AnyToDeviceEvent, EventType, SyncMessageEvent,
             ToDeviceEvent, Unsigned,
         },
-        identifiers::{event_id, room_id, user_id, DeviceId, UserId},
+        identifiers::{event_id, room_id, user_id, DeviceId, DeviceKeyAlgorithm, UserId},
         Raw,
     };
     use matrix_sdk_test::test_json;
@@ -1328,7 +1331,7 @@ mod test {
         keys::get_keys::Response::try_from(data).expect("Can't parse the keys upload response")
     }
 
-    fn to_device_requests_to_content(requests: Vec<ToDeviceRequest>) -> EncryptedEventContent {
+    fn to_device_requests_to_content(requests: Vec<OwnedToDeviceRequest>) -> EncryptedEventContent {
         let to_device_request = &requests[0];
 
         let content: Raw<EncryptedEventContent> = serde_json::from_str(
@@ -1462,7 +1465,7 @@ mod test {
 
         response
             .one_time_key_counts
-            .remove(&keys::KeyAlgorithm::SignedCurve25519)
+            .remove(&DeviceKeyAlgorithm::SignedCurve25519)
             .unwrap();
 
         assert!(machine.should_upload_keys().await);
@@ -1474,7 +1477,7 @@ mod test {
 
         response
             .one_time_key_counts
-            .insert(keys::KeyAlgorithm::SignedCurve25519, uint!(10));
+            .insert(DeviceKeyAlgorithm::SignedCurve25519, uint!(10));
         machine
             .receive_keys_upload_response(&response)
             .await
@@ -1483,7 +1486,7 @@ mod test {
 
         response
             .one_time_key_counts
-            .insert(keys::KeyAlgorithm::SignedCurve25519, uint!(50));
+            .insert(DeviceKeyAlgorithm::SignedCurve25519, uint!(50));
         machine
             .receive_keys_upload_response(&response)
             .await
@@ -1508,7 +1511,7 @@ mod test {
 
         response
             .one_time_key_counts
-            .insert(keys::KeyAlgorithm::SignedCurve25519, uint!(50));
+            .insert(DeviceKeyAlgorithm::SignedCurve25519, uint!(50));
         machine
             .receive_keys_upload_response(&response)
             .await
@@ -1615,7 +1618,7 @@ mod test {
 
         let mut response = keys_upload_response();
         response.one_time_key_counts.insert(
-            keys::KeyAlgorithm::SignedCurve25519,
+            DeviceKeyAlgorithm::SignedCurve25519,
             (one_time_keys.unwrap().len() as u64).try_into().unwrap(),
         );
 

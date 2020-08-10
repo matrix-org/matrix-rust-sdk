@@ -381,22 +381,22 @@ impl Into<register::Request> for RegistrationBuilder {
 /// let mut builder = RoomListFilterBuilder::new();
 /// builder
 ///     .filter(Filter { generic_search_term, })
-///     .since(last_sync_token)
+///     .since(&last_sync_token)
 ///     .room_network(RoomNetwork::Matrix);
 ///
 /// client.public_rooms_filtered(builder).await.is_err();
 /// # })
 /// ```
 #[derive(Clone, Debug, Default)]
-pub struct RoomListFilterBuilder {
-    server: Option<String>,
+pub struct RoomListFilterBuilder<'a> {
+    server: Option<&'a str>,
     limit: Option<u32>,
-    since: Option<String>,
+    since: Option<&'a str>,
     filter: Option<Filter>,
     room_network: Option<RoomNetwork>,
 }
 
-impl RoomListFilterBuilder {
+impl<'a> RoomListFilterBuilder<'a> {
     /// Create a `RoomListFilterBuilder` builder to make a `get_message_events::Request`.
     pub fn new() -> Self {
         Self::default()
@@ -405,8 +405,8 @@ impl RoomListFilterBuilder {
     /// The server to fetch the public room lists from.
     ///
     /// `None` means the server this request is sent to.
-    pub fn server<S: Into<String>>(&mut self, server: S) -> &mut Self {
-        self.server = Some(server.into());
+    pub fn server(&mut self, server: &'a str) -> &mut Self {
+        self.server = Some(server);
         self
     }
 
@@ -417,8 +417,8 @@ impl RoomListFilterBuilder {
     }
 
     /// Pagination token from a previous request.
-    pub fn since<S: Into<String>>(&mut self, since: S) -> &mut Self {
-        self.since = Some(since.into());
+    pub fn since(&mut self, since: &'a str) -> &mut Self {
+        self.since = Some(since);
         self
     }
 
@@ -437,8 +437,8 @@ impl RoomListFilterBuilder {
     }
 }
 
-impl Into<get_public_rooms_filtered::Request> for RoomListFilterBuilder {
-    fn into(self) -> get_public_rooms_filtered::Request {
+impl<'a> Into<get_public_rooms_filtered::Request<'a>> for RoomListFilterBuilder<'a> {
+    fn into(self) -> get_public_rooms_filtered::Request<'a> {
         get_public_rooms_filtered::Request {
             room_network: self.room_network.unwrap_or_default(),
             limit: self.limit.map(UInt::from),
