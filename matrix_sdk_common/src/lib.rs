@@ -6,7 +6,7 @@ pub use ruma::{
         error::{FromHttpRequestError, FromHttpResponseError, IntoHttpError, ServerError},
         Endpoint, EndpointError, Outgoing,
     },
-    events, identifiers, presence, push, Raw,
+    events, identifiers, presence, push, thirdparty, Raw,
 };
 
 pub use uuid;

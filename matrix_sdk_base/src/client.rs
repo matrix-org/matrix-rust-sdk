@@ -42,13 +42,13 @@ use matrix_sdk_common::{
 use matrix_sdk_common::{
     api::r0::keys::{
         claim_keys::Response as KeysClaimResponse, get_keys::Response as KeysQueryResponse,
-        upload_keys::Response as KeysUploadResponse, DeviceKeys, KeyAlgorithm,
+        upload_keys::Response as KeysUploadResponse, DeviceKeys,
     },
-    api::r0::to_device::send_event_to_device::Request as ToDeviceRequest,
+    api::r0::to_device::send_event_to_device::IncomingRequest as OwnedToDeviceRequest,
     events::room::{
         encrypted::EncryptedEventContent, message::MessageEventContent as MsgEventContent,
     },
-    identifiers::DeviceId,
+    identifiers::{DeviceId, DeviceKeyAlgorithm},
 };
 #[cfg(feature = "encryption")]
 use matrix_sdk_crypto::{CryptoStore, OlmError, OlmMachine, OneTimeKeys, Sas};
@@ -1274,7 +1274,7 @@ impl BaseClient {
     pub async fn get_missing_sessions(
         &self,
         users: impl Iterator<Item = &UserId>,
-    ) -> Result<BTreeMap<UserId, BTreeMap<Box<DeviceId>, KeyAlgorithm>>> {
+    ) -> Result<BTreeMap<UserId, BTreeMap<Box<DeviceId>, DeviceKeyAlgorithm>>> {
         let mut olm = self.olm.lock().await;
 
         match &mut *olm {
@@ -1286,7 +1286,7 @@ impl BaseClient {
     /// Get a to-device request that will share a group session for a room.
     #[cfg(feature = "encryption")]
     #[cfg_attr(docsrs, doc(cfg(feature = "encryption")))]
-    pub async fn share_group_session(&self, room_id: &RoomId) -> Result<Vec<ToDeviceRequest>> {
+    pub async fn share_group_session(&self, room_id: &RoomId) -> Result<Vec<OwnedToDeviceRequest>> {
         let room = self.get_joined_room(room_id).await.expect("No room found");
         let mut olm = self.olm.lock().await;
 
@@ -1828,7 +1828,7 @@ impl BaseClient {
     /// Get the to-device requests that need to be sent out.
     #[cfg(feature = "encryption")]
     #[cfg_attr(docsrs, doc(cfg(feature = "encryption")))]
-    pub async fn outgoing_to_device_requests(&self) -> Vec<ToDeviceRequest> {
+    pub async fn outgoing_to_device_requests(&self) -> Vec<OwnedToDeviceRequest> {
         self.olm
             .lock()
             .await

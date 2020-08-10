@@ -17,7 +17,9 @@ use std::sync::Arc;
 use url::Url;
 
 use matrix_sdk_base::{Device, Sas as BaseSas, Session};
-use matrix_sdk_common::locks::RwLock;
+use matrix_sdk_common::{
+    api::r0::to_device::send_event_to_device::Request as ToDeviceRequest, locks::RwLock,
+};
 
 use crate::{error::Result, http_client::HttpClient};
 
@@ -34,7 +36,13 @@ pub struct Sas {
 impl Sas {
     /// Accept the interactive verification flow.
     pub async fn accept(&self) -> Result<()> {
-        if let Some(request) = self.inner.accept() {
+        if let Some(req) = self.inner.accept() {
+            let request = ToDeviceRequest {
+                event_type: req.event_type,
+                txn_id: &req.txn_id,
+                messages: req.messages,
+            };
+
             self.http_client.send(request, self.session.clone()).await?;
         }
         Ok(())
@@ -42,7 +50,13 @@ impl Sas {
 
     /// Confirm that the short auth strings match on both sides.
     pub async fn confirm(&self) -> Result<()> {
-        if let Some(request) = self.inner.confirm().await? {
+        if let Some(req) = self.inner.confirm().await? {
+            let request = ToDeviceRequest {
+                event_type: req.event_type,
+                txn_id: &req.txn_id,
+                messages: req.messages,
+            };
+
             self.http_client.send(request, self.session.clone()).await?;
         }
 
@@ -51,7 +65,13 @@ impl Sas {
 
     /// Cancel the interactive verification flow.
     pub async fn cancel(&self) -> Result<()> {
-        if let Some(request) = self.inner.cancel() {
+        if let Some(req) = self.inner.cancel() {
+            let request = ToDeviceRequest {
+                event_type: req.event_type,
+                txn_id: &req.txn_id,
+                messages: req.messages,
+            };
+
             self.http_client.send(request, self.session.clone()).await?;
         }
         Ok(())

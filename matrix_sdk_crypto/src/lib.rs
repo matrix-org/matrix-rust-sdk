@@ -45,10 +45,7 @@ pub use store::{CryptoStore, CryptoStoreError};
 pub use verification::Sas;
 
 use error::SignatureError;
-use matrix_sdk_common::{
-    api::r0::keys::{AlgorithmAndDeviceId, KeyAlgorithm},
-    identifiers::UserId,
-};
+use matrix_sdk_common::identifiers::{DeviceKeyAlgorithm, DeviceKeyId, UserId};
 use olm_rs::utility::OlmUtility;
 use serde_json::Value;
 
@@ -86,7 +83,7 @@ pub(crate) fn verify_json(
         json_object.insert("unsigned".to_string(), u);
     }
 
-    let key_id = AlgorithmAndDeviceId(KeyAlgorithm::Ed25519, key_id.into());
+    let key_id = DeviceKeyId::from_parts(DeviceKeyAlgorithm::Ed25519, key_id.into());
 
     let signatures = signatures.ok_or(SignatureError::NoSignatureFound)?;
     let signature_object = signatures

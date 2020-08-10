@@ -5,15 +5,14 @@ use tracing::trace;
 use olm_rs::sas::OlmSas;
 
 use matrix_sdk_common::{
-    api::r0::{
-        keys::{AlgorithmAndDeviceId, KeyAlgorithm},
-        to_device::{send_event_to_device::Request as ToDeviceRequest, DeviceIdOrAllDevices},
+    api::r0::to_device::{
+        send_event_to_device::IncomingRequest as OwnedToDeviceRequest, DeviceIdOrAllDevices,
     },
     events::{
         key::verification::{cancel::CancelCode, mac::MacEventContent},
         AnyToDeviceEventContent, EventType, ToDeviceEvent,
     },
-    identifiers::{DeviceId, UserId},
+    identifiers::{DeviceId, DeviceKeyAlgorithm, DeviceKeyId, UserId},
     uuid::Uuid,
 };
 
@@ -161,20 +160,10 @@ pub fn receive_mac_event(
     }
 
     for (key_id, key_mac) in &event.content.mac {
-        let split: Vec<&str> = key_id.splitn(2, ':').collect();
-
-        if split.len() != 2 {
-            continue;
-        }
-
-        let algorithm: KeyAlgorithm = if let Ok(a) = split[0].try_into() {
-            a
-        } else {
-            continue;
+        let device_key_id: DeviceKeyId = match key_id.as_str().try_into() {
+            Ok(id) => id,
+            Err(_) => continue,
         };
-        let id = split[1];
-
-        let device_key_id = AlgorithmAndDeviceId(algorithm, id.into());
 
         if let Some(key) = ids.other_device.keys().get(&device_key_id) {
             if key_mac
@@ -231,7 +220,7 @@ fn extra_mac_info_send(ids: &SasIds, flow_id: &str) -> String {
 pub fn get_mac_content(sas: &OlmSas, ids: &SasIds, flow_id: &str) -> MacEventContent {
     let mut mac: BTreeMap<String, String> = BTreeMap::new();
 
-    let key_id = AlgorithmAndDeviceId(KeyAlgorithm::Ed25519, ids.account.device_id().into());
+    let key_id = DeviceKeyId::from_parts(DeviceKeyAlgorithm::Ed25519, ids.account.device_id());
     let key = ids.account.identity_keys().ed25519();
     let info = extra_mac_info_send(ids, flow_id);
 
@@ -423,7 +412,7 @@ pub fn content_to_request(
     recipient: &UserId,
     recipient_device: &DeviceId,
     content: AnyToDeviceEventContent,
-) -> ToDeviceRequest {
+) -> OwnedToDeviceRequest {
     let mut messages = BTreeMap::new();
     let mut user_messages = BTreeMap::new();
 
@@ -442,7 +431,7 @@ pub fn content_to_request(
         _ => unreachable!(),
     };
 
-    ToDeviceRequest {
+    OwnedToDeviceRequest {
         txn_id: Uuid::new_v4().to_string(),
         event_type,
         messages,

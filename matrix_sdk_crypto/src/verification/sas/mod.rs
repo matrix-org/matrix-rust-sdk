@@ -19,7 +19,7 @@ use std::sync::{Arc, Mutex};
 use tracing::{info, trace, warn};
 
 use matrix_sdk_common::{
-    api::r0::to_device::send_event_to_device::Request as ToDeviceRequest,
+    api::r0::to_device::send_event_to_device::IncomingRequest as OwnedToDeviceRequest,
     events::{
         key::verification::{
             accept::AcceptEventContent, cancel::CancelCode, mac::MacEventContent,
@@ -138,7 +138,7 @@ impl Sas {
     ///
     /// This does nothing if the verification was already accepted, otherwise it
     /// returns an `AcceptEventContent` that needs to be sent out.
-    pub fn accept(&self) -> Option<ToDeviceRequest> {
+    pub fn accept(&self) -> Option<OwnedToDeviceRequest> {
         self.inner.lock().unwrap().accept().map(|c| {
             let content = AnyToDeviceEventContent::KeyVerificationAccept(c);
             self.content_to_request(content)
@@ -152,7 +152,7 @@ impl Sas {
     /// Does nothing if we're not in a state where we can confirm the short auth
     /// string, otherwise returns a `MacEventContent` that needs to be sent to
     /// the server.
-    pub async fn confirm(&self) -> Result<Option<ToDeviceRequest>, CryptoStoreError> {
+    pub async fn confirm(&self) -> Result<Option<OwnedToDeviceRequest>, CryptoStoreError> {
         let (content, done) = {
             let mut guard = self.inner.lock().unwrap();
             let sas: InnerSas = (*guard).clone();
@@ -234,7 +234,7 @@ impl Sas {
     ///
     /// Returns None if the `Sas` object is already in a canceled state,
     /// otherwise it returns a request that needs to be sent out.
-    pub fn cancel(&self) -> Option<ToDeviceRequest> {
+    pub fn cancel(&self) -> Option<OwnedToDeviceRequest> {
         let mut guard = self.inner.lock().unwrap();
         let sas: InnerSas = (*guard).clone();
         let (sas, content) = sas.cancel();
@@ -291,7 +291,10 @@ impl Sas {
         self.inner.lock().unwrap().verified_devices()
     }
 
-    pub(crate) fn content_to_request(&self, content: AnyToDeviceEventContent) -> ToDeviceRequest {
+    pub(crate) fn content_to_request(
+        &self,
+        content: AnyToDeviceEventContent,
+    ) -> OwnedToDeviceRequest {
         content_to_request(self.other_user_id(), self.other_device_id(), content)
     }
 }

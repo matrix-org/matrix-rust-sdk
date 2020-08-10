@@ -15,12 +15,11 @@
 use std::{collections::BTreeMap, fmt, sync::Arc};
 
 use matrix_sdk_common::{
-    api::r0::keys::KeyAlgorithm,
     events::{
         room::encrypted::{CiphertextInfo, EncryptedEventContent, OlmV1Curve25519AesSha2Content},
         EventType,
     },
-    identifiers::{DeviceId, UserId},
+    identifiers::{DeviceId, DeviceKeyAlgorithm, UserId},
     instant::Instant,
     locks::Mutex,
 };
@@ -109,7 +108,7 @@ impl Session {
         content: Value,
     ) -> OlmResult<EncryptedEventContent> {
         let recipient_signing_key = recipient_device
-            .get_key(KeyAlgorithm::Ed25519)
+            .get_key(DeviceKeyAlgorithm::Ed25519)
             .ok_or(EventError::MissingSigningKey)?;
 
         let payload = json!({
