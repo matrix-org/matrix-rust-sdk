@@ -15,6 +15,9 @@
 mod helpers;
 mod sas_state;
 
+#[cfg(test)]
+use std::time::Instant;
+
 use std::sync::{Arc, Mutex};
 use tracing::{info, trace, warn};
 
@@ -77,6 +80,11 @@ impl Sas {
     /// Get the unique ID that identifies this SAS verification flow.
     pub fn flow_id(&self) -> &str {
         &self.flow_id
+    }
+
+    #[cfg(test)]
+    pub(crate) fn set_creation_time(&self, time: Instant) {
+        self.inner.lock().unwrap().set_creation_time(time)
     }
 
     /// Start a new SAS auth flow with the given device.
@@ -260,7 +268,7 @@ impl Sas {
 
     /// Has the SAS verification flow timed out.
     pub fn timed_out(&self) -> bool {
-        self.inner.lock().unwrap().is_timed_out()
+        self.inner.lock().unwrap().timed_out()
     }
 
     /// Are we in a state where we can show the short auth string.
@@ -354,6 +362,20 @@ impl InnerSas {
             Some(s.as_content())
         } else {
             None
+        }
+    }
+
+    #[cfg(test)]
+    fn set_creation_time(&mut self, time: Instant) {
+        match self {
+            InnerSas::Created(s) => s.set_creation_time(time),
+            InnerSas::Started(s) => s.set_creation_time(time),
+            InnerSas::Canceled(s) => s.set_creation_time(time),
+            InnerSas::Accepted(s) => s.set_creation_time(time),
+            InnerSas::KeyRecieved(s) => s.set_creation_time(time),
+            InnerSas::Confirmed(s) => s.set_creation_time(time),
+            InnerSas::MacReceived(s) => s.set_creation_time(time),
+            InnerSas::Done(s) => s.set_creation_time(time),
         }
     }
 
@@ -472,7 +494,7 @@ impl InnerSas {
         matches!(self, InnerSas::Canceled(_))
     }
 
-    fn is_timed_out(&self) -> bool {
+    fn timed_out(&self) -> bool {
         match self {
             InnerSas::Created(s) => s.timed_out(),
             InnerSas::Started(s) => s.timed_out(),

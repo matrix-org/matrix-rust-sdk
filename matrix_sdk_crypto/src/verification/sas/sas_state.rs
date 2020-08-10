@@ -239,6 +239,11 @@ impl<S: Clone> SasState<S> {
         self.creation_time.elapsed() > MAX_AGE || self.last_event_time.elapsed() > MAX_EVENT_TIMEOUT
     }
 
+    #[cfg(test)]
+    pub fn set_creation_time(&mut self, time: Instant) {
+        self.creation_time = Arc::new(time);
+    }
+
     fn check_event(&self, sender: &UserId, flow_id: &str) -> Result<(), CancelCode> {
         if flow_id != *self.verification_flow_id {
             Err(CancelCode::UnknownTransaction)
