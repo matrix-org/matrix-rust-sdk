@@ -86,9 +86,8 @@ impl VerificationMachine {
     }
 
     pub fn garbage_collect(&self) {
-        // TODO this seems to have a deadlock.
-        // self.verifications
-        //     .retain(|_, s| !(s.is_canceled() || s.is_done()));
+        self.verifications
+            .retain(|_, s| !(s.is_done() || s.is_canceled()));
 
         for sas in self.verifications.iter() {
             if let Some(r) = sas.cancel_if_timed_out() {
@@ -248,7 +247,7 @@ mod test {
     async fn full_flow() {
         let (alice_machine, bob) = setup_verification_machine().await;
 
-        let alice = alice_machine.verifications.get(bob.flow_id()).unwrap();
+        let alice = alice_machine.get_sas(bob.flow_id()).unwrap();
 
         let mut event = alice
             .accept()
@@ -303,7 +302,7 @@ mod test {
     #[tokio::test]
     async fn timing_out() {
         let (alice_machine, bob) = setup_verification_machine().await;
-        let alice = alice_machine.verifications.get(bob.flow_id()).unwrap();
+        let alice = alice_machine.get_sas(bob.flow_id()).unwrap();
 
         assert!(!alice.timed_out());
         assert!(alice_machine.outgoing_to_device_messages.is_empty());
@@ -317,5 +316,7 @@ mod test {
         assert!(alice_machine.outgoing_to_device_messages.is_empty());
         alice_machine.garbage_collect();
         assert!(!alice_machine.outgoing_to_device_messages.is_empty());
+        alice_machine.garbage_collect();
+        assert!(alice_machine.verifications.is_empty());
     }
 }
