@@ -23,9 +23,9 @@ use std::{
 };
 
 use matrix_sdk_common::{
-    api::r0::keys::{AlgorithmAndDeviceId, DeviceKeys, KeyAlgorithm, OneTimeKey, SignedKey},
+    api::r0::keys::{DeviceKeys, OneTimeKey, SignedKey},
     events::Algorithm,
-    identifiers::{DeviceId, RoomId, UserId},
+    identifiers::{DeviceId, DeviceKeyAlgorithm, DeviceKeyId, RoomId, UserId},
     instant::Instant,
     locks::Mutex,
 };
@@ -204,7 +204,7 @@ impl Account {
     ) -> Result<
         (
             Option<DeviceKeys>,
-            Option<BTreeMap<AlgorithmAndDeviceId, OneTimeKey>>,
+            Option<BTreeMap<DeviceKeyId, OneTimeKey>>,
         ),
         (),
     > {
@@ -286,11 +286,11 @@ impl Account {
         let mut keys = BTreeMap::new();
 
         keys.insert(
-            AlgorithmAndDeviceId(KeyAlgorithm::Curve25519, (*self.device_id).clone()),
+            DeviceKeyId::from_parts(DeviceKeyAlgorithm::Curve25519, &self.device_id),
             identity_keys.curve25519().to_owned(),
         );
         keys.insert(
-            AlgorithmAndDeviceId(KeyAlgorithm::Ed25519, (*self.device_id).clone()),
+            DeviceKeyId::from_parts(DeviceKeyAlgorithm::Ed25519, &self.device_id),
             identity_keys.ed25519().to_owned(),
         );
 
@@ -305,7 +305,7 @@ impl Account {
 
         let mut signature = BTreeMap::new();
         signature.insert(
-            AlgorithmAndDeviceId(KeyAlgorithm::Ed25519, (*self.device_id).clone()),
+            DeviceKeyId::from_parts(DeviceKeyAlgorithm::Ed25519, &self.device_id),
             self.sign_json(&device_keys).await,
         );
         signatures.insert((*self.user_id).clone(), signature);
@@ -345,7 +345,7 @@ impl Account {
     /// If no one-time keys need to be uploaded returns an empty error.
     pub(crate) async fn signed_one_time_keys(
         &self,
-    ) -> Result<BTreeMap<AlgorithmAndDeviceId, OneTimeKey>, ()> {
+    ) -> Result<BTreeMap<DeviceKeyId, OneTimeKey>, ()> {
         let _ = self.generate_one_time_keys().await?;
 
         let one_time_keys = self.one_time_keys().await;
@@ -361,7 +361,7 @@ impl Account {
             let mut signature_map = BTreeMap::new();
 
             signature_map.insert(
-                AlgorithmAndDeviceId(KeyAlgorithm::Ed25519, (*self.device_id).clone()),
+                DeviceKeyId::from_parts(DeviceKeyAlgorithm::Ed25519, &self.device_id),
                 signature,
             );
 
@@ -374,7 +374,10 @@ impl Account {
             };
 
             one_time_key_map.insert(
-                AlgorithmAndDeviceId(KeyAlgorithm::SignedCurve25519, key_id.as_str().into()),
+                DeviceKeyId::from_parts(
+                    DeviceKeyAlgorithm::SignedCurve25519,
+                    key_id.as_str().into(),
+                ),
                 OneTimeKey::SignedKey(signed_key),
             );
         }
@@ -432,7 +435,7 @@ impl Account {
     pub(crate) async fn create_outbound_session(
         &self,
         device: Device,
-        key_map: &BTreeMap<AlgorithmAndDeviceId, OneTimeKey>,
+        key_map: &BTreeMap<DeviceKeyId, OneTimeKey>,
     ) -> Result<Session, SessionCreationError> {
         let one_time_key = key_map.values().next().ok_or_else(|| {
             SessionCreationError::OneTimeKeyMissing(
@@ -459,12 +462,14 @@ impl Account {
             )
         })?;
 
-        let curve_key = device.get_key(KeyAlgorithm::Curve25519).ok_or_else(|| {
-            SessionCreationError::DeviceMissingCurveKey(
-                device.user_id().to_owned(),
-                device.device_id().into(),
-            )
-        })?;
+        let curve_key = device
+            .get_key(DeviceKeyAlgorithm::Curve25519)
+            .ok_or_else(|| {
+                SessionCreationError::DeviceMissingCurveKey(
+                    device.user_id().to_owned(),
+                    device.device_id().into(),
+                )
+            })?;
 
         self.create_outbound_session_helper(curve_key, &one_time_key)
             .await

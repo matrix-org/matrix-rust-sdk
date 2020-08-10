@@ -19,7 +19,7 @@ use dashmap::DashMap;
 use tracing::{trace, warn};
 
 use matrix_sdk_common::{
-    api::r0::to_device::send_event_to_device::Request as ToDeviceRequest,
+    api::r0::to_device::send_event_to_device::IncomingRequest as OwnedToDeviceRequest,
     events::{AnyToDeviceEvent, AnyToDeviceEventContent},
     identifiers::{DeviceId, UserId},
     locks::RwLock,
@@ -33,7 +33,7 @@ pub struct VerificationMachine {
     account: Account,
     store: Arc<RwLock<Box<dyn CryptoStore>>>,
     verifications: Arc<DashMap<String, Sas>>,
-    outgoing_to_device_messages: Arc<DashMap<String, ToDeviceRequest>>,
+    outgoing_to_device_messages: Arc<DashMap<String, OwnedToDeviceRequest>>,
 }
 
 impl VerificationMachine {
@@ -73,11 +73,15 @@ impl VerificationMachine {
         self.outgoing_to_device_messages.remove(uuid);
     }
 
-    pub fn outgoing_to_device_requests(&self) -> Vec<ToDeviceRequest> {
+    pub fn outgoing_to_device_requests(&self) -> Vec<OwnedToDeviceRequest> {
         #[allow(clippy::map_clone)]
         self.outgoing_to_device_messages
             .iter()
-            .map(|r| r.clone())
+            .map(|r| OwnedToDeviceRequest {
+                event_type: r.event_type.clone(),
+                txn_id: r.txn_id.clone(),
+                messages: r.messages.clone(),
+            })
             .collect()
     }
 

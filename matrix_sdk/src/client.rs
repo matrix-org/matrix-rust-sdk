@@ -24,6 +24,8 @@ use std::{
     sync::Arc,
 };
 
+#[cfg(feature = "encryption")]
+use matrix_sdk_common::api::r0::to_device::send_event_to_device::Request as ToDeviceRequest;
 use matrix_sdk_common::{
     identifiers::ServerName,
     instant::{Duration, Instant},
@@ -31,7 +33,7 @@ use matrix_sdk_common::{
     locks::RwLock,
     presence::PresenceState,
     uuid::Uuid,
-    FromHttpRequestError, FromHttpResponseError, Outgoing,
+    FromHttpResponseError,
 };
 
 use futures_timer::Delay as sleep;
@@ -272,10 +274,6 @@ impl SyncSettings {
     }
 }
 
-#[cfg(feature = "encryption")]
-use api::r0::keys::{claim_keys, get_keys, upload_keys, KeyAlgorithm};
-#[cfg(feature = "encryption")]
-use api::r0::to_device::send_event_to_device;
 use api::r0::{
     account::register,
     directory::{get_public_rooms, get_public_rooms_filtered},
@@ -284,13 +282,21 @@ use api::r0::{
         invite_user::{self, InvitationRecipient},
         join_room_by_id, join_room_by_id_or_alias, kick_user, leave_room, Invite3pid,
     },
-    message::{create_message_event, get_message_events},
+    message::{get_message_events, send_message_event},
     read_marker::set_read_marker,
     receipt::create_receipt,
     room::create_room,
     session::login,
     sync::sync_events,
     typing::create_typing_event,
+};
+#[cfg(feature = "encryption")]
+use matrix_sdk_common::{
+    api::r0::{
+        keys::{claim_keys, get_keys, upload_keys},
+        to_device::send_event_to_device,
+    },
+    identifiers::DeviceKeyAlgorithm,
 };
 
 impl Client {
@@ -739,8 +745,6 @@ impl Client {
         server: Option<&str>,
     ) -> Result<get_public_rooms::Response> {
         let limit = limit.map(|n| UInt::try_from(n).ok()).flatten();
-        let since = since.map(ToString::to_string);
-        let server = server.map(ToString::to_string);
 
         let request = get_public_rooms::Request {
             limit,
@@ -775,13 +779,13 @@ impl Client {
     /// let mut builder = RoomListFilterBuilder::new();
     /// builder
     ///     .filter(Filter { generic_search_term, })
-    ///     .since(last_sync_token)
+    ///     .since(&last_sync_token)
     ///     .room_network(RoomNetwork::Matrix);
     ///
     /// client.public_rooms_filtered(builder).await;
     /// # })
     /// ```
-    pub async fn public_rooms_filtered<R: Into<get_public_rooms_filtered::Request>>(
+    pub async fn public_rooms_filtered<'a, R: Into<get_public_rooms_filtered::Request<'a>>>(
         &self,
         room_search: R,
     ) -> Result<get_public_rooms_filtered::Response> {
@@ -830,7 +834,7 @@ impl Client {
     /// `MessagesRequestBuilder`s `from` field as a starting point.
     ///
     /// Sends a request to `/_matrix/client/r0/rooms/{room_id}/messages` and
-    /// returns a `get_message_events::IncomingResponse` that contains chunks
+    /// returns a `get_message_events::Response` that contains chunks
     /// of `RoomEvents`.
     ///
     /// # Arguments
@@ -991,7 +995,7 @@ impl Client {
         room_id: &RoomId,
         content: MessageEventContent,
         txn_id: Option<Uuid>,
-    ) -> Result<create_message_event::Response> {
+    ) -> Result<send_message_event::Response> {
         #[allow(unused_mut)]
         let mut event_type = EventType::RoomMessage;
         #[allow(unused_mut)]
@@ -1044,10 +1048,10 @@ impl Client {
             }
         }
 
-        let request = create_message_event::Request {
-            room_id: room_id.clone(),
+        let request = send_message_event::Request {
+            room_id: &room_id,
             event_type,
-            txn_id: txn_id.unwrap_or_else(Uuid::new_v4).to_string(),
+            txn_id: &txn_id.unwrap_or_else(Uuid::new_v4).to_string(),
             data: raw_content,
         };
 
@@ -1093,19 +1097,10 @@ impl Client {
     /// // returned
     /// # })
     /// ```
-    pub async fn send<Request>(
-        &self,
-        request: Request,
-    ) -> Result<<Request::Response as Outgoing>::Incoming>
+    pub async fn send<Request>(&self, request: Request) -> Result<Request::IncomingResponse>
     where
         Request: Endpoint + Debug,
-        <Request as Outgoing>::Incoming:
-            TryFrom<http::Request<Vec<u8>>, Error = FromHttpRequestError>,
-        <Request::Response as Outgoing>::Incoming: TryFrom<
-            http::Response<Vec<u8>>,
-            Error = FromHttpResponseError<<Request as Endpoint>::ResponseError>,
-        >,
-        crate::Error: From<FromHttpResponseError<<Request as Endpoint>::ResponseError>>,
+        crate::Error: From<FromHttpResponseError<Request::ResponseError>>,
     {
         self.http_client
             .send(request, self.base_client.session().clone())
@@ -1240,12 +1235,16 @@ impl Client {
                     }
                 }
 
-                for request in self.base_client.outgoing_to_device_requests().await {
-                    let transaction_id = request.txn_id.clone();
+                for req in self.base_client.outgoing_to_device_requests().await {
+                    let request = ToDeviceRequest {
+                        event_type: req.event_type,
+                        txn_id: &req.txn_id,
+                        messages: req.messages,
+                    };
 
                     if self.send(request).await.is_ok() {
                         self.base_client
-                            .mark_to_device_request_as_sent(&transaction_id)
+                            .mark_to_device_request_as_sent(&req.txn_id)
                             .await;
                     }
                 }
@@ -1292,7 +1291,7 @@ impl Client {
     #[instrument]
     async fn claim_one_time_keys(
         &self,
-        one_time_keys: BTreeMap<UserId, BTreeMap<Box<DeviceId>, KeyAlgorithm>>,
+        one_time_keys: BTreeMap<UserId, BTreeMap<Box<DeviceId>, DeviceKeyAlgorithm>>,
     ) -> Result<claim_keys::Response> {
         let request = claim_keys::Request {
             timeout: None,
@@ -1326,7 +1325,13 @@ impl Client {
             .await
             .expect("Keys don't need to be uploaded");
 
-        for request in requests.drain(..) {
+        for req in requests.drain(..) {
+            let request = ToDeviceRequest {
+                event_type: req.event_type,
+                txn_id: &req.txn_id,
+                messages: req.messages,
+            };
+
             let _response: send_event_to_device::Response = self.send(request).await?;
         }
 
@@ -1444,14 +1449,14 @@ mod test {
         set_read_marker, Client, ClientConfig, Invite3pid, MessageEventContent, Session,
         SyncSettings, Url,
     };
-    use crate::events::room::message::TextMessageEventContent;
-
-    use crate::{
-        identifiers::{event_id, room_id, user_id},
-        RegistrationBuilder, RoomListFilterBuilder,
-    };
+    use crate::{RegistrationBuilder, RoomListFilterBuilder};
 
     use matrix_sdk_base::JsonStore;
+    use matrix_sdk_common::{
+        events::room::message::TextMessageEventContent,
+        identifiers::{event_id, room_id, user_id},
+        thirdparty,
+    };
     use matrix_sdk_test::{test_json, EventBuilder, EventsJson};
     use mockito::{mock, Matcher};
     use tempfile::tempdir;
@@ -1785,7 +1790,7 @@ mod test {
                 &Invite3pid {
                     id_server: "example.org".to_string(),
                     id_access_token: "IdToken".to_string(),
-                    medium: crate::api::r0::thirdparty::Medium::Email,
+                    medium: thirdparty::Medium::Email,
                     address: "address".to_string(),
                 },
             )
