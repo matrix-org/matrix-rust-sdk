@@ -23,9 +23,8 @@ use matrix_sdk_common::{
 
 use crate::{error::Result, http_client::HttpClient};
 
-#[allow(dead_code)]
-#[derive(Debug, Clone)]
 /// An object controling the interactive verification flow.
+#[derive(Debug, Clone)]
 pub struct Sas {
     pub(crate) inner: BaseSas,
     pub(crate) homeserver: Arc<Url>,
