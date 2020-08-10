@@ -299,6 +299,7 @@ mod test {
         assert!(bob.is_done());
     }
 
+    #[cfg(not(target_os = "macos"))]
     #[tokio::test]
     async fn timing_out() {
         let (alice_machine, bob) = setup_verification_machine().await;
@@ -307,6 +308,7 @@ mod test {
         assert!(!alice.timed_out());
         assert!(alice_machine.outgoing_to_device_messages.is_empty());
 
+        // This line panics on macOS, so we're disabled for now.
         alice.set_creation_time(Instant::now() - Duration::from_secs(60 * 15));
         assert!(alice.timed_out());
         assert!(alice_machine.outgoing_to_device_messages.is_empty());
