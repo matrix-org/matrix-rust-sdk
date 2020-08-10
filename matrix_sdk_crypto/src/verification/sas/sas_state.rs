@@ -440,13 +440,10 @@ impl SasState<Started> {
 
         let their_pubkey = mem::take(&mut event.content.key);
 
-        // The SAS object clears the public key, so we make a copy.
-        let pubkey_copy = their_pubkey.clone();
-
         self.inner
             .lock()
             .unwrap()
-            .set_their_public_key(&pubkey_copy)
+            .set_their_public_key(their_pubkey.clone())
             .expect("Can't set public key");
 
         Ok(SasState {
@@ -489,13 +486,10 @@ impl SasState<Accepted> {
         } else {
             let their_pubkey = mem::take(&mut event.content.key);
 
-            // The SAS object clears the public key, so we make a copy.
-            let pubkey_copy = their_pubkey.clone();
-
             self.inner
                 .lock()
                 .unwrap()
-                .set_their_public_key(&pubkey_copy)
+                .set_their_public_key(their_pubkey.clone())
                 .expect("Can't set public key");
 
             Ok(SasState {
