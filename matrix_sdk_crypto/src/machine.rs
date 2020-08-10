@@ -1348,7 +1348,7 @@ mod test {
     }
 
     async fn get_prepared_machine() -> (OlmMachine, OneTimeKeys) {
-        let mut machine = OlmMachine::new(&user_id(), &alice_device_id());
+        let machine = OlmMachine::new(&user_id(), &alice_device_id());
         machine.account.update_uploaded_key_count(0);
         let (_, otk) = machine
             .keys_for_upload()
@@ -1364,7 +1364,7 @@ mod test {
     }
 
     async fn get_machine_after_query() -> (OlmMachine, OneTimeKeys) {
-        let (mut machine, otk) = get_prepared_machine().await;
+        let (machine, otk) = get_prepared_machine().await;
         let response = keys_query_response();
 
         machine
@@ -1402,7 +1402,7 @@ mod test {
     }
 
     async fn get_machine_pair_with_session() -> (OlmMachine, OlmMachine) {
-        let (mut alice, bob, one_time_keys) = get_machine_pair().await;
+        let (alice, bob, one_time_keys) = get_machine_pair().await;
 
         let mut bob_keys = BTreeMap::new();
 
@@ -1425,7 +1425,7 @@ mod test {
     }
 
     async fn get_machine_pair_with_setup_sessions() -> (OlmMachine, OlmMachine) {
-        let (mut alice, mut bob) = get_machine_pair_with_session().await;
+        let (alice, bob) = get_machine_pair_with_session().await;
 
         let bob_device = alice
             .store
@@ -1457,7 +1457,7 @@ mod test {
 
     #[tokio::test]
     async fn receive_keys_upload_response() {
-        let mut machine = OlmMachine::new(&user_id(), &alice_device_id());
+        let machine = OlmMachine::new(&user_id(), &alice_device_id());
         let mut response = keys_upload_response();
 
         response
@@ -1493,7 +1493,7 @@ mod test {
 
     #[tokio::test]
     async fn generate_one_time_keys() {
-        let mut machine = OlmMachine::new(&user_id(), &alice_device_id());
+        let machine = OlmMachine::new(&user_id(), &alice_device_id());
 
         let mut response = keys_upload_response();
 
@@ -1586,7 +1586,7 @@ mod test {
 
     #[tokio::test]
     async fn test_keys_for_upload() {
-        let mut machine = OlmMachine::new(&user_id(), &alice_device_id());
+        let machine = OlmMachine::new(&user_id(), &alice_device_id());
         machine.account.update_uploaded_key_count(0);
 
         let identity_keys = machine.account.identity_keys();
@@ -1630,7 +1630,7 @@ mod test {
 
     #[tokio::test]
     async fn test_keys_query() {
-        let (mut machine, _) = get_prepared_machine().await;
+        let (machine, _) = get_prepared_machine().await;
         let response = keys_query_response();
         let alice_id = user_id!("@alice:example.org");
         let alice_device_id: &DeviceId = "JLAFKJWSCS".into();
@@ -1663,7 +1663,7 @@ mod test {
 
     #[tokio::test]
     async fn test_missing_sessions_calculation() {
-        let (mut machine, _) = get_machine_after_query().await;
+        let (machine, _) = get_machine_after_query().await;
 
         let alice = alice_id();
         let alice_device = alice_device_id();
@@ -1680,7 +1680,7 @@ mod test {
 
     #[tokio::test]
     async fn test_session_creation() {
-        let (mut alice_machine, bob_machine, one_time_keys) = get_machine_pair().await;
+        let (alice_machine, bob_machine, one_time_keys) = get_machine_pair().await;
 
         let mut bob_keys = BTreeMap::new();
 
@@ -1716,7 +1716,7 @@ mod test {
 
     #[tokio::test]
     async fn test_olm_encryption() {
-        let (mut alice, mut bob) = get_machine_pair_with_session().await;
+        let (alice, bob) = get_machine_pair_with_session().await;
 
         let bob_device = alice
             .store
@@ -1751,7 +1751,7 @@ mod test {
 
     #[tokio::test]
     async fn test_room_key_sharing() {
-        let (mut alice, mut bob) = get_machine_pair_with_session().await;
+        let (mut alice, bob) = get_machine_pair_with_session().await;
 
         let room_id = room_id!("!test:example.org");
 
@@ -1797,7 +1797,7 @@ mod test {
 
     #[tokio::test]
     async fn test_megolm_encryption() {
-        let (mut alice, mut bob) = get_machine_pair_with_setup_sessions().await;
+        let (mut alice, bob) = get_machine_pair_with_setup_sessions().await;
         let room_id = room_id!("!test:example.org");
 
         let to_device_requests = alice
