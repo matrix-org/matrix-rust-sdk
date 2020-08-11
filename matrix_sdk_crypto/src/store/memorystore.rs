@@ -49,7 +49,7 @@ impl MemoryStore {
 
 #[async_trait]
 impl CryptoStore for MemoryStore {
-    async fn load_account(&mut self) -> Result<Option<Account>> {
+    async fn load_account(&self) -> Result<Option<Account>> {
         Ok(None)
     }
 

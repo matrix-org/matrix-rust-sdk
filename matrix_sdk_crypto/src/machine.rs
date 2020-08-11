@@ -147,7 +147,7 @@ impl OlmMachine {
     pub async fn new_with_store(
         user_id: UserId,
         device_id: Box<DeviceId>,
-        mut store: Box<dyn CryptoStore>,
+        store: Box<dyn CryptoStore>,
     ) -> StoreResult<Self> {
         let account = match store.load_account().await? {
             Some(a) => {

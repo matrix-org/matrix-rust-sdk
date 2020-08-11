@@ -17,7 +17,7 @@ use std::{
     convert::TryFrom,
     path::{Path, PathBuf},
     result::Result as StdResult,
-    sync::Arc,
+    sync::{Arc, Mutex as SyncMutex},
 };
 
 use async_trait::async_trait;
@@ -44,7 +44,7 @@ use crate::{
 pub struct SqliteStore {
     user_id: Arc<UserId>,
     device_id: Arc<Box<DeviceId>>,
-    account_info: Option<AccountInfo>,
+    account_info: Arc<SyncMutex<Option<AccountInfo>>>,
     path: PathBuf,
 
     sessions: SessionStore,
@@ -57,6 +57,7 @@ pub struct SqliteStore {
     pickle_passphrase: Option<Zeroizing<String>>,
 }
 
+#[derive(Clone)]
 struct AccountInfo {
     account_id: i64,
     identity_keys: Arc<IdentityKeys>,
@@ -131,7 +132,7 @@ impl SqliteStore {
         let store = SqliteStore {
             user_id: Arc::new(user_id.to_owned()),
             device_id: Arc::new(device_id.into()),
-            account_info: None,
+            account_info: Arc::new(SyncMutex::new(None)),
             sessions: SessionStore::new(),
             inbound_group_sessions: GroupSessionStore::new(),
             devices: DeviceStore::new(),
@@ -146,7 +147,11 @@ impl SqliteStore {
     }
 
     fn account_id(&self) -> Option<i64> {
-        self.account_info.as_ref().map(|i| i.account_id)
+        self.account_info
+            .lock()
+            .unwrap()
+            .as_ref()
+            .map(|i| i.account_id)
     }
 
     async fn create_tables(&self) -> Result<()> {
@@ -322,7 +327,9 @@ impl SqliteStore {
     async fn load_sessions_for(&self, sender_key: &str) -> Result<Vec<Session>> {
         let account_info = self
             .account_info
-            .as_ref()
+            .lock()
+            .unwrap()
+            .clone()
             .ok_or(CryptoStoreError::AccountUnset)?;
         let mut connection = self.connection.lock().await;
 
@@ -656,7 +663,7 @@ impl SqliteStore {
 
 #[async_trait]
 impl CryptoStore for SqliteStore {
-    async fn load_account(&mut self) -> Result<Option<Account>> {
+    async fn load_account(&self) -> Result<Option<Account>> {
         let mut connection = self.connection.lock().await;
 
         let row: Option<(i64, String, bool, i64)> = query_as(
@@ -678,7 +685,7 @@ impl CryptoStore for SqliteStore {
                 &self.device_id,
             )?;
 
-            self.account_info = Some(AccountInfo {
+            *self.account_info.lock().unwrap() = Some(AccountInfo {
                 account_id: id,
                 identity_keys: account.identity_keys.clone(),
             });
@@ -725,7 +732,7 @@ impl CryptoStore for SqliteStore {
                 .fetch_one(&mut *connection)
                 .await?;
 
-        self.account_info = Some(AccountInfo {
+        *self.account_info.lock().unwrap() = Some(AccountInfo {
             account_id: account_id.0,
             identity_keys: account.identity_keys.clone(),
         });
@@ -1113,7 +1120,7 @@ mod test {
 
         drop(store);
 
-        let mut store = SqliteStore::open(&example_user_id(), example_device_id(), dir.path())
+        let store = SqliteStore::open(&example_user_id(), example_device_id(), dir.path())
             .await
             .expect("Can't create store");
 
@@ -1199,7 +1206,7 @@ mod test {
         assert!(store.users_for_key_query().contains(device.user_id()));
         drop(store);
 
-        let mut store = SqliteStore::open(&example_user_id(), example_device_id(), dir.path())
+        let store = SqliteStore::open(&example_user_id(), example_device_id(), dir.path())
             .await
             .expect("Can't create store");
 
@@ -1214,7 +1221,7 @@ mod test {
             .unwrap();
         assert!(!store.users_for_key_query().contains(device.user_id()));
 
-        let mut store = SqliteStore::open(&example_user_id(), example_device_id(), dir.path())
+        let store = SqliteStore::open(&example_user_id(), example_device_id(), dir.path())
             .await
             .expect("Can't create store");
 
@@ -1232,7 +1239,7 @@ mod test {
 
         drop(store);
 
-        let mut store = SqliteStore::open(&example_user_id(), example_device_id(), dir.path())
+        let store = SqliteStore::open(&example_user_id(), example_device_id(), dir.path())
             .await
             .expect("Can't create store");
 
@@ -1265,7 +1272,7 @@ mod test {
         store.save_devices(&[device.clone()]).await.unwrap();
         store.delete_device(device.clone()).await.unwrap();
 
-        let mut store = SqliteStore::open(&example_user_id(), example_device_id(), dir.path())
+        let store = SqliteStore::open(&example_user_id(), example_device_id(), dir.path())
             .await
             .expect("Can't create store");
 

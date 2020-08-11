@@ -95,7 +95,7 @@ pub type Result<T> = std::result::Result<T, CryptoStoreError>;
 /// keys.
 pub trait CryptoStore: Debug {
     /// Load an account that was previously stored.
-    async fn load_account(&mut self) -> Result<Option<Account>>;
+    async fn load_account(&self) -> Result<Option<Account>>;
 
     /// Save the given account in the store.
     ///
