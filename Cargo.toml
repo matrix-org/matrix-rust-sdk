@@ -8,7 +8,3 @@ members = [
     "matrix_sdk_common",
     "matrix_sdk_common_macros",
 ]
-
-[patch.crates-io]
-olm-rs = { git = 'https://gitlab.gnome.org/jhaye/olm-rs/'}
-olm-sys = { git = 'https://gitlab.gnome.org/BrainBlasted/olm-sys' }

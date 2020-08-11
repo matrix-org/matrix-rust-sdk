@@ -63,7 +63,7 @@ pub struct Account {
     uploaded_signed_key_count: Arc<AtomicI64>,
 }
 
-// #[cfg_attr(tarpaulin, skip)]
+#[cfg(not(tarpaulin_include))]
 impl fmt::Debug for Account {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Account")

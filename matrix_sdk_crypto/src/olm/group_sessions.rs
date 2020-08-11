@@ -222,7 +222,7 @@ impl InboundGroupSession {
     }
 }
 
-// #[cfg_attr(tarpaulin, skip)]
+#[cfg(not(tarpaulin_include))]
 impl fmt::Debug for InboundGroupSession {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("InboundGroupSession")
@@ -401,7 +401,7 @@ impl OutboundGroupSession {
     }
 }
 
-// #[cfg_attr(tarpaulin, skip)]
+#[cfg(not(tarpaulin_include))]
 impl std::fmt::Debug for OutboundGroupSession {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("OutboundGroupSession")

@@ -43,7 +43,7 @@ impl SessionStore {
     ///
     /// Returns true if the the session was added, false if the session was
     /// already in the store.
-    pub async fn add(&mut self, session: Session) -> bool {
+    pub async fn add(&self, session: Session) -> bool {
         if !self.entries.contains_key(&*session.sender_key) {
             self.entries.insert(
                 session.sender_key.to_string(),
@@ -62,11 +62,12 @@ impl SessionStore {
 
     /// Get all the sessions that belong to the given sender key.
     pub fn get(&self, sender_key: &str) -> Option<Arc<Mutex<Vec<Session>>>> {
+        #[allow(clippy::map_clone)]
         self.entries.get(sender_key).map(|s| s.clone())
     }
 
     /// Add a list of sessions belonging to the sender key.
-    pub fn set_for_sender(&mut self, sender_key: &str, sessions: Vec<Session>) {
+    pub fn set_for_sender(&self, sender_key: &str, sessions: Vec<Session>) {
         self.entries
             .insert(sender_key.to_owned(), Arc::new(Mutex::new(sessions)));
     }
@@ -75,6 +76,7 @@ impl SessionStore {
 #[derive(Debug, Default, Clone)]
 /// In-memory store that holds inbound group sessions.
 pub struct GroupSessionStore {
+    #[allow(clippy::type_complexity)]
     entries: Arc<DashMap<RoomId, HashMap<String, HashMap<String, InboundGroupSession>>>>,
 }
 
@@ -90,7 +92,7 @@ impl GroupSessionStore {
     ///
     /// Returns true if the the session was added, false if the session was
     /// already in the store.
-    pub fn add(&mut self, session: InboundGroupSession) -> bool {
+    pub fn add(&self, session: InboundGroupSession) -> bool {
         if !self.entries.contains_key(&session.room_id) {
             let room_id = &*session.room_id;
             self.entries.insert(room_id.clone(), HashMap::new());
@@ -223,7 +225,7 @@ mod test {
     async fn test_session_store() {
         let (_, session) = get_account_and_session().await;
 
-        let mut store = SessionStore::new();
+        let store = SessionStore::new();
 
         assert!(store.add(session.clone()).await);
         assert!(!store.add(session.clone()).await);
@@ -240,7 +242,7 @@ mod test {
     async fn test_session_store_bulk_storing() {
         let (_, session) = get_account_and_session().await;
 
-        let mut store = SessionStore::new();
+        let store = SessionStore::new();
         store.set_for_sender(&session.sender_key, vec![session.clone()]);
 
         let sessions = store.get(&session.sender_key).unwrap();
@@ -271,7 +273,7 @@ mod test {
         )
         .unwrap();
 
-        let mut store = GroupSessionStore::new();
+        let store = GroupSessionStore::new();
         store.add(inbound.clone());
 
         let loaded_session = store

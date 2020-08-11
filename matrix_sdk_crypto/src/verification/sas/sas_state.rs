@@ -98,6 +98,7 @@ impl TryFrom<AcceptV1Content> for AcceptedProtocols {
     }
 }
 
+#[cfg(not(tarpaulin_include))]
 impl Default for AcceptedProtocols {
     fn default() -> Self {
         AcceptedProtocols {
@@ -146,6 +147,7 @@ pub struct SasState<S: Clone> {
     state: Arc<S>,
 }
 
+#[cfg(not(tarpaulin_include))]
 impl<S: Clone + std::fmt::Debug> std::fmt::Debug for SasState<S> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("SasState")

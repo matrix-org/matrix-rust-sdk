@@ -15,6 +15,7 @@
 use std::{collections::HashSet, sync::Arc};
 
 use async_trait::async_trait;
+use dashmap::DashSet;
 use matrix_sdk_common::{
     identifiers::{DeviceId, RoomId, UserId},
     locks::Mutex,
@@ -25,12 +26,12 @@ use crate::{
     device::Device,
     memory_stores::{DeviceStore, GroupSessionStore, SessionStore, UserDevices},
 };
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct MemoryStore {
     sessions: SessionStore,
     inbound_group_sessions: GroupSessionStore,
-    tracked_users: HashSet<UserId>,
-    users_for_key_query: HashSet<UserId>,
+    tracked_users: Arc<DashSet<UserId>>,
+    users_for_key_query: Arc<DashSet<UserId>>,
     devices: DeviceStore,
 }
 
@@ -39,8 +40,8 @@ impl MemoryStore {
         MemoryStore {
             sessions: SessionStore::new(),
             inbound_group_sessions: GroupSessionStore::new(),
-            tracked_users: HashSet::new(),
-            users_for_key_query: HashSet::new(),
+            tracked_users: Arc::new(DashSet::new()),
+            users_for_key_query: Arc::new(DashSet::new()),
             devices: DeviceStore::new(),
         }
     }
@@ -48,15 +49,15 @@ impl MemoryStore {
 
 #[async_trait]
 impl CryptoStore for MemoryStore {
-    async fn load_account(&mut self) -> Result<Option<Account>> {
+    async fn load_account(&self) -> Result<Option<Account>> {
         Ok(None)
     }
 
-    async fn save_account(&mut self, _: Account) -> Result<()> {
+    async fn save_account(&self, _: Account) -> Result<()> {
         Ok(())
     }
 
-    async fn save_sessions(&mut self, sessions: &[Session]) -> Result<()> {
+    async fn save_sessions(&self, sessions: &[Session]) -> Result<()> {
         for session in sessions {
             let _ = self.sessions.add(session.clone()).await;
         }
@@ -64,16 +65,16 @@ impl CryptoStore for MemoryStore {
         Ok(())
     }
 
-    async fn get_sessions(&mut self, sender_key: &str) -> Result<Option<Arc<Mutex<Vec<Session>>>>> {
+    async fn get_sessions(&self, sender_key: &str) -> Result<Option<Arc<Mutex<Vec<Session>>>>> {
         Ok(self.sessions.get(sender_key))
     }
 
-    async fn save_inbound_group_session(&mut self, session: InboundGroupSession) -> Result<bool> {
+    async fn save_inbound_group_session(&self, session: InboundGroupSession) -> Result<bool> {
         Ok(self.inbound_group_sessions.add(session))
     }
 
     async fn get_inbound_group_session(
-        &mut self,
+        &self,
         room_id: &RoomId,
         sender_key: &str,
         session_id: &str,
@@ -83,15 +84,20 @@ impl CryptoStore for MemoryStore {
             .get(room_id, sender_key, session_id))
     }
 
-    fn tracked_users(&self) -> &HashSet<UserId> {
-        &self.tracked_users
+    fn users_for_key_query(&self) -> HashSet<UserId> {
+        #[allow(clippy::map_clone)]
+        self.users_for_key_query.iter().map(|u| u.clone()).collect()
     }
 
-    fn users_for_key_query(&self) -> &HashSet<UserId> {
-        &self.users_for_key_query
+    fn is_user_tracked(&self, user_id: &UserId) -> bool {
+        self.tracked_users.contains(user_id)
     }
 
-    async fn update_tracked_user(&mut self, user: &UserId, dirty: bool) -> Result<bool> {
+    fn has_users_for_key_query(&self) -> bool {
+        !self.users_for_key_query.is_empty()
+    }
+
+    async fn update_tracked_user(&self, user: &UserId, dirty: bool) -> Result<bool> {
         if dirty {
             self.users_for_key_query.insert(user.clone());
         } else {
@@ -135,7 +141,7 @@ mod test {
     #[tokio::test]
     async fn test_session_store() {
         let (account, session) = get_account_and_session().await;
-        let mut store = MemoryStore::new();
+        let store = MemoryStore::new();
 
         assert!(store.load_account().await.unwrap().is_none());
         store.save_account(account).await.unwrap();
@@ -168,7 +174,7 @@ mod test {
         )
         .unwrap();
 
-        let mut store = MemoryStore::new();
+        let store = MemoryStore::new();
         let _ = store
             .save_inbound_group_session(inbound.clone())
             .await
@@ -217,7 +223,7 @@ mod test {
     #[tokio::test]
     async fn test_tracked_users() {
         let device = get_device();
-        let mut store = MemoryStore::new();
+        let store = MemoryStore::new();
 
         assert!(store
             .update_tracked_user(device.user_id(), false)
@@ -228,8 +234,6 @@ mod test {
             .await
             .unwrap());
 
-        let tracked_users = store.tracked_users();
-
-        let _ = tracked_users.contains(device.user_id());
+        assert!(store.is_user_tracked(device.user_id()));
     }
 }

@@ -51,7 +51,7 @@ pub struct Session {
     pub(crate) last_use_time: Arc<Instant>,
 }
 
-// #[cfg_attr(tarpaulin, skip)]
+#[cfg(not(tarpaulin_include))]
 impl fmt::Debug for Session {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Session")

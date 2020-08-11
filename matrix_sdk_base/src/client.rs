@@ -212,7 +212,7 @@ pub struct BaseClient {
     store_passphrase: Arc<Zeroizing<String>>,
 }
 
-// #[cfg_attr(tarpaulin, skip)]
+#[cfg(not(tarpaulin_include))]
 impl fmt::Debug for BaseClient {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Client")
@@ -246,7 +246,7 @@ pub struct BaseClientConfig {
     passphrase: Option<Zeroizing<String>>,
 }
 
-// #[cfg_attr(tarpaulin, skip)]
+#[cfg(not(tarpaulin_include))]
 impl std::fmt::Debug for BaseClientConfig {
     fn fmt(&self, fmt: &mut std::fmt::Formatter<'_>) -> StdResult<(), std::fmt::Error> {
         fmt.debug_struct("BaseClientConfig").finish()
