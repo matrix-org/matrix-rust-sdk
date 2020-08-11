@@ -109,14 +109,14 @@ pub trait CryptoStore: Debug {
     /// # Arguments
     ///
     /// * `session` - The sessions that should be stored.
-    async fn save_sessions(&mut self, session: &[Session]) -> Result<()>;
+    async fn save_sessions(&self, session: &[Session]) -> Result<()>;
 
     /// Get all the sessions that belong to the given sender key.
     ///
     /// # Arguments
     ///
     /// * `sender_key` - The sender key that was used to establish the sessions.
-    async fn get_sessions(&mut self, sender_key: &str) -> Result<Option<Arc<Mutex<Vec<Session>>>>>;
+    async fn get_sessions(&self, sender_key: &str) -> Result<Option<Arc<Mutex<Vec<Session>>>>>;
 
     /// Save the given inbound group session in the store.
     ///
@@ -126,7 +126,7 @@ pub trait CryptoStore: Debug {
     /// # Arguments
     ///
     /// * `session` - The session that should be stored.
-    async fn save_inbound_group_session(&mut self, session: InboundGroupSession) -> Result<bool>;
+    async fn save_inbound_group_session(&self, session: InboundGroupSession) -> Result<bool>;
 
     /// Get the inbound group session from our store.
     ///
@@ -137,7 +137,7 @@ pub trait CryptoStore: Debug {
     ///
     /// * `session_id` - The unique id of the session.
     async fn get_inbound_group_session(
-        &mut self,
+        &self,
         room_id: &RoomId,
         sender_key: &str,
         session_id: &str,
@@ -146,9 +146,12 @@ pub trait CryptoStore: Debug {
     /// Is the given user already tracked.
     fn is_user_tracked(&self, user_id: &UserId) -> bool;
 
+    /// Are there any tracked users that are marked as dirty.
+    fn has_users_for_key_query(&self) -> bool;
+
     /// Set of users that we need to query keys for. This is a subset of
     /// the tracked users.
-    fn users_for_key_query(&self) -> &HashSet<UserId>;
+    fn users_for_key_query(&self) -> HashSet<UserId>;
 
     /// Add an user for tracking.
     ///
@@ -159,7 +162,7 @@ pub trait CryptoStore: Debug {
     /// * `user` - The user that should be marked as tracked.
     ///
     /// * `dirty` - Should the user be also marked for a key query.
-    async fn update_tracked_user(&mut self, user: &UserId, dirty: bool) -> Result<bool>;
+    async fn update_tracked_user(&self, user: &UserId, dirty: bool) -> Result<bool>;
 
     /// Save the given devices in the store.
     ///

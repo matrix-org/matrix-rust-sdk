@@ -1268,14 +1268,14 @@ impl OlmMachine {
 
     /// Should the client perform a key query request.
     pub async fn should_query_keys(&self) -> bool {
-        !self.store.read().await.users_for_key_query().is_empty()
+        self.store.read().await.has_users_for_key_query()
     }
 
     /// Get the set of users that we need to query keys for.
     ///
     /// Returns a hash set of users that need to be queried for keys.
     pub async fn users_for_key_query(&self) -> HashSet<UserId> {
-        self.store.read().await.users_for_key_query().clone()
+        self.store.read().await.users_for_key_query()
     }
 }
 

@@ -21,6 +21,7 @@ use std::{
 };
 
 use async_trait::async_trait;
+use dashmap::DashSet;
 use matrix_sdk_common::{
     events::Algorithm,
     identifiers::{DeviceId, DeviceKeyAlgorithm, DeviceKeyId, RoomId, UserId},
@@ -49,8 +50,8 @@ pub struct SqliteStore {
     sessions: SessionStore,
     inbound_group_sessions: GroupSessionStore,
     devices: DeviceStore,
-    tracked_users: HashSet<UserId>,
-    users_for_key_query: HashSet<UserId>,
+    tracked_users: DashSet<UserId>,
+    users_for_key_query: DashSet<UserId>,
 
     connection: Arc<Mutex<SqliteConnection>>,
     pickle_passphrase: Option<Zeroizing<String>>,
@@ -137,8 +138,8 @@ impl SqliteStore {
             path: path.as_ref().to_owned(),
             connection: Arc::new(Mutex::new(connection)),
             pickle_passphrase: passphrase,
-            tracked_users: HashSet::new(),
-            users_for_key_query: HashSet::new(),
+            tracked_users: DashSet::new(),
+            users_for_key_query: DashSet::new(),
         };
         store.create_tables().await?;
         Ok(store)
@@ -299,7 +300,7 @@ impl SqliteStore {
         Ok(())
     }
 
-    async fn lazy_load_sessions(&mut self, sender_key: &str) -> Result<()> {
+    async fn lazy_load_sessions(&self, sender_key: &str) -> Result<()> {
         let loaded_sessions = self.sessions.get(sender_key).is_some();
 
         if !loaded_sessions {
@@ -313,15 +314,12 @@ impl SqliteStore {
         Ok(())
     }
 
-    async fn get_sessions_for(
-        &mut self,
-        sender_key: &str,
-    ) -> Result<Option<Arc<Mutex<Vec<Session>>>>> {
+    async fn get_sessions_for(&self, sender_key: &str) -> Result<Option<Arc<Mutex<Vec<Session>>>>> {
         self.lazy_load_sessions(sender_key).await?;
         Ok(self.sessions.get(sender_key))
     }
 
-    async fn load_sessions_for(&mut self, sender_key: &str) -> Result<Vec<Session>> {
+    async fn load_sessions_for(&self, sender_key: &str) -> Result<Vec<Session>> {
         let account_info = self
             .account_info
             .as_ref()
@@ -417,7 +415,7 @@ impl SqliteStore {
         Ok(())
     }
 
-    async fn load_tracked_users(&self) -> Result<(HashSet<UserId>, HashSet<UserId>)> {
+    async fn load_tracked_users(&self) -> Result<()> {
         let account_id = self.account_id().ok_or(CryptoStoreError::AccountUnset)?;
         let mut connection = self.connection.lock().await;
 
@@ -429,24 +427,21 @@ impl SqliteStore {
         .fetch_all(&mut *connection)
         .await?;
 
-        let mut users = HashSet::new();
-        let mut users_for_query = HashSet::new();
-
         for row in rows {
             let user_id: &str = &row.0;
             let dirty: bool = row.1;
 
             if let Ok(u) = UserId::try_from(user_id) {
-                users.insert(u.clone());
+                self.tracked_users.insert(u.clone());
                 if dirty {
-                    users_for_query.insert(u);
+                    self.users_for_key_query.insert(u);
                 }
             } else {
                 continue;
             };
         }
 
-        Ok((users, users_for_query))
+        Ok(())
     }
 
     async fn load_devices(&self) -> Result<DeviceStore> {
@@ -700,9 +695,7 @@ impl CryptoStore for SqliteStore {
         let devices = self.load_devices().await?;
         self.devices = devices;
 
-        let (tracked_users, users_for_query) = self.load_tracked_users().await?;
-        self.tracked_users = tracked_users;
-        self.users_for_key_query = users_for_query;
+        self.load_tracked_users().await?;
 
         Ok(result)
     }
@@ -743,7 +736,7 @@ impl CryptoStore for SqliteStore {
         Ok(())
     }
 
-    async fn save_sessions(&mut self, sessions: &[Session]) -> Result<()> {
+    async fn save_sessions(&self, sessions: &[Session]) -> Result<()> {
         let account_id = self.account_id().ok_or(CryptoStoreError::AccountUnset)?;
 
         // TODO turn this into a transaction
@@ -776,11 +769,11 @@ impl CryptoStore for SqliteStore {
         Ok(())
     }
 
-    async fn get_sessions(&mut self, sender_key: &str) -> Result<Option<Arc<Mutex<Vec<Session>>>>> {
+    async fn get_sessions(&self, sender_key: &str) -> Result<Option<Arc<Mutex<Vec<Session>>>>> {
         Ok(self.get_sessions_for(sender_key).await?)
     }
 
-    async fn save_inbound_group_session(&mut self, session: InboundGroupSession) -> Result<bool> {
+    async fn save_inbound_group_session(&self, session: InboundGroupSession) -> Result<bool> {
         let account_id = self.account_id().ok_or(CryptoStoreError::AccountUnset)?;
         let pickle = session.pickle(self.get_pickle_mode()).await;
         let mut connection = self.connection.lock().await;
@@ -808,7 +801,7 @@ impl CryptoStore for SqliteStore {
     }
 
     async fn get_inbound_group_session(
-        &mut self,
+        &self,
         room_id: &RoomId,
         sender_key: &str,
         session_id: &str,
@@ -822,11 +815,15 @@ impl CryptoStore for SqliteStore {
         self.tracked_users.contains(user_id)
     }
 
-    fn users_for_key_query(&self) -> &HashSet<UserId> {
-        &self.users_for_key_query
+    fn has_users_for_key_query(&self) -> bool {
+        !self.users_for_key_query.is_empty()
     }
 
-    async fn update_tracked_user(&mut self, user: &UserId, dirty: bool) -> Result<bool> {
+    fn users_for_key_query(&self) -> HashSet<UserId> {
+        self.users_for_key_query.iter().map(|u| u.clone()).collect()
+    }
+
+    async fn update_tracked_user(&self, user: &UserId, dirty: bool) -> Result<bool> {
         let already_added = self.tracked_users.insert(user.clone());
 
         if dirty {
@@ -1135,7 +1132,7 @@ mod test {
 
     #[tokio::test]
     async fn save_inbound_group_session() {
-        let (account, mut store, _dir) = get_loaded_store().await;
+        let (account, store, _dir) = get_loaded_store().await;
 
         let identity_keys = account.identity_keys();
         let outbound_session = OlmOutboundGroupSession::new();
@@ -1155,7 +1152,7 @@ mod test {
 
     #[tokio::test]
     async fn load_inbound_group_session() {
-        let (account, mut store, _dir) = get_loaded_store().await;
+        let (account, store, _dir) = get_loaded_store().await;
 
         let identity_keys = account.identity_keys();
         let outbound_session = OlmOutboundGroupSession::new();
@@ -1188,7 +1185,7 @@ mod test {
 
     #[tokio::test]
     async fn test_tracked_users() {
-        let (_account, mut store, dir) = get_loaded_store().await;
+        let (_account, store, dir) = get_loaded_store().await;
         let device = get_device();
 
         assert!(store
