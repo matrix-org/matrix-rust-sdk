@@ -1,4 +1,4 @@
 [default-config]
-debug = true
+debug = false
 verbose = false
 exclude-files = ["matrix_sdk/examples/*", "matrix_sdk_common", "matrix_sdk_test"]
