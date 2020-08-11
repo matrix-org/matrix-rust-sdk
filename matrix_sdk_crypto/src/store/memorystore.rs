@@ -26,7 +26,7 @@ use crate::{
     device::Device,
     memory_stores::{DeviceStore, GroupSessionStore, SessionStore, UserDevices},
 };
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct MemoryStore {
     sessions: SessionStore,
     inbound_group_sessions: GroupSessionStore,

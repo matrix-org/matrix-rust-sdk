@@ -212,8 +212,6 @@ fn extra_mac_info_send(ids: &SasIds, flow_id: &str) -> String {
 ///
 /// * `flow_id` - The unique id that identifies this SAS verification process.
 ///
-/// * `we_started` - Flag signaling if the SAS process was started on our side.
-///
 /// # Panics
 ///
 /// This will panic if the public key of the other side wasn't set.

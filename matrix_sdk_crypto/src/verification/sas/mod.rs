@@ -31,7 +31,6 @@ use matrix_sdk_common::{
         AnyToDeviceEvent, AnyToDeviceEventContent, ToDeviceEvent,
     },
     identifiers::{DeviceId, UserId},
-    locks::RwLock,
 };
 
 use crate::{Account, CryptoStore, CryptoStoreError, Device, TrustState};
@@ -45,7 +44,7 @@ use sas_state::{
 /// Short authentication string object.
 pub struct Sas {
     inner: Arc<Mutex<InnerSas>>,
-    store: Arc<RwLock<Box<dyn CryptoStore>>>,
+    store: Arc<Box<dyn CryptoStore>>,
     account: Account,
     other_device: Device,
     flow_id: Arc<String>,
@@ -100,7 +99,7 @@ impl Sas {
     pub(crate) fn start(
         account: Account,
         other_device: Device,
-        store: Arc<RwLock<Box<dyn CryptoStore>>>,
+        store: Arc<Box<dyn CryptoStore>>,
     ) -> (Sas, StartEventContent) {
         let (inner, content) = InnerSas::start(account.clone(), other_device.clone());
         let flow_id = inner.verification_flow_id();
@@ -129,7 +128,7 @@ impl Sas {
     pub(crate) fn from_start_event(
         account: Account,
         other_device: Device,
-        store: Arc<RwLock<Box<dyn CryptoStore>>>,
+        store: Arc<Box<dyn CryptoStore>>,
         event: &ToDeviceEvent<StartEventContent>,
     ) -> Result<Sas, AnyToDeviceEventContent> {
         let inner = InnerSas::from_start_event(account.clone(), other_device.clone(), event)?;
@@ -184,8 +183,6 @@ impl Sas {
     pub(crate) async fn mark_device_as_verified(&self) -> Result<bool, CryptoStoreError> {
         let device = self
             .store
-            .read()
-            .await
             .get_device(self.other_user_id(), self.other_device_id())
             .await?;
 
@@ -202,7 +199,7 @@ impl Sas {
                     );
 
                     device.set_trust_state(TrustState::Verified);
-                    self.store.read().await.save_devices(&[device]).await?;
+                    self.store.save_devices(&[device]).await?;
 
                     Ok(true)
                 } else {
@@ -560,7 +557,6 @@ mod test {
     use matrix_sdk_common::{
         events::{EventContent, ToDeviceEvent},
         identifiers::{DeviceId, UserId},
-        locks::RwLock,
     };
 
     use crate::{
@@ -685,14 +681,10 @@ mod test {
         let bob = Account::new(&bob_id(), &bob_device_id());
         let bob_device = Device::from_account(&bob).await;
 
-        let alice_store: Arc<RwLock<Box<dyn CryptoStore>>> =
-            Arc::new(RwLock::new(Box::new(MemoryStore::new())));
-        let bob_store: Arc<RwLock<Box<dyn CryptoStore>>> =
-            Arc::new(RwLock::new(Box::new(MemoryStore::new())));
+        let alice_store: Arc<Box<dyn CryptoStore>> = Arc::new(Box::new(MemoryStore::new()));
+        let bob_store: Arc<Box<dyn CryptoStore>> = Arc::new(Box::new(MemoryStore::new()));
 
         bob_store
-            .read()
-            .await
             .save_devices(&[alice_device.clone()])
             .await
             .unwrap();

@@ -22,7 +22,6 @@ use matrix_sdk_common::{
     api::r0::to_device::send_event_to_device::IncomingRequest as OwnedToDeviceRequest,
     events::{AnyToDeviceEvent, AnyToDeviceEventContent},
     identifiers::{DeviceId, UserId},
-    locks::RwLock,
 };
 
 use super::sas::{content_to_request, Sas};
@@ -31,13 +30,13 @@ use crate::{Account, CryptoStore, CryptoStoreError};
 #[derive(Clone, Debug)]
 pub struct VerificationMachine {
     account: Account,
-    store: Arc<RwLock<Box<dyn CryptoStore>>>,
+    store: Arc<Box<dyn CryptoStore>>,
     verifications: Arc<DashMap<String, Sas>>,
     outgoing_to_device_messages: Arc<DashMap<String, OwnedToDeviceRequest>>,
 }
 
 impl VerificationMachine {
-    pub(crate) fn new(account: Account, store: Arc<RwLock<Box<dyn CryptoStore>>>) -> Self {
+    pub(crate) fn new(account: Account, store: Arc<Box<dyn CryptoStore>>) -> Self {
         Self {
             account,
             store,
@@ -112,8 +111,6 @@ impl VerificationMachine {
 
                 if let Some(d) = self
                     .store
-                    .read()
-                    .await
                     .get_device(&e.sender, &e.content.from_device)
                     .await?
                 {
@@ -179,7 +176,6 @@ mod test {
     use matrix_sdk_common::{
         events::AnyToDeviceEventContent,
         identifiers::{DeviceId, UserId},
-        locks::RwLock,
     };
 
     use super::{Sas, VerificationMachine};
@@ -209,21 +205,18 @@ mod test {
         let alice = Account::new(&alice_id(), &alice_device_id());
         let bob = Account::new(&bob_id(), &bob_device_id());
         let store = MemoryStore::new();
-        let bob_store: Arc<RwLock<Box<dyn CryptoStore>>> =
-            Arc::new(RwLock::new(Box::new(MemoryStore::new())));
+        let bob_store: Arc<Box<dyn CryptoStore>> = Arc::new(Box::new(MemoryStore::new()));
 
         let bob_device = Device::from_account(&bob).await;
         let alice_device = Device::from_account(&alice).await;
 
         store.save_devices(&[bob_device]).await.unwrap();
         bob_store
-            .read()
-            .await
             .save_devices(&[alice_device.clone()])
             .await
             .unwrap();
 
-        let machine = VerificationMachine::new(alice, Arc::new(RwLock::new(Box::new(store))));
+        let machine = VerificationMachine::new(alice, Arc::new(Box::new(store)));
         let (bob_sas, start_content) = Sas::start(bob, alice_device, bob_store);
         machine
             .receive_event(&mut wrap_any_to_device_content(
@@ -240,7 +233,7 @@ mod test {
     fn create() {
         let alice = Account::new(&alice_id(), &alice_device_id());
         let store = MemoryStore::new();
-        let _ = VerificationMachine::new(alice, Arc::new(RwLock::new(Box::new(store))));
+        let _ = VerificationMachine::new(alice, Arc::new(Box::new(store)));
     }
 
     #[tokio::test]

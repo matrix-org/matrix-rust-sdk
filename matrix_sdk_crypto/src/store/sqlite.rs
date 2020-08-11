@@ -41,6 +41,7 @@ use crate::{
 };
 
 /// SQLite based implementation of a `CryptoStore`.
+#[derive(Clone)]
 pub struct SqliteStore {
     user_id: Arc<UserId>,
     device_id: Arc<Box<DeviceId>>,
