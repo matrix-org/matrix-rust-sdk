@@ -827,7 +827,7 @@ mod test {
         identifiers::{DeviceId, UserId},
     };
 
-    use super::{Accepted, Canceled, Created, SasState, Started};
+    use super::{Accepted, Created, SasState, Started};
 
     fn alice_id() -> UserId {
         UserId::try_from("@alice:example.org").unwrap()
