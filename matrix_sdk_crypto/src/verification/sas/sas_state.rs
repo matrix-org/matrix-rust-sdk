@@ -823,11 +823,11 @@ mod test {
 
     use crate::{Account, Device};
     use matrix_sdk_common::{
-        events::{EventContent, ToDeviceEvent},
+        events::{key::verification::accept::AcceptMethod, EventContent, ToDeviceEvent},
         identifiers::{DeviceId, UserId},
     };
 
-    use super::{Accepted, Created, SasState, Started};
+    use super::{Accepted, Canceled, Created, SasState, Started};
 
     fn alice_id() -> UserId {
         UserId::try_from("@alice:example.org").unwrap()
@@ -933,5 +933,40 @@ mod test {
 
         assert!(bob.verified_devices().contains(&bob.other_device()));
         assert!(alice.verified_devices().contains(&alice.other_device()));
+    }
+
+    #[tokio::test]
+    async fn sas_invalid_commitment() {
+        let (alice, bob) = get_sas_pair().await;
+
+        let mut event = wrap_to_device_event(bob.user_id(), bob.as_content());
+
+        match &mut event.content.method {
+            AcceptMethod::MSasV1(ref mut c) => {
+                c.commitment = "".to_string();
+            }
+            _ => panic!("Unknown accept event content"),
+        }
+
+        let alice: SasState<Accepted> = alice.into_accepted(&event).unwrap();
+
+        let mut event = wrap_to_device_event(alice.user_id(), alice.as_content());
+        let bob = bob.into_key_received(&mut event).unwrap();
+        let mut event = wrap_to_device_event(bob.user_id(), bob.as_content());
+
+        alice
+            .into_key_received(&mut event)
+            .expect_err("Didn't cancel on invalid commitment");
+    }
+
+    #[tokio::test]
+    async fn sas_invalid_sender() {
+        let (alice, bob) = get_sas_pair().await;
+
+        let mut event = wrap_to_device_event(bob.user_id(), bob.as_content());
+        event.sender = UserId::try_from("@malory:example.org").unwrap();
+        alice
+            .into_accepted(&event)
+            .expect_err("Didn't cancel on a invalid sender");
     }
 }
