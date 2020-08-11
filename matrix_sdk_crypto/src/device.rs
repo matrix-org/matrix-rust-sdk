@@ -198,7 +198,7 @@ impl Device {
 
     #[cfg(test)]
     pub async fn from_machine(machine: &OlmMachine) -> Device {
-        Device::from_account(&machine.account).await
+        Device::from_account(machine.account()).await
     }
 
     #[cfg(test)]

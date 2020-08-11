@@ -75,7 +75,7 @@ pub struct OlmMachine {
     /// The unique device id of the device that holds this account.
     device_id: Box<DeviceId>,
     /// Our underlying Olm Account holding our identity keys.
-    pub(crate) account: Account,
+    account: Account,
     /// Store for the encryption keys.
     /// Persists all the encryption keys so a client can resume the session
     /// without the need to create new keys.
@@ -87,7 +87,7 @@ pub struct OlmMachine {
     verification_machine: VerificationMachine,
 }
 
-// #[cfg_attr(tarpaulin, skip)]
+#[cfg(not(tarpaulin_include))]
 impl std::fmt::Debug for OlmMachine {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("OlmMachine")
@@ -212,6 +212,12 @@ impl OlmMachine {
     /// Should account or one-time keys be uploaded to the server.
     pub async fn should_upload_keys(&self) -> bool {
         self.account.should_upload_keys().await
+    }
+
+    /// Get the underlying Olm account of the machine.
+    #[cfg(test)]
+    pub(crate) fn account(&self) -> &Account {
+        &self.account
     }
 
     /// Update the count of one-time keys that are currently on the server.
