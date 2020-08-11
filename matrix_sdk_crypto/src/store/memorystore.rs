@@ -83,12 +83,12 @@ impl CryptoStore for MemoryStore {
             .get(room_id, sender_key, session_id))
     }
 
-    fn tracked_users(&self) -> &HashSet<UserId> {
-        &self.tracked_users
-    }
-
     fn users_for_key_query(&self) -> &HashSet<UserId> {
         &self.users_for_key_query
+    }
+
+    fn is_user_tracked(&self, user_id: &UserId) -> bool {
+        self.tracked_users.contains(user_id)
     }
 
     async fn update_tracked_user(&mut self, user: &UserId, dirty: bool) -> Result<bool> {
@@ -228,8 +228,6 @@ mod test {
             .await
             .unwrap());
 
-        let tracked_users = store.tracked_users();
-
-        let _ = tracked_users.contains(device.user_id());
+        assert!(store.is_user_tracked(device.user_id()));
     }
 }

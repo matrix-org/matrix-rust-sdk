@@ -1219,7 +1219,7 @@ impl OlmMachine {
     ///
     /// Returns true if the user was queued up for a key query, false otherwise.
     pub async fn mark_user_as_changed(&self, user_id: &UserId) -> StoreResult<bool> {
-        if self.store.read().await.tracked_users().contains(user_id) {
+        if self.store.read().await.is_user_tracked(user_id) {
             self.store
                 .write()
                 .await
@@ -1250,7 +1250,7 @@ impl OlmMachine {
         I: IntoIterator<Item = &'a UserId>,
     {
         for user in users {
-            if self.store.read().await.tracked_users().contains(user) {
+            if self.store.read().await.is_user_tracked(user) {
                 continue;
             }
 

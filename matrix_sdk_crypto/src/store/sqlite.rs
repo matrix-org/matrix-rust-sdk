@@ -818,8 +818,8 @@ impl CryptoStore for SqliteStore {
             .get(room_id, sender_key, session_id))
     }
 
-    fn tracked_users(&self) -> &HashSet<UserId> {
-        &self.tracked_users
+    fn is_user_tracked(&self, user_id: &UserId) -> bool {
+        self.tracked_users.contains(user_id)
     }
 
     fn users_for_key_query(&self) -> &HashSet<UserId> {
@@ -1200,9 +1200,7 @@ mod test {
             .await
             .unwrap());
 
-        let tracked_users = store.tracked_users();
-
-        assert!(tracked_users.contains(device.user_id()));
+        assert!(store.is_user_tracked(device.user_id()));
         assert!(!store.users_for_key_query().contains(device.user_id()));
         assert!(!store
             .update_tracked_user(device.user_id(), true)
@@ -1217,8 +1215,7 @@ mod test {
 
         store.load_account().await.unwrap();
 
-        let tracked_users = store.tracked_users();
-        assert!(tracked_users.contains(device.user_id()));
+        assert!(store.is_user_tracked(device.user_id()));
         assert!(store.users_for_key_query().contains(device.user_id()));
 
         store

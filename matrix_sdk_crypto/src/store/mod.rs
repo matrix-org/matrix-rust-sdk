@@ -143,8 +143,8 @@ pub trait CryptoStore: Debug {
         session_id: &str,
     ) -> Result<Option<InboundGroupSession>>;
 
-    /// Get the set of tracked users.
-    fn tracked_users(&self) -> &HashSet<UserId>;
+    /// Is the given user already tracked.
+    fn is_user_tracked(&self, user_id: &UserId) -> bool;
 
     /// Set of users that we need to query keys for. This is a subset of
     /// the tracked users.
