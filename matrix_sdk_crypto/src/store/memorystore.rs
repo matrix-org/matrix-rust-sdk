@@ -53,7 +53,7 @@ impl CryptoStore for MemoryStore {
         Ok(None)
     }
 
-    async fn save_account(&mut self, _: Account) -> Result<()> {
+    async fn save_account(&self, _: Account) -> Result<()> {
         Ok(())
     }
 
@@ -140,7 +140,7 @@ mod test {
     #[tokio::test]
     async fn test_session_store() {
         let (account, session) = get_account_and_session().await;
-        let mut store = MemoryStore::new();
+        let store = MemoryStore::new();
 
         assert!(store.load_account().await.unwrap().is_none());
         store.save_account(account).await.unwrap();

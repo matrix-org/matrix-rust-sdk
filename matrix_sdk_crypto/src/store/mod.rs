@@ -102,7 +102,7 @@ pub trait CryptoStore: Debug {
     /// # Arguments
     ///
     /// * `account` - The account that should be stored.
-    async fn save_account(&mut self, account: Account) -> Result<()>;
+    async fn save_account(&self, account: Account) -> Result<()>;
 
     /// Save the given sessions in the store.
     ///

@@ -704,7 +704,7 @@ impl CryptoStore for SqliteStore {
         Ok(result)
     }
 
-    async fn save_account(&mut self, account: Account) -> Result<()> {
+    async fn save_account(&self, account: Account) -> Result<()> {
         let pickle = account.pickle(self.get_pickle_mode()).await;
         let mut connection = self.connection.lock().await;
 
@@ -932,7 +932,7 @@ mod test {
     }
 
     async fn get_loaded_store() -> (Account, SqliteStore, tempfile::TempDir) {
-        let (mut store, dir) = get_store(None).await;
+        let (store, dir) = get_store(None).await;
         let account = get_account();
         store
             .save_account(account.clone())
@@ -1000,7 +1000,7 @@ mod test {
 
     #[tokio::test]
     async fn save_account() {
-        let (mut store, _dir) = get_store(None).await;
+        let (store, _dir) = get_store(None).await;
         assert!(store.load_account().await.unwrap().is_none());
         let account = get_account();
 
@@ -1012,7 +1012,7 @@ mod test {
 
     #[tokio::test]
     async fn load_account() {
-        let (mut store, _dir) = get_store(None).await;
+        let (store, _dir) = get_store(None).await;
         let account = get_account();
 
         store
@@ -1028,7 +1028,7 @@ mod test {
 
     #[tokio::test]
     async fn load_account_with_passphrase() {
-        let (mut store, _dir) = get_store(Some("secret_passphrase")).await;
+        let (store, _dir) = get_store(Some("secret_passphrase")).await;
         let account = get_account();
 
         store
@@ -1044,7 +1044,7 @@ mod test {
 
     #[tokio::test]
     async fn save_and_share_account() {
-        let (mut store, _dir) = get_store(None).await;
+        let (store, _dir) = get_store(None).await;
         let account = get_account();
 
         store
@@ -1067,7 +1067,7 @@ mod test {
 
     #[tokio::test]
     async fn save_session() {
-        let (mut store, _dir) = get_store(None).await;
+        let (store, _dir) = get_store(None).await;
         let (account, session) = get_account_and_session().await;
 
         assert!(store.save_sessions(&[session.clone()]).await.is_err());
@@ -1082,7 +1082,7 @@ mod test {
 
     #[tokio::test]
     async fn load_sessions() {
-        let (mut store, _dir) = get_store(None).await;
+        let (store, _dir) = get_store(None).await;
         let (account, session) = get_account_and_session().await;
         store
             .save_account(account.clone())
@@ -1101,7 +1101,7 @@ mod test {
 
     #[tokio::test]
     async fn add_and_save_session() {
-        let (mut store, dir) = get_store(None).await;
+        let (store, dir) = get_store(None).await;
         let (account, session) = get_account_and_session().await;
         let sender_key = session.sender_key.to_owned();
         let session_id = session.session_id().to_owned();
