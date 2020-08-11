@@ -823,7 +823,13 @@ mod test {
 
     use crate::{Account, Device};
     use matrix_sdk_common::{
-        events::{key::verification::accept::AcceptMethod, EventContent, ToDeviceEvent},
+        events::{
+            key::verification::{
+                accept::{AcceptMethod, CustomContent},
+                start::{CustomContent as CustomStartContent, StartMethod},
+            },
+            EventContent, ToDeviceEvent,
+        },
         identifiers::{DeviceId, UserId},
     };
 
@@ -920,12 +926,15 @@ mod test {
         assert_eq!(alice.get_decimal(), bob.get_decimal());
         assert_eq!(alice.get_emoji(), bob.get_emoji());
 
+        let bob_decimals = bob.get_decimal();
+
         let bob = bob.confirm();
 
         let event = wrap_to_device_event(bob.user_id(), bob.as_content());
 
         let alice = alice.into_mac_received(&event).unwrap();
         assert!(!alice.get_emoji().is_empty());
+        assert_eq!(alice.get_decimal(), bob_decimals);
         let alice = alice.confirm();
 
         let event = wrap_to_device_event(alice.user_id(), alice.as_content());
@@ -968,5 +977,76 @@ mod test {
         alice
             .into_accepted(&event)
             .expect_err("Didn't cancel on a invalid sender");
+    }
+
+    #[tokio::test]
+    async fn sas_unknown_sas_method() {
+        let (alice, bob) = get_sas_pair().await;
+
+        let mut event = wrap_to_device_event(bob.user_id(), bob.as_content());
+        event.sender = UserId::try_from("@malory:example.org").unwrap();
+
+        match &mut event.content.method {
+            AcceptMethod::MSasV1(ref mut c) => {
+                c.short_authentication_string = vec![];
+            }
+            _ => panic!("Unknown accept event content"),
+        }
+
+        alice
+            .into_accepted(&event)
+            .expect_err("Didn't cancel on an invalid SAS method");
+    }
+
+    #[tokio::test]
+    async fn sas_unknown_method() {
+        let (alice, bob) = get_sas_pair().await;
+
+        let mut event = wrap_to_device_event(bob.user_id(), bob.as_content());
+        event.sender = UserId::try_from("@malory:example.org").unwrap();
+
+        event.content.method = AcceptMethod::Custom(CustomContent {
+            method: "m.sas.custom".to_string(),
+            fields: vec![].into_iter().collect(),
+        });
+
+        alice
+            .into_accepted(&event)
+            .expect_err("Didn't cancel on an unknown SAS method");
+    }
+
+    #[tokio::test]
+    async fn sas_from_start_unknown_method() {
+        let alice = Account::new(&alice_id(), &alice_device_id());
+        let alice_device = Device::from_account(&alice).await;
+
+        let bob = Account::new(&bob_id(), &bob_device_id());
+        let bob_device = Device::from_account(&bob).await;
+
+        let alice_sas = SasState::<Created>::new(alice.clone(), bob_device);
+
+        let mut start_content = alice_sas.as_content();
+
+        match start_content.method {
+            StartMethod::MSasV1(ref mut c) => {
+                c.message_authentication_codes = vec![];
+            }
+            _ => panic!("Unknown SAS start method"),
+        }
+
+        let event = wrap_to_device_event(alice_sas.user_id(), start_content);
+        SasState::<Started>::from_start_event(bob.clone(), alice_device.clone(), &event)
+            .expect_err("Didn't cancel on invalid MAC method");
+
+        let mut start_content = alice_sas.as_content();
+
+        start_content.method = StartMethod::Custom(CustomStartContent {
+            method: "m.sas.custom".to_string(),
+            fields: vec![].into_iter().collect(),
+        });
+
+        let event = wrap_to_device_event(alice_sas.user_id(), start_content);
+        SasState::<Started>::from_start_event(bob.clone(), alice_device, &event)
+            .expect_err("Didn't cancel on unknown sas method");
     }
 }
