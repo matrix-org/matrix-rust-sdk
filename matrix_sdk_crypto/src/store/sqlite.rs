@@ -825,6 +825,7 @@ impl CryptoStore for SqliteStore {
     }
 
     fn users_for_key_query(&self) -> HashSet<UserId> {
+        #[allow(clippy::map_clone)]
         self.users_for_key_query.iter().map(|u| u.clone()).collect()
     }
 
