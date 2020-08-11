@@ -990,7 +990,6 @@ mod test {
         let (alice, bob) = get_sas_pair().await;
 
         let mut event = wrap_to_device_event(bob.user_id(), bob.as_content());
-        event.sender = UserId::try_from("@malory:example.org").unwrap();
 
         match &mut event.content.method {
             AcceptMethod::MSasV1(ref mut c) => {
@@ -1009,7 +1008,6 @@ mod test {
         let (alice, bob) = get_sas_pair().await;
 
         let mut event = wrap_to_device_event(bob.user_id(), bob.as_content());
-        event.sender = UserId::try_from("@malory:example.org").unwrap();
 
         event.content.method = AcceptMethod::Custom(CustomContent {
             method: "m.sas.custom".to_string(),
