@@ -363,7 +363,7 @@ impl SqliteStore {
             .collect::<Result<Vec<Session>>>()?)
     }
 
-    async fn load_inbound_group_sessions(&self) -> Result<Vec<InboundGroupSession>> {
+    async fn load_inbound_group_sessions(&self) -> Result<()> {
         let account_id = self.account_id().ok_or(CryptoStoreError::AccountUnset)?;
         let mut connection = self.connection.lock().await;
 
@@ -375,7 +375,7 @@ impl SqliteStore {
         .fetch_all(&mut *connection)
         .await?;
 
-        Ok(rows
+        let mut group_sessions = rows
             .iter()
             .map(|row| {
                 let pickle = &row.0;
@@ -391,7 +391,16 @@ impl SqliteStore {
                     RoomId::try_from(room_id.as_str()).unwrap(),
                 )?)
             })
-            .collect::<Result<Vec<InboundGroupSession>>>()?)
+            .collect::<Result<Vec<InboundGroupSession>>>()?;
+
+        group_sessions
+            .drain(..)
+            .map(|s| {
+                self.inbound_group_sessions.add(s);
+            })
+            .for_each(drop);
+
+        Ok(())
     }
 
     async fn save_tracked_user(&self, user: &UserId, dirty: bool) -> Result<()> {
@@ -444,7 +453,7 @@ impl SqliteStore {
         Ok(())
     }
 
-    async fn load_devices(&self) -> Result<DeviceStore> {
+    async fn load_devices(&self) -> Result<()> {
         let account_id = self.account_id().ok_or(CryptoStoreError::AccountUnset)?;
         let mut connection = self.connection.lock().await;
 
@@ -455,8 +464,6 @@ impl SqliteStore {
         .bind(account_id)
         .fetch_all(&mut *connection)
         .await?;
-
-        let store = DeviceStore::new();
 
         for row in rows {
             let device_row_id = row.0;
@@ -550,10 +557,10 @@ impl SqliteStore {
                 signatures,
             );
 
-            store.add(device);
+            self.devices.add(device);
         }
 
-        Ok(store)
+        Ok(())
     }
 
     async fn save_device_helper(&self, device: Device) -> Result<()> {
@@ -683,18 +690,8 @@ impl CryptoStore for SqliteStore {
 
         drop(connection);
 
-        let mut group_sessions = self.load_inbound_group_sessions().await?;
-
-        group_sessions
-            .drain(..)
-            .map(|s| {
-                self.inbound_group_sessions.add(s);
-            })
-            .for_each(drop);
-
-        let devices = self.load_devices().await?;
-        self.devices = devices;
-
+        self.load_inbound_group_sessions().await?;
+        self.load_devices().await?;
         self.load_tracked_users().await?;
 
         Ok(result)
@@ -1164,16 +1161,12 @@ mod test {
         )
         .expect("Can't create session");
 
-        let session_id = session.session_id().to_owned();
-
         store
             .save_inbound_group_session(session.clone())
             .await
             .expect("Can't save group session");
 
-        let sessions = store.load_inbound_group_sessions().await.unwrap();
-
-        assert_eq!(session_id, sessions[0].session_id());
+        store.load_inbound_group_sessions().await.unwrap();
 
         let loaded_session = store
             .get_inbound_group_session(&session.room_id, &session.sender_key, session.session_id())
