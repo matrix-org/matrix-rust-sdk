@@ -969,7 +969,7 @@ impl OlmMachine {
             panic!("Session is already shared");
         }
 
-        // TODO don't mark the session as shared automatically only, when all
+        // TODO don't mark the session as shared automatically, only when all
         // the requests are done, failure to send these requests will likely end
         // up in wedged sessions. We'll need to store the requests and let the
         // caller mark them as sent using an UUID.
@@ -986,7 +986,6 @@ impl OlmMachine {
                 .await?
                 .devices()
             {
-                // TODO abort if the device isn't verified
                 devices.push(device.clone());
             }
         }
