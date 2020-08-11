@@ -47,15 +47,14 @@ use url::Url;
 
 use crate::{
     events::{room::message::MessageEventContent, EventType},
+    http_client::DefaultHttpClient,
     identifiers::{EventId, RoomId, RoomIdOrAliasId, UserId},
-    Endpoint,
+    Endpoint, HttpSend,
 };
 
 #[cfg(feature = "encryption")]
 use crate::{identifiers::DeviceId, sas::Sas};
 
-#[cfg(not(target_arch = "wasm32"))]
-use crate::VERSION;
 use crate::{api, http_client::HttpClient, EventEmitter, Result};
 use matrix_sdk_base::{BaseClient, BaseClientConfig, Room, Session, StateStore};
 
@@ -108,11 +107,12 @@ impl Debug for Client {
 #[derive(Default)]
 pub struct ClientConfig {
     #[cfg(not(target_arch = "wasm32"))]
-    proxy: Option<reqwest::Proxy>,
-    user_agent: Option<HeaderValue>,
-    disable_ssl_verification: bool,
-    base_config: BaseClientConfig,
-    timeout: Option<Duration>,
+    pub(crate) proxy: Option<reqwest::Proxy>,
+    pub(crate) user_agent: Option<HeaderValue>,
+    pub(crate) disable_ssl_verification: bool,
+    pub(crate) base_config: BaseClientConfig,
+    pub(crate) timeout: Option<Duration>,
+    pub(crate) client: Option<Arc<dyn HttpSend>>,
 }
 
 // #[cfg_attr(tarpaulin, skip)]
@@ -210,6 +210,15 @@ impl ClientConfig {
     /// Set a timeout duration for all HTTP requests. The default is no timeout.
     pub fn timeout(mut self, timeout: Duration) -> Self {
         self.timeout = Some(timeout);
+        self
+    }
+
+    /// Specify a client to handle sending requests and receiving responses.
+    ///
+    /// Any type that implements the `HttpSend` trait can be used to send/receive
+    /// `http` types.
+    pub fn client(mut self, client: Arc<dyn HttpSend>) -> Self {
+        self.client = Some(client);
         self
     }
 }
@@ -322,48 +331,21 @@ impl Client {
         config: ClientConfig,
     ) -> Result<Self> {
         let homeserver = if let Ok(u) = homeserver_url.try_into() {
-            u
+            Arc::new(u)
         } else {
             panic!("Error parsing homeserver url")
         };
 
-        let http_client = reqwest::Client::builder();
-
-        #[cfg(not(target_arch = "wasm32"))]
-        let http_client = {
-            let http_client = match config.timeout {
-                Some(x) => http_client.timeout(x),
-                None => http_client,
-            };
-
-            let http_client = if config.disable_ssl_verification {
-                http_client.danger_accept_invalid_certs(true)
-            } else {
-                http_client
-            };
-
-            let http_client = match config.proxy {
-                Some(p) => http_client.proxy(p),
-                None => http_client,
-            };
-
-            let mut headers = reqwest::header::HeaderMap::new();
-
-            let user_agent = match config.user_agent {
-                Some(a) => a,
-                None => HeaderValue::from_str(&format!("matrix-rust-sdk {}", VERSION)).unwrap(),
-            };
-
-            headers.insert(reqwest::header::USER_AGENT, user_agent);
-
-            http_client.default_headers(headers)
-        };
-
-        let homeserver = Arc::new(homeserver);
-
-        let http_client = HttpClient {
-            homeserver: homeserver.clone(),
-            inner: http_client.build()?,
+        let http_client = if let Some(client) = config.client {
+            HttpClient {
+                homeserver: homeserver.clone(),
+                inner: client,
+            }
+        } else {
+            HttpClient {
+                homeserver: homeserver.clone(),
+                inner: Arc::new(DefaultHttpClient::with_config(&config)?),
+            }
         };
 
         let base_client = BaseClient::new_with_config(config.base_config)?;

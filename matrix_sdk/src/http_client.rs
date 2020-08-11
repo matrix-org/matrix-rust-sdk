@@ -12,23 +12,20 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{
-    convert::{TryFrom, TryInto},
-    sync::Arc,
-};
+use std::{convert::TryFrom, sync::Arc};
 
 use http::{HeaderValue, Method as HttpMethod, Response as HttpResponse};
+use matrix_sdk_common::{locks::RwLock, FromHttpResponseError};
+use matrix_sdk_common_macros::async_trait;
 use reqwest::{Client, Response};
 use tracing::trace;
 use url::Url;
 
-use matrix_sdk_common::{locks::RwLock, FromHttpResponseError};
-
-use crate::{Endpoint, Error, Result, Session};
+use crate::{ClientConfig, Endpoint, Error, HttpSend, Result, Session};
 
 #[derive(Clone, Debug)]
 pub(crate) struct HttpClient {
-    pub(crate) inner: Client,
+    pub(crate) inner: Arc<dyn HttpSend>,
     pub(crate) homeserver: Arc<Url>,
 }
 
@@ -62,7 +59,7 @@ impl HttpClient {
             );
         }
 
-        Ok(self.inner.execute(request.try_into()?).await?)
+        self.inner.send_request(request).await
     }
 
     async fn response_to_http_response(
@@ -98,5 +95,68 @@ impl HttpClient {
         let response = self.response_to_http_response(response).await?;
 
         Ok(Request::IncomingResponse::try_from(response)?)
+    }
+}
+
+/// Default http client used if none is specified using `Client::with_client`.
+#[derive(Clone, Debug)]
+pub struct DefaultHttpClient {
+    inner: Client,
+}
+
+impl DefaultHttpClient {
+    /// Build a client with the specified configuration.
+    pub fn with_config(config: &ClientConfig) -> Result<Self> {
+        let http_client = reqwest::Client::builder();
+
+        #[cfg(not(target_arch = "wasm32"))]
+        let http_client = {
+            let http_client = match config.timeout {
+                Some(x) => http_client.timeout(x),
+                None => http_client,
+            };
+
+            let http_client = if config.disable_ssl_verification {
+                http_client.danger_accept_invalid_certs(true)
+            } else {
+                http_client
+            };
+
+            let http_client = match &config.proxy {
+                Some(p) => http_client.proxy(p.clone()),
+                None => http_client,
+            };
+
+            let mut headers = reqwest::header::HeaderMap::new();
+
+            let user_agent = match &config.user_agent {
+                Some(a) => a.clone(),
+                None => {
+                    HeaderValue::from_str(&format!("matrix-rust-sdk {}", crate::VERSION)).unwrap()
+                }
+            };
+
+            headers.insert(reqwest::header::USER_AGENT, user_agent);
+
+            http_client.default_headers(headers)
+        };
+
+        #[cfg(target_arch = "wasm32")]
+        #[allow(unused)]
+        let _ = config;
+
+        Ok(Self {
+            inner: http_client.build()?,
+        })
+    }
+}
+
+#[async_trait]
+impl HttpSend for DefaultHttpClient {
+    async fn send_request(&self, request: http::Request<Vec<u8>>) -> Result<Response> {
+        Ok(self
+            .inner
+            .execute(reqwest::Request::try_from(request)?)
+            .await?)
     }
 }
