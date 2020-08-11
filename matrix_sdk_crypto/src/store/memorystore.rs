@@ -30,8 +30,8 @@ use crate::{
 pub struct MemoryStore {
     sessions: SessionStore,
     inbound_group_sessions: GroupSessionStore,
-    tracked_users: DashSet<UserId>,
-    users_for_key_query: DashSet<UserId>,
+    tracked_users: Arc<DashSet<UserId>>,
+    users_for_key_query: Arc<DashSet<UserId>>,
     devices: DeviceStore,
 }
 
@@ -40,8 +40,8 @@ impl MemoryStore {
         MemoryStore {
             sessions: SessionStore::new(),
             inbound_group_sessions: GroupSessionStore::new(),
-            tracked_users: DashSet::new(),
-            users_for_key_query: DashSet::new(),
+            tracked_users: Arc::new(DashSet::new()),
+            users_for_key_query: Arc::new(DashSet::new()),
             devices: DeviceStore::new(),
         }
     }

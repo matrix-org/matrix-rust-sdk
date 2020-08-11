@@ -45,16 +45,16 @@ pub struct SqliteStore {
     user_id: Arc<UserId>,
     device_id: Arc<Box<DeviceId>>,
     account_info: Arc<SyncMutex<Option<AccountInfo>>>,
-    path: PathBuf,
+    path: Arc<PathBuf>,
 
     sessions: SessionStore,
     inbound_group_sessions: GroupSessionStore,
     devices: DeviceStore,
-    tracked_users: DashSet<UserId>,
-    users_for_key_query: DashSet<UserId>,
+    tracked_users: Arc<DashSet<UserId>>,
+    users_for_key_query: Arc<DashSet<UserId>>,
 
     connection: Arc<Mutex<SqliteConnection>>,
-    pickle_passphrase: Option<Zeroizing<String>>,
+    pickle_passphrase: Arc<Option<Zeroizing<String>>>,
 }
 
 #[derive(Clone)]
@@ -136,11 +136,11 @@ impl SqliteStore {
             sessions: SessionStore::new(),
             inbound_group_sessions: GroupSessionStore::new(),
             devices: DeviceStore::new(),
-            path: path.as_ref().to_owned(),
+            path: Arc::new(path.as_ref().to_owned()),
             connection: Arc::new(Mutex::new(connection)),
-            pickle_passphrase: passphrase,
-            tracked_users: DashSet::new(),
-            users_for_key_query: DashSet::new(),
+            pickle_passphrase: Arc::new(passphrase),
+            tracked_users: Arc::new(DashSet::new()),
+            users_for_key_query: Arc::new(DashSet::new()),
         };
         store.create_tables().await?;
         Ok(store)
@@ -652,7 +652,7 @@ impl SqliteStore {
     }
 
     fn get_pickle_mode(&self) -> PicklingMode {
-        match &self.pickle_passphrase {
+        match &*self.pickle_passphrase {
             Some(p) => PicklingMode::Encrypted {
                 key: p.as_bytes().to_vec(),
             },
