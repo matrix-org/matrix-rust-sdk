@@ -12,7 +12,7 @@ version = "0.1.0"
 
 [dependencies]
 instant = { version = "0.1.6", features = ["wasm-bindgen", "now"] }
-js_int = "0.1.8"
+js_int = "0.1.9"
 
 [dependencies.ruma]
 version = "0.0.1"
@@ -24,7 +24,7 @@ features = ["client-api"]
 uuid = { version = "0.8.1", features = ["v4"] }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies.tokio]
-version = "0.2.21"
+version = "0.2.22"
 default-features = false
 features = ["sync", "time", "fs"]
 
