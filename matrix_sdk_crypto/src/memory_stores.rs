@@ -26,16 +26,16 @@ use super::{
 };
 
 /// In-memory store for Olm Sessions.
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub struct SessionStore {
-    entries: HashMap<String, Arc<Mutex<Vec<Session>>>>,
+    entries: Arc<DashMap<String, Arc<Mutex<Vec<Session>>>>>,
 }
 
 impl SessionStore {
     /// Create a new empty Session store.
     pub fn new() -> Self {
         SessionStore {
-            entries: HashMap::new(),
+            entries: Arc::new(DashMap::new()),
         }
     }
 
@@ -62,7 +62,7 @@ impl SessionStore {
 
     /// Get all the sessions that belong to the given sender key.
     pub fn get(&self, sender_key: &str) -> Option<Arc<Mutex<Vec<Session>>>> {
-        self.entries.get(sender_key).cloned()
+        self.entries.get(sender_key).map(|s| s.clone())
     }
 
     /// Add a list of sessions belonging to the sender key.
@@ -72,21 +72,21 @@ impl SessionStore {
     }
 }
 
-#[derive(Debug, Default)]
-/// In-memory store that houlds inbound group sessions.
+#[derive(Debug, Default, Clone)]
+/// In-memory store that holds inbound group sessions.
 pub struct GroupSessionStore {
-    entries: HashMap<RoomId, HashMap<String, HashMap<String, InboundGroupSession>>>,
+    entries: Arc<DashMap<RoomId, HashMap<String, HashMap<String, InboundGroupSession>>>>,
 }
 
 impl GroupSessionStore {
     /// Create a new empty store.
     pub fn new() -> Self {
         GroupSessionStore {
-            entries: HashMap::new(),
+            entries: Arc::new(DashMap::new()),
         }
     }
 
-    /// Add a inbound group session to the store.
+    /// Add an inbound group session to the store.
     ///
     /// Returns true if the the session was added, false if the session was
     /// already in the store.
@@ -96,7 +96,7 @@ impl GroupSessionStore {
             self.entries.insert(room_id.clone(), HashMap::new());
         }
 
-        let room_map = self.entries.get_mut(&session.room_id).unwrap();
+        let mut room_map = self.entries.get_mut(&session.room_id).unwrap();
 
         if !room_map.contains_key(&*session.sender_key) {
             let sender_key = &*session.sender_key;
