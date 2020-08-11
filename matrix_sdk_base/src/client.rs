@@ -1288,9 +1288,9 @@ impl BaseClient {
     #[cfg_attr(docsrs, doc(cfg(feature = "encryption")))]
     pub async fn share_group_session(&self, room_id: &RoomId) -> Result<Vec<OwnedToDeviceRequest>> {
         let room = self.get_joined_room(room_id).await.expect("No room found");
-        let mut olm = self.olm.lock().await;
+        let olm = self.olm.lock().await;
 
-        match &mut *olm {
+        match &*olm {
             Some(o) => {
                 let room = room.write().await;
 
@@ -1417,9 +1417,9 @@ impl BaseClient {
     #[cfg(feature = "encryption")]
     #[cfg_attr(docsrs, doc(cfg(feature = "encryption")))]
     pub async fn invalidate_group_session(&self, room_id: &RoomId) -> bool {
-        let mut olm = self.olm.lock().await;
+        let olm = self.olm.lock().await;
 
-        match &mut *olm {
+        match &*olm {
             Some(o) => o.invalidate_group_session(room_id),
             None => false,
         }
