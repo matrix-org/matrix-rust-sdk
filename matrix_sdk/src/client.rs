@@ -19,10 +19,21 @@ use std::{
     collections::HashMap,
     convert::{TryFrom, TryInto},
     fmt::{self, Debug},
+    future::Future,
     path::Path,
     result::Result as StdResult,
     sync::Arc,
 };
+
+use futures_timer::Delay as sleep;
+use reqwest::header::{HeaderValue, InvalidHeaderValue};
+use url::Url;
+
+#[cfg(feature = "encryption")]
+use tracing::{debug, warn};
+use tracing::{error, info, instrument};
+
+use matrix_sdk_base::{BaseClient, BaseClientConfig, Room, Session, StateStore};
 
 #[cfg(feature = "encryption")]
 use matrix_sdk_common::api::r0::to_device::send_event_to_device::Request as ToDeviceRequest;
@@ -36,27 +47,16 @@ use matrix_sdk_common::{
     FromHttpResponseError,
 };
 
-use futures_timer::Delay as sleep;
-use std::future::Future;
-#[cfg(feature = "encryption")]
-use tracing::{debug, warn};
-use tracing::{error, info, instrument};
-
-use reqwest::header::{HeaderValue, InvalidHeaderValue};
-use url::Url;
-
 use crate::{
+    api,
     events::{room::message::MessageEventContent, EventType},
-    http_client::DefaultHttpClient,
+    http_client::{DefaultHttpClient, HttpClient, HttpSend},
     identifiers::{EventId, RoomId, RoomIdOrAliasId, UserId},
-    Endpoint, HttpSend,
+    Endpoint, EventEmitter, Result,
 };
 
 #[cfg(feature = "encryption")]
 use crate::{identifiers::DeviceId, sas::Sas};
-
-use crate::{api, http_client::HttpClient, EventEmitter, Result};
-use matrix_sdk_base::{BaseClient, BaseClientConfig, Room, Session, StateStore};
 
 const DEFAULT_SYNC_TIMEOUT: Duration = Duration::from_secs(30);
 

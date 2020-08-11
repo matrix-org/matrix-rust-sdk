@@ -51,7 +51,6 @@ pub use reqwest::header::InvalidHeaderValue;
 mod client;
 mod error;
 mod http_client;
-mod http_send;
 mod request_builder;
 
 #[cfg(feature = "encryption")]
@@ -59,7 +58,7 @@ mod sas;
 
 pub use client::{Client, ClientConfig, SyncSettings};
 pub use error::{Error, Result};
-pub use http_send::HttpSend;
+pub use http_client::HttpSend;
 pub use request_builder::{
     MessagesRequestBuilder, RegistrationBuilder, RoomBuilder, RoomListFilterBuilder,
 };

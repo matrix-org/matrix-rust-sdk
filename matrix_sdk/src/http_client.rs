@@ -12,16 +12,57 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{convert::TryFrom, sync::Arc};
+use std::{convert::TryFrom, fmt::Debug, sync::Arc};
 
 use http::{HeaderValue, Method as HttpMethod, Response as HttpResponse};
-use matrix_sdk_common::{locks::RwLock, FromHttpResponseError};
-use matrix_sdk_common_macros::async_trait;
 use reqwest::{Client, Response};
 use tracing::trace;
 use url::Url;
 
-use crate::{ClientConfig, Endpoint, Error, HttpSend, Result, Session};
+use matrix_sdk_common::{locks::RwLock, FromHttpResponseError};
+use matrix_sdk_common_macros::async_trait;
+
+use crate::{ClientConfig, Endpoint, Error, Result, Session};
+
+/// Abstraction around the http layer. The allows implementors to use different
+/// http libraries.
+#[async_trait]
+pub trait HttpSend: Sync + Send + Debug {
+    /// The method abstracting sending request types and receiving response types.
+    ///
+    /// This is called by the client every time it wants to send anything to a homeserver.
+    ///
+    /// # Arguments
+    ///
+    /// * `request` - The http request that has been converted from a ruma `Request`.
+    ///
+    /// # Returns
+    ///
+    /// A `reqwest::Response` that will be converted to a ruma `Response` in the `Client`.
+    ///
+    /// # Examples
+    ///
+    /// ```ignore
+    /// use matrix_sdk::HttpSend;
+    /// use matrix_sdk_common_macros::async_trait;
+    /// use reqwest::Response;
+    ///
+    /// #[derive(Debug)]
+    /// struct TestSend;
+    ///
+    /// impl HttpSend for TestSend {
+    ///     async fn send_request(&self, request: http::Request<Vec<u8>>) -> Result<Response>
+    ///     // send the request somehow
+    ///     let response = send(request, method, homeserver).await?;
+    ///
+    ///     // reqwest can convert to and from `http::Response` types.
+    ///     Ok(reqwest::Response::from(response))
+    /// }
+    /// }
+    ///
+    /// ```
+    async fn send_request(&self, request: http::Request<Vec<u8>>) -> Result<Response>;
+}
 
 #[derive(Clone, Debug)]
 pub(crate) struct HttpClient {
