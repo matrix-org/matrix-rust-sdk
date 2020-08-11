@@ -15,11 +15,11 @@
 use std::{convert::TryFrom, sync::Arc};
 
 use http::{HeaderValue, Method as HttpMethod, Response as HttpResponse};
+use matrix_sdk_common::{locks::RwLock, FromHttpResponseError};
+use matrix_sdk_common_macros::async_trait;
 use reqwest::{Client, Response};
 use tracing::trace;
 use url::Url;
-
-use matrix_sdk_common::{locks::RwLock, FromHttpResponseError};
 
 use crate::{ClientConfig, Endpoint, Error, HttpSend, Result, Session};
 
@@ -141,13 +141,17 @@ impl DefaultHttpClient {
             http_client.default_headers(headers)
         };
 
+        #[cfg(target_arch = "wasm32")]
+        #[allow(unused)]
+        let _ = config;
+
         Ok(Self {
             inner: http_client.build()?,
         })
     }
 }
 
-#[async_trait::async_trait]
+#[async_trait]
 impl HttpSend for DefaultHttpClient {
     async fn send_request(&self, request: http::Request<Vec<u8>>) -> Result<Response> {
         Ok(self
