@@ -1007,20 +1007,6 @@ impl Client {
             };
 
             if encrypted {
-                let missing_sessions = {
-                    let room = self.base_client.get_joined_room(room_id).await;
-                    let room = room.as_ref().unwrap().read().await;
-                    let members = room
-                        .joined_members
-                        .keys()
-                        .chain(room.invited_members.keys());
-                    self.base_client.get_missing_sessions(members).await?
-                };
-
-                if !missing_sessions.is_empty() {
-                    self.claim_one_time_keys(missing_sessions).await?;
-                }
-
                 if self.base_client.should_share_group_session(room_id).await {
                     #[allow(clippy::map_clone)]
                     if let Some(mutex) = self.group_session_locks.get(room_id).map(|m| m.clone()) {
@@ -1035,6 +1021,20 @@ impl Client {
                             .insert(room_id.clone(), mutex.clone());
 
                         let _guard = mutex.lock().await;
+
+                        let missing_sessions = {
+                            let room = self.base_client.get_joined_room(room_id).await;
+                            let room = room.as_ref().unwrap().read().await;
+                            let members = room
+                                .joined_members
+                                .keys()
+                                .chain(room.invited_members.keys());
+                            self.base_client.get_missing_sessions(members).await?
+                        };
+
+                        if !missing_sessions.is_empty() {
+                            self.claim_one_time_keys(missing_sessions).await?;
+                        }
 
                         let response = self.share_group_session(room_id).await;
 
