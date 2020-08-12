@@ -23,6 +23,8 @@ use std::{
 };
 
 use dashmap::DashMap;
+use serde_json::Value;
+use tracing::{debug, error, info, instrument, trace, warn};
 
 use api::r0::{
     keys::{claim_keys, get_keys, upload_keys, DeviceKeys, OneTimeKey},
@@ -44,8 +46,6 @@ use matrix_sdk_common::{
     uuid::Uuid,
     Raw,
 };
-use serde_json::Value;
-use tracing::{debug, error, info, instrument, trace, warn};
 
 #[cfg(feature = "sqlite-cryptostore")]
 use super::store::sqlite::SqliteStore;
@@ -1230,6 +1230,40 @@ impl OlmMachine {
     /// Returns a hash set of users that need to be queried for keys.
     pub async fn users_for_key_query(&self) -> HashSet<UserId> {
         self.store.users_for_key_query()
+    }
+
+    /// Get a specific device of a user.
+    ///
+    /// # Arguments
+    ///
+    /// * `user_id` - The unique id of the user that the device belongs to.
+    ///
+    /// * `device_id` - The unique id of the device.
+    ///
+    /// Returns a `Device` if one is found and the crypto store didn't throw an
+    /// error.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use std::convert::TryFrom;
+    /// # use matrix_sdk_crypto::OlmMachine;
+    /// # use matrix_sdk_common::identifiers::UserId;
+    /// # use futures::executor::block_on;
+    /// # let alice = UserId::try_from("@alice:example.org").unwrap();
+    /// # let machine = OlmMachine::new(&alice, "DEVICEID".into());
+    /// # block_on(async {
+    /// let device = machine.get_device(&alice, "DEVICEID".into()).await;
+    ///
+    /// println!("{:?}", device);
+    /// # });
+    /// ```
+    pub async fn get_device(&self, user_id: &UserId, device_id: &DeviceId) -> Option<Device> {
+        self.store
+            .get_device(user_id, device_id)
+            .await
+            .ok()
+            .flatten()
     }
 }
 
