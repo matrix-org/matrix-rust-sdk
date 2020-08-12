@@ -58,7 +58,7 @@ use super::{
     },
     store::{memorystore::MemoryStore, Result as StoreResult},
     verification::{Sas, VerificationMachine},
-    CryptoStore,
+    CryptoStore, UserDevices,
 };
 
 /// A map from the algorithm and device id to a one-time key.
@@ -1326,6 +1326,33 @@ impl OlmMachine {
             .await
             .ok()
             .flatten()
+    }
+
+    /// Get a map holding all the devices of an user.
+    ///
+    /// # Arguments
+    ///
+    /// * `user_id` - The unique id of the user that the devices belong to.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use std::convert::TryFrom;
+    /// # use matrix_sdk_crypto::OlmMachine;
+    /// # use matrix_sdk_common::identifiers::UserId;
+    /// # use futures::executor::block_on;
+    /// # let alice = UserId::try_from("@alice:example.org").unwrap();
+    /// # let machine = OlmMachine::new(&alice, "DEVICEID".into());
+    /// # block_on(async {
+    /// let devices = machine.get_user_devices(&alice).await.unwrap();
+    ///
+    /// for device in devices.devices() {
+    ///     println!("{:?}", device);
+    /// }
+    /// # });
+    /// ```
+    pub async fn get_user_devices(&self, user_id: &UserId) -> StoreResult<UserDevices> {
+        self.store.get_user_devices(user_id).await
     }
 }
 
