@@ -36,7 +36,12 @@ use tracing::{error, info, instrument};
 use matrix_sdk_base::{BaseClient, BaseClientConfig, Room, Session, StateStore};
 
 #[cfg(feature = "encryption")]
-use matrix_sdk_common::api::r0::to_device::send_event_to_device::Request as ToDeviceRequest;
+use matrix_sdk_base::Device;
+
+#[cfg(feature = "encryption")]
+use matrix_sdk_common::api::r0::to_device::send_event_to_device::{
+    IncomingRequest as OwnedToDeviceRequest, Request as ToDeviceRequest,
+};
 use matrix_sdk_common::{
     identifiers::ServerName,
     instant::{Duration, Instant},
@@ -52,7 +57,7 @@ use crate::{
     events::{room::message::MessageEventContent, EventType},
     http_client::{DefaultHttpClient, HttpClient, HttpSend},
     identifiers::{EventId, RoomId, RoomIdOrAliasId, UserId},
-    Endpoint, EventEmitter, Result,
+    Endpoint, Error, EventEmitter, Result,
 };
 
 #[cfg(feature = "encryption")]
@@ -1082,11 +1087,24 @@ impl Client {
     pub async fn send<Request>(&self, request: Request) -> Result<Request::IncomingResponse>
     where
         Request: Endpoint + Debug,
-        crate::Error: From<FromHttpResponseError<Request::ResponseError>>,
+        Error: From<FromHttpResponseError<Request::ResponseError>>,
     {
         self.http_client
             .send(request, self.base_client.session().clone())
             .await
+    }
+
+    async fn send_to_device(
+        &self,
+        request: OwnedToDeviceRequest,
+    ) -> Result<send_event_to_device::Response> {
+        let request = ToDeviceRequest {
+            event_type: request.event_type,
+            txn_id: &request.txn_id,
+            messages: request.messages,
+        };
+
+        self.send(request).await
     }
 
     /// Synchronize the client's state with the latest state on the server.
@@ -1217,16 +1235,12 @@ impl Client {
                     }
                 }
 
-                for req in self.base_client.outgoing_to_device_requests().await {
-                    let request = ToDeviceRequest {
-                        event_type: req.event_type,
-                        txn_id: &req.txn_id,
-                        messages: req.messages,
-                    };
+                for request in self.base_client.outgoing_to_device_requests().await {
+                    let txn_id = request.txn_id.clone();
 
-                    if self.send(request).await.is_ok() {
+                    if self.send_to_device(request).await.is_ok() {
                         self.base_client
-                            .mark_to_device_request_as_sent(&req.txn_id)
+                            .mark_to_device_request_as_sent(&txn_id)
                             .await;
                     }
                 }
@@ -1307,14 +1321,8 @@ impl Client {
             .await
             .expect("Keys don't need to be uploaded");
 
-        for req in requests.drain(..) {
-            let request = ToDeviceRequest {
-                event_type: req.event_type,
-                txn_id: &req.txn_id,
-                messages: req.messages,
-            };
-
-            let _response: send_event_to_device::Response = self.send(request).await?;
+        for request in requests.drain(..) {
+            self.send_to_device(request).await?;
         }
 
         Ok(())
@@ -1406,7 +1414,6 @@ impl Client {
     /// Get a `Sas` verification object with the given flow id.
     #[cfg(feature = "encryption")]
     #[cfg_attr(docsrs, doc(cfg(feature = "encryption")))]
-    #[instrument]
     pub async fn get_verification(&self, flow_id: &str) -> Option<Sas> {
         self.base_client
             .get_verification(flow_id)
@@ -1417,6 +1424,33 @@ impl Client {
                 http_client: self.http_client.clone(),
                 homeserver: self.homeserver.clone(),
             })
+    }
+
+    /// Start a interactive verification with the given `Device`.
+    ///
+    /// # Arguments
+    ///
+    /// * `device` - The device which we would like to start an interactive
+    /// verification with.
+    ///
+    /// Returns a `Sas` that represents the interactive verification flow.
+    #[cfg(feature = "encryption")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "encryption")))]
+    pub async fn start_verification(&self, device: Device) -> Result<Sas> {
+        let (sas, request) = self
+            .base_client
+            .start_verification(device)
+            .await
+            .ok_or(Error::AuthenticationRequired)?;
+
+        self.send_to_device(request).await?;
+
+        Ok(Sas {
+            inner: sas,
+            session: self.base_client.session().clone(),
+            http_client: self.http_client.clone(),
+            homeserver: self.homeserver.clone(),
+        })
     }
 }
 

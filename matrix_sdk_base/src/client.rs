@@ -51,7 +51,7 @@ use matrix_sdk_common::{
     identifiers::{DeviceId, DeviceKeyAlgorithm},
 };
 #[cfg(feature = "encryption")]
-use matrix_sdk_crypto::{CryptoStore, OlmError, OlmMachine, OneTimeKeys, Sas};
+use matrix_sdk_crypto::{CryptoStore, Device, OlmError, OlmMachine, OneTimeKeys, Sas};
 use zeroize::Zeroizing;
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -1849,6 +1849,7 @@ impl BaseClient {
     /// Get a `Sas` verification object with the given flow id.
     ///
     /// # Arguments
+    ///
     /// * `flow_id` - The unique id that identifies a interactive verification
     ///     flow. For in-room verifications this will be the event id of the
     ///     *m.key.verification.request* event that started the flow, for the
@@ -1862,6 +1863,24 @@ impl BaseClient {
             .await
             .as_ref()
             .and_then(|o| o.get_verification(flow_id))
+    }
+
+    /// Start a interactive verification with the given `Device`.
+    ///
+    /// # Arguments
+    ///
+    /// * `device` - The device which we would like to start an interactive
+    /// verification with.
+    ///
+    /// Returns a `Sas` object and to-device request that needs to be sent out.
+    #[cfg(feature = "encryption")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "encryption")))]
+    pub async fn start_verification(&self, device: Device) -> Option<(Sas, OwnedToDeviceRequest)> {
+        self.olm
+            .lock()
+            .await
+            .as_ref()
+            .and_then(|o| Some(o.start_verification(device)))
     }
 }
 

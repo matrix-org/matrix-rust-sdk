@@ -1057,6 +1057,19 @@ impl OlmMachine {
         self.verification_machine.get_sas(flow_id)
     }
 
+    /// Start a interactive verification with the given `Device`.
+    ///
+    /// # Arguments
+    ///
+    /// * `device` - The device which we would like to start an interactive
+    /// verification with.
+    ///
+    ///
+    /// Returns a `Sas` object and to-device request that needs to be sent out.
+    pub fn start_verification(&self, device: Device) -> (Sas, OwnedToDeviceRequest) {
+        self.verification_machine.start_sas(device)
+    }
+
     /// Handle a sync response and update the internal state of the Olm machine.
     ///
     /// This will decrypt to-device events but will not touch events in the room

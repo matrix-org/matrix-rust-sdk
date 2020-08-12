@@ -25,7 +25,7 @@ use matrix_sdk_common::{
 };
 
 use super::sas::{content_to_request, Sas};
-use crate::{Account, CryptoStore, CryptoStoreError};
+use crate::{Account, CryptoStore, CryptoStoreError, Device};
 
 #[derive(Clone, Debug)]
 pub struct VerificationMachine {
@@ -43,6 +43,17 @@ impl VerificationMachine {
             verifications: Arc::new(DashMap::new()),
             outgoing_to_device_messages: Arc::new(DashMap::new()),
         }
+    }
+
+    pub fn start_sas(&self, device: Device) -> (Sas, OwnedToDeviceRequest) {
+        let (sas, content) = Sas::start(self.account.clone(), device.clone(), self.store.clone());
+        let request = content_to_request(
+            device.user_id(),
+            device.device_id(),
+            AnyToDeviceEventContent::KeyVerificationStart(content),
+        );
+
+        (sas, request)
     }
 
     pub fn get_sas(&self, transaction_id: &str) -> Option<Sas> {
