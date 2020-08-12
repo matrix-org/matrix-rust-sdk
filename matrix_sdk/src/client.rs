@@ -80,7 +80,6 @@ use matrix_sdk_common::{
 };
 
 use crate::{
-    api,
     events::{room::message::MessageEventContent, EventType},
     http_client::{DefaultHttpClient, HttpClient, HttpSend},
     identifiers::{EventId, RoomId, RoomIdOrAliasId, UserId},
@@ -1487,7 +1486,6 @@ impl Client {
 #[cfg(test)]
 mod test {
     use super::{
-        api::r0::uiaa::AuthData,
         ban_user, create_receipt, create_typing_event, forget_room, get_public_rooms,
         get_public_rooms_filtered::{self, Filter},
         invite_user, kick_user, leave_room,
@@ -1499,6 +1497,7 @@ mod test {
 
     use matrix_sdk_base::JsonStore;
     use matrix_sdk_common::{
+        api::r0::uiaa::AuthData,
         events::room::message::TextMessageEventContent,
         identifiers::{event_id, room_id, user_id},
         thirdparty,
