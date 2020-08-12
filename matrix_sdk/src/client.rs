@@ -1131,6 +1131,7 @@ impl Client {
             .await
     }
 
+    #[cfg(feature = "encryption")]
     async fn send_to_device(&self, request: OwnedToDeviceRequest) -> Result<ToDeviceResponse> {
         let request = ToDeviceRequest {
             event_type: request.event_type,
