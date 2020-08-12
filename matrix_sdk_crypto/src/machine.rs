@@ -196,22 +196,22 @@ impl OlmMachine {
         OlmMachine::new_with_store(user_id.to_owned(), device_id.into(), Box::new(store)).await
     }
 
-    /// The unique user id that owns this identity.
+    /// The unique user id that owns this `OlmMachine` instance.
     pub fn user_id(&self) -> &UserId {
         &self.user_id
     }
 
-    /// The unique device id of the device that holds this identity.
+    /// The unique device id that identifies this `OlmMachine`.
     pub fn device_id(&self) -> &DeviceId {
         &self.device_id
     }
 
-    /// Get the public parts of the identity keys.
+    /// Get the public parts of our Olm identity keys.
     pub fn identity_keys(&self) -> &IdentityKeys {
         self.account.identity_keys()
     }
 
-    /// Should account or one-time keys be uploaded to the server.
+    /// Should device or one-time keys be uploaded to the server.
     ///
     /// This needs to be checked periodically, ideally after every sync request.
     ///
@@ -246,6 +246,12 @@ impl OlmMachine {
     }
 
     /// Update the count of one-time keys that are currently on the server.
+    ///
+    /// # Arguments
+    ///
+    /// * `count` - The key count of the signed one-time keys that we have on
+    /// the server. This should be fetched from the server using a sync
+    /// response.
     fn update_key_count(&self, count: u64) {
         self.account.update_uploaded_key_count(count);
     }
@@ -403,6 +409,15 @@ impl OlmMachine {
         Ok(())
     }
 
+    /// Handle the device keys part of a key query response.
+    ///
+    /// # Arguments
+    ///
+    /// * `device_keys_map` - A map holding the device keys of the users for
+    /// which the key query was done.
+    ///
+    /// Returns a list of devices that changed. Changed here means either
+    /// they are new, one of their properties has changed or they got deleted.
     async fn handle_devices_from_key_query(
         &self,
         device_keys_map: &BTreeMap<UserId, BTreeMap<Box<DeviceId>, DeviceKeys>>,
@@ -494,7 +509,7 @@ impl OlmMachine {
         Ok(changed_devices)
     }
 
-    /// Get a tuple of device and one-time keys that need to be uploaded.
+    /// Get a request to upload E2EE keys to the server.
     ///
     /// Returns an empty error if no keys need to be uploaded.
     ///
@@ -578,6 +593,7 @@ impl OlmMachine {
         Ok(plaintext)
     }
 
+    /// Decrypt an Olm message, creating a new Olm session if possible.
     async fn decrypt_olm_message(
         &self,
         sender: &UserId,
@@ -1103,7 +1119,6 @@ impl OlmMachine {
     /// * `device` - The device which we would like to start an interactive
     /// verification with.
     ///
-    ///
     /// Returns a `Sas` object and to-device request that needs to be sent out.
     pub fn start_verification(&self, device: Device) -> (Sas, OwnedToDeviceRequest) {
         self.verification_machine.start_sas(device)
@@ -1114,11 +1129,13 @@ impl OlmMachine {
     /// This will decrypt to-device events but will not touch events in the room
     /// timeline.
     ///
-    /// To decrypt an event from the room timeline call `decrypt_room_event()`.
+    /// To decrypt an event from the room timeline call [`decrypt_room_event`].
     ///
     /// # Arguments
     ///
     /// * `response` - The sync latest sync response.
+    ///
+    /// [`decrypt_room_event`]: #method.decrypt_room_event
     #[instrument(skip(response))]
     pub async fn receive_sync_response(&self, response: &mut SyncResponse) {
         self.verification_machine.garbage_collect();
