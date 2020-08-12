@@ -1511,6 +1511,39 @@ mod test {
 
     use std::{convert::TryInto, path::Path, str::FromStr, time::Duration};
 
+    async fn logged_in_client() -> Client {
+        let session = Session {
+            access_token: "1234".to_owned(),
+            user_id: user_id!("@example:localhost"),
+            device_id: "DEVICEID".into(),
+        };
+        let homeserver = url::Url::parse(&mockito::server_url()).unwrap();
+        let client = Client::new(homeserver).unwrap();
+        client.restore_login(session).await.unwrap();
+
+        client
+    }
+
+    #[tokio::test]
+    async fn login() {
+        let homeserver = Url::from_str(&mockito::server_url()).unwrap();
+
+        let _m = mock("POST", "/_matrix/client/r0/login")
+            .with_status(200)
+            .with_body(test_json::LOGIN.to_string())
+            .create();
+
+        let client = Client::new(homeserver).unwrap();
+
+        client
+            .login("example", "wordpass", None, None)
+            .await
+            .unwrap();
+
+        let logged_in = client.logged_in().await;
+        assert!(logged_in, "Client should be logged in");
+    }
+
     #[tokio::test]
     async fn test_join_leave_room() {
         let homeserver = Url::from_str(&mockito::server_url()).unwrap();
@@ -1580,13 +1613,7 @@ mod test {
 
     #[tokio::test]
     async fn account_data() {
-        let homeserver = Url::from_str(&mockito::server_url()).unwrap();
-
-        let session = Session {
-            access_token: "1234".to_owned(),
-            user_id: user_id!("@example:example.com"),
-            device_id: "DEVICEID".into(),
-        };
+        let client = logged_in_client().await;
 
         let _m = mock(
             "GET",
@@ -1594,13 +1621,10 @@ mod test {
         )
         .with_status(200)
         .with_body(test_json::SYNC.to_string())
+        .match_header("authorization", "Bearer 1234")
         .create();
 
-        let client = Client::new(homeserver).unwrap();
-        client.restore_login(session).await.unwrap();
-
         let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
-
         let _response = client.sync(sync_settings).await.unwrap();
 
         // let bc = &client.base_client;
@@ -1610,14 +1634,7 @@ mod test {
 
     #[tokio::test]
     async fn room_creation() {
-        let session = Session {
-            access_token: "12345".to_owned(),
-            user_id: user_id!("@example:localhost"),
-            device_id: "DEVICEID".into(),
-        };
-        let homeserver = url::Url::parse(&mockito::server_url()).unwrap();
-        let client = Client::new(homeserver).unwrap();
-        client.restore_login(session).await.unwrap();
+        let client = logged_in_client().await;
 
         let mut response = EventBuilder::default()
             .add_state_event(EventsJson::Member)
@@ -1643,13 +1660,12 @@ mod test {
     #[tokio::test]
     async fn login_error() {
         let homeserver = Url::from_str(&mockito::server_url()).unwrap();
+        let client = Client::new(homeserver).unwrap();
 
         let _m = mock("POST", "/_matrix/client/r0/login")
             .with_status(403)
             .with_body(test_json::LOGIN_RESPONSE_ERR.to_string())
             .create();
-
-        let client = Client::new(homeserver).unwrap();
 
         if let Err(err) = client.login("example", "wordpass", None, None).await {
             if let crate::Error::RumaResponse(crate::FromHttpResponseError::Http(
@@ -1683,6 +1699,7 @@ mod test {
     #[tokio::test]
     async fn register_error() {
         let homeserver = Url::from_str(&mockito::server_url()).unwrap();
+        let client = Client::new(homeserver).unwrap();
 
         let _m = mock("POST", "/_matrix/client/r0/register")
             .with_status(403)
@@ -1697,8 +1714,6 @@ mod test {
                 session: "foobar".to_string(),
             })
             .kind(RegistrationKind::User);
-
-        let client = Client::new(homeserver).unwrap();
 
         if let Err(err) = client.register_user(user).await {
             if let crate::Error::UiaaError(crate::FromHttpResponseError::Http(
@@ -1720,13 +1735,7 @@ mod test {
 
     #[tokio::test]
     async fn join_room_by_id() {
-        let homeserver = Url::from_str(&mockito::server_url()).unwrap();
-
-        let session = Session {
-            access_token: "1234".to_owned(),
-            user_id: user_id!("@example:localhost"),
-            device_id: "DEVICEID".into(),
-        };
+        let client = logged_in_client().await;
 
         let _m = mock(
             "POST",
@@ -1734,10 +1743,9 @@ mod test {
         )
         .with_status(200)
         .with_body(test_json::ROOM_ID.to_string())
+        .match_header("authorization", "Bearer 1234")
         .create();
 
-        let client = Client::new(homeserver).unwrap();
-        client.restore_login(session).await.unwrap();
         let room_id = room_id!("!testroom:example.org");
 
         assert_eq!(
@@ -1749,13 +1757,7 @@ mod test {
 
     #[tokio::test]
     async fn join_room_by_id_or_alias() {
-        let homeserver = Url::from_str(&mockito::server_url()).unwrap();
-
-        let session = Session {
-            access_token: "1234".to_owned(),
-            user_id: user_id!("@example:localhost"),
-            device_id: "DEVICEID".into(),
-        };
+        let client = logged_in_client().await;
 
         let _m = mock(
             "POST",
@@ -1763,10 +1765,9 @@ mod test {
         )
         .with_status(200)
         .with_body(test_json::ROOM_ID.to_string())
+        .match_header("authorization", "Bearer 1234")
         .create();
 
-        let client = Client::new(homeserver).unwrap();
-        client.restore_login(session).await.unwrap();
         let room_id = room_id!("!testroom:example.org").into();
 
         assert_eq!(
@@ -1783,15 +1784,7 @@ mod test {
     #[tokio::test]
     #[allow(irrefutable_let_patterns)]
     async fn invite_user_by_id() {
-        let homeserver = Url::from_str(&mockito::server_url()).unwrap();
-        let user = user_id!("@example:localhost");
-        let room_id = room_id!("!testroom:example.org");
-
-        let session = Session {
-            access_token: "1234".to_owned(),
-            user_id: user.clone(),
-            device_id: "DEVICEID".into(),
-        };
+        let client = logged_in_client().await;
 
         let _m = mock(
             "POST",
@@ -1799,10 +1792,11 @@ mod test {
         )
         .with_status(200)
         .with_body(test_json::LOGOUT.to_string())
+        .match_header("authorization", "Bearer 1234")
         .create();
 
-        let client = Client::new(homeserver).unwrap();
-        client.restore_login(session).await.unwrap();
+        let user = user_id!("@example:localhost");
+        let room_id = room_id!("!testroom:example.org");
 
         if let invite_user::Response = client.invite_user_by_id(&room_id, &user).await.unwrap() {}
     }
@@ -1810,15 +1804,7 @@ mod test {
     #[tokio::test]
     #[allow(irrefutable_let_patterns)]
     async fn invite_user_by_3pid() {
-        let homeserver = Url::from_str(&mockito::server_url()).unwrap();
-        let user = user_id!("@example:localhost");
-        let room_id = room_id!("!testroom:example.org");
-
-        let session = Session {
-            access_token: "1234".to_owned(),
-            user_id: user.clone(),
-            device_id: "DEVICEID".into(),
-        };
+        let client = logged_in_client().await;
 
         let _m = mock(
             "POST",
@@ -1827,10 +1813,10 @@ mod test {
         .with_status(200)
         // empty JSON object
         .with_body(test_json::LOGOUT.to_string())
+        .match_header("authorization", "Bearer 1234")
         .create();
 
-        let client = Client::new(homeserver).unwrap();
-        client.restore_login(session).await.unwrap();
+        let room_id = room_id!("!testroom:example.org");
 
         if let invite_user::Response = client
             .invite_user_by_3pid(
@@ -1851,6 +1837,7 @@ mod test {
     #[allow(irrefutable_let_patterns)]
     async fn room_search_all() {
         let homeserver = Url::from_str(&mockito::server_url()).unwrap();
+        let client = Client::new(homeserver).unwrap();
 
         let _m = mock(
             "GET",
@@ -1859,8 +1846,6 @@ mod test {
         .with_status(200)
         .with_body(test_json::PUBLIC_ROOMS.to_string())
         .create();
-
-        let client = Client::new(homeserver).unwrap();
 
         if let get_public_rooms::Response { chunk, .. } =
             client.public_rooms(Some(10), None, None).await.unwrap()
@@ -1872,14 +1857,7 @@ mod test {
     #[tokio::test]
     #[allow(irrefutable_let_patterns)]
     async fn room_search_filtered() {
-        let homeserver = Url::from_str(&mockito::server_url()).unwrap();
-        let user = user_id!("@example:localhost");
-
-        let session = Session {
-            access_token: "1234".to_owned(),
-            user_id: user.clone(),
-            device_id: "DEVICEID".into(),
-        };
+        let client = logged_in_client().await;
 
         let _m = mock(
             "POST",
@@ -1887,10 +1865,8 @@ mod test {
         )
         .with_status(200)
         .with_body(test_json::PUBLIC_ROOMS.to_string())
+        .match_header("authorization", "Bearer 1234")
         .create();
-
-        let client = Client::new(homeserver).unwrap();
-        client.restore_login(session).await.unwrap();
 
         let generic_search_term = Some("cheese".to_string());
         let mut request = RoomListFilterBuilder::default();
@@ -1908,13 +1884,7 @@ mod test {
     #[tokio::test]
     #[allow(irrefutable_let_patterns)]
     async fn leave_room() {
-        let homeserver = Url::from_str(&mockito::server_url()).unwrap();
-
-        let session = Session {
-            access_token: "1234".to_owned(),
-            user_id: user_id!("@example:localhost"),
-            device_id: "DEVICEID".into(),
-        };
+        let client = logged_in_client().await;
 
         let _m = mock(
             "POST",
@@ -1923,10 +1893,9 @@ mod test {
         .with_status(200)
         // this is an empty JSON object
         .with_body(test_json::LOGOUT.to_string())
+        .match_header("authorization", "Bearer 1234")
         .create();
 
-        let client = Client::new(homeserver).unwrap();
-        client.restore_login(session).await.unwrap();
         let room_id = room_id!("!testroom:example.org");
 
         let response = client.leave_room(&room_id).await.unwrap();
@@ -1942,15 +1911,7 @@ mod test {
     #[tokio::test]
     #[allow(irrefutable_let_patterns)]
     async fn ban_user() {
-        let homeserver = Url::from_str(&mockito::server_url()).unwrap();
-        let user = user_id!("@example:localhost");
-        let room_id = room_id!("!testroom:example.org");
-
-        let session = Session {
-            access_token: "1234".to_owned(),
-            user_id: user.clone(),
-            device_id: "DEVICEID".into(),
-        };
+        let client = logged_in_client().await;
 
         let _m = mock(
             "POST",
@@ -1959,12 +1920,13 @@ mod test {
         .with_status(200)
         // this is an empty JSON object
         .with_body(test_json::LOGOUT.to_string())
+        .match_header("authorization", "Bearer 1234")
         .create();
 
-        let client = Client::new(homeserver).unwrap();
-        client.restore_login(session).await.unwrap();
-
+        let user = user_id!("@example:localhost");
+        let room_id = room_id!("!testroom:example.org");
         let response = client.ban_user(&room_id, &user, None).await.unwrap();
+
         if let ban_user::Response = response {
         } else {
             panic!(
@@ -1977,15 +1939,7 @@ mod test {
     #[tokio::test]
     #[allow(irrefutable_let_patterns)]
     async fn kick_user() {
-        let homeserver = Url::from_str(&mockito::server_url()).unwrap();
-        let user = user_id!("@example:localhost");
-        let room_id = room_id!("!testroom:example.org");
-
-        let session = Session {
-            access_token: "1234".to_owned(),
-            user_id: user.clone(),
-            device_id: "DEVICEID".into(),
-        };
+        let client = logged_in_client().await;
 
         let _m = mock(
             "POST",
@@ -1994,12 +1948,14 @@ mod test {
         .with_status(200)
         // this is an empty JSON object
         .with_body(test_json::LOGOUT.to_string())
+        .match_header("authorization", "Bearer 1234")
         .create();
 
-        let client = Client::new(homeserver).unwrap();
-        client.restore_login(session).await.unwrap();
+        let user = user_id!("@example:localhost");
+        let room_id = room_id!("!testroom:example.org");
 
         let response = client.kick_user(&room_id, &user, None).await.unwrap();
+
         if let kick_user::Response = response {
         } else {
             panic!(
@@ -2012,15 +1968,7 @@ mod test {
     #[tokio::test]
     #[allow(irrefutable_let_patterns)]
     async fn forget_room() {
-        let homeserver = Url::from_str(&mockito::server_url()).unwrap();
-        let user = user_id!("@example:localhost");
-        let room_id = room_id!("!testroom:example.org");
-
-        let session = Session {
-            access_token: "1234".to_owned(),
-            user_id: user.clone(),
-            device_id: "DEVICEID".into(),
-        };
+        let client = logged_in_client().await;
 
         let _m = mock(
             "POST",
@@ -2029,10 +1977,10 @@ mod test {
         .with_status(200)
         // this is an empty JSON object
         .with_body(test_json::LOGOUT.to_string())
+        .match_header("authorization", "Bearer 1234")
         .create();
 
-        let client = Client::new(homeserver).unwrap();
-        client.restore_login(session).await.unwrap();
+        let room_id = room_id!("!testroom:example.org");
 
         let response = client.forget_room_by_id(&room_id).await.unwrap();
         if let forget_room::Response = response {
@@ -2047,16 +1995,7 @@ mod test {
     #[tokio::test]
     #[allow(irrefutable_let_patterns)]
     async fn read_receipt() {
-        let homeserver = Url::from_str(&mockito::server_url()).unwrap();
-        let user_id = user_id!("@example:localhost");
-        let room_id = room_id!("!testroom:example.org");
-        let event_id = event_id!("$xxxxxx:example.org");
-
-        let session = Session {
-            access_token: "1234".to_owned(),
-            user_id,
-            device_id: "DEVICEID".into(),
-        };
+        let client = logged_in_client().await;
 
         let _m = mock(
             "POST",
@@ -2065,10 +2004,11 @@ mod test {
         .with_status(200)
         // this is an empty JSON object
         .with_body(test_json::LOGOUT.to_string())
+        .match_header("authorization", "Bearer 1234")
         .create();
 
-        let client = Client::new(homeserver).unwrap();
-        client.restore_login(session).await.unwrap();
+        let room_id = room_id!("!testroom:example.org");
+        let event_id = event_id!("$xxxxxx:example.org");
 
         let response = client.read_receipt(&room_id, &event_id).await.unwrap();
         if let create_receipt::Response = response {
@@ -2083,16 +2023,7 @@ mod test {
     #[tokio::test]
     #[allow(irrefutable_let_patterns)]
     async fn read_marker() {
-        let homeserver = Url::from_str(&mockito::server_url()).unwrap();
-        let user_id = user_id!("@example:localhost");
-        let room_id = room_id!("!testroom:example.org");
-        let event_id = event_id!("$xxxxxx:example.org");
-
-        let session = Session {
-            access_token: "1234".to_owned(),
-            user_id,
-            device_id: "DEVICEID".into(),
-        };
+        let client = logged_in_client().await;
 
         let _m = mock(
             "POST",
@@ -2101,10 +2032,11 @@ mod test {
         .with_status(200)
         // this is an empty JSON object
         .with_body(test_json::LOGOUT.to_string())
+        .match_header("authorization", "Bearer 1234")
         .create();
 
-        let client = Client::new(homeserver).unwrap();
-        client.restore_login(session).await.unwrap();
+        let room_id = room_id!("!testroom:example.org");
+        let event_id = event_id!("$xxxxxx:example.org");
 
         let response = client.read_marker(&room_id, &event_id, None).await.unwrap();
         if let set_read_marker::Response = response {
@@ -2119,15 +2051,7 @@ mod test {
     #[tokio::test]
     #[allow(irrefutable_let_patterns)]
     async fn typing_notice() {
-        let homeserver = Url::from_str(&mockito::server_url()).unwrap();
-        let user = user_id!("@example:localhost");
-        let room_id = room_id!("!testroom:example.org");
-
-        let session = Session {
-            access_token: "1234".to_owned(),
-            user_id: user.clone(),
-            device_id: "DEVICEID".into(),
-        };
+        let client = logged_in_client().await;
 
         let _m = mock(
             "PUT",
@@ -2136,15 +2060,15 @@ mod test {
         .with_status(200)
         // this is an empty JSON object
         .with_body(test_json::LOGOUT.to_string())
+        .match_header("authorization", "Bearer 1234")
         .create();
 
-        let client = Client::new(homeserver).unwrap();
-        client.restore_login(session).await.unwrap();
+        let room_id = room_id!("!testroom:example.org");
 
         let response = client
             .typing_notice(
                 &room_id,
-                &user,
+                &client.user_id().await.unwrap(),
                 true,
                 Some(std::time::Duration::from_secs(1)),
             )
@@ -2163,26 +2087,18 @@ mod test {
     async fn room_message_send() {
         use matrix_sdk_common::uuid::Uuid;
 
-        let homeserver = Url::from_str(&mockito::server_url()).unwrap();
-        let user = user_id!("@example:localhost");
-        let room_id = room_id!("!testroom:example.org");
-
-        let session = Session {
-            access_token: "1234".to_owned(),
-            user_id: user.clone(),
-            device_id: "DEVICEID".into(),
-        };
+        let client = logged_in_client().await;
 
         let _m = mock(
             "PUT",
             Matcher::Regex(r"^/_matrix/client/r0/rooms/.*/send/".to_string()),
         )
         .with_status(200)
+        .match_header("authorization", "Bearer 1234")
         .with_body(test_json::EVENT_ID.to_string())
         .create();
 
-        let client = Client::new(homeserver).unwrap();
-        client.restore_login(session).await.unwrap();
+        let room_id = room_id!("!testroom:example.org");
 
         let content = MessageEventContent::Text(TextMessageEventContent {
             body: "Hello world".to_owned(),
@@ -2200,24 +2116,16 @@ mod test {
 
     #[tokio::test]
     async fn user_presence() {
-        let homeserver = Url::from_str(&mockito::server_url()).unwrap();
-
-        let session = Session {
-            access_token: "1234".to_owned(),
-            user_id: user_id!("@example:localhost"),
-            device_id: "DEVICEID".into(),
-        };
+        let client = logged_in_client().await;
 
         let _m = mock(
             "GET",
             Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_string()),
         )
         .with_status(200)
+        .match_header("authorization", "Bearer 1234")
         .with_body(test_json::SYNC.to_string())
         .create();
-
-        let client = Client::new(homeserver).unwrap();
-        client.restore_login(session).await.unwrap();
 
         let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
 
@@ -2237,24 +2145,16 @@ mod test {
 
     #[tokio::test]
     async fn calculate_room_names_from_summary() {
-        let homeserver = Url::from_str(&mockito::server_url()).unwrap();
-
-        let session = Session {
-            access_token: "1234".to_owned(),
-            user_id: user_id!("@example:localhost"),
-            device_id: "DEVICEID".into(),
-        };
+        let client = logged_in_client().await;
 
         let _m = mock(
             "GET",
             Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_string()),
         )
         .with_status(200)
+        .match_header("authorization", "Bearer 1234")
         .with_body(test_json::DEFAULT_SYNC_SUMMARY.to_string())
         .create();
-
-        let client = Client::new(homeserver).unwrap();
-        client.restore_login(session).await.unwrap();
 
         let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
         let _response = client.sync(sync_settings).await.unwrap();
@@ -2269,21 +2169,14 @@ mod test {
 
     #[tokio::test]
     async fn invited_rooms() {
-        let session = Session {
-            access_token: "12345".to_owned(),
-            user_id: user_id!("@example:localhost"),
-            device_id: "DEVICEID".into(),
-        };
-
-        let homeserver = url::Url::parse(&mockito::server_url()).unwrap();
-        let client = Client::new(homeserver).unwrap();
-        client.restore_login(session).await.unwrap();
+        let client = logged_in_client().await;
 
         let _m = mock(
             "GET",
             Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_string()),
         )
         .with_status(200)
+        .match_header("authorization", "Bearer 1234")
         .with_body(test_json::INVITE_SYNC.to_string())
         .create();
 
@@ -2301,21 +2194,14 @@ mod test {
 
     #[tokio::test]
     async fn left_rooms() {
-        let session = Session {
-            access_token: "12345".to_owned(),
-            user_id: user_id!("@example:localhost"),
-            device_id: "DEVICEID".into(),
-        };
-
-        let homeserver = url::Url::parse(&mockito::server_url()).unwrap();
-        let client = Client::new(homeserver).unwrap();
-        client.restore_login(session).await.unwrap();
+        let client = logged_in_client().await;
 
         let _m = mock(
             "GET",
             Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_string()),
         )
         .with_status(200)
+        .match_header("authorization", "Bearer 1234")
         .with_body(test_json::LEAVE_SYNC.to_string())
         .create();
 
@@ -2389,54 +2275,8 @@ mod test {
     }
 
     #[tokio::test]
-    async fn login() {
-        let homeserver = Url::from_str(&mockito::server_url()).unwrap();
-
-        let _m = mock("POST", "/_matrix/client/r0/login")
-            .with_status(200)
-            .with_body(test_json::LOGIN.to_string())
-            .create();
-
-        let client = Client::new(homeserver).unwrap();
-
-        client
-            .login("example", "wordpass", None, None)
-            .await
-            .unwrap();
-
-        let logged_in = client.logged_in().await;
-        assert!(logged_in, "Client should be logged in");
-    }
-
-    #[tokio::test]
-    async fn login_with_device() {
-        let homeserver = Url::from_str(&mockito::server_url()).unwrap();
-
-        let _m = mock("POST", "/_matrix/client/r0/login")
-            .with_status(200)
-            .with_body(test_json::LOGIN.to_string())
-            .create();
-
-        let client = Client::new(homeserver).unwrap();
-
-        client
-            .login("example", "wordpass", None, None)
-            .await
-            .unwrap();
-
-        let logged_in = client.logged_in().await;
-        assert!(logged_in, "Client should be logged in");
-    }
-
-    #[tokio::test]
     async fn sync() {
-        let homeserver = Url::from_str(&mockito::server_url()).unwrap();
-
-        let session = Session {
-            access_token: "1234".to_owned(),
-            user_id: user_id!("@example:localhost"),
-            device_id: "DEVICEID".into(),
-        };
+        let client = logged_in_client().await;
 
         let _m = mock(
             "GET",
@@ -2446,9 +2286,6 @@ mod test {
         .with_body(test_json::SYNC.to_string())
         .match_header("authorization", "Bearer 1234")
         .create();
-
-        let client = Client::new(homeserver).unwrap();
-        client.restore_login(session).await.unwrap();
 
         let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
 
@@ -2461,24 +2298,16 @@ mod test {
 
     #[tokio::test]
     async fn room_names() {
-        let homeserver = Url::from_str(&mockito::server_url()).unwrap();
-
-        let session = Session {
-            access_token: "1234".to_owned(),
-            user_id: user_id!("@example:localhost"),
-            device_id: "DEVICEID".into(),
-        };
+        let client = logged_in_client().await;
 
         let _m = mock(
             "GET",
             Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_string()),
         )
         .with_status(200)
+        .match_header("authorization", "Bearer 1234")
         .with_body(test_json::SYNC.to_string())
         .create();
-
-        let client = Client::new(homeserver).unwrap();
-        client.restore_login(session).await.unwrap();
 
         let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
 
