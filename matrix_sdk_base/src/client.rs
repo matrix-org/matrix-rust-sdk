@@ -52,7 +52,9 @@ use matrix_sdk_common::{
     identifiers::{DeviceId, DeviceKeyAlgorithm},
 };
 #[cfg(feature = "encryption")]
-use matrix_sdk_crypto::{CryptoStore, Device, OlmError, OlmMachine, Sas};
+use matrix_sdk_crypto::{
+    CryptoStore, CryptoStoreError, Device, DeviceStore, OlmError, OlmMachine, Sas, UserDevices,
+};
 use zeroize::Zeroizing;
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -1880,6 +1882,79 @@ impl BaseClient {
             .await
             .as_ref()
             .map(|o| o.start_verification(device))
+    }
+
+    /// Get a specific device of a user.
+    ///
+    /// # Arguments
+    ///
+    /// * `user_id` - The unique id of the user that the device belongs to.
+    ///
+    /// * `device_id` - The unique id of the device.
+    ///
+    /// Returns a `Device` if one is found and the crypto store didn't throw an
+    /// error.
+    ///
+    /// This will always return None if the client hasn't been logged in.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use std::convert::TryFrom;
+    /// # use matrix_sdk_base::BaseClient;
+    /// # use matrix_sdk_common::identifiers::UserId;
+    /// # use futures::executor::block_on;
+    /// # let alice = UserId::try_from("@alice:example.org").unwrap();
+    /// # let client = BaseClient::new().unwrap();
+    /// # block_on(async {
+    /// let device = client.get_device(&alice, "DEVICEID".into()).await;
+    ///
+    /// println!("{:?}", device);
+    /// # });
+    /// ```
+    #[cfg(feature = "encryption")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "encryption")))]
+    pub async fn get_device(&self, user_id: &UserId, device_id: &DeviceId) -> Option<Device> {
+        let olm = self.olm.lock().await;
+        olm.as_ref()?.get_device(user_id, device_id).await
+    }
+
+    /// Get a map holding all the devices of an user.
+    ///
+    /// This will always return an empty map if the client hasn't been logged
+    /// in.
+    ///
+    /// # Arguments
+    ///
+    /// * `user_id` - The unique id of the user that the devices belong to.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use std::convert::TryFrom;
+    /// # use matrix_sdk_base::BaseClient;
+    /// # use matrix_sdk_common::identifiers::UserId;
+    /// # use futures::executor::block_on;
+    /// # let alice = UserId::try_from("@alice:example.org").unwrap();
+    /// # let client = BaseClient::new().unwrap();
+    /// # block_on(async {
+    /// let devices = client.get_user_devices(&alice).await.unwrap();
+    ///
+    /// for device in devices.devices() {
+    ///     println!("{:?}", device);
+    /// }
+    /// # });
+    /// ```
+    pub async fn get_user_devices(
+        &self,
+        user_id: &UserId,
+    ) -> StdResult<UserDevices, CryptoStoreError> {
+        let olm = self.olm.lock().await;
+        if let Some(olm) = olm.as_ref() {
+            Ok(olm.get_user_devices(user_id).await?)
+        } else {
+            Ok(DeviceStore::new().user_devices(user_id))
+        }
     }
 }
 
