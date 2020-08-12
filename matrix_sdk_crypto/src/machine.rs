@@ -272,12 +272,14 @@ impl OlmMachine {
     /// This should be called every time a group session needs to be shared.
     ///
     /// The response of a successful key claiming requests needs to be passed to
-    /// the `OlmMachine` with the `receive_keys_claim_response()`.
+    /// the `OlmMachine` with the [`receive_keys_claim_response`].
     ///
     /// # Arguments
     ///
     /// `users` - The list of users that we should check if we lack a session
     /// with one of their devices.
+    ///
+    /// [`receive_keys_claim_response`]: #method.receive_keys_claim_response
     pub async fn get_missing_sessions(
         &self,
         users: impl Iterator<Item = &UserId>,
@@ -470,6 +472,12 @@ impl OlmMachine {
     /// Get a tuple of device and one-time keys that need to be uploaded.
     ///
     /// Returns an empty error if no keys need to be uploaded.
+    ///
+    /// The response of a successful key upload requests needs to be passed to
+    /// the [`OlmMachine`] with the [`receive_keys_upload_response`].
+    ///
+    /// [`receive_keys_upload_response`]: #method.receive_keys_upload_response
+    /// [`OlmMachine`]: struct.OlmMachine.html
     pub async fn keys_for_upload(
         &self,
     ) -> StdResult<(Option<DeviceKeys>, Option<OneTimeKeys>), ()> {
