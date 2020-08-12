@@ -40,18 +40,43 @@ use matrix_sdk_base::{BaseClient, BaseClientConfig, Room, Session, StateStore};
 #[cfg(feature = "encryption")]
 use matrix_sdk_base::Device;
 
-#[cfg(feature = "encryption")]
-use matrix_sdk_common::api::r0::to_device::send_event_to_device::{
-    IncomingRequest as OwnedToDeviceRequest, Request as ToDeviceRequest,
-};
 use matrix_sdk_common::{
+    api::r0::{
+        account::register,
+        directory::{get_public_rooms, get_public_rooms_filtered},
+        membership::{
+            ban_user, forget_room,
+            invite_user::{self, InvitationRecipient},
+            join_room_by_id, join_room_by_id_or_alias, kick_user, leave_room, Invite3pid,
+        },
+        message::{get_message_events, send_message_event},
+        read_marker::set_read_marker,
+        receipt::create_receipt,
+        room::create_room,
+        session::login,
+        sync::sync_events,
+        typing::create_typing_event,
+    },
     identifiers::ServerName,
     instant::{Duration, Instant},
     js_int::UInt,
-    locks::{Mutex, RwLock},
+    locks::RwLock,
     presence::PresenceState,
     uuid::Uuid,
     FromHttpResponseError,
+};
+
+#[cfg(feature = "encryption")]
+use matrix_sdk_common::{
+    api::r0::{
+        keys::{claim_keys, get_keys, upload_keys},
+        to_device::send_event_to_device::{
+            IncomingRequest as OwnedToDeviceRequest, Request as ToDeviceRequest,
+            Response as ToDeviceResponse,
+        },
+    },
+    identifiers::DeviceKeyAlgorithm,
+    locks::Mutex,
 };
 
 use crate::{
@@ -293,31 +318,6 @@ impl SyncSettings {
         self
     }
 }
-
-use api::r0::{
-    account::register,
-    directory::{get_public_rooms, get_public_rooms_filtered},
-    membership::{
-        ban_user, forget_room,
-        invite_user::{self, InvitationRecipient},
-        join_room_by_id, join_room_by_id_or_alias, kick_user, leave_room, Invite3pid,
-    },
-    message::{get_message_events, send_message_event},
-    read_marker::set_read_marker,
-    receipt::create_receipt,
-    room::create_room,
-    session::login,
-    sync::sync_events,
-    typing::create_typing_event,
-};
-#[cfg(feature = "encryption")]
-use matrix_sdk_common::{
-    api::r0::{
-        keys::{claim_keys, get_keys, upload_keys},
-        to_device::send_event_to_device,
-    },
-    identifiers::DeviceKeyAlgorithm,
-};
 
 impl Client {
     /// Creates a new client for making HTTP requests to the given homeserver.
@@ -1132,10 +1132,7 @@ impl Client {
             .await
     }
 
-    async fn send_to_device(
-        &self,
-        request: OwnedToDeviceRequest,
-    ) -> Result<send_event_to_device::Response> {
+    async fn send_to_device(&self, request: OwnedToDeviceRequest) -> Result<ToDeviceResponse> {
         let request = ToDeviceRequest {
             event_type: request.event_type,
             txn_id: &request.txn_id,
