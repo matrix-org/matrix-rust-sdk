@@ -278,7 +278,7 @@ impl Sas {
         self.inner.lock().unwrap().is_done()
     }
 
-    /// Is the SAS flow done.
+    /// Is the SAS flow canceled.
     pub fn is_canceled(&self) -> bool {
         self.inner.lock().unwrap().is_canceled()
     }
