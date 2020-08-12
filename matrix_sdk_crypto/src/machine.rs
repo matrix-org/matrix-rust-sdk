@@ -125,7 +125,7 @@ impl OlmMachine {
         }
     }
 
-    /// Create a new OlmMachine with the given `CryptoStore`.
+    /// Create a new OlmMachine with the given [`CryptoStore`].
     ///
     /// The created machine will keep the encryption keys only in memory and
     /// once the object is dropped the keys will be lost.
@@ -142,6 +142,8 @@ impl OlmMachine {
     ///
     /// * `store` - A `Cryptostore` implementation that will be used to store
     /// the encryption keys.
+    ///
+    /// [`Cryptostore`]: trait.CryptoStore.html
     pub async fn new_with_store(
         user_id: UserId,
         device_id: Box<DeviceId>,
@@ -171,8 +173,6 @@ impl OlmMachine {
         })
     }
 
-    #[cfg(feature = "sqlite-cryptostore")]
-    #[instrument(skip(path, passphrase))]
     /// Create a new machine with the default crypto store.
     ///
     /// The default store uses a SQLite database to store the encryption keys.
@@ -182,6 +182,8 @@ impl OlmMachine {
     /// * `user_id` - The unique id of the user that owns this machine.
     ///
     /// * `device_id` - The unique id of the device that owns this machine.
+    #[cfg(feature = "sqlite-cryptostore")]
+    #[instrument(skip(path, passphrase))]
     pub async fn new_with_default_store<P: AsRef<Path>>(
         user_id: &UserId,
         device_id: &DeviceId,
@@ -210,6 +212,29 @@ impl OlmMachine {
     }
 
     /// Should account or one-time keys be uploaded to the server.
+    ///
+    /// This needs to be checked periodically, ideally after every sync request.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use std::convert::TryFrom;
+    /// # use matrix_sdk_crypto::OlmMachine;
+    /// # use matrix_sdk_common::identifiers::UserId;
+    /// # use futures::executor::block_on;
+    /// # let alice = UserId::try_from("@alice:example.org").unwrap();
+    /// # let machine = OlmMachine::new(&alice, "DEVICEID".into());
+    /// # block_on(async {
+    /// if machine.should_upload_keys().await {
+    ///     let request = machine
+    ///         .keys_for_upload()
+    ///         .await
+    ///         .unwrap();
+    ///
+    ///     // Upload the keys here.
+    /// }
+    /// # });
+    /// ```
     pub async fn should_upload_keys(&self) -> bool {
         self.account.should_upload_keys().await
     }
@@ -478,10 +503,13 @@ impl OlmMachine {
     ///
     /// [`receive_keys_upload_response`]: #method.receive_keys_upload_response
     /// [`OlmMachine`]: struct.OlmMachine.html
-    pub async fn keys_for_upload(
-        &self,
-    ) -> StdResult<(Option<DeviceKeys>, Option<OneTimeKeys>), ()> {
-        self.account.keys_for_upload().await
+    pub async fn keys_for_upload(&self) -> StdResult<upload_keys::Request, ()> {
+        let (device_keys, one_time_keys) = self.account.keys_for_upload().await?;
+
+        Ok(upload_keys::Request {
+            device_keys,
+            one_time_keys,
+        })
     }
 
     /// Try to decrypt an Olm message.
@@ -1369,7 +1397,7 @@ mod test {
     async fn get_prepared_machine() -> (OlmMachine, OneTimeKeys) {
         let machine = OlmMachine::new(&user_id(), &alice_device_id());
         machine.account.update_uploaded_key_count(0);
-        let (_, otk) = machine
+        let request = machine
             .keys_for_upload()
             .await
             .expect("Can't prepare initial key upload");
@@ -1379,7 +1407,7 @@ mod test {
             .await
             .unwrap();
 
-        (machine, otk.unwrap())
+        (machine, request.one_time_keys.unwrap())
     }
 
     async fn get_machine_after_query() -> (OlmMachine, OneTimeKeys) {
@@ -1598,7 +1626,7 @@ mod test {
         let identity_keys = machine.account.identity_keys();
         let ed25519_key = identity_keys.ed25519();
 
-        let (device_keys, mut one_time_keys) = machine
+        let mut request = machine
             .keys_for_upload()
             .await
             .expect("Can't prepare initial key upload");
@@ -1607,7 +1635,7 @@ mod test {
             &machine.user_id,
             machine.device_id.as_str(),
             ed25519_key,
-            &mut json!(&mut one_time_keys.as_mut().unwrap().values_mut().next()),
+            &mut json!(&mut request.one_time_keys.as_mut().unwrap().values_mut().next()),
         );
         assert!(ret.is_ok());
 
@@ -1615,14 +1643,16 @@ mod test {
             &machine.user_id,
             machine.device_id.as_str(),
             ed25519_key,
-            &mut json!(&mut device_keys.unwrap()),
+            &mut json!(&mut request.device_keys.unwrap()),
         );
         assert!(ret.is_ok());
 
         let mut response = keys_upload_response();
         response.one_time_key_counts.insert(
             DeviceKeyAlgorithm::SignedCurve25519,
-            (one_time_keys.unwrap().len() as u64).try_into().unwrap(),
+            (request.one_time_keys.unwrap().len() as u64)
+                .try_into()
+                .unwrap(),
         );
 
         machine

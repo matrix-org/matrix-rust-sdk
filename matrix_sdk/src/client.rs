@@ -25,6 +25,8 @@ use std::{
     sync::Arc,
 };
 
+#[cfg(feature = "encryption")]
+use dashmap::DashMap;
 use futures_timer::Delay as sleep;
 use reqwest::header::{HeaderValue, InvalidHeaderValue};
 use url::Url;
@@ -46,7 +48,7 @@ use matrix_sdk_common::{
     identifiers::ServerName,
     instant::{Duration, Instant},
     js_int::UInt,
-    locks::RwLock,
+    locks::{Mutex, RwLock},
     presence::PresenceState,
     uuid::Uuid,
     FromHttpResponseError,
@@ -76,6 +78,10 @@ pub struct Client {
     http_client: HttpClient,
     /// User session data.
     pub(crate) base_client: BaseClient,
+    /// Locks making sure we only have one group session sharing request in
+    /// flight per room.
+    #[cfg(feature = "encryption")]
+    group_session_locks: DashMap<RoomId, Arc<Mutex<()>>>,
 }
 
 #[cfg(not(tarpaulin_include))]
@@ -359,6 +365,7 @@ impl Client {
             homeserver,
             http_client,
             base_client,
+            group_session_locks: DashMap::new(),
         })
     }
 
@@ -1015,16 +1022,31 @@ impl Client {
                 }
 
                 if self.base_client.should_share_group_session(room_id).await {
-                    // TODO we need to make sure that only one such request is
-                    // in flight per room at a time.
-                    let response = self.share_group_session(room_id).await;
+                    #[allow(clippy::map_clone)]
+                    if let Some(mutex) = self.group_session_locks.get(room_id).map(|m| m.clone()) {
+                        // If a group session share request is already going on,
+                        // await the release of the lock.
+                        mutex.lock().await;
+                    } else {
+                        // Otherwise create a new lock and share the group
+                        // session.
+                        let mutex = Arc::new(Mutex::new(()));
+                        self.group_session_locks
+                            .insert(room_id.clone(), mutex.clone());
 
-                    // If one of the responses failed invalidate the group
-                    // session as using it would end up in undecryptable
-                    // messages.
-                    if let Err(r) = response {
-                        self.base_client.invalidate_group_session(room_id).await;
-                        return Err(r);
+                        let _guard = mutex.lock().await;
+
+                        let response = self.share_group_session(room_id).await;
+
+                        self.group_session_locks.remove(room_id);
+
+                        // If one of the responses failed invalidate the group
+                        // session as using it would end up in undecryptable
+                        // messages.
+                        if let Err(r) = response {
+                            self.base_client.invalidate_group_session(room_id).await;
+                            return Err(r);
+                        }
                     }
                 }
 
@@ -1341,7 +1363,7 @@ impl Client {
     #[cfg_attr(docsrs, doc(cfg(feature = "encryption")))]
     #[instrument]
     async fn keys_upload(&self) -> Result<upload_keys::Response> {
-        let (device_keys, one_time_keys) = self
+        let request = self
             .base_client
             .keys_for_upload()
             .await
@@ -1349,14 +1371,9 @@ impl Client {
 
         debug!(
             "Uploading encryption keys device keys: {}, one-time-keys: {}",
-            device_keys.is_some(),
-            one_time_keys.as_ref().map_or(0, |k| k.len())
+            request.device_keys.is_some(),
+            request.one_time_keys.as_ref().map_or(0, |k| k.len())
         );
-
-        let request = upload_keys::Request {
-            device_keys,
-            one_time_keys,
-        };
 
         let response = self.send(request).await?;
         self.base_client

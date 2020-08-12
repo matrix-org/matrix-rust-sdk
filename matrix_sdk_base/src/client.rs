@@ -41,8 +41,9 @@ use matrix_sdk_common::{
 #[cfg(feature = "encryption")]
 use matrix_sdk_common::{
     api::r0::keys::{
-        claim_keys::Response as KeysClaimResponse, get_keys::Response as KeysQueryResponse,
-        upload_keys::Response as KeysUploadResponse, DeviceKeys,
+        claim_keys::Response as KeysClaimResponse,
+        get_keys::Response as KeysQueryResponse,
+        upload_keys::{Request as KeysUploadRequest, Response as KeysUploadResponse},
     },
     api::r0::to_device::send_event_to_device::IncomingRequest as OwnedToDeviceRequest,
     events::room::{
@@ -51,7 +52,7 @@ use matrix_sdk_common::{
     identifiers::{DeviceId, DeviceKeyAlgorithm},
 };
 #[cfg(feature = "encryption")]
-use matrix_sdk_crypto::{CryptoStore, Device, OlmError, OlmMachine, OneTimeKeys, Sas};
+use matrix_sdk_crypto::{CryptoStore, Device, OlmError, OlmMachine, Sas};
 use zeroize::Zeroizing;
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -1326,9 +1327,7 @@ impl BaseClient {
     /// Returns an empty error if no keys need to be uploaded.
     #[cfg(feature = "encryption")]
     #[cfg_attr(docsrs, doc(cfg(feature = "encryption")))]
-    pub async fn keys_for_upload(
-        &self,
-    ) -> StdResult<(Option<DeviceKeys>, Option<OneTimeKeys>), ()> {
+    pub async fn keys_for_upload(&self) -> StdResult<KeysUploadRequest, ()> {
         let olm = self.olm.lock().await;
 
         match &*olm {
