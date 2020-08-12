@@ -515,15 +515,15 @@ impl Client {
     ///
     ///
     /// # Examples
-    /// ```
+    /// ```no_run
     /// # use std::convert::TryFrom;
     /// # use matrix_sdk::{Client, RegistrationBuilder};
     /// # use matrix_sdk::api::r0::account::register::RegistrationKind;
     /// # use matrix_sdk::identifiers::DeviceId;
+    /// # use futures::executor::block_on;
     /// # use url::Url;
     /// # let homeserver = Url::parse("http://example.com").unwrap();
-    /// # let mut rt = tokio::runtime::Runtime::new().unwrap();
-    /// # rt.block_on(async {
+    /// # block_on(async {
     /// let mut builder = RegistrationBuilder::default();
     /// builder.password("pass")
     ///     .username("user")
@@ -763,9 +763,9 @@ impl Client {
     /// # use matrix_sdk::{Client, RoomListFilterBuilder};
     /// # use matrix_sdk::api::r0::directory::get_public_rooms_filtered::{self, RoomNetwork, Filter};
     /// # use url::Url;
+    /// # use futures::executor::block_on;
     /// # let homeserver = Url::parse("http://example.com").unwrap();
-    /// # let mut rt = tokio::runtime::Runtime::new().unwrap();
-    /// # rt.block_on(async {
+    /// # block_on(async {
     /// # let last_sync_token = "".to_string();
     /// let mut client = Client::new(homeserver).unwrap();
     ///
