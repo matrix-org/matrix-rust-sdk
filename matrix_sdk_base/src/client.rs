@@ -703,8 +703,11 @@ impl BaseClient {
 
     /// Receive a timeline event for a joined room and update the client state.
     ///
-    /// Returns a tuple of the successfully decrypted event, or None on failure and
-    /// a bool, true when the `Room` state has been updated.
+    /// Returns a bool, true when the `Room` state has been updated.
+    ///
+    /// This will in-place replace the event with a decrypted one if the
+    /// encryption feature is turned on, the event is encrypted and if we
+    /// successfully decrypted the event.
     ///
     /// # Arguments
     ///
