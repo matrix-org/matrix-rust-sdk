@@ -1948,6 +1948,8 @@ impl BaseClient {
     /// }
     /// # });
     /// ```
+    #[cfg(feature = "encryption")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "encryption")))]
     pub async fn get_user_devices(
         &self,
         user_id: &UserId,
