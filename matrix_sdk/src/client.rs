@@ -365,6 +365,7 @@ impl Client {
             homeserver,
             http_client,
             base_client,
+            #[cfg(feature = "encryption")]
             group_session_locks: DashMap::new(),
         })
     }
