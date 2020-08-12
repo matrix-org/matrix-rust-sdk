@@ -725,11 +725,11 @@ impl Client {
     /// # let since = Some("since token");
     /// # let server = Some("server name");
     ///
-    /// let mut cli = Client::new(homeserver).unwrap();
+    /// let mut client = Client::new(homeserver).unwrap();
     /// # use futures::executor::block_on;
     /// # block_on(async {
     ///
-    /// cli.public_rooms(limit, since, server).await;
+    /// client.public_rooms(limit, since, server).await;
     /// # });
     /// ```
     pub async fn public_rooms(
@@ -810,10 +810,10 @@ impl Client {
     ///     .name("name")
     ///     .room_version("v1.0");
     ///
-    /// let mut cli = Client::new(homeserver).unwrap();
+    /// let mut client = Client::new(homeserver).unwrap();
     /// # use futures::executor::block_on;
     /// # block_on(async {
-    /// assert!(cli.create_room(builder).await.is_ok());
+    /// assert!(client.create_room(builder).await.is_ok());
     /// # });
     /// ```
     pub async fn create_room<R: Into<create_room::Request>>(
