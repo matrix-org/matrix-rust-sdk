@@ -1879,7 +1879,7 @@ impl BaseClient {
             .lock()
             .await
             .as_ref()
-            .and_then(|o| Some(o.start_verification(device)))
+            .map(|o| o.start_verification(device))
     }
 }
 
