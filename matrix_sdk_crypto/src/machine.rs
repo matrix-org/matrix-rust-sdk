@@ -804,11 +804,11 @@ impl OlmMachine {
     /// Encrypt a room message for the given room.
     ///
     /// Beware that a group session needs to be shared before this method can be
-    /// called using the `share_group_session()` method.
+    /// called using the [`share_group_session()`] method.
     ///
     /// Since group sessions can expire or become invalid if the room membership
     /// changes client authors should check with the
-    /// `should_share_group_session()` method if a new group session needs to
+    /// [`should_share_group_session`] method if a new group session needs to
     /// be shared.
     ///
     /// # Arguments
@@ -822,6 +822,9 @@ impl OlmMachine {
     /// # Panics
     ///
     /// Panics if a group session for the given room wasn't shared beforehand.
+    ///
+    /// [`should_share_group_session`]: #method.should_share_group_session
+    /// [`share_group_session`]: #method.share_group_session
     pub async fn encrypt(
         &self,
         room_id: &RoomId,
@@ -1236,6 +1239,12 @@ impl OlmMachine {
     /// Get the set of users that we need to query keys for.
     ///
     /// Returns a hash set of users that need to be queried for keys.
+    ///
+    /// The response of a successful key query requests needs to be passed to
+    /// the [`OlmMachine`] with the [`receive_keys_query_response`].
+    ///
+    /// [`OlmMachine`]: struct.OlmMachine.html
+    /// [`receive_keys_query_response`]: #method.receive_keys_query_response
     pub async fn users_for_key_query(&self) -> HashSet<UserId> {
         self.store.users_for_key_query()
     }
