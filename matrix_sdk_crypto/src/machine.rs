@@ -848,7 +848,7 @@ impl OlmMachine {
     /// Encrypt a room message for the given room.
     ///
     /// Beware that a group session needs to be shared before this method can be
-    /// called using the [`share_group_session()`] method.
+    /// called using the [`share_group_session`] method.
     ///
     /// Since group sessions can expire or become invalid if the room membership
     /// changes client authors should check with the
