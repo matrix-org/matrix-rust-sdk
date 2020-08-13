@@ -899,7 +899,7 @@ impl OlmMachine {
         };
 
         if session.expired() {
-            panic!("Session is expired");
+            panic!("Session expired");
         }
 
         Ok(session.encrypt(content).await)
