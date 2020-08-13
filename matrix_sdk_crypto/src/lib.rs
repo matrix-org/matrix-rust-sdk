@@ -39,7 +39,9 @@ pub use device::{Device, TrustState};
 pub use error::{MegolmError, OlmError};
 pub use machine::{OlmMachine, OneTimeKeys};
 pub use memory_stores::{DeviceStore, GroupSessionStore, SessionStore, UserDevices};
-pub use olm::{Account, IdentityKeys, InboundGroupSession, OutboundGroupSession, Session};
+pub use olm::{
+    Account, EncryptionSettings, IdentityKeys, InboundGroupSession, OutboundGroupSession, Session,
+};
 #[cfg(feature = "sqlite_cryptostore")]
 pub use store::sqlite::SqliteStore;
 pub use store::{CryptoStore, CryptoStoreError};

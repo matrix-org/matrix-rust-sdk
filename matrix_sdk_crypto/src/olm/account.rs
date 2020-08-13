@@ -42,7 +42,7 @@ pub use olm_rs::{
     utility::OlmUtility,
 };
 
-use super::{InboundGroupSession, OutboundGroupSession, Session};
+use super::{EncryptionSettings, InboundGroupSession, OutboundGroupSession, Session};
 use crate::{device::Device, error::SessionCreationError};
 
 /// Account holding identity keys for which sessions can be created.
@@ -537,12 +537,24 @@ impl Account {
     /// # Arguments
     ///
     /// * `room_id` - The ID of the room where the group session will be used.
+    ///
+    /// * `settings` - Settings determining the algorithm and rotation period of
+    /// the outbound group session.
     pub(crate) async fn create_group_session_pair(
         &self,
         room_id: &RoomId,
-    ) -> (OutboundGroupSession, InboundGroupSession) {
-        let outbound =
-            OutboundGroupSession::new(self.device_id.clone(), self.identity_keys.clone(), room_id);
+        settings: EncryptionSettings,
+    ) -> Result<(OutboundGroupSession, InboundGroupSession), ()> {
+        if settings.algorithm != Algorithm::MegolmV1AesSha2 {
+            return Err(());
+        }
+
+        let outbound = OutboundGroupSession::new(
+            self.device_id.clone(),
+            self.identity_keys.clone(),
+            room_id,
+            settings,
+        );
         let identity_keys = self.identity_keys();
 
         let sender_key = identity_keys.curve25519();
@@ -556,7 +568,7 @@ impl Account {
         )
         .expect("Can't create inbound group session from a newly created outbound group session");
 
-        (outbound, inbound)
+        Ok((outbound, inbound))
     }
 }
 

@@ -17,7 +17,9 @@ mod group_sessions;
 mod session;
 
 pub use account::{Account, IdentityKeys};
-pub use group_sessions::{GroupSessionKey, InboundGroupSession, OutboundGroupSession};
+pub use group_sessions::{
+    EncryptionSettings, GroupSessionKey, InboundGroupSession, OutboundGroupSession,
+};
 pub use session::{OlmMessage, Session};
 
 #[cfg(test)]
@@ -179,7 +181,10 @@ pub(crate) mod test {
         let alice = Account::new(&alice_id(), &alice_device_id());
         let room_id = room_id!("!test:localhost");
 
-        let (outbound, _) = alice.create_group_session_pair(&room_id).await;
+        let (outbound, _) = alice
+            .create_group_session_pair(&room_id, Default::default())
+            .await
+            .unwrap();
 
         assert_eq!(0, outbound.message_index().await);
         assert!(!outbound.shared());

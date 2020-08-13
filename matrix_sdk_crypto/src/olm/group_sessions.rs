@@ -16,14 +16,18 @@ use std::{
     convert::TryInto,
     fmt,
     sync::{
-        atomic::{AtomicBool, AtomicUsize, Ordering},
+        atomic::{AtomicBool, AtomicU64, Ordering},
         Arc,
     },
+    time::Duration,
 };
 
 use matrix_sdk_common::{
     events::{
-        room::{encrypted::EncryptedEventContent, message::MessageEventContent},
+        room::{
+            encrypted::EncryptedEventContent, encryption::EncryptionEventContent,
+            message::MessageEventContent,
+        },
         Algorithm, AnySyncRoomEvent, EventType, SyncMessageEvent,
     },
     identifiers::{DeviceId, RoomId},
@@ -46,6 +50,49 @@ pub use olm_rs::{
 };
 
 use crate::error::{EventError, MegolmResult};
+
+const ROTATION_PERIOD: Duration = Duration::from_millis(604800000);
+const ROTATION_MESSAGES: u64 = 100;
+
+/// Settings for an encrypted room.
+///
+/// This determines the algorithm and rotation periods of a group session.
+#[derive(Debug)]
+pub struct EncryptionSettings {
+    /// The encryption algorithm that should be used in the room.
+    pub algorithm: Algorithm,
+    /// How long the session should be used before changing it.
+    pub rotation_period: Duration,
+    /// How many messages should be sent before changing the session.
+    pub rotation_period_msgs: u64,
+}
+
+impl Default for EncryptionSettings {
+    fn default() -> Self {
+        Self {
+            algorithm: Algorithm::MegolmV1AesSha2,
+            rotation_period: ROTATION_PERIOD,
+            rotation_period_msgs: ROTATION_MESSAGES,
+        }
+    }
+}
+
+impl From<&EncryptionEventContent> for EncryptionSettings {
+    fn from(content: &EncryptionEventContent) -> Self {
+        let rotation_period: Duration = content
+            .rotation_period_ms
+            .map_or(ROTATION_PERIOD, |r| Duration::from_millis(r.into()));
+        let rotation_period_msgs: u64 = content
+            .rotation_period_msgs
+            .map_or(ROTATION_MESSAGES, Into::into);
+
+        Self {
+            algorithm: content.algorithm.clone(),
+            rotation_period,
+            rotation_period_msgs,
+        }
+    }
+}
 
 /// The private session key of a group session.
 /// Can be used to create a new inbound group session.
@@ -250,8 +297,9 @@ pub struct OutboundGroupSession {
     session_id: Arc<String>,
     room_id: Arc<RoomId>,
     creation_time: Arc<Instant>,
-    message_count: Arc<AtomicUsize>,
+    message_count: Arc<AtomicU64>,
     shared: Arc<AtomicBool>,
+    settings: Arc<EncryptionSettings>,
 }
 
 impl OutboundGroupSession {
@@ -267,10 +315,14 @@ impl OutboundGroupSession {
     /// session.
     ///
     /// * `room_id` - The id of the room that the session is used in.
+    ///
+    /// * `settings` - Settings determining the algorithm and rotation period of
+    /// the outbound group session.
     pub fn new(
         device_id: Arc<Box<DeviceId>>,
         identity_keys: Arc<IdentityKeys>,
         room_id: &RoomId,
+        settings: EncryptionSettings,
     ) -> Self {
         let session = OlmOutboundGroupSession::new();
         let session_id = session.session_id();
@@ -282,8 +334,9 @@ impl OutboundGroupSession {
             account_identity_keys: identity_keys,
             session_id: Arc::new(session_id),
             creation_time: Arc::new(Instant::now()),
-            message_count: Arc::new(AtomicUsize::new(0)),
+            message_count: Arc::new(AtomicU64::new(0)),
             shared: Arc::new(AtomicBool::new(false)),
+            settings: Arc::new(settings),
         }
     }
 
@@ -296,6 +349,7 @@ impl OutboundGroupSession {
     /// * `plaintext` - The plaintext that should be encrypted.
     pub(crate) async fn encrypt_helper(&self, plaintext: String) -> String {
         let session = self.inner.lock().await;
+        self.message_count.fetch_add(1, Ordering::SeqCst);
         session.encrypt(plaintext)
     }
 
@@ -349,8 +403,10 @@ impl OutboundGroupSession {
     /// A session will expire after some time or if enough messages have been
     /// encrypted using it.
     pub fn expired(&self) -> bool {
-        // TODO implement this.
-        false
+        let count = self.message_count.load(Ordering::SeqCst);
+
+        count >= self.settings.rotation_period_msgs
+            || self.creation_time.elapsed() >= self.settings.rotation_period
     }
 
     /// Mark the session as shared.

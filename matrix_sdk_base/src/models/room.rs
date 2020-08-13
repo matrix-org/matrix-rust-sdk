@@ -13,12 +13,19 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#[cfg(feature = "messages")]
-use std::ops::DerefMut;
 use std::{
     collections::{BTreeMap, HashMap, HashSet},
     convert::TryFrom,
 };
+
+#[cfg(feature = "messages")]
+use std::ops::DerefMut;
+
+#[cfg(feature = "encryption")]
+use std::time::Duration;
+
+#[cfg(feature = "encryption")]
+use matrix_sdk_crypto::EncryptionSettings;
 
 #[cfg(feature = "messages")]
 use matrix_sdk_common::events::{
@@ -111,6 +118,16 @@ pub struct EncryptionInfo {
     rotation_period_messages: u64,
 }
 
+impl Default for EncryptionInfo {
+    fn default() -> Self {
+        Self {
+            algorithm: Algorithm::MegolmV1AesSha2,
+            rotation_period_ms: 604_800_000,
+            rotation_period_messages: 100,
+        }
+    }
+}
+
 impl EncryptionInfo {
     /// The encryption algorithm that should be used to encrypt messages in the
     /// room.
@@ -139,6 +156,17 @@ impl From<&SyncStateEvent<EncryptionEventContent>> for EncryptionInfo {
                 .rotation_period_ms
                 .map_or(604_800_000, Into::into),
             rotation_period_messages: event.content.rotation_period_msgs.map_or(100, Into::into),
+        }
+    }
+}
+
+#[cfg(feature = "encryption")]
+impl Into<EncryptionSettings> for EncryptionInfo {
+    fn into(self) -> EncryptionSettings {
+        EncryptionSettings {
+            algorithm: self.algorithm,
+            rotation_period: Duration::from_millis(self.rotation_period_messages),
+            rotation_period_msgs: self.rotation_period_messages,
         }
     }
 }

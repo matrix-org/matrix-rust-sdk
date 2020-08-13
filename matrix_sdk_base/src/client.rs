@@ -1305,7 +1305,12 @@ impl BaseClient {
                 let joined_members = room.joined_members.keys();
                 let invited_members = room.joined_members.keys();
                 let members: Vec<&UserId> = joined_members.chain(invited_members).collect();
-                Ok(o.share_group_session(room_id, members.into_iter()).await?)
+                Ok(o.share_group_session(
+                    room_id,
+                    members.into_iter(),
+                    room.encrypted.clone().unwrap_or_default(),
+                )
+                .await?)
             }
             None => panic!("Olm machine wasn't started"),
         }

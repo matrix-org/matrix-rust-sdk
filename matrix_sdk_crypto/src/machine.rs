@@ -53,8 +53,8 @@ use super::{
     device::Device,
     error::{EventError, MegolmError, MegolmResult, OlmError, OlmResult},
     olm::{
-        Account, GroupSessionKey, IdentityKeys, InboundGroupSession, OlmMessage,
-        OutboundGroupSession,
+        Account, EncryptionSettings, GroupSessionKey, IdentityKeys, InboundGroupSession,
+        OlmMessage, OutboundGroupSession,
     },
     store::{memorystore::MemoryStore, Result as StoreResult},
     verification::{Sas, VerificationMachine},
@@ -824,8 +824,16 @@ impl OlmMachine {
     ///
     /// This also creates a matching inbound group session and saves that one in
     /// the store.
-    async fn create_outbound_group_session(&self, room_id: &RoomId) -> OlmResult<()> {
-        let (outbound, inbound) = self.account.create_group_session_pair(room_id).await;
+    async fn create_outbound_group_session(
+        &self,
+        room_id: &RoomId,
+        settings: EncryptionSettings,
+    ) -> OlmResult<()> {
+        let (outbound, inbound) = self
+            .account
+            .create_group_session_pair(room_id, settings)
+            .await
+            .map_err(|_| EventError::UnsupportedAlgorithm)?;
 
         let _ = self.store.save_inbound_group_session(inbound).await?;
 
@@ -833,6 +841,15 @@ impl OlmMachine {
             .outbound_group_sessions
             .insert(room_id.to_owned(), outbound);
         Ok(())
+    }
+
+    #[cfg(test)]
+    async fn create_outnbound_group_session_with_defaults(
+        &self,
+        room_id: &RoomId,
+    ) -> OlmResult<()> {
+        self.create_outbound_group_session(room_id, EncryptionSettings::default())
+            .await
     }
 
     /// Get an outbound group session for a room, if one exists.
@@ -961,7 +978,6 @@ impl OlmMachine {
         self.outbound_group_sessions.remove(room_id).is_some()
     }
 
-    // TODO accept an algorithm here
     /// Get to-device requests to share a group session with users in a room.
     ///
     /// # Arguments
@@ -970,15 +986,18 @@ impl OlmMachine {
     /// used.
     ///
     /// `users` - The list of users that should receive the group session.
-    pub async fn share_group_session<'a, I>(
+    pub async fn share_group_session<'a, I, S>(
         &self,
         room_id: &RoomId,
         users: I,
+        encryption_settings: S,
     ) -> OlmResult<Vec<OwnedToDeviceRequest>>
     where
         I: IntoIterator<Item = &'a UserId>,
+        S: Into<EncryptionSettings> + Sized,
     {
-        self.create_outbound_group_session(room_id).await?;
+        self.create_outbound_group_session(room_id, encryption_settings.into())
+            .await?;
         let session = self.outbound_group_sessions.get(room_id).unwrap();
 
         if session.shared() {
@@ -1373,7 +1392,7 @@ mod test {
 
     use crate::{
         machine::{OlmMachine, OneTimeKeys},
-        verify_json, Device,
+        verify_json, Device, EncryptionSettings,
     };
 
     use matrix_sdk_common::{
@@ -1618,7 +1637,7 @@ mod test {
         let room_id = room_id!("!test:example.org");
 
         machine
-            .create_outbound_group_session(&room_id)
+            .create_outnbound_group_session_with_defaults(&room_id)
             .await
             .unwrap();
         assert!(machine.outbound_group_sessions.get(&room_id).is_some());
@@ -1825,7 +1844,11 @@ mod test {
         let room_id = room_id!("!test:example.org");
 
         let to_device_requests = alice
-            .share_group_session(&room_id, [bob.user_id.clone()].iter())
+            .share_group_session(
+                &room_id,
+                [bob.user_id.clone()].iter(),
+                EncryptionSettings::default(),
+            )
             .await
             .unwrap();
 
@@ -1868,7 +1891,11 @@ mod test {
         let room_id = room_id!("!test:example.org");
 
         let to_device_requests = alice
-            .share_group_session(&room_id, [bob.user_id().clone()].iter())
+            .share_group_session(
+                &room_id,
+                [bob.user_id().clone()].iter(),
+                EncryptionSettings::default(),
+            )
             .await
             .unwrap();
 
