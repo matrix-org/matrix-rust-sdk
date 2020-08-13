@@ -172,7 +172,7 @@ pub struct Room {
     /// This is helpful when using a `StateStore` to avoid multiple requests to
     /// the server for messages.
     #[cfg(feature = "messages")]
-    #[cfg_attr(docsrs, doc(cfg(feature = "messages")))]
+    #[cfg_attr(feature = "docs", doc(cfg(messages)))]
     #[serde(with = "super::message::ser_deser")]
     pub messages: MessageQueue,
     /// A list of users that are currently typing.
@@ -656,7 +656,7 @@ impl Room {
     ///
     /// Returns true if `MessageQueue` was added to.
     #[cfg(feature = "messages")]
-    #[cfg_attr(docsrs, doc(cfg(feature = "messages")))]
+    #[cfg_attr(feature = "docs", doc(cfg(messages)))]
     pub fn handle_message(&mut self, event: &AnySyncMessageEvent) -> bool {
         self.messages
             .push(AnyPossiblyRedactedSyncMessageEvent::Regular(event.clone()))
@@ -669,7 +669,7 @@ impl Room {
     /// whole redaction event is added to the `Unsigned` `redacted_because`
     /// field.
     #[cfg(feature = "messages")]
-    #[cfg_attr(docsrs, doc(cfg(feature = "messages")))]
+    #[cfg_attr(feature = "docs", doc(cfg(messages)))]
     pub fn handle_redaction(&mut self, redacted_event: &SyncRedactionEvent) -> bool {
         use crate::{identifiers::RoomVersionId, models::message::PossiblyRedactedExt};
 

@@ -1231,7 +1231,7 @@ impl BaseClient {
 
     /// Should account or one-time keys be uploaded to the server.
     #[cfg(feature = "encryption")]
-    #[cfg_attr(docsrs, doc(cfg(feature = "encryption")))]
+    #[cfg_attr(feature = "docs", doc(cfg(encryption)))]
     pub async fn should_upload_keys(&self) -> bool {
         let olm = self.olm.lock().await;
 
@@ -1250,7 +1250,7 @@ impl BaseClient {
     /// This should be called every time a new room message wants to be sent out
     /// since group sessions can expire at any time.
     #[cfg(feature = "encryption")]
-    #[cfg_attr(docsrs, doc(cfg(feature = "encryption")))]
+    #[cfg_attr(feature = "docs", doc(cfg(encryption)))]
     pub async fn should_share_group_session(&self, room_id: &RoomId) -> bool {
         let olm = self.olm.lock().await;
 
@@ -1262,7 +1262,7 @@ impl BaseClient {
 
     /// Should users be queried for their device keys.
     #[cfg(feature = "encryption")]
-    #[cfg_attr(docsrs, doc(cfg(feature = "encryption")))]
+    #[cfg_attr(feature = "docs", doc(cfg(encryption)))]
     pub async fn should_query_keys(&self) -> bool {
         let olm = self.olm.lock().await;
 
@@ -1276,7 +1276,7 @@ impl BaseClient {
     ///
     /// Returns an empty error if no keys need to be uploaded.
     #[cfg(feature = "encryption")]
-    #[cfg_attr(docsrs, doc(cfg(feature = "encryption")))]
+    #[cfg_attr(feature = "docs", doc(cfg(encryption)))]
     pub async fn get_missing_sessions(
         &self,
         users: impl Iterator<Item = &UserId>,
@@ -1291,7 +1291,7 @@ impl BaseClient {
 
     /// Get a to-device request that will share a group session for a room.
     #[cfg(feature = "encryption")]
-    #[cfg_attr(docsrs, doc(cfg(feature = "encryption")))]
+    #[cfg_attr(feature = "docs", doc(cfg(encryption)))]
     pub async fn share_group_session(&self, room_id: &RoomId) -> Result<Vec<OwnedToDeviceRequest>> {
         let room = self.get_joined_room(room_id).await.expect("No room found");
         let olm = self.olm.lock().await;
@@ -1313,7 +1313,7 @@ impl BaseClient {
 
     /// Encrypt a message event content.
     #[cfg(feature = "encryption")]
-    #[cfg_attr(docsrs, doc(cfg(feature = "encryption")))]
+    #[cfg_attr(feature = "docs", doc(cfg(encryption)))]
     pub async fn encrypt(
         &self,
         room_id: &RoomId,
@@ -1331,7 +1331,7 @@ impl BaseClient {
     ///
     /// Returns an empty error if no keys need to be uploaded.
     #[cfg(feature = "encryption")]
-    #[cfg_attr(docsrs, doc(cfg(feature = "encryption")))]
+    #[cfg_attr(feature = "docs", doc(cfg(encryption)))]
     pub async fn keys_for_upload(&self) -> StdResult<KeysUploadRequest, ()> {
         let olm = self.olm.lock().await;
 
@@ -1345,7 +1345,7 @@ impl BaseClient {
     ///
     /// Returns an empty error if no keys need to be queried.
     #[cfg(feature = "encryption")]
-    #[cfg_attr(docsrs, doc(cfg(feature = "encryption")))]
+    #[cfg_attr(feature = "docs", doc(cfg(encryption)))]
     pub async fn users_for_key_query(&self) -> StdResult<HashSet<UserId>, ()> {
         let olm = self.olm.lock().await;
 
@@ -1365,7 +1365,7 @@ impl BaseClient {
     /// # Panics
     /// Panics if the client hasn't been logged in.
     #[cfg(feature = "encryption")]
-    #[cfg_attr(docsrs, doc(cfg(feature = "encryption")))]
+    #[cfg_attr(feature = "docs", doc(cfg(encryption)))]
     pub async fn receive_keys_upload_response(&self, response: &KeysUploadResponse) -> Result<()> {
         let olm = self.olm.lock().await;
 
@@ -1384,7 +1384,7 @@ impl BaseClient {
     /// # Panics
     /// Panics if the client hasn't been logged in.
     #[cfg(feature = "encryption")]
-    #[cfg_attr(docsrs, doc(cfg(feature = "encryption")))]
+    #[cfg_attr(feature = "docs", doc(cfg(encryption)))]
     pub async fn receive_keys_claim_response(&self, response: &KeysClaimResponse) -> Result<()> {
         let olm = self.olm.lock().await;
 
@@ -1403,7 +1403,7 @@ impl BaseClient {
     /// # Panics
     /// Panics if the client hasn't been logged in.
     #[cfg(feature = "encryption")]
-    #[cfg_attr(docsrs, doc(cfg(feature = "encryption")))]
+    #[cfg_attr(feature = "docs", doc(cfg(encryption)))]
     pub async fn receive_keys_query_response(&self, response: &KeysQueryResponse) -> Result<()> {
         let olm = self.olm.lock().await;
 
@@ -1419,7 +1419,7 @@ impl BaseClient {
     /// Returns true if a session was invalidated, false if there was no session
     /// to invalidate.
     #[cfg(feature = "encryption")]
-    #[cfg_attr(docsrs, doc(cfg(feature = "encryption")))]
+    #[cfg_attr(feature = "docs", doc(cfg(encryption)))]
     pub async fn invalidate_group_session(&self, room_id: &RoomId) -> bool {
         let olm = self.olm.lock().await;
 
@@ -1831,7 +1831,7 @@ impl BaseClient {
 
     /// Get the to-device requests that need to be sent out.
     #[cfg(feature = "encryption")]
-    #[cfg_attr(docsrs, doc(cfg(feature = "encryption")))]
+    #[cfg_attr(feature = "docs", doc(cfg(encryption)))]
     pub async fn outgoing_to_device_requests(&self) -> Vec<OwnedToDeviceRequest> {
         self.olm
             .lock()
@@ -1843,7 +1843,7 @@ impl BaseClient {
 
     /// Mark an outgoing to-device requests as sent.
     #[cfg(feature = "encryption")]
-    #[cfg_attr(docsrs, doc(cfg(feature = "encryption")))]
+    #[cfg_attr(feature = "docs", doc(cfg(encryption)))]
     pub async fn mark_to_device_request_as_sent(&self, request_id: &str) {
         if let Some(olm) = self.olm.lock().await.as_ref() {
             olm.mark_to_device_request_as_sent(request_id)
@@ -1860,7 +1860,7 @@ impl BaseClient {
     ///     to-device verification flows this will be the transaction id of the
     ///     *m.key.verification.start* event.
     #[cfg(feature = "encryption")]
-    #[cfg_attr(docsrs, doc(cfg(feature = "encryption")))]
+    #[cfg_attr(feature = "docs", doc(cfg(encryption)))]
     pub async fn get_verification(&self, flow_id: &str) -> Option<Sas> {
         self.olm
             .lock()
@@ -1878,7 +1878,7 @@ impl BaseClient {
     ///
     /// Returns a `Sas` object and a to-device request that needs to be sent out.
     #[cfg(feature = "encryption")]
-    #[cfg_attr(docsrs, doc(cfg(feature = "encryption")))]
+    #[cfg_attr(feature = "docs", doc(cfg(encryption)))]
     pub async fn start_verification(&self, device: Device) -> Option<(Sas, OwnedToDeviceRequest)> {
         self.olm
             .lock()
@@ -1916,7 +1916,7 @@ impl BaseClient {
     /// # });
     /// ```
     #[cfg(feature = "encryption")]
-    #[cfg_attr(docsrs, doc(cfg(feature = "encryption")))]
+    #[cfg_attr(feature = "docs", doc(cfg(encryption)))]
     pub async fn get_device(&self, user_id: &UserId, device_id: &DeviceId) -> Option<Device> {
         let olm = self.olm.lock().await;
         olm.as_ref()?.get_device(user_id, device_id).await
@@ -1949,7 +1949,7 @@ impl BaseClient {
     /// # });
     /// ```
     #[cfg(feature = "encryption")]
-    #[cfg_attr(docsrs, doc(cfg(feature = "encryption")))]
+    #[cfg_attr(feature = "docs", doc(cfg(encryption)))]
     pub async fn get_user_devices(
         &self,
         user_id: &UserId,

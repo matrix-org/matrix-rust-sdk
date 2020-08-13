@@ -47,13 +47,13 @@ pub enum Error {
 
     /// An error occurred during a E2EE operation.
     #[cfg(feature = "encryption")]
-    #[cfg_attr(docsrs, doc(cfg(feature = "encryption")))]
+    #[cfg_attr(feature = "docs", doc(cfg(encryption)))]
     #[error(transparent)]
     OlmError(#[from] OlmError),
 
     /// An error occurred during a E2EE group operation.
     #[cfg(feature = "encryption")]
-    #[cfg_attr(docsrs, doc(cfg(feature = "encryption")))]
+    #[cfg_attr(feature = "docs", doc(cfg(encryption)))]
     #[error(transparent)]
     MegolmError(#[from] MegolmError),
 }

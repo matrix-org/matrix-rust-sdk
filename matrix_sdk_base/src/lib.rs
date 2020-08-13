@@ -34,6 +34,7 @@
     unused_import_braces,
     unused_qualifications
 )]
+#![cfg_attr(feature = "docs", feature(doc_cfg))]
 
 pub use crate::{
     error::{Error, Result},
@@ -54,10 +55,11 @@ pub use models::Room;
 pub use state::{AllRooms, ClientState};
 
 #[cfg(feature = "encryption")]
+#[cfg_attr(feature = "docs", doc(cfg(encryption)))]
 pub use matrix_sdk_crypto::{CryptoStoreError, Device, Sas, TrustState, UserDevices};
 
 #[cfg(feature = "messages")]
-#[cfg_attr(docsrs, doc(cfg(feature = "messages")))]
+#[cfg_attr(feature = "docs", doc(cfg(messages)))]
 pub use models::{MessageQueue, PossiblyRedactedExt};
 
 #[cfg(not(target_arch = "wasm32"))]
