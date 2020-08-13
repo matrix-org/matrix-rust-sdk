@@ -38,7 +38,7 @@ use tracing::{error, info, instrument};
 use matrix_sdk_base::{BaseClient, BaseClientConfig, Room, Session, StateStore};
 
 #[cfg(feature = "encryption")]
-use matrix_sdk_base::Device;
+use matrix_sdk_base::{CryptoStoreError, Device, UserDevices};
 
 use matrix_sdk_common::{
     api::r0::{
@@ -1481,6 +1481,77 @@ impl Client {
             http_client: self.http_client.clone(),
             homeserver: self.homeserver.clone(),
         })
+    }
+
+    /// Get a specific device of a user.
+    ///
+    /// # Arguments
+    ///
+    /// * `user_id` - The unique id of the user that the device belongs to.
+    ///
+    /// * `device_id` - The unique id of the device.
+    ///
+    /// Returns a `Device` if one is found and the crypto store didn't throw an
+    /// error.
+    ///
+    /// This will always return None if the client hasn't been logged in.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use std::convert::TryFrom;
+    /// # use matrix_sdk::{Client, identifiers::UserId};
+    /// # use url::Url;
+    /// # use futures::executor::block_on;
+    /// # let alice = UserId::try_from("@alice:example.org").unwrap();
+    /// # let homeserver = Url::parse("http://example.com").unwrap();
+    /// # let client = Client::new(homeserver).unwrap();
+    /// # block_on(async {
+    /// let device = client.get_device(&alice, "DEVICEID".into()).await;
+    ///
+    /// println!("{:?}", device);
+    /// # });
+    /// ```
+    #[cfg(feature = "encryption")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "encryption")))]
+    pub async fn get_device(&self, user_id: &UserId, device_id: &DeviceId) -> Option<Device> {
+        self.base_client.get_device(user_id, device_id).await
+    }
+
+    /// Get a map holding all the devices of an user.
+    ///
+    /// This will always return an empty map if the client hasn't been logged
+    /// in.
+    ///
+    /// # Arguments
+    ///
+    /// * `user_id` - The unique id of the user that the devices belong to.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use std::convert::TryFrom;
+    /// # use matrix_sdk::{Client, identifiers::UserId};
+    /// # use url::Url;
+    /// # use futures::executor::block_on;
+    /// # let alice = UserId::try_from("@alice:example.org").unwrap();
+    /// # let homeserver = Url::parse("http://example.com").unwrap();
+    /// # let client = Client::new(homeserver).unwrap();
+    /// # block_on(async {
+    /// let devices = client.get_user_devices(&alice).await.unwrap();
+    ///
+    /// for device in devices.devices() {
+    ///     println!("{:?}", device);
+    /// }
+    /// # });
+    /// ```
+    #[cfg(feature = "encryption")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "encryption")))]
+    pub async fn get_user_devices(
+        &self,
+        user_id: &UserId,
+    ) -> StdResult<UserDevices, CryptoStoreError> {
+        self.base_client.get_user_devices(user_id).await
     }
 }
 
