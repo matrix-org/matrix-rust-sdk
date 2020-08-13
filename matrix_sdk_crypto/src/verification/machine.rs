@@ -53,6 +53,9 @@ impl VerificationMachine {
             AnyToDeviceEventContent::KeyVerificationStart(content),
         );
 
+        self.verifications
+            .insert(sas.flow_id().to_owned(), sas.clone());
+
         (sas, request)
     }
 
