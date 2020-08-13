@@ -35,11 +35,11 @@ use super::{
 pub mod memorystore;
 
 #[cfg(not(target_arch = "wasm32"))]
-#[cfg(feature = "sqlite-cryptostore")]
+#[cfg(feature = "sqlite_cryptostore")]
 pub mod sqlite;
 
 #[cfg(not(target_arch = "wasm32"))]
-#[cfg(feature = "sqlite-cryptostore")]
+#[cfg(feature = "sqlite_cryptostore")]
 use sqlx::Error as SqlxError;
 
 #[derive(Error, Debug)]
@@ -53,7 +53,7 @@ pub enum CryptoStoreError {
     /// SQL error occurred.
     // TODO flatten the SqlxError to make it easier for other store
     // implementations.
-    #[cfg(feature = "sqlite-cryptostore")]
+    #[cfg(feature = "sqlite_cryptostore")]
     #[error(transparent)]
     DatabaseError(#[from] SqlxError),
 

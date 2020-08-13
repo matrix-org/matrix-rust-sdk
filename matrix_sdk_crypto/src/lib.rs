@@ -25,6 +25,7 @@
     unused_import_braces,
     unused_qualifications
 )]
+#![cfg_attr(feature = "docs", feature(doc_cfg))]
 
 mod device;
 mod error;
@@ -39,7 +40,7 @@ pub use error::{MegolmError, OlmError};
 pub use machine::{OlmMachine, OneTimeKeys};
 pub use memory_stores::{DeviceStore, GroupSessionStore, SessionStore, UserDevices};
 pub use olm::{Account, IdentityKeys, InboundGroupSession, OutboundGroupSession, Session};
-#[cfg(feature = "sqlite-cryptostore")]
+#[cfg(feature = "sqlite_cryptostore")]
 pub use store::sqlite::SqliteStore;
 pub use store::{CryptoStore, CryptoStoreError};
 pub use verification::Sas;

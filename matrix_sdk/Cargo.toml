@@ -11,10 +11,10 @@ repository = "https://github.com/matrix-org/matrix-rust-sdk"
 version = "0.1.0"
 
 [features]
-default = ["encryption", "sqlite-cryptostore", "messages"]
+default = ["encryption", "sqlite_cryptostore", "messages"]
 messages = ["matrix-sdk-base/messages"]
 encryption = ["matrix-sdk-base/encryption", "dashmap"]
-sqlite-cryptostore = ["matrix-sdk-base/sqlite-cryptostore"]
+sqlite_cryptostore = ["matrix-sdk-base/sqlite_cryptostore"]
 
 [dependencies]
 async-trait = "0.1.36"

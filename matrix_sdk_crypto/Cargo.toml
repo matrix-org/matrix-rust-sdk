@@ -10,9 +10,14 @@ readme = "README.md"
 repository = "https://github.com/matrix-org/matrix-rust-sdk"
 version = "0.1.0"
 
+[package.metadata.docs.rs]
+features = ["docs"]
+rustdoc-args = ["--cfg", "feature=\"docs\""]
+
 [features]
 default = []
-sqlite-cryptostore = ["sqlx"]
+sqlite_cryptostore = ["sqlx"]
+docs = ["sqlite_cryptostore"]
 
 [dependencies]
 async-trait = "0.1.36"

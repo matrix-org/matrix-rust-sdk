@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#[cfg(feature = "sqlite-cryptostore")]
+#[cfg(feature = "sqlite_cryptostore")]
 use std::path::Path;
 use std::{
     collections::{BTreeMap, HashSet},
@@ -47,7 +47,7 @@ use matrix_sdk_common::{
     Raw,
 };
 
-#[cfg(feature = "sqlite-cryptostore")]
+#[cfg(feature = "sqlite_cryptostore")]
 use super::store::sqlite::SqliteStore;
 use super::{
     device::Device,
@@ -182,8 +182,9 @@ impl OlmMachine {
     /// * `user_id` - The unique id of the user that owns this machine.
     ///
     /// * `device_id` - The unique id of the device that owns this machine.
-    #[cfg(feature = "sqlite-cryptostore")]
+    #[cfg(feature = "sqlite_cryptostore")]
     #[instrument(skip(path, passphrase))]
+    #[cfg_attr(feature = "docs", doc(cfg(r#sqlite_cryptostore)))]
     pub async fn new_with_default_store<P: AsRef<Path>>(
         user_id: &UserId,
         device_id: &DeviceId,
