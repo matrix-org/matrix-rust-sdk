@@ -1389,6 +1389,7 @@ mod test {
 
     use http::Response;
     use serde_json::json;
+    use tempfile::tempdir;
 
     use crate::{
         machine::{OlmMachine, OneTimeKeys},
@@ -1942,5 +1943,43 @@ mod test {
             }
             _ => panic!("Decrypted room event has the wrong type"),
         }
+    }
+
+    #[tokio::test]
+    async fn test_machine_with_default_store() {
+        let tmpdir = tempdir().unwrap();
+
+        let machine = OlmMachine::new_with_default_store(
+            &user_id(),
+            &alice_device_id(),
+            tmpdir.as_ref(),
+            "test",
+        )
+        .await
+        .unwrap();
+
+        let user_id = machine.user_id().to_owned();
+        let device_id = machine.device_id().to_owned();
+        let ed25519_key = machine.identity_keys().ed25519().to_owned();
+
+        machine
+            .receive_keys_upload_response(&keys_upload_response())
+            .await
+            .unwrap();
+
+        drop(machine);
+
+        let machine = OlmMachine::new_with_default_store(
+            &user_id,
+            &alice_device_id(),
+            tmpdir.as_ref(),
+            "test",
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(&user_id, machine.user_id());
+        assert_eq!(&*device_id, machine.device_id());
+        assert_eq!(ed25519_key, machine.identity_keys().ed25519());
     }
 }
