@@ -35,6 +35,7 @@
     unused_import_braces,
     unused_qualifications
 )]
+#![cfg_attr(feature = "docs", feature(doc_cfg))]
 
 #[cfg(not(target_arch = "wasm32"))]
 pub use matrix_sdk_base::JsonStore;
@@ -42,9 +43,13 @@ pub use matrix_sdk_base::{
     CustomEvent, Error as BaseError, EventEmitter, Room, RoomState, Session, StateStore, SyncRoom,
 };
 #[cfg(feature = "encryption")]
+#[cfg_attr(feature = "docs", doc(cfg(encryption)))]
 pub use matrix_sdk_base::{Device, TrustState};
+
 #[cfg(feature = "messages")]
+#[cfg_attr(feature = "docs", doc(cfg(messages)))]
 pub use matrix_sdk_base::{MessageQueue, PossiblyRedactedExt};
+
 pub use matrix_sdk_common::*;
 pub use reqwest::header::InvalidHeaderValue;
 
@@ -63,6 +68,7 @@ pub use request_builder::{
     MessagesRequestBuilder, RegistrationBuilder, RoomBuilder, RoomListFilterBuilder,
 };
 #[cfg(feature = "encryption")]
+#[cfg_attr(feature = "docs", doc(cfg(encryption)))]
 pub use sas::Sas;
 
 #[cfg(not(target_arch = "wasm32"))]

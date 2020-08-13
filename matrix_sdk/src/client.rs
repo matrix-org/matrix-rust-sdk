@@ -953,6 +953,7 @@ impl Client {
     ///
     /// Does nothing if no group session needs to be shared.
     #[cfg(feature = "encryption")]
+    #[cfg_attr(feature = "docs", doc(cfg(encryption)))]
     async fn preshare_group_session(&self, room_id: &RoomId) -> Result<()> {
         // TODO expose this publicly so people can pre-share a group session if
         // e.g. a user starts to type a message for a room.
@@ -1318,7 +1319,7 @@ impl Client {
     /// Panics if the client isn't logged in, or if no encryption keys need to
     /// be uploaded.
     #[cfg(feature = "encryption")]
-    #[cfg_attr(docsrs, doc(cfg(feature = "encryption")))]
+    #[cfg_attr(feature = "docs", doc(cfg(encryption)))]
     #[instrument]
     async fn claim_one_time_keys(
         &self,
@@ -1347,7 +1348,7 @@ impl Client {
     ///
     /// Panics if the client isn't logged in.
     #[cfg(feature = "encryption")]
-    #[cfg_attr(docsrs, doc(cfg(feature = "encryption")))]
+    #[cfg_attr(feature = "docs", doc(cfg(encryption)))]
     #[instrument]
     async fn share_group_session(&self, room_id: &RoomId) -> Result<()> {
         let mut requests = self
@@ -1373,7 +1374,7 @@ impl Client {
     /// Panics if the client isn't logged in, or if no encryption keys need to
     /// be uploaded.
     #[cfg(feature = "encryption")]
-    #[cfg_attr(docsrs, doc(cfg(feature = "encryption")))]
+    #[cfg_attr(feature = "docs", doc(cfg(encryption)))]
     #[instrument]
     async fn keys_upload(&self) -> Result<upload_keys::Response> {
         let request = self
@@ -1407,7 +1408,7 @@ impl Client {
     ///
     /// Panics if no key query needs to be done.
     #[cfg(feature = "encryption")]
-    #[cfg_attr(docsrs, doc(cfg(feature = "encryption")))]
+    #[cfg_attr(feature = "docs", doc(cfg(encryption)))]
     #[instrument]
     async fn keys_query(&self) -> Result<get_keys::Response> {
         let mut users_for_query = self
@@ -1443,7 +1444,7 @@ impl Client {
 
     /// Get a `Sas` verification object with the given flow id.
     #[cfg(feature = "encryption")]
-    #[cfg_attr(docsrs, doc(cfg(feature = "encryption")))]
+    #[cfg_attr(feature = "docs", doc(cfg(encryption)))]
     pub async fn get_verification(&self, flow_id: &str) -> Option<Sas> {
         self.base_client
             .get_verification(flow_id)
@@ -1465,7 +1466,7 @@ impl Client {
     ///
     /// Returns a `Sas` object that represents the interactive verification flow.
     #[cfg(feature = "encryption")]
-    #[cfg_attr(docsrs, doc(cfg(feature = "encryption")))]
+    #[cfg_attr(feature = "docs", doc(cfg(encryption)))]
     pub async fn start_verification(&self, device: Device) -> Result<Sas> {
         let (sas, request) = self
             .base_client
@@ -1513,7 +1514,7 @@ impl Client {
     /// # });
     /// ```
     #[cfg(feature = "encryption")]
-    #[cfg_attr(docsrs, doc(cfg(feature = "encryption")))]
+    #[cfg_attr(feature = "docs", doc(cfg(encryption)))]
     pub async fn get_device(&self, user_id: &UserId, device_id: &DeviceId) -> Option<Device> {
         self.base_client.get_device(user_id, device_id).await
     }
@@ -1546,7 +1547,7 @@ impl Client {
     /// # });
     /// ```
     #[cfg(feature = "encryption")]
-    #[cfg_attr(docsrs, doc(cfg(feature = "encryption")))]
+    #[cfg_attr(feature = "docs", doc(cfg(encryption)))]
     pub async fn get_user_devices(
         &self,
         user_id: &UserId,
