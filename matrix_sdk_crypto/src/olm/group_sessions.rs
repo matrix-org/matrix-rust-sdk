@@ -468,3 +468,52 @@ impl std::fmt::Debug for OutboundGroupSession {
             .finish()
     }
 }
+
+#[cfg(test)]
+mod test {
+    use std::{thread::sleep, time::Duration};
+
+    use matrix_sdk_common::{
+        events::room::message::{MessageEventContent, TextMessageEventContent},
+        identifiers::{room_id, user_id},
+    };
+
+    use super::EncryptionSettings;
+    use crate::Account;
+
+    #[tokio::test]
+    async fn expiration() {
+        let settings = EncryptionSettings {
+            rotation_period_msgs: 1,
+            ..Default::default()
+        };
+
+        let account = Account::new(&user_id!("@alice:example.org"), "DEVICEID".into());
+        let (session, _) = account
+            .create_group_session_pair(&room_id!("!test_room:example.org"), settings)
+            .await
+            .unwrap();
+
+        assert!(!session.expired());
+        let _ = session
+            .encrypt(MessageEventContent::Text(TextMessageEventContent::plain(
+                "Test message",
+            )))
+            .await;
+        assert!(session.expired());
+
+        let settings = EncryptionSettings {
+            rotation_period: Duration::from_millis(100),
+            ..Default::default()
+        };
+
+        let (session, _) = account
+            .create_group_session_pair(&room_id!("!test_room:example.org"), settings)
+            .await
+            .unwrap();
+
+        assert!(!session.expired());
+        sleep(Duration::from_millis(110));
+        assert!(session.expired());
+    }
+}
