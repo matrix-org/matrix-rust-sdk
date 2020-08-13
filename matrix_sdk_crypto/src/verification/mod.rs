@@ -29,6 +29,14 @@ pub(crate) mod test {
         identifiers::UserId,
     };
 
+    pub(crate) fn request_to_event(
+        sender: &UserId,
+        request: &OwnedToDeviceRequest,
+    ) -> AnyToDeviceEvent {
+        let content = get_content_from_request(request);
+        wrap_any_to_device_content(sender, content)
+    }
+
     pub(crate) fn wrap_any_to_device_content(
         sender: &UserId,
         content: AnyToDeviceEventContent,

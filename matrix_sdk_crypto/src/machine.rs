@@ -1393,6 +1393,7 @@ mod test {
 
     use crate::{
         machine::{OlmMachine, OneTimeKeys},
+        verification::test::request_to_event,
         verify_json, Device, EncryptionSettings,
     };
 
@@ -1981,5 +1982,87 @@ mod test {
         assert_eq!(&user_id, machine.user_id());
         assert_eq!(&*device_id, machine.device_id());
         assert_eq!(ed25519_key, machine.identity_keys().ed25519());
+    }
+
+    #[tokio::test]
+    async fn interactive_verification() {
+        let (alice, bob) = get_machine_pair_with_setup_sessions().await;
+
+        let bob_device = alice
+            .get_device(bob.user_id(), bob.device_id())
+            .await
+            .unwrap();
+
+        assert!(!bob_device.is_trusted());
+
+        let (alice_sas, request) = alice.start_verification(bob_device.clone());
+
+        let mut event = request_to_event(alice.user_id(), &request);
+        bob.handle_verification_event(&mut event).await;
+
+        let bob_sas = bob.get_verification(alice_sas.flow_id()).unwrap();
+
+        assert!(alice_sas.emoji().is_none());
+        assert!(bob_sas.emoji().is_none());
+
+        let mut event = bob_sas
+            .accept()
+            .map(|r| request_to_event(bob.user_id(), &r))
+            .unwrap();
+
+        alice.handle_verification_event(&mut event).await;
+
+        let mut event = alice
+            .outgoing_to_device_requests()
+            .iter()
+            .next()
+            .map(|r| request_to_event(alice.user_id(), &r))
+            .unwrap();
+        bob.handle_verification_event(&mut event).await;
+
+        let mut event = bob
+            .outgoing_to_device_requests()
+            .iter()
+            .next()
+            .map(|r| request_to_event(bob.user_id(), &r))
+            .unwrap();
+        alice.handle_verification_event(&mut event).await;
+
+        assert!(alice_sas.emoji().is_some());
+        assert!(bob_sas.emoji().is_some());
+
+        assert_eq!(alice_sas.emoji(), bob_sas.emoji());
+        assert_eq!(alice_sas.decimals(), bob_sas.decimals());
+
+        let mut event = bob_sas
+            .confirm()
+            .await
+            .unwrap()
+            .map(|r| request_to_event(bob.user_id(), &r))
+            .unwrap();
+        alice.handle_verification_event(&mut event).await;
+
+        assert!(!alice_sas.is_done());
+        assert!(!bob_sas.is_done());
+
+        let mut event = alice_sas
+            .confirm()
+            .await
+            .unwrap()
+            .map(|r| request_to_event(alice.user_id(), &r))
+            .unwrap();
+
+        assert!(alice_sas.is_done());
+        assert!(bob_device.is_trusted());
+
+        let alice_device = bob
+            .get_device(alice.user_id(), alice.device_id())
+            .await
+            .unwrap();
+
+        assert!(!alice_device.is_trusted());
+        bob.handle_verification_event(&mut event).await;
+        assert!(bob_sas.is_done());
+        assert!(alice_device.is_trusted());
     }
 }

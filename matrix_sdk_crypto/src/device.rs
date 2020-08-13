@@ -131,6 +131,11 @@ impl Device {
         self.trust_state.load(Ordering::Relaxed)
     }
 
+    /// Is the device locally marked trusted.
+    pub fn is_trusted(&self) -> bool {
+        self.trust_state() == TrustState::Verified
+    }
+
     /// Set the trust state of the device to the given state.
     ///
     /// Note: This should only done in the cryptostore where the trust state can
