@@ -1463,7 +1463,7 @@ impl Client {
     /// * `device` - The device which we would like to start an interactive
     /// verification with.
     ///
-    /// Returns a `Sas` that represents the interactive verification flow.
+    /// Returns a `Sas` object that represents the interactive verification flow.
     #[cfg(feature = "encryption")]
     #[cfg_attr(docsrs, doc(cfg(feature = "encryption")))]
     pub async fn start_verification(&self, device: Device) -> Result<Sas> {

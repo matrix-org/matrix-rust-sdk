@@ -1876,7 +1876,7 @@ impl BaseClient {
     /// * `device` - The device which we would like to start an interactive
     /// verification with.
     ///
-    /// Returns a `Sas` object and to-device request that needs to be sent out.
+    /// Returns a `Sas` object and a to-device request that needs to be sent out.
     #[cfg(feature = "encryption")]
     #[cfg_attr(docsrs, doc(cfg(feature = "encryption")))]
     pub async fn start_verification(&self, device: Device) -> Option<(Sas, OwnedToDeviceRequest)> {
