@@ -120,6 +120,8 @@ impl UserSigningPubkey {
             .next()
             .ok_or(SignatureError::MissingSigningKey)?;
 
+        // TODO check that the usage is OK.
+
         verify_json(
             &self.0.user_id,
             &DeviceKeyId::try_from(key_id.as_str())?,
@@ -137,6 +139,8 @@ impl SelfSigningPubkey {
             .iter()
             .next()
             .ok_or(SignatureError::MissingSigningKey)?;
+
+        // TODO check that the usage is OK.
 
         verify_json(
             &self.0.user_id,
@@ -159,6 +163,10 @@ impl UserIdentity {
             master_key,
             self_signing_key,
         })
+    }
+
+    pub fn is_device_signed(&self, device: &Device) -> Result<(), SignatureError> {
+        self.self_signing_key.verify_device(device)
     }
 }
 
@@ -186,6 +194,11 @@ impl OwnUserIdentity {
             user_signing_key,
             verified: Arc::new(AtomicBool::new(false)),
         })
+    }
+
+    pub fn is_identity_signed(&self, identity: &UserIdentity) -> Result<(), SignatureError> {
+        self.user_signing_key
+            .verify_master_key(&identity.master_key)
     }
 }
 
