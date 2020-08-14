@@ -260,6 +260,7 @@ impl<S: Clone> SasState<S> {
     }
 
     #[cfg(test)]
+    #[allow(dead_code)]
     pub fn set_creation_time(&mut self, time: Instant) {
         self.creation_time = Arc::new(time);
     }

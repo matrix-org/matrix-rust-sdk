@@ -82,6 +82,7 @@ impl Sas {
     }
 
     #[cfg(test)]
+    #[allow(dead_code)]
     pub(crate) fn set_creation_time(&self, time: Instant) {
         self.inner.lock().unwrap().set_creation_time(time)
     }
@@ -363,6 +364,7 @@ impl InnerSas {
     }
 
     #[cfg(test)]
+    #[allow(dead_code)]
     fn set_creation_time(&mut self, time: Instant) {
         match self {
             InnerSas::Created(s) => s.set_creation_time(time),
