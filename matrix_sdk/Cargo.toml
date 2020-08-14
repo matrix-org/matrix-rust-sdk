@@ -24,11 +24,11 @@ sqlite_cryptostore = ["matrix-sdk-base/sqlite_cryptostore"]
 docs = ["encryption", "sqlite_cryptostore", "messages"]
 
 [dependencies]
-async-trait = "0.1.36"
+async-trait = "0.1.37"
 dashmap = { version = "3.11.10", optional = true }
 http = "0.2.1"
 # FIXME: Revert to regular dependency once 0.10.8 or 0.11.0 is released
-reqwest = { git = "https://github.com/seanmonstar/reqwest", rev = "dd8441fd23dae6ffb79b4cea2862e5bca0c59743" }
+reqwest = { git = "https://github.com/seanmonstar/reqwest", rev = "cff487ff58630cf0ac59f3e46cbf20cf50a28b3f" }
 serde_json = "1.0.57"
 thiserror = "1.0.20"
 tracing = "0.1.19"
@@ -55,7 +55,7 @@ version = "3.0.2"
 features = ["wasm-bindgen"]
 
 [dev-dependencies]
-async-trait = "0.1.36"
+async-trait = "0.1.37"
 dirs = "3.0.1"
 matrix-sdk-test = { version = "0.1.0", path = "../matrix_sdk_test" }
 tokio = { version = "0.2.22", features = ["rt-threaded", "macros"] }
