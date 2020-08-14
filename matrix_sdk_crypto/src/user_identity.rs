@@ -104,7 +104,7 @@ impl MasterPubkey {
 
         verify_json(
             &self.0.user_id,
-            &DeviceKeyId::try_from(key_id.as_str()).unwrap(),
+            &DeviceKeyId::try_from(key_id.as_str())?,
             key,
             &mut to_value(subkey.cross_signing_key()).map_err(|_| SignatureError::NotAnObject)?,
         )

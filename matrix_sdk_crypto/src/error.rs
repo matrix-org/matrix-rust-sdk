@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use cjson::Error as CjsonError;
-use matrix_sdk_common::identifiers::{DeviceId, UserId};
+use matrix_sdk_common::identifiers::{DeviceId, Error as IdentifierError, UserId};
 use olm_rs::errors::{OlmGroupSessionError, OlmSessionError};
 use serde_json::Error as SerdeError;
 use thiserror::Error;
@@ -119,6 +119,9 @@ pub enum EventError {
 pub enum SignatureError {
     #[error("the signature used a unsupported algorithm")]
     UnsupportedAlgorithm,
+
+    #[error("the key id of the signing key is invalid")]
+    InvalidKeyId(#[from] IdentifierError),
 
     #[error("the signing key is missing from the object that signed the message")]
     MissingSigningKey,
