@@ -14,7 +14,7 @@
 
 use std::{collections::BTreeMap, convert::TryInto};
 
-use tracing::trace;
+use tracing::{trace, warn};
 
 use olm_rs::sas::OlmSas;
 
@@ -163,6 +163,12 @@ pub fn receive_mac_event(
 
     let info = extra_mac_info_receive(&ids, flow_id);
 
+    trace!(
+        "Received a key.verification.mac event from {} {}",
+        event.sender,
+        ids.other_device.device_id()
+    );
+
     let mut keys = event.content.mac.keys().cloned().collect::<Vec<String>>();
     keys.sort();
     let keys = sas
@@ -174,12 +180,18 @@ pub fn receive_mac_event(
     }
 
     for (key_id, key_mac) in &event.content.mac {
-        let device_key_id: DeviceKeyId = match key_id.as_str().try_into() {
+        trace!(
+            "Checking MAC for the key id {} from {} {}",
+            key_id,
+            event.sender,
+            ids.other_device.device_id()
+        );
+        let key_id: DeviceKeyId = match key_id.as_str().try_into() {
             Ok(id) => id,
             Err(_) => continue,
         };
 
-        if let Some(key) = ids.other_device.keys().get(&device_key_id) {
+        if let Some(key) = ids.other_device.keys().get(&key_id) {
             if key_mac
                 == &sas
                     .calculate_mac(key, &format!("{}{}", info, key_id))
@@ -189,8 +201,16 @@ pub fn receive_mac_event(
             } else {
                 return Err(CancelCode::KeyMismatch);
             }
+        } else {
+            warn!(
+                "Key ID {} in MAC event from {} {} doesn't belong to any device \
+                or user identity",
+                key_id,
+                event.sender,
+                ids.other_device.device_id()
+            );
         }
-        // TODO add an else branch for the master key here
+        // TODO add an else if branch for the master key here
     }
 
     Ok((verified_devices, vec![]))
