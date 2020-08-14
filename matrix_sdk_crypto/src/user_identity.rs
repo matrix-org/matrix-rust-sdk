@@ -116,7 +116,7 @@ impl UserIdentity {
         master_key: MasterPubkey,
         self_signing_key: SelfSigningPubkey,
     ) -> Result<Self, SignatureError> {
-        master_key.verify_subkey(&self_signing_key.clone())?;
+        master_key.verify_subkey(&self_signing_key)?;
 
         Ok(Self {
             user_id: Arc::new(master_key.0.user_id.clone()),
@@ -140,8 +140,8 @@ impl OwnUserIdentity {
         self_signing_key: SelfSigningPubkey,
         user_signing_key: UserSigningPubkey,
     ) -> Result<Self, SignatureError> {
-        master_key.verify_subkey(&self_signing_key.clone())?;
-        master_key.verify_subkey(&user_signing_key.clone())?;
+        master_key.verify_subkey(&self_signing_key)?;
+        master_key.verify_subkey(&user_signing_key)?;
 
         Ok(Self {
             user_id: Arc::new(master_key.0.user_id.clone()),
