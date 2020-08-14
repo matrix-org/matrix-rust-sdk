@@ -24,7 +24,7 @@ use matrix_sdk_common::{
     identifiers::{DeviceKeyId, UserId},
 };
 
-use crate::{error::SignatureError, verify_json};
+use crate::{error::SignatureError, verify_json, Device};
 
 #[derive(Debug, Clone)]
 pub struct MasterPubkey(Arc<CrossSigningKey>);
@@ -107,6 +107,42 @@ impl MasterPubkey {
             &DeviceKeyId::try_from(key_id.as_str())?,
             key,
             &mut to_value(subkey.cross_signing_key()).map_err(|_| SignatureError::NotAnObject)?,
+        )
+    }
+}
+
+impl UserSigningPubkey {
+    fn verify_master_key(&self, master_key: &MasterPubkey) -> Result<(), SignatureError> {
+        let (key_id, key) = self
+            .0
+            .keys
+            .iter()
+            .next()
+            .ok_or(SignatureError::MissingSigningKey)?;
+
+        verify_json(
+            &self.0.user_id,
+            &DeviceKeyId::try_from(key_id.as_str())?,
+            key,
+            &mut to_value(&*master_key.0).map_err(|_| SignatureError::NotAnObject)?,
+        )
+    }
+}
+
+impl SelfSigningPubkey {
+    fn verify_device(&self, device: &Device) -> Result<(), SignatureError> {
+        let (key_id, key) = self
+            .0
+            .keys
+            .iter()
+            .next()
+            .ok_or(SignatureError::MissingSigningKey)?;
+
+        verify_json(
+            &self.0.user_id,
+            &DeviceKeyId::try_from(key_id.as_str())?,
+            key,
+            &mut device.as_signature_message(),
         )
     }
 }

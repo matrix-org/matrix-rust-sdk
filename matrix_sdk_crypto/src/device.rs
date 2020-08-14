@@ -187,6 +187,16 @@ impl Device {
         )
     }
 
+    pub(crate) fn as_signature_message(&self) -> Value {
+        json!({
+            "user_id": &*self.user_id,
+            "device_id": &*self.device_id,
+            "keys": &*self.keys,
+            "algorithms": &*self.algorithms,
+            "signatures": &*self.signatures,
+        })
+    }
+
     pub(crate) fn verify_device_keys(
         &self,
         device_keys: &DeviceKeys,
