@@ -228,6 +228,7 @@ pub struct Canceled {
 
 impl<S: Clone> SasState<S> {
     /// Get our own user id.
+    #[cfg(test)]
     pub fn user_id(&self) -> &UserId {
         &self.ids.account.user_id()
     }
@@ -237,6 +238,7 @@ impl<S: Clone> SasState<S> {
         &self.ids.account.device_id()
     }
 
+    #[cfg(test)]
     pub fn other_device(&self) -> Device {
         self.ids.other_device.clone()
     }
@@ -779,11 +781,6 @@ impl SasState<Done> {
     /// Get the list of verified devices.
     pub fn verified_devices(&self) -> Arc<Vec<Device>> {
         self.state.verified_devices.clone()
-    }
-
-    /// Get the list of verified master keys.
-    pub fn verified_master_keys(&self) -> Arc<Vec<String>> {
-        self.state.verified_master_keys.clone()
     }
 }
 

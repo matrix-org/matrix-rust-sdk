@@ -13,7 +13,6 @@
 // limitations under the License.
 
 mod machine;
-#[allow(dead_code)]
 mod sas;
 
 pub use machine::VerificationMachine;

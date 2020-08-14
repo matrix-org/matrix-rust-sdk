@@ -540,14 +540,6 @@ impl InnerSas {
             None
         }
     }
-
-    fn verified_master_keys(&self) -> Option<Arc<Vec<String>>> {
-        if let InnerSas::Done(s) = self {
-            Some(s.verified_master_keys())
-        } else {
-            None
-        }
-    }
 }
 
 #[cfg(test)]
