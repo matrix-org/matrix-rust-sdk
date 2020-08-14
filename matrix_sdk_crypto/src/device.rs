@@ -131,9 +131,16 @@ impl Device {
         self.trust_state.load(Ordering::Relaxed)
     }
 
-    /// Is the device locally marked trusted.
+    /// Is the device locally marked as trusted.
     pub fn is_trusted(&self) -> bool {
         self.trust_state() == TrustState::Verified
+    }
+
+    /// Is the device locally marked as blacklisted.
+    ///
+    /// Blacklisted devices won't receive any group sessions.
+    pub fn is_blacklisted(&self) -> bool {
+        self.trust_state() == TrustState::BlackListed
     }
 
     /// Set the trust state of the device to the given state.

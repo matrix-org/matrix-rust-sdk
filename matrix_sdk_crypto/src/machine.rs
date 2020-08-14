@@ -1014,7 +1014,9 @@ impl OlmMachine {
 
         for user_id in users {
             for device in self.store.get_user_devices(user_id).await?.devices() {
-                devices.push(device.clone());
+                if !device.is_blacklisted() {
+                    devices.push(device.clone());
+                }
             }
         }
 
