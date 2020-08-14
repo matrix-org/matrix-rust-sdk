@@ -213,7 +213,65 @@ mod test {
 
     use crate::machine::test::response_from_file;
 
-    use super::OwnUserIdentity;
+    use super::{OwnUserIdentity, UserIdentity};
+
+    fn other_key_query() -> KeyQueryResponse {
+        let data = response_from_file(&json!({
+            "device_keys": {
+                "@example2:localhost": {
+                    "SKISMLNIMH": {
+                        "algorithms": ["m.olm.v1.curve25519-aes-sha2", "m.megolm.v1.aes-sha2"],
+                        "device_id": "SKISMLNIMH",
+                        "keys": {
+                            "curve25519:SKISMLNIMH": "qO9xFazIcW8dE0oqHGMojGgJwbBpMOhGnIfJy2pzvmI",
+                            "ed25519:SKISMLNIMH": "y3wV3AoyIGREqrJJVH8DkQtlwHBUxoZ9ApP76kFgXQ8"
+                        },
+                        "signatures": {
+                            "@example2:localhost": {
+                                "ed25519:SKISMLNIMH": "YwbT35rbjKoYFZVU1tQP8MsL06+znVNhNzUMPt6jTEYRBFoC4GDq9hQEJBiFSq37r1jvLMteggVAWw37fs1yBA",
+                                "ed25519:ZtFrSkJ1qB8Jph/ql9Eo/lKpIYCzwvKAKXfkaS4XZNc": "PWuuTE/aTkp1EJQkPHhRx2BxbF+wjMIDFxDRp7JAerlMkDsNFUTfRRusl6vqROPU36cl+yY8oeJTZGFkU6+pBQ"
+                            }
+                        },
+                        "user_id": "@example2:localhost",
+                        "unsigned": {
+                            "device_display_name": "Riot Desktop (Linux)"
+                        }
+                    }
+                }
+            },
+            "failures": {},
+            "master_keys": {
+                "@example2:localhost": {
+                    "user_id": "@example2:localhost",
+                    "usage": ["master"],
+                    "keys": {
+                        "ed25519:kC/HmRYw4HNqUp/i4BkwYENrf+hd9tvdB7A1YOf5+Do": "kC/HmRYw4HNqUp/i4BkwYENrf+hd9tvdB7A1YOf5+Do"
+                    },
+                    "signatures": {
+                        "@example2:localhost": {
+                            "ed25519:SKISMLNIMH": "KdUZqzt8VScGNtufuQ8lOf25byYLWIhmUYpPENdmM8nsldexD7vj+Sxoo7PknnTX/BL9h2N7uBq0JuykjunCAw"
+                        }
+                    }
+                }
+            },
+            "self_signing_keys": {
+                "@example2:localhost": {
+                    "user_id": "@example2:localhost",
+                    "usage": ["self_signing"],
+                    "keys": {
+                        "ed25519:ZtFrSkJ1qB8Jph/ql9Eo/lKpIYCzwvKAKXfkaS4XZNc": "ZtFrSkJ1qB8Jph/ql9Eo/lKpIYCzwvKAKXfkaS4XZNc"
+                    },
+                    "signatures": {
+                        "@example2:localhost": {
+                            "ed25519:kC/HmRYw4HNqUp/i4BkwYENrf+hd9tvdB7A1YOf5+Do": "W/O8BnmiUETPpH02mwYaBgvvgF/atXnusmpSTJZeUSH/vHg66xiZOhveQDG4cwaW8iMa+t9N4h1DWnRoHB4mCQ"
+                        }
+                    }
+                }
+            },
+            "user_signing_keys": {}
+        }));
+        KeyQueryResponse::try_from(data).expect("Can't parse the keys upload response")
+    }
 
     fn own_key_query() -> KeyQueryResponse {
         let data = response_from_file(&json!({
@@ -283,5 +341,16 @@ mod test {
         let self_signing = response.self_signing_keys.get(&user_id).unwrap();
 
         OwnUserIdentity::new(master_key.into(), self_signing.into(), user_signing.into()).unwrap();
+    }
+
+    #[test]
+    fn other_identity_create() {
+        let user_id = user_id!("@example2:localhost");
+        let response = other_key_query();
+
+        let master_key = response.master_keys.get(&user_id).unwrap();
+        let self_signing = response.self_signing_keys.get(&user_id).unwrap();
+
+        UserIdentity::new(master_key.into(), self_signing.into()).unwrap();
     }
 }
