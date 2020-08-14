@@ -1377,7 +1377,7 @@ impl OlmMachine {
 }
 
 #[cfg(test)]
-mod test {
+pub(crate) mod test {
     static USER_ID: &str = "@bob:example.org";
 
     use matrix_sdk_common::js_int::uint;
@@ -1426,7 +1426,7 @@ mod test {
         UserId::try_from(USER_ID).unwrap()
     }
 
-    fn response_from_file(json: &serde_json::Value) -> Response<Vec<u8>> {
+    pub fn response_from_file(json: &serde_json::Value) -> Response<Vec<u8>> {
         Response::builder()
             .status(200)
             .body(json.to_string().as_bytes().to_vec())

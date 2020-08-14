@@ -33,6 +33,8 @@ mod machine;
 mod memory_stores;
 mod olm;
 mod store;
+#[allow(dead_code)]
+mod user_identity;
 mod verification;
 
 pub use device::{Device, TrustState};
