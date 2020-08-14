@@ -1407,7 +1407,9 @@ mod test {
             AnySyncMessageEvent, AnySyncRoomEvent, AnyToDeviceEvent, EventType, SyncMessageEvent,
             ToDeviceEvent, Unsigned,
         },
-        identifiers::{event_id, room_id, user_id, DeviceId, DeviceKeyAlgorithm, UserId},
+        identifiers::{
+            event_id, room_id, user_id, DeviceId, DeviceKeyAlgorithm, DeviceKeyId, UserId,
+        },
         Raw,
     };
     use matrix_sdk_test::test_json;
@@ -1626,7 +1628,7 @@ mod test {
 
         let ret = verify_json(
             &machine.user_id,
-            machine.device_id.as_str(),
+            &DeviceKeyId::from_parts(DeviceKeyAlgorithm::Ed25519, machine.device_id()),
             ed25519_key,
             &mut json!(&mut device_keys),
         );
@@ -1657,7 +1659,7 @@ mod test {
 
         let ret = verify_json(
             &machine.user_id,
-            machine.device_id.as_str(),
+            &DeviceKeyId::from_parts(DeviceKeyAlgorithm::Ed25519, machine.device_id()),
             "fake_key",
             &mut json!(&mut device_keys),
         );
@@ -1677,7 +1679,7 @@ mod test {
 
         let ret = verify_json(
             &machine.user_id,
-            machine.device_id.as_str(),
+            &DeviceKeyId::from_parts(DeviceKeyAlgorithm::Ed25519, machine.device_id()),
             ed25519_key,
             &mut json!(&mut one_time_key),
         );
@@ -1699,7 +1701,7 @@ mod test {
 
         let ret = verify_json(
             &machine.user_id,
-            machine.device_id.as_str(),
+            &DeviceKeyId::from_parts(DeviceKeyAlgorithm::Ed25519, machine.device_id()),
             ed25519_key,
             &mut json!(&mut request.one_time_keys.as_mut().unwrap().values_mut().next()),
         );
@@ -1707,7 +1709,7 @@ mod test {
 
         let ret = verify_json(
             &machine.user_id,
-            machine.device_id.as_str(),
+            &DeviceKeyId::from_parts(DeviceKeyAlgorithm::Ed25519, machine.device_id()),
             ed25519_key,
             &mut json!(&mut request.device_keys.unwrap()),
         );

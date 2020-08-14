@@ -117,6 +117,9 @@ pub enum EventError {
 
 #[derive(Error, Debug)]
 pub enum SignatureError {
+    #[error("the signature used a unsupported algorithm")]
+    UnsupportedAlgorithm,
+
     #[error("the signing key is missing from the object that signed the message")]
     MissingSigningKey,
 

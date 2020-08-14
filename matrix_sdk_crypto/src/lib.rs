@@ -72,10 +72,14 @@ use serde_json::Value;
 /// * `json` - The JSON object that should be verified.
 pub(crate) fn verify_json(
     user_id: &UserId,
-    key_id: &str,
+    key_id: &DeviceKeyId,
     signing_key: &str,
     json: &mut Value,
 ) -> Result<(), SignatureError> {
+    if key_id.algorithm() != DeviceKeyAlgorithm::Ed25519 {
+        return Err(SignatureError::UnsupportedAlgorithm);
+    }
+
     let json_object = json.as_object_mut().ok_or(SignatureError::NotAnObject)?;
     let unsigned = json_object.remove("unsigned");
     let signatures = json_object.remove("signatures");
@@ -85,8 +89,6 @@ pub(crate) fn verify_json(
     if let Some(u) = unsigned {
         json_object.insert("unsigned".to_string(), u);
     }
-
-    let key_id = DeviceKeyId::from_parts(DeviceKeyAlgorithm::Ed25519, key_id.into());
 
     let signatures = signatures.ok_or(SignatureError::NoSignatureFound)?;
     let signature_object = signatures

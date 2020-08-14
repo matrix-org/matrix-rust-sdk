@@ -179,7 +179,12 @@ impl Device {
             .get_key(DeviceKeyAlgorithm::Ed25519)
             .ok_or(SignatureError::MissingSigningKey)?;
 
-        verify_json(&self.user_id, &self.device_id.as_str(), signing_key, json)
+        verify_json(
+            &self.user_id,
+            &DeviceKeyId::from_parts(DeviceKeyAlgorithm::Ed25519, self.device_id()),
+            signing_key,
+            json,
+        )
     }
 
     pub(crate) fn verify_device_keys(
