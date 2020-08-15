@@ -1260,7 +1260,7 @@ impl OlmMachine {
     /// key query.
     ///
     /// Returns true if the user was queued up for a key query, false otherwise.
-    pub async fn mark_user_as_changed(&self, user_id: &UserId) -> StoreResult<bool> {
+    async fn mark_user_as_changed(&self, user_id: &UserId) -> StoreResult<bool> {
         if self.store.is_user_tracked(user_id) {
             self.store.update_tracked_user(user_id, true).await?;
             Ok(true)
@@ -1281,8 +1281,6 @@ impl OlmMachine {
     ///
     /// If the user is already known to the Olm machine it will not be
     /// considered for a key query.
-    ///
-    /// Use the `mark_user_as_changed()` if the user really needs a key query.
     pub async fn update_tracked_users<'a, I>(&self, users: I)
     where
         I: IntoIterator<Item = &'a UserId>,
