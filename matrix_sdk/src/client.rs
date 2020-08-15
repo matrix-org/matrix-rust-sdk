@@ -1559,12 +1559,10 @@ impl Client {
 #[cfg(test)]
 mod test {
     use super::{
-        ban_user, create_receipt, create_typing_event, forget_room, get_public_rooms,
+        create_typing_event, get_public_rooms,
         get_public_rooms_filtered::{self, Filter},
-        invite_user, kick_user, leave_room,
         register::RegistrationKind,
-        set_read_marker, Client, ClientConfig, Invite3pid, MessageEventContent, Session,
-        SyncSettings, Url,
+        Client, ClientConfig, Invite3pid, MessageEventContent, Session, SyncSettings, Url,
     };
     use crate::{RegistrationBuilder, RoomListFilterBuilder};
 
@@ -1852,7 +1850,6 @@ mod test {
     }
 
     #[tokio::test]
-    #[allow(irrefutable_let_patterns)]
     async fn invite_user_by_id() {
         let client = logged_in_client().await;
 
@@ -1868,11 +1865,10 @@ mod test {
         let user = user_id!("@example:localhost");
         let room_id = room_id!("!testroom:example.org");
 
-        if let invite_user::Response = client.invite_user_by_id(&room_id, &user).await.unwrap() {}
+        client.invite_user_by_id(&room_id, &user).await.unwrap();
     }
 
     #[tokio::test]
-    #[allow(irrefutable_let_patterns)]
     async fn invite_user_by_3pid() {
         let client = logged_in_client().await;
 
@@ -1888,7 +1884,7 @@ mod test {
 
         let room_id = room_id!("!testroom:example.org");
 
-        if let invite_user::Response = client
+        client
             .invite_user_by_3pid(
                 &room_id,
                 &Invite3pid {
@@ -1899,12 +1895,10 @@ mod test {
                 },
             )
             .await
-            .unwrap()
-        {}
+            .unwrap();
     }
 
     #[tokio::test]
-    #[allow(irrefutable_let_patterns)]
     async fn room_search_all() {
         let homeserver = Url::from_str(&mockito::server_url()).unwrap();
         let client = Client::new(homeserver).unwrap();
@@ -1917,15 +1911,12 @@ mod test {
         .with_body(test_json::PUBLIC_ROOMS.to_string())
         .create();
 
-        if let get_public_rooms::Response { chunk, .. } =
-            client.public_rooms(Some(10), None, None).await.unwrap()
-        {
-            assert_eq!(chunk.len(), 1)
-        }
+        let get_public_rooms::Response { chunk, .. } =
+            client.public_rooms(Some(10), None, None).await.unwrap();
+        assert_eq!(chunk.len(), 1);
     }
 
     #[tokio::test]
-    #[allow(irrefutable_let_patterns)]
     async fn room_search_filtered() {
         let client = logged_in_client().await;
 
@@ -1944,15 +1935,12 @@ mod test {
             generic_search_term,
         });
 
-        if let get_public_rooms_filtered::Response { chunk, .. } =
-            client.public_rooms_filtered(request).await.unwrap()
-        {
-            assert_eq!(chunk.len(), 1)
-        }
+        let get_public_rooms_filtered::Response { chunk, .. } =
+            client.public_rooms_filtered(request).await.unwrap();
+        assert_eq!(chunk.len(), 1);
     }
 
     #[tokio::test]
-    #[allow(irrefutable_let_patterns)]
     async fn leave_room() {
         let client = logged_in_client().await;
 
@@ -1968,18 +1956,10 @@ mod test {
 
         let room_id = room_id!("!testroom:example.org");
 
-        let response = client.leave_room(&room_id).await.unwrap();
-        if let leave_room::Response = response {
-        } else {
-            panic!(
-                "expected `ruma_client_api::leave_room::Response` found {:?}",
-                response
-            )
-        }
+        client.leave_room(&room_id).await.unwrap();
     }
 
     #[tokio::test]
-    #[allow(irrefutable_let_patterns)]
     async fn ban_user() {
         let client = logged_in_client().await;
 
@@ -1995,19 +1975,10 @@ mod test {
 
         let user = user_id!("@example:localhost");
         let room_id = room_id!("!testroom:example.org");
-        let response = client.ban_user(&room_id, &user, None).await.unwrap();
-
-        if let ban_user::Response = response {
-        } else {
-            panic!(
-                "expected `ruma_client_api::ban_user::Response` found {:?}",
-                response
-            )
-        }
+        client.ban_user(&room_id, &user, None).await.unwrap();
     }
 
     #[tokio::test]
-    #[allow(irrefutable_let_patterns)]
     async fn kick_user() {
         let client = logged_in_client().await;
 
@@ -2024,19 +1995,10 @@ mod test {
         let user = user_id!("@example:localhost");
         let room_id = room_id!("!testroom:example.org");
 
-        let response = client.kick_user(&room_id, &user, None).await.unwrap();
-
-        if let kick_user::Response = response {
-        } else {
-            panic!(
-                "expected `ruma_client_api::kick_user::Response` found {:?}",
-                response
-            )
-        }
+        client.kick_user(&room_id, &user, None).await.unwrap();
     }
 
     #[tokio::test]
-    #[allow(irrefutable_let_patterns)]
     async fn forget_room() {
         let client = logged_in_client().await;
 
@@ -2052,18 +2014,10 @@ mod test {
 
         let room_id = room_id!("!testroom:example.org");
 
-        let response = client.forget_room_by_id(&room_id).await.unwrap();
-        if let forget_room::Response = response {
-        } else {
-            panic!(
-                "expected `ruma_client_api::forget_room::Response` found {:?}",
-                response
-            )
-        }
+        client.forget_room_by_id(&room_id).await.unwrap();
     }
 
     #[tokio::test]
-    #[allow(irrefutable_let_patterns)]
     async fn read_receipt() {
         let client = logged_in_client().await;
 
@@ -2080,18 +2034,10 @@ mod test {
         let room_id = room_id!("!testroom:example.org");
         let event_id = event_id!("$xxxxxx:example.org");
 
-        let response = client.read_receipt(&room_id, &event_id).await.unwrap();
-        if let create_receipt::Response = response {
-        } else {
-            panic!(
-                "expected `ruma_client_api::create_receipt::Response` found {:?}",
-                response
-            )
-        }
+        client.read_receipt(&room_id, &event_id).await.unwrap();
     }
 
     #[tokio::test]
-    #[allow(irrefutable_let_patterns)]
     async fn read_marker() {
         let client = logged_in_client().await;
 
@@ -2108,14 +2054,7 @@ mod test {
         let room_id = room_id!("!testroom:example.org");
         let event_id = event_id!("$xxxxxx:example.org");
 
-        let response = client.read_marker(&room_id, &event_id, None).await.unwrap();
-        if let set_read_marker::Response = response {
-        } else {
-            panic!(
-                "expected `ruma_client_api::set_read_marker::Response` found {:?}",
-                response
-            )
-        }
+        client.read_marker(&room_id, &event_id, None).await.unwrap();
     }
 
     #[tokio::test]
