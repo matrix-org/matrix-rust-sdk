@@ -57,6 +57,7 @@ use matrix_sdk_common::{
         sync::sync_events,
         typing::create_typing_event,
     },
+    assign,
     identifiers::ServerName,
     instant::{Duration, Instant},
     js_int::UInt,
@@ -80,10 +81,10 @@ use matrix_sdk_common::{
 };
 
 use crate::{
-    events::{room::message::MessageEventContent, EventType},
+    events::{room::message::MessageEventContent, AnyMessageEventContent},
     http_client::{DefaultHttpClient, HttpClient, HttpSend},
     identifiers::{EventId, RoomId, RoomIdOrAliasId, UserId},
-    Endpoint, Error, EventEmitter, Result,
+    Error, EventEmitter, OutgoingRequest, Result,
 };
 
 #[cfg(feature = "encryption")]
@@ -260,14 +261,14 @@ impl ClientConfig {
 
 #[derive(Debug, Default, Clone)]
 /// Settings for a sync call.
-pub struct SyncSettings {
-    pub(crate) filter: Option<sync_events::Filter>,
+pub struct SyncSettings<'a> {
+    pub(crate) filter: Option<sync_events::Filter<'a>>,
     pub(crate) timeout: Option<Duration>,
     pub(crate) token: Option<String>,
     pub(crate) full_state: bool,
 }
 
-impl SyncSettings {
+impl<'a> SyncSettings<'a> {
     /// Create new default sync settings.
     pub fn new() -> Self {
         Default::default()
@@ -300,7 +301,7 @@ impl SyncSettings {
     /// # Arguments
     ///
     /// * `filter` - The filter configuration that should be used for the sync call.
-    pub fn filter(mut self, filter: sync_events::Filter) -> Self {
+    pub fn filter(mut self, filter: sync_events::Filter<'a>) -> Self {
         self.filter = Some(filter);
         self
     }
@@ -467,22 +468,20 @@ impl Client {
     ///     device_id from a previous login call. Note that this should be done
     ///     only if the client also holds the encryption keys for this device.
     #[instrument(skip(password))]
-    pub async fn login<S: Into<String> + Debug>(
+    pub async fn login(
         &self,
-        user: S,
-        password: S,
-        device_id: Option<S>,
-        initial_device_display_name: Option<S>,
+        user: &str,
+        password: &str,
+        device_id: Option<&str>,
+        initial_device_display_name: Option<&str>,
     ) -> Result<login::Response> {
         info!("Logging in to {} as {:?}", self.homeserver, user);
 
         let request = login::Request {
-            user: login::UserInfo::MatrixId(user.into()),
-            login_info: login::LoginInfo::Password {
-                password: password.into(),
-            },
-            device_id: device_id.map(|d| d.into().into()),
-            initial_device_display_name: initial_device_display_name.map(|d| d.into()),
+            user: login::UserInfo::MatrixId(user),
+            login_info: login::LoginInfo::Password { password },
+            device_id: device_id.map(|d| d.into()),
+            initial_device_display_name,
         };
 
         let response = self.send(request).await?;
@@ -533,7 +532,7 @@ impl Client {
     /// # })
     /// ```
     #[instrument(skip(registration))]
-    pub async fn register_user<R: Into<register::Request>>(
+    pub async fn register_user<'a, R: Into<register::Request<'a>>>(
         &self,
         registration: R,
     ) -> Result<register::Response> {
@@ -552,10 +551,7 @@ impl Client {
     ///
     /// * `room_id` - The `RoomId` of the room to be joined.
     pub async fn join_room_by_id(&self, room_id: &RoomId) -> Result<join_room_by_id::Response> {
-        let request = join_room_by_id::Request {
-            room_id: room_id.clone(),
-            third_party_signed: None,
-        };
+        let request = join_room_by_id::Request::new(room_id);
         self.send(request).await
     }
 
@@ -575,7 +571,7 @@ impl Client {
     ) -> Result<join_room_by_id_or_alias::Response> {
         let request = join_room_by_id_or_alias::Request {
             room_id_or_alias: alias.clone(),
-            server_name: server_names.to_owned(),
+            server_name: server_names,
             third_party_signed: None,
         };
         self.send(request).await
@@ -589,9 +585,7 @@ impl Client {
     ///
     /// * `room_id` - The `RoomId` of the room to be forget.
     pub async fn forget_room_by_id(&self, room_id: &RoomId) -> Result<forget_room::Response> {
-        let request = forget_room::Request {
-            room_id: room_id.clone(),
-        };
+        let request = forget_room::Request::new(room_id);
         self.send(request).await
     }
 
@@ -610,13 +604,9 @@ impl Client {
         &self,
         room_id: &RoomId,
         user_id: &UserId,
-        reason: Option<String>,
+        reason: Option<&str>,
     ) -> Result<ban_user::Response> {
-        let request = ban_user::Request {
-            reason,
-            room_id: room_id.clone(),
-            user_id: user_id.clone(),
-        };
+        let request = assign!(ban_user::Request::new(room_id, user_id), { reason });
         self.send(request).await
     }
 
@@ -635,13 +625,9 @@ impl Client {
         &self,
         room_id: &RoomId,
         user_id: &UserId,
-        reason: Option<String>,
+        reason: Option<&str>,
     ) -> Result<kick_user::Response> {
-        let request = kick_user::Request {
-            reason,
-            room_id: room_id.clone(),
-            user_id: user_id.clone(),
-        };
+        let request = assign!(kick_user::Request::new(room_id, user_id), { reason });
         self.send(request).await
     }
 
@@ -653,9 +639,7 @@ impl Client {
     ///
     /// * `room_id` - The `RoomId` of the room to leave.
     pub async fn leave_room(&self, room_id: &RoomId) -> Result<leave_room::Response> {
-        let request = leave_room::Request {
-            room_id: room_id.clone(),
-        };
+        let request = leave_room::Request::new(room_id);
         self.send(request).await
     }
 
@@ -761,7 +745,8 @@ impl Client {
     /// ```
     /// # use std::convert::TryFrom;
     /// # use matrix_sdk::{Client, RoomListFilterBuilder};
-    /// # use matrix_sdk::api::r0::directory::get_public_rooms_filtered::{self, RoomNetwork, Filter};
+    /// # use matrix_sdk::directory::{Filter, RoomNetwork};
+    /// # use matrix_sdk::api::r0::directory::get_public_rooms_filtered;
     /// # use url::Url;
     /// # use futures::executor::block_on;
     /// # let homeserver = Url::parse("http://example.com").unwrap();
@@ -847,12 +832,10 @@ impl Client {
     /// # use matrix_sdk::js_int::UInt;
     ///
     /// # let homeserver = Url::parse("http://example.com").unwrap();
-    /// let mut builder = MessagesRequestBuilder::new(
-    ///     room_id!("!roomid:example.com"),
-    ///     "t47429-4392820_219380_26003_2265".to_string(),
-    /// );
+    /// let room_id = room_id!("!roomid:example.com");
+    /// let mut builder = MessagesRequestBuilder::new(&room_id, "t47429-4392820_219380_26003_2265");
     ///
-    /// builder.to("t4357353_219380_26003_2265".to_string())
+    /// builder.to("t4357353_219380_26003_2265")
     ///     .direction(Direction::Backward)
     ///     .limit(10);
     ///
@@ -862,7 +845,7 @@ impl Client {
     /// assert!(client.room_messages(builder).await.is_ok());
     /// # });
     /// ```
-    pub async fn room_messages<R: Into<get_message_events::Request>>(
+    pub async fn room_messages<'a, R: Into<get_message_events::Request<'a>>>(
         &self,
         request: R,
     ) -> Result<get_message_events::Response> {
@@ -1047,13 +1030,11 @@ impl Client {
         content: MessageEventContent,
         txn_id: Option<Uuid>,
     ) -> Result<send_message_event::Response> {
-        #[allow(unused_mut)]
-        let mut event_type = EventType::RoomMessage;
-        #[allow(unused_mut)]
-        let mut raw_content = serde_json::value::to_raw_value(&content)?;
+        #[cfg(not(feature = "encryption"))]
+        let content = AnyMessageEventContent::RoomMessage(content);
 
         #[cfg(feature = "encryption")]
-        {
+        let content = {
             let encrypted = {
                 let room = self.base_client.get_joined_room(room_id).await;
 
@@ -1065,20 +1046,16 @@ impl Client {
 
             if encrypted {
                 self.preshare_group_session(room_id).await?;
-
-                raw_content = serde_json::value::to_raw_value(
-                    &self.base_client.encrypt(room_id, content).await?,
-                )?;
-                event_type = EventType::RoomEncrypted;
+                AnyMessageEventContent::RoomEncrypted(
+                    self.base_client.encrypt(room_id, content).await?,
+                )
+            } else {
+                AnyMessageEventContent::RoomMessage(content)
             }
-        }
-
-        let request = send_message_event::Request {
-            room_id: &room_id,
-            event_type,
-            txn_id: &txn_id.unwrap_or_else(Uuid::new_v4).to_string(),
-            data: raw_content,
         };
+
+        let txn_id = txn_id.unwrap_or_else(Uuid::new_v4).to_string();
+        let request = send_message_event::Request::new(&room_id, &txn_id, &content);
 
         let response = self.send(request).await?;
         Ok(response)
@@ -1124,8 +1101,8 @@ impl Client {
     /// ```
     pub async fn send<Request>(&self, request: Request) -> Result<Request::IncomingResponse>
     where
-        Request: Endpoint + Debug,
-        Error: From<FromHttpResponseError<Request::ResponseError>>,
+        Request: OutgoingRequest + Debug,
+        Error: From<FromHttpResponseError<Request::EndpointError>>,
     {
         self.http_client
             .send(request, self.base_client.session().clone())
@@ -1152,10 +1129,10 @@ impl Client {
     ///
     /// * `sync_settings` - Settings for the sync call.
     #[instrument]
-    pub async fn sync(&self, sync_settings: SyncSettings) -> Result<sync_events::Response> {
+    pub async fn sync(&self, sync_settings: SyncSettings<'_>) -> Result<sync_events::Response> {
         let request = sync_events::Request {
             filter: sync_settings.filter,
-            since: sync_settings.token,
+            since: sync_settings.token.as_deref(),
             full_state: sync_settings.full_state,
             set_presence: PresenceState::Online,
             timeout: sync_settings.timeout,
@@ -1228,7 +1205,7 @@ impl Client {
     #[instrument(skip(callback))]
     pub async fn sync_forever<C>(
         &self,
-        sync_settings: SyncSettings,
+        sync_settings: SyncSettings<'_>,
         callback: impl Fn(sync_events::Response) -> C,
     ) where
         C: Future<Output = ()>,
@@ -1559,16 +1536,16 @@ impl Client {
 #[cfg(test)]
 mod test {
     use super::{
-        create_typing_event, get_public_rooms,
-        get_public_rooms_filtered::{self, Filter},
-        register::RegistrationKind,
-        Client, ClientConfig, Invite3pid, MessageEventContent, Session, SyncSettings, Url,
+        create_typing_event, get_public_rooms, get_public_rooms_filtered,
+        register::RegistrationKind, Client, ClientConfig, Invite3pid, MessageEventContent, Session,
+        SyncSettings, Url,
     };
     use crate::{RegistrationBuilder, RoomListFilterBuilder};
 
     use matrix_sdk_base::JsonStore;
     use matrix_sdk_common::{
         api::r0::uiaa::AuthData,
+        directory::Filter,
         events::room::message::TextMessageEventContent,
         identifiers::{event_id, room_id, user_id},
         thirdparty,
@@ -1778,9 +1755,7 @@ mod test {
 
         user.username("user")
             .password("password")
-            .auth(AuthData::FallbackAcknowledgement {
-                session: "foobar".to_string(),
-            })
+            .auth(AuthData::FallbackAcknowledgement { session: "foobar" })
             .kind(RegistrationKind::User);
 
         if let Err(err) = client.register_user(user).await {

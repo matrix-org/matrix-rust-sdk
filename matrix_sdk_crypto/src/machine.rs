@@ -27,7 +27,7 @@ use serde_json::Value;
 use tracing::{debug, error, info, instrument, trace, warn};
 
 use api::r0::{
-    keys::{claim_keys, get_keys, upload_keys, DeviceKeys, OneTimeKey},
+    keys::{claim_keys, get_keys, upload_keys, OneTimeKey},
     sync::sync_events::Response as SyncResponse,
     to_device::{
         send_event_to_device::IncomingRequest as OwnedToDeviceRequest, DeviceIdOrAllDevices,
@@ -35,14 +35,17 @@ use api::r0::{
 };
 use matrix_sdk_common::{
     api,
+    encryption::DeviceKeys,
     events::{
         forwarded_room_key::ForwardedRoomKeyEventContent,
         room::{encrypted::EncryptedEventContent, message::MessageEventContent},
         room_key::RoomKeyEventContent,
         room_key_request::RoomKeyRequestEventContent,
-        Algorithm, AnySyncRoomEvent, AnyToDeviceEvent, EventType, SyncMessageEvent, ToDeviceEvent,
+        AnySyncRoomEvent, AnyToDeviceEvent, EventType, SyncMessageEvent, ToDeviceEvent,
     },
-    identifiers::{DeviceId, DeviceKeyAlgorithm, DeviceKeyId, RoomId, UserId},
+    identifiers::{
+        DeviceId, DeviceKeyAlgorithm, DeviceKeyId, EventEncryptionAlgorithm, RoomId, UserId,
+    },
     uuid::Uuid,
     Raw,
 };
@@ -796,7 +799,7 @@ impl OlmMachine {
         event: &mut ToDeviceEvent<RoomKeyEventContent>,
     ) -> OlmResult<Option<Raw<AnyToDeviceEvent>>> {
         match event.content.algorithm {
-            Algorithm::MegolmV1AesSha2 => {
+            EventEncryptionAlgorithm::MegolmV1AesSha2 => {
                 let session_key = GroupSessionKey(mem::take(&mut event.content.session_key));
 
                 let session = InboundGroupSession::new(

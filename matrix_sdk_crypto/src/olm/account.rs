@@ -23,9 +23,11 @@ use std::{
 };
 
 use matrix_sdk_common::{
-    api::r0::keys::{DeviceKeys, OneTimeKey, SignedKey},
-    events::Algorithm,
-    identifiers::{DeviceId, DeviceKeyAlgorithm, DeviceKeyId, RoomId, UserId},
+    api::r0::keys::{OneTimeKey, SignedKey},
+    encryption::DeviceKeys,
+    identifiers::{
+        DeviceId, DeviceKeyAlgorithm, DeviceKeyId, EventEncryptionAlgorithm, RoomId, UserId,
+    },
     instant::Instant,
     locks::Mutex,
 };
@@ -74,9 +76,9 @@ impl fmt::Debug for Account {
 }
 
 impl Account {
-    const ALGORITHMS: &'static [&'static Algorithm] = &[
-        &Algorithm::OlmV1Curve25519AesSha2,
-        &Algorithm::MegolmV1AesSha2,
+    const ALGORITHMS: &'static [&'static EventEncryptionAlgorithm] = &[
+        &EventEncryptionAlgorithm::OlmV1Curve25519AesSha2,
+        &EventEncryptionAlgorithm::MegolmV1AesSha2,
     ];
 
     /// Create a fresh new account, this will generate the identity key-pair.
@@ -314,8 +316,8 @@ impl Account {
             user_id: (*self.user_id).clone(),
             device_id: (*self.device_id).clone(),
             algorithms: vec![
-                Algorithm::OlmV1Curve25519AesSha2,
-                Algorithm::MegolmV1AesSha2,
+                EventEncryptionAlgorithm::OlmV1Curve25519AesSha2,
+                EventEncryptionAlgorithm::MegolmV1AesSha2,
             ],
             keys,
             signatures,
@@ -545,7 +547,7 @@ impl Account {
         room_id: &RoomId,
         settings: EncryptionSettings,
     ) -> Result<(OutboundGroupSession, InboundGroupSession), ()> {
-        if settings.algorithm != Algorithm::MegolmV1AesSha2 {
+        if settings.algorithm != EventEncryptionAlgorithm::MegolmV1AesSha2 {
             return Err(());
         }
 

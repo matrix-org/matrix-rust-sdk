@@ -44,10 +44,10 @@ use matrix_sdk_common::{
             power_levels::{NotificationPowerLevels, PowerLevelsEventContent},
             tombstone::TombstoneEventContent,
         },
-        Algorithm, AnyStrippedStateEvent, AnySyncRoomEvent, AnySyncStateEvent, EventType,
-        StrippedStateEvent, SyncStateEvent,
+        AnyStrippedStateEvent, AnySyncRoomEvent, AnySyncStateEvent, EventType, StrippedStateEvent,
+        SyncStateEvent,
     },
-    identifiers::{RoomAliasId, RoomId, UserId},
+    identifiers::{EventEncryptionAlgorithm, RoomAliasId, RoomId, UserId},
     js_int::{int, uint, Int, UInt},
 };
 use serde::{Deserialize, Serialize};
@@ -110,7 +110,7 @@ pub struct PowerLevels {
 pub struct EncryptionInfo {
     /// The encryption algorithm that should be used to encrypt messages in the
     /// room.
-    algorithm: Algorithm,
+    algorithm: EventEncryptionAlgorithm,
     /// How long should a session be used before it is rotated.
     rotation_period_ms: u64,
     /// The maximum amount of messages that should be encrypted using the same
@@ -121,7 +121,7 @@ pub struct EncryptionInfo {
 impl Default for EncryptionInfo {
     fn default() -> Self {
         Self {
-            algorithm: Algorithm::MegolmV1AesSha2,
+            algorithm: EventEncryptionAlgorithm::MegolmV1AesSha2,
             rotation_period_ms: 604_800_000,
             rotation_period_messages: 100,
         }
@@ -131,7 +131,7 @@ impl Default for EncryptionInfo {
 impl EncryptionInfo {
     /// The encryption algorithm that should be used to encrypt messages in the
     /// room.
-    pub fn algorithm(&self) -> &Algorithm {
+    pub fn algorithm(&self) -> &EventEncryptionAlgorithm {
         &self.algorithm
     }
 
@@ -1734,7 +1734,7 @@ mod test {
         client.restore_login(session).await.unwrap();
         client.receive_sync_response(&mut response).await.unwrap();
 
-        let mut content = EncryptionEventContent::new(Algorithm::MegolmV1AesSha2);
+        let mut content = EncryptionEventContent::new(EventEncryptionAlgorithm::MegolmV1AesSha2);
         content.rotation_period_ms = Some(100_000u32.into());
         content.rotation_period_msgs = Some(100u32.into());
 
@@ -1757,7 +1757,10 @@ mod test {
         let room_lock = room.read().await;
         let encryption_info = room_lock.encryption_info().unwrap();
 
-        assert_eq!(encryption_info.algorithm(), &Algorithm::MegolmV1AesSha2);
+        assert_eq!(
+            encryption_info.algorithm(),
+            &EventEncryptionAlgorithm::MegolmV1AesSha2
+        );
         assert_eq!(encryption_info.rotation_period(), 100_000);
         assert_eq!(encryption_info.rotation_period_messages(), 100);
     }

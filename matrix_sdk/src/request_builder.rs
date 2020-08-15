@@ -1,7 +1,7 @@
 use matrix_sdk_common::{
     api::r0::{
         account::register::{self, RegistrationKind},
-        directory::get_public_rooms_filtered::{self, Filter, RoomNetwork},
+        directory::get_public_rooms_filtered,
         filter::RoomEventFilter,
         membership::Invite3pid,
         message::get_message_events::{self, Direction},
@@ -11,6 +11,7 @@ use matrix_sdk_common::{
         },
         uiaa::AuthData,
     },
+    directory::{Filter, RoomNetwork},
     events::room::{create::PreviousRoom, power_levels::PowerLevelsEventContent},
     identifiers::{DeviceId, RoomId, UserId},
     js_int::UInt,
@@ -178,12 +179,10 @@ impl Into<create_room::Request> for RoomBuilder {
 /// # let last_sync_token = "".to_string();
 /// let mut client = Client::new(homeserver).unwrap();
 ///
-/// let mut builder = MessagesRequestBuilder::new(
-///     room_id!("!roomid:example.com"),
-///     "t47429-4392820_219380_26003_2265".to_string(),
-/// );
+/// let room_id = room_id!("!roomid:example.com");
+/// let mut builder = MessagesRequestBuilder::new(&room_id, "t47429-4392820_219380_26003_2265");
 ///
-/// builder.to("t4357353_219380_26003_2265".to_string())
+/// builder.to("t4357353_219380_26003_2265")
 ///     .direction(Direction::Backward)
 ///     .limit(10);
 ///
@@ -191,9 +190,9 @@ impl Into<create_room::Request> for RoomBuilder {
 /// # })
 /// ```
 #[derive(Clone, Debug)]
-pub struct MessagesRequestBuilder(get_message_events::Request);
+pub struct MessagesRequestBuilder<'a>(get_message_events::Request<'a>);
 
-impl MessagesRequestBuilder {
+impl<'a> MessagesRequestBuilder<'a> {
     /// Create a `MessagesRequestBuilder` builder to make a `get_message_events::Request`.
     ///
     /// # Arguments
@@ -203,7 +202,7 @@ impl MessagesRequestBuilder {
     /// * `from` - The token to start returning events from. This token can be obtained from
     /// a `prev_batch` token from a sync response, or a start or end token from a previous request
     /// to this endpoint.
-    pub fn new(room_id: RoomId, from: String) -> Self {
+    pub fn new(room_id: &'a RoomId, from: &'a str) -> Self {
         Self(get_message_events::Request::new(
             room_id,
             from,
@@ -214,8 +213,8 @@ impl MessagesRequestBuilder {
     /// A `next_batch` token or `start` or `end` from a previous `get_message_events` request.
     ///
     /// This token signals when to stop receiving events.
-    pub fn to<S: Into<String>>(&mut self, to: S) -> &mut Self {
-        self.0.to = Some(to.into());
+    pub fn to(&mut self, to: &'a str) -> &mut Self {
+        self.0.to = Some(to);
         self
     }
 
@@ -242,8 +241,8 @@ impl MessagesRequestBuilder {
     }
 }
 
-impl Into<get_message_events::Request> for MessagesRequestBuilder {
-    fn into(self) -> get_message_events::Request {
+impl<'a> Into<get_message_events::Request<'a>> for MessagesRequestBuilder<'a> {
+    fn into(self) -> get_message_events::Request<'a> {
         self.0
     }
 }
@@ -269,17 +268,17 @@ impl Into<get_message_events::Request> for MessagesRequestBuilder {
 /// # })
 /// ```
 #[derive(Clone, Debug, Default)]
-pub struct RegistrationBuilder {
-    password: Option<String>,
-    username: Option<String>,
-    device_id: Option<Box<DeviceId>>,
-    initial_device_display_name: Option<String>,
-    auth: Option<AuthData>,
+pub struct RegistrationBuilder<'a> {
+    password: Option<&'a str>,
+    username: Option<&'a str>,
+    device_id: Option<&'a DeviceId>,
+    initial_device_display_name: Option<&'a str>,
+    auth: Option<AuthData<'a>>,
     kind: Option<RegistrationKind>,
     inhibit_login: bool,
 }
 
-impl RegistrationBuilder {
+impl<'a> RegistrationBuilder<'a> {
     /// Create a `RegistrationBuilder` builder to make a `register::Request`.
     pub fn new() -> Self {
         Self::default()
@@ -289,16 +288,16 @@ impl RegistrationBuilder {
     ///
     /// May be empty for accounts that should not be able to log in again
     /// with a password, e.g., for guest or application service accounts.
-    pub fn password<S: Into<String>>(&mut self, password: S) -> &mut Self {
-        self.password = Some(password.into());
+    pub fn password(&mut self, password: &'a str) -> &mut Self {
+        self.password = Some(password);
         self
     }
 
     /// local part of the desired Matrix ID.
     ///
     /// If omitted, the homeserver MUST generate a Matrix ID local part.
-    pub fn username<S: Into<String>>(&mut self, username: S) -> &mut Self {
-        self.username = Some(username.into());
+    pub fn username(&mut self, username: &'a str) -> &mut Self {
+        self.username = Some(username);
         self
     }
 
@@ -306,19 +305,19 @@ impl RegistrationBuilder {
     ///
     /// If this does not correspond to a known client device, a new device will be created.
     /// The server will auto-generate a device_id if this is not specified.
-    pub fn device_id<S: Into<Box<DeviceId>>>(&mut self, device_id: S) -> &mut Self {
-        self.device_id = Some(device_id.into());
+    pub fn device_id(&mut self, device_id: &'a DeviceId) -> &mut Self {
+        self.device_id = Some(device_id);
         self
     }
 
     /// A display name to assign to the newly-created device.
     ///
     /// Ignored if `device_id` corresponds to a known device.
-    pub fn initial_device_display_name<S: Into<String>>(
+    pub fn initial_device_display_name(
         &mut self,
-        initial_device_display_name: S,
+        initial_device_display_name: &'a str,
     ) -> &mut Self {
-        self.initial_device_display_name = Some(initial_device_display_name.into());
+        self.initial_device_display_name = Some(initial_device_display_name);
         self
     }
 
@@ -328,7 +327,7 @@ impl RegistrationBuilder {
     /// authenticated, but is instead used to authenticate the register call itself.
     /// It should be left empty, or omitted, unless an earlier call returned an response
     /// with status code 401.
-    pub fn auth(&mut self, auth: AuthData) -> &mut Self {
+    pub fn auth(&mut self, auth: AuthData<'a>) -> &mut Self {
         self.auth = Some(auth);
         self
     }
@@ -349,8 +348,8 @@ impl RegistrationBuilder {
     }
 }
 
-impl Into<register::Request> for RegistrationBuilder {
-    fn into(self) -> register::Request {
+impl<'a> Into<register::Request<'a>> for RegistrationBuilder<'a> {
+    fn into(self) -> register::Request<'a> {
         register::Request {
             password: self.password,
             username: self.username,
@@ -369,7 +368,8 @@ impl Into<register::Request> for RegistrationBuilder {
 /// ```
 /// # use std::convert::TryFrom;
 /// # use matrix_sdk::{Client, RoomListFilterBuilder};
-/// # use matrix_sdk::api::r0::directory::get_public_rooms_filtered::{self, RoomNetwork, Filter};
+/// # use matrix_sdk::directory::{Filter, RoomNetwork};
+/// # use matrix_sdk::api::r0::directory::get_public_rooms_filtered;
 /// # use url::Url;
 /// # let homeserver = Url::parse("http://example.com").unwrap();
 /// # let mut rt = tokio::runtime::Runtime::new().unwrap();
@@ -380,7 +380,7 @@ impl Into<register::Request> for RegistrationBuilder {
 /// let generic_search_term = Some("matrix-rust-sdk".to_string());
 /// let mut builder = RoomListFilterBuilder::new();
 /// builder
-///     .filter(Filter { generic_search_term, })
+///     .filter(Filter { generic_search_term })
 ///     .since(&last_sync_token)
 ///     .room_network(RoomNetwork::Matrix);
 ///
@@ -529,12 +529,10 @@ mod test {
             device_id: "DEVICEID".into(),
         };
 
-        let mut builder = MessagesRequestBuilder::new(
-            room_id!("!roomid:example.com"),
-            "t47429-4392820_219380_26003_2265".to_string(),
-        );
+        let room_id = room_id!("!roomid:example.com");
+        let mut builder = MessagesRequestBuilder::new(&room_id, "t47429-4392820_219380_26003_2265");
         builder
-            .to("t4357353_219380_26003_2265".to_string())
+            .to("t4357353_219380_26003_2265")
             .direction(Direction::Backward)
             .limit(10)
             .filter(RoomEventFilter {

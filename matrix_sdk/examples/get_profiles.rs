@@ -37,8 +37,8 @@ async fn get_profile(client: Client, mxid: UserId) -> MatrixResult<UserProfile> 
 
 async fn login(
     homeserver_url: String,
-    username: String,
-    password: String,
+    username: &str,
+    password: &str,
 ) -> Result<Client, matrix_sdk::Error> {
     let client_config = ClientConfig::new()
         .proxy("http://localhost:8080")?
@@ -47,7 +47,7 @@ async fn login(
     let client = Client::new_with_config(homeserver_url, client_config).unwrap();
 
     client
-        .login(username, password, None, Some("rust-sdk".to_string()))
+        .login(username, password, None, Some("rust-sdk"))
         .await?;
 
     Ok(client)
@@ -69,9 +69,9 @@ async fn main() -> Result<(), matrix_sdk::Error> {
             }
         };
 
-    let client = login(homeserver_url, username.clone(), password).await?;
+    let client = login(homeserver_url, &username, &password).await?;
 
-    let user_id = UserId::try_from(username.clone()).expect("Couldn't parse the MXID");
+    let user_id = UserId::try_from(username).expect("Couldn't parse the MXID");
     let profile = get_profile(client, user_id).await?;
     println!("{:#?}", profile);
     Ok(())
