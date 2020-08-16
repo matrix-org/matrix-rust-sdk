@@ -986,14 +986,13 @@ impl OlmMachine {
     /// used.
     ///
     /// `users` - The list of users that should receive the group session.
-    pub async fn share_group_session<'a, I, S>(
+    pub async fn share_group_session<S>(
         &self,
         room_id: &RoomId,
-        users: I,
+        users: impl Iterator<Item = &UserId>,
         encryption_settings: S,
     ) -> OlmResult<Vec<OwnedToDeviceRequest>>
     where
-        I: IntoIterator<Item = &'a UserId>,
         S: Into<EncryptionSettings> + Sized,
     {
         self.create_outbound_group_session(room_id, encryption_settings.into())
