@@ -68,6 +68,7 @@ pub trait HttpSend: Sync + Send + Debug {
 pub(crate) struct HttpClient {
     pub(crate) inner: Arc<dyn HttpSend>,
     pub(crate) homeserver: Arc<Url>,
+    pub(crate) session: Arc<RwLock<Option<Session>>>,
 }
 
 impl HttpClient {
@@ -120,16 +121,12 @@ impl HttpClient {
         Ok(http_builder.body(body).unwrap())
     }
 
-    pub async fn send<Request>(
-        &self,
-        request: Request,
-        session: Arc<RwLock<Option<Session>>>,
-    ) -> Result<Request::IncomingResponse>
+    pub async fn send<Request>(&self, request: Request) -> Result<Request::IncomingResponse>
     where
         Request: OutgoingRequest,
         Error: From<FromHttpResponseError<Request::EndpointError>>,
     {
-        let response = self.send_request(request, session).await?;
+        let response = self.send_request(request, self.session.clone()).await?;
 
         trace!("Got response: {:?}", response);
 

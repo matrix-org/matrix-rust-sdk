@@ -12,14 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::sync::Arc;
-
-use url::Url;
-
-use matrix_sdk_base::{Device, Sas as BaseSas, Session};
-use matrix_sdk_common::{
-    api::r0::to_device::send_event_to_device::Request as ToDeviceRequest, locks::RwLock,
-};
+use matrix_sdk_base::{Device, Sas as BaseSas};
+use matrix_sdk_common::api::r0::to_device::send_event_to_device::Request as ToDeviceRequest;
 
 use crate::{error::Result, http_client::HttpClient};
 
@@ -27,9 +21,7 @@ use crate::{error::Result, http_client::HttpClient};
 #[derive(Debug, Clone)]
 pub struct Sas {
     pub(crate) inner: BaseSas,
-    pub(crate) homeserver: Arc<Url>,
     pub(crate) http_client: HttpClient,
-    pub(crate) session: Arc<RwLock<Option<Session>>>,
 }
 
 impl Sas {
@@ -42,7 +34,7 @@ impl Sas {
                 messages: req.messages,
             };
 
-            self.http_client.send(request, self.session.clone()).await?;
+            self.http_client.send(request).await?;
         }
         Ok(())
     }
@@ -56,7 +48,7 @@ impl Sas {
                 messages: req.messages,
             };
 
-            self.http_client.send(request, self.session.clone()).await?;
+            self.http_client.send(request).await?;
         }
 
         Ok(())
@@ -71,7 +63,7 @@ impl Sas {
                 messages: req.messages,
             };
 
-            self.http_client.send(request, self.session.clone()).await?;
+            self.http_client.send(request).await?;
         }
         Ok(())
     }

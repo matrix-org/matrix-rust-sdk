@@ -347,19 +347,20 @@ impl Client {
             panic!("Error parsing homeserver url")
         };
 
-        let http_client = if let Some(client) = config.client {
-            HttpClient {
-                homeserver: homeserver.clone(),
-                inner: client,
-            }
+        let client = if let Some(client) = config.client {
+            client
         } else {
-            HttpClient {
-                homeserver: homeserver.clone(),
-                inner: Arc::new(DefaultHttpClient::with_config(&config)?),
-            }
+            Arc::new(DefaultHttpClient::with_config(&config)?)
         };
 
         let base_client = BaseClient::new_with_config(config.base_config)?;
+        let session = base_client.session().clone();
+
+        let http_client = HttpClient {
+            homeserver: homeserver.clone(),
+            inner: client,
+            session,
+        };
 
         Ok(Self {
             homeserver,
@@ -1104,9 +1105,7 @@ impl Client {
         Request: OutgoingRequest + Debug,
         Error: From<FromHttpResponseError<Request::EndpointError>>,
     {
-        self.http_client
-            .send(request, self.base_client.session().clone())
-            .await
+        self.http_client.send(request).await
     }
 
     #[cfg(feature = "encryption")]
@@ -1428,9 +1427,7 @@ impl Client {
             .await
             .map(|sas| Sas {
                 inner: sas,
-                session: self.base_client.session().clone(),
                 http_client: self.http_client.clone(),
-                homeserver: self.homeserver.clone(),
             })
     }
 
@@ -1455,9 +1452,7 @@ impl Client {
 
         Ok(Sas {
             inner: sas,
-            session: self.base_client.session().clone(),
             http_client: self.http_client.clone(),
-            homeserver: self.homeserver.clone(),
         })
     }
 
