@@ -12,7 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use matrix_sdk_base::{DeviceWrap, UserDevicesWrap};
+use std::ops::Deref;
+
+use matrix_sdk_base::{Device as ReadOnlyDevice, DeviceWrap, UserDevicesWrap};
 use matrix_sdk_common::{
     api::r0::to_device::send_event_to_device::Request as ToDeviceRequest, identifiers::DeviceId,
 };
@@ -24,6 +26,14 @@ use crate::{error::Result, http_client::HttpClient, Sas};
 pub struct Device {
     pub(crate) inner: DeviceWrap,
     pub(crate) http_client: HttpClient,
+}
+
+impl Deref for Device {
+    type Target = ReadOnlyDevice;
+
+    fn deref(&self) -> &Self::Target {
+        &self.inner
+    }
 }
 
 impl Device {

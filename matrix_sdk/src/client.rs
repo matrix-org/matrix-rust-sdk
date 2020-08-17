@@ -1450,7 +1450,7 @@ impl Client {
     ///
     /// # Example
     ///
-    /// ```
+    /// ```no_run
     /// # use std::convert::TryFrom;
     /// # use matrix_sdk::{Client, identifiers::UserId};
     /// # use url::Url;
@@ -1459,9 +1459,12 @@ impl Client {
     /// # let homeserver = Url::parse("http://example.com").unwrap();
     /// # let client = Client::new(homeserver).unwrap();
     /// # block_on(async {
-    /// let device = client.get_device(&alice, "DEVICEID".into()).await;
+    /// let device = client.get_device(&alice, "DEVICEID".into()).await.unwrap();
     ///
-    /// println!("{:?}", device);
+    /// println!("{:?}", device.is_trusted());
+    ///
+    ///
+    /// let verification = device.start_verification().await.unwrap();
     /// # });
     /// ```
     #[cfg(feature = "encryption")]
