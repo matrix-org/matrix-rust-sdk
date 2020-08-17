@@ -83,7 +83,7 @@ impl UserDevices {
         let client = self.http_client.clone();
 
         self.inner.devices().map(move |d| Device {
-            inner: d.clone(),
+            inner: d,
             http_client: client.clone(),
         })
     }
