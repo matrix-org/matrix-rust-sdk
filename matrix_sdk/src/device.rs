@@ -85,7 +85,7 @@ impl Device {
         &self,
         trust_state: TrustState,
     ) -> StdResult<(), CryptoStoreError> {
-        self.inner.set_trust_state(trust_state).await.into()
+        self.inner.set_trust_state(trust_state).await
     }
 }
 
