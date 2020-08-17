@@ -40,6 +40,23 @@ impl Device {
     /// Start a interactive verification with this `Device`
     ///
     /// Returns a `Sas` object that represents the interactive verification flow.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// # use std::convert::TryFrom;
+    /// # use matrix_sdk::{Client, identifiers::UserId};
+    /// # use url::Url;
+    /// # use futures::executor::block_on;
+    /// # let alice = UserId::try_from("@alice:example.org").unwrap();
+    /// # let homeserver = Url::parse("http://example.com").unwrap();
+    /// # let client = Client::new(homeserver).unwrap();
+    /// # block_on(async {
+    /// let device = client.get_device(&alice, "DEVICEID".into()).await.unwrap();
+    ///
+    /// let verification = device.start_verification().await.unwrap();
+    /// # });
+    /// ```
     pub async fn start_verification(&self) -> Result<Sas> {
         let (sas, request) = self.inner.start_verification();
         let request = ToDeviceRequest {
