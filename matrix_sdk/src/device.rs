@@ -14,7 +14,7 @@
 
 use std::ops::Deref;
 
-use matrix_sdk_base::{Device as BaseDevice, ReadOnlyDevice, UserDevicesWrap};
+use matrix_sdk_base::{Device as BaseDevice, ReadOnlyDevice, UserDevices as BaseUserDevices};
 use matrix_sdk_common::{
     api::r0::to_device::send_event_to_device::Request as ToDeviceRequest, identifiers::DeviceId,
 };
@@ -77,7 +77,7 @@ impl Device {
 /// A read only view over all devices belonging to a user.
 #[derive(Debug)]
 pub struct UserDevices {
-    pub(crate) inner: UserDevicesWrap,
+    pub(crate) inner: BaseUserDevices,
     pub(crate) http_client: HttpClient,
 }
 

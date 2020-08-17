@@ -78,12 +78,12 @@ impl Device {
 
 /// A read only view over all devices belonging to a user.
 #[derive(Debug)]
-pub struct UserDevicesWrap {
+pub struct UserDevices {
     pub(crate) inner: ReadOnlyUserDevices,
     pub(crate) verification_machine: VerificationMachine,
 }
 
-impl UserDevicesWrap {
+impl UserDevices {
     /// Get the specific device with the given device id.
     pub fn get(&self, device_id: &DeviceId) -> Option<Device> {
         self.inner.get(device_id).map(|d| Device {
