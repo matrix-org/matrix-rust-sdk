@@ -53,7 +53,7 @@ use matrix_sdk_common::{
 };
 #[cfg(feature = "encryption")]
 use matrix_sdk_crypto::{
-    CryptoStore, CryptoStoreError, DeviceWrap, OlmError, OlmMachine, Sas, UserDevicesWrap,
+    CryptoStore, CryptoStoreError, Device, OlmError, OlmMachine, Sas, UserDevicesWrap,
 };
 use zeroize::Zeroizing;
 
@@ -1904,7 +1904,7 @@ impl BaseClient {
     /// ```
     #[cfg(feature = "encryption")]
     #[cfg_attr(feature = "docs", doc(cfg(encryption)))]
-    pub async fn get_device(&self, user_id: &UserId, device_id: &DeviceId) -> Option<DeviceWrap> {
+    pub async fn get_device(&self, user_id: &UserId, device_id: &DeviceId) -> Option<Device> {
         let olm = self.olm.lock().await;
         olm.as_ref()?.get_device(user_id, device_id).await
     }

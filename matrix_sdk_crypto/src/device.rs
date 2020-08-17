@@ -54,12 +54,12 @@ pub struct ReadOnlyDevice {
 
 #[derive(Debug, Clone)]
 /// A device represents a E2EE capable client of an user.
-pub struct DeviceWrap {
+pub struct Device {
     pub(crate) inner: ReadOnlyDevice,
     pub(crate) verification_machine: VerificationMachine,
 }
 
-impl Deref for DeviceWrap {
+impl Deref for Device {
     type Target = ReadOnlyDevice;
 
     fn deref(&self) -> &Self::Target {
@@ -67,7 +67,7 @@ impl Deref for DeviceWrap {
     }
 }
 
-impl DeviceWrap {
+impl Device {
     /// Start a interactive verification with this `Device`
     ///
     /// Returns a `Sas` object and to-device request that needs to be sent out.
@@ -85,8 +85,8 @@ pub struct UserDevicesWrap {
 
 impl UserDevicesWrap {
     /// Get the specific device with the given device id.
-    pub fn get(&self, device_id: &DeviceId) -> Option<DeviceWrap> {
-        self.inner.get(device_id).map(|d| DeviceWrap {
+    pub fn get(&self, device_id: &DeviceId) -> Option<Device> {
+        self.inner.get(device_id).map(|d| Device {
             inner: d,
             verification_machine: self.verification_machine.clone(),
         })
@@ -98,10 +98,10 @@ impl UserDevicesWrap {
     }
 
     /// Iterator over all the devices of the user devices.
-    pub fn devices(&self) -> impl Iterator<Item = DeviceWrap> + '_ {
+    pub fn devices(&self) -> impl Iterator<Item = Device> + '_ {
         let machine = self.verification_machine.clone();
 
-        self.inner.devices().map(move |d| DeviceWrap {
+        self.inner.devices().map(move |d| Device {
             inner: d.clone(),
             verification_machine: machine.clone(),
         })

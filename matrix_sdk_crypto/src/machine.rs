@@ -53,7 +53,7 @@ use matrix_sdk_common::{
 #[cfg(feature = "sqlite_cryptostore")]
 use super::store::sqlite::SqliteStore;
 use super::{
-    device::{DeviceWrap, ReadOnlyDevice, UserDevicesWrap},
+    device::{Device, ReadOnlyDevice, UserDevicesWrap},
     error::{EventError, MegolmError, MegolmResult, OlmError, OlmResult},
     olm::{
         Account, EncryptionSettings, GroupSessionKey, IdentityKeys, InboundGroupSession,
@@ -1330,7 +1330,7 @@ impl OlmMachine {
     /// println!("{:?}", device);
     /// # });
     /// ```
-    pub async fn get_device(&self, user_id: &UserId, device_id: &DeviceId) -> Option<DeviceWrap> {
+    pub async fn get_device(&self, user_id: &UserId, device_id: &DeviceId) -> Option<Device> {
         let device = self
             .store
             .get_device(user_id, device_id)
@@ -1338,7 +1338,7 @@ impl OlmMachine {
             .ok()
             .flatten()?;
 
-        Some(DeviceWrap {
+        Some(Device {
             inner: device,
             verification_machine: self.verification_machine.clone(),
         })

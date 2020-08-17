@@ -14,7 +14,7 @@
 
 use std::ops::Deref;
 
-use matrix_sdk_base::{DeviceWrap, ReadOnlyDevice, UserDevicesWrap};
+use matrix_sdk_base::{Device as BaseDevice, ReadOnlyDevice, UserDevicesWrap};
 use matrix_sdk_common::{
     api::r0::to_device::send_event_to_device::Request as ToDeviceRequest, identifiers::DeviceId,
 };
@@ -24,7 +24,7 @@ use crate::{error::Result, http_client::HttpClient, Sas};
 #[derive(Clone, Debug)]
 /// A device represents a E2EE capable client of an user.
 pub struct Device {
-    pub(crate) inner: DeviceWrap,
+    pub(crate) inner: BaseDevice,
     pub(crate) http_client: HttpClient,
 }
 
