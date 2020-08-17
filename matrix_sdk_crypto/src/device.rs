@@ -36,7 +36,8 @@ use serde_json::{json, Value};
 use super::{Account, OlmMachine};
 
 use crate::{
-    error::SignatureError, verification::VerificationMachine, verify_json, ReadOnlyUserDevices, Sas,
+    error::SignatureError, store::Result as StoreResult, verification::VerificationMachine,
+    verify_json, ReadOnlyUserDevices, Sas,
 };
 
 /// A read-only version of a `Device`.
@@ -73,6 +74,19 @@ impl Device {
     /// Returns a `Sas` object and to-device request that needs to be sent out.
     pub fn start_verification(&self) -> (Sas, OwnedToDeviceRequest) {
         self.verification_machine.start_sas(self.inner.clone())
+    }
+
+    /// Set the trust state of the device to the given state.
+    ///
+    /// # Arguments
+    ///
+    /// * `trust_state` - The new trust state that should be set for the device.
+    pub async fn set_trust_state(&self, trust_state: TrustState) -> StoreResult<()> {
+        self.inner.set_trust_state(trust_state);
+        self.verification_machine
+            .store
+            .save_devices(&[self.inner.clone()])
+            .await
     }
 }
 

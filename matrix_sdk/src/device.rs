@@ -12,9 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::ops::Deref;
+use std::{ops::Deref, result::Result as StdResult};
 
-use matrix_sdk_base::{Device as BaseDevice, ReadOnlyDevice, UserDevices as BaseUserDevices};
+use matrix_sdk_base::{
+    CryptoStoreError, Device as BaseDevice, ReadOnlyDevice, TrustState,
+    UserDevices as BaseUserDevices,
+};
 use matrix_sdk_common::{
     api::r0::to_device::send_event_to_device::Request as ToDeviceRequest, identifiers::DeviceId,
 };
@@ -71,6 +74,18 @@ impl Device {
             inner: sas,
             http_client: self.http_client.clone(),
         })
+    }
+
+    /// Set the trust state of the device to the given state.
+    ///
+    /// # Arguments
+    ///
+    /// * `trust_state` - The new trust state that should be set for the device.
+    pub async fn set_trust_state(
+        &self,
+        trust_state: TrustState,
+    ) -> StdResult<(), CryptoStoreError> {
+        self.inner.set_trust_state(trust_state).await.into()
     }
 }
 

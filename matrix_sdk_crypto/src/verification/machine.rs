@@ -30,7 +30,7 @@ use crate::{Account, CryptoStore, CryptoStoreError, ReadOnlyDevice};
 #[derive(Clone, Debug)]
 pub struct VerificationMachine {
     account: Account,
-    store: Arc<Box<dyn CryptoStore>>,
+    pub(crate) store: Arc<Box<dyn CryptoStore>>,
     verifications: Arc<DashMap<String, Sas>>,
     outgoing_to_device_messages: Arc<DashMap<String, OwnedToDeviceRequest>>,
 }
