@@ -38,7 +38,7 @@ use tracing::{error, info, instrument};
 use matrix_sdk_base::{BaseClient, BaseClientConfig, Room, Session, StateStore};
 
 #[cfg(feature = "encryption")]
-use matrix_sdk_base::{CryptoStoreError, Device, UserDevices};
+use matrix_sdk_base::CryptoStoreError;
 
 use matrix_sdk_common::{
     api::r0::{
@@ -88,7 +88,11 @@ use crate::{
 };
 
 #[cfg(feature = "encryption")]
-use crate::{identifiers::DeviceId, sas::Sas};
+use crate::{
+    device::{Device, UserDevices},
+    identifiers::DeviceId,
+    sas::Sas,
+};
 
 const DEFAULT_SYNC_TIMEOUT: Duration = Duration::from_secs(30);
 
@@ -1431,31 +1435,6 @@ impl Client {
             })
     }
 
-    /// Start a interactive verification with the given `Device`.
-    ///
-    /// # Arguments
-    ///
-    /// * `device` - The device which we would like to start an interactive
-    /// verification with.
-    ///
-    /// Returns a `Sas` object that represents the interactive verification flow.
-    #[cfg(feature = "encryption")]
-    #[cfg_attr(feature = "docs", doc(cfg(encryption)))]
-    pub async fn start_verification(&self, device: Device) -> Result<Sas> {
-        let (sas, request) = self
-            .base_client
-            .start_verification(device)
-            .await
-            .ok_or(Error::AuthenticationRequired)?;
-
-        self.send_to_device(request).await?;
-
-        Ok(Sas {
-            inner: sas,
-            http_client: self.http_client.clone(),
-        })
-    }
-
     /// Get a specific device of a user.
     ///
     /// # Arguments
@@ -1488,7 +1467,12 @@ impl Client {
     #[cfg(feature = "encryption")]
     #[cfg_attr(feature = "docs", doc(cfg(encryption)))]
     pub async fn get_device(&self, user_id: &UserId, device_id: &DeviceId) -> Option<Device> {
-        self.base_client.get_device(user_id, device_id).await
+        let device = self.base_client.get_device(user_id, device_id).await?;
+
+        Some(Device {
+            inner: device,
+            http_client: self.http_client.clone(),
+        })
     }
 
     /// Get a map holding all the devices of an user.
@@ -1502,7 +1486,7 @@ impl Client {
     ///
     /// # Example
     ///
-    /// ```
+    /// ```no_run
     /// # use std::convert::TryFrom;
     /// # use matrix_sdk::{Client, identifiers::UserId};
     /// # use url::Url;
@@ -1524,7 +1508,12 @@ impl Client {
         &self,
         user_id: &UserId,
     ) -> StdResult<UserDevices, CryptoStoreError> {
-        self.base_client.get_user_devices(user_id).await
+        let devices = self.base_client.get_user_devices(user_id).await?;
+
+        Ok(UserDevices {
+            inner: devices,
+            http_client: self.http_client.clone(),
+        })
     }
 }
 

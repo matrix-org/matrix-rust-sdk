@@ -15,6 +15,7 @@
 use std::{
     collections::BTreeMap,
     convert::TryFrom,
+    ops::Deref,
     sync::{
         atomic::{AtomicBool, Ordering},
         Arc,
@@ -23,7 +24,9 @@ use std::{
 
 use atomic::Atomic;
 use matrix_sdk_common::{
-    api::r0::keys::SignedKey,
+    api::r0::{
+        keys::SignedKey, to_device::send_event_to_device::IncomingRequest as OwnedToDeviceRequest,
+    },
     encryption::DeviceKeys,
     identifiers::{DeviceId, DeviceKeyAlgorithm, DeviceKeyId, EventEncryptionAlgorithm, UserId},
 };
@@ -32,7 +35,9 @@ use serde_json::{json, Value};
 #[cfg(test)]
 use super::{Account, OlmMachine};
 
-use crate::{error::SignatureError, verify_json};
+use crate::{
+    error::SignatureError, verification::VerificationMachine, verify_json, Sas, UserDevices,
+};
 
 /// A device represents a E2EE capable client of an user.
 #[derive(Debug, Clone)]
@@ -45,6 +50,62 @@ pub struct Device {
     display_name: Arc<Option<String>>,
     deleted: Arc<AtomicBool>,
     trust_state: Arc<Atomic<TrustState>>,
+}
+
+#[derive(Debug, Clone)]
+/// A device represents a E2EE capable client of an user.
+pub struct DeviceWrap {
+    pub(crate) inner: Device,
+    pub(crate) verification_machine: VerificationMachine,
+}
+
+impl Deref for DeviceWrap {
+    type Target = Device;
+
+    fn deref(&self) -> &Self::Target {
+        &self.inner
+    }
+}
+
+impl DeviceWrap {
+    /// Start a interactive verification with this `Device`
+    ///
+    /// Returns a `Sas` object and to-device request that needs to be sent out.
+    pub fn start_verification(&self) -> (Sas, OwnedToDeviceRequest) {
+        self.verification_machine.start_sas(self.inner.clone())
+    }
+}
+
+/// A read only view over all devices belonging to a user.
+#[derive(Debug)]
+pub struct UserDevicesWrap {
+    pub(crate) inner: UserDevices,
+    pub(crate) verification_machine: VerificationMachine,
+}
+
+impl UserDevicesWrap {
+    /// Get the specific device with the given device id.
+    pub fn get(&self, device_id: &DeviceId) -> Option<DeviceWrap> {
+        self.inner.get(device_id).map(|d| DeviceWrap {
+            inner: d,
+            verification_machine: self.verification_machine.clone(),
+        })
+    }
+
+    /// Iterator over all the device ids of the user devices.
+    pub fn keys(&self) -> impl Iterator<Item = &DeviceId> {
+        self.inner.keys()
+    }
+
+    /// Iterator over all the devices of the user devices.
+    pub fn devices(&self) -> impl Iterator<Item = DeviceWrap> + '_ {
+        let machine = self.verification_machine.clone();
+
+        self.inner.devices().map(move |d| DeviceWrap {
+            inner: d.clone(),
+            verification_machine: machine.clone(),
+        })
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]

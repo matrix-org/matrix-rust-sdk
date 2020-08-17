@@ -39,12 +39,12 @@
 
 #[cfg(not(target_arch = "wasm32"))]
 pub use matrix_sdk_base::JsonStore;
+#[cfg(feature = "encryption")]
+#[cfg_attr(feature = "docs", doc(cfg(encryption)))]
+pub use matrix_sdk_base::TrustState;
 pub use matrix_sdk_base::{
     CustomEvent, Error as BaseError, EventEmitter, Room, RoomState, Session, StateStore, SyncRoom,
 };
-#[cfg(feature = "encryption")]
-#[cfg_attr(feature = "docs", doc(cfg(encryption)))]
-pub use matrix_sdk_base::{Device, TrustState};
 
 #[cfg(feature = "messages")]
 #[cfg_attr(feature = "docs", doc(cfg(messages)))]
@@ -59,9 +59,14 @@ mod http_client;
 mod request_builder;
 
 #[cfg(feature = "encryption")]
+mod device;
+#[cfg(feature = "encryption")]
 mod sas;
 
 pub use client::{Client, ClientConfig, SyncSettings};
+#[cfg(feature = "encryption")]
+#[cfg_attr(feature = "docs", doc(cfg(encryption)))]
+pub use device::Device;
 pub use error::{Error, Result};
 pub use http_client::HttpSend;
 pub use request_builder::{

@@ -53,7 +53,7 @@ use matrix_sdk_common::{
 #[cfg(feature = "sqlite_cryptostore")]
 use super::store::sqlite::SqliteStore;
 use super::{
-    device::Device,
+    device::{Device, DeviceWrap, UserDevicesWrap},
     error::{EventError, MegolmError, MegolmResult, OlmError, OlmResult},
     olm::{
         Account, EncryptionSettings, GroupSessionKey, IdentityKeys, InboundGroupSession,
@@ -61,7 +61,7 @@ use super::{
     },
     store::{memorystore::MemoryStore, Result as StoreResult},
     verification::{Sas, VerificationMachine},
-    CryptoStore, UserDevices,
+    CryptoStore,
 };
 
 /// A map from the algorithm and device id to a one-time key.
@@ -1136,18 +1136,6 @@ impl OlmMachine {
         self.verification_machine.get_sas(flow_id)
     }
 
-    /// Start a interactive verification with the given `Device`.
-    ///
-    /// # Arguments
-    ///
-    /// * `device` - The device which we would like to start an interactive
-    /// verification with.
-    ///
-    /// Returns a `Sas` object and to-device request that needs to be sent out.
-    pub fn start_verification(&self, device: Device) -> (Sas, OwnedToDeviceRequest) {
-        self.verification_machine.start_sas(device)
-    }
-
     /// Handle a sync response and update the internal state of the Olm machine.
     ///
     /// This will decrypt to-device events but will not touch events in the room
@@ -1342,12 +1330,18 @@ impl OlmMachine {
     /// println!("{:?}", device);
     /// # });
     /// ```
-    pub async fn get_device(&self, user_id: &UserId, device_id: &DeviceId) -> Option<Device> {
-        self.store
+    pub async fn get_device(&self, user_id: &UserId, device_id: &DeviceId) -> Option<DeviceWrap> {
+        let device = self
+            .store
             .get_device(user_id, device_id)
             .await
             .ok()
-            .flatten()
+            .flatten()?;
+
+        Some(DeviceWrap {
+            inner: device,
+            verification_machine: self.verification_machine.clone(),
+        })
     }
 
     /// Get a map holding all the devices of an user.
@@ -1373,8 +1367,13 @@ impl OlmMachine {
     /// }
     /// # });
     /// ```
-    pub async fn get_user_devices(&self, user_id: &UserId) -> StoreResult<UserDevices> {
-        self.store.get_user_devices(user_id).await
+    pub async fn get_user_devices(&self, user_id: &UserId) -> StoreResult<UserDevicesWrap> {
+        let devices = self.store.get_user_devices(user_id).await?;
+
+        Ok(UserDevicesWrap {
+            inner: devices,
+            verification_machine: self.verification_machine.clone(),
+        })
     }
 }
 
@@ -1999,7 +1998,7 @@ pub(crate) mod test {
 
         assert!(!bob_device.is_trusted());
 
-        let (alice_sas, request) = alice.start_verification(bob_device.clone());
+        let (alice_sas, request) = bob_device.start_verification();
 
         let mut event = request_to_event(alice.user_id(), &request);
         bob.handle_verification_event(&mut event).await;

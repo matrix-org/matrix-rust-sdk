@@ -53,7 +53,7 @@ use matrix_sdk_common::{
 };
 #[cfg(feature = "encryption")]
 use matrix_sdk_crypto::{
-    CryptoStore, CryptoStoreError, Device, DeviceStore, OlmError, OlmMachine, Sas, UserDevices,
+    CryptoStore, CryptoStoreError, DeviceWrap, OlmError, OlmMachine, Sas, UserDevicesWrap,
 };
 use zeroize::Zeroizing;
 
@@ -1874,24 +1874,6 @@ impl BaseClient {
             .and_then(|o| o.get_verification(flow_id))
     }
 
-    /// Start a interactive verification with the given `Device`.
-    ///
-    /// # Arguments
-    ///
-    /// * `device` - The device which we would like to start an interactive
-    /// verification with.
-    ///
-    /// Returns a `Sas` object and a to-device request that needs to be sent out.
-    #[cfg(feature = "encryption")]
-    #[cfg_attr(feature = "docs", doc(cfg(encryption)))]
-    pub async fn start_verification(&self, device: Device) -> Option<(Sas, OwnedToDeviceRequest)> {
-        self.olm
-            .lock()
-            .await
-            .as_ref()
-            .map(|o| o.start_verification(device))
-    }
-
     /// Get a specific device of a user.
     ///
     /// # Arguments
@@ -1922,7 +1904,7 @@ impl BaseClient {
     /// ```
     #[cfg(feature = "encryption")]
     #[cfg_attr(feature = "docs", doc(cfg(encryption)))]
-    pub async fn get_device(&self, user_id: &UserId, device_id: &DeviceId) -> Option<Device> {
+    pub async fn get_device(&self, user_id: &UserId, device_id: &DeviceId) -> Option<DeviceWrap> {
         let olm = self.olm.lock().await;
         olm.as_ref()?.get_device(user_id, device_id).await
     }
@@ -1936,9 +1918,14 @@ impl BaseClient {
     ///
     /// * `user_id` - The unique id of the user that the devices belong to.
     ///
+    /// # Panics
+    ///
+    /// Panics if the client hasn't been logged in and the crypto layer thus
+    /// hasn't been initialized.
+    ///
     /// # Example
     ///
-    /// ```
+    /// ```no_run
     /// # use std::convert::TryFrom;
     /// # use matrix_sdk_base::BaseClient;
     /// # use matrix_sdk_common::identifiers::UserId;
@@ -1958,12 +1945,14 @@ impl BaseClient {
     pub async fn get_user_devices(
         &self,
         user_id: &UserId,
-    ) -> StdResult<UserDevices, CryptoStoreError> {
+    ) -> StdResult<UserDevicesWrap, CryptoStoreError> {
         let olm = self.olm.lock().await;
+
         if let Some(olm) = olm.as_ref() {
             Ok(olm.get_user_devices(user_id).await?)
         } else {
-            Ok(DeviceStore::new().user_devices(user_id))
+            // TODO remove this panic.
+            panic!("The client hasn't been logged in")
         }
     }
 }
