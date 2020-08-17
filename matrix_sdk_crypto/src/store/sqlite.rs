@@ -37,7 +37,7 @@ use zeroize::Zeroizing;
 use super::{CryptoStore, CryptoStoreError, Result};
 use crate::{
     device::{ReadOnlyDevice, TrustState},
-    memory_stores::{DeviceStore, GroupSessionStore, SessionStore, UserDevices},
+    memory_stores::{DeviceStore, GroupSessionStore, ReadOnlyUserDevices, SessionStore},
     Account, IdentityKeys, InboundGroupSession, Session,
 };
 
@@ -880,7 +880,7 @@ impl CryptoStore for SqliteStore {
         Ok(self.devices.get(user_id, device_id))
     }
 
-    async fn get_user_devices(&self, user_id: &UserId) -> Result<UserDevices> {
+    async fn get_user_devices(&self, user_id: &UserId) -> Result<ReadOnlyUserDevices> {
         Ok(self.devices.user_devices(user_id))
     }
 }

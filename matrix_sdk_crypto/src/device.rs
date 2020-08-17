@@ -36,7 +36,7 @@ use serde_json::{json, Value};
 use super::{Account, OlmMachine};
 
 use crate::{
-    error::SignatureError, verification::VerificationMachine, verify_json, Sas, UserDevices,
+    error::SignatureError, verification::VerificationMachine, verify_json, ReadOnlyUserDevices, Sas,
 };
 
 /// A read-only version of a `Device`.
@@ -79,7 +79,7 @@ impl Device {
 /// A read only view over all devices belonging to a user.
 #[derive(Debug)]
 pub struct UserDevicesWrap {
-    pub(crate) inner: UserDevices,
+    pub(crate) inner: ReadOnlyUserDevices,
     pub(crate) verification_machine: VerificationMachine,
 }
 

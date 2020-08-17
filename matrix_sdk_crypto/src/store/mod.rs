@@ -28,7 +28,7 @@ use url::ParseError;
 
 use super::{
     device::ReadOnlyDevice,
-    memory_stores::UserDevices,
+    memory_stores::ReadOnlyUserDevices,
     olm::{Account, InboundGroupSession, Session},
 };
 
@@ -196,5 +196,5 @@ pub trait CryptoStore: Debug {
     /// # Arguments
     ///
     /// * `user_id` - The user for which we should get all the devices.
-    async fn get_user_devices(&self, user_id: &UserId) -> Result<UserDevices>;
+    async fn get_user_devices(&self, user_id: &UserId) -> Result<ReadOnlyUserDevices>;
 }

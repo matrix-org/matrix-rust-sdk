@@ -24,7 +24,7 @@ use matrix_sdk_common::{
 use super::{Account, CryptoStore, InboundGroupSession, Result, Session};
 use crate::{
     device::ReadOnlyDevice,
-    memory_stores::{DeviceStore, GroupSessionStore, SessionStore, UserDevices},
+    memory_stores::{DeviceStore, GroupSessionStore, ReadOnlyUserDevices, SessionStore},
 };
 #[derive(Debug, Clone)]
 pub struct MemoryStore {
@@ -120,7 +120,7 @@ impl CryptoStore for MemoryStore {
         Ok(())
     }
 
-    async fn get_user_devices(&self, user_id: &UserId) -> Result<UserDevices> {
+    async fn get_user_devices(&self, user_id: &UserId) -> Result<ReadOnlyUserDevices> {
         Ok(self.devices.user_devices(user_id))
     }
 

@@ -139,11 +139,11 @@ pub struct DeviceStore {
 
 /// A read only view over all devices belonging to a user.
 #[derive(Debug)]
-pub struct UserDevices {
+pub struct ReadOnlyUserDevices {
     entries: ReadOnlyView<Box<DeviceId>, ReadOnlyDevice>,
 }
 
-impl UserDevices {
+impl ReadOnlyUserDevices {
     /// Get the specific device with the given device id.
     pub fn get(&self, device_id: &DeviceId) -> Option<ReadOnlyDevice> {
         self.entries.get(device_id).cloned()
@@ -202,11 +202,11 @@ impl DeviceStore {
     }
 
     /// Get a read-only view over all devices of the given user.
-    pub fn user_devices(&self, user_id: &UserId) -> UserDevices {
+    pub fn user_devices(&self, user_id: &UserId) -> ReadOnlyUserDevices {
         if !self.entries.contains_key(user_id) {
             self.entries.insert(user_id.clone(), DashMap::new());
         }
-        UserDevices {
+        ReadOnlyUserDevices {
             entries: self.entries.get(user_id).unwrap().clone().into_read_only(),
         }
     }
