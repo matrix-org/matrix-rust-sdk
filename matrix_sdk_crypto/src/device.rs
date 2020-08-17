@@ -39,7 +39,7 @@ use crate::{
     error::SignatureError, verification::VerificationMachine, verify_json, Sas, UserDevices,
 };
 
-/// A device represents a E2EE capable client of an user.
+/// A read-only version of a `Device`.
 #[derive(Debug, Clone)]
 pub struct ReadOnlyDevice {
     user_id: Arc<UserId>,
