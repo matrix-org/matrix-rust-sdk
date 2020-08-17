@@ -38,8 +38,8 @@ impl EventEmitter for EventCallback {
 
 async fn login(
     homeserver_url: String,
-    username: String,
-    password: String,
+    username: &str,
+    password: &str,
 ) -> Result<(), matrix_sdk::Error> {
     let client_config = ClientConfig::new()
         .proxy("http://localhost:8080")?
@@ -50,7 +50,7 @@ async fn login(
     client.add_event_emitter(Box::new(EventCallback)).await;
 
     client
-        .login(username, password, None, Some("rust-sdk".to_string()))
+        .login(username, password, None, Some("rust-sdk"))
         .await?;
     client.sync_forever(SyncSettings::new(), |_| async {}).await;
 
@@ -73,5 +73,5 @@ async fn main() -> Result<(), matrix_sdk::Error> {
             }
         };
 
-    login(homeserver_url, username, password).await
+    login(homeserver_url, &username, &password).await
 }

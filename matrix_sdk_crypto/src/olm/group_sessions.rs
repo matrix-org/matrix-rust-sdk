@@ -28,9 +28,9 @@ use matrix_sdk_common::{
             encrypted::EncryptedEventContent, encryption::EncryptionEventContent,
             message::MessageEventContent,
         },
-        Algorithm, AnySyncRoomEvent, EventType, SyncMessageEvent,
+        AnySyncRoomEvent, EventType, SyncMessageEvent,
     },
-    identifiers::{DeviceId, RoomId},
+    identifiers::{DeviceId, EventEncryptionAlgorithm, RoomId},
     instant::Instant,
     locks::Mutex,
     Raw,
@@ -60,7 +60,7 @@ const ROTATION_MESSAGES: u64 = 100;
 #[derive(Debug)]
 pub struct EncryptionSettings {
     /// The encryption algorithm that should be used in the room.
-    pub algorithm: Algorithm,
+    pub algorithm: EventEncryptionAlgorithm,
     /// How long the session should be used before changing it.
     pub rotation_period: Duration,
     /// How many messages should be sent before changing the session.
@@ -70,7 +70,7 @@ pub struct EncryptionSettings {
 impl Default for EncryptionSettings {
     fn default() -> Self {
         Self {
-            algorithm: Algorithm::MegolmV1AesSha2,
+            algorithm: EventEncryptionAlgorithm::MegolmV1AesSha2,
             rotation_period: ROTATION_PERIOD,
             rotation_period_msgs: ROTATION_MESSAGES,
         }
@@ -448,7 +448,7 @@ impl OutboundGroupSession {
     /// m.room_key.
     pub async fn as_json(&self) -> Value {
         json!({
-            "algorithm": Algorithm::MegolmV1AesSha2,
+            "algorithm": EventEncryptionAlgorithm::MegolmV1AesSha2,
             "room_id": &*self.room_id,
             "session_id": &*self.session_id,
             "session_key": self.session_key().await,

@@ -23,9 +23,9 @@ use std::{
 
 use atomic::Atomic;
 use matrix_sdk_common::{
-    api::r0::keys::{DeviceKeys, SignedKey},
-    events::Algorithm,
-    identifiers::{DeviceId, DeviceKeyAlgorithm, DeviceKeyId, UserId},
+    api::r0::keys::SignedKey,
+    encryption::DeviceKeys,
+    identifiers::{DeviceId, DeviceKeyAlgorithm, DeviceKeyId, EventEncryptionAlgorithm, UserId},
 };
 use serde_json::{json, Value};
 
@@ -39,7 +39,7 @@ use crate::{error::SignatureError, verify_json};
 pub struct Device {
     user_id: Arc<UserId>,
     device_id: Arc<Box<DeviceId>>,
-    algorithms: Arc<Vec<Algorithm>>,
+    algorithms: Arc<Vec<EventEncryptionAlgorithm>>,
     keys: Arc<BTreeMap<DeviceKeyId, String>>,
     signatures: Arc<BTreeMap<UserId, BTreeMap<DeviceKeyId, String>>>,
     display_name: Arc<Option<String>>,
@@ -79,7 +79,7 @@ impl Device {
         device_id: Box<DeviceId>,
         display_name: Option<String>,
         trust_state: TrustState,
-        algorithms: Vec<Algorithm>,
+        algorithms: Vec<EventEncryptionAlgorithm>,
         keys: BTreeMap<DeviceKeyId, String>,
         signatures: BTreeMap<UserId, BTreeMap<DeviceKeyId, String>>,
     ) -> Self {
@@ -152,7 +152,7 @@ impl Device {
     }
 
     /// Get the list of algorithms this device supports.
-    pub fn algorithms(&self) -> &[Algorithm] {
+    pub fn algorithms(&self) -> &[EventEncryptionAlgorithm] {
         &self.algorithms
     }
 
@@ -274,7 +274,7 @@ pub(crate) mod test {
 
     use crate::device::{Device, TrustState};
     use matrix_sdk_common::{
-        api::r0::keys::DeviceKeys,
+        encryption::DeviceKeys,
         identifiers::{user_id, DeviceKeyAlgorithm},
     };
 

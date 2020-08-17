@@ -43,8 +43,8 @@ impl EventEmitter for AutoJoinBot {
 
 async fn login_and_sync(
     homeserver_url: String,
-    username: String,
-    password: String,
+    username: &str,
+    password: &str,
 ) -> Result<(), matrix_sdk::Error> {
     let mut home = dirs::home_dir().expect("no home directory found");
     home.push("autojoin_bot");
@@ -55,12 +55,7 @@ async fn login_and_sync(
     let mut client = Client::new_with_config(homeserver_url, client_config).unwrap();
 
     client
-        .login(
-            username.clone(),
-            password,
-            None,
-            Some("autojoin bot".to_string()),
-        )
+        .login(username, password, None, Some("autojoin bot"))
         .await?;
 
     println!("logged in as {}", username);
@@ -92,6 +87,6 @@ async fn main() -> Result<(), matrix_sdk::Error> {
             }
         };
 
-    login_and_sync(homeserver_url, username, password).await?;
+    login_and_sync(homeserver_url, &username, &password).await?;
     Ok(())
 }

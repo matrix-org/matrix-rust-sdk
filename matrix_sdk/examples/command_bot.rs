@@ -81,12 +81,7 @@ async fn login_and_sync(
     let mut client = Client::new_with_config(homeserver_url, client_config).unwrap();
 
     client
-        .login(
-            username.clone(),
-            password,
-            None,
-            Some("command bot".to_string()),
-        )
+        .login(&username, &password, None, Some("command bot"))
         .await?;
 
     println!("logged in as {}", username);

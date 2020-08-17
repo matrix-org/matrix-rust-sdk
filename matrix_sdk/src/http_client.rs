@@ -22,7 +22,7 @@ use url::Url;
 use matrix_sdk_common::{locks::RwLock, FromHttpResponseError};
 use matrix_sdk_common_macros::async_trait;
 
-use crate::{ClientConfig, Endpoint, Error, Result, Session};
+use crate::{ClientConfig, Error, OutgoingRequest, Result, Session};
 
 /// Abstraction around the http layer. The allows implementors to use different
 /// http libraries.
@@ -71,7 +71,7 @@ pub(crate) struct HttpClient {
 }
 
 impl HttpClient {
-    async fn send_request<Request: Endpoint>(
+    async fn send_request<Request: OutgoingRequest>(
         &self,
         request: Request,
         session: Arc<RwLock<Option<Session>>>,
@@ -126,8 +126,8 @@ impl HttpClient {
         session: Arc<RwLock<Option<Session>>>,
     ) -> Result<Request::IncomingResponse>
     where
-        Request: Endpoint,
-        Error: From<FromHttpResponseError<Request::ResponseError>>,
+        Request: OutgoingRequest,
+        Error: From<FromHttpResponseError<Request::EndpointError>>,
     {
         let response = self.send_request(request, session).await?;
 

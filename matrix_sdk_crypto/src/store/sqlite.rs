@@ -23,8 +23,9 @@ use std::{
 use async_trait::async_trait;
 use dashmap::DashSet;
 use matrix_sdk_common::{
-    events::Algorithm,
-    identifiers::{DeviceId, DeviceKeyAlgorithm, DeviceKeyId, RoomId, UserId},
+    identifiers::{
+        DeviceId, DeviceKeyAlgorithm, DeviceKeyId, EventEncryptionAlgorithm, RoomId, UserId,
+    },
     instant::{Duration, Instant},
     locks::Mutex,
 };
@@ -496,9 +497,9 @@ impl SqliteStore {
                 .iter()
                 .map(|row| {
                     let algorithm: &str = &row.0;
-                    Algorithm::from(algorithm)
+                    EventEncryptionAlgorithm::from(algorithm)
                 })
-                .collect::<Vec<Algorithm>>();
+                .collect::<Vec<EventEncryptionAlgorithm>>();
 
             let key_rows: Vec<(String, String)> =
                 query_as("SELECT algorithm, key FROM device_keys WHERE device_id = ?")

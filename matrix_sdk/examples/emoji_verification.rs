@@ -36,15 +36,15 @@ fn print_result(sas: Sas) {
 
 async fn login(
     homeserver_url: String,
-    username: String,
-    password: String,
+    username: &str,
+    password: &str,
 ) -> Result<(), matrix_sdk::Error> {
     let client_config = ClientConfig::new();
     let homeserver_url = Url::parse(&homeserver_url).expect("Couldn't parse the homeserver URL");
     let client = Client::new_with_config(homeserver_url, client_config).unwrap();
 
     client
-        .login(username, password, None, Some("rust-sdk".to_string()))
+        .login(username, password, None, Some("rust-sdk"))
         .await?;
 
     let client_ref = &client;
@@ -112,5 +112,5 @@ async fn main() -> Result<(), matrix_sdk::Error> {
             }
         };
 
-    login(homeserver_url, username, password).await
+    login(homeserver_url, &username, &password).await
 }
