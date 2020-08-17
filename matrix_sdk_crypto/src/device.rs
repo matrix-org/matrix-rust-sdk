@@ -41,7 +41,7 @@ use crate::{
 
 /// A device represents a E2EE capable client of an user.
 #[derive(Debug, Clone)]
-pub struct Device {
+pub struct ReadOnlyDevice {
     user_id: Arc<UserId>,
     device_id: Arc<Box<DeviceId>>,
     algorithms: Arc<Vec<EventEncryptionAlgorithm>>,
@@ -55,12 +55,12 @@ pub struct Device {
 #[derive(Debug, Clone)]
 /// A device represents a E2EE capable client of an user.
 pub struct DeviceWrap {
-    pub(crate) inner: Device,
+    pub(crate) inner: ReadOnlyDevice,
     pub(crate) verification_machine: VerificationMachine,
 }
 
 impl Deref for DeviceWrap {
-    type Target = Device;
+    type Target = ReadOnlyDevice;
 
     fn deref(&self) -> &Self::Target {
         &self.inner
@@ -133,7 +133,7 @@ impl From<i64> for TrustState {
     }
 }
 
-impl Device {
+impl ReadOnlyDevice {
     /// Create a new Device.
     pub fn new(
         user_id: UserId,
@@ -144,7 +144,7 @@ impl Device {
         keys: BTreeMap<DeviceKeyId, String>,
         signatures: BTreeMap<UserId, BTreeMap<DeviceKeyId, String>>,
     ) -> Self {
-        Device {
+        Self {
             user_id: Arc::new(user_id),
             device_id: Arc::new(device_id),
             display_name: Arc::new(display_name),
@@ -285,22 +285,22 @@ impl Device {
     }
 
     #[cfg(test)]
-    pub async fn from_machine(machine: &OlmMachine) -> Device {
-        Device::from_account(machine.account()).await
+    pub async fn from_machine(machine: &OlmMachine) -> ReadOnlyDevice {
+        ReadOnlyDevice::from_account(machine.account()).await
     }
 
     #[cfg(test)]
-    pub async fn from_account(account: &Account) -> Device {
+    pub async fn from_account(account: &Account) -> ReadOnlyDevice {
         let device_keys = account.device_keys().await;
-        Device::try_from(&device_keys).unwrap()
+        ReadOnlyDevice::try_from(&device_keys).unwrap()
     }
 }
 
-impl TryFrom<&DeviceKeys> for Device {
+impl TryFrom<&DeviceKeys> for ReadOnlyDevice {
     type Error = SignatureError;
 
     fn try_from(device_keys: &DeviceKeys) -> Result<Self, Self::Error> {
-        let device = Device {
+        let device = Self {
             user_id: Arc::new(device_keys.user_id.clone()),
             device_id: Arc::new(device_keys.device_id.clone()),
             algorithms: Arc::new(device_keys.algorithms.clone()),
@@ -322,7 +322,7 @@ impl TryFrom<&DeviceKeys> for Device {
     }
 }
 
-impl PartialEq for Device {
+impl PartialEq for ReadOnlyDevice {
     fn eq(&self, other: &Self) -> bool {
         self.user_id() == other.user_id() && self.device_id() == other.device_id()
     }
@@ -333,7 +333,7 @@ pub(crate) mod test {
     use serde_json::json;
     use std::convert::TryFrom;
 
-    use crate::device::{Device, TrustState};
+    use crate::device::{ReadOnlyDevice, TrustState};
     use matrix_sdk_common::{
         encryption::DeviceKeys,
         identifiers::{user_id, DeviceKeyAlgorithm},
@@ -364,9 +364,9 @@ pub(crate) mod test {
         serde_json::from_value(device_keys).unwrap()
     }
 
-    pub(crate) fn get_device() -> Device {
+    pub(crate) fn get_device() -> ReadOnlyDevice {
         let device_keys = device_keys();
-        Device::try_from(&device_keys).unwrap()
+        ReadOnlyDevice::try_from(&device_keys).unwrap()
     }
 
     #[test]

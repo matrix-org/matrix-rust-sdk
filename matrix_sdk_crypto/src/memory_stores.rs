@@ -21,7 +21,7 @@ use matrix_sdk_common::{
 };
 
 use super::{
-    device::Device,
+    device::ReadOnlyDevice,
     olm::{InboundGroupSession, Session},
 };
 
@@ -134,18 +134,18 @@ impl GroupSessionStore {
 /// In-memory store holding the devices of users.
 #[derive(Clone, Debug, Default)]
 pub struct DeviceStore {
-    entries: Arc<DashMap<UserId, DashMap<Box<DeviceId>, Device>>>,
+    entries: Arc<DashMap<UserId, DashMap<Box<DeviceId>, ReadOnlyDevice>>>,
 }
 
 /// A read only view over all devices belonging to a user.
 #[derive(Debug)]
 pub struct UserDevices {
-    entries: ReadOnlyView<Box<DeviceId>, Device>,
+    entries: ReadOnlyView<Box<DeviceId>, ReadOnlyDevice>,
 }
 
 impl UserDevices {
     /// Get the specific device with the given device id.
-    pub fn get(&self, device_id: &DeviceId) -> Option<Device> {
+    pub fn get(&self, device_id: &DeviceId) -> Option<ReadOnlyDevice> {
         self.entries.get(device_id).cloned()
     }
 
@@ -155,7 +155,7 @@ impl UserDevices {
     }
 
     /// Iterator over all the devices of the user devices.
-    pub fn devices(&self) -> impl Iterator<Item = &Device> {
+    pub fn devices(&self) -> impl Iterator<Item = &ReadOnlyDevice> {
         self.entries.values()
     }
 }
@@ -171,7 +171,7 @@ impl DeviceStore {
     /// Add a device to the store.
     ///
     /// Returns true if the device was already in the store, false otherwise.
-    pub fn add(&self, device: Device) -> bool {
+    pub fn add(&self, device: ReadOnlyDevice) -> bool {
         let user_id = device.user_id();
 
         if !self.entries.contains_key(&user_id) {
@@ -185,7 +185,7 @@ impl DeviceStore {
     }
 
     /// Get the device with the given device_id and belonging to the given user.
-    pub fn get(&self, user_id: &UserId, device_id: &DeviceId) -> Option<Device> {
+    pub fn get(&self, user_id: &UserId, device_id: &DeviceId) -> Option<ReadOnlyDevice> {
         self.entries
             .get(user_id)
             .and_then(|m| m.get(device_id).map(|d| d.value().clone()))
@@ -194,7 +194,7 @@ impl DeviceStore {
     /// Remove the device with the given device_id and belonging to the given user.
     ///
     /// Returns the device if it was removed, None if it wasn't in the store.
-    pub fn remove(&self, user_id: &UserId, device_id: &DeviceId) -> Option<Device> {
+    pub fn remove(&self, user_id: &UserId, device_id: &DeviceId) -> Option<ReadOnlyDevice> {
         self.entries
             .get(user_id)
             .and_then(|m| m.remove(device_id))

@@ -24,7 +24,7 @@ use matrix_sdk_common::{
     identifiers::{DeviceKeyId, UserId},
 };
 
-use crate::{error::SignatureError, verify_json, Device};
+use crate::{error::SignatureError, verify_json, ReadOnlyDevice};
 
 #[derive(Debug, Clone)]
 pub struct MasterPubkey(Arc<CrossSigningKey>);
@@ -132,7 +132,7 @@ impl UserSigningPubkey {
 }
 
 impl SelfSigningPubkey {
-    fn verify_device(&self, device: &Device) -> Result<(), SignatureError> {
+    fn verify_device(&self, device: &ReadOnlyDevice) -> Result<(), SignatureError> {
         let (key_id, key) = self
             .0
             .keys
@@ -165,7 +165,7 @@ impl UserIdentity {
         })
     }
 
-    pub fn is_device_signed(&self, device: &Device) -> Result<(), SignatureError> {
+    pub fn is_device_signed(&self, device: &ReadOnlyDevice) -> Result<(), SignatureError> {
         self.self_signing_key.verify_device(device)
     }
 }

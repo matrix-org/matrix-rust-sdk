@@ -14,7 +14,7 @@
 
 use std::ops::Deref;
 
-use matrix_sdk_base::{Device as ReadOnlyDevice, DeviceWrap, UserDevicesWrap};
+use matrix_sdk_base::{DeviceWrap, ReadOnlyDevice, UserDevicesWrap};
 use matrix_sdk_common::{
     api::r0::to_device::send_event_to_device::Request as ToDeviceRequest, identifiers::DeviceId,
 };

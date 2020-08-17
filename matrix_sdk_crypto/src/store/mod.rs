@@ -27,7 +27,7 @@ use thiserror::Error;
 use url::ParseError;
 
 use super::{
-    device::Device,
+    device::ReadOnlyDevice,
     memory_stores::UserDevices,
     olm::{Account, InboundGroupSession, Session},
 };
@@ -169,14 +169,14 @@ pub trait CryptoStore: Debug {
     /// # Arguments
     ///
     /// * `device` - The device that should be stored.
-    async fn save_devices(&self, devices: &[Device]) -> Result<()>;
+    async fn save_devices(&self, devices: &[ReadOnlyDevice]) -> Result<()>;
 
     /// Delete the given device from the store.
     ///
     /// # Arguments
     ///
     /// * `device` - The device that should be stored.
-    async fn delete_device(&self, device: Device) -> Result<()>;
+    async fn delete_device(&self, device: ReadOnlyDevice) -> Result<()>;
 
     /// Get the device for the given user with the given device id.
     ///
@@ -185,7 +185,11 @@ pub trait CryptoStore: Debug {
     /// * `user_id` - The user that the device belongs to.
     ///
     /// * `device_id` - The unique id of the device.
-    async fn get_device(&self, user_id: &UserId, device_id: &DeviceId) -> Result<Option<Device>>;
+    async fn get_device(
+        &self,
+        user_id: &UserId,
+        device_id: &DeviceId,
+    ) -> Result<Option<ReadOnlyDevice>>;
 
     /// Get all the devices of the given user.
     ///

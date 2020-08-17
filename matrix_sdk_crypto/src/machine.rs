@@ -53,7 +53,7 @@ use matrix_sdk_common::{
 #[cfg(feature = "sqlite_cryptostore")]
 use super::store::sqlite::SqliteStore;
 use super::{
-    device::{Device, DeviceWrap, UserDevicesWrap},
+    device::{DeviceWrap, ReadOnlyDevice, UserDevicesWrap},
     error::{EventError, MegolmError, MegolmResult, OlmError, OlmResult},
     olm::{
         Account, EncryptionSettings, GroupSessionKey, IdentityKeys, InboundGroupSession,
@@ -370,7 +370,7 @@ impl OlmMachine {
 
         for (user_id, user_devices) in &response.one_time_keys {
             for (device_id, key_map) in user_devices {
-                let device: Device = match self.store.get_device(&user_id, device_id).await {
+                let device = match self.store.get_device(&user_id, device_id).await {
                     Ok(Some(d)) => d,
                     Ok(None) => {
                         warn!(
@@ -425,7 +425,7 @@ impl OlmMachine {
     async fn handle_devices_from_key_query(
         &self,
         device_keys_map: &BTreeMap<UserId, BTreeMap<Box<DeviceId>, DeviceKeys>>,
-    ) -> StoreResult<Vec<Device>> {
+    ) -> StoreResult<Vec<ReadOnlyDevice>> {
         let mut changed_devices = Vec::new();
 
         for (user_id, device_map) in device_keys_map {
@@ -457,7 +457,7 @@ impl OlmMachine {
                     }
                     device
                 } else {
-                    let device = match Device::try_from(device_keys) {
+                    let device = match ReadOnlyDevice::try_from(device_keys) {
                         Ok(d) => d,
                         Err(e) => {
                             warn!(
@@ -504,7 +504,7 @@ impl OlmMachine {
     pub async fn receive_keys_query_response(
         &self,
         response: &get_keys::Response,
-    ) -> OlmResult<Vec<Device>> {
+    ) -> OlmResult<Vec<ReadOnlyDevice>> {
         let changed_devices = self
             .handle_devices_from_key_query(&response.device_keys)
             .await?;
@@ -920,7 +920,7 @@ impl OlmMachine {
     /// * `content` - The content of the event that should be encrypted.
     async fn olm_encrypt(
         &self,
-        recipient_device: &Device,
+        recipient_device: &ReadOnlyDevice,
         event_type: EventType,
         content: Value,
     ) -> OlmResult<EncryptedEventContent> {
@@ -1395,7 +1395,7 @@ pub(crate) mod test {
     use crate::{
         machine::{OlmMachine, OneTimeKeys},
         verification::test::request_to_event,
-        verify_json, Device, EncryptionSettings,
+        verify_json, EncryptionSettings, ReadOnlyDevice,
     };
 
     use matrix_sdk_common::{
@@ -1498,8 +1498,8 @@ pub(crate) mod test {
         let alice_device = alice_device_id();
         let alice = OlmMachine::new(&alice_id, &alice_device);
 
-        let alice_deivce = Device::from_machine(&alice).await;
-        let bob_device = Device::from_machine(&bob).await;
+        let alice_deivce = ReadOnlyDevice::from_machine(&alice).await;
+        let bob_device = ReadOnlyDevice::from_machine(&bob).await;
         alice.store.save_devices(&[bob_device]).await.unwrap();
         bob.store.save_devices(&[alice_deivce]).await.unwrap();
 

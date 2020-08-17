@@ -25,7 +25,7 @@ use matrix_sdk_common::{
 };
 
 use super::sas::{content_to_request, Sas};
-use crate::{Account, CryptoStore, CryptoStoreError, Device};
+use crate::{Account, CryptoStore, CryptoStoreError, ReadOnlyDevice};
 
 #[derive(Clone, Debug)]
 pub struct VerificationMachine {
@@ -45,7 +45,7 @@ impl VerificationMachine {
         }
     }
 
-    pub fn start_sas(&self, device: Device) -> (Sas, OwnedToDeviceRequest) {
+    pub fn start_sas(&self, device: ReadOnlyDevice) -> (Sas, OwnedToDeviceRequest) {
         let (sas, content) = Sas::start(self.account.clone(), device.clone(), self.store.clone());
         let request = content_to_request(
             device.user_id(),
@@ -196,7 +196,7 @@ mod test {
     use crate::{
         store::memorystore::MemoryStore,
         verification::test::{get_content_from_request, wrap_any_to_device_content},
-        Account, CryptoStore, Device,
+        Account, CryptoStore, ReadOnlyDevice,
     };
 
     fn alice_id() -> UserId {
@@ -221,8 +221,8 @@ mod test {
         let store = MemoryStore::new();
         let bob_store: Arc<Box<dyn CryptoStore>> = Arc::new(Box::new(MemoryStore::new()));
 
-        let bob_device = Device::from_account(&bob).await;
-        let alice_device = Device::from_account(&alice).await;
+        let bob_device = ReadOnlyDevice::from_account(&bob).await;
+        let alice_device = ReadOnlyDevice::from_account(&alice).await;
 
         store.save_devices(&[bob_device]).await.unwrap();
         bob_store

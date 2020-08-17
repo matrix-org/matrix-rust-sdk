@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use matrix_sdk_base::{Device, Sas as BaseSas};
+use matrix_sdk_base::{ReadOnlyDevice, Sas as BaseSas};
 use matrix_sdk_common::api::r0::to_device::send_event_to_device::Request as ToDeviceRequest;
 
 use crate::{error::Result, http_client::HttpClient};
@@ -89,7 +89,7 @@ impl Sas {
     }
 
     /// Get the other users device that we're veryfying.
-    pub fn other_device(&self) -> Device {
+    pub fn other_device(&self) -> ReadOnlyDevice {
         self.inner.other_device()
     }
 }

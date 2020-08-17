@@ -23,7 +23,7 @@ use matrix_sdk_common::{
 
 use super::{Account, CryptoStore, InboundGroupSession, Result, Session};
 use crate::{
-    device::Device,
+    device::ReadOnlyDevice,
     memory_stores::{DeviceStore, GroupSessionStore, SessionStore, UserDevices},
 };
 #[derive(Debug, Clone)]
@@ -107,11 +107,15 @@ impl CryptoStore for MemoryStore {
         Ok(self.tracked_users.insert(user.clone()))
     }
 
-    async fn get_device(&self, user_id: &UserId, device_id: &DeviceId) -> Result<Option<Device>> {
+    async fn get_device(
+        &self,
+        user_id: &UserId,
+        device_id: &DeviceId,
+    ) -> Result<Option<ReadOnlyDevice>> {
         Ok(self.devices.get(user_id, device_id))
     }
 
-    async fn delete_device(&self, device: Device) -> Result<()> {
+    async fn delete_device(&self, device: ReadOnlyDevice) -> Result<()> {
         let _ = self.devices.remove(device.user_id(), device.device_id());
         Ok(())
     }
@@ -120,7 +124,7 @@ impl CryptoStore for MemoryStore {
         Ok(self.devices.user_devices(user_id))
     }
 
-    async fn save_devices(&self, devices: &[Device]) -> Result<()> {
+    async fn save_devices(&self, devices: &[ReadOnlyDevice]) -> Result<()> {
         for device in devices {
             let _ = self.devices.add(device.clone());
         }

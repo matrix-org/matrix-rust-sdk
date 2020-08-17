@@ -33,7 +33,7 @@ use matrix_sdk_common::{
     identifiers::{DeviceId, UserId},
 };
 
-use crate::{Account, CryptoStore, CryptoStoreError, Device, TrustState};
+use crate::{Account, CryptoStore, CryptoStoreError, ReadOnlyDevice, TrustState};
 
 pub use helpers::content_to_request;
 use sas_state::{
@@ -46,7 +46,7 @@ pub struct Sas {
     inner: Arc<Mutex<InnerSas>>,
     store: Arc<Box<dyn CryptoStore>>,
     account: Account,
-    other_device: Device,
+    other_device: ReadOnlyDevice,
     flow_id: Arc<String>,
 }
 
@@ -72,7 +72,7 @@ impl Sas {
     }
 
     /// Get the device of the other user.
-    pub fn other_device(&self) -> Device {
+    pub fn other_device(&self) -> ReadOnlyDevice {
         self.other_device.clone()
     }
 
@@ -99,7 +99,7 @@ impl Sas {
     /// sent out through the server to the other device.
     pub(crate) fn start(
         account: Account,
-        other_device: Device,
+        other_device: ReadOnlyDevice,
         store: Arc<Box<dyn CryptoStore>>,
     ) -> (Sas, StartEventContent) {
         let (inner, content) = InnerSas::start(account.clone(), other_device.clone());
@@ -128,7 +128,7 @@ impl Sas {
     /// the other side.
     pub(crate) fn from_start_event(
         account: Account,
-        other_device: Device,
+        other_device: ReadOnlyDevice,
         store: Arc<Box<dyn CryptoStore>>,
         event: &ToDeviceEvent<StartEventContent>,
     ) -> Result<Sas, AnyToDeviceEventContent> {
@@ -313,7 +313,7 @@ impl Sas {
         content
     }
 
-    pub(crate) fn verified_devices(&self) -> Option<Arc<Vec<Device>>> {
+    pub(crate) fn verified_devices(&self) -> Option<Arc<Vec<ReadOnlyDevice>>> {
         self.inner.lock().unwrap().verified_devices()
     }
 
@@ -338,7 +338,7 @@ enum InnerSas {
 }
 
 impl InnerSas {
-    fn start(account: Account, other_device: Device) -> (InnerSas, StartEventContent) {
+    fn start(account: Account, other_device: ReadOnlyDevice) -> (InnerSas, StartEventContent) {
         let sas = SasState::<Created>::new(account, other_device);
         let content = sas.as_content();
         (InnerSas::Created(sas), content)
@@ -346,7 +346,7 @@ impl InnerSas {
 
     fn from_start_event(
         account: Account,
-        other_device: Device,
+        other_device: ReadOnlyDevice,
         event: &ToDeviceEvent<StartEventContent>,
     ) -> Result<InnerSas, AnyToDeviceEventContent> {
         match SasState::<Started>::from_start_event(account, other_device, event) {
@@ -535,7 +535,7 @@ impl InnerSas {
         }
     }
 
-    fn verified_devices(&self) -> Option<Arc<Vec<Device>>> {
+    fn verified_devices(&self) -> Option<Arc<Vec<ReadOnlyDevice>>> {
         if let InnerSas::Done(s) = self {
             Some(s.verified_devices())
         } else {
@@ -556,7 +556,7 @@ mod test {
     use crate::{
         store::memorystore::MemoryStore,
         verification::test::{get_content_from_request, wrap_any_to_device_content},
-        Account, CryptoStore, Device,
+        Account, CryptoStore, ReadOnlyDevice,
     };
 
     use super::{Accepted, Created, Sas, SasState, Started};
@@ -586,10 +586,10 @@ mod test {
 
     async fn get_sas_pair() -> (SasState<Created>, SasState<Started>) {
         let alice = Account::new(&alice_id(), &alice_device_id());
-        let alice_device = Device::from_account(&alice).await;
+        let alice_device = ReadOnlyDevice::from_account(&alice).await;
 
         let bob = Account::new(&bob_id(), &bob_device_id());
-        let bob_device = Device::from_account(&bob).await;
+        let bob_device = ReadOnlyDevice::from_account(&bob).await;
 
         let alice_sas = SasState::<Created>::new(alice.clone(), bob_device);
 
@@ -670,10 +670,10 @@ mod test {
     #[tokio::test]
     async fn sas_wrapper_full() {
         let alice = Account::new(&alice_id(), &alice_device_id());
-        let alice_device = Device::from_account(&alice).await;
+        let alice_device = ReadOnlyDevice::from_account(&alice).await;
 
         let bob = Account::new(&bob_id(), &bob_device_id());
-        let bob_device = Device::from_account(&bob).await;
+        let bob_device = ReadOnlyDevice::from_account(&bob).await;
 
         let alice_store: Arc<Box<dyn CryptoStore>> = Arc::new(Box::new(MemoryStore::new()));
         let bob_store: Arc<Box<dyn CryptoStore>> = Arc::new(Box::new(MemoryStore::new()));

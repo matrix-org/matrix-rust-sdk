@@ -29,7 +29,7 @@ use serde_json::{json, Value};
 use super::IdentityKeys;
 use crate::{
     error::{EventError, OlmResult},
-    Device,
+    ReadOnlyDevice,
 };
 
 pub use olm_rs::{
@@ -103,7 +103,7 @@ impl Session {
     /// * `content` - The content of the event.
     pub async fn encrypt(
         &mut self,
-        recipient_device: &Device,
+        recipient_device: &ReadOnlyDevice,
         event_type: EventType,
         content: Value,
     ) -> OlmResult<EncryptedEventContent> {

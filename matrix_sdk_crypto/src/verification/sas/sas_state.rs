@@ -43,7 +43,7 @@ use matrix_sdk_common::{
 
 use super::helpers::{get_decimal, get_emoji, get_mac_content, receive_mac_event, SasIds};
 
-use crate::{Account, Device};
+use crate::{Account, ReadOnlyDevice};
 
 const KEY_AGREEMENT_PROTOCOLS: &[KeyAgreementProtocol] =
     &[KeyAgreementProtocol::Curve25519HkdfSha256];
@@ -206,7 +206,7 @@ pub struct Confirmed {
 pub struct MacReceived {
     we_started: bool,
     their_pubkey: String,
-    verified_devices: Arc<Vec<Device>>,
+    verified_devices: Arc<Vec<ReadOnlyDevice>>,
     verified_master_keys: Arc<Vec<String>>,
 }
 
@@ -216,7 +216,7 @@ pub struct MacReceived {
 /// the master keys in the verified devices list.
 #[derive(Clone, Debug)]
 pub struct Done {
-    verified_devices: Arc<Vec<Device>>,
+    verified_devices: Arc<Vec<ReadOnlyDevice>>,
     verified_master_keys: Arc<Vec<String>>,
 }
 
@@ -239,7 +239,7 @@ impl<S: Clone> SasState<S> {
     }
 
     #[cfg(test)]
-    pub fn other_device(&self) -> Device {
+    pub fn other_device(&self) -> ReadOnlyDevice {
         self.ids.other_device.clone()
     }
 
@@ -286,7 +286,7 @@ impl SasState<Created> {
     /// * `account` - Our own account.
     ///
     /// * `other_device` - The other device which we are going to verify.
-    pub fn new(account: Account, other_device: Device) -> SasState<Created> {
+    pub fn new(account: Account, other_device: ReadOnlyDevice) -> SasState<Created> {
         let verification_flow_id = Uuid::new_v4().to_string();
 
         SasState {
@@ -380,7 +380,7 @@ impl SasState<Started> {
     /// the other side.
     pub fn from_start_event(
         account: Account,
-        other_device: Device,
+        other_device: ReadOnlyDevice,
         event: &ToDeviceEvent<StartEventContent>,
     ) -> Result<SasState<Started>, SasState<Canceled>> {
         if let StartMethod::MSasV1(content) = &event.content.method {
@@ -780,7 +780,7 @@ impl SasState<Done> {
     }
 
     /// Get the list of verified devices.
-    pub fn verified_devices(&self) -> Arc<Vec<Device>> {
+    pub fn verified_devices(&self) -> Arc<Vec<ReadOnlyDevice>> {
         self.state.verified_devices.clone()
     }
 }
@@ -827,7 +827,7 @@ impl SasState<Canceled> {
 mod test {
     use std::convert::TryFrom;
 
-    use crate::{Account, Device};
+    use crate::{Account, ReadOnlyDevice};
     use matrix_sdk_common::{
         events::{
             key::verification::{
@@ -866,10 +866,10 @@ mod test {
 
     async fn get_sas_pair() -> (SasState<Created>, SasState<Started>) {
         let alice = Account::new(&alice_id(), &alice_device_id());
-        let alice_device = Device::from_account(&alice).await;
+        let alice_device = ReadOnlyDevice::from_account(&alice).await;
 
         let bob = Account::new(&bob_id(), &bob_device_id());
-        let bob_device = Device::from_account(&bob).await;
+        let bob_device = ReadOnlyDevice::from_account(&bob).await;
 
         let alice_sas = SasState::<Created>::new(alice.clone(), bob_device);
 
@@ -1022,10 +1022,10 @@ mod test {
     #[tokio::test]
     async fn sas_from_start_unknown_method() {
         let alice = Account::new(&alice_id(), &alice_device_id());
-        let alice_device = Device::from_account(&alice).await;
+        let alice_device = ReadOnlyDevice::from_account(&alice).await;
 
         let bob = Account::new(&bob_id(), &bob_device_id());
-        let bob_device = Device::from_account(&bob).await;
+        let bob_device = ReadOnlyDevice::from_account(&bob).await;
 
         let alice_sas = SasState::<Created>::new(alice.clone(), bob_device);
 

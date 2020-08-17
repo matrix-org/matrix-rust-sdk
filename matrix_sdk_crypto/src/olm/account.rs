@@ -45,7 +45,7 @@ pub use olm_rs::{
 };
 
 use super::{EncryptionSettings, InboundGroupSession, OutboundGroupSession, Session};
-use crate::{device::Device, error::SessionCreationError};
+use crate::{device::ReadOnlyDevice, error::SessionCreationError};
 
 /// Account holding identity keys for which sessions can be created.
 ///
@@ -436,7 +436,7 @@ impl Account {
     ///     key that the other account created and shared with us.
     pub(crate) async fn create_outbound_session(
         &self,
-        device: Device,
+        device: ReadOnlyDevice,
         key_map: &BTreeMap<DeviceKeyId, OneTimeKey>,
     ) -> Result<Session, SessionCreationError> {
         let one_time_key = key_map.values().next().ok_or_else(|| {

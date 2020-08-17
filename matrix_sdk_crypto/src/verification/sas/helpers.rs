@@ -30,12 +30,12 @@ use matrix_sdk_common::{
     uuid::Uuid,
 };
 
-use crate::{Account, Device};
+use crate::{Account, ReadOnlyDevice};
 
 #[derive(Clone, Debug)]
 pub struct SasIds {
     pub account: Account,
-    pub other_device: Device,
+    pub other_device: ReadOnlyDevice,
 }
 
 /// Get a tuple of an emoji and a description of the emoji using a number.
@@ -158,7 +158,7 @@ pub fn receive_mac_event(
     ids: &SasIds,
     flow_id: &str,
     event: &ToDeviceEvent<MacEventContent>,
-) -> Result<(Vec<Device>, Vec<String>), CancelCode> {
+) -> Result<(Vec<ReadOnlyDevice>, Vec<String>), CancelCode> {
     let mut verified_devices = Vec::new();
 
     let info = extra_mac_info_receive(&ids, flow_id);

@@ -36,7 +36,7 @@ use zeroize::Zeroizing;
 
 use super::{CryptoStore, CryptoStoreError, Result};
 use crate::{
-    device::{Device, TrustState},
+    device::{ReadOnlyDevice, TrustState},
     memory_stores::{DeviceStore, GroupSessionStore, SessionStore, UserDevices},
     Account, IdentityKeys, InboundGroupSession, Session,
 };
@@ -556,7 +556,7 @@ impl SqliteStore {
                 );
             }
 
-            let device = Device::new(
+            let device = ReadOnlyDevice::new(
                 user_id,
                 device_id.as_str().into(),
                 display_name.clone(),
@@ -572,7 +572,7 @@ impl SqliteStore {
         Ok(())
     }
 
-    async fn save_device_helper(&self, device: Device) -> Result<()> {
+    async fn save_device_helper(&self, device: ReadOnlyDevice) -> Result<()> {
         let account_id = self.account_id().ok_or(CryptoStoreError::AccountUnset)?;
 
         let mut connection = self.connection.lock().await;
@@ -844,7 +844,7 @@ impl CryptoStore for SqliteStore {
         Ok(already_added)
     }
 
-    async fn save_devices(&self, devices: &[Device]) -> Result<()> {
+    async fn save_devices(&self, devices: &[ReadOnlyDevice]) -> Result<()> {
         // TODO turn this into a bulk transaction.
         for device in devices {
             self.devices.add(device.clone());
@@ -854,7 +854,7 @@ impl CryptoStore for SqliteStore {
         Ok(())
     }
 
-    async fn delete_device(&self, device: Device) -> Result<()> {
+    async fn delete_device(&self, device: ReadOnlyDevice) -> Result<()> {
         let account_id = self.account_id().ok_or(CryptoStoreError::AccountUnset)?;
         let mut connection = self.connection.lock().await;
 
@@ -872,8 +872,11 @@ impl CryptoStore for SqliteStore {
         Ok(())
     }
 
-    #[allow(clippy::ptr_arg)]
-    async fn get_device(&self, user_id: &UserId, device_id: &DeviceId) -> Result<Option<Device>> {
+    async fn get_device(
+        &self,
+        user_id: &UserId,
+        device_id: &DeviceId,
+    ) -> Result<Option<ReadOnlyDevice>> {
         Ok(self.devices.get(user_id, device_id))
     }
 
