@@ -511,6 +511,10 @@ impl OlmMachine {
             let self_signing = if let Some(s) = response.self_signing_keys.get(user_id) {
                 SelfSigningPubkey::from(s)
             } else {
+                warn!(
+                    "User identity for user {} didn't contain a self signing pubkey",
+                    user_id
+                );
                 continue;
             };
 
@@ -521,6 +525,7 @@ impl OlmMachine {
                         {
                             UserSigningPubkey::from(s)
                         } else {
+                            warn!("User identity for our own user {} didn't contain a user signing pubkey", user_id);
                             continue;
                         };
 
@@ -538,6 +543,10 @@ impl OlmMachine {
                     OwnUserIdentity::new(master_key, self_signing, user_signing)
                         .map(UserIdentities::Own)
                 } else {
+                    warn!(
+                        "User identity for our own user {} didn't contain a user signing pubkey",
+                        user_id
+                    );
                     continue;
                 }
             } else {
@@ -545,9 +554,19 @@ impl OlmMachine {
             };
 
             match identity {
-                Ok(i) => changed.push(i),
-                Err(_e) => {
-                    // TODO log some error here
+                Ok(i) => {
+                    trace!(
+                        "Updated or created new user identity for {}: {:?}",
+                        user_id,
+                        i
+                    );
+                    changed.push(i);
+                }
+                Err(e) => {
+                    warn!(
+                        "Coulnd't update or create new user identity for {}: {:?}",
+                        user_id, e
+                    );
                     continue;
                 }
             }
