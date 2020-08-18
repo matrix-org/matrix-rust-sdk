@@ -199,6 +199,13 @@ pub trait CryptoStore: Debug {
     /// * `user_id` - The user for which we should get all the devices.
     async fn get_user_devices(&self, user_id: &UserId) -> Result<ReadOnlyUserDevices>;
 
+    /// Save the given user identities in the store.
+    ///
+    /// # Arguments
+    ///
+    /// * `identities` - The identities that should be saved in the store.
+    async fn save_user_identities(&self, identities: &[UserIdentities]) -> Result<()>;
+
     /// Get the user identity that is attached to the given user id.
     ///
     /// # Arguments

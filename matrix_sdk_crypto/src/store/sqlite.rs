@@ -888,6 +888,10 @@ impl CryptoStore for SqliteStore {
     async fn get_user_identity(&self, _user_id: &UserId) -> Result<Option<UserIdentities>> {
         Ok(None)
     }
+
+    async fn save_user_identities(&self, _users: &[UserIdentities]) -> Result<()> {
+        Ok(())
+    }
 }
 
 #[cfg(not(tarpaulin_include))]

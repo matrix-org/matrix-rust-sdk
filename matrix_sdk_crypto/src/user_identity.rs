@@ -153,6 +153,13 @@ pub enum UserIdentities {
 }
 
 impl UserIdentities {
+    pub fn user_id(&self) -> &UserId {
+        match self {
+            UserIdentities::Own(i) => i.user_id(),
+            UserIdentities::Other(i) => i.user_id(),
+        }
+    }
+
     pub fn master_key(&self) -> &BTreeMap<String, String> {
         match self {
             UserIdentities::Own(i) => i.master_key(),
@@ -180,6 +187,10 @@ impl UserIdentity {
             master_key,
             self_signing_key,
         })
+    }
+
+    pub fn user_id(&self) -> &UserId {
+        &self.user_id
     }
 
     pub fn master_key(&self) -> &BTreeMap<String, String> {
@@ -229,6 +240,10 @@ impl OwnUserIdentity {
             user_signing_key,
             verified: Arc::new(AtomicBool::new(false)),
         })
+    }
+
+    pub fn user_id(&self) -> &UserId {
+        &self.user_id
     }
 
     pub fn update(

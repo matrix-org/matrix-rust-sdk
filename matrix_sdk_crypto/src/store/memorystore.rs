@@ -15,7 +15,7 @@
 use std::{collections::HashSet, sync::Arc};
 
 use async_trait::async_trait;
-use dashmap::DashSet;
+use dashmap::{DashMap, DashSet};
 use matrix_sdk_common::{
     identifiers::{DeviceId, RoomId, UserId},
     locks::Mutex,
@@ -34,6 +34,7 @@ pub struct MemoryStore {
     tracked_users: Arc<DashSet<UserId>>,
     users_for_key_query: Arc<DashSet<UserId>>,
     devices: DeviceStore,
+    identities: Arc<DashMap<UserId, UserIdentities>>,
 }
 
 impl MemoryStore {
@@ -44,6 +45,7 @@ impl MemoryStore {
             tracked_users: Arc::new(DashSet::new()),
             users_for_key_query: Arc::new(DashSet::new()),
             devices: DeviceStore::new(),
+            identities: Arc::new(DashMap::new()),
         }
     }
 }
@@ -133,8 +135,18 @@ impl CryptoStore for MemoryStore {
         Ok(())
     }
 
-    async fn get_user_identity(&self, _user_id: &UserId) -> Result<Option<UserIdentities>> {
-        Ok(None)
+    async fn get_user_identity(&self, user_id: &UserId) -> Result<Option<UserIdentities>> {
+        #[allow(clippy::map_clone)]
+        Ok(self.identities.get(user_id).map(|i| i.clone()))
+    }
+
+    async fn save_user_identities(&self, identities: &[UserIdentities]) -> Result<()> {
+        for identity in identities {
+            let _ = self
+                .identities
+                .insert(identity.user_id().to_owned(), identity.clone());
+        }
+        Ok(())
     }
 }
 
