@@ -60,6 +60,10 @@ use super::{
         OlmMessage, OutboundGroupSession,
     },
     store::{memorystore::MemoryStore, Result as StoreResult},
+    user_identity::{
+        MasterPubkey, OwnUserIdentity, SelfSigningPubkey, UserIdentities, UserIdentity,
+        UserSigningPubkey,
+    },
     verification::{Sas, VerificationMachine},
     CryptoStore,
 };
@@ -429,6 +433,9 @@ impl OlmMachine {
         let mut changed_devices = Vec::new();
 
         for (user_id, device_map) in device_keys_map {
+            // TODO move this out into the handle keys query response method
+            // since we might fail handle the new device at any point here or
+            // when updating the user identities.
             self.store.update_tracked_user(user_id, false).await?;
 
             for (device_id, device_keys) in device_map.iter() {
@@ -492,6 +499,63 @@ impl OlmMachine {
         Ok(changed_devices)
     }
 
+    async fn handle_cross_singing_keys(
+        &self,
+        response: &get_keys::Response,
+    ) -> StoreResult<Vec<UserIdentities>> {
+        let mut changed = Vec::new();
+
+        for (user_id, master_key) in &response.master_keys {
+            let master_key = MasterPubkey::from(master_key);
+
+            let self_signing = if let Some(s) = response.self_signing_keys.get(user_id) {
+                SelfSigningPubkey::from(s)
+            } else {
+                continue;
+            };
+
+            let identity = if let Some(mut i) = self.store.get_user_identity(user_id).await? {
+                match &mut i {
+                    UserIdentities::Own(ref mut identity) => {
+                        let user_signing = if let Some(s) = response.user_signing_keys.get(user_id)
+                        {
+                            UserSigningPubkey::from(s)
+                        } else {
+                            continue;
+                        };
+
+                        identity
+                            .update(master_key, self_signing, user_signing)
+                            .map(|_| i)
+                    }
+                    UserIdentities::Other(ref mut identity) => {
+                        identity.update(master_key, self_signing).map(|_| i)
+                    }
+                }
+            } else if user_id == self.user_id() {
+                if let Some(s) = response.user_signing_keys.get(user_id) {
+                    let user_signing = UserSigningPubkey::from(s);
+                    OwnUserIdentity::new(master_key, self_signing, user_signing)
+                        .map(UserIdentities::Own)
+                } else {
+                    continue;
+                }
+            } else {
+                UserIdentity::new(master_key, self_signing).map(UserIdentities::Other)
+            };
+
+            match identity {
+                Ok(i) => changed.push(i),
+                Err(_e) => {
+                    // TODO log some error here
+                    continue;
+                }
+            }
+        }
+
+        Ok(changed)
+    }
+
     /// Receive a successful keys query response.
     ///
     /// Returns a list of devices newly discovered devices and devices that
@@ -504,13 +568,14 @@ impl OlmMachine {
     pub async fn receive_keys_query_response(
         &self,
         response: &get_keys::Response,
-    ) -> OlmResult<Vec<ReadOnlyDevice>> {
+    ) -> OlmResult<(Vec<ReadOnlyDevice>, Vec<UserIdentities>)> {
         let changed_devices = self
             .handle_devices_from_key_query(&response.device_keys)
             .await?;
         self.store.save_devices(&changed_devices).await?;
+        let changed_identities = self.handle_cross_singing_keys(response).await?;
 
-        Ok(changed_devices)
+        Ok((changed_devices, changed_identities))
     }
 
     /// Get a request to upload E2EE keys to the server.

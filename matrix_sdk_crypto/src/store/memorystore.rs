@@ -25,6 +25,7 @@ use super::{Account, CryptoStore, InboundGroupSession, Result, Session};
 use crate::{
     device::ReadOnlyDevice,
     memory_stores::{DeviceStore, GroupSessionStore, ReadOnlyUserDevices, SessionStore},
+    user_identity::UserIdentities,
 };
 #[derive(Debug, Clone)]
 pub struct MemoryStore {
@@ -130,6 +131,10 @@ impl CryptoStore for MemoryStore {
         }
 
         Ok(())
+    }
+
+    async fn get_user_identity(&self, _user_id: &UserId) -> Result<Option<UserIdentities>> {
+        Ok(None)
     }
 }
 

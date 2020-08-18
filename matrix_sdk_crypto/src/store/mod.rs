@@ -30,6 +30,7 @@ use super::{
     device::ReadOnlyDevice,
     memory_stores::ReadOnlyUserDevices,
     olm::{Account, InboundGroupSession, Session},
+    user_identity::UserIdentities,
 };
 
 pub mod memorystore;
@@ -197,4 +198,11 @@ pub trait CryptoStore: Debug {
     ///
     /// * `user_id` - The user for which we should get all the devices.
     async fn get_user_devices(&self, user_id: &UserId) -> Result<ReadOnlyUserDevices>;
+
+    /// Get the user identity that is attached to the given user id.
+    ///
+    /// # Arguments
+    ///
+    /// * `user_id` - The user for which we should get the identity.
+    async fn get_user_identity(&self, user_id: &UserId) -> Result<Option<UserIdentities>>;
 }

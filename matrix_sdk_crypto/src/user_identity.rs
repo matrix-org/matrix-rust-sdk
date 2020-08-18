@@ -77,12 +77,6 @@ impl<'a> CrossSigningSubKeys<'a> {
     }
 }
 
-pub struct UserIdentity {
-    user_id: Arc<UserId>,
-    master_key: MasterPubkey,
-    self_signing_key: SelfSigningPubkey,
-}
-
 impl MasterPubkey {
     fn verify_subkey<'a>(
         &self,
@@ -151,6 +145,19 @@ impl SelfSigningPubkey {
     }
 }
 
+#[derive(Debug, Clone)]
+pub enum UserIdentities {
+    Own(OwnUserIdentity),
+    Other(UserIdentity),
+}
+
+#[derive(Debug, Clone)]
+pub struct UserIdentity {
+    user_id: Arc<UserId>,
+    master_key: MasterPubkey,
+    self_signing_key: SelfSigningPubkey,
+}
+
 impl UserIdentity {
     pub fn new(
         master_key: MasterPubkey,
@@ -165,11 +172,25 @@ impl UserIdentity {
         })
     }
 
+    pub fn update(
+        &mut self,
+        master_key: MasterPubkey,
+        self_signing_key: SelfSigningPubkey,
+    ) -> Result<(), SignatureError> {
+        master_key.verify_subkey(&self_signing_key)?;
+
+        self.master_key = master_key;
+        self.self_signing_key = self_signing_key;
+
+        Ok(())
+    }
+
     pub fn is_device_signed(&self, device: &ReadOnlyDevice) -> Result<(), SignatureError> {
         self.self_signing_key.verify_device(device)
     }
 }
 
+#[derive(Debug, Clone)]
 pub struct OwnUserIdentity {
     user_id: Arc<UserId>,
     master_key: MasterPubkey,
@@ -194,6 +215,25 @@ impl OwnUserIdentity {
             user_signing_key,
             verified: Arc::new(AtomicBool::new(false)),
         })
+    }
+
+    pub fn update(
+        &mut self,
+        master_key: MasterPubkey,
+        self_signing_key: SelfSigningPubkey,
+        user_signing_key: UserSigningPubkey,
+    ) -> Result<(), SignatureError> {
+        master_key.verify_subkey(&self_signing_key)?;
+        master_key.verify_subkey(&user_signing_key)?;
+
+        self.self_signing_key = self_signing_key;
+        self.user_signing_key = user_signing_key;
+
+        self.master_key = master_key;
+
+        // FIXME reset the verification state if the master key changed.
+
+        Ok(())
     }
 
     pub fn is_identity_signed(&self, identity: &UserIdentity) -> Result<(), SignatureError> {
