@@ -144,7 +144,7 @@ impl VerificationMachine {
                         d,
                         self.store.clone(),
                         e,
-                        None,
+                        self.store.get_user_identity(&e.sender).await?,
                     ) {
                         Ok(s) => {
                             self.verifications
