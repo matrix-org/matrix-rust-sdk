@@ -30,12 +30,13 @@ use matrix_sdk_common::{
     uuid::Uuid,
 };
 
-use crate::{Account, ReadOnlyDevice};
+use crate::{user_identity::UserIdentities, Account, ReadOnlyDevice};
 
 #[derive(Clone, Debug)]
 pub struct SasIds {
     pub account: Account,
     pub other_device: ReadOnlyDevice,
+    pub other_identity: Option<UserIdentities>,
 }
 
 /// Get a tuple of an emoji and a description of the emoji using a number.
@@ -160,6 +161,7 @@ pub fn receive_mac_event(
     event: &ToDeviceEvent<MacEventContent>,
 ) -> Result<(Vec<ReadOnlyDevice>, Vec<String>), CancelCode> {
     let mut verified_devices = Vec::new();
+    let mut verified_identities = Vec::new();
 
     let info = extra_mac_info_receive(&ids, flow_id);
 
@@ -200,6 +202,25 @@ pub fn receive_mac_event(
                 verified_devices.push(ids.other_device.clone());
             } else {
                 return Err(CancelCode::KeyMismatch);
+            }
+        } else if let Some(identity) = &ids.other_identity {
+            if let Some(key) = identity.master_key().get(key_id.as_str()) {
+                // TODO we should check that the master key signs the device,
+                // this way we know the master key also trusts the device
+                if key_mac
+                    == &sas
+                        .calculate_mac(key, &format!("{}{}", info, key_id))
+                        .expect("Can't calculate SAS MAC")
+                {
+                    trace!(
+                        "Successfully verified the master key {} from {}",
+                        key_id,
+                        event.sender
+                    );
+                    verified_identities.push(identity)
+                } else {
+                    return Err(CancelCode::KeyMismatch);
+                }
             }
         } else {
             warn!(

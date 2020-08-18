@@ -13,6 +13,7 @@
 // limitations under the License.
 
 use std::{
+    collections::BTreeMap,
     convert::TryFrom,
     sync::{atomic::AtomicBool, Arc},
 };
@@ -151,6 +152,15 @@ pub enum UserIdentities {
     Other(UserIdentity),
 }
 
+impl UserIdentities {
+    pub fn master_key(&self) -> &BTreeMap<String, String> {
+        match self {
+            UserIdentities::Own(i) => i.master_key(),
+            UserIdentities::Other(i) => i.master_key(),
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct UserIdentity {
     user_id: Arc<UserId>,
@@ -170,6 +180,10 @@ impl UserIdentity {
             master_key,
             self_signing_key,
         })
+    }
+
+    pub fn master_key(&self) -> &BTreeMap<String, String> {
+        &self.master_key.0.keys
     }
 
     pub fn update(
@@ -234,6 +248,10 @@ impl OwnUserIdentity {
         // FIXME reset the verification state if the master key changed.
 
         Ok(())
+    }
+
+    pub fn master_key(&self) -> &BTreeMap<String, String> {
+        &self.master_key.0.keys
     }
 
     pub fn is_identity_signed(&self, identity: &UserIdentity) -> Result<(), SignatureError> {

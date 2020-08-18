@@ -43,7 +43,7 @@ use matrix_sdk_common::{
 
 use super::helpers::{get_decimal, get_emoji, get_mac_content, receive_mac_event, SasIds};
 
-use crate::{Account, ReadOnlyDevice};
+use crate::{user_identity::UserIdentities, Account, ReadOnlyDevice};
 
 const KEY_AGREEMENT_PROTOCOLS: &[KeyAgreementProtocol] =
     &[KeyAgreementProtocol::Curve25519HkdfSha256];
@@ -286,7 +286,11 @@ impl SasState<Created> {
     /// * `account` - Our own account.
     ///
     /// * `other_device` - The other device which we are going to verify.
-    pub fn new(account: Account, other_device: ReadOnlyDevice) -> SasState<Created> {
+    pub fn new(
+        account: Account,
+        other_device: ReadOnlyDevice,
+        other_identity: Option<UserIdentities>,
+    ) -> SasState<Created> {
         let verification_flow_id = Uuid::new_v4().to_string();
 
         SasState {
@@ -294,6 +298,7 @@ impl SasState<Created> {
             ids: SasIds {
                 account,
                 other_device,
+                other_identity,
             },
             verification_flow_id: Arc::new(verification_flow_id),
 
@@ -382,6 +387,7 @@ impl SasState<Started> {
         account: Account,
         other_device: ReadOnlyDevice,
         event: &ToDeviceEvent<StartEventContent>,
+        other_identity: Option<UserIdentities>,
     ) -> Result<SasState<Started>, SasState<Canceled>> {
         if let StartMethod::MSasV1(content) = &event.content.method {
             let sas = OlmSas::new();
@@ -397,6 +403,7 @@ impl SasState<Started> {
                 ids: SasIds {
                     account,
                     other_device,
+                    other_identity,
                 },
 
                 creation_time: Arc::new(Instant::now()),
@@ -438,6 +445,7 @@ impl SasState<Started> {
                 ids: SasIds {
                     account,
                     other_device,
+                    other_identity,
                 },
 
                 verification_flow_id: Arc::new(event.content.transaction_id.clone()),
@@ -871,12 +879,13 @@ mod test {
         let bob = Account::new(&bob_id(), &bob_device_id());
         let bob_device = ReadOnlyDevice::from_account(&bob).await;
 
-        let alice_sas = SasState::<Created>::new(alice.clone(), bob_device);
+        let alice_sas = SasState::<Created>::new(alice.clone(), bob_device, None);
 
         let start_content = alice_sas.as_content();
         let event = wrap_to_device_event(alice_sas.user_id(), start_content);
 
-        let bob_sas = SasState::<Started>::from_start_event(bob.clone(), alice_device, &event);
+        let bob_sas =
+            SasState::<Started>::from_start_event(bob.clone(), alice_device, &event, None);
 
         (alice_sas, bob_sas.unwrap())
     }
@@ -1027,7 +1036,7 @@ mod test {
         let bob = Account::new(&bob_id(), &bob_device_id());
         let bob_device = ReadOnlyDevice::from_account(&bob).await;
 
-        let alice_sas = SasState::<Created>::new(alice.clone(), bob_device);
+        let alice_sas = SasState::<Created>::new(alice.clone(), bob_device, None);
 
         let mut start_content = alice_sas.as_content();
 
@@ -1039,7 +1048,7 @@ mod test {
         }
 
         let event = wrap_to_device_event(alice_sas.user_id(), start_content);
-        SasState::<Started>::from_start_event(bob.clone(), alice_device.clone(), &event)
+        SasState::<Started>::from_start_event(bob.clone(), alice_device.clone(), &event, None)
             .expect_err("Didn't cancel on invalid MAC method");
 
         let mut start_content = alice_sas.as_content();
@@ -1050,7 +1059,7 @@ mod test {
         });
 
         let event = wrap_to_device_event(alice_sas.user_id(), start_content);
-        SasState::<Started>::from_start_event(bob.clone(), alice_device, &event)
+        SasState::<Started>::from_start_event(bob.clone(), alice_device, &event, None)
             .expect_err("Didn't cancel on unknown sas method");
     }
 }

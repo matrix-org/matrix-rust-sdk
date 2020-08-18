@@ -107,7 +107,11 @@ impl Sas {
         store: Arc<Box<dyn CryptoStore>>,
         other_identity: Option<UserIdentities>,
     ) -> (Sas, StartEventContent) {
-        let (inner, content) = InnerSas::start(account.clone(), other_device.clone());
+        let (inner, content) = InnerSas::start(
+            account.clone(),
+            other_device.clone(),
+            other_identity.clone(),
+        );
         let flow_id = inner.verification_flow_id();
 
         let sas = Sas {
@@ -139,7 +143,12 @@ impl Sas {
         event: &ToDeviceEvent<StartEventContent>,
         other_identity: Option<UserIdentities>,
     ) -> Result<Sas, AnyToDeviceEventContent> {
-        let inner = InnerSas::from_start_event(account.clone(), other_device.clone(), event)?;
+        let inner = InnerSas::from_start_event(
+            account.clone(),
+            other_device.clone(),
+            event,
+            other_identity.clone(),
+        )?;
         let flow_id = inner.verification_flow_id();
         Ok(Sas {
             inner: Arc::new(Mutex::new(inner)),
@@ -346,8 +355,12 @@ enum InnerSas {
 }
 
 impl InnerSas {
-    fn start(account: Account, other_device: ReadOnlyDevice) -> (InnerSas, StartEventContent) {
-        let sas = SasState::<Created>::new(account, other_device);
+    fn start(
+        account: Account,
+        other_device: ReadOnlyDevice,
+        other_identity: Option<UserIdentities>,
+    ) -> (InnerSas, StartEventContent) {
+        let sas = SasState::<Created>::new(account, other_device, other_identity);
         let content = sas.as_content();
         (InnerSas::Created(sas), content)
     }
@@ -356,8 +369,9 @@ impl InnerSas {
         account: Account,
         other_device: ReadOnlyDevice,
         event: &ToDeviceEvent<StartEventContent>,
+        other_identity: Option<UserIdentities>,
     ) -> Result<InnerSas, AnyToDeviceEventContent> {
-        match SasState::<Started>::from_start_event(account, other_device, event) {
+        match SasState::<Started>::from_start_event(account, other_device, event, other_identity) {
             Ok(s) => Ok(InnerSas::Started(s)),
             Err(s) => Err(s.as_content()),
         }
@@ -599,12 +613,13 @@ mod test {
         let bob = Account::new(&bob_id(), &bob_device_id());
         let bob_device = ReadOnlyDevice::from_account(&bob).await;
 
-        let alice_sas = SasState::<Created>::new(alice.clone(), bob_device);
+        let alice_sas = SasState::<Created>::new(alice.clone(), bob_device, None);
 
         let start_content = alice_sas.as_content();
         let event = wrap_to_device_event(alice_sas.user_id(), start_content);
 
-        let bob_sas = SasState::<Started>::from_start_event(bob.clone(), alice_device, &event);
+        let bob_sas =
+            SasState::<Started>::from_start_event(bob.clone(), alice_device, &event, None);
 
         (alice_sas, bob_sas.unwrap())
     }
