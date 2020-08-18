@@ -61,7 +61,7 @@ impl Device {
     /// # });
     /// ```
     pub async fn start_verification(&self) -> Result<Sas> {
-        let (sas, request) = self.inner.start_verification();
+        let (sas, request) = self.inner.start_verification().await?;
         let request = ToDeviceRequest {
             event_type: request.event_type,
             txn_id: &request.txn_id,

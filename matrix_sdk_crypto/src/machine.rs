@@ -2063,7 +2063,7 @@ pub(crate) mod test {
 
         assert!(!bob_device.is_trusted());
 
-        let (alice_sas, request) = bob_device.start_verification();
+        let (alice_sas, request) = bob_device.start_verification().await.unwrap();
 
         let mut event = request_to_event(alice.user_id(), &request);
         bob.handle_verification_event(&mut event).await;

@@ -33,7 +33,10 @@ use matrix_sdk_common::{
     identifiers::{DeviceId, UserId},
 };
 
-use crate::{Account, CryptoStore, CryptoStoreError, ReadOnlyDevice, TrustState};
+use crate::{
+    user_identity::UserIdentities, Account, CryptoStore, CryptoStoreError, ReadOnlyDevice,
+    TrustState,
+};
 
 pub use helpers::content_to_request;
 use sas_state::{
@@ -47,6 +50,7 @@ pub struct Sas {
     store: Arc<Box<dyn CryptoStore>>,
     account: Account,
     other_device: ReadOnlyDevice,
+    other_identity: Option<UserIdentities>,
     flow_id: Arc<String>,
 }
 
@@ -101,6 +105,7 @@ impl Sas {
         account: Account,
         other_device: ReadOnlyDevice,
         store: Arc<Box<dyn CryptoStore>>,
+        other_identity: Option<UserIdentities>,
     ) -> (Sas, StartEventContent) {
         let (inner, content) = InnerSas::start(account.clone(), other_device.clone());
         let flow_id = inner.verification_flow_id();
@@ -111,6 +116,7 @@ impl Sas {
             store,
             other_device,
             flow_id,
+            other_identity,
         };
 
         (sas, content)
@@ -131,6 +137,7 @@ impl Sas {
         other_device: ReadOnlyDevice,
         store: Arc<Box<dyn CryptoStore>>,
         event: &ToDeviceEvent<StartEventContent>,
+        other_identity: Option<UserIdentities>,
     ) -> Result<Sas, AnyToDeviceEventContent> {
         let inner = InnerSas::from_start_event(account.clone(), other_device.clone(), event)?;
         let flow_id = inner.verification_flow_id();
@@ -138,6 +145,7 @@ impl Sas {
             inner: Arc::new(Mutex::new(inner)),
             account,
             other_device,
+            other_identity,
             store,
             flow_id,
         })
@@ -683,10 +691,10 @@ mod test {
             .await
             .unwrap();
 
-        let (alice, content) = Sas::start(alice, bob_device, alice_store);
+        let (alice, content) = Sas::start(alice, bob_device, alice_store, None);
         let event = wrap_to_device_event(alice.user_id(), content);
 
-        let bob = Sas::from_start_event(bob, alice_device, bob_store, &event).unwrap();
+        let bob = Sas::from_start_event(bob, alice_device, bob_store, &event, None).unwrap();
         let mut event = wrap_any_to_device_content(
             bob.user_id(),
             get_content_from_request(&bob.accept().unwrap()),

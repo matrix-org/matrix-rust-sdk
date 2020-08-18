@@ -72,8 +72,10 @@ impl Device {
     /// Start a interactive verification with this `Device`
     ///
     /// Returns a `Sas` object and to-device request that needs to be sent out.
-    pub fn start_verification(&self) -> (Sas, OwnedToDeviceRequest) {
-        self.verification_machine.start_sas(self.inner.clone())
+    pub async fn start_verification(&self) -> StoreResult<(Sas, OwnedToDeviceRequest)> {
+        self.verification_machine
+            .start_sas(self.inner.clone())
+            .await
     }
 
     /// Set the trust state of the device to the given state.

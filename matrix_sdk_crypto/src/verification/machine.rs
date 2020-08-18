@@ -45,8 +45,19 @@ impl VerificationMachine {
         }
     }
 
-    pub fn start_sas(&self, device: ReadOnlyDevice) -> (Sas, OwnedToDeviceRequest) {
-        let (sas, content) = Sas::start(self.account.clone(), device.clone(), self.store.clone());
+    pub async fn start_sas(
+        &self,
+        device: ReadOnlyDevice,
+    ) -> Result<(Sas, OwnedToDeviceRequest), CryptoStoreError> {
+        let identity = self.store.get_user_identity(device.user_id()).await?;
+
+        let (sas, content) = Sas::start(
+            self.account.clone(),
+            device.clone(),
+            self.store.clone(),
+            identity,
+        );
+
         let request = content_to_request(
             device.user_id(),
             device.device_id(),
@@ -56,7 +67,7 @@ impl VerificationMachine {
         self.verifications
             .insert(sas.flow_id().to_owned(), sas.clone());
 
-        (sas, request)
+        Ok((sas, request))
     }
 
     pub fn get_sas(&self, transaction_id: &str) -> Option<Sas> {
@@ -128,7 +139,13 @@ impl VerificationMachine {
                     .get_device(&e.sender, &e.content.from_device)
                     .await?
                 {
-                    match Sas::from_start_event(self.account.clone(), d, self.store.clone(), e) {
+                    match Sas::from_start_event(
+                        self.account.clone(),
+                        d,
+                        self.store.clone(),
+                        e,
+                        None,
+                    ) {
                         Ok(s) => {
                             self.verifications
                                 .insert(e.content.transaction_id.clone(), s);
@@ -231,7 +248,7 @@ mod test {
             .unwrap();
 
         let machine = VerificationMachine::new(alice, Arc::new(Box::new(store)));
-        let (bob_sas, start_content) = Sas::start(bob, alice_device, bob_store);
+        let (bob_sas, start_content) = Sas::start(bob, alice_device, bob_store, None);
         machine
             .receive_event(&mut wrap_any_to_device_content(
                 bob_sas.user_id(),
