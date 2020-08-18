@@ -593,6 +593,7 @@ impl OlmMachine {
             .await?;
         self.store.save_devices(&changed_devices).await?;
         let changed_identities = self.handle_cross_singing_keys(response).await?;
+        self.store.save_user_identities(&changed_identities).await?;
 
         Ok((changed_devices, changed_identities))
     }
