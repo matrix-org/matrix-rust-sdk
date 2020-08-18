@@ -231,7 +231,6 @@ pub fn receive_mac_event(
                 ids.other_device.device_id()
             );
         }
-        // TODO add an else if branch for the master key here
     }
 
     Ok((verified_devices, vec![]))
