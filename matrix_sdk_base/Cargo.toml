@@ -23,7 +23,7 @@ sqlite_cryptostore = ["matrix-sdk-crypto/sqlite_cryptostore"]
 docs = ["encryption", "sqlite_cryptostore", "messages"]
 
 [dependencies]
-async-trait = "0.1.37"
+async-trait = "0.1.38"
 serde = "1.0.115"
 serde_json = "1.0.57"
 zeroize = "1.1.0"

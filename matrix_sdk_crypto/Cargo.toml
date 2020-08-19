@@ -20,7 +20,7 @@ sqlite_cryptostore = ["sqlx"]
 docs = ["sqlite_cryptostore"]
 
 [dependencies]
-async-trait = "0.1.37"
+async-trait = "0.1.38"
 
 matrix-sdk-common-macros = { version = "0.1.0", path = "../matrix_sdk_common_macros" }
 matrix-sdk-common = { version = "0.1.0", path = "../matrix_sdk_common" }
@@ -52,7 +52,7 @@ features = ["runtime-tokio", "sqlite"]
 [dev-dependencies]
 tokio = { version = "0.2.22", features = ["rt-threaded", "macros"] }
 futures = "0.3.5"
-proptest = "0.10.0"
+proptest = "0.10.1"
 serde_json = "1.0.57"
 tempfile = "3.1.0"
 http = "0.2.1"
