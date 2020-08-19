@@ -544,14 +544,14 @@ mod test {
         );
 
         let first = Device {
-            inner: first.clone(),
+            inner: first,
             verification_machine: verification_machine.clone(),
             own_identity: Some(identity.clone()),
             device_owner_identity: Some(UserIdentities::Own(identity.clone())),
         };
 
         let second = Device {
-            inner: second.clone(),
+            inner: second,
             verification_machine,
             own_identity: Some(identity.clone()),
             device_owner_identity: Some(UserIdentities::Own(identity.clone())),
