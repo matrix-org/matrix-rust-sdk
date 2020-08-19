@@ -159,7 +159,7 @@ pub fn receive_mac_event(
     ids: &SasIds,
     flow_id: &str,
     event: &ToDeviceEvent<MacEventContent>,
-) -> Result<(Vec<ReadOnlyDevice>, Vec<String>), CancelCode> {
+) -> Result<(Vec<ReadOnlyDevice>, Vec<UserIdentities>), CancelCode> {
     let mut verified_devices = Vec::new();
     let mut verified_identities = Vec::new();
 
@@ -217,7 +217,7 @@ pub fn receive_mac_event(
                         key_id,
                         event.sender
                     );
-                    verified_identities.push(identity)
+                    verified_identities.push(identity.clone())
                 } else {
                     return Err(CancelCode::KeyMismatch);
                 }
@@ -233,7 +233,7 @@ pub fn receive_mac_event(
         }
     }
 
-    Ok((verified_devices, vec![]))
+    Ok((verified_devices, verified_identities))
 }
 
 /// Get the extra info that will be used when we generate a MAC and need to send

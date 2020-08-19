@@ -150,6 +150,7 @@ impl Sas {
             other_identity.clone(),
         )?;
         let flow_id = inner.verification_flow_id();
+
         Ok(Sas {
             inner: Arc::new(Mutex::new(inner)),
             account,
@@ -332,6 +333,11 @@ impl Sas {
 
     pub(crate) fn verified_devices(&self) -> Option<Arc<Vec<ReadOnlyDevice>>> {
         self.inner.lock().unwrap().verified_devices()
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn verified_identities(&self) -> Option<Arc<Vec<UserIdentities>>> {
+        self.inner.lock().unwrap().verified_identities()
     }
 
     pub(crate) fn content_to_request(
@@ -560,6 +566,14 @@ impl InnerSas {
     fn verified_devices(&self) -> Option<Arc<Vec<ReadOnlyDevice>>> {
         if let InnerSas::Done(s) = self {
             Some(s.verified_devices())
+        } else {
+            None
+        }
+    }
+
+    fn verified_identities(&self) -> Option<Arc<Vec<UserIdentities>>> {
+        if let InnerSas::Done(s) = self {
+            Some(s.verified_identities())
         } else {
             None
         }

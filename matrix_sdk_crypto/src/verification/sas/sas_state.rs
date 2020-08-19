@@ -207,7 +207,7 @@ pub struct MacReceived {
     we_started: bool,
     their_pubkey: String,
     verified_devices: Arc<Vec<ReadOnlyDevice>>,
-    verified_master_keys: Arc<Vec<String>>,
+    verified_master_keys: Arc<Vec<UserIdentities>>,
 }
 
 /// The SAS state indicating that the verification finished successfully.
@@ -217,7 +217,7 @@ pub struct MacReceived {
 #[derive(Clone, Debug)]
 pub struct Done {
     verified_devices: Arc<Vec<ReadOnlyDevice>>,
-    verified_master_keys: Arc<Vec<String>>,
+    verified_master_keys: Arc<Vec<UserIdentities>>,
 }
 
 #[derive(Clone, Debug)]
@@ -790,6 +790,11 @@ impl SasState<Done> {
     /// Get the list of verified devices.
     pub fn verified_devices(&self) -> Arc<Vec<ReadOnlyDevice>> {
         self.state.verified_devices.clone()
+    }
+
+    /// Get the list of verified identities.
+    pub fn verified_identities(&self) -> Arc<Vec<UserIdentities>> {
+        self.state.verified_master_keys.clone()
     }
 }
 
