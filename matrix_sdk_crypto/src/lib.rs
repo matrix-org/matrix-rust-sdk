@@ -29,6 +29,8 @@
 
 mod device;
 mod error;
+#[allow(dead_code)]
+mod key_export;
 mod machine;
 pub mod memory_stores;
 pub mod olm;
