@@ -315,15 +315,21 @@ impl OwnUserIdentity {
 #[cfg(test)]
 mod test {
     use serde_json::json;
-    use std::convert::TryFrom;
+    use std::{convert::TryFrom, sync::Arc};
 
     use matrix_sdk_common::{
         api::r0::keys::get_keys::Response as KeyQueryResponse, identifiers::user_id,
     };
 
-    use crate::machine::test::response_from_file;
+    use crate::{
+        device::{Device, ReadOnlyDevice},
+        machine::test::response_from_file,
+        olm::Account,
+        store::memorystore::MemoryStore,
+        verification::VerificationMachine,
+    };
 
-    use super::{OwnUserIdentity, UserIdentity};
+    use super::{OwnUserIdentity, UserIdentities, UserIdentity};
 
     fn other_key_query() -> KeyQueryResponse {
         let data = response_from_file(&json!({
@@ -386,59 +392,118 @@ mod test {
     fn own_key_query() -> KeyQueryResponse {
         let data = response_from_file(&json!({
           "device_keys": {
-          },
-          "master_keys": {
-                "@example:localhost": {
-                    "keys": {
-                        "ed25519:rJ2TAGkEOP6dX41Ksll6cl8K3J48l8s/59zaXyvl2p0": "rJ2TAGkEOP6dX41Ksll6cl8K3J48l8s/59zaXyvl2p0"
-                    },
-                    "signatures": {
-                        "@example:localhost": {
-                            "ed25519:WSKKLTJZCL": "ZzJp1wtmRdykXAUEItEjNiFlBrxx8L6/Vaen9am8AuGwlxxJtOkuY4m+4MPLvDPOgavKHLsrRuNLAfCeakMlCQ"
-                        }
-                    },
-                    "usage": [
-                        "master"
-                    ],
-                    "user_id": "@example:localhost"
+            "@example:localhost": {
+              "WSKKLTJZCL": {
+                "algorithms": [
+                  "m.olm.v1.curve25519-aes-sha2",
+                  "m.megolm.v1.aes-sha2"
+                ],
+                "device_id": "WSKKLTJZCL",
+                "keys": {
+                  "curve25519:WSKKLTJZCL": "wnip2tbJBJxrFayC88NNJpm61TeSNgYcqBH4T9yEDhU",
+                  "ed25519:WSKKLTJZCL": "lQ+eshkhgKoo+qp9Qgnj3OX5PBoWMU5M9zbuEevwYqE"
+                },
+                "signatures": {
+                  "@example:localhost": {
+                    "ed25519:WSKKLTJZCL": "SKpIUnq7QK0xleav0PrIQyKjVm+TgZr7Yi8cKjLeZDtkgyToE2d4/e3Aj79dqOlLB92jFVE4d1cM/Ry04wFwCA",
+                    "ed25519:0C8lCBxrvrv/O7BQfsKnkYogHZX3zAgw3RfJuyiq210": "9UGu1iC5YhFCdELGfB29YaV+QE0t/X5UDSsPf4QcdZyXIwyp9zBbHX2lh9vWudNQ+akZpaq7ZRaaM+4TCnw/Ag"
+                  }
+                },
+                "user_id": "@example:localhost",
+                "unsigned": {
+                  "device_display_name": "Cross signing capable"
                 }
+              },
+              "LVWOVGOXME": {
+                "algorithms": [
+                  "m.olm.v1.curve25519-aes-sha2",
+                  "m.megolm.v1.aes-sha2"
+                ],
+                "device_id": "LVWOVGOXME",
+                "keys": {
+                  "curve25519:LVWOVGOXME": "KMfWKUhnDW1D11hNzATs/Ax1FQRsJxKCWzq0NyGtIiI",
+                  "ed25519:LVWOVGOXME": "k+NC3L7CBD6fBClcHBrKLOkqCyGNSKhWXiH5Q2STRnA"
+                },
+                "signatures": {
+                  "@example:localhost": {
+                    "ed25519:LVWOVGOXME": "39Ir5Bttpc5+bQwzLj7rkjm5E5/cp/JTbMJ/t0enj6J5w9MXVBFOUqqM2hpaRaRwILMMpwYbJ8IOGjl0Y/MGAw"
+                  }
+                },
+                "user_id": "@example:localhost",
+                "unsigned": {
+                  "device_display_name": "Non-cross signing"
+                }
+              }
+            }
+          },
+          "failures": {},
+          "master_keys": {
+            "@example:localhost": {
+              "user_id": "@example:localhost",
+              "usage": [
+                "master"
+              ],
+              "keys": {
+                "ed25519:rJ2TAGkEOP6dX41Ksll6cl8K3J48l8s/59zaXyvl2p0": "rJ2TAGkEOP6dX41Ksll6cl8K3J48l8s/59zaXyvl2p0"
+              },
+              "signatures": {
+                "@example:localhost": {
+                  "ed25519:WSKKLTJZCL": "ZzJp1wtmRdykXAUEItEjNiFlBrxx8L6/Vaen9am8AuGwlxxJtOkuY4m+4MPLvDPOgavKHLsrRuNLAfCeakMlCQ"
+                }
+              }
+            }
           },
           "self_signing_keys": {
+            "@example:localhost": {
+              "user_id": "@example:localhost",
+              "usage": [
+                "self_signing"
+              ],
+              "keys": {
+                "ed25519:0C8lCBxrvrv/O7BQfsKnkYogHZX3zAgw3RfJuyiq210": "0C8lCBxrvrv/O7BQfsKnkYogHZX3zAgw3RfJuyiq210"
+              },
+              "signatures": {
                 "@example:localhost": {
-                    "keys": {
-                        "ed25519:0C8lCBxrvrv/O7BQfsKnkYogHZX3zAgw3RfJuyiq210": "0C8lCBxrvrv/O7BQfsKnkYogHZX3zAgw3RfJuyiq210"
-                    },
-                    "signatures": {
-                        "@example:localhost": {
-                            "ed25519:rJ2TAGkEOP6dX41Ksll6cl8K3J48l8s/59zaXyvl2p0": "AC7oDUW4rUhtInwb4lAoBJ0wAuu4a5k+8e34B5+NKsDB8HXRwgVwUWN/MRWc/sJgtSbVlhzqS9THEmQQ1C51Bw"
-                        }
-                    },
-                    "usage": [
-                        "self_signing"
-                    ],
-                    "user_id": "@example:localhost"
+                  "ed25519:rJ2TAGkEOP6dX41Ksll6cl8K3J48l8s/59zaXyvl2p0": "AC7oDUW4rUhtInwb4lAoBJ0wAuu4a5k+8e34B5+NKsDB8HXRwgVwUWN/MRWc/sJgtSbVlhzqS9THEmQQ1C51Bw"
                 }
+              }
+            }
           },
           "user_signing_keys": {
+            "@example:localhost": {
+              "user_id": "@example:localhost",
+              "usage": [
+                "user_signing"
+              ],
+              "keys": {
+                "ed25519:DU9z4gBFKFKCk7a13sW9wjT0Iyg7Hqv5f0BPM7DEhPo": "DU9z4gBFKFKCk7a13sW9wjT0Iyg7Hqv5f0BPM7DEhPo"
+              },
+              "signatures": {
                 "@example:localhost": {
-                    "keys": {
-                        "ed25519:DU9z4gBFKFKCk7a13sW9wjT0Iyg7Hqv5f0BPM7DEhPo": "DU9z4gBFKFKCk7a13sW9wjT0Iyg7Hqv5f0BPM7DEhPo"
-                    },
-                    "signatures": {
-                        "@example:localhost": {
-                            "ed25519:rJ2TAGkEOP6dX41Ksll6cl8K3J48l8s/59zaXyvl2p0": "C4L2sx9frGqj8w41KyynHGqwUbbwBYRZpYCB+6QWnvQFA5Oi/1PJj8w5anwzEsoO0TWmLYmf7FXuAGewanOWDg"
-                        }
-                    },
-                    "usage": [
-                        "user_signing"
-                    ],
-                    "user_id": "@example:localhost"
+                  "ed25519:rJ2TAGkEOP6dX41Ksll6cl8K3J48l8s/59zaXyvl2p0": "C4L2sx9frGqj8w41KyynHGqwUbbwBYRZpYCB+6QWnvQFA5Oi/1PJj8w5anwzEsoO0TWmLYmf7FXuAGewanOWDg"
                 }
-          },
-          "failures": {}
+              }
+            }
+          }
         }));
-
         KeyQueryResponse::try_from(data).expect("Can't parse the keys upload response")
+    }
+
+    fn device(response: &KeyQueryResponse) -> (ReadOnlyDevice, ReadOnlyDevice) {
+        let mut devices = response.device_keys.values().next().unwrap().values();
+        let first = ReadOnlyDevice::try_from(devices.next().unwrap()).unwrap();
+        let second = ReadOnlyDevice::try_from(devices.next().unwrap()).unwrap();
+        (first, second)
+    }
+
+    fn own_identity(response: &KeyQueryResponse) -> OwnUserIdentity {
+        let user_id = user_id!("@example:localhost");
+
+        let master_key = response.master_keys.get(&user_id).unwrap();
+        let user_signing = response.user_signing_keys.get(&user_id).unwrap();
+        let self_signing = response.self_signing_keys.get(&user_id).unwrap();
+
+        OwnUserIdentity::new(master_key.into(), self_signing.into(), user_signing.into()).unwrap()
     }
 
     #[test]
@@ -462,5 +527,44 @@ mod test {
         let self_signing = response.self_signing_keys.get(&user_id).unwrap();
 
         UserIdentity::new(master_key.into(), self_signing.into()).unwrap();
+    }
+
+    #[test]
+    fn own_identity_check_signatures() {
+        let response = own_key_query();
+        let identity = own_identity(&response);
+        let (first, second) = device(&response);
+
+        assert!(identity.is_device_signed(&first).is_err());
+        assert!(identity.is_device_signed(&second).is_ok());
+
+        let verification_machine = VerificationMachine::new(
+            Account::new(second.user_id(), second.device_id()),
+            Arc::new(Box::new(MemoryStore::new())),
+        );
+
+        let first = Device {
+            inner: first.clone(),
+            verification_machine: verification_machine.clone(),
+            own_identity: Some(identity.clone()),
+            device_owner_identity: Some(UserIdentities::Own(identity.clone())),
+        };
+
+        let second = Device {
+            inner: second.clone(),
+            verification_machine,
+            own_identity: Some(identity.clone()),
+            device_owner_identity: Some(UserIdentities::Own(identity.clone())),
+        };
+
+        assert!(!second.trust_state());
+        assert!(!second.is_trusted());
+
+        assert!(!first.trust_state());
+        assert!(!first.is_trusted());
+
+        identity.mark_as_verified();
+        assert!(second.trust_state());
+        assert!(!first.trust_state());
     }
 }
