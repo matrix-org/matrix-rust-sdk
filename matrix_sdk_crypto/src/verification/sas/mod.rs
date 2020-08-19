@@ -226,16 +226,13 @@ impl Sas {
                         identity.user_id(),
                     );
 
-                    match &identity {
-                        UserIdentities::Own(i) => {
-                            i.mark_as_verified();
-                            self.store.save_user_identities(&[identity]).await?;
-                        }
-                        // TODO if we have the private part of the user signing
-                        // key we should sign and upload a signature for this
-                        // identity.
-                        _ => {}
+                    if let UserIdentities::Own(i) = &identity {
+                        i.mark_as_verified();
+                        self.store.save_user_identities(&[identity]).await?;
                     }
+                    // TODO if we have the private part of the user signing
+                    // key we should sign and upload a signature for this
+                    // identity.
 
                     Ok(true)
                 } else {
