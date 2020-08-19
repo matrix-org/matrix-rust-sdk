@@ -1499,6 +1499,7 @@ pub(crate) mod test {
 
     use http::Response;
     use serde_json::json;
+    #[cfg(feature = "sqlite_cryptostore")]
     use tempfile::tempdir;
 
     use crate::{
@@ -2059,6 +2060,7 @@ pub(crate) mod test {
     }
 
     #[tokio::test]
+    #[cfg(feature = "sqlite_cryptostore")]
     async fn test_machine_with_default_store() {
         let tmpdir = tempdir().unwrap();
 
