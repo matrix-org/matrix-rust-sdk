@@ -57,7 +57,7 @@ pub use state::{AllRooms, ClientState};
 #[cfg(feature = "encryption")]
 #[cfg_attr(feature = "docs", doc(cfg(encryption)))]
 pub use matrix_sdk_crypto::{
-    CryptoStoreError, Device, ReadOnlyDevice, Sas, TrustState, UserDevices,
+    CryptoStoreError, Device, LocalTrust, ReadOnlyDevice, Sas, UserDevices,
 };
 
 #[cfg(feature = "messages")]

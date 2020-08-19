@@ -34,8 +34,8 @@ use matrix_sdk_common::{
 };
 
 use crate::{
-    user_identity::UserIdentities, Account, CryptoStore, CryptoStoreError, ReadOnlyDevice,
-    TrustState,
+    user_identity::UserIdentities, Account, CryptoStore, CryptoStoreError, LocalTrust,
+    ReadOnlyDevice,
 };
 
 pub use helpers::content_to_request;
@@ -216,7 +216,7 @@ impl Sas {
                         device.device_id()
                     );
 
-                    device.set_trust_state(TrustState::Verified);
+                    device.set_trust_state(LocalTrust::Verified);
                     self.store.save_devices(&[device]).await?;
 
                     Ok(true)

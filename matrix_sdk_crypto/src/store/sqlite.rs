@@ -36,7 +36,7 @@ use zeroize::Zeroizing;
 
 use super::{CryptoStore, CryptoStoreError, Result};
 use crate::{
-    device::{ReadOnlyDevice, TrustState},
+    device::{LocalTrust, ReadOnlyDevice},
     memory_stores::{DeviceStore, GroupSessionStore, ReadOnlyUserDevices, SessionStore},
     user_identity::UserIdentities,
     Account, IdentityKeys, InboundGroupSession, Session,
@@ -486,7 +486,7 @@ impl SqliteStore {
 
             let device_id = &row.2.to_string();
             let display_name = &row.3;
-            let trust_state = TrustState::from(row.4);
+            let trust_state = LocalTrust::from(row.4);
 
             let algorithm_rows: Vec<(String,)> =
                 query_as("SELECT algorithm FROM algorithms WHERE device_id = ?")

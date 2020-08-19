@@ -37,7 +37,7 @@ mod store;
 mod user_identity;
 mod verification;
 
-pub use device::{Device, ReadOnlyDevice, TrustState, UserDevices};
+pub use device::{Device, LocalTrust, ReadOnlyDevice, UserDevices};
 pub use error::{MegolmError, OlmError};
 pub use machine::{OlmMachine, OneTimeKeys};
 pub use memory_stores::{DeviceStore, GroupSessionStore, ReadOnlyUserDevices, SessionStore};

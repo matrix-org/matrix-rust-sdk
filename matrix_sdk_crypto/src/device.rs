@@ -53,7 +53,7 @@ pub struct ReadOnlyDevice {
     signatures: Arc<BTreeMap<UserId, BTreeMap<DeviceKeyId, String>>>,
     display_name: Arc<Option<String>>,
     deleted: Arc<AtomicBool>,
-    trust_state: Arc<Atomic<TrustState>>,
+    trust_state: Arc<Atomic<LocalTrust>>,
 }
 
 #[derive(Debug, Clone)]
@@ -88,7 +88,7 @@ impl Device {
     /// # Arguments
     ///
     /// * `trust_state` - The new trust state that should be set for the device.
-    pub async fn set_trust_state(&self, trust_state: TrustState) -> StoreResult<()> {
+    pub async fn set_trust_state(&self, trust_state: LocalTrust) -> StoreResult<()> {
         self.inner.set_trust_state(trust_state);
         self.verification_machine
             .store
@@ -134,8 +134,8 @@ impl UserDevices {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
-/// The trust state of a device.
-pub enum TrustState {
+/// The local trust state of a device.
+pub enum LocalTrust {
     /// The device has been verified and is trusted.
     Verified = 0,
     /// The device been blacklisted from communicating.
@@ -146,14 +146,14 @@ pub enum TrustState {
     Unset = 3,
 }
 
-impl From<i64> for TrustState {
+impl From<i64> for LocalTrust {
     fn from(state: i64) -> Self {
         match state {
-            0 => TrustState::Verified,
-            1 => TrustState::BlackListed,
-            2 => TrustState::Ignored,
-            3 => TrustState::Unset,
-            _ => TrustState::Unset,
+            0 => LocalTrust::Verified,
+            1 => LocalTrust::BlackListed,
+            2 => LocalTrust::Ignored,
+            3 => LocalTrust::Unset,
+            _ => LocalTrust::Unset,
         }
     }
 }
@@ -164,7 +164,7 @@ impl ReadOnlyDevice {
         user_id: UserId,
         device_id: Box<DeviceId>,
         display_name: Option<String>,
-        trust_state: TrustState,
+        trust_state: LocalTrust,
         algorithms: Vec<EventEncryptionAlgorithm>,
         keys: BTreeMap<DeviceKeyId, String>,
         signatures: BTreeMap<UserId, BTreeMap<DeviceKeyId, String>>,
@@ -213,27 +213,27 @@ impl ReadOnlyDevice {
     }
 
     /// Get the trust state of the device.
-    pub fn trust_state(&self) -> TrustState {
+    pub fn trust_state(&self) -> LocalTrust {
         self.trust_state.load(Ordering::Relaxed)
     }
 
     /// Is the device locally marked as trusted.
     pub fn is_trusted(&self) -> bool {
-        self.trust_state() == TrustState::Verified
+        self.trust_state() == LocalTrust::Verified
     }
 
     /// Is the device locally marked as blacklisted.
     ///
     /// Blacklisted devices won't receive any group sessions.
     pub fn is_blacklisted(&self) -> bool {
-        self.trust_state() == TrustState::BlackListed
+        self.trust_state() == LocalTrust::BlackListed
     }
 
     /// Set the trust state of the device to the given state.
     ///
     /// Note: This should only done in the cryptostore where the trust state can
     /// be stored.
-    pub(crate) fn set_trust_state(&self, state: TrustState) {
+    pub(crate) fn set_trust_state(&self, state: LocalTrust) {
         self.trust_state.store(state, Ordering::Relaxed)
     }
 
@@ -339,7 +339,7 @@ impl TryFrom<&DeviceKeys> for ReadOnlyDevice {
                     .flatten(),
             ),
             deleted: Arc::new(AtomicBool::new(false)),
-            trust_state: Arc::new(Atomic::new(TrustState::Unset)),
+            trust_state: Arc::new(Atomic::new(LocalTrust::Unset)),
         };
 
         device.verify_device_keys(device_keys)?;
@@ -358,7 +358,7 @@ pub(crate) mod test {
     use serde_json::json;
     use std::convert::TryFrom;
 
-    use crate::device::{ReadOnlyDevice, TrustState};
+    use crate::device::{LocalTrust, ReadOnlyDevice};
     use matrix_sdk_common::{
         encryption::DeviceKeys,
         identifiers::{user_id, DeviceKeyAlgorithm},
@@ -404,7 +404,7 @@ pub(crate) mod test {
         assert_eq!(&user_id, device.user_id());
         assert_eq!(device_id, device.device_id());
         assert_eq!(device.algorithms.len(), 2);
-        assert_eq!(TrustState::Unset, device.trust_state());
+        assert_eq!(LocalTrust::Unset, device.trust_state());
         assert_eq!(
             "Alice's mobile phone",
             device.display_name().as_ref().unwrap()

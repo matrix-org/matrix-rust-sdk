@@ -15,7 +15,7 @@
 use std::{ops::Deref, result::Result as StdResult};
 
 use matrix_sdk_base::{
-    CryptoStoreError, Device as BaseDevice, ReadOnlyDevice, TrustState,
+    CryptoStoreError, Device as BaseDevice, LocalTrust, ReadOnlyDevice,
     UserDevices as BaseUserDevices,
 };
 use matrix_sdk_common::{
@@ -83,7 +83,7 @@ impl Device {
     /// * `trust_state` - The new trust state that should be set for the device.
     pub async fn set_trust_state(
         &self,
-        trust_state: TrustState,
+        trust_state: LocalTrust,
     ) -> StdResult<(), CryptoStoreError> {
         self.inner.set_trust_state(trust_state).await
     }
