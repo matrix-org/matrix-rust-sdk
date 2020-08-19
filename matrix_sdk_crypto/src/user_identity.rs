@@ -15,7 +15,10 @@
 use std::{
     collections::BTreeMap,
     convert::TryFrom,
-    sync::{atomic::AtomicBool, Arc},
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    },
 };
 
 use serde_json::to_value;
@@ -29,8 +32,10 @@ use crate::{error::SignatureError, verify_json, ReadOnlyDevice};
 
 #[derive(Debug, Clone)]
 pub struct MasterPubkey(Arc<CrossSigningKey>);
+
 #[derive(Debug, Clone)]
 pub struct SelfSigningPubkey(Arc<CrossSigningKey>);
+
 #[derive(Debug, Clone)]
 pub struct UserSigningPubkey(Arc<CrossSigningKey>);
 
@@ -182,6 +187,12 @@ impl UserIdentities {
     }
 }
 
+impl PartialEq for UserIdentities {
+    fn eq(&self, other: &UserIdentities) -> bool {
+        self.user_id() == other.user_id()
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct UserIdentity {
     user_id: Arc<UserId>,
@@ -286,6 +297,14 @@ impl OwnUserIdentity {
     pub fn is_identity_signed(&self, identity: &UserIdentity) -> Result<(), SignatureError> {
         self.user_signing_key
             .verify_master_key(&identity.master_key)
+    }
+
+    pub fn mark_as_verified(&self) {
+        self.verified.store(true, Ordering::SeqCst)
+    }
+
+    pub fn is_verified(&self) -> bool {
+        self.verified.load(Ordering::SeqCst)
     }
 }
 

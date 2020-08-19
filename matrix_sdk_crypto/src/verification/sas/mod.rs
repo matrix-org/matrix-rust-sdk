@@ -189,14 +189,76 @@ impl Sas {
             (content, guard.is_done())
         };
 
-        if done && !self.mark_device_as_verified().await? {
-            return Ok(self.cancel());
+        if done {
+            // TODO move the logic that marks and stores the device into the
+            // else branch and only after the identity was verified as well. We
+            // dont' want to verify one without the other.
+            if !self.mark_device_as_verified().await? {
+                return Ok(self.cancel());
+            } else {
+                self.mark_identity_as_verified().await?;
+            }
         }
 
         Ok(content.map(|c| {
             let content = AnyToDeviceEventContent::KeyVerificationMac(c);
             self.content_to_request(content)
         }))
+    }
+
+    pub(crate) async fn mark_identity_as_verified(&self) -> Result<bool, CryptoStoreError> {
+        // If there wasn't an identity available during the verification flow
+        // return early as there's nothing to do.
+        if self.other_identity.is_none() {
+            return Ok(false);
+        }
+
+        let identity = self.store.get_user_identity(self.other_user_id()).await?;
+
+        if let Some(identity) = identity {
+            if identity.master_key() == self.other_identity.as_ref().unwrap().master_key() {
+                if self
+                    .verified_identities()
+                    .map_or(false, |i| i.contains(&identity))
+                {
+                    trace!(
+                        "Marking user identity of {} as verified.",
+                        identity.user_id(),
+                    );
+
+                    match &identity {
+                        UserIdentities::Own(i) => {
+                            i.mark_as_verified();
+                            self.store.save_user_identities(&[identity]).await?;
+                        }
+                        // TODO if we have the private part of the user signing
+                        // key we should sign and upload a signature for this
+                        // identity.
+                        _ => {}
+                    }
+
+                    Ok(true)
+                } else {
+                    info!(
+                        "The interactive verification process didn't contain a \
+                        MAC for the user identity of {} {:?}",
+                        identity.user_id(),
+                        self.verified_identities(),
+                    );
+
+                    Ok(false)
+                }
+            } else {
+                Ok(false)
+            }
+        } else {
+            info!(
+                "The identity for {} was deleted while an interactive \
+                  verification was going on.",
+                self.other_user_id(),
+            );
+            Ok(false)
+        }
     }
 
     pub(crate) async fn mark_device_as_verified(&self) -> Result<bool, CryptoStoreError> {
@@ -335,7 +397,6 @@ impl Sas {
         self.inner.lock().unwrap().verified_devices()
     }
 
-    #[allow(dead_code)]
     pub(crate) fn verified_identities(&self) -> Option<Arc<Vec<UserIdentities>>> {
         self.inner.lock().unwrap().verified_identities()
     }
