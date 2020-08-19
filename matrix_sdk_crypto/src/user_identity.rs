@@ -299,6 +299,10 @@ impl OwnUserIdentity {
             .verify_master_key(&identity.master_key)
     }
 
+    pub fn is_device_signed(&self, device: &ReadOnlyDevice) -> Result<(), SignatureError> {
+        self.self_signing_key.verify_device(device)
+    }
+
     pub fn mark_as_verified(&self) {
         self.verified.store(true, Ordering::SeqCst)
     }

@@ -83,6 +83,37 @@ impl Device {
             .await
     }
 
+    /// Get the trust state of the device.
+    pub fn trust_state(&self) -> bool {
+        // TODO we want to return an enum mentioning if the trust is local, if
+        // only the identity is trusted, if the identity and the device are
+        // trusted.
+        if self.inner.trust_state() == LocalTrust::Verified {
+            true
+        } else {
+            self.own_identity.as_ref().map_or(false, |own_identity| {
+                own_identity.is_verified()
+                    && self
+                        .device_owner_identity
+                        .as_ref()
+                        .map(|device_identity| match device_identity {
+                            UserIdentities::Own(_) => own_identity
+                                .is_device_signed(&self.inner)
+                                .map_or(false, |_| true),
+                            UserIdentities::Other(device_identity) => {
+                                own_identity
+                                    .is_identity_signed(&device_identity)
+                                    .map_or(false, |_| true)
+                                    && device_identity
+                                        .is_device_signed(&self.inner)
+                                        .map_or(false, |_| true)
+                            }
+                        })
+                        .unwrap_or(false)
+            })
+        }
+    }
+
     /// Set the trust state of the device to the given state.
     ///
     /// # Arguments
@@ -90,6 +121,7 @@ impl Device {
     /// * `trust_state` - The new trust state that should be set for the device.
     pub async fn set_trust_state(&self, trust_state: LocalTrust) -> StoreResult<()> {
         self.inner.set_trust_state(trust_state);
+
         self.verification_machine
             .store
             .save_devices(&[self.inner.clone()])
