@@ -1,10 +1,12 @@
 use std::{env, io, process::exit};
 use url::Url;
 
-use matrix_sdk::{self, events::AnyToDeviceEvent, Client, ClientConfig, Sas, SyncSettings};
+use matrix_sdk::{
+    self, events::AnyToDeviceEvent, identifiers::UserId, Client, ClientConfig, Sas, SyncSettings,
+};
 
-async fn wait_for_confirmation(sas: Sas) {
-    println!("Emoji: {:?}", sas.emoji());
+async fn wait_for_confirmation(client: Client, sas: Sas) {
+    println!("Does the emoji match: {:?}", sas.emoji());
 
     let mut input = String::new();
     io::stdin()
@@ -16,14 +18,15 @@ async fn wait_for_confirmation(sas: Sas) {
             sas.confirm().await.unwrap();
 
             if sas.is_done() {
-                print_result(sas);
+                print_result(&sas);
+                print_devices(sas.other_device().user_id(), &client).await;
             }
         }
         _ => sas.cancel().await.unwrap(),
     }
 }
 
-fn print_result(sas: Sas) {
+fn print_result(sas: &Sas) {
     let device = sas.other_device();
 
     println!(
@@ -34,12 +37,28 @@ fn print_result(sas: Sas) {
     );
 }
 
+async fn print_devices(user_id: &UserId, client: &Client) {
+    println!("Devices of user {}", user_id);
+
+    for device in client.get_user_devices(user_id).await.unwrap().devices() {
+        println!(
+            "   {:<10} {:<30} {:<}",
+            device.device_id(),
+            device.display_name().as_deref().unwrap_or_default(),
+            device.is_trusted()
+        );
+    }
+}
+
 async fn login(
     homeserver_url: String,
     username: &str,
     password: &str,
 ) -> Result<(), matrix_sdk::Error> {
-    let client_config = ClientConfig::new();
+    let client_config = ClientConfig::new()
+        .disable_ssl_verification()
+        .proxy("http://localhost:8080")
+        .unwrap();
     let homeserver_url = Url::parse(&homeserver_url).expect("Couldn't parse the homeserver URL");
     let client = Client::new_with_config(homeserver_url, client_config).unwrap();
 
@@ -64,6 +83,12 @@ async fn login(
                             .get_verification(&e.content.transaction_id)
                             .await
                             .expect("Sas object wasn't created");
+                        println!(
+                            "Starting verification with {} {}",
+                            &sas.other_device().user_id(),
+                            &sas.other_device().device_id()
+                        );
+                        print_devices(&e.sender, &client).await;
                         sas.accept().await.unwrap();
                     }
 
@@ -73,7 +98,7 @@ async fn login(
                             .await
                             .expect("Sas object wasn't created");
 
-                        tokio::spawn(wait_for_confirmation(sas));
+                        tokio::spawn(wait_for_confirmation((*client).clone(), sas));
                     }
 
                     AnyToDeviceEvent::KeyVerificationMac(e) => {
@@ -83,7 +108,8 @@ async fn login(
                             .expect("Sas object wasn't created");
 
                         if sas.is_done() {
-                            print_result(sas);
+                            print_result(&sas);
+                            print_devices(&e.sender, &client).await;
                         }
                     }
 

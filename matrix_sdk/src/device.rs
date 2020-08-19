@@ -76,6 +76,11 @@ impl Device {
         })
     }
 
+    /// Is the device trusted.
+    pub fn is_trusted(&self) -> bool {
+        self.inner.trust_state()
+    }
+
     /// Set the trust state of the device to the given state.
     ///
     /// # Arguments
