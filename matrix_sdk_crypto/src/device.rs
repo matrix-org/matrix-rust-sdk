@@ -89,17 +89,26 @@ impl Device {
         // only the identity is trusted, if the identity and the device are
         // trusted.
         if self.inner.trust_state() == LocalTrust::Verified {
+            // If the device is localy marked as verified just return so, no
+            // need to check signatures.
             true
         } else {
             self.own_identity.as_ref().map_or(false, |own_identity| {
+                // Our own identity needs to be marked as verified.
                 own_identity.is_verified()
                     && self
                         .device_owner_identity
                         .as_ref()
                         .map(|device_identity| match device_identity {
+                            // If it's one of our own devices, just check that
+                            // we signed the device.
                             UserIdentities::Own(_) => own_identity
                                 .is_device_signed(&self.inner)
                                 .map_or(false, |_| true),
+
+                            // If it's a device from someone else, first check
+                            // that our user has signed the other user and then
+                            // checkif the other user has signed this device.
                             UserIdentities::Other(device_identity) => {
                                 own_identity
                                     .is_identity_signed(&device_identity)
