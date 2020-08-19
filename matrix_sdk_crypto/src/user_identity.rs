@@ -166,6 +166,20 @@ impl UserIdentities {
             UserIdentities::Other(i) => i.master_key(),
         }
     }
+
+    pub fn own(&self) -> Option<&OwnUserIdentity> {
+        match self {
+            UserIdentities::Own(i) => Some(i),
+            _ => None,
+        }
+    }
+
+    pub fn other(&self) -> Option<&UserIdentity> {
+        match self {
+            UserIdentities::Other(i) => Some(i),
+            _ => None,
+        }
+    }
 }
 
 #[derive(Debug, Clone)]

@@ -1423,9 +1423,28 @@ impl OlmMachine {
             .ok()
             .flatten()?;
 
+        let own_identity = self
+            .store
+            .get_user_identity(self.user_id())
+            .await
+            .ok()
+            .flatten()
+            .map(|i| i.own().cloned())
+            .flatten();
+        let device_owner_identity = self
+            .store
+            .get_user_identity(user_id)
+            .await
+            .ok()
+            .flatten()
+            .map(|i| i.other().cloned())
+            .flatten();
+
         Some(Device {
             inner: device,
             verification_machine: self.verification_machine.clone(),
+            own_identity,
+            device_owner_identity,
         })
     }
 
@@ -1455,9 +1474,28 @@ impl OlmMachine {
     pub async fn get_user_devices(&self, user_id: &UserId) -> StoreResult<UserDevices> {
         let devices = self.store.get_user_devices(user_id).await?;
 
+        let own_identity = self
+            .store
+            .get_user_identity(self.user_id())
+            .await
+            .ok()
+            .flatten()
+            .map(|i| i.own().cloned())
+            .flatten();
+        let device_owner_identity = self
+            .store
+            .get_user_identity(user_id)
+            .await
+            .ok()
+            .flatten()
+            .map(|i| i.other().cloned())
+            .flatten();
+
         Ok(UserDevices {
             inner: devices,
             verification_machine: self.verification_machine.clone(),
+            own_identity,
+            device_owner_identity,
         })
     }
 }

@@ -36,7 +36,10 @@ use serde_json::{json, Value};
 use super::{Account, OlmMachine};
 
 use crate::{
-    error::SignatureError, store::Result as StoreResult, verification::VerificationMachine,
+    error::SignatureError,
+    store::Result as StoreResult,
+    user_identity::{OwnUserIdentity, UserIdentity},
+    verification::VerificationMachine,
     verify_json, ReadOnlyUserDevices, Sas,
 };
 
@@ -58,6 +61,8 @@ pub struct ReadOnlyDevice {
 pub struct Device {
     pub(crate) inner: ReadOnlyDevice,
     pub(crate) verification_machine: VerificationMachine,
+    pub(crate) own_identity: Option<OwnUserIdentity>,
+    pub(crate) device_owner_identity: Option<UserIdentity>,
 }
 
 impl Deref for Device {
@@ -97,6 +102,8 @@ impl Device {
 pub struct UserDevices {
     pub(crate) inner: ReadOnlyUserDevices,
     pub(crate) verification_machine: VerificationMachine,
+    pub(crate) own_identity: Option<OwnUserIdentity>,
+    pub(crate) device_owner_identity: Option<UserIdentity>,
 }
 
 impl UserDevices {
@@ -105,6 +112,8 @@ impl UserDevices {
         self.inner.get(device_id).map(|d| Device {
             inner: d,
             verification_machine: self.verification_machine.clone(),
+            own_identity: self.own_identity.clone(),
+            device_owner_identity: self.device_owner_identity.clone(),
         })
     }
 
@@ -115,11 +124,11 @@ impl UserDevices {
 
     /// Iterator over all the devices of the user devices.
     pub fn devices(&self) -> impl Iterator<Item = Device> + '_ {
-        let machine = self.verification_machine.clone();
-
         self.inner.devices().map(move |d| Device {
             inner: d.clone(),
-            verification_machine: machine.clone(),
+            verification_machine: self.verification_machine.clone(),
+            own_identity: self.own_identity.clone(),
+            device_owner_identity: self.device_owner_identity.clone(),
         })
     }
 }
