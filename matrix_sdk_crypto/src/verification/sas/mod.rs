@@ -278,6 +278,9 @@ impl Sas {
 
                     device.set_trust_state(LocalTrust::Verified);
                     self.store.save_devices(&[device]).await?;
+                    // TODO if this is a device from our own user and we have
+                    // the private part of the self signing key, we should sign
+                    // the device and upload the signature.
 
                     Ok(true)
                 } else {
@@ -303,7 +306,7 @@ impl Sas {
             let device = self.other_device();
 
             info!(
-                "The device {} {} was deleted while a interactive \
+                "The device {} {} was deleted while an interactive \
                   verification was going on.",
                 device.user_id(),
                 device.device_id()
