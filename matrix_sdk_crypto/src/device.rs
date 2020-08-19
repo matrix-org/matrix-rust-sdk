@@ -38,7 +38,7 @@ use super::{Account, OlmMachine};
 use crate::{
     error::SignatureError,
     store::Result as StoreResult,
-    user_identity::{OwnUserIdentity, UserIdentity},
+    user_identity::{OwnUserIdentity, UserIdentities},
     verification::VerificationMachine,
     verify_json, ReadOnlyUserDevices, Sas,
 };
@@ -62,7 +62,7 @@ pub struct Device {
     pub(crate) inner: ReadOnlyDevice,
     pub(crate) verification_machine: VerificationMachine,
     pub(crate) own_identity: Option<OwnUserIdentity>,
-    pub(crate) device_owner_identity: Option<UserIdentity>,
+    pub(crate) device_owner_identity: Option<UserIdentities>,
 }
 
 impl Deref for Device {
@@ -103,7 +103,7 @@ pub struct UserDevices {
     pub(crate) inner: ReadOnlyUserDevices,
     pub(crate) verification_machine: VerificationMachine,
     pub(crate) own_identity: Option<OwnUserIdentity>,
-    pub(crate) device_owner_identity: Option<UserIdentity>,
+    pub(crate) device_owner_identity: Option<UserIdentities>,
 }
 
 impl UserDevices {

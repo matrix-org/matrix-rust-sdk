@@ -1431,14 +1431,7 @@ impl OlmMachine {
             .flatten()
             .map(|i| i.own().cloned())
             .flatten();
-        let device_owner_identity = self
-            .store
-            .get_user_identity(user_id)
-            .await
-            .ok()
-            .flatten()
-            .map(|i| i.other().cloned())
-            .flatten();
+        let device_owner_identity = self.store.get_user_identity(user_id).await.ok().flatten();
 
         Some(Device {
             inner: device,
@@ -1482,14 +1475,7 @@ impl OlmMachine {
             .flatten()
             .map(|i| i.own().cloned())
             .flatten();
-        let device_owner_identity = self
-            .store
-            .get_user_identity(user_id)
-            .await
-            .ok()
-            .flatten()
-            .map(|i| i.other().cloned())
-            .flatten();
+        let device_owner_identity = self.store.get_user_identity(user_id).await.ok().flatten();
 
         Ok(UserDevices {
             inner: devices,
