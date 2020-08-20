@@ -28,15 +28,17 @@ use matrix_sdk_common::{
         keys::SignedKey, to_device::send_event_to_device::IncomingRequest as OwnedToDeviceRequest,
     },
     encryption::DeviceKeys,
+    events::{room::encrypted::EncryptedEventContent, EventType},
     identifiers::{DeviceId, DeviceKeyAlgorithm, DeviceKeyId, EventEncryptionAlgorithm, UserId},
 };
 use serde_json::{json, Value};
+use tracing::warn;
 
 #[cfg(test)]
 use super::{Account, OlmMachine};
 
 use crate::{
-    error::SignatureError,
+    error::{EventError, OlmError, OlmResult, SignatureError},
     store::Result as StoreResult,
     user_identity::{OwnUserIdentity, UserIdentities},
     verification::VerificationMachine,
@@ -135,6 +137,57 @@ impl Device {
             .store
             .save_devices(&[self.inner.clone()])
             .await
+    }
+
+    /// Encrypt the given content for this `Device`.
+    ///
+    /// # Arguments
+    ///
+    /// * `event_type` - The type of the event.
+    ///
+    /// * `content` - The content of the event that should be encrypted.
+    pub(crate) async fn encrypt(
+        &self,
+        event_type: EventType,
+        content: Value,
+    ) -> OlmResult<EncryptedEventContent> {
+        let sender_key = if let Some(k) = self.inner.get_key(DeviceKeyAlgorithm::Curve25519) {
+            k
+        } else {
+            warn!(
+                "Trying to encrypt a Megolm session for user {} on device {}, \
+                but the device doesn't have a curve25519 key",
+                self.user_id(),
+                self.device_id()
+            );
+            return Err(EventError::MissingSenderKey.into());
+        };
+
+        let mut session = if let Some(s) = self
+            .verification_machine
+            .store
+            .get_sessions(sender_key)
+            .await?
+        {
+            let session = &s.lock().await[0];
+            session.clone()
+        } else {
+            warn!(
+                "Trying to encrypt a Megolm session for user {} on device {}, \
+                but no Olm session is found",
+                self.user_id(),
+                self.device_id()
+            );
+            return Err(OlmError::MissingSession);
+        };
+
+        let message = session.encrypt(&self.inner, event_type, content).await;
+        self.verification_machine
+            .store
+            .save_sessions(&[session])
+            .await?;
+
+        message
     }
 }
 
