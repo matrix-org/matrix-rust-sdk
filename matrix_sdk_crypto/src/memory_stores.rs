@@ -44,16 +44,15 @@ impl SessionStore {
     /// Returns true if the the session was added, false if the session was
     /// already in the store.
     pub async fn add(&self, session: Session) -> bool {
-        if !self.entries.contains_key(&*session.sender_key) {
-            self.entries.insert(
-                session.sender_key.to_string(),
-                Arc::new(Mutex::new(Vec::new())),
-            );
-        }
-        let sessions = self.entries.get_mut(&*session.sender_key).unwrap();
+        let sessions_lock = self
+            .entries
+            .entry(session.sender_key.to_string())
+            .or_insert_with(|| Arc::new(Mutex::new(Vec::new())));
 
-        if !sessions.lock().await.contains(&session) {
-            sessions.lock().await.push(session);
+        let mut sessions = sessions_lock.lock().await;
+
+        if !sessions.contains(&session) {
+            sessions.push(session);
             true
         } else {
             false
@@ -93,22 +92,13 @@ impl GroupSessionStore {
     /// Returns true if the the session was added, false if the session was
     /// already in the store.
     pub fn add(&self, session: InboundGroupSession) -> bool {
-        if !self.entries.contains_key(&session.room_id) {
-            let room_id = &*session.room_id;
-            self.entries.insert(room_id.clone(), HashMap::new());
-        }
-
-        let mut room_map = self.entries.get_mut(&session.room_id).unwrap();
-
-        if !room_map.contains_key(&*session.sender_key) {
-            let sender_key = &*session.sender_key;
-            room_map.insert(sender_key.to_owned(), HashMap::new());
-        }
-
-        let sender_map = room_map.get_mut(&*session.sender_key).unwrap();
-        let ret = sender_map.insert(session.session_id().to_owned(), session);
-
-        ret.is_none()
+        self.entries
+            .entry((&*session.room_id).clone())
+            .or_insert_with(HashMap::new)
+            .entry(session.sender_key.to_string())
+            .or_insert_with(HashMap::new)
+            .insert(session.session_id().to_owned(), session)
+            .is_none()
     }
 
     /// Get a inbound group session from our store.
@@ -173,13 +163,9 @@ impl DeviceStore {
     /// Returns true if the device was already in the store, false otherwise.
     pub fn add(&self, device: ReadOnlyDevice) -> bool {
         let user_id = device.user_id();
-
-        if !self.entries.contains_key(&user_id) {
-            self.entries.insert(user_id.clone(), DashMap::new());
-        }
-        let device_map = self.entries.get_mut(&user_id).unwrap();
-
-        device_map
+        self.entries
+            .entry(user_id.to_owned())
+            .or_insert_with(DashMap::new)
             .insert(device.device_id().into(), device)
             .is_none()
     }
@@ -203,11 +189,13 @@ impl DeviceStore {
 
     /// Get a read-only view over all devices of the given user.
     pub fn user_devices(&self, user_id: &UserId) -> ReadOnlyUserDevices {
-        if !self.entries.contains_key(user_id) {
-            self.entries.insert(user_id.clone(), DashMap::new());
-        }
         ReadOnlyUserDevices {
-            entries: self.entries.get(user_id).unwrap().clone().into_read_only(),
+            entries: self
+                .entries
+                .entry(user_id.clone())
+                .or_insert_with(DashMap::new)
+                .clone()
+                .into_read_only(),
         }
     }
 }
