@@ -192,10 +192,10 @@ impl OlmMachine {
     #[cfg(feature = "sqlite_cryptostore")]
     #[instrument(skip(path, passphrase))]
     #[cfg_attr(feature = "docs", doc(cfg(r#sqlite_cryptostore)))]
-    pub async fn new_with_default_store<P: AsRef<Path>>(
+    pub async fn new_with_default_store(
         user_id: &UserId,
         device_id: &DeviceId,
-        path: P,
+        path: impl AsRef<Path>,
         passphrase: &str,
     ) -> StoreResult<Self> {
         let store =
@@ -1316,10 +1316,7 @@ impl OlmMachine {
     ///
     /// If the user is already known to the Olm machine it will not be
     /// considered for a key query.
-    pub async fn update_tracked_users<'a, I>(&self, users: I)
-    where
-        I: IntoIterator<Item = &'a UserId>,
-    {
+    pub async fn update_tracked_users(&self, users: impl IntoIterator<Item = &UserId>) {
         for user in users {
             if self.store.is_user_tracked(user) {
                 continue;
