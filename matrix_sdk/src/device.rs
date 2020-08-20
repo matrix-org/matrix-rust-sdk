@@ -81,16 +81,19 @@ impl Device {
         self.inner.trust_state()
     }
 
-    /// Set the trust state of the device to the given state.
+    /// Set the local trust state of the device to the given state.
+    ///
+    /// This won't affect any cross signing trust state, this only sets a flag
+    /// marking to have the given trust state.
     ///
     /// # Arguments
     ///
     /// * `trust_state` - The new trust state that should be set for the device.
-    pub async fn set_trust_state(
+    pub async fn set_local_trust(
         &self,
         trust_state: LocalTrust,
     ) -> StdResult<(), CryptoStoreError> {
-        self.inner.set_trust_state(trust_state).await
+        self.inner.set_local_trust(trust_state).await
     }
 }
 
