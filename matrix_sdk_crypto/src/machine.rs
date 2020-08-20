@@ -761,7 +761,7 @@ impl OlmMachine {
 
         trace!("Successfully decrypted a Olm message: {}", plaintext);
 
-        Ok(self.parse_decrypted_to_device_event(sender, &plaintext)?)
+        self.parse_decrypted_to_device_event(sender, &plaintext)
     }
 
     /// Parse a decrypted Olm message, check that the plaintext and encrypted
@@ -1040,15 +1040,12 @@ impl OlmMachine {
     /// used.
     ///
     /// `users` - The list of users that should receive the group session.
-    pub async fn share_group_session<S>(
+    pub async fn share_group_session(
         &self,
         room_id: &RoomId,
         users: impl Iterator<Item = &UserId>,
-        encryption_settings: S,
-    ) -> OlmResult<Vec<OwnedToDeviceRequest>>
-    where
-        S: Into<EncryptionSettings> + Sized,
-    {
+        encryption_settings: impl Into<EncryptionSettings>,
+    ) -> OlmResult<Vec<OwnedToDeviceRequest>> {
         self.create_outbound_group_session(room_id, encryption_settings.into())
             .await?;
         let session = self.outbound_group_sessions.get(room_id).unwrap();
