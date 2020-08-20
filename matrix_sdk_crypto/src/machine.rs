@@ -1092,7 +1092,7 @@ impl OlmMachine {
 
                 messages
                     .entry(device.user_id().clone())
-                    .or_insert(BTreeMap::new())
+                    .or_insert_with(BTreeMap::new)
                     .insert(
                         DeviceIdOrAllDevices::DeviceId(device.device_id().into()),
                         serde_json::value::to_raw_value(&encrypted)?,
