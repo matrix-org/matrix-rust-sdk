@@ -332,6 +332,10 @@ impl UserIdentity {
     /// Returns an empty result if the signature check succeeded, otherwise a
     /// SignatureError indicating why the check failed.
     pub fn is_device_signed(&self, device: &ReadOnlyDevice) -> Result<(), SignatureError> {
+        if self.user_id() != device.user_id() {
+            return Err(SignatureError::UserIdMissmatch);
+        }
+
         self.self_signing_key.verify_device(device)
     }
 }
@@ -413,6 +417,10 @@ impl OwnUserIdentity {
     /// Returns an empty result if the signature check succeeded, otherwise a
     /// SignatureError indicating why the check failed.
     pub fn is_device_signed(&self, device: &ReadOnlyDevice) -> Result<(), SignatureError> {
+        if self.user_id() != device.user_id() {
+            return Err(SignatureError::UserIdMissmatch);
+        }
+
         self.self_signing_key.verify_device(device)
     }
 
