@@ -523,6 +523,7 @@ impl Client {
     /// # use std::convert::TryFrom;
     /// # use matrix_sdk::{Client, RegistrationBuilder};
     /// # use matrix_sdk::api::r0::account::register::RegistrationKind;
+    /// # use matrix_sdk::api::r0::uiaa::AuthData;
     /// # use matrix_sdk::identifiers::DeviceId;
     /// # use futures::executor::block_on;
     /// # use url::Url;
@@ -531,6 +532,11 @@ impl Client {
     /// let mut builder = RegistrationBuilder::default();
     /// builder.password("pass")
     ///     .username("user")
+    ///     .auth(AuthData::DirectRequest {
+    ///         kind: "m.login.dummy",
+    ///         session: None,
+    ///         auth_parameters: Default::default(),
+    ///     })
     ///     .kind(RegistrationKind::User);
     /// let mut client = Client::new(homeserver).unwrap();
     /// client.register_user(builder).await;
