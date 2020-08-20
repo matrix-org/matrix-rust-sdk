@@ -1080,16 +1080,13 @@ impl OlmMachine {
                     Err(e) => return Err(e),
                 };
 
-                if !messages.contains_key(device.user_id()) {
-                    messages.insert(device.user_id().clone(), BTreeMap::new());
-                };
-
-                let user_messages = messages.get_mut(device.user_id()).unwrap();
-
-                user_messages.insert(
-                    DeviceIdOrAllDevices::DeviceId(device.device_id().into()),
-                    serde_json::value::to_raw_value(&encrypted)?,
-                );
+                messages
+                    .entry(device.user_id().clone())
+                    .or_insert(BTreeMap::new())
+                    .insert(
+                        DeviceIdOrAllDevices::DeviceId(device.device_id().into()),
+                        serde_json::value::to_raw_value(&encrypted)?,
+                    );
             }
 
             requests.push(OwnedToDeviceRequest {
