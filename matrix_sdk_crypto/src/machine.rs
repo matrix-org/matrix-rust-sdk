@@ -552,6 +552,18 @@ impl OlmMachine {
             } else if user_id == self.user_id() {
                 if let Some(s) = response.user_signing_keys.get(user_id) {
                     let user_signing = UserSigningPubkey::from(s);
+
+                    if master_key.user_id() != user_id
+                        || self_signing.user_id() != user_id
+                        || user_signing.user_id() != user_id
+                    {
+                        warn!(
+                            "User id missmatch in one of the cross signing keys for user {}",
+                            user_id
+                        );
+                        continue;
+                    }
+
                     OwnUserIdentity::new(master_key, self_signing, user_signing)
                         .map(UserIdentities::Own)
                 } else {
@@ -563,7 +575,15 @@ impl OlmMachine {
                     continue;
                 }
             } else {
-                UserIdentity::new(master_key, self_signing).map(UserIdentities::Other)
+                if master_key.user_id() != user_id || self_signing.user_id() != user_id {
+                    warn!(
+                        "User id missmatch in one of the cross signing keys for user {}",
+                        user_id
+                    );
+                    continue;
+                } else {
+                    UserIdentity::new(master_key, self_signing).map(UserIdentities::Other)
+                }
             };
 
             match identity {
@@ -577,7 +597,7 @@ impl OlmMachine {
                 }
                 Err(e) => {
                     warn!(
-                        "Coulnd't update or create new user identity for {}: {:?}",
+                        "Couldn't update or create new user identity for {}: {:?}",
                         user_id, e
                     );
                     continue;

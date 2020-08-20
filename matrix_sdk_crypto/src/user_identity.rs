@@ -44,7 +44,6 @@ pub struct UserSigningPubkey(Arc<CrossSigningKey>);
 impl PartialEq for MasterPubkey {
     fn eq(&self, other: &MasterPubkey) -> bool {
         self.0.user_id == other.0.user_id && self.0.keys == other.0.keys
-        // TODO check the usage once `KeyUsage` gets PartialEq.
     }
 }
 
@@ -105,6 +104,11 @@ impl<'a> CrossSigningSubKeys<'a> {
 }
 
 impl MasterPubkey {
+    /// Get the user id of the master key's owner.
+    pub fn user_id(&self) -> &UserId {
+        &self.0.user_id
+    }
+
     /// Get the master key with the given key id.
     ///
     /// # Arguments
@@ -133,6 +137,8 @@ impl MasterPubkey {
             .next()
             .ok_or(SignatureError::MissingSigningKey)?;
 
+        let key_id = DeviceKeyId::try_from(key_id.as_str())?;
+
         // FIXME `KeyUsage is missing PartialEq.
         // if self.0.usage.contains(&KeyUsage::Master) {
         //     return Err(SignatureError::MissingSigningKey);
@@ -145,7 +151,7 @@ impl MasterPubkey {
 
         verify_json(
             &self.0.user_id,
-            &DeviceKeyId::try_from(key_id.as_str())?,
+            &key_id,
             key,
             &mut to_value(subkey.cross_signing_key()).map_err(|_| SignatureError::NotAnObject)?,
         )
@@ -153,6 +159,11 @@ impl MasterPubkey {
 }
 
 impl UserSigningPubkey {
+    /// Get the user id of the user signing key's owner.
+    pub fn user_id(&self) -> &UserId {
+        &self.0.user_id
+    }
+
     /// Check if the given master key is signed by this user signing key.
     ///
     /// # Arguments
@@ -182,6 +193,11 @@ impl UserSigningPubkey {
 }
 
 impl SelfSigningPubkey {
+    /// Get the user id of the self signing key's owner.
+    pub fn user_id(&self) -> &UserId {
+        &self.0.user_id
+    }
+
     /// Check if the given device is signed by this self signing key.
     ///
     /// # Arguments
