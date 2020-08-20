@@ -126,6 +126,9 @@ pub enum SignatureError {
     #[error("the signing key is missing from the object that signed the message")]
     MissingSigningKey,
 
+    #[error("the user id of the signing differs from the subkey user id")]
+    UserIdMissmatch,
+
     #[error("the provided JSON value isn't an object")]
     NotAnObject,
 

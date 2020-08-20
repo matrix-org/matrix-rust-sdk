@@ -137,8 +137,11 @@ impl MasterPubkey {
         // if self.0.usage.contains(&KeyUsage::Master) {
         //     return Err(SignatureError::MissingSigningKey);
         // }
-
         let subkey: CrossSigningSubKeys = subkey.into();
+
+        if &self.0.user_id != subkey.user_id() {
+            return Err(SignatureError::UserIdMissmatch);
+        }
 
         verify_json(
             &self.0.user_id,
