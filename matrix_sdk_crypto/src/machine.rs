@@ -558,7 +558,7 @@ impl OlmMachine {
                         || user_signing.user_id() != user_id
                     {
                         warn!(
-                            "User id missmatch in one of the cross signing keys for user {}",
+                            "User id mismatch in one of the cross signing keys for user {}",
                             user_id
                         );
                         continue;
@@ -574,16 +574,14 @@ impl OlmMachine {
                     );
                     continue;
                 }
+            } else if master_key.user_id() != user_id || self_signing.user_id() != user_id {
+                warn!(
+                    "User id mismatch in one of the cross signing keys for user {}",
+                    user_id
+                );
+                continue;
             } else {
-                if master_key.user_id() != user_id || self_signing.user_id() != user_id {
-                    warn!(
-                        "User id missmatch in one of the cross signing keys for user {}",
-                        user_id
-                    );
-                    continue;
-                } else {
-                    UserIdentity::new(master_key, self_signing).map(UserIdentities::Other)
-                }
+                UserIdentity::new(master_key, self_signing).map(UserIdentities::Other)
             };
 
             match identity {
