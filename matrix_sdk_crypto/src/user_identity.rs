@@ -30,14 +30,21 @@ use matrix_sdk_common::{
 use crate::{error::SignatureError, verify_json, ReadOnlyDevice};
 
 /// Wrapper for a cross signing key marking it as the master key.
+///
+/// Master keys are used to sign other cross signing keys, the self signing and
+/// user signing keys of an user will be signed by their master key.
 #[derive(Debug, Clone)]
 pub struct MasterPubkey(Arc<CrossSigningKey>);
 
 /// Wrapper for a cross signing key marking it as a self signing key.
+///
+/// Self signing keys are used to sign the user's own devices.
 #[derive(Debug, Clone)]
 pub struct SelfSigningPubkey(Arc<CrossSigningKey>);
 
 /// Wrapper for a cross signing key marking it as a user signing key.
+///
+/// User signing keys are used to sign the master keys of other users.
 #[derive(Debug, Clone)]
 pub struct UserSigningPubkey(Arc<CrossSigningKey>);
 
@@ -356,6 +363,13 @@ impl UserIdentity {
     }
 }
 
+/// Struct representing a cross signing identity of our own user.
+///
+/// This is the user identity of our own user. This user identity will contain a
+/// master key, self signing key as well as a user signing key.
+///
+/// This identity can verify other identities as well as devices belonging to
+/// the identity.
 #[derive(Debug, Clone)]
 pub struct OwnUserIdentity {
     user_id: Arc<UserId>,
