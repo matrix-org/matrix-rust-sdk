@@ -448,6 +448,10 @@ impl OwnUserIdentity {
         self.self_signing_key = self_signing_key;
         self.user_signing_key = user_signing_key;
 
+        if self.master_key != master_key {
+            self.verified.store(false, Ordering::SeqCst)
+        }
+
         self.master_key = master_key;
 
         Ok(())
