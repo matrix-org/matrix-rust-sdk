@@ -30,12 +30,15 @@ use matrix_sdk_common::{
 
 use crate::{error::SignatureError, verify_json, ReadOnlyDevice};
 
+/// Wrapper for a cross signing key marking it as the master key.
 #[derive(Debug, Clone)]
 pub struct MasterPubkey(Arc<CrossSigningKey>);
 
+/// Wrapper for a cross signing key marking it as a self signing key.
 #[derive(Debug, Clone)]
 pub struct SelfSigningPubkey(Arc<CrossSigningKey>);
 
+/// Wrapper for a cross signing key marking it as a user signing key.
 #[derive(Debug, Clone)]
 pub struct UserSigningPubkey(Arc<CrossSigningKey>);
 
@@ -69,12 +72,24 @@ impl<'a> From<&'a UserSigningPubkey> for CrossSigningSubKeys<'a> {
     }
 }
 
+/// Enum over the cross signing sub-keys.
 enum CrossSigningSubKeys<'a> {
+    /// The self signing subkey.
     SelfSigning(&'a SelfSigningPubkey),
+    /// The user signing subkey.
     UserSigning(&'a UserSigningPubkey),
 }
 
 impl<'a> CrossSigningSubKeys<'a> {
+    /// Get the id of the user that owns this cross signing subkey.
+    fn user_id(&self) -> &UserId {
+        match self {
+            CrossSigningSubKeys::SelfSigning(key) => &key.0.user_id,
+            CrossSigningSubKeys::UserSigning(key) => &key.0.user_id,
+        }
+    }
+
+    /// Get the `CrossSigningKey` from an sub-keys enum
     fn cross_signing_key(&self) -> &CrossSigningKey {
         match self {
             CrossSigningSubKeys::SelfSigning(key) => &key.0,
@@ -84,6 +99,23 @@ impl<'a> CrossSigningSubKeys<'a> {
 }
 
 impl MasterPubkey {
+    /// Get the master key with the given key id.
+    ///
+    /// # Arguments
+    ///
+    /// * `key_id` - The id of the key that should be fetched.
+    pub fn get_key(&self, key_id: &DeviceKeyId) -> Option<&str> {
+        self.0.keys.get(key_id.as_str()).map(|k| k.as_str())
+    }
+
+    /// Check if the given cross signing sub-key is signed by the master key.
+    ///
+    /// # Arguments
+    ///
+    /// * `subkey` - The subkey that should be checked for a valid signature.
+    ///
+    /// Returns an empty result if the signature check succeeded, otherwise a
+    /// SignatureError indicating why the check failed.
     fn verify_subkey<'a>(
         &self,
         subkey: impl Into<CrossSigningSubKeys<'a>>,
@@ -112,6 +144,15 @@ impl MasterPubkey {
 }
 
 impl UserSigningPubkey {
+    /// Check if the given master key is signed by this user signing key.
+    ///
+    /// # Arguments
+    ///
+    /// * `master_key` - The master key that should be checked for a valid
+    /// signature.
+    ///
+    /// Returns an empty result if the signature check succeeded, otherwise a
+    /// SignatureError indicating why the check failed.
     fn verify_master_key(&self, master_key: &MasterPubkey) -> Result<(), SignatureError> {
         let (key_id, key) = self
             .0
@@ -132,6 +173,14 @@ impl UserSigningPubkey {
 }
 
 impl SelfSigningPubkey {
+    /// Check if the given device is signed by this self signing key.
+    ///
+    /// # Arguments
+    ///
+    /// * `device` - The device that should be checked for a valid signature.
+    ///
+    /// Returns an empty result if the signature check succeeded, otherwise a
+    /// SignatureError indicating why the check failed.
     fn verify_device(&self, device: &ReadOnlyDevice) -> Result<(), SignatureError> {
         let (key_id, key) = self
             .0
@@ -151,13 +200,17 @@ impl SelfSigningPubkey {
     }
 }
 
+/// Enum over the different user identity types we can have.
 #[derive(Debug, Clone)]
 pub enum UserIdentities {
+    /// Our own user identity.
     Own(OwnUserIdentity),
+    /// Identities of other users.
     Other(UserIdentity),
 }
 
 impl UserIdentities {
+    /// The unique user id of this identity.
     pub fn user_id(&self) -> &UserId {
         match self {
             UserIdentities::Own(i) => i.user_id(),
@@ -172,6 +225,8 @@ impl UserIdentities {
         }
     }
 
+    /// Destructure the enum into an `OwnUserIdentity` if it's of the correct
+    /// type.
     pub fn own(&self) -> Option<&OwnUserIdentity> {
         match self {
             UserIdentities::Own(i) => Some(i),
@@ -193,6 +248,11 @@ impl PartialEq for UserIdentities {
     }
 }
 
+/// Struct representing a cross signing identity of a user.
+///
+/// This is the user identity of a user that isn't our own. Other users will
+/// only contain a master key and a self signing key, meaning that only device
+/// signatures can be checked with this identity.
 #[derive(Debug, Clone)]
 pub struct UserIdentity {
     user_id: Arc<UserId>,
@@ -201,6 +261,16 @@ pub struct UserIdentity {
 }
 
 impl UserIdentity {
+    /// Create a new user identity with the given master and self signing key.
+    ///
+    /// # Arguments
+    ///
+    /// * `master_key` - The master key of the user identity.
+    ///
+    /// * `self signing key` - The self signing key of user identity.
+    ///
+    /// Returns a `SignatureError` if the self signing key fails to be correctly
+    /// verified by the given master key.
     pub fn new(
         master_key: MasterPubkey,
         self_signing_key: SelfSigningPubkey,
@@ -214,6 +284,7 @@ impl UserIdentity {
         })
     }
 
+    /// Get the user id of this identity.
     pub fn user_id(&self) -> &UserId {
         &self.user_id
     }
@@ -222,6 +293,15 @@ impl UserIdentity {
         &self.master_key.0.keys
     }
 
+    /// Update the identity with a new master key and self signing key.
+    ///
+    /// # Arguments
+    ///
+    /// * `master_key` - The new master key of the user identity.
+    ///
+    /// * `self_signing_key` - The new self signing key of user identity.
+    ///
+    /// Returns a `SignatureError` if we failed to update the identity.
     pub fn update(
         &mut self,
         master_key: MasterPubkey,
@@ -235,6 +315,18 @@ impl UserIdentity {
         Ok(())
     }
 
+    /// Check if the given device has been signed by this identity.
+    ///
+    /// The user_id of the user identity and the user_id of the device need to
+    /// match for the signature check to succeed as we don't trust users to sign
+    /// devices of other users.
+    ///
+    /// # Arguments
+    ///
+    /// * `device` - The device that should be checked for a valid signature.
+    ///
+    /// Returns an empty result if the signature check succeeded, otherwise a
+    /// SignatureError indicating why the check failed.
     pub fn is_device_signed(&self, device: &ReadOnlyDevice) -> Result<(), SignatureError> {
         self.self_signing_key.verify_device(device)
     }
@@ -250,6 +342,19 @@ pub struct OwnUserIdentity {
 }
 
 impl OwnUserIdentity {
+    /// Create a new own user identity with the given master, self signing, and
+    /// user signing key.
+    ///
+    /// # Arguments
+    ///
+    /// * `master_key` - The master key of the user identity.
+    ///
+    /// * `self_signing_key` - The self signing key of user identity.
+    ///
+    /// * `user_signing_key` - The user signing key of user identity.
+    ///
+    /// Returns a `SignatureError` if the self signing key fails to be correctly
+    /// verified by the given master key.
     pub fn new(
         master_key: MasterPubkey,
         self_signing_key: SelfSigningPubkey,
@@ -267,10 +372,68 @@ impl OwnUserIdentity {
         })
     }
 
+    /// Get the user id of this identity.
     pub fn user_id(&self) -> &UserId {
         &self.user_id
     }
 
+    pub fn master_key(&self) -> &BTreeMap<String, String> {
+        &self.master_key.0.keys
+    }
+
+    /// Check if the given identity has been signed by this identity.
+    ///
+    /// # Arguments
+    ///
+    /// * `identity` - The identity of another user that we want to check if
+    /// it's has been signed.
+    ///
+    /// Returns an empty result if the signature check succeeded, otherwise a
+    /// SignatureError indicating why the check failed.
+    pub fn is_identity_signed(&self, identity: &UserIdentity) -> Result<(), SignatureError> {
+        self.user_signing_key
+            .verify_master_key(&identity.master_key)
+    }
+
+    /// Check if the given device has been signed by this identity.
+    ///
+    /// Only devices of our own user should be checked with this method, if a
+    /// device of a different user is given the signature check will always fail
+    /// even if a valid signature exists.
+    ///
+    /// # Arguments
+    ///
+    /// * `device` - The device that should be checked for a valid signature.
+    ///
+    /// Returns an empty result if the signature check succeeded, otherwise a
+    /// SignatureError indicating why the check failed.
+    pub fn is_device_signed(&self, device: &ReadOnlyDevice) -> Result<(), SignatureError> {
+        self.self_signing_key.verify_device(device)
+    }
+
+    /// Mark our identity as verified.
+    pub fn mark_as_verified(&self) {
+        self.verified.store(true, Ordering::SeqCst)
+    }
+
+    /// Check if our identity is verified.
+    pub fn is_verified(&self) -> bool {
+        self.verified.load(Ordering::SeqCst)
+    }
+
+    /// Update the identity with a new master key and self signing key.
+    ///
+    /// Note: This will reset the verification state if the master keys differ.
+    ///
+    /// # Arguments
+    ///
+    /// * `master_key` - The new master key of the user identity.
+    ///
+    /// * `self_signing_key` - The new self signing key of user identity.
+    ///
+    /// * `user_signing_key` - The new user signing key of user identity.
+    ///
+    /// Returns a `SignatureError` if we failed to update the identity.
     pub fn update(
         &mut self,
         master_key: MasterPubkey,
@@ -285,30 +448,7 @@ impl OwnUserIdentity {
 
         self.master_key = master_key;
 
-        // FIXME reset the verification state if the master key changed.
-
         Ok(())
-    }
-
-    pub fn master_key(&self) -> &BTreeMap<String, String> {
-        &self.master_key.0.keys
-    }
-
-    pub fn is_identity_signed(&self, identity: &UserIdentity) -> Result<(), SignatureError> {
-        self.user_signing_key
-            .verify_master_key(&identity.master_key)
-    }
-
-    pub fn is_device_signed(&self, device: &ReadOnlyDevice) -> Result<(), SignatureError> {
-        self.self_signing_key.verify_device(device)
-    }
-
-    pub fn mark_as_verified(&self) {
-        self.verified.store(true, Ordering::SeqCst)
-    }
-
-    pub fn is_verified(&self) -> bool {
-        self.verified.load(Ordering::SeqCst)
     }
 }
 
