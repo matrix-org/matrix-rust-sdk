@@ -533,7 +533,11 @@ impl OlmMachine {
                         {
                             UserSigningPubkey::from(s)
                         } else {
-                            warn!("User identity for our own user {} didn't contain a user signing pubkey", user_id);
+                            warn!(
+                                "User identity for our own user {} didn't \
+                                  contain a user signing pubkey",
+                                user_id
+                            );
                             continue;
                         };
 
@@ -552,7 +556,8 @@ impl OlmMachine {
                         .map(UserIdentities::Own)
                 } else {
                     warn!(
-                        "User identity for our own user {} didn't contain a user signing pubkey",
+                        "User identity for our own user {} didn't contain a \
+                        user signing pubkey",
                         user_id
                     );
                     continue;
