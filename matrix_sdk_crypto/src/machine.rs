@@ -499,6 +499,14 @@ impl OlmMachine {
         Ok(changed_devices)
     }
 
+    /// Handle the device keys part of a key query response.
+    ///
+    /// # Arguments
+    ///
+    /// * `response` - The keys query response.
+    ///
+    /// Returns a list of identities that changed. Changed here means either
+    /// they are new, one of their properties has changed or they got deleted.
     async fn handle_cross_singing_keys(
         &self,
         response: &get_keys::Response,
