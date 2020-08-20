@@ -204,7 +204,7 @@ pub fn receive_mac_event(
                 return Err(CancelCode::KeyMismatch);
             }
         } else if let Some(identity) = &ids.other_identity {
-            if let Some(key) = identity.master_key().get(key_id.as_str()) {
+            if let Some(key) = identity.master_key().get_key(&key_id) {
                 // TODO we should check that the master key signs the device,
                 // this way we know the master key also trusts the device
                 if key_mac

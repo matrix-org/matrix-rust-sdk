@@ -246,6 +246,12 @@ impl Sas {
                     Ok(false)
                 }
             } else {
+                warn!(
+                    "The master keys of {} have changed while an interactive \
+                      verification was going on, not marking the identity as verified.",
+                    identity.user_id(),
+                );
+
                 Ok(false)
             }
         } else {

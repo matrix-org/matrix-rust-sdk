@@ -13,7 +13,6 @@
 // limitations under the License.
 
 use std::{
-    collections::BTreeMap,
     convert::TryFrom,
     sync::{
         atomic::{AtomicBool, Ordering},
@@ -41,6 +40,13 @@ pub struct SelfSigningPubkey(Arc<CrossSigningKey>);
 /// Wrapper for a cross signing key marking it as a user signing key.
 #[derive(Debug, Clone)]
 pub struct UserSigningPubkey(Arc<CrossSigningKey>);
+
+impl PartialEq for MasterPubkey {
+    fn eq(&self, other: &MasterPubkey) -> bool {
+        self.0.user_id == other.0.user_id && self.0.keys == other.0.keys
+        // TODO check the usage once `KeyUsage` gets PartialEq.
+    }
+}
 
 impl From<&CrossSigningKey> for MasterPubkey {
     fn from(key: &CrossSigningKey) -> Self {
@@ -218,7 +224,8 @@ impl UserIdentities {
         }
     }
 
-    pub fn master_key(&self) -> &BTreeMap<String, String> {
+    /// Get the master key of the identity.
+    pub fn master_key(&self) -> &MasterPubkey {
         match self {
             UserIdentities::Own(i) => i.master_key(),
             UserIdentities::Other(i) => i.master_key(),
@@ -230,13 +237,6 @@ impl UserIdentities {
     pub fn own(&self) -> Option<&OwnUserIdentity> {
         match self {
             UserIdentities::Own(i) => Some(i),
-            _ => None,
-        }
-    }
-
-    pub fn other(&self) -> Option<&UserIdentity> {
-        match self {
-            UserIdentities::Other(i) => Some(i),
             _ => None,
         }
     }
@@ -289,8 +289,9 @@ impl UserIdentity {
         &self.user_id
     }
 
-    pub fn master_key(&self) -> &BTreeMap<String, String> {
-        &self.master_key.0.keys
+    /// Get the public master key of the identity.
+    pub fn master_key(&self) -> &MasterPubkey {
+        &self.master_key
     }
 
     /// Update the identity with a new master key and self signing key.
@@ -377,8 +378,9 @@ impl OwnUserIdentity {
         &self.user_id
     }
 
-    pub fn master_key(&self) -> &BTreeMap<String, String> {
-        &self.master_key.0.keys
+    /// Get the public master key of the identity.
+    pub fn master_key(&self) -> &MasterPubkey {
+        &self.master_key
     }
 
     /// Check if the given identity has been signed by this identity.
