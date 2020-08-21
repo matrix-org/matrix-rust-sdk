@@ -32,6 +32,7 @@ mod error;
 mod machine;
 mod memory_stores;
 mod olm;
+mod requests;
 mod store;
 #[allow(dead_code)]
 mod user_identity;
@@ -44,6 +45,7 @@ pub use memory_stores::{DeviceStore, GroupSessionStore, ReadOnlyUserDevices, Ses
 pub use olm::{
     Account, EncryptionSettings, IdentityKeys, InboundGroupSession, OutboundGroupSession, Session,
 };
+pub use requests::{IncomingResponse, OutgoingRequest, OutgoingRequests};
 #[cfg(feature = "sqlite_cryptostore")]
 pub use store::sqlite::SqliteStore;
 pub use store::{CryptoStore, CryptoStoreError};

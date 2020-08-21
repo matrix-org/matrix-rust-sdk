@@ -27,7 +27,11 @@ use tracing::{debug, error, info, instrument, trace, warn};
 
 use matrix_sdk_common::{
     api::r0::{
-        keys::{claim_keys, get_keys, upload_keys, OneTimeKey},
+        keys::{
+            claim_keys,
+            get_keys::{IncomingRequest as KeysQueryRequest, Response as KeysQueryResponse},
+            upload_keys, OneTimeKey,
+        },
         sync::sync_events::Response as SyncResponse,
         to_device::{
             send_event_to_device::IncomingRequest as OwnedToDeviceRequest, DeviceIdOrAllDevices,
@@ -57,6 +61,7 @@ use super::{
         Account, EncryptionSettings, GroupSessionKey, IdentityKeys, InboundGroupSession,
         OlmMessage, OutboundGroupSession,
     },
+    requests::{IncomingResponse, OutgoingRequest},
     store::{memorystore::MemoryStore, Result as StoreResult},
     user_identity::{
         MasterPubkey, OwnUserIdentity, SelfSigningPubkey, UserIdentities, UserIdentity,
@@ -217,6 +222,48 @@ impl OlmMachine {
         self.account.identity_keys()
     }
 
+    /// Get the outgoing requests that need to be sent out.
+    pub async fn outgoing_requests(&self) -> Vec<OutgoingRequest> {
+        let mut requests = Vec::new();
+
+        if let Some(r) = self.keys_for_upload().await.map(|r| OutgoingRequest {
+            request_id: Uuid::new_v4(),
+            request: r.into(),
+        }) {
+            requests.push(r);
+        }
+
+        if let Some(r) = self.users_for_key_query().await.map(|r| OutgoingRequest {
+            request_id: Uuid::new_v4(),
+            request: r.into(),
+        }) {
+            requests.push(r);
+        }
+
+        requests
+    }
+
+    /// Mark the request with the given request id as sent.
+    pub async fn mark_requests_as_sent<'a>(
+        &self,
+        request_id: &Uuid,
+        response: impl Into<IncomingResponse<'a>>,
+    ) -> OlmResult<()> {
+        match response.into() {
+            IncomingResponse::KeysQuery(response) => {
+                self.receive_keys_query_response(response).await?;
+            }
+            IncomingResponse::KeysUpload(response) => {
+                self.receive_keys_upload_response(response).await?;
+            }
+            IncomingResponse::ToDevice(_) => {
+                self.mark_to_device_request_as_sent(&request_id.to_string());
+            }
+        };
+
+        Ok(())
+    }
+
     /// Should device or one-time keys be uploaded to the server.
     ///
     /// This needs to be checked periodically, ideally after every sync request.
@@ -241,7 +288,8 @@ impl OlmMachine {
     /// }
     /// # });
     /// ```
-    pub async fn should_upload_keys(&self) -> bool {
+    #[cfg(test)]
+    async fn should_upload_keys(&self) -> bool {
         self.account.should_upload_keys().await
     }
 
@@ -269,7 +317,7 @@ impl OlmMachine {
     /// * `response` - The keys upload response of the request that the client
     /// performed.
     #[instrument]
-    pub async fn receive_keys_upload_response(
+    async fn receive_keys_upload_response(
         &self,
         response: &upload_keys::Response,
     ) -> OlmResult<()> {
@@ -507,7 +555,7 @@ impl OlmMachine {
     /// they are new, one of their properties has changed or they got deleted.
     async fn handle_cross_singing_keys(
         &self,
-        response: &get_keys::Response,
+        response: &KeysQueryResponse,
     ) -> StoreResult<Vec<UserIdentities>> {
         let mut changed = Vec::new();
 
@@ -613,9 +661,9 @@ impl OlmMachine {
     ///
     /// * `response` - The keys query response of the request that the client
     /// performed.
-    pub async fn receive_keys_query_response(
+    async fn receive_keys_query_response(
         &self,
-        response: &get_keys::Response,
+        response: &KeysQueryResponse,
     ) -> OlmResult<(Vec<ReadOnlyDevice>, Vec<UserIdentities>)> {
         let changed_devices = self
             .handle_devices_from_key_query(&response.device_keys)
@@ -636,7 +684,7 @@ impl OlmMachine {
     ///
     /// [`receive_keys_upload_response`]: #method.receive_keys_upload_response
     /// [`OlmMachine`]: struct.OlmMachine.html
-    pub async fn keys_for_upload(&self) -> Option<upload_keys::Request> {
+    async fn keys_for_upload(&self) -> Option<upload_keys::Request> {
         let (device_keys, one_time_keys) = self.account.keys_for_upload().await?;
 
         Some(upload_keys::Request {
@@ -1344,22 +1392,34 @@ impl OlmMachine {
         }
     }
 
-    /// Should the client perform a key query request.
-    pub async fn should_query_keys(&self) -> bool {
-        self.store.has_users_for_key_query()
-    }
-
-    /// Get the set of users that we need to query keys for.
+    /// Get a key query request if one is needed.
     ///
-    /// Returns a hash set of users that need to be queried for keys.
+    /// Returns a key query reqeust if the client should query E2E keys,
+    /// otherwise None.
     ///
     /// The response of a successful key query requests needs to be passed to
     /// the [`OlmMachine`] with the [`receive_keys_query_response`].
     ///
     /// [`OlmMachine`]: struct.OlmMachine.html
     /// [`receive_keys_query_response`]: #method.receive_keys_query_response
-    pub async fn users_for_key_query(&self) -> HashSet<UserId> {
-        self.store.users_for_key_query()
+    async fn users_for_key_query(&self) -> Option<KeysQueryRequest> {
+        let mut users = self.store.users_for_key_query();
+
+        if users.is_empty() {
+            None
+        } else {
+            let mut device_keys: BTreeMap<UserId, Vec<Box<DeviceId>>> = BTreeMap::new();
+
+            for user in users.drain() {
+                device_keys.insert(user, Vec::new());
+            }
+
+            Some(KeysQueryRequest {
+                timeout: None,
+                device_keys,
+                token: None,
+            })
+        }
     }
 
     /// Get a specific device of a user.
