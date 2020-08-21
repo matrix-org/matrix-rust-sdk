@@ -15,11 +15,13 @@ features = ["docs"]
 rustdoc-args = ["--cfg", "feature=\"docs\""]
 
 [features]
-default = ["encryption", "sqlite_cryptostore", "messages"]
+default = ["encryption", "sqlite_cryptostore", "messages", "native-tls"]
 
 messages = ["matrix-sdk-base/messages"]
 encryption = ["matrix-sdk-base/encryption", "dashmap"]
 sqlite_cryptostore = ["matrix-sdk-base/sqlite_cryptostore"]
+native-tls = ["reqwest/native-tls"]
+rustls-tls = ["reqwest/rustls-tls"]
 
 docs = ["encryption", "sqlite_cryptostore", "messages"]
 
@@ -27,8 +29,6 @@ docs = ["encryption", "sqlite_cryptostore", "messages"]
 async-trait = "0.1.38"
 dashmap = { version = "3.11.10", optional = true }
 http = "0.2.1"
-# FIXME: Revert to regular dependency once 0.10.8 or 0.11.0 is released
-reqwest = { git = "https://github.com/seanmonstar/reqwest", rev = "cff487ff58630cf0ac59f3e46cbf20cf50a28b3f" }
 serde_json = "1.0.57"
 thiserror = "1.0.20"
 tracing = "0.1.19"
@@ -40,6 +40,12 @@ matrix-sdk-common = { version = "0.1.0", path = "../matrix_sdk_common" }
 [dependencies.matrix-sdk-base]
 version = "0.1.0"
 path = "../matrix_sdk_base"
+default_features = false
+
+# FIXME: Revert to regular dependency once 0.10.8 or 0.11.0 is released
+[dependencies.reqwest]
+git = "https://github.com/seanmonstar/reqwest"
+rev = "cff487ff58630cf0ac59f3e46cbf20cf50a28b3f"
 default_features = false
 
 [dependencies.tracing-futures]
