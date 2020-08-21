@@ -85,7 +85,7 @@ impl VerificationMachine {
         let (request_id, request) = content_to_request(recipient, recipient_device, content);
 
         let request = OutgoingRequest {
-            request_id: request_id.clone(),
+            request_id,
             request: Arc::new(request.into()),
         };
 
@@ -117,7 +117,7 @@ impl VerificationMachine {
         for sas in self.verifications.iter() {
             if let Some(r) = sas.cancel_if_timed_out() {
                 self.outgoing_to_device_messages.insert(
-                    r.0.clone(),
+                    r.0,
                     OutgoingRequest {
                         request_id: r.0,
                         request: Arc::new(r.1.into()),
@@ -192,7 +192,7 @@ impl VerificationMachine {
                     if s.is_done() && !s.mark_device_as_verified().await? {
                         if let Some(r) = s.cancel() {
                             self.outgoing_to_device_messages.insert(
-                                r.0.clone(),
+                                r.0,
                                 OutgoingRequest {
                                     request_id: r.0,
                                     request: Arc::new(r.1.into()),
