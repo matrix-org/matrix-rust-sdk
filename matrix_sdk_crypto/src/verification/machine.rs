@@ -189,15 +189,19 @@ impl VerificationMachine {
                 if let Some(s) = self.get_sas(&e.content.transaction_id) {
                     self.receive_event_helper(&s, event);
 
-                    if s.is_done() && !s.mark_device_as_verified().await? {
-                        if let Some(r) = s.cancel() {
-                            self.outgoing_to_device_messages.insert(
-                                r.0,
-                                OutgoingRequest {
-                                    request_id: r.0,
-                                    request: Arc::new(r.1.into()),
-                                },
-                            );
+                    if s.is_done() {
+                        if !s.mark_device_as_verified().await? {
+                            if let Some(r) = s.cancel() {
+                                self.outgoing_to_device_messages.insert(
+                                    r.0,
+                                    OutgoingRequest {
+                                        request_id: r.0,
+                                        request: Arc::new(r.1.into()),
+                                    },
+                                );
+                            }
+                        } else {
+                            s.mark_identity_as_verified().await?;
                         }
                     }
                 };
