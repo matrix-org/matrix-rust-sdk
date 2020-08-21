@@ -13,6 +13,7 @@
 // limitations under the License.
 
 use std::{
+    cmp::min,
     convert::TryInto,
     fmt,
     sync::{
@@ -406,7 +407,11 @@ impl OutboundGroupSession {
         let count = self.message_count.load(Ordering::SeqCst);
 
         count >= self.settings.rotation_period_msgs
-            || self.creation_time.elapsed() >= self.settings.rotation_period
+            || self.creation_time.elapsed()
+                // Since the encryption settings are provided by users and not
+                // checked someone could set a really low rotation perdiod so
+                // clamp it at a minute.
+                >= min(self.settings.rotation_period, Duration::from_secs(3600))
     }
 
     /// Mark the session as shared.
