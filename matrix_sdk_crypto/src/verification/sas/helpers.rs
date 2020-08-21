@@ -464,7 +464,7 @@ pub fn content_to_request(
     recipient: &UserId,
     recipient_device: &DeviceId,
     content: AnyToDeviceEventContent,
-) -> OwnedToDeviceRequest {
+) -> (Uuid, OwnedToDeviceRequest) {
     let mut messages = BTreeMap::new();
     let mut user_messages = BTreeMap::new();
 
@@ -483,11 +483,16 @@ pub fn content_to_request(
         _ => unreachable!(),
     };
 
-    OwnedToDeviceRequest {
-        txn_id: Uuid::new_v4().to_string(),
-        event_type,
-        messages,
-    }
+    let request_id = Uuid::new_v4();
+
+    (
+        request_id,
+        OwnedToDeviceRequest {
+            txn_id: request_id.to_string(),
+            event_type,
+            messages,
+        },
+    )
 }
 
 #[cfg(test)]

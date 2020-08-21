@@ -476,7 +476,10 @@ impl std::fmt::Debug for OutboundGroupSession {
 
 #[cfg(test)]
 mod test {
-    use std::{thread::sleep, time::Duration};
+    use std::{
+        sync::Arc,
+        time::{Duration, Instant},
+    };
 
     use matrix_sdk_common::{
         events::room::message::{MessageEventContent, TextMessageEventContent},
@@ -487,6 +490,7 @@ mod test {
     use crate::Account;
 
     #[tokio::test]
+    #[cfg(not(target_os = "macos"))]
     async fn expiration() {
         let settings = EncryptionSettings {
             rotation_period_msgs: 1,
@@ -512,13 +516,13 @@ mod test {
             ..Default::default()
         };
 
-        let (session, _) = account
+        let (mut session, _) = account
             .create_group_session_pair(&room_id!("!test_room:example.org"), settings)
             .await
             .unwrap();
 
         assert!(!session.expired());
-        sleep(Duration::from_millis(110));
+        session.creation_time = Arc::new(Instant::now() - Duration::from_secs(60 * 60));
         assert!(session.expired());
     }
 }

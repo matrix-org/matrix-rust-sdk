@@ -1748,27 +1748,6 @@ impl BaseClient {
         }
     }
 
-    /// Get the to-device requests that need to be sent out.
-    #[cfg(feature = "encryption")]
-    #[cfg_attr(feature = "docs", doc(cfg(encryption)))]
-    pub async fn outgoing_to_device_requests(&self) -> Vec<OwnedToDeviceRequest> {
-        self.olm
-            .lock()
-            .await
-            .as_ref()
-            .map(|o| o.outgoing_to_device_requests())
-            .unwrap_or_default()
-    }
-
-    /// Mark an outgoing to-device requests as sent.
-    #[cfg(feature = "encryption")]
-    #[cfg_attr(feature = "docs", doc(cfg(encryption)))]
-    pub async fn mark_to_device_request_as_sent(&self, request_id: &str) {
-        if let Some(olm) = self.olm.lock().await.as_ref() {
-            olm.mark_to_device_request_as_sent(request_id)
-        }
-    }
-
     /// Get a `Sas` verification object with the given flow id.
     ///
     /// # Arguments

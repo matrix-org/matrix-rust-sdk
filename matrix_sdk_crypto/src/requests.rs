@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::sync::Arc;
+
 use matrix_sdk_common::{
     api::r0::{
         keys::{
@@ -46,6 +48,12 @@ impl From<KeysQueryRequest> for OutgoingRequests {
 impl From<KeysUploadRequest> for OutgoingRequests {
     fn from(request: KeysUploadRequest) -> Self {
         OutgoingRequests::KeysUpload(request)
+    }
+}
+
+impl From<ToDeviceRequest> for OutgoingRequests {
+    fn from(request: ToDeviceRequest) -> Self {
+        OutgoingRequests::ToDeviceRequest(request)
     }
 }
 
@@ -87,11 +95,23 @@ impl<'a> From<&'a KeysClaimResponse> for IncomingResponse<'a> {
 }
 
 /// TODO
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct OutgoingRequest {
     /// The unique id of a request, needs to be passed when receiving a
     /// response.
-    pub request_id: Uuid,
+    pub(crate) request_id: Uuid,
     /// TODO
-    pub request: OutgoingRequests,
+    pub(crate) request: Arc<OutgoingRequests>,
+}
+
+impl OutgoingRequest {
+    /// Get the unique id of this request.
+    pub fn request_id(&self) -> &Uuid {
+        &self.request_id
+    }
+
+    /// Get the underlying outgoing request.
+    pub fn request(&self) -> &OutgoingRequests {
+        &self.request
+    }
 }

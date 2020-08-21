@@ -22,17 +22,18 @@ use matrix_sdk_common::{
     api::r0::to_device::send_event_to_device::IncomingRequest as OwnedToDeviceRequest,
     events::{AnyToDeviceEvent, AnyToDeviceEventContent},
     identifiers::{DeviceId, UserId},
+    uuid::Uuid,
 };
 
 use super::sas::{content_to_request, Sas};
-use crate::{Account, CryptoStore, CryptoStoreError, ReadOnlyDevice};
+use crate::{requests::OutgoingRequest, Account, CryptoStore, CryptoStoreError, ReadOnlyDevice};
 
 #[derive(Clone, Debug)]
 pub struct VerificationMachine {
     account: Account,
     pub(crate) store: Arc<Box<dyn CryptoStore>>,
     verifications: Arc<DashMap<String, Sas>>,
-    outgoing_to_device_messages: Arc<DashMap<String, OwnedToDeviceRequest>>,
+    outgoing_to_device_messages: Arc<DashMap<Uuid, OutgoingRequest>>,
 }
 
 impl VerificationMachine {
@@ -58,7 +59,7 @@ impl VerificationMachine {
             identity,
         );
 
-        let request = content_to_request(
+        let (_, request) = content_to_request(
             device.user_id(),
             device.device_id(),
             AnyToDeviceEventContent::KeyVerificationStart(content),
@@ -81,10 +82,14 @@ impl VerificationMachine {
         recipient_device: &DeviceId,
         content: AnyToDeviceEventContent,
     ) {
-        let request = content_to_request(recipient, recipient_device, content);
+        let (request_id, request) = content_to_request(recipient, recipient_device, content);
 
-        self.outgoing_to_device_messages
-            .insert(request.txn_id.clone(), request);
+        let request = OutgoingRequest {
+            request_id: request_id.clone(),
+            request: Arc::new(request.into()),
+        };
+
+        self.outgoing_to_device_messages.insert(request_id, request);
     }
 
     fn receive_event_helper(&self, sas: &Sas, event: &mut AnyToDeviceEvent) {
@@ -93,19 +98,15 @@ impl VerificationMachine {
         }
     }
 
-    pub fn mark_requests_as_sent(&self, uuid: &str) {
+    pub fn mark_requests_as_sent(&self, uuid: &Uuid) {
         self.outgoing_to_device_messages.remove(uuid);
     }
 
-    pub fn outgoing_to_device_requests(&self) -> Vec<OwnedToDeviceRequest> {
+    pub fn outgoing_to_device_requests(&self) -> Vec<OutgoingRequest> {
         #[allow(clippy::map_clone)]
         self.outgoing_to_device_messages
             .iter()
-            .map(|r| OwnedToDeviceRequest {
-                event_type: r.event_type.clone(),
-                txn_id: r.txn_id.clone(),
-                messages: r.messages.clone(),
-            })
+            .map(|r| (*r).clone())
             .collect()
     }
 
@@ -115,7 +116,13 @@ impl VerificationMachine {
 
         for sas in self.verifications.iter() {
             if let Some(r) = sas.cancel_if_timed_out() {
-                self.outgoing_to_device_messages.insert(r.txn_id.clone(), r);
+                self.outgoing_to_device_messages.insert(
+                    r.0.clone(),
+                    OutgoingRequest {
+                        request_id: r.0,
+                        request: Arc::new(r.1.into()),
+                    },
+                );
             }
         }
     }
@@ -184,7 +191,13 @@ impl VerificationMachine {
 
                     if s.is_done() && !s.mark_device_as_verified().await? {
                         if let Some(r) = s.cancel() {
-                            self.outgoing_to_device_messages.insert(r.txn_id.clone(), r);
+                            self.outgoing_to_device_messages.insert(
+                                r.0.clone(),
+                                OutgoingRequest {
+                                    request_id: r.0,
+                                    request: Arc::new(r.1.into()),
+                                },
+                            );
                         }
                     }
                 };
@@ -211,6 +224,7 @@ mod test {
 
     use super::{Sas, VerificationMachine};
     use crate::{
+        requests::OutgoingRequests,
         store::memorystore::MemoryStore,
         verification::test::{get_content_from_request, wrap_any_to_device_content},
         Account, CryptoStore, ReadOnlyDevice,
@@ -293,10 +307,15 @@ mod test {
             .next()
             .unwrap();
 
-        let txn_id = request.txn_id.clone();
+        let txn_id = request.request_id().clone();
 
-        let mut event =
-            wrap_any_to_device_content(alice.user_id(), get_content_from_request(&request));
+        let r = if let OutgoingRequests::ToDeviceRequest(r) = request.request() {
+            r
+        } else {
+            panic!("Invalid request type");
+        };
+
+        let mut event = wrap_any_to_device_content(alice.user_id(), get_content_from_request(r));
         drop(request);
         alice_machine.mark_requests_as_sent(&txn_id);
 

@@ -1109,11 +1109,11 @@ impl Client {
     }
 
     #[cfg(feature = "encryption")]
-    async fn send_to_device(&self, request: OwnedToDeviceRequest) -> Result<ToDeviceResponse> {
+    async fn send_to_device(&self, request: &OwnedToDeviceRequest) -> Result<ToDeviceResponse> {
         let request = ToDeviceRequest {
-            event_type: request.event_type,
+            event_type: request.event_type.clone(),
             txn_id: &request.txn_id,
-            messages: request.messages,
+            messages: request.messages.clone(),
         };
 
         self.send(request).await
@@ -1232,22 +1232,22 @@ impl Client {
             #[cfg(feature = "encryption")]
             {
                 for r in self.base_client.outgoing_requests().await {
-                    match r.request {
+                    match r.request() {
                         OutgoingRequests::KeysQuery(request) => {
-                            if let Err(e) = self.keys_query(&r.request_id, request).await {
+                            if let Err(e) = self.keys_query(r.request_id(), request).await {
                                 warn!("Error while querying device keys {:?}", e);
                             }
                         }
 
                         OutgoingRequests::KeysUpload(request) => {
-                            if let Err(e) = self.keys_upload(&r.request_id, request).await {
+                            if let Err(e) = self.keys_upload(&r.request_id(), request).await {
                                 warn!("Error while querying device keys {:?}", e);
                             }
                         }
                         OutgoingRequests::ToDeviceRequest(request) => {
                             if let Ok(resp) = self.send_to_device(request).await {
                                 self.base_client
-                                    .mark_request_as_sent(&r.request_id, &resp)
+                                    .mark_request_as_sent(&r.request_id(), &resp)
                                     .await
                                     .unwrap();
                             }
@@ -1328,7 +1328,7 @@ impl Client {
             .expect("Keys don't need to be uploaded");
 
         for request in requests.drain(..) {
-            self.send_to_device(request).await?;
+            self.send_to_device(&request).await?;
         }
 
         Ok(())
@@ -1349,7 +1349,7 @@ impl Client {
     async fn keys_upload(
         &self,
         request_id: &Uuid,
-        request: upload_keys::Request,
+        request: &upload_keys::Request,
     ) -> Result<upload_keys::Response> {
         debug!(
             "Uploading encryption keys device keys: {}, one-time-keys: {}",
@@ -1357,7 +1357,7 @@ impl Client {
             request.one_time_keys.as_ref().map_or(0, |k| k.len())
         );
 
-        let response = self.send(request).await?;
+        let response = self.send(request.clone()).await?;
         self.base_client
             .mark_request_as_sent(request_id, &response)
             .await?;
@@ -1382,11 +1382,11 @@ impl Client {
     async fn keys_query(
         &self,
         request_id: &Uuid,
-        request: get_keys::IncomingRequest,
+        request: &get_keys::IncomingRequest,
     ) -> Result<get_keys::Response> {
         let request = get_keys::Request {
             timeout: None,
-            device_keys: request.device_keys,
+            device_keys: request.device_keys.clone(),
             token: None,
         };
 

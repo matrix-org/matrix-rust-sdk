@@ -20,6 +20,7 @@ pub use sas::Sas;
 
 #[cfg(test)]
 pub(crate) mod test {
+    use crate::requests::{OutgoingRequest, OutgoingRequests};
     use serde_json::Value;
 
     use matrix_sdk_common::{
@@ -34,6 +35,16 @@ pub(crate) mod test {
     ) -> AnyToDeviceEvent {
         let content = get_content_from_request(request);
         wrap_any_to_device_content(sender, content)
+    }
+
+    pub(crate) fn outgoing_request_to_event(
+        sender: &UserId,
+        request: &OutgoingRequest,
+    ) -> AnyToDeviceEvent {
+        match request.request() {
+            OutgoingRequests::ToDeviceRequest(r) => request_to_event(sender, r),
+            _ => panic!("Unsupported outgoing request"),
+        }
     }
 
     pub(crate) fn wrap_any_to_device_content(

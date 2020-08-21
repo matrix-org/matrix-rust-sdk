@@ -223,17 +223,19 @@ impl OlmMachine {
 
         if let Some(r) = self.keys_for_upload().await.map(|r| OutgoingRequest {
             request_id: Uuid::new_v4(),
-            request: r.into(),
+            request: Arc::new(r.into()),
         }) {
             requests.push(r);
         }
 
         if let Some(r) = self.users_for_key_query().await.map(|r| OutgoingRequest {
             request_id: Uuid::new_v4(),
-            request: r.into(),
+            request: Arc::new(r.into()),
         }) {
             requests.push(r);
         }
+
+        requests.append(&mut self.outgoing_to_device_requests());
 
         requests
     }
@@ -255,7 +257,7 @@ impl OlmMachine {
                 self.receive_keys_claim_response(response).await?;
             }
             IncomingResponse::ToDevice(_) => {
-                self.mark_to_device_request_as_sent(&request_id.to_string());
+                self.mark_to_device_request_as_sent(&request_id);
             }
         };
 
@@ -1234,12 +1236,12 @@ impl OlmMachine {
     }
 
     /// Get the to-device requests that need to be sent out.
-    pub fn outgoing_to_device_requests(&self) -> Vec<OwnedToDeviceRequest> {
+    fn outgoing_to_device_requests(&self) -> Vec<OutgoingRequest> {
         self.verification_machine.outgoing_to_device_requests()
     }
 
     /// Mark an outgoing to-device requests as sent.
-    pub fn mark_to_device_request_as_sent(&self, request_id: &str) {
+    fn mark_to_device_request_as_sent(&self, request_id: &Uuid) {
         self.verification_machine.mark_requests_as_sent(request_id);
     }
 
@@ -1538,8 +1540,9 @@ pub(crate) mod test {
     use tempfile::tempdir;
 
     use crate::{
-        machine::OlmMachine, verification::test::request_to_event, verify_json, EncryptionSettings,
-        ReadOnlyDevice,
+        machine::OlmMachine,
+        verification::test::{outgoing_request_to_event, request_to_event},
+        verify_json, EncryptionSettings, ReadOnlyDevice,
     };
 
     use matrix_sdk_common::{
@@ -2169,7 +2172,7 @@ pub(crate) mod test {
             .outgoing_to_device_requests()
             .iter()
             .next()
-            .map(|r| request_to_event(alice.user_id(), &r))
+            .map(|r| outgoing_request_to_event(alice.user_id(), r))
             .unwrap();
         bob.handle_verification_event(&mut event).await;
 
@@ -2177,7 +2180,7 @@ pub(crate) mod test {
             .outgoing_to_device_requests()
             .iter()
             .next()
-            .map(|r| request_to_event(bob.user_id(), &r))
+            .map(|r| outgoing_request_to_event(bob.user_id(), r))
             .unwrap();
         alice.handle_verification_event(&mut event).await;
 

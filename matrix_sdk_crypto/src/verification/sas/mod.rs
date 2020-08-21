@@ -31,6 +31,7 @@ use matrix_sdk_common::{
         AnyToDeviceEvent, AnyToDeviceEventContent, ToDeviceEvent,
     },
     identifiers::{DeviceId, UserId},
+    uuid::Uuid,
 };
 
 use crate::{
@@ -168,7 +169,7 @@ impl Sas {
     pub fn accept(&self) -> Option<OwnedToDeviceRequest> {
         self.inner.lock().unwrap().accept().map(|c| {
             let content = AnyToDeviceEventContent::KeyVerificationAccept(c);
-            self.content_to_request(content)
+            self.content_to_request(content).1
         })
     }
 
@@ -194,7 +195,7 @@ impl Sas {
             // else branch and only after the identity was verified as well. We
             // dont' want to verify one without the other.
             if !self.mark_device_as_verified().await? {
-                return Ok(self.cancel());
+                return Ok(self.cancel().map(|r| r.1));
             } else {
                 self.mark_identity_as_verified().await?;
             }
@@ -202,7 +203,7 @@ impl Sas {
 
         Ok(content.map(|c| {
             let content = AnyToDeviceEventContent::KeyVerificationMac(c);
-            self.content_to_request(content)
+            self.content_to_request(content).1
         }))
     }
 
@@ -327,7 +328,7 @@ impl Sas {
     ///
     /// Returns None if the `Sas` object is already in a canceled state,
     /// otherwise it returns a request that needs to be sent out.
-    pub fn cancel(&self) -> Option<OwnedToDeviceRequest> {
+    pub fn cancel(&self) -> Option<(Uuid, OwnedToDeviceRequest)> {
         let mut guard = self.inner.lock().unwrap();
         let sas: InnerSas = (*guard).clone();
         let (sas, content) = sas.cancel(CancelCode::User);
@@ -336,7 +337,7 @@ impl Sas {
         content.map(|c| self.content_to_request(c))
     }
 
-    pub(crate) fn cancel_if_timed_out(&self) -> Option<OwnedToDeviceRequest> {
+    pub(crate) fn cancel_if_timed_out(&self) -> Option<(Uuid, OwnedToDeviceRequest)> {
         if self.is_canceled() || self.is_done() {
             None
         } else if self.timed_out() {
@@ -410,7 +411,7 @@ impl Sas {
     pub(crate) fn content_to_request(
         &self,
         content: AnyToDeviceEventContent,
-    ) -> OwnedToDeviceRequest {
+    ) -> (Uuid, OwnedToDeviceRequest) {
         content_to_request(self.other_user_id(), self.other_device_id(), content)
     }
 }
