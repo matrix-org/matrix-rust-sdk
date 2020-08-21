@@ -1337,12 +1337,12 @@ impl BaseClient {
     /// Returns an empty error if no keys need to be uploaded.
     #[cfg(feature = "encryption")]
     #[cfg_attr(feature = "docs", doc(cfg(encryption)))]
-    pub async fn keys_for_upload(&self) -> StdResult<KeysUploadRequest, ()> {
+    pub async fn keys_for_upload(&self) -> Option<KeysUploadRequest> {
         let olm = self.olm.lock().await;
 
         match &*olm {
             Some(o) => o.keys_for_upload().await,
-            None => Err(()),
+            None => None,
         }
     }
 

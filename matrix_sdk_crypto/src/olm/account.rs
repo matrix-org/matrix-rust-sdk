@@ -200,18 +200,15 @@ impl Account {
 
     /// Get a tuple of device and one-time keys that need to be uploaded.
     ///
-    /// Returns an empty error if no keys need to be uploaded.
+    /// Returns None if no keys need to be uploaded.
     pub(crate) async fn keys_for_upload(
         &self,
-    ) -> Result<
-        (
-            Option<DeviceKeys>,
-            Option<BTreeMap<DeviceKeyId, OneTimeKey>>,
-        ),
-        (),
-    > {
+    ) -> Option<(
+        Option<DeviceKeys>,
+        Option<BTreeMap<DeviceKeyId, OneTimeKey>>,
+    )> {
         if !self.should_upload_keys().await {
-            return Err(());
+            return None;
         }
 
         let device_keys = if !self.shared() {
@@ -222,7 +219,7 @@ impl Account {
 
         let one_time_keys = self.signed_one_time_keys().await.ok();
 
-        Ok((device_keys, one_time_keys))
+        Some((device_keys, one_time_keys))
     }
 
     /// Mark the current set of one-time keys as being published.

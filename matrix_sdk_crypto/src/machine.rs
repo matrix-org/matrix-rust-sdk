@@ -18,7 +18,6 @@ use std::{
     collections::{BTreeMap, HashSet},
     convert::{TryFrom, TryInto},
     mem,
-    result::Result as StdResult,
     sync::Arc,
 };
 
@@ -26,15 +25,14 @@ use dashmap::DashMap;
 use serde_json::Value;
 use tracing::{debug, error, info, instrument, trace, warn};
 
-use api::r0::{
-    keys::{claim_keys, get_keys, upload_keys, OneTimeKey},
-    sync::sync_events::Response as SyncResponse,
-    to_device::{
-        send_event_to_device::IncomingRequest as OwnedToDeviceRequest, DeviceIdOrAllDevices,
-    },
-};
 use matrix_sdk_common::{
-    api,
+    api::r0::{
+        keys::{claim_keys, get_keys, upload_keys, OneTimeKey},
+        sync::sync_events::Response as SyncResponse,
+        to_device::{
+            send_event_to_device::IncomingRequest as OwnedToDeviceRequest, DeviceIdOrAllDevices,
+        },
+    },
     encryption::DeviceKeys,
     events::{
         forwarded_room_key::ForwardedRoomKeyEventContent,
@@ -631,17 +629,17 @@ impl OlmMachine {
 
     /// Get a request to upload E2EE keys to the server.
     ///
-    /// Returns an empty error if no keys need to be uploaded.
+    /// Returns None if no keys need to be uploaded.
     ///
     /// The response of a successful key upload requests needs to be passed to
     /// the [`OlmMachine`] with the [`receive_keys_upload_response`].
     ///
     /// [`receive_keys_upload_response`]: #method.receive_keys_upload_response
     /// [`OlmMachine`]: struct.OlmMachine.html
-    pub async fn keys_for_upload(&self) -> StdResult<upload_keys::Request, ()> {
+    pub async fn keys_for_upload(&self) -> Option<upload_keys::Request> {
         let (device_keys, one_time_keys) = self.account.keys_for_upload().await?;
 
-        Ok(upload_keys::Request {
+        Some(upload_keys::Request {
             device_keys,
             one_time_keys,
         })
@@ -1813,7 +1811,7 @@ pub(crate) mod test {
             .unwrap();
 
         let ret = machine.keys_for_upload().await;
-        assert!(ret.is_err());
+        assert!(ret.is_none());
     }
 
     #[tokio::test]
