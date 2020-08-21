@@ -311,7 +311,7 @@ mod test {
             .next()
             .unwrap();
 
-        let txn_id = request.request_id().clone();
+        let txn_id = *request.request_id();
 
         let r = if let OutgoingRequests::ToDeviceRequest(r) = request.request() {
             r
