@@ -12,6 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+//! Collection of small in-memory stores that can be used to cache Olm objects.
+//!
+//! Note: You'll only be interested in these if you are implementing a custom
+//! `CryptoStore`.
+
 use std::{collections::HashMap, sync::Arc};
 
 use dashmap::{DashMap, ReadOnlyView};

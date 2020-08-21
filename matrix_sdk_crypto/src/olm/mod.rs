@@ -12,15 +12,20 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+//! The crypto specific Olm objects.
+//!
+//! Note: You'll only be interested in these if you are implementing a custom
+//! `CryptoStore`.
+
 mod account;
 mod group_sessions;
 mod session;
 
 pub use account::{Account, IdentityKeys};
-pub use group_sessions::{
-    EncryptionSettings, GroupSessionKey, InboundGroupSession, OutboundGroupSession,
-};
-pub use session::{OlmMessage, Session};
+pub use group_sessions::{EncryptionSettings, InboundGroupSession};
+pub(crate) use group_sessions::{GroupSessionKey, OutboundGroupSession};
+pub(crate) use session::OlmMessage;
+pub use session::Session;
 
 #[cfg(test)]
 pub(crate) mod test {
