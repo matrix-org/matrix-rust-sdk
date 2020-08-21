@@ -30,12 +30,13 @@ use matrix_sdk_common::{
     uuid::Uuid,
 };
 
-use crate::{Account, ReadOnlyDevice};
+use crate::{user_identity::UserIdentities, Account, ReadOnlyDevice};
 
 #[derive(Clone, Debug)]
 pub struct SasIds {
     pub account: Account,
     pub other_device: ReadOnlyDevice,
+    pub other_identity: Option<UserIdentities>,
 }
 
 /// Get a tuple of an emoji and a description of the emoji using a number.
@@ -158,8 +159,9 @@ pub fn receive_mac_event(
     ids: &SasIds,
     flow_id: &str,
     event: &ToDeviceEvent<MacEventContent>,
-) -> Result<(Vec<ReadOnlyDevice>, Vec<String>), CancelCode> {
+) -> Result<(Vec<ReadOnlyDevice>, Vec<UserIdentities>), CancelCode> {
     let mut verified_devices = Vec::new();
+    let mut verified_identities = Vec::new();
 
     let info = extra_mac_info_receive(&ids, flow_id);
 
@@ -201,6 +203,25 @@ pub fn receive_mac_event(
             } else {
                 return Err(CancelCode::KeyMismatch);
             }
+        } else if let Some(identity) = &ids.other_identity {
+            if let Some(key) = identity.master_key().get_key(&key_id) {
+                // TODO we should check that the master key signs the device,
+                // this way we know the master key also trusts the device
+                if key_mac
+                    == &sas
+                        .calculate_mac(key, &format!("{}{}", info, key_id))
+                        .expect("Can't calculate SAS MAC")
+                {
+                    trace!(
+                        "Successfully verified the master key {} from {}",
+                        key_id,
+                        event.sender
+                    );
+                    verified_identities.push(identity.clone())
+                } else {
+                    return Err(CancelCode::KeyMismatch);
+                }
+            }
         } else {
             warn!(
                 "Key ID {} in MAC event from {} {} doesn't belong to any device \
@@ -210,10 +231,9 @@ pub fn receive_mac_event(
                 ids.other_device.device_id()
             );
         }
-        // TODO add an else if branch for the master key here
     }
 
-    Ok((verified_devices, vec![]))
+    Ok((verified_devices, verified_identities))
 }
 
 /// Get the extra info that will be used when we generate a MAC and need to send
@@ -444,7 +464,7 @@ pub fn content_to_request(
     recipient: &UserId,
     recipient_device: &DeviceId,
     content: AnyToDeviceEventContent,
-) -> OwnedToDeviceRequest {
+) -> (Uuid, OwnedToDeviceRequest) {
     let mut messages = BTreeMap::new();
     let mut user_messages = BTreeMap::new();
 
@@ -463,11 +483,16 @@ pub fn content_to_request(
         _ => unreachable!(),
     };
 
-    OwnedToDeviceRequest {
-        txn_id: Uuid::new_v4().to_string(),
-        event_type,
-        messages,
-    }
+    let request_id = Uuid::new_v4();
+
+    (
+        request_id,
+        OwnedToDeviceRequest {
+            txn_id: request_id.to_string(),
+            event_type,
+            messages,
+        },
+    )
 }
 
 #[cfg(test)]

@@ -15,7 +15,7 @@
 use std::{ops::Deref, result::Result as StdResult};
 
 use matrix_sdk_base::{
-    CryptoStoreError, Device as BaseDevice, ReadOnlyDevice, TrustState,
+    CryptoStoreError, Device as BaseDevice, LocalTrust, ReadOnlyDevice,
     UserDevices as BaseUserDevices,
 };
 use matrix_sdk_common::{
@@ -61,7 +61,7 @@ impl Device {
     /// # });
     /// ```
     pub async fn start_verification(&self) -> Result<Sas> {
-        let (sas, request) = self.inner.start_verification();
+        let (sas, request) = self.inner.start_verification().await?;
         let request = ToDeviceRequest {
             event_type: request.event_type,
             txn_id: &request.txn_id,
@@ -76,16 +76,24 @@ impl Device {
         })
     }
 
-    /// Set the trust state of the device to the given state.
+    /// Is the device trusted.
+    pub fn is_trusted(&self) -> bool {
+        self.inner.trust_state()
+    }
+
+    /// Set the local trust state of the device to the given state.
+    ///
+    /// This won't affect any cross signing trust state, this only sets a flag
+    /// marking to have the given trust state.
     ///
     /// # Arguments
     ///
     /// * `trust_state` - The new trust state that should be set for the device.
-    pub async fn set_trust_state(
+    pub async fn set_local_trust(
         &self,
-        trust_state: TrustState,
+        trust_state: LocalTrust,
     ) -> StdResult<(), CryptoStoreError> {
-        self.inner.set_trust_state(trust_state).await
+        self.inner.set_local_trust(trust_state).await
     }
 }
 

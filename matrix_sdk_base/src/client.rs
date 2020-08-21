@@ -13,8 +13,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#[cfg(feature = "encryption")]
-use std::collections::{BTreeMap, HashSet};
 use std::{
     collections::HashMap,
     fmt,
@@ -36,24 +34,22 @@ use matrix_sdk_common::{
     identifiers::{RoomId, UserId},
     locks::RwLock,
     push::Ruleset,
+    uuid::Uuid,
     Raw,
 };
 #[cfg(feature = "encryption")]
 use matrix_sdk_common::{
-    api::r0::keys::{
-        claim_keys::Response as KeysClaimResponse,
-        get_keys::Response as KeysQueryResponse,
-        upload_keys::{Request as KeysUploadRequest, Response as KeysUploadResponse},
-    },
+    api::r0::keys::claim_keys::Request as KeysClaimRequest,
     api::r0::to_device::send_event_to_device::IncomingRequest as OwnedToDeviceRequest,
     events::room::{
         encrypted::EncryptedEventContent, message::MessageEventContent as MsgEventContent,
     },
-    identifiers::{DeviceId, DeviceKeyAlgorithm},
+    identifiers::DeviceId,
 };
 #[cfg(feature = "encryption")]
 use matrix_sdk_crypto::{
-    CryptoStore, CryptoStoreError, Device, OlmError, OlmMachine, Sas, UserDevices,
+    CryptoStore, CryptoStoreError, Device, IncomingResponse, OlmError, OlmMachine, OutgoingRequest,
+    Sas, UserDevices,
 };
 use zeroize::Zeroizing;
 
@@ -1229,18 +1225,6 @@ impl BaseClient {
         Ok(updated)
     }
 
-    /// Should account or one-time keys be uploaded to the server.
-    #[cfg(feature = "encryption")]
-    #[cfg_attr(feature = "docs", doc(cfg(encryption)))]
-    pub async fn should_upload_keys(&self) -> bool {
-        let olm = self.olm.lock().await;
-
-        match &*olm {
-            Some(o) => o.should_upload_keys().await,
-            None => false,
-        }
-    }
-
     /// Should the client share a group session for the given room.
     ///
     /// Returns true if a session needs to be shared before room messages can be
@@ -1260,15 +1244,31 @@ impl BaseClient {
         }
     }
 
-    /// Should users be queried for their device keys.
+    /// Get the list of outgoing requests that need to be sent out.
     #[cfg(feature = "encryption")]
     #[cfg_attr(feature = "docs", doc(cfg(encryption)))]
-    pub async fn should_query_keys(&self) -> bool {
+    pub async fn outgoing_requests(&self) -> Vec<OutgoingRequest> {
         let olm = self.olm.lock().await;
 
         match &*olm {
-            Some(o) => o.should_query_keys().await,
-            None => false,
+            Some(o) => o.outgoing_requests().await,
+            None => vec![],
+        }
+    }
+
+    /// Get the list of outgoing requests that need to be sent out.
+    #[cfg(feature = "encryption")]
+    #[cfg_attr(feature = "docs", doc(cfg(encryption)))]
+    pub async fn mark_request_as_sent<'a>(
+        &self,
+        request_id: &Uuid,
+        response: impl Into<IncomingResponse<'a>>,
+    ) -> Result<()> {
+        let olm = self.olm.lock().await;
+
+        match &*olm {
+            Some(o) => Ok(o.mark_requests_as_sent(request_id, response).await?),
+            None => Ok(()),
         }
     }
 
@@ -1280,12 +1280,12 @@ impl BaseClient {
     pub async fn get_missing_sessions(
         &self,
         users: impl Iterator<Item = &UserId>,
-    ) -> Result<BTreeMap<UserId, BTreeMap<Box<DeviceId>, DeviceKeyAlgorithm>>> {
+    ) -> Result<Option<(Uuid, KeysClaimRequest)>> {
         let olm = self.olm.lock().await;
 
         match &*olm {
             Some(o) => Ok(o.get_missing_sessions(users).await?),
-            None => Ok(BTreeMap::new()),
+            None => Ok(None),
         }
     }
 
@@ -1330,92 +1330,6 @@ impl BaseClient {
             Some(o) => Ok(o.encrypt(room_id, content).await?),
             None => panic!("Olm machine wasn't started"),
         }
-    }
-
-    /// Get a tuple of device and one-time keys that need to be uploaded.
-    ///
-    /// Returns an empty error if no keys need to be uploaded.
-    #[cfg(feature = "encryption")]
-    #[cfg_attr(feature = "docs", doc(cfg(encryption)))]
-    pub async fn keys_for_upload(&self) -> StdResult<KeysUploadRequest, ()> {
-        let olm = self.olm.lock().await;
-
-        match &*olm {
-            Some(o) => o.keys_for_upload().await,
-            None => Err(()),
-        }
-    }
-
-    /// Get the users that we need to query keys for.
-    ///
-    /// Returns an empty error if no keys need to be queried.
-    #[cfg(feature = "encryption")]
-    #[cfg_attr(feature = "docs", doc(cfg(encryption)))]
-    pub async fn users_for_key_query(&self) -> StdResult<HashSet<UserId>, ()> {
-        let olm = self.olm.lock().await;
-
-        match &*olm {
-            Some(o) => Ok(o.users_for_key_query().await),
-            None => Err(()),
-        }
-    }
-
-    /// Receive a successful keys upload response.
-    ///
-    /// # Arguments
-    ///
-    /// * `response` - The keys upload response of the request that the client
-    ///     performed.
-    ///
-    /// # Panics
-    /// Panics if the client hasn't been logged in.
-    #[cfg(feature = "encryption")]
-    #[cfg_attr(feature = "docs", doc(cfg(encryption)))]
-    pub async fn receive_keys_upload_response(&self, response: &KeysUploadResponse) -> Result<()> {
-        let olm = self.olm.lock().await;
-
-        let o = olm.as_ref().expect("Client isn't logged in.");
-        o.receive_keys_upload_response(response).await?;
-        Ok(())
-    }
-
-    /// Receive a successful keys claim response.
-    ///
-    /// # Arguments
-    ///
-    /// * `response` - The keys claim response of the request that the client
-    /// performed.
-    ///
-    /// # Panics
-    /// Panics if the client hasn't been logged in.
-    #[cfg(feature = "encryption")]
-    #[cfg_attr(feature = "docs", doc(cfg(encryption)))]
-    pub async fn receive_keys_claim_response(&self, response: &KeysClaimResponse) -> Result<()> {
-        let olm = self.olm.lock().await;
-
-        let o = olm.as_ref().expect("Client isn't logged in.");
-        o.receive_keys_claim_response(response).await?;
-        Ok(())
-    }
-
-    /// Receive a successful keys query response.
-    ///
-    /// # Arguments
-    ///
-    /// * `response` - The keys query response of the request that the client
-    /// performed.
-    ///
-    /// # Panics
-    /// Panics if the client hasn't been logged in.
-    #[cfg(feature = "encryption")]
-    #[cfg_attr(feature = "docs", doc(cfg(encryption)))]
-    pub async fn receive_keys_query_response(&self, response: &KeysQueryResponse) -> Result<()> {
-        let olm = self.olm.lock().await;
-
-        let o = olm.as_ref().expect("Client isn't logged in.");
-        o.receive_keys_query_response(response).await?;
-        // TODO notify our callers of new devices via some callback.
-        Ok(())
     }
 
     /// Invalidate the currently active outbound group session for the given
@@ -1831,27 +1745,6 @@ impl BaseClient {
         };
         if let Some(ee) = &self.event_emitter.read().await.as_ref() {
             ee.on_unrecognized_event(room, event.json()).await;
-        }
-    }
-
-    /// Get the to-device requests that need to be sent out.
-    #[cfg(feature = "encryption")]
-    #[cfg_attr(feature = "docs", doc(cfg(encryption)))]
-    pub async fn outgoing_to_device_requests(&self) -> Vec<OwnedToDeviceRequest> {
-        self.olm
-            .lock()
-            .await
-            .as_ref()
-            .map(|o| o.outgoing_to_device_requests())
-            .unwrap_or_default()
-    }
-
-    /// Mark an outgoing to-device requests as sent.
-    #[cfg(feature = "encryption")]
-    #[cfg_attr(feature = "docs", doc(cfg(encryption)))]
-    pub async fn mark_to_device_request_as_sent(&self, request_id: &str) {
-        if let Some(olm) = self.olm.lock().await.as_ref() {
-            olm.mark_to_device_request_as_sent(request_id)
         }
     }
 

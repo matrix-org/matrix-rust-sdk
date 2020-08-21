@@ -41,7 +41,7 @@
 pub use matrix_sdk_base::JsonStore;
 #[cfg(feature = "encryption")]
 #[cfg_attr(feature = "docs", doc(cfg(encryption)))]
-pub use matrix_sdk_base::TrustState;
+pub use matrix_sdk_base::LocalTrust;
 pub use matrix_sdk_base::{
     CustomEvent, Error as BaseError, EventEmitter, Room, RoomState, Session, StateStore, SyncRoom,
 };

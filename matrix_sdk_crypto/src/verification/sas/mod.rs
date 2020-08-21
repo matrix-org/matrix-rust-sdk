@@ -31,9 +31,13 @@ use matrix_sdk_common::{
         AnyToDeviceEvent, AnyToDeviceEventContent, ToDeviceEvent,
     },
     identifiers::{DeviceId, UserId},
+    uuid::Uuid,
 };
 
-use crate::{Account, CryptoStore, CryptoStoreError, ReadOnlyDevice, TrustState};
+use crate::{
+    user_identity::UserIdentities, Account, CryptoStore, CryptoStoreError, LocalTrust,
+    ReadOnlyDevice,
+};
 
 pub use helpers::content_to_request;
 use sas_state::{
@@ -47,6 +51,7 @@ pub struct Sas {
     store: Arc<Box<dyn CryptoStore>>,
     account: Account,
     other_device: ReadOnlyDevice,
+    other_identity: Option<UserIdentities>,
     flow_id: Arc<String>,
 }
 
@@ -101,8 +106,13 @@ impl Sas {
         account: Account,
         other_device: ReadOnlyDevice,
         store: Arc<Box<dyn CryptoStore>>,
+        other_identity: Option<UserIdentities>,
     ) -> (Sas, StartEventContent) {
-        let (inner, content) = InnerSas::start(account.clone(), other_device.clone());
+        let (inner, content) = InnerSas::start(
+            account.clone(),
+            other_device.clone(),
+            other_identity.clone(),
+        );
         let flow_id = inner.verification_flow_id();
 
         let sas = Sas {
@@ -111,6 +121,7 @@ impl Sas {
             store,
             other_device,
             flow_id,
+            other_identity,
         };
 
         (sas, content)
@@ -131,13 +142,21 @@ impl Sas {
         other_device: ReadOnlyDevice,
         store: Arc<Box<dyn CryptoStore>>,
         event: &ToDeviceEvent<StartEventContent>,
+        other_identity: Option<UserIdentities>,
     ) -> Result<Sas, AnyToDeviceEventContent> {
-        let inner = InnerSas::from_start_event(account.clone(), other_device.clone(), event)?;
+        let inner = InnerSas::from_start_event(
+            account.clone(),
+            other_device.clone(),
+            event,
+            other_identity.clone(),
+        )?;
         let flow_id = inner.verification_flow_id();
+
         Ok(Sas {
             inner: Arc::new(Mutex::new(inner)),
             account,
             other_device,
+            other_identity,
             store,
             flow_id,
         })
@@ -150,7 +169,7 @@ impl Sas {
     pub fn accept(&self) -> Option<OwnedToDeviceRequest> {
         self.inner.lock().unwrap().accept().map(|c| {
             let content = AnyToDeviceEventContent::KeyVerificationAccept(c);
-            self.content_to_request(content)
+            self.content_to_request(content).1
         })
     }
 
@@ -171,14 +190,79 @@ impl Sas {
             (content, guard.is_done())
         };
 
-        if done && !self.mark_device_as_verified().await? {
-            return Ok(self.cancel());
+        if done {
+            // TODO move the logic that marks and stores the device into the
+            // else branch and only after the identity was verified as well. We
+            // dont' want to verify one without the other.
+            if !self.mark_device_as_verified().await? {
+                return Ok(self.cancel().map(|r| r.1));
+            } else {
+                self.mark_identity_as_verified().await?;
+            }
         }
 
         Ok(content.map(|c| {
             let content = AnyToDeviceEventContent::KeyVerificationMac(c);
-            self.content_to_request(content)
+            self.content_to_request(content).1
         }))
+    }
+
+    pub(crate) async fn mark_identity_as_verified(&self) -> Result<bool, CryptoStoreError> {
+        // If there wasn't an identity available during the verification flow
+        // return early as there's nothing to do.
+        if self.other_identity.is_none() {
+            return Ok(false);
+        }
+
+        let identity = self.store.get_user_identity(self.other_user_id()).await?;
+
+        if let Some(identity) = identity {
+            if identity.master_key() == self.other_identity.as_ref().unwrap().master_key() {
+                if self
+                    .verified_identities()
+                    .map_or(false, |i| i.contains(&identity))
+                {
+                    trace!(
+                        "Marking user identity of {} as verified.",
+                        identity.user_id(),
+                    );
+
+                    if let UserIdentities::Own(i) = &identity {
+                        i.mark_as_verified();
+                        self.store.save_user_identities(&[identity]).await?;
+                    }
+                    // TODO if we have the private part of the user signing
+                    // key we should sign and upload a signature for this
+                    // identity.
+
+                    Ok(true)
+                } else {
+                    info!(
+                        "The interactive verification process didn't contain a \
+                        MAC for the user identity of {} {:?}",
+                        identity.user_id(),
+                        self.verified_identities(),
+                    );
+
+                    Ok(false)
+                }
+            } else {
+                warn!(
+                    "The master keys of {} have changed while an interactive \
+                      verification was going on, not marking the identity as verified.",
+                    identity.user_id(),
+                );
+
+                Ok(false)
+            }
+        } else {
+            info!(
+                "The identity for {} was deleted while an interactive \
+                  verification was going on.",
+                self.other_user_id(),
+            );
+            Ok(false)
+        }
     }
 
     pub(crate) async fn mark_device_as_verified(&self) -> Result<bool, CryptoStoreError> {
@@ -199,8 +283,11 @@ impl Sas {
                         device.device_id()
                     );
 
-                    device.set_trust_state(TrustState::Verified);
+                    device.set_trust_state(LocalTrust::Verified);
                     self.store.save_devices(&[device]).await?;
+                    // TODO if this is a device from our own user and we have
+                    // the private part of the self signing key, we should sign
+                    // the device and upload the signature.
 
                     Ok(true)
                 } else {
@@ -226,7 +313,7 @@ impl Sas {
             let device = self.other_device();
 
             info!(
-                "The device {} {} was deleted while a interactive \
+                "The device {} {} was deleted while an interactive \
                   verification was going on.",
                 device.user_id(),
                 device.device_id()
@@ -241,7 +328,7 @@ impl Sas {
     ///
     /// Returns None if the `Sas` object is already in a canceled state,
     /// otherwise it returns a request that needs to be sent out.
-    pub fn cancel(&self) -> Option<OwnedToDeviceRequest> {
+    pub fn cancel(&self) -> Option<(Uuid, OwnedToDeviceRequest)> {
         let mut guard = self.inner.lock().unwrap();
         let sas: InnerSas = (*guard).clone();
         let (sas, content) = sas.cancel(CancelCode::User);
@@ -250,7 +337,7 @@ impl Sas {
         content.map(|c| self.content_to_request(c))
     }
 
-    pub(crate) fn cancel_if_timed_out(&self) -> Option<OwnedToDeviceRequest> {
+    pub(crate) fn cancel_if_timed_out(&self) -> Option<(Uuid, OwnedToDeviceRequest)> {
         if self.is_canceled() || self.is_done() {
             None
         } else if self.timed_out() {
@@ -317,10 +404,14 @@ impl Sas {
         self.inner.lock().unwrap().verified_devices()
     }
 
+    pub(crate) fn verified_identities(&self) -> Option<Arc<Vec<UserIdentities>>> {
+        self.inner.lock().unwrap().verified_identities()
+    }
+
     pub(crate) fn content_to_request(
         &self,
         content: AnyToDeviceEventContent,
-    ) -> OwnedToDeviceRequest {
+    ) -> (Uuid, OwnedToDeviceRequest) {
         content_to_request(self.other_user_id(), self.other_device_id(), content)
     }
 }
@@ -338,8 +429,12 @@ enum InnerSas {
 }
 
 impl InnerSas {
-    fn start(account: Account, other_device: ReadOnlyDevice) -> (InnerSas, StartEventContent) {
-        let sas = SasState::<Created>::new(account, other_device);
+    fn start(
+        account: Account,
+        other_device: ReadOnlyDevice,
+        other_identity: Option<UserIdentities>,
+    ) -> (InnerSas, StartEventContent) {
+        let sas = SasState::<Created>::new(account, other_device, other_identity);
         let content = sas.as_content();
         (InnerSas::Created(sas), content)
     }
@@ -348,8 +443,9 @@ impl InnerSas {
         account: Account,
         other_device: ReadOnlyDevice,
         event: &ToDeviceEvent<StartEventContent>,
+        other_identity: Option<UserIdentities>,
     ) -> Result<InnerSas, AnyToDeviceEventContent> {
-        match SasState::<Started>::from_start_event(account, other_device, event) {
+        match SasState::<Started>::from_start_event(account, other_device, event, other_identity) {
             Ok(s) => Ok(InnerSas::Started(s)),
             Err(s) => Err(s.as_content()),
         }
@@ -542,6 +638,14 @@ impl InnerSas {
             None
         }
     }
+
+    fn verified_identities(&self) -> Option<Arc<Vec<UserIdentities>>> {
+        if let InnerSas::Done(s) = self {
+            Some(s.verified_identities())
+        } else {
+            None
+        }
+    }
 }
 
 #[cfg(test)]
@@ -591,12 +695,13 @@ mod test {
         let bob = Account::new(&bob_id(), &bob_device_id());
         let bob_device = ReadOnlyDevice::from_account(&bob).await;
 
-        let alice_sas = SasState::<Created>::new(alice.clone(), bob_device);
+        let alice_sas = SasState::<Created>::new(alice.clone(), bob_device, None);
 
         let start_content = alice_sas.as_content();
         let event = wrap_to_device_event(alice_sas.user_id(), start_content);
 
-        let bob_sas = SasState::<Started>::from_start_event(bob.clone(), alice_device, &event);
+        let bob_sas =
+            SasState::<Started>::from_start_event(bob.clone(), alice_device, &event, None);
 
         (alice_sas, bob_sas.unwrap())
     }
@@ -683,10 +788,10 @@ mod test {
             .await
             .unwrap();
 
-        let (alice, content) = Sas::start(alice, bob_device, alice_store);
+        let (alice, content) = Sas::start(alice, bob_device, alice_store, None);
         let event = wrap_to_device_event(alice.user_id(), content);
 
-        let bob = Sas::from_start_event(bob, alice_device, bob_store, &event).unwrap();
+        let bob = Sas::from_start_event(bob, alice_device, bob_store, &event, None).unwrap();
         let mut event = wrap_any_to_device_content(
             bob.user_id(),
             get_content_from_request(&bob.accept().unwrap()),

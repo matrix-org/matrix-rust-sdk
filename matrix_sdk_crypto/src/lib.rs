@@ -30,20 +30,21 @@
 mod device;
 mod error;
 mod machine;
-mod memory_stores;
-mod olm;
+pub mod memory_stores;
+pub mod olm;
+mod requests;
 mod store;
 #[allow(dead_code)]
 mod user_identity;
 mod verification;
 
-pub use device::{Device, ReadOnlyDevice, TrustState, UserDevices};
+pub use device::{Device, LocalTrust, ReadOnlyDevice, UserDevices};
 pub use error::{MegolmError, OlmError};
-pub use machine::{OlmMachine, OneTimeKeys};
-pub use memory_stores::{DeviceStore, GroupSessionStore, ReadOnlyUserDevices, SessionStore};
-pub use olm::{
-    Account, EncryptionSettings, IdentityKeys, InboundGroupSession, OutboundGroupSession, Session,
-};
+pub use machine::OlmMachine;
+use memory_stores::ReadOnlyUserDevices;
+pub use olm::EncryptionSettings;
+pub(crate) use olm::{Account, IdentityKeys, InboundGroupSession, Session};
+pub use requests::{IncomingResponse, OutgoingRequest, OutgoingRequests};
 #[cfg(feature = "sqlite_cryptostore")]
 pub use store::sqlite::SqliteStore;
 pub use store::{CryptoStore, CryptoStoreError};

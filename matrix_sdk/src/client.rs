@@ -13,8 +13,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#[cfg(feature = "encryption")]
-use std::collections::BTreeMap;
 use std::{
     collections::HashMap,
     convert::{TryFrom, TryInto},
@@ -38,7 +36,7 @@ use tracing::{error, info, instrument};
 use matrix_sdk_base::{BaseClient, BaseClientConfig, Room, Session, StateStore};
 
 #[cfg(feature = "encryption")]
-use matrix_sdk_base::CryptoStoreError;
+use matrix_sdk_base::{CryptoStoreError, OutgoingRequests};
 
 use matrix_sdk_common::{
     api::r0::{
@@ -76,7 +74,6 @@ use matrix_sdk_common::{
             Response as ToDeviceResponse,
         },
     },
-    identifiers::DeviceKeyAlgorithm,
     locks::Mutex,
 };
 
@@ -976,10 +973,9 @@ impl Client {
                     self.base_client.get_missing_sessions(members).await?
                 };
 
-                if !missing_sessions.is_empty() {
-                    self.claim_one_time_keys(missing_sessions).await?;
+                if let Some((request_id, request)) = missing_sessions {
+                    self.claim_one_time_keys(&request_id, request).await?;
                 }
-
                 let response = self.share_group_session(room_id).await;
 
                 self.group_session_locks.remove(room_id);
@@ -1119,11 +1115,11 @@ impl Client {
     }
 
     #[cfg(feature = "encryption")]
-    async fn send_to_device(&self, request: OwnedToDeviceRequest) -> Result<ToDeviceResponse> {
+    async fn send_to_device(&self, request: &OwnedToDeviceRequest) -> Result<ToDeviceResponse> {
         let request = ToDeviceRequest {
-            event_type: request.event_type,
+            event_type: request.event_type.clone(),
             txn_id: &request.txn_id,
-            messages: request.messages,
+            messages: request.messages.clone(),
         };
 
         self.send(request).await
@@ -1241,29 +1237,27 @@ impl Client {
 
             #[cfg(feature = "encryption")]
             {
-                if self.base_client.should_upload_keys().await {
-                    let response = self.keys_upload().await;
+                for r in self.base_client.outgoing_requests().await {
+                    match r.request() {
+                        OutgoingRequests::KeysQuery(request) => {
+                            if let Err(e) = self.keys_query(r.request_id(), request).await {
+                                warn!("Error while querying device keys {:?}", e);
+                            }
+                        }
 
-                    if let Err(e) = response {
-                        warn!("Error while uploading E2EE keys {:?}", e);
-                    }
-                }
-
-                if self.base_client.should_query_keys().await {
-                    let response = self.keys_query().await;
-
-                    if let Err(e) = response {
-                        warn!("Error while querying device keys {:?}", e);
-                    }
-                }
-
-                for request in self.base_client.outgoing_to_device_requests().await {
-                    let txn_id = request.txn_id.clone();
-
-                    if self.send_to_device(request).await.is_ok() {
-                        self.base_client
-                            .mark_to_device_request_as_sent(&txn_id)
-                            .await;
+                        OutgoingRequests::KeysUpload(request) => {
+                            if let Err(e) = self.keys_upload(&r.request_id(), request).await {
+                                warn!("Error while querying device keys {:?}", e);
+                            }
+                        }
+                        OutgoingRequests::ToDeviceRequest(request) => {
+                            if let Ok(resp) = self.send_to_device(request).await {
+                                self.base_client
+                                    .mark_request_as_sent(&r.request_id(), &resp)
+                                    .await
+                                    .unwrap();
+                            }
+                        }
                     }
                 }
             }
@@ -1309,16 +1303,12 @@ impl Client {
     #[instrument]
     async fn claim_one_time_keys(
         &self,
-        one_time_keys: BTreeMap<UserId, BTreeMap<Box<DeviceId>, DeviceKeyAlgorithm>>,
+        request_id: &Uuid,
+        request: claim_keys::Request,
     ) -> Result<claim_keys::Response> {
-        let request = claim_keys::Request {
-            timeout: None,
-            one_time_keys,
-        };
-
         let response = self.send(request).await?;
         self.base_client
-            .receive_keys_claim_response(&response)
+            .mark_request_as_sent(request_id, &response)
             .await?;
         Ok(response)
     }
@@ -1344,7 +1334,7 @@ impl Client {
             .expect("Keys don't need to be uploaded");
 
         for request in requests.drain(..) {
-            self.send_to_device(request).await?;
+            self.send_to_device(&request).await?;
         }
 
         Ok(())
@@ -1362,23 +1352,22 @@ impl Client {
     #[cfg(feature = "encryption")]
     #[cfg_attr(feature = "docs", doc(cfg(encryption)))]
     #[instrument]
-    async fn keys_upload(&self) -> Result<upload_keys::Response> {
-        let request = self
-            .base_client
-            .keys_for_upload()
-            .await
-            .expect("Keys don't need to be uploaded");
-
+    async fn keys_upload(
+        &self,
+        request_id: &Uuid,
+        request: &upload_keys::Request,
+    ) -> Result<upload_keys::Response> {
         debug!(
             "Uploading encryption keys device keys: {}, one-time-keys: {}",
             request.device_keys.is_some(),
             request.one_time_keys.as_ref().map_or(0, |k| k.len())
         );
 
-        let response = self.send(request).await?;
+        let response = self.send(request.clone()).await?;
         self.base_client
-            .receive_keys_upload_response(&response)
+            .mark_request_as_sent(request_id, &response)
             .await?;
+
         Ok(response)
     }
 
@@ -1396,33 +1385,20 @@ impl Client {
     #[cfg(feature = "encryption")]
     #[cfg_attr(feature = "docs", doc(cfg(encryption)))]
     #[instrument]
-    async fn keys_query(&self) -> Result<get_keys::Response> {
-        let mut users_for_query = self
-            .base_client
-            .users_for_key_query()
-            .await
-            .expect("Keys don't need to be uploaded");
-
-        debug!(
-            "Querying device keys device for users: {:?}",
-            users_for_query
-        );
-
-        let mut device_keys: BTreeMap<UserId, Vec<Box<DeviceId>>> = BTreeMap::new();
-
-        for user in users_for_query.drain() {
-            device_keys.insert(user, Vec::new());
-        }
-
+    async fn keys_query(
+        &self,
+        request_id: &Uuid,
+        request: &get_keys::IncomingRequest,
+    ) -> Result<get_keys::Response> {
         let request = get_keys::Request {
             timeout: None,
-            device_keys,
+            device_keys: request.device_keys.clone(),
             token: None,
         };
 
         let response = self.send(request).await?;
         self.base_client
-            .receive_keys_query_response(&response)
+            .mark_request_as_sent(request_id, &response)
             .await?;
 
         Ok(response)

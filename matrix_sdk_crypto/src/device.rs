@@ -28,15 +28,20 @@ use matrix_sdk_common::{
         keys::SignedKey, to_device::send_event_to_device::IncomingRequest as OwnedToDeviceRequest,
     },
     encryption::DeviceKeys,
+    events::{room::encrypted::EncryptedEventContent, EventType},
     identifiers::{DeviceId, DeviceKeyAlgorithm, DeviceKeyId, EventEncryptionAlgorithm, UserId},
 };
 use serde_json::{json, Value};
+use tracing::warn;
 
 #[cfg(test)]
 use super::{Account, OlmMachine};
 
 use crate::{
-    error::SignatureError, store::Result as StoreResult, verification::VerificationMachine,
+    error::{EventError, OlmError, OlmResult, SignatureError},
+    store::Result as StoreResult,
+    user_identity::{OwnUserIdentity, UserIdentities},
+    verification::VerificationMachine,
     verify_json, ReadOnlyUserDevices, Sas,
 };
 
@@ -50,7 +55,7 @@ pub struct ReadOnlyDevice {
     signatures: Arc<BTreeMap<UserId, BTreeMap<DeviceKeyId, String>>>,
     display_name: Arc<Option<String>>,
     deleted: Arc<AtomicBool>,
-    trust_state: Arc<Atomic<TrustState>>,
+    trust_state: Arc<Atomic<LocalTrust>>,
 }
 
 #[derive(Debug, Clone)]
@@ -58,6 +63,8 @@ pub struct ReadOnlyDevice {
 pub struct Device {
     pub(crate) inner: ReadOnlyDevice,
     pub(crate) verification_machine: VerificationMachine,
+    pub(crate) own_identity: Option<OwnUserIdentity>,
+    pub(crate) device_owner_identity: Option<UserIdentities>,
 }
 
 impl Deref for Device {
@@ -72,21 +79,118 @@ impl Device {
     /// Start a interactive verification with this `Device`
     ///
     /// Returns a `Sas` object and to-device request that needs to be sent out.
-    pub fn start_verification(&self) -> (Sas, OwnedToDeviceRequest) {
-        self.verification_machine.start_sas(self.inner.clone())
+    pub async fn start_verification(&self) -> StoreResult<(Sas, OwnedToDeviceRequest)> {
+        self.verification_machine
+            .start_sas(self.inner.clone())
+            .await
     }
 
-    /// Set the trust state of the device to the given state.
+    /// Get the trust state of the device.
+    pub fn trust_state(&self) -> bool {
+        // TODO we want to return an enum mentioning if the trust is local, if
+        // only the identity is trusted, if the identity and the device are
+        // trusted.
+        if self.inner.trust_state() == LocalTrust::Verified {
+            // If the device is localy marked as verified just return so, no
+            // need to check signatures.
+            true
+        } else {
+            self.own_identity.as_ref().map_or(false, |own_identity| {
+                // Our own identity needs to be marked as verified.
+                own_identity.is_verified()
+                    && self
+                        .device_owner_identity
+                        .as_ref()
+                        .map(|device_identity| match device_identity {
+                            // If it's one of our own devices, just check that
+                            // we signed the device.
+                            UserIdentities::Own(_) => own_identity
+                                .is_device_signed(&self.inner)
+                                .map_or(false, |_| true),
+
+                            // If it's a device from someone else, first check
+                            // that our user has signed the other user and then
+                            // checkif the other user has signed this device.
+                            UserIdentities::Other(device_identity) => {
+                                own_identity
+                                    .is_identity_signed(&device_identity)
+                                    .map_or(false, |_| true)
+                                    && device_identity
+                                        .is_device_signed(&self.inner)
+                                        .map_or(false, |_| true)
+                            }
+                        })
+                        .unwrap_or(false)
+            })
+        }
+    }
+
+    /// Set the local trust state of the device to the given state.
+    ///
+    /// This won't affect any cross signing trust state, this only sets a flag
+    /// marking to have the given trust state.
     ///
     /// # Arguments
     ///
     /// * `trust_state` - The new trust state that should be set for the device.
-    pub async fn set_trust_state(&self, trust_state: TrustState) -> StoreResult<()> {
+    pub async fn set_local_trust(&self, trust_state: LocalTrust) -> StoreResult<()> {
         self.inner.set_trust_state(trust_state);
+
         self.verification_machine
             .store
             .save_devices(&[self.inner.clone()])
             .await
+    }
+
+    /// Encrypt the given content for this `Device`.
+    ///
+    /// # Arguments
+    ///
+    /// * `event_type` - The type of the event.
+    ///
+    /// * `content` - The content of the event that should be encrypted.
+    pub(crate) async fn encrypt(
+        &self,
+        event_type: EventType,
+        content: Value,
+    ) -> OlmResult<EncryptedEventContent> {
+        let sender_key = if let Some(k) = self.inner.get_key(DeviceKeyAlgorithm::Curve25519) {
+            k
+        } else {
+            warn!(
+                "Trying to encrypt a Megolm session for user {} on device {}, \
+                but the device doesn't have a curve25519 key",
+                self.user_id(),
+                self.device_id()
+            );
+            return Err(EventError::MissingSenderKey.into());
+        };
+
+        let mut session = if let Some(s) = self
+            .verification_machine
+            .store
+            .get_sessions(sender_key)
+            .await?
+        {
+            let session = &s.lock().await[0];
+            session.clone()
+        } else {
+            warn!(
+                "Trying to encrypt a Megolm session for user {} on device {}, \
+                but no Olm session is found",
+                self.user_id(),
+                self.device_id()
+            );
+            return Err(OlmError::MissingSession);
+        };
+
+        let message = session.encrypt(&self.inner, event_type, content).await;
+        self.verification_machine
+            .store
+            .save_sessions(&[session])
+            .await?;
+
+        message
     }
 }
 
@@ -95,6 +199,8 @@ impl Device {
 pub struct UserDevices {
     pub(crate) inner: ReadOnlyUserDevices,
     pub(crate) verification_machine: VerificationMachine,
+    pub(crate) own_identity: Option<OwnUserIdentity>,
+    pub(crate) device_owner_identity: Option<UserIdentities>,
 }
 
 impl UserDevices {
@@ -103,6 +209,8 @@ impl UserDevices {
         self.inner.get(device_id).map(|d| Device {
             inner: d,
             verification_machine: self.verification_machine.clone(),
+            own_identity: self.own_identity.clone(),
+            device_owner_identity: self.device_owner_identity.clone(),
         })
     }
 
@@ -113,18 +221,18 @@ impl UserDevices {
 
     /// Iterator over all the devices of the user devices.
     pub fn devices(&self) -> impl Iterator<Item = Device> + '_ {
-        let machine = self.verification_machine.clone();
-
         self.inner.devices().map(move |d| Device {
             inner: d.clone(),
-            verification_machine: machine.clone(),
+            verification_machine: self.verification_machine.clone(),
+            own_identity: self.own_identity.clone(),
+            device_owner_identity: self.device_owner_identity.clone(),
         })
     }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
-/// The trust state of a device.
-pub enum TrustState {
+/// The local trust state of a device.
+pub enum LocalTrust {
     /// The device has been verified and is trusted.
     Verified = 0,
     /// The device been blacklisted from communicating.
@@ -135,14 +243,14 @@ pub enum TrustState {
     Unset = 3,
 }
 
-impl From<i64> for TrustState {
+impl From<i64> for LocalTrust {
     fn from(state: i64) -> Self {
         match state {
-            0 => TrustState::Verified,
-            1 => TrustState::BlackListed,
-            2 => TrustState::Ignored,
-            3 => TrustState::Unset,
-            _ => TrustState::Unset,
+            0 => LocalTrust::Verified,
+            1 => LocalTrust::BlackListed,
+            2 => LocalTrust::Ignored,
+            3 => LocalTrust::Unset,
+            _ => LocalTrust::Unset,
         }
     }
 }
@@ -153,7 +261,7 @@ impl ReadOnlyDevice {
         user_id: UserId,
         device_id: Box<DeviceId>,
         display_name: Option<String>,
-        trust_state: TrustState,
+        trust_state: LocalTrust,
         algorithms: Vec<EventEncryptionAlgorithm>,
         keys: BTreeMap<DeviceKeyId, String>,
         signatures: BTreeMap<UserId, BTreeMap<DeviceKeyId, String>>,
@@ -202,27 +310,27 @@ impl ReadOnlyDevice {
     }
 
     /// Get the trust state of the device.
-    pub fn trust_state(&self) -> TrustState {
+    pub fn trust_state(&self) -> LocalTrust {
         self.trust_state.load(Ordering::Relaxed)
     }
 
     /// Is the device locally marked as trusted.
     pub fn is_trusted(&self) -> bool {
-        self.trust_state() == TrustState::Verified
+        self.trust_state() == LocalTrust::Verified
     }
 
     /// Is the device locally marked as blacklisted.
     ///
     /// Blacklisted devices won't receive any group sessions.
     pub fn is_blacklisted(&self) -> bool {
-        self.trust_state() == TrustState::BlackListed
+        self.trust_state() == LocalTrust::BlackListed
     }
 
     /// Set the trust state of the device to the given state.
     ///
     /// Note: This should only done in the cryptostore where the trust state can
     /// be stored.
-    pub(crate) fn set_trust_state(&self, state: TrustState) {
+    pub(crate) fn set_trust_state(&self, state: LocalTrust) {
         self.trust_state.store(state, Ordering::Relaxed)
     }
 
@@ -328,7 +436,7 @@ impl TryFrom<&DeviceKeys> for ReadOnlyDevice {
                     .flatten(),
             ),
             deleted: Arc::new(AtomicBool::new(false)),
-            trust_state: Arc::new(Atomic::new(TrustState::Unset)),
+            trust_state: Arc::new(Atomic::new(LocalTrust::Unset)),
         };
 
         device.verify_device_keys(device_keys)?;
@@ -347,7 +455,7 @@ pub(crate) mod test {
     use serde_json::json;
     use std::convert::TryFrom;
 
-    use crate::device::{ReadOnlyDevice, TrustState};
+    use crate::device::{LocalTrust, ReadOnlyDevice};
     use matrix_sdk_common::{
         encryption::DeviceKeys,
         identifiers::{user_id, DeviceKeyAlgorithm},
@@ -393,7 +501,7 @@ pub(crate) mod test {
         assert_eq!(&user_id, device.user_id());
         assert_eq!(device_id, device.device_id());
         assert_eq!(device.algorithms.len(), 2);
-        assert_eq!(TrustState::Unset, device.trust_state());
+        assert_eq!(LocalTrust::Unset, device.trust_state());
         assert_eq!(
             "Alice's mobile phone",
             device.display_name().as_ref().unwrap()

@@ -56,7 +56,7 @@ impl Sas {
 
     /// Cancel the interactive verification flow.
     pub async fn cancel(&self) -> Result<()> {
-        if let Some(req) = self.inner.cancel() {
+        if let Some((_, req)) = self.inner.cancel() {
             let request = ToDeviceRequest {
                 event_type: req.event_type,
                 txn_id: &req.txn_id,
