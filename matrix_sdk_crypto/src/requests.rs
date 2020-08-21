@@ -15,6 +15,7 @@
 use matrix_sdk_common::{
     api::r0::{
         keys::{
+            claim_keys::Response as KeysClaimResponse,
             get_keys::{IncomingRequest as KeysQueryRequest, Response as KeysQueryResponse},
             upload_keys::{Request as KeysUploadRequest, Response as KeysUploadResponse},
         },
@@ -57,6 +58,8 @@ pub enum IncomingResponse<'a> {
     KeysQuery(&'a KeysQueryResponse),
     /// TODO
     ToDevice(&'a ToDeviceResponse),
+    ///
+    KeysClaim(&'a KeysClaimResponse),
 }
 
 impl<'a> From<&'a KeysUploadResponse> for IncomingResponse<'a> {
@@ -74,6 +77,12 @@ impl<'a> From<&'a KeysQueryResponse> for IncomingResponse<'a> {
 impl<'a> From<&'a ToDeviceResponse> for IncomingResponse<'a> {
     fn from(response: &'a ToDeviceResponse) -> Self {
         IncomingResponse::ToDevice(response)
+    }
+}
+
+impl<'a> From<&'a KeysClaimResponse> for IncomingResponse<'a> {
+    fn from(response: &'a KeysClaimResponse) -> Self {
+        IncomingResponse::KeysClaim(response)
     }
 }
 

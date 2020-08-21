@@ -13,8 +13,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#[cfg(feature = "encryption")]
-use std::collections::BTreeMap;
 use std::{
     collections::HashMap,
     fmt,
@@ -41,12 +39,12 @@ use matrix_sdk_common::{
 };
 #[cfg(feature = "encryption")]
 use matrix_sdk_common::{
-    api::r0::keys::claim_keys::Response as KeysClaimResponse,
+    api::r0::keys::claim_keys::Request as KeysClaimRequest,
     api::r0::to_device::send_event_to_device::IncomingRequest as OwnedToDeviceRequest,
     events::room::{
         encrypted::EncryptedEventContent, message::MessageEventContent as MsgEventContent,
     },
-    identifiers::{DeviceId, DeviceKeyAlgorithm},
+    identifiers::DeviceId,
 };
 #[cfg(feature = "encryption")]
 use matrix_sdk_crypto::{
@@ -1282,12 +1280,12 @@ impl BaseClient {
     pub async fn get_missing_sessions(
         &self,
         users: impl Iterator<Item = &UserId>,
-    ) -> Result<BTreeMap<UserId, BTreeMap<Box<DeviceId>, DeviceKeyAlgorithm>>> {
+    ) -> Result<Option<(Uuid, KeysClaimRequest)>> {
         let olm = self.olm.lock().await;
 
         match &*olm {
             Some(o) => Ok(o.get_missing_sessions(users).await?),
-            None => Ok(BTreeMap::new()),
+            None => Ok(None),
         }
     }
 
@@ -1332,25 +1330,6 @@ impl BaseClient {
             Some(o) => Ok(o.encrypt(room_id, content).await?),
             None => panic!("Olm machine wasn't started"),
         }
-    }
-
-    /// Receive a successful keys claim response.
-    ///
-    /// # Arguments
-    ///
-    /// * `response` - The keys claim response of the request that the client
-    /// performed.
-    ///
-    /// # Panics
-    /// Panics if the client hasn't been logged in.
-    #[cfg(feature = "encryption")]
-    #[cfg_attr(feature = "docs", doc(cfg(encryption)))]
-    pub async fn receive_keys_claim_response(&self, response: &KeysClaimResponse) -> Result<()> {
-        let olm = self.olm.lock().await;
-
-        let o = olm.as_ref().expect("Client isn't logged in.");
-        o.receive_keys_claim_response(response).await?;
-        Ok(())
     }
 
     /// Invalidate the currently active outbound group session for the given

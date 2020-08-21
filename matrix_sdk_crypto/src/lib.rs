@@ -40,7 +40,7 @@ mod verification;
 
 pub use device::{Device, LocalTrust, ReadOnlyDevice, UserDevices};
 pub use error::{MegolmError, OlmError};
-pub use machine::{OlmMachine, OneTimeKeys};
+pub use machine::OlmMachine;
 pub use memory_stores::{DeviceStore, GroupSessionStore, ReadOnlyUserDevices, SessionStore};
 pub use olm::{
     Account, EncryptionSettings, IdentityKeys, InboundGroupSession, OutboundGroupSession, Session,

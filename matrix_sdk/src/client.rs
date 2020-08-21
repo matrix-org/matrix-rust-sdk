@@ -13,8 +13,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#[cfg(feature = "encryption")]
-use std::collections::BTreeMap;
 use std::{
     collections::HashMap,
     convert::{TryFrom, TryInto},
@@ -76,7 +74,6 @@ use matrix_sdk_common::{
             Response as ToDeviceResponse,
         },
     },
-    identifiers::DeviceKeyAlgorithm,
     locks::Mutex,
 };
 
@@ -970,10 +967,9 @@ impl Client {
                     self.base_client.get_missing_sessions(members).await?
                 };
 
-                if !missing_sessions.is_empty() {
-                    self.claim_one_time_keys(missing_sessions).await?;
+                if let Some((request_id, request)) = missing_sessions {
+                    self.claim_one_time_keys(&request_id, request).await?;
                 }
-
                 let response = self.share_group_session(room_id).await;
 
                 self.group_session_locks.remove(room_id);
@@ -1301,16 +1297,12 @@ impl Client {
     #[instrument]
     async fn claim_one_time_keys(
         &self,
-        one_time_keys: BTreeMap<UserId, BTreeMap<Box<DeviceId>, DeviceKeyAlgorithm>>,
+        request_id: &Uuid,
+        request: claim_keys::Request,
     ) -> Result<claim_keys::Response> {
-        let request = claim_keys::Request {
-            timeout: None,
-            one_time_keys,
-        };
-
         let response = self.send(request).await?;
         self.base_client
-            .receive_keys_claim_response(&response)
+            .mark_request_as_sent(request_id, &response)
             .await?;
         Ok(response)
     }

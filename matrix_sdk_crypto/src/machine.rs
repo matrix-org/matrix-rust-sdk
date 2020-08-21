@@ -19,6 +19,7 @@ use std::{
     convert::{TryFrom, TryInto},
     mem,
     sync::Arc,
+    time::Duration,
 };
 
 use dashmap::DashMap;
@@ -28,9 +29,9 @@ use tracing::{debug, error, info, instrument, trace, warn};
 use matrix_sdk_common::{
     api::r0::{
         keys::{
-            claim_keys,
+            claim_keys::{Request as KeysClaimRequest, Response as KeysClaimResponse},
             get_keys::{IncomingRequest as KeysQueryRequest, Response as KeysQueryResponse},
-            upload_keys, OneTimeKey,
+            upload_keys,
         },
         sync::sync_events::Response as SyncResponse,
         to_device::{
@@ -45,9 +46,7 @@ use matrix_sdk_common::{
         room_key_request::RoomKeyRequestEventContent,
         AnySyncRoomEvent, AnyToDeviceEvent, EventType, SyncMessageEvent, ToDeviceEvent,
     },
-    identifiers::{
-        DeviceId, DeviceKeyAlgorithm, DeviceKeyId, EventEncryptionAlgorithm, RoomId, UserId,
-    },
+    identifiers::{DeviceId, DeviceKeyAlgorithm, EventEncryptionAlgorithm, RoomId, UserId},
     uuid::Uuid,
     Raw,
 };
@@ -70,11 +69,6 @@ use super::{
     verification::{Sas, VerificationMachine},
     CryptoStore,
 };
-
-/// A map from the algorithm and device id to a one-time key.
-///
-/// These keys need to be periodically uploaded to the server.
-pub type OneTimeKeys = BTreeMap<DeviceKeyId, OneTimeKey>;
 
 /// State machine implementation of the Olm/Megolm encryption protocol used for
 /// Matrix end to end encryption.
@@ -109,6 +103,7 @@ impl std::fmt::Debug for OlmMachine {
 
 impl OlmMachine {
     const MAX_TO_DEVICE_MESSAGES: usize = 20;
+    const KEY_CLAIM_TIMEOUT: Duration = Duration::from_secs(10);
 
     /// Create a new memory based OlmMachine.
     ///
@@ -250,11 +245,14 @@ impl OlmMachine {
         response: impl Into<IncomingResponse<'a>>,
     ) -> OlmResult<()> {
         match response.into() {
+            IncomingResponse::KeysUpload(response) => {
+                self.receive_keys_upload_response(response).await?;
+            }
             IncomingResponse::KeysQuery(response) => {
                 self.receive_keys_query_response(response).await?;
             }
-            IncomingResponse::KeysUpload(response) => {
-                self.receive_keys_upload_response(response).await?;
+            IncomingResponse::KeysClaim(response) => {
+                self.receive_keys_claim_response(response).await?;
             }
             IncomingResponse::ToDevice(_) => {
                 self.mark_to_device_request_as_sent(&request_id.to_string());
@@ -344,12 +342,10 @@ impl OlmMachine {
         Ok(())
     }
 
-    /// Get the user/device pairs for which no Olm session exists.
+    /// Get the a key claiming request for the user/device pairs that we are
+    /// missing Olm sessions for.
     ///
-    /// Returns a map from the user id, to a map from the device id to a key
-    /// algorithm.
-    ///
-    /// This can be used to make a key claiming request to the server.
+    /// Returns None if no key claiming request needs to be sent out.
     ///
     /// Sessions need to be established between devices so group sessions for a
     /// room can be shared with them.
@@ -357,18 +353,18 @@ impl OlmMachine {
     /// This should be called every time a group session needs to be shared.
     ///
     /// The response of a successful key claiming requests needs to be passed to
-    /// the `OlmMachine` with the [`receive_keys_claim_response`].
+    /// the `OlmMachine` with the [`mark_requests_as_sent`].
     ///
     /// # Arguments
     ///
     /// `users` - The list of users that we should check if we lack a session
     /// with one of their devices.
     ///
-    /// [`receive_keys_claim_response`]: #method.receive_keys_claim_response
+    /// [`mark_requests_as_sent`]: #method.mark_requests_as_sent
     pub async fn get_missing_sessions(
         &self,
         users: impl Iterator<Item = &UserId>,
-    ) -> OlmResult<BTreeMap<UserId, BTreeMap<Box<DeviceId>, DeviceKeyAlgorithm>>> {
+    ) -> OlmResult<Option<(Uuid, KeysClaimRequest)>> {
         let mut missing = BTreeMap::new();
 
         for user_id in users {
@@ -403,7 +399,17 @@ impl OlmMachine {
             }
         }
 
-        Ok(missing)
+        if missing.is_empty() {
+            Ok(None)
+        } else {
+            Ok(Some((
+                Uuid::new_v4(),
+                KeysClaimRequest {
+                    timeout: Some(OlmMachine::KEY_CLAIM_TIMEOUT),
+                    one_time_keys: missing,
+                },
+            )))
+        }
     }
 
     /// Receive a successful key claim response and create new Olm sessions with
@@ -412,10 +418,7 @@ impl OlmMachine {
     /// # Arguments
     ///
     /// * `response` - The response containing the claimed one-time keys.
-    pub async fn receive_keys_claim_response(
-        &self,
-        response: &claim_keys::Response,
-    ) -> OlmResult<()> {
+    async fn receive_keys_claim_response(&self, response: &KeysClaimResponse) -> OlmResult<()> {
         // TODO log the failures here
 
         for (user_id, user_devices) in &response.one_time_keys {
@@ -1523,7 +1526,6 @@ impl OlmMachine {
 pub(crate) mod test {
     static USER_ID: &str = "@bob:example.org";
 
-    use matrix_sdk_common::js_int::uint;
     use std::{
         collections::BTreeMap,
         convert::{TryFrom, TryInto},
@@ -1536,13 +1538,15 @@ pub(crate) mod test {
     use tempfile::tempdir;
 
     use crate::{
-        machine::{OlmMachine, OneTimeKeys},
-        verification::test::request_to_event,
-        verify_json, EncryptionSettings, ReadOnlyDevice,
+        machine::OlmMachine, verification::test::request_to_event, verify_json, EncryptionSettings,
+        ReadOnlyDevice,
     };
 
     use matrix_sdk_common::{
-        api::r0::{keys, to_device::send_event_to_device::IncomingRequest as OwnedToDeviceRequest},
+        api::r0::{
+            keys::{claim_keys, get_keys, upload_keys, OneTimeKey},
+            to_device::send_event_to_device::IncomingRequest as OwnedToDeviceRequest,
+        },
         events::{
             room::{
                 encrypted::EncryptedEventContent,
@@ -1557,6 +1561,11 @@ pub(crate) mod test {
         Raw,
     };
     use matrix_sdk_test::test_json;
+
+    /// These keys need to be periodically uploaded to the server.
+    type OneTimeKeys = BTreeMap<DeviceKeyId, OneTimeKey>;
+
+    use matrix_sdk_common::js_int::uint;
 
     fn alice_id() -> UserId {
         user_id!("@alice:example.org")
@@ -1577,14 +1586,14 @@ pub(crate) mod test {
             .unwrap()
     }
 
-    fn keys_upload_response() -> keys::upload_keys::Response {
+    fn keys_upload_response() -> upload_keys::Response {
         let data = response_from_file(&test_json::KEYS_UPLOAD);
-        keys::upload_keys::Response::try_from(data).expect("Can't parse the keys upload response")
+        upload_keys::Response::try_from(data).expect("Can't parse the keys upload response")
     }
 
-    fn keys_query_response() -> keys::get_keys::Response {
+    fn keys_query_response() -> get_keys::Response {
         let data = response_from_file(&test_json::KEYS_QUERY);
-        keys::get_keys::Response::try_from(data).expect("Can't parse the keys upload response")
+        get_keys::Response::try_from(data).expect("Can't parse the keys upload response")
     }
 
     fn to_device_requests_to_content(requests: Vec<OwnedToDeviceRequest>) -> EncryptedEventContent {
@@ -1662,7 +1671,7 @@ pub(crate) mod test {
         let mut one_time_keys = BTreeMap::new();
         one_time_keys.insert(bob.user_id.clone(), bob_keys);
 
-        let response = keys::claim_keys::Response {
+        let response = claim_keys::Response {
             failures: BTreeMap::new(),
             one_time_keys,
         };
@@ -1906,13 +1915,14 @@ pub(crate) mod test {
         let alice = alice_id();
         let alice_device = alice_device_id();
 
-        let missing_sessions = machine
+        let (_, missing_sessions) = machine
             .get_missing_sessions([alice.clone()].iter())
             .await
+            .unwrap()
             .unwrap();
 
-        assert!(missing_sessions.contains_key(&alice));
-        let user_sessions = missing_sessions.get(&alice).unwrap();
+        assert!(missing_sessions.one_time_keys.contains_key(&alice));
+        let user_sessions = missing_sessions.one_time_keys.get(&alice).unwrap();
         assert!(user_sessions.contains_key(&alice_device));
     }
 
@@ -1930,7 +1940,7 @@ pub(crate) mod test {
         let mut one_time_keys = BTreeMap::new();
         one_time_keys.insert(bob_machine.user_id.clone(), bob_keys);
 
-        let response = keys::claim_keys::Response {
+        let response = claim_keys::Response {
             failures: BTreeMap::new(),
             one_time_keys,
         };
