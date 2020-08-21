@@ -165,7 +165,7 @@ impl Into<EncryptionSettings> for EncryptionInfo {
     fn into(self) -> EncryptionSettings {
         EncryptionSettings {
             algorithm: self.algorithm,
-            rotation_period: Duration::from_millis(self.rotation_period_messages),
+            rotation_period: Duration::from_millis(self.rotation_period_ms),
             rotation_period_msgs: self.rotation_period_messages,
         }
     }
