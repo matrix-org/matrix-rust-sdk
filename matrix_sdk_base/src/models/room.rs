@@ -1047,7 +1047,14 @@ impl Room {
         }
 
         if max_power > int!(0) {
-            member.power_level_norm = Some((member.power_level.unwrap() * int!(100)) / max_power);
+            // `js_int::Int` can overflowed when math is done in `js_int::Int`s
+            // use i64 to avoid this
+            let normalized = {
+                let pl: i64 = member.power_level.unwrap_or_default().into();
+                let max: i64 = max_power.into();
+                Int::new((pl * 100_i64) / max)
+            };
+            member.power_level_norm = normalized;
         }
 
         changed
