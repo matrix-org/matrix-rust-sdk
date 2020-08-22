@@ -1047,7 +1047,7 @@ impl Room {
         }
 
         if max_power > int!(0) {
-            // `js_int::Int` can overflowed when math is done in `js_int::Int`s
+            // `js_int::Int` can overflow when math is done in `js_int::Int`s
             // use i64 to avoid this
             let normalized = {
                 let pl: i64 = member.power_level.unwrap_or_default().into();
