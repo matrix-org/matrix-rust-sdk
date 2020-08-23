@@ -28,14 +28,17 @@ use matrix_sdk_common::{
     uuid::Uuid,
 };
 
-/// TODO
+/// Enum over the different outgoing requests we can have.
 #[derive(Debug)]
 pub enum OutgoingRequests {
-    /// TODO
+    /// The keys upload request, uploading device and one-time keys.
     KeysUpload(KeysUploadRequest),
-    /// TODO
+    /// The keys query request, fetching the device and cross singing keys of
+    /// other users.
     KeysQuery(KeysQueryRequest),
-    /// TODO
+    /// The to-device requests, this request is used for a couple of different
+    /// things, the main use is key requests/forwards and interactive device
+    /// verification.
     ToDeviceRequest(ToDeviceRequest),
 }
 
@@ -57,16 +60,19 @@ impl From<ToDeviceRequest> for OutgoingRequests {
     }
 }
 
-/// TODO
+/// Enum over all the incoming responses we need to receive.
 #[derive(Debug)]
 pub enum IncomingResponse<'a> {
-    /// TODO
+    /// The keys upload response, notifying us about the amount of uploaded
+    /// one-time keys.
     KeysUpload(&'a KeysUploadResponse),
-    /// TODO
+    /// The keys query response, giving us the device and cross singing keys of
+    /// other users.
     KeysQuery(&'a KeysQueryResponse),
-    /// TODO
+    /// The to-device response, an empty response.
     ToDevice(&'a ToDeviceResponse),
-    ///
+    /// The key claiming requests, giving us new one-time keys of other users so
+    /// new Olm sessions can be created.
     KeysClaim(&'a KeysClaimResponse),
 }
 
@@ -94,13 +100,14 @@ impl<'a> From<&'a KeysClaimResponse> for IncomingResponse<'a> {
     }
 }
 
-/// TODO
+/// Outgoing request type, holds the unique ID of the request and the actual
+/// request.
 #[derive(Debug, Clone)]
 pub struct OutgoingRequest {
     /// The unique id of a request, needs to be passed when receiving a
     /// response.
     pub(crate) request_id: Uuid,
-    /// TODO
+    /// The underlying outgoing request.
     pub(crate) request: Arc<OutgoingRequests>,
 }
 
