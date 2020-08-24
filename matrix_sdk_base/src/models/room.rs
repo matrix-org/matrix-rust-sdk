@@ -1047,7 +1047,14 @@ impl Room {
         }
 
         if max_power > int!(0) {
-            member.power_level_norm = Some((member.power_level.unwrap() * int!(100)) / max_power);
+            // `js_int::Int` can overflow when math is done in `js_int::Int`s
+            // use i64 to avoid this
+            let normalized = {
+                let pl: i64 = member.power_level.unwrap_or_default().into();
+                let max: i64 = max_power.into();
+                Int::new((pl * 100_i64) / max)
+            };
+            member.power_level_norm = normalized;
         }
 
         changed
@@ -1109,23 +1116,19 @@ impl Describe for MembershipChange {
 mod test {
     use super::*;
     #[cfg(not(target_arch = "wasm32"))]
+    use crate::{events::room::encryption::EncryptionEventContent, Raw};
     use crate::{
-        events::{room::encryption::EncryptionEventContent, Unsigned},
-        Raw,
-    };
-    use crate::{
+        events::Unsigned,
         identifiers::{event_id, room_id, user_id, UserId},
         BaseClient, Session,
     };
+    use matrix_sdk_common::js_int;
     use matrix_sdk_test::{async_test, sync_response, EventBuilder, EventsJson, SyncResponseFile};
 
-    #[cfg(not(target_arch = "wasm32"))]
-    use std::time::SystemTime;
+    use std::{ops::Deref, time::SystemTime};
 
     #[cfg(target_arch = "wasm32")]
     use wasm_bindgen_test::*;
-
-    use std::ops::Deref;
 
     async fn get_client() -> BaseClient {
         let session = Session {
@@ -1763,5 +1766,55 @@ mod test {
         );
         assert_eq!(encryption_info.rotation_period(), 100_000);
         assert_eq!(encryption_info.rotation_period_messages(), 100);
+    }
+
+    #[test]
+    fn power_level_overflow() {
+        let room_id = get_room_id();
+        let user_id = user_id!("@example:localhost");
+
+        let content = MemberEventContent {
+            avatar_url: None,
+            displayname: Some("user1".into()),
+            is_direct: Some(false),
+            membership: MembershipState::Join,
+            third_party_invite: None,
+        };
+        let member = SyncStateEvent {
+            event_id: event_id!("$h29iv0s8:example.com"),
+            origin_server_ts: SystemTime::now(),
+            sender: user_id.clone(),
+            state_key: "@example:localhost".into(),
+            unsigned: Unsigned::default(),
+            content,
+            prev_content: None,
+        };
+
+        let mut room_member = RoomMember::new(&member, &room_id);
+
+        // This power level was found in the DayDream client to overflow with the
+        // previous normalization logic
+        let mut content = PowerLevelsEventContent::default();
+        *content
+            .users
+            .entry(user_id.clone())
+            .or_insert_with(|| js_int::Int::new(4503599627370495).unwrap()) =
+            js_int::Int::new(4503599627370495).unwrap();
+        let power = SyncStateEvent {
+            event_id: event_id!("$h29iv0s8:example.com"),
+            origin_server_ts: SystemTime::now(),
+            sender: user_id,
+            state_key: "".into(),
+            unsigned: Unsigned::default(),
+            content,
+            prev_content: None,
+        };
+
+        Room::update_member_power(
+            &mut room_member,
+            &power,
+            js_int::Int::new(4503599627370495).unwrap(),
+        );
+        assert_eq!(room_member.power_level_norm, Some(js_int::int!(100)))
     }
 }

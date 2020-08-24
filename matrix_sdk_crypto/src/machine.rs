@@ -2170,16 +2170,14 @@ pub(crate) mod test {
 
         let mut event = alice
             .outgoing_to_device_requests()
-            .iter()
-            .next()
+            .first()
             .map(|r| outgoing_request_to_event(alice.user_id(), r))
             .unwrap();
         bob.handle_verification_event(&mut event).await;
 
         let mut event = bob
             .outgoing_to_device_requests()
-            .iter()
-            .next()
+            .first()
             .map(|r| outgoing_request_to_event(bob.user_id(), r))
             .unwrap();
         alice.handle_verification_event(&mut event).await;
