@@ -218,6 +218,12 @@ impl OlmMachine {
     }
 
     /// Get the outgoing requests that need to be sent out.
+    ///
+    /// This returns a list of `OutGoingRequest`, those requests need to be sent
+    /// out to the server and the responses need to be passed back to the state
+    /// machine using [`mark_request_as_sent`].
+    ///
+    /// [`mark_request_as_sent`]: #method.mark_request_as_sent
     pub async fn outgoing_requests(&self) -> Vec<OutgoingRequest> {
         let mut requests = Vec::new();
 
@@ -241,7 +247,15 @@ impl OlmMachine {
     }
 
     /// Mark the request with the given request id as sent.
-    pub async fn mark_requests_as_sent<'a>(
+    ///
+    /// # Arguments
+    ///
+    /// * `request_id` - The unique id of the request that was sent out. This is
+    /// needed to couple the response with the now sent out request.
+    ///
+    /// * `response` - The response that was received from the server after the
+    /// outgoing request was sent out.
+    pub async fn mark_request_as_sent<'a>(
         &self,
         request_id: &Uuid,
         response: impl Into<IncomingResponse<'a>>,
@@ -355,14 +369,14 @@ impl OlmMachine {
     /// This should be called every time a group session needs to be shared.
     ///
     /// The response of a successful key claiming requests needs to be passed to
-    /// the `OlmMachine` with the [`mark_requests_as_sent`].
+    /// the `OlmMachine` with the [`mark_request_as_sent`].
     ///
     /// # Arguments
     ///
     /// `users` - The list of users that we should check if we lack a session
     /// with one of their devices.
     ///
-    /// [`mark_requests_as_sent`]: #method.mark_requests_as_sent
+    /// [`mark_request_as_sent`]: #method.mark_request_as_sent
     pub async fn get_missing_sessions(
         &self,
         users: impl Iterator<Item = &UserId>,
@@ -1242,7 +1256,7 @@ impl OlmMachine {
 
     /// Mark an outgoing to-device requests as sent.
     fn mark_to_device_request_as_sent(&self, request_id: &Uuid) {
-        self.verification_machine.mark_requests_as_sent(request_id);
+        self.verification_machine.mark_request_as_sent(request_id);
     }
 
     /// Get a `Sas` verification object with the given flow id.

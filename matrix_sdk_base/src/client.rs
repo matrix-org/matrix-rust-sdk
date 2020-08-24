@@ -1244,7 +1244,13 @@ impl BaseClient {
         }
     }
 
-    /// Get the list of outgoing requests that need to be sent out.
+    /// Get the outgoing requests that need to be sent out.
+    ///
+    /// This returns a list of `OutGoingRequest`, those requests need to be sent
+    /// out to the server and the responses need to be passed back to the state
+    /// machine using [`mark_request_as_sent`].
+    ///
+    /// [`mark_request_as_sent`]: #method.mark_request_as_sent
     #[cfg(feature = "encryption")]
     #[cfg_attr(feature = "docs", doc(cfg(encryption)))]
     pub async fn outgoing_requests(&self) -> Vec<OutgoingRequest> {
@@ -1256,7 +1262,15 @@ impl BaseClient {
         }
     }
 
-    /// Get the list of outgoing requests that need to be sent out.
+    /// Mark the request with the given request id as sent.
+    ///
+    /// # Arguments
+    ///
+    /// * `request_id` - The unique id of the request that was sent out. This is
+    /// needed to couple the response with the now sent out request.
+    ///
+    /// * `response` - The response that was received from the server after the
+    /// outgoing request was sent out.
     #[cfg(feature = "encryption")]
     #[cfg_attr(feature = "docs", doc(cfg(encryption)))]
     pub async fn mark_request_as_sent<'a>(
@@ -1267,7 +1281,7 @@ impl BaseClient {
         let olm = self.olm.lock().await;
 
         match &*olm {
-            Some(o) => Ok(o.mark_requests_as_sent(request_id, response).await?),
+            Some(o) => Ok(o.mark_request_as_sent(request_id, response).await?),
             None => Ok(()),
         }
     }

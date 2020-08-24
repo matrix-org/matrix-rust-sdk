@@ -98,7 +98,7 @@ impl VerificationMachine {
         }
     }
 
-    pub fn mark_requests_as_sent(&self, uuid: &Uuid) {
+    pub fn mark_request_as_sent(&self, uuid: &Uuid) {
         self.outgoing_to_device_messages.remove(uuid);
     }
 
@@ -321,7 +321,7 @@ mod test {
 
         let mut event = wrap_any_to_device_content(alice.user_id(), get_content_from_request(r));
         drop(request);
-        alice_machine.mark_requests_as_sent(&txn_id);
+        alice_machine.mark_request_as_sent(&txn_id);
 
         assert!(bob.receive_event(&mut event).is_none());
 
