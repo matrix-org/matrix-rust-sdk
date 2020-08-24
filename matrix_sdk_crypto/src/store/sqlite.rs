@@ -38,8 +38,8 @@ use super::{CryptoStore, CryptoStoreError, Result};
 use crate::{
     device::{LocalTrust, ReadOnlyDevice},
     memory_stores::{DeviceStore, GroupSessionStore, ReadOnlyUserDevices, SessionStore},
+    olm::{Account, IdentityKeys, InboundGroupSession, Session},
     user_identity::UserIdentities,
-    Account, IdentityKeys, InboundGroupSession, Session,
 };
 
 /// SQLite based implementation of a `CryptoStore`.
@@ -907,7 +907,10 @@ impl std::fmt::Debug for SqliteStore {
 
 #[cfg(test)]
 mod test {
-    use crate::{device::test::get_device, olm::GroupSessionKey};
+    use crate::{
+        device::test::get_device,
+        olm::{Account, GroupSessionKey, InboundGroupSession, Session},
+    };
     use matrix_sdk_common::{
         api::r0::keys::SignedKey,
         identifiers::{room_id, user_id, DeviceId, UserId},
@@ -916,7 +919,7 @@ mod test {
     use std::collections::BTreeMap;
     use tempfile::tempdir;
 
-    use super::{Account, CryptoStore, InboundGroupSession, Session, SqliteStore};
+    use super::{CryptoStore, SqliteStore};
 
     fn example_user_id() -> UserId {
         user_id!("@example:localhost")
