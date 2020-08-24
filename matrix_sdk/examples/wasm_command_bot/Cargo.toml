@@ -10,7 +10,7 @@ edition = "2018"
 crate-type = ["cdylib"]
 
 [dependencies]
-matrix-sdk = { path = "../..", default-features = false }
+matrix-sdk = { path = "../..", default-features = false, features = ["native-tls"] }
 url = "2.1.1"
 wasm-bindgen = { version = "0.2.62", features = ["serde-serialize"] }
 wasm-bindgen-futures = "0.4.12"
