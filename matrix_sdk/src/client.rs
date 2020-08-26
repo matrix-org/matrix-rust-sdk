@@ -534,10 +534,6 @@ impl Client {
     ///     username: Some("user"),
     ///     password: Some("password"),
     ///     auth: Some(AuthData::FallbackAcknowledgement { session: "foobar" }),
-    ///     kind: RegistrationKind::User,
-    ///     device_id: None,
-    ///     initial_device_display_name: None,
-    ///     inhibit_login: false,
     /// });
     /// let client = Client::new(homeserver).unwrap();
     /// client.register(request).await;
@@ -1707,9 +1703,6 @@ mod test {
             password: Some("password"),
             auth: Some(AuthData::FallbackAcknowledgement { session: "foobar" }),
             kind: RegistrationKind::User,
-            device_id: None,
-            initial_device_display_name: None,
-            inhibit_login: false,
         });
 
         if let Err(err) = client.register(user).await {
