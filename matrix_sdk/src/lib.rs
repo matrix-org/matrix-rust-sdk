@@ -57,7 +57,7 @@ pub use matrix_sdk_base::{
 pub use matrix_sdk_base::{MessageQueue, PossiblyRedactedExt};
 
 pub use matrix_sdk_common::*;
-pub use reqwest::header::InvalidHeaderValue;
+pub use reqwest;
 
 mod client;
 mod error;
