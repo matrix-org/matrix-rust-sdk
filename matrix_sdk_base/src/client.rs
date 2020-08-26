@@ -28,21 +28,21 @@ use matrix_sdk_common::{
     api::r0 as api,
     events::{
         ignored_user_list::IgnoredUserListEvent, push_rules::PushRulesEvent,
-        room::member::MemberEventContent, AnyBasicEvent, AnyMessageEventContent,
-        AnyStrippedStateEvent, AnySyncEphemeralRoomEvent, AnySyncMessageEvent, AnySyncRoomEvent,
-        AnySyncStateEvent,
+        room::member::MemberEventContent, AnyBasicEvent, AnyStrippedStateEvent,
+        AnySyncEphemeralRoomEvent, AnySyncMessageEvent, AnySyncRoomEvent, AnySyncStateEvent,
     },
     identifiers::{RoomId, UserId},
     locks::RwLock,
     push::Ruleset,
-    uuid::Uuid,
     Raw,
 };
 #[cfg(feature = "encryption")]
 use matrix_sdk_common::{
     api::r0::keys::claim_keys::Request as KeysClaimRequest,
     api::r0::to_device::send_event_to_device::IncomingRequest as OwnedToDeviceRequest,
-    events::room::encrypted::EncryptedEventContent, identifiers::DeviceId,
+    events::{room::encrypted::EncryptedEventContent, AnyMessageEventContent},
+    identifiers::DeviceId,
+    uuid::Uuid,
 };
 #[cfg(feature = "encryption")]
 use matrix_sdk_crypto::{

@@ -2,7 +2,7 @@ use matrix_sdk::{
     api::r0::sync::sync_events::Response as SyncResponse,
     events::{
         room::message::{MessageEventContent, TextMessageEventContent},
-        AnySyncMessageEvent, AnySyncRoomEvent, SyncMessageEvent,
+        AnyMessageEventContent, AnySyncMessageEvent, AnySyncRoomEvent, SyncMessageEvent,
     },
     identifiers::RoomId,
     Client, ClientConfig, SyncSettings,
@@ -32,15 +32,15 @@ impl WasmBot {
         console::log_1(&format!("Received message event {:?}", &msg_body).into());
 
         if msg_body.starts_with("!party") {
-            let content = MessageEventContent::Text(TextMessageEventContent::plain(
-                "🎉🎊🥳 let's PARTY with wasm!! 🥳🎊🎉".to_string(),
+            let content = AnyMessageEventContent::RoomMessage(MessageEventContent::Text(
+                TextMessageEventContent::plain("🎉🎊🥳 let's PARTY with wasm!! 🥳🎊🎉".to_string()),
             ));
 
             self.0.room_send(&room_id, content, None).await.unwrap();
         }
     }
     async fn on_sync_response(&self, response: SyncResponse) {
-        console::log_1(&format!("Synced").into());
+        console::log_1(&"Synced".to_string().into());
 
         for (room_id, room) in response.rooms.join {
             for event in room.timeline.events {
