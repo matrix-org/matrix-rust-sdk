@@ -309,17 +309,16 @@ impl Account {
         );
         signatures.insert((*self.user_id).clone(), signature);
 
-        DeviceKeys {
-            user_id: (*self.user_id).clone(),
-            device_id: (*self.device_id).clone(),
-            algorithms: vec![
+        DeviceKeys::new(
+            (*self.user_id).clone(),
+            (*self.device_id).clone(),
+            vec![
                 EventEncryptionAlgorithm::OlmV1Curve25519AesSha2,
                 EventEncryptionAlgorithm::MegolmV1AesSha2,
             ],
             keys,
             signatures,
-            unsigned: None,
-        }
+        )
     }
 
     /// Convert a JSON value to the canonical representation and sign the JSON

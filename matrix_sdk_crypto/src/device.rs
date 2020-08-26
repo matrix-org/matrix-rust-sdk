@@ -348,13 +348,7 @@ impl ReadOnlyDevice {
     pub(crate) fn update_device(&mut self, device_keys: &DeviceKeys) -> Result<(), SignatureError> {
         self.verify_device_keys(device_keys)?;
 
-        let display_name = Arc::new(
-            device_keys
-                .unsigned
-                .as_ref()
-                .map(|d| d.device_display_name.clone())
-                .flatten(),
-        );
+        let display_name = Arc::new(device_keys.unsigned.device_display_name.clone());
 
         self.algorithms = Arc::new(device_keys.algorithms.clone());
         self.keys = Arc::new(device_keys.keys.clone());
@@ -428,13 +422,7 @@ impl TryFrom<&DeviceKeys> for ReadOnlyDevice {
             algorithms: Arc::new(device_keys.algorithms.clone()),
             signatures: Arc::new(device_keys.signatures.clone()),
             keys: Arc::new(device_keys.keys.clone()),
-            display_name: Arc::new(
-                device_keys
-                    .unsigned
-                    .as_ref()
-                    .map(|d| d.device_display_name.clone())
-                    .flatten(),
-            ),
+            display_name: Arc::new(device_keys.unsigned.device_display_name.clone()),
             deleted: Arc::new(AtomicBool::new(false)),
             trust_state: Arc::new(Atomic::new(LocalTrust::Unset)),
         };
@@ -525,15 +513,13 @@ pub(crate) mod test {
             device.display_name().as_ref().unwrap()
         );
 
+        let display_name = "Alice's work computer".to_owned();
+
         let mut device_keys = device_keys();
-        device_keys.unsigned.as_mut().unwrap().device_display_name =
-            Some("Alice's work computer".to_owned());
+        device_keys.unsigned.device_display_name = Some(display_name.clone());
         device.update_device(&device_keys).unwrap();
 
-        assert_eq!(
-            "Alice's work computer",
-            device.display_name().as_ref().unwrap()
-        );
+        assert_eq!(&display_name, device.display_name().as_ref().unwrap());
     }
 
     #[test]

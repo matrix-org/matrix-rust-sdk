@@ -53,7 +53,9 @@ use matrix_sdk_common::{
         room::create_room,
         session::login,
         sync::sync_events,
-        typing::create_typing_event,
+        typing::create_typing_event::{
+            Request as TypingRequest, Response as TypingResponse, Typing,
+        },
     },
     assign,
     identifiers::ServerName,
@@ -226,7 +228,7 @@ impl ClientConfig {
     /// implementations for the crypto store and the state store. It will use
     /// the given path to open the stores. If no path is provided no store will
     /// be opened
-    pub fn store_path<P: AsRef<Path>>(mut self, path: P) -> Self {
+    pub fn store_path(mut self, path: impl AsRef<Path>) -> Self {
         self.base_config = self.base_config.store_path(path);
         self
     }
@@ -280,7 +282,7 @@ impl<'a> SyncSettings<'a> {
     /// # Arguments
     ///
     /// * `token` - The sync token that should be used for the sync call.
-    pub fn token<S: Into<String>>(mut self, token: S) -> Self {
+    pub fn token(mut self, token: impl Into<String>) -> Self {
         self.token = Some(token.into());
         self
     }
@@ -326,7 +328,7 @@ impl Client {
     /// # Arguments
     ///
     /// * `homeserver_url` - The homeserver that the client should connect to.
-    pub fn new<U: TryInto<Url>>(homeserver_url: U) -> Result<Self> {
+    pub fn new(homeserver_url: impl TryInto<Url>) -> Result<Self> {
         let config = ClientConfig::new();
         Client::new_with_config(homeserver_url, config)
     }
@@ -338,8 +340,8 @@ impl Client {
     /// * `homeserver_url` - The homeserver that the client should connect to.
     ///
     /// * `config` - Configuration for the client.
-    pub fn new_with_config<U: TryInto<Url>>(
-        homeserver_url: U,
+    pub fn new_with_config(
+        homeserver_url: impl TryInto<Url>,
         config: ClientConfig,
     ) -> Result<Self> {
         let homeserver = if let Ok(u) = homeserver_url.try_into() {
@@ -518,31 +520,33 @@ impl Client {
     /// # Examples
     /// ```no_run
     /// # use std::convert::TryFrom;
-    /// # use matrix_sdk::{Client, RegistrationBuilder};
-    /// # use matrix_sdk::api::r0::account::register::RegistrationKind;
+    /// # use matrix_sdk::Client;
+    /// # use matrix_sdk::api::r0::account::register::{Request as RegistrationRequest, RegistrationKind};
     /// # use matrix_sdk::api::r0::uiaa::AuthData;
     /// # use matrix_sdk::identifiers::DeviceId;
+    /// # use matrix_sdk_common::assign;
     /// # use futures::executor::block_on;
     /// # use url::Url;
     /// # let homeserver = Url::parse("http://example.com").unwrap();
     /// # block_on(async {
-    /// let mut builder = RegistrationBuilder::default();
-    /// builder.password("pass")
-    ///     .username("user")
-    ///     .auth(AuthData::DirectRequest {
-    ///         kind: "m.login.dummy",
-    ///         session: None,
-    ///         auth_parameters: Default::default(),
-    ///     })
-    ///     .kind(RegistrationKind::User);
-    /// let mut client = Client::new(homeserver).unwrap();
-    /// client.register_user(builder).await;
+    ///
+    /// let request = assign!(RegistrationRequest::new(), {
+    ///     username: Some("user"),
+    ///     password: Some("password"),
+    ///     auth: Some(AuthData::FallbackAcknowledgement { session: "foobar" }),
+    ///     kind: RegistrationKind::User,
+    ///     device_id: None,
+    ///     initial_device_display_name: None,
+    ///     inhibit_login: false,
+    /// });
+    /// let client = Client::new(homeserver).unwrap();
+    /// client.register(request).await;
     /// # })
     /// ```
     #[instrument(skip(registration))]
-    pub async fn register_user<'a, R: Into<register::Request<'a>>>(
+    pub async fn register(
         &self,
-        registration: R,
+        registration: impl Into<register::Request<'_>>,
     ) -> Result<register::Response> {
         info!("Registering to {}", self.homeserver);
 
@@ -577,11 +581,9 @@ impl Client {
         alias: &RoomIdOrAliasId,
         server_names: &[Box<ServerName>],
     ) -> Result<join_room_by_id_or_alias::Response> {
-        let request = join_room_by_id_or_alias::Request {
-            room_id_or_alias: alias.clone(),
+        let request = assign!(join_room_by_id_or_alias::Request::new(alias), {
             server_name: server_names,
-            third_party_signed: None,
-        };
+        });
         self.send(request).await
     }
 
@@ -665,12 +667,9 @@ impl Client {
         room_id: &RoomId,
         user_id: &UserId,
     ) -> Result<invite_user::Response> {
-        let request = invite_user::Request {
-            room_id: room_id.clone(),
-            recipient: InvitationRecipient::UserId {
-                user_id: user_id.clone(),
-            },
-        };
+        let recipient = InvitationRecipient::UserId { user_id };
+
+        let request = invite_user::Request::new(room_id, recipient);
         self.send(request).await
     }
 
@@ -686,12 +685,10 @@ impl Client {
     pub async fn invite_user_by_3pid(
         &self,
         room_id: &RoomId,
-        invite_id: &Invite3pid,
+        invite_id: Invite3pid<'_>,
     ) -> Result<invite_user::Response> {
-        let request = invite_user::Request {
-            room_id: room_id.clone(),
-            recipient: InvitationRecipient::ThirdPartyId(invite_id.clone()),
-        };
+        let recipient = InvitationRecipient::ThirdPartyId(invite_id);
+        let request = invite_user::Request::new(room_id, recipient);
         self.send(request).await
     }
 
@@ -750,31 +747,28 @@ impl Client {
     /// * `room_search` - The easiest way to create this request is using the `RoomListFilterBuilder`.
     ///
     /// # Examples
-    /// ```
+    /// ```no_run
     /// # use std::convert::TryFrom;
-    /// # use matrix_sdk::{Client, RoomListFilterBuilder};
+    /// # use matrix_sdk::Client;
     /// # use matrix_sdk::directory::{Filter, RoomNetwork};
-    /// # use matrix_sdk::api::r0::directory::get_public_rooms_filtered;
+    /// # use matrix_sdk::api::r0::directory::get_public_rooms_filtered::Request as PublicRoomsFilterRequest;
+    /// # use matrix_sdk_common::assign;
     /// # use url::Url;
     /// # use futures::executor::block_on;
     /// # let homeserver = Url::parse("http://example.com").unwrap();
     /// # block_on(async {
-    /// # let last_sync_token = "".to_string();
     /// let mut client = Client::new(homeserver).unwrap();
     ///
-    /// let generic_search_term = Some("matrix-rust-sdk".to_string());
-    /// let mut builder = RoomListFilterBuilder::new();
-    /// builder
-    ///     .filter(Filter { generic_search_term, })
-    ///     .since(&last_sync_token)
-    ///     .room_network(RoomNetwork::Matrix);
+    /// let generic_search_term = Some("matrix-rust-sdk");
+    /// let filter = Some(assign!(Filter::new(), { generic_search_term }));
+    /// let request = assign!(PublicRoomsFilterRequest::new(), { filter });
     ///
-    /// client.public_rooms_filtered(builder).await;
+    /// client.public_rooms_filtered(request).await;
     /// # })
     /// ```
-    pub async fn public_rooms_filtered<'a, R: Into<get_public_rooms_filtered::Request<'a>>>(
+    pub async fn public_rooms_filtered(
         &self,
-        room_search: R,
+        room_search: impl Into<get_public_rooms_filtered::Request<'_>>,
     ) -> Result<get_public_rooms_filtered::Response> {
         let request = room_search.into();
         self.send(request).await
@@ -791,27 +785,21 @@ impl Client {
     ///
     /// # Examples
     /// ```no_run
-    /// use matrix_sdk::{Client, RoomBuilder};
-    /// # use matrix_sdk::api::r0::room::Visibility;
+    /// use matrix_sdk::Client;
+    /// # use matrix_sdk::api::r0::room::{create_room::Request as CreateRoomRequest, Visibility};
     /// # use url::Url;
     ///
     /// # let homeserver = Url::parse("http://example.com").unwrap();
-    /// let mut builder = RoomBuilder::new();
-    /// builder.federate(false)
-    ///     .initial_state(vec![])
-    ///     .visibility(Visibility::Public)
-    ///     .name("name")
-    ///     .room_version("v1.0");
-    ///
-    /// let mut client = Client::new(homeserver).unwrap();
+    /// let request = CreateRoomRequest::new();
+    /// let client = Client::new(homeserver).unwrap();
     /// # use futures::executor::block_on;
     /// # block_on(async {
-    /// assert!(client.create_room(builder).await.is_ok());
+    /// assert!(client.create_room(request).await.is_ok());
     /// # });
     /// ```
-    pub async fn create_room<R: Into<create_room::Request>>(
+    pub async fn create_room(
         &self,
-        room: R,
+        room: impl Into<create_room::Request<'_>>,
     ) -> Result<create_room::Response> {
         let request = room.into();
         self.send(request).await
@@ -832,30 +820,26 @@ impl Client {
     /// # Examples
     /// ```no_run
     /// # use std::convert::TryFrom;
-    /// use matrix_sdk::{Client, MessagesRequestBuilder};
+    /// use matrix_sdk::Client;
     /// # use matrix_sdk::identifiers::room_id;
     /// # use matrix_sdk::api::r0::filter::RoomEventFilter;
-    /// # use matrix_sdk::api::r0::message::get_message_events::Direction;
+    /// # use matrix_sdk::api::r0::message::get_message_events::Request as MessagesRequest;
     /// # use url::Url;
     /// # use matrix_sdk::js_int::UInt;
     ///
     /// # let homeserver = Url::parse("http://example.com").unwrap();
     /// let room_id = room_id!("!roomid:example.com");
-    /// let mut builder = MessagesRequestBuilder::new(&room_id, "t47429-4392820_219380_26003_2265");
-    ///
-    /// builder.to("t4357353_219380_26003_2265")
-    ///     .direction(Direction::Backward)
-    ///     .limit(10);
+    /// let request = MessagesRequest::backward(&room_id, "t47429-4392820_219380_26003_2265");
     ///
     /// let mut client = Client::new(homeserver).unwrap();
     /// # use futures::executor::block_on;
     /// # block_on(async {
-    /// assert!(client.room_messages(builder).await.is_ok());
+    /// assert!(client.room_messages(request).await.is_ok());
     /// # });
     /// ```
-    pub async fn room_messages<'a, R: Into<get_message_events::Request<'a>>>(
+    pub async fn room_messages(
         &self,
-        request: R,
+        request: impl Into<get_message_events::Request<'_>>,
     ) -> Result<get_message_events::Response> {
         let req = request.into();
         self.send(req).await
@@ -878,14 +862,12 @@ impl Client {
         &self,
         room_id: &RoomId,
         user_id: &UserId,
-        typing: bool,
-        timeout: Option<Duration>,
-    ) -> Result<create_typing_event::Response> {
-        let request = create_typing_event::Request {
+        typing: impl Into<Typing>,
+    ) -> Result<TypingResponse> {
+        let request = TypingRequest {
             room_id: room_id.clone(),
             user_id: user_id.clone(),
-            timeout,
-            typing,
+            state: typing.into(),
         };
         self.send(request).await
     }
@@ -929,11 +911,9 @@ impl Client {
         fully_read: &EventId,
         read_receipt: Option<&EventId>,
     ) -> Result<set_read_marker::Response> {
-        let request = set_read_marker::Request {
-            room_id: room_id.clone(),
-            fully_read: fully_read.clone(),
-            read_receipt: read_receipt.cloned(),
-        };
+        let request = assign!(set_read_marker::Request::new(room_id, fully_read), {
+            read_receipt
+        });
         self.send(request).await
     }
 
@@ -1135,13 +1115,13 @@ impl Client {
     /// * `sync_settings` - Settings for the sync call.
     #[instrument]
     pub async fn sync(&self, sync_settings: SyncSettings<'_>) -> Result<sync_events::Response> {
-        let request = sync_events::Request {
+        let request = assign!(sync_events::Request::new(), {
             filter: sync_settings.filter,
             since: sync_settings.token.as_deref(),
             full_state: sync_settings.full_state,
             set_presence: PresenceState::Online,
             timeout: sync_settings.timeout,
-        };
+        });
 
         let mut response = self.send(request).await?;
 
@@ -1505,15 +1485,17 @@ impl Client {
 #[cfg(test)]
 mod test {
     use super::{
-        create_typing_event, get_public_rooms, get_public_rooms_filtered,
-        register::RegistrationKind, Client, ClientConfig, Invite3pid, MessageEventContent, Session,
-        SyncSettings, Url,
+        get_public_rooms, get_public_rooms_filtered, register::RegistrationKind, Client,
+        ClientConfig, Invite3pid, MessageEventContent, Session, SyncSettings, Url,
     };
-    use crate::{RegistrationBuilder, RoomListFilterBuilder};
-
     use matrix_sdk_base::JsonStore;
     use matrix_sdk_common::{
-        api::r0::uiaa::AuthData,
+        api::r0::{
+            account::register::Request as RegistrationRequest,
+            directory::get_public_rooms_filtered::Request as PublicRoomsFilterRequest,
+            typing::create_typing_event::Typing, uiaa::AuthData,
+        },
+        assign,
         directory::Filter,
         events::room::message::TextMessageEventContent,
         identifiers::{event_id, room_id, user_id},
@@ -1720,14 +1702,17 @@ mod test {
             .with_body(test_json::REGISTRATION_RESPONSE_ERR.to_string())
             .create();
 
-        let mut user = RegistrationBuilder::default();
+        let user = assign!(RegistrationRequest::new(), {
+            username: Some("user"),
+            password: Some("password"),
+            auth: Some(AuthData::FallbackAcknowledgement { session: "foobar" }),
+            kind: RegistrationKind::User,
+            device_id: None,
+            initial_device_display_name: None,
+            inhibit_login: false,
+        });
 
-        user.username("user")
-            .password("password")
-            .auth(AuthData::FallbackAcknowledgement { session: "foobar" })
-            .kind(RegistrationKind::User);
-
-        if let Err(err) = client.register_user(user).await {
+        if let Err(err) = client.register(user).await {
             if let crate::Error::UiaaError(crate::FromHttpResponseError::Http(
                 // TODO this should be a UiaaError need to investigate
                 crate::ServerError::Unknown(e),
@@ -1831,11 +1816,11 @@ mod test {
         client
             .invite_user_by_3pid(
                 &room_id,
-                &Invite3pid {
-                    id_server: "example.org".to_string(),
-                    id_access_token: "IdToken".to_string(),
+                Invite3pid {
+                    id_server: "example.org",
+                    id_access_token: "IdToken",
                     medium: thirdparty::Medium::Email,
-                    address: "address".to_string(),
+                    address: "address",
                 },
             )
             .await
@@ -1873,11 +1858,9 @@ mod test {
         .match_header("authorization", "Bearer 1234")
         .create();
 
-        let generic_search_term = Some("cheese".to_string());
-        let mut request = RoomListFilterBuilder::default();
-        request.filter(Filter {
-            generic_search_term,
-        });
+        let generic_search_term = Some("cheese");
+        let filter = Some(assign!(Filter::new(), { generic_search_term }));
+        let request = assign!(PublicRoomsFilterRequest::new(), { filter });
 
         let get_public_rooms_filtered::Response { chunk, .. } =
             client.public_rooms_filtered(request).await.unwrap();
@@ -2002,7 +1985,6 @@ mod test {
     }
 
     #[tokio::test]
-    #[allow(irrefutable_let_patterns)]
     async fn typing_notice() {
         let client = logged_in_client().await;
 
@@ -2018,22 +2000,14 @@ mod test {
 
         let room_id = room_id!("!testroom:example.org");
 
-        let response = client
+        client
             .typing_notice(
                 &room_id,
                 &client.user_id().await.unwrap(),
-                true,
-                Some(std::time::Duration::from_secs(1)),
+                Typing::Yes(std::time::Duration::from_secs(1)),
             )
             .await
             .unwrap();
-        if let create_typing_event::Response = response {
-        } else {
-            panic!(
-                "expected `ruma_client_api::create_typing_event::Response` found {:?}",
-                response
-            )
-        }
     }
 
     #[tokio::test]

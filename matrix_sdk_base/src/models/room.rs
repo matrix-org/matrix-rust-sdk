@@ -601,6 +601,7 @@ impl Room {
             heroes,
             joined_member_count,
             invited_member_count,
+            ..
         } = summary;
         self.room_name.heroes = heroes.clone();
         self.room_name.invited_member_count = *invited_member_count;
