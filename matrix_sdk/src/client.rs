@@ -514,7 +514,8 @@ impl Client {
     ///
     /// # Arguments
     ///
-    /// * `registration` - The easiest way to create this request is using the `RegistrationBuilder`.
+    /// * `registration` - The easiest way to create this request is using the `register::Request`
+    /// itself.
     ///
     ///
     /// # Examples
@@ -740,7 +741,8 @@ impl Client {
     ///
     /// # Arguments
     ///
-    /// * `room_search` - The easiest way to create this request is using the `RoomListFilterBuilder`.
+    /// * `room_search` - The easiest way to create this request is using the
+    /// `get_public_rooms_filtered::Request` itself.
     ///
     /// # Examples
     /// ```no_run
@@ -777,7 +779,8 @@ impl Client {
     ///
     /// # Arguments
     ///
-    /// * `room` - The easiest way to create this request is using the `RoomBuilder`.
+    /// * `room` - The easiest way to create this request is using the
+    /// `create_room::Request` itself.
     ///
     /// # Examples
     /// ```no_run
@@ -811,7 +814,7 @@ impl Client {
     /// # Arguments
     ///
     /// * `request` - The easiest way to create this request is using the
-    /// `MessagesRequestBuilder`.
+    /// `get_message_events::Request` itself.
     ///
     /// # Examples
     /// ```no_run
