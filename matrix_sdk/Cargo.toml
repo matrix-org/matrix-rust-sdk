@@ -42,10 +42,8 @@ version = "0.1.0"
 path = "../matrix_sdk_base"
 default_features = false
 
-# FIXME: Revert to regular dependency once 0.10.8 or 0.11.0 is released
 [dependencies.reqwest]
-git = "https://github.com/seanmonstar/reqwest"
-rev = "cff487ff58630cf0ac59f3e46cbf20cf50a28b3f"
+version = "0.10.7"
 default_features = false
 
 [dependencies.tracing-futures]
