@@ -81,7 +81,7 @@ use matrix_sdk_common::{
 
 use crate::{
     events::{room::message::MessageEventContent, AnyMessageEventContent},
-    http_client::{DefaultHttpClient, HttpClient, HttpSend},
+    http_client::{client_with_config, HttpClient, HttpSend},
     identifiers::{EventId, RoomId, RoomIdOrAliasId, UserId},
     Error, EventEmitter, OutgoingRequest, Result,
 };
@@ -353,7 +353,7 @@ impl Client {
         let client = if let Some(client) = config.client {
             client
         } else {
-            Arc::new(DefaultHttpClient::with_config(&config)?)
+            Arc::new(client_with_config(&config)?)
         };
 
         let base_client = BaseClient::new_with_config(config.base_config)?;

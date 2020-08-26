@@ -128,91 +128,73 @@ impl HttpClient {
     }
 }
 
-/// Default http client used if none is specified using `Client::with_client`.
-#[derive(Clone, Debug)]
-pub struct DefaultHttpClient {
-    inner: Client,
-}
+/// Build a client with the specified configuration.
+pub(crate) fn client_with_config(config: &ClientConfig) -> Result<Client> {
+    let http_client = reqwest::Client::builder();
 
-impl DefaultHttpClient {
-    /// Build a client with the specified configuration.
-    pub fn with_config(config: &ClientConfig) -> Result<Self> {
-        let http_client = reqwest::Client::builder();
-
-        #[cfg(not(target_arch = "wasm32"))]
-        let http_client = {
-            let http_client = match config.timeout {
-                Some(x) => http_client.timeout(x),
-                None => http_client,
-            };
-
-            let http_client = if config.disable_ssl_verification {
-                http_client.danger_accept_invalid_certs(true)
-            } else {
-                http_client
-            };
-
-            let http_client = match &config.proxy {
-                Some(p) => http_client.proxy(p.clone()),
-                None => http_client,
-            };
-
-            let mut headers = reqwest::header::HeaderMap::new();
-
-            let user_agent = match &config.user_agent {
-                Some(a) => a.clone(),
-                None => {
-                    HeaderValue::from_str(&format!("matrix-rust-sdk {}", crate::VERSION)).unwrap()
-                }
-            };
-
-            headers.insert(reqwest::header::USER_AGENT, user_agent);
-
-            http_client.default_headers(headers)
+    #[cfg(not(target_arch = "wasm32"))]
+    let http_client = {
+        let http_client = match config.timeout {
+            Some(x) => http_client.timeout(x),
+            None => http_client,
         };
 
-        #[cfg(target_arch = "wasm32")]
-        #[allow(unused)]
-        let _ = config;
+        let http_client = if config.disable_ssl_verification {
+            http_client.danger_accept_invalid_certs(true)
+        } else {
+            http_client
+        };
 
-        Ok(Self {
-            inner: http_client.build()?,
-        })
-    }
+        let http_client = match &config.proxy {
+            Some(p) => http_client.proxy(p.clone()),
+            None => http_client,
+        };
 
-    async fn response_to_http_response(
-        &self,
-        mut response: Response,
-    ) -> Result<http::Response<Vec<u8>>> {
-        let status = response.status();
+        let mut headers = reqwest::header::HeaderMap::new();
 
-        let mut http_builder = HttpResponse::builder().status(status);
-        let headers = http_builder.headers_mut().unwrap();
+        let user_agent = match &config.user_agent {
+            Some(a) => a.clone(),
+            None => HeaderValue::from_str(&format!("matrix-rust-sdk {}", crate::VERSION)).unwrap(),
+        };
 
-        for (k, v) in response.headers_mut().drain() {
-            if let Some(key) = k {
-                headers.insert(key, v);
-            }
+        headers.insert(reqwest::header::USER_AGENT, user_agent);
+
+        http_client.default_headers(headers)
+    };
+
+    #[cfg(target_arch = "wasm32")]
+    #[allow(unused)]
+    let _ = config;
+
+    Ok(http_client.build()?)
+}
+
+async fn response_to_http_response(mut response: Response) -> Result<http::Response<Vec<u8>>> {
+    let status = response.status();
+
+    let mut http_builder = HttpResponse::builder().status(status);
+    let headers = http_builder.headers_mut().unwrap();
+
+    for (k, v) in response.headers_mut().drain() {
+        if let Some(key) = k {
+            headers.insert(key, v);
         }
-
-        let body = response.bytes().await?.as_ref().to_owned();
-
-        Ok(http_builder.body(body).unwrap())
     }
+
+    let body = response.bytes().await?.as_ref().to_owned();
+
+    Ok(http_builder.body(body).unwrap())
 }
 
 #[async_trait]
-impl HttpSend for DefaultHttpClient {
+impl HttpSend for Client {
     async fn send_request(
         &self,
         request: http::Request<Vec<u8>>,
     ) -> Result<http::Response<Vec<u8>>> {
-        Ok(self
-            .response_to_http_response(
-                self.inner
-                    .execute(reqwest::Request::try_from(request)?)
-                    .await?,
-            )
-            .await?)
+        Ok(
+            response_to_http_response(self.execute(reqwest::Request::try_from(request)?).await?)
+                .await?,
+        )
     }
 }
