@@ -22,6 +22,7 @@ encryption = ["matrix-sdk-base/encryption", "dashmap"]
 sqlite_cryptostore = ["matrix-sdk-base/sqlite_cryptostore"]
 native-tls = ["reqwest/native-tls"]
 rustls-tls = ["reqwest/rustls-tls"]
+socks = ["reqwest/socks"]
 
 docs = ["encryption", "sqlite_cryptostore", "messages"]
 
