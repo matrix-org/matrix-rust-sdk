@@ -24,6 +24,7 @@
 //! keys. If this is disabled and `encryption` support is enabled the keys will
 //! by default be stored only in memory and thus lost after the client is
 //! destroyed.
+//! * `socks`: Enables SOCKS support in reqwest, the default HTTP client.
 
 #![deny(
     missing_debug_implementations,
