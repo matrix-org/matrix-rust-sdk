@@ -28,8 +28,9 @@ use matrix_sdk_common::{
     api::r0 as api,
     events::{
         ignored_user_list::IgnoredUserListEvent, push_rules::PushRulesEvent,
-        room::member::MemberEventContent, AnyBasicEvent, AnyStrippedStateEvent,
-        AnySyncEphemeralRoomEvent, AnySyncMessageEvent, AnySyncRoomEvent, AnySyncStateEvent,
+        room::member::MemberEventContent, AnyBasicEvent, AnyMessageEventContent,
+        AnyStrippedStateEvent, AnySyncEphemeralRoomEvent, AnySyncMessageEvent, AnySyncRoomEvent,
+        AnySyncStateEvent,
     },
     identifiers::{RoomId, UserId},
     locks::RwLock,
@@ -41,10 +42,7 @@ use matrix_sdk_common::{
 use matrix_sdk_common::{
     api::r0::keys::claim_keys::Request as KeysClaimRequest,
     api::r0::to_device::send_event_to_device::IncomingRequest as OwnedToDeviceRequest,
-    events::room::{
-        encrypted::EncryptedEventContent, message::MessageEventContent as MsgEventContent,
-    },
-    identifiers::DeviceId,
+    events::room::encrypted::EncryptedEventContent, identifiers::DeviceId,
 };
 #[cfg(feature = "encryption")]
 use matrix_sdk_crypto::{
@@ -1336,12 +1334,12 @@ impl BaseClient {
     pub async fn encrypt(
         &self,
         room_id: &RoomId,
-        content: MsgEventContent,
+        content: impl Into<AnyMessageEventContent>,
     ) -> Result<EncryptedEventContent> {
         let olm = self.olm.lock().await;
 
         match &*olm {
-            Some(o) => Ok(o.encrypt(room_id, content).await?),
+            Some(o) => Ok(o.encrypt(room_id, content.into()).await?),
             None => panic!("Olm machine wasn't started"),
         }
     }

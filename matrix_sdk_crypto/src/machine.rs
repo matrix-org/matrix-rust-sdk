@@ -40,11 +40,10 @@ use matrix_sdk_common::{
     },
     encryption::DeviceKeys,
     events::{
-        forwarded_room_key::ForwardedRoomKeyEventContent,
-        room::{encrypted::EncryptedEventContent, message::MessageEventContent},
-        room_key::RoomKeyEventContent,
-        room_key_request::RoomKeyRequestEventContent,
-        AnySyncRoomEvent, AnyToDeviceEvent, EventType, SyncMessageEvent, ToDeviceEvent,
+        forwarded_room_key::ForwardedRoomKeyEventContent, room::encrypted::EncryptedEventContent,
+        room_key::RoomKeyEventContent, room_key_request::RoomKeyRequestEventContent,
+        AnyMessageEventContent, AnySyncRoomEvent, AnyToDeviceEvent, EventType, SyncMessageEvent,
+        ToDeviceEvent,
     },
     identifiers::{DeviceId, DeviceKeyAlgorithm, EventEncryptionAlgorithm, RoomId, UserId},
     uuid::Uuid,
@@ -1074,7 +1073,7 @@ impl OlmMachine {
     pub async fn encrypt(
         &self,
         room_id: &RoomId,
-        content: MessageEventContent,
+        content: AnyMessageEventContent,
     ) -> MegolmResult<EncryptedEventContent> {
         let session = if let Some(s) = self.get_outbound_group_session(room_id) {
             s
@@ -1569,8 +1568,8 @@ pub(crate) mod test {
                 encrypted::EncryptedEventContent,
                 message::{MessageEventContent, TextMessageEventContent},
             },
-            AnySyncMessageEvent, AnySyncRoomEvent, AnyToDeviceEvent, EventType, SyncMessageEvent,
-            ToDeviceEvent, Unsigned,
+            AnyMessageEventContent, AnySyncMessageEvent, AnySyncRoomEvent, AnyToDeviceEvent,
+            EventType, SyncMessageEvent, ToDeviceEvent, Unsigned,
         },
         identifiers::{
             event_id, room_id, user_id, DeviceId, DeviceKeyAlgorithm, DeviceKeyId, UserId,
@@ -2081,7 +2080,13 @@ pub(crate) mod test {
 
         let content = MessageEventContent::Text(TextMessageEventContent::plain(plaintext));
 
-        let encrypted_content = alice.encrypt(&room_id, content.clone()).await.unwrap();
+        let encrypted_content = alice
+            .encrypt(
+                &room_id,
+                AnyMessageEventContent::RoomMessage(content.clone()),
+            )
+            .await
+            .unwrap();
 
         let event = SyncMessageEvent {
             event_id: event_id!("$xxxxx:example.org"),

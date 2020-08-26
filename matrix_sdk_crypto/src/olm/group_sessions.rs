@@ -25,11 +25,8 @@ use std::{
 
 use matrix_sdk_common::{
     events::{
-        room::{
-            encrypted::EncryptedEventContent, encryption::EncryptionEventContent,
-            message::MessageEventContent,
-        },
-        AnySyncRoomEvent, EventType, SyncMessageEvent,
+        room::{encrypted::EncryptedEventContent, encryption::EncryptionEventContent},
+        AnyMessageEventContent, AnySyncRoomEvent, EventContent, SyncMessageEvent,
     },
     identifiers::{DeviceId, EventEncryptionAlgorithm, RoomId},
     instant::Instant,
@@ -372,11 +369,11 @@ impl OutboundGroupSession {
     /// # Panics
     ///
     /// Panics if the content can't be serialized.
-    pub async fn encrypt(&self, content: MessageEventContent) -> EncryptedEventContent {
+    pub async fn encrypt(&self, content: AnyMessageEventContent) -> EncryptedEventContent {
         let json_content = json!({
             "content": content,
             "room_id": &*self.room_id,
-            "type": EventType::RoomMessage,
+            "type": content.event_type(),
         });
 
         let plaintext = cjson::to_string(&json_content).unwrap_or_else(|_| {
@@ -482,7 +479,10 @@ mod test {
     };
 
     use matrix_sdk_common::{
-        events::room::message::{MessageEventContent, TextMessageEventContent},
+        events::{
+            room::message::{MessageEventContent, TextMessageEventContent},
+            AnyMessageEventContent,
+        },
         identifiers::{room_id, user_id},
     };
 
@@ -505,9 +505,9 @@ mod test {
 
         assert!(!session.expired());
         let _ = session
-            .encrypt(MessageEventContent::Text(TextMessageEventContent::plain(
-                "Test message",
-            )))
+            .encrypt(AnyMessageEventContent::RoomMessage(
+                MessageEventContent::Text(TextMessageEventContent::plain("Test message")),
+            ))
             .await;
         assert!(session.expired());
 

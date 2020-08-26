@@ -80,7 +80,7 @@ use matrix_sdk_common::{
 };
 
 use crate::{
-    events::{room::message::MessageEventContent, AnyMessageEventContent},
+    events::AnyMessageEventContent,
     http_client::{client_with_config, HttpClient, HttpSend},
     identifiers::{EventId, RoomId, RoomIdOrAliasId, UserId},
     Error, EventEmitter, OutgoingRequest, Result,
@@ -995,14 +995,20 @@ impl Client {
     /// # use futures::executor::block_on;
     /// # use matrix_sdk::identifiers::room_id;
     /// # use std::convert::TryFrom;
-    /// use matrix_sdk::events::room::message::{MessageEventContent, TextMessageEventContent};
+    /// use matrix_sdk::events::{
+    ///     AnyMessageEventContent,
+    ///     room::message::{MessageEventContent, TextMessageEventContent},
+    /// };
     /// # block_on(async {
     /// # let homeserver = Url::parse("http://localhost:8080").unwrap();
     /// # let mut client = Client::new(homeserver).unwrap();
     /// # let room_id = room_id!("!test:localhost");
     /// use matrix_sdk_common::uuid::Uuid;
     ///
-    /// let content = MessageEventContent::Text(TextMessageEventContent::plain("Hello world"));
+    /// let content = AnyMessageEventContent::RoomMessage(
+    ///     MessageEventContent::Text(TextMessageEventContent::plain("Hello world"))
+    /// );
+    ///
     /// let txn_id = Uuid::new_v4();
     /// client.room_send(&room_id, content, Some(txn_id)).await.unwrap();
     /// # })
@@ -1010,11 +1016,11 @@ impl Client {
     pub async fn room_send(
         &self,
         room_id: &RoomId,
-        content: MessageEventContent,
+        content: impl Into<AnyMessageEventContent>,
         txn_id: Option<Uuid>,
     ) -> Result<send_message_event::Response> {
         #[cfg(not(feature = "encryption"))]
-        let content = AnyMessageEventContent::RoomMessage(content);
+        let content: AnyMessageEventContent = content.into();
 
         #[cfg(feature = "encryption")]
         let content = {
@@ -1029,11 +1035,12 @@ impl Client {
 
             if encrypted {
                 self.preshare_group_session(room_id).await?;
+
                 AnyMessageEventContent::RoomEncrypted(
                     self.base_client.encrypt(room_id, content).await?,
                 )
             } else {
-                AnyMessageEventContent::RoomMessage(content)
+                content.into()
             }
         };
 
@@ -1482,7 +1489,7 @@ impl Client {
 mod test {
     use super::{
         get_public_rooms, get_public_rooms_filtered, register::RegistrationKind, Client,
-        ClientConfig, Invite3pid, MessageEventContent, Session, SyncSettings, Url,
+        ClientConfig, Invite3pid, Session, SyncSettings, Url,
     };
     use matrix_sdk_base::JsonStore;
     use matrix_sdk_common::{
@@ -1493,7 +1500,10 @@ mod test {
         },
         assign,
         directory::Filter,
-        events::room::message::TextMessageEventContent,
+        events::{
+            room::message::{MessageEventContent, TextMessageEventContent},
+            AnyMessageEventContent,
+        },
         identifiers::{event_id, room_id, user_id},
         thirdparty,
     };
@@ -2020,11 +2030,13 @@ mod test {
 
         let room_id = room_id!("!testroom:example.org");
 
-        let content = MessageEventContent::Text(TextMessageEventContent {
-            body: "Hello world".to_owned(),
-            relates_to: None,
-            formatted: None,
-        });
+        let content = AnyMessageEventContent::RoomMessage(MessageEventContent::Text(
+            TextMessageEventContent {
+                body: "Hello world".to_owned(),
+                relates_to: None,
+                formatted: None,
+            },
+        ));
         let txn_id = Uuid::new_v4();
         let response = client
             .room_send(&room_id, content, Some(txn_id))

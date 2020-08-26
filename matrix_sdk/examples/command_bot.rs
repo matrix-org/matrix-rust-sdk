@@ -4,7 +4,7 @@ use matrix_sdk::{
     self,
     events::{
         room::message::{MessageEventContent, TextMessageEventContent},
-        SyncMessageEvent,
+        AnyMessageEventContent, SyncMessageEvent,
     },
     Client, ClientConfig, EventEmitter, JsonStore, SyncRoom, SyncSettings,
 };
@@ -38,11 +38,13 @@ impl EventEmitter for CommandBot {
             };
 
             if msg_body.contains("!party") {
-                let content = MessageEventContent::Text(TextMessageEventContent {
-                    body: "🎉🎊🥳 let's PARTY!! 🥳🎊🎉".to_string(),
-                    formatted: None,
-                    relates_to: None,
-                });
+                let content = AnyMessageEventContent::RoomMessage(MessageEventContent::Text(
+                    TextMessageEventContent {
+                        body: "🎉🎊🥳 let's PARTY!! 🥳🎊🎉".to_string(),
+                        formatted: None,
+                        relates_to: None,
+                    },
+                ));
                 // we clone here to hold the lock for as little time as possible.
                 let room_id = room.read().await.room_id.clone();
 
