@@ -1196,7 +1196,7 @@ impl Client {
         C: Future<Output = ()>,
     {
         let mut sync_settings = sync_settings;
-        let filter = sync_settings.filter.clone();
+        let filter = sync_settings.filter;
         let mut last_sync_time: Option<Instant> = None;
 
         if sync_settings.token.is_none() {
@@ -1263,7 +1263,7 @@ impl Client {
                     .expect("No sync token found after initial sync"),
             );
             if let Some(f) = filter.as_ref() {
-                sync_settings = sync_settings.filter(f.clone());
+                sync_settings = sync_settings.filter(*f);
             }
         }
     }
