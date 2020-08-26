@@ -36,32 +36,43 @@ pub trait HttpSend: Sync + Send + Debug {
     ///
     /// * `request` - The http request that has been converted from a ruma `Request`.
     ///
-    /// # Returns
-    ///
-    /// A `reqwest::Response` that will be converted to a ruma `Response` in the `Client`.
-    ///
     /// # Examples
     ///
-    /// ```ignore
-    /// use matrix_sdk::HttpSend;
+    /// ```
+    /// use std::convert::TryFrom;
+    /// use matrix_sdk::{HttpSend, Result};
     /// use matrix_sdk_common_macros::async_trait;
-    /// use reqwest::Response;
     ///
     /// #[derive(Debug)]
-    /// struct TestSend;
+    /// struct Client(reqwest::Client);
     ///
-    /// impl HttpSend for TestSend {
-    ///     async fn send_request(&self, request: http::Request<Vec<u8>>) -> Result<Response>
-    ///     // send the request somehow
-    ///     let response = send(request, method, homeserver).await?;
-    ///
-    ///     // reqwest can convert to and from `http::Response` types.
-    ///     Ok(reqwest::Response::from(response))
+    /// impl Client {
+    ///     async fn response_to_http_response(
+    ///         &self,
+    ///         mut response: reqwest::Response,
+    ///     ) -> Result<http::Response<Vec<u8>>> {
+    ///         // Convert the reqwest response to a http one.
+    ///         todo!()
+    ///     }
     /// }
-    /// }
     ///
+    /// #[async_trait]
+    /// impl HttpSend for Client {
+    ///     async fn send_request(&self, request: http::Request<Vec<u8>>) -> Result<http::Response<Vec<u8>>> {
+    ///         Ok(self
+    ///             .response_to_http_response(
+    ///                 self.0
+    ///                     .execute(reqwest::Request::try_from(request)?)
+    ///                     .await?,
+    ///             )
+    ///             .await?)
+    ///     }
+    /// }
     /// ```
-    async fn send_request(&self, request: http::Request<Vec<u8>>) -> Result<Response>;
+    async fn send_request(
+        &self,
+        request: http::Request<Vec<u8>>,
+    ) -> Result<http::Response<Vec<u8>>>;
 }
 
 #[derive(Clone, Debug)]
@@ -76,7 +87,7 @@ impl HttpClient {
         &self,
         request: Request,
         session: Arc<RwLock<Option<Session>>>,
-    ) -> Result<Response> {
+    ) -> Result<http::Response<Vec<u8>>> {
         let mut request = {
             let read_guard;
             let access_token = if Request::METADATA.requires_authentication {
@@ -104,23 +115,6 @@ impl HttpClient {
         self.inner.send_request(request).await
     }
 
-    async fn response_to_http_response(
-        &self,
-        mut response: Response,
-    ) -> Result<http::Response<Vec<u8>>> {
-        let status = response.status();
-        let mut http_builder = HttpResponse::builder().status(status);
-        let headers = http_builder.headers_mut().unwrap();
-
-        for (k, v) in response.headers_mut().drain() {
-            if let Some(key) = k {
-                headers.insert(key, v);
-            }
-        }
-        let body = response.bytes().await?.as_ref().to_owned();
-        Ok(http_builder.body(body).unwrap())
-    }
-
     pub async fn send<Request>(&self, request: Request) -> Result<Request::IncomingResponse>
     where
         Request: OutgoingRequest,
@@ -129,8 +123,6 @@ impl HttpClient {
         let response = self.send_request(request, self.session.clone()).await?;
 
         trace!("Got response: {:?}", response);
-
-        let response = self.response_to_http_response(response).await?;
 
         Ok(Request::IncomingResponse::try_from(response)?)
     }
@@ -187,14 +179,40 @@ impl DefaultHttpClient {
             inner: http_client.build()?,
         })
     }
+
+    async fn response_to_http_response(
+        &self,
+        mut response: Response,
+    ) -> Result<http::Response<Vec<u8>>> {
+        let status = response.status();
+
+        let mut http_builder = HttpResponse::builder().status(status);
+        let headers = http_builder.headers_mut().unwrap();
+
+        for (k, v) in response.headers_mut().drain() {
+            if let Some(key) = k {
+                headers.insert(key, v);
+            }
+        }
+
+        let body = response.bytes().await?.as_ref().to_owned();
+
+        Ok(http_builder.body(body).unwrap())
+    }
 }
 
 #[async_trait]
 impl HttpSend for DefaultHttpClient {
-    async fn send_request(&self, request: http::Request<Vec<u8>>) -> Result<Response> {
+    async fn send_request(
+        &self,
+        request: http::Request<Vec<u8>>,
+    ) -> Result<http::Response<Vec<u8>>> {
         Ok(self
-            .inner
-            .execute(reqwest::Request::try_from(request)?)
+            .response_to_http_response(
+                self.inner
+                    .execute(reqwest::Request::try_from(request)?)
+                    .await?,
+            )
             .await?)
     }
 }
