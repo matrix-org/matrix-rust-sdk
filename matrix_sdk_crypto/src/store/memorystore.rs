@@ -14,12 +14,12 @@
 
 use std::{collections::HashSet, sync::Arc};
 
-use async_trait::async_trait;
 use dashmap::{DashMap, DashSet};
 use matrix_sdk_common::{
     identifiers::{DeviceId, RoomId, UserId},
     locks::Mutex,
 };
+use matrix_sdk_common_macros::async_trait;
 
 use super::{Account, CryptoStore, InboundGroupSession, Result, Session};
 use crate::{

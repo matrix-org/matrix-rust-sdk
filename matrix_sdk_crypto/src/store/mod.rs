@@ -12,15 +12,16 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{collections::HashSet, io::Error as IoError, sync::Arc};
+use std::{collections::HashSet, fmt::Debug, io::Error as IoError, sync::Arc};
 
-use async_trait::async_trait;
-use core::fmt::Debug;
 use matrix_sdk_common::{
     identifiers::{DeviceId, RoomId, UserId},
     locks::Mutex,
 };
+use matrix_sdk_common_macros::async_trait;
+#[cfg(not(target_arch = "wasm32"))]
 use matrix_sdk_common_macros::send_sync;
+
 use olm_rs::errors::{OlmAccountError, OlmGroupSessionError, OlmSessionError};
 use serde_json::Error as SerdeError;
 use thiserror::Error;
@@ -89,11 +90,11 @@ pub enum CryptoStoreError {
 
 pub type Result<T> = std::result::Result<T, CryptoStoreError>;
 
+/// Trait abstracting a store that the `OlmMachine` uses to store cryptographic
+/// keys.
 #[async_trait]
 #[allow(clippy::type_complexity)]
 #[cfg_attr(not(target_arch = "wasm32"), send_sync)]
-/// Trait abstracting a store that the `OlmMachine` uses to store cryptographic
-/// keys.
 pub trait CryptoStore: Debug {
     /// Load an account that was previously stored.
     async fn load_account(&self) -> Result<Option<Account>>;
