@@ -41,13 +41,14 @@ mod verification;
 pub use device::{Device, LocalTrust, ReadOnlyDevice, UserDevices};
 pub use error::{MegolmError, OlmError};
 pub use machine::OlmMachine;
-use memory_stores::ReadOnlyUserDevices;
+pub use memory_stores::ReadOnlyUserDevices;
 pub(crate) use olm::Account;
 pub use olm::EncryptionSettings;
 pub use requests::{IncomingResponse, OutgoingRequest, OutgoingRequests};
 #[cfg(feature = "sqlite_cryptostore")]
 pub use store::sqlite::SqliteStore;
 pub use store::{CryptoStore, CryptoStoreError};
+pub use user_identity::{OwnUserIdentity, UserIdentities, UserIdentity};
 pub use verification::Sas;
 
 use error::SignatureError;

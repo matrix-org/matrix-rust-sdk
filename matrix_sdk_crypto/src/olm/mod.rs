@@ -24,6 +24,7 @@ mod session;
 pub use account::{Account, IdentityKeys};
 pub use group_sessions::{EncryptionSettings, InboundGroupSession};
 pub(crate) use group_sessions::{GroupSessionKey, OutboundGroupSession};
+pub use olm_rs::PicklingMode;
 pub(crate) use session::OlmMessage;
 pub use session::Session;
 

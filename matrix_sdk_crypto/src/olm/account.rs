@@ -26,7 +26,8 @@ use matrix_sdk_common::{
     api::r0::keys::{OneTimeKey, SignedKey},
     encryption::DeviceKeys,
     identifiers::{
-        DeviceId, DeviceKeyAlgorithm, DeviceKeyId, EventEncryptionAlgorithm, RoomId, UserId,
+        DeviceId, DeviceIdBox, DeviceKeyAlgorithm, DeviceKeyId, EventEncryptionAlgorithm, RoomId,
+        UserId,
     },
     instant::Instant,
     locks::Mutex,
