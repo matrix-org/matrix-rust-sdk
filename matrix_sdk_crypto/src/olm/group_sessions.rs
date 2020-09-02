@@ -162,6 +162,7 @@ impl InboundGroupSession {
             sender_key: self.sender_key.to_string(),
             signing_key: self.signing_key.to_string(),
             room_id: (&*self.room_id).clone(),
+            forwarding_chains: self.forwarding_chains.lock().await.clone(),
         }
     }
 
@@ -189,7 +190,7 @@ impl InboundGroupSession {
             sender_key: Arc::new(pickle.sender_key),
             signing_key: Arc::new(pickle.signing_key),
             room_id: Arc::new(pickle.room_id),
-            forwarding_chains: Arc::new(Mutex::new(None)),
+            forwarding_chains: Arc::new(Mutex::new(pickle.forwarding_chains)),
         })
     }
 
@@ -292,6 +293,9 @@ pub struct PickledInboundGroupSession {
     pub signing_key: String,
     /// The id of the room that the session is used in.
     pub room_id: RoomId,
+    /// The list of claimed ed25519 that forwarded us this key. Will be None if
+    /// we dirrectly received this session.
+    pub forwarding_chains: Option<Vec<String>>,
 }
 
 /// The typed representation of a base64 encoded string of the GroupSession pickle.

@@ -399,6 +399,9 @@ impl SqliteStore {
                     sender_key,
                     signing_key,
                     room_id: RoomId::try_from(room_id)?,
+                    // Fixme we need to store/restore these once we get support
+                    // for key requesting/forwarding.
+                    forwarding_chains: None,
                 };
 
                 Ok(InboundGroupSession::from_pickle(
@@ -790,6 +793,10 @@ impl CryptoStore for SqliteStore {
         let pickle = session.pickle(self.get_pickle_mode()).await;
         let mut connection = self.connection.lock().await;
         let session_id = session.session_id();
+
+        // FIXME we need to store/restore the forwarding chains.
+        // FIXME this should be converted so it accepts an array of sessions for
+        // the key import feature.
 
         query(
             "INSERT INTO inbound_group_sessions (
