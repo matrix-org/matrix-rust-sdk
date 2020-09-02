@@ -34,6 +34,8 @@ use super::{
     user_identity::UserIdentities,
 };
 
+use crate::error::SessionUnpicklingError;
+
 pub mod memorystore;
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -76,8 +78,8 @@ pub enum CryptoStoreError {
     OlmGroupSession(#[from] OlmGroupSessionError),
 
     /// A session time-stamp couldn't be loaded.
-    #[error("can't load session timestamps")]
-    SessionTimestampError,
+    #[error(transparent)]
+    SessionUnpickling(#[from] SessionUnpicklingError),
 
     /// The store failed to (de)serialize a data type.
     #[error(transparent)]

@@ -29,7 +29,7 @@ use serde_json::{json, Value};
 
 use super::IdentityKeys;
 use crate::{
-    error::{EventError, OlmResult},
+    error::{EventError, OlmResult, SessionUnpicklingError},
     ReadOnlyDevice,
 };
 
@@ -192,8 +192,8 @@ impl Session {
 
     /// Restore a Session from a previously pickled string.
     ///
-    /// Returns the restored Olm Session or a `OlmSessionError` if there was an
-    /// error.
+    /// Returns the restored Olm Session or a `SessionUnpicklingError` if there
+    /// was an error.
     ///
     /// # Arguments
     ///
@@ -213,17 +213,19 @@ impl Session {
         our_identity_keys: Arc<IdentityKeys>,
         pickle: PickledSession,
         pickle_mode: PicklingMode,
-    ) -> Result<Self, OlmSessionError> {
+    ) -> Result<Self, SessionUnpicklingError> {
         let session = OlmSession::unpickle(pickle.pickle.0, pickle_mode)?;
         let session_id = session.session_id();
 
         // FIXME this should use the UNIX epoch.
         let now = Instant::now();
 
-        let creation_time = now.checked_sub(pickle.creation_time).unwrap();
-        // .ok_or(CryptoStoreError::SessionTimestampError)?;
-        let last_use_time = now.checked_sub(pickle.last_use_time).unwrap();
-        // .ok_or(CryptoStoreError::SessionTimestampError)?;
+        let creation_time = now
+            .checked_sub(pickle.creation_time)
+            .ok_or(SessionUnpicklingError::SessionTimestampError)?;
+        let last_use_time = now
+            .checked_sub(pickle.last_use_time)
+            .ok_or(SessionUnpicklingError::SessionTimestampError)?;
 
         Ok(Session {
             user_id,
