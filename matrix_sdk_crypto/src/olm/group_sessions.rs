@@ -172,18 +172,10 @@ impl InboundGroupSession {
     ///
     /// # Arguments
     ///
-    /// * `pickle` - The pickled string of the group session session.
+    /// * `pickle` - The pickled version of the `InboundGroupSession`.
     ///
     /// * `pickle_mode` - The mode that was used to pickle the session, either
     /// an unencrypted mode or an encrypted using passphrase.
-    ///
-    /// * `sender_key` - The public curve25519 key of the account that
-    /// sent us the session
-    ///
-    /// * `signing_key` - The public ed25519 key of the account that
-    /// sent us the session.
-    ///
-    /// * `room_id` - The id of the room that the session is used in.
     pub fn from_pickle(
         pickle: PickledInboundGroupSession,
         pickle_mode: PicklingMode,
