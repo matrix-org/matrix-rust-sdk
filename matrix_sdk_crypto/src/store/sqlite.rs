@@ -551,15 +551,13 @@ impl SqliteStore {
 
                 let signature = row.2;
 
-                if !signatures.contains_key(&user_id) {
-                    let _ = signatures.insert(user_id.clone(), BTreeMap::new());
-                }
-                let user_map = signatures.get_mut(&user_id).unwrap();
-
-                user_map.insert(
-                    DeviceKeyId::from_parts(key_algorithm, device_id.as_str().into()),
-                    signature.to_owned(),
-                );
+                signatures
+                    .entry(user_id)
+                    .or_insert_with(BTreeMap::new)
+                    .insert(
+                        DeviceKeyId::from_parts(key_algorithm, device_id.as_str().into()),
+                        signature.to_owned(),
+                    );
             }
 
             let device = ReadOnlyDevice::new(
