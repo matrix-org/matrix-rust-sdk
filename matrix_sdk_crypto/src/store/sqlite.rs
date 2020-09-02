@@ -29,7 +29,6 @@ use matrix_sdk_common::{
     instant::{Duration, Instant},
     locks::Mutex,
 };
-use olm_rs::PicklingMode;
 use sqlx::{query, query_as, sqlite::SqliteQueryAs, Connect, Executor, SqliteConnection};
 use url::Url;
 use zeroize::Zeroizing;
@@ -38,7 +37,10 @@ use super::{CryptoStore, CryptoStoreError, Result};
 use crate::{
     device::{LocalTrust, ReadOnlyDevice},
     memory_stores::{DeviceStore, GroupSessionStore, ReadOnlyUserDevices, SessionStore},
-    olm::{Account, IdentityKeys, InboundGroupSession, Session},
+    olm::{
+        Account, AccountPickle, IdentityKeys, InboundGroupSession, PickledAccount, PicklingMode,
+        Session,
+    },
     user_identity::UserIdentities,
 };
 
@@ -679,14 +681,15 @@ impl CryptoStore for SqliteStore {
         .await?;
 
         let result = if let Some((id, pickle, shared, uploaded_key_count)) = row {
-            let account = Account::from_pickle(
-                pickle,
-                self.get_pickle_mode(),
+            let pickle = PickledAccount {
+                user_id: (&*self.user_id).clone(),
+                device_id: (&*self.device_id).clone(),
+                pickle: AccountPickle::from(pickle),
                 shared,
-                uploaded_key_count,
-                &self.user_id,
-                &self.device_id,
-            )?;
+                uploaded_signed_key_count: uploaded_key_count,
+            };
+
+            let account = Account::from_pickle(pickle, self.get_pickle_mode())?;
 
             *self.account_info.lock().unwrap() = Some(AccountInfo {
                 account_id: id,
@@ -720,18 +723,18 @@ impl CryptoStore for SqliteStore {
                 shared = excluded.shared
              ",
         )
-        .bind(&*self.user_id.to_string())
-        .bind(&*self.device_id.to_string())
-        .bind(&pickle)
-        .bind(account.shared())
-        .bind(account.uploaded_key_count())
+        .bind(pickle.user_id.as_str())
+        .bind(pickle.device_id.as_str())
+        .bind(pickle.pickle.as_str())
+        .bind(pickle.shared)
+        .bind(pickle.uploaded_signed_key_count)
         .execute(&mut *connection)
         .await?;
 
         let account_id: (i64,) =
             query_as("SELECT id FROM accounts WHERE user_id = ? and device_id = ?")
-                .bind(&*self.user_id.to_string())
-                .bind(&*self.device_id.to_string())
+                .bind(self.user_id.as_str())
+                .bind(self.device_id.as_str())
                 .fetch_one(&mut *connection)
                 .await?;
 
@@ -921,27 +924,37 @@ mod test {
 
     use super::{CryptoStore, SqliteStore};
 
-    fn example_user_id() -> UserId {
-        user_id!("@example:localhost")
+    fn alice_id() -> UserId {
+        user_id!("@alice:example.org")
     }
 
-    fn example_device_id() -> &'static DeviceId {
-        "DEVICEID".into()
+    fn alice_device_id() -> Box<DeviceId> {
+        "ALICEDEVICE".into()
+    }
+
+    fn bob_id() -> UserId {
+        user_id!("@bob:example.org")
+    }
+
+    fn bob_device_id() -> Box<DeviceId> {
+        "BOBDEVICE".into()
     }
 
     async fn get_store(passphrase: Option<&str>) -> (SqliteStore, tempfile::TempDir) {
         let tmpdir = tempdir().unwrap();
         let tmpdir_path = tmpdir.path().to_str().unwrap();
 
-        let user_id = &example_user_id();
-        let device_id = example_device_id();
-
         let store = if let Some(passphrase) = passphrase {
-            SqliteStore::open_with_passphrase(&user_id, device_id, tmpdir_path, passphrase)
-                .await
-                .expect("Can't create a passphrase protected store")
+            SqliteStore::open_with_passphrase(
+                &alice_id(),
+                &alice_device_id(),
+                tmpdir_path,
+                passphrase,
+            )
+            .await
+            .expect("Can't create a passphrase protected store")
         } else {
-            SqliteStore::open(&user_id, device_id, tmpdir_path)
+            SqliteStore::open(&alice_id(), &alice_device_id(), tmpdir_path)
                 .await
                 .expect("Can't create store")
         };
@@ -958,22 +971,6 @@ mod test {
             .expect("Can't save account");
 
         (account, store, dir)
-    }
-
-    fn alice_id() -> UserId {
-        user_id!("@alice:example.org")
-    }
-
-    fn alice_device_id() -> Box<DeviceId> {
-        "ALICEDEVICE".into()
-    }
-
-    fn bob_id() -> UserId {
-        user_id!("@bob:example.org")
-    }
-
-    fn bob_device_id() -> Box<DeviceId> {
-        "BOBDEVICE".into()
     }
 
     fn get_account() -> Account {
@@ -1011,7 +1008,7 @@ mod test {
     async fn create_store() {
         let tmpdir = tempdir().unwrap();
         let tmpdir_path = tmpdir.path().to_str().unwrap();
-        let _ = SqliteStore::open(&example_user_id(), "DEVICEID".into(), tmpdir_path)
+        let _ = SqliteStore::open(&alice_id(), &alice_device_id(), tmpdir_path)
             .await
             .expect("Can't create store");
     }
@@ -1138,7 +1135,7 @@ mod test {
 
         drop(store);
 
-        let store = SqliteStore::open(&example_user_id(), example_device_id(), dir.path())
+        let store = SqliteStore::open(&alice_id(), &alice_device_id(), dir.path())
             .await
             .expect("Can't create store");
 
@@ -1224,7 +1221,7 @@ mod test {
         assert!(store.users_for_key_query().contains(device.user_id()));
         drop(store);
 
-        let store = SqliteStore::open(&example_user_id(), example_device_id(), dir.path())
+        let store = SqliteStore::open(&alice_id(), &alice_device_id(), dir.path())
             .await
             .expect("Can't create store");
 
@@ -1239,7 +1236,7 @@ mod test {
             .unwrap();
         assert!(!store.users_for_key_query().contains(device.user_id()));
 
-        let store = SqliteStore::open(&example_user_id(), example_device_id(), dir.path())
+        let store = SqliteStore::open(&alice_id(), &alice_device_id(), dir.path())
             .await
             .expect("Can't create store");
 
@@ -1257,7 +1254,7 @@ mod test {
 
         drop(store);
 
-        let store = SqliteStore::open(&example_user_id(), example_device_id(), dir.path())
+        let store = SqliteStore::open(&alice_id(), &alice_device_id(), dir.path())
             .await
             .expect("Can't create store");
 
@@ -1290,7 +1287,7 @@ mod test {
         store.save_devices(&[device.clone()]).await.unwrap();
         store.delete_device(device.clone()).await.unwrap();
 
-        let store = SqliteStore::open(&example_user_id(), example_device_id(), dir.path())
+        let store = SqliteStore::open(&alice_id(), &alice_device_id(), dir.path())
             .await
             .expect("Can't create store");
 

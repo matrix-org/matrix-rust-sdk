@@ -37,6 +37,7 @@ use olm_rs::{
     errors::{OlmAccountError, OlmSessionError},
     PicklingMode,
 };
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
 pub use olm_rs::{
@@ -64,6 +65,42 @@ pub struct Account {
     /// needs to set this for us, depending on the count we will suggest the
     /// client to upload new keys.
     uploaded_signed_key_count: Arc<AtomicI64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+/// A typed representation of a base64 encoded string containing the account
+/// pickle.
+pub struct AccountPickle(String);
+
+impl AccountPickle {
+    /// Get the string representation of the pickle.
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl From<String> for AccountPickle {
+    fn from(value: String) -> Self {
+        Self(value)
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+/// A pickled version of an `Account`.
+///
+/// Holds all the information that needs to be stored in a database to restore
+/// an account.
+pub struct PickledAccount {
+    /// The user id of the account owner.
+    pub user_id: UserId,
+    /// The device id of the account owner.
+    pub device_id: DeviceIdBox,
+    /// The pickled version of the Olm account.
+    pub pickle: AccountPickle,
+    /// Was the account shared.
+    pub shared: bool,
+    /// The number of uploaded one-time keys we have on the server.
+    pub uploaded_signed_key_count: i64,
 }
 
 #[cfg(not(tarpaulin_include))]
@@ -241,40 +278,40 @@ impl Account {
     ///
     /// * `pickle_mode` - The mode that was used to pickle the account, either an
     /// unencrypted mode or an encrypted using passphrase.
-    pub async fn pickle(&self, pickle_mode: PicklingMode) -> String {
-        self.inner.lock().await.pickle(pickle_mode)
+    pub async fn pickle(&self, pickle_mode: PicklingMode) -> PickledAccount {
+        let pickle = AccountPickle(self.inner.lock().await.pickle(pickle_mode));
+
+        PickledAccount {
+            user_id: self.user_id().to_owned(),
+            device_id: self.device_id().to_owned(),
+            pickle,
+            shared: self.shared(),
+            uploaded_signed_key_count: self.uploaded_key_count(),
+        }
     }
 
-    /// Restore an account from a previously pickled string.
+    /// Restore an account from a previously pickled one.
     ///
     /// # Arguments
     ///
-    /// * `pickle` - The pickled string of the account.
+    /// * `pickle` - The pickled version of the Account.
     ///
     /// * `pickle_mode` - The mode that was used to pickle the account, either an
     /// unencrypted mode or an encrypted using passphrase.
-    ///
-    /// * `shared` - Boolean determining if the account was uploaded to the
-    /// server.
-    #[allow(clippy::ptr_arg)]
     pub fn from_pickle(
-        pickle: String,
+        pickle: PickledAccount,
         pickle_mode: PicklingMode,
-        shared: bool,
-        uploaded_signed_key_count: i64,
-        user_id: &UserId,
-        device_id: &DeviceId,
     ) -> Result<Self, OlmAccountError> {
-        let account = OlmAccount::unpickle(pickle, pickle_mode)?;
+        let account = OlmAccount::unpickle(pickle.pickle.0, pickle_mode)?;
         let identity_keys = account.parsed_identity_keys();
 
         Ok(Account {
-            user_id: Arc::new(user_id.to_owned()),
-            device_id: Arc::new(device_id.into()),
+            user_id: Arc::new(pickle.user_id),
+            device_id: Arc::new(pickle.device_id),
             inner: Arc::new(Mutex::new(account)),
             identity_keys: Arc::new(identity_keys),
-            shared: Arc::new(AtomicBool::from(shared)),
-            uploaded_signed_key_count: Arc::new(AtomicI64::new(uploaded_signed_key_count)),
+            shared: Arc::new(AtomicBool::from(pickle.shared)),
+            uploaded_signed_key_count: Arc::new(AtomicI64::new(pickle.uploaded_signed_key_count)),
         })
     }
 
