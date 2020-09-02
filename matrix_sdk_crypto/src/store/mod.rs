@@ -15,7 +15,7 @@
 use std::{collections::HashSet, fmt::Debug, io::Error as IoError, sync::Arc};
 
 use matrix_sdk_common::{
-    identifiers::{DeviceId, RoomId, UserId},
+    identifiers::{DeviceId, Error as IdentifierValidationError, RoomId, UserId},
     locks::Mutex,
 };
 use matrix_sdk_common_macros::async_trait;
@@ -80,6 +80,10 @@ pub enum CryptoStoreError {
     /// A session time-stamp couldn't be loaded.
     #[error(transparent)]
     SessionUnpickling(#[from] SessionUnpicklingError),
+
+    /// A Matirx identifier failed to be validated.
+    #[error(transparent)]
+    IdentifierValidation(#[from] IdentifierValidationError),
 
     /// The store failed to (de)serialize a data type.
     #[error(transparent)]

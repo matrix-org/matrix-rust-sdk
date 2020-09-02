@@ -398,8 +398,7 @@ impl SqliteStore {
                     pickle: InboundGroupSessionPickle::from(pickle),
                     sender_key,
                     signing_key,
-                    // FIXME remove this unwrap.
-                    room_id: RoomId::try_from(room_id).unwrap(),
+                    room_id: RoomId::try_from(room_id)?,
                 };
 
                 Ok(InboundGroupSession::from_pickle(
