@@ -31,6 +31,7 @@ use matrix_sdk_common::{
     events::{room::encrypted::EncryptedEventContent, EventType},
     identifiers::{DeviceId, DeviceKeyAlgorithm, DeviceKeyId, EventEncryptionAlgorithm, UserId},
 };
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use tracing::warn;
 
@@ -230,7 +231,7 @@ impl UserDevices {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 /// The local trust state of a device.
 pub enum LocalTrust {
     /// The device has been verified and is trusted.
