@@ -22,11 +22,13 @@ mod group_sessions;
 mod session;
 
 pub use account::{Account, AccountPickle, IdentityKeys, PickledAccount};
-pub use group_sessions::{EncryptionSettings, InboundGroupSession};
+pub use group_sessions::{
+    EncryptionSettings, InboundGroupSession, InboundGroupSessionPickle, PickledInboundGroupSession,
+};
 pub(crate) use group_sessions::{GroupSessionKey, OutboundGroupSession};
 pub use olm_rs::PicklingMode;
 pub(crate) use session::OlmMessage;
-pub use session::Session;
+pub use session::{PickledSession, Session, SessionPickle};
 
 #[cfg(test)]
 pub(crate) mod test {

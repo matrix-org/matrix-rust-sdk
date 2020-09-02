@@ -26,7 +26,7 @@ use matrix_sdk_common::{
     identifiers::{
         DeviceId, DeviceKeyAlgorithm, DeviceKeyId, EventEncryptionAlgorithm, RoomId, UserId,
     },
-    instant::{Duration, Instant},
+    instant::Duration,
     locks::Mutex,
 };
 use sqlx::{query, query_as, sqlite::SqliteQueryAs, Connect, Executor, SqliteConnection};
@@ -38,14 +38,15 @@ use crate::{
     device::{LocalTrust, ReadOnlyDevice},
     memory_stores::{DeviceStore, GroupSessionStore, ReadOnlyUserDevices, SessionStore},
     olm::{
-        Account, AccountPickle, IdentityKeys, InboundGroupSession, PickledAccount, PicklingMode,
-        Session,
+        Account, AccountPickle, IdentityKeys, InboundGroupSession, InboundGroupSessionPickle,
+        PickledAccount, PickledInboundGroupSession, PickledSession, PicklingMode, Session,
+        SessionPickle,
     },
     user_identity::UserIdentities,
 };
 
-/// SQLite based implementation of a `CryptoStore`.
 #[derive(Clone)]
+/// SQLite based implementation of a `CryptoStore`.
 pub struct SqliteStore {
     user_id: Arc<UserId>,
     device_id: Arc<Box<DeviceId>>,
@@ -338,7 +339,7 @@ impl SqliteStore {
             .ok_or(CryptoStoreError::AccountUnset)?;
         let mut connection = self.connection.lock().await;
 
-        let rows: Vec<(String, String, String, String)> = query_as(
+        let mut rows: Vec<(String, String, String, String)> = query_as(
             "SELECT pickle, sender_key, creation_time, last_use_time
              FROM sessions WHERE account_id = ? and sender_key = ?",
         )
@@ -347,29 +348,27 @@ impl SqliteStore {
         .fetch_all(&mut *connection)
         .await?;
 
-        let now = Instant::now();
-
         Ok(rows
-            .iter()
+            .drain(..)
             .map(|row| {
-                let pickle = &row.0;
-                let sender_key = &row.1;
-                let creation_time = now
-                    .checked_sub(serde_json::from_str::<Duration>(&row.2)?)
-                    .ok_or(CryptoStoreError::SessionTimestampError)?;
-                let last_use_time = now
-                    .checked_sub(serde_json::from_str::<Duration>(&row.3)?)
-                    .ok_or(CryptoStoreError::SessionTimestampError)?;
+                let pickle = row.0;
+                let sender_key = row.1;
+                let creation_time = serde_json::from_str::<Duration>(&row.2)?;
+                let last_use_time = serde_json::from_str::<Duration>(&row.3)?;
+
+                let pickle = PickledSession {
+                    pickle: SessionPickle::from(pickle),
+                    last_use_time,
+                    creation_time,
+                    sender_key,
+                };
 
                 Ok(Session::from_pickle(
                     self.user_id.clone(),
                     self.device_id.clone(),
                     account_info.identity_keys.clone(),
-                    pickle.to_string(),
+                    pickle,
                     self.get_pickle_mode(),
-                    sender_key.to_string(),
-                    creation_time,
-                    last_use_time,
                 )?)
             })
             .collect::<Result<Vec<Session>>>()?)
@@ -379,7 +378,7 @@ impl SqliteStore {
         let account_id = self.account_id().ok_or(CryptoStoreError::AccountUnset)?;
         let mut connection = self.connection.lock().await;
 
-        let rows: Vec<(String, String, String, String)> = query_as(
+        let mut rows: Vec<(String, String, String, String)> = query_as(
             "SELECT pickle, sender_key, signing_key, room_id
              FROM inbound_group_sessions WHERE account_id = ?",
         )
@@ -388,19 +387,24 @@ impl SqliteStore {
         .await?;
 
         let mut group_sessions = rows
-            .iter()
+            .drain(..)
             .map(|row| {
-                let pickle = &row.0;
-                let sender_key = &row.1;
-                let signing_key = &row.2;
-                let room_id = &row.3;
+                let pickle = row.0;
+                let sender_key = row.1;
+                let signing_key = row.2;
+                let room_id = row.3;
+
+                let pickle = PickledInboundGroupSession {
+                    pickle: InboundGroupSessionPickle::from(pickle),
+                    sender_key,
+                    signing_key,
+                    // FIXME remove this unwrap.
+                    room_id: RoomId::try_from(room_id).unwrap(),
+                };
 
                 Ok(InboundGroupSession::from_pickle(
-                    pickle.to_string(),
+                    pickle,
                     self.get_pickle_mode(),
-                    sender_key.to_string(),
-                    signing_key.to_owned(),
-                    RoomId::try_from(room_id.as_str()).unwrap(),
                 )?)
             })
             .collect::<Result<Vec<InboundGroupSession>>>()?;
@@ -754,10 +758,11 @@ impl CryptoStore for SqliteStore {
             self.lazy_load_sessions(&session.sender_key).await?;
             self.sessions.add(session.clone()).await;
 
-            let session_id = session.session_id();
-            let creation_time = serde_json::to_string(&session.creation_time.elapsed())?;
-            let last_use_time = serde_json::to_string(&session.last_use_time.elapsed())?;
             let pickle = session.pickle(self.get_pickle_mode()).await;
+
+            let session_id = session.session_id();
+            let creation_time = serde_json::to_string(&pickle.creation_time)?;
+            let last_use_time = serde_json::to_string(&pickle.last_use_time)?;
 
             let mut connection = self.connection.lock().await;
 
@@ -770,8 +775,8 @@ impl CryptoStore for SqliteStore {
             .bind(&account_id)
             .bind(&*creation_time)
             .bind(&*last_use_time)
-            .bind(&*session.sender_key)
-            .bind(&pickle)
+            .bind(&pickle.sender_key)
+            .bind(&pickle.pickle.as_str())
             .execute(&mut *connection)
             .await?;
         }
@@ -800,10 +805,10 @@ impl CryptoStore for SqliteStore {
         )
         .bind(session_id)
         .bind(account_id)
-        .bind(&*session.sender_key)
-        .bind(&*session.signing_key)
-        .bind(&*session.room_id.to_string())
-        .bind(&pickle)
+        .bind(pickle.sender_key)
+        .bind(pickle.signing_key)
+        .bind(pickle.room_id.as_str())
+        .bind(pickle.pickle.as_str())
         .execute(&mut *connection)
         .await?;
 

@@ -67,9 +67,9 @@ pub struct Account {
     uploaded_signed_key_count: Arc<AtomicI64>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
 /// A typed representation of a base64 encoded string containing the account
 /// pickle.
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AccountPickle(String);
 
 impl AccountPickle {
@@ -85,11 +85,11 @@ impl From<String> for AccountPickle {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
 /// A pickled version of an `Account`.
 ///
 /// Holds all the information that needs to be stored in a database to restore
 /// an account.
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PickledAccount {
     /// The user id of the account owner.
     pub user_id: UserId,

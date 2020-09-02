@@ -37,7 +37,7 @@ use olm_rs::{
     errors::OlmGroupSessionError, inbound_group_session::OlmInboundGroupSession,
     outbound_group_session::OlmOutboundGroupSession, PicklingMode,
 };
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use zeroize::Zeroize;
 
@@ -154,8 +154,15 @@ impl InboundGroupSession {
     ///
     /// * `pickle_mode` - The mode that was used to pickle the group session,
     /// either an unencrypted mode or an encrypted using passphrase.
-    pub async fn pickle(&self, pickle_mode: PicklingMode) -> String {
-        self.inner.lock().await.pickle(pickle_mode)
+    pub async fn pickle(&self, pickle_mode: PicklingMode) -> PickledInboundGroupSession {
+        let pickle = self.inner.lock().await.pickle(pickle_mode);
+
+        PickledInboundGroupSession {
+            pickle: InboundGroupSessionPickle::from(pickle),
+            sender_key: self.sender_key.to_string(),
+            signing_key: self.signing_key.to_string(),
+            room_id: (&*self.room_id).clone(),
+        }
     }
 
     /// Restore a Session from a previously pickled string.
@@ -178,21 +185,18 @@ impl InboundGroupSession {
     ///
     /// * `room_id` - The id of the room that the session is used in.
     pub fn from_pickle(
-        pickle: String,
+        pickle: PickledInboundGroupSession,
         pickle_mode: PicklingMode,
-        sender_key: String,
-        signing_key: String,
-        room_id: RoomId,
     ) -> Result<Self, OlmGroupSessionError> {
-        let session = OlmInboundGroupSession::unpickle(pickle, pickle_mode)?;
+        let session = OlmInboundGroupSession::unpickle(pickle.pickle.0, pickle_mode)?;
         let session_id = session.session_id();
 
         Ok(InboundGroupSession {
             inner: Arc::new(Mutex::new(session)),
             session_id: Arc::new(session_id),
-            sender_key: Arc::new(sender_key),
-            signing_key: Arc::new(signing_key),
-            room_id: Arc::new(room_id),
+            sender_key: Arc::new(pickle.sender_key),
+            signing_key: Arc::new(pickle.signing_key),
+            room_id: Arc::new(pickle.room_id),
             forwarding_chains: Arc::new(Mutex::new(None)),
         })
     }
@@ -279,6 +283,39 @@ impl fmt::Debug for InboundGroupSession {
 impl PartialEq for InboundGroupSession {
     fn eq(&self, other: &Self) -> bool {
         self.session_id() == other.session_id()
+    }
+}
+
+/// A pickled version of an `InboundGroupSession`.
+///
+/// Holds all the information that needs to be stored in a database to restore
+/// an InboundGroupSession.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PickledInboundGroupSession {
+    /// The pickle string holding the InboundGroupSession.
+    pub pickle: InboundGroupSessionPickle,
+    /// The public curve25519 key of the account that sent us the session
+    pub sender_key: String,
+    /// The public ed25519 key of the account that sent us the session.
+    pub signing_key: String,
+    /// The id of the room that the session is used in.
+    pub room_id: RoomId,
+}
+
+/// The typed representation of a base64 encoded string of the GroupSession pickle.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct InboundGroupSessionPickle(String);
+
+impl From<String> for InboundGroupSessionPickle {
+    fn from(pickle_string: String) -> Self {
+        InboundGroupSessionPickle(pickle_string)
+    }
+}
+
+impl InboundGroupSessionPickle {
+    /// Get the string representation of the pickle.
+    pub fn as_str(&self) -> &str {
+        &self.0
     }
 }
 
