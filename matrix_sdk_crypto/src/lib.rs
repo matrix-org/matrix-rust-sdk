@@ -44,7 +44,7 @@ pub use machine::OlmMachine;
 pub use memory_stores::ReadOnlyUserDevices;
 pub(crate) use olm::Account;
 pub use olm::EncryptionSettings;
-pub use requests::{IncomingResponse, OutgoingRequest, OutgoingRequests};
+pub use requests::{IncomingResponse, OutgoingRequest, OutgoingRequests, ToDeviceRequest};
 #[cfg(feature = "sqlite_cryptostore")]
 pub use store::sqlite::SqliteStore;
 pub use store::{CryptoStore, CryptoStoreError};

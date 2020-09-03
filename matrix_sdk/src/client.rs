@@ -36,7 +36,7 @@ use tracing::{error, info, instrument};
 use matrix_sdk_base::{BaseClient, BaseClientConfig, Room, Session, StateStore};
 
 #[cfg(feature = "encryption")]
-use matrix_sdk_base::{CryptoStoreError, OutgoingRequests};
+use matrix_sdk_base::{CryptoStoreError, OutgoingRequests, ToDeviceRequest};
 
 use matrix_sdk_common::{
     api::r0::{
@@ -72,8 +72,7 @@ use matrix_sdk_common::{
     api::r0::{
         keys::{claim_keys, get_keys, upload_keys},
         to_device::send_event_to_device::{
-            IncomingRequest as OwnedToDeviceRequest, Request as ToDeviceRequest,
-            Response as ToDeviceResponse,
+            Request as RumaToDeviceRequest, Response as ToDeviceResponse,
         },
     },
     locks::Mutex,
@@ -1101,11 +1100,12 @@ impl Client {
     }
 
     #[cfg(feature = "encryption")]
-    async fn send_to_device(&self, request: &OwnedToDeviceRequest) -> Result<ToDeviceResponse> {
-        let request = ToDeviceRequest {
-            event_type: request.event_type.clone(),
-            txn_id: &request.txn_id,
-            messages: request.messages.clone(),
+    async fn send_to_device(&self, request: ToDeviceRequest) -> Result<ToDeviceResponse> {
+        let txn_id_string = request.txn_id_string();
+        let request = RumaToDeviceRequest {
+            event_type: request.event_type,
+            txn_id: &txn_id_string,
+            messages: request.messages,
         };
 
         self.send(request).await
@@ -1230,14 +1230,13 @@ impl Client {
                                 warn!("Error while querying device keys {:?}", e);
                             }
                         }
-
                         OutgoingRequests::KeysUpload(request) => {
                             if let Err(e) = self.keys_upload(&r.request_id(), request).await {
                                 warn!("Error while querying device keys {:?}", e);
                             }
                         }
                         OutgoingRequests::ToDeviceRequest(request) => {
-                            if let Ok(resp) = self.send_to_device(request).await {
+                            if let Ok(resp) = self.send_to_device(request.clone()).await {
                                 self.base_client
                                     .mark_request_as_sent(&r.request_id(), &resp)
                                     .await
@@ -1320,7 +1319,7 @@ impl Client {
             .expect("Keys don't need to be uploaded");
 
         for request in requests.drain(..) {
-            self.send_to_device(&request).await?;
+            self.send_to_device(request).await?;
         }
 
         Ok(())

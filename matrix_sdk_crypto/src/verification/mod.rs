@@ -20,19 +20,15 @@ pub use sas::Sas;
 
 #[cfg(test)]
 pub(crate) mod test {
-    use crate::requests::{OutgoingRequest, OutgoingRequests};
+    use crate::requests::{OutgoingRequest, OutgoingRequests, ToDeviceRequest};
     use serde_json::Value;
 
     use matrix_sdk_common::{
-        api::r0::to_device::send_event_to_device::IncomingRequest as OwnedToDeviceRequest,
         events::{AnyToDeviceEvent, AnyToDeviceEventContent, EventType, ToDeviceEvent},
         identifiers::UserId,
     };
 
-    pub(crate) fn request_to_event(
-        sender: &UserId,
-        request: &OwnedToDeviceRequest,
-    ) -> AnyToDeviceEvent {
+    pub(crate) fn request_to_event(sender: &UserId, request: &ToDeviceRequest) -> AnyToDeviceEvent {
         let content = get_content_from_request(request);
         wrap_any_to_device_content(sender, content)
     }
@@ -81,9 +77,7 @@ pub(crate) mod test {
         }
     }
 
-    pub(crate) fn get_content_from_request(
-        request: &OwnedToDeviceRequest,
-    ) -> AnyToDeviceEventContent {
+    pub(crate) fn get_content_from_request(request: &ToDeviceRequest) -> AnyToDeviceEventContent {
         let json: Value = serde_json::from_str(
             request
                 .messages
