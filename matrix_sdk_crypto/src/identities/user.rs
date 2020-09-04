@@ -513,7 +513,7 @@ mod test {
         identities::{Device, ReadOnlyDevice},
         machine::test::response_from_file,
         olm::Account,
-        store::memorystore::MemoryStore,
+        store::MemoryStore,
         verification::VerificationMachine,
     };
 

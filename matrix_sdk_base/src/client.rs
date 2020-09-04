@@ -46,8 +46,8 @@ use matrix_sdk_common::{
 };
 #[cfg(feature = "encryption")]
 use matrix_sdk_crypto::{
-    CryptoStore, CryptoStoreError, Device, IncomingResponse, OlmError, OlmMachine, OutgoingRequest,
-    Sas, UserDevices,
+    store::{CryptoStore, CryptoStoreError},
+    Device, IncomingResponse, OlmError, OlmMachine, OutgoingRequest, Sas, UserDevices,
 };
 use zeroize::Zeroizing;
 

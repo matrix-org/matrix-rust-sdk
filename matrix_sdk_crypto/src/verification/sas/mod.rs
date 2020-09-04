@@ -36,7 +36,8 @@ use matrix_sdk_common::{
 
 use crate::{
     identities::{LocalTrust, ReadOnlyDevice, UserIdentities},
-    Account, CryptoStore, CryptoStoreError,
+    store::{CryptoStore, CryptoStoreError},
+    Account,
 };
 
 pub use helpers::content_to_request;
@@ -658,9 +659,9 @@ mod test {
     };
 
     use crate::{
-        store::memorystore::MemoryStore,
+        store::{CryptoStore, MemoryStore},
         verification::test::{get_content_from_request, wrap_any_to_device_content},
-        Account, CryptoStore, ReadOnlyDevice,
+        Account, ReadOnlyDevice,
     };
 
     use super::{Accepted, Created, Sas, SasState, Started};

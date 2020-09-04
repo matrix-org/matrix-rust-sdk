@@ -25,7 +25,7 @@ use matrix_sdk_common::{
     locks::Mutex,
 };
 
-use super::{
+use crate::{
     identities::ReadOnlyDevice,
     olm::{InboundGroupSession, Session},
 };
@@ -209,8 +209,8 @@ impl DeviceStore {
 mod test {
     use crate::{
         identities::device::test::get_device,
-        memory_stores::{DeviceStore, GroupSessionStore, SessionStore},
         olm::{test::get_account_and_session, InboundGroupSession},
+        store::caches::{DeviceStore, GroupSessionStore, SessionStore},
     };
     use matrix_sdk_common::identifiers::room_id;
 

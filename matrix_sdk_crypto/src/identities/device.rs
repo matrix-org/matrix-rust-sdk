@@ -41,9 +41,9 @@ use crate::{Account, OlmMachine};
 use crate::{
     error::{EventError, OlmError, OlmResult, SignatureError},
     identities::{OwnUserIdentity, UserIdentities},
-    store::Result as StoreResult,
+    store::{caches::ReadOnlyUserDevices, Result as StoreResult},
     verification::VerificationMachine,
-    verify_json, ReadOnlyUserDevices, Sas,
+    verify_json, Sas,
 };
 
 /// A read-only version of a `Device`.

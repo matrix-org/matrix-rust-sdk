@@ -33,10 +33,12 @@ use sqlx::{query, query_as, sqlite::SqliteQueryAs, Connect, Executor, SqliteConn
 use url::Url;
 use zeroize::Zeroizing;
 
-use super::{CryptoStore, CryptoStoreError, Result};
+use super::{
+    caches::{DeviceStore, GroupSessionStore, ReadOnlyUserDevices, SessionStore},
+    CryptoStore, CryptoStoreError, Result,
+};
 use crate::{
     identities::{LocalTrust, ReadOnlyDevice, UserIdentities},
-    memory_stores::{DeviceStore, GroupSessionStore, ReadOnlyUserDevices, SessionStore},
     olm::{
         Account, AccountPickle, IdentityKeys, InboundGroupSession, InboundGroupSessionPickle,
         PickledAccount, PickledInboundGroupSession, PickledSession, PicklingMode, Session,
@@ -44,8 +46,9 @@ use crate::{
     },
 };
 
-#[derive(Clone)]
 /// SQLite based implementation of a `CryptoStore`.
+#[derive(Clone)]
+#[cfg_attr(feature = "docs", doc(cfg(r#sqlite_cryptostore)))]
 pub struct SqliteStore {
     user_id: Arc<UserId>,
     device_id: Arc<Box<DeviceId>>,

@@ -12,7 +12,54 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+//! Types and traits to implement the storage layer for the [`OlmMachine`]
+//!
+//! The storage layer for the [`OlmMachine`] can be customized using a trait.
+//! Implementing your own [`CryptoStore`]
+//!
+//! An in-memory only store is provided as well as a SQLite based one, depending
+//! on your needs and targets a custom store may be implemented, e.g. for
+//! `wasm-unknown-unknown` an indexeddb store would be needed
+//!
+//! ```
+//! # use matrix_sdk_crypto::{
+//! #     OlmMachine,
+//! #     store::MemoryStore,
+//! # };
+//! # use matrix_sdk_common::identifiers::{user_id, DeviceIdBox};
+//! # let user_id = user_id!("@example:localhost");
+//! # let device_id: DeviceIdBox = "TEST".into();
+//! let store = Box::new(MemoryStore::new());
+//!
+//! let machine = OlmMachine::new_with_store(user_id, device_id, store);
+//! ```
+//!
+//! [`OlmMachine`]: /matrix_sdk_crypto/struct.OlmMachine.html
+//! [`CryptoStore`]: trait.Cryptostore.html
+
+pub mod caches;
+mod memorystore;
+#[cfg(not(target_arch = "wasm32"))]
+#[cfg(feature = "sqlite_cryptostore")]
+pub(crate) mod sqlite;
+
+use caches::ReadOnlyUserDevices;
+pub use memorystore::MemoryStore;
+#[cfg(not(target_arch = "wasm32"))]
+#[cfg(feature = "sqlite_cryptostore")]
+pub use sqlite::SqliteStore;
+
 use std::{collections::HashSet, fmt::Debug, io::Error as IoError, sync::Arc};
+
+use olm_rs::errors::{OlmAccountError, OlmGroupSessionError, OlmSessionError};
+use serde_json::Error as SerdeError;
+use thiserror::Error;
+use url::ParseError;
+
+#[cfg_attr(feature = "docs", doc(cfg(r#sqlite_cryptostore)))]
+#[cfg(not(target_arch = "wasm32"))]
+#[cfg(feature = "sqlite_cryptostore")]
+use sqlx::Error as SqlxError;
 
 use matrix_sdk_common::{
     identifiers::{DeviceId, Error as IdentifierValidationError, RoomId, UserId},
@@ -22,28 +69,15 @@ use matrix_sdk_common_macros::async_trait;
 #[cfg(not(target_arch = "wasm32"))]
 use matrix_sdk_common_macros::send_sync;
 
-use olm_rs::errors::{OlmAccountError, OlmGroupSessionError, OlmSessionError};
-use serde_json::Error as SerdeError;
-use thiserror::Error;
-use url::ParseError;
-
 use super::{
     identities::{ReadOnlyDevice, UserIdentities},
-    memory_stores::ReadOnlyUserDevices,
     olm::{Account, InboundGroupSession, Session},
 };
 
 use crate::error::SessionUnpicklingError;
 
-pub mod memorystore;
-
-#[cfg(not(target_arch = "wasm32"))]
-#[cfg(feature = "sqlite_cryptostore")]
-pub mod sqlite;
-
-#[cfg(not(target_arch = "wasm32"))]
-#[cfg(feature = "sqlite_cryptostore")]
-use sqlx::Error as SqlxError;
+/// A `CryptoStore` specific result type.
+pub type Result<T> = std::result::Result<T, CryptoStoreError>;
 
 #[derive(Error, Debug)]
 /// The crypto store's error type.
@@ -92,8 +126,6 @@ pub enum CryptoStoreError {
     #[error(transparent)]
     UrlParse(#[from] ParseError),
 }
-
-pub type Result<T> = std::result::Result<T, CryptoStoreError>;
 
 /// Trait abstracting a store that the `OlmMachine` uses to store cryptographic
 /// keys.

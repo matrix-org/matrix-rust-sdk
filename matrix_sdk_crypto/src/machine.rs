@@ -63,9 +63,8 @@ use super::{
         OlmMessage, OutboundGroupSession,
     },
     requests::{IncomingResponse, OutgoingRequest},
-    store::{memorystore::MemoryStore, Result as StoreResult},
+    store::{CryptoStore, MemoryStore, Result as StoreResult},
     verification::{Sas, VerificationMachine},
-    CryptoStore,
 };
 
 /// State machine implementation of the Olm/Megolm encryption protocol used for

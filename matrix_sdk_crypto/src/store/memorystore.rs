@@ -21,11 +21,13 @@ use matrix_sdk_common::{
 };
 use matrix_sdk_common_macros::async_trait;
 
-use super::{Account, CryptoStore, InboundGroupSession, Result, Session};
-use crate::{
-    identities::{ReadOnlyDevice, UserIdentities},
-    memory_stores::{DeviceStore, GroupSessionStore, ReadOnlyUserDevices, SessionStore},
+use super::{
+    caches::{DeviceStore, GroupSessionStore, ReadOnlyUserDevices, SessionStore},
+    Account, CryptoStore, InboundGroupSession, Result, Session,
 };
+use crate::identities::{ReadOnlyDevice, UserIdentities};
+
+/// An in-memory only store that will forget all the E2EE key once it's dropped.
 #[derive(Debug, Clone)]
 pub struct MemoryStore {
     sessions: SessionStore,
@@ -36,8 +38,8 @@ pub struct MemoryStore {
     identities: Arc<DashMap<UserId, UserIdentities>>,
 }
 
-impl MemoryStore {
-    pub fn new() -> Self {
+impl Default for MemoryStore {
+    fn default() -> Self {
         MemoryStore {
             sessions: SessionStore::new(),
             inbound_group_sessions: GroupSessionStore::new(),
@@ -46,6 +48,13 @@ impl MemoryStore {
             devices: DeviceStore::new(),
             identities: Arc::new(DashMap::new()),
         }
+    }
+}
+
+impl MemoryStore {
+    /// Create a new empty `MemoryStore`.
+    pub fn new() -> Self {
+        Self::default()
     }
 }
 

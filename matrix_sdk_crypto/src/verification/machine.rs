@@ -26,7 +26,11 @@ use matrix_sdk_common::{
 };
 
 use super::sas::{content_to_request, Sas};
-use crate::{requests::OutgoingRequest, Account, CryptoStore, CryptoStoreError, ReadOnlyDevice};
+use crate::{
+    requests::OutgoingRequest,
+    store::{CryptoStore, CryptoStoreError},
+    Account, ReadOnlyDevice,
+};
 
 #[derive(Clone, Debug)]
 pub struct VerificationMachine {
@@ -229,9 +233,9 @@ mod test {
     use super::{Sas, VerificationMachine};
     use crate::{
         requests::OutgoingRequests,
-        store::memorystore::MemoryStore,
+        store::{CryptoStore, MemoryStore},
         verification::test::{get_content_from_request, wrap_any_to_device_content},
-        Account, CryptoStore, ReadOnlyDevice,
+        Account, ReadOnlyDevice,
     };
 
     fn alice_id() -> UserId {
