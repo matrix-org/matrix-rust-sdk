@@ -34,9 +34,7 @@ use matrix_sdk_common::{
             upload_keys,
         },
         sync::sync_events::Response as SyncResponse,
-        to_device::{
-            send_event_to_device::IncomingRequest as OwnedToDeviceRequest, DeviceIdOrAllDevices,
-        },
+        to_device::DeviceIdOrAllDevices,
     },
     encryption::DeviceKeys,
     events::{
@@ -62,7 +60,7 @@ use super::{
         Account, EncryptionSettings, GroupSessionKey, IdentityKeys, InboundGroupSession,
         OlmMessage, OutboundGroupSession,
     },
-    requests::{IncomingResponse, OutgoingRequest},
+    requests::{IncomingResponse, OutgoingRequest, ToDeviceRequest},
     store::{CryptoStore, MemoryStore, Result as StoreResult},
     verification::{Sas, VerificationMachine},
 };
@@ -1125,7 +1123,7 @@ impl OlmMachine {
         room_id: &RoomId,
         users: impl Iterator<Item = &UserId>,
         encryption_settings: impl Into<EncryptionSettings>,
-    ) -> OlmResult<Vec<OwnedToDeviceRequest>> {
+    ) -> OlmResult<Vec<ToDeviceRequest>> {
         self.create_outbound_group_session(room_id, encryption_settings.into())
             .await?;
         let session = self.outbound_group_sessions.get(room_id).unwrap();
@@ -1179,9 +1177,9 @@ impl OlmMachine {
                     );
             }
 
-            requests.push(OwnedToDeviceRequest {
+            requests.push(ToDeviceRequest {
                 event_type: EventType::RoomEncrypted,
-                txn_id: Uuid::new_v4().to_string(),
+                txn_id: Uuid::new_v4(),
                 messages,
             });
         }
@@ -1551,14 +1549,11 @@ pub(crate) mod test {
     use crate::{
         machine::OlmMachine,
         verification::test::{outgoing_request_to_event, request_to_event},
-        verify_json, EncryptionSettings, ReadOnlyDevice,
+        verify_json, EncryptionSettings, ReadOnlyDevice, ToDeviceRequest,
     };
 
     use matrix_sdk_common::{
-        api::r0::{
-            keys::{claim_keys, get_keys, upload_keys, OneTimeKey},
-            to_device::send_event_to_device::IncomingRequest as OwnedToDeviceRequest,
-        },
+        api::r0::keys::{claim_keys, get_keys, upload_keys, OneTimeKey},
         events::{
             room::{
                 encrypted::EncryptedEventContent,
@@ -1608,7 +1603,7 @@ pub(crate) mod test {
         get_keys::Response::try_from(data).expect("Can't parse the keys upload response")
     }
 
-    fn to_device_requests_to_content(requests: Vec<OwnedToDeviceRequest>) -> EncryptedEventContent {
+    fn to_device_requests_to_content(requests: Vec<ToDeviceRequest>) -> EncryptedEventContent {
         let to_device_request = &requests[0];
 
         let content: Raw<EncryptedEventContent> = serde_json::from_str(

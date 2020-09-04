@@ -19,9 +19,7 @@ use tracing::{trace, warn};
 use olm_rs::sas::OlmSas;
 
 use matrix_sdk_common::{
-    api::r0::to_device::{
-        send_event_to_device::IncomingRequest as OwnedToDeviceRequest, DeviceIdOrAllDevices,
-    },
+    api::r0::to_device::DeviceIdOrAllDevices,
     events::{
         key::verification::{cancel::CancelCode, mac::MacEventContent},
         AnyToDeviceEventContent, EventType, ToDeviceEvent,
@@ -32,7 +30,7 @@ use matrix_sdk_common::{
 
 use crate::{
     identities::{ReadOnlyDevice, UserIdentities},
-    Account,
+    Account, ToDeviceRequest,
 };
 
 #[derive(Clone, Debug)]
@@ -467,7 +465,7 @@ pub fn content_to_request(
     recipient: &UserId,
     recipient_device: &DeviceId,
     content: AnyToDeviceEventContent,
-) -> (Uuid, OwnedToDeviceRequest) {
+) -> ToDeviceRequest {
     let mut messages = BTreeMap::new();
     let mut user_messages = BTreeMap::new();
 
@@ -486,16 +484,11 @@ pub fn content_to_request(
         _ => unreachable!(),
     };
 
-    let request_id = Uuid::new_v4();
-
-    (
-        request_id,
-        OwnedToDeviceRequest {
-            txn_id: request_id.to_string(),
-            event_type,
-            messages,
-        },
-    )
+    ToDeviceRequest {
+        txn_id: Uuid::new_v4(),
+        event_type,
+        messages,
+    }
 }
 
 #[cfg(test)]

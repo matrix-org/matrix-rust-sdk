@@ -64,7 +64,7 @@ impl Device {
         let (sas, request) = self.inner.start_verification().await?;
         let request = ToDeviceRequest {
             event_type: request.event_type,
-            txn_id: &request.txn_id,
+            txn_id: &request.txn_id.to_string(),
             messages: request.messages,
         };
 

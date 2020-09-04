@@ -24,9 +24,7 @@ use std::{
 
 use atomic::Atomic;
 use matrix_sdk_common::{
-    api::r0::{
-        keys::SignedKey, to_device::send_event_to_device::IncomingRequest as OwnedToDeviceRequest,
-    },
+    api::r0::keys::SignedKey,
     encryption::DeviceKeys,
     events::{room::encrypted::EncryptedEventContent, EventType},
     identifiers::{DeviceId, DeviceKeyAlgorithm, DeviceKeyId, EventEncryptionAlgorithm, UserId},
@@ -43,7 +41,7 @@ use crate::{
     identities::{OwnUserIdentity, UserIdentities},
     store::{caches::ReadOnlyUserDevices, Result as StoreResult},
     verification::VerificationMachine,
-    verify_json, Sas,
+    verify_json, Sas, ToDeviceRequest,
 };
 
 /// A read-only version of a `Device`.
@@ -80,7 +78,7 @@ impl Device {
     /// Start a interactive verification with this `Device`
     ///
     /// Returns a `Sas` object and to-device request that needs to be sent out.
-    pub async fn start_verification(&self) -> StoreResult<(Sas, OwnedToDeviceRequest)> {
+    pub async fn start_verification(&self) -> StoreResult<(Sas, ToDeviceRequest)> {
         self.verification_machine
             .start_sas(self.inner.clone())
             .await
