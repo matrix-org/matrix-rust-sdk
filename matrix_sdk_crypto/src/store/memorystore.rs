@@ -23,9 +23,8 @@ use matrix_sdk_common_macros::async_trait;
 
 use super::{Account, CryptoStore, InboundGroupSession, Result, Session};
 use crate::{
-    device::ReadOnlyDevice,
+    identities::{ReadOnlyDevice, UserIdentities},
     memory_stores::{DeviceStore, GroupSessionStore, ReadOnlyUserDevices, SessionStore},
-    user_identity::UserIdentities,
 };
 #[derive(Debug, Clone)]
 pub struct MemoryStore {
@@ -153,7 +152,7 @@ impl CryptoStore for MemoryStore {
 #[cfg(test)]
 mod test {
     use crate::{
-        device::test::get_device,
+        identities::device::test::get_device,
         olm::{test::get_account_and_session, InboundGroupSession},
         store::{memorystore::MemoryStore, CryptoStore},
     };

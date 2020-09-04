@@ -27,19 +27,19 @@
 )]
 #![cfg_attr(feature = "docs", feature(doc_cfg))]
 
-mod device;
 mod error;
+mod identities;
 mod machine;
 pub mod memory_stores;
 pub mod olm;
 mod requests;
 mod store;
-#[allow(dead_code)]
-mod user_identity;
 mod verification;
 
-pub use device::{Device, LocalTrust, ReadOnlyDevice, UserDevices};
 pub use error::{MegolmError, OlmError};
+pub use identities::{
+    Device, LocalTrust, OwnUserIdentity, ReadOnlyDevice, UserDevices, UserIdentities, UserIdentity,
+};
 pub use machine::OlmMachine;
 pub use memory_stores::ReadOnlyUserDevices;
 pub(crate) use olm::Account;
@@ -48,7 +48,6 @@ pub use requests::{IncomingResponse, OutgoingRequest, OutgoingRequests};
 #[cfg(feature = "sqlite_cryptostore")]
 pub use store::sqlite::SqliteStore;
 pub use store::{CryptoStore, CryptoStoreError};
-pub use user_identity::{OwnUserIdentity, UserIdentities, UserIdentity};
 pub use verification::Sas;
 
 use error::SignatureError;

@@ -26,7 +26,7 @@ use matrix_sdk_common::{
 };
 
 use super::{
-    device::ReadOnlyDevice,
+    identities::ReadOnlyDevice,
     olm::{InboundGroupSession, Session},
 };
 
@@ -208,7 +208,7 @@ impl DeviceStore {
 #[cfg(test)]
 mod test {
     use crate::{
-        device::test::get_device,
+        identities::device::test::get_device,
         memory_stores::{DeviceStore, GroupSessionStore, SessionStore},
         olm::{test::get_account_and_session, InboundGroupSession},
     };

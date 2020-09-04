@@ -47,7 +47,7 @@ pub use olm_rs::{
 };
 
 use super::{EncryptionSettings, InboundGroupSession, OutboundGroupSession, Session};
-use crate::{device::ReadOnlyDevice, error::SessionCreationError};
+use crate::{error::SessionCreationError, identities::ReadOnlyDevice};
 
 /// Account holding identity keys for which sessions can be created.
 ///

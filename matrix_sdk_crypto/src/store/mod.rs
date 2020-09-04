@@ -28,10 +28,9 @@ use thiserror::Error;
 use url::ParseError;
 
 use super::{
-    device::ReadOnlyDevice,
+    identities::{ReadOnlyDevice, UserIdentities},
     memory_stores::ReadOnlyUserDevices,
     olm::{Account, InboundGroupSession, Session},
-    user_identity::UserIdentities,
 };
 
 use crate::error::SessionUnpicklingError;

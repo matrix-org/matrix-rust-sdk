@@ -35,14 +35,13 @@ use zeroize::Zeroizing;
 
 use super::{CryptoStore, CryptoStoreError, Result};
 use crate::{
-    device::{LocalTrust, ReadOnlyDevice},
+    identities::{LocalTrust, ReadOnlyDevice, UserIdentities},
     memory_stores::{DeviceStore, GroupSessionStore, ReadOnlyUserDevices, SessionStore},
     olm::{
         Account, AccountPickle, IdentityKeys, InboundGroupSession, InboundGroupSessionPickle,
         PickledAccount, PickledInboundGroupSession, PickledSession, PicklingMode, Session,
         SessionPickle,
     },
-    user_identity::UserIdentities,
 };
 
 #[derive(Clone)]
@@ -920,7 +919,7 @@ impl std::fmt::Debug for SqliteStore {
 #[cfg(test)]
 mod test {
     use crate::{
-        device::test::get_device,
+        identities::device::test::get_device,
         olm::{Account, GroupSessionKey, InboundGroupSession, Session},
     };
     use matrix_sdk_common::{

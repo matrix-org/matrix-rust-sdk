@@ -53,18 +53,17 @@ use matrix_sdk_common::{
 #[cfg(feature = "sqlite_cryptostore")]
 use super::store::sqlite::SqliteStore;
 use super::{
-    device::{Device, ReadOnlyDevice, UserDevices},
     error::{EventError, MegolmError, MegolmResult, OlmError, OlmResult},
+    identities::{
+        Device, MasterPubkey, OwnUserIdentity, ReadOnlyDevice, SelfSigningPubkey, UserDevices,
+        UserIdentities, UserIdentity, UserSigningPubkey,
+    },
     olm::{
         Account, EncryptionSettings, GroupSessionKey, IdentityKeys, InboundGroupSession,
         OlmMessage, OutboundGroupSession,
     },
     requests::{IncomingResponse, OutgoingRequest},
     store::{memorystore::MemoryStore, Result as StoreResult},
-    user_identity::{
-        MasterPubkey, OwnUserIdentity, SelfSigningPubkey, UserIdentities, UserIdentity,
-        UserSigningPubkey,
-    },
     verification::{Sas, VerificationMachine},
     CryptoStore,
 };

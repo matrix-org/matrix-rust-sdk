@@ -36,12 +36,12 @@ use serde_json::{json, Value};
 use tracing::warn;
 
 #[cfg(test)]
-use super::{Account, OlmMachine};
+use crate::{Account, OlmMachine};
 
 use crate::{
     error::{EventError, OlmError, OlmResult, SignatureError},
+    identities::{OwnUserIdentity, UserIdentities},
     store::Result as StoreResult,
-    user_identity::{OwnUserIdentity, UserIdentities},
     verification::VerificationMachine,
     verify_json, ReadOnlyUserDevices, Sas,
 };
@@ -444,7 +444,7 @@ pub(crate) mod test {
     use serde_json::json;
     use std::convert::TryFrom;
 
-    use crate::device::{LocalTrust, ReadOnlyDevice};
+    use crate::identities::{LocalTrust, ReadOnlyDevice};
     use matrix_sdk_common::{
         encryption::DeviceKeys,
         identifiers::{user_id, DeviceKeyAlgorithm},

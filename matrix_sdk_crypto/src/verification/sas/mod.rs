@@ -35,8 +35,8 @@ use matrix_sdk_common::{
 };
 
 use crate::{
-    user_identity::UserIdentities, Account, CryptoStore, CryptoStoreError, LocalTrust,
-    ReadOnlyDevice,
+    identities::{LocalTrust, ReadOnlyDevice, UserIdentities},
+    Account, CryptoStore, CryptoStoreError,
 };
 
 pub use helpers::content_to_request;
