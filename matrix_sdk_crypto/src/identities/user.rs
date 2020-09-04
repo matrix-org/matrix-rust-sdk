@@ -28,7 +28,7 @@ use matrix_sdk_common::{
     identifiers::{DeviceKeyId, UserId},
 };
 
-use crate::{error::SignatureError, verify_json, ReadOnlyDevice};
+use crate::{error::SignatureError, olm::Utility, ReadOnlyDevice};
 
 /// Wrapper for a cross signing key marking it as the master key.
 ///
@@ -157,7 +157,8 @@ impl MasterPubkey {
             return Err(SignatureError::UserIdMissmatch);
         }
 
-        verify_json(
+        let utility = Utility::new();
+        utility.verify_json(
             &self.0.user_id,
             &key_id,
             key,
@@ -191,7 +192,8 @@ impl UserSigningPubkey {
 
         // TODO check that the usage is OK.
 
-        verify_json(
+        let utility = Utility::new();
+        utility.verify_json(
             &self.0.user_id,
             &DeviceKeyId::try_from(key_id.as_str())?,
             key,
@@ -224,7 +226,8 @@ impl SelfSigningPubkey {
 
         // TODO check that the usage is OK.
 
-        verify_json(
+        let utility = Utility::new();
+        utility.verify_json(
             &self.0.user_id,
             &DeviceKeyId::try_from(key_id.as_str())?,
             key,

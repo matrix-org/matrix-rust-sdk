@@ -39,9 +39,10 @@ use crate::{Account, OlmMachine};
 use crate::{
     error::{EventError, OlmError, OlmResult, SignatureError},
     identities::{OwnUserIdentity, UserIdentities},
+    olm::Utility,
     store::{caches::ReadOnlyUserDevices, Result as StoreResult},
     verification::VerificationMachine,
-    verify_json, Sas, ToDeviceRequest,
+    Sas, ToDeviceRequest,
 };
 
 /// A read-only version of a `Device`.
@@ -362,7 +363,9 @@ impl ReadOnlyDevice {
             .get_key(DeviceKeyAlgorithm::Ed25519)
             .ok_or(SignatureError::MissingSigningKey)?;
 
-        verify_json(
+        let utility = Utility::new();
+
+        utility.verify_json(
             &self.user_id,
             &DeviceKeyId::from_parts(DeviceKeyAlgorithm::Ed25519, self.device_id()),
             signing_key,

@@ -1548,8 +1548,9 @@ pub(crate) mod test {
 
     use crate::{
         machine::OlmMachine,
+        olm::Utility,
         verification::test::{outgoing_request_to_event, request_to_event},
-        verify_json, EncryptionSettings, ReadOnlyDevice, ToDeviceRequest,
+        EncryptionSettings, ReadOnlyDevice, ToDeviceRequest,
     };
 
     use matrix_sdk_common::{
@@ -1784,7 +1785,8 @@ pub(crate) mod test {
         let identity_keys = machine.account.identity_keys();
         let ed25519_key = identity_keys.ed25519();
 
-        let ret = verify_json(
+        let utility = Utility::new();
+        let ret = utility.verify_json(
             &machine.user_id,
             &DeviceKeyId::from_parts(DeviceKeyAlgorithm::Ed25519, machine.device_id()),
             ed25519_key,
@@ -1815,7 +1817,8 @@ pub(crate) mod test {
 
         let mut device_keys = machine.account.device_keys().await;
 
-        let ret = verify_json(
+        let utility = Utility::new();
+        let ret = utility.verify_json(
             &machine.user_id,
             &DeviceKeyId::from_parts(DeviceKeyAlgorithm::Ed25519, machine.device_id()),
             "fake_key",
@@ -1835,7 +1838,8 @@ pub(crate) mod test {
 
         let mut one_time_key = one_time_keys.values_mut().next().unwrap();
 
-        let ret = verify_json(
+        let utility = Utility::new();
+        let ret = utility.verify_json(
             &machine.user_id,
             &DeviceKeyId::from_parts(DeviceKeyAlgorithm::Ed25519, machine.device_id()),
             ed25519_key,
@@ -1857,7 +1861,8 @@ pub(crate) mod test {
             .await
             .expect("Can't prepare initial key upload");
 
-        let ret = verify_json(
+        let utility = Utility::new();
+        let ret = utility.verify_json(
             &machine.user_id,
             &DeviceKeyId::from_parts(DeviceKeyAlgorithm::Ed25519, machine.device_id()),
             ed25519_key,
@@ -1865,7 +1870,8 @@ pub(crate) mod test {
         );
         assert!(ret.is_ok());
 
-        let ret = verify_json(
+        let utility = Utility::new();
+        let ret = utility.verify_json(
             &machine.user_id,
             &DeviceKeyId::from_parts(DeviceKeyAlgorithm::Ed25519, machine.device_id()),
             ed25519_key,
