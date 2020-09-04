@@ -16,6 +16,7 @@ use std::io::{Cursor, Read, Seek, SeekFrom};
 
 use base64::{decode_config, encode_config, DecodeError, STANDARD_NO_PAD};
 use byteorder::{BigEndian, ReadBytesExt};
+use getrandom::getrandom;
 
 use aes_ctr::{
     stream_cipher::{NewStreamCipher, SyncStreamCipher},
@@ -36,6 +37,42 @@ pub fn decode(input: impl AsRef<[u8]>) -> Result<Vec<u8>, DecodeError> {
 
 pub fn encode(input: impl AsRef<[u8]>) -> String {
     encode_config(input, STANDARD_NO_PAD)
+}
+
+pub fn encrypt(mut plaintext: &mut [u8], passphrase: &str, rounds: u32) -> String {
+    let mut salt = [0u8; SALT_SIZE];
+    let mut iv = [0u8; IV_SIZE];
+    let mut derived_keys = [0u8; KEY_SIZE * 2];
+    let version: u8 = 1;
+
+    getrandom(&mut salt).expect("Can't generate randomness");
+    getrandom(&mut iv).expect("Can't generate randomness");
+
+    let mut iv = u128::from_be_bytes(iv);
+    iv &= !(1 << 63);
+
+    pbkdf2::<Hmac<Sha512>>(passphrase.as_bytes(), &salt, rounds, &mut derived_keys);
+    let (key, hmac_key) = derived_keys.split_at(KEY_SIZE);
+
+    let mut aes = Aes256Ctr::new_var(&key, &iv.to_be_bytes()).expect("Can't create AES");
+
+    aes.apply_keystream(&mut plaintext);
+
+    let mut payload: Vec<u8> = vec![];
+
+    payload.extend(&version.to_be_bytes());
+    payload.extend(&salt);
+    payload.extend(&iv.to_be_bytes());
+    payload.extend(&rounds.to_be_bytes());
+    payload.extend_from_slice(&plaintext);
+
+    let mut hmac = Hmac::<Sha256>::new_varkey(hmac_key).unwrap();
+    hmac.update(&payload);
+    let mac = hmac.finalize();
+
+    payload.extend(mac.into_bytes());
+
+    encode(payload)
 }
 
 pub fn decrypt(ciphertext: &str, passphrase: &str) -> Result<String, DecodeError> {
@@ -84,7 +121,7 @@ pub fn decrypt(ciphertext: &str, passphrase: &str) -> Result<String, DecodeError
 mod test {
     use indoc::indoc;
 
-    use super::{decode, decrypt};
+    use super::{decode, decrypt, encrypt};
 
     const PASSPHRASE: &str = "1234";
 
@@ -125,8 +162,19 @@ mod test {
     }
 
     #[test]
-    fn test_decrypt() {
+    fn test_encrypt_decrypt() {
+        let data = "It's a secret to everybody";
+        let mut bytes = data.to_owned().into_bytes();
+
+        let encrypted = encrypt(&mut bytes, PASSPHRASE, 10);
+        let decrypted = decrypt(&encrypted, PASSPHRASE).unwrap();
+
+        assert_eq!(data, decrypted);
+    }
+
+    #[test]
+    fn test_real_decrypt() {
         let export = export_wihtout_headers();
-        let decrypted = decrypt(&export, PASSPHRASE).expect("Can't decrypt key export");
+        decrypt(&export, PASSPHRASE).expect("Can't decrypt key export");
     }
 }
