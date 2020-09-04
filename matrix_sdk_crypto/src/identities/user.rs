@@ -20,6 +20,7 @@ use std::{
     },
 };
 
+use serde::{Deserialize, Serialize};
 use serde_json::to_value;
 
 use matrix_sdk_common::{
@@ -27,25 +28,25 @@ use matrix_sdk_common::{
     identifiers::{DeviceKeyId, UserId},
 };
 
-use crate::{error::SignatureError, verify_json, ReadOnlyDevice};
+use crate::{error::SignatureError, olm::Utility, ReadOnlyDevice};
 
 /// Wrapper for a cross signing key marking it as the master key.
 ///
 /// Master keys are used to sign other cross signing keys, the self signing and
 /// user signing keys of an user will be signed by their master key.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MasterPubkey(Arc<CrossSigningKey>);
 
 /// Wrapper for a cross signing key marking it as a self signing key.
 ///
 /// Self signing keys are used to sign the user's own devices.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SelfSigningPubkey(Arc<CrossSigningKey>);
 
 /// Wrapper for a cross signing key marking it as a user signing key.
 ///
 /// User signing keys are used to sign the master keys of other users.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UserSigningPubkey(Arc<CrossSigningKey>);
 
 impl PartialEq for MasterPubkey {
@@ -156,7 +157,8 @@ impl MasterPubkey {
             return Err(SignatureError::UserIdMissmatch);
         }
 
-        verify_json(
+        let utility = Utility::new();
+        utility.verify_json(
             &self.0.user_id,
             &key_id,
             key,
@@ -190,7 +192,8 @@ impl UserSigningPubkey {
 
         // TODO check that the usage is OK.
 
-        verify_json(
+        let utility = Utility::new();
+        utility.verify_json(
             &self.0.user_id,
             &DeviceKeyId::try_from(key_id.as_str())?,
             key,
@@ -223,7 +226,8 @@ impl SelfSigningPubkey {
 
         // TODO check that the usage is OK.
 
-        verify_json(
+        let utility = Utility::new();
+        utility.verify_json(
             &self.0.user_id,
             &DeviceKeyId::try_from(key_id.as_str())?,
             key,
@@ -279,7 +283,7 @@ impl PartialEq for UserIdentities {
 /// This is the user identity of a user that isn't our own. Other users will
 /// only contain a master key and a self signing key, meaning that only device
 /// signatures can be checked with this identity.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct UserIdentity {
     user_id: Arc<UserId>,
     master_key: MasterPubkey,
@@ -509,10 +513,10 @@ mod test {
     };
 
     use crate::{
-        device::{Device, ReadOnlyDevice},
+        identities::{Device, ReadOnlyDevice},
         machine::test::response_from_file,
         olm::Account,
-        store::memorystore::MemoryStore,
+        store::MemoryStore,
         verification::VerificationMachine,
     };
 

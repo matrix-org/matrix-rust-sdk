@@ -20,15 +20,16 @@ use matrix_sdk_common::{
         EventType,
     },
     identifiers::{DeviceId, DeviceKeyAlgorithm, UserId},
-    instant::Instant,
+    instant::{Duration, Instant},
     locks::Mutex,
 };
 use olm_rs::{errors::OlmSessionError, session::OlmSession, PicklingMode};
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
 use super::IdentityKeys;
 use crate::{
-    error::{EventError, OlmResult},
+    error::{EventError, OlmResult, SessionUnpicklingError},
     ReadOnlyDevice,
 };
 
@@ -177,14 +178,22 @@ impl Session {
     ///
     /// * `pickle_mode` - The mode that was used to pickle the session, either
     /// an unencrypted mode or an encrypted using passphrase.
-    pub async fn pickle(&self, pickle_mode: PicklingMode) -> String {
-        self.inner.lock().await.pickle(pickle_mode)
+    pub async fn pickle(&self, pickle_mode: PicklingMode) -> PickledSession {
+        let pickle = self.inner.lock().await.pickle(pickle_mode);
+
+        PickledSession {
+            pickle: SessionPickle::from(pickle),
+            sender_key: self.sender_key.to_string(),
+            // FIXME this should use the duration from the unix epoch.
+            creation_time: self.creation_time.elapsed(),
+            last_use_time: self.last_use_time.elapsed(),
+        }
     }
 
     /// Restore a Session from a previously pickled string.
     ///
-    /// Returns the restored Olm Session or a `OlmSessionError` if there was an
-    /// error.
+    /// Returns the restored Olm Session or a `SessionUnpicklingError` if there
+    /// was an error.
     ///
     /// # Arguments
     ///
@@ -194,32 +203,29 @@ impl Session {
     ///
     /// * `our_idenity_keys` - An clone of the Arc to our own identity keys.
     ///
-    /// * `pickle` - The pickled string of the session.
+    /// * `pickle` - The pickled version of the `Session`.
     ///
     /// * `pickle_mode` - The mode that was used to pickle the session, either
     /// an unencrypted mode or an encrypted using passphrase.
-    ///
-    /// * `sender_key` - The public curve25519 key of the account that
-    /// established the session with us.
-    ///
-    /// * `creation_time` - The timestamp that marks when the session was
-    /// created.
-    ///
-    /// * `last_use_time` - The timestamp that marks when the session was
-    /// last used to encrypt or decrypt an Olm message.
-    #[allow(clippy::too_many_arguments)]
     pub fn from_pickle(
         user_id: Arc<UserId>,
         device_id: Arc<Box<DeviceId>>,
         our_identity_keys: Arc<IdentityKeys>,
-        pickle: String,
+        pickle: PickledSession,
         pickle_mode: PicklingMode,
-        sender_key: String,
-        creation_time: Instant,
-        last_use_time: Instant,
-    ) -> Result<Self, OlmSessionError> {
-        let session = OlmSession::unpickle(pickle, pickle_mode)?;
+    ) -> Result<Self, SessionUnpicklingError> {
+        let session = OlmSession::unpickle(pickle.pickle.0, pickle_mode)?;
         let session_id = session.session_id();
+
+        // FIXME this should use the UNIX epoch.
+        let now = Instant::now();
+
+        let creation_time = now
+            .checked_sub(pickle.creation_time)
+            .ok_or(SessionUnpicklingError::SessionTimestampError)?;
+        let last_use_time = now
+            .checked_sub(pickle.last_use_time)
+            .ok_or(SessionUnpicklingError::SessionTimestampError)?;
 
         Ok(Session {
             user_id,
@@ -227,7 +233,7 @@ impl Session {
             our_identity_keys,
             inner: Arc::new(Mutex::new(session)),
             session_id: Arc::new(session_id),
-            sender_key: Arc::new(sender_key),
+            sender_key: Arc::new(pickle.sender_key),
             creation_time: Arc::new(creation_time),
             last_use_time: Arc::new(last_use_time),
         })
@@ -237,5 +243,38 @@ impl Session {
 impl PartialEq for Session {
     fn eq(&self, other: &Self) -> bool {
         self.session_id() == other.session_id()
+    }
+}
+
+/// A pickled version of a `Session`.
+///
+/// Holds all the information that needs to be stored in a database to restore
+/// a Session.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PickledSession {
+    /// The pickle string holding the Olm Session.
+    pub pickle: SessionPickle,
+    /// The curve25519 key of the other user that we share this session with.
+    pub sender_key: String,
+    /// The relative time elapsed since the session was created.
+    pub creation_time: Duration,
+    /// The relative time elapsed since the session was last used.
+    pub last_use_time: Duration,
+}
+
+/// The typed representation of a base64 encoded string of the Olm Session pickle.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SessionPickle(String);
+
+impl From<String> for SessionPickle {
+    fn from(picle_string: String) -> Self {
+        SessionPickle(picle_string)
+    }
+}
+
+impl SessionPickle {
+    /// Get the string representation of the pickle.
+    pub fn as_str(&self) -> &str {
+        &self.0
     }
 }

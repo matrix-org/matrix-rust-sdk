@@ -116,6 +116,16 @@ pub enum EventError {
 }
 
 #[derive(Error, Debug)]
+pub enum SessionUnpicklingError {
+    /// The underlying Olm session operation returned an error.
+    #[error("can't finish Olm Session operation {0}")]
+    OlmSession(#[from] OlmSessionError),
+    /// The Session timestamp was invalid.
+    #[error("can't load session timestamps")]
+    SessionTimestampError,
+}
+
+#[derive(Error, Debug)]
 pub enum SignatureError {
     #[error("the signature used a unsupported algorithm")]
     UnsupportedAlgorithm,

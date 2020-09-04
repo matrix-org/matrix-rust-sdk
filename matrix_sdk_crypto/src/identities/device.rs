@@ -24,25 +24,25 @@ use std::{
 
 use atomic::Atomic;
 use matrix_sdk_common::{
-    api::r0::{
-        keys::SignedKey, to_device::send_event_to_device::IncomingRequest as OwnedToDeviceRequest,
-    },
+    api::r0::keys::SignedKey,
     encryption::DeviceKeys,
     events::{room::encrypted::EncryptedEventContent, EventType},
     identifiers::{DeviceId, DeviceKeyAlgorithm, DeviceKeyId, EventEncryptionAlgorithm, UserId},
 };
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use tracing::warn;
 
 #[cfg(test)]
-use super::{Account, OlmMachine};
+use crate::{Account, OlmMachine};
 
 use crate::{
     error::{EventError, OlmError, OlmResult, SignatureError},
-    store::Result as StoreResult,
-    user_identity::{OwnUserIdentity, UserIdentities},
+    identities::{OwnUserIdentity, UserIdentities},
+    olm::Utility,
+    store::{caches::ReadOnlyUserDevices, Result as StoreResult},
     verification::VerificationMachine,
-    verify_json, ReadOnlyUserDevices, Sas,
+    Sas, ToDeviceRequest,
 };
 
 /// A read-only version of a `Device`.
@@ -79,7 +79,7 @@ impl Device {
     /// Start a interactive verification with this `Device`
     ///
     /// Returns a `Sas` object and to-device request that needs to be sent out.
-    pub async fn start_verification(&self) -> StoreResult<(Sas, OwnedToDeviceRequest)> {
+    pub async fn start_verification(&self) -> StoreResult<(Sas, ToDeviceRequest)> {
         self.verification_machine
             .start_sas(self.inner.clone())
             .await
@@ -230,7 +230,7 @@ impl UserDevices {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 /// The local trust state of a device.
 pub enum LocalTrust {
     /// The device has been verified and is trusted.
@@ -363,7 +363,9 @@ impl ReadOnlyDevice {
             .get_key(DeviceKeyAlgorithm::Ed25519)
             .ok_or(SignatureError::MissingSigningKey)?;
 
-        verify_json(
+        let utility = Utility::new();
+
+        utility.verify_json(
             &self.user_id,
             &DeviceKeyId::from_parts(DeviceKeyAlgorithm::Ed25519, self.device_id()),
             signing_key,
@@ -443,7 +445,7 @@ pub(crate) mod test {
     use serde_json::json;
     use std::convert::TryFrom;
 
-    use crate::device::{LocalTrust, ReadOnlyDevice};
+    use crate::identities::{LocalTrust, ReadOnlyDevice};
     use matrix_sdk_common::{
         encryption::DeviceKeys,
         identifiers::{user_id, DeviceKeyAlgorithm},

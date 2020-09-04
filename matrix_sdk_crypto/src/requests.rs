@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::sync::Arc;
+use std::{collections::BTreeMap, sync::Arc};
 
 use matrix_sdk_common::{
     api::r0::{
@@ -21,12 +21,40 @@ use matrix_sdk_common::{
             get_keys::{IncomingRequest as KeysQueryRequest, Response as KeysQueryResponse},
             upload_keys::{Request as KeysUploadRequest, Response as KeysUploadResponse},
         },
-        to_device::send_event_to_device::{
-            IncomingRequest as ToDeviceRequest, Response as ToDeviceResponse,
-        },
+        to_device::{send_event_to_device::Response as ToDeviceResponse, DeviceIdOrAllDevices},
     },
+    events::EventType,
+    identifiers::UserId,
     uuid::Uuid,
 };
+
+use serde_json::value::RawValue as RawJsonValue;
+
+/// Customized version of `ruma_client_api::r0::to_device::send_event_to_device::Request`, using a
+/// UUID for the transaction ID.
+#[derive(Clone, Debug)]
+pub struct ToDeviceRequest {
+    /// Type of event being sent to each device.
+    pub event_type: EventType,
+
+    /// A request identifier unique to the access token used to send the request.
+    pub txn_id: Uuid,
+
+    /// A map of users to devices to a content for a message event to be
+    /// sent to the user's device. Individual message events can be sent
+    /// to devices, but all events must be of the same type.
+    /// The content's type for this field will be updated in a future
+    /// release, until then you can create a value using
+    /// `serde_json::value::to_raw_value`.
+    pub messages: BTreeMap<UserId, BTreeMap<DeviceIdOrAllDevices, Box<RawJsonValue>>>,
+}
+
+impl ToDeviceRequest {
+    /// Gets the transaction ID as a string.
+    pub fn txn_id_string(&self) -> String {
+        self.txn_id.to_string()
+    }
+}
 
 /// Enum over the different outgoing requests we can have.
 #[derive(Debug)]

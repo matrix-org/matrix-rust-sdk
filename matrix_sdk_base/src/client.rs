@@ -39,15 +39,15 @@ use matrix_sdk_common::{
 #[cfg(feature = "encryption")]
 use matrix_sdk_common::{
     api::r0::keys::claim_keys::Request as KeysClaimRequest,
-    api::r0::to_device::send_event_to_device::IncomingRequest as OwnedToDeviceRequest,
     events::{room::encrypted::EncryptedEventContent, AnyMessageEventContent},
     identifiers::DeviceId,
     uuid::Uuid,
 };
 #[cfg(feature = "encryption")]
 use matrix_sdk_crypto::{
-    CryptoStore, CryptoStoreError, Device, IncomingResponse, OlmError, OlmMachine, OutgoingRequest,
-    Sas, UserDevices,
+    store::{CryptoStore, CryptoStoreError},
+    Device, IncomingResponse, OlmError, OlmMachine, OutgoingRequest, Sas, ToDeviceRequest,
+    UserDevices,
 };
 use zeroize::Zeroizing;
 
@@ -1304,7 +1304,7 @@ impl BaseClient {
     /// Get a to-device request that will share a group session for a room.
     #[cfg(feature = "encryption")]
     #[cfg_attr(feature = "docs", doc(cfg(encryption)))]
-    pub async fn share_group_session(&self, room_id: &RoomId) -> Result<Vec<OwnedToDeviceRequest>> {
+    pub async fn share_group_session(&self, room_id: &RoomId) -> Result<Vec<ToDeviceRequest>> {
         let room = self.get_joined_room(room_id).await.expect("No room found");
         let olm = self.olm.lock().await;
 

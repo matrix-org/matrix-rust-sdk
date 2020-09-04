@@ -19,14 +19,17 @@ use dashmap::DashMap;
 use tracing::{trace, warn};
 
 use matrix_sdk_common::{
-    api::r0::to_device::send_event_to_device::IncomingRequest as OwnedToDeviceRequest,
     events::{AnyToDeviceEvent, AnyToDeviceEventContent},
     identifiers::{DeviceId, UserId},
     uuid::Uuid,
 };
 
 use super::sas::{content_to_request, Sas};
-use crate::{requests::OutgoingRequest, Account, CryptoStore, CryptoStoreError, ReadOnlyDevice};
+use crate::{
+    requests::{OutgoingRequest, ToDeviceRequest},
+    store::{CryptoStore, CryptoStoreError},
+    Account, ReadOnlyDevice,
+};
 
 #[derive(Clone, Debug)]
 pub struct VerificationMachine {
@@ -49,7 +52,7 @@ impl VerificationMachine {
     pub async fn start_sas(
         &self,
         device: ReadOnlyDevice,
-    ) -> Result<(Sas, OwnedToDeviceRequest), CryptoStoreError> {
+    ) -> Result<(Sas, ToDeviceRequest), CryptoStoreError> {
         let identity = self.store.get_user_identity(device.user_id()).await?;
 
         let (sas, content) = Sas::start(
@@ -59,7 +62,7 @@ impl VerificationMachine {
             identity,
         );
 
-        let (_, request) = content_to_request(
+        let request = content_to_request(
             device.user_id(),
             device.device_id(),
             AnyToDeviceEventContent::KeyVerificationStart(content),
@@ -82,7 +85,8 @@ impl VerificationMachine {
         recipient_device: &DeviceId,
         content: AnyToDeviceEventContent,
     ) {
-        let (request_id, request) = content_to_request(recipient, recipient_device, content);
+        let request = content_to_request(recipient, recipient_device, content);
+        let request_id = request.txn_id;
 
         let request = OutgoingRequest {
             request_id,
@@ -117,10 +121,10 @@ impl VerificationMachine {
         for sas in self.verifications.iter() {
             if let Some(r) = sas.cancel_if_timed_out() {
                 self.outgoing_to_device_messages.insert(
-                    r.0,
+                    r.txn_id,
                     OutgoingRequest {
-                        request_id: r.0,
-                        request: Arc::new(r.1.into()),
+                        request_id: r.txn_id,
+                        request: Arc::new(r.into()),
                     },
                 );
             }
@@ -193,10 +197,10 @@ impl VerificationMachine {
                         if !s.mark_device_as_verified().await? {
                             if let Some(r) = s.cancel() {
                                 self.outgoing_to_device_messages.insert(
-                                    r.0,
+                                    r.txn_id,
                                     OutgoingRequest {
-                                        request_id: r.0,
-                                        request: Arc::new(r.1.into()),
+                                        request_id: r.txn_id,
+                                        request: Arc::new(r.into()),
                                     },
                                 );
                             }
@@ -229,9 +233,9 @@ mod test {
     use super::{Sas, VerificationMachine};
     use crate::{
         requests::OutgoingRequests,
-        store::memorystore::MemoryStore,
+        store::{CryptoStore, MemoryStore},
         verification::test::{get_content_from_request, wrap_any_to_device_content},
-        Account, CryptoStore, ReadOnlyDevice,
+        Account, ReadOnlyDevice,
     };
 
     fn alice_id() -> UserId {

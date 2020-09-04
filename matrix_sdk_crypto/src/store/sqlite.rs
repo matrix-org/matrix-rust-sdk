@@ -26,24 +26,29 @@ use matrix_sdk_common::{
     identifiers::{
         DeviceId, DeviceKeyAlgorithm, DeviceKeyId, EventEncryptionAlgorithm, RoomId, UserId,
     },
-    instant::{Duration, Instant},
+    instant::Duration,
     locks::Mutex,
 };
-use olm_rs::PicklingMode;
 use sqlx::{query, query_as, sqlite::SqliteQueryAs, Connect, Executor, SqliteConnection};
 use url::Url;
 use zeroize::Zeroizing;
 
-use super::{CryptoStore, CryptoStoreError, Result};
+use super::{
+    caches::{DeviceStore, GroupSessionStore, ReadOnlyUserDevices, SessionStore},
+    CryptoStore, CryptoStoreError, Result,
+};
 use crate::{
-    device::{LocalTrust, ReadOnlyDevice},
-    memory_stores::{DeviceStore, GroupSessionStore, ReadOnlyUserDevices, SessionStore},
-    olm::{Account, IdentityKeys, InboundGroupSession, Session},
-    user_identity::UserIdentities,
+    identities::{LocalTrust, ReadOnlyDevice, UserIdentities},
+    olm::{
+        Account, AccountPickle, IdentityKeys, InboundGroupSession, InboundGroupSessionPickle,
+        PickledAccount, PickledInboundGroupSession, PickledSession, PicklingMode, Session,
+        SessionPickle,
+    },
 };
 
 /// SQLite based implementation of a `CryptoStore`.
 #[derive(Clone)]
+#[cfg_attr(feature = "docs", doc(cfg(r#sqlite_cryptostore)))]
 pub struct SqliteStore {
     user_id: Arc<UserId>,
     device_id: Arc<Box<DeviceId>>,
@@ -336,7 +341,7 @@ impl SqliteStore {
             .ok_or(CryptoStoreError::AccountUnset)?;
         let mut connection = self.connection.lock().await;
 
-        let rows: Vec<(String, String, String, String)> = query_as(
+        let mut rows: Vec<(String, String, String, String)> = query_as(
             "SELECT pickle, sender_key, creation_time, last_use_time
              FROM sessions WHERE account_id = ? and sender_key = ?",
         )
@@ -345,29 +350,27 @@ impl SqliteStore {
         .fetch_all(&mut *connection)
         .await?;
 
-        let now = Instant::now();
-
         Ok(rows
-            .iter()
+            .drain(..)
             .map(|row| {
-                let pickle = &row.0;
-                let sender_key = &row.1;
-                let creation_time = now
-                    .checked_sub(serde_json::from_str::<Duration>(&row.2)?)
-                    .ok_or(CryptoStoreError::SessionTimestampError)?;
-                let last_use_time = now
-                    .checked_sub(serde_json::from_str::<Duration>(&row.3)?)
-                    .ok_or(CryptoStoreError::SessionTimestampError)?;
+                let pickle = row.0;
+                let sender_key = row.1;
+                let creation_time = serde_json::from_str::<Duration>(&row.2)?;
+                let last_use_time = serde_json::from_str::<Duration>(&row.3)?;
+
+                let pickle = PickledSession {
+                    pickle: SessionPickle::from(pickle),
+                    last_use_time,
+                    creation_time,
+                    sender_key,
+                };
 
                 Ok(Session::from_pickle(
                     self.user_id.clone(),
                     self.device_id.clone(),
                     account_info.identity_keys.clone(),
-                    pickle.to_string(),
+                    pickle,
                     self.get_pickle_mode(),
-                    sender_key.to_string(),
-                    creation_time,
-                    last_use_time,
                 )?)
             })
             .collect::<Result<Vec<Session>>>()?)
@@ -377,7 +380,7 @@ impl SqliteStore {
         let account_id = self.account_id().ok_or(CryptoStoreError::AccountUnset)?;
         let mut connection = self.connection.lock().await;
 
-        let rows: Vec<(String, String, String, String)> = query_as(
+        let mut rows: Vec<(String, String, String, String)> = query_as(
             "SELECT pickle, sender_key, signing_key, room_id
              FROM inbound_group_sessions WHERE account_id = ?",
         )
@@ -386,19 +389,26 @@ impl SqliteStore {
         .await?;
 
         let mut group_sessions = rows
-            .iter()
+            .drain(..)
             .map(|row| {
-                let pickle = &row.0;
-                let sender_key = &row.1;
-                let signing_key = &row.2;
-                let room_id = &row.3;
+                let pickle = row.0;
+                let sender_key = row.1;
+                let signing_key = row.2;
+                let room_id = row.3;
+
+                let pickle = PickledInboundGroupSession {
+                    pickle: InboundGroupSessionPickle::from(pickle),
+                    sender_key,
+                    signing_key,
+                    room_id: RoomId::try_from(room_id)?,
+                    // Fixme we need to store/restore these once we get support
+                    // for key requesting/forwarding.
+                    forwarding_chains: None,
+                };
 
                 Ok(InboundGroupSession::from_pickle(
-                    pickle.to_string(),
+                    pickle,
                     self.get_pickle_mode(),
-                    sender_key.to_string(),
-                    signing_key.to_owned(),
-                    RoomId::try_from(room_id.as_str()).unwrap(),
                 )?)
             })
             .collect::<Result<Vec<InboundGroupSession>>>()?;
@@ -546,15 +556,13 @@ impl SqliteStore {
 
                 let signature = row.2;
 
-                if !signatures.contains_key(&user_id) {
-                    let _ = signatures.insert(user_id.clone(), BTreeMap::new());
-                }
-                let user_map = signatures.get_mut(&user_id).unwrap();
-
-                user_map.insert(
-                    DeviceKeyId::from_parts(key_algorithm, device_id.as_str().into()),
-                    signature.to_owned(),
-                );
+                signatures
+                    .entry(user_id)
+                    .or_insert_with(BTreeMap::new)
+                    .insert(
+                        DeviceKeyId::from_parts(key_algorithm, device_id.as_str().into()),
+                        signature.to_owned(),
+                    );
             }
 
             let device = ReadOnlyDevice::new(
@@ -679,14 +687,15 @@ impl CryptoStore for SqliteStore {
         .await?;
 
         let result = if let Some((id, pickle, shared, uploaded_key_count)) = row {
-            let account = Account::from_pickle(
-                pickle,
-                self.get_pickle_mode(),
+            let pickle = PickledAccount {
+                user_id: (&*self.user_id).clone(),
+                device_id: (&*self.device_id).clone(),
+                pickle: AccountPickle::from(pickle),
                 shared,
-                uploaded_key_count,
-                &self.user_id,
-                &self.device_id,
-            )?;
+                uploaded_signed_key_count: uploaded_key_count,
+            };
+
+            let account = Account::from_pickle(pickle, self.get_pickle_mode())?;
 
             *self.account_info.lock().unwrap() = Some(AccountInfo {
                 account_id: id,
@@ -720,18 +729,18 @@ impl CryptoStore for SqliteStore {
                 shared = excluded.shared
              ",
         )
-        .bind(&*self.user_id.to_string())
-        .bind(&*self.device_id.to_string())
-        .bind(&pickle)
-        .bind(account.shared())
-        .bind(account.uploaded_key_count())
+        .bind(pickle.user_id.as_str())
+        .bind(pickle.device_id.as_str())
+        .bind(pickle.pickle.as_str())
+        .bind(pickle.shared)
+        .bind(pickle.uploaded_signed_key_count)
         .execute(&mut *connection)
         .await?;
 
         let account_id: (i64,) =
             query_as("SELECT id FROM accounts WHERE user_id = ? and device_id = ?")
-                .bind(&*self.user_id.to_string())
-                .bind(&*self.device_id.to_string())
+                .bind(self.user_id.as_str())
+                .bind(self.device_id.as_str())
                 .fetch_one(&mut *connection)
                 .await?;
 
@@ -751,10 +760,11 @@ impl CryptoStore for SqliteStore {
             self.lazy_load_sessions(&session.sender_key).await?;
             self.sessions.add(session.clone()).await;
 
-            let session_id = session.session_id();
-            let creation_time = serde_json::to_string(&session.creation_time.elapsed())?;
-            let last_use_time = serde_json::to_string(&session.last_use_time.elapsed())?;
             let pickle = session.pickle(self.get_pickle_mode()).await;
+
+            let session_id = session.session_id();
+            let creation_time = serde_json::to_string(&pickle.creation_time)?;
+            let last_use_time = serde_json::to_string(&pickle.last_use_time)?;
 
             let mut connection = self.connection.lock().await;
 
@@ -767,8 +777,8 @@ impl CryptoStore for SqliteStore {
             .bind(&account_id)
             .bind(&*creation_time)
             .bind(&*last_use_time)
-            .bind(&*session.sender_key)
-            .bind(&pickle)
+            .bind(&pickle.sender_key)
+            .bind(&pickle.pickle.as_str())
             .execute(&mut *connection)
             .await?;
         }
@@ -786,6 +796,10 @@ impl CryptoStore for SqliteStore {
         let mut connection = self.connection.lock().await;
         let session_id = session.session_id();
 
+        // FIXME we need to store/restore the forwarding chains.
+        // FIXME this should be converted so it accepts an array of sessions for
+        // the key import feature.
+
         query(
             "INSERT INTO inbound_group_sessions (
                 session_id, account_id, sender_key, signing_key,
@@ -797,10 +811,10 @@ impl CryptoStore for SqliteStore {
         )
         .bind(session_id)
         .bind(account_id)
-        .bind(&*session.sender_key)
-        .bind(&*session.signing_key)
-        .bind(&*session.room_id.to_string())
-        .bind(&pickle)
+        .bind(pickle.sender_key)
+        .bind(pickle.signing_key)
+        .bind(pickle.room_id.as_str())
+        .bind(pickle.pickle.as_str())
         .execute(&mut *connection)
         .await?;
 
@@ -908,7 +922,7 @@ impl std::fmt::Debug for SqliteStore {
 #[cfg(test)]
 mod test {
     use crate::{
-        device::test::get_device,
+        identities::device::test::get_device,
         olm::{Account, GroupSessionKey, InboundGroupSession, Session},
     };
     use matrix_sdk_common::{
@@ -921,27 +935,37 @@ mod test {
 
     use super::{CryptoStore, SqliteStore};
 
-    fn example_user_id() -> UserId {
-        user_id!("@example:localhost")
+    fn alice_id() -> UserId {
+        user_id!("@alice:example.org")
     }
 
-    fn example_device_id() -> &'static DeviceId {
-        "DEVICEID".into()
+    fn alice_device_id() -> Box<DeviceId> {
+        "ALICEDEVICE".into()
+    }
+
+    fn bob_id() -> UserId {
+        user_id!("@bob:example.org")
+    }
+
+    fn bob_device_id() -> Box<DeviceId> {
+        "BOBDEVICE".into()
     }
 
     async fn get_store(passphrase: Option<&str>) -> (SqliteStore, tempfile::TempDir) {
         let tmpdir = tempdir().unwrap();
         let tmpdir_path = tmpdir.path().to_str().unwrap();
 
-        let user_id = &example_user_id();
-        let device_id = example_device_id();
-
         let store = if let Some(passphrase) = passphrase {
-            SqliteStore::open_with_passphrase(&user_id, device_id, tmpdir_path, passphrase)
-                .await
-                .expect("Can't create a passphrase protected store")
+            SqliteStore::open_with_passphrase(
+                &alice_id(),
+                &alice_device_id(),
+                tmpdir_path,
+                passphrase,
+            )
+            .await
+            .expect("Can't create a passphrase protected store")
         } else {
-            SqliteStore::open(&user_id, device_id, tmpdir_path)
+            SqliteStore::open(&alice_id(), &alice_device_id(), tmpdir_path)
                 .await
                 .expect("Can't create store")
         };
@@ -958,22 +982,6 @@ mod test {
             .expect("Can't save account");
 
         (account, store, dir)
-    }
-
-    fn alice_id() -> UserId {
-        user_id!("@alice:example.org")
-    }
-
-    fn alice_device_id() -> Box<DeviceId> {
-        "ALICEDEVICE".into()
-    }
-
-    fn bob_id() -> UserId {
-        user_id!("@bob:example.org")
-    }
-
-    fn bob_device_id() -> Box<DeviceId> {
-        "BOBDEVICE".into()
     }
 
     fn get_account() -> Account {
@@ -1011,7 +1019,7 @@ mod test {
     async fn create_store() {
         let tmpdir = tempdir().unwrap();
         let tmpdir_path = tmpdir.path().to_str().unwrap();
-        let _ = SqliteStore::open(&example_user_id(), "DEVICEID".into(), tmpdir_path)
+        let _ = SqliteStore::open(&alice_id(), &alice_device_id(), tmpdir_path)
             .await
             .expect("Can't create store");
     }
@@ -1138,7 +1146,7 @@ mod test {
 
         drop(store);
 
-        let store = SqliteStore::open(&example_user_id(), example_device_id(), dir.path())
+        let store = SqliteStore::open(&alice_id(), &alice_device_id(), dir.path())
             .await
             .expect("Can't create store");
 
@@ -1224,7 +1232,7 @@ mod test {
         assert!(store.users_for_key_query().contains(device.user_id()));
         drop(store);
 
-        let store = SqliteStore::open(&example_user_id(), example_device_id(), dir.path())
+        let store = SqliteStore::open(&alice_id(), &alice_device_id(), dir.path())
             .await
             .expect("Can't create store");
 
@@ -1239,7 +1247,7 @@ mod test {
             .unwrap();
         assert!(!store.users_for_key_query().contains(device.user_id()));
 
-        let store = SqliteStore::open(&example_user_id(), example_device_id(), dir.path())
+        let store = SqliteStore::open(&alice_id(), &alice_device_id(), dir.path())
             .await
             .expect("Can't create store");
 
@@ -1257,7 +1265,7 @@ mod test {
 
         drop(store);
 
-        let store = SqliteStore::open(&example_user_id(), example_device_id(), dir.path())
+        let store = SqliteStore::open(&alice_id(), &alice_device_id(), dir.path())
             .await
             .expect("Can't create store");
 
@@ -1290,7 +1298,7 @@ mod test {
         store.save_devices(&[device.clone()]).await.unwrap();
         store.delete_device(device.clone()).await.unwrap();
 
-        let store = SqliteStore::open(&example_user_id(), example_device_id(), dir.path())
+        let store = SqliteStore::open(&alice_id(), &alice_device_id(), dir.path())
             .await
             .expect("Can't create store");
 

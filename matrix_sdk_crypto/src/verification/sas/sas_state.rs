@@ -43,7 +43,10 @@ use matrix_sdk_common::{
 
 use super::helpers::{get_decimal, get_emoji, get_mac_content, receive_mac_event, SasIds};
 
-use crate::{user_identity::UserIdentities, Account, ReadOnlyDevice};
+use crate::{
+    identities::{ReadOnlyDevice, UserIdentities},
+    Account,
+};
 
 const KEY_AGREEMENT_PROTOCOLS: &[KeyAgreementProtocol] =
     &[KeyAgreementProtocol::Curve25519HkdfSha256];

@@ -34,9 +34,7 @@ use matrix_sdk_common::{
             upload_keys,
         },
         sync::sync_events::Response as SyncResponse,
-        to_device::{
-            send_event_to_device::IncomingRequest as OwnedToDeviceRequest, DeviceIdOrAllDevices,
-        },
+        to_device::DeviceIdOrAllDevices,
     },
     encryption::DeviceKeys,
     events::{
@@ -53,20 +51,18 @@ use matrix_sdk_common::{
 #[cfg(feature = "sqlite_cryptostore")]
 use super::store::sqlite::SqliteStore;
 use super::{
-    device::{Device, ReadOnlyDevice, UserDevices},
     error::{EventError, MegolmError, MegolmResult, OlmError, OlmResult},
+    identities::{
+        Device, MasterPubkey, OwnUserIdentity, ReadOnlyDevice, SelfSigningPubkey, UserDevices,
+        UserIdentities, UserIdentity, UserSigningPubkey,
+    },
     olm::{
         Account, EncryptionSettings, GroupSessionKey, IdentityKeys, InboundGroupSession,
         OlmMessage, OutboundGroupSession,
     },
-    requests::{IncomingResponse, OutgoingRequest},
-    store::{memorystore::MemoryStore, Result as StoreResult},
-    user_identity::{
-        MasterPubkey, OwnUserIdentity, SelfSigningPubkey, UserIdentities, UserIdentity,
-        UserSigningPubkey,
-    },
+    requests::{IncomingResponse, OutgoingRequest, ToDeviceRequest},
+    store::{CryptoStore, MemoryStore, Result as StoreResult},
     verification::{Sas, VerificationMachine},
-    CryptoStore,
 };
 
 /// State machine implementation of the Olm/Megolm encryption protocol used for
@@ -1127,7 +1123,7 @@ impl OlmMachine {
         room_id: &RoomId,
         users: impl Iterator<Item = &UserId>,
         encryption_settings: impl Into<EncryptionSettings>,
-    ) -> OlmResult<Vec<OwnedToDeviceRequest>> {
+    ) -> OlmResult<Vec<ToDeviceRequest>> {
         self.create_outbound_group_session(room_id, encryption_settings.into())
             .await?;
         let session = self.outbound_group_sessions.get(room_id).unwrap();
@@ -1181,9 +1177,9 @@ impl OlmMachine {
                     );
             }
 
-            requests.push(OwnedToDeviceRequest {
+            requests.push(ToDeviceRequest {
                 event_type: EventType::RoomEncrypted,
-                txn_id: Uuid::new_v4().to_string(),
+                txn_id: Uuid::new_v4(),
                 messages,
             });
         }
@@ -1521,9 +1517,7 @@ impl OlmMachine {
         let own_identity = self
             .store
             .get_user_identity(self.user_id())
-            .await
-            .ok()
-            .flatten()
+            .await?
             .map(|i| i.own().cloned())
             .flatten();
         let device_owner_identity = self.store.get_user_identity(user_id).await.ok().flatten();
@@ -1554,15 +1548,13 @@ pub(crate) mod test {
 
     use crate::{
         machine::OlmMachine,
+        olm::Utility,
         verification::test::{outgoing_request_to_event, request_to_event},
-        verify_json, EncryptionSettings, ReadOnlyDevice,
+        EncryptionSettings, ReadOnlyDevice, ToDeviceRequest,
     };
 
     use matrix_sdk_common::{
-        api::r0::{
-            keys::{claim_keys, get_keys, upload_keys, OneTimeKey},
-            to_device::send_event_to_device::IncomingRequest as OwnedToDeviceRequest,
-        },
+        api::r0::keys::{claim_keys, get_keys, upload_keys, OneTimeKey},
         events::{
             room::{
                 encrypted::EncryptedEventContent,
@@ -1612,7 +1604,7 @@ pub(crate) mod test {
         get_keys::Response::try_from(data).expect("Can't parse the keys upload response")
     }
 
-    fn to_device_requests_to_content(requests: Vec<OwnedToDeviceRequest>) -> EncryptedEventContent {
+    fn to_device_requests_to_content(requests: Vec<ToDeviceRequest>) -> EncryptedEventContent {
         let to_device_request = &requests[0];
 
         let content: Raw<EncryptedEventContent> = serde_json::from_str(
@@ -1793,7 +1785,8 @@ pub(crate) mod test {
         let identity_keys = machine.account.identity_keys();
         let ed25519_key = identity_keys.ed25519();
 
-        let ret = verify_json(
+        let utility = Utility::new();
+        let ret = utility.verify_json(
             &machine.user_id,
             &DeviceKeyId::from_parts(DeviceKeyAlgorithm::Ed25519, machine.device_id()),
             ed25519_key,
@@ -1824,7 +1817,8 @@ pub(crate) mod test {
 
         let mut device_keys = machine.account.device_keys().await;
 
-        let ret = verify_json(
+        let utility = Utility::new();
+        let ret = utility.verify_json(
             &machine.user_id,
             &DeviceKeyId::from_parts(DeviceKeyAlgorithm::Ed25519, machine.device_id()),
             "fake_key",
@@ -1844,7 +1838,8 @@ pub(crate) mod test {
 
         let mut one_time_key = one_time_keys.values_mut().next().unwrap();
 
-        let ret = verify_json(
+        let utility = Utility::new();
+        let ret = utility.verify_json(
             &machine.user_id,
             &DeviceKeyId::from_parts(DeviceKeyAlgorithm::Ed25519, machine.device_id()),
             ed25519_key,
@@ -1866,7 +1861,8 @@ pub(crate) mod test {
             .await
             .expect("Can't prepare initial key upload");
 
-        let ret = verify_json(
+        let utility = Utility::new();
+        let ret = utility.verify_json(
             &machine.user_id,
             &DeviceKeyId::from_parts(DeviceKeyAlgorithm::Ed25519, machine.device_id()),
             ed25519_key,
@@ -1874,7 +1870,8 @@ pub(crate) mod test {
         );
         assert!(ret.is_ok());
 
-        let ret = verify_json(
+        let utility = Utility::new();
+        let ret = utility.verify_json(
             &machine.user_id,
             &DeviceKeyId::from_parts(DeviceKeyAlgorithm::Ed25519, machine.device_id()),
             ed25519_key,
