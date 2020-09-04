@@ -1519,9 +1519,7 @@ impl OlmMachine {
         let own_identity = self
             .store
             .get_user_identity(self.user_id())
-            .await
-            .ok()
-            .flatten()
+            .await?
             .map(|i| i.own().cloned())
             .flatten();
         let device_owner_identity = self.store.get_user_identity(user_id).await.ok().flatten();
