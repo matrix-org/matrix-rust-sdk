@@ -27,7 +27,7 @@ socks = ["reqwest/socks"]
 docs = ["encryption", "sqlite_cryptostore", "messages"]
 
 [dependencies]
-async-trait = "0.1.38"
+async-trait = "0.1.40"
 dashmap = { version = "3.11.10", optional = true }
 http = "0.2.1"
 serde_json = "1.0.57"
@@ -44,7 +44,7 @@ path = "../matrix_sdk_base"
 default_features = false
 
 [dependencies.reqwest]
-version = "0.10.7"
+version = "0.10.8"
 default_features = false
 
 [dependencies.tracing-futures]
@@ -60,7 +60,7 @@ version = "3.0.2"
 features = ["wasm-bindgen"]
 
 [dev-dependencies]
-async-trait = "0.1.38"
+async-trait = "0.1.40"
 dirs = "3.0.1"
 matrix-sdk-test = { version = "0.1.0", path = "../matrix_sdk_test" }
 tokio = { version = "0.2.22", features = ["rt-threaded", "macros"] }
