@@ -41,6 +41,7 @@ use matrix_sdk_base::{CryptoStoreError, OutgoingRequests, ToDeviceRequest};
 use matrix_sdk_common::{
     api::r0::{
         account::register,
+        device::get_devices,
         directory::{get_public_rooms, get_public_rooms_filtered},
         membership::{
             ban_user, forget_room,
@@ -1111,6 +1112,35 @@ impl Client {
         self.send(request).await
     }
 
+    /// Get information of all our own devices.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// # use matrix_sdk::{Client, SyncSettings};
+    /// # use futures::executor::block_on;
+    /// # use url::Url;
+    /// # use std::convert::TryFrom;
+    /// # block_on(async {
+    /// # let homeserver = Url::parse("http://localhost:8080").unwrap();
+    /// # let mut client = Client::new(homeserver).unwrap();
+    /// let response = client.devices().await.expect("Can't get devices from server");
+    ///
+    /// for device in response.devices {
+    ///     println!(
+    ///         "Device: {} {}",
+    ///         device.device_id,
+    ///         device.display_name.as_deref().unwrap_or("")
+    ///     );
+    /// }
+    /// # });
+    /// ```
+    pub async fn devices(&self) -> Result<get_devices::Response> {
+        let request = get_devices::Request {};
+
+        self.send(request).await
+    }
+
     /// Synchronize the client's state with the latest state on the server.
     ///
     /// If a `StateStore` is provided and this is the initial sync state will
@@ -1546,6 +1576,18 @@ mod test {
 
         let logged_in = client.logged_in().await;
         assert!(logged_in, "Client should be logged in");
+    }
+
+    #[tokio::test]
+    async fn devices() {
+        let client = logged_in_client().await;
+
+        let _m = mock("GET", "/_matrix/client/r0/devices")
+            .with_status(200)
+            .with_body(test_json::DEVICES.to_string())
+            .create();
+
+        assert!(client.devices().await.is_ok());
     }
 
     #[tokio::test]

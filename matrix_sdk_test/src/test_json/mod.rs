@@ -4,6 +4,9 @@
 //! When running `cargo publish` no external folders are allowed so all the
 //! test data needs to be contained within this crate.
 
+use lazy_static::lazy_static;
+use serde_json::{json, Value as JsonValue};
+
 pub mod events;
 pub mod sync;
 
@@ -14,3 +17,24 @@ pub use events::{
     ROOM_ID, ROOM_MESSAGES, TYPING,
 };
 pub use sync::{DEFAULT_SYNC_SUMMARY, INVITE_SYNC, LEAVE_SYNC, LEAVE_SYNC_EVENT, MORE_SYNC, SYNC};
+
+lazy_static! {
+    pub static ref DEVICES: JsonValue = json!({
+        "devices": [
+            {
+                "device_id": "BNYQQWUMXO",
+                "display_name": "Client 1",
+                "last_seen_ip": "-",
+                "last_seen_ts": 1596117733037u64,
+                "user_id": "@example:localhost"
+            },
+            {
+                "device_id": "LEBKSEUSNR",
+                "display_name": "Client 2",
+                "last_seen_ip": "-",
+                "last_seen_ts": 1599057006985u64,
+                "user_id": "@example:localhost"
+            }
+        ]
+    });
+}
