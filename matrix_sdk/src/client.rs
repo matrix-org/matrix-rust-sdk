@@ -852,22 +852,41 @@ impl Client {
     ///
     /// * `room_id` - The `RoomId` the user is typing in.
     ///
-    /// * `user_id` - The `UserId` of the user that is typing.
+    /// * `typing` - Whether the user is typing, and how long.
     ///
-    /// * `typing` - Whether the user is typing, if false `timeout` is not needed.
+    /// # Examples
     ///
-    /// * `timeout` - Length of time in milliseconds to mark user is typing.
+    /// ```no_run
+    /// # use std::time::Duration;
+    /// # use matrix_sdk::{
+    /// #     Client, SyncSettings,
+    /// #     api::r0::typing::create_typing_event::Typing,
+    /// #     identifiers::room_id,
+    /// # };
+    /// # use futures::executor::block_on;
+    /// # use url::Url;
+    /// # block_on(async {
+    /// # let homeserver = Url::parse("http://localhost:8080").unwrap();
+    /// # let mut client = Client::new(homeserver).unwrap();
+    /// # let room_id = room_id!("!test:localhost");
+    /// let response = client
+    ///     .typing_notice(&room_id, Typing::Yes(Duration::from_secs(4)))
+    ///     .await
+    ///     .expect("Can't get devices from server");
+    /// # });
+    ///
+    /// ```
     pub async fn typing_notice(
         &self,
         room_id: &RoomId,
-        user_id: &UserId,
         typing: impl Into<Typing>,
     ) -> Result<TypingResponse> {
         let request = TypingRequest {
             room_id: room_id.clone(),
-            user_id: user_id.clone(),
+            user_id: self.user_id().await.ok_or(Error::AuthenticationRequired)?,
             state: typing.into(),
         };
+
         self.send(request).await
     }
 
@@ -2048,11 +2067,7 @@ mod test {
         let room_id = room_id!("!testroom:example.org");
 
         client
-            .typing_notice(
-                &room_id,
-                &client.user_id().await.unwrap(),
-                Typing::Yes(std::time::Duration::from_secs(1)),
-            )
+            .typing_notice(&room_id, Typing::Yes(std::time::Duration::from_secs(1)))
             .await
             .unwrap();
     }
