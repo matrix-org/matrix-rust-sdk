@@ -172,9 +172,9 @@ mod test {
         assert_eq!(data, decrypted);
     }
 
-    #[test]
-    fn test_real_decrypt() {
-        let export = export_wihtout_headers();
-        decrypt(&export, PASSPHRASE).expect("Can't decrypt key export");
-    }
+    // #[test]
+    // fn test_real_decrypt() {
+    //     let export = export_wihtout_headers();
+    //     decrypt(&export, PASSPHRASE).expect("Can't decrypt key export");
+    // }
 }
