@@ -756,6 +756,10 @@ pub(crate) mod test {
         OwnUserIdentity::new(master_key.into(), self_signing.into(), user_signing.into()).unwrap()
     }
 
+    pub(crate) fn get_own_identity() -> OwnUserIdentity {
+        own_identity(&own_key_query())
+    }
+
     #[test]
     fn own_identity_create() {
         let user_id = user_id!("@example:localhost");
