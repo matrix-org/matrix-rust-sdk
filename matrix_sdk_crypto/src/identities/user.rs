@@ -13,6 +13,7 @@
 // limitations under the License.
 
 use std::{
+    collections::{btree_map::Iter, BTreeMap},
     convert::TryFrom,
     sync::{
         atomic::{AtomicBool, Ordering},
@@ -24,7 +25,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::to_value;
 
 use matrix_sdk_common::{
-    api::r0::keys::CrossSigningKey,
+    api::r0::keys::{CrossSigningKey, KeyUsage},
     identifiers::{DeviceKeyId, UserId},
 };
 
@@ -117,6 +118,21 @@ impl MasterPubkey {
         &self.0.user_id
     }
 
+    /// Get the keys map of containing the master keys.
+    pub fn keys(&self) -> &BTreeMap<String, String> {
+        &self.0.keys
+    }
+
+    /// Get the list of `KeyUsage` that is set for this key.
+    pub fn usage(&self) -> &[KeyUsage] {
+        &self.0.usage
+    }
+
+    /// Get the signatures map of this cross signing key.
+    pub fn signatures(&self) -> &BTreeMap<UserId, BTreeMap<String, String>> {
+        &self.0.signatures
+    }
+
     /// Get the master key with the given key id.
     ///
     /// # Arguments
@@ -167,10 +183,24 @@ impl MasterPubkey {
     }
 }
 
+impl<'a> IntoIterator for &'a MasterPubkey {
+    type Item = (&'a String, &'a String);
+    type IntoIter = Iter<'a, String, String>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.keys().iter()
+    }
+}
+
 impl UserSigningPubkey {
     /// Get the user id of the user signing key's owner.
     pub fn user_id(&self) -> &UserId {
         &self.0.user_id
+    }
+
+    /// Get the keys map of containing the user signing keys.
+    pub fn keys(&self) -> &BTreeMap<String, String> {
+        &self.0.keys
     }
 
     /// Check if the given master key is signed by this user signing key.
@@ -202,10 +232,24 @@ impl UserSigningPubkey {
     }
 }
 
+impl<'a> IntoIterator for &'a UserSigningPubkey {
+    type Item = (&'a String, &'a String);
+    type IntoIter = Iter<'a, String, String>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.keys().iter()
+    }
+}
+
 impl SelfSigningPubkey {
     /// Get the user id of the self signing key's owner.
     pub fn user_id(&self) -> &UserId {
         &self.0.user_id
+    }
+
+    /// Get the keys map of containing the self signing keys.
+    pub fn keys(&self) -> &BTreeMap<String, String> {
+        &self.0.keys
     }
 
     /// Check if the given device is signed by this self signing key.
@@ -236,6 +280,15 @@ impl SelfSigningPubkey {
     }
 }
 
+impl<'a> IntoIterator for &'a SelfSigningPubkey {
+    type Item = (&'a String, &'a String);
+    type IntoIter = Iter<'a, String, String>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.keys().iter()
+    }
+}
+
 /// Enum over the different user identity types we can have.
 #[derive(Debug, Clone)]
 pub enum UserIdentities {
@@ -243,6 +296,12 @@ pub enum UserIdentities {
     Own(OwnUserIdentity),
     /// Identities of other users.
     Other(UserIdentity),
+}
+
+impl From<OwnUserIdentity> for UserIdentities {
+    fn from(identity: OwnUserIdentity) -> Self {
+        UserIdentities::Own(identity)
+    }
 }
 
 impl UserIdentities {
@@ -504,7 +563,7 @@ impl OwnUserIdentity {
 }
 
 #[cfg(test)]
-mod test {
+pub(crate) mod test {
     use serde_json::json;
     use std::{convert::TryFrom, sync::Arc};
 
