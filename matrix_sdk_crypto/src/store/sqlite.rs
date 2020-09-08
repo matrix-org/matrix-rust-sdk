@@ -350,6 +350,21 @@ impl SqliteStore {
         connection
             .execute(
                 r#"
+            CREATE TABLE IF NOT EXISTS users_trust_state (
+                "id" INTEGER NOT NULL PRIMARY KEY,
+                "trusted" INTEGER NOT NULL,
+                "user_id" INTEGER NOT NULL,
+                FOREIGN KEY ("user_id") REFERENCES "users" ("id")
+                    ON DELETE CASCADE
+                UNIQUE(user_id)
+            );
+        "#,
+            )
+            .await?;
+
+        connection
+            .execute(
+                r#"
             CREATE TABLE IF NOT EXISTS cross_signing_keys (
                 "id" INTEGER NOT NULL PRIMARY KEY,
                 "key_type" INTEGER NOT NULL,
@@ -865,13 +880,27 @@ impl SqliteStore {
             )
             .await?;
 
-            Ok(Some(UserIdentities::Own(
+            let verified: Option<(bool,)> =
+                query_as("SELECT trusted FROM users_trust_state WHERE user_id = ?")
+                    .bind(user_row_id)
+                    .fetch_optional(&mut *connection)
+                    .await?;
+
+            let verified = verified.map_or(false, |r| r.0);
+
+            let identity =
                 OwnUserIdentity::new(master.into(), self_singing.into(), user_signing.into())
-                    .unwrap(),
-            )))
+                    .expect("Signature check failed on stored identity");
+
+            if verified {
+                identity.mark_as_verified();
+            }
+
+            Ok(Some(UserIdentities::Own(identity)))
         } else {
             Ok(Some(UserIdentities::Other(
-                UserIdentity::new(master.into(), self_singing.into()).unwrap(),
+                UserIdentity::new(master.into(), self_singing.into())
+                    .expect("Signature check failed on stored identity"),
             )))
         }
     }
@@ -978,14 +1007,20 @@ impl SqliteStore {
         )
         .await?;
 
-        if let Some(user_signing_key) = user.user_signing_key() {
+        if let UserIdentities::Own(own_identity) = user {
             SqliteStore::save_cross_signing_key(
                 &mut connection,
                 user_row_id,
                 CrosssigningKeyType::UserSigning,
-                user_signing_key,
+                own_identity.user_signing_key(),
             )
             .await?;
+
+            query("REPLACE INTO users_trust_state (user_id, trusted) VALUES (?1, ?2)")
+                .bind(user_row_id)
+                .bind(own_identity.is_verified())
+                .execute(&mut *connection)
+                .await?;
         }
 
         Ok(())
@@ -1684,7 +1719,7 @@ mod test {
             loaded_user.self_signing_key(),
             own_identity.self_signing_key()
         );
-        assert_eq!(loaded_user, own_identity.into());
+        assert_eq!(loaded_user, own_identity.clone().into());
 
         let other_identity = get_other_identity();
 
@@ -1705,5 +1740,14 @@ mod test {
             other_identity.self_signing_key()
         );
         assert_eq!(loaded_user, other_identity.into());
+
+        own_identity.mark_as_verified();
+
+        store
+            .save_user_identities(&[own_identity.into()])
+            .await
+            .unwrap();
+        let loaded_user = store.load_user(&user_id).await.unwrap().unwrap();
+        assert!(loaded_user.own().unwrap().is_verified())
     }
 }
