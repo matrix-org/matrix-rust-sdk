@@ -21,7 +21,7 @@ use std::{
 };
 
 use async_trait::async_trait;
-use dashmap::{DashMap, DashSet};
+use dashmap::DashSet;
 use matrix_sdk_common::{
     api::r0::keys::{CrossSigningKey, KeyUsage},
     identifiers::{
@@ -39,7 +39,7 @@ use super::{
     CryptoStore, CryptoStoreError, Result,
 };
 use crate::{
-    identities::{LocalTrust, ReadOnlyDevice, UserIdentities},
+    identities::{LocalTrust, OwnUserIdentity, ReadOnlyDevice, UserIdentities, UserIdentity},
     olm::{
         Account, AccountPickle, IdentityKeys, InboundGroupSession, InboundGroupSessionPickle,
         PickledAccount, PickledInboundGroupSession, PickledSession, PicklingMode, Session,
@@ -70,6 +70,24 @@ pub struct SqliteStore {
 struct AccountInfo {
     account_id: i64,
     identity_keys: Arc<IdentityKeys>,
+}
+
+#[derive(Debug, PartialEq, Copy, Clone, sqlx::Type)]
+#[repr(i32)]
+enum CrosssigningKeyType {
+    Master = 0,
+    SelfSigning = 1,
+    UserSigning = 2,
+}
+
+impl Into<KeyUsage> for CrosssigningKeyType {
+    fn into(self) -> KeyUsage {
+        match self {
+            CrosssigningKeyType::Master => KeyUsage::Master,
+            CrosssigningKeyType::SelfSigning => KeyUsage::SelfSigning,
+            CrosssigningKeyType::UserSigning => KeyUsage::UserSigning,
+        }
+    }
 }
 
 static DATABASE_NAME: &str = "matrix-sdk-crypto.db";
@@ -332,18 +350,33 @@ impl SqliteStore {
         connection
             .execute(
                 r#"
+            CREATE TABLE IF NOT EXISTS cross_signing_keys (
+                "id" INTEGER NOT NULL PRIMARY KEY,
+                "key_type" INTEGER NOT NULL,
+                "usage" STRING NOT NULL,
+                "user_id" INTEGER NOT NULL,
+                FOREIGN KEY ("user_id") REFERENCES "users" ("id") ON DELETE CASCADE
+                UNIQUE(user_id, key_type)
+            );
+
+            CREATE INDEX IF NOT EXISTS "cross_signing_keys_users" ON "users" ("user_id");
+        "#,
+            )
+            .await?;
+
+        connection
+            .execute(
+                r#"
             CREATE TABLE IF NOT EXISTS user_keys (
                 "id" INTEGER NOT NULL PRIMARY KEY,
                 "key" TEXT NOT NULL,
                 "key_id" TEXT NOT NULL,
-                "key_type" TEXT NOT NULL,
-                "usage" TEXT NOT NULL,
-                "user_id" INTEGER NOT NULL,
-                FOREIGN KEY ("user_id") REFERENCES "users" ("id") ON DELETE CASCADE
-                UNIQUE(user_id, key_id, key_type)
+                "cross_signing_key" INTEGER NOT NULL,
+                FOREIGN KEY ("cross_signing_key") REFERENCES "cross_signing_keys" ("id") ON DELETE CASCADE
+                UNIQUE(cross_signing_key, key_id)
             );
 
-            CREATE INDEX IF NOT EXISTS "user_keys_user_id" ON "users" ("user_id");
+            CREATE INDEX IF NOT EXISTS "cross_signing_keys_keys" ON "cross_signing_keys" ("cross_signing_key");
         "#,
             )
             .await?;
@@ -356,13 +389,13 @@ impl SqliteStore {
                 "user_id" TEXT NOT NULL,
                 "key_id" INTEGER NOT NULL,
                 "signature" TEXT NOT NULL,
-                "user_key" INTEGER NOT NULL,
-                FOREIGN KEY ("user_key") REFERENCES "user_keys" ("id")
+                "cross_signing_key" INTEGER NOT NULL,
+                FOREIGN KEY ("cross_signing_key") REFERENCES "cross_signing_keys" ("id")
                     ON DELETE CASCADE
-                UNIQUE(user_id, key_id, user_key)
+                UNIQUE(user_id, key_id, cross_signing_key)
             );
 
-            CREATE INDEX IF NOT EXISTS "user_keys_device_id" ON "device_keys" ("device_id");
+            CREATE INDEX IF NOT EXISTS "cross_signing_keys_signatures" ON "cross_signing_keys" ("cross_signing_key");
         "#,
             )
             .await?;
@@ -728,6 +761,69 @@ impl SqliteStore {
         }
     }
 
+    async fn load_cross_signing_key(
+        connection: &mut SqliteConnection,
+        user_id: &UserId,
+        user_row_id: i64,
+        key_type: CrosssigningKeyType,
+    ) -> Result<CrossSigningKey> {
+        let row: (i64, String) =
+            query_as("SELECT id, usage FROM cross_signing_keys WHERE user_id =? and key_type =?")
+                .bind(user_row_id)
+                .bind(key_type)
+                .fetch_one(&mut *connection)
+                .await?;
+
+        let key_row_id = row.0;
+        let usage: Vec<KeyUsage> = serde_json::from_str(&row.1)?;
+
+        let key_rows: Vec<(String, String)> =
+            query_as("SELECT key_id, key FROM user_keys WHERE cross_signing_key = ?")
+                .bind(key_row_id)
+                .fetch_all(&mut *connection)
+                .await?;
+
+        let mut keys = BTreeMap::new();
+        let mut signatures = BTreeMap::new();
+
+        for row in key_rows {
+            let key_id = row.0;
+            let key = row.1;
+
+            keys.insert(key_id, key);
+        }
+
+        let mut signature_rows: Vec<(String, String, String)> = query_as(
+            "SELECT user_id, key_id, signature FROM user_key_signatures WHERE cross_signing_key = ?",
+        )
+        .bind(key_row_id)
+        .fetch_all(&mut *connection)
+        .await?;
+
+        for row in signature_rows.drain(..) {
+            let user_id = if let Ok(u) = UserId::try_from(row.0) {
+                u
+            } else {
+                continue;
+            };
+
+            let key_id = row.1;
+            let signature = row.2;
+
+            signatures
+                .entry(user_id)
+                .or_insert_with(BTreeMap::new)
+                .insert(key_id, signature);
+        }
+
+        Ok(CrossSigningKey {
+            user_id: user_id.to_owned(),
+            usage,
+            keys,
+            signatures,
+        })
+    }
+
     async fn load_user(&self, user_id: &UserId) -> Result<Option<UserIdentities>> {
         let account_id = self.account_id().ok_or(CryptoStoreError::AccountUnset)?;
         let mut connection = self.connection.lock().await;
@@ -745,65 +841,104 @@ impl SqliteStore {
             return Ok(None);
         };
 
-        let key_rows: Vec<(i64, String, String, String)> = query_as(
-            "SELECT id, key_id, key, usage FROM user_keys WHERE user_id = ? and key_type = ?",
+        let master = SqliteStore::load_cross_signing_key(
+            &mut connection,
+            user_id,
+            user_row_id,
+            CrosssigningKeyType::Master,
         )
-        .bind(user_row_id)
-        .bind("master_key")
-        .fetch_all(&mut *connection)
+        .await?;
+        let self_singing = SqliteStore::load_cross_signing_key(
+            &mut connection,
+            user_id,
+            user_row_id,
+            CrosssigningKeyType::SelfSigning,
+        )
         .await?;
 
-        let mut keys = BTreeMap::new();
-        let mut signatures = BTreeMap::new();
-        let mut key_usage = HashSet::new();
-
-        for row in key_rows {
-            let key_row_id = row.0;
-            let key_id = row.1;
-            let key = row.2;
-            let usage: Vec<String> = serde_json::from_str(&row.3)?;
-
-            keys.insert(key_id, key);
-            key_usage.extend(usage);
-
-            let mut signature_rows: Vec<(String, String, String)> = query_as(
-                "SELECT user_id, key_id, signature, FROM user_key_signatures WHERE user_key = ?",
+        if user_id == &*self.user_id {
+            let user_signing = SqliteStore::load_cross_signing_key(
+                &mut connection,
+                user_id,
+                user_row_id,
+                CrosssigningKeyType::UserSigning,
             )
-            .bind(user_row_id)
-            .bind("master_key")
-            .fetch_all(&mut *connection)
             .await?;
 
-            for row in signature_rows.drain(..) {
-                let user_id = if let Ok(u) = UserId::try_from(row.0) {
-                    u
-                } else {
-                    continue;
-                };
+            Ok(Some(UserIdentities::Own(
+                OwnUserIdentity::new(master.into(), self_singing.into(), user_signing.into())
+                    .unwrap(),
+            )))
+        } else {
+            Ok(Some(UserIdentities::Other(
+                UserIdentity::new(master.into(), self_singing.into()).unwrap(),
+            )))
+        }
+    }
 
-                let key_id = row.1;
-                let signature = row.2;
+    async fn save_cross_signing_key(
+        connection: &mut SqliteConnection,
+        user_row_id: i64,
+        key_type: CrosssigningKeyType,
+        cross_signing_key: impl AsRef<CrossSigningKey>,
+    ) -> Result<()> {
+        let cross_signing_key: &CrossSigningKey = cross_signing_key.as_ref();
 
-                signatures
-                    .entry(user_id)
-                    .or_insert_with(BTreeMap::new)
-                    .insert(key_id, signature);
+        query(
+            "REPLACE INTO cross_signing_keys (
+                user_id, key_type, usage
+                ) VALUES (?1, ?2, ?3)
+              ",
+        )
+        .bind(user_row_id)
+        .bind(key_type)
+        .bind(serde_json::to_string(&cross_signing_key.usage)?)
+        .execute(&mut *connection)
+        .await?;
+
+        let row: (i64,) = query_as(
+            "SELECT id FROM cross_signing_keys
+                    WHERE user_id = ? and key_type = ?",
+        )
+        .bind(user_row_id)
+        .bind(key_type)
+        .fetch_one(&mut *connection)
+        .await?;
+
+        let key_row_id = row.0;
+
+        for (key_id, key) in &cross_signing_key.keys {
+            query(
+                "REPLACE INTO user_keys (
+                    cross_signing_key, key_id, key
+                 ) VALUES (?1, ?2, ?3)
+                 ",
+            )
+            .bind(key_row_id)
+            .bind(key_id.as_str())
+            .bind(key)
+            .execute(&mut *connection)
+            .await?;
+        }
+
+        for (user_id, signature_map) in &cross_signing_key.signatures {
+            for (key_id, signature) in signature_map {
+                query(
+                    "REPLACE INTO user_key_signatures (
+                        cross_signing_key, user_id, key_id, signature
+                     ) VALUES (?1, ?2, ?3, ?4)
+                     ",
+                )
+                .bind(key_row_id)
+                .bind(user_id.as_str())
+                .bind(key_id.as_str())
+                .bind(signature)
+                .execute(&mut *connection)
+                .await?;
             }
         }
 
-        let usage: Vec<KeyUsage> = key_usage
-            .iter()
-            .filter_map(|u| serde_json::from_str(u).ok())
-            .collect();
-
-        let key = CrossSigningKey {
-            user_id: user_id.to_owned(),
-            usage,
-            keys,
-            signatures,
-        };
-
-        Ok(None)
+        Ok(())
     }
 
     async fn save_user_helper(&self, user: &UserIdentities) -> Result<()> {
@@ -811,16 +946,11 @@ impl SqliteStore {
 
         let mut connection = self.connection.lock().await;
 
-        query(
-            "INSERT OR IGNORE INTO users (
-                account_id, user_id
-             ) VALUES (?1, ?2)
-             ",
-        )
-        .bind(account_id)
-        .bind(user.user_id().as_str())
-        .execute(&mut *connection)
-        .await?;
+        query("REPLACE INTO users (account_id, user_id) VALUES (?1, ?2)")
+            .bind(account_id)
+            .bind(user.user_id().as_str())
+            .execute(&mut *connection)
+            .await?;
 
         let row: (i64,) = query_as(
             "SELECT id FROM users
@@ -833,49 +963,29 @@ impl SqliteStore {
 
         let user_row_id = row.0;
 
-        for (key_id, key) in user.master_key() {
-            query(
-                "INSERT OR IGNORE INTO user_keys (
-                    user_id, key_type, key_id, key, usage
-                 ) VALUES (?1, ?2, ?3, ?4, ?5)
-                 ",
+        SqliteStore::save_cross_signing_key(
+            &mut connection,
+            user_row_id,
+            CrosssigningKeyType::Master,
+            user.master_key(),
+        )
+        .await?;
+        SqliteStore::save_cross_signing_key(
+            &mut connection,
+            user_row_id,
+            CrosssigningKeyType::SelfSigning,
+            user.self_signing_key(),
+        )
+        .await?;
+
+        if let Some(user_signing_key) = user.user_signing_key() {
+            SqliteStore::save_cross_signing_key(
+                &mut connection,
+                user_row_id,
+                CrosssigningKeyType::UserSigning,
+                user_signing_key,
             )
-            .bind(user_row_id)
-            .bind("master_key")
-            .bind(key_id.as_str())
-            .bind(key)
-            .bind(serde_json::to_string(user.master_key().usage())?)
-            .execute(&mut *connection)
             .await?;
-
-            let row: (i64,) = query_as(
-                "SELECT id FROM user_keys
-                    WHERE user_id = ? and key_id = ? and key_type = ?",
-            )
-            .bind(user_row_id)
-            .bind(key_id.as_str())
-            .bind("master_key")
-            .fetch_one(&mut *connection)
-            .await?;
-
-            let key_row_id = row.0;
-
-            for (user_id, signature_map) in user.master_key().signatures() {
-                for (key_id, signature) in signature_map {
-                    query(
-                        "INSERT OR IGNORE INTO user_key_signatures (
-                            user_key, user_id, key_id, signature
-                         ) VALUES (?1, ?2, ?3, ?4)
-                         ",
-                    )
-                    .bind(key_row_id)
-                    .bind(user_id.as_str())
-                    .bind(key_id.as_str())
-                    .bind(signature)
-                    .execute(&mut *connection)
-                    .await?;
-                }
-            }
         }
 
         Ok(())
@@ -1136,7 +1246,10 @@ impl std::fmt::Debug for SqliteStore {
 #[cfg(test)]
 mod test {
     use crate::{
-        identities::{device::test::get_device, user::test::get_own_identity},
+        identities::{
+            device::test::get_device,
+            user::test::{get_other_identity, get_own_identity},
+        },
         olm::{Account, GroupSessionKey, InboundGroupSession, Session},
     };
     use matrix_sdk_common::{
@@ -1528,38 +1641,69 @@ mod test {
 
     #[tokio::test]
     async fn user_saving() {
-        let (_account, store, dir) = get_loaded_store().await;
+        let dir = tempdir().unwrap();
+        let tmpdir_path = dir.path().to_str().unwrap();
+
+        let user_id = user_id!("@example:localhost");
+        let device_id: &DeviceId = "WSKKLTJZCL".into();
+
+        let store = SqliteStore::open(&user_id, &device_id, tmpdir_path)
+            .await
+            .expect("Can't create store");
+
+        let account = Account::new(&user_id, &device_id);
+
+        store
+            .save_account(account.clone())
+            .await
+            .expect("Can't save account");
+
         let own_identity = get_own_identity();
 
         store
-            .save_user_identities(&[own_identity.into()])
+            .save_user_identities(&[own_identity.clone().into()])
             .await
             .expect("Can't save identity");
 
         drop(store);
 
-        // let store = SqliteStore::open(&alice_id(), &alice_device_id(), dir.path())
-        //     .await
-        //     .expect("Can't create store");
+        let store = SqliteStore::open(&user_id, &device_id, dir.path())
+            .await
+            .expect("Can't create store");
 
-        // store.load_account().await.unwrap();
+        store.load_account().await.unwrap();
 
-        // let loaded_device = store
-        //     .get_device(device.user_id(), device.device_id())
-        //     .await
-        //     .unwrap()
-        //     .unwrap();
+        let loaded_user = store
+            .get_user_identity(own_identity.user_id())
+            .await
+            .unwrap()
+            .unwrap();
 
-        // assert_eq!(device, loaded_device);
+        assert_eq!(loaded_user.master_key(), own_identity.master_key());
+        assert_eq!(
+            loaded_user.self_signing_key(),
+            own_identity.self_signing_key()
+        );
+        assert_eq!(loaded_user, own_identity.into());
 
-        // for algorithm in loaded_device.algorithms() {
-        //     assert!(device.algorithms().contains(algorithm));
-        // }
-        // assert_eq!(device.algorithms().len(), loaded_device.algorithms().len());
-        // assert_eq!(device.keys(), loaded_device.keys());
+        let other_identity = get_other_identity();
 
-        // let user_devices = store.get_user_devices(device.user_id()).await.unwrap();
-        // assert_eq!(user_devices.keys().next().unwrap(), device.device_id());
-        // assert_eq!(user_devices.devices().next().unwrap(), &device);
+        store
+            .save_user_identities(&[other_identity.clone().into()])
+            .await
+            .unwrap();
+
+        let loaded_user = store
+            .load_user(other_identity.user_id())
+            .await
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(loaded_user.master_key(), other_identity.master_key());
+        assert_eq!(
+            loaded_user.self_signing_key(),
+            other_identity.self_signing_key()
+        );
+        assert_eq!(loaded_user, other_identity.into());
     }
 }

@@ -54,7 +54,7 @@ features = ["std", "std-future"]
 version = "0.3.5"
 optional = true
 default-features = false
-features = ["runtime-tokio", "sqlite"]
+features = ["runtime-tokio", "sqlite", "macros"]
 
 [dev-dependencies]
 tokio = { version = "0.2.22", features = ["rt-threaded", "macros"] }
