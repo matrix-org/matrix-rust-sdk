@@ -80,16 +80,6 @@ enum CrosssigningKeyType {
     UserSigning = 2,
 }
 
-impl Into<KeyUsage> for CrosssigningKeyType {
-    fn into(self) -> KeyUsage {
-        match self {
-            CrosssigningKeyType::Master => KeyUsage::Master,
-            CrosssigningKeyType::SelfSigning => KeyUsage::SelfSigning,
-            CrosssigningKeyType::UserSigning => KeyUsage::UserSigning,
-        }
-    }
-}
-
 static DATABASE_NAME: &str = "matrix-sdk-crypto.db";
 
 impl SqliteStore {
