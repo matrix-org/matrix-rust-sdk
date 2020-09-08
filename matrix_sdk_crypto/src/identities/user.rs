@@ -870,19 +870,13 @@ pub(crate) mod test {
 
     #[test]
     fn other_identity_create() {
-        let user_id = user_id!("@example2:localhost");
-        let response = other_key_query();
-
-        let master_key = response.master_keys.get(&user_id).unwrap();
-        let self_signing = response.self_signing_keys.get(&user_id).unwrap();
-
-        UserIdentity::new(master_key.into(), self_signing.into()).unwrap();
+        get_other_identity();
     }
 
     #[test]
     fn own_identity_check_signatures() {
         let response = own_key_query();
-        let identity = own_identity(&response);
+        let identity = get_own_identity();
         let (first, second) = device(&response);
 
         assert!(identity.is_device_signed(&first).is_err());
