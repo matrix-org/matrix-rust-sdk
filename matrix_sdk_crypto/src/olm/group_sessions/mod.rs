@@ -69,6 +69,12 @@ pub struct ExportedRoomKey {
 impl TryInto<ForwardedRoomKeyEventContent> for ExportedRoomKey {
     type Error = ();
 
+    /// Convert an exported room key into a content for a forwarded room key
+    /// event.
+    ///
+    /// This will fail if the exported room key has multiple sender claimed keys
+    /// or if the algorithm of the claimed sender key isn't
+    /// `DeviceKeyAlgorithm::Ed25519`.
     fn try_into(self) -> Result<ForwardedRoomKeyEventContent, Self::Error> {
         if self.sender_claimed_keys.len() != 1 {
             Err(())
@@ -93,6 +99,7 @@ impl TryInto<ForwardedRoomKeyEventContent> for ExportedRoomKey {
 }
 
 impl From<ForwardedRoomKeyEventContent> for ExportedRoomKey {
+    /// Convert the content of a forwarded room key into a exported room key.
     fn from(forwarded_key: ForwardedRoomKeyEventContent) -> Self {
         let mut sender_claimed_keys: BTreeMap<DeviceKeyAlgorithm, String> = BTreeMap::new();
         sender_claimed_keys.insert(
