@@ -49,9 +49,10 @@ pub struct InboundGroupSession {
     inner: Arc<Mutex<OlmInboundGroupSession>>,
     session_id: Arc<String>,
     pub(crate) sender_key: Arc<String>,
-    pub(crate) signing_key: Arc<String>,
+    pub(crate) signing_key: Arc<BTreeMap<DeviceKeyAlgorithm, String>>,
     pub(crate) room_id: Arc<RoomId>,
     forwarding_chains: Arc<Mutex<Option<Vec<String>>>>,
+    imported: Arc<bool>,
 }
 
 impl InboundGroupSession {
@@ -80,13 +81,17 @@ impl InboundGroupSession {
         let session = OlmInboundGroupSession::new(&session_key.0)?;
         let session_id = session.session_id();
 
+        let mut keys: BTreeMap<DeviceKeyAlgorithm, String> = BTreeMap::new();
+        keys.insert(DeviceKeyAlgorithm::Ed25519, signing_key.to_owned());
+
         Ok(InboundGroupSession {
             inner: Arc::new(Mutex::new(session)),
             session_id: Arc::new(session_id),
             sender_key: Arc::new(sender_key.to_owned()),
-            signing_key: Arc::new(signing_key.to_owned()),
+            signing_key: Arc::new(keys),
             room_id: Arc::new(room_id.clone()),
             forwarding_chains: Arc::new(Mutex::new(None)),
+            imported: Arc::new(false),
         })
     }
 
@@ -102,9 +107,10 @@ impl InboundGroupSession {
         PickledInboundGroupSession {
             pickle: InboundGroupSessionPickle::from(pickle),
             sender_key: self.sender_key.to_string(),
-            signing_key: self.signing_key.to_string(),
+            signing_key: (&*self.signing_key).clone(),
             room_id: (&*self.room_id).clone(),
             forwarding_chains: self.forwarding_chains.lock().await.clone(),
+            imported: *self.imported,
         }
     }
 
@@ -120,10 +126,6 @@ impl InboundGroupSession {
         let session_key =
             ExportedGroupSessionKey(self.inner.lock().await.export(message_index).ok()?);
 
-        let mut sender_claimed_keys: BTreeMap<DeviceKeyAlgorithm, String> = BTreeMap::new();
-
-        sender_claimed_keys.insert(DeviceKeyAlgorithm::Ed25519, (&*self.signing_key).to_owned());
-
         Some(ExportedRoomKey {
             algorithm: EventEncryptionAlgorithm::MegolmV1AesSha2,
             room_id: (&*self.room_id).clone(),
@@ -136,7 +138,7 @@ impl InboundGroupSession {
                 .as_ref()
                 .cloned()
                 .unwrap_or_default(),
-            sender_claimed_keys,
+            sender_claimed_keys: (&*self.signing_key).clone(),
             session_key,
         })
     }
@@ -166,6 +168,7 @@ impl InboundGroupSession {
             signing_key: Arc::new(pickle.signing_key),
             room_id: Arc::new(pickle.room_id),
             forwarding_chains: Arc::new(Mutex::new(pickle.forwarding_chains)),
+            imported: Arc::new(pickle.imported),
         })
     }
 
@@ -265,12 +268,15 @@ pub struct PickledInboundGroupSession {
     /// The public curve25519 key of the account that sent us the session
     pub sender_key: String,
     /// The public ed25519 key of the account that sent us the session.
-    pub signing_key: String,
+    pub signing_key: BTreeMap<DeviceKeyAlgorithm, String>,
     /// The id of the room that the session is used in.
     pub room_id: RoomId,
     /// The list of claimed ed25519 that forwarded us this key. Will be None if
     /// we dirrectly received this session.
     pub forwarding_chains: Option<Vec<String>>,
+    /// Flag remembering if the session was dirrectly sent to us by the sender
+    /// or if it was imported.
+    pub imported: bool,
 }
 
 /// The typed representation of a base64 encoded string of the GroupSession pickle.

@@ -231,17 +231,37 @@ impl SqliteStore {
             .execute(
                 r#"
             CREATE TABLE IF NOT EXISTS inbound_group_sessions (
-                "session_id" TEXT NOT NULL PRIMARY KEY,
+                "id" INTEGER NOT NULL PRIMARY KEY,
+                "session_id" TEXT NOT NULL,
                 "account_id" INTEGER NOT NULL,
                 "sender_key" TEXT NOT NULL,
-                "signing_key" TEXT NOT NULL,
                 "room_id" TEXT NOT NULL,
                 "pickle" BLOB NOT NULL,
+                "imported" INTEGER NOT NULL,
                 FOREIGN KEY ("account_id") REFERENCES "accounts" ("id")
                     ON DELETE CASCADE
+                UNIQUE(account_id,session_id,sender_key)
             );
 
             CREATE INDEX IF NOT EXISTS "olm_groups_sessions_account_id" ON "inbound_group_sessions" ("account_id");
+        "#,
+            )
+            .await?;
+
+        connection
+            .execute(
+                r#"
+            CREATE TABLE IF NOT EXISTS group_session_claimed_keys (
+                "id" INTEGER NOT NULL PRIMARY KEY,
+                "session_id" INTEGER NOT NULL,
+                "algorithm" TEXT NOT NULL,
+                "key" TEXT NOT NULL,
+                FOREIGN KEY ("session_id") REFERENCES "inbound_group_sessions" ("id")
+                    ON DELETE CASCADE
+                UNIQUE(session_id, algorithm)
+            );
+
+            CREATE INDEX IF NOT EXISTS "group_session_claimed_keys_session_id" ON "inbound_group_sessions" ("session_id");
         "#,
             )
             .await?;
@@ -475,45 +495,55 @@ impl SqliteStore {
         let account_id = self.account_id().ok_or(CryptoStoreError::AccountUnset)?;
         let mut connection = self.connection.lock().await;
 
-        let mut rows: Vec<(String, String, String, String)> = query_as(
-            "SELECT pickle, sender_key, signing_key, room_id
+        let mut rows: Vec<(i64, String, String, String, bool)> = query_as(
+            "SELECT id, pickle, sender_key, room_id, imported
              FROM inbound_group_sessions WHERE account_id = ?",
         )
         .bind(account_id)
         .fetch_all(&mut *connection)
         .await?;
 
-        let mut group_sessions = rows
-            .drain(..)
-            .map(|row| {
-                let pickle = row.0;
-                let sender_key = row.1;
-                let signing_key = row.2;
-                let room_id = row.3;
+        for row in rows.drain(..) {
+            let session_row_id = row.0;
+            let pickle = row.1;
+            let sender_key = row.2;
+            let room_id = row.3;
+            let imported = row.4;
 
-                let pickle = PickledInboundGroupSession {
-                    pickle: InboundGroupSessionPickle::from(pickle),
-                    sender_key,
-                    signing_key,
-                    room_id: RoomId::try_from(room_id)?,
-                    // Fixme we need to store/restore these once we get support
-                    // for key requesting/forwarding.
-                    forwarding_chains: None,
-                };
+            let key_rows: Vec<(String, String)> = query_as(
+                "SELECT algorithm, key FROM group_session_claimed_keys WHERE session_id = ?",
+            )
+            .bind(session_row_id)
+            .fetch_all(&mut *connection)
+            .await?;
 
-                Ok(InboundGroupSession::from_pickle(
+            let claimed_keys: BTreeMap<DeviceKeyAlgorithm, String> = key_rows
+                .into_iter()
+                .filter_map(|row| {
+                    let algorithm = row.0.parse::<DeviceKeyAlgorithm>().ok()?;
+                    let key = row.1;
+
+                    Some((algorithm, key))
+                })
+                .collect();
+
+            let pickle = PickledInboundGroupSession {
+                pickle: InboundGroupSessionPickle::from(pickle),
+                sender_key,
+                signing_key: claimed_keys,
+                room_id: RoomId::try_from(room_id)?,
+                // Fixme we need to store/restore these once we get support
+                // for key requesting/forwarding.
+                forwarding_chains: None,
+                imported,
+            };
+
+            self.inbound_group_sessions
+                .add(InboundGroupSession::from_pickle(
                     pickle,
                     self.get_pickle_mode(),
-                )?)
-            })
-            .collect::<Result<Vec<InboundGroupSession>>>()?;
-
-        group_sessions
-            .drain(..)
-            .map(|s| {
-                self.inbound_group_sessions.add(s);
-            })
-            .for_each(drop);
+                )?);
+        }
 
         Ok(())
     }
@@ -1146,22 +1176,46 @@ impl CryptoStore for SqliteStore {
         // the key import feature.
 
         query(
-            "INSERT INTO inbound_group_sessions (
-                session_id, account_id, sender_key, signing_key,
-                room_id, pickle
+            "REPLACE INTO inbound_group_sessions (
+                session_id, account_id, sender_key,
+                room_id, pickle, imported
              ) VALUES (?1, ?2, ?3, ?4, ?5, ?6)
-             ON CONFLICT(session_id) DO UPDATE SET
-                pickle = excluded.pickle
              ",
         )
         .bind(session_id)
         .bind(account_id)
-        .bind(pickle.sender_key)
-        .bind(pickle.signing_key)
+        .bind(&pickle.sender_key)
         .bind(pickle.room_id.as_str())
         .bind(pickle.pickle.as_str())
+        .bind(pickle.imported)
         .execute(&mut *connection)
         .await?;
+
+        let row: (i64,) = query_as(
+            "SELECT id FROM inbound_group_sessions
+                      WHERE account_id = ? and session_id = ? and sender_key = ?",
+        )
+        .bind(account_id)
+        .bind(session_id)
+        .bind(pickle.sender_key)
+        .fetch_one(&mut *connection)
+        .await?;
+
+        let session_row_id = row.0;
+
+        for (key_id, key) in pickle.signing_key {
+            query(
+                "INSERT OR IGNORE INTO group_session_claimed_keys (
+                    session_id, algorithm, key
+                 ) VALUES (?1, ?2, ?3)
+                 ",
+            )
+            .bind(session_row_id)
+            .bind(serde_json::to_string(&key_id)?)
+            .bind(key)
+            .execute(&mut *connection)
+            .await?;
+        }
 
         Ok(self.inbound_group_sessions.add(session))
     }
