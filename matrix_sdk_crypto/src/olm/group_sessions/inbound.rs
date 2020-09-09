@@ -12,14 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{convert::TryInto, fmt, sync::Arc, time::Duration};
+use std::{collections::BTreeMap, convert::TryInto, fmt, sync::Arc};
 
 use matrix_sdk_common::{
-    events::{
-        room::{encrypted::EncryptedEventContent, encryption::EncryptionEventContent},
-        AnySyncRoomEvent, SyncMessageEvent,
-    },
-    identifiers::{EventEncryptionAlgorithm, RoomId},
+    events::{room::encrypted::EncryptedEventContent, AnySyncRoomEvent, SyncMessageEvent},
+    identifiers::{DeviceKeyAlgorithm, EventEncryptionAlgorithm, RoomId},
     locks::Mutex,
     Raw,
 };
@@ -37,49 +34,6 @@ pub use olm_rs::{
 
 use super::GroupSessionKey;
 use crate::error::{EventError, MegolmResult};
-
-const ROTATION_PERIOD: Duration = Duration::from_millis(604800000);
-const ROTATION_MESSAGES: u64 = 100;
-
-/// Settings for an encrypted room.
-///
-/// This determines the algorithm and rotation periods of a group session.
-#[derive(Debug)]
-pub struct EncryptionSettings {
-    /// The encryption algorithm that should be used in the room.
-    pub algorithm: EventEncryptionAlgorithm,
-    /// How long the session should be used before changing it.
-    pub rotation_period: Duration,
-    /// How many messages should be sent before changing the session.
-    pub rotation_period_msgs: u64,
-}
-
-impl Default for EncryptionSettings {
-    fn default() -> Self {
-        Self {
-            algorithm: EventEncryptionAlgorithm::MegolmV1AesSha2,
-            rotation_period: ROTATION_PERIOD,
-            rotation_period_msgs: ROTATION_MESSAGES,
-        }
-    }
-}
-
-impl From<&EncryptionEventContent> for EncryptionSettings {
-    fn from(content: &EncryptionEventContent) -> Self {
-        let rotation_period: Duration = content
-            .rotation_period_ms
-            .map_or(ROTATION_PERIOD, |r| Duration::from_millis(r.into()));
-        let rotation_period_msgs: u64 = content
-            .rotation_period_msgs
-            .map_or(ROTATION_MESSAGES, Into::into);
-
-        Self {
-            algorithm: content.algorithm.clone(),
-            rotation_period,
-            rotation_period_msgs,
-        }
-    }
-}
 
 /// Inbound group session.
 ///
