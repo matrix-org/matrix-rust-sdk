@@ -796,6 +796,64 @@ impl SqliteStore {
         }
     }
 
+    async fn save_inbound_group_session_helper(
+        &self,
+        account_id: i64,
+        connection: &mut SqliteConnection,
+        session: &InboundGroupSession,
+    ) -> Result<()> {
+        let pickle = session.pickle(self.get_pickle_mode()).await;
+        let session_id = session.session_id();
+
+        // FIXME we need to store/restore the forwarding chains.
+        // FIXME this should be converted so it accepts an array of sessions for
+        // the key import feature.
+
+        query(
+            "REPLACE INTO inbound_group_sessions (
+                session_id, account_id, sender_key,
+                room_id, pickle, imported
+             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+             ",
+        )
+        .bind(session_id)
+        .bind(account_id)
+        .bind(&pickle.sender_key)
+        .bind(pickle.room_id.as_str())
+        .bind(pickle.pickle.as_str())
+        .bind(pickle.imported)
+        .execute(&mut *connection)
+        .await?;
+
+        let row: (i64,) = query_as(
+            "SELECT id FROM inbound_group_sessions
+                      WHERE account_id = ? and session_id = ? and sender_key = ?",
+        )
+        .bind(account_id)
+        .bind(session_id)
+        .bind(pickle.sender_key)
+        .fetch_one(&mut *connection)
+        .await?;
+
+        let session_row_id = row.0;
+
+        for (key_id, key) in pickle.signing_key {
+            query(
+                "INSERT OR IGNORE INTO group_session_claimed_keys (
+                    session_id, algorithm, key
+                 ) VALUES (?1, ?2, ?3)
+                 ",
+            )
+            .bind(session_row_id)
+            .bind(serde_json::to_string(&key_id)?)
+            .bind(key)
+            .execute(&mut *connection)
+            .await?;
+        }
+
+        Ok(())
+    }
+
     async fn load_cross_signing_key(
         connection: &mut SqliteConnection,
         user_id: &UserId,
@@ -1165,59 +1223,19 @@ impl CryptoStore for SqliteStore {
         Ok(self.get_sessions_for(sender_key).await?)
     }
 
-    async fn save_inbound_group_session(&self, session: InboundGroupSession) -> Result<bool> {
+    async fn save_inbound_group_sessions(&self, sessions: &[InboundGroupSession]) -> Result<()> {
         let account_id = self.account_id().ok_or(CryptoStoreError::AccountUnset)?;
-        let pickle = session.pickle(self.get_pickle_mode()).await;
         let mut connection = self.connection.lock().await;
-        let session_id = session.session_id();
 
-        // FIXME we need to store/restore the forwarding chains.
-        // FIXME this should be converted so it accepts an array of sessions for
-        // the key import feature.
+        // FIXME use a transaction here once sqlx gets better support for them.
 
-        query(
-            "REPLACE INTO inbound_group_sessions (
-                session_id, account_id, sender_key,
-                room_id, pickle, imported
-             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6)
-             ",
-        )
-        .bind(session_id)
-        .bind(account_id)
-        .bind(&pickle.sender_key)
-        .bind(pickle.room_id.as_str())
-        .bind(pickle.pickle.as_str())
-        .bind(pickle.imported)
-        .execute(&mut *connection)
-        .await?;
-
-        let row: (i64,) = query_as(
-            "SELECT id FROM inbound_group_sessions
-                      WHERE account_id = ? and session_id = ? and sender_key = ?",
-        )
-        .bind(account_id)
-        .bind(session_id)
-        .bind(pickle.sender_key)
-        .fetch_one(&mut *connection)
-        .await?;
-
-        let session_row_id = row.0;
-
-        for (key_id, key) in pickle.signing_key {
-            query(
-                "INSERT OR IGNORE INTO group_session_claimed_keys (
-                    session_id, algorithm, key
-                 ) VALUES (?1, ?2, ?3)
-                 ",
-            )
-            .bind(session_row_id)
-            .bind(serde_json::to_string(&key_id)?)
-            .bind(key)
-            .execute(&mut *connection)
-            .await?;
+        for session in sessions {
+            self.save_inbound_group_session_helper(account_id, &mut connection, session)
+                .await?;
+            self.inbound_group_sessions.add(session.clone());
         }
 
-        Ok(self.inbound_group_sessions.add(session))
+        Ok(())
     }
 
     async fn get_inbound_group_session(
@@ -1581,7 +1599,7 @@ mod test {
         .expect("Can't create session");
 
         store
-            .save_inbound_group_session(session)
+            .save_inbound_group_sessions(&[session])
             .await
             .expect("Can't save group session");
     }
@@ -1601,7 +1619,7 @@ mod test {
         .expect("Can't create session");
 
         store
-            .save_inbound_group_session(session.clone())
+            .save_inbound_group_sessions(&[session.clone()])
             .await
             .expect("Can't save group session");
 

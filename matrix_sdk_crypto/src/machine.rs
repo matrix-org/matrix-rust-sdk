@@ -984,7 +984,7 @@ impl OlmMachine {
                     &event.content.room_id,
                     session_key,
                 )?;
-                let _ = self.store.save_inbound_group_session(session).await?;
+                let _ = self.store.save_inbound_group_sessions(&[session]).await?;
 
                 let event = Raw::from(AnyToDeviceEvent::RoomKey(event.clone()));
                 Ok(Some(event))
@@ -1014,7 +1014,7 @@ impl OlmMachine {
             .await
             .map_err(|_| EventError::UnsupportedAlgorithm)?;
 
-        let _ = self.store.save_inbound_group_session(inbound).await?;
+        let _ = self.store.save_inbound_group_sessions(&[inbound]).await?;
 
         let _ = self
             .outbound_group_sessions

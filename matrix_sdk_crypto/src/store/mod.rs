@@ -157,15 +157,12 @@ pub trait CryptoStore: Debug {
     /// * `sender_key` - The sender key that was used to establish the sessions.
     async fn get_sessions(&self, sender_key: &str) -> Result<Option<Arc<Mutex<Vec<Session>>>>>;
 
-    /// Save the given inbound group session in the store.
-    ///
-    /// If the session wasn't already in the store true is returned, false
-    /// otherwise.
+    /// Save the given inbound group sessions in the store.
     ///
     /// # Arguments
     ///
-    /// * `session` - The session that should be stored.
-    async fn save_inbound_group_session(&self, session: InboundGroupSession) -> Result<bool>;
+    /// * `sessions` - The sessions that should be stored.
+    async fn save_inbound_group_sessions(&self, session: &[InboundGroupSession]) -> Result<()>;
 
     /// Get the inbound group session from our store.
     ///
