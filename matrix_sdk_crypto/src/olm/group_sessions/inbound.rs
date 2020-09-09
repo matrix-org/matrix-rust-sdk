@@ -95,6 +95,20 @@ impl InboundGroupSession {
         })
     }
 
+    /// Create a InboundGroupSession from an exported version of the group
+    /// session.
+    ///
+    /// Most notably this can be called with an `ExportedRoomKey` from a
+    /// previous [`export()`] call.
+    ///
+    ///
+    /// [`export()`]: #method.export
+    pub fn from_export(
+        exported_session: impl Into<ExportedRoomKey>,
+    ) -> Result<Self, OlmGroupSessionError> {
+        Self::try_from(exported_session.into())
+    }
+
     /// Store the group session as a base64 encoded string.
     ///
     /// # Arguments
@@ -114,7 +128,10 @@ impl InboundGroupSession {
         }
     }
 
-    /// Export this session.
+    /// Export this session at the first known message index.
+    ///
+    /// If only a limited part of this session should be exported use
+    /// [`export_at_index()`](#method.export_at_index).
     pub async fn export(&self) -> ExportedRoomKey {
         self.export_at_index(self.first_known_index().await)
             .await
@@ -293,5 +310,29 @@ impl InboundGroupSessionPickle {
     /// Get the string representation of the pickle.
     pub fn as_str(&self) -> &str {
         &self.0
+    }
+}
+
+impl TryFrom<ExportedRoomKey> for InboundGroupSession {
+    type Error = OlmGroupSessionError;
+
+    fn try_from(key: ExportedRoomKey) -> Result<Self, Self::Error> {
+        let session = OlmInboundGroupSession::import(&key.session_key.0)?;
+
+        let forwarding_chains = if key.forwarding_curve25519_key_chain.is_empty() {
+            None
+        } else {
+            Some(key.forwarding_curve25519_key_chain)
+        };
+
+        Ok(InboundGroupSession {
+            inner: Arc::new(Mutex::new(session)),
+            session_id: Arc::new(key.session_id),
+            sender_key: Arc::new(key.sender_key),
+            signing_key: Arc::new(key.sender_claimed_keys),
+            room_id: Arc::new(key.room_id),
+            forwarding_chains: Arc::new(Mutex::new(forwarding_chains)),
+            imported: Arc::new(true),
+        })
     }
 }
