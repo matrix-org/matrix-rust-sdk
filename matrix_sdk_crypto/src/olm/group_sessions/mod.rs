@@ -12,7 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use matrix_sdk_common::{
+    events::forwarded_room_key::ForwardedRoomKeyEventContent,
+    identifiers::{DeviceKeyAlgorithm, EventEncryptionAlgorithm, RoomId},
+};
 use serde::{Deserialize, Serialize};
+use std::{collections::BTreeMap, convert::TryInto};
 use zeroize::Zeroize;
 
 mod inbound;
@@ -26,6 +31,86 @@ pub use outbound::{EncryptionSettings, OutboundGroupSession};
 #[derive(Clone, Debug, Serialize, Deserialize, Zeroize)]
 #[zeroize(drop)]
 pub struct GroupSessionKey(pub String);
+
+/// The exported version of an private session key of a group session.
+/// Can be used to create a new inbound group session.
+#[derive(Clone, Debug, Serialize, Deserialize, Zeroize)]
+#[zeroize(drop)]
+pub struct ExportedGroupSessionKey(pub String);
+
+/// An exported version of a `InboundGroupSession`
+///
+/// This can be used to share the `InboundGroupSession` in an exported file.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct ExportedRoomKey {
+    /// The encryption algorithm that the session uses.
+    pub algorithm: EventEncryptionAlgorithm,
+
+    /// The room where the session is used.
+    pub room_id: RoomId,
+
+    /// The Curve25519 key of the device which initiated the session originally.
+    pub sender_key: String,
+
+    /// The ID of the session that the key is for.
+    pub session_id: String,
+
+    /// The key for the session.
+    pub session_key: ExportedGroupSessionKey,
+
+    /// The Ed25519 key of the device which initiated the session originally.
+    pub sender_claimed_keys: BTreeMap<DeviceKeyAlgorithm, String>,
+
+    /// Chain of Curve25519 keys through which this session was forwarded, via
+    /// m.forwarded_room_key events.
+    pub forwarding_curve25519_key_chain: Vec<String>,
+}
+
+impl TryInto<ForwardedRoomKeyEventContent> for ExportedRoomKey {
+    type Error = ();
+
+    fn try_into(self) -> Result<ForwardedRoomKeyEventContent, Self::Error> {
+        if self.sender_claimed_keys.len() != 1 {
+            Err(())
+        } else {
+            let (algorithm, claimed_key) = self.sender_claimed_keys.iter().next().ok_or(())?;
+
+            if algorithm != &DeviceKeyAlgorithm::Ed25519 {
+                return Err(());
+            }
+
+            Ok(ForwardedRoomKeyEventContent {
+                algorithm: self.algorithm,
+                room_id: self.room_id,
+                sender_key: self.sender_key,
+                session_id: self.session_id,
+                session_key: self.session_key.0.clone(),
+                sender_claimed_ed25519_key: claimed_key.to_owned(),
+                forwarding_curve25519_key_chain: self.forwarding_curve25519_key_chain,
+            })
+        }
+    }
+}
+
+impl From<ForwardedRoomKeyEventContent> for ExportedRoomKey {
+    fn from(forwarded_key: ForwardedRoomKeyEventContent) -> Self {
+        let mut sender_claimed_keys: BTreeMap<DeviceKeyAlgorithm, String> = BTreeMap::new();
+        sender_claimed_keys.insert(
+            DeviceKeyAlgorithm::Ed25519,
+            forwarded_key.sender_claimed_ed25519_key,
+        );
+
+        Self {
+            algorithm: forwarded_key.algorithm,
+            room_id: forwarded_key.room_id,
+            session_id: forwarded_key.session_id,
+            forwarding_curve25519_key_chain: forwarded_key.forwarding_curve25519_key_chain,
+            sender_claimed_keys,
+            sender_key: forwarded_key.sender_key,
+            session_key: ExportedGroupSessionKey(forwarded_key.session_key),
+        }
+    }
+}
 
 #[cfg(test)]
 mod test {

@@ -12,7 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{collections::BTreeMap, convert::TryInto, fmt, sync::Arc};
+use std::{
+    collections::BTreeMap,
+    convert::{TryFrom, TryInto},
+    fmt,
+    sync::Arc,
+};
 
 use matrix_sdk_common::{
     events::{room::encrypted::EncryptedEventContent, AnySyncRoomEvent, SyncMessageEvent},
@@ -32,7 +37,7 @@ pub use olm_rs::{
     utility::OlmUtility,
 };
 
-use super::GroupSessionKey;
+use super::{ExportedGroupSessionKey, ExportedRoomKey, GroupSessionKey};
 use crate::error::{EventError, MegolmResult};
 
 /// Inbound group session.
@@ -101,6 +106,39 @@ impl InboundGroupSession {
             room_id: (&*self.room_id).clone(),
             forwarding_chains: self.forwarding_chains.lock().await.clone(),
         }
+    }
+
+    /// Export this session.
+    pub async fn export(&self) -> ExportedRoomKey {
+        self.export_at_index(self.first_known_index().await)
+            .await
+            .expect("Can't export at the first known index")
+    }
+
+    /// Export this session at the given message index.
+    pub async fn export_at_index(&self, message_index: u32) -> Option<ExportedRoomKey> {
+        let session_key =
+            ExportedGroupSessionKey(self.inner.lock().await.export(message_index).ok()?);
+
+        let mut sender_claimed_keys: BTreeMap<DeviceKeyAlgorithm, String> = BTreeMap::new();
+
+        sender_claimed_keys.insert(DeviceKeyAlgorithm::Ed25519, (&*self.signing_key).to_owned());
+
+        Some(ExportedRoomKey {
+            algorithm: EventEncryptionAlgorithm::MegolmV1AesSha2,
+            room_id: (&*self.room_id).clone(),
+            sender_key: (&*self.sender_key).to_owned(),
+            session_id: self.session_id().to_owned(),
+            forwarding_curve25519_key_chain: self
+                .forwarding_chains
+                .lock()
+                .await
+                .as_ref()
+                .cloned()
+                .unwrap_or_default(),
+            sender_claimed_keys,
+            session_key,
+        })
     }
 
     /// Restore a Session from a previously pickled string.
