@@ -12,34 +12,22 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{
-    cmp::min,
-    convert::TryInto,
-    fmt,
-    sync::{
-        atomic::{AtomicBool, AtomicU64, Ordering},
-        Arc,
-    },
-    time::Duration,
-};
+use std::{convert::TryInto, fmt, sync::Arc, time::Duration};
 
 use matrix_sdk_common::{
     events::{
         room::{encrypted::EncryptedEventContent, encryption::EncryptionEventContent},
-        AnyMessageEventContent, AnySyncRoomEvent, EventContent, SyncMessageEvent,
+        AnySyncRoomEvent, SyncMessageEvent,
     },
-    identifiers::{DeviceId, EventEncryptionAlgorithm, RoomId},
-    instant::Instant,
+    identifiers::{EventEncryptionAlgorithm, RoomId},
     locks::Mutex,
     Raw,
 };
 use olm_rs::{
-    errors::OlmGroupSessionError, inbound_group_session::OlmInboundGroupSession,
-    outbound_group_session::OlmOutboundGroupSession, PicklingMode,
+    errors::OlmGroupSessionError, inbound_group_session::OlmInboundGroupSession, PicklingMode,
 };
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
-use zeroize::Zeroize;
+use serde_json::Value;
 
 pub use olm_rs::{
     account::IdentityKeys,
@@ -47,6 +35,7 @@ pub use olm_rs::{
     utility::OlmUtility,
 };
 
+use super::GroupSessionKey;
 use crate::error::{EventError, MegolmResult};
 
 const ROTATION_PERIOD: Duration = Duration::from_millis(604800000);
@@ -91,12 +80,6 @@ impl From<&EncryptionEventContent> for EncryptionSettings {
         }
     }
 }
-
-/// The private session key of a group session.
-/// Can be used to create a new inbound group session.
-#[derive(Clone, Debug, Serialize, Zeroize)]
-#[zeroize(drop)]
-pub struct GroupSessionKey(pub String);
 
 /// Inbound group session.
 ///
@@ -312,250 +295,5 @@ impl InboundGroupSessionPickle {
     /// Get the string representation of the pickle.
     pub fn as_str(&self) -> &str {
         &self.0
-    }
-}
-
-/// Outbound group session.
-///
-/// Outbound group sessions are used to exchange room messages between a group
-/// of participants. Outbound group sessions are used to encrypt the room
-/// messages.
-#[derive(Clone)]
-pub struct OutboundGroupSession {
-    inner: Arc<Mutex<OlmOutboundGroupSession>>,
-    device_id: Arc<Box<DeviceId>>,
-    account_identity_keys: Arc<IdentityKeys>,
-    session_id: Arc<String>,
-    room_id: Arc<RoomId>,
-    creation_time: Arc<Instant>,
-    message_count: Arc<AtomicU64>,
-    shared: Arc<AtomicBool>,
-    settings: Arc<EncryptionSettings>,
-}
-
-impl OutboundGroupSession {
-    /// Create a new outbound group session for the given room.
-    ///
-    /// Outbound group sessions are used to encrypt room messages.
-    ///
-    /// # Arguments
-    ///
-    /// * `device_id` - The id of the device that created this session.
-    ///
-    /// * `identity_keys` - The identity keys of the account that created this
-    /// session.
-    ///
-    /// * `room_id` - The id of the room that the session is used in.
-    ///
-    /// * `settings` - Settings determining the algorithm and rotation period of
-    /// the outbound group session.
-    pub fn new(
-        device_id: Arc<Box<DeviceId>>,
-        identity_keys: Arc<IdentityKeys>,
-        room_id: &RoomId,
-        settings: EncryptionSettings,
-    ) -> Self {
-        let session = OlmOutboundGroupSession::new();
-        let session_id = session.session_id();
-
-        OutboundGroupSession {
-            inner: Arc::new(Mutex::new(session)),
-            room_id: Arc::new(room_id.to_owned()),
-            device_id,
-            account_identity_keys: identity_keys,
-            session_id: Arc::new(session_id),
-            creation_time: Arc::new(Instant::now()),
-            message_count: Arc::new(AtomicU64::new(0)),
-            shared: Arc::new(AtomicBool::new(false)),
-            settings: Arc::new(settings),
-        }
-    }
-
-    /// Encrypt the given plaintext using this session.
-    ///
-    /// Returns the encrypted ciphertext.
-    ///
-    /// # Arguments
-    ///
-    /// * `plaintext` - The plaintext that should be encrypted.
-    pub(crate) async fn encrypt_helper(&self, plaintext: String) -> String {
-        let session = self.inner.lock().await;
-        self.message_count.fetch_add(1, Ordering::SeqCst);
-        session.encrypt(plaintext)
-    }
-
-    /// Encrypt a room message for the given room.
-    ///
-    /// Beware that a group session needs to be shared before this method can be
-    /// called using the `share_group_session()` method.
-    ///
-    /// Since group sessions can expire or become invalid if the room membership
-    /// changes client authors should check with the
-    /// `should_share_group_session()` method if a new group session needs to
-    /// be shared.
-    ///
-    /// # Arguments
-    ///
-    /// * `content` - The plaintext content of the message that should be
-    /// encrypted.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the content can't be serialized.
-    pub async fn encrypt(&self, content: AnyMessageEventContent) -> EncryptedEventContent {
-        let json_content = json!({
-            "content": content,
-            "room_id": &*self.room_id,
-            "type": content.event_type(),
-        });
-
-        let plaintext = cjson::to_string(&json_content).unwrap_or_else(|_| {
-            panic!(format!(
-                "Can't serialize {} to canonical JSON",
-                json_content
-            ))
-        });
-
-        let ciphertext = self.encrypt_helper(plaintext).await;
-
-        EncryptedEventContent::MegolmV1AesSha2(
-            matrix_sdk_common::events::room::encrypted::MegolmV1AesSha2ContentInit {
-                ciphertext,
-                sender_key: self.account_identity_keys.curve25519().to_owned(),
-                session_id: self.session_id().to_owned(),
-                device_id: (&*self.device_id).to_owned(),
-            }
-            .into(),
-        )
-    }
-
-    /// Check if the session has expired and if it should be rotated.
-    ///
-    /// A session will expire after some time or if enough messages have been
-    /// encrypted using it.
-    pub fn expired(&self) -> bool {
-        let count = self.message_count.load(Ordering::SeqCst);
-
-        count >= self.settings.rotation_period_msgs
-            || self.creation_time.elapsed()
-                // Since the encryption settings are provided by users and not
-                // checked someone could set a really low rotation perdiod so
-                // clamp it at a minute.
-                >= min(self.settings.rotation_period, Duration::from_secs(3600))
-    }
-
-    /// Mark the session as shared.
-    ///
-    /// Messages shouldn't be encrypted with the session before it has been
-    /// shared.
-    pub fn mark_as_shared(&self) {
-        self.shared.store(true, Ordering::Relaxed);
-    }
-
-    /// Check if the session has been marked as shared.
-    pub fn shared(&self) -> bool {
-        self.shared.load(Ordering::Relaxed)
-    }
-
-    /// Get the session key of this session.
-    ///
-    /// A session key can be used to to create an `InboundGroupSession`.
-    pub async fn session_key(&self) -> GroupSessionKey {
-        let session = self.inner.lock().await;
-        GroupSessionKey(session.session_key())
-    }
-
-    /// Returns the unique identifier for this session.
-    pub fn session_id(&self) -> &str {
-        &self.session_id
-    }
-
-    /// Get the current message index for this session.
-    ///
-    /// Each message is sent with an increasing index. This returns the
-    /// message index that will be used for the next encrypted message.
-    pub async fn message_index(&self) -> u32 {
-        let session = self.inner.lock().await;
-        session.session_message_index()
-    }
-
-    /// Get the outbound group session key as a json value that can be sent as a
-    /// m.room_key.
-    pub async fn as_json(&self) -> Value {
-        json!({
-            "algorithm": EventEncryptionAlgorithm::MegolmV1AesSha2,
-            "room_id": &*self.room_id,
-            "session_id": &*self.session_id,
-            "session_key": self.session_key().await,
-            "chain_index": self.message_index().await,
-        })
-    }
-}
-
-#[cfg(not(tarpaulin_include))]
-impl std::fmt::Debug for OutboundGroupSession {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("OutboundGroupSession")
-            .field("session_id", &self.session_id)
-            .field("room_id", &self.room_id)
-            .field("creation_time", &self.creation_time)
-            .field("message_count", &self.message_count)
-            .finish()
-    }
-}
-
-#[cfg(test)]
-mod test {
-    use std::{
-        sync::Arc,
-        time::{Duration, Instant},
-    };
-
-    use matrix_sdk_common::{
-        events::{
-            room::message::{MessageEventContent, TextMessageEventContent},
-            AnyMessageEventContent,
-        },
-        identifiers::{room_id, user_id},
-    };
-
-    use super::EncryptionSettings;
-    use crate::Account;
-
-    #[tokio::test]
-    #[cfg(not(target_os = "macos"))]
-    async fn expiration() {
-        let settings = EncryptionSettings {
-            rotation_period_msgs: 1,
-            ..Default::default()
-        };
-
-        let account = Account::new(&user_id!("@alice:example.org"), "DEVICEID".into());
-        let (session, _) = account
-            .create_group_session_pair(&room_id!("!test_room:example.org"), settings)
-            .await
-            .unwrap();
-
-        assert!(!session.expired());
-        let _ = session
-            .encrypt(AnyMessageEventContent::RoomMessage(
-                MessageEventContent::Text(TextMessageEventContent::plain("Test message")),
-            ))
-            .await;
-        assert!(session.expired());
-
-        let settings = EncryptionSettings {
-            rotation_period: Duration::from_millis(100),
-            ..Default::default()
-        };
-
-        let (mut session, _) = account
-            .create_group_session_pair(&room_id!("!test_room:example.org"), settings)
-            .await
-            .unwrap();
-
-        assert!(!session.expired());
-        session.creation_time = Arc::new(Instant::now() - Duration::from_secs(60 * 60));
-        assert!(session.expired());
     }
 }
