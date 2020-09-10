@@ -1572,7 +1572,10 @@ impl OlmMachine {
                 )
                 .await?
             {
-                if session.first_known_index().await < existing_session.first_known_index().await {
+                let first_index = session.first_known_index().await;
+                let existing_index = existing_session.first_known_index().await;
+
+                if first_index < existing_index {
                     sessions.push(session)
                 }
             } else {

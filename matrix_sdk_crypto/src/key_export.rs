@@ -34,8 +34,8 @@ const MAC_SIZE: usize = 32;
 const KEY_SIZE: usize = 32;
 const VERSION: u8 = 1;
 
-const HEADER: &'static str = "-----BEGIN MEGOLM SESSION DATA-----";
-const FOOTER: &'static str = "-----END MEGOLM SESSION DATA-----";
+const HEADER: &str = "-----BEGIN MEGOLM SESSION DATA-----";
+const FOOTER: &str = "-----END MEGOLM SESSION DATA-----";
 
 fn decode(input: impl AsRef<[u8]>) -> Result<Vec<u8>, DecodeError> {
     decode_config(input, STANDARD_NO_PAD)
@@ -113,7 +113,7 @@ pub fn decrypt_key_export(
 /// let encrypted_export = encrypt_key_export(&exported_keys, "1234", 1);
 /// # });
 /// ```
-pub fn encrypt_key_export(keys: &Vec<ExportedRoomKey>, passphrase: &str, rounds: u32) -> String {
+pub fn encrypt_key_export(keys: &[ExportedRoomKey], passphrase: &str, rounds: u32) -> String {
     let mut plaintext = serde_json::to_string(keys).unwrap().into_bytes();
     let ciphertext = encrypt_helper(&mut plaintext, passphrase, rounds);
     [HEADER.to_owned(), ciphertext, FOOTER.to_owned()].join("\n")
@@ -246,7 +246,7 @@ mod test {
             let mut plaintext_bytes = plaintext.clone().into_bytes();
 
             let ciphertext = encrypt_helper(&mut plaintext_bytes, "test", 1);
-            let decrypted = decrypt_helper(&mut ciphertext.clone(), "test").unwrap();
+            let decrypted = decrypt_helper(&ciphertext, "test").unwrap();
 
             prop_assert!(plaintext == decrypted);
         }
