@@ -99,6 +99,10 @@ impl CryptoStore for MemoryStore {
             .get(room_id, sender_key, session_id))
     }
 
+    async fn get_inbound_group_sessions(&self) -> Result<Vec<InboundGroupSession>> {
+        Ok(self.inbound_group_sessions.get_all())
+    }
+
     fn users_for_key_query(&self) -> HashSet<UserId> {
         #[allow(clippy::map_clone)]
         self.users_for_key_query.iter().map(|u| u.clone()).collect()

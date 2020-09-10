@@ -106,6 +106,19 @@ impl GroupSessionStore {
             .is_none()
     }
 
+    /// Get all the group sessions the store knows about.
+    pub fn get_all(&self) -> Vec<InboundGroupSession> {
+        self.entries
+            .iter()
+            .flat_map(|d| {
+                d.value()
+                    .values()
+                    .flat_map(|t| t.values().cloned().collect::<Vec<InboundGroupSession>>())
+                    .collect::<Vec<InboundGroupSession>>()
+            })
+            .collect()
+    }
+
     /// Get a inbound group session from our store.
     ///
     /// # Arguments

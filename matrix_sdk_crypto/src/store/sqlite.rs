@@ -1289,6 +1289,10 @@ impl CryptoStore for SqliteStore {
             .get(room_id, sender_key, session_id))
     }
 
+    async fn get_inbound_group_sessions(&self) -> Result<Vec<InboundGroupSession>> {
+        Ok(self.inbound_group_sessions.get_all())
+    }
+
     fn is_user_tracked(&self, user_id: &UserId) -> bool {
         self.tracked_users.contains(user_id)
     }

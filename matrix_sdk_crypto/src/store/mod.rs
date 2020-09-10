@@ -179,6 +179,9 @@ pub trait CryptoStore: Debug {
         session_id: &str,
     ) -> Result<Option<InboundGroupSession>>;
 
+    /// Get all the inbound group sessions we have stored.
+    async fn get_inbound_group_sessions(&self) -> Result<Vec<InboundGroupSession>>;
+
     /// Is the given user already tracked.
     fn is_user_tracked(&self, user_id: &UserId) -> bool;
 
