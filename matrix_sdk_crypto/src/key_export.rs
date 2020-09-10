@@ -12,7 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use serde_json::Error as SerdeError;
 use std::io::{Cursor, Read, Seek, SeekFrom};
+use thiserror::Error;
 
 use base64::{decode_config, encode_config, DecodeError, STANDARD_NO_PAD};
 use byteorder::{BigEndian, ReadBytesExt};
@@ -45,6 +47,32 @@ fn encode(input: impl AsRef<[u8]>) -> String {
     encode_config(input, STANDARD_NO_PAD)
 }
 
+/// Error representing a failure during key export or import.
+#[derive(Error, Debug)]
+pub enum KeyExportError {
+    /// The key export doesn't contain valid headers.
+    #[error("Invalid or missing key export headers.")]
+    InvalidHeaders,
+    /// The key export has been encrypted with an unsupported version.
+    #[error("The key export has been encrypted with an unsupported version.")]
+    UnsupportedVersion,
+    /// The MAC of the encrypted payload is invalid.
+    #[error("The MAC of the encrypted payload is invalid.")]
+    InvalidMAC,
+    /// The decrypted key export isn't valid UTF-8.
+    #[error(transparent)]
+    InvalidUtf8(#[from] std::string::FromUtf8Error),
+    /// The decrypted key export doesn't contain valid JSON.
+    #[error(transparent)]
+    Json(#[from] SerdeError),
+    /// The key export string isn't valid base64.
+    #[error(transparent)]
+    Decode(#[from] DecodeError),
+    /// The key export doesn't all the required fields.
+    #[error(transparent)]
+    IO(#[from] std::io::Error),
+}
+
 /// Try to decrypt a reader into a list of exported room keys.
 ///
 /// # Arguments
@@ -68,13 +96,13 @@ fn encode(input: impl AsRef<[u8]>) -> String {
 pub fn decrypt_key_export(
     mut input: impl Read,
     passphrase: &str,
-) -> Result<Vec<ExportedRoomKey>, DecodeError> {
+) -> Result<Vec<ExportedRoomKey>, KeyExportError> {
     let mut x: String = String::new();
 
-    input.read_to_string(&mut x).expect("Can't read string");
+    input.read_to_string(&mut x)?;
 
     if !(x.trim_start().starts_with(HEADER) && x.trim_end().ends_with(FOOTER)) {
-        panic!("Invalid header/footer");
+        return Err(KeyExportError::InvalidHeaders);
     }
 
     let payload: String = x
@@ -82,7 +110,9 @@ pub fn decrypt_key_export(
         .filter(|l| !(l.starts_with(HEADER) || l.starts_with(FOOTER)))
         .collect();
 
-    Ok(serde_json::from_str(&decrypt_helper(&payload, passphrase)?).unwrap())
+    Ok(serde_json::from_str(&decrypt_helper(
+        &payload, passphrase,
+    )?)?)
 }
 
 /// Encrypt the list of exported room keys using the given passphrase.
@@ -113,10 +143,14 @@ pub fn decrypt_key_export(
 /// let encrypted_export = encrypt_key_export(&exported_keys, "1234", 1);
 /// # });
 /// ```
-pub fn encrypt_key_export(keys: &[ExportedRoomKey], passphrase: &str, rounds: u32) -> String {
-    let mut plaintext = serde_json::to_string(keys).unwrap().into_bytes();
+pub fn encrypt_key_export(
+    keys: &[ExportedRoomKey],
+    passphrase: &str,
+    rounds: u32,
+) -> Result<String, SerdeError> {
+    let mut plaintext = serde_json::to_string(keys)?.into_bytes();
     let ciphertext = encrypt_helper(&mut plaintext, passphrase, rounds);
-    [HEADER.to_owned(), ciphertext, FOOTER.to_owned()].join("\n")
+    Ok([HEADER.to_owned(), ciphertext, FOOTER.to_owned()].join("\n"))
 }
 
 fn encrypt_helper(mut plaintext: &mut [u8], passphrase: &str, rounds: u32) -> String {
@@ -133,7 +167,7 @@ fn encrypt_helper(mut plaintext: &mut [u8], passphrase: &str, rounds: u32) -> St
     pbkdf2::<Hmac<Sha512>>(passphrase.as_bytes(), &salt, rounds, &mut derived_keys);
     let (key, hmac_key) = derived_keys.split_at(KEY_SIZE);
 
-    let mut aes = Aes256Ctr::new_var(&key, &iv.to_be_bytes()).expect("Can't create AES");
+    let mut aes = Aes256Ctr::new_var(&key, &iv.to_be_bytes()).expect("Can't create AES object");
 
     aes.apply_keystream(&mut plaintext);
 
@@ -145,7 +179,7 @@ fn encrypt_helper(mut plaintext: &mut [u8], passphrase: &str, rounds: u32) -> St
     payload.extend(&rounds.to_be_bytes());
     payload.extend_from_slice(&plaintext);
 
-    let mut hmac = Hmac::<Sha256>::new_varkey(hmac_key).unwrap();
+    let mut hmac = Hmac::<Sha256>::new_varkey(hmac_key).expect("Can't create HMAC object");
     hmac.update(&payload);
     let mac = hmac.finalize();
 
@@ -154,7 +188,7 @@ fn encrypt_helper(mut plaintext: &mut [u8], passphrase: &str, rounds: u32) -> St
     encode(payload)
 }
 
-fn decrypt_helper(ciphertext: &str, passphrase: &str) -> Result<String, DecodeError> {
+fn decrypt_helper(ciphertext: &str, passphrase: &str) -> Result<String, KeyExportError> {
     let decoded = decode(ciphertext)?;
 
     let mut decoded = Cursor::new(decoded);
@@ -164,36 +198,36 @@ fn decrypt_helper(ciphertext: &str, passphrase: &str) -> Result<String, DecodeEr
     let mut mac = [0u8; MAC_SIZE];
     let mut derived_keys = [0u8; KEY_SIZE * 2];
 
-    let version = decoded.read_u8().unwrap();
-    decoded.read_exact(&mut salt).unwrap();
-    decoded.read_exact(&mut iv).unwrap();
+    let version = decoded.read_u8()?;
+    decoded.read_exact(&mut salt)?;
+    decoded.read_exact(&mut iv)?;
 
-    let rounds = decoded.read_u32::<BigEndian>().unwrap();
+    let rounds = decoded.read_u32::<BigEndian>()?;
     let ciphertext_start = decoded.position() as usize;
 
-    decoded.seek(SeekFrom::End(-32)).unwrap();
+    decoded.seek(SeekFrom::End(-32))?;
     let ciphertext_end = decoded.position() as usize;
 
-    decoded.read_exact(&mut mac).unwrap();
+    decoded.read_exact(&mut mac)?;
 
     let mut decoded = decoded.into_inner();
 
     if version != VERSION {
-        panic!("Unsupported version")
+        return Err(KeyExportError::UnsupportedVersion);
     }
 
     pbkdf2::<Hmac<Sha512>>(passphrase.as_bytes(), &salt, rounds, &mut derived_keys);
     let (key, hmac_key) = derived_keys.split_at(KEY_SIZE);
 
-    let mut hmac = Hmac::<Sha256>::new_varkey(hmac_key).unwrap();
+    let mut hmac = Hmac::<Sha256>::new_varkey(hmac_key).expect("Can't create an HMAC object");
     hmac.update(&decoded[0..ciphertext_end]);
-    hmac.verify(&mac).expect("MAC DOESN'T MATCH");
+    hmac.verify(&mac).map_err(|_| KeyExportError::InvalidMAC)?;
 
     let mut ciphertext = &mut decoded[ciphertext_start..ciphertext_end];
-    let mut aes = Aes256Ctr::new_var(&key, &iv).expect("Can't create AES");
+    let mut aes = Aes256Ctr::new_var(&key, &iv).expect("Can't create an AES object");
     aes.apply_keystream(&mut ciphertext);
 
-    Ok(String::from_utf8(ciphertext.to_owned()).expect("Invalid utf-8"))
+    Ok(String::from_utf8(ciphertext.to_owned())?)
 }
 
 #[cfg(test)]
@@ -279,7 +313,7 @@ mod test {
 
         assert!(!export.is_empty());
 
-        let encrypted = encrypt_key_export(&export, "1234", 1);
+        let encrypted = encrypt_key_export(&export, "1234", 1).unwrap();
         let decrypted = decrypt_key_export(Cursor::new(encrypted), "1234").unwrap();
 
         assert_eq!(export, decrypted);
