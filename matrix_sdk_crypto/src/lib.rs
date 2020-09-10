@@ -29,6 +29,8 @@
 
 mod error;
 mod identities;
+#[allow(dead_code)]
+mod key_export;
 mod machine;
 pub mod olm;
 mod requests;
@@ -39,6 +41,7 @@ pub use error::{MegolmError, OlmError};
 pub use identities::{
     Device, LocalTrust, OwnUserIdentity, ReadOnlyDevice, UserDevices, UserIdentities, UserIdentity,
 };
+pub use key_export::{decrypt_key_export, encrypt_key_export};
 pub use machine::OlmMachine;
 pub(crate) use olm::Account;
 pub use olm::EncryptionSettings;

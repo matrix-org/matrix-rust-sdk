@@ -157,15 +157,12 @@ pub trait CryptoStore: Debug {
     /// * `sender_key` - The sender key that was used to establish the sessions.
     async fn get_sessions(&self, sender_key: &str) -> Result<Option<Arc<Mutex<Vec<Session>>>>>;
 
-    /// Save the given inbound group session in the store.
-    ///
-    /// If the session wasn't already in the store true is returned, false
-    /// otherwise.
+    /// Save the given inbound group sessions in the store.
     ///
     /// # Arguments
     ///
-    /// * `session` - The session that should be stored.
-    async fn save_inbound_group_session(&self, session: InboundGroupSession) -> Result<bool>;
+    /// * `sessions` - The sessions that should be stored.
+    async fn save_inbound_group_sessions(&self, session: &[InboundGroupSession]) -> Result<()>;
 
     /// Get the inbound group session from our store.
     ///
@@ -181,6 +178,9 @@ pub trait CryptoStore: Debug {
         sender_key: &str,
         session_id: &str,
     ) -> Result<Option<InboundGroupSession>>;
+
+    /// Get all the inbound group sessions we have stored.
+    async fn get_inbound_group_sessions(&self) -> Result<Vec<InboundGroupSession>>;
 
     /// Is the given user already tracked.
     fn is_user_tracked(&self, user_id: &UserId) -> bool;

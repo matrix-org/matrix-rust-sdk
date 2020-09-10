@@ -13,6 +13,7 @@
 // limitations under the License.
 
 use std::{
+    collections::{btree_map::Iter, BTreeMap},
     convert::TryFrom,
     sync::{
         atomic::{AtomicBool, Ordering},
@@ -24,7 +25,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::to_value;
 
 use matrix_sdk_common::{
-    api::r0::keys::CrossSigningKey,
+    api::r0::keys::{CrossSigningKey, KeyUsage},
     identifiers::{DeviceKeyId, UserId},
 };
 
@@ -52,6 +53,54 @@ pub struct UserSigningPubkey(Arc<CrossSigningKey>);
 impl PartialEq for MasterPubkey {
     fn eq(&self, other: &MasterPubkey) -> bool {
         self.0.user_id == other.0.user_id && self.0.keys == other.0.keys
+    }
+}
+
+impl PartialEq for SelfSigningPubkey {
+    fn eq(&self, other: &SelfSigningPubkey) -> bool {
+        self.0.user_id == other.0.user_id && self.0.keys == other.0.keys
+    }
+}
+
+impl PartialEq for UserSigningPubkey {
+    fn eq(&self, other: &UserSigningPubkey) -> bool {
+        self.0.user_id == other.0.user_id && self.0.keys == other.0.keys
+    }
+}
+
+impl From<CrossSigningKey> for MasterPubkey {
+    fn from(key: CrossSigningKey) -> Self {
+        Self(Arc::new(key))
+    }
+}
+
+impl From<CrossSigningKey> for SelfSigningPubkey {
+    fn from(key: CrossSigningKey) -> Self {
+        Self(Arc::new(key))
+    }
+}
+
+impl From<CrossSigningKey> for UserSigningPubkey {
+    fn from(key: CrossSigningKey) -> Self {
+        Self(Arc::new(key))
+    }
+}
+
+impl AsRef<CrossSigningKey> for MasterPubkey {
+    fn as_ref(&self) -> &CrossSigningKey {
+        &self.0
+    }
+}
+
+impl AsRef<CrossSigningKey> for SelfSigningPubkey {
+    fn as_ref(&self) -> &CrossSigningKey {
+        &self.0
+    }
+}
+
+impl AsRef<CrossSigningKey> for UserSigningPubkey {
+    fn as_ref(&self) -> &CrossSigningKey {
+        &self.0
     }
 }
 
@@ -117,6 +166,21 @@ impl MasterPubkey {
         &self.0.user_id
     }
 
+    /// Get the keys map of containing the master keys.
+    pub fn keys(&self) -> &BTreeMap<String, String> {
+        &self.0.keys
+    }
+
+    /// Get the list of `KeyUsage` that is set for this key.
+    pub fn usage(&self) -> &[KeyUsage] {
+        &self.0.usage
+    }
+
+    /// Get the signatures map of this cross signing key.
+    pub fn signatures(&self) -> &BTreeMap<UserId, BTreeMap<String, String>> {
+        &self.0.signatures
+    }
+
     /// Get the master key with the given key id.
     ///
     /// # Arguments
@@ -167,10 +231,24 @@ impl MasterPubkey {
     }
 }
 
+impl<'a> IntoIterator for &'a MasterPubkey {
+    type Item = (&'a String, &'a String);
+    type IntoIter = Iter<'a, String, String>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.keys().iter()
+    }
+}
+
 impl UserSigningPubkey {
     /// Get the user id of the user signing key's owner.
     pub fn user_id(&self) -> &UserId {
         &self.0.user_id
+    }
+
+    /// Get the keys map of containing the user signing keys.
+    pub fn keys(&self) -> &BTreeMap<String, String> {
+        &self.0.keys
     }
 
     /// Check if the given master key is signed by this user signing key.
@@ -202,10 +280,24 @@ impl UserSigningPubkey {
     }
 }
 
+impl<'a> IntoIterator for &'a UserSigningPubkey {
+    type Item = (&'a String, &'a String);
+    type IntoIter = Iter<'a, String, String>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.keys().iter()
+    }
+}
+
 impl SelfSigningPubkey {
     /// Get the user id of the self signing key's owner.
     pub fn user_id(&self) -> &UserId {
         &self.0.user_id
+    }
+
+    /// Get the keys map of containing the self signing keys.
+    pub fn keys(&self) -> &BTreeMap<String, String> {
+        &self.0.keys
     }
 
     /// Check if the given device is signed by this self signing key.
@@ -236,6 +328,15 @@ impl SelfSigningPubkey {
     }
 }
 
+impl<'a> IntoIterator for &'a SelfSigningPubkey {
+    type Item = (&'a String, &'a String);
+    type IntoIter = Iter<'a, String, String>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.keys().iter()
+    }
+}
+
 /// Enum over the different user identity types we can have.
 #[derive(Debug, Clone)]
 pub enum UserIdentities {
@@ -243,6 +344,18 @@ pub enum UserIdentities {
     Own(OwnUserIdentity),
     /// Identities of other users.
     Other(UserIdentity),
+}
+
+impl From<OwnUserIdentity> for UserIdentities {
+    fn from(identity: OwnUserIdentity) -> Self {
+        UserIdentities::Own(identity)
+    }
+}
+
+impl From<UserIdentity> for UserIdentities {
+    fn from(identity: UserIdentity) -> Self {
+        UserIdentities::Other(identity)
+    }
 }
 
 impl UserIdentities {
@@ -259,6 +372,23 @@ impl UserIdentities {
         match self {
             UserIdentities::Own(i) => i.master_key(),
             UserIdentities::Other(i) => i.master_key(),
+        }
+    }
+
+    /// Get the self-signing key of the identity.
+    pub fn self_signing_key(&self) -> &SelfSigningPubkey {
+        match self {
+            UserIdentities::Own(i) => &i.self_signing_key,
+            UserIdentities::Other(i) => &i.self_signing_key,
+        }
+    }
+
+    /// Get the user-signing key of the identity, this is only present for our
+    /// own user identity..
+    pub fn user_signing_key(&self) -> Option<&UserSigningPubkey> {
+        match self {
+            UserIdentities::Own(i) => Some(&i.user_signing_key),
+            UserIdentities::Other(_) => None,
         }
     }
 
@@ -322,6 +452,11 @@ impl UserIdentity {
     /// Get the public master key of the identity.
     pub fn master_key(&self) -> &MasterPubkey {
         &self.master_key
+    }
+
+    /// Get the public self-signing key of the identity.
+    pub fn self_signing_key(&self) -> &SelfSigningPubkey {
+        &self.self_signing_key
     }
 
     /// Update the identity with a new master key and self signing key.
@@ -424,6 +559,16 @@ impl OwnUserIdentity {
         &self.master_key
     }
 
+    /// Get the public self-signing key of the identity.
+    pub fn self_signing_key(&self) -> &SelfSigningPubkey {
+        &self.self_signing_key
+    }
+
+    /// Get the public user-signing key of the identity.
+    pub fn user_signing_key(&self) -> &UserSigningPubkey {
+        &self.user_signing_key
+    }
+
     /// Check if the given identity has been signed by this identity.
     ///
     /// # Arguments
@@ -504,7 +649,7 @@ impl OwnUserIdentity {
 }
 
 #[cfg(test)]
-mod test {
+pub(crate) mod test {
     use serde_json::json;
     use std::{convert::TryFrom, sync::Arc};
 
@@ -697,6 +842,20 @@ mod test {
         OwnUserIdentity::new(master_key.into(), self_signing.into(), user_signing.into()).unwrap()
     }
 
+    pub(crate) fn get_own_identity() -> OwnUserIdentity {
+        own_identity(&own_key_query())
+    }
+
+    pub(crate) fn get_other_identity() -> UserIdentity {
+        let user_id = user_id!("@example2:localhost");
+        let response = other_key_query();
+
+        let master_key = response.master_keys.get(&user_id).unwrap();
+        let self_signing = response.self_signing_keys.get(&user_id).unwrap();
+
+        UserIdentity::new(master_key.into(), self_signing.into()).unwrap()
+    }
+
     #[test]
     fn own_identity_create() {
         let user_id = user_id!("@example:localhost");
@@ -711,19 +870,13 @@ mod test {
 
     #[test]
     fn other_identity_create() {
-        let user_id = user_id!("@example2:localhost");
-        let response = other_key_query();
-
-        let master_key = response.master_keys.get(&user_id).unwrap();
-        let self_signing = response.self_signing_keys.get(&user_id).unwrap();
-
-        UserIdentity::new(master_key.into(), self_signing.into()).unwrap();
+        get_other_identity();
     }
 
     #[test]
     fn own_identity_check_signatures() {
         let response = own_key_query();
-        let identity = own_identity(&response);
+        let identity = get_own_identity();
         let (first, second) = device(&response);
 
         assert!(identity.is_device_signed(&first).is_err());

@@ -24,7 +24,8 @@ mod utility;
 
 pub use account::{Account, AccountPickle, IdentityKeys, PickledAccount};
 pub use group_sessions::{
-    EncryptionSettings, InboundGroupSession, InboundGroupSessionPickle, PickledInboundGroupSession,
+    EncryptionSettings, ExportedRoomKey, InboundGroupSession, InboundGroupSessionPickle,
+    PickledInboundGroupSession,
 };
 pub(crate) use group_sessions::{GroupSessionKey, OutboundGroupSession};
 pub use olm_rs::PicklingMode;
@@ -37,10 +38,11 @@ pub(crate) mod test {
     use crate::olm::{Account, InboundGroupSession, Session};
     use matrix_sdk_common::{
         api::r0::keys::SignedKey,
+        events::forwarded_room_key::ForwardedRoomKeyEventContent,
         identifiers::{room_id, user_id, DeviceId, UserId},
     };
     use olm_rs::session::OlmMessage;
-    use std::collections::BTreeMap;
+    use std::{collections::BTreeMap, convert::TryInto};
 
     fn alice_id() -> UserId {
         user_id!("@alice:example.org")
@@ -220,5 +222,23 @@ pub(crate) mod test {
             plaintext,
             inbound.decrypt_helper(ciphertext).await.unwrap().0
         );
+    }
+
+    #[tokio::test]
+    async fn group_session_export() {
+        let alice = Account::new(&alice_id(), &alice_device_id());
+        let room_id = room_id!("!test:localhost");
+
+        let (_, inbound) = alice
+            .create_group_session_pair(&room_id, Default::default())
+            .await
+            .unwrap();
+
+        let export = inbound.export().await;
+        let export: ForwardedRoomKeyEventContent = export.try_into().unwrap();
+
+        let imported = InboundGroupSession::from_export(export).unwrap();
+
+        assert_eq!(inbound.session_id(), imported.session_id());
     }
 }

@@ -57,8 +57,8 @@ use super::{
         UserIdentities, UserIdentity, UserSigningPubkey,
     },
     olm::{
-        Account, EncryptionSettings, GroupSessionKey, IdentityKeys, InboundGroupSession,
-        OlmMessage, OutboundGroupSession,
+        Account, EncryptionSettings, ExportedRoomKey, GroupSessionKey, IdentityKeys,
+        InboundGroupSession, OlmMessage, OutboundGroupSession,
     },
     requests::{IncomingResponse, OutgoingRequest, ToDeviceRequest},
     store::{CryptoStore, MemoryStore, Result as StoreResult},
@@ -984,7 +984,7 @@ impl OlmMachine {
                     &event.content.room_id,
                     session_key,
                 )?;
-                let _ = self.store.save_inbound_group_session(session).await?;
+                let _ = self.store.save_inbound_group_sessions(&[session]).await?;
 
                 let event = Raw::from(AnyToDeviceEvent::RoomKey(event.clone()));
                 Ok(Some(event))
@@ -1014,7 +1014,7 @@ impl OlmMachine {
             .await
             .map_err(|_| EventError::UnsupportedAlgorithm)?;
 
-        let _ = self.store.save_inbound_group_session(inbound).await?;
+        let _ = self.store.save_inbound_group_sessions(&[inbound]).await?;
 
         let _ = self
             .outbound_group_sessions
@@ -1023,7 +1023,7 @@ impl OlmMachine {
     }
 
     #[cfg(test)]
-    async fn create_outnbound_group_session_with_defaults(
+    pub(crate) async fn create_outnbound_group_session_with_defaults(
         &self,
         room_id: &RoomId,
     ) -> OlmResult<()> {
@@ -1529,6 +1529,105 @@ impl OlmMachine {
             device_owner_identity,
         })
     }
+
+    /// Import the given room keys into our store.
+    ///
+    /// # Arguments
+    ///
+    /// * `exported_keys` - A list of previously exported keys that should be
+    /// imported into our store. If we already have a better version of a key
+    /// the key will *not* be imported.
+    ///
+    /// Returns the number of sessions that were imported to the store.
+    ///
+    /// # Examples
+    /// ```no_run
+    /// # use std::io::Cursor;
+    /// # use matrix_sdk_crypto::{OlmMachine, decrypt_key_export};
+    /// # use matrix_sdk_common::identifiers::user_id;
+    /// # use futures::executor::block_on;
+    /// # let alice = user_id!("@alice:example.org");
+    /// # let machine = OlmMachine::new(&alice, "DEVICEID".into());
+    /// # block_on(async {
+    /// # let export = Cursor::new("".to_owned());
+    /// let exported_keys = decrypt_key_export(export, "1234").unwrap();
+    /// machine.import_keys(exported_keys).await.unwrap();
+    /// # });
+    /// ```
+    pub async fn import_keys(&self, mut exported_keys: Vec<ExportedRoomKey>) -> StoreResult<usize> {
+        let mut sessions = Vec::new();
+
+        for key in exported_keys.drain(..) {
+            let session = InboundGroupSession::from_export(key)?;
+
+            // Only import the session if we didn't have this session or if it's
+            // a better version of the same session, that is the first known
+            // index is lower.
+            if let Some(existing_session) = self
+                .store
+                .get_inbound_group_session(
+                    &session.room_id,
+                    &session.sender_key,
+                    session.session_id(),
+                )
+                .await?
+            {
+                let first_index = session.first_known_index().await;
+                let existing_index = existing_session.first_known_index().await;
+
+                if first_index < existing_index {
+                    sessions.push(session)
+                }
+            } else {
+                sessions.push(session)
+            }
+        }
+
+        let num_sessions = sessions.len();
+
+        self.store.save_inbound_group_sessions(&sessions).await?;
+
+        Ok(num_sessions)
+    }
+
+    /// Export the keys that match the given predicate.
+    ///
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// # use matrix_sdk_crypto::{OlmMachine, encrypt_key_export};
+    /// # use matrix_sdk_common::identifiers::{user_id, room_id};
+    /// # use futures::executor::block_on;
+    /// # let alice = user_id!("@alice:example.org");
+    /// # let machine = OlmMachine::new(&alice, "DEVICEID".into());
+    /// # block_on(async {
+    /// let room_id = room_id!("!test:localhost");
+    /// let exported_keys = machine.export_keys(|s| s.room_id() == &room_id).await.unwrap();
+    /// let encrypted_export = encrypt_key_export(&exported_keys, "1234", 1);
+    /// # });
+    /// ```
+    pub async fn export_keys(
+        &self,
+        mut predicate: impl FnMut(&InboundGroupSession) -> bool,
+    ) -> StoreResult<Vec<ExportedRoomKey>> {
+        let mut exported = Vec::new();
+
+        let mut sessions: Vec<InboundGroupSession> = self
+            .store
+            .get_inbound_group_sessions()
+            .await?
+            .drain(..)
+            .filter(|s| predicate(&s))
+            .collect();
+
+        for session in sessions.drain(..) {
+            let export = session.export().await;
+            exported.push(export);
+        }
+
+        Ok(exported)
+    }
 }
 
 #[cfg(test)]
@@ -1623,7 +1722,7 @@ pub(crate) mod test {
         content.deserialize().unwrap()
     }
 
-    async fn get_prepared_machine() -> (OlmMachine, OneTimeKeys) {
+    pub(crate) async fn get_prepared_machine() -> (OlmMachine, OneTimeKeys) {
         let machine = OlmMachine::new(&user_id(), &alice_device_id());
         machine.account.update_uploaded_key_count(0);
         let request = machine

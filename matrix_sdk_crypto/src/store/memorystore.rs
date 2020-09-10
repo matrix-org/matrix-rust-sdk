@@ -80,8 +80,12 @@ impl CryptoStore for MemoryStore {
         Ok(self.sessions.get(sender_key))
     }
 
-    async fn save_inbound_group_session(&self, session: InboundGroupSession) -> Result<bool> {
-        Ok(self.inbound_group_sessions.add(session))
+    async fn save_inbound_group_sessions(&self, sessions: &[InboundGroupSession]) -> Result<()> {
+        for session in sessions {
+            self.inbound_group_sessions.add(session.clone());
+        }
+
+        Ok(())
     }
 
     async fn get_inbound_group_session(
@@ -93,6 +97,10 @@ impl CryptoStore for MemoryStore {
         Ok(self
             .inbound_group_sessions
             .get(room_id, sender_key, session_id))
+    }
+
+    async fn get_inbound_group_sessions(&self) -> Result<Vec<InboundGroupSession>> {
+        Ok(self.inbound_group_sessions.get_all())
     }
 
     fn users_for_key_query(&self) -> HashSet<UserId> {
@@ -208,7 +216,7 @@ mod test {
 
         let store = MemoryStore::new();
         let _ = store
-            .save_inbound_group_session(inbound.clone())
+            .save_inbound_group_sessions(&[inbound.clone()])
             .await
             .unwrap();
 

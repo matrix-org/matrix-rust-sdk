@@ -41,7 +41,7 @@
 //! Both identity sets need to reqularly fetched from the server using the
 //! `/keys/query` API call.
 pub(crate) mod device;
-mod user;
+pub(crate) mod user;
 
 pub use device::{Device, LocalTrust, ReadOnlyDevice, UserDevices};
 pub use user::{
