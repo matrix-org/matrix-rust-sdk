@@ -272,3 +272,32 @@ impl std::fmt::Debug for OutboundGroupSession {
             .finish()
     }
 }
+
+#[cfg(test)]
+mod test {
+    use std::time::Duration;
+
+    use matrix_sdk_common::{
+        events::room::encryption::EncryptionEventContent, identifiers::EventEncryptionAlgorithm,
+        js_int::uint,
+    };
+
+    use super::{EncryptionSettings, ROTATION_MESSAGES, ROTATION_PERIOD};
+
+    #[test]
+    fn encryption_settings_conversion() {
+        let mut content = EncryptionEventContent::new(EventEncryptionAlgorithm::MegolmV1AesSha2);
+        let settings = EncryptionSettings::from(&content);
+
+        assert_eq!(settings.rotation_period, ROTATION_PERIOD);
+        assert_eq!(settings.rotation_period_msgs, ROTATION_MESSAGES);
+
+        content.rotation_period_ms = Some(uint!(3600));
+        content.rotation_period_msgs = Some(uint!(500));
+
+        let settings = EncryptionSettings::from(&content);
+
+        assert_eq!(settings.rotation_period, Duration::from_millis(3600));
+        assert_eq!(settings.rotation_period_msgs, 500);
+    }
+}
