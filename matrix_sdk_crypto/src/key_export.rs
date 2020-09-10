@@ -26,24 +26,103 @@ use hmac::{Hmac, Mac, NewMac};
 use pbkdf2::pbkdf2;
 use sha2::{Sha256, Sha512};
 
+use crate::olm::ExportedRoomKey;
+
 const SALT_SIZE: usize = 16;
 const IV_SIZE: usize = 16;
 const MAC_SIZE: usize = 32;
 const KEY_SIZE: usize = 32;
+const VERSION: u8 = 1;
 
-pub fn decode(input: impl AsRef<[u8]>) -> Result<Vec<u8>, DecodeError> {
+const HEADER: &'static str = "-----BEGIN MEGOLM SESSION DATA-----";
+const FOOTER: &'static str = "-----END MEGOLM SESSION DATA-----";
+
+fn decode(input: impl AsRef<[u8]>) -> Result<Vec<u8>, DecodeError> {
     decode_config(input, STANDARD_NO_PAD)
 }
 
-pub fn encode(input: impl AsRef<[u8]>) -> String {
+fn encode(input: impl AsRef<[u8]>) -> String {
     encode_config(input, STANDARD_NO_PAD)
 }
 
-pub fn encrypt(mut plaintext: &mut [u8], passphrase: &str, rounds: u32) -> String {
+/// Try to decrypt a reader into a list of exported room keys.
+///
+/// # Arguments
+///
+/// * `passphrase` - The passphrase that was used to encrypt the exported keys.
+///
+/// # Examples
+/// ```no_run
+/// # use std::io::Cursor;
+/// # use matrix_sdk_crypto::{OlmMachine, decrypt_key_export};
+/// # use matrix_sdk_common::identifiers::user_id;
+/// # use futures::executor::block_on;
+/// # let alice = user_id!("@alice:example.org");
+/// # let machine = OlmMachine::new(&alice, "DEVICEID".into());
+/// # block_on(async {
+/// # let export = Cursor::new("".to_owned());
+/// let exported_keys = decrypt_key_export(export, "1234").unwrap();
+/// machine.import_keys(exported_keys).await.unwrap();
+/// # });
+/// ```
+pub fn decrypt_key_export(
+    mut input: impl Read,
+    passphrase: &str,
+) -> Result<Vec<ExportedRoomKey>, DecodeError> {
+    let mut x: String = String::new();
+
+    input.read_to_string(&mut x).expect("Can't read string");
+
+    if !(x.trim_start().starts_with(HEADER) && x.trim_end().ends_with(FOOTER)) {
+        panic!("Invalid header/footer");
+    }
+
+    let payload: String = x
+        .lines()
+        .filter(|l| !(l.starts_with(HEADER) || l.starts_with(FOOTER)))
+        .collect();
+
+    Ok(serde_json::from_str(&decrypt_helper(&payload, passphrase)?).unwrap())
+}
+
+/// Encrypt the list of exported room keys using the given passphrase.
+///
+/// # Arguments
+///
+/// * `keys` - A list of sessions that should be encrypted.
+///
+/// * `passphrase` - The passphrase that will be used to encrypt the exported
+/// room keys.
+///
+/// * `rounds` - The number of rounds that should be used for the key
+/// derivation when the passphrase gets turned into an AES key. More rounds are
+/// increasingly computationally intensive and as such help against bruteforce
+/// attacks. Should be at least `10000`, while values in the `100000` ranges
+/// should be preferred.
+///
+/// # Examples
+/// ```no_run
+/// # use matrix_sdk_crypto::{OlmMachine, encrypt_key_export};
+/// # use matrix_sdk_common::identifiers::{user_id, room_id};
+/// # use futures::executor::block_on;
+/// # let alice = user_id!("@alice:example.org");
+/// # let machine = OlmMachine::new(&alice, "DEVICEID".into());
+/// # block_on(async {
+/// let room_id = room_id!("!test:localhost");
+/// let exported_keys = machine.export_keys(|s| s.room_id() == &room_id).await.unwrap();
+/// let encrypted_export = encrypt_key_export(&exported_keys, "1234", 1);
+/// # });
+/// ```
+pub fn encrypt_key_export(keys: &Vec<ExportedRoomKey>, passphrase: &str, rounds: u32) -> String {
+    let mut plaintext = serde_json::to_string(keys).unwrap().into_bytes();
+    let ciphertext = encrypt_helper(&mut plaintext, passphrase, rounds);
+    [HEADER.to_owned(), ciphertext, FOOTER.to_owned()].join("\n")
+}
+
+fn encrypt_helper(mut plaintext: &mut [u8], passphrase: &str, rounds: u32) -> String {
     let mut salt = [0u8; SALT_SIZE];
     let mut iv = [0u8; IV_SIZE];
     let mut derived_keys = [0u8; KEY_SIZE * 2];
-    let version: u8 = 1;
 
     getrandom(&mut salt).expect("Can't generate randomness");
     getrandom(&mut iv).expect("Can't generate randomness");
@@ -60,7 +139,7 @@ pub fn encrypt(mut plaintext: &mut [u8], passphrase: &str, rounds: u32) -> Strin
 
     let mut payload: Vec<u8> = vec![];
 
-    payload.extend(&version.to_be_bytes());
+    payload.extend(&VERSION.to_be_bytes());
     payload.extend(&salt);
     payload.extend(&iv.to_be_bytes());
     payload.extend(&rounds.to_be_bytes());
@@ -75,7 +154,7 @@ pub fn encrypt(mut plaintext: &mut [u8], passphrase: &str, rounds: u32) -> Strin
     encode(payload)
 }
 
-pub fn decrypt(ciphertext: &str, passphrase: &str) -> Result<String, DecodeError> {
+fn decrypt_helper(ciphertext: &str, passphrase: &str) -> Result<String, DecodeError> {
     let decoded = decode(ciphertext)?;
 
     let mut decoded = Cursor::new(decoded);
@@ -99,7 +178,7 @@ pub fn decrypt(ciphertext: &str, passphrase: &str) -> Result<String, DecodeError
 
     let mut decoded = decoded.into_inner();
 
-    if version != 1u8 {
+    if version != VERSION {
         panic!("Unsupported version")
     }
 
@@ -120,31 +199,31 @@ pub fn decrypt(ciphertext: &str, passphrase: &str) -> Result<String, DecodeError
 #[cfg(test)]
 mod test {
     use indoc::indoc;
+    use proptest::prelude::*;
+    use std::io::Cursor;
 
-    use super::{decode, decrypt, encrypt};
+    use matrix_sdk_common::identifiers::room_id;
+    use matrix_sdk_test::async_test;
+
+    use super::{decode, decrypt_helper, decrypt_key_export, encrypt_helper, encrypt_key_export};
+    use crate::machine::test::get_prepared_machine;
 
     const PASSPHRASE: &str = "1234";
 
     const TEST_EXPORT: &str = indoc! {"
         -----BEGIN MEGOLM SESSION DATA-----
-        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
+        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
+        GYW19pdjg0qdXNk/eqZsQTsNWVo6A
         -----END MEGOLM SESSION DATA-----
     "};
 
@@ -161,20 +240,56 @@ mod test {
         assert!(decode(export).is_ok());
     }
 
+    proptest! {
+        #[test]
+        fn proptest_encrypt_cycle(plaintext in prop::string::string_regex(".*").unwrap()) {
+            let mut plaintext_bytes = plaintext.clone().into_bytes();
+
+            let ciphertext = encrypt_helper(&mut plaintext_bytes, "test", 1);
+            let decrypted = decrypt_helper(&mut ciphertext.clone(), "test").unwrap();
+
+            prop_assert!(plaintext == decrypted);
+        }
+    }
+
     #[test]
     fn test_encrypt_decrypt() {
         let data = "It's a secret to everybody";
         let mut bytes = data.to_owned().into_bytes();
 
-        let encrypted = encrypt(&mut bytes, PASSPHRASE, 10);
-        let decrypted = decrypt(&encrypted, PASSPHRASE).unwrap();
+        let encrypted = encrypt_helper(&mut bytes, PASSPHRASE, 10);
+        let decrypted = decrypt_helper(&encrypted, PASSPHRASE).unwrap();
 
         assert_eq!(data, decrypted);
     }
 
-    // #[test]
-    // fn test_real_decrypt() {
-    //     let export = export_wihtout_headers();
-    //     decrypt(&export, PASSPHRASE).expect("Can't decrypt key export");
-    // }
+    #[async_test]
+    async fn test_session_encrypt() {
+        let (machine, _) = get_prepared_machine().await;
+        let room_id = room_id!("!test:localhost");
+
+        machine
+            .create_outnbound_group_session_with_defaults(&room_id)
+            .await
+            .unwrap();
+        let export = machine
+            .export_keys(|s| s.room_id() == &room_id)
+            .await
+            .unwrap();
+
+        assert!(!export.is_empty());
+
+        let encrypted = encrypt_key_export(&export, "1234", 1);
+        let decrypted = decrypt_key_export(Cursor::new(encrypted), "1234").unwrap();
+
+        assert_eq!(export, decrypted);
+        assert_eq!(machine.import_keys(decrypted).await.unwrap(), 0);
+    }
+
+    #[test]
+    fn test_real_decrypt() {
+        let reader = Cursor::new(TEST_EXPORT);
+        let imported = decrypt_key_export(reader, PASSPHRASE).expect("Can't decrypt key export");
+        assert!(!imported.is_empty())
+    }
 }
