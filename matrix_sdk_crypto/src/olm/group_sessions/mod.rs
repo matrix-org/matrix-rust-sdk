@@ -34,14 +34,14 @@ pub struct GroupSessionKey(pub String);
 
 /// The exported version of an private session key of a group session.
 /// Can be used to create a new inbound group session.
-#[derive(Clone, Debug, Serialize, Deserialize, Zeroize)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Zeroize)]
 #[zeroize(drop)]
 pub struct ExportedGroupSessionKey(pub String);
 
 /// An exported version of a `InboundGroupSession`
 ///
 /// This can be used to share the `InboundGroupSession` in an exported file.
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
 pub struct ExportedRoomKey {
     /// The encryption algorithm that the session uses.
     pub algorithm: EventEncryptionAlgorithm,
