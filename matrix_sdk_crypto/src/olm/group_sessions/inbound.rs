@@ -72,7 +72,7 @@ impl InboundGroupSession {
     ///
     /// * `session_key` - The private session key that is used to decrypt
     /// messages.
-    pub fn new(
+    pub(crate) fn new(
         sender_key: &str,
         signing_key: &str,
         room_id: &RoomId,
@@ -189,6 +189,11 @@ impl InboundGroupSession {
         })
     }
 
+    /// The room where this session is used in.
+    pub fn room_id(&self) -> &RoomId {
+        &self.room_id
+    }
+
     /// Returns the unique identifier for this session.
     pub fn session_id(&self) -> &str {
         &self.session_id
@@ -207,7 +212,7 @@ impl InboundGroupSession {
     /// # Arguments
     ///
     /// * `message` - The message that should be decrypted.
-    pub async fn decrypt_helper(
+    pub(crate) async fn decrypt_helper(
         &self,
         message: String,
     ) -> Result<(String, u32), OlmGroupSessionError> {
@@ -219,7 +224,7 @@ impl InboundGroupSession {
     /// # Arguments
     ///
     /// * `event` - The event that should be decrypted.
-    pub async fn decrypt(
+    pub(crate) async fn decrypt(
         &self,
         event: &SyncMessageEvent<EncryptedEventContent>,
     ) -> MegolmResult<(Raw<AnySyncRoomEvent>, u32)> {
