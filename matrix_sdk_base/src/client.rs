@@ -1862,6 +1862,8 @@ impl BaseClient {
     }
 
     /// Get the olm machine.
+    #[cfg(feature = "encryption")]
+    #[cfg_attr(feature = "docs", doc(cfg(encryption)))]
     pub async fn olm_machine(&self) -> Option<OlmMachine> {
         let olm = self.olm.lock().await;
         olm.as_ref().cloned()
