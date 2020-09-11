@@ -14,5 +14,5 @@ version = "0.1.0"
 proc-macro = true
 
 [dependencies]
-syn = "1.0.39"
+syn = "1.0.40"
 quote = "1.0.7"

@@ -22,12 +22,16 @@ use std::{
     result::Result as StdResult,
     sync::Arc,
 };
+#[cfg(feature = "encryption")]
+use std::{io::Write, path::PathBuf};
 
 #[cfg(feature = "encryption")]
 use dashmap::DashMap;
 use futures_timer::Delay as sleep;
 use reqwest::header::{HeaderValue, InvalidHeaderValue};
 use url::Url;
+#[cfg(feature = "encryption")]
+use zeroize::Zeroizing;
 
 #[cfg(feature = "encryption")]
 use tracing::{debug, warn};
@@ -36,7 +40,10 @@ use tracing::{error, info, instrument};
 use matrix_sdk_base::{BaseClient, BaseClientConfig, Room, Session, StateStore};
 
 #[cfg(feature = "encryption")]
-use matrix_sdk_base::{CryptoStoreError, OutgoingRequests, ToDeviceRequest};
+use matrix_sdk_base::crypto::{
+    decrypt_key_export, encrypt_key_export, olm::InboundGroupSession, store::CryptoStoreError,
+    OutgoingRequests, ToDeviceRequest,
+};
 
 use matrix_sdk_common::{
     api::r0::{
@@ -1479,7 +1486,6 @@ impl Client {
     ///
     /// println!("{:?}", device.is_trusted());
     ///
-    ///
     /// let verification = device.start_verification().await.unwrap();
     /// # });
     /// ```
@@ -1533,6 +1539,126 @@ impl Client {
             inner: devices,
             http_client: self.http_client.clone(),
         })
+    }
+
+    /// Export E2EE keys that match the given predicate encrypting them with the
+    /// given passphrase.
+    ///
+    /// # Arguments
+    ///
+    /// * `path` - The file path where the exported key file will be saved.
+    ///
+    /// * `passphrase` - The passphrase that will be used to encrypt the exported
+    /// room keys.
+    ///
+    /// * `predicate` - A closure that will be called for every known
+    /// `InboundGroupSession`, which represents a room key. If the closure
+    /// returns `true` the `InboundGroupSessoin` will be included in the export,
+    /// if the closure returns `false` it will not be included.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// # use std::{path::PathBuf, time::Duration};
+    /// # use matrix_sdk::{
+    /// #     Client, SyncSettings,
+    /// #     api::r0::typing::create_typing_event::Typing,
+    /// #     identifiers::room_id,
+    /// # };
+    /// # use futures::executor::block_on;
+    /// # use url::Url;
+    /// # block_on(async {
+    /// # let homeserver = Url::parse("http://localhost:8080").unwrap();
+    /// # let mut client = Client::new(homeserver).unwrap();
+    /// let path = PathBuf::from("/home/example/e2e-keys.txt");
+    /// // Export all room keys.
+    /// client
+    ///     .export_keys(path, "secret-passphrase", |_| true)
+    ///     .await
+    ///     .expect("Can't export keys.");
+    ///
+    /// // Export only the room keys for a certain room.
+    /// let path = PathBuf::from("/home/example/e2e-room-keys.txt");
+    /// let room_id = room_id!("!test:localhost");
+    ///
+    /// client
+    ///     .export_keys(path, "secret-passphrase", |s| s.room_id() == &room_id)
+    ///     .await
+    ///     .expect("Can't export keys.");
+    /// # });
+    /// ```
+    #[cfg(feature = "encryption")]
+    #[cfg(not(target_arch = "wasm32"))]
+    #[cfg_attr(feature = "docs", doc(cfg(encryption)))]
+    pub async fn export_keys(
+        &self,
+        path: PathBuf,
+        passphrase: &str,
+        predicate: impl FnMut(&InboundGroupSession) -> bool,
+    ) -> Result<()> {
+        let olm = self
+            .base_client
+            .olm_machine()
+            .await
+            .ok_or(Error::AuthenticationRequired)?;
+
+        let keys = olm.export_keys(predicate).await?;
+        let passphrase = Zeroizing::new(passphrase.to_owned());
+
+        let encrypt = move || -> Result<()> {
+            let export: String = encrypt_key_export(&keys, &passphrase, 500_000)?;
+            let mut file = std::fs::File::create(path).unwrap();
+            file.write_all(&export.into_bytes()).unwrap();
+            Ok(())
+        };
+
+        let task = tokio::task::spawn_blocking(encrypt);
+        task.await.expect("Task join error")
+    }
+
+    /// Import E2EE keys from the given file path.
+    ///
+    /// ```no_run
+    /// # use std::{path::PathBuf, time::Duration};
+    /// # use matrix_sdk::{
+    /// #     Client, SyncSettings,
+    /// #     api::r0::typing::create_typing_event::Typing,
+    /// #     identifiers::room_id,
+    /// # };
+    /// # use futures::executor::block_on;
+    /// # use url::Url;
+    /// # block_on(async {
+    /// # let homeserver = Url::parse("http://localhost:8080").unwrap();
+    /// # let mut client = Client::new(homeserver).unwrap();
+    /// let path = PathBuf::from("/home/example/e2e-keys.txt");
+    /// client
+    ///     .import_keys(path, "secret-passphrase")
+    ///     .await
+    ///     .expect("Can't import keys");
+    /// # });
+    /// ```
+    #[cfg(feature = "encryption")]
+    #[cfg(not(target_arch = "wasm32"))]
+    #[cfg_attr(feature = "docs", doc(cfg(encryption)))]
+    pub async fn import_keys(&self, path: PathBuf, passphrase: &str) -> Result<()> {
+        let olm = self
+            .base_client
+            .olm_machine()
+            .await
+            .ok_or(Error::AuthenticationRequired)?;
+        let passphrase = Zeroizing::new(passphrase.to_owned());
+
+        let decrypt = move || {
+            let file = std::fs::File::open(path)?;
+            decrypt_key_export(file, &passphrase)
+        };
+
+        let task = tokio::task::spawn_blocking(decrypt);
+        let import = task.await.expect("Task join error").unwrap();
+
+        olm.import_keys(import).await.unwrap();
+
+        Ok(())
     }
 }
 

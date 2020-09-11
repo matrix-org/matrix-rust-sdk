@@ -44,11 +44,11 @@ compile_error!("one of 'native-tls' or 'rustls-tls' features must be enabled");
 #[cfg(all(feature = "native-tls", feature = "rustls-tls",))]
 compile_error!("only one of 'native-tls' or 'rustls-tls' features can be enabled");
 
-#[cfg(not(target_arch = "wasm32"))]
-pub use matrix_sdk_base::JsonStore;
 #[cfg(feature = "encryption")]
 #[cfg_attr(feature = "docs", doc(cfg(encryption)))]
-pub use matrix_sdk_base::LocalTrust;
+pub use matrix_sdk_base::crypto::LocalTrust;
+#[cfg(not(target_arch = "wasm32"))]
+pub use matrix_sdk_base::JsonStore;
 pub use matrix_sdk_base::{
     CustomEvent, Error as BaseError, EventEmitter, Room, RoomState, Session, StateStore, SyncRoom,
 };

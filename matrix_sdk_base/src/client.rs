@@ -1860,6 +1860,12 @@ impl BaseClient {
             panic!("The client hasn't been logged in")
         }
     }
+
+    /// Get the olm machine.
+    pub async fn olm_machine(&self) -> Option<OlmMachine> {
+        let olm = self.olm.lock().await;
+        olm.as_ref().cloned()
+    }
 }
 
 #[cfg(test)]

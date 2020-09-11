@@ -14,8 +14,8 @@
 
 use std::{ops::Deref, result::Result as StdResult};
 
-use matrix_sdk_base::{
-    CryptoStoreError, Device as BaseDevice, LocalTrust, ReadOnlyDevice,
+use matrix_sdk_base::crypto::{
+    store::CryptoStoreError, Device as BaseDevice, LocalTrust, ReadOnlyDevice,
     UserDevices as BaseUserDevices,
 };
 use matrix_sdk_common::{

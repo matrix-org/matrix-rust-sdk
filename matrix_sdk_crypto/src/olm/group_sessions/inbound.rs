@@ -40,6 +40,10 @@ pub use olm_rs::{
 use super::{ExportedGroupSessionKey, ExportedRoomKey, GroupSessionKey};
 use crate::error::{EventError, MegolmResult};
 
+// TODO add creation times to the inbound grop sessions so we can export
+// sessions that were created between some time period, this should only be set
+// for non-imported sessoins.
+
 /// Inbound group session.
 ///
 /// Inbound group sessions are used to exchange room messages between a group of

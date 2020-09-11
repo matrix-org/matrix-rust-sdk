@@ -24,7 +24,7 @@ use serde_json::Error as JsonError;
 use thiserror::Error;
 
 #[cfg(feature = "encryption")]
-use matrix_sdk_base::CryptoStoreError;
+use matrix_sdk_base::crypto::store::CryptoStoreError;
 
 /// Result type of the rust-sdk.
 pub type Result<T> = std::result::Result<T, Error>;
