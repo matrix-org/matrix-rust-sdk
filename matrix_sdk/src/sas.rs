@@ -28,11 +28,8 @@ impl Sas {
     /// Accept the interactive verification flow.
     pub async fn accept(&self) -> Result<()> {
         if let Some(req) = self.inner.accept() {
-            let request = ToDeviceRequest {
-                event_type: req.event_type,
-                txn_id: &req.txn_id.to_string(),
-                messages: req.messages,
-            };
+            let txn_id_string = req.txn_id_string();
+            let request = ToDeviceRequest::new(req.event_type, &txn_id_string, req.messages);
 
             self.http_client.send(request).await?;
         }
@@ -42,11 +39,8 @@ impl Sas {
     /// Confirm that the short auth strings match on both sides.
     pub async fn confirm(&self) -> Result<()> {
         if let Some(req) = self.inner.confirm().await? {
-            let request = ToDeviceRequest {
-                event_type: req.event_type,
-                txn_id: &req.txn_id.to_string(),
-                messages: req.messages,
-            };
+            let txn_id_string = req.txn_id_string();
+            let request = ToDeviceRequest::new(req.event_type, &txn_id_string, req.messages);
 
             self.http_client.send(request).await?;
         }
@@ -57,11 +51,8 @@ impl Sas {
     /// Cancel the interactive verification flow.
     pub async fn cancel(&self) -> Result<()> {
         if let Some(req) = self.inner.cancel() {
-            let request = ToDeviceRequest {
-                event_type: req.event_type,
-                txn_id: &req.txn_id.to_string(),
-                messages: req.messages,
-            };
+            let txn_id_string = req.txn_id_string();
+            let request = ToDeviceRequest::new(req.event_type, &txn_id_string, req.messages);
 
             self.http_client.send(request).await?;
         }

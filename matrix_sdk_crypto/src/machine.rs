@@ -30,12 +30,13 @@ use matrix_sdk_common::{
     api::r0::{
         keys::{
             claim_keys::{Request as KeysClaimRequest, Response as KeysClaimResponse},
-            get_keys::{IncomingRequest as KeysQueryRequest, Response as KeysQueryResponse},
+            get_keys::Response as KeysQueryResponse,
             upload_keys,
         },
         sync::sync_events::Response as SyncResponse,
         to_device::DeviceIdOrAllDevices,
     },
+    assign,
     encryption::DeviceKeys,
     events::{
         forwarded_room_key::ForwardedRoomKeyEventContent, room::encrypted::EncryptedEventContent,
@@ -60,7 +61,7 @@ use super::{
         Account, EncryptionSettings, ExportedRoomKey, GroupSessionKey, IdentityKeys,
         InboundGroupSession, OlmMessage, OutboundGroupSession,
     },
-    requests::{IncomingResponse, OutgoingRequest, ToDeviceRequest},
+    requests::{IncomingResponse, KeysQueryRequest, OutgoingRequest, ToDeviceRequest},
     store::{CryptoStore, MemoryStore, Result as StoreResult},
     verification::{Sas, VerificationMachine},
 };
@@ -415,10 +416,9 @@ impl OlmMachine {
         } else {
             Ok(Some((
                 Uuid::new_v4(),
-                KeysClaimRequest {
+                assign!(KeysClaimRequest::new(missing), {
                     timeout: Some(OlmMachine::KEY_CLAIM_TIMEOUT),
-                    one_time_keys: missing,
-                },
+                }),
             )))
         }
     }
@@ -700,11 +700,7 @@ impl OlmMachine {
     /// [`OlmMachine`]: struct.OlmMachine.html
     async fn keys_for_upload(&self) -> Option<upload_keys::Request> {
         let (device_keys, one_time_keys) = self.account.keys_for_upload().await?;
-
-        Some(upload_keys::Request {
-            device_keys,
-            one_time_keys,
-        })
+        Some(assign!(upload_keys::Request::new(), { device_keys, one_time_keys }))
     }
 
     /// Try to decrypt an Olm message.
@@ -1428,11 +1424,7 @@ impl OlmMachine {
                 device_keys.insert(user, Vec::new());
             }
 
-            Some(KeysQueryRequest {
-                timeout: None,
-                device_keys,
-                token: None,
-            })
+            Some(KeysQueryRequest::new(device_keys))
         }
     }
 
@@ -1778,10 +1770,7 @@ pub(crate) mod test {
         let mut one_time_keys = BTreeMap::new();
         one_time_keys.insert(bob.user_id.clone(), bob_keys);
 
-        let response = claim_keys::Response {
-            failures: BTreeMap::new(),
-            one_time_keys,
-        };
+        let response = claim_keys::Response::new(one_time_keys);
 
         alice.receive_keys_claim_response(&response).await.unwrap();
 
@@ -2052,10 +2041,7 @@ pub(crate) mod test {
         let mut one_time_keys = BTreeMap::new();
         one_time_keys.insert(bob_machine.user_id.clone(), bob_keys);
 
-        let response = claim_keys::Response {
-            failures: BTreeMap::new(),
-            one_time_keys,
-        };
+        let response = claim_keys::Response::new(one_time_keys);
 
         alice_machine
             .receive_keys_claim_response(&response)
