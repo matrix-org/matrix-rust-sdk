@@ -27,9 +27,10 @@
 )]
 #![cfg_attr(feature = "docs", feature(doc_cfg))]
 
+#[allow(dead_code)]
+mod attachments;
 mod error;
 mod identities;
-#[allow(dead_code)]
 mod key_export;
 mod machine;
 pub mod olm;
