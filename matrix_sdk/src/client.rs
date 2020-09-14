@@ -18,6 +18,7 @@ use std::{
     convert::{TryFrom, TryInto},
     fmt::{self, Debug},
     future::Future,
+    io::Read,
     path::Path,
     result::Result as StdResult,
     sync::Arc,
@@ -42,7 +43,7 @@ use matrix_sdk_base::{BaseClient, BaseClientConfig, Room, Session, StateStore};
 #[cfg(feature = "encryption")]
 use matrix_sdk_base::crypto::{
     decrypt_key_export, encrypt_key_export, olm::InboundGroupSession, store::CryptoStoreError,
-    OutgoingRequests, ToDeviceRequest,
+    AttachmentEncryptor, OutgoingRequests, ToDeviceRequest,
 };
 
 use matrix_sdk_common::{
@@ -50,6 +51,7 @@ use matrix_sdk_common::{
         account::register,
         device::get_devices,
         directory::{get_public_rooms, get_public_rooms_filtered},
+        media::create_content,
         membership::{
             ban_user, forget_room,
             invite_user::{self, InvitationRecipient},
@@ -87,7 +89,13 @@ use matrix_sdk_common::{
 };
 
 use crate::{
-    events::AnyMessageEventContent,
+    events::{
+        room::{
+            message::{FileMessageEventContent, MessageEventContent},
+            EncryptedFile,
+        },
+        AnyMessageEventContent,
+    },
     http_client::{client_with_config, HttpClient, HttpSend},
     identifiers::{EventId, RoomId, RoomIdOrAliasId, UserId},
     Error, EventEmitter, OutgoingRequest, Result,
@@ -1078,6 +1086,93 @@ impl Client {
 
         let response = self.send(request).await?;
         Ok(response)
+    }
+
+    #[allow(missing_docs)]
+    pub async fn room_send_attachment<'a, R: Read>(
+        &self,
+        room_id: &RoomId,
+        reader: &'a mut R,
+        txn_id: Option<Uuid>,
+    ) -> Result<send_message_event::Response> {
+        #[cfg(not(feature = "encryption"))]
+        let encrypted = false;
+
+        #[cfg(feature = "encryption")]
+        let encrypted = {
+            let room = self.base_client.get_joined_room(room_id).await;
+
+            match room {
+                Some(r) => r.read().await.is_encrypted(),
+                None => false,
+            }
+        };
+
+        #[cfg(feature = "encryption")]
+        if encrypted {
+            let mut data = Vec::new();
+            let mut encryptor = AttachmentEncryptor::new(reader);
+
+            encryptor.read_to_end(&mut data).unwrap();
+            let keys = encryptor.finish();
+
+            let upload = self
+                .upload("application/octet-stream".to_owned(), data, None)
+                .await?;
+
+            let content = EncryptedFile {
+                url: upload.content_uri,
+                key: keys.web_key,
+                iv: keys.iv,
+                hashes: keys.hashes,
+                v: keys.version,
+            };
+
+            let content = AnyMessageEventContent::RoomMessage(MessageEventContent::File(
+                FileMessageEventContent {
+                    body: "test".to_owned(),
+                    filename: None,
+                    info: None,
+                    url: None,
+                    file: Some(Box::new(content)),
+                },
+            ));
+
+            return self.room_send(room_id, content, txn_id).await;
+        };
+
+        let mut data = Vec::new();
+        reader.read_to_end(&mut data).unwrap();
+        let upload = self
+            .upload("application/octet-stream".to_owned(), data, None)
+            .await?;
+
+        let content = AnyMessageEventContent::RoomMessage(MessageEventContent::File(
+            FileMessageEventContent {
+                body: "test".to_owned(),
+                filename: None,
+                info: None,
+                url: Some(upload.content_uri),
+                file: None,
+            },
+        ));
+
+        self.room_send(room_id, content, txn_id).await
+    }
+
+    async fn upload(
+        &self,
+        content_type: String,
+        data: Vec<u8>,
+        filename: Option<String>,
+    ) -> Result<create_content::Response> {
+        let request = create_content::Request {
+            content_type,
+            file: data,
+            filename,
+        };
+
+        self.send(request).await
     }
 
     /// Send an arbitrary request to the server, without updating client state.
