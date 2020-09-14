@@ -1089,10 +1089,10 @@ impl Client {
     }
 
     #[allow(missing_docs)]
-    pub async fn room_send_attachment<'a, R: Read>(
+    pub async fn room_send_attachment<R: Read>(
         &self,
         room_id: &RoomId,
-        reader: &'a mut R,
+        reader: &mut R,
         txn_id: Option<Uuid>,
     ) -> Result<send_message_event::Response> {
         #[cfg(not(feature = "encryption"))]
