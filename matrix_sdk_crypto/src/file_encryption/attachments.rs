@@ -175,7 +175,7 @@ pub struct EncryptionInfo {
 mod test {
     use super::{AttachmentDecryptor, AttachmentEncryptor, EncryptionInfo};
     use serde_json::json;
-    use std::io::{Cursor, Read, Write};
+    use std::io::{Cursor, Read};
 
     const EXAMPLE_DATA: &[u8] = &[
         179, 154, 118, 127, 186, 127, 110, 33, 203, 33, 33, 134, 67, 100, 173, 46, 235, 27, 215,
