@@ -27,11 +27,9 @@
 )]
 #![cfg_attr(feature = "docs", feature(doc_cfg))]
 
-#[allow(dead_code)]
-mod attachments;
 mod error;
+mod file_encryption;
 mod identities;
-mod key_export;
 mod machine;
 pub mod olm;
 mod requests;
@@ -39,10 +37,10 @@ pub mod store;
 mod verification;
 
 pub use error::{MegolmError, OlmError};
+pub use file_encryption::{decrypt_key_export, encrypt_key_export};
 pub use identities::{
     Device, LocalTrust, OwnUserIdentity, ReadOnlyDevice, UserDevices, UserIdentities, UserIdentity,
 };
-pub use key_export::{decrypt_key_export, encrypt_key_export};
 pub use machine::OlmMachine;
 pub(crate) use olm::Account;
 pub use olm::EncryptionSettings;

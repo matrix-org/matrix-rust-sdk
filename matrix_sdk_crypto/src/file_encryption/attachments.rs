@@ -21,7 +21,6 @@ use serde::{Deserialize, Serialize};
 
 use matrix_sdk_common::events::room::JsonWebKey;
 
-use base64::{decode_config, encode_config, DecodeError, STANDARD_NO_PAD, URL_SAFE_NO_PAD};
 use getrandom::getrandom;
 
 use aes_ctr::{
@@ -30,25 +29,11 @@ use aes_ctr::{
 };
 use sha2::{Digest, Sha256};
 
+use super::{decode, decode_url_safe, encode, encode_url_safe};
+
 const IV_SIZE: usize = 16;
 const KEY_SIZE: usize = 32;
 const VERSION: u8 = 1;
-
-fn decode(input: impl AsRef<[u8]>) -> Result<Vec<u8>, DecodeError> {
-    decode_config(input, STANDARD_NO_PAD)
-}
-
-fn decode_url_safe(input: impl AsRef<[u8]>) -> Result<Vec<u8>, DecodeError> {
-    decode_config(input, URL_SAFE_NO_PAD)
-}
-
-fn encode(input: impl AsRef<[u8]>) -> String {
-    encode_config(input, STANDARD_NO_PAD)
-}
-
-fn encode_url_safe(input: impl AsRef<[u8]>) -> String {
-    encode_config(input, URL_SAFE_NO_PAD)
-}
 
 pub struct AttachmentDecryptor<'a, R: 'a + Read> {
     inner_reader: &'a mut R,
@@ -78,6 +63,7 @@ impl<'a, R: Read> Read for AttachmentDecryptor<'a, R> {
 
 impl<'a, R: Read + 'a> AttachmentDecryptor<'a, R> {
     fn new(input: &'a mut R, info: EncryptionInfo) -> AttachmentDecryptor<'a, R> {
+        // TODO check the version
         let hash = decode(info.hashes.get("sha256").unwrap()).unwrap();
         // TODO Use zeroizing here.
         let key = decode_url_safe(info.web_key.k).unwrap();

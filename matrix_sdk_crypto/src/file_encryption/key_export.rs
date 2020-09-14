@@ -16,7 +16,6 @@ use serde_json::Error as SerdeError;
 use std::io::{Cursor, Read, Seek, SeekFrom};
 use thiserror::Error;
 
-use base64::{decode_config, encode_config, DecodeError, STANDARD_NO_PAD};
 use byteorder::{BigEndian, ReadBytesExt};
 use getrandom::getrandom;
 
@@ -28,6 +27,7 @@ use hmac::{Hmac, Mac, NewMac};
 use pbkdf2::pbkdf2;
 use sha2::{Sha256, Sha512};
 
+use super::{decode, encode, DecodeError};
 use crate::olm::ExportedRoomKey;
 
 const SALT_SIZE: usize = 16;
@@ -38,14 +38,6 @@ const VERSION: u8 = 1;
 
 const HEADER: &str = "-----BEGIN MEGOLM SESSION DATA-----";
 const FOOTER: &str = "-----END MEGOLM SESSION DATA-----";
-
-fn decode(input: impl AsRef<[u8]>) -> Result<Vec<u8>, DecodeError> {
-    decode_config(input, STANDARD_NO_PAD)
-}
-
-fn encode(input: impl AsRef<[u8]>) -> String {
-    encode_config(input, STANDARD_NO_PAD)
-}
 
 /// Error representing a failure during key export or import.
 #[derive(Error, Debug)]
