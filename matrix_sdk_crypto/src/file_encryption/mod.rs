@@ -2,6 +2,7 @@
 mod attachments;
 mod key_export;
 
+pub use attachments::AttachmentEncryptor;
 pub use key_export::{decrypt_key_export, encrypt_key_export};
 
 use base64::{decode_config, encode_config, DecodeError, STANDARD_NO_PAD, URL_SAFE_NO_PAD};
