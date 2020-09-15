@@ -133,7 +133,7 @@ impl<'a, R: Read + 'a> AttachmentEncryptor<'a, R> {
         };
         let encoded_iv = encode(iv);
 
-        let aes = Aes256Ctr::new_var(&key, &iv).unwrap();
+        let aes = Aes256Ctr::new_var(&key, &iv).expect("Cannot create AES encryption object.");
 
         AttachmentEncryptor {
             finished: false,
