@@ -1057,7 +1057,11 @@ impl Client {
         content: impl Into<AnyMessageEventContent>,
         txn_id: Option<Uuid>,
     ) -> Result<send_message_event::Response> {
-        let content = if cfg!(feature = "encryption") && self.is_room_encrypted(room_id).await {
+        #[cfg(not(feature = "encryption"))]
+        let content: AnyMessageEventContent = content.into();
+
+        #[cfg(feature = "encryption")]
+        let content = if self.is_room_encrypted(room_id).await {
             self.preshare_group_session(room_id).await?;
             AnyMessageEventContent::RoomEncrypted(self.base_client.encrypt(room_id, content).await?)
         } else {
@@ -1139,15 +1143,19 @@ impl Client {
         reader: &mut R,
         txn_id: Option<Uuid>,
     ) -> Result<send_message_event::Response> {
-        let (new_content_type, reader, keys) =
-            if cfg!(feature = "encryption") && self.is_room_encrypted(room_id).await {
+        let (new_content_type, reader, keys) = if self.is_room_encrypted(room_id).await {
+            #[cfg(feature = "encryption")]
+            {
                 let encryptor = AttachmentEncryptor::new(reader);
                 let keys = encryptor.finish();
 
                 ("application/octet-stream", reader, Some(keys))
-            } else {
-                (content_type, reader, None)
-            };
+            }
+            #[cfg(not(feature = "encryption"))]
+            (content_type, reader, None)
+        } else {
+            (content_type, reader, None)
+        };
 
         let upload = self.upload(new_content_type, reader).await?;
 
