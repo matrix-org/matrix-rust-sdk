@@ -13,6 +13,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#[cfg(feature = "encryption")]
+use std::{collections::BTreeMap, io::Write, path::PathBuf};
 use std::{
     collections::HashMap,
     convert::{TryFrom, TryInto},
@@ -23,8 +25,6 @@ use std::{
     result::Result as StdResult,
     sync::Arc,
 };
-#[cfg(feature = "encryption")]
-use std::{io::Write, path::PathBuf};
 
 #[cfg(feature = "encryption")]
 use dashmap::DashMap;
@@ -85,6 +85,7 @@ use matrix_sdk_common::{
             Request as RumaToDeviceRequest, Response as ToDeviceResponse,
         },
     },
+    identifiers::DeviceIdBox,
     locks::Mutex,
 };
 
@@ -496,12 +497,15 @@ impl Client {
     ) -> Result<login::Response> {
         info!("Logging in to {} as {:?}", self.homeserver, user);
 
-        let request = login::Request {
-            user: login::UserInfo::MatrixId(user),
-            login_info: login::LoginInfo::Password { password },
-            device_id: device_id.map(|d| d.into()),
-            initial_device_display_name,
-        };
+        let request = assign!(
+            login::Request::new(
+                login::UserInfo::MatrixId(user),
+                login::LoginInfo::Password { password },
+            ), {
+                device_id: device_id.map(|d| d.into()),
+                initial_device_display_name,
+            }
+        );
 
         let response = self.send(request).await?;
         self.base_client.receive_login_response(&response).await?;
@@ -741,11 +745,11 @@ impl Client {
     ) -> Result<get_public_rooms::Response> {
         let limit = limit.map(|n| UInt::try_from(n).ok()).flatten();
 
-        let request = get_public_rooms::Request {
+        let request = assign!(get_public_rooms::Request::new(), {
             limit,
             since,
             server,
-        };
+        });
         self.send(request).await
     }
 
@@ -896,11 +900,8 @@ impl Client {
         room_id: &RoomId,
         typing: impl Into<Typing>,
     ) -> Result<TypingResponse> {
-        let request = TypingRequest {
-            room_id: room_id.clone(),
-            user_id: self.user_id().await.ok_or(Error::AuthenticationRequired)?,
-            state: typing.into(),
-        };
+        let user_id = self.user_id().await.ok_or(Error::AuthenticationRequired)?;
+        let request = TypingRequest::new(&user_id, room_id, typing.into());
 
         self.send(request).await
     }
@@ -919,11 +920,8 @@ impl Client {
         room_id: &RoomId,
         event_id: &EventId,
     ) -> Result<create_receipt::Response> {
-        let request = create_receipt::Request {
-            room_id: room_id.clone(),
-            event_id: event_id.clone(),
-            receipt_type: create_receipt::ReceiptType::Read,
-        };
+        let request =
+            create_receipt::Request::new(room_id, create_receipt::ReceiptType::Read, event_id);
         self.send(request).await
     }
 
@@ -1116,9 +1114,7 @@ impl Client {
             encryptor.read_to_end(&mut data).unwrap();
             let keys = encryptor.finish();
 
-            let upload = self
-                .upload("application/octet-stream".to_owned(), data, None)
-                .await?;
+            let upload = self.upload("application/octet-stream", data).await?;
 
             let content = EncryptedFile {
                 url: upload.content_uri,
@@ -1143,9 +1139,7 @@ impl Client {
 
         let mut data = Vec::new();
         reader.read_to_end(&mut data).unwrap();
-        let upload = self
-            .upload("application/octet-stream".to_owned(), data, None)
-            .await?;
+        let upload = self.upload("application/octet-stream", data).await?;
 
         let content = AnyMessageEventContent::RoomMessage(MessageEventContent::File(
             FileMessageEventContent {
@@ -1160,17 +1154,8 @@ impl Client {
         self.room_send(room_id, content, txn_id).await
     }
 
-    async fn upload(
-        &self,
-        content_type: String,
-        data: Vec<u8>,
-        filename: Option<String>,
-    ) -> Result<create_content::Response> {
-        let request = create_content::Request {
-            content_type,
-            file: data,
-            filename,
-        };
+    async fn upload(&self, content_type: &str, data: Vec<u8>) -> Result<create_content::Response> {
+        let request = create_content::Request::new(content_type, data);
 
         self.send(request).await
     }
@@ -1202,9 +1187,8 @@ impl Client {
     /// // First construct the request you want to make
     /// // See https://docs.rs/ruma-client-api/latest/ruma_client_api/index.html
     /// // for all available Endpoints
-    /// let request = profile::get_profile::Request {
-    ///     user_id: user_id!("@example:localhost"),
-    /// };
+    /// let user_id = user_id!("@example:localhost");
+    /// let request = profile::get_profile::Request::new(&user_id);
     ///
     /// // Start the request using Client::send()
     /// let response = client.send(request).await.unwrap();
@@ -1224,11 +1208,8 @@ impl Client {
     #[cfg(feature = "encryption")]
     async fn send_to_device(&self, request: ToDeviceRequest) -> Result<ToDeviceResponse> {
         let txn_id_string = request.txn_id_string();
-        let request = RumaToDeviceRequest {
-            event_type: request.event_type,
-            txn_id: &txn_id_string,
-            messages: request.messages,
-        };
+        let request =
+            RumaToDeviceRequest::new(request.event_type, &txn_id_string, request.messages);
 
         self.send(request).await
     }
@@ -1257,7 +1238,7 @@ impl Client {
     /// # });
     /// ```
     pub async fn devices(&self) -> Result<get_devices::Response> {
-        let request = get_devices::Request {};
+        let request = get_devices::Request::new();
 
         self.send(request).await
     }
@@ -1377,7 +1358,10 @@ impl Client {
                 for r in self.base_client.outgoing_requests().await {
                     match r.request() {
                         OutgoingRequests::KeysQuery(request) => {
-                            if let Err(e) = self.keys_query(r.request_id(), request).await {
+                            if let Err(e) = self
+                                .keys_query(r.request_id(), request.device_keys.clone())
+                                .await
+                            {
                                 warn!("Error while querying device keys {:?}", e);
                             }
                         }
@@ -1524,13 +1508,9 @@ impl Client {
     async fn keys_query(
         &self,
         request_id: &Uuid,
-        request: &get_keys::IncomingRequest,
+        device_keys: BTreeMap<UserId, Vec<DeviceIdBox>>,
     ) -> Result<get_keys::Response> {
-        let request = get_keys::Request {
-            timeout: None,
-            device_keys: request.device_keys.clone(),
-            token: None,
-        };
+        let request = assign!(get_keys::Request::new(), { device_keys });
 
         let response = self.send(request).await?;
         self.base_client

@@ -44,5 +44,7 @@ pub use identities::{
 pub use machine::OlmMachine;
 pub(crate) use olm::Account;
 pub use olm::EncryptionSettings;
-pub use requests::{IncomingResponse, OutgoingRequest, OutgoingRequests, ToDeviceRequest};
+pub use requests::{
+    IncomingResponse, KeysQueryRequest, OutgoingRequest, OutgoingRequests, ToDeviceRequest,
+};
 pub use verification::Sas;

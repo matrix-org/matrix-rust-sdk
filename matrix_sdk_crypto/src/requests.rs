@@ -12,19 +12,19 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{collections::BTreeMap, sync::Arc};
+use std::{collections::BTreeMap, sync::Arc, time::Duration};
 
 use matrix_sdk_common::{
     api::r0::{
         keys::{
             claim_keys::Response as KeysClaimResponse,
-            get_keys::{IncomingRequest as KeysQueryRequest, Response as KeysQueryResponse},
+            get_keys::Response as KeysQueryResponse,
             upload_keys::{Request as KeysUploadRequest, Response as KeysUploadResponse},
         },
         to_device::{send_event_to_device::Response as ToDeviceResponse, DeviceIdOrAllDevices},
     },
     events::EventType,
-    identifiers::UserId,
+    identifiers::{DeviceIdBox, UserId},
     uuid::Uuid,
 };
 
@@ -53,6 +53,35 @@ impl ToDeviceRequest {
     /// Gets the transaction ID as a string.
     pub fn txn_id_string(&self) -> String {
         self.txn_id.to_string()
+    }
+}
+
+/// Customized version of `ruma_client_api::r0::keys::get_keys::Request`, without any references.
+#[derive(Clone, Debug)]
+pub struct KeysQueryRequest {
+    /// The time (in milliseconds) to wait when downloading keys from remote
+    /// servers. 10 seconds is the recommended default.
+    pub timeout: Option<Duration>,
+
+    /// The keys to be downloaded. An empty list indicates all devices for
+    /// the corresponding user.
+    pub device_keys: BTreeMap<UserId, Vec<DeviceIdBox>>,
+
+    /// If the client is fetching keys as a result of a device update
+    /// received in a sync request, this should be the 'since' token of that
+    /// sync request, or any later sync token. This allows the server to
+    /// ensure its response contains the keys advertised by the notification
+    /// in that sync.
+    pub token: Option<String>,
+}
+
+impl KeysQueryRequest {
+    pub(crate) fn new(device_keys: BTreeMap<UserId, Vec<DeviceIdBox>>) -> Self {
+        Self {
+            timeout: None,
+            device_keys,
+            token: None,
+        }
     }
 }
 

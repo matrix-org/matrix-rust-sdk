@@ -62,11 +62,8 @@ impl Device {
     /// ```
     pub async fn start_verification(&self) -> Result<Sas> {
         let (sas, request) = self.inner.start_verification().await?;
-        let request = ToDeviceRequest {
-            event_type: request.event_type,
-            txn_id: &request.txn_id.to_string(),
-            messages: request.messages,
-        };
+        let txn_id_string = request.txn_id_string();
+        let request = ToDeviceRequest::new(request.event_type, &txn_id_string, request.messages);
 
         self.http_client.send(request).await?;
 

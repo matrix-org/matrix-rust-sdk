@@ -15,12 +15,10 @@ struct UserProfile {
 /// This function calls the GET profile endpoint
 /// Spec: https://matrix.org/docs/spec/client_server/r0.6.1#get-matrix-client-r0-profile-userid
 /// Ruma: https://docs.rs/ruma-client-api/0.9.0/ruma_client_api/r0/profile/get_profile/index.html
-async fn get_profile(client: Client, mxid: UserId) -> MatrixResult<UserProfile> {
+async fn get_profile(client: Client, mxid: &UserId) -> MatrixResult<UserProfile> {
     // First construct the request you want to make
     // See https://docs.rs/ruma-client-api/0.9.0/ruma_client_api/index.html for all available Endpoints
-    let request = profile::get_profile::Request {
-        user_id: mxid.clone(),
-    };
+    let request = profile::get_profile::Request::new(mxid);
 
     // Start the request using matrix_sdk::Client::send
     let resp = client.send(request).await?;
@@ -72,7 +70,7 @@ async fn main() -> Result<(), matrix_sdk::Error> {
     let client = login(homeserver_url, &username, &password).await?;
 
     let user_id = UserId::try_from(username).expect("Couldn't parse the MXID");
-    let profile = get_profile(client, user_id).await?;
+    let profile = get_profile(client, &user_id).await?;
     println!("{:#?}", profile);
     Ok(())
 }
