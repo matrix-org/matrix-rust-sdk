@@ -1860,9 +1860,10 @@ mod test {
     };
     use matrix_sdk_test::{test_json, EventBuilder, EventsJson};
     use mockito::{mock, Matcher};
+    use serde_json::json;
     use tempfile::tempdir;
 
-    use std::{convert::TryInto, path::Path, str::FromStr, time::Duration};
+    use std::{convert::TryInto, io::Cursor, path::Path, str::FromStr, time::Duration};
 
     async fn logged_in_client() -> Client {
         let session = Session {
@@ -2399,6 +2400,45 @@ mod test {
         let txn_id = Uuid::new_v4();
         let response = client
             .room_send(&room_id, content, Some(txn_id))
+            .await
+            .unwrap();
+
+        assert_eq!(event_id!("$h29iv0s8:example.com"), response.event_id)
+    }
+
+    #[tokio::test]
+    async fn room_attachment_send() {
+        let client = logged_in_client().await;
+
+        let _m = mock(
+            "PUT",
+            Matcher::Regex(r"^/_matrix/client/r0/rooms/.*/send/".to_string()),
+        )
+        .with_status(200)
+        .match_header("authorization", "Bearer 1234")
+        .with_body(test_json::EVENT_ID.to_string())
+        .create();
+
+        let _m = mock(
+            "POST",
+            Matcher::Regex(r"^/_matrix/media/r0/upload".to_string()),
+        )
+        .with_status(200)
+        .match_header("content-type", "image/jpg")
+        .with_body(
+            json!({
+              "content_uri": "mxc://example.com/AQwafuaFswefuhsfAFAgsw"
+            })
+            .to_string(),
+        )
+        .create();
+
+        let room_id = room_id!("!testroom:example.org");
+
+        let mut media = Cursor::new("Hello world");
+
+        let response = client
+            .room_send_attachment(&room_id, "image", "image/jpg", &mut media, None)
             .await
             .unwrap();
 
