@@ -1140,57 +1140,59 @@ impl Client {
         room_id: &RoomId,
         body: &str,
         content_type: &str,
-        reader: &mut R,
+        mut reader: &mut R,
         txn_id: Option<Uuid>,
     ) -> Result<send_message_event::Response> {
-        let (new_content_type, reader, keys) = if self.is_room_encrypted(room_id).await {
+        let (response, encrypted_file) = if self.is_room_encrypted(room_id).await {
             #[cfg(feature = "encryption")]
-            {
-                let encryptor = AttachmentEncryptor::new(reader);
-                let keys = encryptor.finish();
+            let mut reader = AttachmentEncryptor::new(reader);
+            #[cfg(feature = "encryption")]
+            let content_type = "application/octet-stream";
 
-                ("application/octet-stream", reader, Some(keys))
-            }
+            let response = self.upload(content_type, &mut reader).await?;
+
+            #[cfg(feature = "encryption")]
+            let keys = {
+                let keys = reader.finish();
+                Some(Box::new(EncryptedFile {
+                    url: response.content_uri.clone(),
+                    key: keys.web_key,
+                    iv: keys.iv,
+                    hashes: keys.hashes,
+                    v: keys.version,
+                }))
+            };
             #[cfg(not(feature = "encryption"))]
-            (content_type, reader, None)
+            let keys: Option<Box<EncryptedFile>> = None;
+
+            (response, keys)
         } else {
-            (content_type, reader, None)
+            let response = self.upload(content_type, &mut reader).await?;
+            (response, None)
         };
 
-        let upload = self.upload(new_content_type, reader).await?;
-
-        let url = upload.content_uri.clone();
-
-        let encrypted_file = keys.map(move |k| {
-            Box::new(EncryptedFile {
-                url,
-                key: k.web_key,
-                iv: k.iv,
-                hashes: k.hashes,
-                v: k.version,
-            })
-        });
+        let url = response.content_uri;
 
         let content = if content_type.starts_with("image") {
             // TODO create a thumbnail using the image crate?.
             MessageEventContent::Image(ImageMessageEventContent {
                 body: body.to_owned(),
                 info: None,
-                url: Some(upload.content_uri),
+                url: Some(url),
                 file: encrypted_file,
             })
         } else if content_type.starts_with("audio") {
             MessageEventContent::Audio(AudioMessageEventContent {
                 body: body.to_owned(),
                 info: None,
-                url: Some(upload.content_uri),
+                url: Some(url),
                 file: encrypted_file,
             })
         } else if content_type.starts_with("video") {
             MessageEventContent::Video(VideoMessageEventContent {
                 body: body.to_owned(),
                 info: None,
-                url: Some(upload.content_uri),
+                url: Some(url),
                 file: encrypted_file,
             })
         } else {
@@ -1198,7 +1200,7 @@ impl Client {
                 filename: None,
                 body: body.to_owned(),
                 info: None,
-                url: Some(upload.content_uri),
+                url: Some(url),
                 file: encrypted_file,
             })
         };
