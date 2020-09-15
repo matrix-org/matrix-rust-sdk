@@ -1054,29 +1054,11 @@ impl Client {
         content: impl Into<AnyMessageEventContent>,
         txn_id: Option<Uuid>,
     ) -> Result<send_message_event::Response> {
-        #[cfg(not(feature = "encryption"))]
-        let content: AnyMessageEventContent = content.into();
-
-        #[cfg(feature = "encryption")]
-        let content = {
-            let encrypted = {
-                let room = self.base_client.get_joined_room(room_id).await;
-
-                match room {
-                    Some(r) => r.read().await.is_encrypted(),
-                    None => false,
-                }
-            };
-
-            if encrypted {
-                self.preshare_group_session(room_id).await?;
-
-                AnyMessageEventContent::RoomEncrypted(
-                    self.base_client.encrypt(room_id, content).await?,
-                )
-            } else {
-                content.into()
-            }
+        let content = if cfg!(feature = "encryption") && self.is_room_encrypted(room_id).await {
+            self.preshare_group_session(room_id).await?;
+            AnyMessageEventContent::RoomEncrypted(self.base_client.encrypt(room_id, content).await?)
+        } else {
+            content.into()
         };
 
         let txn_id = txn_id.unwrap_or_else(Uuid::new_v4).to_string();
@@ -1084,6 +1066,19 @@ impl Client {
 
         let response = self.send(request).await?;
         Ok(response)
+    }
+
+    /// Check if the given room is encrypted.
+    ///
+    /// Returns true if a room with the given id was found and the room is
+    /// encrypted, false if the room wasn't found or isn't encrypted.
+    async fn is_room_encrypted(&self, room_id: &RoomId) -> bool {
+        let room = self.base_client.get_joined_room(room_id).await;
+
+        match room {
+            Some(r) => r.read().await.is_encrypted(),
+            None => false,
+        }
     }
 
     #[allow(missing_docs)]
