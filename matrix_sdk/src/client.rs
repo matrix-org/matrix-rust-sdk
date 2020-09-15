@@ -29,7 +29,8 @@ use std::{
 #[cfg(feature = "encryption")]
 use dashmap::DashMap;
 use futures_timer::Delay as sleep;
-use reqwest::header::{HeaderValue, InvalidHeaderValue};
+use http::HeaderValue;
+use reqwest::header::InvalidHeaderValue;
 use url::Url;
 #[cfg(feature = "encryption")]
 use zeroize::Zeroizing;
@@ -68,7 +69,17 @@ use matrix_sdk_common::{
         },
     },
     assign,
-    identifiers::ServerName,
+    events::{
+        room::{
+            message::{
+                AudioMessageEventContent, FileMessageEventContent, ImageMessageEventContent,
+                MessageEventContent, VideoMessageEventContent,
+            },
+            EncryptedFile,
+        },
+        AnyMessageEventContent,
+    },
+    identifiers::{EventId, RoomId, RoomIdOrAliasId, ServerName, UserId},
     instant::{Duration, Instant},
     js_int::UInt,
     locks::RwLock,
@@ -90,15 +101,7 @@ use matrix_sdk_common::{
 };
 
 use crate::{
-    events::{
-        room::{
-            message::{FileMessageEventContent, MessageEventContent},
-            EncryptedFile,
-        },
-        AnyMessageEventContent,
-    },
     http_client::{client_with_config, HttpClient, HttpSend},
-    identifiers::{EventId, RoomId, RoomIdOrAliasId, UserId},
     Error, EventEmitter, OutgoingRequest, Result,
 };
 
@@ -1017,9 +1020,9 @@ impl Client {
     ///
     /// * `content` - The content of the message event.
     ///
-    /// * `txn_id` - A unique `Uuid` that can be attached to a `MessageEvent` held
-    /// in its unsigned field as `transaction_id`. If not given one is created for the
-    /// message.
+    /// * `txn_id` - A unique `Uuid` that can be attached to a `MessageEvent`
+    /// held in its unsigned field as `transaction_id`. If not given one is
+    /// created for the message.
     ///
     /// # Example
     /// ```no_run
@@ -1081,78 +1084,179 @@ impl Client {
         }
     }
 
-    #[allow(missing_docs)]
+    /// Send an attachment to a room.
+    ///
+    /// This will upload the given data that the reader produces using the
+    /// [`upload()`](#method.upload) method and post an event to the given room.
+    /// If the room is encrypted and the encryption feature is enabled the
+    /// upload will be encrypted.
+    ///
+    /// This is a convenience method that calls the [`upload()`](#method.upload)
+    /// and afterwards the [`room_send()`](#method.room_send).
+    ///
+    /// # Arguments
+    /// * `room_id` -  The id of the room that should receive the media event.
+    ///
+    /// * `body` - A textual representation of the media that is going to be
+    /// uploaded. Usually the file name.
+    ///
+    /// * `content_type` - The type of the media, this will be used as the
+    /// content-type header.
+    ///
+    /// * `reader` - A `Reader` that will be used to fetch the raw bytes of the
+    /// media.
+    ///
+    /// * `txn_id` - A unique `Uuid` that can be attached to a `MessageEvent`
+    /// held in its unsigned field as `transaction_id`. If not given one is
+    /// created for the message.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// # use std::{path::PathBuf, fs::File, io::Read};
+    /// # use matrix_sdk::{Client, identifiers::room_id};
+    /// # use matrix_sdk_base::crypto::AttachmentEncryptor;
+    /// # use url::Url;
+    /// # use futures::executor::block_on;
+    /// # block_on(async {
+    /// # let homeserver = Url::parse("http://localhost:8080").unwrap();
+    /// # let mut client = Client::new(homeserver).unwrap();
+    /// # let room_id = room_id!("!test:localhost");
+    /// let path = PathBuf::from("/home/example/my-cat.jpg");
+    /// let mut image = File::open(path).unwrap();
+    ///
+    /// let response = client
+    ///     .room_send_attachment(&room_id, "My favorite cat", "image/jpg", &mut image, None)
+    ///     .await
+    ///     .expect("Can't upload my cat.");
+    /// # });
+    /// ```
     pub async fn room_send_attachment<R: Read>(
         &self,
         room_id: &RoomId,
+        body: &str,
+        content_type: &str,
         reader: &mut R,
         txn_id: Option<Uuid>,
     ) -> Result<send_message_event::Response> {
-        #[cfg(not(feature = "encryption"))]
-        let encrypted = false;
+        let (new_content_type, reader, keys) =
+            if cfg!(feature = "encryption") && self.is_room_encrypted(room_id).await {
+                let encryptor = AttachmentEncryptor::new(reader);
+                let keys = encryptor.finish();
 
-        #[cfg(feature = "encryption")]
-        let encrypted = {
-            let room = self.base_client.get_joined_room(room_id).await;
-
-            match room {
-                Some(r) => r.read().await.is_encrypted(),
-                None => false,
-            }
-        };
-
-        #[cfg(feature = "encryption")]
-        if encrypted {
-            let mut data = Vec::new();
-            let mut encryptor = AttachmentEncryptor::new(reader);
-
-            encryptor.read_to_end(&mut data).unwrap();
-            let keys = encryptor.finish();
-
-            let upload = self.upload("application/octet-stream", data).await?;
-
-            let content = EncryptedFile {
-                url: upload.content_uri,
-                key: keys.web_key,
-                iv: keys.iv,
-                hashes: keys.hashes,
-                v: keys.version,
+                ("application/octet-stream", reader, Some(keys))
+            } else {
+                (content_type, reader, None)
             };
 
-            let content = AnyMessageEventContent::RoomMessage(MessageEventContent::File(
-                FileMessageEventContent {
-                    body: "test".to_owned(),
-                    filename: None,
-                    info: None,
-                    url: None,
-                    file: Some(Box::new(content)),
-                },
-            ));
+        let upload = self.upload(new_content_type, reader).await?;
 
-            return self.room_send(room_id, content, txn_id).await;
-        };
+        let url = upload.content_uri.clone();
 
-        let mut data = Vec::new();
-        reader.read_to_end(&mut data).unwrap();
-        let upload = self.upload("application/octet-stream", data).await?;
+        let encrypted_file = keys.map(move |k| {
+            Box::new(EncryptedFile {
+                url,
+                key: k.web_key,
+                iv: k.iv,
+                hashes: k.hashes,
+                v: k.version,
+            })
+        });
 
-        let content = AnyMessageEventContent::RoomMessage(MessageEventContent::File(
-            FileMessageEventContent {
-                body: "test".to_owned(),
-                filename: None,
+        let content = if content_type.starts_with("image") {
+            // TODO create a thumbnail using the image crate?.
+            MessageEventContent::Image(ImageMessageEventContent {
+                body: body.to_owned(),
                 info: None,
                 url: Some(upload.content_uri),
-                file: None,
-            },
-        ));
+                file: encrypted_file,
+            })
+        } else if content_type.starts_with("audio") {
+            MessageEventContent::Audio(AudioMessageEventContent {
+                body: body.to_owned(),
+                info: None,
+                url: Some(upload.content_uri),
+                file: encrypted_file,
+            })
+        } else if content_type.starts_with("video") {
+            MessageEventContent::Video(VideoMessageEventContent {
+                body: body.to_owned(),
+                info: None,
+                url: Some(upload.content_uri),
+                file: encrypted_file,
+            })
+        } else {
+            MessageEventContent::File(FileMessageEventContent {
+                filename: None,
+                body: body.to_owned(),
+                info: None,
+                url: Some(upload.content_uri),
+                file: encrypted_file,
+            })
+        };
 
-        self.room_send(room_id, content, txn_id).await
+        self.room_send(
+            room_id,
+            AnyMessageEventContent::RoomMessage(content),
+            txn_id,
+        )
+        .await
     }
 
-    async fn upload(&self, content_type: &str, data: Vec<u8>) -> Result<create_content::Response> {
+    /// Upload some media to the server.
+    ///
+    /// # Arguments
+    ///
+    /// * `content_type` - The type of the media, this will be used as the
+    /// content-type header.
+    ///
+    /// * `reader` - A `Reader` that will be used to fetch the raw bytes of the
+    /// media.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// # use std::{path::PathBuf, fs::File, io::Read};
+    /// # use matrix_sdk::{Client, identifiers::room_id};
+    /// # use matrix_sdk_base::crypto::AttachmentEncryptor;
+    /// # use url::Url;
+    /// # use futures::executor::block_on;
+    /// # block_on(async {
+    /// # let homeserver = Url::parse("http://localhost:8080").unwrap();
+    /// # let mut client = Client::new(homeserver).unwrap();
+    /// let path = PathBuf::from("/home/example/my-cat.jpg");
+    /// let mut image = File::open(path).unwrap();
+    ///
+    /// let response = client
+    ///     .upload("image/jpg", &mut image)
+    ///     .await
+    ///     .expect("Can't upload my cat.");
+    ///
+    /// println!("Cat URI: {}", response.content_uri);
+    ///
+    /// // Upload an encrypted cat, err file.
+    /// let path = PathBuf::from("/home/example/my-secret-cat.jpg");
+    /// let mut image = File::open(path).unwrap();
+    /// let mut encryptor = AttachmentEncryptor::new(&mut image);
+    ///
+    /// let response = client
+    ///     .upload("image/jpg", &mut encryptor)
+    ///     .await
+    ///     .expect("Can't upload my cat.");
+    /// println!("Secret cat URI: {}", response.content_uri);
+    /// # });
+    /// ```
+    pub async fn upload(
+        &self,
+        content_type: &str,
+        reader: &mut impl Read,
+    ) -> Result<create_content::Response> {
+        let mut data = Vec::new();
+        reader.read_to_end(&mut data)?;
+
         let request = create_content::Request::new(content_type, data);
 
-        self.send(request).await
+        self.http_client.upload(request).await
     }
 
     /// Send an arbitrary request to the server, without updating client state.

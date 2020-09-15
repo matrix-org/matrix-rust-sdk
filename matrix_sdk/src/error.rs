@@ -21,6 +21,7 @@ use matrix_sdk_common::{
 };
 use reqwest::Error as ReqwestError;
 use serde_json::Error as JsonError;
+use std::io::Error as IoError;
 use thiserror::Error;
 
 #[cfg(feature = "encryption")]
@@ -43,6 +44,10 @@ pub enum Error {
     /// An error de/serializing type for the `StateStore`
     #[error(transparent)]
     SerdeJson(#[from] JsonError),
+
+    /// An IO error happened.
+    #[error(transparent)]
+    IO(#[from] IoError),
 
     /// An error converting between ruma_client_api types and Hyper types.
     #[error("can't parse the JSON response as a Matrix response")]

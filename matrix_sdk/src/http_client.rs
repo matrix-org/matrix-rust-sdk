@@ -19,7 +19,7 @@ use reqwest::{Client, Response};
 use tracing::trace;
 use url::Url;
 
-use matrix_sdk_common::{locks::RwLock, FromHttpResponseError};
+use matrix_sdk_common::{api::r0::media::create_content, locks::RwLock, FromHttpResponseError};
 use matrix_sdk_common_macros::async_trait;
 
 use crate::{ClientConfig, Error, OutgoingRequest, Result, Session};
@@ -87,6 +87,7 @@ impl HttpClient {
         &self,
         request: Request,
         session: Arc<RwLock<Option<Session>>>,
+        content_type: Option<HeaderValue>,
     ) -> Result<http::Response<Vec<u8>>> {
         let mut request = {
             let read_guard;
@@ -106,13 +107,24 @@ impl HttpClient {
         };
 
         if let HttpMethod::POST | HttpMethod::PUT | HttpMethod::DELETE = *request.method() {
-            request.headers_mut().append(
-                http::header::CONTENT_TYPE,
-                HeaderValue::from_static("application/json"),
-            );
+            if let Some(content_type) = content_type {
+                request
+                    .headers_mut()
+                    .append(http::header::CONTENT_TYPE, content_type);
+            }
         }
 
         self.inner.send_request(request).await
+    }
+
+    pub async fn upload(
+        &self,
+        request: create_content::Request<'_>,
+    ) -> Result<create_content::Response> {
+        let response = self
+            .send_request(request, self.session.clone(), None)
+            .await?;
+        Ok(create_content::Response::try_from(response)?)
     }
 
     pub async fn send<Request>(&self, request: Request) -> Result<Request::IncomingResponse>
@@ -120,7 +132,10 @@ impl HttpClient {
         Request: OutgoingRequest,
         Error: From<FromHttpResponseError<Request::EndpointError>>,
     {
-        let response = self.send_request(request, self.session.clone()).await?;
+        let content_type = HeaderValue::from_static("application/json");
+        let response = self
+            .send_request(request, self.session.clone(), Some(content_type))
+            .await?;
 
         trace!("Got response: {:?}", response);
 
