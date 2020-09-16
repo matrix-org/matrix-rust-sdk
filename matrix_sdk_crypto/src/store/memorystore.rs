@@ -36,6 +36,7 @@ pub struct MemoryStore {
     users_for_key_query: Arc<DashSet<UserId>>,
     devices: DeviceStore,
     identities: Arc<DashMap<UserId, UserIdentities>>,
+    values: Arc<DashMap<String, String>>,
 }
 
 impl Default for MemoryStore {
@@ -47,6 +48,7 @@ impl Default for MemoryStore {
             users_for_key_query: Arc::new(DashSet::new()),
             devices: DeviceStore::new(),
             identities: Arc::new(DashMap::new()),
+            values: Arc::new(DashMap::new()),
         }
     }
 }
@@ -163,6 +165,15 @@ impl CryptoStore for MemoryStore {
                 .insert(identity.user_id().to_owned(), identity.clone());
         }
         Ok(())
+    }
+
+    async fn save_value(&self, key: String, value: String) -> Result<()> {
+        self.values.insert(key, value);
+        Ok(())
+    }
+
+    async fn get_value(&self, key: &str) -> Result<Option<String>> {
+        Ok(self.values.get(key).map(|v| v.to_owned()))
     }
 }
 

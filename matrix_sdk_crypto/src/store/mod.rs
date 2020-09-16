@@ -49,9 +49,10 @@ pub use memorystore::MemoryStore;
 #[cfg(feature = "sqlite_cryptostore")]
 pub use sqlite::SqliteStore;
 
-use std::{collections::HashSet, fmt::Debug, io::Error as IoError, sync::Arc};
+use std::{collections::HashSet, fmt::Debug, io::Error as IoError, ops::Deref, sync::Arc};
 
 use olm_rs::errors::{OlmAccountError, OlmGroupSessionError, OlmSessionError};
+use serde::{Deserialize, Serialize};
 use serde_json::Error as SerdeError;
 use thiserror::Error;
 use url::ParseError;
@@ -75,6 +76,44 @@ use super::{
 };
 
 use crate::error::SessionUnpicklingError;
+
+/// A wrapper for our CryptoStore trait object.
+///
+/// This is needed because we want to have a generic interface so we can
+/// store/restore objects that we can serialize. Since trait objects and
+/// generics don't mix let the CryptoStore store strings and this wrapper
+/// adds the generic interface on top.
+#[derive(Debug, Clone)]
+pub(crate) struct Store(Arc<Box<dyn CryptoStore>>);
+
+impl Store {
+    pub fn new(store: Box<dyn CryptoStore>) -> Self {
+        Self(Arc::new(store))
+    }
+
+    #[allow(dead_code)]
+    pub async fn get_object<V: for<'b> Deserialize<'b>>(&self, key: &str) -> Result<Option<V>> {
+        if let Some(value) = self.get_value(key).await? {
+            Ok(Some(serde_json::from_str(&value)?))
+        } else {
+            Ok(None)
+        }
+    }
+
+    #[allow(dead_code)]
+    pub async fn save_object(&self, key: &str, value: &impl Serialize) -> Result<()> {
+        let value = serde_json::to_string(value)?;
+        self.save_value(key.to_owned(), value).await
+    }
+}
+
+impl Deref for Store {
+    type Target = dyn CryptoStore;
+
+    fn deref(&self) -> &Self::Target {
+        &**self.0
+    }
+}
 
 /// A `CryptoStore` specific result type.
 pub type Result<T> = std::result::Result<T, CryptoStoreError>;
@@ -250,4 +289,10 @@ pub trait CryptoStore: Debug {
     ///
     /// * `user_id` - The user for which we should get the identity.
     async fn get_user_identity(&self, user_id: &UserId) -> Result<Option<UserIdentities>>;
+
+    /// Save a serializeable object in the store.
+    async fn save_value(&self, key: String, value: String) -> Result<()>;
+
+    /// Load a serializeable object from the store.
+    async fn get_value(&self, key: &str) -> Result<Option<String>>;
 }

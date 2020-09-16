@@ -27,20 +27,20 @@ use matrix_sdk_common::{
 use super::sas::{content_to_request, Sas};
 use crate::{
     requests::{OutgoingRequest, ToDeviceRequest},
-    store::{CryptoStore, CryptoStoreError},
+    store::{CryptoStoreError, Store},
     Account, ReadOnlyDevice,
 };
 
 #[derive(Clone, Debug)]
 pub struct VerificationMachine {
     account: Account,
-    pub(crate) store: Arc<Box<dyn CryptoStore>>,
+    pub(crate) store: Store,
     verifications: Arc<DashMap<String, Sas>>,
     outgoing_to_device_messages: Arc<DashMap<Uuid, OutgoingRequest>>,
 }
 
 impl VerificationMachine {
-    pub(crate) fn new(account: Account, store: Arc<Box<dyn CryptoStore>>) -> Self {
+    pub(crate) fn new(account: Account, store: Store) -> Self {
         Self {
             account,
             store,
@@ -221,7 +221,6 @@ mod test {
 
     use std::{
         convert::TryFrom,
-        sync::Arc,
         time::{Duration, Instant},
     };
 
@@ -233,7 +232,7 @@ mod test {
     use super::{Sas, VerificationMachine};
     use crate::{
         requests::OutgoingRequests,
-        store::{CryptoStore, MemoryStore},
+        store::{CryptoStore, MemoryStore, Store},
         verification::test::{get_content_from_request, wrap_any_to_device_content},
         Account, ReadOnlyDevice,
     };
@@ -258,7 +257,7 @@ mod test {
         let alice = Account::new(&alice_id(), &alice_device_id());
         let bob = Account::new(&bob_id(), &bob_device_id());
         let store = MemoryStore::new();
-        let bob_store: Arc<Box<dyn CryptoStore>> = Arc::new(Box::new(MemoryStore::new()));
+        let bob_store = Store::new(Box::new(MemoryStore::new()));
 
         let bob_device = ReadOnlyDevice::from_account(&bob).await;
         let alice_device = ReadOnlyDevice::from_account(&alice).await;
@@ -269,7 +268,7 @@ mod test {
             .await
             .unwrap();
 
-        let machine = VerificationMachine::new(alice, Arc::new(Box::new(store)));
+        let machine = VerificationMachine::new(alice, Store::new(Box::new(store)));
         let (bob_sas, start_content) = Sas::start(bob, alice_device, bob_store, None);
         machine
             .receive_event(&mut wrap_any_to_device_content(
@@ -286,7 +285,7 @@ mod test {
     fn create() {
         let alice = Account::new(&alice_id(), &alice_device_id());
         let store = MemoryStore::new();
-        let _ = VerificationMachine::new(alice, Arc::new(Box::new(store)));
+        let _ = VerificationMachine::new(alice, Store::new(Box::new(store)));
     }
 
     #[tokio::test]

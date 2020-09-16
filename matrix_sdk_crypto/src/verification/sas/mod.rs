@@ -34,7 +34,7 @@ use matrix_sdk_common::{
 
 use crate::{
     identities::{LocalTrust, ReadOnlyDevice, UserIdentities},
-    store::{CryptoStore, CryptoStoreError},
+    store::{CryptoStoreError, Store},
     Account, ToDeviceRequest,
 };
 
@@ -47,7 +47,7 @@ use sas_state::{
 /// Short authentication string object.
 pub struct Sas {
     inner: Arc<Mutex<InnerSas>>,
-    store: Arc<Box<dyn CryptoStore>>,
+    store: Store,
     account: Account,
     other_device: ReadOnlyDevice,
     other_identity: Option<UserIdentities>,
@@ -104,7 +104,7 @@ impl Sas {
     pub(crate) fn start(
         account: Account,
         other_device: ReadOnlyDevice,
-        store: Arc<Box<dyn CryptoStore>>,
+        store: Store,
         other_identity: Option<UserIdentities>,
     ) -> (Sas, StartEventContent) {
         let (inner, content) = InnerSas::start(
@@ -139,7 +139,7 @@ impl Sas {
     pub(crate) fn from_start_event(
         account: Account,
         other_device: ReadOnlyDevice,
-        store: Arc<Box<dyn CryptoStore>>,
+        store: Store,
         event: &ToDeviceEvent<StartEventContent>,
         other_identity: Option<UserIdentities>,
     ) -> Result<Sas, AnyToDeviceEventContent> {
@@ -646,7 +646,7 @@ impl InnerSas {
 
 #[cfg(test)]
 mod test {
-    use std::{convert::TryFrom, sync::Arc};
+    use std::convert::TryFrom;
 
     use matrix_sdk_common::{
         events::{EventContent, ToDeviceEvent},
@@ -654,7 +654,7 @@ mod test {
     };
 
     use crate::{
-        store::{CryptoStore, MemoryStore},
+        store::{MemoryStore, Store},
         verification::test::{get_content_from_request, wrap_any_to_device_content},
         Account, ReadOnlyDevice,
     };
@@ -776,8 +776,8 @@ mod test {
         let bob = Account::new(&bob_id(), &bob_device_id());
         let bob_device = ReadOnlyDevice::from_account(&bob).await;
 
-        let alice_store: Arc<Box<dyn CryptoStore>> = Arc::new(Box::new(MemoryStore::new()));
-        let bob_store: Arc<Box<dyn CryptoStore>> = Arc::new(Box::new(MemoryStore::new()));
+        let alice_store = Store::new(Box::new(MemoryStore::new()));
+        let bob_store = Store::new(Box::new(MemoryStore::new()));
 
         bob_store
             .save_devices(&[alice_device.clone()])

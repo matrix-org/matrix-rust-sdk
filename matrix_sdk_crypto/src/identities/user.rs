@@ -651,7 +651,7 @@ impl OwnUserIdentity {
 #[cfg(test)]
 pub(crate) mod test {
     use serde_json::json;
-    use std::{convert::TryFrom, sync::Arc};
+    use std::convert::TryFrom;
 
     use matrix_sdk_common::{
         api::r0::keys::get_keys::Response as KeyQueryResponse, identifiers::user_id,
@@ -661,7 +661,7 @@ pub(crate) mod test {
         identities::{Device, ReadOnlyDevice},
         machine::test::response_from_file,
         olm::Account,
-        store::MemoryStore,
+        store::{MemoryStore, Store},
         verification::VerificationMachine,
     };
 
@@ -884,7 +884,7 @@ pub(crate) mod test {
 
         let verification_machine = VerificationMachine::new(
             Account::new(second.user_id(), second.device_id()),
-            Arc::new(Box::new(MemoryStore::new())),
+            Store::new(Box::new(MemoryStore::new())),
         );
 
         let first = Device {

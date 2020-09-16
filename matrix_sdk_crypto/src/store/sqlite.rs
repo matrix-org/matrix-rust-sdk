@@ -1371,6 +1371,14 @@ impl CryptoStore for SqliteStore {
 
         Ok(())
     }
+
+    async fn save_value(&self, _key: String, _value: String) -> Result<()> {
+        todo!()
+    }
+
+    async fn get_value(&self, _key: &str) -> Result<Option<String>> {
+        todo!()
+    }
 }
 
 #[cfg(not(tarpaulin_include))]

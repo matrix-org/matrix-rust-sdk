@@ -62,7 +62,7 @@ use super::{
         InboundGroupSession, OlmMessage, OutboundGroupSession,
     },
     requests::{IncomingResponse, KeysQueryRequest, OutgoingRequest, ToDeviceRequest},
-    store::{CryptoStore, MemoryStore, Result as StoreResult},
+    store::{CryptoStore, MemoryStore, Result as StoreResult, Store},
     verification::{Sas, VerificationMachine},
 };
 
@@ -79,7 +79,7 @@ pub struct OlmMachine {
     /// Store for the encryption keys.
     /// Persists all the encryption keys so a client can resume the session
     /// without the need to create new keys.
-    store: Arc<Box<dyn CryptoStore>>,
+    store: Store,
     /// The currently active outbound group sessions.
     outbound_group_sessions: Arc<DashMap<RoomId, OutboundGroupSession>>,
     /// A state machine that is responsible to handle and keep track of SAS
@@ -113,7 +113,7 @@ impl OlmMachine {
     /// * `device_id` - The unique id of the device that owns this machine.
     pub fn new(user_id: &UserId, device_id: &DeviceId) -> Self {
         let store: Box<dyn CryptoStore> = Box::new(MemoryStore::new());
-        let store = Arc::new(store);
+        let store = Store::new(store);
         let account = Account::new(user_id, device_id);
 
         OlmMachine {
@@ -161,7 +161,7 @@ impl OlmMachine {
             }
         };
 
-        let store = Arc::new(store);
+        let store = Store::new(store);
         let verification_machine = VerificationMachine::new(account.clone(), store.clone());
 
         Ok(OlmMachine {
