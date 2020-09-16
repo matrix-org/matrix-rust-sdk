@@ -1119,7 +1119,6 @@ impl Client {
     /// ```no_run
     /// # use std::{path::PathBuf, fs::File, io::Read};
     /// # use matrix_sdk::{Client, identifiers::room_id};
-    /// # use matrix_sdk_base::crypto::AttachmentEncryptor;
     /// # use url::Url;
     /// # use futures::executor::block_on;
     /// # block_on(async {
@@ -1228,7 +1227,6 @@ impl Client {
     /// ```no_run
     /// # use std::{path::PathBuf, fs::File, io::Read};
     /// # use matrix_sdk::{Client, identifiers::room_id};
-    /// # use matrix_sdk_base::crypto::AttachmentEncryptor;
     /// # use url::Url;
     /// # use futures::executor::block_on;
     /// # block_on(async {
@@ -1243,17 +1241,6 @@ impl Client {
     ///     .expect("Can't upload my cat.");
     ///
     /// println!("Cat URI: {}", response.content_uri);
-    ///
-    /// // Upload an encrypted cat, err file.
-    /// let path = PathBuf::from("/home/example/my-secret-cat.jpg");
-    /// let mut image = File::open(path).unwrap();
-    /// let mut encryptor = AttachmentEncryptor::new(&mut image);
-    ///
-    /// let response = client
-    ///     .upload("image/jpg", &mut encryptor)
-    ///     .await
-    ///     .expect("Can't upload my cat.");
-    /// println!("Secret cat URI: {}", response.content_uri);
     /// # });
     /// ```
     pub async fn upload(
