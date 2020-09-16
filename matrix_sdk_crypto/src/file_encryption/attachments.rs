@@ -37,7 +37,7 @@ use super::{decode, decode_url_safe, encode, encode_url_safe};
 
 const IV_SIZE: usize = 16;
 const KEY_SIZE: usize = 32;
-const VERSION: u8 = 1;
+const VERSION: &str = "v2";
 
 /// A wrapper that transparently encrypts anything that implements `Read` as an
 /// Matrix attachment.
@@ -126,7 +126,7 @@ impl<'a, R: Read + 'a> AttachmentDecryptor<'a, R> {
         input: &'a mut R,
         info: EncryptionInfo,
     ) -> Result<AttachmentDecryptor<'a, R>, DecryptorError> {
-        if info.version != "v2" {
+        if info.version != VERSION {
             return Err(DecryptorError::UnknownVersion);
         }
 
@@ -249,7 +249,7 @@ impl<'a, R: Read + 'a> AttachmentEncryptor<'a, R> {
             .or_insert_with(|| encode(hash));
 
         EncryptionInfo {
-            version: "v2".to_string(),
+            version: VERSION.to_string(),
             hashes: self.hashes,
             iv: self.iv,
             web_key: self.web_key,
