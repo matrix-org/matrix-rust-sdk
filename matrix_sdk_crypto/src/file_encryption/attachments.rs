@@ -12,7 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{collections::BTreeMap, io::Read};
+use std::{
+    collections::BTreeMap,
+    io::{Error as IoError, ErrorKind, Read},
+};
+
+use thiserror::Error;
+use zeroize::Zeroizing;
 
 use serde::{Deserialize, Serialize};
 
@@ -24,6 +30,7 @@ use aes_ctr::{
     stream_cipher::{NewStreamCipher, SyncStreamCipher},
     Aes256Ctr,
 };
+use base64::DecodeError;
 use sha2::{Digest, Sha256};
 
 use super::{decode, decode_url_safe, encode, encode_url_safe};
@@ -32,7 +39,9 @@ const IV_SIZE: usize = 16;
 const KEY_SIZE: usize = 32;
 const VERSION: u8 = 1;
 
-#[allow(missing_docs)]
+/// A wrapper that transparently encrypts anything that implements `Read` as an
+/// Matrix attachment.
+#[derive(Debug)]
 pub struct AttachmentDecryptor<'a, R: 'a + Read> {
     inner_reader: &'a mut R,
     expected_hash: Vec<u8>,
@@ -46,10 +55,14 @@ impl<'a, R: Read> Read for AttachmentDecryptor<'a, R> {
 
         if read_bytes == 0 {
             let hash = self.sha.finalize_reset();
+
             if hash.as_slice() == self.expected_hash.as_slice() {
                 Ok(0)
             } else {
-                panic!("INVALID HASH");
+                Err(IoError::new(
+                    ErrorKind::Other,
+                    "Hash missmatch while decrypting",
+                ))
             }
         } else {
             self.sha.update(&buf[0..read_bytes]);
@@ -60,28 +73,84 @@ impl<'a, R: Read> Read for AttachmentDecryptor<'a, R> {
     }
 }
 
+/// Error type for attachment decryption.
+#[derive(Error, Debug)]
+pub enum DecryptorError {
+    /// Some data in the encrypted attachment coldn't be decoded, this may be a
+    /// hash, the secret key, or the initialization vector.
+    #[error(transparent)]
+    Decode(#[from] DecodeError),
+    /// A hash is missing from the encryption info.
+    #[error("The encryption info is missing a hash")]
+    MissingHash,
+    /// The supplied key or IV has an invalid length.
+    #[error("The supplied key or IV has an invalid length.")]
+    KeyNonceLength,
+    /// The supplied data was encrypted with an unknown version of the
+    /// attachment encryption spec.
+    #[error("Unknown version for the encrypted attachment.")]
+    UnknownVersion,
+}
+
 impl<'a, R: Read + 'a> AttachmentDecryptor<'a, R> {
-    #[allow(missing_docs)]
-    fn new(input: &'a mut R, info: EncryptionInfo) -> AttachmentDecryptor<'a, R> {
-        // TODO check the version
-        let hash = decode(info.hashes.get("sha256").unwrap()).unwrap();
-        // TODO Use zeroizing here.
-        let key = decode_url_safe(info.web_key.k).unwrap();
-        let iv = decode(info.iv).unwrap();
+    /// Wrap the given reader decrypting all the data we read from it.
+    ///
+    /// # Arguments
+    ///
+    /// * `reader` - The `Reader` that should be wrapped and decrypted.
+    ///
+    /// * `info` - The encryption info that is necessary to decrypt data from
+    /// the reader.
+    ///
+    /// # Examples
+    /// ```
+    /// # use std::io::{Cursor, Read};
+    /// # use matrix_sdk_crypto::{AttachmentEncryptor, AttachmentDecryptor};
+    /// let data = "Hello world".to_owned();
+    /// let mut cursor = Cursor::new(data.clone());
+    ///
+    /// let mut encryptor = AttachmentEncryptor::new(&mut cursor);
+    ///
+    /// let mut encrypted = Vec::new();
+    /// encryptor.read_to_end(&mut encrypted).unwrap();
+    /// let info = encryptor.finish();
+    ///
+    /// let mut cursor = Cursor::new(encrypted);
+    /// let mut decryptor = AttachmentDecryptor::new(&mut cursor, info).unwrap();
+    /// let mut decrypted_data = Vec::new();
+    /// decryptor.read_to_end(&mut decrypted_data).unwrap();
+    ///
+    /// let decrypted = String::from_utf8(decrypted_data).unwrap();
+    /// ```
+    pub fn new(
+        input: &'a mut R,
+        info: EncryptionInfo,
+    ) -> Result<AttachmentDecryptor<'a, R>, DecryptorError> {
+        if info.version != "v2" {
+            return Err(DecryptorError::UnknownVersion);
+        }
+
+        let hash = decode(
+            info.hashes
+                .get("sha256")
+                .ok_or(DecryptorError::MissingHash)?,
+        )?;
+        let key = Zeroizing::from(decode_url_safe(info.web_key.k)?);
+        let iv = decode(info.iv)?;
 
         let sha = Sha256::default();
-        let aes = Aes256Ctr::new_var(&key, &iv).unwrap();
+        let aes = Aes256Ctr::new_var(&key, &iv).map_err(|_| DecryptorError::KeyNonceLength)?;
 
-        AttachmentDecryptor {
+        Ok(AttachmentDecryptor {
             inner_reader: input,
             expected_hash: hash,
             sha,
             aes,
-        }
+        })
     }
 }
 
-#[allow(missing_docs)]
+/// A wrapper that transparently encrypts anything that implements `Read`.
 #[derive(Debug)]
 pub struct AttachmentEncryptor<'a, R: Read + 'a> {
     finished: bool,
@@ -113,13 +182,39 @@ impl<'a, R: Read + 'a> Read for AttachmentEncryptor<'a, R> {
 }
 
 impl<'a, R: Read + 'a> AttachmentEncryptor<'a, R> {
-    #[allow(missing_docs)]
+    /// Wrap the given reader encrypting all the data we read from it.
+    ///
+    /// After all the reads are done, and all the data is encrypted that we wish
+    /// to encrypt a call to [`finish()`](#method.finish) is necessary to get
+    /// the decryption key for the data.
+    ///
+    /// # Arguments
+    ///
+    /// * `reader` - The `Reader` that should be wrapped and enrypted.
+    ///
+    /// # Panics
+    ///
+    /// Panics if we can't generate enough random data to create a fresh
+    /// encryption key.
+    ///
+    /// # Examples
+    /// ```
+    /// # use std::io::{Cursor, Read};
+    /// # use matrix_sdk_crypto::AttachmentEncryptor;
+    /// let data = "Hello world".to_owned();
+    /// let mut cursor = Cursor::new(data.clone());
+    ///
+    /// let mut encryptor = AttachmentEncryptor::new(&mut cursor);
+    ///
+    /// let mut encrypted = Vec::new();
+    /// encryptor.read_to_end(&mut encrypted).unwrap();
+    /// let key = encryptor.finish();
+    /// ```
     pub fn new(reader: &'a mut R) -> Self {
-        // TODO Use zeroizing here.
-        let mut key = [0u8; KEY_SIZE];
-        let mut iv = [0u8; IV_SIZE];
+        let mut key = Zeroizing::new([0u8; KEY_SIZE]);
+        let mut iv = Zeroizing::new([0u8; IV_SIZE]);
 
-        getrandom(&mut key).expect("Can't generate randomness");
+        getrandom(&mut *key).expect("Can't generate randomness");
         // Only populate the the first 8 bits with randomness, the rest is 0
         // initialized.
         getrandom(&mut iv[0..8]).expect("Can't generate randomness");
@@ -128,12 +223,12 @@ impl<'a, R: Read + 'a> AttachmentEncryptor<'a, R> {
             kty: "oct".to_owned(),
             key_ops: vec!["encrypt".to_owned(), "decrypt".to_owned()],
             alg: "A256CTR".to_owned(),
-            k: encode_url_safe(key),
+            k: encode_url_safe(&*key),
             ext: true,
         };
-        let encoded_iv = encode(iv);
+        let encoded_iv = encode(&*iv);
 
-        let aes = Aes256Ctr::new_var(&key, &iv).expect("Cannot create AES encryption object.");
+        let aes = Aes256Ctr::new_var(&*key, &*iv).expect("Cannot create AES encryption object.");
 
         AttachmentEncryptor {
             finished: false,
@@ -146,7 +241,7 @@ impl<'a, R: Read + 'a> AttachmentEncryptor<'a, R> {
         }
     }
 
-    #[allow(missing_docs)]
+    /// Consume the encryptor and get the encryption key.
     pub fn finish(mut self) -> EncryptionInfo {
         let hash = self.sha.finalize();
         self.hashes
@@ -215,7 +310,7 @@ mod test {
         assert_ne!(encrypted.as_slice(), data.as_bytes());
 
         let mut cursor = Cursor::new(encrypted);
-        let mut decryptor = AttachmentDecryptor::new(&mut cursor, key);
+        let mut decryptor = AttachmentDecryptor::new(&mut cursor, key).unwrap();
         let mut decrypted_data = Vec::new();
 
         decryptor.read_to_end(&mut decrypted_data).unwrap();
@@ -230,7 +325,7 @@ mod test {
         let mut cursor = Cursor::new(EXAMPLE_DATA.to_vec());
         let key = example_key();
 
-        let mut decryptor = AttachmentDecryptor::new(&mut cursor, key);
+        let mut decryptor = AttachmentDecryptor::new(&mut cursor, key).unwrap();
         let mut decrypted_data = Vec::new();
 
         decryptor.read_to_end(&mut decrypted_data).unwrap();

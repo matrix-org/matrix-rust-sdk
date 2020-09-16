@@ -37,7 +37,10 @@ pub mod store;
 mod verification;
 
 pub use error::{MegolmError, OlmError};
-pub use file_encryption::{decrypt_key_export, encrypt_key_export, AttachmentEncryptor};
+pub use file_encryption::{
+    decrypt_key_export, encrypt_key_export, AttachmentDecryptor, AttachmentEncryptor,
+    DecryptorError,
+};
 pub use identities::{
     Device, LocalTrust, OwnUserIdentity, ReadOnlyDevice, UserDevices, UserIdentities, UserIdentity,
 };
