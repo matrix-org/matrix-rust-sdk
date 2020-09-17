@@ -1074,7 +1074,6 @@ impl Describe for MembershipState {
             Self::Join => "is a member of",
             Self::Knock => "is requesting access",
             Self::Leave => "left",
-            _ => "unhandled case of MembershipState",
         }
         .to_string()
     }
@@ -1107,7 +1106,6 @@ impl Describe for MembershipChange {
             Self::None => "did nothing in",
             Self::NotImplemented => "NOT IMPLEMENTED",
             Self::Error => "ERROR",
-            _ => "unhandled case of MembershipChange",
         }
         .to_string()
     }
