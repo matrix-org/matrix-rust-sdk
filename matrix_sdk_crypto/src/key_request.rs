@@ -295,3 +295,87 @@ impl KeyRequestMachine {
         todo!()
     }
 }
+
+#[cfg(test)]
+mod test {
+    use matrix_sdk_common::identifiers::{room_id, user_id, DeviceIdBox, RoomId, UserId};
+    use matrix_sdk_test::async_test;
+    use std::sync::Arc;
+
+    use crate::{
+        olm::Account,
+        store::{MemoryStore, Store},
+    };
+
+    use super::KeyRequestMachine;
+
+    fn alice_id() -> UserId {
+        user_id!("@alice:example.org")
+    }
+
+    fn alice_device_id() -> DeviceIdBox {
+        "JLAFKJWSCS".into()
+    }
+
+    fn room_id() -> RoomId {
+        room_id!("!test:example.org")
+    }
+
+    fn account() -> Account {
+        Account::new(&alice_id(), &alice_device_id())
+    }
+
+    fn get_machine() -> KeyRequestMachine {
+        let store = Store::new(Box::new(MemoryStore::new()));
+
+        KeyRequestMachine::new(Arc::new(alice_id()), Arc::new(alice_device_id()), store)
+    }
+
+    #[test]
+    fn create_machine() {
+        let machine = get_machine();
+
+        assert!(machine.outgoing_to_device_requests.is_empty());
+    }
+
+    #[async_test]
+    async fn create_key_request() {
+        let machine = get_machine();
+        let account = account();
+
+        let (_, session) = account
+            .create_group_session_pair(&room_id(), Default::default())
+            .await
+            .unwrap();
+
+        assert!(machine.outgoing_to_device_requests.is_empty());
+        machine
+            .create_outgoing_key_request(
+                session.room_id(),
+                &session.sender_key,
+                session.session_id(),
+            )
+            .await
+            .unwrap();
+        assert!(!machine.outgoing_to_device_requests.is_empty());
+        assert_eq!(machine.outgoing_to_device_requests.len(), 1);
+
+        machine
+            .create_outgoing_key_request(
+                session.room_id(),
+                &session.sender_key,
+                session.session_id(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(machine.outgoing_to_device_requests.len(), 1);
+
+        let request = machine.outgoing_to_device_requests.iter().next().unwrap();
+
+        let id = request.request_id;
+        drop(request);
+
+        machine.mark_outgoing_request_as_sent(id).await.unwrap();
+        assert!(machine.outgoing_to_device_requests.is_empty());
+    }
+}
