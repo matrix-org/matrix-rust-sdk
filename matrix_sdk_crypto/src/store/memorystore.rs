@@ -172,6 +172,10 @@ impl CryptoStore for MemoryStore {
         Ok(())
     }
 
+    async fn remove_value(&self, key: &str) -> Result<Option<String>> {
+        Ok(self.values.remove(key).map(|(_, v)| v))
+    }
+
     async fn get_value(&self, key: &str) -> Result<Option<String>> {
         Ok(self.values.get(key).map(|v| v.to_owned()))
     }

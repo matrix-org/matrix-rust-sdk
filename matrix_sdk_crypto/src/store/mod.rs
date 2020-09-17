@@ -105,6 +105,12 @@ impl Store {
         let value = serde_json::to_string(value)?;
         self.save_value(key.to_owned(), value).await
     }
+
+    #[allow(dead_code)]
+    pub async fn delete_object(&self, key: &str) -> Result<()> {
+        self.0.remove_value(key).await?;
+        Ok(())
+    }
 }
 
 impl Deref for Store {
@@ -292,6 +298,9 @@ pub trait CryptoStore: Debug {
 
     /// Save a serializeable object in the store.
     async fn save_value(&self, key: String, value: String) -> Result<()>;
+
+    /// Remove a value from the store.
+    async fn remove_value(&self, key: &str) -> Result<Option<String>>;
 
     /// Load a serializeable object from the store.
     async fn get_value(&self, key: &str) -> Result<Option<String>>;

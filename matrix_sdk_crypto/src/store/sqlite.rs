@@ -1376,6 +1376,10 @@ impl CryptoStore for SqliteStore {
         todo!()
     }
 
+    async fn remove_value(&self, _key: &str) -> Result<Option<String>> {
+        todo!()
+    }
+
     async fn get_value(&self, _key: &str) -> Result<Option<String>> {
         todo!()
     }
