@@ -20,7 +20,10 @@ use std::{
 };
 
 use matrix_sdk_common::{
-    events::{room::encrypted::EncryptedEventContent, AnySyncRoomEvent, SyncMessageEvent},
+    events::{
+        forwarded_room_key::ForwardedRoomKeyEventContent, room::encrypted::EncryptedEventContent,
+        AnySyncRoomEvent, SyncMessageEvent,
+    },
     identifiers::{DeviceKeyAlgorithm, EventEncryptionAlgorithm, RoomId},
     locks::Mutex,
     Raw,
@@ -111,6 +114,40 @@ impl InboundGroupSession {
         exported_session: impl Into<ExportedRoomKey>,
     ) -> Result<Self, OlmGroupSessionError> {
         Self::try_from(exported_session.into())
+    }
+
+    /// Create a new inbound group session from a forwarded room key content.
+    ///
+    /// # Arguments
+    ///
+    /// * `sender_key` - The public curve25519 key of the account that
+    /// sent us the session
+    ///
+    /// * `content` - A forwarded room key content that contains the session key
+    /// to create the `InboundGroupSession`.
+    pub(crate) fn from_forwarded_key(
+        sender_key: &str,
+        content: &ForwardedRoomKeyEventContent,
+    ) -> Result<Self, OlmGroupSessionError> {
+        let session = OlmInboundGroupSession::import(&content.session_key)?;
+        let mut forwarding_chains = content.forwarding_curve25519_key_chain.clone();
+        forwarding_chains.push(sender_key.to_owned());
+
+        let mut sender_claimed_key = BTreeMap::new();
+        sender_claimed_key.insert(
+            DeviceKeyAlgorithm::Ed25519,
+            content.sender_claimed_ed25519_key.to_owned(),
+        );
+
+        Ok(InboundGroupSession {
+            inner: Arc::new(Mutex::new(session)),
+            session_id: Arc::new(content.session_id.clone()),
+            sender_key: Arc::new(content.sender_key.clone()),
+            signing_key: Arc::new(sender_claimed_key),
+            room_id: Arc::new(content.room_id.clone()),
+            forwarding_chains: Arc::new(Mutex::new(Some(forwarding_chains))),
+            imported: Arc::new(true),
+        })
     }
 
     /// Store the group session as a base64 encoded string.
