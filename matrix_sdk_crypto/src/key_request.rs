@@ -298,9 +298,12 @@ impl KeyRequestMachine {
 
 #[cfg(test)]
 mod test {
-    use matrix_sdk_common::identifiers::{room_id, user_id, DeviceIdBox, RoomId, UserId};
+    use matrix_sdk_common::{
+        events::{forwarded_room_key::ForwardedRoomKeyEventContent, ToDeviceEvent},
+        identifiers::{room_id, user_id, DeviceIdBox, RoomId, UserId},
+    };
     use matrix_sdk_test::async_test;
-    use std::sync::Arc;
+    use std::{convert::TryInto, sync::Arc};
 
     use crate::{
         olm::Account,
@@ -377,5 +380,126 @@ mod test {
 
         machine.mark_outgoing_request_as_sent(id).await.unwrap();
         assert!(machine.outgoing_to_device_requests.is_empty());
+    }
+
+    #[async_test]
+    async fn receive_forwarded_key() {
+        let machine = get_machine();
+        let account = account();
+
+        let (_, session) = account
+            .create_group_session_pair(&room_id(), Default::default())
+            .await
+            .unwrap();
+        machine
+            .create_outgoing_key_request(
+                session.room_id(),
+                &session.sender_key,
+                session.session_id(),
+            )
+            .await
+            .unwrap();
+
+        let request = machine.outgoing_to_device_requests.iter().next().unwrap();
+        let id = request.request_id;
+        drop(request);
+
+        machine.mark_outgoing_request_as_sent(id).await.unwrap();
+
+        let export = session.export_at_index(10).await.unwrap();
+
+        let content: ForwardedRoomKeyEventContent = export.try_into().unwrap();
+
+        let mut event = ToDeviceEvent {
+            sender: alice_id(),
+            content,
+        };
+
+        assert!(
+            machine
+                .store
+                .get_inbound_group_session(
+                    session.room_id(),
+                    &session.sender_key,
+                    session.session_id(),
+                )
+                .await
+                .unwrap()
+                .is_none()
+        );
+
+        machine
+            .receive_forwarded_room_key(&session.sender_key, &mut event)
+            .await
+            .unwrap();
+
+        let first_session = machine
+            .store
+            .get_inbound_group_session(session.room_id(), &session.sender_key, session.session_id())
+            .await
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(first_session.first_known_index().await, 10);
+
+        machine
+            .create_outgoing_key_request(
+                session.room_id(),
+                &session.sender_key,
+                session.session_id(),
+            )
+            .await
+            .unwrap();
+
+        let request = machine.outgoing_to_device_requests.iter().next().unwrap();
+        let id = request.request_id;
+        drop(request);
+
+        machine.mark_outgoing_request_as_sent(id).await.unwrap();
+
+        let export = session.export_at_index(15).await.unwrap();
+
+        let content: ForwardedRoomKeyEventContent = export.try_into().unwrap();
+
+        let mut event = ToDeviceEvent {
+            sender: alice_id(),
+            content,
+        };
+
+        machine
+            .receive_forwarded_room_key(&session.sender_key, &mut event)
+            .await
+            .unwrap();
+
+        let second_session = machine
+            .store
+            .get_inbound_group_session(session.room_id(), &session.sender_key, session.session_id())
+            .await
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(second_session.first_known_index().await, 10);
+
+        let export = session.export_at_index(0).await.unwrap();
+
+        let content: ForwardedRoomKeyEventContent = export.try_into().unwrap();
+
+        let mut event = ToDeviceEvent {
+            sender: alice_id(),
+            content,
+        };
+
+        machine
+            .receive_forwarded_room_key(&session.sender_key, &mut event)
+            .await
+            .unwrap();
+        let second_session = machine
+            .store
+            .get_inbound_group_session(session.room_id(), &session.sender_key, session.session_id())
+            .await
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(second_session.first_known_index().await, 0);
     }
 }
