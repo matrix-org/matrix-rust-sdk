@@ -41,9 +41,11 @@
 //! Both identity sets need to reqularly fetched from the server using the
 //! `/keys/query` API call.
 pub(crate) mod device;
+mod manager;
 pub(crate) mod user;
 
 pub use device::{Device, LocalTrust, ReadOnlyDevice, UserDevices};
+pub(crate) use manager::IdentityManager;
 pub use user::{
     MasterPubkey, OwnUserIdentity, SelfSigningPubkey, UserIdentities, UserIdentity,
     UserSigningPubkey,
