@@ -321,17 +321,6 @@ impl KeyRequestMachine {
 
         Ok(())
     }
-
-    fn handle_incoming_key_request(&self, event: &ToDeviceEvent<RoomKeyRequestEventContent>) {
-        match event.content.action {
-            Action::Request => todo!(),
-            Action::CancelRequest => todo!(),
-        }
-    }
-
-    fn cancel_request(&self) {
-        todo!()
-    }
 }
 
 #[cfg(test)]

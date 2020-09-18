@@ -30,7 +30,6 @@
 mod error;
 mod file_encryption;
 mod identities;
-#[allow(dead_code)]
 mod key_request;
 mod machine;
 pub mod olm;
