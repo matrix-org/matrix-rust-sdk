@@ -1026,10 +1026,11 @@ impl OlmMachine {
         &self,
         room_id: &RoomId,
         settings: EncryptionSettings,
+        users_to_share_with: impl Iterator<Item = &UserId>,
     ) -> OlmResult<()> {
         let (outbound, inbound) = self
             .account
-            .create_group_session_pair(room_id, settings)
+            .create_group_session_pair(room_id, settings, users_to_share_with)
             .await
             .map_err(|_| EventError::UnsupportedAlgorithm)?;
 
@@ -1042,11 +1043,11 @@ impl OlmMachine {
     }
 
     #[cfg(test)]
-    pub(crate) async fn create_outnbound_group_session_with_defaults(
+    pub(crate) async fn create_outbound_group_session_with_defaults(
         &self,
         room_id: &RoomId,
     ) -> OlmResult<()> {
-        self.create_outbound_group_session(room_id, EncryptionSettings::default())
+        self.create_outbound_group_session(room_id, EncryptionSettings::default(), [].iter())
             .await
     }
 
@@ -1143,7 +1144,7 @@ impl OlmMachine {
         users: impl Iterator<Item = &UserId>,
         encryption_settings: impl Into<EncryptionSettings>,
     ) -> OlmResult<Vec<ToDeviceRequest>> {
-        self.create_outbound_group_session(room_id, encryption_settings.into())
+        self.create_outbound_group_session(room_id, encryption_settings.into(), users)
             .await?;
         let session = self.outbound_group_sessions.get(room_id).unwrap();
 
@@ -1159,8 +1160,8 @@ impl OlmMachine {
 
         let mut devices = Vec::new();
 
-        for user_id in users {
-            for device in self.get_user_devices(user_id).await?.devices() {
+        for user_id in session.users_to_share_with() {
+            for device in self.get_user_devices(&user_id).await?.devices() {
                 if !device.is_blacklisted() {
                     devices.push(device.clone());
                 }
@@ -1928,7 +1929,7 @@ pub(crate) mod test {
         let room_id = room_id!("!test:example.org");
 
         machine
-            .create_outnbound_group_session_with_defaults(&room_id)
+            .create_outbound_group_session_with_defaults(&room_id)
             .await
             .unwrap();
         assert!(machine.outbound_group_sessions.get(&room_id).is_some());

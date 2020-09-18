@@ -194,7 +194,7 @@ pub(crate) mod test {
         let room_id = room_id!("!test:localhost");
 
         let (outbound, _) = alice
-            .create_group_session_pair(&room_id, Default::default())
+            .create_group_session_pair_with_defaults(&room_id)
             .await
             .unwrap();
 
@@ -230,7 +230,7 @@ pub(crate) mod test {
         let room_id = room_id!("!test:localhost");
 
         let (_, inbound) = alice
-            .create_group_session_pair(&room_id, Default::default())
+            .create_group_session_pair_with_defaults(&room_id)
             .await
             .unwrap();
 

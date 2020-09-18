@@ -374,7 +374,7 @@ mod test {
         let account = account();
 
         let (_, session) = account
-            .create_group_session_pair(&room_id(), Default::default())
+            .create_group_session_pair_with_defaults(&room_id())
             .await
             .unwrap();
 
@@ -415,7 +415,7 @@ mod test {
         let account = account();
 
         let (_, session) = account
-            .create_group_session_pair(&room_id(), Default::default())
+            .create_group_session_pair_with_defaults(&room_id())
             .await
             .unwrap();
         machine

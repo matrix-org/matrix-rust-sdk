@@ -265,7 +265,7 @@ mod test {
         let room_id = room_id!("!test:localhost");
 
         let (outbound, _) = account
-            .create_group_session_pair(&room_id, Default::default())
+            .create_group_session_pair_with_defaults(&room_id)
             .await
             .unwrap();
 

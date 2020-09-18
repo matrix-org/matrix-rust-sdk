@@ -300,7 +300,7 @@ mod test {
         let room_id = room_id!("!test:localhost");
 
         machine
-            .create_outnbound_group_session_with_defaults(&room_id)
+            .create_outbound_group_session_with_defaults(&room_id)
             .await
             .unwrap();
         let export = machine
