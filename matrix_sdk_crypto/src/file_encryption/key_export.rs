@@ -122,6 +122,11 @@ pub fn decrypt_key_export(
 /// attacks. Should be at least `10000`, while values in the `100000` ranges
 /// should be preferred.
 ///
+/// # Panics
+///
+/// This method will panic if it can't get enough randomness from the OS to
+/// encrypt the exported keys securely.
+///
 /// # Examples
 /// ```no_run
 /// # use matrix_sdk_crypto::{OlmMachine, encrypt_key_export};

@@ -172,7 +172,7 @@ impl OlmMachine {
         let store = Store::new(store);
         let verification_machine = VerificationMachine::new(account.clone(), store.clone());
         let user_id = Arc::new(user_id.clone());
-        let device_id: Arc<DeviceIdBox> = Arc::new(device_id.into());
+        let device_id: Arc<DeviceIdBox> = Arc::new(device_id);
         let key_request_machine =
             KeyRequestMachine::new(user_id.clone(), device_id.clone(), store.clone());
 
@@ -1612,6 +1612,17 @@ impl OlmMachine {
 
     /// Export the keys that match the given predicate.
     ///
+    /// # Arguments
+    ///
+    /// * `predicate` - A closure that will be called for every known
+    /// `InboundGroupSession`, which represents a room key. If the closure
+    /// returns `true` the `InboundGroupSessoin` will be included in the export,
+    /// if the closure returns `false` it will not be included.
+    ///
+    /// # Panics
+    ///
+    /// This method will panic if it can't get enough randomness from the OS to
+    /// encrypt the exported keys securely.
     ///
     /// # Examples
     ///
