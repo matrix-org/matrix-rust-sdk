@@ -1097,6 +1097,10 @@ impl OlmMachine {
         let count: u64 = one_time_key_count.map_or(0, |c| (*c).into());
         self.update_key_count(count);
 
+        if let Err(e) = self.store.save_account(self.account.clone()).await {
+            error!("Error updating the one-time key count {:?}", e);
+        }
+
         for user_id in &response.device_lists.changed {
             if let Err(e) = self.identity_manager.mark_user_as_changed(&user_id).await {
                 error!("Error marking a tracked user as changed {:?}", e);
