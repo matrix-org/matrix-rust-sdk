@@ -333,4 +333,15 @@ mod test {
 
         assert_eq!("It's a secret to everybody", decrypted);
     }
+
+    #[test]
+    fn decrypt_invalid_hash() {
+        let mut cursor = Cursor::new("fake message");
+        let key = example_key();
+
+        let mut decryptor = AttachmentDecryptor::new(&mut cursor, key).unwrap();
+        let mut decrypted_data = Vec::new();
+
+        assert!(decryptor.read_to_end(&mut decrypted_data).is_err())
+    }
 }
