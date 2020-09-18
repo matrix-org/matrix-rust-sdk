@@ -442,6 +442,24 @@ impl SqliteStore {
             )
             .await?;
 
+        connection
+            .execute(
+                r#"
+            CREATE TABLE IF NOT EXISTS key_value (
+                "id" INTEGER NOT NULL PRIMARY KEY,
+                "account_id" INTEGER NOT NULL,
+                "key" TEXT NOT NULL,
+                "value" TEXT NOT NULL,
+                FOREIGN KEY ("account_id") REFERENCES "accounts" ("id")
+                    ON DELETE CASCADE
+                UNIQUE(account_id,key)
+            );
+
+            CREATE INDEX IF NOT EXISTS "key_values_index" ON "key_value" ("account_id");
+        "#,
+            )
+            .await?;
+
         Ok(())
     }
 
@@ -1372,16 +1390,49 @@ impl CryptoStore for SqliteStore {
         Ok(())
     }
 
-    async fn save_value(&self, _key: String, _value: String) -> Result<()> {
-        todo!()
+    async fn save_value(&self, key: String, value: String) -> Result<()> {
+        let account_id = self.account_id().ok_or(CryptoStoreError::AccountUnset)?;
+        let mut connection = self.connection.lock().await;
+
+        query("REPLACE INTO key_value (account_id, key, value) VALUES (?1, ?2, ?3)")
+            .bind(account_id)
+            .bind(&key)
+            .bind(&value)
+            .execute(&mut *connection)
+            .await?;
+
+        Ok(())
     }
 
-    async fn remove_value(&self, _key: &str) -> Result<Option<String>> {
-        todo!()
+    async fn remove_value(&self, key: &str) -> Result<()> {
+        let account_id = self.account_id().ok_or(CryptoStoreError::AccountUnset)?;
+        let mut connection = self.connection.lock().await;
+
+        query(
+            "DELETE FROM key_value
+             WHERE account_id = ?1 and key = ?2
+             ",
+        )
+        .bind(account_id)
+        .bind(key)
+        .execute(&mut *connection)
+        .await?;
+
+        Ok(())
     }
 
-    async fn get_value(&self, _key: &str) -> Result<Option<String>> {
-        todo!()
+    async fn get_value(&self, key: &str) -> Result<Option<String>> {
+        let account_id = self.account_id().ok_or(CryptoStoreError::AccountUnset)?;
+        let mut connection = self.connection.lock().await;
+
+        let row: Option<(String,)> =
+            query_as("SELECT value FROM key_value WHERE account_id = ? and key = ?")
+                .bind(account_id)
+                .bind(key)
+                .fetch_optional(&mut *connection)
+                .await?;
+
+        Ok(row.map(|r| r.0))
     }
 }
 
@@ -1880,5 +1931,20 @@ mod test {
             .unwrap();
         let loaded_user = store.load_user(&user_id).await.unwrap().unwrap();
         assert!(loaded_user.own().unwrap().is_verified())
+    }
+
+    #[tokio::test]
+    async fn key_value_saving() {
+        let (_, store, _dir) = get_loaded_store().await;
+        let key = "test_key".to_string();
+        let value = "secret value".to_string();
+
+        store.save_value(key.clone(), value.clone()).await.unwrap();
+        let stored_value = store.get_value(&key).await.unwrap().unwrap();
+
+        assert_eq!(value, stored_value);
+
+        store.remove_value(&key).await.unwrap();
+        assert!(store.get_value(&key).await.unwrap().is_none());
     }
 }

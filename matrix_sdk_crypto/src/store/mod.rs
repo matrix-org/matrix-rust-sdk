@@ -300,7 +300,7 @@ pub trait CryptoStore: Debug {
     async fn save_value(&self, key: String, value: String) -> Result<()>;
 
     /// Remove a value from the store.
-    async fn remove_value(&self, key: &str) -> Result<Option<String>>;
+    async fn remove_value(&self, key: &str) -> Result<()>;
 
     /// Load a serializeable object from the store.
     async fn get_value(&self, key: &str) -> Result<Option<String>>;
