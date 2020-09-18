@@ -27,7 +27,7 @@ use dashmap::DashMap;
 use serde::{Deserialize, Serialize};
 use serde_json::value::to_raw_value;
 use std::{collections::BTreeMap, sync::Arc};
-use tracing::{error, info, trace};
+use tracing::{info, trace};
 
 use matrix_sdk_common::{
     api::r0::to_device::DeviceIdOrAllDevices,
@@ -47,7 +47,7 @@ use crate::{
 };
 
 #[derive(Debug, Clone)]
-struct KeyRequestMachine {
+pub(crate) struct KeyRequestMachine {
     user_id: Arc<UserId>,
     device_id: Arc<DeviceIdBox>,
     store: Store,
@@ -83,6 +83,31 @@ impl Encode for ForwardedRoomKeyEventContent {
     }
 }
 
+fn wrap_key_request_content(
+    recipient: UserId,
+    id: Uuid,
+    content: &RoomKeyRequestEventContent,
+) -> Result<OutgoingRequest, serde_json::Error> {
+    let mut messages = BTreeMap::new();
+
+    messages
+        .entry(recipient)
+        .or_insert_with(BTreeMap::new)
+        .insert(DeviceIdOrAllDevices::AllDevices, to_raw_value(content)?);
+
+    Ok(OutgoingRequest {
+        request_id: id,
+        request: Arc::new(
+            ToDeviceRequest {
+                event_type: EventType::RoomKeyRequest,
+                txn_id: id,
+                messages,
+            }
+            .into(),
+        ),
+    })
+}
+
 impl KeyRequestMachine {
     pub fn new(user_id: Arc<UserId>, device_id: Arc<DeviceIdBox>, store: Store) -> Self {
         Self {
@@ -91,6 +116,18 @@ impl KeyRequestMachine {
             store,
             outgoing_to_device_requests: Arc::new(DashMap::new()),
         }
+    }
+
+    fn user_id(&self) -> &UserId {
+        &self.user_id
+    }
+
+    pub fn outgoing_to_device_requests(&self) -> Vec<OutgoingRequest> {
+        #[allow(clippy::map_clone)]
+        self.outgoing_to_device_requests
+            .iter()
+            .map(|r| (*r).clone())
+            .collect()
     }
 
     /// Create a new outgoing key request for the key with the given session id.
@@ -107,7 +144,7 @@ impl KeyRequestMachine {
     /// * `sender_key` - The curve25519 key of the sender that owns the key.
     ///
     /// * `session_id` - The id that uniquely identifies the session.
-    async fn create_outgoing_key_request(
+    pub async fn create_outgoing_key_request(
         &self,
         room_id: &RoomId,
         sender_key: &str,
@@ -138,24 +175,7 @@ impl KeyRequestMachine {
             body: Some(key_info),
         };
 
-        let mut messages = BTreeMap::new();
-
-        messages
-            .entry((&*self.user_id).to_owned())
-            .or_insert_with(BTreeMap::new)
-            .insert(DeviceIdOrAllDevices::AllDevices, to_raw_value(&content)?);
-
-        let request = OutgoingRequest {
-            request_id: id,
-            request: Arc::new(
-                ToDeviceRequest {
-                    event_type: EventType::RoomKeyRequest,
-                    txn_id: id,
-                    messages,
-                }
-                .into(),
-            ),
-        };
+        let request = wrap_key_request_content(self.user_id().clone(), id, &content)?;
 
         let info = OugoingKeyInfo {
             request_id: id,
@@ -201,7 +221,7 @@ impl KeyRequestMachine {
     }
 
     /// Delete the given outgoing key info.
-    async fn delete_key_info(&self, info: OugoingKeyInfo) -> Result<(), CryptoStoreError> {
+    async fn delete_key_info(&self, info: &OugoingKeyInfo) -> Result<(), CryptoStoreError> {
         self.store
             .delete_object(&info.request_id.to_string())
             .await?;
@@ -211,16 +231,14 @@ impl KeyRequestMachine {
     }
 
     /// Mark the outgoing request as sent.
-    async fn mark_outgoing_request_as_sent(&self, id: Uuid) -> Result<(), CryptoStoreError> {
-        self.outgoing_to_device_requests.remove(&id);
+    pub async fn mark_outgoing_request_as_sent(&self, id: &Uuid) -> Result<(), CryptoStoreError> {
+        self.outgoing_to_device_requests.remove(id);
         let info: Option<OugoingKeyInfo> = self.store.get_object(&id.to_string()).await?;
 
         if let Some(mut info) = info {
             trace!("Marking outgoing key request as sent {:#?}", info);
             info.sent_out = true;
-            self.save_outgoing_key_info(id, info).await?;
-        } else {
-            error!("Trying to mark a room key request with the id {} as sent, but no key info was found", id);
+            self.save_outgoing_key_info(*id, info).await?;
         }
 
         Ok(())
@@ -235,14 +253,34 @@ impl KeyRequestMachine {
         session: InboundGroupSession,
     ) -> Result<(), CryptoStoreError> {
         // TODO perhaps only remove the key info if the first known index is 0.
+        trace!(
+            "Successfully received a forwarded room key for {:#?}",
+            key_info
+        );
+
         self.store.save_inbound_group_sessions(&[session]).await?;
         self.outgoing_to_device_requests
             .remove(&key_info.request_id);
-        self.delete_key_info(key_info).await
+        self.delete_key_info(&key_info).await?;
+
+        let content = RoomKeyRequestEventContent {
+            action: Action::CancelRequest,
+            request_id: key_info.request_id.to_string(),
+            requesting_device_id: (&*self.device_id).clone(),
+            body: None,
+        };
+
+        let id = Uuid::new_v4();
+
+        let request = wrap_key_request_content(self.user_id().clone(), id, &content)?;
+
+        self.outgoing_to_device_requests.insert(id, request);
+
+        Ok(())
     }
 
     /// Receive a forwarded room key event.
-    async fn receive_forwarded_room_key(
+    pub async fn receive_forwarded_room_key(
         &self,
         sender_key: &str,
         event: &mut ToDeviceEvent<ForwardedRoomKeyEventContent>,
@@ -378,7 +416,7 @@ mod test {
         let id = request.request_id;
         drop(request);
 
-        machine.mark_outgoing_request_as_sent(id).await.unwrap();
+        machine.mark_outgoing_request_as_sent(&id).await.unwrap();
         assert!(machine.outgoing_to_device_requests.is_empty());
     }
 
@@ -404,7 +442,7 @@ mod test {
         let id = request.request_id;
         drop(request);
 
-        machine.mark_outgoing_request_as_sent(id).await.unwrap();
+        machine.mark_outgoing_request_as_sent(&id).await.unwrap();
 
         let export = session.export_at_index(10).await.unwrap();
 
@@ -442,6 +480,12 @@ mod test {
 
         assert_eq!(first_session.first_known_index().await, 10);
 
+        // Get the cancel request.
+        let request = machine.outgoing_to_device_requests.iter().next().unwrap();
+        let id = request.request_id;
+        drop(request);
+        machine.mark_outgoing_request_as_sent(&id).await.unwrap();
+
         machine
             .create_outgoing_key_request(
                 session.room_id(),
@@ -455,7 +499,7 @@ mod test {
         let id = request.request_id;
         drop(request);
 
-        machine.mark_outgoing_request_as_sent(id).await.unwrap();
+        machine.mark_outgoing_request_as_sent(&id).await.unwrap();
 
         let export = session.export_at_index(15).await.unwrap();
 
