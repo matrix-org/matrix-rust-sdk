@@ -400,6 +400,15 @@ impl UserIdentities {
             _ => None,
         }
     }
+
+    /// Destructure the enum into an `UserIdentity` if it's of the correct
+    /// type.
+    pub fn other(&self) -> Option<&UserIdentity> {
+        match self {
+            UserIdentities::Other(i) => Some(i),
+            _ => None,
+        }
+    }
 }
 
 impl PartialEq for UserIdentities {
@@ -650,180 +659,23 @@ impl OwnUserIdentity {
 
 #[cfg(test)]
 pub(crate) mod test {
-    use serde_json::json;
     use std::convert::TryFrom;
 
-    use matrix_sdk_common::{
-        api::r0::keys::get_keys::Response as KeyQueryResponse, identifiers::user_id,
-    };
-
     use crate::{
-        identities::{Device, ReadOnlyDevice},
-        machine::test::response_from_file,
+        identities::{
+            manager::test::{other_key_query, own_key_query},
+            Device, ReadOnlyDevice,
+        },
         olm::Account,
         store::{MemoryStore, Store},
         verification::VerificationMachine,
     };
 
+    use matrix_sdk_common::{
+        api::r0::keys::get_keys::Response as KeyQueryResponse, identifiers::user_id,
+    };
+
     use super::{OwnUserIdentity, UserIdentities, UserIdentity};
-
-    fn other_key_query() -> KeyQueryResponse {
-        let data = response_from_file(&json!({
-            "device_keys": {
-                "@example2:localhost": {
-                    "SKISMLNIMH": {
-                        "algorithms": ["m.olm.v1.curve25519-aes-sha2", "m.megolm.v1.aes-sha2"],
-                        "device_id": "SKISMLNIMH",
-                        "keys": {
-                            "curve25519:SKISMLNIMH": "qO9xFazIcW8dE0oqHGMojGgJwbBpMOhGnIfJy2pzvmI",
-                            "ed25519:SKISMLNIMH": "y3wV3AoyIGREqrJJVH8DkQtlwHBUxoZ9ApP76kFgXQ8"
-                        },
-                        "signatures": {
-                            "@example2:localhost": {
-                                "ed25519:SKISMLNIMH": "YwbT35rbjKoYFZVU1tQP8MsL06+znVNhNzUMPt6jTEYRBFoC4GDq9hQEJBiFSq37r1jvLMteggVAWw37fs1yBA",
-                                "ed25519:ZtFrSkJ1qB8Jph/ql9Eo/lKpIYCzwvKAKXfkaS4XZNc": "PWuuTE/aTkp1EJQkPHhRx2BxbF+wjMIDFxDRp7JAerlMkDsNFUTfRRusl6vqROPU36cl+yY8oeJTZGFkU6+pBQ"
-                            }
-                        },
-                        "user_id": "@example2:localhost",
-                        "unsigned": {
-                            "device_display_name": "Riot Desktop (Linux)"
-                        }
-                    }
-                }
-            },
-            "failures": {},
-            "master_keys": {
-                "@example2:localhost": {
-                    "user_id": "@example2:localhost",
-                    "usage": ["master"],
-                    "keys": {
-                        "ed25519:kC/HmRYw4HNqUp/i4BkwYENrf+hd9tvdB7A1YOf5+Do": "kC/HmRYw4HNqUp/i4BkwYENrf+hd9tvdB7A1YOf5+Do"
-                    },
-                    "signatures": {
-                        "@example2:localhost": {
-                            "ed25519:SKISMLNIMH": "KdUZqzt8VScGNtufuQ8lOf25byYLWIhmUYpPENdmM8nsldexD7vj+Sxoo7PknnTX/BL9h2N7uBq0JuykjunCAw"
-                        }
-                    }
-                }
-            },
-            "self_signing_keys": {
-                "@example2:localhost": {
-                    "user_id": "@example2:localhost",
-                    "usage": ["self_signing"],
-                    "keys": {
-                        "ed25519:ZtFrSkJ1qB8Jph/ql9Eo/lKpIYCzwvKAKXfkaS4XZNc": "ZtFrSkJ1qB8Jph/ql9Eo/lKpIYCzwvKAKXfkaS4XZNc"
-                    },
-                    "signatures": {
-                        "@example2:localhost": {
-                            "ed25519:kC/HmRYw4HNqUp/i4BkwYENrf+hd9tvdB7A1YOf5+Do": "W/O8BnmiUETPpH02mwYaBgvvgF/atXnusmpSTJZeUSH/vHg66xiZOhveQDG4cwaW8iMa+t9N4h1DWnRoHB4mCQ"
-                        }
-                    }
-                }
-            },
-            "user_signing_keys": {}
-        }));
-        KeyQueryResponse::try_from(data).expect("Can't parse the keys upload response")
-    }
-
-    fn own_key_query() -> KeyQueryResponse {
-        let data = response_from_file(&json!({
-          "device_keys": {
-            "@example:localhost": {
-              "WSKKLTJZCL": {
-                "algorithms": [
-                  "m.olm.v1.curve25519-aes-sha2",
-                  "m.megolm.v1.aes-sha2"
-                ],
-                "device_id": "WSKKLTJZCL",
-                "keys": {
-                  "curve25519:WSKKLTJZCL": "wnip2tbJBJxrFayC88NNJpm61TeSNgYcqBH4T9yEDhU",
-                  "ed25519:WSKKLTJZCL": "lQ+eshkhgKoo+qp9Qgnj3OX5PBoWMU5M9zbuEevwYqE"
-                },
-                "signatures": {
-                  "@example:localhost": {
-                    "ed25519:WSKKLTJZCL": "SKpIUnq7QK0xleav0PrIQyKjVm+TgZr7Yi8cKjLeZDtkgyToE2d4/e3Aj79dqOlLB92jFVE4d1cM/Ry04wFwCA",
-                    "ed25519:0C8lCBxrvrv/O7BQfsKnkYogHZX3zAgw3RfJuyiq210": "9UGu1iC5YhFCdELGfB29YaV+QE0t/X5UDSsPf4QcdZyXIwyp9zBbHX2lh9vWudNQ+akZpaq7ZRaaM+4TCnw/Ag"
-                  }
-                },
-                "user_id": "@example:localhost",
-                "unsigned": {
-                  "device_display_name": "Cross signing capable"
-                }
-              },
-              "LVWOVGOXME": {
-                "algorithms": [
-                  "m.olm.v1.curve25519-aes-sha2",
-                  "m.megolm.v1.aes-sha2"
-                ],
-                "device_id": "LVWOVGOXME",
-                "keys": {
-                  "curve25519:LVWOVGOXME": "KMfWKUhnDW1D11hNzATs/Ax1FQRsJxKCWzq0NyGtIiI",
-                  "ed25519:LVWOVGOXME": "k+NC3L7CBD6fBClcHBrKLOkqCyGNSKhWXiH5Q2STRnA"
-                },
-                "signatures": {
-                  "@example:localhost": {
-                    "ed25519:LVWOVGOXME": "39Ir5Bttpc5+bQwzLj7rkjm5E5/cp/JTbMJ/t0enj6J5w9MXVBFOUqqM2hpaRaRwILMMpwYbJ8IOGjl0Y/MGAw"
-                  }
-                },
-                "user_id": "@example:localhost",
-                "unsigned": {
-                  "device_display_name": "Non-cross signing"
-                }
-              }
-            }
-          },
-          "failures": {},
-          "master_keys": {
-            "@example:localhost": {
-              "user_id": "@example:localhost",
-              "usage": [
-                "master"
-              ],
-              "keys": {
-                "ed25519:rJ2TAGkEOP6dX41Ksll6cl8K3J48l8s/59zaXyvl2p0": "rJ2TAGkEOP6dX41Ksll6cl8K3J48l8s/59zaXyvl2p0"
-              },
-              "signatures": {
-                "@example:localhost": {
-                  "ed25519:WSKKLTJZCL": "ZzJp1wtmRdykXAUEItEjNiFlBrxx8L6/Vaen9am8AuGwlxxJtOkuY4m+4MPLvDPOgavKHLsrRuNLAfCeakMlCQ"
-                }
-              }
-            }
-          },
-          "self_signing_keys": {
-            "@example:localhost": {
-              "user_id": "@example:localhost",
-              "usage": [
-                "self_signing"
-              ],
-              "keys": {
-                "ed25519:0C8lCBxrvrv/O7BQfsKnkYogHZX3zAgw3RfJuyiq210": "0C8lCBxrvrv/O7BQfsKnkYogHZX3zAgw3RfJuyiq210"
-              },
-              "signatures": {
-                "@example:localhost": {
-                  "ed25519:rJ2TAGkEOP6dX41Ksll6cl8K3J48l8s/59zaXyvl2p0": "AC7oDUW4rUhtInwb4lAoBJ0wAuu4a5k+8e34B5+NKsDB8HXRwgVwUWN/MRWc/sJgtSbVlhzqS9THEmQQ1C51Bw"
-                }
-              }
-            }
-          },
-          "user_signing_keys": {
-            "@example:localhost": {
-              "user_id": "@example:localhost",
-              "usage": [
-                "user_signing"
-              ],
-              "keys": {
-                "ed25519:DU9z4gBFKFKCk7a13sW9wjT0Iyg7Hqv5f0BPM7DEhPo": "DU9z4gBFKFKCk7a13sW9wjT0Iyg7Hqv5f0BPM7DEhPo"
-              },
-              "signatures": {
-                "@example:localhost": {
-                  "ed25519:rJ2TAGkEOP6dX41Ksll6cl8K3J48l8s/59zaXyvl2p0": "C4L2sx9frGqj8w41KyynHGqwUbbwBYRZpYCB+6QWnvQFA5Oi/1PJj8w5anwzEsoO0TWmLYmf7FXuAGewanOWDg"
-                }
-              }
-            }
-          }
-        }));
-        KeyQueryResponse::try_from(data).expect("Can't parse the keys upload response")
-    }
 
     fn device(response: &KeyQueryResponse) -> (ReadOnlyDevice, ReadOnlyDevice) {
         let mut devices = response.device_keys.values().next().unwrap().values();
