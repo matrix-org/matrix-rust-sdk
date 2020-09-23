@@ -147,7 +147,7 @@ mod test {
 
         let account = Account::new(&user_id!("@alice:example.org"), "DEVICEID".into());
         let (session, _) = account
-            .create_group_session_pair(&room_id!("!test_room:example.org"), settings)
+            .create_group_session_pair(&room_id!("!test_room:example.org"), settings, [].iter())
             .await
             .unwrap();
 
@@ -165,7 +165,7 @@ mod test {
         };
 
         let (mut session, _) = account
-            .create_group_session_pair(&room_id!("!test_room:example.org"), settings)
+            .create_group_session_pair(&room_id!("!test_room:example.org"), settings, [].iter())
             .await
             .unwrap();
 

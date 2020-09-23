@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use dashmap::{setref::multiple::RefMulti, DashSet};
 use std::{
     cmp::min,
     fmt,
@@ -27,7 +28,7 @@ use matrix_sdk_common::{
         room::{encrypted::EncryptedEventContent, encryption::EncryptionEventContent},
         AnyMessageEventContent, EventContent,
     },
-    identifiers::{DeviceId, EventEncryptionAlgorithm, RoomId},
+    identifiers::{DeviceIdBox, EventEncryptionAlgorithm, RoomId, UserId},
     instant::Instant,
     locks::Mutex,
 };
@@ -92,7 +93,7 @@ impl From<&EncryptionEventContent> for EncryptionSettings {
 #[derive(Clone)]
 pub struct OutboundGroupSession {
     inner: Arc<Mutex<OlmOutboundGroupSession>>,
-    device_id: Arc<Box<DeviceId>>,
+    device_id: Arc<DeviceIdBox>,
     account_identity_keys: Arc<IdentityKeys>,
     session_id: Arc<String>,
     room_id: Arc<RoomId>,
@@ -100,6 +101,8 @@ pub struct OutboundGroupSession {
     message_count: Arc<AtomicU64>,
     shared: Arc<AtomicBool>,
     settings: Arc<EncryptionSettings>,
+    shared_with_set: Arc<DashSet<UserId>>,
+    to_share_with_set: Arc<DashSet<UserId>>,
 }
 
 impl OutboundGroupSession {
@@ -118,14 +121,17 @@ impl OutboundGroupSession {
     ///
     /// * `settings` - Settings determining the algorithm and rotation period of
     /// the outbound group session.
-    pub fn new(
-        device_id: Arc<Box<DeviceId>>,
+    pub fn new<'a>(
+        device_id: Arc<DeviceIdBox>,
         identity_keys: Arc<IdentityKeys>,
         room_id: &RoomId,
         settings: EncryptionSettings,
+        users_to_share_with: impl Iterator<Item = &'a UserId>,
     ) -> Self {
         let session = OlmOutboundGroupSession::new();
         let session_id = session.session_id();
+
+        let users_to_share_with = users_to_share_with.cloned().collect();
 
         OutboundGroupSession {
             inner: Arc::new(Mutex::new(session)),
@@ -137,7 +143,13 @@ impl OutboundGroupSession {
             message_count: Arc::new(AtomicU64::new(0)),
             shared: Arc::new(AtomicBool::new(false)),
             settings: Arc::new(settings),
+            shared_with_set: Arc::new(DashSet::new()),
+            to_share_with_set: Arc::new(users_to_share_with),
         }
+    }
+
+    pub(crate) fn users_to_share_with(&self) -> impl Iterator<Item = RefMulti<'_, UserId>> + '_ {
+        self.to_share_with_set.iter()
     }
 
     /// Encrypt the given plaintext using this session.

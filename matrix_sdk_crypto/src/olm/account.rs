@@ -580,6 +580,7 @@ impl Account {
         &self,
         room_id: &RoomId,
         settings: EncryptionSettings,
+        users_to_share_with: impl Iterator<Item = &UserId>,
     ) -> Result<(OutboundGroupSession, InboundGroupSession), ()> {
         if settings.algorithm != EventEncryptionAlgorithm::MegolmV1AesSha2 {
             return Err(());
@@ -590,6 +591,7 @@ impl Account {
             self.identity_keys.clone(),
             room_id,
             settings,
+            users_to_share_with,
         );
         let identity_keys = self.identity_keys();
 
@@ -605,6 +607,15 @@ impl Account {
         .expect("Can't create inbound group session from a newly created outbound group session");
 
         Ok((outbound, inbound))
+    }
+
+    #[cfg(test)]
+    pub(crate) async fn create_group_session_pair_with_defaults(
+        &self,
+        room_id: &RoomId,
+    ) -> Result<(OutboundGroupSession, InboundGroupSession), ()> {
+        self.create_group_session_pair(room_id, EncryptionSettings::default(), [].iter())
+            .await
     }
 }
 
