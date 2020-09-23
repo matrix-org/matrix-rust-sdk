@@ -19,6 +19,7 @@ default = ["encryption", "sqlite_cryptostore", "messages"]
 messages = []
 encryption = ["matrix-sdk-crypto"]
 sqlite_cryptostore = ["matrix-sdk-crypto/sqlite_cryptostore"]
+unstable-synapse-quirks = ["matrix-sdk-common/unstable-synapse-quirks"]
 
 docs = ["encryption", "sqlite_cryptostore", "messages"]
 
