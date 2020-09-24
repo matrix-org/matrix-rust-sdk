@@ -39,6 +39,7 @@ use matrix_sdk_common::{
     identifiers::{
         DeviceId, DeviceIdBox, DeviceKeyAlgorithm, EventEncryptionAlgorithm, RoomId, UserId,
     },
+    js_int::UInt,
     uuid::Uuid,
     Raw,
 };
@@ -323,17 +324,6 @@ impl OlmMachine {
         &self.account
     }
 
-    /// Update the count of one-time keys that are currently on the server.
-    ///
-    /// # Arguments
-    ///
-    /// * `count` - The key count of the signed one-time keys that we have on
-    /// the server. This should be fetched from the server using a sync
-    /// response.
-    fn update_key_count(&self, count: u64) {
-        self.account.update_uploaded_key_count(count);
-    }
-
     /// Receive a successful keys upload response.
     ///
     /// # Arguments
@@ -360,8 +350,7 @@ impl OlmMachine {
             self.account.uploaded_key_count(),
             count
         );
-        self.update_key_count(count);
-
+        self.account.update_uploaded_key_count(count);
         self.account.mark_keys_as_published().await;
         self.store.save_account(self.account.clone()).await?;
 
@@ -1074,6 +1063,17 @@ impl OlmMachine {
         self.verification_machine.get_sas(flow_id)
     }
 
+    async fn update_one_time_key_count(
+        &self,
+        key_count: &BTreeMap<DeviceKeyAlgorithm, UInt>,
+    ) -> StoreResult<()> {
+        let one_time_key_count = key_count.get(&DeviceKeyAlgorithm::SignedCurve25519);
+
+        let count: u64 = one_time_key_count.map_or(0, |c| (*c).into());
+        self.account.update_uploaded_key_count(count);
+        self.store.save_account(self.account.clone()).await
+    }
+
     /// Handle a sync response and update the internal state of the Olm machine.
     ///
     /// This will decrypt to-device events but will not touch events in the room
@@ -1090,14 +1090,10 @@ impl OlmMachine {
     pub async fn receive_sync_response(&self, response: &mut SyncResponse) {
         self.verification_machine.garbage_collect();
 
-        let one_time_key_count = response
-            .device_one_time_keys_count
-            .get(&DeviceKeyAlgorithm::SignedCurve25519);
-
-        let count: u64 = one_time_key_count.map_or(0, |c| (*c).into());
-        self.update_key_count(count);
-
-        if let Err(e) = self.store.save_account(self.account.clone()).await {
+        if let Err(e) = self
+            .update_one_time_key_count(&response.device_one_time_keys_count)
+            .await
+        {
             error!("Error updating the one-time key count {:?}", e);
         }
 
