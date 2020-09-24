@@ -369,7 +369,7 @@ mod test {
     fn create_machine() {
         let machine = get_machine();
 
-        assert!(machine.outgoing_to_device_requests.is_empty());
+        assert!(machine.outgoing_to_device_requests().is_empty());
     }
 
     #[async_test]
@@ -382,7 +382,7 @@ mod test {
             .await
             .unwrap();
 
-        assert!(machine.outgoing_to_device_requests.is_empty());
+        assert!(machine.outgoing_to_device_requests().is_empty());
         machine
             .create_outgoing_key_request(
                 session.room_id(),
@@ -391,8 +391,8 @@ mod test {
             )
             .await
             .unwrap();
-        assert!(!machine.outgoing_to_device_requests.is_empty());
-        assert_eq!(machine.outgoing_to_device_requests.len(), 1);
+        assert!(!machine.outgoing_to_device_requests().is_empty());
+        assert_eq!(machine.outgoing_to_device_requests().len(), 1);
 
         machine
             .create_outgoing_key_request(
