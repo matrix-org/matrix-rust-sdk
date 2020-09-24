@@ -1019,13 +1019,10 @@ impl OlmMachine {
             AnyToDeviceEvent::RoomKey(mut e) => {
                 Ok(self.add_room_key(sender_key, signing_key, &mut e).await?)
             }
-            AnyToDeviceEvent::ForwardedRoomKey(mut e) => {
-                // TODO do the mem take dance to remove the key.
-                self.key_request_machine
-                    .receive_forwarded_room_key(sender_key, &mut e)
-                    .await?;
-                Ok(None)
-            }
+            AnyToDeviceEvent::ForwardedRoomKey(mut e) => Ok(self
+                .key_request_machine
+                .receive_forwarded_room_key(sender_key, &mut e)
+                .await?),
             _ => {
                 warn!("Received a unexpected encrypted to-device event");
                 Ok(None)

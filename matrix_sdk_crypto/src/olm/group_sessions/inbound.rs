@@ -15,8 +15,21 @@
 use std::{
     collections::BTreeMap,
     convert::{TryFrom, TryInto},
-    fmt,
+    fmt, mem,
     sync::Arc,
+};
+
+use olm_rs::{
+    errors::OlmGroupSessionError, inbound_group_session::OlmInboundGroupSession, PicklingMode,
+};
+use serde::{Deserialize, Serialize};
+use serde_json::Value;
+use zeroize::Zeroizing;
+
+pub use olm_rs::{
+    account::IdentityKeys,
+    session::{OlmMessage, PreKeyMessage},
+    utility::OlmUtility,
 };
 
 use matrix_sdk_common::{
@@ -27,17 +40,6 @@ use matrix_sdk_common::{
     identifiers::{DeviceKeyAlgorithm, EventEncryptionAlgorithm, RoomId},
     locks::Mutex,
     Raw,
-};
-use olm_rs::{
-    errors::OlmGroupSessionError, inbound_group_session::OlmInboundGroupSession, PicklingMode,
-};
-use serde::{Deserialize, Serialize};
-use serde_json::Value;
-
-pub use olm_rs::{
-    account::IdentityKeys,
-    session::{OlmMessage, PreKeyMessage},
-    utility::OlmUtility,
 };
 
 use super::{ExportedGroupSessionKey, ExportedRoomKey, GroupSessionKey};
@@ -127,9 +129,11 @@ impl InboundGroupSession {
     /// to create the `InboundGroupSession`.
     pub(crate) fn from_forwarded_key(
         sender_key: &str,
-        content: &ForwardedRoomKeyEventContent,
+        content: &mut ForwardedRoomKeyEventContent,
     ) -> Result<Self, OlmGroupSessionError> {
-        let session = OlmInboundGroupSession::import(&content.session_key)?;
+        let key = Zeroizing::from(mem::take(&mut content.session_key));
+
+        let session = OlmInboundGroupSession::import(&key)?;
         let mut forwarding_chains = content.forwarding_curve25519_key_chain.clone();
         forwarding_chains.push(sender_key.to_owned());
 

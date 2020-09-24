@@ -34,10 +34,11 @@ use matrix_sdk_common::{
     events::{
         forwarded_room_key::ForwardedRoomKeyEventContent,
         room_key_request::{Action, RequestedKeyInfo, RoomKeyRequestEventContent},
-        EventType, ToDeviceEvent,
+        AnyToDeviceEvent, EventType, ToDeviceEvent,
     },
     identifiers::{DeviceIdBox, EventEncryptionAlgorithm, RoomId, UserId},
     uuid::Uuid,
+    Raw,
 };
 
 use crate::{
@@ -284,11 +285,11 @@ impl KeyRequestMachine {
         &self,
         sender_key: &str,
         event: &mut ToDeviceEvent<ForwardedRoomKeyEventContent>,
-    ) -> Result<(), CryptoStoreError> {
+    ) -> Result<Option<Raw<AnyToDeviceEvent>>, CryptoStoreError> {
         let key_info = self.get_key_info(&event.content).await?;
 
         if let Some(info) = key_info {
-            let session = InboundGroupSession::from_forwarded_key(sender_key, &event.content)?;
+            let session = InboundGroupSession::from_forwarded_key(sender_key, &mut event.content)?;
 
             let old_session = self
                 .store
@@ -312,14 +313,17 @@ impl KeyRequestMachine {
             } else {
                 self.save_session(info, session).await?;
             }
+
+            Ok(Some(Raw::from(AnyToDeviceEvent::ForwardedRoomKey(
+                event.clone(),
+            ))))
         } else {
             info!(
                 "Received a forwarded room key from {}, but no key info was found.",
                 event.sender,
             );
+            Ok(None)
         }
-
-        Ok(())
     }
 }
 
