@@ -87,42 +87,8 @@ impl Device {
 
     /// Get the trust state of the device.
     pub fn trust_state(&self) -> bool {
-        // TODO we want to return an enum mentioning if the trust is local, if
-        // only the identity is trusted, if the identity and the device are
-        // trusted.
-        if self.inner.trust_state() == LocalTrust::Verified {
-            // If the device is localy marked as verified just return so, no
-            // need to check signatures.
-            true
-        } else {
-            self.own_identity.as_ref().map_or(false, |own_identity| {
-                // Our own identity needs to be marked as verified.
-                own_identity.is_verified()
-                    && self
-                        .device_owner_identity
-                        .as_ref()
-                        .map(|device_identity| match device_identity {
-                            // If it's one of our own devices, just check that
-                            // we signed the device.
-                            UserIdentities::Own(_) => own_identity
-                                .is_device_signed(&self.inner)
-                                .map_or(false, |_| true),
-
-                            // If it's a device from someone else, first check
-                            // that our user has signed the other user and then
-                            // checkif the other user has signed this device.
-                            UserIdentities::Other(device_identity) => {
-                                own_identity
-                                    .is_identity_signed(&device_identity)
-                                    .map_or(false, |_| true)
-                                    && device_identity
-                                        .is_device_signed(&self.inner)
-                                        .map_or(false, |_| true)
-                            }
-                        })
-                        .unwrap_or(false)
-            })
-        }
+        self.inner
+            .trust_state(&self.own_identity, &self.device_owner_identity)
     }
 
     /// Set the local trust state of the device to the given state.
@@ -310,20 +276,20 @@ impl ReadOnlyDevice {
     }
 
     /// Get the trust state of the device.
-    pub fn trust_state(&self) -> LocalTrust {
+    pub fn local_trust_state(&self) -> LocalTrust {
         self.trust_state.load(Ordering::Relaxed)
     }
 
     /// Is the device locally marked as trusted.
     pub fn is_trusted(&self) -> bool {
-        self.trust_state() == LocalTrust::Verified
+        self.local_trust_state() == LocalTrust::Verified
     }
 
     /// Is the device locally marked as blacklisted.
     ///
     /// Blacklisted devices won't receive any group sessions.
     pub fn is_blacklisted(&self) -> bool {
-        self.trust_state() == LocalTrust::BlackListed
+        self.local_trust_state() == LocalTrust::BlackListed
     }
 
     /// Set the trust state of the device to the given state.
@@ -342,6 +308,48 @@ impl ReadOnlyDevice {
     /// Is the device deleted.
     pub fn deleted(&self) -> bool {
         self.deleted.load(Ordering::Relaxed)
+    }
+
+    fn trust_state(
+        &self,
+        own_identity: &Option<OwnUserIdentity>,
+        device_owner: &Option<UserIdentities>,
+    ) -> bool {
+        // TODO we want to return an enum mentioning if the trust is local, if
+        // only the identity is trusted, if the identity and the device are
+        // trusted.
+        if self.is_trusted() {
+            // If the device is localy marked as verified just return so, no
+            // need to check signatures.
+            true
+        } else {
+            own_identity.as_ref().map_or(false, |own_identity| {
+                // Our own identity needs to be marked as verified.
+                own_identity.is_verified()
+                    && device_owner
+                        .as_ref()
+                        .map(|device_identity| match device_identity {
+                            // If it's one of our own devices, just check that
+                            // we signed the device.
+                            UserIdentities::Own(_) => {
+                                own_identity.is_device_signed(&self).map_or(false, |_| true)
+                            }
+
+                            // If it's a device from someone else, first check
+                            // that our user has signed the other user and then
+                            // check if the other user has signed this device.
+                            UserIdentities::Other(device_identity) => {
+                                own_identity
+                                    .is_identity_signed(&device_identity)
+                                    .map_or(false, |_| true)
+                                    && device_identity
+                                        .is_device_signed(&self)
+                                        .map_or(false, |_| true)
+                            }
+                        })
+                        .unwrap_or(false)
+            })
+        }
     }
 
     /// Update a device with a new device keys struct.
@@ -491,7 +499,7 @@ pub(crate) mod test {
         assert_eq!(&user_id, device.user_id());
         assert_eq!(device_id, device.device_id());
         assert_eq!(device.algorithms.len(), 2);
-        assert_eq!(LocalTrust::Unset, device.trust_state());
+        assert_eq!(LocalTrust::Unset, device.local_trust_state());
         assert_eq!(
             "Alice's mobile phone",
             device.display_name().as_ref().unwrap()

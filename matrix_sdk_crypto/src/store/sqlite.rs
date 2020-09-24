@@ -772,7 +772,7 @@ impl SqliteStore {
         .bind(device.user_id().as_str())
         .bind(device.device_id().as_str())
         .bind(device.display_name())
-        .bind(device.trust_state() as i64)
+        .bind(device.local_trust_state() as i64)
         .execute(&mut *connection)
         .await?;
 

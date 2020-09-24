@@ -33,7 +33,7 @@ fn print_result(sas: &Sas) {
         "Successfully verified device {} {} {:?}",
         device.user_id(),
         device.device_id(),
-        device.trust_state()
+        device.local_trust_state()
     );
 }
 
