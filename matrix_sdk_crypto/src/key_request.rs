@@ -87,7 +87,7 @@ impl Deref for Device {
 }
 
 /// An error describing why a key share request won't be honored.
-#[derive(Debug, Clone, Error)]
+#[derive(Debug, Clone, Error, PartialEq)]
 pub enum KeyshareDecision {
     /// The key request is from a device that we don't own, we're only sharing
     /// sessions that we know the requesting device already was supposed to get.
@@ -582,11 +582,12 @@ mod test {
     use std::{convert::TryInto, sync::Arc};
 
     use crate::{
+        identities::{LocalTrust, ReadOnlyDevice},
         olm::Account,
         store::{MemoryStore, Store},
     };
 
-    use super::KeyRequestMachine;
+    use super::{Device, KeyRequestMachine, KeyshareDecision};
 
     fn alice_id() -> UserId {
         user_id!("@alice:example.org")
@@ -596,12 +597,24 @@ mod test {
         "JLAFKJWSCS".into()
     }
 
+    fn bob_id() -> UserId {
+        user_id!("@bob:example.org")
+    }
+
+    fn bob_device_id() -> DeviceIdBox {
+        "ILMLKASTES".into()
+    }
+
     fn room_id() -> RoomId {
         room_id!("!test:example.org")
     }
 
     fn account() -> Account {
         Account::new(&alice_id(), &alice_device_id())
+    }
+
+    fn bob_account() -> Account {
+        Account::new(&bob_id(), &bob_device_id())
     }
 
     fn get_machine() -> KeyRequestMachine {
@@ -784,5 +797,75 @@ mod test {
             .unwrap();
 
         assert_eq!(second_session.first_known_index().await, 0);
+    }
+
+    #[async_test]
+    async fn should_share_key_test() {
+        let machine = get_machine();
+        let account = account();
+
+        let own_device = Device {
+            store: machine.store.clone(),
+            inner: ReadOnlyDevice::from_account(&account).await,
+            own_identity: None,
+            device_owner_identity: None,
+        };
+
+        // We don't share keys with untrusted devices.
+        assert_eq!(
+            machine
+                .should_share_session(&own_device, None)
+                .expect_err("Should not share with untrusted"),
+            KeyshareDecision::UntrustedDevice
+        );
+        own_device.set_trust_state(LocalTrust::Verified);
+        // Now we do want to share the keys.
+        assert!(machine.should_share_session(&own_device, None).is_ok());
+
+        let bob_device = Device {
+            store: machine.store.clone(),
+            inner: ReadOnlyDevice::from_account(&bob_account()).await,
+            own_identity: None,
+            device_owner_identity: None,
+        };
+
+        // We don't share sessions with other user's devices if no outbound
+        // session was provided.
+        assert_eq!(
+            machine
+                .should_share_session(&bob_device, None)
+                .expect_err("Should not share with other."),
+            KeyshareDecision::MissingOutboundSession
+        );
+
+        let (session, _) = account
+            .create_group_session_pair_with_defaults(&room_id())
+            .await
+            .unwrap();
+
+        // We don't share sessions with other user's devices if the session
+        // wasn't shared in the first place.
+        assert_eq!(
+            machine
+                .should_share_session(&bob_device, Some(&session))
+                .expect_err("Should not share with other unless shared."),
+            KeyshareDecision::OutboundSessionNotShared
+        );
+
+        bob_device.set_trust_state(LocalTrust::Verified);
+
+        // We don't share sessions with other user's devices if the session
+        // wasn't shared in the first place even if the device is trusted.
+        assert_eq!(
+            machine
+                .should_share_session(&bob_device, Some(&session))
+                .expect_err("Should not share with other unless shared."),
+            KeyshareDecision::OutboundSessionNotShared
+        );
+
+        session.mark_shared_with(bob_device.user_id(), bob_device.device_id());
+        assert!(machine
+            .should_share_session(&bob_device, Some(&session))
+            .is_ok());
     }
 }

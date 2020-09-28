@@ -28,7 +28,7 @@ use matrix_sdk_common::{
         room::{encrypted::EncryptedEventContent, encryption::EncryptionEventContent},
         AnyMessageEventContent, EventContent,
     },
-    identifiers::{DeviceIdBox, EventEncryptionAlgorithm, RoomId, UserId},
+    identifiers::{DeviceId, DeviceIdBox, EventEncryptionAlgorithm, RoomId, UserId},
     instant::Instant,
     locks::Mutex,
 };
@@ -275,6 +275,13 @@ impl OutboundGroupSession {
     /// The set of users this session is shared with.
     pub(crate) fn shared_with(&self) -> &DashSet<(UserId, DeviceIdBox)> {
         &self.shared_with_set
+    }
+
+    /// Mark that the session was shared with the given user/device pair.
+    #[allow(dead_code)]
+    pub fn mark_shared_with(&self, user_id: &UserId, device_id: &DeviceId) {
+        self.shared_with_set
+            .insert((user_id.to_owned(), device_id.to_owned()));
     }
 }
 
