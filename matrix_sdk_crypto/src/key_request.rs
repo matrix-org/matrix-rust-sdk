@@ -360,19 +360,17 @@ impl KeyRequestMachine {
             } else {
                 Err(KeyshareDecision::UntrustedDevice)
             }
-        } else {
-            if let Some(outbound) = outbound_session {
-                if outbound
-                    .shared_with()
-                    .contains(&(device.user_id().to_owned(), device.device_id().to_owned()))
-                {
-                    Ok(())
-                } else {
-                    Err(KeyshareDecision::OutboundSessionNotShared)
-                }
+        } else if let Some(outbound) = outbound_session {
+            if outbound
+                .shared_with()
+                .contains(&(device.user_id().to_owned(), device.device_id().to_owned()))
+            {
+                Ok(())
             } else {
-                Err(KeyshareDecision::MissingOutboundSession)
+                Err(KeyshareDecision::OutboundSessionNotShared)
             }
+        } else {
+            Err(KeyshareDecision::MissingOutboundSession)
         }
     }
 
