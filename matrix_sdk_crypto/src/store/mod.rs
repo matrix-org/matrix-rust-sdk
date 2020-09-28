@@ -71,11 +71,14 @@ use matrix_sdk_common_macros::async_trait;
 use matrix_sdk_common_macros::send_sync;
 
 use super::{
-    identities::{ReadOnlyDevice, UserIdentities},
+    identities::{OwnUserIdentity, ReadOnlyDevice, UserIdentities},
     olm::{Account, InboundGroupSession, Session},
 };
 
 use crate::error::SessionUnpicklingError;
+
+/// A `CryptoStore` specific result type.
+pub type Result<T> = std::result::Result<T, CryptoStoreError>;
 
 /// A wrapper for our CryptoStore trait object.
 ///
@@ -84,11 +87,48 @@ use crate::error::SessionUnpicklingError;
 /// generics don't mix let the CryptoStore store strings and this wrapper
 /// adds the generic interface on top.
 #[derive(Debug, Clone)]
-pub(crate) struct Store(Arc<Box<dyn CryptoStore>>);
+pub(crate) struct Store {
+    user_id: Arc<UserId>,
+    inner: Arc<Box<dyn CryptoStore>>,
+}
 
 impl Store {
-    pub fn new(store: Box<dyn CryptoStore>) -> Self {
-        Self(Arc::new(store))
+    pub fn new(user_id: Arc<UserId>, store: Box<dyn CryptoStore>) -> Self {
+        Self {
+            user_id,
+            inner: Arc::new(store),
+        }
+    }
+
+    pub async fn get_device_and_users(
+        &self,
+        user_id: &UserId,
+        device_id: &DeviceId,
+    ) -> Result<
+        Option<(
+            ReadOnlyDevice,
+            Option<OwnUserIdentity>,
+            Option<UserIdentities>,
+        )>,
+    > {
+        let device = self.get_device(user_id, device_id).await?;
+
+        let device = if let Some(d) = device {
+            d
+        } else {
+            return Ok(None);
+        };
+
+        let own_identity = self
+            .get_user_identity(&self.user_id)
+            .await
+            .ok()
+            .flatten()
+            .map(|i| i.own().cloned())
+            .flatten();
+        let device_owner_identity = self.get_user_identity(user_id).await.ok().flatten();
+
+        Ok(Some((device, own_identity, device_owner_identity)))
     }
 
     #[allow(dead_code)]
@@ -108,7 +148,7 @@ impl Store {
 
     #[allow(dead_code)]
     pub async fn delete_object(&self, key: &str) -> Result<()> {
-        self.0.remove_value(key).await?;
+        self.inner.remove_value(key).await?;
         Ok(())
     }
 }
@@ -117,12 +157,9 @@ impl Deref for Store {
     type Target = dyn CryptoStore;
 
     fn deref(&self) -> &Self::Target {
-        &**self.0
+        &**self.inner
     }
 }
-
-/// A `CryptoStore` specific result type.
-pub type Result<T> = std::result::Result<T, CryptoStoreError>;
 
 #[derive(Error, Debug)]
 /// The crypto store's error type.

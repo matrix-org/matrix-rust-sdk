@@ -646,7 +646,7 @@ impl InnerSas {
 
 #[cfg(test)]
 mod test {
-    use std::convert::TryFrom;
+    use std::{convert::TryFrom, sync::Arc};
 
     use matrix_sdk_common::{
         events::{EventContent, ToDeviceEvent},
@@ -776,8 +776,8 @@ mod test {
         let bob = Account::new(&bob_id(), &bob_device_id());
         let bob_device = ReadOnlyDevice::from_account(&bob).await;
 
-        let alice_store = Store::new(Box::new(MemoryStore::new()));
-        let bob_store = Store::new(Box::new(MemoryStore::new()));
+        let alice_store = Store::new(Arc::new(alice_id()), Box::new(MemoryStore::new()));
+        let bob_store = Store::new(Arc::new(bob_id()), Box::new(MemoryStore::new()));
 
         bob_store
             .save_devices(&[alice_device.clone()])

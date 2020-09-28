@@ -124,9 +124,10 @@ impl OlmMachine {
         store: Box<dyn CryptoStore>,
         account: Account,
     ) -> Self {
-        let store = Store::new(store);
-        let verification_machine = VerificationMachine::new(account.clone(), store.clone());
         let user_id = Arc::new(user_id.clone());
+
+        let store = Store::new(user_id.clone(), store);
+        let verification_machine = VerificationMachine::new(account.clone(), store.clone());
         let device_id: Arc<DeviceIdBox> = Arc::new(device_id);
         let key_request_machine =
             KeyRequestMachine::new(user_id.clone(), device_id.clone(), store.clone());
@@ -1226,30 +1227,21 @@ impl OlmMachine {
     /// println!("{:?}", device);
     /// # });
     /// ```
-    pub async fn get_device(&self, user_id: &UserId, device_id: &DeviceId) -> Option<Device> {
-        let device = self
+    pub async fn get_device(
+        &self,
+        user_id: &UserId,
+        device_id: &DeviceId,
+    ) -> StoreResult<Option<Device>> {
+        Ok(self
             .store
-            .get_device(user_id, device_id)
-            .await
-            .ok()
-            .flatten()?;
-
-        let own_identity = self
-            .store
-            .get_user_identity(self.user_id())
-            .await
-            .ok()
-            .flatten()
-            .map(|i| i.own().cloned())
-            .flatten();
-        let device_owner_identity = self.store.get_user_identity(user_id).await.ok().flatten();
-
-        Some(Device {
-            inner: device,
-            verification_machine: self.verification_machine.clone(),
-            own_identity,
-            device_owner_identity,
-        })
+            .get_device_and_users(user_id, device_id)
+            .await?
+            .map(|(d, o, u)| Device {
+                inner: d,
+                verification_machine: self.verification_machine.clone(),
+                own_identity: o,
+                device_owner_identity: u,
+            }))
     }
 
     /// Get a map holding all the devices of an user.
@@ -1566,6 +1558,7 @@ pub(crate) mod test {
         let bob_device = alice
             .get_device(&bob.user_id, &bob.device_id)
             .await
+            .unwrap()
             .unwrap();
 
         let event = ToDeviceEvent {
@@ -1848,6 +1841,7 @@ pub(crate) mod test {
         let bob_device = alice
             .get_device(&bob.user_id, &bob.device_id)
             .await
+            .unwrap()
             .unwrap();
 
         let event = ToDeviceEvent {
@@ -2031,6 +2025,7 @@ pub(crate) mod test {
         let bob_device = alice
             .get_device(bob.user_id(), bob.device_id())
             .await
+            .unwrap()
             .unwrap();
 
         assert!(!bob_device.is_trusted());
@@ -2096,6 +2091,7 @@ pub(crate) mod test {
         let alice_device = bob
             .get_device(alice.user_id(), alice.device_id())
             .await
+            .unwrap()
             .unwrap();
 
         assert!(!alice_device.is_trusted());

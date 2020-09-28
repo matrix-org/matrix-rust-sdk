@@ -1809,9 +1809,19 @@ impl BaseClient {
     /// ```
     #[cfg(feature = "encryption")]
     #[cfg_attr(feature = "docs", doc(cfg(encryption)))]
-    pub async fn get_device(&self, user_id: &UserId, device_id: &DeviceId) -> Option<Device> {
+    pub async fn get_device(
+        &self,
+        user_id: &UserId,
+        device_id: &DeviceId,
+    ) -> StdResult<Option<Device>, CryptoStoreError> {
         let olm = self.olm.lock().await;
-        olm.as_ref()?.get_device(user_id, device_id).await
+
+        if let Some(olm) = olm.as_ref() {
+            olm.get_device(user_id, device_id).await
+        } else {
+            // TODO remove this panic.
+            panic!("The client hasn't been logged in")
+        }
     }
 
     /// Get a map holding all the devices of an user.

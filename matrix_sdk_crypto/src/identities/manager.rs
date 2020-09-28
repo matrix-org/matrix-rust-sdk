@@ -380,8 +380,9 @@ pub(crate) mod test {
     }
 
     fn manager() -> IdentityManager {
-        let store = Store::new(Box::new(MemoryStore::new()));
-        IdentityManager::new(Arc::new(user_id()), Arc::new(device_id()), store)
+        let user_id = Arc::new(user_id());
+        let store = Store::new(user_id.clone(), Box::new(MemoryStore::new()));
+        IdentityManager::new(user_id, Arc::new(device_id()), store)
     }
 
     pub(crate) fn other_key_query() -> KeyQueryResponse {

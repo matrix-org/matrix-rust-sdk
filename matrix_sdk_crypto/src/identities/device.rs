@@ -40,7 +40,7 @@ use crate::{
     error::{EventError, OlmError, OlmResult, SignatureError},
     identities::{OwnUserIdentity, UserIdentities},
     olm::Utility,
-    store::{caches::ReadOnlyUserDevices, Result as StoreResult},
+    store::{caches::ReadOnlyUserDevices, Result as StoreResult, Store},
     verification::VerificationMachine,
     Sas, ToDeviceRequest,
 };
@@ -120,43 +120,9 @@ impl Device {
         event_type: EventType,
         content: Value,
     ) -> OlmResult<EncryptedEventContent> {
-        let sender_key = if let Some(k) = self.inner.get_key(DeviceKeyAlgorithm::Curve25519) {
-            k
-        } else {
-            warn!(
-                "Trying to encrypt a Megolm session for user {} on device {}, \
-                but the device doesn't have a curve25519 key",
-                self.user_id(),
-                self.device_id()
-            );
-            return Err(EventError::MissingSenderKey.into());
-        };
-
-        let mut session = if let Some(s) = self
-            .verification_machine
-            .store
-            .get_sessions(sender_key)
-            .await?
-        {
-            let session = &s.lock().await[0];
-            session.clone()
-        } else {
-            warn!(
-                "Trying to encrypt a Megolm session for user {} on device {}, \
-                but no Olm session is found",
-                self.user_id(),
-                self.device_id()
-            );
-            return Err(OlmError::MissingSession);
-        };
-
-        let message = session.encrypt(&self.inner, event_type, content).await;
-        self.verification_machine
-            .store
-            .save_sessions(&[session])
-            .await?;
-
-        message
+        self.inner
+            .encrypt(self.verification_machine.store.clone(), event_type, content)
+            .await
     }
 }
 
@@ -310,7 +276,7 @@ impl ReadOnlyDevice {
         self.deleted.load(Ordering::Relaxed)
     }
 
-    fn trust_state(
+    pub(crate) fn trust_state(
         &self,
         own_identity: &Option<OwnUserIdentity>,
         device_owner: &Option<UserIdentities>,
@@ -350,6 +316,43 @@ impl ReadOnlyDevice {
                         .unwrap_or(false)
             })
         }
+    }
+
+    pub(crate) async fn encrypt(
+        &self,
+        store: Store,
+        event_type: EventType,
+        content: Value,
+    ) -> OlmResult<EncryptedEventContent> {
+        let sender_key = if let Some(k) = self.get_key(DeviceKeyAlgorithm::Curve25519) {
+            k
+        } else {
+            warn!(
+                "Trying to encrypt a Megolm session for user {} on device {}, \
+                but the device doesn't have a curve25519 key",
+                self.user_id(),
+                self.device_id()
+            );
+            return Err(EventError::MissingSenderKey.into());
+        };
+
+        let mut session = if let Some(s) = store.get_sessions(sender_key).await? {
+            let session = &s.lock().await[0];
+            session.clone()
+        } else {
+            warn!(
+                "Trying to encrypt a Megolm session for user {} on device {}, \
+                but no Olm session is found",
+                self.user_id(),
+                self.device_id()
+            );
+            return Err(OlmError::MissingSession);
+        };
+
+        let message = session.encrypt(&self, event_type, content).await;
+        store.save_sessions(&[session]).await?;
+
+        message
     }
 
     /// Update a device with a new device keys struct.

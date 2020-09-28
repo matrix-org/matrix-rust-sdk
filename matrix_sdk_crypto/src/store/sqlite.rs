@@ -598,6 +598,8 @@ impl SqliteStore {
     async fn save_tracked_user(&self, user: &UserId, dirty: bool) -> Result<()> {
         let account_id = self.account_id().ok_or(CryptoStoreError::AccountUnset)?;
         let mut connection = self.connection.lock().await;
+        // TODO see the todo in the memory store, we need to avoid a race
+        // between a sync and key query.
 
         query(
             "INSERT INTO tracked_users (

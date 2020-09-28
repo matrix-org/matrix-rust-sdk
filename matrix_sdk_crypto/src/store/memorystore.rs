@@ -119,6 +119,18 @@ impl CryptoStore for MemoryStore {
     }
 
     async fn update_tracked_user(&self, user: &UserId, dirty: bool) -> Result<bool> {
+        // TODO to prevent a race between the sync and a key query in flight we
+        // need to have an additional state to mention that the user changed.
+        //
+        // A simple counter could be used for this or enum with two states, e.g.
+        // The counter would work as follows:
+        // * 0 -> User is synced, no need for a key query.
+        // * 1 -> A sync has marked the user as dirty.
+        // * 2 -> A sync has marked the user again as dirty, before we got a
+        // successful key query response.
+        //
+        // The counter would top out at 2 since there won't be a race between 3
+        // different key queries syncs.
         if dirty {
             self.users_for_key_query.insert(user.clone());
         } else {

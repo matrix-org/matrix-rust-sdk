@@ -221,6 +221,7 @@ mod test {
 
     use std::{
         convert::TryFrom,
+        sync::Arc,
         time::{Duration, Instant},
     };
 
@@ -257,7 +258,7 @@ mod test {
         let alice = Account::new(&alice_id(), &alice_device_id());
         let bob = Account::new(&bob_id(), &bob_device_id());
         let store = MemoryStore::new();
-        let bob_store = Store::new(Box::new(MemoryStore::new()));
+        let bob_store = Store::new(Arc::new(bob_id()), Box::new(MemoryStore::new()));
 
         let bob_device = ReadOnlyDevice::from_account(&bob).await;
         let alice_device = ReadOnlyDevice::from_account(&alice).await;
@@ -268,7 +269,8 @@ mod test {
             .await
             .unwrap();
 
-        let machine = VerificationMachine::new(alice, Store::new(Box::new(store)));
+        let machine =
+            VerificationMachine::new(alice, Store::new(Arc::new(alice_id()), Box::new(store)));
         let (bob_sas, start_content) = Sas::start(bob, alice_device, bob_store, None);
         machine
             .receive_event(&mut wrap_any_to_device_content(
@@ -284,8 +286,9 @@ mod test {
     #[test]
     fn create() {
         let alice = Account::new(&alice_id(), &alice_device_id());
+        let user_id = Arc::new(alice_id());
         let store = MemoryStore::new();
-        let _ = VerificationMachine::new(alice, Store::new(Box::new(store)));
+        let _ = VerificationMachine::new(alice, Store::new(user_id, Box::new(store)));
     }
 
     #[tokio::test]

@@ -1662,13 +1662,17 @@ impl Client {
     /// ```
     #[cfg(feature = "encryption")]
     #[cfg_attr(feature = "docs", doc(cfg(encryption)))]
-    pub async fn get_device(&self, user_id: &UserId, device_id: &DeviceId) -> Option<Device> {
+    pub async fn get_device(
+        &self,
+        user_id: &UserId,
+        device_id: &DeviceId,
+    ) -> StdResult<Option<Device>, CryptoStoreError> {
         let device = self.base_client.get_device(user_id, device_id).await?;
 
-        Some(Device {
-            inner: device,
+        Ok(device.map(|d| Device {
+            inner: d,
             http_client: self.http_client.clone(),
-        })
+        }))
     }
 
     /// Get a map holding all the devices of an user.

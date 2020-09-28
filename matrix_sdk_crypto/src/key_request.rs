@@ -23,16 +23,20 @@
 //
 // If we don't trust the device store an object that remembers the request and
 // let the users introspect that object.
+
+#![allow(dead_code)]
+
 use dashmap::DashMap;
 use serde::{Deserialize, Serialize};
-use serde_json::value::to_raw_value;
-use std::{collections::BTreeMap, sync::Arc};
+use serde_json::{value::to_raw_value, Value};
+use std::{collections::BTreeMap, convert::TryInto, sync::Arc};
 use tracing::{info, trace};
 
 use matrix_sdk_common::{
     api::r0::to_device::DeviceIdOrAllDevices,
     events::{
         forwarded_room_key::ForwardedRoomKeyEventContent,
+        room::encrypted::EncryptedEventContent,
         room_key_request::{Action, RequestedKeyInfo, RoomKeyRequestEventContent},
         AnyToDeviceEvent, EventType, ToDeviceEvent,
     },
@@ -42,10 +46,36 @@ use matrix_sdk_common::{
 };
 
 use crate::{
+    error::OlmResult,
+    identities::{OwnUserIdentity, ReadOnlyDevice, UserIdentities},
     olm::InboundGroupSession,
     requests::{OutgoingRequest, ToDeviceRequest},
     store::{CryptoStoreError, Store},
 };
+
+struct Device {
+    inner: ReadOnlyDevice,
+    store: Store,
+    own_identity: Option<OwnUserIdentity>,
+    device_owner_identity: Option<UserIdentities>,
+}
+
+impl Device {
+    fn trust_state(&self) -> bool {
+        self.inner
+            .trust_state(&self.own_identity, &self.device_owner_identity)
+    }
+
+    pub(crate) async fn encrypt(
+        &self,
+        event_type: EventType,
+        content: Value,
+    ) -> OlmResult<EncryptedEventContent> {
+        self.inner
+            .encrypt(self.store.clone(), event_type, content)
+            .await
+    }
+}
 
 #[derive(Debug, Clone)]
 pub(crate) struct KeyRequestMachine {
@@ -53,6 +83,8 @@ pub(crate) struct KeyRequestMachine {
     device_id: Arc<DeviceIdBox>,
     store: Store,
     outgoing_to_device_requests: Arc<DashMap<Uuid, OutgoingRequest>>,
+    incoming_key_requests:
+        Arc<DashMap<(UserId, DeviceIdBox, String), ToDeviceEvent<RoomKeyRequestEventContent>>>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -116,6 +148,7 @@ impl KeyRequestMachine {
             device_id,
             store,
             outgoing_to_device_requests: Arc::new(DashMap::new()),
+            incoming_key_requests: Arc::new(DashMap::new()),
         }
     }
 
@@ -129,6 +162,111 @@ impl KeyRequestMachine {
             .iter()
             .map(|r| (*r).clone())
             .collect()
+    }
+
+    /// Receive a room key request event.
+    pub fn receive_incoming_key_request(&self, event: &ToDeviceEvent<RoomKeyRequestEventContent>) {
+        let sender = event.sender.clone();
+        let device_id = event.content.requesting_device_id.clone();
+        let request_id = event.content.request_id.clone();
+        self.incoming_key_requests
+            .insert((sender, device_id, request_id), event.clone());
+    }
+
+    pub async fn collect_incoming_key_requests(&self) -> Result<(), CryptoStoreError> {
+        for item in self.incoming_key_requests.iter() {
+            let event = item.value();
+
+            // TODO move this into the handle key request method.
+            match event.content.action {
+                Action::Request => {
+                    self.handle_key_request(event).await?;
+                }
+                _ => (),
+            }
+
+            println!("HELLO {:?}", event);
+        }
+
+        self.incoming_key_requests.clear();
+
+        Ok(())
+    }
+
+    async fn handle_key_request(
+        &self,
+        event: &ToDeviceEvent<RoomKeyRequestEventContent>,
+    ) -> Result<(), CryptoStoreError> {
+        let key_info = event.content.body.as_ref().unwrap();
+        let session = self
+            .store
+            .get_inbound_group_session(
+                &key_info.room_id,
+                &key_info.sender_key,
+                &key_info.session_id,
+            )
+            .await?;
+
+        let session = if let Some(s) = session {
+            s
+        } else {
+            info!("Received a key request for an unknown inbound group session.");
+            return Ok(());
+        };
+
+        let device = self
+            .store
+            .get_device_and_users(&event.sender, &event.content.requesting_device_id)
+            .await?
+            .map(|(d, o, u)| Device {
+                inner: d,
+                store: self.store.clone(),
+                own_identity: o,
+                device_owner_identity: u,
+            });
+
+        if let Some(device) = device {
+            if self.user_id() == &event.sender {
+                self.handle_key_request_from_own_user(event, session, device)
+                    .await?;
+            } else {
+                self.handle_key_request_from_others(event, session, device)
+                    .await?;
+            }
+        } else {
+            info!("Received a key request from an unknown device.");
+            self.store.update_tracked_user(&event.sender, true).await?;
+        }
+
+        Ok(())
+    }
+
+    async fn handle_key_request_from_own_user(
+        &self,
+        event: &ToDeviceEvent<RoomKeyRequestEventContent>,
+        session: InboundGroupSession,
+        device: Device,
+    ) -> Result<(), CryptoStoreError> {
+        // TODO should we create yet another Device type that holds a store
+        // but not a verification machine?
+        if device.trust_state() {
+            let export = session.export().await;
+            let content: ForwardedRoomKeyEventContent = export.try_into().unwrap();
+
+            todo!("Queue up a key to be shared");
+        } else {
+            info!("Received a key request from an untrusted device.");
+        }
+        todo!()
+    }
+
+    async fn handle_key_request_from_others(
+        &self,
+        event: &ToDeviceEvent<RoomKeyRequestEventContent>,
+        session: InboundGroupSession,
+        device: Device,
+    ) -> Result<(), CryptoStoreError> {
+        todo!()
     }
 
     /// Create a new outgoing key request for the key with the given session id.
@@ -360,9 +498,10 @@ mod test {
     }
 
     fn get_machine() -> KeyRequestMachine {
-        let store = Store::new(Box::new(MemoryStore::new()));
+        let user_id = Arc::new(alice_id());
+        let store = Store::new(user_id.clone(), Box::new(MemoryStore::new()));
 
-        KeyRequestMachine::new(Arc::new(alice_id()), Arc::new(alice_device_id()), store)
+        KeyRequestMachine::new(user_id, Arc::new(alice_device_id()), store)
     }
 
     #[test]

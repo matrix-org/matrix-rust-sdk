@@ -659,7 +659,7 @@ impl OwnUserIdentity {
 
 #[cfg(test)]
 pub(crate) mod test {
-    use std::convert::TryFrom;
+    use std::{convert::TryFrom, sync::Arc};
 
     use crate::{
         identities::{
@@ -736,7 +736,10 @@ pub(crate) mod test {
 
         let verification_machine = VerificationMachine::new(
             Account::new(second.user_id(), second.device_id()),
-            Store::new(Box::new(MemoryStore::new())),
+            Store::new(
+                Arc::new(second.user_id().clone()),
+                Box::new(MemoryStore::new()),
+            ),
         );
 
         let first = Device {
