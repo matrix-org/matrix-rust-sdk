@@ -29,8 +29,8 @@
 use dashmap::DashMap;
 use serde::{Deserialize, Serialize};
 use serde_json::{value::to_raw_value, Value};
-use std::{collections::BTreeMap, convert::TryInto, sync::Arc};
-use tracing::{info, trace};
+use std::{collections::BTreeMap, convert::TryInto, ops::Deref, sync::Arc};
+use tracing::{info, instrument, trace};
 
 use matrix_sdk_common::{
     api::r0::to_device::DeviceIdOrAllDevices,
@@ -48,7 +48,7 @@ use matrix_sdk_common::{
 use crate::{
     error::OlmResult,
     identities::{OwnUserIdentity, ReadOnlyDevice, UserIdentities},
-    olm::InboundGroupSession,
+    olm::{InboundGroupSession, OutboundGroupSession},
     requests::{OutgoingRequest, ToDeviceRequest},
     store::{CryptoStoreError, Store},
 };
@@ -74,6 +74,14 @@ impl Device {
         self.inner
             .encrypt(self.store.clone(), event_type, content)
             .await
+    }
+}
+
+impl Deref for Device {
+    type Target = ReadOnlyDevice;
+
+    fn deref(&self) -> &Self::Target {
+        &self.inner
     }
 }
 
@@ -173,6 +181,9 @@ impl KeyRequestMachine {
             .insert((sender, device_id, request_id), event.clone());
     }
 
+    /// Handle all the incoming key requests that are queued up and empty our
+    /// key request queue.
+    #[instrument]
     pub async fn collect_incoming_key_requests(&self) -> Result<(), CryptoStoreError> {
         for item in self.incoming_key_requests.iter() {
             let event = item.value();
@@ -226,12 +237,14 @@ impl KeyRequestMachine {
             });
 
         if let Some(device) = device {
-            if self.user_id() == &event.sender {
-                self.handle_key_request_from_own_user(event, session, device)
-                    .await?;
+            if self.should_share_session(&device, None) {
+                self.share_session(session, device).await;
             } else {
-                self.handle_key_request_from_others(event, session, device)
-                    .await?;
+                info!(
+                    "Received a key request from {} {} that we won't serve.",
+                    device.user_id(),
+                    device.device_id()
+                );
             }
         } else {
             info!("Received a key request from an unknown device.");
@@ -241,32 +254,103 @@ impl KeyRequestMachine {
         Ok(())
     }
 
-    async fn handle_key_request_from_own_user(
-        &self,
-        event: &ToDeviceEvent<RoomKeyRequestEventContent>,
-        session: InboundGroupSession,
-        device: Device,
-    ) -> Result<(), CryptoStoreError> {
-        // TODO should we create yet another Device type that holds a store
-        // but not a verification machine?
-        if device.trust_state() {
-            let export = session.export().await;
-            let content: ForwardedRoomKeyEventContent = export.try_into().unwrap();
+    async fn share_session(&self, session: InboundGroupSession, device: Device) {
+        let export = session.export().await;
+        let content: ForwardedRoomKeyEventContent = export.try_into().unwrap();
+        let content = serde_json::to_value(content).unwrap();
+        let content = device
+            .encrypt(EventType::ForwardedRoomKey, content)
+            .await
+            .unwrap();
 
-            todo!("Queue up a key to be shared");
-        } else {
-            info!("Received a key request from an untrusted device.");
-        }
-        todo!()
+        let id = Uuid::new_v4();
+
+        let mut messages = BTreeMap::new();
+
+        messages
+            .entry(device.user_id().to_owned())
+            .or_insert_with(BTreeMap::new)
+            .insert(
+                DeviceIdOrAllDevices::DeviceId(device.device_id().into()),
+                to_raw_value(&content).unwrap(),
+            );
+
+        let request = OutgoingRequest {
+            request_id: id,
+            request: Arc::new(
+                ToDeviceRequest {
+                    event_type: EventType::RoomKeyRequest,
+                    txn_id: id,
+                    messages,
+                }
+                .into(),
+            ),
+        };
+
+        self.outgoing_to_device_requests.insert(id, request);
     }
 
-    async fn handle_key_request_from_others(
+    /// Check if it's ok to share a session with the given device.
+    ///
+    /// The logic for this currently is as follows:
+    ///
+    /// * Share any session with our own devices as long as they are trusted.
+    ///
+    /// * Share with devices of other users only sessions that were meant to be
+    /// shared with them in the first place, in other words if an outbound
+    /// session still exists and the session was shared with that user/device
+    /// pair.
+    ///
+    /// # Arguments
+    ///
+    /// * `device` - The device that is requesting a session from us.
+    ///
+    /// * `outbound_session` - If one still exists, the matching outbound
+    /// session that was used to create the inbound session that is being
+    /// requested.
+    fn should_share_session(
         &self,
-        event: &ToDeviceEvent<RoomKeyRequestEventContent>,
-        session: InboundGroupSession,
-        device: Device,
-    ) -> Result<(), CryptoStoreError> {
-        todo!()
+        device: &Device,
+        outbound_session: Option<&OutboundGroupSession>,
+    ) -> bool {
+        if device.user_id() == self.user_id() {
+            if device.trust_state() {
+                true
+            } else {
+                info!(
+                    "Received a key share request from {} {}, but the \
+                      device isn't trusted.",
+                    device.user_id(),
+                    device.device_id()
+                );
+                false
+            }
+        } else {
+            if let Some(outbound) = outbound_session {
+                if outbound
+                    .shared_with()
+                    .contains(&(device.user_id().to_owned(), device.device_id().to_owned()))
+                {
+                    true
+                } else {
+                    info!(
+                        "Received a key share request from {} {}, but the \
+                          outbound session was never shared with them.",
+                        device.user_id(),
+                        device.device_id()
+                    );
+                    false
+                }
+            } else {
+                info!(
+                    "Received a key share request from {} {}, but no \
+                      outbound session was found.",
+                    device.user_id(),
+                    device.device_id()
+                );
+                false
+            }
+        }
     }
 
     /// Create a new outgoing key request for the key with the given session id.

@@ -101,7 +101,7 @@ pub struct OutboundGroupSession {
     message_count: Arc<AtomicU64>,
     shared: Arc<AtomicBool>,
     settings: Arc<EncryptionSettings>,
-    shared_with_set: Arc<DashSet<UserId>>,
+    shared_with_set: Arc<DashSet<(UserId, DeviceIdBox)>>,
     to_share_with_set: Arc<DashSet<UserId>>,
 }
 
@@ -270,6 +270,11 @@ impl OutboundGroupSession {
             "session_key": self.session_key().await,
             "chain_index": self.message_index().await,
         })
+    }
+
+    /// The set of users this session is shared with.
+    pub(crate) fn shared_with(&self) -> &DashSet<(UserId, DeviceIdBox)> {
+        &self.shared_with_set
     }
 }
 
