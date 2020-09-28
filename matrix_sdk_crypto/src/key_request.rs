@@ -30,7 +30,8 @@ use dashmap::DashMap;
 use serde::{Deserialize, Serialize};
 use serde_json::{value::to_raw_value, Value};
 use std::{collections::BTreeMap, convert::TryInto, ops::Deref, sync::Arc};
-use tracing::{info, instrument, trace};
+use thiserror::Error;
+use tracing::{info, instrument, trace, warn};
 
 use matrix_sdk_common::{
     api::r0::to_device::DeviceIdOrAllDevices,
@@ -83,6 +84,22 @@ impl Deref for Device {
     fn deref(&self) -> &Self::Target {
         &self.inner
     }
+}
+
+/// An error describing why a key share request won't be honored.
+#[derive(Debug, Clone, Error)]
+pub enum KeyshareDecision {
+    /// The key request is from a device that we don't own, we're only sharing
+    /// sessions that we know the requesting device already was supposed to get.
+    #[error("can't find an active outbound group session")]
+    MissingOutboundSession,
+    /// The key request is from a device that we don't own and the device wasn't
+    /// meant to receive the session in the original key share.
+    #[error("outbound session wasn't shared with the requesting device")]
+    OutboundSessionNotShared,
+    /// The key request is from a device we own, yet we don't trust it.
+    #[error("requesting device isn't trusted")]
+    UntrustedDevice,
 }
 
 #[derive(Debug, Clone)]
@@ -160,7 +177,8 @@ impl KeyRequestMachine {
         }
     }
 
-    fn user_id(&self) -> &UserId {
+    /// Our own user id.
+    pub fn user_id(&self) -> &UserId {
         &self.user_id
     }
 
@@ -183,20 +201,10 @@ impl KeyRequestMachine {
 
     /// Handle all the incoming key requests that are queued up and empty our
     /// key request queue.
-    #[instrument]
     pub async fn collect_incoming_key_requests(&self) -> Result<(), CryptoStoreError> {
         for item in self.incoming_key_requests.iter() {
             let event = item.value();
-
-            // TODO move this into the handle key request method.
-            match event.content.action {
-                Action::Request => {
-                    self.handle_key_request(event).await?;
-                }
-                _ => (),
-            }
-
-            println!("HELLO {:?}", event);
+            self.handle_key_request(event).await?;
         }
 
         self.incoming_key_requests.clear();
@@ -204,11 +212,29 @@ impl KeyRequestMachine {
         Ok(())
     }
 
+    /// Handle a single incoming key request.
+    #[instrument]
     async fn handle_key_request(
         &self,
         event: &ToDeviceEvent<RoomKeyRequestEventContent>,
     ) -> Result<(), CryptoStoreError> {
-        let key_info = event.content.body.as_ref().unwrap();
+        let key_info = match event.content.action {
+            Action::Request => {
+                if let Some(info) = &event.content.body {
+                    info
+                } else {
+                    warn!(
+                        "Received a key request from {} {} with a request \
+                          action, but no key info was found",
+                        event.sender, event.content.requesting_device_id
+                    );
+                    return Ok(());
+                }
+            }
+            // We ignore cancellations here since there's nothing to serve.
+            Action::CancelRequest => return Ok(()),
+        };
+
         let session = self
             .store
             .get_inbound_group_session(
@@ -221,7 +247,10 @@ impl KeyRequestMachine {
         let session = if let Some(s) = session {
             s
         } else {
-            info!("Received a key request for an unknown inbound group session.");
+            info!(
+                "Received a key request from {} {} for an unknown inbound group session {}.",
+                &event.sender, &event.content.requesting_device_id, &key_info.session_id
+            );
             return Ok(());
         };
 
@@ -237,17 +266,29 @@ impl KeyRequestMachine {
             });
 
         if let Some(device) = device {
-            if self.should_share_session(&device, None) {
-                self.share_session(session, device).await;
+            // TODO get the matching outbound session.
+            if let Err(e) = self.should_share_session(&device, None) {
+                info!(
+                    "Received a key request from {} {} that we won't serve: {}",
+                    device.user_id(),
+                    device.device_id(),
+                    e
+                );
             } else {
                 info!(
-                    "Received a key request from {} {} that we won't serve.",
+                    "Serving a key request for {} from {} {}.",
+                    key_info.session_id,
                     device.user_id(),
                     device.device_id()
                 );
+
+                self.share_session(session, device).await;
             }
         } else {
-            info!("Received a key request from an unknown device.");
+            warn!(
+                "Received a key request from an unknown device {} {}.",
+                &event.sender, &event.content.requesting_device_id
+            );
             self.store.update_tracked_user(&event.sender, true).await?;
         }
 
@@ -312,18 +353,12 @@ impl KeyRequestMachine {
         &self,
         device: &Device,
         outbound_session: Option<&OutboundGroupSession>,
-    ) -> bool {
+    ) -> Result<(), KeyshareDecision> {
         if device.user_id() == self.user_id() {
             if device.trust_state() {
-                true
+                Ok(())
             } else {
-                info!(
-                    "Received a key share request from {} {}, but the \
-                      device isn't trusted.",
-                    device.user_id(),
-                    device.device_id()
-                );
-                false
+                Err(KeyshareDecision::UntrustedDevice)
             }
         } else {
             if let Some(outbound) = outbound_session {
@@ -331,24 +366,12 @@ impl KeyRequestMachine {
                     .shared_with()
                     .contains(&(device.user_id().to_owned(), device.device_id().to_owned()))
                 {
-                    true
+                    Ok(())
                 } else {
-                    info!(
-                        "Received a key share request from {} {}, but the \
-                          outbound session was never shared with them.",
-                        device.user_id(),
-                        device.device_id()
-                    );
-                    false
+                    Err(KeyshareDecision::OutboundSessionNotShared)
                 }
             } else {
-                info!(
-                    "Received a key share request from {} {}, but no \
-                      outbound session was found.",
-                    device.user_id(),
-                    device.device_id()
-                );
-                false
+                Err(KeyshareDecision::MissingOutboundSession)
             }
         }
     }
