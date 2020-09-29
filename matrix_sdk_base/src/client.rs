@@ -1819,8 +1819,7 @@ impl BaseClient {
         if let Some(olm) = olm.as_ref() {
             olm.get_device(user_id, device_id).await
         } else {
-            // TODO remove this panic.
-            panic!("The client hasn't been logged in")
+            Ok(None)
         }
     }
 

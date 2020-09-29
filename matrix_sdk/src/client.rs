@@ -1653,7 +1653,10 @@ impl Client {
     /// # let homeserver = Url::parse("http://example.com").unwrap();
     /// # let client = Client::new(homeserver).unwrap();
     /// # block_on(async {
-    /// let device = client.get_device(&alice, "DEVICEID".into()).await.unwrap();
+    /// let device = client.get_device(&alice, "DEVICEID".into())
+    ///     .await
+    ///     .unwrap()
+    ///     .unwrap();
     ///
     /// println!("{:?}", device.is_trusted());
     ///

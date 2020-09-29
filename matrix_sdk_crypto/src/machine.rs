@@ -14,7 +14,7 @@
 
 #[cfg(feature = "sqlite_cryptostore")]
 use std::path::Path;
-use std::{collections::BTreeMap, convert::TryInto, mem, sync::Arc, time::Duration};
+use std::{collections::BTreeMap, mem, sync::Arc, time::Duration};
 
 use dashmap::DashMap;
 use tracing::{debug, error, info, instrument, trace, warn};
@@ -51,7 +51,7 @@ use super::{
     key_request::KeyRequestMachine,
     olm::{
         Account, EncryptionSettings, ExportedRoomKey, GroupSessionKey, IdentityKeys,
-        InboundGroupSession, OlmMessage, OutboundGroupSession, ReadOnlyAccount,
+        InboundGroupSession, OutboundGroupSession, ReadOnlyAccount,
     },
     requests::{IncomingResponse, OutgoingRequest, ToDeviceRequest},
     store::{CryptoStore, MemoryStore, Result as StoreResult, Store},
@@ -513,61 +513,22 @@ impl OlmMachine {
         &self,
         event: &ToDeviceEvent<EncryptedEventContent>,
     ) -> OlmResult<Raw<AnyToDeviceEvent>> {
-        info!("Decrypting to-device event");
-
-        let content = if let EncryptedEventContent::OlmV1Curve25519AesSha2(c) = &event.content {
-            c
+        let (decrypted_event, sender_key, signing_key) =
+            self.account.decrypt_to_device_event(event).await?;
+        // Handle the decrypted event, e.g. fetch out Megolm sessions out of
+        // the event.
+        if let Some(event) = self
+            .handle_decrypted_to_device_event(&sender_key, &signing_key, &decrypted_event)
+            .await?
+        {
+            // Some events may have sensitive data e.g. private keys, while we
+            // want to notify our users that a private key was received we
+            // don't want them to be able to do silly things with it. Handling
+            // events modifies them and returns a modified one, so replace it
+            // here if we get one.
+            Ok(event)
         } else {
-            warn!("Error, unsupported encryption algorithm");
-            return Err(EventError::UnsupportedAlgorithm.into());
-        };
-
-        let identity_keys = self.account.identity_keys();
-        let own_key = identity_keys.curve25519();
-        let own_ciphertext = content.ciphertext.get(own_key);
-
-        // Try to find a ciphertext that was meant for our device.
-        if let Some(ciphertext) = own_ciphertext {
-            let message_type: u8 = ciphertext
-                .message_type
-                .try_into()
-                .map_err(|_| EventError::UnsupportedOlmType)?;
-
-            // Create a OlmMessage from the ciphertext and the type.
-            let message =
-                OlmMessage::from_type_and_ciphertext(message_type.into(), ciphertext.body.clone())
-                    .map_err(|_| EventError::UnsupportedOlmType)?;
-
-            // Decrypt the OlmMessage and get a Ruma event out of it.
-            let (decrypted_event, signing_key) = self
-                .account
-                .decrypt_olm_message(&event.sender, &content.sender_key, message)
-                .await?;
-
-            debug!("Decrypted a to-device event {:?}", decrypted_event);
-
-            // Handle the decrypted event, e.g. fetch out Megolm sessions out of
-            // the event.
-            if let Some(event) = self
-                .handle_decrypted_to_device_event(
-                    &content.sender_key,
-                    &signing_key,
-                    &decrypted_event,
-                )
-                .await?
-            {
-                // Some events may have sensitive data e.g. private keys, while we
-                // want to notify our users that a private key was received we
-                // don't want them to be able to do silly things with it. Handling
-                // events modifies them and returns a modified one, so replace it
-                // here if we get one.
-                Ok(event)
-            } else {
-                Ok(decrypted_event)
-            }
-        } else {
-            warn!("Olm event doesn't contain a ciphertext for our key");
-            Err(EventError::MissingCiphertext.into())
+            Ok(decrypted_event)
         }
     }
 

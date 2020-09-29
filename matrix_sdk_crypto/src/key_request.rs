@@ -14,10 +14,6 @@
 
 // TODO
 //
-// Incoming key requests:
-// First handle the easy case, if we trust the device and have a session, queue
-// up a to-device request.
-//
 // If we don't have a session, queue up a key claim request, once we get a
 // session send out the key if we trust the device.
 //
@@ -31,7 +27,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{value::to_raw_value, Value};
 use std::{collections::BTreeMap, convert::TryInto, ops::Deref, sync::Arc};
 use thiserror::Error;
-use tracing::{info, instrument, trace, warn};
+use tracing::{error, info, instrument, trace, warn};
 
 use matrix_sdk_common::{
     api::r0::to_device::DeviceIdOrAllDevices,
@@ -62,12 +58,37 @@ struct Device {
 }
 
 impl Device {
+    /// Encrypt the given inbound group session as a forwarded room key for this
+    /// device.
+    pub async fn encrypt_session(
+        &self,
+        session: InboundGroupSession,
+    ) -> OlmResult<EncryptedEventContent> {
+        let export = session.export().await;
+
+        let content: ForwardedRoomKeyEventContent = if let Ok(c) = export.try_into() {
+            c
+        } else {
+            // TODO remove this panic.
+            panic!(
+                "Can't share session {} with device {} {}, key export can't \
+                 be converted to a forwarded room key content",
+                session.session_id(),
+                self.user_id(),
+                self.device_id()
+            );
+        };
+
+        let content = serde_json::to_value(content)?;
+        self.encrypt(EventType::ForwardedRoomKey, content).await
+    }
+
     fn trust_state(&self) -> bool {
         self.inner
             .trust_state(&self.own_identity, &self.device_owner_identity)
     }
 
-    pub(crate) async fn encrypt(
+    async fn encrypt(
         &self,
         event_type: EventType,
         content: Value,
@@ -208,7 +229,7 @@ impl KeyRequestMachine {
 
     /// Handle all the incoming key requests that are queued up and empty our
     /// key request queue.
-    pub async fn collect_incoming_key_requests(&self) -> Result<(), CryptoStoreError> {
+    pub async fn collect_incoming_key_requests(&self) -> OlmResult<()> {
         for item in self.incoming_key_requests.iter() {
             let event = item.value();
             self.handle_key_request(event).await?;
@@ -224,7 +245,7 @@ impl KeyRequestMachine {
     async fn handle_key_request(
         &self,
         event: &ToDeviceEvent<RoomKeyRequestEventContent>,
-    ) -> Result<(), CryptoStoreError> {
+    ) -> OlmResult<()> {
         let key_info = match event.content.action {
             Action::Request => {
                 if let Some(info) = &event.content.body {
@@ -273,7 +294,6 @@ impl KeyRequestMachine {
             });
 
         if let Some(device) = device {
-            // TODO get the matching outbound session.
             if let Err(e) = self.should_share_session(
                 &device,
                 self.outbound_group_sessions
@@ -294,7 +314,8 @@ impl KeyRequestMachine {
                     device.device_id()
                 );
 
-                self.share_session(session, device).await;
+                // TODO the missing session error here.
+                self.share_session(session, device).await?;
             }
         } else {
             warn!(
@@ -307,17 +328,10 @@ impl KeyRequestMachine {
         Ok(())
     }
 
-    async fn share_session(&self, session: InboundGroupSession, device: Device) {
-        let export = session.export().await;
-        let content: ForwardedRoomKeyEventContent = export.try_into().unwrap();
-        let content = serde_json::to_value(content).unwrap();
-        let content = device
-            .encrypt(EventType::ForwardedRoomKey, content)
-            .await
-            .unwrap();
+    async fn share_session(&self, session: InboundGroupSession, device: Device) -> OlmResult<()> {
+        let content = device.encrypt_session(session).await?;
 
         let id = Uuid::new_v4();
-
         let mut messages = BTreeMap::new();
 
         messages
@@ -325,7 +339,7 @@ impl KeyRequestMachine {
             .or_insert_with(BTreeMap::new)
             .insert(
                 DeviceIdOrAllDevices::DeviceId(device.device_id().into()),
-                to_raw_value(&content).unwrap(),
+                to_raw_value(&content)?,
             );
 
         let request = OutgoingRequest {
@@ -341,6 +355,8 @@ impl KeyRequestMachine {
         };
 
         self.outgoing_to_device_requests.insert(id, request);
+
+        Ok(())
     }
 
     /// Check if it's ok to share a session with the given device.
@@ -590,7 +606,7 @@ mod test {
         events::{
             forwarded_room_key::ForwardedRoomKeyEventContent,
             room::encrypted::EncryptedEventContent, room_key_request::RoomKeyRequestEventContent,
-            ToDeviceEvent,
+            AnyToDeviceEvent, ToDeviceEvent,
         },
         identifiers::{room_id, user_id, DeviceIdBox, RoomId, UserId},
     };
@@ -599,7 +615,7 @@ mod test {
 
     use crate::{
         identities::{LocalTrust, ReadOnlyDevice},
-        olm::ReadOnlyAccount,
+        olm::{Account, ReadOnlyAccount},
         store::{MemoryStore, Store},
     };
 
@@ -905,7 +921,10 @@ mod test {
     #[async_test]
     async fn key_share_cycle() {
         let alice_machine = get_machine();
-        let alice_account = account();
+        let alice_account = Account {
+            inner: account(),
+            store: alice_machine.store.clone(),
+        };
 
         let bob_machine = bob_machine();
         let bob_account = bob_account();
@@ -964,7 +983,7 @@ mod test {
         // Put the outbound session into bobs store.
         bob_machine
             .outbound_group_sessions
-            .insert(room_id(), group_session);
+            .insert(room_id(), group_session.clone());
 
         // Get the request and convert it into a event.
         let request = alice_machine
@@ -1029,12 +1048,45 @@ mod test {
             .await
             .unwrap();
 
-        let _event = ToDeviceEvent {
+        let mut event = ToDeviceEvent {
             sender: bob_id(),
             content,
         };
 
-        // TODO test that alice can receive, decrypt and add the requested key
-        // to the store.
+        // Check that alice doesn't have the session.
+        assert!(alice_machine
+            .store
+            .get_inbound_group_session(
+                &room_id(),
+                &bob_account.identity_keys().curve25519(),
+                group_session.session_id()
+            )
+            .await
+            .unwrap()
+            .is_none());
+
+        let (decrypted, sender_key, _) = alice_account
+            .decrypt_to_device_event(&mut event)
+            .await
+            .unwrap();
+
+        if let AnyToDeviceEvent::ForwardedRoomKey(mut e) = decrypted.deserialize().unwrap() {
+            alice_machine
+                .receive_forwarded_room_key(&sender_key, &mut e)
+                .await
+                .unwrap();
+        } else {
+            panic!("Invalid decrypted event type");
+        }
+
+        // Check that alice now does have the session.
+        let session = alice_machine
+            .store
+            .get_inbound_group_session(&room_id(), &sender_key, group_session.session_id())
+            .await
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(session.session_id(), group_session.session_id())
     }
 }

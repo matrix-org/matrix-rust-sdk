@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use matrix_sdk_common::events::ToDeviceEvent;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::{
@@ -27,11 +28,11 @@ use std::{
 use tracing::{debug, trace, warn};
 
 #[cfg(test)]
-use matrix_sdk_common::events::{room::encrypted::EncryptedEventContent, EventType};
+use matrix_sdk_common::events::EventType;
 use matrix_sdk_common::{
     api::r0::keys::{upload_keys, OneTimeKey, SignedKey},
     encryption::DeviceKeys,
-    events::AnyToDeviceEvent,
+    events::{room::encrypted::EncryptedEventContent, AnyToDeviceEvent},
     identifiers::{
         DeviceId, DeviceIdBox, DeviceKeyAlgorithm, DeviceKeyId, EventEncryptionAlgorithm, RoomId,
         UserId,
@@ -72,6 +73,48 @@ impl Deref for Account {
 }
 
 impl Account {
+    pub async fn decrypt_to_device_event(
+        &self,
+        event: &ToDeviceEvent<EncryptedEventContent>,
+    ) -> OlmResult<(Raw<AnyToDeviceEvent>, String, String)> {
+        debug!("Decrypting to-device event");
+
+        let content = if let EncryptedEventContent::OlmV1Curve25519AesSha2(c) = &event.content {
+            c
+        } else {
+            warn!("Error, unsupported encryption algorithm");
+            return Err(EventError::UnsupportedAlgorithm.into());
+        };
+
+        let identity_keys = self.inner.identity_keys();
+        let own_key = identity_keys.curve25519();
+        let own_ciphertext = content.ciphertext.get(own_key);
+
+        // Try to find a ciphertext that was meant for our device.
+        if let Some(ciphertext) = own_ciphertext {
+            let message_type: u8 = ciphertext
+                .message_type
+                .try_into()
+                .map_err(|_| EventError::UnsupportedOlmType)?;
+
+            // Create a OlmMessage from the ciphertext and the type.
+            let message =
+                OlmMessage::from_type_and_ciphertext(message_type.into(), ciphertext.body.clone())
+                    .map_err(|_| EventError::UnsupportedOlmType)?;
+
+            // Decrypt the OlmMessage and get a Ruma event out of it.
+            let (decrypted_event, signing_key) = self
+                .decrypt_olm_message(&event.sender, &content.sender_key, message)
+                .await?;
+
+            debug!("Decrypted a to-device event {:?}", decrypted_event);
+            Ok((decrypted_event, content.sender_key.clone(), signing_key))
+        } else {
+            warn!("Olm event doesn't contain a ciphertext for our key");
+            Err(EventError::MissingCiphertext.into())
+        }
+    }
+
     pub async fn update_uploaded_key_count(
         &self,
         key_count: &BTreeMap<DeviceKeyAlgorithm, UInt>,
@@ -146,21 +189,24 @@ impl Account {
 
             let ret = session.decrypt(message.clone()).await;
 
-            if let Ok(p) = ret {
-                plaintext = Some(p);
-                session_to_save = Some(session.clone());
+            match ret {
+                Ok(p) => {
+                    plaintext = Some(p);
+                    session_to_save = Some(session.clone());
 
-                break;
-            } else {
-                // Decryption failed with a matching session, the session is
-                // likely wedged and needs to be rotated.
-                if matches {
-                    warn!(
-                        "Found a matching Olm session yet decryption failed
-                          for sender {} and sender_key {}",
-                        sender, sender_key
-                    );
-                    return Err(OlmError::SessionWedged);
+                    break;
+                }
+                Err(e) => {
+                    // Decryption failed with a matching session, the session is
+                    // likely wedged and needs to be rotated.
+                    if matches {
+                        warn!(
+                            "Found a matching Olm session yet decryption failed
+                              for sender {} and sender_key {} {:?}",
+                            sender, sender_key, e
+                        );
+                        return Err(OlmError::SessionWedged);
+                    }
                 }
             }
         }
@@ -176,7 +222,7 @@ impl Account {
     }
 
     /// Decrypt an Olm message, creating a new Olm session if possible.
-    pub async fn decrypt_olm_message(
+    async fn decrypt_olm_message(
         &self,
         sender: &UserId,
         sender_key: &str,
@@ -882,6 +928,8 @@ impl ReadOnlyAccount {
             .await
             .unwrap();
 
+        other.mark_keys_as_published().await;
+
         let message = our_session
             .encrypt(&device, EventType::Dummy, json!({}))
             .await
@@ -901,14 +949,14 @@ impl ReadOnlyAccount {
         let message =
             OlmMessage::from_type_and_ciphertext(message_type.into(), own_ciphertext.body.clone())
                 .unwrap();
-        let message = if let OlmMessage::PreKey(m) = message {
+        let prekey = if let OlmMessage::PreKey(m) = message.clone() {
             m
         } else {
             panic!("Wrong Olm message type");
         };
 
         let our_device = ReadOnlyDevice::from_account(self).await;
-        let other_session = other
+        let mut other_session = other
             .create_inbound_session(
                 our_device
                     .keys()
@@ -917,10 +965,12 @@ impl ReadOnlyAccount {
                         our_device.device_id(),
                     ))
                     .unwrap(),
-                message,
+                prekey,
             )
             .await
             .unwrap();
+
+        other_session.decrypt(message).await.unwrap();
 
         (our_session, other_session)
     }

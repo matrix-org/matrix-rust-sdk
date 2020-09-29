@@ -30,7 +30,6 @@ pub use group_sessions::{
 };
 pub(crate) use group_sessions::{GroupSessionKey, OutboundGroupSession};
 pub use olm_rs::{account::IdentityKeys, PicklingMode};
-pub(crate) use session::OlmMessage;
 pub use session::{PickledSession, Session, SessionPickle};
 pub(crate) use utility::Utility;
 
