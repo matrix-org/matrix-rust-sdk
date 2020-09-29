@@ -790,10 +790,6 @@ impl OlmMachine {
         }
     }
 
-    fn handle_room_key_request(&self, _: &ToDeviceEvent<RoomKeyRequestEventContent>) {
-        // TODO handle room key requests here.
-    }
-
     async fn handle_verification_event(&self, mut event: &mut AnyToDeviceEvent) {
         if let Err(e) = self.verification_machine.receive_event(&mut event).await {
             error!("Error handling a verification event: {:?}", e);
@@ -884,7 +880,9 @@ impl OlmMachine {
 
                     *event_result = decrypted_event;
                 }
-                AnyToDeviceEvent::RoomKeyRequest(e) => self.handle_room_key_request(e),
+                AnyToDeviceEvent::RoomKeyRequest(e) => {
+                    self.key_request_machine.receive_incoming_key_request(e)
+                }
                 AnyToDeviceEvent::KeyVerificationAccept(..)
                 | AnyToDeviceEvent::KeyVerificationCancel(..)
                 | AnyToDeviceEvent::KeyVerificationKey(..)
@@ -896,6 +894,12 @@ impl OlmMachine {
                 _ => continue,
             }
         }
+
+        // TODO remove this unwrap.
+        self.key_request_machine
+            .collect_incoming_key_requests()
+            .await
+            .unwrap();
     }
 
     /// Decrypt an event from a room timeline.
