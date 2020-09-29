@@ -346,7 +346,7 @@ impl KeyRequestMachine {
             request_id: id,
             request: Arc::new(
                 ToDeviceRequest {
-                    event_type: EventType::RoomKeyRequest,
+                    event_type: EventType::RoomEncrypted,
                     txn_id: id,
                     messages,
                 }
