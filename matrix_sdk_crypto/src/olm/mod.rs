@@ -22,20 +22,21 @@ mod group_sessions;
 mod session;
 mod utility;
 
-pub use account::{Account, AccountPickle, IdentityKeys, PickledAccount};
+pub(crate) use account::Account;
+pub use account::{AccountPickle, PickledAccount, ReadOnlyAccount};
 pub use group_sessions::{
     EncryptionSettings, ExportedRoomKey, InboundGroupSession, InboundGroupSessionPickle,
     PickledInboundGroupSession,
 };
 pub(crate) use group_sessions::{GroupSessionKey, OutboundGroupSession};
-pub use olm_rs::PicklingMode;
+pub use olm_rs::{account::IdentityKeys, PicklingMode};
 pub(crate) use session::OlmMessage;
 pub use session::{PickledSession, Session, SessionPickle};
 pub(crate) use utility::Utility;
 
 #[cfg(test)]
 pub(crate) mod test {
-    use crate::olm::{Account, InboundGroupSession, Session};
+    use crate::olm::{InboundGroupSession, ReadOnlyAccount, Session};
     use matrix_sdk_common::{
         api::r0::keys::SignedKey,
         events::forwarded_room_key::ForwardedRoomKeyEventContent,
@@ -60,9 +61,9 @@ pub(crate) mod test {
         "BOBDEVICE".into()
     }
 
-    pub(crate) async fn get_account_and_session() -> (Account, Session) {
-        let alice = Account::new(&alice_id(), &alice_device_id());
-        let bob = Account::new(&bob_id(), &bob_device_id());
+    pub(crate) async fn get_account_and_session() -> (ReadOnlyAccount, Session) {
+        let alice = ReadOnlyAccount::new(&alice_id(), &alice_device_id());
+        let bob = ReadOnlyAccount::new(&bob_id(), &bob_device_id());
 
         bob.generate_one_time_keys_helper(1).await;
         let one_time_key = bob
@@ -89,7 +90,7 @@ pub(crate) mod test {
 
     #[test]
     fn account_creation() {
-        let account = Account::new(&alice_id(), &alice_device_id());
+        let account = ReadOnlyAccount::new(&alice_id(), &alice_device_id());
         let identyty_keys = account.identity_keys();
 
         assert!(!account.shared());
@@ -110,7 +111,7 @@ pub(crate) mod test {
 
     #[tokio::test]
     async fn one_time_keys_creation() {
-        let account = Account::new(&alice_id(), &alice_device_id());
+        let account = ReadOnlyAccount::new(&alice_id(), &alice_device_id());
         let one_time_keys = account.one_time_keys().await;
 
         assert!(one_time_keys.curve25519().is_empty());
@@ -137,8 +138,8 @@ pub(crate) mod test {
 
     #[tokio::test]
     async fn session_creation() {
-        let alice = Account::new(&alice_id(), &alice_device_id());
-        let bob = Account::new(&bob_id(), &bob_device_id());
+        let alice = ReadOnlyAccount::new(&alice_id(), &alice_device_id());
+        let bob = ReadOnlyAccount::new(&bob_id(), &bob_device_id());
         let alice_keys = alice.identity_keys();
         alice.generate_one_time_keys_helper(1).await;
         let one_time_keys = alice.one_time_keys().await;
@@ -190,7 +191,7 @@ pub(crate) mod test {
 
     #[tokio::test]
     async fn group_session_creation() {
-        let alice = Account::new(&alice_id(), &alice_device_id());
+        let alice = ReadOnlyAccount::new(&alice_id(), &alice_device_id());
         let room_id = room_id!("!test:localhost");
 
         let (outbound, _) = alice
@@ -226,7 +227,7 @@ pub(crate) mod test {
 
     #[tokio::test]
     async fn group_session_export() {
-        let alice = Account::new(&alice_id(), &alice_device_id());
+        let alice = ReadOnlyAccount::new(&alice_id(), &alice_device_id());
         let room_id = room_id!("!test:localhost");
 
         let (_, inbound) = alice

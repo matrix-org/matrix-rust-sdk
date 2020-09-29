@@ -41,9 +41,9 @@ use super::{
 use crate::{
     identities::{LocalTrust, OwnUserIdentity, ReadOnlyDevice, UserIdentities, UserIdentity},
     olm::{
-        Account, AccountPickle, IdentityKeys, InboundGroupSession, InboundGroupSessionPickle,
-        PickledAccount, PickledInboundGroupSession, PickledSession, PicklingMode, Session,
-        SessionPickle,
+        AccountPickle, IdentityKeys, InboundGroupSession, InboundGroupSessionPickle,
+        PickledAccount, PickledInboundGroupSession, PickledSession, PicklingMode, ReadOnlyAccount,
+        Session, SessionPickle,
     },
 };
 
@@ -1167,7 +1167,7 @@ impl SqliteStore {
 
 #[async_trait]
 impl CryptoStore for SqliteStore {
-    async fn load_account(&self) -> Result<Option<Account>> {
+    async fn load_account(&self) -> Result<Option<ReadOnlyAccount>> {
         let mut connection = self.connection.lock().await;
 
         let row: Option<(i64, String, bool, i64)> = query_as(
@@ -1188,7 +1188,7 @@ impl CryptoStore for SqliteStore {
                 uploaded_signed_key_count: uploaded_key_count,
             };
 
-            let account = Account::from_pickle(pickle, self.get_pickle_mode())?;
+            let account = ReadOnlyAccount::from_pickle(pickle, self.get_pickle_mode())?;
 
             *self.account_info.lock().unwrap() = Some(AccountInfo {
                 account_id: id,
@@ -1209,7 +1209,7 @@ impl CryptoStore for SqliteStore {
         Ok(result)
     }
 
-    async fn save_account(&self, account: Account) -> Result<()> {
+    async fn save_account(&self, account: ReadOnlyAccount) -> Result<()> {
         let pickle = account.pickle(self.get_pickle_mode()).await;
         let mut connection = self.connection.lock().await;
 
@@ -1456,7 +1456,7 @@ mod test {
             device::test::get_device,
             user::test::{get_other_identity, get_own_identity},
         },
-        olm::{Account, GroupSessionKey, InboundGroupSession, Session},
+        olm::{GroupSessionKey, InboundGroupSession, ReadOnlyAccount, Session},
     };
     use matrix_sdk_common::{
         api::r0::keys::SignedKey,
@@ -1506,7 +1506,7 @@ mod test {
         (store, tmpdir)
     }
 
-    async fn get_loaded_store() -> (Account, SqliteStore, tempfile::TempDir) {
+    async fn get_loaded_store() -> (ReadOnlyAccount, SqliteStore, tempfile::TempDir) {
         let (store, dir) = get_store(None).await;
         let account = get_account();
         store
@@ -1517,13 +1517,13 @@ mod test {
         (account, store, dir)
     }
 
-    fn get_account() -> Account {
-        Account::new(&alice_id(), &alice_device_id())
+    fn get_account() -> ReadOnlyAccount {
+        ReadOnlyAccount::new(&alice_id(), &alice_device_id())
     }
 
-    async fn get_account_and_session() -> (Account, Session) {
-        let alice = Account::new(&alice_id(), &alice_device_id());
-        let bob = Account::new(&bob_id(), &bob_device_id());
+    async fn get_account_and_session() -> (ReadOnlyAccount, Session) {
+        let alice = ReadOnlyAccount::new(&alice_id(), &alice_device_id());
+        let bob = ReadOnlyAccount::new(&bob_id(), &bob_device_id());
 
         bob.generate_one_time_keys_helper(1).await;
         let one_time_key = bob
@@ -1870,7 +1870,7 @@ mod test {
             .await
             .expect("Can't create store");
 
-        let account = Account::new(&user_id, &device_id);
+        let account = ReadOnlyAccount::new(&user_id, &device_id);
 
         store
             .save_account(account.clone())

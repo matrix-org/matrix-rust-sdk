@@ -72,7 +72,7 @@ use matrix_sdk_common_macros::send_sync;
 
 use super::{
     identities::{OwnUserIdentity, ReadOnlyDevice, UserIdentities},
-    olm::{Account, InboundGroupSession, Session},
+    olm::{InboundGroupSession, ReadOnlyAccount, Session},
 };
 
 use crate::error::SessionUnpicklingError;
@@ -216,14 +216,14 @@ pub enum CryptoStoreError {
 #[cfg_attr(not(target_arch = "wasm32"), send_sync)]
 pub trait CryptoStore: Debug {
     /// Load an account that was previously stored.
-    async fn load_account(&self) -> Result<Option<Account>>;
+    async fn load_account(&self) -> Result<Option<ReadOnlyAccount>>;
 
     /// Save the given account in the store.
     ///
     /// # Arguments
     ///
     /// * `account` - The account that should be stored.
-    async fn save_account(&self, account: Account) -> Result<()>;
+    async fn save_account(&self, account: ReadOnlyAccount) -> Result<()>;
 
     /// Save the given sessions in the store.
     ///

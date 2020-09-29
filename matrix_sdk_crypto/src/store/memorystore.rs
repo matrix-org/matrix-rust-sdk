@@ -23,7 +23,7 @@ use matrix_sdk_common_macros::async_trait;
 
 use super::{
     caches::{DeviceStore, GroupSessionStore, ReadOnlyUserDevices, SessionStore},
-    Account, CryptoStore, InboundGroupSession, Result, Session,
+    CryptoStore, InboundGroupSession, ReadOnlyAccount, Result, Session,
 };
 use crate::identities::{ReadOnlyDevice, UserIdentities};
 
@@ -62,11 +62,11 @@ impl MemoryStore {
 
 #[async_trait]
 impl CryptoStore for MemoryStore {
-    async fn load_account(&self) -> Result<Option<Account>> {
+    async fn load_account(&self) -> Result<Option<ReadOnlyAccount>> {
         Ok(None)
     }
 
-    async fn save_account(&self, _: Account) -> Result<()> {
+    async fn save_account(&self, _: ReadOnlyAccount) -> Result<()> {
         Ok(())
     }
 

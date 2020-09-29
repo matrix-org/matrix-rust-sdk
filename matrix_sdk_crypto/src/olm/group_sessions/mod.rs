@@ -135,7 +135,7 @@ mod test {
     };
 
     use super::EncryptionSettings;
-    use crate::Account;
+    use crate::ReadOnlyAccount;
 
     #[tokio::test]
     #[cfg(not(target_os = "macos"))]
@@ -145,7 +145,7 @@ mod test {
             ..Default::default()
         };
 
-        let account = Account::new(&user_id!("@alice:example.org"), "DEVICEID".into());
+        let account = ReadOnlyAccount::new(&user_id!("@alice:example.org"), "DEVICEID".into());
         let (session, _) = account
             .create_group_session_pair(&room_id!("!test_room:example.org"), settings, [].iter())
             .await

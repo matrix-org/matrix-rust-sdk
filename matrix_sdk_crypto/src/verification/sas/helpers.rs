@@ -30,12 +30,12 @@ use matrix_sdk_common::{
 
 use crate::{
     identities::{ReadOnlyDevice, UserIdentities},
-    Account, ToDeviceRequest,
+    ReadOnlyAccount, ToDeviceRequest,
 };
 
 #[derive(Clone, Debug)]
 pub struct SasIds {
-    pub account: Account,
+    pub account: ReadOnlyAccount,
     pub other_device: ReadOnlyDevice,
     pub other_identity: Option<UserIdentities>,
 }

@@ -28,19 +28,19 @@ use super::sas::{content_to_request, Sas};
 use crate::{
     requests::{OutgoingRequest, ToDeviceRequest},
     store::{CryptoStoreError, Store},
-    Account, ReadOnlyDevice,
+    ReadOnlyAccount, ReadOnlyDevice,
 };
 
 #[derive(Clone, Debug)]
 pub struct VerificationMachine {
-    account: Account,
+    account: ReadOnlyAccount,
     pub(crate) store: Store,
     verifications: Arc<DashMap<String, Sas>>,
     outgoing_to_device_messages: Arc<DashMap<Uuid, OutgoingRequest>>,
 }
 
 impl VerificationMachine {
-    pub(crate) fn new(account: Account, store: Store) -> Self {
+    pub(crate) fn new(account: ReadOnlyAccount, store: Store) -> Self {
         Self {
             account,
             store,
@@ -235,7 +235,7 @@ mod test {
         requests::OutgoingRequests,
         store::{CryptoStore, MemoryStore, Store},
         verification::test::{get_content_from_request, wrap_any_to_device_content},
-        Account, ReadOnlyDevice,
+        ReadOnlyAccount, ReadOnlyDevice,
     };
 
     fn alice_id() -> UserId {
@@ -255,8 +255,8 @@ mod test {
     }
 
     async fn setup_verification_machine() -> (VerificationMachine, Sas) {
-        let alice = Account::new(&alice_id(), &alice_device_id());
-        let bob = Account::new(&bob_id(), &bob_device_id());
+        let alice = ReadOnlyAccount::new(&alice_id(), &alice_device_id());
+        let bob = ReadOnlyAccount::new(&bob_id(), &bob_device_id());
         let store = MemoryStore::new();
         let bob_store = Store::new(Arc::new(bob_id()), Box::new(MemoryStore::new()));
 
@@ -285,7 +285,7 @@ mod test {
 
     #[test]
     fn create() {
-        let alice = Account::new(&alice_id(), &alice_device_id());
+        let alice = ReadOnlyAccount::new(&alice_id(), &alice_device_id());
         let user_id = Arc::new(alice_id());
         let store = MemoryStore::new();
         let _ = VerificationMachine::new(alice, Store::new(user_id, Box::new(store)));

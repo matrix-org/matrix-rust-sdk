@@ -46,8 +46,8 @@ pub use identities::{
     Device, LocalTrust, OwnUserIdentity, ReadOnlyDevice, UserDevices, UserIdentities, UserIdentity,
 };
 pub use machine::OlmMachine;
-pub(crate) use olm::Account;
 pub use olm::EncryptionSettings;
+pub(crate) use olm::ReadOnlyAccount;
 pub use requests::{
     IncomingResponse, KeysQueryRequest, OutgoingRequest, OutgoingRequests, ToDeviceRequest,
 };

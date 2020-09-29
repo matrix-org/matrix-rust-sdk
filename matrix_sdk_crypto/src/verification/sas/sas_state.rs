@@ -45,7 +45,7 @@ use super::helpers::{get_decimal, get_emoji, get_mac_content, receive_mac_event,
 
 use crate::{
     identities::{ReadOnlyDevice, UserIdentities},
-    Account,
+    ReadOnlyAccount,
 };
 
 const KEY_AGREEMENT_PROTOCOLS: &[KeyAgreementProtocol] =
@@ -290,7 +290,7 @@ impl SasState<Created> {
     ///
     /// * `other_device` - The other device which we are going to verify.
     pub fn new(
-        account: Account,
+        account: ReadOnlyAccount,
         other_device: ReadOnlyDevice,
         other_identity: Option<UserIdentities>,
     ) -> SasState<Created> {
@@ -387,7 +387,7 @@ impl SasState<Started> {
     /// * `event` - The m.key.verification.start event that was sent to us by
     /// the other side.
     pub fn from_start_event(
-        account: Account,
+        account: ReadOnlyAccount,
         other_device: ReadOnlyDevice,
         event: &ToDeviceEvent<StartEventContent>,
         other_identity: Option<UserIdentities>,
@@ -843,7 +843,7 @@ impl SasState<Canceled> {
 mod test {
     use std::convert::TryFrom;
 
-    use crate::{Account, ReadOnlyDevice};
+    use crate::{ReadOnlyAccount, ReadOnlyDevice};
     use matrix_sdk_common::{
         events::{
             key::verification::{
@@ -881,10 +881,10 @@ mod test {
     }
 
     async fn get_sas_pair() -> (SasState<Created>, SasState<Started>) {
-        let alice = Account::new(&alice_id(), &alice_device_id());
+        let alice = ReadOnlyAccount::new(&alice_id(), &alice_device_id());
         let alice_device = ReadOnlyDevice::from_account(&alice).await;
 
-        let bob = Account::new(&bob_id(), &bob_device_id());
+        let bob = ReadOnlyAccount::new(&bob_id(), &bob_device_id());
         let bob_device = ReadOnlyDevice::from_account(&bob).await;
 
         let alice_sas = SasState::<Created>::new(alice.clone(), bob_device, None);
@@ -1038,10 +1038,10 @@ mod test {
 
     #[tokio::test]
     async fn sas_from_start_unknown_method() {
-        let alice = Account::new(&alice_id(), &alice_device_id());
+        let alice = ReadOnlyAccount::new(&alice_id(), &alice_device_id());
         let alice_device = ReadOnlyDevice::from_account(&alice).await;
 
-        let bob = Account::new(&bob_id(), &bob_device_id());
+        let bob = ReadOnlyAccount::new(&bob_id(), &bob_device_id());
         let bob_device = ReadOnlyDevice::from_account(&bob).await;
 
         let alice_sas = SasState::<Created>::new(alice.clone(), bob_device, None);

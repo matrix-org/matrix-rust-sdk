@@ -12,51 +12,301 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#[cfg(test)]
-use matrix_sdk_common::events::{room::encrypted::EncryptedEventContent, EventType};
+use serde::{Deserialize, Serialize};
+use serde_json::{json, Value};
 use std::{
     collections::BTreeMap,
     convert::{TryFrom, TryInto},
     fmt,
+    ops::Deref,
     sync::{
         atomic::{AtomicBool, AtomicI64, Ordering},
         Arc,
     },
 };
+use tracing::{debug, trace, warn};
 
+#[cfg(test)]
+use matrix_sdk_common::events::{room::encrypted::EncryptedEventContent, EventType};
 use matrix_sdk_common::{
-    api::r0::keys::{OneTimeKey, SignedKey},
+    api::r0::keys::{upload_keys, OneTimeKey, SignedKey},
     encryption::DeviceKeys,
+    events::AnyToDeviceEvent,
     identifiers::{
         DeviceId, DeviceIdBox, DeviceKeyAlgorithm, DeviceKeyId, EventEncryptionAlgorithm, RoomId,
         UserId,
     },
     instant::Instant,
+    js_int::UInt,
     locks::Mutex,
+    Raw,
 };
 use olm_rs::{
-    account::{OlmAccount, OneTimeKeys},
+    account::{IdentityKeys, OlmAccount, OneTimeKeys},
     errors::{OlmAccountError, OlmSessionError},
+    session::{OlmMessage, PreKeyMessage},
     PicklingMode,
 };
-use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
 
-pub use olm_rs::{
-    account::IdentityKeys,
-    session::{OlmMessage, PreKeyMessage},
-    utility::OlmUtility,
+use crate::{
+    error::{EventError, OlmResult, SessionCreationError},
+    identities::ReadOnlyDevice,
+    store::{Result as StoreResult, Store},
+    OlmError,
 };
 
 use super::{EncryptionSettings, InboundGroupSession, OutboundGroupSession, Session};
-use crate::{error::SessionCreationError, identities::ReadOnlyDevice};
+
+#[derive(Clone)]
+pub struct Account {
+    pub(crate) inner: ReadOnlyAccount,
+    pub(crate) store: Store,
+}
+
+impl Deref for Account {
+    type Target = ReadOnlyAccount;
+
+    fn deref(&self) -> &Self::Target {
+        &self.inner
+    }
+}
+
+impl Account {
+    pub async fn update_uploaded_key_count(
+        &self,
+        key_count: &BTreeMap<DeviceKeyAlgorithm, UInt>,
+    ) -> StoreResult<()> {
+        let one_time_key_count = key_count.get(&DeviceKeyAlgorithm::SignedCurve25519);
+
+        let count: u64 = one_time_key_count.map_or(0, |c| (*c).into());
+        self.inner.update_uploaded_key_count(count);
+        self.store.save_account(self.inner.clone()).await
+    }
+
+    pub async fn receive_keys_upload_response(
+        &self,
+        response: &upload_keys::Response,
+    ) -> OlmResult<()> {
+        if !self.inner.shared() {
+            debug!("Marking account as shared");
+        }
+        self.inner.mark_as_shared();
+
+        let one_time_key_count = response
+            .one_time_key_counts
+            .get(&DeviceKeyAlgorithm::SignedCurve25519);
+
+        let count: u64 = one_time_key_count.map_or(0, |c| (*c).into());
+        debug!(
+            "Updated uploaded one-time key count {} -> {}, marking keys as published",
+            self.inner.uploaded_key_count(),
+            count
+        );
+        self.inner.update_uploaded_key_count(count);
+        self.inner.mark_keys_as_published().await;
+        self.store.save_account(self.inner.clone()).await?;
+
+        Ok(())
+    }
+
+    /// Try to decrypt an Olm message.
+    ///
+    /// This try to decrypt an Olm message using all the sessions we share
+    /// have with the given sender.
+    async fn try_decrypt_olm_message(
+        &self,
+        sender: &UserId,
+        sender_key: &str,
+        message: &OlmMessage,
+    ) -> OlmResult<Option<String>> {
+        let s = self.store.get_sessions(sender_key).await?;
+
+        // We don't have any existing sessions, return early.
+        let sessions = if let Some(s) = s {
+            s
+        } else {
+            return Ok(None);
+        };
+
+        let mut session_to_save = None;
+        let mut plaintext = None;
+
+        for session in &mut *sessions.lock().await {
+            let mut matches = false;
+
+            // If this is a pre-key message check if it was encrypted for our
+            // session, if it wasn't decryption will fail so no need to try.
+            if let OlmMessage::PreKey(m) = &message {
+                matches = session.matches(sender_key, m.clone()).await?;
+
+                if !matches {
+                    continue;
+                }
+            }
+
+            let ret = session.decrypt(message.clone()).await;
+
+            if let Ok(p) = ret {
+                plaintext = Some(p);
+                session_to_save = Some(session.clone());
+
+                break;
+            } else {
+                // Decryption failed with a matching session, the session is
+                // likely wedged and needs to be rotated.
+                if matches {
+                    warn!(
+                        "Found a matching Olm session yet decryption failed
+                          for sender {} and sender_key {}",
+                        sender, sender_key
+                    );
+                    return Err(OlmError::SessionWedged);
+                }
+            }
+        }
+
+        if let Some(session) = session_to_save {
+            // Decryption was successful, save the new ratchet state of the
+            // session that was used to decrypt the message.
+            trace!("Saved the new session state for {}", sender);
+            self.store.save_sessions(&[session]).await?;
+        }
+
+        Ok(plaintext)
+    }
+
+    /// Decrypt an Olm message, creating a new Olm session if possible.
+    pub async fn decrypt_olm_message(
+        &self,
+        sender: &UserId,
+        sender_key: &str,
+        message: OlmMessage,
+    ) -> OlmResult<(Raw<AnyToDeviceEvent>, String)> {
+        // First try to decrypt using an existing session.
+        let plaintext = if let Some(p) = self
+            .try_decrypt_olm_message(sender, sender_key, &message)
+            .await?
+        {
+            // Decryption succeeded, de-structure the plaintext out of the
+            // Option.
+            p
+        } else {
+            // Decryption failed with every known session, let's try to create a
+            // new session.
+            let mut session = match &message {
+                // A new session can only be created using a pre-key message,
+                // return with an error if it isn't one.
+                OlmMessage::Message(_) => {
+                    warn!(
+                        "Failed to decrypt a non-pre-key message with all
+                          available sessions {} {}",
+                        sender, sender_key
+                    );
+                    return Err(OlmError::SessionWedged);
+                }
+
+                OlmMessage::PreKey(m) => {
+                    // Create the new session.
+                    let session = match self
+                        .inner
+                        .create_inbound_session(sender_key, m.clone())
+                        .await
+                    {
+                        Ok(s) => s,
+                        Err(e) => {
+                            warn!(
+                                "Failed to create a new Olm session for {} {}
+                                      from a prekey message: {}",
+                                sender, sender_key, e
+                            );
+                            return Err(OlmError::SessionWedged);
+                        }
+                    };
+
+                    // Save the account since we remove the one-time key that
+                    // was used to create this session.
+                    self.store.save_account(self.inner.clone()).await?;
+                    session
+                }
+            };
+
+            // Decrypt our message, this shouldn't fail since we're using a
+            // newly created Session.
+            let plaintext = session.decrypt(message).await?;
+
+            // Save the new ratcheted state of the session.
+            self.store.save_sessions(&[session]).await?;
+            plaintext
+        };
+
+        trace!("Successfully decrypted a Olm message: {}", plaintext);
+
+        self.parse_decrypted_to_device_event(sender, &plaintext)
+    }
+
+    /// Parse a decrypted Olm message, check that the plaintext and encrypted
+    /// senders match and that the message was meant for us.
+    fn parse_decrypted_to_device_event(
+        &self,
+        sender: &UserId,
+        plaintext: &str,
+    ) -> OlmResult<(Raw<AnyToDeviceEvent>, String)> {
+        // TODO make the errors a bit more specific.
+        let decrypted_json: Value = serde_json::from_str(&plaintext)?;
+
+        let encrytped_sender = decrypted_json
+            .get("sender")
+            .cloned()
+            .ok_or_else(|| EventError::MissingField("sender".to_string()))?;
+        let encrytped_sender: UserId = serde_json::from_value(encrytped_sender)?;
+        let recipient = decrypted_json
+            .get("recipient")
+            .cloned()
+            .ok_or_else(|| EventError::MissingField("recipient".to_string()))?;
+        let recipient: UserId = serde_json::from_value(recipient)?;
+
+        let recipient_keys: BTreeMap<DeviceKeyAlgorithm, String> = serde_json::from_value(
+            decrypted_json
+                .get("recipient_keys")
+                .cloned()
+                .ok_or_else(|| EventError::MissingField("recipient_keys".to_string()))?,
+        )?;
+        let keys: BTreeMap<DeviceKeyAlgorithm, String> = serde_json::from_value(
+            decrypted_json
+                .get("keys")
+                .cloned()
+                .ok_or_else(|| EventError::MissingField("keys".to_string()))?,
+        )?;
+
+        if &recipient != self.user_id() || sender != &encrytped_sender {
+            return Err(EventError::MissmatchedSender.into());
+        }
+
+        if self.inner.identity_keys().ed25519()
+            != recipient_keys
+                .get(&DeviceKeyAlgorithm::Ed25519)
+                .ok_or(EventError::MissingSigningKey)?
+        {
+            return Err(EventError::MissmatchedKeys.into());
+        }
+
+        let signing_key = keys
+            .get(&DeviceKeyAlgorithm::Ed25519)
+            .ok_or(EventError::MissingSigningKey)?;
+
+        Ok((
+            Raw::from(serde_json::from_value::<AnyToDeviceEvent>(decrypted_json)?),
+            signing_key.to_owned(),
+        ))
+    }
+}
 
 /// Account holding identity keys for which sessions can be created.
 ///
 /// An account is the central identity for encrypted communication between two
 /// devices.
 #[derive(Clone)]
-pub struct Account {
+pub struct ReadOnlyAccount {
     pub(crate) user_id: Arc<UserId>,
     pub(crate) device_id: Arc<Box<DeviceId>>,
     inner: Arc<Mutex<OlmAccount>>,
@@ -106,7 +356,7 @@ pub struct PickledAccount {
 }
 
 #[cfg(not(tarpaulin_include))]
-impl fmt::Debug for Account {
+impl fmt::Debug for ReadOnlyAccount {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Account")
             .field("identity_keys", self.identity_keys())
@@ -115,7 +365,7 @@ impl fmt::Debug for Account {
     }
 }
 
-impl Account {
+impl ReadOnlyAccount {
     const ALGORITHMS: &'static [&'static EventEncryptionAlgorithm] = &[
         &EventEncryptionAlgorithm::OlmV1Curve25519AesSha2,
         &EventEncryptionAlgorithm::MegolmV1AesSha2,
@@ -127,7 +377,7 @@ impl Account {
         let account = OlmAccount::new();
         let identity_keys = account.parsed_identity_keys();
 
-        Account {
+        Self {
             user_id: Arc::new(user_id.to_owned()),
             device_id: Arc::new(device_id.into()),
             inner: Arc::new(Mutex::new(account)),
@@ -307,7 +557,7 @@ impl Account {
         let account = OlmAccount::unpickle(pickle.pickle.0, pickle_mode)?;
         let identity_keys = account.parsed_identity_keys();
 
-        Ok(Account {
+        Ok(Self {
             user_id: Arc::new(pickle.user_id),
             device_id: Arc::new(pickle.device_id),
             inner: Arc::new(Mutex::new(account)),
@@ -336,7 +586,7 @@ impl Account {
         let device_keys = json!({
             "user_id": (*self.user_id).clone(),
             "device_id": (*self.device_id).clone(),
-            "algorithms": Account::ALGORITHMS,
+            "algorithms": Self::ALGORITHMS,
             "keys": keys,
         });
 
@@ -621,7 +871,7 @@ impl Account {
     }
 
     #[cfg(test)]
-    pub(crate) async fn create_session_for(&self, other: &Account) -> (Session, Session) {
+    pub(crate) async fn create_session_for(&self, other: &ReadOnlyAccount) -> (Session, Session) {
         other.generate_one_time_keys_helper(1).await;
         let one_time = other.signed_one_time_keys().await.unwrap();
 
@@ -676,7 +926,7 @@ impl Account {
     }
 }
 
-impl PartialEq for Account {
+impl PartialEq for ReadOnlyAccount {
     fn eq(&self, other: &Self) -> bool {
         self.identity_keys() == other.identity_keys() && self.shared() == other.shared()
     }

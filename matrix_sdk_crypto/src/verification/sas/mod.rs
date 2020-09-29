@@ -35,7 +35,7 @@ use matrix_sdk_common::{
 use crate::{
     identities::{LocalTrust, ReadOnlyDevice, UserIdentities},
     store::{CryptoStoreError, Store},
-    Account, ToDeviceRequest,
+    ReadOnlyAccount, ToDeviceRequest,
 };
 
 pub use helpers::content_to_request;
@@ -48,7 +48,7 @@ use sas_state::{
 pub struct Sas {
     inner: Arc<Mutex<InnerSas>>,
     store: Store,
-    account: Account,
+    account: ReadOnlyAccount,
     other_device: ReadOnlyDevice,
     other_identity: Option<UserIdentities>,
     flow_id: Arc<String>,
@@ -102,7 +102,7 @@ impl Sas {
     /// Returns the new `Sas` object and a `StartEventContent` that needs to be
     /// sent out through the server to the other device.
     pub(crate) fn start(
-        account: Account,
+        account: ReadOnlyAccount,
         other_device: ReadOnlyDevice,
         store: Store,
         other_identity: Option<UserIdentities>,
@@ -137,7 +137,7 @@ impl Sas {
     /// * `event` - The m.key.verification.start event that was sent to us by
     /// the other side.
     pub(crate) fn from_start_event(
-        account: Account,
+        account: ReadOnlyAccount,
         other_device: ReadOnlyDevice,
         store: Store,
         event: &ToDeviceEvent<StartEventContent>,
@@ -426,7 +426,7 @@ enum InnerSas {
 
 impl InnerSas {
     fn start(
-        account: Account,
+        account: ReadOnlyAccount,
         other_device: ReadOnlyDevice,
         other_identity: Option<UserIdentities>,
     ) -> (InnerSas, StartEventContent) {
@@ -436,7 +436,7 @@ impl InnerSas {
     }
 
     fn from_start_event(
-        account: Account,
+        account: ReadOnlyAccount,
         other_device: ReadOnlyDevice,
         event: &ToDeviceEvent<StartEventContent>,
         other_identity: Option<UserIdentities>,
@@ -656,7 +656,7 @@ mod test {
     use crate::{
         store::{MemoryStore, Store},
         verification::test::{get_content_from_request, wrap_any_to_device_content},
-        Account, ReadOnlyDevice,
+        ReadOnlyAccount, ReadOnlyDevice,
     };
 
     use super::{Accepted, Created, Sas, SasState, Started};
@@ -685,10 +685,10 @@ mod test {
     }
 
     async fn get_sas_pair() -> (SasState<Created>, SasState<Started>) {
-        let alice = Account::new(&alice_id(), &alice_device_id());
+        let alice = ReadOnlyAccount::new(&alice_id(), &alice_device_id());
         let alice_device = ReadOnlyDevice::from_account(&alice).await;
 
-        let bob = Account::new(&bob_id(), &bob_device_id());
+        let bob = ReadOnlyAccount::new(&bob_id(), &bob_device_id());
         let bob_device = ReadOnlyDevice::from_account(&bob).await;
 
         let alice_sas = SasState::<Created>::new(alice.clone(), bob_device, None);
@@ -770,10 +770,10 @@ mod test {
 
     #[tokio::test]
     async fn sas_wrapper_full() {
-        let alice = Account::new(&alice_id(), &alice_device_id());
+        let alice = ReadOnlyAccount::new(&alice_id(), &alice_device_id());
         let alice_device = ReadOnlyDevice::from_account(&alice).await;
 
-        let bob = Account::new(&bob_id(), &bob_device_id());
+        let bob = ReadOnlyAccount::new(&bob_id(), &bob_device_id());
         let bob_device = ReadOnlyDevice::from_account(&bob).await;
 
         let alice_store = Store::new(Arc::new(alice_id()), Box::new(MemoryStore::new()));

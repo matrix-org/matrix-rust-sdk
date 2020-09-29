@@ -666,7 +666,7 @@ pub(crate) mod test {
             manager::test::{other_key_query, own_key_query},
             Device, ReadOnlyDevice,
         },
-        olm::Account,
+        olm::ReadOnlyAccount,
         store::{MemoryStore, Store},
         verification::VerificationMachine,
     };
@@ -735,7 +735,7 @@ pub(crate) mod test {
         assert!(identity.is_device_signed(&second).is_ok());
 
         let verification_machine = VerificationMachine::new(
-            Account::new(second.user_id(), second.device_id()),
+            ReadOnlyAccount::new(second.user_id(), second.device_id()),
             Store::new(
                 Arc::new(second.user_id().clone()),
                 Box::new(MemoryStore::new()),

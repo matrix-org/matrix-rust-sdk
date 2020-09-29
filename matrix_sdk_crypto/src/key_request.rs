@@ -599,7 +599,7 @@ mod test {
 
     use crate::{
         identities::{LocalTrust, ReadOnlyDevice},
-        olm::Account,
+        olm::ReadOnlyAccount,
         store::{MemoryStore, Store},
     };
 
@@ -625,12 +625,12 @@ mod test {
         room_id!("!test:example.org")
     }
 
-    fn account() -> Account {
-        Account::new(&alice_id(), &alice_device_id())
+    fn account() -> ReadOnlyAccount {
+        ReadOnlyAccount::new(&alice_id(), &alice_device_id())
     }
 
-    fn bob_account() -> Account {
-        Account::new(&bob_id(), &bob_device_id())
+    fn bob_account() -> ReadOnlyAccount {
+        ReadOnlyAccount::new(&bob_id(), &bob_device_id())
     }
 
     fn bob_machine() -> KeyRequestMachine {

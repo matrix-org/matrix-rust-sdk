@@ -34,7 +34,7 @@ use serde_json::{json, Value};
 use tracing::warn;
 
 #[cfg(test)]
-use crate::{Account, OlmMachine};
+use crate::{OlmMachine, ReadOnlyAccount};
 
 use crate::{
     error::{EventError, OlmError, OlmResult, SignatureError},
@@ -419,7 +419,7 @@ impl ReadOnlyDevice {
     }
 
     #[cfg(test)]
-    pub async fn from_account(account: &Account) -> ReadOnlyDevice {
+    pub async fn from_account(account: &ReadOnlyAccount) -> ReadOnlyDevice {
         let device_keys = account.device_keys().await;
         ReadOnlyDevice::try_from(&device_keys).unwrap()
     }
