@@ -107,6 +107,7 @@ pub(crate) struct KeyRequestMachine {
     user_id: Arc<UserId>,
     device_id: Arc<DeviceIdBox>,
     store: Store,
+    outbound_group_sessions: Arc<DashMap<RoomId, OutboundGroupSession>>,
     outgoing_to_device_requests: Arc<DashMap<Uuid, OutgoingRequest>>,
     incoming_key_requests:
         Arc<DashMap<(UserId, DeviceIdBox, String), ToDeviceEvent<RoomKeyRequestEventContent>>>,
@@ -167,11 +168,17 @@ fn wrap_key_request_content(
 }
 
 impl KeyRequestMachine {
-    pub fn new(user_id: Arc<UserId>, device_id: Arc<DeviceIdBox>, store: Store) -> Self {
+    pub fn new(
+        user_id: Arc<UserId>,
+        device_id: Arc<DeviceIdBox>,
+        store: Store,
+        outbound_group_sessions: Arc<DashMap<RoomId, OutboundGroupSession>>,
+    ) -> Self {
         Self {
             user_id,
             device_id,
             store,
+            outbound_group_sessions,
             outgoing_to_device_requests: Arc::new(DashMap::new()),
             incoming_key_requests: Arc::new(DashMap::new()),
         }
@@ -267,7 +274,12 @@ impl KeyRequestMachine {
 
         if let Some(device) = device {
             // TODO get the matching outbound session.
-            if let Err(e) = self.should_share_session(&device, None) {
+            if let Err(e) = self.should_share_session(
+                &device,
+                self.outbound_group_sessions
+                    .get(&key_info.room_id)
+                    .as_deref(),
+            ) {
                 info!(
                     "Received a key request from {} {} that we won't serve: {}",
                     device.user_id(),
@@ -572,6 +584,7 @@ impl KeyRequestMachine {
 
 #[cfg(test)]
 mod test {
+    use dashmap::DashMap;
     use matrix_sdk_common::{
         events::{forwarded_room_key::ForwardedRoomKeyEventContent, ToDeviceEvent},
         identifiers::{room_id, user_id, DeviceIdBox, RoomId, UserId},
@@ -619,7 +632,12 @@ mod test {
         let user_id = Arc::new(alice_id());
         let store = Store::new(user_id.clone(), Box::new(MemoryStore::new()));
 
-        KeyRequestMachine::new(user_id, Arc::new(alice_device_id()), store)
+        KeyRequestMachine::new(
+            user_id,
+            Arc::new(alice_device_id()),
+            store,
+            Arc::new(DashMap::new()),
+        )
     }
 
     #[test]
