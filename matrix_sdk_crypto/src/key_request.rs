@@ -1048,7 +1048,7 @@ mod test {
             .await
             .unwrap();
 
-        let mut event = ToDeviceEvent {
+        let event = ToDeviceEvent {
             sender: bob_id(),
             content,
         };
@@ -1065,10 +1065,8 @@ mod test {
             .unwrap()
             .is_none());
 
-        let (decrypted, sender_key, _) = alice_account
-            .decrypt_to_device_event(&mut event)
-            .await
-            .unwrap();
+        let (decrypted, sender_key, _) =
+            alice_account.decrypt_to_device_event(&event).await.unwrap();
 
         if let AnyToDeviceEvent::ForwardedRoomKey(mut e) = decrypted.deserialize().unwrap() {
             alice_machine
