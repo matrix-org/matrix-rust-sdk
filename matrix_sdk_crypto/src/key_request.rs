@@ -586,7 +586,12 @@ impl KeyRequestMachine {
 mod test {
     use dashmap::DashMap;
     use matrix_sdk_common::{
-        events::{forwarded_room_key::ForwardedRoomKeyEventContent, ToDeviceEvent},
+        api::r0::to_device::DeviceIdOrAllDevices,
+        events::{
+            forwarded_room_key::ForwardedRoomKeyEventContent,
+            room::encrypted::EncryptedEventContent, room_key_request::RoomKeyRequestEventContent,
+            ToDeviceEvent,
+        },
         identifiers::{room_id, user_id, DeviceIdBox, RoomId, UserId},
     };
     use matrix_sdk_test::async_test;
@@ -626,6 +631,18 @@ mod test {
 
     fn bob_account() -> Account {
         Account::new(&bob_id(), &bob_device_id())
+    }
+
+    fn bob_machine() -> KeyRequestMachine {
+        let user_id = Arc::new(bob_id());
+        let store = Store::new(user_id.clone(), Box::new(MemoryStore::new()));
+
+        KeyRequestMachine::new(
+            user_id,
+            Arc::new(bob_device_id()),
+            store,
+            Arc::new(DashMap::new()),
+        )
     }
 
     fn get_machine() -> KeyRequestMachine {
@@ -883,5 +900,141 @@ mod test {
         assert!(machine
             .should_share_session(&bob_device, Some(&session))
             .is_ok());
+    }
+
+    #[async_test]
+    async fn key_share_cycle() {
+        let alice_machine = get_machine();
+        let alice_account = account();
+
+        let bob_machine = bob_machine();
+        let bob_account = bob_account();
+
+        // Create Olm sessions for our two accounts.
+        let (alice_session, bob_session) = alice_account.create_session_for(&bob_account).await;
+
+        let alice_device = ReadOnlyDevice::from_account(&alice_account).await;
+        let bob_device = ReadOnlyDevice::from_account(&bob_account).await;
+
+        // Populate our stores with Olm sessions and a Megolm session.
+
+        alice_machine
+            .store
+            .save_sessions(&[alice_session])
+            .await
+            .unwrap();
+        alice_machine
+            .store
+            .save_devices(&[bob_device])
+            .await
+            .unwrap();
+        bob_machine
+            .store
+            .save_sessions(&[bob_session])
+            .await
+            .unwrap();
+        bob_machine
+            .store
+            .save_devices(&[alice_device])
+            .await
+            .unwrap();
+
+        let (group_session, inbound_group_session) = bob_account
+            .create_group_session_pair_with_defaults(&room_id())
+            .await
+            .unwrap();
+
+        bob_machine
+            .store
+            .save_inbound_group_sessions(&[inbound_group_session])
+            .await
+            .unwrap();
+
+        // Alice wants to request the outbound group session from bob.
+        alice_machine
+            .create_outgoing_key_request(
+                &room_id(),
+                bob_account.identity_keys.curve25519(),
+                group_session.session_id(),
+            )
+            .await
+            .unwrap();
+        group_session.mark_shared_with(&alice_id(), &alice_device_id());
+
+        // Put the outbound session into bobs store.
+        bob_machine
+            .outbound_group_sessions
+            .insert(room_id(), group_session);
+
+        // Get the request and convert it into a event.
+        let request = alice_machine
+            .outgoing_to_device_requests
+            .iter()
+            .next()
+            .unwrap();
+        let id = request.request_id;
+        let content = request
+            .request
+            .to_device()
+            .unwrap()
+            .messages
+            .get(&alice_id())
+            .unwrap()
+            .get(&DeviceIdOrAllDevices::AllDevices)
+            .unwrap();
+        let content: RoomKeyRequestEventContent = serde_json::from_str(content.get()).unwrap();
+
+        drop(request);
+        alice_machine
+            .mark_outgoing_request_as_sent(&id)
+            .await
+            .unwrap();
+
+        let event = ToDeviceEvent {
+            sender: alice_id(),
+            content,
+        };
+
+        // Bob doesn't have any outgoing requests.
+        assert!(bob_machine.outgoing_to_device_requests.is_empty());
+
+        // Receive the room key request from alice.
+        bob_machine.receive_incoming_key_request(&event);
+        bob_machine.collect_incoming_key_requests().await.unwrap();
+        // Now bob does have an outgoing request.
+        assert!(!bob_machine.outgoing_to_device_requests.is_empty());
+
+        // Get the request and convert it to a encrypted to-device event.
+        let request = bob_machine
+            .outgoing_to_device_requests
+            .iter()
+            .next()
+            .unwrap();
+
+        let id = request.request_id;
+        let content = request
+            .request
+            .to_device()
+            .unwrap()
+            .messages
+            .get(&alice_id())
+            .unwrap()
+            .get(&DeviceIdOrAllDevices::DeviceId(alice_device_id()))
+            .unwrap();
+        let content: EncryptedEventContent = serde_json::from_str(content.get()).unwrap();
+
+        drop(request);
+        bob_machine
+            .mark_outgoing_request_as_sent(&id)
+            .await
+            .unwrap();
+
+        let _event = ToDeviceEvent {
+            sender: bob_id(),
+            content,
+        };
+
+        // TODO test that alice can receive, decrypt and add the requested key
+        // to the store.
     }
 }

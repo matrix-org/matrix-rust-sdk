@@ -99,6 +99,16 @@ pub enum OutgoingRequests {
     ToDeviceRequest(ToDeviceRequest),
 }
 
+#[cfg(test)]
+impl OutgoingRequests {
+    pub fn to_device(&self) -> Option<&ToDeviceRequest> {
+        match self {
+            OutgoingRequests::ToDeviceRequest(r) => Some(r),
+            _ => None,
+        }
+    }
+}
+
 impl From<KeysQueryRequest> for OutgoingRequests {
     fn from(request: KeysQueryRequest) -> Self {
         OutgoingRequests::KeysQuery(request)

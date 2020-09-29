@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#[cfg(test)]
+use matrix_sdk_common::events::{room::encrypted::EncryptedEventContent, EventType};
 use std::{
     collections::BTreeMap,
     convert::{TryFrom, TryInto},
@@ -616,6 +618,61 @@ impl Account {
     ) -> Result<(OutboundGroupSession, InboundGroupSession), ()> {
         self.create_group_session_pair(room_id, EncryptionSettings::default(), [].iter())
             .await
+    }
+
+    #[cfg(test)]
+    pub(crate) async fn create_session_for(&self, other: &Account) -> (Session, Session) {
+        other.generate_one_time_keys_helper(1).await;
+        let one_time = other.signed_one_time_keys().await.unwrap();
+
+        let device = ReadOnlyDevice::from_account(other).await;
+
+        let mut our_session = self
+            .create_outbound_session(device.clone(), &one_time)
+            .await
+            .unwrap();
+
+        let message = our_session
+            .encrypt(&device, EventType::Dummy, json!({}))
+            .await
+            .unwrap();
+        let content = if let EncryptedEventContent::OlmV1Curve25519AesSha2(c) = message {
+            c
+        } else {
+            panic!("Invalid encrypted event algorithm");
+        };
+
+        let own_ciphertext = content
+            .ciphertext
+            .get(other.identity_keys.curve25519())
+            .unwrap();
+        let message_type: u8 = own_ciphertext.message_type.try_into().unwrap();
+
+        let message =
+            OlmMessage::from_type_and_ciphertext(message_type.into(), own_ciphertext.body.clone())
+                .unwrap();
+        let message = if let OlmMessage::PreKey(m) = message {
+            m
+        } else {
+            panic!("Wrong Olm message type");
+        };
+
+        let our_device = ReadOnlyDevice::from_account(self).await;
+        let other_session = other
+            .create_inbound_session(
+                our_device
+                    .keys()
+                    .get(&DeviceKeyId::from_parts(
+                        DeviceKeyAlgorithm::Curve25519,
+                        our_device.device_id(),
+                    ))
+                    .unwrap(),
+                message,
+            )
+            .await
+            .unwrap();
+
+        (our_session, other_session)
     }
 }
 
