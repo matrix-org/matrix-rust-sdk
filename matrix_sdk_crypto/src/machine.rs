@@ -32,8 +32,8 @@ use matrix_sdk_common::{
     assign,
     events::{
         room::encrypted::EncryptedEventContent, room_key::RoomKeyEventContent,
-        room_key_request::RoomKeyRequestEventContent, AnyMessageEventContent, AnySyncRoomEvent,
-        AnyToDeviceEvent, EventType, SyncMessageEvent, ToDeviceEvent,
+        AnyMessageEventContent, AnySyncRoomEvent, AnyToDeviceEvent, EventType, SyncMessageEvent,
+        ToDeviceEvent,
     },
     identifiers::{
         DeviceId, DeviceIdBox, DeviceKeyAlgorithm, EventEncryptionAlgorithm, RoomId, UserId,
