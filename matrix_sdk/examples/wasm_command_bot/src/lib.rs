@@ -1,4 +1,4 @@
-#![type_length_limit = "1700984"]
+#![type_length_limit = "1702124"]
 
 use matrix_sdk::{
     api::r0::sync::sync_events::Response as SyncResponse,

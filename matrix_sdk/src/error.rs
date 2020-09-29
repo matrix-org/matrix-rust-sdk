@@ -37,6 +37,10 @@ pub enum Error {
     #[error("the queried endpoint requires authentication but was called before logging in")]
     AuthenticationRequired,
 
+    /// Queried endpoint is not meant for clients.
+    #[error("the queried endpoint is not meant for clients")]
+    NotClientRequest,
+
     /// An error at the HTTP layer.
     #[error(transparent)]
     Reqwest(#[from] ReqwestError),

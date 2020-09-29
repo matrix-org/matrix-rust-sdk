@@ -727,11 +727,12 @@ impl Client {
     /// # Examples
     /// ```no_run
     /// use matrix_sdk::Client;
+    /// # use std::convert::TryInto;
     /// # use url::Url;
     /// # let homeserver = Url::parse("http://example.com").unwrap();
     /// # let limit = Some(10);
     /// # let since = Some("since token");
-    /// # let server = Some("server name");
+    /// # let server = Some("servername.com".try_into().unwrap());
     ///
     /// let mut client = Client::new(homeserver).unwrap();
     /// # use futures::executor::block_on;
@@ -744,7 +745,7 @@ impl Client {
         &self,
         limit: Option<u32>,
         since: Option<&str>,
-        server: Option<&str>,
+        server: Option<&ServerName>,
     ) -> Result<get_public_rooms::Response> {
         let limit = limit.map(|n| UInt::try_from(n).ok()).flatten();
 

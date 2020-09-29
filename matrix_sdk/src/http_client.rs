@@ -19,7 +19,9 @@ use reqwest::{Client, Response};
 use tracing::trace;
 use url::Url;
 
-use matrix_sdk_common::{api::r0::media::create_content, locks::RwLock, FromHttpResponseError};
+use matrix_sdk_common::{
+    api::r0::media::create_content, locks::RwLock, AuthScheme, FromHttpResponseError,
+};
 use matrix_sdk_common_macros::async_trait;
 
 use crate::{ClientConfig, Error, OutgoingRequest, Result, Session};
@@ -91,16 +93,18 @@ impl HttpClient {
     ) -> Result<http::Response<Vec<u8>>> {
         let mut request = {
             let read_guard;
-            let access_token = if Request::METADATA.requires_authentication {
-                read_guard = session.read().await;
+            let access_token = match Request::METADATA.authentication {
+                AuthScheme::AccessToken => {
+                    read_guard = session.read().await;
 
-                if let Some(session) = read_guard.as_ref() {
-                    Some(session.access_token.as_str())
-                } else {
-                    return Err(Error::AuthenticationRequired);
+                    if let Some(session) = read_guard.as_ref() {
+                        Some(session.access_token.as_str())
+                    } else {
+                        return Err(Error::AuthenticationRequired);
+                    }
                 }
-            } else {
-                None
+                AuthScheme::None => None,
+                _ => return Err(Error::NotClientRequest),
             };
 
             request.try_into_http_request(&self.homeserver.to_string(), access_token)?

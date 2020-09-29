@@ -5,9 +5,9 @@ pub use ruma::{
     api::{
         client as api,
         error::{FromHttpRequestError, FromHttpResponseError, IntoHttpError, ServerError},
-        EndpointError, Outgoing, OutgoingRequest,
+        AuthScheme, EndpointError, OutgoingRequest,
     },
-    directory, encryption, events, identifiers, presence, push, thirdparty, Raw,
+    directory, encryption, events, identifiers, presence, push, thirdparty, Outgoing, Raw,
 };
 
 pub use uuid;
