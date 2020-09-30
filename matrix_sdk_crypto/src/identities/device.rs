@@ -115,6 +115,7 @@ impl Device {
     /// * `event_type` - The type of the event.
     ///
     /// * `content` - The content of the event that should be encrypted.
+    #[cfg(test)]
     pub(crate) async fn encrypt(
         &self,
         event_type: EventType,

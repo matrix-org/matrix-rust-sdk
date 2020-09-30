@@ -50,11 +50,11 @@ use crate::{
     store::{CryptoStoreError, Store},
 };
 
-struct Device {
-    inner: ReadOnlyDevice,
-    store: Store,
-    own_identity: Option<OwnUserIdentity>,
-    device_owner_identity: Option<UserIdentities>,
+pub struct Device {
+    pub(crate) inner: ReadOnlyDevice,
+    pub(crate) store: Store,
+    pub(crate) own_identity: Option<OwnUserIdentity>,
+    pub(crate) device_owner_identity: Option<UserIdentities>,
 }
 
 impl Device {
@@ -88,7 +88,7 @@ impl Device {
             .trust_state(&self.own_identity, &self.device_owner_identity)
     }
 
-    async fn encrypt(
+    pub async fn encrypt(
         &self,
         event_type: EventType,
         content: Value,
