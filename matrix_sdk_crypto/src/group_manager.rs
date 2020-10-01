@@ -59,9 +59,9 @@ impl GroupSessionManager {
     }
 
     pub fn mark_request_as_sent(&self, request_id: &Uuid) {
-        self.outbound_sessions_being_shared
-            .remove(request_id)
-            .map(|(_, s)| s.mark_request_as_sent(request_id));
+        if let Some((_, s)) = self.outbound_sessions_being_shared.remove(request_id) {
+            s.mark_request_as_sent(request_id);
+        }
     }
 
     /// Get an outbound group session for a room, if one exists.

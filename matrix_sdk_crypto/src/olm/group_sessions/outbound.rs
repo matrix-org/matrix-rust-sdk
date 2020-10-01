@@ -158,9 +158,7 @@ impl OutboundGroupSession {
     /// This removes the request from the queue and marks the set of
     /// users/devices that received the session.
     pub fn mark_request_as_sent(&self, request_id: &Uuid) {
-        let request = self.to_share_with_set.remove(request_id);
-
-        request.map(|(_, r)| {
+        if let Some((_, r)) = self.to_share_with_set.remove(request_id) {
             let user_pairs = r.messages.iter().map(|(u, v)| {
                 (
                     u.clone(),
@@ -179,16 +177,16 @@ impl OutboundGroupSession {
                     .entry(u)
                     .or_insert_with(DashSet::new)
                     .extend(d);
-            })
-        });
+            });
 
-        if self.to_share_with_set.is_empty() {
-            debug!(
-                "Marking session {} for room {} as shared.",
-                self.session_id(),
-                self.room_id
-            );
-            self.mark_as_shared();
+            if self.to_share_with_set.is_empty() {
+                debug!(
+                    "Marking session {} for room {} as shared.",
+                    self.session_id(),
+                    self.room_id
+                );
+                self.mark_as_shared();
+            }
         }
     }
 
