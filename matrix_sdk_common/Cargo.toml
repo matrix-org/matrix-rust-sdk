@@ -21,7 +21,7 @@ js_int = "0.1.9"
 [dependencies.ruma]
 version = "0.0.1"
 git = "https://github.com/ruma/ruma"
-rev = "4a9b1aeb3c87bd8574391d7084ec5bf109f7d363"
+rev = "3869d75837b7aab60eef58fc834e498317d1e4a4"
 features = ["client-api", "unstable-pre-spec", "unstable-exhaustive-types"]
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
