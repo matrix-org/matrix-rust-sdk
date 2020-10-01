@@ -133,7 +133,7 @@ impl OlmMachine {
             user_id.clone(),
             device_id.clone(),
             store.clone(),
-            outbound_group_sessions.clone(),
+            outbound_group_sessions,
         );
         let identity_manager =
             IdentityManager::new(user_id.clone(), device_id.clone(), store.clone());
