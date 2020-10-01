@@ -93,10 +93,10 @@ pub(crate) struct Store {
 }
 
 impl Store {
-    pub fn new(user_id: Arc<UserId>, store: Box<dyn CryptoStore>) -> Self {
+    pub fn new(user_id: Arc<UserId>, store: Arc<Box<dyn CryptoStore>>) -> Self {
         Self {
             user_id,
-            inner: Arc::new(store),
+            inner: store,
         }
     }
 

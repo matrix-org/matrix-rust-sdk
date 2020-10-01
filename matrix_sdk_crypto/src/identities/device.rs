@@ -40,7 +40,7 @@ use crate::{
     error::{EventError, OlmError, OlmResult, SignatureError},
     identities::{OwnUserIdentity, UserIdentities},
     olm::Utility,
-    store::{caches::ReadOnlyUserDevices, Result as StoreResult, Store},
+    store::{caches::ReadOnlyUserDevices, CryptoStore, Result as StoreResult},
     verification::VerificationMachine,
     Sas, ToDeviceRequest,
 };
@@ -122,7 +122,7 @@ impl Device {
         content: Value,
     ) -> OlmResult<EncryptedEventContent> {
         self.inner
-            .encrypt(self.verification_machine.store.clone(), event_type, content)
+            .encrypt(&**self.verification_machine.store, event_type, content)
             .await
     }
 }
@@ -321,7 +321,7 @@ impl ReadOnlyDevice {
 
     pub(crate) async fn encrypt(
         &self,
-        store: Store,
+        store: &dyn CryptoStore,
         event_type: EventType,
         content: Value,
     ) -> OlmResult<EncryptedEventContent> {

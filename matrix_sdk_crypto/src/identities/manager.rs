@@ -381,7 +381,7 @@ pub(crate) mod test {
 
     fn manager() -> IdentityManager {
         let user_id = Arc::new(user_id());
-        let store = Store::new(user_id.clone(), Box::new(MemoryStore::new()));
+        let store = Store::new(user_id.clone(), Arc::new(Box::new(MemoryStore::new())));
         IdentityManager::new(user_id, Arc::new(device_id()), store)
     }
 

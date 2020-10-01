@@ -667,7 +667,7 @@ pub(crate) mod test {
             Device, ReadOnlyDevice,
         },
         olm::ReadOnlyAccount,
-        store::{MemoryStore, Store},
+        store::MemoryStore,
         verification::VerificationMachine,
     };
 
@@ -736,10 +736,7 @@ pub(crate) mod test {
 
         let verification_machine = VerificationMachine::new(
             ReadOnlyAccount::new(second.user_id(), second.device_id()),
-            Store::new(
-                Arc::new(second.user_id().clone()),
-                Box::new(MemoryStore::new()),
-            ),
+            Arc::new(Box::new(MemoryStore::new())),
         );
 
         let first = Device {

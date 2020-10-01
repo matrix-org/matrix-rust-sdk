@@ -125,8 +125,9 @@ impl OlmMachine {
     ) -> Self {
         let user_id = Arc::new(user_id.clone());
 
-        let store = Store::new(user_id.clone(), store);
+        let store = Arc::new(store);
         let verification_machine = VerificationMachine::new(account.clone(), store.clone());
+        let store = Store::new(user_id.clone(), store);
         let device_id: Arc<DeviceIdBox> = Arc::new(device_id);
         let outbound_group_sessions = Arc::new(DashMap::new());
         let key_request_machine = KeyRequestMachine::new(

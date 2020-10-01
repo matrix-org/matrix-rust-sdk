@@ -93,9 +93,7 @@ impl Device {
         event_type: EventType,
         content: Value,
     ) -> OlmResult<EncryptedEventContent> {
-        self.inner
-            .encrypt(self.store.clone(), event_type, content)
-            .await
+        self.inner.encrypt(&*self.store, event_type, content).await
     }
 }
 
@@ -651,7 +649,7 @@ mod test {
 
     fn bob_machine() -> KeyRequestMachine {
         let user_id = Arc::new(bob_id());
-        let store = Store::new(user_id.clone(), Box::new(MemoryStore::new()));
+        let store = Store::new(user_id.clone(), Arc::new(Box::new(MemoryStore::new())));
 
         KeyRequestMachine::new(
             user_id,
@@ -663,7 +661,7 @@ mod test {
 
     fn get_machine() -> KeyRequestMachine {
         let user_id = Arc::new(alice_id());
-        let store = Store::new(user_id.clone(), Box::new(MemoryStore::new()));
+        let store = Store::new(user_id.clone(), Arc::new(Box::new(MemoryStore::new())));
 
         KeyRequestMachine::new(
             user_id,
