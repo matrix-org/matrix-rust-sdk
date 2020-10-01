@@ -323,10 +323,7 @@ impl KeyRequestMachine {
                 Err(KeyshareDecision::UntrustedDevice)
             }
         } else if let Some(outbound) = outbound_session {
-            if outbound
-                .shared_with()
-                .contains(&(device.user_id().to_owned(), device.device_id().to_owned()))
-            {
+            if outbound.is_shared_with(device.user_id(), device.device_id()) {
                 Ok(())
             } else {
                 Err(KeyshareDecision::OutboundSessionNotShared)

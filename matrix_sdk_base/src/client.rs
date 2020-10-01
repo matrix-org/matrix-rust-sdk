@@ -1304,7 +1304,7 @@ impl BaseClient {
     /// Get a to-device request that will share a group session for a room.
     #[cfg(feature = "encryption")]
     #[cfg_attr(feature = "docs", doc(cfg(encryption)))]
-    pub async fn share_group_session(&self, room_id: &RoomId) -> Result<Vec<ToDeviceRequest>> {
+    pub async fn share_group_session(&self, room_id: &RoomId) -> Result<Vec<Arc<ToDeviceRequest>>> {
         let room = self.get_joined_room(room_id).await.expect("No room found");
         let olm = self.olm.lock().await;
 
@@ -1881,18 +1881,19 @@ impl BaseClient {
 
 #[cfg(test)]
 mod test {
+    use serde_json::json;
+    use std::convert::TryFrom;
+
     #[cfg(feature = "messages")]
     use crate::{
         events::AnySyncRoomEvent, identifiers::event_id, BaseClientConfig, JsonStore, Raw,
     };
-    use crate::{
-        identifiers::{room_id, user_id, RoomId},
-        BaseClient, Session,
-    };
+    use crate::{BaseClient, Session};
+
+    use matrix_sdk_common::identifiers::{room_id, user_id, RoomId};
+
     use matrix_sdk_common_macros::async_trait;
     use matrix_sdk_test::{async_test, test_json, EventBuilder, EventsJson};
-    use serde_json::json;
-    use std::convert::TryFrom;
     #[cfg(not(target_arch = "wasm32"))]
     use tempfile::tempdir;
 

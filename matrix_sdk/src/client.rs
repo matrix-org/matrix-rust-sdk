@@ -1303,10 +1303,13 @@ impl Client {
     }
 
     #[cfg(feature = "encryption")]
-    async fn send_to_device(&self, request: ToDeviceRequest) -> Result<ToDeviceResponse> {
+    async fn send_to_device(&self, request: &ToDeviceRequest) -> Result<ToDeviceResponse> {
         let txn_id_string = request.txn_id_string();
-        let request =
-            RumaToDeviceRequest::new(request.event_type, &txn_id_string, request.messages);
+        let request = RumaToDeviceRequest::new(
+            request.event_type.clone(),
+            &txn_id_string,
+            request.messages.clone(),
+        );
 
         self.send(request).await
     }
@@ -1468,7 +1471,8 @@ impl Client {
                             }
                         }
                         OutgoingRequests::ToDeviceRequest(request) => {
-                            if let Ok(resp) = self.send_to_device(request.clone()).await {
+                            // TODO remove this unwrap
+                            if let Ok(resp) = self.send_to_device(&request).await {
                                 self.base_client
                                     .mark_request_as_sent(&r.request_id(), &resp)
                                     .await
@@ -1551,7 +1555,11 @@ impl Client {
             .expect("Keys don't need to be uploaded");
 
         for request in requests.drain(..) {
-            self.send_to_device(request).await?;
+            let response = self.send_to_device(&request).await?;
+
+            self.base_client
+                .mark_request_as_sent(&request.txn_id, &response)
+                .await?;
         }
 
         Ok(())

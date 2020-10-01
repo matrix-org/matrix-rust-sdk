@@ -574,7 +574,7 @@ impl OlmMachine {
         room_id: &RoomId,
     ) -> OlmResult<()> {
         self.group_session_manager
-            .create_outbound_group_session(room_id, EncryptionSettings::default(), [].iter())
+            .create_outbound_group_session(room_id, EncryptionSettings::default())
             .await
     }
 
@@ -645,7 +645,7 @@ impl OlmMachine {
         room_id: &RoomId,
         users: impl Iterator<Item = &UserId>,
         encryption_settings: impl Into<EncryptionSettings>,
-    ) -> OlmResult<Vec<ToDeviceRequest>> {
+    ) -> OlmResult<Vec<Arc<ToDeviceRequest>>> {
         self.group_session_manager
             .share_group_session(room_id, users, encryption_settings)
             .await
@@ -705,6 +705,7 @@ impl OlmMachine {
         self.key_request_machine
             .mark_outgoing_request_as_sent(request_id)
             .await?;
+        self.group_session_manager.mark_request_as_sent(request_id);
 
         Ok(())
     }
@@ -1037,6 +1038,7 @@ pub(crate) mod test {
     use std::{
         collections::BTreeMap,
         convert::{TryFrom, TryInto},
+        sync::Arc,
         time::SystemTime,
     };
 
@@ -1103,7 +1105,7 @@ pub(crate) mod test {
         get_keys::Response::try_from(data).expect("Can't parse the keys upload response")
     }
 
-    fn to_device_requests_to_content(requests: Vec<ToDeviceRequest>) -> EncryptedEventContent {
+    fn to_device_requests_to_content(requests: Vec<Arc<ToDeviceRequest>>) -> EncryptedEventContent {
         let to_device_request = &requests[0];
 
         let content: Raw<EncryptedEventContent> = serde_json::from_str(

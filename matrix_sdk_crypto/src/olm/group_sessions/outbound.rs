@@ -12,7 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use dashmap::{setref::multiple::RefMulti, DashSet};
+use dashmap::{DashMap, DashSet};
+use matrix_sdk_common::{api::r0::to_device::DeviceIdOrAllDevices, uuid::Uuid};
 use std::{
     cmp::min,
     fmt,
@@ -22,6 +23,7 @@ use std::{
     },
     time::Duration,
 };
+use tracing::debug;
 
 use matrix_sdk_common::{
     events::{
@@ -32,14 +34,16 @@ use matrix_sdk_common::{
     instant::Instant,
     locks::Mutex,
 };
-use olm_rs::outbound_group_session::OlmOutboundGroupSession;
 use serde_json::{json, Value};
 
+use olm_rs::outbound_group_session::OlmOutboundGroupSession;
 pub use olm_rs::{
     account::IdentityKeys,
     session::{OlmMessage, PreKeyMessage},
     utility::OlmUtility,
 };
+
+use crate::ToDeviceRequest;
 
 use super::GroupSessionKey;
 
@@ -101,8 +105,8 @@ pub struct OutboundGroupSession {
     message_count: Arc<AtomicU64>,
     shared: Arc<AtomicBool>,
     settings: Arc<EncryptionSettings>,
-    shared_with_set: Arc<DashSet<(UserId, DeviceIdBox)>>,
-    to_share_with_set: Arc<DashSet<UserId>>,
+    shared_with_set: Arc<DashMap<UserId, DashSet<DeviceIdBox>>>,
+    to_share_with_set: Arc<DashMap<Uuid, Arc<ToDeviceRequest>>>,
 }
 
 impl OutboundGroupSession {
@@ -121,17 +125,14 @@ impl OutboundGroupSession {
     ///
     /// * `settings` - Settings determining the algorithm and rotation period of
     /// the outbound group session.
-    pub fn new<'a>(
+    pub fn new(
         device_id: Arc<DeviceIdBox>,
         identity_keys: Arc<IdentityKeys>,
         room_id: &RoomId,
         settings: EncryptionSettings,
-        users_to_share_with: impl Iterator<Item = &'a UserId>,
     ) -> Self {
         let session = OlmOutboundGroupSession::new();
         let session_id = session.session_id();
-
-        let users_to_share_with = users_to_share_with.cloned().collect();
 
         OutboundGroupSession {
             inner: Arc::new(Mutex::new(session)),
@@ -143,13 +144,52 @@ impl OutboundGroupSession {
             message_count: Arc::new(AtomicU64::new(0)),
             shared: Arc::new(AtomicBool::new(false)),
             settings: Arc::new(settings),
-            shared_with_set: Arc::new(DashSet::new()),
-            to_share_with_set: Arc::new(users_to_share_with),
+            shared_with_set: Arc::new(DashMap::new()),
+            to_share_with_set: Arc::new(DashMap::new()),
         }
     }
 
-    pub(crate) fn users_to_share_with(&self) -> impl Iterator<Item = RefMulti<'_, UserId>> + '_ {
-        self.to_share_with_set.iter()
+    pub fn add_request(&self, request_id: Uuid, request: Arc<ToDeviceRequest>) {
+        self.to_share_with_set.insert(request_id, request);
+    }
+
+    /// Mark the request with the given request id as sent.
+    ///
+    /// This removes the request from the queue and marks the set of
+    /// users/devices that received the session.
+    pub fn mark_request_as_sent(&self, request_id: &Uuid) {
+        let request = self.to_share_with_set.remove(request_id);
+
+        request.map(|(_, r)| {
+            let user_pairs = r.messages.iter().map(|(u, v)| {
+                (
+                    u.clone(),
+                    v.keys().filter_map(|d| {
+                        if let DeviceIdOrAllDevices::DeviceId(d) = d {
+                            Some(d.clone())
+                        } else {
+                            None
+                        }
+                    }),
+                )
+            });
+
+            user_pairs.for_each(|(u, d)| {
+                self.shared_with_set
+                    .entry(u)
+                    .or_insert_with(DashSet::new)
+                    .extend(d);
+            })
+        });
+
+        if self.to_share_with_set.is_empty() {
+            debug!(
+                "Marking session {} for room {} as shared.",
+                self.session_id(),
+                self.room_id
+            );
+            self.mark_as_shared();
+        }
     }
 
     /// Encrypt the given plaintext using this session.
@@ -246,6 +286,11 @@ impl OutboundGroupSession {
         GroupSessionKey(session.session_key())
     }
 
+    /// Get the room id of the room this session belongs to.
+    pub fn room_id(&self) -> &RoomId {
+        &self.room_id
+    }
+
     /// Returns the unique identifier for this session.
     pub fn session_id(&self) -> &str {
         &self.session_id
@@ -273,15 +318,20 @@ impl OutboundGroupSession {
     }
 
     /// The set of users this session is shared with.
-    pub(crate) fn shared_with(&self) -> &DashSet<(UserId, DeviceIdBox)> {
-        &self.shared_with_set
+    pub(crate) fn is_shared_with(&self, user_id: &UserId, device_id: &DeviceId) -> bool {
+        self.shared_with_set
+            .get(user_id)
+            .map(|d| d.contains(device_id))
+            .unwrap_or(false)
     }
 
     /// Mark that the session was shared with the given user/device pair.
-    #[allow(dead_code)]
+    #[cfg(test)]
     pub fn mark_shared_with(&self, user_id: &UserId, device_id: &DeviceId) {
         self.shared_with_set
-            .insert((user_id.to_owned(), device_id.to_owned()));
+            .entry(user_id.to_owned())
+            .or_insert_with(DashSet::new)
+            .insert(device_id.to_owned());
     }
 }
 

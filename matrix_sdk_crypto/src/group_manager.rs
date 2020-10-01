@@ -21,6 +21,7 @@ use matrix_sdk_common::{
     identifiers::{RoomId, UserId},
     uuid::Uuid,
 };
+use tracing::debug;
 
 use crate::{
     error::{EventError, MegolmResult, OlmResult},
@@ -55,6 +56,12 @@ impl GroupSessionManager {
 
     pub fn invalidate_group_session(&self, room_id: &RoomId) -> bool {
         self.outbound_group_sessions.remove(room_id).is_some()
+    }
+
+    pub fn mark_request_as_sent(&self, request_id: &Uuid) {
+        self.outbound_sessions_being_shared
+            .remove(request_id)
+            .map(|(_, s)| s.mark_request_as_sent(request_id));
     }
 
     /// Get an outbound group session for a room, if one exists.
@@ -111,11 +118,10 @@ impl GroupSessionManager {
         &self,
         room_id: &RoomId,
         settings: EncryptionSettings,
-        users_to_share_with: impl Iterator<Item = &UserId>,
     ) -> OlmResult<()> {
         let (outbound, inbound) = self
             .account
-            .create_group_session_pair(room_id, settings, users_to_share_with)
+            .create_group_session_pair(room_id, settings)
             .await
             .map_err(|_| EventError::UnsupportedAlgorithm)?;
 
@@ -140,8 +146,8 @@ impl GroupSessionManager {
         room_id: &RoomId,
         users: impl Iterator<Item = &UserId>,
         encryption_settings: impl Into<EncryptionSettings>,
-    ) -> OlmResult<Vec<ToDeviceRequest>> {
-        self.create_outbound_group_session(room_id, encryption_settings.into(), users)
+    ) -> OlmResult<Vec<Arc<ToDeviceRequest>>> {
+        self.create_outbound_group_session(room_id, encryption_settings.into())
             .await?;
         let session = self.outbound_group_sessions.get(room_id).unwrap();
 
@@ -149,15 +155,9 @@ impl GroupSessionManager {
             panic!("Session is already shared");
         }
 
-        // TODO don't mark the session as shared automatically, only when all
-        // the requests are done, failure to send these requests will likely end
-        // up in wedged sessions. We'll need to store the requests and let the
-        // caller mark them as sent using an UUID.
-        session.mark_as_shared();
-
         let mut devices: Vec<Device> = Vec::new();
 
-        for user_id in session.users_to_share_with() {
+        for user_id in users {
             let user_devices = self.store.get_user_devices(&user_id).await?;
             devices.extend(user_devices.devices().filter(|d| !d.is_blacklisted()));
         }
@@ -193,11 +193,25 @@ impl GroupSessionManager {
 
             let id = Uuid::new_v4();
 
-            requests.push(ToDeviceRequest {
+            let request = Arc::new(ToDeviceRequest {
                 event_type: EventType::RoomEncrypted,
                 txn_id: id,
                 messages,
             });
+
+            session.add_request(id, request.clone());
+            self.outbound_sessions_being_shared
+                .insert(id, session.clone());
+            requests.push(request);
+        }
+
+        if requests.is_empty() {
+            debug!(
+                "Session {} for room {} doesn't need to be shared with anyone, marking as shared",
+                session.session_id(),
+                session.room_id()
+            );
+            session.mark_as_shared();
         }
 
         Ok(requests)
