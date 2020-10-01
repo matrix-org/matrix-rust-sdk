@@ -159,12 +159,7 @@ impl GroupSessionManager {
 
         for user_id in session.users_to_share_with() {
             let user_devices = self.store.get_user_devices(&user_id).await?;
-            devices.extend(
-                user_devices
-                    .devices()
-                    .map(|d| d.clone())
-                    .filter(|d| !d.is_blacklisted()),
-            )
+            devices.extend(user_devices.devices().filter(|d| !d.is_blacklisted()));
         }
 
         let mut requests = Vec::new();
