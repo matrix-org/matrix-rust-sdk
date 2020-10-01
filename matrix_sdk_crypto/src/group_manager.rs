@@ -24,10 +24,9 @@ use matrix_sdk_common::{
 
 use crate::{
     error::{EventError, MegolmResult, OlmResult},
-    key_request::Device,
     olm::{Account, OutboundGroupSession},
-    store::{Result as StoreResult, Store},
-    EncryptionSettings, OlmError, ToDeviceRequest,
+    store::Store,
+    Device, EncryptionSettings, OlmError, ToDeviceRequest,
 };
 
 #[derive(Clone)]
@@ -52,28 +51,6 @@ impl GroupSessionManager {
             outbound_group_sessions: Arc::new(DashMap::new()),
             outbound_sessions_being_shared: Arc::new(DashMap::new()),
         }
-    }
-
-    async fn get_user_devices(&self, user_id: &UserId) -> StoreResult<Vec<Device>> {
-        let devices = self.store.get_user_devices(user_id).await?;
-
-        let own_identity = self
-            .store
-            .get_user_identity(self.account.user_id())
-            .await?
-            .map(|i| i.own().cloned())
-            .flatten();
-        let device_owner_identity = self.store.get_user_identity(user_id).await.ok().flatten();
-
-        Ok(devices
-            .devices()
-            .map(|d| Device {
-                inner: d.clone(),
-                store: self.store.clone(),
-                own_identity: own_identity.clone(),
-                device_owner_identity: device_owner_identity.clone(),
-            })
-            .collect())
     }
 
     pub fn invalidate_group_session(&self, room_id: &RoomId) -> bool {
@@ -178,11 +155,16 @@ impl GroupSessionManager {
         // caller mark them as sent using an UUID.
         session.mark_as_shared();
 
-        let mut devices = Vec::new();
+        let mut devices: Vec<Device> = Vec::new();
 
         for user_id in session.users_to_share_with() {
-            let mut user_devices = self.get_user_devices(&user_id).await?;
-            devices.extend(user_devices.drain(..).filter(|d| !d.is_blacklisted()))
+            let user_devices = self.store.get_user_devices(&user_id).await?;
+            devices.extend(
+                user_devices
+                    .devices()
+                    .map(|d| d.clone())
+                    .filter(|d| !d.is_blacklisted()),
+            )
         }
 
         let mut requests = Vec::new();

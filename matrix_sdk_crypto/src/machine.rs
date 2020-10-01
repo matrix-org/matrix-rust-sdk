@@ -127,7 +127,7 @@ impl OlmMachine {
 
         let store = Arc::new(store);
         let verification_machine = VerificationMachine::new(account.clone(), store.clone());
-        let store = Store::new(user_id.clone(), store);
+        let store = Store::new(user_id.clone(), store, verification_machine.clone());
         let device_id: Arc<DeviceIdBox> = Arc::new(device_id);
         let outbound_group_sessions = Arc::new(DashMap::new());
         let key_request_machine = KeyRequestMachine::new(
@@ -430,7 +430,7 @@ impl OlmMachine {
 
         for (user_id, user_devices) in &response.one_time_keys {
             for (device_id, key_map) in user_devices {
-                let device = match self.store.get_device(&user_id, device_id).await {
+                let device = match self.store.get_readonly_device(&user_id, device_id).await {
                     Ok(Some(d)) => d,
                     Ok(None) => {
                         warn!(
@@ -889,16 +889,7 @@ impl OlmMachine {
         user_id: &UserId,
         device_id: &DeviceId,
     ) -> StoreResult<Option<Device>> {
-        Ok(self
-            .store
-            .get_device_and_users(user_id, device_id)
-            .await?
-            .map(|(d, o, u)| Device {
-                inner: d,
-                verification_machine: self.verification_machine.clone(),
-                own_identity: o,
-                device_owner_identity: u,
-            }))
+        self.store.get_device(user_id, device_id).await
     }
 
     /// Get a map holding all the devices of an user.
@@ -925,22 +916,7 @@ impl OlmMachine {
     /// # });
     /// ```
     pub async fn get_user_devices(&self, user_id: &UserId) -> StoreResult<UserDevices> {
-        let devices = self.store.get_user_devices(user_id).await?;
-
-        let own_identity = self
-            .store
-            .get_user_identity(self.user_id())
-            .await?
-            .map(|i| i.own().cloned())
-            .flatten();
-        let device_owner_identity = self.store.get_user_identity(user_id).await.ok().flatten();
-
-        Ok(UserDevices {
-            inner: devices,
-            verification_machine: self.verification_machine.clone(),
-            own_identity,
-            device_owner_identity,
-        })
+        self.store.get_user_devices(user_id).await
     }
 
     /// Import the given room keys into our store.

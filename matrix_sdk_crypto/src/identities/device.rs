@@ -14,7 +14,7 @@
 
 use std::{
     collections::BTreeMap,
-    convert::TryFrom,
+    convert::{TryFrom, TryInto},
     ops::Deref,
     sync::{
         atomic::{AtomicBool, Ordering},
@@ -26,13 +26,17 @@ use atomic::Atomic;
 use matrix_sdk_common::{
     api::r0::keys::SignedKey,
     encryption::DeviceKeys,
-    events::{room::encrypted::EncryptedEventContent, EventType},
+    events::{
+        forwarded_room_key::ForwardedRoomKeyEventContent, room::encrypted::EncryptedEventContent,
+        EventType,
+    },
     identifiers::{DeviceId, DeviceKeyAlgorithm, DeviceKeyId, EventEncryptionAlgorithm, UserId},
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use tracing::warn;
 
+use crate::olm::InboundGroupSession;
 #[cfg(test)]
 use crate::{OlmMachine, ReadOnlyAccount};
 
@@ -115,7 +119,6 @@ impl Device {
     /// * `event_type` - The type of the event.
     ///
     /// * `content` - The content of the event that should be encrypted.
-    #[cfg(test)]
     pub(crate) async fn encrypt(
         &self,
         event_type: EventType,
@@ -124,6 +127,31 @@ impl Device {
         self.inner
             .encrypt(&**self.verification_machine.store, event_type, content)
             .await
+    }
+
+    /// Encrypt the given inbound group session as a forwarded room key for this
+    /// device.
+    pub async fn encrypt_session(
+        &self,
+        session: InboundGroupSession,
+    ) -> OlmResult<EncryptedEventContent> {
+        let export = session.export().await;
+
+        let content: ForwardedRoomKeyEventContent = if let Ok(c) = export.try_into() {
+            c
+        } else {
+            // TODO remove this panic.
+            panic!(
+                "Can't share session {} with device {} {}, key export can't \
+                 be converted to a forwarded room key content",
+                session.session_id(),
+                self.user_id(),
+                self.device_id()
+            );
+        };
+
+        let content = serde_json::to_value(content)?;
+        self.encrypt(EventType::ForwardedRoomKey, content).await
     }
 }
 

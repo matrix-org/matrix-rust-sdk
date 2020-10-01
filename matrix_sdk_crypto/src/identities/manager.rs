@@ -126,7 +126,7 @@ impl IdentityManager {
                     continue;
                 }
 
-                let device = self.store.get_device(&user_id, device_id).await?;
+                let device = self.store.get_readonly_device(&user_id, device_id).await?;
 
                 let device = if let Some(mut device) = device {
                     if let Err(e) = device.update_device(device_keys) {
@@ -157,7 +157,7 @@ impl IdentityManager {
 
             let current_devices: HashSet<&DeviceId> =
                 device_map.keys().map(|id| id.as_ref()).collect();
-            let stored_devices = self.store.get_user_devices(&user_id).await.unwrap();
+            let stored_devices = self.store.get_readonly_devices(&user_id).await?;
             let stored_devices_set: HashSet<&DeviceId> = stored_devices.keys().collect();
 
             let deleted_devices = stored_devices_set.difference(&current_devices);
@@ -364,7 +364,9 @@ pub(crate) mod test {
     use crate::{
         identities::IdentityManager,
         machine::test::response_from_file,
-        store::{MemoryStore, Store},
+        olm::ReadOnlyAccount,
+        store::{CryptoStore, MemoryStore, Store},
+        verification::VerificationMachine,
     };
 
     fn user_id() -> UserId {
@@ -381,7 +383,14 @@ pub(crate) mod test {
 
     fn manager() -> IdentityManager {
         let user_id = Arc::new(user_id());
-        let store = Store::new(user_id.clone(), Arc::new(Box::new(MemoryStore::new())));
+        let account = ReadOnlyAccount::new(&user_id, &device_id());
+        let store: Arc<Box<dyn CryptoStore>> = Arc::new(Box::new(MemoryStore::new()));
+        let verification = VerificationMachine::new(account, store);
+        let store = Store::new(
+            user_id.clone(),
+            Arc::new(Box::new(MemoryStore::new())),
+            verification,
+        );
         IdentityManager::new(user_id, Arc::new(device_id()), store)
     }
 
@@ -566,7 +575,7 @@ pub(crate) mod test {
 
         let device = manager
             .store
-            .get_device(&other_user, "SKISMLNIMH".into())
+            .get_readonly_device(&other_user, "SKISMLNIMH".into())
             .await
             .unwrap()
             .unwrap();
@@ -598,7 +607,7 @@ pub(crate) mod test {
 
         let device = manager
             .store
-            .get_device(&other_user, "SKISMLNIMH".into())
+            .get_readonly_device(&other_user, "SKISMLNIMH".into())
             .await
             .unwrap()
             .unwrap();

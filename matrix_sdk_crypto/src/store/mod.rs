@@ -70,12 +70,12 @@ use matrix_sdk_common_macros::async_trait;
 #[cfg(not(target_arch = "wasm32"))]
 use matrix_sdk_common_macros::send_sync;
 
-use super::{
-    identities::{OwnUserIdentity, ReadOnlyDevice, UserIdentities},
+use crate::{
+    error::SessionUnpicklingError,
+    identities::{Device, ReadOnlyDevice, UserDevices, UserIdentities},
     olm::{InboundGroupSession, ReadOnlyAccount, Session},
+    verification::VerificationMachine,
 };
-
-use crate::error::SessionUnpicklingError;
 
 /// A `CryptoStore` specific result type.
 pub type Result<T> = std::result::Result<T, CryptoStoreError>;
@@ -90,48 +90,77 @@ pub type Result<T> = std::result::Result<T, CryptoStoreError>;
 pub(crate) struct Store {
     user_id: Arc<UserId>,
     inner: Arc<Box<dyn CryptoStore>>,
+    verification_machine: VerificationMachine,
 }
 
 impl Store {
-    pub fn new(user_id: Arc<UserId>, store: Arc<Box<dyn CryptoStore>>) -> Self {
+    pub fn new(
+        user_id: Arc<UserId>,
+        store: Arc<Box<dyn CryptoStore>>,
+        verification_machine: VerificationMachine,
+    ) -> Self {
         Self {
             user_id,
             inner: store,
+            verification_machine,
         }
     }
 
-    pub async fn get_device_and_users(
+    pub async fn get_readonly_device(
         &self,
         user_id: &UserId,
         device_id: &DeviceId,
-    ) -> Result<
-        Option<(
-            ReadOnlyDevice,
-            Option<OwnUserIdentity>,
-            Option<UserIdentities>,
-        )>,
-    > {
-        let device = self.get_device(user_id, device_id).await?;
-
-        let device = if let Some(d) = device {
-            d
-        } else {
-            return Ok(None);
-        };
-
-        let own_identity = self
-            .get_user_identity(&self.user_id)
-            .await
-            .ok()
-            .flatten()
-            .map(|i| i.own().cloned())
-            .flatten();
-        let device_owner_identity = self.get_user_identity(user_id).await.ok().flatten();
-
-        Ok(Some((device, own_identity, device_owner_identity)))
+    ) -> Result<Option<ReadOnlyDevice>> {
+        self.inner.get_device(user_id, device_id).await
     }
 
-    #[allow(dead_code)]
+    pub async fn get_readonly_devices(&self, user_id: &UserId) -> Result<ReadOnlyUserDevices> {
+        self.inner.get_user_devices(user_id).await
+    }
+
+    pub async fn get_user_devices(&self, user_id: &UserId) -> Result<UserDevices> {
+        let devices = self.inner.get_user_devices(user_id).await?;
+
+        let own_identity = self
+            .inner
+            .get_user_identity(&self.user_id)
+            .await?
+            .map(|i| i.own().cloned())
+            .flatten();
+        let device_owner_identity = self.inner.get_user_identity(user_id).await.ok().flatten();
+
+        Ok(UserDevices {
+            inner: devices,
+            verification_machine: self.verification_machine.clone(),
+            own_identity,
+            device_owner_identity,
+        })
+    }
+
+    pub async fn get_device(
+        &self,
+        user_id: &UserId,
+        device_id: &DeviceId,
+    ) -> Result<Option<Device>> {
+        let own_identity = self
+            .get_user_identity(&self.user_id)
+            .await?
+            .map(|i| i.own().cloned())
+            .flatten();
+        let device_owner_identity = self.get_user_identity(user_id).await?;
+
+        Ok(self
+            .inner
+            .get_device(user_id, device_id)
+            .await?
+            .map(|d| Device {
+                inner: d,
+                verification_machine: self.verification_machine.clone(),
+                own_identity,
+                device_owner_identity,
+            }))
+    }
+
     pub async fn get_object<V: for<'b> Deserialize<'b>>(&self, key: &str) -> Result<Option<V>> {
         if let Some(value) = self.get_value(key).await? {
             Ok(Some(serde_json::from_str(&value)?))
@@ -140,13 +169,11 @@ impl Store {
         }
     }
 
-    #[allow(dead_code)]
     pub async fn save_object(&self, key: &str, value: &impl Serialize) -> Result<()> {
         let value = serde_json::to_string(value)?;
         self.save_value(key.to_owned(), value).await
     }
 
-    #[allow(dead_code)]
     pub async fn delete_object(&self, key: &str) -> Result<()> {
         self.inner.remove_value(key).await?;
         Ok(())

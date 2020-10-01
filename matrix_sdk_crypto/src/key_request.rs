@@ -20,12 +20,10 @@
 // If we don't trust the device store an object that remembers the request and
 // let the users introspect that object.
 
-#![allow(dead_code)]
-
 use dashmap::DashMap;
 use serde::{Deserialize, Serialize};
-use serde_json::{value::to_raw_value, Value};
-use std::{collections::BTreeMap, convert::TryInto, ops::Deref, sync::Arc};
+use serde_json::value::to_raw_value;
+use std::{collections::BTreeMap, sync::Arc};
 use thiserror::Error;
 use tracing::{error, info, instrument, trace, warn};
 
@@ -33,7 +31,6 @@ use matrix_sdk_common::{
     api::r0::to_device::DeviceIdOrAllDevices,
     events::{
         forwarded_room_key::ForwardedRoomKeyEventContent,
-        room::encrypted::EncryptedEventContent,
         room_key_request::{Action, RequestedKeyInfo, RoomKeyRequestEventContent},
         AnyToDeviceEvent, EventType, ToDeviceEvent,
     },
@@ -44,66 +41,11 @@ use matrix_sdk_common::{
 
 use crate::{
     error::OlmResult,
-    identities::{OwnUserIdentity, ReadOnlyDevice, UserIdentities},
     olm::{InboundGroupSession, OutboundGroupSession},
     requests::{OutgoingRequest, ToDeviceRequest},
     store::{CryptoStoreError, Store},
+    Device,
 };
-
-pub struct Device {
-    pub(crate) inner: ReadOnlyDevice,
-    pub(crate) store: Store,
-    pub(crate) own_identity: Option<OwnUserIdentity>,
-    pub(crate) device_owner_identity: Option<UserIdentities>,
-}
-
-impl Device {
-    /// Encrypt the given inbound group session as a forwarded room key for this
-    /// device.
-    pub async fn encrypt_session(
-        &self,
-        session: InboundGroupSession,
-    ) -> OlmResult<EncryptedEventContent> {
-        let export = session.export().await;
-
-        let content: ForwardedRoomKeyEventContent = if let Ok(c) = export.try_into() {
-            c
-        } else {
-            // TODO remove this panic.
-            panic!(
-                "Can't share session {} with device {} {}, key export can't \
-                 be converted to a forwarded room key content",
-                session.session_id(),
-                self.user_id(),
-                self.device_id()
-            );
-        };
-
-        let content = serde_json::to_value(content)?;
-        self.encrypt(EventType::ForwardedRoomKey, content).await
-    }
-
-    fn trust_state(&self) -> bool {
-        self.inner
-            .trust_state(&self.own_identity, &self.device_owner_identity)
-    }
-
-    pub async fn encrypt(
-        &self,
-        event_type: EventType,
-        content: Value,
-    ) -> OlmResult<EncryptedEventContent> {
-        self.inner.encrypt(&*self.store, event_type, content).await
-    }
-}
-
-impl Deref for Device {
-    type Target = ReadOnlyDevice;
-
-    fn deref(&self) -> &Self::Target {
-        &self.inner
-    }
-}
 
 /// An error describing why a key share request won't be honored.
 #[derive(Debug, Clone, Error, PartialEq)]
@@ -282,14 +224,8 @@ impl KeyRequestMachine {
 
         let device = self
             .store
-            .get_device_and_users(&event.sender, &event.content.requesting_device_id)
-            .await?
-            .map(|(d, o, u)| Device {
-                inner: d,
-                store: self.store.clone(),
-                own_identity: o,
-                device_owner_identity: u,
-            });
+            .get_device(&event.sender, &event.content.requesting_device_id)
+            .await?;
 
         if let Some(device) = device {
             if let Err(e) = self.should_share_session(
@@ -614,10 +550,11 @@ mod test {
     use crate::{
         identities::{LocalTrust, ReadOnlyDevice},
         olm::{Account, ReadOnlyAccount},
-        store::{MemoryStore, Store},
+        store::{CryptoStore, MemoryStore, Store},
+        verification::VerificationMachine,
     };
 
-    use super::{Device, KeyRequestMachine, KeyshareDecision};
+    use super::{KeyRequestMachine, KeyshareDecision};
 
     fn alice_id() -> UserId {
         user_id!("@alice:example.org")
@@ -649,7 +586,10 @@ mod test {
 
     fn bob_machine() -> KeyRequestMachine {
         let user_id = Arc::new(bob_id());
-        let store = Store::new(user_id.clone(), Arc::new(Box::new(MemoryStore::new())));
+        let account = ReadOnlyAccount::new(&user_id, &alice_device_id());
+        let store: Arc<Box<dyn CryptoStore>> = Arc::new(Box::new(MemoryStore::new()));
+        let verification = VerificationMachine::new(account, store.clone());
+        let store = Store::new(user_id.clone(), store, verification);
 
         KeyRequestMachine::new(
             user_id,
@@ -659,9 +599,14 @@ mod test {
         )
     }
 
-    fn get_machine() -> KeyRequestMachine {
+    async fn get_machine() -> KeyRequestMachine {
         let user_id = Arc::new(alice_id());
-        let store = Store::new(user_id.clone(), Arc::new(Box::new(MemoryStore::new())));
+        let account = ReadOnlyAccount::new(&user_id, &alice_device_id());
+        let device = ReadOnlyDevice::from_account(&account).await;
+        let store: Arc<Box<dyn CryptoStore>> = Arc::new(Box::new(MemoryStore::new()));
+        let verification = VerificationMachine::new(account, store.clone());
+        let store = Store::new(user_id.clone(), store, verification);
+        store.save_devices(&[device]).await.unwrap();
 
         KeyRequestMachine::new(
             user_id,
@@ -671,16 +616,16 @@ mod test {
         )
     }
 
-    #[test]
-    fn create_machine() {
-        let machine = get_machine();
+    #[async_test]
+    async fn create_machine() {
+        let machine = get_machine().await;
 
         assert!(machine.outgoing_to_device_requests().is_empty());
     }
 
     #[async_test]
     async fn create_key_request() {
-        let machine = get_machine();
+        let machine = get_machine().await;
         let account = account();
 
         let (_, session) = account
@@ -721,7 +666,7 @@ mod test {
 
     #[async_test]
     async fn receive_forwarded_key() {
-        let machine = get_machine();
+        let machine = get_machine().await;
         let account = account();
 
         let (_, session) = account
@@ -848,15 +793,15 @@ mod test {
 
     #[async_test]
     async fn should_share_key_test() {
-        let machine = get_machine();
+        let machine = get_machine().await;
         let account = account();
 
-        let own_device = Device {
-            store: machine.store.clone(),
-            inner: ReadOnlyDevice::from_account(&account).await,
-            own_identity: None,
-            device_owner_identity: None,
-        };
+        let own_device = machine
+            .store
+            .get_device(&alice_id(), &alice_device_id())
+            .await
+            .unwrap()
+            .unwrap();
 
         // We don't share keys with untrusted devices.
         assert_eq!(
@@ -869,12 +814,15 @@ mod test {
         // Now we do want to share the keys.
         assert!(machine.should_share_session(&own_device, None).is_ok());
 
-        let bob_device = Device {
-            store: machine.store.clone(),
-            inner: ReadOnlyDevice::from_account(&bob_account()).await,
-            own_identity: None,
-            device_owner_identity: None,
-        };
+        let bob_device = ReadOnlyDevice::from_account(&bob_account()).await;
+        machine.store.save_devices(&[bob_device]).await.unwrap();
+
+        let bob_device = machine
+            .store
+            .get_device(&bob_id(), &bob_device_id())
+            .await
+            .unwrap()
+            .unwrap();
 
         // We don't share sessions with other user's devices if no outbound
         // session was provided.
@@ -918,7 +866,7 @@ mod test {
 
     #[async_test]
     async fn key_share_cycle() {
-        let alice_machine = get_machine();
+        let alice_machine = get_machine().await;
         let alice_account = Account {
             inner: account(),
             store: alice_machine.store.clone(),
