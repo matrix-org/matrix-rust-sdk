@@ -466,8 +466,7 @@ impl OlmMachine {
 
                 // TODO if this session was created because a previous one was
                 // wedged queue up a dummy event to be sent out.
-                // TODO if this session was created because of a key request,
-                // mark the forwarding keys to be sent out
+                self.key_request_machine.retry_keyshare(&user_id, device_id);
             }
         }
         Ok(())
