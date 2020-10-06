@@ -1799,7 +1799,10 @@ impl Client {
     /// ```
     #[cfg(feature = "encryption")]
     #[cfg(not(target_arch = "wasm32"))]
-    #[cfg_attr(feature = "docs", doc(cfg(encryption)))]
+    #[cfg_attr(
+        feature = "docs",
+        doc(cfg(all(encryption, not(target_arch = "wasm32"))))
+    )]
     pub async fn export_keys(
         &self,
         path: PathBuf,
@@ -1849,7 +1852,10 @@ impl Client {
     /// ```
     #[cfg(feature = "encryption")]
     #[cfg(not(target_arch = "wasm32"))]
-    #[cfg_attr(feature = "docs", doc(cfg(encryption)))]
+    #[cfg_attr(
+        feature = "docs",
+        doc(cfg(all(encryption, not(target_arch = "wasm32"))))
+    )]
     pub async fn import_keys(&self, path: PathBuf, passphrase: &str) -> Result<()> {
         let olm = self
             .base_client
