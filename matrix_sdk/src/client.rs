@@ -503,7 +503,9 @@ impl Client {
     /// # block_on(async {
     /// let client = Client::new(homeserver).unwrap();
     /// let user = "example";
-    /// let response = client.login(user, "wordpass", None, Some("My bot")).await;
+    /// let response = client
+    ///     .login(user, "wordpass", None, Some("My bot")).await
+    ///     .unwrap();
     ///
     /// println!("Logged in as {}, got device_id {} and access_token {}",
     ///          user, response.device_id, response.access_token);
