@@ -2,7 +2,8 @@ use std::{env, io, process::exit};
 use url::Url;
 
 use matrix_sdk::{
-    self, events::AnyToDeviceEvent, identifiers::UserId, Client, ClientConfig, Sas, SyncSettings,
+    self, events::AnyToDeviceEvent, identifiers::UserId, Client, ClientConfig, LoopCtrl, Sas,
+    SyncSettings,
 };
 
 async fn wait_for_confirmation(client: Client, sas: Sas) {
@@ -117,7 +118,7 @@ async fn login(
                 }
             }
 
-            false
+            LoopCtrl::Continue
         })
         .await;
 

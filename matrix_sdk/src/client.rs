@@ -47,6 +47,20 @@ use matrix_sdk_base::crypto::{
     AttachmentEncryptor, OutgoingRequests, ToDeviceRequest,
 };
 
+/// Enum controlling if a loop running callbacks should continue or abort.
+///
+/// This is mainly used in the [`sync_with_callback`] method, the return value
+/// of the provided callback controls if the sync loop should be exited.
+///
+/// [`sync_with_callback`]: #method.sync_with_callback
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LoopCtrl {
+    /// Continue running the loop.
+    Continue,
+    /// Break out of the loop.
+    Break,
+}
+
 use matrix_sdk_common::{
     api::r0::{
         account::register,
@@ -503,7 +517,9 @@ impl Client {
     /// # block_on(async {
     /// let client = Client::new(homeserver).unwrap();
     /// let user = "example";
-    /// let response = client.login(user, "wordpass", None, Some("My bot")).await;
+    /// let response = client
+    ///     .login(user, "wordpass", None, Some("My bot")).await
+    ///     .unwrap();
     ///
     /// println!("Logged in as {}, got device_id {} and access_token {}",
     ///          user, response.device_id, response.access_token);
@@ -1412,7 +1428,7 @@ impl Client {
     ///
     /// [`sync_with_callback`]: #method.sync_with_callback
     pub async fn sync(&self, sync_settings: SyncSettings<'_>) {
-        self.sync_with_callback(sync_settings, |_| async { false })
+        self.sync_with_callback(sync_settings, |_| async { LoopCtrl::Continue })
             .await
     }
 
@@ -1437,18 +1453,17 @@ impl Client {
     ///
     /// ```compile_fail,E0658
     /// # use matrix_sdk::events::{
-    /// #     collections::all::RoomEvent,
     /// #     room::message::{MessageEvent, MessageEventContent, TextMessageEventContent},
-    /// #     EventResult,
     /// # };
     /// # use matrix_sdk::Room;
     /// # use std::sync::{Arc, RwLock};
-    /// # use matrix_sdk::{Client, SyncSettings};
+    /// # use std::time::Duration;
+    /// # use matrix_sdk::{Client, SyncSettings, LoopCtrl};
     /// # use url::Url;
     /// # use futures::executor::block_on;
     /// # block_on(async {
     /// # let homeserver = Url::parse("http://localhost:8080").unwrap();
-    /// # let mut client = Client::new(homeserver, None).unwrap();
+    /// # let mut client = Client::new(homeserver).unwrap();
     ///
     /// use async_std::sync::channel;
     ///
@@ -1456,22 +1471,21 @@ impl Client {
     ///
     /// let sync_channel = &tx;
     /// let sync_settings = SyncSettings::new()
-    ///     .timeout(30_000)
-    ///     .unwrap();
+    ///     .timeout(Duration::from_secs(30));
     ///
     /// client
-    ///     .sync_forever(sync_settings, async move |response| {
+    ///     .sync_with_callback(sync_settings, async move |response| {
     ///         let channel = sync_channel;
     ///
     ///         for (room_id, room) in response.rooms.join {
     ///             for event in room.timeline.events {
-    ///                 if let EventResult::Ok(e) = event {
+    ///                 if let Ok(e) = event.deserialize() {
     ///                     channel.send(e).await;
     ///                 }
     ///             }
     ///         }
     ///
-    ///         false
+    ///         LoopCtrl::Continue
     ///     })
     ///     .await;
     /// })
@@ -1482,7 +1496,7 @@ impl Client {
         sync_settings: SyncSettings<'_>,
         callback: impl Fn(sync_events::Response) -> C,
     ) where
-        C: Future<Output = bool>,
+        C: Future<Output = LoopCtrl>,
     {
         let mut sync_settings = sync_settings;
         let filter = sync_settings.filter;
@@ -1534,7 +1548,7 @@ impl Client {
                 }
             }
 
-            if callback(response).await {
+            if callback(response).await == LoopCtrl::Break {
                 return;
             }
 
