@@ -13,7 +13,7 @@ use url::Url;
 
 struct CommandBot {
     /// This clone of the `Client` will send requests to the server,
-    /// while the other keeps us in sync with the server using `sync_forever`.
+    /// while the other keeps us in sync with the server using `sync`.
     client: Client,
 }
 
@@ -98,8 +98,8 @@ async fn login_and_sync(
         .add_event_emitter(Box::new(CommandBot::new(client.clone())))
         .await;
 
-    // since we called sync before we `sync_forever` we must pass that sync token to
-    // `sync_forever`
+    // since we called `sync_once` before we entered our sync loop we must pass
+    // that sync token to `sync`
     let settings = SyncSettings::default().token(client.sync_token().await.unwrap());
     // this keeps state from the server streaming in to CommandBot via the EventEmitter trait
     client.sync(settings).await;

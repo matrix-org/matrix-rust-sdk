@@ -71,7 +71,7 @@ mod device;
 #[cfg(feature = "encryption")]
 mod sas;
 
-pub use client::{Client, ClientConfig, SyncSettings};
+pub use client::{Client, ClientConfig, LoopCtrl, SyncSettings};
 #[cfg(feature = "encryption")]
 #[cfg_attr(feature = "docs", doc(cfg(encryption)))]
 pub use device::Device;
