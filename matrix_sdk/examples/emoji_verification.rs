@@ -69,7 +69,7 @@ async fn login(
     let client_ref = &client;
 
     client
-        .sync_forever(SyncSettings::new(), |response| async move {
+        .sync_with_callback(SyncSettings::new(), |response| async move {
             let client = &client_ref;
 
             for event in &response.to_device.events {
@@ -116,6 +116,8 @@ async fn login(
                     _ => (),
                 }
             }
+
+            false
         })
         .await;
 
