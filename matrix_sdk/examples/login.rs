@@ -52,7 +52,7 @@ async fn login(
     client
         .login(username, password, None, Some("rust-sdk"))
         .await?;
-    client.sync_forever(SyncSettings::new(), |_| async {}).await;
+    client.sync(SyncSettings::new()).await;
 
     Ok(())
 }

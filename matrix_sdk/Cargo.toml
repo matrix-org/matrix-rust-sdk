@@ -68,6 +68,7 @@ features = ["wasm-bindgen"]
 
 [dev-dependencies]
 async-trait = "0.1.40"
+async-std = { version = "1.6.5", features = ["unstable"] }
 dirs = "3.0.1"
 matrix-sdk-test = { version = "0.1.0", path = "../matrix_sdk_test" }
 tokio = { version = "0.2.22", features = ["rt-threaded", "macros"] }

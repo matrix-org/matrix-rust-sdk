@@ -7,7 +7,7 @@ use matrix_sdk::{
         AnyMessageEventContent, AnySyncMessageEvent, AnySyncRoomEvent, SyncMessageEvent,
     },
     identifiers::RoomId,
-    Client, ClientConfig, SyncSettings,
+    Client, ClientConfig, LoopCtrl, SyncSettings,
 };
 use url::Url;
 use wasm_bindgen::prelude::*;
@@ -41,7 +41,7 @@ impl WasmBot {
             self.0.room_send(&room_id, content, None).await.unwrap();
         }
     }
-    async fn on_sync_response(&self, response: SyncResponse) {
+    async fn on_sync_response(&self, response: SyncResponse) -> LoopCtrl {
         console::log_1(&"Synced".to_string().into());
 
         for (room_id, room) in response.rooms.join {
@@ -53,6 +53,8 @@ impl WasmBot {
                 }
             }
         }
+
+        LoopCtrl::Continue
     }
 }
 
@@ -73,11 +75,11 @@ pub async fn run() -> Result<JsValue, JsValue> {
 
     let bot = WasmBot(client.clone());
 
-    client.sync(SyncSettings::default()).await.unwrap();
+    client.sync_once(SyncSettings::default()).await.unwrap();
 
     let settings = SyncSettings::default().token(client.sync_token().await.unwrap());
     client
-        .sync_forever(settings, |response| bot.on_sync_response(response))
+        .sync_with_callback(settings, |response| bot.on_sync_response(response))
         .await;
 
     Ok(JsValue::NULL)

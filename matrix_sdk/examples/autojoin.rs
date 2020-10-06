@@ -64,9 +64,7 @@ async fn login_and_sync(
         .add_event_emitter(Box::new(AutoJoinBot::new(client.clone())))
         .await;
 
-    client
-        .sync_forever(SyncSettings::default(), |_| async {})
-        .await;
+    client.sync(SyncSettings::default()).await;
 
     Ok(())
 }

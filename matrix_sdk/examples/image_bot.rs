@@ -81,13 +81,13 @@ async fn login_and_sync(
         .login(&username, &password, None, Some("command bot"))
         .await?;
 
-    client.sync(SyncSettings::default()).await.unwrap();
+    client.sync_once(SyncSettings::default()).await.unwrap();
     client
         .add_event_emitter(Box::new(ImageBot::new(client.clone(), image)))
         .await;
 
     let settings = SyncSettings::default().token(client.sync_token().await.unwrap());
-    client.sync_forever(settings, |_| async {}).await;
+    client.sync(settings).await;
 
     Ok(())
 }
