@@ -491,6 +491,25 @@ impl Client {
     ///     device_id from a previous login call. Note that this should be done
     ///     only if the client also holds the encryption keys for this device.
     ///
+    /// # Example
+    /// ```no_run
+    /// # use std::convert::TryFrom;
+    /// # use matrix_sdk::Client;
+    /// # use matrix_sdk::identifiers::DeviceId;
+    /// # use matrix_sdk_common::assign;
+    /// # use futures::executor::block_on;
+    /// # use url::Url;
+    /// # let homeserver = Url::parse("http://example.com").unwrap();
+    /// # block_on(async {
+    /// let client = Client::new(homeserver).unwrap();
+    /// let user = "example";
+    /// let response = client.login(user, "wordpass", None, Some("My bot")).await;
+    ///
+    /// println!("Logged in as {}, got device_id {} and access_token {}",
+    ///          user, response.device_id, response.access_token);
+    /// # })
+    /// ```
+    ///
     /// [`restore_login`]: #method.restore_login
     #[instrument(skip(password))]
     pub async fn login(
