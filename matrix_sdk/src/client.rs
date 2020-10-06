@@ -477,7 +477,7 @@ impl Client {
     /// If this isn't the first login a device id should be provided to restore
     /// the correct stores.
     ///
-    /// Alternatively the `restore_login()` method can be used to restore a
+    /// Alternatively the [`restore_login`] method can be used to restore a
     /// logged in client without the password.
     ///
     /// # Arguments
@@ -490,6 +490,8 @@ impl Client {
     ///     not given the homeserver will create one. Can be an existing
     ///     device_id from a previous login call. Note that this should be done
     ///     only if the client also holds the encryption keys for this device.
+    ///
+    /// [`restore_login`]: #method.restore_login
     #[instrument(skip(password))]
     pub async fn login(
         &self,
@@ -521,13 +523,15 @@ impl Client {
     /// This can be used to restore the client to a logged in state, loading all
     /// the stored state and encryption keys.
     ///
-    /// Alternatively, if the whole session isn't stored the `login()` method
+    /// Alternatively, if the whole session isn't stored the [`login`] method
     /// can be used with a device id.
     ///
     /// # Arguments
     ///
     /// * `session` - A session that the user already has from a
     /// previous login call.
+    ///
+    /// [`login`]: #method.login
     pub async fn restore_login(&self, session: Session) -> Result<()> {
         Ok(self.base_client.restore_login(session).await?)
     }
