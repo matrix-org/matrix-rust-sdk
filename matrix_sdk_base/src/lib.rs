@@ -53,7 +53,7 @@ mod state;
 
 pub use client::{BaseClient, BaseClientConfig, RoomState, RoomStateType};
 pub use event_emitter::{CustomEvent, EventEmitter, SyncRoom};
-pub use models::Room;
+pub use models::{Room, RoomMember};
 pub use state::{AllRooms, ClientState};
 
 #[cfg(feature = "encryption")]
