@@ -278,15 +278,12 @@ impl KeyRequestMachine {
     ///
     /// * `device_id` - The device id of the device that got the Olm session.
     pub fn retry_keyshare(&self, user_id: &UserId, device_id: &DeviceId) {
-        match self.users_for_key_claim.entry(user_id.to_owned()) {
-            Entry::Occupied(e) => {
-                e.get().remove(device_id);
+        if let Entry::Occupied(e) = self.users_for_key_claim.entry(user_id.to_owned()) {
+            e.get().remove(device_id);
 
-                if e.get().is_empty() {
-                    e.remove();
-                }
+            if e.get().is_empty() {
+                e.remove();
             }
-            _ => (),
         }
 
         for (key, event) in self.wait_queue.remove(user_id, device_id) {
@@ -376,7 +373,7 @@ impl KeyRequestMachine {
                             self.handle_key_share_without_session(device, event);
                             return Ok(());
                         }
-                        e => return Err(e.into()),
+                        e => return Err(e),
                     }
                 }
             }
