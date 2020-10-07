@@ -367,6 +367,12 @@ impl KeyRequestMachine {
                 if let Err(e) = self.share_session(&session, &device).await {
                     match e {
                         OlmError::MissingSession => {
+                            info!(
+                                "Key request from {} {} is missing an Olm session, \
+                                 putting the request in the wait queue",
+                                device.user_id(),
+                                device.device_id()
+                            );
                             self.handle_key_share_without_session(device, event);
                             return Ok(());
                         }
