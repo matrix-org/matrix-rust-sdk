@@ -902,7 +902,11 @@ impl BaseClient {
     /// * `room_id` - The unique id of the room the event belongs to.
     ///
     /// * `event` - The presence event for a specified room member.
-    pub async fn receive_account_data_event(&self, _: &RoomId, event: &AnyBasicEvent) -> bool {
+    pub async fn receive_account_data_event(
+        &self,
+        _: Option<&RoomId>,
+        event: &AnyBasicEvent,
+    ) -> bool {
         match event {
             AnyBasicEvent::IgnoredUserList(event) => self.handle_ignored_users(event).await,
             AnyBasicEvent::PushRules(event) => self.handle_push_rules(event).await,
@@ -971,6 +975,7 @@ impl BaseClient {
         self.iter_joined_rooms(response).await?;
         self.iter_invited_rooms(response).await?;
         self.iter_left_rooms(response).await?;
+        self.iter_account_data(response).await?;
 
         let store = self.state_store.read().await;
 
@@ -1071,7 +1076,7 @@ impl BaseClient {
                     // FIXME: receive_* and emit_* methods shouldn't be called in parallel. We
                     // should only pass events to receive_* methods and then let *them* emit.
                     if let Ok(e) = account_data.deserialize() {
-                        if self.receive_account_data_event(&room_id, &e).await {
+                        if self.receive_account_data_event(Some(&room_id), &e).await {
                             updated = true;
                         }
                         self.emit_account_data_event(room_id, &e, RoomStateType::Joined)
@@ -1184,6 +1189,25 @@ impl BaseClient {
                 }
             }
         }
+        Ok(updated)
+    }
+
+    async fn iter_account_data(
+        &self,
+        response: &mut api::sync::sync_events::Response,
+    ) -> Result<bool> {
+        let mut updated = false;
+        for account_data in &response.account_data.events {
+            {
+                // FIXME: emit_account_data_event assumes a room is given
+                if let Ok(e) = account_data.deserialize() {
+                    if self.receive_account_data_event(None, &e).await {
+                        updated = true;
+                    }
+                }
+            }
+        }
+        // FIXME store all rooms if updated?
         Ok(updated)
     }
 
