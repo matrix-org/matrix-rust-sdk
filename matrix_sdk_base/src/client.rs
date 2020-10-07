@@ -27,7 +27,7 @@ use matrix_sdk_common::locks::Mutex;
 use matrix_sdk_common::{
     api::r0 as api,
     events::{
-        ignored_user_list::IgnoredUserListEvent, push_rules::PushRulesEvent,
+        direct::DirectEvent, ignored_user_list::IgnoredUserListEvent, push_rules::PushRulesEvent,
         room::member::MemberEventContent, AnyBasicEvent, AnyStrippedStateEvent,
         AnySyncEphemeralRoomEvent, AnySyncMessageEvent, AnySyncRoomEvent, AnySyncStateEvent,
     },
@@ -695,6 +695,24 @@ impl BaseClient {
         // }
     }
 
+    /// Handle a m.direct event, updating rooms states if necessary.
+    ///
+    /// Returns true if any room changed, false otherwise.
+    pub(crate) async fn handle_direct(&self, event: &DirectEvent) -> bool {
+        let mut update = false;
+        for (user_id, rooms) in event.content.iter() {
+            for room_id in rooms.iter() {
+                if let Some(room) = self.get_joined_room(room_id).await {
+                    let mut room = room.write().await;
+                    if room.handle_direct(user_id) {
+                        update = true;
+                    }
+                }
+            }
+        }
+        update
+    }
+
     /// Receive a timeline event for a joined room and update the client state.
     ///
     /// Returns a bool, true when the `Room` state has been updated.
@@ -888,6 +906,7 @@ impl BaseClient {
         match event {
             AnyBasicEvent::IgnoredUserList(event) => self.handle_ignored_users(event).await,
             AnyBasicEvent::PushRules(event) => self.handle_push_rules(event).await,
+            AnyBasicEvent::Direct(event) => self.handle_direct(event).await,
             _ => false,
         }
     }

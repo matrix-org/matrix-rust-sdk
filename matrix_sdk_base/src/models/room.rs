@@ -190,6 +190,8 @@ pub struct Room {
     pub own_user_id: UserId,
     /// The mxid of the room creator.
     pub creator: Option<UserId>,
+    /// The mxid of the "direct" target if any
+    pub direct_target: Option<UserId>,
     // TODO: Track banned members, e.g. for /unban support?
     /// The map of invited room members.
     pub invited_members: HashMap<UserId, RoomMember>,
@@ -312,6 +314,7 @@ impl Room {
             room_name: RoomName::default(),
             own_user_id: own_user_id.clone(),
             creator: None,
+            direct_target: None,
             invited_members: HashMap::new(),
             joined_members: HashMap::new(),
             #[cfg(feature = "messages")]
@@ -796,6 +799,20 @@ impl Room {
             body: event.content.body.clone(),
             replacement: event.content.replacement_room.clone(),
         });
+        true
+    }
+
+    /// Handle setting direct attribute as part of a m.direct event,
+    /// updating the room if necessary
+    ///
+    /// Returns true if the direct_target changed, false otherwise.
+    pub fn handle_direct(&mut self, user_id: &UserId) -> bool {
+        if let Some(old_target) = &self.direct_target {
+            if old_target == user_id {
+                return false;
+            }
+        }
+        self.direct_target = Some(user_id.clone());
         true
     }
 
