@@ -52,7 +52,8 @@ pub use matrix_sdk_base::crypto::LocalTrust;
 #[cfg(not(target_arch = "wasm32"))]
 pub use matrix_sdk_base::JsonStore;
 pub use matrix_sdk_base::{
-    CustomEvent, Error as BaseError, EventEmitter, Room, RoomState, Session, StateStore, SyncRoom,
+    CustomEvent, Error as BaseError, EventEmitter, Room, RoomMember, RoomState, Session,
+    StateStore, SyncRoom,
 };
 
 #[cfg(feature = "messages")]
