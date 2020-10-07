@@ -379,7 +379,7 @@ impl OlmMachine {
     /// [`mark_request_as_sent`]: #method.mark_request_as_sent
     pub async fn get_missing_sessions(
         &self,
-        users: impl Iterator<Item = &UserId>,
+        users: &mut impl Iterator<Item = &UserId>,
     ) -> OlmResult<Option<(Uuid, KeysClaimRequest)>> {
         let mut missing = BTreeMap::new();
 
@@ -1456,7 +1456,7 @@ pub(crate) mod test {
         let alice_device = alice_device_id();
 
         let (_, missing_sessions) = machine
-            .get_missing_sessions([alice.clone()].iter())
+            .get_missing_sessions(&mut [alice.clone()].iter())
             .await
             .unwrap()
             .unwrap();

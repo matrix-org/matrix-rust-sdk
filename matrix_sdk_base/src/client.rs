@@ -1291,7 +1291,7 @@ impl BaseClient {
     #[cfg_attr(feature = "docs", doc(cfg(encryption)))]
     pub async fn get_missing_sessions(
         &self,
-        users: impl Iterator<Item = &UserId>,
+        users: &mut impl Iterator<Item = &UserId>,
     ) -> Result<Option<(Uuid, KeysClaimRequest)>> {
         let olm = self.olm.lock().await;
 
