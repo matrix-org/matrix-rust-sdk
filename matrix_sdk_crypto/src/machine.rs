@@ -793,11 +793,13 @@ impl OlmMachine {
             }
         }
 
-        // TODO remove this unwrap.
-        self.key_request_machine
+        if let Err(e) = self
+            .key_request_machine
             .collect_incoming_key_requests()
             .await
-            .unwrap();
+        {
+            error!("Error collecting our key share requests {:?}", e);
+        }
     }
 
     /// Decrypt an event from a room timeline.
