@@ -358,7 +358,14 @@ impl OlmMachine {
     /// Sessions need to be established between devices so group sessions for a
     /// room can be shared with them.
     ///
-    /// This should be called every time a group session needs to be shared.
+    /// This should be called every time a group session needs to be shared as
+    /// well as between sync calls. After a sync some devices may request room
+    /// keys without us having a valid Olm session with them, making it
+    /// impossible to server the room key request, thus it's necessary to check
+    /// for missing sessions between sync as well.
+    ///
+    /// **Note**: Care should be taken that only one such request at a time is
+    /// in flight, e.g. using a lock.
     ///
     /// The response of a successful key claiming requests needs to be passed to
     /// the `OlmMachine` with the [`mark_request_as_sent`].
@@ -366,7 +373,8 @@ impl OlmMachine {
     /// # Arguments
     ///
     /// `users` - The list of users that we should check if we lack a session
-    /// with one of their devices.
+    /// with one of their devices. This can be an empty iterator when calling
+    /// this method between sync requests.
     ///
     /// [`mark_request_as_sent`]: #method.mark_request_as_sent
     pub async fn get_missing_sessions(
@@ -375,6 +383,8 @@ impl OlmMachine {
     ) -> OlmResult<Option<(Uuid, KeysClaimRequest)>> {
         let mut missing = BTreeMap::new();
 
+        // Add the list of devices that the user wishes to establish sessions
+        // right now.
         for user_id in users {
             let user_devices = self.store.get_user_devices(user_id).await?;
 
@@ -394,16 +404,27 @@ impl OlmMachine {
                 };
 
                 if is_missing {
-                    if !missing.contains_key(user_id) {
-                        let _ = missing.insert(user_id.clone(), BTreeMap::new());
-                    }
-
-                    let user_map = missing.get_mut(user_id).unwrap();
-                    let _ = user_map.insert(
-                        device.device_id().into(),
-                        DeviceKeyAlgorithm::SignedCurve25519,
-                    );
+                    missing
+                        .entry(user_id.to_owned())
+                        .or_insert_with(BTreeMap::new)
+                        .insert(
+                            device.device_id().into(),
+                            DeviceKeyAlgorithm::SignedCurve25519,
+                        );
                 }
+            }
+        }
+
+        // Add the list of sessions that for some reason automatically need to
+        // create an Olm session.
+        for item in self.key_request_machine.users_for_key_claim().iter() {
+            let user = item.key();
+
+            for device_id in item.value().iter() {
+                missing
+                    .entry(user.to_owned())
+                    .or_insert_with(BTreeMap::new)
+                    .insert(device_id.to_owned(), DeviceKeyAlgorithm::SignedCurve25519);
             }
         }
 

@@ -214,6 +214,11 @@ impl KeyRequestMachine {
         &self.user_id
     }
 
+    /// Get the map of user/devices which we need to claim one-time for.
+    pub fn users_for_key_claim(&self) -> &DashMap<UserId, DashSet<DeviceIdBox>> {
+        &self.users_for_key_claim
+    }
+
     pub fn outgoing_to_device_requests(&self) -> Vec<OutgoingRequest> {
         #[allow(clippy::map_clone)]
         self.outgoing_to_device_requests
