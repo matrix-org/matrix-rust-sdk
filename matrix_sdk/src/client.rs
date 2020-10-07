@@ -1444,8 +1444,8 @@ impl Client {
     /// * `callback` - A callback that will be called every time a successful
     ///     response has been fetched from the server. The callback must return
     ///     a boolean which signalizes if the method should stop syncing. If the
-    ///     callback returns `false` the sync will continue, if the callback
-    ///     returns `true` the sync will be stopped.
+    ///     callback returns `LoopCtrl::Continue` the sync will continue, if the
+    ///     callback returns `LoopCtrl::Break` the sync will be stopped.
     ///
     /// # Examples
     ///
