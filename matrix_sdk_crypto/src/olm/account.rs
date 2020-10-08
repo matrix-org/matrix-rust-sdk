@@ -58,7 +58,7 @@ use crate::{
 
 use super::{EncryptionSettings, InboundGroupSession, OutboundGroupSession, Session};
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct Account {
     pub(crate) inner: ReadOnlyAccount,
     pub(crate) store: Store,

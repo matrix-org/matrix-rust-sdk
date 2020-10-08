@@ -27,6 +27,7 @@ use matrix_sdk_common::{
 
 use crate::{
     error::OlmResult,
+    group_manager::GroupSessionManager,
     identities::{
         MasterPubkey, OwnUserIdentity, ReadOnlyDevice, SelfSigningPubkey, UserIdentities,
         UserIdentity, UserSigningPubkey,
@@ -39,15 +40,22 @@ use crate::{
 pub(crate) struct IdentityManager {
     user_id: Arc<UserId>,
     device_id: Arc<DeviceIdBox>,
+    group_manager: GroupSessionManager,
     store: Store,
 }
 
 impl IdentityManager {
-    pub fn new(user_id: Arc<UserId>, device_id: Arc<DeviceIdBox>, store: Store) -> Self {
+    pub fn new(
+        user_id: Arc<UserId>,
+        device_id: Arc<DeviceIdBox>,
+        store: Store,
+        group_manager: GroupSessionManager,
+    ) -> Self {
         IdentityManager {
             user_id,
             device_id,
             store,
+            group_manager,
         }
     }
 
@@ -104,6 +112,7 @@ impl IdentityManager {
         &self,
         device_keys_map: &BTreeMap<UserId, BTreeMap<DeviceIdBox, DeviceKeys>>,
     ) -> StoreResult<Vec<ReadOnlyDevice>> {
+        let mut users_with_new_devices = HashSet::new();
         let mut changed_devices = Vec::new();
 
         for (user_id, device_map) in device_keys_map {
@@ -149,6 +158,7 @@ impl IdentityManager {
                         }
                     };
                     info!("Adding a new device to the device store {:?}", device);
+                    users_with_new_devices.insert(user_id);
                     device
                 };
 
@@ -164,11 +174,16 @@ impl IdentityManager {
 
             for device_id in deleted_devices {
                 if let Some(device) = stored_devices.get(device_id) {
+                    self.group_manager
+                        .invalidate_sessions(device.user_id(), device.device_id());
                     device.mark_as_deleted();
                     self.store.delete_device(device).await?;
                 }
             }
         }
+
+        self.group_manager
+            .invalidate_sessions_new_devices(&users_with_new_devices);
 
         Ok(changed_devices)
     }
@@ -362,9 +377,10 @@ pub(crate) mod test {
     use serde_json::json;
 
     use crate::{
+        group_manager::GroupSessionManager,
         identities::IdentityManager,
         machine::test::response_from_file,
-        olm::ReadOnlyAccount,
+        olm::{Account, ReadOnlyAccount},
         store::{CryptoStore, MemoryStore, Store},
         verification::VerificationMachine,
     };
@@ -385,13 +401,18 @@ pub(crate) mod test {
         let user_id = Arc::new(user_id());
         let account = ReadOnlyAccount::new(&user_id, &device_id());
         let store: Arc<Box<dyn CryptoStore>> = Arc::new(Box::new(MemoryStore::new()));
-        let verification = VerificationMachine::new(account, store);
+        let verification = VerificationMachine::new(account.clone(), store);
         let store = Store::new(
             user_id.clone(),
             Arc::new(Box::new(MemoryStore::new())),
             verification,
         );
-        IdentityManager::new(user_id, Arc::new(device_id()), store)
+        let account = Account {
+            inner: account,
+            store: store.clone(),
+        };
+        let group = GroupSessionManager::new(account.clone(), store.clone());
+        IdentityManager::new(user_id, Arc::new(device_id()), store, group)
     }
 
     pub(crate) fn other_key_query() -> KeyQueryResponse {

@@ -136,14 +136,19 @@ impl OlmMachine {
             store.clone(),
             outbound_group_sessions,
         );
-        let identity_manager =
-            IdentityManager::new(user_id.clone(), device_id.clone(), store.clone());
+
         let account = Account {
             inner: account,
             store: store.clone(),
         };
 
         let group_session_manager = GroupSessionManager::new(account.clone(), store.clone());
+        let identity_manager = IdentityManager::new(
+            user_id.clone(),
+            device_id.clone(),
+            store.clone(),
+            group_session_manager.clone(),
+        );
 
         OlmMachine {
             user_id,

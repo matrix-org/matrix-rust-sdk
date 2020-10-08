@@ -104,6 +104,7 @@ pub struct OutboundGroupSession {
     pub(crate) creation_time: Arc<Instant>,
     message_count: Arc<AtomicU64>,
     shared: Arc<AtomicBool>,
+    invalidated: Arc<AtomicBool>,
     settings: Arc<EncryptionSettings>,
     shared_with_set: Arc<DashMap<UserId, DashSet<DeviceIdBox>>>,
     to_share_with_set: Arc<DashMap<Uuid, Arc<ToDeviceRequest>>>,
@@ -143,6 +144,7 @@ impl OutboundGroupSession {
             creation_time: Arc::new(Instant::now()),
             message_count: Arc::new(AtomicU64::new(0)),
             shared: Arc::new(AtomicBool::new(false)),
+            invalidated: Arc::new(AtomicBool::new(false)),
             settings: Arc::new(settings),
             shared_with_set: Arc::new(DashMap::new()),
             to_share_with_set: Arc::new(DashMap::new()),
@@ -151,6 +153,16 @@ impl OutboundGroupSession {
 
     pub fn add_request(&self, request_id: Uuid, request: Arc<ToDeviceRequest>) {
         self.to_share_with_set.insert(request_id, request);
+    }
+
+    pub fn add_recipient(&self, user_id: &UserId) {
+        self.shared_with_set
+            .entry(user_id.to_owned())
+            .or_insert_with(DashSet::new);
+    }
+
+    pub fn contains_recipient(&self, user_id: &UserId) -> bool {
+        self.shared_with_set.contains_key(user_id)
     }
 
     /// Mark the request with the given request id as sent.
@@ -263,6 +275,11 @@ impl OutboundGroupSession {
                 >= min(self.settings.rotation_period, Duration::from_secs(3600))
     }
 
+    /// Has the session been invalidated.
+    pub fn invalidated(&self) -> bool {
+        self.invalidated.load(Ordering::Relaxed)
+    }
+
     /// Mark the session as shared.
     ///
     /// Messages shouldn't be encrypted with the session before it has been
@@ -315,12 +332,48 @@ impl OutboundGroupSession {
         })
     }
 
-    /// The set of users this session is shared with.
+    /// Mark the session as invalid.
+    ///
+    /// This should be called if an user/device deletes a device that received
+    /// this session.
+    pub fn invalidate_session(&self) {
+        self.invalidated.store(true, Ordering::Relaxed)
+    }
+
+    /// Clear out the requests returning the request ids.
+    pub fn clear_requests(&self) -> Vec<Uuid> {
+        let request_ids = self
+            .to_share_with_set
+            .iter()
+            .map(|item| *item.key())
+            .collect();
+        self.to_share_with_set.clear();
+        request_ids
+    }
+
+    /// Has or will the session be shared with the given user/device pair.
     pub(crate) fn is_shared_with(&self, user_id: &UserId, device_id: &DeviceId) -> bool {
-        self.shared_with_set
+        let shared_with = self
+            .shared_with_set
             .get(user_id)
             .map(|d| d.contains(device_id))
-            .unwrap_or(false)
+            .unwrap_or(false);
+
+        let should_be_shared_with = if self.shared() {
+            false
+        } else {
+            let device_id = DeviceIdOrAllDevices::DeviceId(device_id.into());
+
+            self.to_share_with_set.iter().any(|item| {
+                if let Some(e) = item.value().messages.get(user_id) {
+                    e.contains_key(&device_id)
+                } else {
+                    false
+                }
+            })
+        };
+
+        shared_with || should_be_shared_with
     }
 
     /// Mark that the session was shared with the given user/device pair.

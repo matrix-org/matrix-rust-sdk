@@ -12,13 +12,16 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{collections::BTreeMap, sync::Arc};
+use std::{
+    collections::{BTreeMap, HashSet},
+    sync::Arc,
+};
 
 use dashmap::DashMap;
 use matrix_sdk_common::{
     api::r0::to_device::DeviceIdOrAllDevices,
     events::{room::encrypted::EncryptedEventContent, AnyMessageEventContent, EventType},
-    identifiers::{RoomId, UserId},
+    identifiers::{DeviceId, RoomId, UserId},
     uuid::Uuid,
 };
 use tracing::debug;
@@ -30,7 +33,7 @@ use crate::{
     Device, EncryptionSettings, OlmError, ToDeviceRequest,
 };
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct GroupSessionManager {
     account: Account,
     /// Store for the encryption keys.
@@ -61,6 +64,29 @@ impl GroupSessionManager {
     pub fn mark_request_as_sent(&self, request_id: &Uuid) {
         if let Some((_, s)) = self.outbound_sessions_being_shared.remove(request_id) {
             s.mark_request_as_sent(request_id);
+        }
+    }
+
+    pub fn invalidate_sessions_new_devices(&self, users: &HashSet<&UserId>) {
+        for session in self.outbound_group_sessions.iter() {
+            if users.iter().any(|u| session.contains_recipient(u)) {
+                session.invalidate_session()
+            }
+        }
+    }
+
+    /// Invalidate the sessions that were sent to the given user/device pair.
+    pub fn invalidate_sessions(&self, user_id: &UserId, device_id: &DeviceId) {
+        for session in self.outbound_group_sessions.iter() {
+            if session.is_shared_with(user_id, device_id) {
+                session.invalidate_session();
+
+                if !session.shared() {
+                    for request_id in session.clear_requests() {
+                        self.outbound_sessions_being_shared.remove(&request_id);
+                    }
+                }
+            }
         }
     }
 
@@ -105,7 +131,7 @@ impl GroupSessionManager {
         let session = self.outbound_group_sessions.get(room_id);
 
         match session {
-            Some(s) => !s.shared() || s.expired(),
+            Some(s) => !s.shared() || s.expired() || s.invalidated(),
             None => true,
         }
     }
@@ -158,6 +184,7 @@ impl GroupSessionManager {
         let mut devices: Vec<Device> = Vec::new();
 
         for user_id in users {
+            session.add_recipient(user_id);
             let user_devices = self.store.get_user_devices(&user_id).await?;
             devices.extend(user_devices.devices().filter(|d| !d.is_blacklisted()));
         }
