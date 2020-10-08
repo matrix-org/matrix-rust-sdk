@@ -112,7 +112,7 @@ impl IdentityManager {
         &self,
         device_keys_map: &BTreeMap<UserId, BTreeMap<DeviceIdBox, DeviceKeys>>,
     ) -> StoreResult<Vec<ReadOnlyDevice>> {
-        let mut users_with_new_devices = HashSet::new();
+        let mut users_with_new_or_deleted_devices = HashSet::new();
         let mut changed_devices = Vec::new();
 
         for (user_id, device_map) in device_keys_map {
@@ -158,7 +158,7 @@ impl IdentityManager {
                         }
                     };
                     info!("Adding a new device to the device store {:?}", device);
-                    users_with_new_devices.insert(user_id);
+                    users_with_new_or_deleted_devices.insert(user_id);
                     device
                 };
 
@@ -173,9 +173,8 @@ impl IdentityManager {
             let deleted_devices = stored_devices_set.difference(&current_devices);
 
             for device_id in deleted_devices {
+                users_with_new_or_deleted_devices.insert(user_id);
                 if let Some(device) = stored_devices.get(device_id) {
-                    self.group_manager
-                        .invalidate_sessions(device.user_id(), device.device_id());
                     device.mark_as_deleted();
                     self.store.delete_device(device).await?;
                 }
@@ -183,7 +182,7 @@ impl IdentityManager {
         }
 
         self.group_manager
-            .invalidate_sessions_new_devices(&users_with_new_devices);
+            .invalidate_sessions_new_devices(&users_with_new_or_deleted_devices);
 
         Ok(changed_devices)
     }
@@ -369,7 +368,7 @@ pub(crate) mod test {
 
     use matrix_sdk_common::{
         api::r0::keys::get_keys::Response as KeyQueryResponse,
-        identifiers::{user_id, DeviceIdBox, UserId},
+        identifiers::{room_id, user_id, DeviceIdBox, RoomId, UserId},
     };
 
     use matrix_sdk_test::async_test;
@@ -395,6 +394,10 @@ pub(crate) mod test {
 
     fn device_id() -> DeviceIdBox {
         "WSKKLTJZCL".into()
+    }
+
+    fn room_id() -> RoomId {
+        room_id!("!test:localhost")
     }
 
     fn manager() -> IdentityManager {
@@ -641,5 +644,79 @@ pub(crate) mod test {
         let identity = identity.other().unwrap();
 
         assert!(identity.is_device_signed(&device).is_ok())
+    }
+
+    #[async_test]
+    async fn test_session_invalidation() {
+        let manager = manager();
+        let room_id = room_id();
+        let user_id = other_user_id();
+        let device_id: DeviceIdBox = "SKISMLNIMH".into();
+
+        manager
+            .group_manager
+            .create_outbound_group_session(&room_id, Default::default())
+            .await
+            .unwrap();
+        let session = manager
+            .group_manager
+            .get_outbound_group_session(&room_id)
+            .unwrap();
+
+        session.add_recipient(&user_id);
+        session.mark_as_shared();
+
+        assert!(!session.invalidated());
+        assert!(!session.expired());
+
+        // Receiving a new device invalidates the session.
+        manager
+            .receive_keys_query_response(&other_key_query())
+            .await
+            .unwrap();
+
+        assert!(session.invalidated());
+
+        manager
+            .group_manager
+            .create_outbound_group_session(&room_id, Default::default())
+            .await
+            .unwrap();
+        let session = manager
+            .group_manager
+            .get_outbound_group_session(&room_id)
+            .unwrap();
+
+        session.add_recipient(&user_id);
+        session.mark_as_shared();
+
+        assert!(!session.invalidated());
+        assert!(!session.expired());
+
+        let device = manager
+            .store
+            .get_device(&user_id, &device_id)
+            .await
+            .unwrap()
+            .unwrap();
+
+        assert!(!device.deleted());
+
+        let response = KeyQueryResponse::try_from(response_from_file(&json!({
+            "device_keys": {
+                user_id: {}
+            },
+            "failures": {},
+        })))
+        .unwrap();
+
+        // Noticing that a device got deleted invalidates the session as well
+        manager
+            .receive_keys_query_response(&response)
+            .await
+            .unwrap();
+
+        assert!(device.deleted());
+        assert!(session.invalidated());
     }
 }

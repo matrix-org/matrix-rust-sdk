@@ -21,7 +21,7 @@ use dashmap::DashMap;
 use matrix_sdk_common::{
     api::r0::to_device::DeviceIdOrAllDevices,
     events::{room::encrypted::EncryptedEventContent, AnyMessageEventContent, EventType},
-    identifiers::{DeviceId, RoomId, UserId},
+    identifiers::{RoomId, UserId},
     uuid::Uuid,
 };
 use tracing::debug;
@@ -70,15 +70,6 @@ impl GroupSessionManager {
     pub fn invalidate_sessions_new_devices(&self, users: &HashSet<&UserId>) {
         for session in self.outbound_group_sessions.iter() {
             if users.iter().any(|u| session.contains_recipient(u)) {
-                session.invalidate_session()
-            }
-        }
-    }
-
-    /// Invalidate the sessions that were sent to the given user/device pair.
-    pub fn invalidate_sessions(&self, user_id: &UserId, device_id: &DeviceId) {
-        for session in self.outbound_group_sessions.iter() {
-            if session.is_shared_with(user_id, device_id) {
                 session.invalidate_session();
 
                 if !session.shared() {
