@@ -14,7 +14,7 @@
 
 #[cfg(feature = "sqlite_cryptostore")]
 use std::path::Path;
-use std::{collections::BTreeMap, mem, sync::Arc, time::Duration};
+use std::{collections::BTreeMap, mem, sync::Arc};
 
 use dashmap::DashMap;
 use tracing::{debug, error, info, instrument, trace, warn};
@@ -54,6 +54,7 @@ use crate::{
         InboundGroupSession, ReadOnlyAccount,
     },
     requests::{IncomingResponse, OutgoingRequest},
+    session_manager::SessionManager,
     store::{CryptoStore, MemoryStore, Result as StoreResult, Store},
     verification::{Sas, VerificationMachine},
     ToDeviceRequest,
@@ -73,6 +74,8 @@ pub struct OlmMachine {
     /// Persists all the encryption keys so a client can resume the session
     /// without the need to create new keys.
     store: Store,
+    /// A state machine that handles Olm sessions creation.
+    session_manager: SessionManager,
     /// A state machine that keeps track of our outbound group sessions.
     group_session_manager: GroupSessionManager,
     /// A state machine that is responsible to handle and keep track of SAS
@@ -97,8 +100,6 @@ impl std::fmt::Debug for OlmMachine {
 }
 
 impl OlmMachine {
-    const KEY_CLAIM_TIMEOUT: Duration = Duration::from_secs(10);
-
     /// Create a new memory based OlmMachine.
     ///
     /// The created machine will keep the encryption keys only in memory and
@@ -142,6 +143,8 @@ impl OlmMachine {
             store: store.clone(),
         };
 
+        let session_manager =
+            SessionManager::new(account.clone(), key_request_machine.clone(), store.clone());
         let group_session_manager = GroupSessionManager::new(account.clone(), store.clone());
         let identity_manager = IdentityManager::new(
             user_id.clone(),
@@ -155,6 +158,7 @@ impl OlmMachine {
             device_id,
             account,
             store,
+            session_manager,
             group_session_manager,
             verification_machine,
             key_request_machine,
@@ -386,63 +390,7 @@ impl OlmMachine {
         &self,
         users: &mut impl Iterator<Item = &UserId>,
     ) -> OlmResult<Option<(Uuid, KeysClaimRequest)>> {
-        let mut missing = BTreeMap::new();
-
-        // Add the list of devices that the user wishes to establish sessions
-        // right now.
-        for user_id in users {
-            let user_devices = self.store.get_user_devices(user_id).await?;
-
-            for device in user_devices.devices() {
-                let sender_key = if let Some(k) = device.get_key(DeviceKeyAlgorithm::Curve25519) {
-                    k
-                } else {
-                    continue;
-                };
-
-                let sessions = self.store.get_sessions(sender_key).await?;
-
-                let is_missing = if let Some(sessions) = sessions {
-                    sessions.lock().await.is_empty()
-                } else {
-                    true
-                };
-
-                if is_missing {
-                    missing
-                        .entry(user_id.to_owned())
-                        .or_insert_with(BTreeMap::new)
-                        .insert(
-                            device.device_id().into(),
-                            DeviceKeyAlgorithm::SignedCurve25519,
-                        );
-                }
-            }
-        }
-
-        // Add the list of sessions that for some reason automatically need to
-        // create an Olm session.
-        for item in self.key_request_machine.users_for_key_claim().iter() {
-            let user = item.key();
-
-            for device_id in item.value().iter() {
-                missing
-                    .entry(user.to_owned())
-                    .or_insert_with(BTreeMap::new)
-                    .insert(device_id.to_owned(), DeviceKeyAlgorithm::SignedCurve25519);
-            }
-        }
-
-        if missing.is_empty() {
-            Ok(None)
-        } else {
-            Ok(Some((
-                Uuid::new_v4(),
-                assign!(KeysClaimRequest::new(missing), {
-                    timeout: Some(OlmMachine::KEY_CLAIM_TIMEOUT),
-                }),
-            )))
-        }
+        self.session_manager.get_missing_sessions(users).await
     }
 
     /// Receive a successful key claim response and create new Olm sessions with
@@ -452,50 +400,9 @@ impl OlmMachine {
     ///
     /// * `response` - The response containing the claimed one-time keys.
     async fn receive_keys_claim_response(&self, response: &KeysClaimResponse) -> OlmResult<()> {
-        // TODO log the failures here
-
-        for (user_id, user_devices) in &response.one_time_keys {
-            for (device_id, key_map) in user_devices {
-                let device = match self.store.get_readonly_device(&user_id, device_id).await {
-                    Ok(Some(d)) => d,
-                    Ok(None) => {
-                        warn!(
-                            "Tried to create an Olm session for {} {}, but the device is unknown",
-                            user_id, device_id
-                        );
-                        continue;
-                    }
-                    Err(e) => {
-                        warn!(
-                            "Tried to create an Olm session for {} {}, but \
-                            can't fetch the device from the store {:?}",
-                            user_id, device_id, e
-                        );
-                        continue;
-                    }
-                };
-
-                info!("Creating outbound Session for {} {}", user_id, device_id);
-
-                let session = match self.account.create_outbound_session(device, &key_map).await {
-                    Ok(s) => s,
-                    Err(e) => {
-                        warn!("{:?}", e);
-                        continue;
-                    }
-                };
-
-                if let Err(e) = self.store.save_sessions(&[session]).await {
-                    error!("Failed to store newly created Olm session {}", e);
-                    continue;
-                }
-
-                // TODO if this session was created because a previous one was
-                // wedged queue up a dummy event to be sent out.
-                self.key_request_machine.retry_keyshare(&user_id, device_id);
-            }
-        }
-        Ok(())
+        self.session_manager
+            .receive_keys_claim_response(response)
+            .await
     }
 
     /// Receive a successful keys query response.
