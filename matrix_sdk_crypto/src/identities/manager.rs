@@ -414,7 +414,7 @@ pub(crate) mod test {
             inner: account,
             store: store.clone(),
         };
-        let group = GroupSessionManager::new(account.clone(), store.clone());
+        let group = GroupSessionManager::new(account, store.clone());
         IdentityManager::new(user_id, Arc::new(device_id()), store, group)
     }
 
