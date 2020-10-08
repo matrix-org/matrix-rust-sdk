@@ -1,7 +1,3 @@
-// allow biggr types until rustc fix, consider removing after new rust
-// stable release. see https://github.com/rust-lang/rust/issues/54540
-#![type_length_limit = "1075569"]
-
 use std::{env, process::exit};
 
 use matrix_sdk::{
