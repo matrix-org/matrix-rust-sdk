@@ -83,6 +83,14 @@ impl PartialEq for RoomMember {
 }
 
 impl RoomMember {
+    /// Create a new room member.
+    ///
+    /// # Arguments
+    ///
+    /// * `event` - event associated with a member joining, leaving or getting
+    /// invited to a room.
+    ///
+    /// * `room_id` - The unique id of the room this member is part of.
     pub fn new(event: &SyncStateEvent<MemberEventContent>, room_id: &RoomId) -> Self {
         Self {
             name: event.state_key.clone(),

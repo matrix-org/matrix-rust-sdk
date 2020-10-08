@@ -27,7 +27,7 @@ use matrix_sdk_common::locks::Mutex;
 use matrix_sdk_common::{
     api::r0 as api,
     events::{
-        ignored_user_list::IgnoredUserListEvent, push_rules::PushRulesEvent,
+        direct::DirectEvent, ignored_user_list::IgnoredUserListEvent, push_rules::PushRulesEvent,
         room::member::MemberEventContent, AnyBasicEvent, AnyStrippedStateEvent,
         AnySyncEphemeralRoomEvent, AnySyncMessageEvent, AnySyncRoomEvent, AnySyncStateEvent,
     },
@@ -695,6 +695,25 @@ impl BaseClient {
         // }
     }
 
+    /// Handle a m.direct event, updating rooms states if necessary.
+    ///
+    /// Returns true if any room changed, false otherwise.
+    pub(crate) async fn handle_direct(&self, event: &DirectEvent) -> Vec<Arc<RwLock<Room>>> {
+        let mut updated_rooms = vec![];
+
+        for (user_id, rooms) in event.content.iter() {
+            for room_id in rooms.iter() {
+                if let Some(room) = &self.get_joined_room(room_id).await {
+                    let mut room_locked = room.write().await;
+                    if room_locked.handle_direct(user_id) {
+                        updated_rooms.push(room.to_owned());
+                    }
+                }
+            }
+        }
+        updated_rooms
+    }
+
     /// Receive a timeline event for a joined room and update the client state.
     ///
     /// Returns a bool, true when the `Room` state has been updated.
@@ -875,7 +894,8 @@ impl BaseClient {
         }
     }
 
-    /// Receive an account data event from a sync response and updates the client state.
+    /// Receive an account data event associated to a room from a sync
+    /// response and updates the client state.
     ///
     /// Returns true if the state of the `Room` has changed, false otherwise.
     ///
@@ -884,11 +904,29 @@ impl BaseClient {
     /// * `room_id` - The unique id of the room the event belongs to.
     ///
     /// * `event` - The presence event for a specified room member.
-    pub async fn receive_account_data_event(&self, _: &RoomId, event: &AnyBasicEvent) -> bool {
+    pub async fn receive_room_account_data_event(&self, _: &RoomId, event: &AnyBasicEvent) -> bool {
         match event {
             AnyBasicEvent::IgnoredUserList(event) => self.handle_ignored_users(event).await,
             AnyBasicEvent::PushRules(event) => self.handle_push_rules(event).await,
             _ => false,
+        }
+    }
+
+    /// Receive an account data event from a sync response and updates
+    /// the client state.
+    ///
+    /// Returns true if the state of any room has changed, false otherwise.
+    ///
+    /// # Arguments
+    ///
+    /// * `event` - The presence event for a specified room member.
+    pub async fn receive_account_data_event(
+        &self,
+        event: &AnyBasicEvent,
+    ) -> Vec<Arc<RwLock<Room>>> {
+        match event {
+            AnyBasicEvent::Direct(event) => self.handle_direct(event).await,
+            _ => vec![],
         }
     }
 
@@ -952,6 +990,7 @@ impl BaseClient {
         self.iter_joined_rooms(response).await?;
         self.iter_invited_rooms(response).await?;
         self.iter_left_rooms(response).await?;
+        self.iter_account_data(response).await?;
 
         let store = self.state_store.read().await;
 
@@ -1052,7 +1091,7 @@ impl BaseClient {
                     // FIXME: receive_* and emit_* methods shouldn't be called in parallel. We
                     // should only pass events to receive_* methods and then let *them* emit.
                     if let Ok(e) = account_data.deserialize() {
-                        if self.receive_account_data_event(&room_id, &e).await {
+                        if self.receive_room_account_data_event(&room_id, &e).await {
                             updated = true;
                         }
                         self.emit_account_data_event(room_id, &e, RoomStateType::Joined)
@@ -1162,6 +1201,30 @@ impl BaseClient {
                     store
                         .store_room_state(RoomState::Left(matrix_room.read().await.deref()))
                         .await?;
+                }
+            }
+        }
+        Ok(updated)
+    }
+
+    async fn iter_account_data(
+        &self,
+        response: &mut api::sync::sync_events::Response,
+    ) -> Result<bool> {
+        let mut updated = false;
+        for account_data in &response.account_data.events {
+            {
+                // FIXME: emit_account_data_event assumes a room is given
+                if let Ok(e) = account_data.deserialize() {
+                    for room in self.receive_account_data_event(&e).await {
+                        if let Some(store) = self.state_store.read().await.as_ref() {
+                            // FIXME: currently only operate on Joined rooms
+                            store
+                                .store_room_state(RoomState::Joined(room.read().await.deref()))
+                                .await?;
+                        }
+                        updated = true;
+                    }
                 }
             }
         }
