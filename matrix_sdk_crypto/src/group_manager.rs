@@ -24,7 +24,7 @@ use matrix_sdk_common::{
     identifiers::{RoomId, UserId},
     uuid::Uuid,
 };
-use tracing::debug;
+use tracing::{debug, info};
 
 use crate::{
     error::{EventError, MegolmResult, OlmResult},
@@ -70,6 +70,11 @@ impl GroupSessionManager {
     pub fn invalidate_sessions_new_devices(&self, users: &HashSet<&UserId>) {
         for session in self.outbound_group_sessions.iter() {
             if users.iter().any(|u| session.contains_recipient(u)) {
+                info!(
+                    "Invalidating outobund session {} for room {}",
+                    session.session_id(),
+                    session.room_id()
+                );
                 session.invalidate_session();
 
                 if !session.shared() {
