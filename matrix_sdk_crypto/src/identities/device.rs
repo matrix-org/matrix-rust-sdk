@@ -365,9 +365,15 @@ impl ReadOnlyDevice {
             return Err(EventError::MissingSenderKey.into());
         };
 
-        let mut session = if let Some(s) = store.get_sessions(sender_key).await? {
-            let session = &s.lock().await[0];
-            session.clone()
+        let session = if let Some(s) = store.get_sessions(sender_key).await? {
+            let sessions = s.lock().await;
+            sessions.get(0).cloned()
+        } else {
+            None
+        };
+
+        let mut session = if let Some(s) = session {
+            s
         } else {
             warn!(
                 "Trying to encrypt a Megolm session for user {} on device {}, \
