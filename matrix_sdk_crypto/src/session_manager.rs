@@ -42,6 +42,33 @@ impl SessionManager {
         }
     }
 
+    /// Get the a key claiming request for the user/device pairs that we are
+    /// missing Olm sessions for.
+    ///
+    /// Returns None if no key claiming request needs to be sent out.
+    ///
+    /// Sessions need to be established between devices so group sessions for a
+    /// room can be shared with them.
+    ///
+    /// This should be called every time a group session needs to be shared as
+    /// well as between sync calls. After a sync some devices may request room
+    /// keys without us having a valid Olm session with them, making it
+    /// impossible to server the room key request, thus it's necessary to check
+    /// for missing sessions between sync as well.
+    ///
+    /// **Note**: Care should be taken that only one such request at a time is
+    /// in flight, e.g. using a lock.
+    ///
+    /// The response of a successful key claiming requests needs to be passed to
+    /// the `OlmMachine` with the [`receive_keys_claim_response`].
+    ///
+    /// # Arguments
+    ///
+    /// `users` - The list of users that we should check if we lack a session
+    /// with one of their devices. This can be an empty iterator when calling
+    /// this method between sync requests.
+    ///
+    /// [`receive_keys_claim_response`]: #method.receive_keys_claim_response
     pub async fn get_missing_sessions(
         &self,
         users: &mut impl Iterator<Item = &UserId>,
