@@ -45,7 +45,7 @@ use matrix_sdk_common::{
 #[cfg(feature = "sqlite_cryptostore")]
 use crate::store::sqlite::SqliteStore;
 use crate::{
-    error::{EventError, MegolmError, MegolmResult, OlmResult},
+    error::{EventError, MegolmError, MegolmResult, OlmError, OlmResult},
     group_manager::GroupSessionManager,
     identities::{Device, IdentityManager, ReadOnlyDevice, UserDevices, UserIdentities},
     key_request::KeyRequestMachine,
@@ -645,6 +645,8 @@ impl OlmMachine {
             .mark_outgoing_request_as_sent(request_id)
             .await?;
         self.group_session_manager.mark_request_as_sent(request_id);
+        self.session_manager
+            .mark_outgoing_request_as_sent(request_id);
 
         Ok(())
     }
@@ -710,8 +712,19 @@ impl OlmMachine {
                                 "Failed to decrypt to-device event from {} {}",
                                 e.sender, err
                             );
-                            // TODO if the session is wedged mark it for
-                            // unwedging.
+
+                            if let OlmError::SessionWedged(sender, curve_key) = err {
+                                if let Err(e) = self
+                                    .session_manager
+                                    .mark_device_as_wedged(&sender, &curve_key)
+                                    .await
+                                {
+                                    error!(
+                                        "Couldn't mark device from {} to be unwedged {:?}",
+                                        sender, e
+                                    );
+                                }
+                            }
                             continue;
                         }
                     };

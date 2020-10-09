@@ -16,14 +16,26 @@ use std::{collections::BTreeMap, sync::Arc, time::Duration};
 
 use dashmap::{DashMap, DashSet};
 use matrix_sdk_common::{
-    api::r0::keys::claim_keys::{Request as KeysClaimRequest, Response as KeysClaimResponse},
+    api::r0::{
+        keys::claim_keys::{Request as KeysClaimRequest, Response as KeysClaimResponse},
+        to_device::DeviceIdOrAllDevices,
+    },
     assign,
-    identifiers::{DeviceIdBox, DeviceKeyAlgorithm, UserId},
+    events::EventType,
+    identifiers::{DeviceId, DeviceIdBox, DeviceKeyAlgorithm, UserId},
     uuid::Uuid,
 };
+use serde_json::{json, value::to_raw_value};
 use tracing::{error, info, warn};
 
-use crate::{error::OlmResult, key_request::KeyRequestMachine, olm::Account, store::Store};
+use crate::{
+    error::OlmResult,
+    key_request::KeyRequestMachine,
+    olm::Account,
+    requests::{OutgoingRequest, ToDeviceRequest},
+    store::{Result as StoreResult, Store},
+    Device,
+};
 
 #[derive(Debug, Clone)]
 pub(crate) struct SessionManager {
@@ -34,11 +46,14 @@ pub(crate) struct SessionManager {
     /// user/device paris will be added to the list of users when
     /// [`get_missing_sessions`](#method.get_missing_sessions) is called.
     users_for_key_claim: Arc<DashMap<UserId, DashSet<DeviceIdBox>>>,
+    wedged_devices: Arc<DashMap<UserId, DashSet<DeviceIdBox>>>,
     key_request_machine: KeyRequestMachine,
+    outgoing_to_device_requests: Arc<DashMap<Uuid, OutgoingRequest>>,
 }
 
 impl SessionManager {
     const KEY_CLAIM_TIMEOUT: Duration = Duration::from_secs(10);
+    const UNWEDGING_INTERVAL: Duration = Duration::from_secs(60 * 60);
 
     pub fn new(
         account: Account,
@@ -51,7 +66,93 @@ impl SessionManager {
             store,
             key_request_machine,
             users_for_key_claim,
+            wedged_devices: Arc::new(DashMap::new()),
+            outgoing_to_device_requests: Arc::new(DashMap::new()),
         }
+    }
+
+    /// Mark the outgoing request as sent.
+    pub fn mark_outgoing_request_as_sent(&self, id: &Uuid) {
+        self.outgoing_to_device_requests.remove(id);
+    }
+
+    pub async fn mark_device_as_wedged(&self, sender: &UserId, curve_key: &str) -> StoreResult<()> {
+        if let Some(device) = self
+            .store
+            .get_device_from_curve_key(sender, curve_key)
+            .await?
+        {
+            let sessions = device.get_sessions().await?;
+
+            if let Some(sessions) = sessions {
+                let mut sessions = sessions.lock().await;
+                sessions.sort_by_key(|s| s.creation_time.clone());
+
+                let session = sessions.get(0);
+
+                if let Some(session) = session {
+                    if session.creation_time.elapsed() > Self::UNWEDGING_INTERVAL {
+                        self.wedged_devices
+                            .entry(device.user_id().to_owned())
+                            .or_insert_with(DashSet::new)
+                            .insert(device.device_id().into());
+                    }
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    #[allow(dead_code)]
+    pub fn is_device_wedged(&self, device: &Device) -> bool {
+        self.wedged_devices
+            .get(device.user_id())
+            .map(|d| d.contains(device.device_id()))
+            .unwrap_or(false)
+    }
+
+    /// Check if the session was created to unwedge a Device.
+    ///
+    /// If the device was wedged this will queue up a dummy to-device message.
+    async fn check_if_unwedged(&self, user_id: &UserId, device_id: &DeviceId) -> OlmResult<()> {
+        if self
+            .wedged_devices
+            .get(user_id)
+            .map(|d| d.remove(device_id))
+            .flatten()
+            .is_some()
+        {
+            if let Some(device) = self.store.get_device(user_id, device_id).await? {
+                let content = device.encrypt(EventType::Dummy, json!({})).await?;
+                let id = Uuid::new_v4();
+                let mut messages = BTreeMap::new();
+
+                messages
+                    .entry(device.user_id().to_owned())
+                    .or_insert_with(BTreeMap::new)
+                    .insert(
+                        DeviceIdOrAllDevices::DeviceId(device.device_id().into()),
+                        to_raw_value(&content)?,
+                    );
+
+                let request = OutgoingRequest {
+                    request_id: id,
+                    request: Arc::new(
+                        ToDeviceRequest {
+                            event_type: EventType::RoomEncrypted,
+                            txn_id: id,
+                            messages,
+                        }
+                        .into(),
+                    ),
+                };
+
+                self.outgoing_to_device_requests.insert(id, request);
+            }
+        }
+
+        Ok(())
     }
 
     /// Get the a key claiming request for the user/device pairs that we are
@@ -189,9 +290,14 @@ impl SessionManager {
                     continue;
                 }
 
-                // TODO if this session was created because a previous one was
-                // wedged queue up a dummy event to be sent out.
                 self.key_request_machine.retry_keyshare(&user_id, device_id);
+
+                if let Err(e) = self.check_if_unwedged(&user_id, device_id).await {
+                    error!(
+                        "Error while treating an unwedged device {} {} {:?}",
+                        user_id, device_id, e
+                    );
+                }
             }
         }
         Ok(())

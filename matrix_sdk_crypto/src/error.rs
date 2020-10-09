@@ -48,8 +48,8 @@ pub enum OlmError {
     Store(#[from] CryptoStoreError),
 
     /// The session with a device has become corrupted.
-    #[error("decryption failed likely because a Olm session was wedged")]
-    SessionWedged,
+    #[error("decryption failed likely because an Olm from {0} with sender key {1} was wedged")]
+    SessionWedged(UserId, String),
 
     /// Encryption failed because the device does not have a valid Olm session
     /// with us.

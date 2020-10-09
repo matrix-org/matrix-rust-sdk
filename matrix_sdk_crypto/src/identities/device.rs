@@ -31,12 +31,13 @@ use matrix_sdk_common::{
         EventType,
     },
     identifiers::{DeviceId, DeviceKeyAlgorithm, DeviceKeyId, EventEncryptionAlgorithm, UserId},
+    locks::Mutex,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use tracing::warn;
 
-use crate::olm::InboundGroupSession;
+use crate::olm::{InboundGroupSession, Session};
 #[cfg(test)]
 use crate::{OlmMachine, ReadOnlyAccount};
 
@@ -87,6 +88,15 @@ impl Device {
         self.verification_machine
             .start_sas(self.inner.clone())
             .await
+    }
+
+    /// Get the Olm sessions that belong to this device.
+    pub(crate) async fn get_sessions(&self) -> StoreResult<Option<Arc<Mutex<Vec<Session>>>>> {
+        if let Some(k) = self.get_key(DeviceKeyAlgorithm::Curve25519) {
+            self.verification_machine.store.get_sessions(k).await
+        } else {
+            Ok(None)
+        }
     }
 
     /// Get the trust state of the device.

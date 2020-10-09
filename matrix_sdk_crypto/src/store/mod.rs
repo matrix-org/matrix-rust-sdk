@@ -63,7 +63,9 @@ use url::ParseError;
 use sqlx::Error as SqlxError;
 
 use matrix_sdk_common::{
-    identifiers::{DeviceId, Error as IdentifierValidationError, RoomId, UserId},
+    identifiers::{
+        DeviceId, DeviceKeyAlgorithm, Error as IdentifierValidationError, RoomId, UserId,
+    },
     locks::Mutex,
 };
 use matrix_sdk_common_macros::async_trait;
@@ -116,6 +118,19 @@ impl Store {
 
     pub async fn get_readonly_devices(&self, user_id: &UserId) -> Result<ReadOnlyUserDevices> {
         self.inner.get_user_devices(user_id).await
+    }
+
+    pub async fn get_device_from_curve_key(
+        &self,
+        user_id: &UserId,
+        curve_key: &str,
+    ) -> Result<Option<Device>> {
+        self.get_user_devices(user_id).await.map(|d| {
+            d.devices().find(|d| {
+                d.get_key(DeviceKeyAlgorithm::Curve25519)
+                    .map_or(false, |k| k == curve_key)
+            })
+        })
     }
 
     pub async fn get_user_devices(&self, user_id: &UserId) -> Result<UserDevices> {

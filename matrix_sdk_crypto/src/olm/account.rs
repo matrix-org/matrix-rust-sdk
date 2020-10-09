@@ -205,7 +205,10 @@ impl Account {
                               for sender {} and sender_key {} {:?}",
                             sender, sender_key, e
                         );
-                        return Err(OlmError::SessionWedged);
+                        return Err(OlmError::SessionWedged(
+                            sender.to_owned(),
+                            sender_key.to_owned(),
+                        ));
                     }
                 }
             }
@@ -248,7 +251,10 @@ impl Account {
                           available sessions {} {}",
                         sender, sender_key
                     );
-                    return Err(OlmError::SessionWedged);
+                    return Err(OlmError::SessionWedged(
+                        sender.to_owned(),
+                        sender_key.to_owned(),
+                    ));
                 }
 
                 OlmMessage::PreKey(m) => {
@@ -265,7 +271,10 @@ impl Account {
                                       from a prekey message: {}",
                                 sender, sender_key, e
                             );
-                            return Err(OlmError::SessionWedged);
+                            return Err(OlmError::SessionWedged(
+                                sender.to_owned(),
+                                sender_key.to_owned(),
+                            ));
                         }
                     };
 
