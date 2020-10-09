@@ -196,6 +196,7 @@ impl KeyRequestMachine {
         device_id: Arc<DeviceIdBox>,
         store: Store,
         outbound_group_sessions: Arc<DashMap<RoomId, OutboundGroupSession>>,
+        users_for_key_claim: Arc<DashMap<UserId, DashSet<DeviceIdBox>>>,
     ) -> Self {
         Self {
             user_id,
@@ -205,18 +206,13 @@ impl KeyRequestMachine {
             outgoing_to_device_requests: Arc::new(DashMap::new()),
             incoming_key_requests: Arc::new(DashMap::new()),
             wait_queue: WaitQueue::new(),
-            users_for_key_claim: Arc::new(DashMap::new()),
+            users_for_key_claim,
         }
     }
 
     /// Our own user id.
     pub fn user_id(&self) -> &UserId {
         &self.user_id
-    }
-
-    /// Get the map of user/devices which we need to claim one-time for.
-    pub fn users_for_key_claim(&self) -> &DashMap<UserId, DashSet<DeviceIdBox>> {
-        &self.users_for_key_claim
     }
 
     pub fn outgoing_to_device_requests(&self) -> Vec<OutgoingRequest> {
@@ -719,6 +715,7 @@ mod test {
             Arc::new(bob_device_id()),
             store,
             Arc::new(DashMap::new()),
+            Arc::new(DashMap::new()),
         )
     }
 
@@ -735,6 +732,7 @@ mod test {
             user_id,
             Arc::new(alice_device_id()),
             store,
+            Arc::new(DashMap::new()),
             Arc::new(DashMap::new()),
         )
     }

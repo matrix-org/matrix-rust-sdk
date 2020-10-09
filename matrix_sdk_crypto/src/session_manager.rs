@@ -12,12 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{collections::BTreeMap, time::Duration};
+use std::{collections::BTreeMap, sync::Arc, time::Duration};
 
+use dashmap::{DashMap, DashSet};
 use matrix_sdk_common::{
     api::r0::keys::claim_keys::{Request as KeysClaimRequest, Response as KeysClaimResponse},
     assign,
-    identifiers::{DeviceKeyAlgorithm, UserId},
+    identifiers::{DeviceIdBox, DeviceKeyAlgorithm, UserId},
     uuid::Uuid,
 };
 use tracing::{error, info, warn};
@@ -28,17 +29,28 @@ use crate::{error::OlmResult, key_request::KeyRequestMachine, olm::Account, stor
 pub(crate) struct SessionManager {
     account: Account,
     store: Store,
+    /// A map of user/devices that we need to automatically claim keys for.
+    /// Submodules can insert user/device pairs into this map and the
+    /// user/device paris will be added to the list of users when
+    /// [`get_missing_sessions`](#method.get_missing_sessions) is called.
+    users_for_key_claim: Arc<DashMap<UserId, DashSet<DeviceIdBox>>>,
     key_request_machine: KeyRequestMachine,
 }
 
 impl SessionManager {
     const KEY_CLAIM_TIMEOUT: Duration = Duration::from_secs(10);
 
-    pub fn new(account: Account, key_request_machine: KeyRequestMachine, store: Store) -> Self {
+    pub fn new(
+        account: Account,
+        users_for_key_claim: Arc<DashMap<UserId, DashSet<DeviceIdBox>>>,
+        key_request_machine: KeyRequestMachine,
+        store: Store,
+    ) -> Self {
         Self {
             account,
             store,
             key_request_machine,
+            users_for_key_claim,
         }
     }
 
@@ -109,7 +121,7 @@ impl SessionManager {
 
         // Add the list of sessions that for some reason automatically need to
         // create an Olm session.
-        for item in self.key_request_machine.users_for_key_claim().iter() {
+        for item in self.users_for_key_claim.iter() {
             let user = item.key();
 
             for device_id in item.value().iter() {
