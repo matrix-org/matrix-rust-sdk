@@ -1,4 +1,5 @@
 use std::{env, process::exit};
+use tokio::time::{delay_for, Duration};
 
 use matrix_sdk::{
     self,
@@ -32,11 +33,23 @@ impl EventEmitter for AutoJoinBot {
 
         if let SyncRoom::Invited(room) = room {
             let room = room.read().await;
-            println!("Autojoining room {}", room.display_name());
-            self.client
-                .join_room_by_id(&room.room_id)
-                .await
-                .expect("Can't join room");
+            println!("Autojoining room {}", room.room_id);
+            let mut delay = 2;
+            while let Err(err) = self.client.join_room_by_id(&room.room_id).await {
+                // retry autojoin due to synapse sending invites, before the invited user can join
+                // for more information see https://github.com/matrix-org/synapse/issues/4345
+                eprintln!(
+                    "Failed to join room {} ({:?}), retrying in {}s",
+                    room.room_id, err, delay
+                );
+                delay_for(Duration::from_secs(delay)).await;
+                delay *= 2;
+                if delay > 3600 {
+                    eprintln!("Can't join room {} ({:?})", room.room_id, err);
+                    break;
+                }
+            }
+            println!("Successfully joined room {}", room.room_id);
         }
     }
 }
