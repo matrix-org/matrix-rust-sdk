@@ -3,11 +3,7 @@
 // https://www.reddit.com/r/rust/comments/f4zldz/i_audited_3_different_implementation_of_async/
 
 #[cfg(target_arch = "wasm32")]
-pub use futures_locks::Mutex;
-#[cfg(target_arch = "wasm32")]
-pub use futures_locks::RwLock;
+pub use futures_locks::{Mutex, MutexGuard, RwLock, RwLockReadGuard, RwLockWriteGuard};
 
 #[cfg(not(target_arch = "wasm32"))]
-pub use tokio::sync::Mutex;
-#[cfg(not(target_arch = "wasm32"))]
-pub use tokio::sync::RwLock;
+pub use tokio::sync::{Mutex, MutexGuard, RwLock, RwLockReadGuard, RwLockWriteGuard};
