@@ -872,7 +872,7 @@ impl Client {
     }
 
     /// Get messages starting at a specific sync point using the
-    /// `MessagesRequestBuilder`s `from` field as a starting point.
+    /// `MessagesRequestBuilder`'s `from` field as a starting point.
     ///
     /// Sends a request to `/_matrix/client/r0/rooms/{room_id}/messages` and
     /// returns a `get_message_events::Response` that contains chunks
