@@ -15,7 +15,7 @@
 
 //! User sessions.
 
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 
 use matrix_sdk_common::identifiers::{DeviceId, UserId};
 
