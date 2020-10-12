@@ -15,7 +15,24 @@
 
 //! This crate implements a [Matrix](https://matrix.org/) client library.
 //!
-//! ##  Crate Feature Flags
+//! # Enabling logging
+//!
+//! Users of the matrix-sdk crate can enable log output by depending on the `tracing-subscriber`
+//! crate and including the following line in their application (e.g. at the start of `main`):
+//!
+//! ```rust
+//! tracing_subscriber::fmt::init();
+//! ```
+//!
+//! The log output is controlled via the `RUST_LOG` environment variable by setting it to one of
+//! the `error`, `warn`, `info`, `debug` or `trace` levels. The output is printed to stdout.
+//!
+//! The `RUST_LOG` variable also supports a more advanced syntax for filtering log output more
+//! precisely, for instance with crate-level granularity. For more information on this, check out
+//! the [tracing_subscriber
+//! documentation](https://tracing.rs/tracing_subscriber/filter/struct.envfilter).
+//!
+//! # Crate Feature Flags
 //!
 //! The following crate feature flags are available:
 //!
