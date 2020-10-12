@@ -1886,6 +1886,16 @@ impl BaseClient {
         }
     }
 
+    /// Get the user login session.
+    ///
+    /// If the client is currently logged in, this will return a `matrix_sdk::Session` object which
+    /// can later be given to `restore_login`.
+    ///
+    /// Returns a session object if the client is logged in. Otherwise returns `None`.
+    pub async fn get_session(&self) -> Option<Session> {
+        self.session.read().await.clone()
+    }
+
     /// Get a map holding all the devices of an user.
     ///
     /// This will always return an empty map if the client hasn't been logged
