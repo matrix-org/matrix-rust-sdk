@@ -28,14 +28,14 @@ socks = ["reqwest/socks"]
 docs = ["encryption", "sqlite_cryptostore", "messages"]
 
 [dependencies]
-async-trait = "0.1.40"
+async-trait = "0.1.41"
 dashmap = { version = "3.11.10", optional = true }
 http = "0.2.1"
-serde_json = "1.0.57"
-thiserror = "1.0.20"
-tracing = "0.1.19"
+serde_json = "1.0.58"
+thiserror = "1.0.21"
+tracing = "0.1.21"
 url = "2.1.1"
-zeroize = "1.1.0"
+zeroize = "1.1.1"
 mime = "0.3.16"
 
 matrix-sdk-common-macros = { version = "0.1.0", path = "../matrix_sdk_common_macros" }
@@ -68,17 +68,17 @@ version = "3.0.2"
 features = ["wasm-bindgen"]
 
 [dev-dependencies]
-async-trait = "0.1.40"
+async-trait = "0.1.41"
 async-std = { version = "1.6.5", features = ["unstable"] }
 dirs = "3.0.1"
 matrix-sdk-test = { version = "0.1.0", path = "../matrix_sdk_test" }
 tokio = { version = "0.2.22", features = ["rt-threaded", "macros"] }
-serde_json = "1.0.57"
-tracing-subscriber = "0.2.11"
+serde_json = "1.0.58"
+tracing-subscriber = "0.2.13"
 tempfile = "3.1.0"
 mockito = "0.27.0"
 lazy_static = "1.4.0"
-futures = "0.3.5"
+futures = "0.3.6"
 
 [[example]]
 name = "emoji_verification"
