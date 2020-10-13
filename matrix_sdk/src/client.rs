@@ -30,6 +30,7 @@ use std::{
 use dashmap::DashMap;
 use futures_timer::Delay as sleep;
 use http::HeaderValue;
+use mime::{self, Mime};
 use reqwest::header::InvalidHeaderValue;
 use url::Url;
 #[cfg(feature = "encryption")]
@@ -871,12 +872,9 @@ impl Client {
         self.send(request).await
     }
 
-    /// Get messages starting at a specific sync point using the
-    /// `MessagesRequestBuilder`s `from` field as a starting point.
-    ///
-    /// Sends a request to `/_matrix/client/r0/rooms/{room_id}/messages` and
-    /// returns a `get_message_events::Response` that contains chunks
-    /// of `RoomEvents`.
+    /// Sends a request to `/_matrix/client/r0/rooms/{room_id}/messages` and returns
+    /// a `get_message_events::Response` that contains a chunk of room and state events
+    /// (`AnyRoomEvent` and `AnyStateEvent`).
     ///
     /// # Arguments
     ///
@@ -1162,6 +1160,7 @@ impl Client {
     /// # use std::{path::PathBuf, fs::File, io::Read};
     /// # use matrix_sdk::{Client, identifiers::room_id};
     /// # use url::Url;
+    /// # use mime;
     /// # use futures::executor::block_on;
     /// # block_on(async {
     /// # let homeserver = Url::parse("http://localhost:8080").unwrap();
@@ -1171,7 +1170,7 @@ impl Client {
     /// let mut image = File::open(path).unwrap();
     ///
     /// let response = client
-    ///     .room_send_attachment(&room_id, "My favorite cat", "image/jpg", &mut image, None)
+    ///     .room_send_attachment(&room_id, "My favorite cat", &mime::IMAGE_JPEG, &mut image, None)
     ///     .await
     ///     .expect("Can't upload my cat.");
     /// # });
@@ -1180,7 +1179,7 @@ impl Client {
         &self,
         room_id: &RoomId,
         body: &str,
-        content_type: &str,
+        content_type: &Mime,
         mut reader: &mut R,
         txn_id: Option<Uuid>,
     ) -> Result<send_message_event::Response> {
@@ -1188,9 +1187,9 @@ impl Client {
             #[cfg(feature = "encryption")]
             let mut reader = AttachmentEncryptor::new(reader);
             #[cfg(feature = "encryption")]
-            let content_type = "application/octet-stream";
+            let content_type = mime::APPLICATION_OCTET_STREAM;
 
-            let response = self.upload(content_type, &mut reader).await?;
+            let response = self.upload(&content_type, &mut reader).await?;
 
             #[cfg(feature = "encryption")]
             let keys = {
@@ -1208,42 +1207,41 @@ impl Client {
 
             (response, keys)
         } else {
-            let response = self.upload(content_type, &mut reader).await?;
+            let response = self.upload(&content_type, &mut reader).await?;
             (response, None)
         };
 
         let url = response.content_uri;
 
-        let content = if content_type.starts_with("image") {
-            // TODO create a thumbnail using the image crate?.
-            MessageEventContent::Image(ImageMessageEventContent {
+        let content = match content_type.type_() {
+            mime::IMAGE => {
+                // TODO create a thumbnail using the image crate?.
+                MessageEventContent::Image(ImageMessageEventContent {
+                    body: body.to_owned(),
+                    info: None,
+                    url: Some(url),
+                    file: encrypted_file,
+                })
+            }
+            mime::AUDIO => MessageEventContent::Audio(AudioMessageEventContent {
                 body: body.to_owned(),
                 info: None,
                 url: Some(url),
                 file: encrypted_file,
-            })
-        } else if content_type.starts_with("audio") {
-            MessageEventContent::Audio(AudioMessageEventContent {
+            }),
+            mime::VIDEO => MessageEventContent::Video(VideoMessageEventContent {
                 body: body.to_owned(),
                 info: None,
                 url: Some(url),
                 file: encrypted_file,
-            })
-        } else if content_type.starts_with("video") {
-            MessageEventContent::Video(VideoMessageEventContent {
-                body: body.to_owned(),
-                info: None,
-                url: Some(url),
-                file: encrypted_file,
-            })
-        } else {
-            MessageEventContent::File(FileMessageEventContent {
+            }),
+            _ => MessageEventContent::File(FileMessageEventContent {
                 filename: None,
                 body: body.to_owned(),
                 info: None,
                 url: Some(url),
                 file: encrypted_file,
-            })
+            }),
         };
 
         self.room_send(
@@ -1271,6 +1269,7 @@ impl Client {
     /// # use matrix_sdk::{Client, identifiers::room_id};
     /// # use url::Url;
     /// # use futures::executor::block_on;
+    /// # use mime;
     /// # block_on(async {
     /// # let homeserver = Url::parse("http://localhost:8080").unwrap();
     /// # let mut client = Client::new(homeserver).unwrap();
@@ -1278,7 +1277,7 @@ impl Client {
     /// let mut image = File::open(path).unwrap();
     ///
     /// let response = client
-    ///     .upload("image/jpg", &mut image)
+    ///     .upload(&mime::IMAGE_JPEG, &mut image)
     ///     .await
     ///     .expect("Can't upload my cat.");
     ///
@@ -1287,13 +1286,13 @@ impl Client {
     /// ```
     pub async fn upload(
         &self,
-        content_type: &str,
+        content_type: &Mime,
         reader: &mut impl Read,
     ) -> Result<create_content::Response> {
         let mut data = Vec::new();
         reader.read_to_end(&mut data)?;
 
-        let request = create_content::Request::new(content_type, data);
+        let request = create_content::Request::new(content_type.essence_str(), data);
 
         self.http_client.upload(request).await
     }
@@ -2524,7 +2523,7 @@ mod test {
             Matcher::Regex(r"^/_matrix/media/r0/upload".to_string()),
         )
         .with_status(200)
-        .match_header("content-type", "image/jpg")
+        .match_header("content-type", "image/jpeg")
         .with_body(
             json!({
               "content_uri": "mxc://example.com/AQwafuaFswefuhsfAFAgsw"
@@ -2538,7 +2537,7 @@ mod test {
         let mut media = Cursor::new("Hello world");
 
         let response = client
-            .room_send_attachment(&room_id, "image", "image/jpg", &mut media, None)
+            .room_send_attachment(&room_id, "image", &mime::IMAGE_JPEG, &mut media, None)
             .await
             .unwrap();
 

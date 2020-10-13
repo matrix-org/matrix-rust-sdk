@@ -24,18 +24,18 @@ unstable-synapse-quirks = ["matrix-sdk-common/unstable-synapse-quirks"]
 docs = ["encryption", "sqlite_cryptostore", "messages"]
 
 [dependencies]
-async-trait = "0.1.40"
-serde = "1.0.115"
-serde_json = "1.0.57"
-zeroize = "1.1.0"
-tracing = "0.1.19"
+async-trait = "0.1.41"
+serde = "1.0.116"
+serde_json = "1.0.58"
+zeroize = "1.1.1"
+tracing = "0.1.21"
 
 matrix-sdk-common-macros = { version = "0.1.0", path = "../matrix_sdk_common_macros" }
 matrix-sdk-common = { version = "0.1.0", path = "../matrix_sdk_common" }
 matrix-sdk-crypto = { version = "0.1.0", path = "../matrix_sdk_crypto", optional = true }
 
 # Misc dependencies
-thiserror = "1.0.20"
+thiserror = "1.0.21"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies.tokio]
 version = "0.2.22"
@@ -43,10 +43,10 @@ default-features = false
 features = ["sync", "fs"]
 
 [dev-dependencies]
-futures = "0.3.5"
+futures = "0.3.6"
 matrix-sdk-test = { version = "0.1.0", path = "../matrix_sdk_test" }
 http = "0.2.1"
-tracing-subscriber = "0.2.11"
+tracing-subscriber = "0.2.13"
 tempfile = "3.1.0"
 mockito = "0.27.0"
 
@@ -54,4 +54,4 @@ mockito = "0.27.0"
 tokio = { version = "0.2.22", features = ["rt-threaded", "macros"] }
 
 [target.'cfg(target_arch = "wasm32")'.dev-dependencies]
-wasm-bindgen-test = "0.3.17"
+wasm-bindgen-test = "0.3.18"

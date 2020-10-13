@@ -647,7 +647,7 @@ impl Room {
 
         if state_event && !self.member_is_tracked(&target_user) {
             debug!(
-                "handle_membership: User {user_id} is {state} the room {room_id} ({room_name})",
+                "handle_membership: User {user_id} {state} the room {room_id} ({room_name})",
                 user_id = target_user,
                 state = event.content.membership.describe(),
                 room_id = self.room_id,
@@ -1089,8 +1089,8 @@ impl Describe for MembershipState {
             Self::Ban => "is banned in",
             Self::Invite => "is invited to",
             Self::Join => "is a member of",
-            Self::Knock => "is requesting access",
-            Self::Leave => "left",
+            Self::Knock => "is requesting access to",
+            Self::Leave => "has left",
         }
         .to_string()
     }
@@ -1112,12 +1112,12 @@ impl Describe for MembershipChange {
                 displayname_changed,
                 avatar_url_changed,
             } => match (*displayname_changed, *avatar_url_changed) {
-                (true, true) => "changed their displayname and avatar",
-                (true, false) => "changed their displayname",
-                (false, true) => "changed their avatar",
+                (true, true) => "changed their displayname and avatar in",
+                (true, false) => "changed their displayname in",
+                (false, true) => "changed their avatar in",
                 _ => {
                     error!("Got ProfileChanged but nothing changed");
-                    "impossible: changed nothing in their profile"
+                    "impossible: changed nothing in their profile in"
                 }
             },
             Self::None => "did nothing in",

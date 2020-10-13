@@ -20,29 +20,29 @@ sqlite_cryptostore = ["sqlx"]
 docs = ["sqlite_cryptostore"]
 
 [dependencies]
-async-trait = "0.1.40"
+async-trait = "0.1.41"
 
 matrix-sdk-common-macros = { version = "0.1.0", path = "../matrix_sdk_common_macros" }
 matrix-sdk-common = { version = "0.1.0", path = "../matrix_sdk_common" }
 
-olm-rs = { version = "0.6.0", features = ["serde"] }
+olm-rs = { version = "1.0.0", features = ["serde"] }
 getrandom = "0.2.0"
-serde = { version = "1.0.115", features = ["derive", "rc"] }
-serde_json = "1.0.57"
+serde = { version = "1.0.116", features = ["derive", "rc"] }
+serde_json = "1.0.58"
 cjson = "0.1.1"
-zeroize = { version = "1.1.0", features = ["zeroize_derive"] }
+zeroize = { version = "1.1.1", features = ["zeroize_derive"] }
 url = "2.1.1"
 
 # Misc dependencies
-thiserror = "1.0.20"
-tracing = "0.1.19"
+thiserror = "1.0.21"
+tracing = "0.1.21"
 atomic = "0.5.0"
 dashmap = "3.11.10"
 sha2 = "0.9.1"
-aes-ctr = "0.4.0"
+aes-ctr = "0.5.0"
 pbkdf2 = { version = "0.5.0", default-features = false }
 hmac = "0.9.0"
-base64 = "0.12.3"
+base64 = "0.13.0"
 byteorder = "1.3.4"
 
 [dependencies.tracing-futures]
@@ -58,10 +58,10 @@ features = ["runtime-tokio", "sqlite", "macros"]
 
 [dev-dependencies]
 tokio = { version = "0.2.22", features = ["rt-threaded", "macros"] }
-futures = "0.3.5"
+futures = "0.3.6"
 proptest = "0.10.1"
-serde_json = "1.0.57"
+serde_json = "1.0.58"
 tempfile = "3.1.0"
 http = "0.2.1"
 matrix-sdk-test = { version = "0.1.0", path = "../matrix_sdk_test" }
-indoc = "1.0.2"
+indoc = "1.0.3"

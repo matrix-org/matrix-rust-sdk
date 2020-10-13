@@ -1219,7 +1219,8 @@ impl CryptoStore for SqliteStore {
              ) VALUES (?1, ?2, ?3, ?4, ?5)
              ON CONFLICT(user_id, device_id) DO UPDATE SET
                 pickle = excluded.pickle,
-                shared = excluded.shared
+                shared = excluded.shared,
+                uploaded_key_count = excluded.uploaded_key_count
              ",
         )
         .bind(pickle.user_id.as_str())
@@ -1612,6 +1613,7 @@ mod test {
             .expect("Can't save account");
 
         account.mark_as_shared();
+        account.update_uploaded_key_count(50);
 
         store
             .save_account(account.clone())
@@ -1622,6 +1624,10 @@ mod test {
         let loaded_account = loaded_account.unwrap();
 
         assert_eq!(account, loaded_account);
+        assert_eq!(
+            account.uploaded_key_count(),
+            loaded_account.uploaded_key_count()
+        );
     }
 
     #[tokio::test]
