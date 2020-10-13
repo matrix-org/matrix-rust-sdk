@@ -1,4 +1,3 @@
-use mime;
 use std::{
     env,
     fs::File,

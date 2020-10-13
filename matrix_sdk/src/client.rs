@@ -1952,7 +1952,6 @@ mod test {
         thirdparty,
     };
     use matrix_sdk_test::{test_json, EventBuilder, EventsJson};
-    use mime;
     use mockito::{mock, Matcher};
     use serde_json::json;
     use tempfile::tempdir;
