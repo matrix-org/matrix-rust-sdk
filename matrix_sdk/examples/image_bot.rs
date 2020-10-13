@@ -1,3 +1,4 @@
+use mime;
 use std::{
     env,
     fs::File,
@@ -52,7 +53,7 @@ impl EventEmitter for ImageBot {
                 let mut image = self.image.lock().await;
 
                 self.client
-                    .room_send_attachment(&room_id, "cat", "image/jpg", &mut *image, None)
+                    .room_send_attachment(&room_id, "cat", &mime::IMAGE_JPEG, &mut *image, None)
                     .await
                     .unwrap();
 

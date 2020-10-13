@@ -36,6 +36,7 @@ thiserror = "1.0.20"
 tracing = "0.1.19"
 url = "2.1.1"
 zeroize = "1.1.0"
+mime = "0.3.16"
 
 matrix-sdk-common-macros = { version = "0.1.0", path = "../matrix_sdk_common_macros" }
 matrix-sdk-common = { version = "0.1.0", path = "../matrix_sdk_common" }
