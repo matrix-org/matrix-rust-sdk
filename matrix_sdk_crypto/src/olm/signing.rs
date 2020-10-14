@@ -29,7 +29,7 @@ use std::{
 };
 use zeroize::Zeroizing;
 
-use olm_rs::{errors::OlmUtilityError, pk::OlmPkSigning, utility::OlmUtility, PicklingMode};
+use olm_rs::{errors::OlmUtilityError, pk::OlmPkSigning, utility::OlmUtility};
 
 use matrix_sdk_common::{
     api::r0::keys::{upload_signing_keys::Request as UploadRequest, CrossSigningKey, KeyUsage},
@@ -93,14 +93,14 @@ struct PickledSelfSigning {
 }
 
 impl MasterSigning {
-    async fn pickle(&self, pickle_mode: PicklingMode) -> PickledMasterSigning {
-        let pickle = self.inner.pickle(pickle_mode).await;
+    async fn pickle(&self, pickle_key: &[u8]) -> PickledMasterSigning {
+        let pickle = self.inner.pickle(pickle_key).await;
         let public_key = self.public_key.clone().into();
         PickledMasterSigning { pickle, public_key }
     }
 
-    fn from_pickle(pickle: PickledMasterSigning, pickle_mode: PicklingMode) -> Self {
-        let inner = Signing::from_pickle(pickle.pickle, pickle_mode);
+    fn from_pickle(pickle: PickledMasterSigning, pickle_key: &[u8]) -> Self {
+        let inner = Signing::from_pickle(pickle.pickle, pickle_key);
 
         Self {
             inner,
@@ -133,14 +133,14 @@ impl MasterSigning {
 }
 
 impl UserSigning {
-    async fn pickle(&self, pickle_mode: PicklingMode) -> PickledUserSigning {
-        let pickle = self.inner.pickle(pickle_mode).await;
+    async fn pickle(&self, pickle_key: &[u8]) -> PickledUserSigning {
+        let pickle = self.inner.pickle(pickle_key).await;
         let public_key = self.public_key.clone().into();
         PickledUserSigning { pickle, public_key }
     }
 
-    fn from_pickle(pickle: PickledUserSigning, pickle_mode: PicklingMode) -> Self {
-        let inner = Signing::from_pickle(pickle.pickle, pickle_mode);
+    fn from_pickle(pickle: PickledUserSigning, pickle_key: &[u8]) -> Self {
+        let inner = Signing::from_pickle(pickle.pickle, pickle_key);
 
         Self {
             inner,
@@ -150,14 +150,14 @@ impl UserSigning {
 }
 
 impl SelfSigning {
-    async fn pickle(&self, pickle_mode: PicklingMode) -> PickledSelfSigning {
-        let pickle = self.inner.pickle(pickle_mode).await;
+    async fn pickle(&self, pickle_key: &[u8]) -> PickledSelfSigning {
+        let pickle = self.inner.pickle(pickle_key).await;
         let public_key = self.public_key.clone().into();
         PickledSelfSigning { pickle, public_key }
     }
 
-    fn from_pickle(pickle: PickledSelfSigning, pickle_mode: PicklingMode) -> Self {
-        let inner = Signing::from_pickle(pickle.pickle, pickle_mode);
+    fn from_pickle(pickle: PickledSelfSigning, pickle_key: &[u8]) -> Self {
+        let inner = Signing::from_pickle(pickle.pickle, pickle_key);
 
         Self {
             inner,
@@ -230,6 +230,7 @@ impl PublicSigningKey {
         &self.0
     }
 
+    #[allow(clippy::inherent_to_string)]
     fn to_string(&self) -> String {
         self.0.to_string()
     }
@@ -252,16 +253,10 @@ impl Signing {
         }
     }
 
-    fn from_pickle(pickle: PickledSigning, pickle_mode: PicklingMode) -> Self {
-        let mode = if let PicklingMode::Encrypted { key } = &pickle_mode {
-            key
-        } else {
-            "DEFAULT_PICKLE_PASSPHRASE_123456".as_bytes()
-        };
-
+    fn from_pickle(pickle: PickledSigning, pickle_key: &[u8]) -> Self {
         let pickled: InnerPickle = serde_json::from_str(pickle.as_str()).unwrap();
 
-        let key = GenericArray::from_slice(mode);
+        let key = GenericArray::from_slice(pickle_key);
         let cipher = Aes256Gcm::new(key);
 
         let nonce = decode(pickled.nonce).unwrap();
@@ -275,14 +270,8 @@ impl Signing {
         Self::from_seed(seed)
     }
 
-    async fn pickle(&self, pickle_mode: PicklingMode) -> PickledSigning {
-        let mode = if let PicklingMode::Encrypted { key } = &pickle_mode {
-            key
-        } else {
-            "DEFAULT_PICKLE_PASSPHRASE_123456".as_bytes()
-        };
-
-        let key = GenericArray::from_slice(mode);
+    async fn pickle(&self, pickle_key: &[u8]) -> PickledSigning {
+        let key = GenericArray::from_slice(pickle_key);
         let cipher = Aes256Gcm::new(key);
         let nonce = GenericArray::from_slice(b"unique nonce");
         let ciphertext = cipher
@@ -375,43 +364,21 @@ impl PrivateCrossSigningIdentity {
         self.shared.load(Ordering::SeqCst)
     }
 
-    async fn pickle(&self, pickle_mode: PicklingMode) -> PickledCrossSigningIdentity {
-        let pickle_key = if let PicklingMode::Encrypted { key } = &pickle_mode {
-            key
-        } else {
-            "DEFAULT_PICKLE_PASSPHRASE_123456".as_bytes()
-        }
-        .to_vec();
-
+    async fn pickle(&self, pickle_key: &[u8]) -> PickledCrossSigningIdentity {
         let master_key = if let Some(m) = self.master_key.lock().await.as_ref() {
-            Some(
-                m.pickle(PicklingMode::Encrypted {
-                    key: pickle_key.clone(),
-                })
-                .await,
-            )
+            Some(m.pickle(pickle_key).await)
         } else {
             None
         };
 
         let self_signing_key = if let Some(m) = self.self_signing_key.lock().await.as_ref() {
-            Some(
-                m.pickle(PicklingMode::Encrypted {
-                    key: pickle_key.clone(),
-                })
-                .await,
-            )
+            Some(m.pickle(pickle_key).await)
         } else {
             None
         };
 
         let user_signing_key = if let Some(m) = self.user_signing_key.lock().await.as_ref() {
-            Some(
-                m.pickle(PicklingMode::Encrypted {
-                    key: pickle_key.clone(),
-                })
-                .await,
-            )
+            Some(m.pickle(pickle_key).await)
         } else {
             None
         };
@@ -425,41 +392,21 @@ impl PrivateCrossSigningIdentity {
         }
     }
 
-    async fn from_pickle(pickle: PickledCrossSigningIdentity, pickle_mode: PicklingMode) -> Self {
-        let pickle_key = if let PicklingMode::Encrypted { key } = &pickle_mode {
-            key
-        } else {
-            "DEFAULT_PICKLE_PASSPHRASE_123456".as_bytes()
-        }
-        .to_vec();
-
+    async fn from_pickle(pickle: PickledCrossSigningIdentity, pickle_key: &[u8]) -> Self {
         let master = if let Some(m) = pickle.master_key {
-            Some(MasterSigning::from_pickle(
-                m,
-                PicklingMode::Encrypted {
-                    key: pickle_key.clone(),
-                },
-            ))
+            Some(MasterSigning::from_pickle(m, pickle_key))
         } else {
             None
         };
 
         let self_signing = if let Some(s) = pickle.self_signing_key {
-            Some(SelfSigning::from_pickle(
-                s,
-                PicklingMode::Encrypted {
-                    key: pickle_key.clone(),
-                },
-            ))
+            Some(SelfSigning::from_pickle(s, pickle_key))
         } else {
             None
         };
 
         let user_signing = if let Some(u) = pickle.user_signing_key {
-            Some(UserSigning::from_pickle(
-                u,
-                PicklingMode::Encrypted { key: pickle_key },
-            ))
+            Some(UserSigning::from_pickle(u, pickle_key))
         } else {
             None
         };
@@ -474,29 +421,35 @@ impl PrivateCrossSigningIdentity {
     }
 
     async fn as_upload_request(&self) -> UploadRequest<'_> {
+        let master_key = self
+            .master_key
+            .lock()
+            .await
+            .as_ref()
+            .cloned()
+            .map(|k| k.public_key.into());
+
+        let user_signing_key = self
+            .user_signing_key
+            .lock()
+            .await
+            .as_ref()
+            .cloned()
+            .map(|k| k.public_key.into());
+
+        let self_signing_key = self
+            .self_signing_key
+            .lock()
+            .await
+            .as_ref()
+            .cloned()
+            .map(|k| k.public_key.into());
+
         UploadRequest {
             auth: None,
-            master_key: self
-                .master_key
-                .lock()
-                .await
-                .as_ref()
-                .cloned()
-                .map(|k| k.public_key.into()),
-            user_signing_key: self
-                .user_signing_key
-                .lock()
-                .await
-                .as_ref()
-                .cloned()
-                .map(|k| k.public_key.into()),
-            self_signing_key: self
-                .self_signing_key
-                .lock()
-                .await
-                .as_ref()
-                .cloned()
-                .map(|k| k.public_key.into()),
+            master_key,
+            user_signing_key,
+            self_signing_key,
         }
     }
 }
@@ -507,10 +460,13 @@ mod test {
 
     use matrix_sdk_common::identifiers::{user_id, UserId};
     use matrix_sdk_test::async_test;
-    use olm_rs::PicklingMode;
 
     fn user_id() -> UserId {
         user_id!("@example:localhost")
+    }
+
+    fn pickle_key() -> &'static [u8] {
+        &[0u8; 32]
     }
 
     #[test]
@@ -532,9 +488,9 @@ mod test {
     #[async_test]
     async fn pickling_signing() {
         let signing = Signing::new();
-        let pickled = signing.pickle(PicklingMode::Unencrypted).await;
+        let pickled = signing.pickle(pickle_key()).await;
 
-        let unpickled = Signing::from_pickle(pickled, PicklingMode::Unencrypted);
+        let unpickled = Signing::from_pickle(pickled, pickle_key());
 
         assert_eq!(signing.public_key(), unpickled.public_key());
     }
@@ -584,10 +540,9 @@ mod test {
     async fn identity_pickling() {
         let identity = PrivateCrossSigningIdentity::new(user_id()).await;
 
-        let pickled = identity.pickle(PicklingMode::Unencrypted).await;
+        let pickled = identity.pickle(pickle_key()).await;
 
-        let unpickled =
-            PrivateCrossSigningIdentity::from_pickle(pickled, PicklingMode::Unencrypted).await;
+        let unpickled = PrivateCrossSigningIdentity::from_pickle(pickled, pickle_key()).await;
 
         assert_eq!(identity.user_id, unpickled.user_id);
         assert_eq!(
