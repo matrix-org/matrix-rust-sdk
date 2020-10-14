@@ -20,6 +20,7 @@
 mod account;
 mod group_sessions;
 mod session;
+mod signing;
 mod utility;
 
 pub(crate) use account::Account;
