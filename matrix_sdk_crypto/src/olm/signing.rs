@@ -499,12 +499,10 @@ mod test {
     async fn private_identity_creation() {
         let identity = PrivateCrossSigningIdentity::new(user_id()).await;
 
-        assert!(identity
-            .master_key
-            .lock()
-            .await
-            .as_ref()
-            .unwrap()
+        let master_key = identity.master_key.lock().await;
+        let master_key = master_key.as_ref().unwrap();
+
+        assert!(master_key
             .public_key
             .verify_subkey(
                 &identity
@@ -517,12 +515,7 @@ mod test {
             )
             .is_ok());
 
-        assert!(identity
-            .master_key
-            .lock()
-            .await
-            .as_ref()
-            .unwrap()
+        assert!(master_key
             .public_key
             .verify_subkey(
                 &identity
