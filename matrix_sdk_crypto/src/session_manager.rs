@@ -303,3 +303,113 @@ impl SessionManager {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod test {
+    use dashmap::DashMap;
+    use std::{collections::BTreeMap, sync::Arc};
+
+    use matrix_sdk_common::{
+        api::r0::keys::claim_keys::Response as KeyClaimResponse,
+        identifiers::{user_id, DeviceIdBox, UserId},
+    };
+    use matrix_sdk_test::async_test;
+
+    use super::SessionManager;
+    use crate::{
+        identities::ReadOnlyDevice,
+        key_request::KeyRequestMachine,
+        olm::{Account, ReadOnlyAccount},
+        store::{CryptoStore, MemoryStore, Store},
+        verification::VerificationMachine,
+    };
+
+    fn user_id() -> UserId {
+        user_id!("@example:localhost")
+    }
+
+    fn device_id() -> DeviceIdBox {
+        "DEVICEID".into()
+    }
+
+    fn bob_account() -> ReadOnlyAccount {
+        ReadOnlyAccount::new(&user_id!("@bob:localhost"), "BOBDEVICE".into())
+    }
+
+    async fn session_manager() -> SessionManager {
+        let user_id = user_id();
+        let device_id = device_id();
+
+        let outbound_sessions = Arc::new(DashMap::new());
+        let users_for_key_claim = Arc::new(DashMap::new());
+        let account = ReadOnlyAccount::new(&user_id, &device_id);
+        let store: Arc<Box<dyn CryptoStore>> = Arc::new(Box::new(MemoryStore::new()));
+        store.save_account(account.clone()).await.unwrap();
+
+        let verification = VerificationMachine::new(account.clone(), store.clone());
+
+        let user_id = Arc::new(user_id);
+        let device_id = Arc::new(device_id);
+
+        let store = Store::new(user_id.clone(), store, verification);
+
+        let account = Account {
+            inner: account,
+            store: store.clone(),
+        };
+
+        let key_request = KeyRequestMachine::new(
+            user_id,
+            device_id,
+            store.clone(),
+            outbound_sessions,
+            users_for_key_claim.clone(),
+        );
+
+        SessionManager::new(account, users_for_key_claim, key_request, store)
+    }
+
+    #[async_test]
+    async fn session_creation() {
+        let manager = session_manager().await;
+        let bob = bob_account();
+
+        let bob_device = ReadOnlyDevice::from_account(&bob).await;
+
+        manager.store.save_devices(&[bob_device]).await.unwrap();
+
+        let (_, request) = manager
+            .get_missing_sessions(&mut [bob.user_id().clone()].iter())
+            .await
+            .unwrap()
+            .unwrap();
+
+        assert!(request.one_time_keys.contains_key(bob.user_id()));
+
+        bob.generate_one_time_keys_helper(1).await;
+        let one_time = bob.signed_one_time_keys_helper().await.unwrap();
+        bob.mark_keys_as_published().await;
+
+        let mut one_time_keys = BTreeMap::new();
+        one_time_keys
+            .entry(bob.user_id().clone())
+            .or_insert_with(BTreeMap::new)
+            .insert(bob.device_id().into(), one_time);
+
+        let response = KeyClaimResponse {
+            failures: BTreeMap::new(),
+            one_time_keys,
+        };
+
+        manager
+            .receive_keys_claim_response(&response)
+            .await
+            .unwrap();
+
+        assert!(manager
+            .get_missing_sessions(&mut [bob.user_id().clone()].iter())
+            .await
+            .unwrap()
+            .is_none());
+    }
+}

@@ -683,14 +683,9 @@ impl ReadOnlyAccount {
         self.sign(&canonical_json).await
     }
 
-    /// Generate, sign and prepare one-time keys to be uploaded.
-    ///
-    /// If no one-time keys need to be uploaded returns an empty error.
-    pub(crate) async fn signed_one_time_keys(
+    pub(crate) async fn signed_one_time_keys_helper(
         &self,
     ) -> Result<BTreeMap<DeviceKeyId, OneTimeKey>, ()> {
-        let _ = self.generate_one_time_keys().await?;
-
         let one_time_keys = self.one_time_keys().await;
         let mut one_time_key_map = BTreeMap::new();
 
@@ -726,6 +721,16 @@ impl ReadOnlyAccount {
         }
 
         Ok(one_time_key_map)
+    }
+
+    /// Generate, sign and prepare one-time keys to be uploaded.
+    ///
+    /// If no one-time keys need to be uploaded returns an empty error.
+    pub(crate) async fn signed_one_time_keys(
+        &self,
+    ) -> Result<BTreeMap<DeviceKeyId, OneTimeKey>, ()> {
+        let _ = self.generate_one_time_keys().await?;
+        self.signed_one_time_keys_helper().await
     }
 
     /// Create a new session with another account given a one-time key.
