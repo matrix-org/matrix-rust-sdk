@@ -315,7 +315,8 @@ mod test {
 
     use matrix_sdk_common::{
         api::r0::keys::claim_keys::Response as KeyClaimResponse,
-        identifiers::{user_id, DeviceIdBox, UserId},
+        identifiers::{user_id, DeviceIdBox, DeviceKeyAlgorithm, UserId},
+        instant::{Duration, Instant},
     };
     use matrix_sdk_test::async_test;
 
@@ -415,5 +416,80 @@ mod test {
             .await
             .unwrap()
             .is_none());
+    }
+
+    // This test doesn't run on macos because we're modifying the session
+    // creation time so we can get around the UNWEDGING_INTERVAL.
+    #[async_test]
+    #[cfg(not(target_os = "macos"))]
+    async fn session_unwedging() {
+        let manager = session_manager().await;
+        let bob = bob_account();
+        let (_, mut session) = bob.create_session_for(&manager.account).await;
+
+        let bob_device = ReadOnlyDevice::from_account(&bob).await;
+        session.creation_time = Arc::new(Instant::now() - Duration::from_secs(3601));
+
+        manager
+            .store
+            .save_devices(&[bob_device.clone()])
+            .await
+            .unwrap();
+        manager.store.save_sessions(&[session]).await.unwrap();
+
+        assert!(manager
+            .get_missing_sessions(&mut [bob.user_id().clone()].iter())
+            .await
+            .unwrap()
+            .is_none());
+
+        let curve_key = bob_device.get_key(DeviceKeyAlgorithm::Curve25519).unwrap();
+
+        assert!(!manager.users_for_key_claim.contains_key(bob.user_id()));
+        assert!(!manager.is_device_wedged(&bob_device));
+        manager
+            .mark_device_as_wedged(bob_device.user_id(), &curve_key)
+            .await
+            .unwrap();
+        assert!(manager.is_device_wedged(&bob_device));
+        assert!(manager.users_for_key_claim.contains_key(bob.user_id()));
+
+        let (_, request) = manager
+            .get_missing_sessions(&mut [bob.user_id().clone()].iter())
+            .await
+            .unwrap()
+            .unwrap();
+
+        assert!(request.one_time_keys.contains_key(bob.user_id()));
+
+        bob.generate_one_time_keys_helper(1).await;
+        let one_time = bob.signed_one_time_keys_helper().await.unwrap();
+        bob.mark_keys_as_published().await;
+
+        let mut one_time_keys = BTreeMap::new();
+        one_time_keys
+            .entry(bob.user_id().clone())
+            .or_insert_with(BTreeMap::new)
+            .insert(bob.device_id().into(), one_time);
+
+        let response = KeyClaimResponse {
+            failures: BTreeMap::new(),
+            one_time_keys,
+        };
+
+        assert!(manager.outgoing_to_device_requests.is_empty());
+
+        manager
+            .receive_keys_claim_response(&response)
+            .await
+            .unwrap();
+
+        assert!(!manager.is_device_wedged(&bob_device));
+        assert!(manager
+            .get_missing_sessions(&mut [bob.user_id().clone()].iter())
+            .await
+            .unwrap()
+            .is_none());
+        assert!(!manager.outgoing_to_device_requests.is_empty())
     }
 }
