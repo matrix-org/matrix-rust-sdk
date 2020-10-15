@@ -34,7 +34,7 @@ use crate::{
     olm::Account,
     requests::{OutgoingRequest, ToDeviceRequest},
     store::{Result as StoreResult, Store},
-    Device,
+    ReadOnlyDevice,
 };
 
 #[derive(Debug, Clone)]
@@ -92,6 +92,10 @@ impl SessionManager {
 
                 if let Some(session) = session {
                     if session.creation_time.elapsed() > Self::UNWEDGING_INTERVAL {
+                        self.users_for_key_claim
+                            .entry(device.user_id().clone())
+                            .or_insert_with(DashSet::new)
+                            .insert(device.device_id().into());
                         self.wedged_devices
                             .entry(device.user_id().to_owned())
                             .or_insert_with(DashSet::new)
@@ -105,7 +109,7 @@ impl SessionManager {
     }
 
     #[allow(dead_code)]
-    pub fn is_device_wedged(&self, device: &Device) -> bool {
+    pub fn is_device_wedged(&self, device: &ReadOnlyDevice) -> bool {
         self.wedged_devices
             .get(device.user_id())
             .map(|d| d.contains(device.device_id()))
