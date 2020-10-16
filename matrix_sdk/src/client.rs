@@ -95,7 +95,7 @@ use matrix_sdk_common::{
         },
         AnyMessageEventContent,
     },
-    identifiers::{EventId, RoomId, RoomIdOrAliasId, ServerName, UserId},
+    identifiers::{DeviceIdBox, EventId, RoomId, RoomIdOrAliasId, ServerName, UserId},
     instant::{Duration, Instant},
     js_int::UInt,
     locks::RwLock,
@@ -112,7 +112,6 @@ use matrix_sdk_common::{
             Request as RumaToDeviceRequest, Response as ToDeviceResponse,
         },
     },
-    identifiers::DeviceIdBox,
     locks::Mutex,
 };
 
