@@ -754,10 +754,12 @@ impl SqliteStore {
         Ok(())
     }
 
-    async fn save_device_helper(&self, device: ReadOnlyDevice) -> Result<()> {
+    async fn save_device_helper(
+        &self,
+        connection: &mut SqliteConnection,
+        device: ReadOnlyDevice,
+    ) -> Result<()> {
         let account_id = self.account_id().ok_or(CryptoStoreError::AccountUnset)?;
-
-        let mut connection = self.connection.lock().await;
 
         query(
             "INSERT INTO devices (
@@ -1107,10 +1109,12 @@ impl SqliteStore {
         Ok(())
     }
 
-    async fn save_user_helper(&self, user: &UserIdentities) -> Result<()> {
+    async fn save_user_helper(
+        &self,
+        mut connection: &mut SqliteConnection,
+        user: &UserIdentities,
+    ) -> Result<()> {
         let account_id = self.account_id().ok_or(CryptoStoreError::AccountUnset)?;
-
-        let mut connection = self.connection.lock().await;
 
         query("REPLACE INTO users (account_id, user_id) VALUES (?1, ?2)")
             .bind(account_id)
@@ -1347,11 +1351,16 @@ impl CryptoStore for SqliteStore {
     }
 
     async fn save_devices(&self, devices: &[ReadOnlyDevice]) -> Result<()> {
-        // TODO turn this into a bulk transaction.
+        let mut connection = self.connection.lock().await;
+        let mut transaction = connection.begin().await?;
+
         for device in devices {
             self.devices.add(device.clone());
-            self.save_device_helper(device.clone()).await?
+            self.save_device_helper(&mut transaction, device.clone())
+                .await?
         }
+
+        transaction.commit().await?;
 
         Ok(())
     }
@@ -1391,9 +1400,14 @@ impl CryptoStore for SqliteStore {
     }
 
     async fn save_user_identities(&self, users: &[UserIdentities]) -> Result<()> {
+        let mut connection = self.connection.lock().await;
+        let mut transaction = connection.begin().await?;
+
         for user in users {
-            self.save_user_helper(user).await?;
+            self.save_user_helper(&mut transaction, user).await?;
         }
+
+        transaction.commit().await?;
 
         Ok(())
     }
