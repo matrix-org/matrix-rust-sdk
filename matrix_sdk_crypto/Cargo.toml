@@ -52,7 +52,8 @@ default-features = false
 features = ["std", "std-future"]
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies.sqlx]
-version = "0.4.0-beta.1"
+git = "https://github.com/launchbadge/sqlx/"
+rev = "fd25a7530cf087e1529553ff854f192738db3461"
 optional = true
 default-features = false
 features = ["runtime-tokio", "sqlite", "macros"]
