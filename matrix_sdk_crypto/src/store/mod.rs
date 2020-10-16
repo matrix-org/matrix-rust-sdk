@@ -43,13 +43,19 @@ mod memorystore;
 #[cfg(feature = "sqlite_cryptostore")]
 pub(crate) mod sqlite;
 
-use caches::ReadOnlyUserDevices;
+use matrix_sdk_common::identifiers::DeviceIdBox;
 pub use memorystore::MemoryStore;
 #[cfg(not(target_arch = "wasm32"))]
 #[cfg(feature = "sqlite_cryptostore")]
 pub use sqlite::SqliteStore;
 
-use std::{collections::HashSet, fmt::Debug, io::Error as IoError, ops::Deref, sync::Arc};
+use std::{
+    collections::{HashMap, HashSet},
+    fmt::Debug,
+    io::Error as IoError,
+    ops::Deref,
+    sync::Arc,
+};
 
 use olm_rs::errors::{OlmAccountError, OlmGroupSessionError, OlmSessionError};
 use serde::{Deserialize, Serialize};
@@ -115,7 +121,10 @@ impl Store {
         self.inner.get_device(user_id, device_id).await
     }
 
-    pub async fn get_readonly_devices(&self, user_id: &UserId) -> Result<ReadOnlyUserDevices> {
+    pub async fn get_readonly_devices(
+        &self,
+        user_id: &UserId,
+    ) -> Result<HashMap<DeviceIdBox, ReadOnlyDevice>> {
         self.inner.get_user_devices(user_id).await
     }
 
@@ -354,7 +363,10 @@ pub trait CryptoStore: Debug {
     /// # Arguments
     ///
     /// * `user_id` - The user for which we should get all the devices.
-    async fn get_user_devices(&self, user_id: &UserId) -> Result<ReadOnlyUserDevices>;
+    async fn get_user_devices(
+        &self,
+        user_id: &UserId,
+    ) -> Result<HashMap<DeviceIdBox, ReadOnlyDevice>>;
 
     /// Save the given user identities in the store.
     ///

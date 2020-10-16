@@ -19,9 +19,9 @@
 
 use std::{collections::HashMap, sync::Arc};
 
-use dashmap::{DashMap, ReadOnlyView};
+use dashmap::DashMap;
 use matrix_sdk_common::{
-    identifiers::{DeviceId, RoomId, UserId},
+    identifiers::{DeviceId, DeviceIdBox, RoomId, UserId},
     locks::Mutex,
 };
 
@@ -145,29 +145,6 @@ pub struct DeviceStore {
     entries: Arc<DashMap<UserId, DashMap<Box<DeviceId>, ReadOnlyDevice>>>,
 }
 
-/// A read only view over all devices belonging to a user.
-#[derive(Debug)]
-pub struct ReadOnlyUserDevices {
-    entries: ReadOnlyView<Box<DeviceId>, ReadOnlyDevice>,
-}
-
-impl ReadOnlyUserDevices {
-    /// Get the specific device with the given device id.
-    pub fn get(&self, device_id: &DeviceId) -> Option<ReadOnlyDevice> {
-        self.entries.get(device_id).cloned()
-    }
-
-    /// Iterator over all the device ids of the user devices.
-    pub fn keys(&self) -> impl Iterator<Item = &DeviceId> {
-        self.entries.keys().map(|id| id.as_ref())
-    }
-
-    /// Iterator over all the devices of the user devices.
-    pub fn devices(&self) -> impl Iterator<Item = &ReadOnlyDevice> {
-        self.entries.values()
-    }
-}
-
 impl DeviceStore {
     /// Create a new empty device store.
     pub fn new() -> Self {
@@ -206,15 +183,13 @@ impl DeviceStore {
     }
 
     /// Get a read-only view over all devices of the given user.
-    pub fn user_devices(&self, user_id: &UserId) -> ReadOnlyUserDevices {
-        ReadOnlyUserDevices {
-            entries: self
-                .entries
-                .entry(user_id.clone())
-                .or_insert_with(DashMap::new)
-                .clone()
-                .into_read_only(),
-        }
+    pub fn user_devices(&self, user_id: &UserId) -> HashMap<DeviceIdBox, ReadOnlyDevice> {
+        self.entries
+            .entry(user_id.clone())
+            .or_insert_with(DashMap::new)
+            .iter()
+            .map(|i| (i.key().to_owned(), i.value().clone()))
+            .collect()
     }
 }
 
@@ -305,12 +280,12 @@ mod test {
 
         let user_devices = store.user_devices(device.user_id());
 
-        assert_eq!(user_devices.keys().next().unwrap(), device.device_id());
-        assert_eq!(user_devices.devices().next().unwrap(), &device);
+        assert_eq!(&**user_devices.keys().next().unwrap(), device.device_id());
+        assert_eq!(user_devices.values().next().unwrap(), &device);
 
         let loaded_device = user_devices.get(device.device_id()).unwrap();
 
-        assert_eq!(device, loaded_device);
+        assert_eq!(&device, loaded_device);
 
         store.remove(device.user_id(), device.device_id());
 

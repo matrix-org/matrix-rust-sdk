@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use std::{
-    collections::BTreeMap,
+    collections::{BTreeMap, HashMap},
     convert::{TryFrom, TryInto},
     ops::Deref,
     sync::{
@@ -30,7 +30,9 @@ use matrix_sdk_common::{
         forwarded_room_key::ForwardedRoomKeyEventContent, room::encrypted::EncryptedEventContent,
         EventType,
     },
-    identifiers::{DeviceId, DeviceKeyAlgorithm, DeviceKeyId, EventEncryptionAlgorithm, UserId},
+    identifiers::{
+        DeviceId, DeviceIdBox, DeviceKeyAlgorithm, DeviceKeyId, EventEncryptionAlgorithm, UserId,
+    },
     locks::Mutex,
 };
 use serde::{Deserialize, Serialize};
@@ -45,7 +47,7 @@ use crate::{
     error::{EventError, OlmError, OlmResult, SignatureError},
     identities::{OwnUserIdentity, UserIdentities},
     olm::Utility,
-    store::{caches::ReadOnlyUserDevices, CryptoStore, Result as StoreResult},
+    store::{CryptoStore, Result as StoreResult},
     verification::VerificationMachine,
     Sas, ToDeviceRequest,
 };
@@ -168,7 +170,7 @@ impl Device {
 /// A read only view over all devices belonging to a user.
 #[derive(Debug)]
 pub struct UserDevices {
-    pub(crate) inner: ReadOnlyUserDevices,
+    pub(crate) inner: HashMap<DeviceIdBox, ReadOnlyDevice>,
     pub(crate) verification_machine: VerificationMachine,
     pub(crate) own_identity: Option<OwnUserIdentity>,
     pub(crate) device_owner_identity: Option<UserIdentities>,
@@ -178,7 +180,7 @@ impl UserDevices {
     /// Get the specific device with the given device id.
     pub fn get(&self, device_id: &DeviceId) -> Option<Device> {
         self.inner.get(device_id).map(|d| Device {
-            inner: d,
+            inner: d.clone(),
             verification_machine: self.verification_machine.clone(),
             own_identity: self.own_identity.clone(),
             device_owner_identity: self.device_owner_identity.clone(),
@@ -186,13 +188,13 @@ impl UserDevices {
     }
 
     /// Iterator over all the device ids of the user devices.
-    pub fn keys(&self) -> impl Iterator<Item = &DeviceId> {
+    pub fn keys(&self) -> impl Iterator<Item = &DeviceIdBox> {
         self.inner.keys()
     }
 
     /// Iterator over all the devices of the user devices.
     pub fn devices(&self) -> impl Iterator<Item = Device> + '_ {
-        self.inner.devices().map(move |d| Device {
+        self.inner.values().map(move |d| Device {
             inner: d.clone(),
             verification_machine: self.verification_machine.clone(),
             own_identity: self.own_identity.clone(),

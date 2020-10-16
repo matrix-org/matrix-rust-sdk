@@ -19,7 +19,8 @@ use matrix_sdk_base::crypto::{
     UserDevices as BaseUserDevices,
 };
 use matrix_sdk_common::{
-    api::r0::to_device::send_event_to_device::Request as ToDeviceRequest, identifiers::DeviceId,
+    api::r0::to_device::send_event_to_device::Request as ToDeviceRequest,
+    identifiers::{DeviceId, DeviceIdBox},
 };
 
 use crate::{error::Result, http_client::HttpClient, Sas};
@@ -114,7 +115,7 @@ impl UserDevices {
     }
 
     /// Iterator over all the device ids of the user devices.
-    pub fn keys(&self) -> impl Iterator<Item = &DeviceId> {
+    pub fn keys(&self) -> impl Iterator<Item = &DeviceIdBox> {
         self.inner.keys()
     }
 

@@ -165,18 +165,17 @@ impl IdentityManager {
                 changed_devices.push(device);
             }
 
-            let current_devices: HashSet<&DeviceId> =
-                device_map.keys().map(|id| id.as_ref()).collect();
+            let current_devices: HashSet<&DeviceIdBox> = device_map.keys().collect();
             let stored_devices = self.store.get_readonly_devices(&user_id).await?;
-            let stored_devices_set: HashSet<&DeviceId> = stored_devices.keys().collect();
+            let stored_devices_set: HashSet<&DeviceIdBox> = stored_devices.keys().collect();
 
             let deleted_devices = stored_devices_set.difference(&current_devices);
 
             for device_id in deleted_devices {
                 users_with_new_or_deleted_devices.insert(user_id);
-                if let Some(device) = stored_devices.get(device_id) {
+                if let Some(device) = stored_devices.get(*device_id) {
                     device.mark_as_deleted();
-                    self.store.delete_device(device).await?;
+                    self.store.delete_device(device.clone()).await?;
                 }
             }
         }

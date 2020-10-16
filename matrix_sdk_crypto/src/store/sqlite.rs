@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use std::{
-    collections::{BTreeMap, HashSet},
+    collections::{BTreeMap, HashMap, HashSet},
     convert::TryFrom,
     path::{Path, PathBuf},
     result::Result as StdResult,
@@ -25,7 +25,8 @@ use dashmap::DashSet;
 use matrix_sdk_common::{
     api::r0::keys::{CrossSigningKey, KeyUsage},
     identifiers::{
-        DeviceId, DeviceKeyAlgorithm, DeviceKeyId, EventEncryptionAlgorithm, RoomId, UserId,
+        DeviceId, DeviceIdBox, DeviceKeyAlgorithm, DeviceKeyId, EventEncryptionAlgorithm, RoomId,
+        UserId,
     },
     instant::Duration,
     locks::Mutex,
@@ -33,10 +34,7 @@ use matrix_sdk_common::{
 use sqlx::{query, query_as, sqlite::SqliteConnectOptions, Connection, Executor, SqliteConnection};
 use zeroize::Zeroizing;
 
-use super::{
-    caches::{DeviceStore, ReadOnlyUserDevices, SessionStore},
-    CryptoStore, CryptoStoreError, Result,
-};
+use super::{caches::SessionStore, CryptoStore, CryptoStoreError, Result};
 use crate::{
     identities::{LocalTrust, OwnUserIdentity, ReadOnlyDevice, UserIdentities, UserIdentity},
     olm::{
@@ -56,7 +54,6 @@ pub struct SqliteStore {
     path: Arc<PathBuf>,
 
     sessions: SessionStore,
-    devices: DeviceStore,
     tracked_users: Arc<DashSet<UserId>>,
     users_for_key_query: Arc<DashSet<UserId>>,
 
@@ -149,7 +146,6 @@ impl SqliteStore {
             device_id: Arc::new(device_id.into()),
             account_info: Arc::new(SyncMutex::new(None)),
             sessions: SessionStore::new(),
-            devices: DeviceStore::new(),
             path: Arc::new(path),
             connection: Arc::new(Mutex::new(connection)),
             pickle_passphrase: Arc::new(passphrase),
@@ -717,112 +713,167 @@ impl SqliteStore {
         Ok(())
     }
 
-    async fn load_devices(&self) -> Result<()> {
-        let account_id = self.account_id().ok_or(CryptoStoreError::AccountUnset)?;
-        let mut connection = self.connection.lock().await;
+    async fn load_device_data(
+        &self,
+        connection: &mut SqliteConnection,
+        device_row_id: i64,
+        user_id: &UserId,
+        device_id: DeviceIdBox,
+        trust_state: LocalTrust,
+        display_name: Option<String>,
+    ) -> Result<ReadOnlyDevice> {
+        let algorithm_rows: Vec<(String,)> =
+            query_as("SELECT algorithm FROM algorithms WHERE device_id = ?")
+                .bind(device_row_id)
+                .fetch_all(&mut *connection)
+                .await?;
 
-        let rows: Vec<(i64, String, String, Option<String>, i64)> = query_as(
-            "SELECT id, user_id, device_id, display_name, trust_state
-             FROM devices WHERE account_id = ?",
+        let algorithms = algorithm_rows
+            .iter()
+            .map(|row| {
+                let algorithm: &str = &row.0;
+                EventEncryptionAlgorithm::from(algorithm)
+            })
+            .collect::<Vec<EventEncryptionAlgorithm>>();
+
+        let key_rows: Vec<(String, String)> =
+            query_as("SELECT algorithm, key FROM device_keys WHERE device_id = ?")
+                .bind(device_row_id)
+                .fetch_all(&mut *connection)
+                .await?;
+
+        let keys: BTreeMap<DeviceKeyId, String> = key_rows
+            .into_iter()
+            .filter_map(|row| {
+                let algorithm = row.0.parse::<DeviceKeyAlgorithm>().ok()?;
+                let key = row.1;
+
+                Some((DeviceKeyId::from_parts(algorithm, &device_id), key))
+            })
+            .collect();
+
+        let signature_rows: Vec<(String, String, String)> = query_as(
+            "SELECT user_id, key_algorithm, signature
+                     FROM device_signatures WHERE device_id = ?",
         )
-        .bind(account_id)
+        .bind(device_row_id)
         .fetch_all(&mut *connection)
         .await?;
 
-        for row in rows {
-            let device_row_id = row.0;
-            let user_id: &str = &row.1;
-            let user_id = if let Ok(u) = UserId::try_from(user_id) {
+        let mut signatures: BTreeMap<UserId, BTreeMap<DeviceKeyId, String>> = BTreeMap::new();
+
+        for row in signature_rows {
+            let user_id = if let Ok(u) = UserId::try_from(&*row.0) {
                 u
             } else {
                 continue;
             };
 
-            let device_id = &row.2.to_string();
-            let display_name = &row.3;
-            let trust_state = LocalTrust::from(row.4);
+            let key_algorithm = if let Ok(k) = row.1.parse::<DeviceKeyAlgorithm>() {
+                k
+            } else {
+                continue;
+            };
 
-            let algorithm_rows: Vec<(String,)> =
-                query_as("SELECT algorithm FROM algorithms WHERE device_id = ?")
-                    .bind(device_row_id)
-                    .fetch_all(&mut *connection)
-                    .await?;
+            let signature = row.2;
 
-            let algorithms = algorithm_rows
-                .iter()
-                .map(|row| {
-                    let algorithm: &str = &row.0;
-                    EventEncryptionAlgorithm::from(algorithm)
-                })
-                .collect::<Vec<EventEncryptionAlgorithm>>();
-
-            let key_rows: Vec<(String, String)> =
-                query_as("SELECT algorithm, key FROM device_keys WHERE device_id = ?")
-                    .bind(device_row_id)
-                    .fetch_all(&mut *connection)
-                    .await?;
-
-            let keys: BTreeMap<DeviceKeyId, String> = key_rows
-                .into_iter()
-                .filter_map(|row| {
-                    let algorithm = row.0.parse::<DeviceKeyAlgorithm>().ok()?;
-                    let key = row.1;
-
-                    Some((
-                        DeviceKeyId::from_parts(algorithm, device_id.as_str().into()),
-                        key,
-                    ))
-                })
-                .collect();
-
-            let signature_rows: Vec<(String, String, String)> = query_as(
-                "SELECT user_id, key_algorithm, signature
-                         FROM device_signatures WHERE device_id = ?",
-            )
-            .bind(device_row_id)
-            .fetch_all(&mut *connection)
-            .await?;
-
-            let mut signatures: BTreeMap<UserId, BTreeMap<DeviceKeyId, String>> = BTreeMap::new();
-
-            for row in signature_rows {
-                let user_id = if let Ok(u) = UserId::try_from(&*row.0) {
-                    u
-                } else {
-                    continue;
-                };
-
-                let key_algorithm = if let Ok(k) = row.1.parse::<DeviceKeyAlgorithm>() {
-                    k
-                } else {
-                    continue;
-                };
-
-                let signature = row.2;
-
-                signatures
-                    .entry(user_id)
-                    .or_insert_with(BTreeMap::new)
-                    .insert(
-                        DeviceKeyId::from_parts(key_algorithm, device_id.as_str().into()),
-                        signature.to_owned(),
-                    );
-            }
-
-            let device = ReadOnlyDevice::new(
-                user_id,
-                device_id.as_str().into(),
-                display_name.clone(),
-                trust_state,
-                algorithms,
-                keys,
-                signatures,
-            );
-
-            self.devices.add(device);
+            signatures
+                .entry(user_id)
+                .or_insert_with(BTreeMap::new)
+                .insert(
+                    DeviceKeyId::from_parts(key_algorithm, device_id.as_str().into()),
+                    signature.to_owned(),
+                );
         }
 
-        Ok(())
+        Ok(ReadOnlyDevice::new(
+            user_id.to_owned(),
+            device_id,
+            display_name.clone(),
+            trust_state,
+            algorithms,
+            keys,
+            signatures,
+        ))
+    }
+
+    async fn get_single_device(
+        &self,
+        user_id: &UserId,
+        device_id: &DeviceId,
+    ) -> Result<Option<ReadOnlyDevice>> {
+        let account_id = self.account_id().ok_or(CryptoStoreError::AccountUnset)?;
+        let mut connection = self.connection.lock().await;
+
+        let row: Option<(i64, Option<String>, i64)> = query_as(
+            "SELECT id, display_name, trust_state
+             FROM devices WHERE account_id = ? and user_id = ? and device_id = ?",
+        )
+        .bind(account_id)
+        .bind(user_id.as_str())
+        .bind(device_id.as_str())
+        .fetch_optional(&mut *connection)
+        .await?;
+
+        let row = if let Some(r) = row {
+            r
+        } else {
+            return Ok(None);
+        };
+
+        let device_row_id = row.0;
+        let display_name = row.1;
+        let trust_state = LocalTrust::from(row.2);
+        let device = self
+            .load_device_data(
+                &mut connection,
+                device_row_id,
+                user_id,
+                device_id.into(),
+                trust_state,
+                display_name,
+            )
+            .await?;
+
+        Ok(Some(device))
+    }
+
+    async fn load_devices(&self, user_id: &UserId) -> Result<HashMap<DeviceIdBox, ReadOnlyDevice>> {
+        let mut devices = HashMap::new();
+
+        let account_id = self.account_id().ok_or(CryptoStoreError::AccountUnset)?;
+        let mut connection = self.connection.lock().await;
+
+        let mut rows: Vec<(i64, String, Option<String>, i64)> = query_as(
+            "SELECT id, device_id, display_name, trust_state
+             FROM devices WHERE account_id = ? and user_id = ?",
+        )
+        .bind(account_id)
+        .bind(user_id.as_str())
+        .fetch_all(&mut *connection)
+        .await?;
+
+        for row in rows.drain(..) {
+            let device_row_id = row.0;
+            let device_id: DeviceIdBox = row.1.into();
+            let display_name = row.2;
+            let trust_state = LocalTrust::from(row.3);
+
+            let device = self
+                .load_device_data(
+                    &mut connection,
+                    device_row_id,
+                    user_id,
+                    device_id.clone(),
+                    trust_state,
+                    display_name,
+                )
+                .await?;
+
+            devices.insert(device_id, device);
+        }
+
+        Ok(devices)
     }
 
     async fn save_device_helper(
@@ -1276,7 +1327,6 @@ impl CryptoStore for SqliteStore {
 
         drop(connection);
 
-        self.load_devices().await?;
         self.load_tracked_users().await?;
 
         Ok(result)
@@ -1424,7 +1474,6 @@ impl CryptoStore for SqliteStore {
         let mut transaction = connection.begin().await?;
 
         for device in devices {
-            self.devices.add(device.clone());
             self.save_device_helper(&mut transaction, device.clone())
                 .await?
         }
@@ -1457,11 +1506,14 @@ impl CryptoStore for SqliteStore {
         user_id: &UserId,
         device_id: &DeviceId,
     ) -> Result<Option<ReadOnlyDevice>> {
-        Ok(self.devices.get(user_id, device_id))
+        self.get_single_device(user_id, device_id).await
     }
 
-    async fn get_user_devices(&self, user_id: &UserId) -> Result<ReadOnlyUserDevices> {
-        Ok(self.devices.user_devices(user_id))
+    async fn get_user_devices(
+        &self,
+        user_id: &UserId,
+    ) -> Result<HashMap<DeviceIdBox, ReadOnlyDevice>> {
+        Ok(self.load_devices(user_id).await?)
     }
 
     async fn get_user_identity(&self, user_id: &UserId) -> Result<Option<UserIdentities>> {
@@ -1925,8 +1977,8 @@ mod test {
         assert_eq!(device.keys(), loaded_device.keys());
 
         let user_devices = store.get_user_devices(device.user_id()).await.unwrap();
-        assert_eq!(user_devices.keys().next().unwrap(), device.device_id());
-        assert_eq!(user_devices.devices().next().unwrap(), &device);
+        assert_eq!(&**user_devices.keys().next().unwrap(), device.device_id());
+        assert_eq!(user_devices.values().next().unwrap(), &device);
     }
 
     #[tokio::test(threaded_scheduler)]

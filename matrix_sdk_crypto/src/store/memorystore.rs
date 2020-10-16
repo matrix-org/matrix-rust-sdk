@@ -12,17 +12,20 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{collections::HashSet, sync::Arc};
+use std::{
+    collections::{HashMap, HashSet},
+    sync::Arc,
+};
 
 use dashmap::{DashMap, DashSet};
 use matrix_sdk_common::{
-    identifiers::{DeviceId, RoomId, UserId},
+    identifiers::{DeviceId, DeviceIdBox, RoomId, UserId},
     locks::Mutex,
 };
 use matrix_sdk_common_macros::async_trait;
 
 use super::{
-    caches::{DeviceStore, GroupSessionStore, ReadOnlyUserDevices, SessionStore},
+    caches::{DeviceStore, GroupSessionStore, SessionStore},
     CryptoStore, InboundGroupSession, ReadOnlyAccount, Result, Session,
 };
 use crate::identities::{ReadOnlyDevice, UserIdentities};
@@ -153,7 +156,10 @@ impl CryptoStore for MemoryStore {
         Ok(())
     }
 
-    async fn get_user_devices(&self, user_id: &UserId) -> Result<ReadOnlyUserDevices> {
+    async fn get_user_devices(
+        &self,
+        user_id: &UserId,
+    ) -> Result<HashMap<DeviceIdBox, ReadOnlyDevice>> {
         Ok(self.devices.user_devices(user_id))
     }
 
@@ -273,12 +279,12 @@ mod test {
 
         let user_devices = store.get_user_devices(device.user_id()).await.unwrap();
 
-        assert_eq!(user_devices.keys().next().unwrap(), device.device_id());
-        assert_eq!(user_devices.devices().next().unwrap(), &device);
+        assert_eq!(&**user_devices.keys().next().unwrap(), device.device_id());
+        assert_eq!(user_devices.values().next().unwrap(), &device);
 
         let loaded_device = user_devices.get(device.device_id()).unwrap();
 
-        assert_eq!(device, loaded_device);
+        assert_eq!(&device, loaded_device);
 
         store.delete_device(device.clone()).await.unwrap();
         assert!(store
