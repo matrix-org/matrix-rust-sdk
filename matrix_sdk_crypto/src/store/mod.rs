@@ -55,7 +55,6 @@ use olm_rs::errors::{OlmAccountError, OlmGroupSessionError, OlmSessionError};
 use serde::{Deserialize, Serialize};
 use serde_json::Error as SerdeError;
 use thiserror::Error;
-use url::ParseError;
 
 #[cfg_attr(feature = "docs", doc(cfg(r#sqlite_cryptostore)))]
 #[cfg(not(target_arch = "wasm32"))]
@@ -245,10 +244,6 @@ pub enum CryptoStoreError {
     /// The store failed to (de)serialize a data type.
     #[error(transparent)]
     Serialization(#[from] SerdeError),
-
-    /// An error occurred while parsing an URL.
-    #[error(transparent)]
-    UrlParse(#[from] ParseError),
 }
 
 /// Trait abstracting a store that the `OlmMachine` uses to store cryptographic
