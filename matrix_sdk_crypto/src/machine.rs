@@ -46,7 +46,6 @@ use matrix_sdk_common::{
 use crate::store::sqlite::SqliteStore;
 use crate::{
     error::{EventError, MegolmError, MegolmResult, OlmError, OlmResult},
-    group_manager::GroupSessionManager,
     identities::{Device, IdentityManager, ReadOnlyDevice, UserDevices, UserIdentities},
     key_request::KeyRequestMachine,
     olm::{
@@ -54,7 +53,7 @@ use crate::{
         InboundGroupSession, ReadOnlyAccount,
     },
     requests::{IncomingResponse, OutgoingRequest},
-    session_manager::SessionManager,
+    session_manager::{GroupSessionManager, SessionManager},
     store::{CryptoStore, MemoryStore, Result as StoreResult, Store},
     verification::{Sas, VerificationMachine},
     ToDeviceRequest,

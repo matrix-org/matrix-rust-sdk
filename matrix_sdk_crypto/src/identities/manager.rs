@@ -27,12 +27,12 @@ use matrix_sdk_common::{
 
 use crate::{
     error::OlmResult,
-    group_manager::GroupSessionManager,
     identities::{
         MasterPubkey, OwnUserIdentity, ReadOnlyDevice, SelfSigningPubkey, UserIdentities,
         UserIdentity, UserSigningPubkey,
     },
     requests::KeysQueryRequest,
+    session_manager::GroupSessionManager,
     store::{Result as StoreResult, Store},
 };
 
@@ -376,10 +376,10 @@ pub(crate) mod test {
     use serde_json::json;
 
     use crate::{
-        group_manager::GroupSessionManager,
         identities::IdentityManager,
         machine::test::response_from_file,
         olm::{Account, ReadOnlyAccount},
+        session_manager::GroupSessionManager,
         store::{CryptoStore, MemoryStore, Store},
         verification::VerificationMachine,
     };
