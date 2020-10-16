@@ -65,7 +65,7 @@ pub enum LoopCtrl {
 use matrix_sdk_common::{
     api::r0::{
         account::register,
-        device::get_devices,
+        device::{delete_devices, get_devices},
         directory::{get_public_rooms, get_public_rooms_filtered},
         media::create_content,
         membership::{
@@ -82,6 +82,7 @@ use matrix_sdk_common::{
         typing::create_typing_event::{
             Request as TypingRequest, Response as TypingResponse, Typing,
         },
+        uiaa::AuthData,
     },
     assign,
     events::{
@@ -1383,6 +1384,71 @@ impl Client {
         self.send(request).await
     }
 
+    /// Delete the given devices from the server.
+    ///
+    /// # Arguments
+    ///
+    /// * `devices` - The list of devices that should be deleted from the
+    /// server.
+    ///
+    /// * `auth_data` - This request requires user interactive auth, the first
+    /// request needs to set this to `None` and will always fail with an
+    /// `UiaaResponse`. The response will contain information for the
+    /// interactive auth and the same request needs to be made but this time
+    /// with some `auth_data` provided.
+    ///
+    /// ```no_run
+    /// # use matrix_sdk::{
+    /// #    api::r0::uiaa::{UiaaResponse, AuthData},
+    /// #    Client, SyncSettings, Error, FromHttpResponseError, ServerError,
+    /// # };
+    /// # use futures::executor::block_on;
+    /// # use serde_json::json;
+    /// # use url::Url;
+    /// # use std::{collections::BTreeMap, convert::TryFrom};
+    /// # block_on(async {
+    /// # let homeserver = Url::parse("http://localhost:8080").unwrap();
+    /// # let mut client = Client::new(homeserver).unwrap();
+    /// let devices = &["DEVICEID".into()];
+    ///
+    /// if let Err(e) = client.delete_devices(devices, None).await {
+    ///     if let Some(info) = e.uiaa_response() {
+    ///         let mut auth_parameters = BTreeMap::new();
+    ///
+    ///         let identifier = json!({
+    ///             "type": "m.id.user",
+    ///             "user": "example",
+    ///         });
+    ///         auth_parameters.insert("identifier".to_owned(), identifier);
+    ///         auth_parameters.insert("password".to_owned(), "wordpass".into());
+    ///
+    ///         // This is needed because of https://github.com/matrix-org/synapse/issues/5665
+    ///         auth_parameters.insert("user".to_owned(), "@example:localhost".into());
+    ///
+    ///         let auth_data = AuthData::DirectRequest {
+    ///             kind: "m.login.password",
+    ///             auth_parameters,
+    ///             session: info.session.as_deref(),
+    ///         };
+    ///
+    ///         client
+    ///             .delete_devices(devices, Some(auth_data))
+    ///             .await
+    ///             .expect("Can't delete devices");
+    ///     }
+    /// }
+    /// # });
+    pub async fn delete_devices(
+        &self,
+        devices: &[DeviceIdBox],
+        auth_data: Option<AuthData<'_>>,
+    ) -> Result<delete_devices::Response> {
+        let mut request = delete_devices::Request::new(devices);
+        request.auth = auth_data;
+
+        self.send(request).await
+    }
+
     /// Synchronize the client's state with the latest state on the server.
     ///
     /// **Note**: You should not use this method to repeatedly sync if encryption
@@ -1956,7 +2022,10 @@ mod test {
     use serde_json::json;
     use tempfile::tempdir;
 
-    use std::{convert::TryInto, io::Cursor, path::Path, str::FromStr, time::Duration};
+    use std::{
+        collections::BTreeMap, convert::TryInto, io::Cursor, path::Path, str::FromStr,
+        time::Duration,
+    };
 
     async fn logged_in_client() -> Client {
         let session = Session {
@@ -2754,5 +2823,62 @@ mod test {
             .unwrap();
 
         assert_eq!("tutorial".to_string(), room.read().await.display_name());
+    }
+
+    #[tokio::test]
+    async fn delete_devices() {
+        let homeserver = Url::from_str(&mockito::server_url()).unwrap();
+        let client = Client::new(homeserver).unwrap();
+
+        let _m = mock("POST", "/_matrix/client/r0/delete_devices")
+            .with_status(401)
+            .with_body(
+                json!({
+                    "flows": [
+                        {
+                            "stages": [
+                                "m.login.password"
+                            ]
+                        }
+                    ],
+                    "params": {},
+                    "session": "vBslorikviAjxzYBASOBGfPp"
+                })
+                .to_string(),
+            )
+            .create();
+
+        let _m = mock("POST", "/_matrix/client/r0/delete_devices")
+            .with_status(401)
+            // empty response
+            // TODO rename that response type.
+            .with_body(test_json::LOGOUT.to_string())
+            .create();
+
+        let devices = &["DEVICEID".into()];
+
+        if let Err(e) = client.delete_devices(devices, None).await {
+            if let Some(info) = e.uiaa_response() {
+                let mut auth_parameters = BTreeMap::new();
+
+                let identifier = json!({
+                    "type": "m.id.user",
+                    "user": "example",
+                });
+                auth_parameters.insert("identifier".to_owned(), identifier);
+                auth_parameters.insert("password".to_owned(), "wordpass".into());
+
+                let auth_data = AuthData::DirectRequest {
+                    kind: "m.login.password",
+                    auth_parameters,
+                    session: info.session.as_deref(),
+                };
+
+                client
+                    .delete_devices(devices, Some(auth_data))
+                    .await
+                    .unwrap();
+            }
+        }
     }
 }

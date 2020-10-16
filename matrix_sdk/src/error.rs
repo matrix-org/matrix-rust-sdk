@@ -16,8 +16,11 @@
 
 use matrix_sdk_base::Error as MatrixError;
 use matrix_sdk_common::{
-    api::{r0::uiaa::UiaaResponse as UiaaError, Error as RumaClientError},
-    FromHttpResponseError as RumaResponseError, IntoHttpError as RumaIntoHttpError,
+    api::{
+        r0::uiaa::{UiaaInfo, UiaaResponse as UiaaError},
+        Error as RumaClientError,
+    },
+    FromHttpResponseError as RumaResponseError, IntoHttpError as RumaIntoHttpError, ServerError,
 };
 use reqwest::Error as ReqwestError;
 use serde_json::Error as JsonError;
@@ -77,6 +80,30 @@ pub enum Error {
     /// represents an error with information about how to authenticate the user.
     #[error("User-Interactive Authentication required.")]
     UiaaError(RumaResponseError<UiaaError>),
+}
+
+impl Error {
+    /// Try to destructure the error into an universal interactive auth info.
+    ///
+    /// Some requests require universal interactive auth, doing such a request
+    /// will always fail the first time with a 401 status code, the response
+    /// body will contain info how the client can authenticate.
+    ///
+    /// The request will need to be retried, this time containing additional
+    /// authentication data.
+    ///
+    /// This method is an convenience method to get to the info the server
+    /// returned on the first, failed request.
+    pub fn uiaa_response(&self) -> Option<&UiaaInfo> {
+        if let Error::UiaaError(RumaResponseError::Http(ServerError::Known(
+            UiaaError::AuthResponse(i),
+        ))) = self
+        {
+            Some(i)
+        } else {
+            None
+        }
+    }
 }
 
 impl From<RumaResponseError<UiaaError>> for Error {
