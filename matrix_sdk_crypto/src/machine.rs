@@ -906,6 +906,7 @@ impl OlmMachine {
             // Only import the session if we didn't have this session or if it's
             // a better version of the same session, that is the first known
             // index is lower.
+            // TODO load all sessions so we don't do a thousand small loads.
             if let Some(existing_session) = self
                 .store
                 .get_inbound_group_session(
@@ -929,6 +930,10 @@ impl OlmMachine {
         let num_sessions = sessions.len();
 
         self.store.save_inbound_group_sessions(&sessions).await?;
+        info!(
+            "Successfully imported {} inbound group sessions",
+            num_sessions
+        );
 
         Ok(num_sessions)
     }

@@ -1879,6 +1879,8 @@ impl Client {
     ///
     /// # Panics
     ///
+    /// This method will panic if it isn't run on a Tokio runtime.
+    ///
     /// This method will panic if it can't get enough randomness from the OS to
     /// encrypt the exported keys securely.
     ///
@@ -1947,6 +1949,17 @@ impl Client {
 
     /// Import E2EE keys from the given file path.
     ///
+    /// # Arguments
+    ///
+    /// * `path` - The file path where the exported key file will can be found.
+    ///
+    /// * `passphrase` - The passphrase that should be used to decrypt the
+    /// exported room keys.
+    ///
+    /// # Panics
+    ///
+    /// This method will panic if it isn't run on a Tokio runtime.
+    ///
     /// ```no_run
     /// # use std::{path::PathBuf, time::Duration};
     /// # use matrix_sdk::{
@@ -1972,7 +1985,7 @@ impl Client {
         feature = "docs",
         doc(cfg(all(encryption, not(target_arch = "wasm32"))))
     )]
-    pub async fn import_keys(&self, path: PathBuf, passphrase: &str) -> Result<()> {
+    pub async fn import_keys(&self, path: PathBuf, passphrase: &str) -> Result<usize> {
         let olm = self
             .base_client
             .olm_machine()
@@ -1988,9 +2001,7 @@ impl Client {
         let task = tokio::task::spawn_blocking(decrypt);
         let import = task.await.expect("Task join error").unwrap();
 
-        olm.import_keys(import).await.unwrap();
-
-        Ok(())
+        Ok(olm.import_keys(import).await?)
     }
 }
 
