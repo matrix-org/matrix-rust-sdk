@@ -826,7 +826,7 @@ impl Client {
     /// let mut client = Client::new(homeserver).unwrap();
     ///
     /// let generic_search_term = Some("matrix-rust-sdk");
-    /// let filter = Some(assign!(Filter::new(), { generic_search_term }));
+    /// let filter = assign!(Filter::new(), { generic_search_term });
     /// let request = assign!(PublicRoomsFilterRequest::new(), { filter });
     ///
     /// client.public_rooms_filtered(request).await;
@@ -1292,7 +1292,9 @@ impl Client {
         let mut data = Vec::new();
         reader.read_to_end(&mut data)?;
 
-        let request = create_content::Request::new(content_type.essence_str(), data);
+        let request = assign!(create_content::Request::new(data), {
+            content_type: Some(content_type.essence_str()),
+        });
 
         self.http_client.upload(request).await
     }
@@ -2325,7 +2327,7 @@ mod test {
         .create();
 
         let generic_search_term = Some("cheese");
-        let filter = Some(assign!(Filter::new(), { generic_search_term }));
+        let filter = assign!(Filter::new(), { generic_search_term });
         let request = assign!(PublicRoomsFilterRequest::new(), { filter });
 
         let get_public_rooms_filtered::Response { chunk, .. } =
