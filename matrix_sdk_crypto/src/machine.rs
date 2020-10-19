@@ -17,7 +17,7 @@ use std::path::Path;
 use std::{collections::BTreeMap, mem, sync::Arc};
 
 use dashmap::DashMap;
-use tracing::{debug, error, info, instrument, trace, warn};
+use tracing::{debug, error, info, trace, warn};
 
 use matrix_sdk_common::{
     api::r0::{
@@ -214,7 +214,6 @@ impl OlmMachine {
     ///
     /// * `device_id` - The unique id of the device that owns this machine.
     #[cfg(feature = "sqlite_cryptostore")]
-    #[instrument(skip(path, passphrase))]
     #[cfg_attr(feature = "docs", doc(cfg(r#sqlite_cryptostore)))]
     pub async fn new_with_default_store(
         user_id: &UserId,
@@ -351,7 +350,6 @@ impl OlmMachine {
     ///
     /// * `response` - The keys upload response of the request that the client
     /// performed.
-    #[instrument]
     async fn receive_keys_upload_response(
         &self,
         response: &upload_keys::Response,
@@ -666,7 +664,6 @@ impl OlmMachine {
     /// * `response` - The sync latest sync response.
     ///
     /// [`decrypt_room_event`]: #method.decrypt_room_event
-    #[instrument(skip(response))]
     pub async fn receive_sync_response(&self, response: &mut SyncResponse) {
         self.verification_machine.garbage_collect();
 

@@ -22,16 +22,17 @@ js_int = "0.1.9"
 version = "0.0.1"
 git = "https://github.com/ruma/ruma"
 rev = "50eb700571480d1440e15a387d10f98be8abab59"
-features = ["client-api", "unstable-pre-spec", "unstable-exhaustive-types"]
+default-features = false
+features = ["client-api", "unstable-pre-spec", "unstable-synapse-quirks"]
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-uuid = { version = "0.8.1", features = ["v4", "serde"] }
+uuid = { version = "0.8.1", default-features = false, features = ["v4", "serde"] }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies.tokio]
 version = "0.2.22"
 default-features = false
-features = ["sync", "time", "fs"]
+features = ["sync"]
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 futures-locks = { version = "0.6.0", default-features = false }
-uuid = { version = "0.8.1", features = ["v4", "wasm-bindgen"] }
+uuid = { version = "0.8.1", default-features = false, features = ["v4", "wasm-bindgen"] }

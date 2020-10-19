@@ -669,9 +669,7 @@ impl ReadOnlyAccount {
     ///
     /// Panics if the json value can't be serialized.
     pub async fn sign_json(&self, json: &Value) -> String {
-        let canonical_json = cjson::to_string(json)
-            .unwrap_or_else(|_| panic!(format!("Can't serialize {} to canonical JSON", json)));
-        self.sign(&canonical_json).await
+        self.sign(&json.to_string()).await
     }
 
     /// Generate, sign and prepare one-time keys to be uploaded.

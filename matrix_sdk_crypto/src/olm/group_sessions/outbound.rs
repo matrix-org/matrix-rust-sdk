@@ -240,12 +240,7 @@ impl OutboundGroupSession {
             "type": content.event_type(),
         });
 
-        let plaintext = cjson::to_string(&json_content).unwrap_or_else(|_| {
-            panic!(format!(
-                "Can't serialize {} to canonical JSON",
-                json_content
-            ))
-        });
+        let plaintext = json_content.to_string();
 
         let ciphertext = self.encrypt_helper(plaintext).await;
 

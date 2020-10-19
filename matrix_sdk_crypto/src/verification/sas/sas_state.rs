@@ -351,7 +351,7 @@ impl SasState<Created> {
             let accepted_protocols =
                 AcceptedProtocols::try_from(content.clone()).map_err(|c| self.clone().cancel(c))?;
 
-            let json_start_content = cjson::to_string(&self.as_content())
+            let json_start_content = serde_json::to_string(&self.as_content())
                 .expect("Can't deserialize start event content");
 
             Ok(SasState {
@@ -396,7 +396,8 @@ impl SasState<Started> {
             let sas = OlmSas::new();
             let utility = OlmUtility::new();
 
-            let json_content = cjson::to_string(&event.content).expect("Can't serialize content");
+            let json_content =
+                serde_json::to_string(&event.content).expect("Can't serialize content");
             let pubkey = sas.public_key();
             let commitment = utility.sha256_utf8_msg(&format!("{}{}", pubkey, json_content));
 

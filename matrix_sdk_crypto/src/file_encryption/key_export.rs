@@ -20,7 +20,7 @@ use byteorder::{BigEndian, ReadBytesExt};
 use getrandom::getrandom;
 
 use aes_ctr::{
-    stream_cipher::{NewStreamCipher, SyncStreamCipher},
+    cipher::{NewStreamCipher, SyncStreamCipher},
     Aes256Ctr,
 };
 use hmac::{Hmac, Mac, NewMac};
