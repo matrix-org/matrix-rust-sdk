@@ -28,7 +28,6 @@
 //! of Synapse in compliance with the Matrix API specification.
 #![deny(
     missing_debug_implementations,
-    dead_code,
     missing_docs,
     trivial_casts,
     trivial_numeric_casts,
@@ -46,24 +45,10 @@ pub use matrix_sdk_common::*;
 
 mod client;
 mod error;
-mod event_emitter;
-mod models;
 mod session;
-mod state;
 
 pub use client::{BaseClient, BaseClientConfig, RoomState, RoomStateType};
-pub use event_emitter::{CustomEvent, EventEmitter, SyncRoom};
-pub use models::{Room, RoomMember};
-pub use state::{AllRooms, ClientState};
 
 #[cfg(feature = "encryption")]
 #[cfg_attr(feature = "docs", doc(cfg(encryption)))]
 pub use matrix_sdk_crypto as crypto;
-
-#[cfg(feature = "messages")]
-#[cfg_attr(feature = "docs", doc(cfg(messages)))]
-pub use models::{MessageQueue, PossiblyRedactedExt};
-
-#[cfg(not(target_arch = "wasm32"))]
-pub use state::JsonStore;
-pub use state::StateStore;

@@ -56,27 +56,6 @@ impl PartialEq for ClientState {
     }
 }
 
-impl ClientState {
-    /// Create a JSON serialize-able `ClientState`.
-    ///
-    /// This enables non sensitive information to be saved by `JsonStore`.
-    #[allow(clippy::eval_order_dependence)]
-    // TODO is this ok ^^^?? https://github.com/rust-lang/rust-clippy/issues/4637
-    pub async fn from_base_client(client: &BaseClient) -> ClientState {
-        let BaseClient {
-            sync_token,
-            ignored_users,
-            push_ruleset,
-            ..
-        } = client;
-        Self {
-            sync_token: sync_token.read().await.clone(),
-            ignored_users: ignored_users.read().await.clone(),
-            push_ruleset: push_ruleset.read().await.clone(),
-        }
-    }
-}
-
 /// `JsonStore::load_all_rooms` returns `AllRooms`.
 ///
 /// `AllRooms` is made of the `joined`, `invited` and `left` room maps.

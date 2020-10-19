@@ -36,6 +36,7 @@ matrix-sdk-crypto = { version = "0.1.0", path = "../matrix_sdk_crypto", optional
 
 # Misc dependencies
 thiserror = "1.0.21"
+sled = "*"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies.tokio]
 version = "0.2.22"
