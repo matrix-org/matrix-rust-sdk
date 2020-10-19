@@ -17,6 +17,7 @@ use std::path::Path;
 use std::{collections::BTreeMap, mem, sync::Arc};
 
 use dashmap::DashMap;
+use matrix_sdk_common::locks::Mutex;
 use tracing::{debug, error, info, instrument, trace, warn};
 
 use matrix_sdk_common::{
@@ -50,9 +51,9 @@ use crate::{
     key_request::KeyRequestMachine,
     olm::{
         Account, EncryptionSettings, ExportedRoomKey, GroupSessionKey, IdentityKeys,
-        InboundGroupSession, ReadOnlyAccount,
+        InboundGroupSession, PrivateCrossSigningIdentity, ReadOnlyAccount,
     },
-    requests::{IncomingResponse, OutgoingRequest},
+    requests::{IncomingResponse, OutgoingRequest, UploadSigningKeysRequest},
     session_manager::{GroupSessionManager, SessionManager},
     store::{CryptoStore, MemoryStore, Result as StoreResult, Store},
     verification::{Sas, VerificationMachine},
@@ -69,6 +70,11 @@ pub struct OlmMachine {
     device_id: Arc<Box<DeviceId>>,
     /// Our underlying Olm Account holding our identity keys.
     account: Account,
+    /// The private part of our cross signing identity.
+    /// Used to sign devices and other users, might be missing if some other
+    /// device bootstraped cross signing or cross signing isn't bootstrapped at
+    /// all.
+    user_identity: Arc<Mutex<PrivateCrossSigningIdentity>>,
     /// Store for the encryption keys.
     /// Persists all the encryption keys so a client can resume the session
     /// without the need to create new keys.
@@ -114,7 +120,13 @@ impl OlmMachine {
         let device_id: DeviceIdBox = device_id.into();
         let account = ReadOnlyAccount::new(&user_id, &device_id);
 
-        OlmMachine::new_helper(user_id, device_id, store, account)
+        OlmMachine::new_helper(
+            user_id,
+            device_id,
+            store,
+            account,
+            PrivateCrossSigningIdentity::empty(user_id.to_owned()),
+        )
     }
 
     fn new_helper(
@@ -122,6 +134,7 @@ impl OlmMachine {
         device_id: DeviceIdBox,
         store: Box<dyn CryptoStore>,
         account: ReadOnlyAccount,
+        user_identity: PrivateCrossSigningIdentity,
     ) -> Self {
         let user_id = Arc::new(user_id.clone());
 
@@ -169,6 +182,7 @@ impl OlmMachine {
             verification_machine,
             key_request_machine,
             identity_manager,
+            user_identity: Arc::new(Mutex::new(user_identity)),
         }
     }
 
@@ -207,7 +221,12 @@ impl OlmMachine {
             }
         };
 
-        Ok(OlmMachine::new_helper(&user_id, device_id, store, account))
+        // TODO load the identity like we load an account.
+        let identity = PrivateCrossSigningIdentity::empty(user_id.clone());
+
+        Ok(OlmMachine::new_helper(
+            &user_id, device_id, store, account, identity,
+        ))
     }
 
     /// Create a new machine with the default crypto store.
@@ -311,9 +330,34 @@ impl OlmMachine {
             IncomingResponse::ToDevice(_) => {
                 self.mark_to_device_request_as_sent(&request_id).await?;
             }
+            IncomingResponse::SigningKeysUpload(_) => {
+                self.receive_cross_signing_upload_response().await?;
+            }
         };
 
         Ok(())
+    }
+
+    /// Mark the cross signing identity as shared.
+    async fn receive_cross_signing_upload_response(&self) -> StoreResult<()> {
+        self.user_identity.lock().await.mark_as_shared();
+        // TOOD save the identity.
+        Ok(())
+    }
+
+    /// Create a new cross signing identity and get the upload request to push
+    /// the new public keys to the server.
+    ///
+    /// **Warning**: This will delete any existing cross signing keys that might
+    /// exist on the server and thus will reset the trust between all the
+    /// devices.
+    ///
+    /// Uploading these keys will require user interactive auth.
+    pub async fn bootstrap_cross_signing(&self) -> UploadSigningKeysRequest {
+        let mut lock = self.user_identity.lock().await;
+        *lock = PrivateCrossSigningIdentity::new(self.user_id().to_owned()).await;
+        // TODO save the identity.
+        lock.as_upload_request().await
     }
 
     /// Should device or one-time keys be uploaded to the server.

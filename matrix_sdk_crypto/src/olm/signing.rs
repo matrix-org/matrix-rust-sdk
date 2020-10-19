@@ -32,12 +32,15 @@ use zeroize::Zeroizing;
 use olm_rs::{errors::OlmUtilityError, pk::OlmPkSigning, utility::OlmUtility};
 
 use matrix_sdk_common::{
-    api::r0::keys::{upload_signing_keys::Request as UploadRequest, CrossSigningKey, KeyUsage},
+    api::r0::keys::{CrossSigningKey, KeyUsage},
     identifiers::UserId,
     locks::Mutex,
 };
 
-use crate::identities::{MasterPubkey, SelfSigningPubkey, UserSigningPubkey};
+use crate::{
+    identities::{MasterPubkey, SelfSigningPubkey, UserSigningPubkey},
+    requests::UploadSigningKeysRequest,
+};
 
 fn encode<T: AsRef<[u8]>>(input: T) -> String {
     encode_config(input, URL_SAFE_NO_PAD)
@@ -320,7 +323,17 @@ impl Signing {
 }
 
 impl PrivateCrossSigningIdentity {
-    async fn new(user_id: UserId) -> Self {
+    pub(crate) fn empty(user_id: UserId) -> Self {
+        Self {
+            user_id: Arc::new(user_id),
+            shared: Arc::new(AtomicBool::new(false)),
+            master_key: Arc::new(Mutex::new(None)),
+            self_signing_key: Arc::new(Mutex::new(None)),
+            user_signing_key: Arc::new(Mutex::new(None)),
+        }
+    }
+
+    pub(crate) async fn new(user_id: UserId) -> Self {
         let master = Signing::new();
 
         let public_key = master.cross_signing_key(user_id.clone(), KeyUsage::Master);
@@ -356,7 +369,7 @@ impl PrivateCrossSigningIdentity {
         }
     }
 
-    fn mark_as_shared(&self) {
+    pub fn mark_as_shared(&self) {
         self.shared.store(true, Ordering::SeqCst)
     }
 
@@ -364,7 +377,7 @@ impl PrivateCrossSigningIdentity {
         self.shared.load(Ordering::SeqCst)
     }
 
-    async fn pickle(&self, pickle_key: &[u8]) -> PickledCrossSigningIdentity {
+    pub async fn pickle(&self, pickle_key: &[u8]) -> PickledCrossSigningIdentity {
         let master_key = if let Some(m) = self.master_key.lock().await.as_ref() {
             Some(m.pickle(pickle_key).await)
         } else {
@@ -392,7 +405,7 @@ impl PrivateCrossSigningIdentity {
         }
     }
 
-    async fn from_pickle(pickle: PickledCrossSigningIdentity, pickle_key: &[u8]) -> Self {
+    pub async fn from_pickle(pickle: PickledCrossSigningIdentity, pickle_key: &[u8]) -> Self {
         let master = if let Some(m) = pickle.master_key {
             Some(MasterSigning::from_pickle(m, pickle_key))
         } else {
@@ -420,7 +433,7 @@ impl PrivateCrossSigningIdentity {
         }
     }
 
-    async fn as_upload_request(&self) -> UploadRequest<'_> {
+    pub(crate) async fn as_upload_request(&self) -> UploadSigningKeysRequest {
         let master_key = self
             .master_key
             .lock()
@@ -445,8 +458,7 @@ impl PrivateCrossSigningIdentity {
             .cloned()
             .map(|k| k.public_key.into());
 
-        UploadRequest {
-            auth: None,
+        UploadSigningKeysRequest {
             master_key,
             user_signing_key,
             self_signing_key,
