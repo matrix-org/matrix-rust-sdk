@@ -20,8 +20,6 @@ use std::{
     sync::Arc,
 };
 
-use sled::{self, Config as SledConfig, Db as Sled};
-
 #[cfg(feature = "encryption")]
 use matrix_sdk_common::locks::Mutex;
 use matrix_sdk_common::{
@@ -49,7 +47,7 @@ use matrix_sdk_crypto::{
 };
 use zeroize::Zeroizing;
 
-use crate::{error::Result, session::Session};
+use crate::{error::Result, session::Session, store::Store};
 
 pub type Token = String;
 
@@ -170,7 +168,7 @@ pub struct BaseClient {
     /// The current sync token that should be used for the next sync call.
     pub(crate) sync_token: Arc<RwLock<Option<Token>>>,
     /// Database
-    sled: Sled,
+    store: Store,
     #[cfg(feature = "encryption")]
     olm: Arc<Mutex<Option<OlmMachine>>>,
     #[cfg(feature = "encryption")]
@@ -276,7 +274,7 @@ impl BaseClient {
         Ok(BaseClient {
             session: Arc::new(RwLock::new(None)),
             sync_token: Arc::new(RwLock::new(None)),
-            sled: SledConfig::new().temporary(true).open().unwrap(),
+            store: Store::open(),
             #[cfg(feature = "encryption")]
             olm: Arc::new(Mutex::new(None)),
             #[cfg(feature = "encryption")]

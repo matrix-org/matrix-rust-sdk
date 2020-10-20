@@ -15,7 +15,7 @@ features = ["docs"]
 rustdoc-args = ["--cfg", "feature=\"docs\""]
 
 [features]
-default = ["encryption", "sqlite_cryptostore", "messages"]
+default = []
 messages = []
 encryption = ["matrix-sdk-crypto"]
 sqlite_cryptostore = ["matrix-sdk-crypto/sqlite_cryptostore"]

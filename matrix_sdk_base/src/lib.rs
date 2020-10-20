@@ -28,7 +28,6 @@
 //! of Synapse in compliance with the Matrix API specification.
 #![deny(
     missing_debug_implementations,
-    missing_docs,
     trivial_casts,
     trivial_numeric_casts,
     unused_extern_crates,
@@ -46,6 +45,9 @@ pub use matrix_sdk_common::*;
 mod client;
 mod error;
 mod session;
+mod store;
+
+pub use store::Store;
 
 pub use client::{BaseClient, BaseClientConfig, RoomState, RoomStateType};
 
