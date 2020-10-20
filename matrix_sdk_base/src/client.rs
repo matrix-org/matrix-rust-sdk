@@ -971,8 +971,6 @@ impl BaseClient {
             return Ok(());
         }
 
-        *self.sync_token.write().await = Some(response.next_batch.clone());
-
         #[cfg(feature = "encryption")]
         {
             let olm = self.olm.lock().await;
@@ -982,9 +980,11 @@ impl BaseClient {
                 // decryptes to-device events, but leaves room events alone.
                 // This makes sure that we have the deryption keys for the room
                 // events at hand.
-                o.receive_sync_response(response).await;
+                o.receive_sync_response(response).await?;
             }
         }
+
+        *self.sync_token.write().await = Some(response.next_batch.clone());
 
         // when events change state, updated_* signals to StateStore to update database
         self.iter_joined_rooms(response).await?;

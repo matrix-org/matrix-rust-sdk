@@ -194,18 +194,14 @@ impl VerificationMachine {
                     self.receive_event_helper(&s, event);
 
                     if s.is_done() {
-                        if !s.mark_device_as_verified().await? {
-                            if let Some(r) = s.cancel() {
-                                self.outgoing_to_device_messages.insert(
-                                    r.txn_id,
-                                    OutgoingRequest {
-                                        request_id: r.txn_id,
-                                        request: Arc::new(r.into()),
-                                    },
-                                );
-                            }
-                        } else {
-                            s.mark_identity_as_verified().await?;
+                        if let Some(r) = s.mark_as_done().await? {
+                            self.outgoing_to_device_messages.insert(
+                                r.txn_id,
+                                OutgoingRequest {
+                                    request_id: r.txn_id,
+                                    request: Arc::new(r.into()),
+                                },
+                            );
                         }
                     }
                 };
@@ -258,17 +254,15 @@ mod test {
         let alice = ReadOnlyAccount::new(&alice_id(), &alice_device_id());
         let bob = ReadOnlyAccount::new(&bob_id(), &bob_device_id());
         let store = MemoryStore::new();
-        let bob_store: Arc<Box<dyn CryptoStore>> = Arc::new(Box::new(MemoryStore::new()));
+        let bob_store = MemoryStore::new();
 
         let bob_device = ReadOnlyDevice::from_account(&bob).await;
         let alice_device = ReadOnlyDevice::from_account(&alice).await;
 
-        store.save_devices(&[bob_device]).await.unwrap();
-        bob_store
-            .save_devices(&[alice_device.clone()])
-            .await
-            .unwrap();
+        store.save_devices(vec![bob_device]).await;
+        bob_store.save_devices(vec![alice_device.clone()]).await;
 
+        let bob_store: Arc<Box<dyn CryptoStore>> = Arc::new(Box::new(bob_store));
         let machine = VerificationMachine::new(alice, Arc::new(Box::new(store)));
         let (bob_sas, start_content) = Sas::start(bob, alice_device, bob_store, None);
         machine

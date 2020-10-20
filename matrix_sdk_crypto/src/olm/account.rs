@@ -52,7 +52,7 @@ use olm_rs::{
 use crate::{
     error::{EventError, OlmResult, SessionCreationError},
     identities::ReadOnlyDevice,
-    store::{Result as StoreResult, Store},
+    store::Store,
     OlmError,
 };
 
@@ -76,7 +76,7 @@ impl Account {
     pub async fn decrypt_to_device_event(
         &self,
         event: &ToDeviceEvent<EncryptedEventContent>,
-    ) -> OlmResult<(Raw<AnyToDeviceEvent>, String, String)> {
+    ) -> OlmResult<(Session, Raw<AnyToDeviceEvent>, String, String)> {
         debug!("Decrypting to-device event");
 
         let content = if let EncryptedEventContent::OlmV1Curve25519AesSha2(c) = &event.content {
@@ -103,27 +103,28 @@ impl Account {
                     .map_err(|_| EventError::UnsupportedOlmType)?;
 
             // Decrypt the OlmMessage and get a Ruma event out of it.
-            let (decrypted_event, signing_key) = self
+            let (session, decrypted_event, signing_key) = self
                 .decrypt_olm_message(&event.sender, &content.sender_key, message)
                 .await?;
 
             debug!("Decrypted a to-device event {:?}", decrypted_event);
-            Ok((decrypted_event, content.sender_key.clone(), signing_key))
+            Ok((
+                session,
+                decrypted_event,
+                content.sender_key.clone(),
+                signing_key,
+            ))
         } else {
             warn!("Olm event doesn't contain a ciphertext for our key");
             Err(EventError::MissingCiphertext.into())
         }
     }
 
-    pub async fn update_uploaded_key_count(
-        &self,
-        key_count: &BTreeMap<DeviceKeyAlgorithm, UInt>,
-    ) -> StoreResult<()> {
+    pub async fn update_uploaded_key_count(&self, key_count: &BTreeMap<DeviceKeyAlgorithm, UInt>) {
         let one_time_key_count = key_count.get(&DeviceKeyAlgorithm::SignedCurve25519);
 
         let count: u64 = one_time_key_count.map_or(0, |c| (*c).into());
         self.inner.update_uploaded_key_count(count);
-        self.store.save_account(self.inner.clone()).await
     }
 
     pub async fn receive_keys_upload_response(
@@ -161,7 +162,7 @@ impl Account {
         sender: &UserId,
         sender_key: &str,
         message: &OlmMessage,
-    ) -> OlmResult<Option<String>> {
+    ) -> OlmResult<Option<(Session, String)>> {
         let s = self.store.get_sessions(sender_key).await?;
 
         // We don't have any existing sessions, return early.
@@ -171,8 +172,7 @@ impl Account {
             return Ok(None);
         };
 
-        let mut session_to_save = None;
-        let mut plaintext = None;
+        let mut decrypted: Option<(Session, String)> = None;
 
         for session in &mut *sessions.lock().await {
             let mut matches = false;
@@ -191,9 +191,7 @@ impl Account {
 
             match ret {
                 Ok(p) => {
-                    plaintext = Some(p);
-                    session_to_save = Some(session.clone());
-
+                    decrypted = Some((session.clone(), p));
                     break;
                 }
                 Err(e) => {
@@ -214,14 +212,7 @@ impl Account {
             }
         }
 
-        if let Some(session) = session_to_save {
-            // Decryption was successful, save the new ratchet state of the
-            // session that was used to decrypt the message.
-            trace!("Saved the new session state for {}", sender);
-            self.store.save_sessions(&[session]).await?;
-        }
-
-        Ok(plaintext)
+        Ok(decrypted)
     }
 
     /// Decrypt an Olm message, creating a new Olm session if possible.
@@ -230,15 +221,15 @@ impl Account {
         sender: &UserId,
         sender_key: &str,
         message: OlmMessage,
-    ) -> OlmResult<(Raw<AnyToDeviceEvent>, String)> {
+    ) -> OlmResult<(Session, Raw<AnyToDeviceEvent>, String)> {
         // First try to decrypt using an existing session.
-        let plaintext = if let Some(p) = self
+        let (session, plaintext) = if let Some(d) = self
             .try_decrypt_olm_message(sender, sender_key, &message)
             .await?
         {
-            // Decryption succeeded, de-structure the plaintext out of the
-            // Option.
-            p
+            // Decryption succeeded, de-structure the session/plaintext out of
+            // the Option.
+            d
         } else {
             // Decryption failed with every known session, let's try to create a
             // new session.
@@ -278,9 +269,6 @@ impl Account {
                         }
                     };
 
-                    // Save the account since we remove the one-time key that
-                    // was used to create this session.
-                    self.store.save_account(self.inner.clone()).await?;
                     session
                 }
             };
@@ -288,15 +276,23 @@ impl Account {
             // Decrypt our message, this shouldn't fail since we're using a
             // newly created Session.
             let plaintext = session.decrypt(message).await?;
-
-            // Save the new ratcheted state of the session.
-            self.store.save_sessions(&[session]).await?;
-            plaintext
+            (session, plaintext)
         };
 
         trace!("Successfully decrypted a Olm message: {}", plaintext);
 
-        self.parse_decrypted_to_device_event(sender, &plaintext)
+        let (event, signing_key) = match self.parse_decrypted_to_device_event(sender, &plaintext) {
+            Ok(r) => r,
+            Err(e) => {
+                // We might created a new session but decryption might still
+                // have failed, store it for the error case here, this is fine
+                // since we don't expect this to happen often or at all.
+                self.store.save_sessions(&[session]).await?;
+                return Err(e);
+            }
+        };
+
+        Ok((session, event, signing_key))
     }
 
     /// Parse a decrypted Olm message, check that the plaintext and encrypted

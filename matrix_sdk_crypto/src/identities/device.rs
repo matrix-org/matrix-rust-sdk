@@ -39,7 +39,10 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use tracing::warn;
 
-use crate::olm::{InboundGroupSession, Session};
+use crate::{
+    olm::{InboundGroupSession, Session},
+    store::{Changes, DeviceChanges},
+};
 #[cfg(test)]
 use crate::{OlmMachine, ReadOnlyAccount};
 
@@ -118,10 +121,15 @@ impl Device {
     pub async fn set_local_trust(&self, trust_state: LocalTrust) -> StoreResult<()> {
         self.inner.set_trust_state(trust_state);
 
-        self.verification_machine
-            .store
-            .save_devices(&[self.inner.clone()])
-            .await
+        let changes = Changes {
+            devices: DeviceChanges {
+                changed: vec![self.inner.clone()],
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+
+        self.verification_machine.store.save_changes(changes).await
     }
 
     /// Encrypt the given content for this `Device`.
@@ -135,7 +143,7 @@ impl Device {
         &self,
         event_type: EventType,
         content: Value,
-    ) -> OlmResult<EncryptedEventContent> {
+    ) -> OlmResult<(Session, EncryptedEventContent)> {
         self.inner
             .encrypt(&**self.verification_machine.store, event_type, content)
             .await
@@ -146,7 +154,7 @@ impl Device {
     pub async fn encrypt_session(
         &self,
         session: InboundGroupSession,
-    ) -> OlmResult<EncryptedEventContent> {
+    ) -> OlmResult<(Session, EncryptedEventContent)> {
         let export = session.export().await;
 
         let content: ForwardedRoomKeyEventContent = if let Ok(c) = export.try_into() {
@@ -364,7 +372,7 @@ impl ReadOnlyDevice {
         store: &dyn CryptoStore,
         event_type: EventType,
         content: Value,
-    ) -> OlmResult<EncryptedEventContent> {
+    ) -> OlmResult<(Session, EncryptedEventContent)> {
         let sender_key = if let Some(k) = self.get_key(DeviceKeyAlgorithm::Curve25519) {
             k
         } else {
@@ -396,10 +404,9 @@ impl ReadOnlyDevice {
             return Err(OlmError::MissingSession);
         };
 
-        let message = session.encrypt(&self, event_type, content).await;
-        store.save_sessions(&[session]).await?;
+        let message = session.encrypt(&self, event_type, content).await?;
 
-        message
+        Ok((session, message))
     }
 
     /// Update a device with a new device keys struct.

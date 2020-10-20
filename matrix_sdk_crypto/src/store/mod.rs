@@ -100,6 +100,31 @@ pub(crate) struct Store {
     verification_machine: VerificationMachine,
 }
 
+#[derive(Debug, Default)]
+#[allow(missing_docs)]
+pub struct Changes {
+    pub account: Option<ReadOnlyAccount>,
+    pub sessions: Vec<Session>,
+    pub inbound_group_sessions: Vec<InboundGroupSession>,
+    pub identities: IdentityChanges,
+    pub devices: DeviceChanges,
+}
+
+#[derive(Debug, Clone, Default)]
+#[allow(missing_docs)]
+pub struct IdentityChanges {
+    pub new: Vec<UserIdentities>,
+    pub changed: Vec<UserIdentities>,
+}
+
+#[derive(Debug, Clone, Default)]
+#[allow(missing_docs)]
+pub struct DeviceChanges {
+    pub new: Vec<ReadOnlyDevice>,
+    pub changed: Vec<ReadOnlyDevice>,
+    pub deleted: Vec<ReadOnlyDevice>,
+}
+
 impl Store {
     pub fn new(
         user_id: Arc<UserId>,
@@ -119,6 +144,41 @@ impl Store {
         device_id: &DeviceId,
     ) -> Result<Option<ReadOnlyDevice>> {
         self.inner.get_device(user_id, device_id).await
+    }
+
+    pub async fn save_sessions(&self, sessions: &[Session]) -> Result<()> {
+        let changes = Changes {
+            sessions: sessions.to_vec(),
+            ..Default::default()
+        };
+
+        self.save_changes(changes).await
+    }
+
+    #[cfg(test)]
+    pub async fn save_devices(&self, devices: &[ReadOnlyDevice]) -> Result<()> {
+        let changes = Changes {
+            devices: DeviceChanges {
+                changed: devices.to_vec(),
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+
+        self.save_changes(changes).await
+    }
+
+    #[cfg(test)]
+    pub async fn save_inbound_group_sessions(
+        &self,
+        sessions: &[InboundGroupSession],
+    ) -> Result<()> {
+        let changes = Changes {
+            inbound_group_sessions: sessions.to_vec(),
+            ..Default::default()
+        };
+
+        self.save_changes(changes).await
     }
 
     pub async fn get_readonly_devices(
@@ -271,12 +331,8 @@ pub trait CryptoStore: Debug {
     /// * `account` - The account that should be stored.
     async fn save_account(&self, account: ReadOnlyAccount) -> Result<()>;
 
-    /// Save the given sessions in the store.
-    ///
-    /// # Arguments
-    ///
-    /// * `session` - The sessions that should be stored.
-    async fn save_sessions(&self, session: &[Session]) -> Result<()>;
+    /// TODO
+    async fn save_changes(&self, changes: Changes) -> Result<()>;
 
     /// Get all the sessions that belong to the given sender key.
     ///
@@ -284,13 +340,6 @@ pub trait CryptoStore: Debug {
     ///
     /// * `sender_key` - The sender key that was used to establish the sessions.
     async fn get_sessions(&self, sender_key: &str) -> Result<Option<Arc<Mutex<Vec<Session>>>>>;
-
-    /// Save the given inbound group sessions in the store.
-    ///
-    /// # Arguments
-    ///
-    /// * `sessions` - The sessions that should be stored.
-    async fn save_inbound_group_sessions(&self, session: &[InboundGroupSession]) -> Result<()>;
 
     /// Get the inbound group session from our store.
     ///
@@ -331,20 +380,6 @@ pub trait CryptoStore: Debug {
     /// * `dirty` - Should the user be also marked for a key query.
     async fn update_tracked_user(&self, user: &UserId, dirty: bool) -> Result<bool>;
 
-    /// Save the given devices in the store.
-    ///
-    /// # Arguments
-    ///
-    /// * `device` - The device that should be stored.
-    async fn save_devices(&self, devices: &[ReadOnlyDevice]) -> Result<()>;
-
-    /// Delete the given device from the store.
-    ///
-    /// # Arguments
-    ///
-    /// * `device` - The device that should be stored.
-    async fn delete_device(&self, device: ReadOnlyDevice) -> Result<()>;
-
     /// Get the device for the given user with the given device id.
     ///
     /// # Arguments
@@ -367,13 +402,6 @@ pub trait CryptoStore: Debug {
         &self,
         user_id: &UserId,
     ) -> Result<HashMap<DeviceIdBox, ReadOnlyDevice>>;
-
-    /// Save the given user identities in the store.
-    ///
-    /// # Arguments
-    ///
-    /// * `identities` - The identities that should be saved in the store.
-    async fn save_user_identities(&self, identities: &[UserIdentities]) -> Result<()>;
 
     /// Get the user identity that is attached to the given user id.
     ///

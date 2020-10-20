@@ -33,7 +33,7 @@ use crate::{
     key_request::KeyRequestMachine,
     olm::Account,
     requests::{OutgoingRequest, ToDeviceRequest},
-    store::{Result as StoreResult, Store},
+    store::{Changes, Result as StoreResult, Store},
     ReadOnlyDevice,
 };
 
@@ -128,7 +128,7 @@ impl SessionManager {
             .is_some()
         {
             if let Some(device) = self.store.get_device(user_id, device_id).await? {
-                let content = device.encrypt(EventType::Dummy, json!({})).await?;
+                let (_, content) = device.encrypt(EventType::Dummy, json!({})).await?;
                 let id = Uuid::new_v4();
                 let mut messages = BTreeMap::new();
 
@@ -258,6 +258,8 @@ impl SessionManager {
     pub async fn receive_keys_claim_response(&self, response: &KeysClaimResponse) -> OlmResult<()> {
         // TODO log the failures here
 
+        let mut changes = Changes::default();
+
         for (user_id, user_devices) in &response.one_time_keys {
             for (device_id, key_map) in user_devices {
                 let device = match self.store.get_readonly_device(&user_id, device_id).await {
@@ -284,15 +286,12 @@ impl SessionManager {
                 let session = match self.account.create_outbound_session(device, &key_map).await {
                     Ok(s) => s,
                     Err(e) => {
-                        warn!("{:?}", e);
+                        warn!("Error creating new outbound session {:?}", e);
                         continue;
                     }
                 };
 
-                if let Err(e) = self.store.save_sessions(&[session]).await {
-                    error!("Failed to store newly created Olm session {}", e);
-                    continue;
-                }
+                changes.sessions.push(session);
 
                 self.key_request_machine.retry_keyshare(&user_id, device_id);
 
@@ -304,7 +303,8 @@ impl SessionManager {
                 }
             }
         }
-        Ok(())
+
+        Ok(self.store.save_changes(changes).await?)
     }
 }
 

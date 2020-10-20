@@ -34,7 +34,7 @@ use matrix_sdk_common::{
 use sqlx::{query, query_as, sqlite::SqliteConnectOptions, Connection, Executor, SqliteConnection};
 use zeroize::Zeroizing;
 
-use super::{caches::SessionStore, CryptoStore, CryptoStoreError, Result};
+use super::{caches::SessionStore, Changes, CryptoStore, CryptoStoreError, Result};
 use crate::{
     identities::{LocalTrust, OwnUserIdentity, ReadOnlyDevice, UserIdentities, UserIdentity},
     olm::{
@@ -456,11 +456,17 @@ impl SqliteStore {
         Ok(())
     }
 
-    async fn lazy_load_sessions(&self, sender_key: &str) -> Result<()> {
+    async fn lazy_load_sessions(
+        &self,
+        connection: &mut SqliteConnection,
+        sender_key: &str,
+    ) -> Result<()> {
         let loaded_sessions = self.sessions.get(sender_key).is_some();
 
         if !loaded_sessions {
-            let sessions = self.load_sessions_for(sender_key).await?;
+            let sessions = self
+                .load_sessions_for_helper(connection, sender_key)
+                .await?;
 
             if !sessions.is_empty() {
                 self.sessions.set_for_sender(sender_key, sessions);
@@ -470,20 +476,33 @@ impl SqliteStore {
         Ok(())
     }
 
-    async fn get_sessions_for(&self, sender_key: &str) -> Result<Option<Arc<Mutex<Vec<Session>>>>> {
-        self.lazy_load_sessions(sender_key).await?;
+    async fn get_sessions_for(
+        &self,
+        connection: &mut SqliteConnection,
+        sender_key: &str,
+    ) -> Result<Option<Arc<Mutex<Vec<Session>>>>> {
+        self.lazy_load_sessions(connection, sender_key).await?;
         Ok(self.sessions.get(sender_key))
     }
 
+    #[cfg(test)]
     async fn load_sessions_for(&self, sender_key: &str) -> Result<Vec<Session>> {
+        let mut connection = self.connection.lock().await;
+        self.load_sessions_for_helper(&mut connection, sender_key)
+            .await
+    }
+
+    async fn load_sessions_for_helper(
+        &self,
+        connection: &mut SqliteConnection,
+        sender_key: &str,
+    ) -> Result<Vec<Session>> {
         let account_info = self
             .account_info
             .lock()
             .unwrap()
             .clone()
             .ok_or(CryptoStoreError::AccountUnset)?;
-        let mut connection = self.connection.lock().await;
-
         let mut rows: Vec<(String, String, String, String)> = query_as(
             "SELECT pickle, sender_key, creation_time, last_use_time
              FROM sessions WHERE account_id = ? and sender_key = ?",
@@ -1231,6 +1250,134 @@ impl SqliteStore {
         Ok(())
     }
 
+    #[cfg(test)]
+    async fn save_sessions(&self, sessions: &[Session]) -> Result<()> {
+        let mut connection = self.connection.lock().await;
+        let mut transaction = connection.begin().await?;
+
+        self.save_sessions_helper(&mut transaction, sessions)
+            .await?;
+        transaction.commit().await?;
+
+        Ok(())
+    }
+
+    async fn save_sessions_helper(
+        &self,
+        connection: &mut SqliteConnection,
+        sessions: &[Session],
+    ) -> Result<()> {
+        let account_id = self.account_id().ok_or(CryptoStoreError::AccountUnset)?;
+
+        for session in sessions {
+            self.lazy_load_sessions(connection, &session.sender_key)
+                .await?;
+        }
+
+        for session in sessions {
+            self.sessions.add(session.clone()).await;
+
+            let pickle = session.pickle(self.get_pickle_mode()).await;
+
+            let session_id = session.session_id();
+            let creation_time = serde_json::to_string(&pickle.creation_time)?;
+            let last_use_time = serde_json::to_string(&pickle.last_use_time)?;
+
+            query(
+                "REPLACE INTO sessions (
+                    session_id, account_id, creation_time, last_use_time, sender_key, pickle
+                 ) VALUES (?, ?, ?, ?, ?, ?)",
+            )
+            .bind(&session_id)
+            .bind(&account_id)
+            .bind(&*creation_time)
+            .bind(&*last_use_time)
+            .bind(&pickle.sender_key)
+            .bind(&pickle.pickle.as_str())
+            .execute(&mut *connection)
+            .await?;
+        }
+
+        Ok(())
+    }
+
+    async fn save_devices(
+        &self,
+        mut connection: &mut SqliteConnection,
+        devices: &[ReadOnlyDevice],
+    ) -> Result<()> {
+        for device in devices {
+            self.save_device_helper(&mut connection, device.clone())
+                .await?
+        }
+
+        Ok(())
+    }
+
+    async fn delete_devices(
+        &self,
+        connection: &mut SqliteConnection,
+        devices: &[ReadOnlyDevice],
+    ) -> Result<()> {
+        let account_id = self.account_id().ok_or(CryptoStoreError::AccountUnset)?;
+
+        for device in devices {
+            query(
+                "DELETE FROM devices
+                 WHERE account_id = ?1 and user_id = ?2 and device_id = ?3
+                 ",
+            )
+            .bind(account_id)
+            .bind(&device.user_id().to_string())
+            .bind(device.device_id().as_str())
+            .execute(&mut *connection)
+            .await?;
+        }
+
+        Ok(())
+    }
+
+    #[cfg(test)]
+    async fn save_inbound_group_sessions_test(
+        &self,
+        sessions: &[InboundGroupSession],
+    ) -> Result<()> {
+        let mut connection = self.connection.lock().await;
+        let mut transaction = connection.begin().await?;
+
+        self.save_inbound_group_sessions(&mut transaction, sessions)
+            .await?;
+
+        transaction.commit().await?;
+        Ok(())
+    }
+
+    async fn save_inbound_group_sessions(
+        &self,
+        connection: &mut SqliteConnection,
+        sessions: &[InboundGroupSession],
+    ) -> Result<()> {
+        let account_id = self.account_id().ok_or(CryptoStoreError::AccountUnset)?;
+
+        for session in sessions {
+            self.save_inbound_group_session_helper(account_id, connection, session)
+                .await?;
+        }
+
+        Ok(())
+    }
+
+    async fn save_user_identities(
+        &self,
+        mut connection: &mut SqliteConnection,
+        users: &[UserIdentities],
+    ) -> Result<()> {
+        for user in users {
+            self.save_user_helper(&mut connection, user).await?;
+        }
+        Ok(())
+    }
+
     async fn save_user_helper(
         &self,
         mut connection: &mut SqliteConnection,
@@ -1369,39 +1516,26 @@ impl CryptoStore for SqliteStore {
         Ok(())
     }
 
-    async fn save_sessions(&self, sessions: &[Session]) -> Result<()> {
-        let account_id = self.account_id().ok_or(CryptoStoreError::AccountUnset)?;
-
-        for session in sessions {
-            self.lazy_load_sessions(&session.sender_key).await?;
-        }
-
+    async fn save_changes(&self, changes: Changes) -> Result<()> {
         let mut connection = self.connection.lock().await;
         let mut transaction = connection.begin().await?;
 
-        for session in sessions {
-            self.sessions.add(session.clone()).await;
-
-            let pickle = session.pickle(self.get_pickle_mode()).await;
-
-            let session_id = session.session_id();
-            let creation_time = serde_json::to_string(&pickle.creation_time)?;
-            let last_use_time = serde_json::to_string(&pickle.last_use_time)?;
-
-            query(
-                "REPLACE INTO sessions (
-                    session_id, account_id, creation_time, last_use_time, sender_key, pickle
-                 ) VALUES (?, ?, ?, ?, ?, ?)",
-            )
-            .bind(&session_id)
-            .bind(&account_id)
-            .bind(&*creation_time)
-            .bind(&*last_use_time)
-            .bind(&pickle.sender_key)
-            .bind(&pickle.pickle.as_str())
-            .execute(&mut *transaction)
+        self.save_sessions_helper(&mut transaction, &changes.sessions)
             .await?;
-        }
+        self.save_inbound_group_sessions(&mut transaction, &changes.inbound_group_sessions)
+            .await?;
+
+        self.save_devices(&mut transaction, &changes.devices.new)
+            .await?;
+        self.save_devices(&mut transaction, &changes.devices.changed)
+            .await?;
+        self.delete_devices(&mut transaction, &changes.devices.deleted)
+            .await?;
+
+        self.save_user_identities(&mut transaction, &changes.identities.new)
+            .await?;
+        self.save_user_identities(&mut transaction, &changes.identities.changed)
+            .await?;
 
         transaction.commit().await?;
 
@@ -1409,22 +1543,8 @@ impl CryptoStore for SqliteStore {
     }
 
     async fn get_sessions(&self, sender_key: &str) -> Result<Option<Arc<Mutex<Vec<Session>>>>> {
-        Ok(self.get_sessions_for(sender_key).await?)
-    }
-
-    async fn save_inbound_group_sessions(&self, sessions: &[InboundGroupSession]) -> Result<()> {
-        let account_id = self.account_id().ok_or(CryptoStoreError::AccountUnset)?;
         let mut connection = self.connection.lock().await;
-        let mut transaction = connection.begin().await?;
-
-        for session in sessions {
-            self.save_inbound_group_session_helper(account_id, &mut transaction, session)
-                .await?;
-        }
-
-        transaction.commit().await?;
-
-        Ok(())
+        Ok(self.get_sessions_for(&mut connection, sender_key).await?)
     }
 
     async fn get_inbound_group_session(
@@ -1469,38 +1589,6 @@ impl CryptoStore for SqliteStore {
         Ok(already_added)
     }
 
-    async fn save_devices(&self, devices: &[ReadOnlyDevice]) -> Result<()> {
-        let mut connection = self.connection.lock().await;
-        let mut transaction = connection.begin().await?;
-
-        for device in devices {
-            self.save_device_helper(&mut transaction, device.clone())
-                .await?
-        }
-
-        transaction.commit().await?;
-
-        Ok(())
-    }
-
-    async fn delete_device(&self, device: ReadOnlyDevice) -> Result<()> {
-        let account_id = self.account_id().ok_or(CryptoStoreError::AccountUnset)?;
-        let mut connection = self.connection.lock().await;
-
-        query(
-            "DELETE FROM devices
-             WHERE account_id = ?1 and user_id = ?2 and device_id = ?3
-             ",
-        )
-        .bind(account_id)
-        .bind(&device.user_id().to_string())
-        .bind(device.device_id().as_str())
-        .execute(&mut *connection)
-        .await?;
-
-        Ok(())
-    }
-
     async fn get_device(
         &self,
         user_id: &UserId,
@@ -1518,19 +1606,6 @@ impl CryptoStore for SqliteStore {
 
     async fn get_user_identity(&self, user_id: &UserId) -> Result<Option<UserIdentities>> {
         self.load_user(user_id).await
-    }
-
-    async fn save_user_identities(&self, users: &[UserIdentities]) -> Result<()> {
-        let mut connection = self.connection.lock().await;
-        let mut transaction = connection.begin().await?;
-
-        for user in users {
-            self.save_user_helper(&mut transaction, user).await?;
-        }
-
-        transaction.commit().await?;
-
-        Ok(())
     }
 
     async fn save_value(&self, key: String, value: String) -> Result<()> {
@@ -1598,6 +1673,7 @@ mod test {
             user::test::{get_other_identity, get_own_identity},
         },
         olm::{GroupSessionKey, InboundGroupSession, ReadOnlyAccount, Session},
+        store::{Changes, DeviceChanges, IdentityChanges},
     };
     use matrix_sdk_common::{
         api::r0::keys::SignedKey,
@@ -1854,7 +1930,7 @@ mod test {
         .expect("Can't create session");
 
         store
-            .save_inbound_group_sessions(&[session])
+            .save_inbound_group_sessions_test(&[session])
             .await
             .expect("Can't save group session");
     }
@@ -1880,7 +1956,7 @@ mod test {
         let session = InboundGroupSession::from_export(export).unwrap();
 
         store
-            .save_inbound_group_sessions(&[session.clone()])
+            .save_inbound_group_sessions_test(&[session.clone()])
             .await
             .expect("Can't save group session");
 
@@ -1952,7 +2028,15 @@ mod test {
         let (_account, store, dir) = get_loaded_store().await;
         let device = get_device();
 
-        store.save_devices(&[device.clone()]).await.unwrap();
+        let changes = Changes {
+            devices: DeviceChanges {
+                changed: vec![device.clone()],
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+
+        store.save_changes(changes).await.unwrap();
 
         drop(store);
 
@@ -1986,8 +2070,25 @@ mod test {
         let (_account, store, dir) = get_loaded_store().await;
         let device = get_device();
 
-        store.save_devices(&[device.clone()]).await.unwrap();
-        store.delete_device(device.clone()).await.unwrap();
+        let changes = Changes {
+            devices: DeviceChanges {
+                changed: vec![device.clone()],
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+
+        store.save_changes(changes).await.unwrap();
+
+        let changes = Changes {
+            devices: DeviceChanges {
+                deleted: vec![device.clone()],
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+
+        store.save_changes(changes).await.unwrap();
 
         let store = SqliteStore::open(&alice_id(), &alice_device_id(), dir.path())
             .await
@@ -2024,8 +2125,16 @@ mod test {
 
         let own_identity = get_own_identity();
 
+        let changes = Changes {
+            identities: IdentityChanges {
+                changed: vec![own_identity.clone().into()],
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+
         store
-            .save_user_identities(&[own_identity.clone().into()])
+            .save_changes(changes)
             .await
             .expect("Can't save identity");
 
@@ -2052,10 +2161,15 @@ mod test {
 
         let other_identity = get_other_identity();
 
-        store
-            .save_user_identities(&[other_identity.clone().into()])
-            .await
-            .unwrap();
+        let changes = Changes {
+            identities: IdentityChanges {
+                changed: vec![other_identity.clone().into()],
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+
+        store.save_changes(changes).await.unwrap();
 
         let loaded_user = store
             .load_user(other_identity.user_id())
@@ -2072,10 +2186,15 @@ mod test {
 
         own_identity.mark_as_verified();
 
-        store
-            .save_user_identities(&[own_identity.into()])
-            .await
-            .unwrap();
+        let changes = Changes {
+            identities: IdentityChanges {
+                changed: vec![own_identity.into()],
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+
+        store.save_changes(changes).await.unwrap();
         let loaded_user = store.load_user(&user_id).await.unwrap().unwrap();
         assert!(loaded_user.own().unwrap().is_verified())
     }

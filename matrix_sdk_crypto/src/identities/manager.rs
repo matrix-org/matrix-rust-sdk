@@ -33,7 +33,7 @@ use crate::{
     },
     requests::KeysQueryRequest,
     session_manager::GroupSessionManager,
-    store::{Result as StoreResult, Store},
+    store::{Changes, DeviceChanges, IdentityChanges, Result as StoreResult, Store},
 };
 
 #[derive(Debug, Clone)]
@@ -79,7 +79,7 @@ impl IdentityManager {
     pub async fn receive_keys_query_response(
         &self,
         response: &KeysQueryResponse,
-    ) -> OlmResult<(Vec<ReadOnlyDevice>, Vec<UserIdentities>)> {
+    ) -> OlmResult<(DeviceChanges, IdentityChanges)> {
         // TODO create a enum that tells us how the device/identity changed,
         // e.g. new/deleted/display name change.
         //
@@ -92,9 +92,15 @@ impl IdentityManager {
         let changed_devices = self
             .handle_devices_from_key_query(&response.device_keys)
             .await?;
-        self.store.save_devices(&changed_devices).await?;
         let changed_identities = self.handle_cross_singing_keys(response).await?;
-        self.store.save_user_identities(&changed_identities).await?;
+
+        let changes = Changes {
+            identities: changed_identities.clone(),
+            devices: changed_devices.clone(),
+            ..Default::default()
+        };
+
+        self.store.save_changes(changes).await?;
 
         Ok((changed_devices, changed_identities))
     }
@@ -111,9 +117,10 @@ impl IdentityManager {
     async fn handle_devices_from_key_query(
         &self,
         device_keys_map: &BTreeMap<UserId, BTreeMap<DeviceIdBox, DeviceKeys>>,
-    ) -> StoreResult<Vec<ReadOnlyDevice>> {
+    ) -> StoreResult<DeviceChanges> {
         let mut users_with_new_or_deleted_devices = HashSet::new();
-        let mut changed_devices = Vec::new();
+
+        let mut changes = DeviceChanges::default();
 
         for (user_id, device_map) in device_keys_map {
             // TODO move this out into the handle keys query response method
@@ -137,7 +144,7 @@ impl IdentityManager {
 
                 let device = self.store.get_readonly_device(&user_id, device_id).await?;
 
-                let device = if let Some(mut device) = device {
+                if let Some(mut device) = device {
                     if let Err(e) = device.update_device(device_keys) {
                         warn!(
                             "Failed to update the device keys for {} {}: {:?}",
@@ -145,7 +152,7 @@ impl IdentityManager {
                         );
                         continue;
                     }
-                    device
+                    changes.changed.push(device);
                 } else {
                     let device = match ReadOnlyDevice::try_from(device_keys) {
                         Ok(d) => d,
@@ -159,23 +166,21 @@ impl IdentityManager {
                     };
                     info!("Adding a new device to the device store {:?}", device);
                     users_with_new_or_deleted_devices.insert(user_id);
-                    device
-                };
-
-                changed_devices.push(device);
+                    changes.new.push(device);
+                }
             }
 
             let current_devices: HashSet<&DeviceIdBox> = device_map.keys().collect();
             let stored_devices = self.store.get_readonly_devices(&user_id).await?;
             let stored_devices_set: HashSet<&DeviceIdBox> = stored_devices.keys().collect();
 
-            let deleted_devices = stored_devices_set.difference(&current_devices);
+            let deleted_devices_set = stored_devices_set.difference(&current_devices);
 
-            for device_id in deleted_devices {
+            for device_id in deleted_devices_set {
                 users_with_new_or_deleted_devices.insert(user_id);
                 if let Some(device) = stored_devices.get(*device_id) {
                     device.mark_as_deleted();
-                    self.store.delete_device(device.clone()).await?;
+                    changes.deleted.push(device.clone());
                 }
             }
         }
@@ -183,7 +188,7 @@ impl IdentityManager {
         self.group_manager
             .invalidate_sessions_new_devices(&users_with_new_or_deleted_devices);
 
-        Ok(changed_devices)
+        Ok(changes)
     }
 
     /// Handle the device keys part of a key query response.
@@ -197,8 +202,8 @@ impl IdentityManager {
     async fn handle_cross_singing_keys(
         &self,
         response: &KeysQueryResponse,
-    ) -> StoreResult<Vec<UserIdentities>> {
-        let mut changed = Vec::new();
+    ) -> StoreResult<IdentityChanges> {
+        let mut changes = IdentityChanges::default();
 
         for (user_id, master_key) in &response.master_keys {
             let master_key = MasterPubkey::from(master_key);
@@ -213,7 +218,7 @@ impl IdentityManager {
                 continue;
             };
 
-            let identity = if let Some(mut i) = self.store.get_user_identity(user_id).await? {
+            let result = if let Some(mut i) = self.store.get_user_identity(user_id).await? {
                 match &mut i {
                     UserIdentities::Own(ref mut identity) => {
                         let user_signing = if let Some(s) = response.user_signing_keys.get(user_id)
@@ -230,11 +235,11 @@ impl IdentityManager {
 
                         identity
                             .update(master_key, self_signing, user_signing)
-                            .map(|_| i)
+                            .map(|_| (i, false))
                     }
-                    UserIdentities::Other(ref mut identity) => {
-                        identity.update(master_key, self_signing).map(|_| i)
-                    }
+                    UserIdentities::Other(ref mut identity) => identity
+                        .update(master_key, self_signing)
+                        .map(|_| (i, false)),
                 }
             } else if user_id == self.user_id() {
                 if let Some(s) = response.user_signing_keys.get(user_id) {
@@ -252,7 +257,7 @@ impl IdentityManager {
                     }
 
                     OwnUserIdentity::new(master_key, self_signing, user_signing)
-                        .map(UserIdentities::Own)
+                        .map(|i| (UserIdentities::Own(i), true))
                 } else {
                     warn!(
                         "User identity for our own user {} didn't contain a \
@@ -268,17 +273,22 @@ impl IdentityManager {
                 );
                 continue;
             } else {
-                UserIdentity::new(master_key, self_signing).map(UserIdentities::Other)
+                UserIdentity::new(master_key, self_signing)
+                    .map(|i| (UserIdentities::Other(i), true))
             };
 
-            match identity {
-                Ok(i) => {
+            match result {
+                Ok((i, new)) => {
                     trace!(
                         "Updated or created new user identity for {}: {:?}",
                         user_id,
                         i
                     );
-                    changed.push(i);
+                    if new {
+                        changes.new.push(i);
+                    } else {
+                        changes.changed.push(i);
+                    }
                 }
                 Err(e) => {
                     warn!(
@@ -290,7 +300,7 @@ impl IdentityManager {
             }
         }
 
-        Ok(changed)
+        Ok(changes)
     }
 
     /// Get a key query request if one is needed.
