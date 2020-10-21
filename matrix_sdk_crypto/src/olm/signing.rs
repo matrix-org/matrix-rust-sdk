@@ -21,6 +21,7 @@ use aes_gcm::{
 use base64::{decode_config, encode_config, DecodeError, URL_SAFE_NO_PAD};
 use getrandom::getrandom;
 use serde::{Deserialize, Serialize};
+use serde_json::Error as JsonError;
 use std::{
     collections::BTreeMap,
     sync::{
@@ -28,6 +29,7 @@ use std::{
         Arc,
     },
 };
+use thiserror::Error;
 use zeroize::Zeroizing;
 
 use olm_rs::{errors::OlmUtilityError, pk::OlmPkSigning, utility::OlmUtility};
@@ -51,6 +53,22 @@ fn encode<T: AsRef<[u8]>>(input: T) -> String {
 
 fn decode<T: AsRef<[u8]>>(input: T) -> Result<Vec<u8>, DecodeError> {
     decode_config(input, URL_SAFE_NO_PAD)
+}
+
+/// Error type reporting failures in the Signign operations.
+#[derive(Debug, Error)]
+pub enum SigningError {
+    /// Error decoding the base64 encoded pickle data.
+    #[error(transparent)]
+    Decode(#[from] DecodeError),
+
+    /// Error decrypting the pickled signing seed
+    #[error("Error decrypting the pickled signign seed")]
+    Decryption(String),
+
+    /// Error deserializing the pickle data.
+    #[error(transparent)]
+    Json(#[from] JsonError),
 }
 
 #[derive(Clone)]
@@ -105,13 +123,13 @@ impl MasterSigning {
         PickledMasterSigning { pickle, public_key }
     }
 
-    fn from_pickle(pickle: PickledMasterSigning, pickle_key: &[u8]) -> Self {
-        let inner = Signing::from_pickle(pickle.pickle, pickle_key);
+    fn from_pickle(pickle: PickledMasterSigning, pickle_key: &[u8]) -> Result<Self, SigningError> {
+        let inner = Signing::from_pickle(pickle.pickle, pickle_key)?;
 
-        Self {
+        Ok(Self {
             inner,
             public_key: pickle.public_key.into(),
-        }
+        })
     }
 
     async fn sign_subkey<'a>(&self, subkey: &mut CrossSigningKey) {
@@ -145,13 +163,13 @@ impl UserSigning {
         PickledUserSigning { pickle, public_key }
     }
 
-    fn from_pickle(pickle: PickledUserSigning, pickle_key: &[u8]) -> Self {
-        let inner = Signing::from_pickle(pickle.pickle, pickle_key);
+    fn from_pickle(pickle: PickledUserSigning, pickle_key: &[u8]) -> Result<Self, SigningError> {
+        let inner = Signing::from_pickle(pickle.pickle, pickle_key)?;
 
-        Self {
+        Ok(Self {
             inner,
             public_key: pickle.public_key.into(),
-        }
+        })
     }
 }
 
@@ -162,13 +180,13 @@ impl SelfSigning {
         PickledSelfSigning { pickle, public_key }
     }
 
-    fn from_pickle(pickle: PickledSelfSigning, pickle_key: &[u8]) -> Self {
-        let inner = Signing::from_pickle(pickle.pickle, pickle_key);
+    fn from_pickle(pickle: PickledSelfSigning, pickle_key: &[u8]) -> Result<Self, SigningError> {
+        let inner = Signing::from_pickle(pickle.pickle, pickle_key)?;
 
-        Self {
+        Ok(Self {
             inner,
             public_key: pickle.public_key.into(),
-        }
+        })
     }
 }
 
@@ -259,21 +277,21 @@ impl Signing {
         }
     }
 
-    fn from_pickle(pickle: PickledSigning, pickle_key: &[u8]) -> Self {
-        let pickled: InnerPickle = serde_json::from_str(pickle.as_str()).unwrap();
+    fn from_pickle(pickle: PickledSigning, pickle_key: &[u8]) -> Result<Self, SigningError> {
+        let pickled: InnerPickle = serde_json::from_str(pickle.as_str())?;
 
         let key = GenericArray::from_slice(pickle_key);
         let cipher = Aes256Gcm::new(key);
 
-        let nonce = decode(pickled.nonce).unwrap();
+        let nonce = decode(pickled.nonce)?;
         let nonce = GenericArray::from_slice(&nonce);
-        let ciphertext = &decode(pickled.ciphertext).unwrap();
+        let ciphertext = &decode(pickled.ciphertext)?;
 
         let seed = cipher
             .decrypt(&nonce, ciphertext.as_slice())
-            .expect("Can't decrypt pickle");
+            .map_err(|e| SigningError::Decryption(e.to_string()))?;
 
-        Self::from_seed(seed)
+        Ok(Self::from_seed(seed))
     }
 
     async fn pickle(&self, pickle_key: &[u8]) -> PickledSigning {
@@ -412,32 +430,35 @@ impl PrivateCrossSigningIdentity {
         }
     }
 
-    pub async fn from_pickle(pickle: PickledCrossSigningIdentity, pickle_key: &[u8]) -> Self {
+    pub async fn from_pickle(
+        pickle: PickledCrossSigningIdentity,
+        pickle_key: &[u8],
+    ) -> Result<Self, SigningError> {
         let master = if let Some(m) = pickle.master_key {
-            Some(MasterSigning::from_pickle(m, pickle_key))
+            Some(MasterSigning::from_pickle(m, pickle_key)?)
         } else {
             None
         };
 
         let self_signing = if let Some(s) = pickle.self_signing_key {
-            Some(SelfSigning::from_pickle(s, pickle_key))
+            Some(SelfSigning::from_pickle(s, pickle_key)?)
         } else {
             None
         };
 
         let user_signing = if let Some(u) = pickle.user_signing_key {
-            Some(UserSigning::from_pickle(u, pickle_key))
+            Some(UserSigning::from_pickle(u, pickle_key)?)
         } else {
             None
         };
 
-        Self {
+        Ok(Self {
             user_id: Arc::new(pickle.user_id),
             shared: Arc::new(AtomicBool::from(pickle.shared)),
             master_key: Arc::new(Mutex::new(master)),
             self_signing_key: Arc::new(Mutex::new(self_signing)),
             user_signing_key: Arc::new(Mutex::new(user_signing)),
-        }
+        })
     }
 
     pub(crate) async fn as_upload_request(&self) -> UploadSigningKeysRequest {
@@ -509,7 +530,7 @@ mod test {
         let signing = Signing::new();
         let pickled = signing.pickle(pickle_key()).await;
 
-        let unpickled = Signing::from_pickle(pickled, pickle_key());
+        let unpickled = Signing::from_pickle(pickled, pickle_key()).unwrap();
 
         assert_eq!(signing.public_key(), unpickled.public_key());
     }
@@ -554,7 +575,9 @@ mod test {
 
         let pickled = identity.pickle(pickle_key()).await;
 
-        let unpickled = PrivateCrossSigningIdentity::from_pickle(pickled, pickle_key()).await;
+        let unpickled = PrivateCrossSigningIdentity::from_pickle(pickled, pickle_key())
+            .await
+            .unwrap();
 
         assert_eq!(identity.user_id, unpickled.user_id);
         assert_eq!(
