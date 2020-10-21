@@ -32,9 +32,12 @@ use matrix_sdk_common::{
     locks::Mutex,
 };
 use sqlx::{query, query_as, sqlite::SqliteConnectOptions, Connection, Executor, SqliteConnection};
-use zeroize::Zeroizing;
 
-use super::{caches::SessionStore, Changes, CryptoStore, CryptoStoreError, Result};
+use super::{
+    caches::SessionStore,
+    pickle_key::{EncryptedPickleKey, PickleKey},
+    Changes, CryptoStore, CryptoStoreError, Result,
+};
 use crate::{
     identities::{LocalTrust, OwnUserIdentity, ReadOnlyDevice, UserIdentities, UserIdentity},
     olm::{
@@ -43,6 +46,10 @@ use crate::{
         Session, SessionPickle,
     },
 };
+
+/// This needs to be 32 bytes long since AES-GCM requires it, otherwise we will
+/// panic once we try to pickle a Signing object.
+const DEFAULT_PICKLE: &'static str = "DEFAULT_PICKLE_PASSPHRASE_123456";
 
 /// SQLite based implementation of a `CryptoStore`.
 #[derive(Clone)]
@@ -58,7 +65,7 @@ pub struct SqliteStore {
     users_for_key_query: Arc<DashSet<UserId>>,
 
     connection: Arc<Mutex<SqliteConnection>>,
-    pickle_passphrase: Arc<Option<Zeroizing<String>>>,
+    pickle_key: Arc<PickleKey>,
 }
 
 #[derive(Clone)]
@@ -117,20 +124,14 @@ impl SqliteStore {
         path: P,
         passphrase: &str,
     ) -> Result<SqliteStore> {
-        SqliteStore::open_helper(
-            user_id,
-            device_id,
-            path,
-            Some(Zeroizing::new(passphrase.to_owned())),
-        )
-        .await
+        SqliteStore::open_helper(user_id, device_id, path, Some(passphrase)).await
     }
 
     async fn open_helper<P: AsRef<Path>>(
         user_id: &UserId,
         device_id: &DeviceId,
         path: P,
-        passphrase: Option<Zeroizing<String>>,
+        passphrase: Option<&str>,
     ) -> Result<SqliteStore> {
         let path = path.as_ref().join(DATABASE_NAME);
         let options = SqliteConnectOptions::new()
@@ -139,7 +140,15 @@ impl SqliteStore {
             .read_only(false)
             .filename(&path);
 
-        let connection = SqliteConnection::connect_with(&options).await?;
+        let mut connection = SqliteConnection::connect_with(&options).await?;
+        Self::create_tables(&mut connection).await?;
+
+        let pickle_key = if let Some(passphrase) = passphrase {
+            Self::get_or_create_pickle_key(user_id, device_id, &passphrase, &mut connection).await?
+        } else {
+            PickleKey::try_from(DEFAULT_PICKLE.as_bytes().to_vec())
+                .expect("Can't create default pickle key")
+        };
 
         let store = SqliteStore {
             user_id: Arc::new(user_id.to_owned()),
@@ -148,11 +157,10 @@ impl SqliteStore {
             sessions: SessionStore::new(),
             path: Arc::new(path),
             connection: Arc::new(Mutex::new(connection)),
-            pickle_passphrase: Arc::new(passphrase),
             tracked_users: Arc::new(DashSet::new()),
             users_for_key_query: Arc::new(DashSet::new()),
+            pickle_key: Arc::new(pickle_key),
         };
-        store.create_tables().await?;
 
         Ok(store)
     }
@@ -165,11 +173,8 @@ impl SqliteStore {
             .map(|i| i.account_id)
     }
 
-    async fn create_tables(&self) -> Result<()> {
-        let mut connection = self.connection.lock().await;
-        let mut transaction = connection.begin().await?;
-
-        transaction
+    async fn create_tables(connection: &mut SqliteConnection) -> Result<()> {
+        connection
             .execute(
                 r#"
             CREATE TABLE IF NOT EXISTS accounts (
@@ -185,7 +190,21 @@ impl SqliteStore {
             )
             .await?;
 
-        transaction
+        connection
+            .execute(
+                r#"
+            CREATE TABLE IF NOT EXISTS pickle_keys (
+                "id" INTEGER NOT NULL PRIMARY KEY,
+                "user_id" TEXT NOT NULL,
+                "device_id" TEXT NOT NULL,
+                "key" TEXT NOT NULL,
+                UNIQUE(user_id,device_id)
+            );
+        "#,
+            )
+            .await?;
+
+        connection
             .execute(
                 r#"
             CREATE TABLE IF NOT EXISTS sessions (
@@ -204,7 +223,7 @@ impl SqliteStore {
             )
             .await?;
 
-        transaction
+        connection
             .execute(
                 r#"
             CREATE TABLE IF NOT EXISTS tracked_users (
@@ -222,7 +241,7 @@ impl SqliteStore {
             )
             .await?;
 
-        transaction
+        connection
             .execute(
                 r#"
             CREATE TABLE IF NOT EXISTS inbound_group_sessions (
@@ -243,7 +262,7 @@ impl SqliteStore {
             )
             .await?;
 
-        transaction
+        connection
             .execute(
                 r#"
             CREATE TABLE IF NOT EXISTS group_session_claimed_keys (
@@ -261,7 +280,7 @@ impl SqliteStore {
             )
             .await?;
 
-        transaction
+        connection
             .execute(
                 r#"
             CREATE TABLE IF NOT EXISTS group_session_chains (
@@ -278,7 +297,7 @@ impl SqliteStore {
             )
             .await?;
 
-        transaction
+        connection
             .execute(
                 r#"
             CREATE TABLE IF NOT EXISTS devices (
@@ -298,7 +317,7 @@ impl SqliteStore {
             )
             .await?;
 
-        transaction
+        connection
             .execute(
                 r#"
             CREATE TABLE IF NOT EXISTS algorithms (
@@ -315,7 +334,7 @@ impl SqliteStore {
             )
             .await?;
 
-        transaction
+        connection
             .execute(
                 r#"
             CREATE TABLE IF NOT EXISTS device_keys (
@@ -333,7 +352,7 @@ impl SqliteStore {
             )
             .await?;
 
-        transaction
+        connection
             .execute(
                 r#"
             CREATE TABLE IF NOT EXISTS device_signatures (
@@ -352,7 +371,7 @@ impl SqliteStore {
             )
             .await?;
 
-        transaction
+        connection
             .execute(
                 r#"
             CREATE TABLE IF NOT EXISTS users (
@@ -369,7 +388,7 @@ impl SqliteStore {
             )
             .await?;
 
-        transaction
+        connection
             .execute(
                 r#"
             CREATE TABLE IF NOT EXISTS users_trust_state (
@@ -384,7 +403,7 @@ impl SqliteStore {
             )
             .await?;
 
-        transaction
+        connection
             .execute(
                 r#"
             CREATE TABLE IF NOT EXISTS cross_signing_keys (
@@ -401,7 +420,7 @@ impl SqliteStore {
             )
             .await?;
 
-        transaction
+        connection
             .execute(
                 r#"
             CREATE TABLE IF NOT EXISTS user_keys (
@@ -418,7 +437,7 @@ impl SqliteStore {
             )
             .await?;
 
-        transaction
+        connection
             .execute(
                 r#"
             CREATE TABLE IF NOT EXISTS user_key_signatures (
@@ -437,7 +456,7 @@ impl SqliteStore {
             )
             .await?;
 
-        transaction
+        connection
             .execute(
                 r#"
             CREATE TABLE IF NOT EXISTS key_value (
@@ -455,9 +474,57 @@ impl SqliteStore {
             )
             .await?;
 
-        transaction.commit().await?;
+        Ok(())
+    }
+
+    async fn save_pickle_key(
+        user_id: &UserId,
+        device_id: &DeviceId,
+        key: EncryptedPickleKey,
+        connection: &mut SqliteConnection,
+    ) -> Result<()> {
+        let key = serde_json::to_string(&key)?;
+
+        query(
+            "INSERT INTO pickle_keys (
+                user_id, device_id, key
+             ) VALUES (?1, ?2, ?3)
+             ON CONFLICT(user_id, device_id) DO UPDATE SET
+                key = excluded.key
+             ",
+        )
+        .bind(user_id.as_str())
+        .bind(device_id.as_str())
+        .bind(key)
+        .execute(&mut *connection)
+        .await?;
 
         Ok(())
+    }
+
+    async fn get_or_create_pickle_key(
+        user_id: &UserId,
+        device_id: &DeviceId,
+        passphrase: &str,
+        connection: &mut SqliteConnection,
+    ) -> Result<PickleKey> {
+        let row: Option<(String,)> =
+            query_as("SELECT key FROM pickle_keys WHERE user_id = ? and device_id = ?")
+                .bind(user_id.as_str())
+                .bind(device_id.as_str())
+                .fetch_optional(&mut *connection)
+                .await?;
+
+        Ok(if let Some(row) = row {
+            let encrypted: EncryptedPickleKey = serde_json::from_str(&row.0).unwrap();
+            PickleKey::from_encrypted(passphrase, encrypted)
+        } else {
+            let key = PickleKey::new();
+            let encrypted = key.encrypt(passphrase);
+            Self::save_pickle_key(user_id, device_id, encrypted, connection).await?;
+
+            key
+        })
     }
 
     async fn lazy_load_sessions(
@@ -983,12 +1050,7 @@ impl SqliteStore {
     }
 
     fn get_pickle_mode(&self) -> PicklingMode {
-        match &*self.pickle_passphrase {
-            Some(p) => PicklingMode::Encrypted {
-                key: p.as_bytes().to_vec(),
-            },
-            None => PicklingMode::Unencrypted,
-        }
+        self.pickle_key.pickle_mode()
     }
 
     async fn save_inbound_group_session_helper(
@@ -1484,8 +1546,8 @@ impl CryptoStore for SqliteStore {
     }
 
     async fn save_account(&self, account: ReadOnlyAccount) -> Result<()> {
-        let pickle = account.pickle(self.get_pickle_mode()).await;
         let mut connection = self.connection.lock().await;
+        let pickle = account.pickle(self.get_pickle_mode()).await;
 
         query(
             "INSERT INTO accounts (

@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#![allow(dead_code)]
+use std::convert::TryFrom;
 
 use aes_gcm::{
     aead::{generic_array::GenericArray, Aead, NewAead},
@@ -20,6 +20,7 @@ use aes_gcm::{
 };
 use getrandom::getrandom;
 use hmac::Hmac;
+use olm_rs::PicklingMode;
 use pbkdf2::pbkdf2;
 use sha2::Sha256;
 use zeroize::{Zeroize, Zeroizing};
@@ -57,6 +58,20 @@ pub struct PickleKey {
     aes256_key: Vec<u8>,
 }
 
+impl TryFrom<Vec<u8>> for PickleKey {
+    type Error = ();
+    fn try_from(value: Vec<u8>) -> Result<Self, Self::Error> {
+        if value.len() != KEY_SIZE {
+            Err(())
+        } else {
+            Ok(Self {
+                version: VERSION,
+                aes256_key: value,
+            })
+        }
+    }
+}
+
 impl PickleKey {
     /// Generate a new random pickle key.
     pub fn new() -> Self {
@@ -73,6 +88,13 @@ impl PickleKey {
         let mut key = Zeroizing::from(vec![0u8; KEY_SIZE]);
         pbkdf2::<Hmac<Sha256>>(passphrase.as_bytes(), &salt, KDF_ROUNDS, &mut *key);
         key
+    }
+
+    /// Get a `PicklingMode` version of this pickle key.
+    pub fn pickle_mode(&self) -> PicklingMode {
+        PicklingMode::Encrypted {
+            key: self.aes256_key.clone(),
+        }
     }
 
     /// Encrypt and export our pickle key using the given passphrase.
