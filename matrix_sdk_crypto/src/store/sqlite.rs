@@ -49,7 +49,7 @@ use crate::{
 
 /// This needs to be 32 bytes long since AES-GCM requires it, otherwise we will
 /// panic once we try to pickle a Signing object.
-const DEFAULT_PICKLE: &'static str = "DEFAULT_PICKLE_PASSPHRASE_123456";
+const DEFAULT_PICKLE: &str = "DEFAULT_PICKLE_PASSPHRASE_123456";
 
 /// SQLite based implementation of a `CryptoStore`.
 #[derive(Clone)]
