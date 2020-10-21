@@ -16,7 +16,7 @@ use std::convert::TryFrom;
 
 use aes_gcm::{
     aead::{generic_array::GenericArray, Aead, NewAead},
-    Aes256Gcm,
+    Aes256Gcm, Error as DecryptionError,
 };
 use getrandom::getrandom;
 use hmac::Hmac;
@@ -58,6 +58,18 @@ pub struct PickleKey {
     aes256_key: Vec<u8>,
 }
 
+impl Default for PickleKey {
+    fn default() -> Self {
+        let mut key = vec![0u8; KEY_SIZE];
+        getrandom(&mut key).expect("Can't generate new pickle key");
+
+        Self {
+            version: VERSION,
+            aes256_key: key,
+        }
+    }
+}
+
 impl TryFrom<Vec<u8>> for PickleKey {
     type Error = ();
     fn try_from(value: Vec<u8>) -> Result<Self, Self::Error> {
@@ -75,13 +87,7 @@ impl TryFrom<Vec<u8>> for PickleKey {
 impl PickleKey {
     /// Generate a new random pickle key.
     pub fn new() -> Self {
-        let mut key = vec![0u8; KEY_SIZE];
-        getrandom(&mut key).expect("Can't generate new pickle key");
-
-        Self {
-            version: VERSION,
-            aes256_key: key,
-        }
+        Default::default()
     }
 
     fn expand_key(passphrase: &str, salt: &[u8]) -> Zeroizing<Vec<u8>> {
@@ -137,20 +143,21 @@ impl PickleKey {
     /// pickle key.
     ///
     /// * `encrypted` - The exported and encrypted version of the pickle key.
-    pub fn from_encrypted(passphrase: &str, encrypted: EncryptedPickleKey) -> Self {
+    pub fn from_encrypted(
+        passphrase: &str,
+        encrypted: EncryptedPickleKey,
+    ) -> Result<Self, DecryptionError> {
         let key = PickleKey::expand_key(passphrase, &encrypted.kdf_salt);
         let key = GenericArray::from_slice(key.as_ref());
         let cipher = Aes256Gcm::new(&key);
         let nonce = GenericArray::from_slice(&encrypted.nonce);
 
-        let decrypted_key = cipher
-            .decrypt(nonce, encrypted.ciphertext.as_ref())
-            .expect("Can't decrypt pickle");
+        let decrypted_key = cipher.decrypt(nonce, encrypted.ciphertext.as_ref())?;
 
-        Self {
+        Ok(Self {
             version: encrypted.version,
             aes256_key: decrypted_key,
-        }
+        })
     }
 }
 
@@ -169,7 +176,7 @@ mod test {
         let pickle_key = PickleKey::new();
 
         let encrypted = pickle_key.encrypt(passphrase);
-        let decrypted = PickleKey::from_encrypted(passphrase, encrypted);
+        let decrypted = PickleKey::from_encrypted(passphrase, encrypted).unwrap();
 
         assert_eq!(pickle_key, decrypted);
     }

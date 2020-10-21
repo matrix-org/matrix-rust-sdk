@@ -308,6 +308,10 @@ pub enum CryptoStoreError {
     #[error(transparent)]
     SessionUnpickling(#[from] SessionUnpicklingError),
 
+    /// Failed to decrypt an pickled object.
+    #[error("An object failed to be decrypted while unpickling")]
+    UnpicklingError,
+
     /// A Matirx identifier failed to be validated.
     #[error(transparent)]
     IdentifierValidation(#[from] IdentifierValidationError),

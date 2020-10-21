@@ -516,8 +516,9 @@ impl SqliteStore {
                 .await?;
 
         Ok(if let Some(row) = row {
-            let encrypted: EncryptedPickleKey = serde_json::from_str(&row.0).unwrap();
+            let encrypted: EncryptedPickleKey = serde_json::from_str(&row.0)?;
             PickleKey::from_encrypted(passphrase, encrypted)
+                .map_err(|_| CryptoStoreError::UnpicklingError)?
         } else {
             let key = PickleKey::new();
             let encrypted = key.encrypt(passphrase);
