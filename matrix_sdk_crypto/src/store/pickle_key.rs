@@ -27,24 +27,44 @@ use zeroize::{Zeroize, Zeroizing};
 
 use serde::{Deserialize, Serialize};
 
-const VERSION: u8 = 1;
 const KEY_SIZE: usize = 32;
 const NONCE_SIZE: usize = 12;
 const KDF_SALT_SIZE: usize = 32;
 const KDF_ROUNDS: u32 = 10000;
 
+/// Version specific info for the key derivation method that is used.
+#[derive(Debug, Serialize, Deserialize, PartialEq)]
+pub enum KdfInfo {
+    Pbkdf2 {
+        /// The number of PBKDF rounds that were used when deriving the AES key.
+        rounds: u32,
+    },
+}
+
+/// Version specific info for encryption method that is used to encrypt our
+/// pickle key.
+#[derive(Debug, Serialize, Deserialize, PartialEq)]
+pub enum CipherTextInfo {
+    Aes256Gcm {
+        /// The nonce that was used to encrypt the ciphertext.
+        nonce: Vec<u8>,
+        /// The encrypted pickle key.
+        ciphertext: Vec<u8>,
+    },
+}
+
 /// An encrypted version of our pickle key, this can be safely stored in a
 /// database.
 #[derive(Debug, Serialize, Deserialize, PartialEq)]
 pub struct EncryptedPickleKey {
-    /// The version of the encrypted pickle.
-    pub version: u8,
+    /// Info about the key derivation method that was used to expand the
+    /// passphrase into an encryption key.
+    pub kdf_info: KdfInfo,
+    /// The ciphertext with it's accompanying additional data that is needed to
+    /// decrypt the pickle key.
+    pub ciphertext_info: CipherTextInfo,
     /// The salt that was used when the passphrase was expanded into a AES key.
-    pub kdf_salt: Vec<u8>,
-    /// The nonce that was used to encrypt the pickle key.
-    pub nonce: Vec<u8>,
-    /// The encrypted pickle key.
-    pub ciphertext: Vec<u8>,
+    kdf_salt: Vec<u8>,
 }
 
 /// A pickle key that will be used to encrypt all the private keys for Olm.
@@ -54,7 +74,6 @@ pub struct EncryptedPickleKey {
 /// AES256-GCM so the key sizes match.
 #[derive(Debug, Zeroize, PartialEq)]
 pub struct PickleKey {
-    version: u8,
     aes256_key: Vec<u8>,
 }
 
@@ -63,10 +82,7 @@ impl Default for PickleKey {
         let mut key = vec![0u8; KEY_SIZE];
         getrandom(&mut key).expect("Can't generate new pickle key");
 
-        Self {
-            version: VERSION,
-            aes256_key: key,
-        }
+        Self { aes256_key: key }
     }
 }
 
@@ -76,10 +92,7 @@ impl TryFrom<Vec<u8>> for PickleKey {
         if value.len() != KEY_SIZE {
             Err(())
         } else {
-            Ok(Self {
-                version: VERSION,
-                aes256_key: value,
-            })
+            Ok(Self { aes256_key: value })
         }
     }
 }
@@ -90,9 +103,9 @@ impl PickleKey {
         Default::default()
     }
 
-    fn expand_key(passphrase: &str, salt: &[u8]) -> Zeroizing<Vec<u8>> {
+    fn expand_key(passphrase: &str, salt: &[u8], rounds: u32) -> Zeroizing<Vec<u8>> {
         let mut key = Zeroizing::from(vec![0u8; KEY_SIZE]);
-        pbkdf2::<Hmac<Sha256>>(passphrase.as_bytes(), &salt, KDF_ROUNDS, &mut *key);
+        pbkdf2::<Hmac<Sha256>>(passphrase.as_bytes(), &salt, rounds, &mut *key);
         key
     }
 
@@ -113,7 +126,7 @@ impl PickleKey {
         let mut salt = vec![0u8; KDF_SALT_SIZE];
         getrandom(&mut salt).expect("Can't generate new random pickle key");
 
-        let key = PickleKey::expand_key(passphrase, &salt);
+        let key = PickleKey::expand_key(passphrase, &salt, KDF_ROUNDS);
         let key = GenericArray::from_slice(key.as_ref());
         let cipher = Aes256Gcm::new(&key);
 
@@ -128,10 +141,9 @@ impl PickleKey {
             .expect("Can't encrypt pickle key");
 
         EncryptedPickleKey {
-            version: self.version,
+            kdf_info: KdfInfo::Pbkdf2 { rounds: KDF_ROUNDS },
             kdf_salt: salt,
-            nonce,
-            ciphertext,
+            ciphertext_info: CipherTextInfo::Aes256Gcm { nonce, ciphertext },
         }
     }
 
@@ -147,16 +159,22 @@ impl PickleKey {
         passphrase: &str,
         encrypted: EncryptedPickleKey,
     ) -> Result<Self, DecryptionError> {
-        let key = PickleKey::expand_key(passphrase, &encrypted.kdf_salt);
-        let key = GenericArray::from_slice(key.as_ref());
-        let cipher = Aes256Gcm::new(&key);
-        let nonce = GenericArray::from_slice(&encrypted.nonce);
+        let key = match encrypted.kdf_info {
+            KdfInfo::Pbkdf2 { rounds } => Self::expand_key(passphrase, &encrypted.kdf_salt, rounds),
+        };
 
-        let decrypted_key = cipher.decrypt(nonce, encrypted.ciphertext.as_ref())?;
+        let key = GenericArray::from_slice(key.as_ref());
+
+        let decrypted = match encrypted.ciphertext_info {
+            CipherTextInfo::Aes256Gcm { nonce, ciphertext } => {
+                let cipher = Aes256Gcm::new(&key);
+                let nonce = GenericArray::from_slice(&nonce);
+                cipher.decrypt(nonce, ciphertext.as_ref())?
+            }
+        };
 
         Ok(Self {
-            version: encrypted.version,
-            aes256_key: decrypted_key,
+            aes256_key: decrypted,
         })
     }
 }
