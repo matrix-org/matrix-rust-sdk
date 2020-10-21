@@ -26,6 +26,7 @@ use matrix_sdk_common_macros::async_trait;
 
 use super::{
     caches::{DeviceStore, GroupSessionStore, SessionStore},
+    pickle_key::EncryptedPickleKey,
     Changes, CryptoStore, InboundGroupSession, ReadOnlyAccount, Result, Session,
 };
 use crate::identities::{ReadOnlyDevice, UserIdentities};

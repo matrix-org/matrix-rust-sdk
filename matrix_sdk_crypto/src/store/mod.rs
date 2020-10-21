@@ -46,6 +46,7 @@ pub(crate) mod sqlite;
 
 use matrix_sdk_common::identifiers::DeviceIdBox;
 pub use memorystore::MemoryStore;
+use pickle_key::EncryptedPickleKey;
 #[cfg(not(target_arch = "wasm32"))]
 #[cfg(feature = "sqlite_cryptostore")]
 pub use sqlite::SqliteStore;

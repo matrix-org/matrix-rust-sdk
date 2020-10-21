@@ -167,7 +167,9 @@ impl SqliteStore {
 
     async fn create_tables(&self) -> Result<()> {
         let mut connection = self.connection.lock().await;
-        connection
+        let mut transaction = connection.begin().await?;
+
+        transaction
             .execute(
                 r#"
             CREATE TABLE IF NOT EXISTS accounts (
@@ -183,7 +185,7 @@ impl SqliteStore {
             )
             .await?;
 
-        connection
+        transaction
             .execute(
                 r#"
             CREATE TABLE IF NOT EXISTS sessions (
@@ -202,7 +204,7 @@ impl SqliteStore {
             )
             .await?;
 
-        connection
+        transaction
             .execute(
                 r#"
             CREATE TABLE IF NOT EXISTS tracked_users (
@@ -220,7 +222,7 @@ impl SqliteStore {
             )
             .await?;
 
-        connection
+        transaction
             .execute(
                 r#"
             CREATE TABLE IF NOT EXISTS inbound_group_sessions (
@@ -241,7 +243,7 @@ impl SqliteStore {
             )
             .await?;
 
-        connection
+        transaction
             .execute(
                 r#"
             CREATE TABLE IF NOT EXISTS group_session_claimed_keys (
@@ -259,7 +261,7 @@ impl SqliteStore {
             )
             .await?;
 
-        connection
+        transaction
             .execute(
                 r#"
             CREATE TABLE IF NOT EXISTS group_session_chains (
@@ -276,7 +278,7 @@ impl SqliteStore {
             )
             .await?;
 
-        connection
+        transaction
             .execute(
                 r#"
             CREATE TABLE IF NOT EXISTS devices (
@@ -296,7 +298,7 @@ impl SqliteStore {
             )
             .await?;
 
-        connection
+        transaction
             .execute(
                 r#"
             CREATE TABLE IF NOT EXISTS algorithms (
@@ -313,7 +315,7 @@ impl SqliteStore {
             )
             .await?;
 
-        connection
+        transaction
             .execute(
                 r#"
             CREATE TABLE IF NOT EXISTS device_keys (
@@ -331,7 +333,7 @@ impl SqliteStore {
             )
             .await?;
 
-        connection
+        transaction
             .execute(
                 r#"
             CREATE TABLE IF NOT EXISTS device_signatures (
@@ -350,7 +352,7 @@ impl SqliteStore {
             )
             .await?;
 
-        connection
+        transaction
             .execute(
                 r#"
             CREATE TABLE IF NOT EXISTS users (
@@ -367,7 +369,7 @@ impl SqliteStore {
             )
             .await?;
 
-        connection
+        transaction
             .execute(
                 r#"
             CREATE TABLE IF NOT EXISTS users_trust_state (
@@ -382,7 +384,7 @@ impl SqliteStore {
             )
             .await?;
 
-        connection
+        transaction
             .execute(
                 r#"
             CREATE TABLE IF NOT EXISTS cross_signing_keys (
@@ -399,7 +401,7 @@ impl SqliteStore {
             )
             .await?;
 
-        connection
+        transaction
             .execute(
                 r#"
             CREATE TABLE IF NOT EXISTS user_keys (
@@ -416,7 +418,7 @@ impl SqliteStore {
             )
             .await?;
 
-        connection
+        transaction
             .execute(
                 r#"
             CREATE TABLE IF NOT EXISTS user_key_signatures (
@@ -435,7 +437,7 @@ impl SqliteStore {
             )
             .await?;
 
-        connection
+        transaction
             .execute(
                 r#"
             CREATE TABLE IF NOT EXISTS key_value (
@@ -452,6 +454,8 @@ impl SqliteStore {
         "#,
             )
             .await?;
+
+        transaction.commit().await?;
 
         Ok(())
     }
