@@ -19,6 +19,7 @@ use aes_gcm::{
     Aes256Gcm,
 };
 use base64::{decode_config, encode_config, DecodeError, URL_SAFE_NO_PAD};
+use getrandom::getrandom;
 use serde::{Deserialize, Serialize};
 use std::{
     collections::BTreeMap,
@@ -41,6 +42,8 @@ use crate::{
     identities::{MasterPubkey, SelfSigningPubkey, UserSigningPubkey},
     requests::UploadSigningKeysRequest,
 };
+
+const NONCE_SIZE: usize = 12;
 
 fn encode<T: AsRef<[u8]>>(input: T) -> String {
     encode_config(input, URL_SAFE_NO_PAD)
@@ -276,7 +279,11 @@ impl Signing {
     async fn pickle(&self, pickle_key: &[u8]) -> PickledSigning {
         let key = GenericArray::from_slice(pickle_key);
         let cipher = Aes256Gcm::new(key);
-        let nonce = GenericArray::from_slice(b"unique nonce");
+
+        let mut nonce = vec![0u8; NONCE_SIZE];
+        getrandom(&mut nonce).expect("Can't generate nonce to pickle the signing object");
+        let nonce = GenericArray::from_slice(nonce.as_slice());
+
         let ciphertext = cipher
             .encrypt(nonce, self.seed.as_slice())
             .expect("Can't encrypt signing pickle");
