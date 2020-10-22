@@ -28,7 +28,11 @@ pub struct StateChanges {
 }
 
 impl StateChanges {
-    pub fn add_event(&mut self, room_id: &RoomId, event: SyncStateEvent<MemberEventContent>) {
+    pub fn add_joined_member(
+        &mut self,
+        room_id: &RoomId,
+        event: SyncStateEvent<MemberEventContent>,
+    ) {
         let user_id = UserId::try_from(event.state_key.as_str()).unwrap();
         self.members
             .entry(room_id.to_owned())
@@ -38,7 +42,7 @@ impl StateChanges {
 
     pub fn from_event(room_id: &RoomId, event: SyncStateEvent<MemberEventContent>) -> Self {
         let mut changes = Self::default();
-        changes.add_event(room_id, event);
+        changes.add_joined_member(room_id, event);
 
         changes
     }
@@ -90,7 +94,7 @@ impl Store {
         self.inner.flush_async().await.unwrap();
     }
 
-    pub fn get_member_event(
+    pub async fn get_member_event(
         &self,
         room_id: &RoomId,
         state_key: &UserId,

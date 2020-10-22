@@ -14,6 +14,7 @@
 // limitations under the License.
 
 use std::{
+    convert::TryFrom,
     fmt,
     path::{Path, PathBuf},
     result::Result as StdResult,
@@ -47,7 +48,11 @@ use matrix_sdk_crypto::{
 };
 use zeroize::Zeroizing;
 
-use crate::{error::Result, session::Session, store::Store};
+use crate::{
+    error::Result,
+    session::Session,
+    store::{StateChanges, Store},
+};
 
 pub type Token = String;
 
@@ -103,23 +108,22 @@ fn hoist_room_event_prev_content(event: &Raw<AnySyncRoomEvent>) -> Option<Raw<An
 /// Transform state event by hoisting `prev_content` field from `unsigned` to the top level.
 ///
 /// See comment of `hoist_room_event_prev_content`.
-fn hoist_state_event_prev_content(
+fn hoist_and_deserialize_state_event(
     event: &Raw<AnySyncStateEvent>,
-) -> Option<Raw<AnySyncStateEvent>> {
-    let prev_content = serde_json::from_str::<AdditionalEventData>(event.json().get())
-        .map(|more_unsigned| more_unsigned.unsigned)
-        .map(|additional| additional.prev_content)
-        .ok()
-        .flatten()?;
+) -> StdResult<AnySyncStateEvent, serde_json::Error> {
+    let prev_content = serde_json::from_str::<AdditionalEventData>(event.json().get())?
+        .unsigned
+        .prev_content;
 
-    let mut ev = event.deserialize().ok()?;
-    match &mut ev {
-        AnySyncStateEvent::RoomMember(ref mut member) if member.prev_content.is_none() => {
-            member.prev_content = Some(prev_content.deserialize().ok()?);
-            Some(Raw::from(ev))
+    let mut ev = event.deserialize()?;
+
+    if let AnySyncStateEvent::RoomMember(ref mut member) = ev {
+        if member.prev_content.is_none() {
+            member.prev_content = prev_content.map(|e| e.deserialize().ok()).flatten();
         }
-        _ => None,
     }
+
+    Ok(ev)
 }
 
 fn stripped_deserialize_prev_content(
@@ -417,6 +421,34 @@ impl BaseClient {
                 o.receive_sync_response(response).await;
             }
         }
+
+        let changes = StateChanges::default();
+
+        for (room_id, room) in &response.rooms.join {
+            for e in &room.state.events {
+                if let Ok(event) = hoist_and_deserialize_state_event(e) {
+                    match event {
+                        AnySyncStateEvent::RoomMember(member) => {
+                            let member_id = UserId::try_from(member.state_key).unwrap();
+                            let prev_member =
+                                self.store.get_member_event(room_id, &member_id).await;
+                            use matrix_sdk_common::events::room::member::MembershipState::*;
+
+                            match member.content.membership {
+                                Join => {
+                                    // TODO check if the display name is
+                                    // ambigous
+                                }
+                                _ => (),
+                            }
+                        }
+                        _ => (),
+                    }
+                }
+            }
+        }
+
+        self.store.save_changes(&changes).await;
 
         Ok(())
     }
