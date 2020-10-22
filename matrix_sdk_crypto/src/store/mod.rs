@@ -79,11 +79,10 @@ use matrix_sdk_common_macros::async_trait;
 #[cfg(not(target_arch = "wasm32"))]
 use matrix_sdk_common_macros::send_sync;
 
-use crate::olm::PrivateCrossSigningIdentity;
 use crate::{
     error::SessionUnpicklingError,
     identities::{Device, ReadOnlyDevice, UserDevices, UserIdentities},
-    olm::{InboundGroupSession, ReadOnlyAccount, Session},
+    olm::{InboundGroupSession, PrivateCrossSigningIdentity, ReadOnlyAccount, Session},
     verification::VerificationMachine,
 };
 

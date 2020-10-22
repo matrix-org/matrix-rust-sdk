@@ -28,8 +28,10 @@ use super::{
     caches::{DeviceStore, GroupSessionStore, SessionStore},
     Changes, CryptoStore, InboundGroupSession, ReadOnlyAccount, Result, Session,
 };
-use crate::identities::{ReadOnlyDevice, UserIdentities};
-use crate::olm::PrivateCrossSigningIdentity;
+use crate::{
+    identities::{ReadOnlyDevice, UserIdentities},
+    olm::PrivateCrossSigningIdentity,
+};
 
 /// An in-memory only store that will forget all the E2EE key once it's dropped.
 #[derive(Debug, Clone)]

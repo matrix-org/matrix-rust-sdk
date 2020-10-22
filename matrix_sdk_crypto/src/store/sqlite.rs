@@ -38,14 +38,12 @@ use super::{
     pickle_key::{EncryptedPickleKey, PickleKey},
     Changes, CryptoStore, CryptoStoreError, Result,
 };
-use crate::olm::PickledCrossSigningIdentity;
-use crate::olm::PrivateCrossSigningIdentity;
 use crate::{
     identities::{LocalTrust, OwnUserIdentity, ReadOnlyDevice, UserIdentities, UserIdentity},
     olm::{
         AccountPickle, IdentityKeys, InboundGroupSession, InboundGroupSessionPickle,
-        PickledAccount, PickledInboundGroupSession, PickledSession, PicklingMode, ReadOnlyAccount,
-        Session, SessionPickle,
+        PickledAccount, PickledCrossSigningIdentity, PickledInboundGroupSession, PickledSession,
+        PicklingMode, PrivateCrossSigningIdentity, ReadOnlyAccount, Session, SessionPickle,
     },
 };
 
@@ -1615,7 +1613,7 @@ impl CryptoStore for SqliteStore {
 
         query(
             "INSERT INTO private_identities (
-                account_id, user_id, pickle, shared 
+                account_id, user_id, pickle, shared
              ) VALUES (?1, ?2, ?3, ?4)
              ON CONFLICT(account_id, user_id) DO UPDATE SET
                 pickle = excluded.pickle,
@@ -1813,13 +1811,15 @@ impl std::fmt::Debug for SqliteStore {
 
 #[cfg(test)]
 mod test {
-    use crate::olm::PrivateCrossSigningIdentity;
     use crate::{
         identities::{
             device::test::get_device,
             user::test::{get_other_identity, get_own_identity},
         },
-        olm::{GroupSessionKey, InboundGroupSession, ReadOnlyAccount, Session},
+        olm::{
+            GroupSessionKey, InboundGroupSession, PrivateCrossSigningIdentity, ReadOnlyAccount,
+            Session,
+        },
         store::{Changes, DeviceChanges, IdentityChanges},
     };
     use matrix_sdk_common::{

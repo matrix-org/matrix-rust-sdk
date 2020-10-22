@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#![allow(dead_code,missing_docs)]
+#![allow(dead_code, missing_docs)]
 
 use aes_gcm::{
     aead::{generic_array::GenericArray, Aead, NewAead},
@@ -410,7 +410,10 @@ impl PrivateCrossSigningIdentity {
         self.shared.load(Ordering::SeqCst)
     }
 
-    pub async fn pickle(&self, pickle_key: &[u8]) -> Result<PickledCrossSigningIdentity, JsonError> {
+    pub async fn pickle(
+        &self,
+        pickle_key: &[u8],
+    ) -> Result<PickledCrossSigningIdentity, JsonError> {
         let master_key = if let Some(m) = self.master_key.lock().await.as_ref() {
             Some(m.pickle(pickle_key).await)
         } else {
@@ -435,10 +438,8 @@ impl PrivateCrossSigningIdentity {
             self_signing_key,
         };
 
-        println!("HELOOO {:#?}", pickle);
-
         let pickle = serde_json::to_string(&pickle)?;
-        
+
         Ok(PickledCrossSigningIdentity {
             user_id: self.user_id.as_ref().to_owned(),
             shared: self.shared(),
@@ -455,9 +456,7 @@ impl PrivateCrossSigningIdentity {
         pickle: PickledCrossSigningIdentity,
         pickle_key: &[u8],
     ) -> Result<Self, SigningError> {
-        println!("HELOOO UNPICKLED {:#?}", pickle.pickle);
         let signings: PickledSignings = serde_json::from_str(&pickle.pickle)?;
-
 
         let master = if let Some(m) = signings.master_key {
             Some(MasterSigning::from_pickle(m, pickle_key)?)
