@@ -674,13 +674,14 @@ mod test {
             AnyToDeviceEvent, ToDeviceEvent,
         },
         identifiers::{room_id, user_id, DeviceIdBox, RoomId, UserId},
+        locks::Mutex,
     };
     use matrix_sdk_test::async_test;
     use std::{convert::TryInto, sync::Arc};
 
     use crate::{
         identities::{LocalTrust, ReadOnlyDevice},
-        olm::{Account, ReadOnlyAccount},
+        olm::{Account, PrivateCrossSigningIdentity, ReadOnlyAccount},
         store::{CryptoStore, MemoryStore, Store},
         verification::VerificationMachine,
     };
@@ -719,7 +720,8 @@ mod test {
         let user_id = Arc::new(bob_id());
         let account = ReadOnlyAccount::new(&user_id, &alice_device_id());
         let store: Arc<Box<dyn CryptoStore>> = Arc::new(Box::new(MemoryStore::new()));
-        let verification = VerificationMachine::new(account, store.clone());
+        let identity = Arc::new(Mutex::new(PrivateCrossSigningIdentity::empty(bob_id())));
+        let verification = VerificationMachine::new(account, identity, store.clone());
         let store = Store::new(user_id.clone(), store, verification);
 
         KeyRequestMachine::new(
@@ -736,7 +738,8 @@ mod test {
         let account = ReadOnlyAccount::new(&user_id, &alice_device_id());
         let device = ReadOnlyDevice::from_account(&account).await;
         let store: Arc<Box<dyn CryptoStore>> = Arc::new(Box::new(MemoryStore::new()));
-        let verification = VerificationMachine::new(account, store.clone());
+        let identity = Arc::new(Mutex::new(PrivateCrossSigningIdentity::empty(alice_id())));
+        let verification = VerificationMachine::new(account, identity, store.clone());
         let store = Store::new(user_id.clone(), store, verification);
         store.save_devices(&[device]).await.unwrap();
 

@@ -311,6 +311,7 @@ impl SessionManager {
 #[cfg(test)]
 mod test {
     use dashmap::DashMap;
+    use matrix_sdk_common::locks::Mutex;
     use std::{collections::BTreeMap, sync::Arc};
 
     use matrix_sdk_common::{
@@ -324,7 +325,7 @@ mod test {
     use crate::{
         identities::ReadOnlyDevice,
         key_request::KeyRequestMachine,
-        olm::{Account, ReadOnlyAccount},
+        olm::{Account, PrivateCrossSigningIdentity, ReadOnlyAccount},
         store::{CryptoStore, MemoryStore, Store},
         verification::VerificationMachine,
     };
@@ -350,8 +351,10 @@ mod test {
         let account = ReadOnlyAccount::new(&user_id, &device_id);
         let store: Arc<Box<dyn CryptoStore>> = Arc::new(Box::new(MemoryStore::new()));
         store.save_account(account.clone()).await.unwrap();
-
-        let verification = VerificationMachine::new(account.clone(), store.clone());
+        let identity = Arc::new(Mutex::new(PrivateCrossSigningIdentity::empty(
+            user_id.clone(),
+        )));
+        let verification = VerificationMachine::new(account.clone(), identity, store.clone());
 
         let user_id = Arc::new(user_id);
         let device_id = Arc::new(device_id);

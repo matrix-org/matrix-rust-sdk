@@ -378,6 +378,7 @@ pub(crate) mod test {
     use matrix_sdk_common::{
         api::r0::keys::get_keys::Response as KeyQueryResponse,
         identifiers::{room_id, user_id, DeviceIdBox, RoomId, UserId},
+        locks::Mutex,
     };
 
     use matrix_sdk_test::async_test;
@@ -387,7 +388,7 @@ pub(crate) mod test {
     use crate::{
         identities::IdentityManager,
         machine::test::response_from_file,
-        olm::{Account, ReadOnlyAccount},
+        olm::{Account, PrivateCrossSigningIdentity, ReadOnlyAccount},
         session_manager::GroupSessionManager,
         store::{CryptoStore, MemoryStore, Store},
         verification::VerificationMachine,
@@ -410,10 +411,11 @@ pub(crate) mod test {
     }
 
     fn manager() -> IdentityManager {
+        let identity = Arc::new(Mutex::new(PrivateCrossSigningIdentity::empty(user_id())));
         let user_id = Arc::new(user_id());
         let account = ReadOnlyAccount::new(&user_id, &device_id());
         let store: Arc<Box<dyn CryptoStore>> = Arc::new(Box::new(MemoryStore::new()));
-        let verification = VerificationMachine::new(account.clone(), store);
+        let verification = VerificationMachine::new(account.clone(), identity, store);
         let store = Store::new(
             user_id.clone(),
             Arc::new(Box::new(MemoryStore::new())),

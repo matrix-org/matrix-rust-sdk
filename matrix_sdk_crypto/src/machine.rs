@@ -140,9 +140,11 @@ impl OlmMachine {
         user_identity: PrivateCrossSigningIdentity,
     ) -> Self {
         let user_id = Arc::new(user_id.clone());
+        let user_identity = Arc::new(Mutex::new(user_identity));
 
         let store = Arc::new(store);
-        let verification_machine = VerificationMachine::new(account.clone(), store.clone());
+        let verification_machine =
+            VerificationMachine::new(account.clone(), user_identity.clone(), store.clone());
         let store = Store::new(user_id.clone(), store, verification_machine.clone());
         let device_id: Arc<DeviceIdBox> = Arc::new(device_id);
         let outbound_group_sessions = Arc::new(DashMap::new());
@@ -185,7 +187,7 @@ impl OlmMachine {
             verification_machine,
             key_request_machine,
             identity_manager,
-            user_identity: Arc::new(Mutex::new(user_identity)),
+            user_identity,
         }
     }
 
@@ -224,8 +226,16 @@ impl OlmMachine {
             }
         };
 
-        // TODO load the identity like we load an account.
-        let identity = PrivateCrossSigningIdentity::empty(user_id.clone());
+        let identity = match store.load_identity().await? {
+            Some(i) => {
+                debug!("Restored the cross signing identity");
+                i
+            }
+            None => {
+                debug!("Creating an empty cross signing identity stub");
+                PrivateCrossSigningIdentity::empty(user_id.clone())
+            }
+        };
 
         Ok(OlmMachine::new_helper(
             &user_id, device_id, store, account, identity,
@@ -344,8 +354,9 @@ impl OlmMachine {
     /// Mark the cross signing identity as shared.
     async fn receive_cross_signing_upload_response(&self) -> StoreResult<()> {
         self.user_identity.lock().await.mark_as_shared();
-        // TOOD save the identity.
-        Ok(())
+        self.store
+            .save_identity((&*self.user_identity.lock().await).clone())
+            .await
     }
 
     /// Create a new cross signing identity and get the upload request to push
@@ -356,11 +367,12 @@ impl OlmMachine {
     /// devices.
     ///
     /// Uploading these keys will require user interactive auth.
-    pub async fn bootstrap_cross_signing(&self) -> UploadSigningKeysRequest {
-        let mut lock = self.user_identity.lock().await;
-        *lock = PrivateCrossSigningIdentity::new(self.user_id().to_owned()).await;
-        // TODO save the identity.
-        lock.as_upload_request().await
+    pub async fn bootstrap_cross_signing(&self) -> StoreResult<UploadSigningKeysRequest> {
+        // TODO should we save the request until we get a response?
+        let mut identity = self.user_identity.lock().await;
+        *identity = PrivateCrossSigningIdentity::new(self.user_id().to_owned()).await;
+        self.store.save_identity(identity.clone()).await?;
+        Ok(identity.as_upload_request().await)
     }
 
     /// Should device or one-time keys be uploaded to the server.

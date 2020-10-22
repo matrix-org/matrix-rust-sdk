@@ -684,13 +684,13 @@ pub(crate) mod test {
             manager::test::{other_key_query, own_key_query},
             Device, ReadOnlyDevice,
         },
-        olm::ReadOnlyAccount,
+        olm::{PrivateCrossSigningIdentity, ReadOnlyAccount},
         store::MemoryStore,
         verification::VerificationMachine,
     };
 
     use matrix_sdk_common::{
-        api::r0::keys::get_keys::Response as KeyQueryResponse, identifiers::user_id,
+        api::r0::keys::get_keys::Response as KeyQueryResponse, identifiers::user_id, locks::Mutex,
     };
 
     use super::{OwnUserIdentity, UserIdentities, UserIdentity};
@@ -752,8 +752,12 @@ pub(crate) mod test {
         assert!(identity.is_device_signed(&first).is_err());
         assert!(identity.is_device_signed(&second).is_ok());
 
+        let private_identity = Arc::new(Mutex::new(PrivateCrossSigningIdentity::empty(
+            second.user_id().clone(),
+        )));
         let verification_machine = VerificationMachine::new(
             ReadOnlyAccount::new(second.user_id(), second.device_id()),
+            private_identity,
             Arc::new(Box::new(MemoryStore::new())),
         );
 
