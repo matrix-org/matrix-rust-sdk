@@ -116,6 +116,11 @@ impl PickleKey {
         }
     }
 
+    /// Get the raw AES256 key.
+    pub fn key(&self) -> &[u8] {
+        &self.aes256_key
+    }
+
     /// Encrypt and export our pickle key using the given passphrase.
     ///
     /// # Arguments

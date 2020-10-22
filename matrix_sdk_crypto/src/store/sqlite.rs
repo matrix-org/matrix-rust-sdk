@@ -38,6 +38,8 @@ use super::{
     pickle_key::{EncryptedPickleKey, PickleKey},
     Changes, CryptoStore, CryptoStoreError, Result,
 };
+use crate::olm::PickledCrossSigningIdentity;
+use crate::olm::PrivateCrossSigningIdentity;
 use crate::{
     identities::{LocalTrust, OwnUserIdentity, ReadOnlyDevice, UserIdentities, UserIdentity},
     olm::{
@@ -185,6 +187,23 @@ impl SqliteStore {
                 "shared" INTEGER NOT NULL,
                 "uploaded_key_count" INTEGER NOT NULL,
                 UNIQUE(user_id,device_id)
+            );
+        "#,
+            )
+            .await?;
+
+        connection
+            .execute(
+                r#"
+            CREATE TABLE IF NOT EXISTS private_identities (
+                "id" INTEGER NOT NULL PRIMARY KEY,
+                "account_id" INTEGER NOT NULL,
+                "user_id" TEXT NOT NULL,
+                "pickle" TEXT NOT NULL,
+                "shared" INTEGER NOT NULL,
+                FOREIGN KEY ("account_id") REFERENCES "accounts" ("id")
+                    ON DELETE CASCADE
+                UNIQUE(account_id, user_id)
             );
         "#,
             )
@@ -1054,6 +1073,10 @@ impl SqliteStore {
         self.pickle_key.pickle_mode()
     }
 
+    fn get_pickle_key(&self) -> &[u8] {
+        self.pickle_key.key()
+    }
+
     async fn save_inbound_group_session_helper(
         &self,
         account_id: i64,
@@ -1583,6 +1606,62 @@ impl CryptoStore for SqliteStore {
         Ok(())
     }
 
+    async fn save_identity(&self, identity: PrivateCrossSigningIdentity) -> Result<()> {
+        let account_id = self.account_id().ok_or(CryptoStoreError::AccountUnset)?;
+
+        let pickle = identity.pickle(self.get_pickle_key()).await?;
+
+        let mut connection = self.connection.lock().await;
+
+        query(
+            "INSERT INTO private_identities (
+                account_id, user_id, pickle, shared 
+             ) VALUES (?1, ?2, ?3, ?4)
+             ON CONFLICT(account_id, user_id) DO UPDATE SET
+                pickle = excluded.pickle,
+                shared = excluded.shared
+             ",
+        )
+        .bind(account_id)
+        .bind(pickle.user_id.as_str())
+        .bind(pickle.pickle)
+        .bind(pickle.shared)
+        .execute(&mut *connection)
+        .await?;
+
+        Ok(())
+    }
+
+    async fn load_identity(&self) -> Result<Option<PrivateCrossSigningIdentity>> {
+        let account_id = self.account_id().ok_or(CryptoStoreError::AccountUnset)?;
+        let mut connection = self.connection.lock().await;
+
+        let row: Option<(String, bool)> = query_as(
+            "SELECT pickle, shared FROM private_identities
+                      WHERE account_id = ?",
+        )
+        .bind(account_id)
+        .fetch_optional(&mut *connection)
+        .await?;
+
+        if let Some(row) = row {
+            let pickle = PickledCrossSigningIdentity {
+                user_id: (&*self.user_id).clone(),
+                pickle: row.0,
+                shared: row.1,
+            };
+
+            // TODO remove this unwrap
+            let identity = PrivateCrossSigningIdentity::from_pickle(pickle, self.get_pickle_key())
+                .await
+                .unwrap();
+
+            Ok(Some(identity))
+        } else {
+            Ok(None)
+        }
+    }
+
     async fn save_changes(&self, changes: Changes) -> Result<()> {
         let mut connection = self.connection.lock().await;
         let mut transaction = connection.begin().await?;
@@ -1734,6 +1813,7 @@ impl std::fmt::Debug for SqliteStore {
 
 #[cfg(test)]
 mod test {
+    use crate::olm::PrivateCrossSigningIdentity;
     use crate::{
         identities::{
             device::test::get_device,
@@ -2264,6 +2344,17 @@ mod test {
         store.save_changes(changes).await.unwrap();
         let loaded_user = store.load_user(&user_id).await.unwrap().unwrap();
         assert!(loaded_user.own().unwrap().is_verified())
+    }
+
+    #[tokio::test(threaded_scheduler)]
+    async fn private_identity_saving() {
+        let (_, store, _dir) = get_loaded_store().await;
+        assert!(store.load_identity().await.unwrap().is_none());
+        let identity = PrivateCrossSigningIdentity::new((&*store.user_id).clone()).await;
+
+        store.save_identity(identity.clone()).await.unwrap();
+        let loaded_identity = store.load_identity().await.unwrap().unwrap();
+        assert_eq!(identity.user_id(), loaded_identity.user_id());
     }
 
     #[tokio::test(threaded_scheduler)]

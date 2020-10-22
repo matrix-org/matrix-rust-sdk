@@ -32,7 +32,7 @@ pub use group_sessions::{
 pub(crate) use group_sessions::{GroupSessionKey, OutboundGroupSession};
 pub use olm_rs::{account::IdentityKeys, PicklingMode};
 pub use session::{PickledSession, Session, SessionPickle};
-pub(crate) use signing::PrivateCrossSigningIdentity;
+pub use signing::{PrivateCrossSigningIdentity, PickledCrossSigningIdentity};
 pub(crate) use utility::Utility;
 
 #[cfg(test)]

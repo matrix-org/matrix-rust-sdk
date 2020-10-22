@@ -29,6 +29,7 @@ use super::{
     Changes, CryptoStore, InboundGroupSession, ReadOnlyAccount, Result, Session,
 };
 use crate::identities::{ReadOnlyDevice, UserIdentities};
+use crate::olm::PrivateCrossSigningIdentity;
 
 /// An in-memory only store that will forget all the E2EE key once it's dropped.
 #[derive(Debug, Clone)]
@@ -206,6 +207,14 @@ impl CryptoStore for MemoryStore {
 
     async fn get_value(&self, key: &str) -> Result<Option<String>> {
         Ok(self.values.get(key).map(|v| v.to_owned()))
+    }
+
+    async fn save_identity(&self, _: PrivateCrossSigningIdentity) -> Result<()> {
+        Ok(())
+    }
+
+    async fn load_identity(&self) -> Result<Option<PrivateCrossSigningIdentity>> {
+        Ok(None)
     }
 }
 

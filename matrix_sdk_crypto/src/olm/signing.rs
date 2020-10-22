@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#![allow(dead_code)]
+#![allow(dead_code,missing_docs)]
 
 use aes_gcm::{
     aead::{generic_array::GenericArray, Aead, NewAead},
@@ -213,9 +213,13 @@ pub struct PrivateCrossSigningIdentity {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PickledCrossSigningIdentity {
-    user_id: UserId,
-    shared: bool,
+    pub user_id: UserId,
+    pub shared: bool,
+    pub pickle: String,
+}
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct PickledSignings {
     master_key: Option<PickledMasterSigning>,
     user_signing_key: Option<PickledUserSigning>,
     self_signing_key: Option<PickledSelfSigning>,
@@ -348,6 +352,10 @@ impl Signing {
 }
 
 impl PrivateCrossSigningIdentity {
+    pub fn user_id(&self) -> &UserId {
+        &self.user_id
+    }
+
     pub(crate) fn empty(user_id: UserId) -> Self {
         Self {
             user_id: Arc::new(user_id),
@@ -402,7 +410,7 @@ impl PrivateCrossSigningIdentity {
         self.shared.load(Ordering::SeqCst)
     }
 
-    pub async fn pickle(&self, pickle_key: &[u8]) -> PickledCrossSigningIdentity {
+    pub async fn pickle(&self, pickle_key: &[u8]) -> Result<PickledCrossSigningIdentity, JsonError> {
         let master_key = if let Some(m) = self.master_key.lock().await.as_ref() {
             Some(m.pickle(pickle_key).await)
         } else {
@@ -421,32 +429,49 @@ impl PrivateCrossSigningIdentity {
             None
         };
 
-        PickledCrossSigningIdentity {
+        let pickle = PickledSignings {
+            master_key,
+            user_signing_key,
+            self_signing_key,
+        };
+
+        println!("HELOOO {:#?}", pickle);
+
+        let pickle = serde_json::to_string(&pickle)?;
+        
+        Ok(PickledCrossSigningIdentity {
             user_id: self.user_id.as_ref().to_owned(),
             shared: self.shared(),
-            master_key,
-            self_signing_key,
-            user_signing_key,
-        }
+            pickle,
+        })
     }
 
+    /// Restore the private cross signing identity from a pickle.
+    ///
+    /// # Panic
+    ///
+    /// Panics if the pickle_key isn't 32 bytes long.
     pub async fn from_pickle(
         pickle: PickledCrossSigningIdentity,
         pickle_key: &[u8],
     ) -> Result<Self, SigningError> {
-        let master = if let Some(m) = pickle.master_key {
+        println!("HELOOO UNPICKLED {:#?}", pickle.pickle);
+        let signings: PickledSignings = serde_json::from_str(&pickle.pickle)?;
+
+
+        let master = if let Some(m) = signings.master_key {
             Some(MasterSigning::from_pickle(m, pickle_key)?)
         } else {
             None
         };
 
-        let self_signing = if let Some(s) = pickle.self_signing_key {
+        let self_signing = if let Some(s) = signings.self_signing_key {
             Some(SelfSigning::from_pickle(s, pickle_key)?)
         } else {
             None
         };
 
-        let user_signing = if let Some(u) = pickle.user_signing_key {
+        let user_signing = if let Some(u) = signings.user_signing_key {
             Some(UserSigning::from_pickle(u, pickle_key)?)
         } else {
             None
@@ -573,7 +598,7 @@ mod test {
     async fn identity_pickling() {
         let identity = PrivateCrossSigningIdentity::new(user_id()).await;
 
-        let pickled = identity.pickle(pickle_key()).await;
+        let pickled = identity.pickle(pickle_key()).await.unwrap();
 
         let unpickled = PrivateCrossSigningIdentity::from_pickle(pickled, pickle_key())
             .await

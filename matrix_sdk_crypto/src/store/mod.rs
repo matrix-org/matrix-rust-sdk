@@ -79,6 +79,7 @@ use matrix_sdk_common_macros::async_trait;
 #[cfg(not(target_arch = "wasm32"))]
 use matrix_sdk_common_macros::send_sync;
 
+use crate::olm::PrivateCrossSigningIdentity;
 use crate::{
     error::SessionUnpicklingError,
     identities::{Device, ReadOnlyDevice, UserDevices, UserIdentities},
@@ -336,6 +337,12 @@ pub trait CryptoStore: Debug {
     ///
     /// * `account` - The account that should be stored.
     async fn save_account(&self, account: ReadOnlyAccount) -> Result<()>;
+
+    /// TODO
+    async fn save_identity(&self, identity: PrivateCrossSigningIdentity) -> Result<()>;
+
+    /// TODO
+    async fn load_identity(&self) -> Result<Option<PrivateCrossSigningIdentity>>;
 
     /// TODO
     async fn save_changes(&self, changes: Changes) -> Result<()>;
