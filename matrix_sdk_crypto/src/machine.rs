@@ -222,7 +222,9 @@ impl OlmMachine {
             }
             None => {
                 debug!("Creating a new account");
-                ReadOnlyAccount::new(&user_id, &device_id)
+                let account = ReadOnlyAccount::new(&user_id, &device_id);
+                store.save_account(account.clone()).await?;
+                account
             }
         };
 
