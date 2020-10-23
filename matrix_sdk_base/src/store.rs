@@ -1,7 +1,7 @@
 use std::{collections::BTreeMap, convert::TryFrom};
 
 use matrix_sdk_common::{
-    events::{room::member::MemberEventContent, SyncStateEvent},
+    events::{room::member::MemberEventContent, AnySyncStateEvent, SyncStateEvent},
     identifiers::{RoomId, UserId},
 };
 use serde_json;
@@ -11,8 +11,9 @@ use sled::{transaction::TransactionResult, Config, Db, Transactional, Tree};
 #[derive(Debug, Clone)]
 pub struct Store {
     inner: Db,
-    session_tree: Tree,
-    member_tree: Tree,
+    session: Tree,
+    members: Tree,
+    room_state: Tree,
 }
 
 use crate::Session;
@@ -21,6 +22,8 @@ use crate::Session;
 pub struct StateChanges {
     session: Option<Session>,
     members: BTreeMap<RoomId, BTreeMap<UserId, SyncStateEvent<MemberEventContent>>>,
+    state: BTreeMap<RoomId, BTreeMap<String, AnySyncStateEvent>>,
+    display_names: BTreeMap<RoomId, BTreeMap<String, BTreeMap<UserId, ()>>>,
 
     added_user_ids: BTreeMap<RoomId, UserId>,
     invited_user_ids: BTreeMap<RoomId, UserId>,
@@ -60,19 +63,21 @@ impl From<Session> for StateChanges {
 impl Store {
     pub fn open() -> Self {
         let db = Config::new().temporary(true).open().unwrap();
-        let session_tree = db.open_tree("session").unwrap();
-        let member_tree = db.open_tree("members").unwrap();
+        let session = db.open_tree("session").unwrap();
+        let members = db.open_tree("members").unwrap();
+        let room_state = db.open_tree("members").unwrap();
 
         Self {
             inner: db,
-            session_tree,
-            member_tree,
+            session,
+            members,
+            room_state,
         }
     }
 
     pub async fn save_changes(&self, changes: &StateChanges) {
         let ret: TransactionResult<()> =
-            (&self.session_tree, &self.member_tree).transaction(|(session, members)| {
+            (&self.session, &self.members).transaction(|(session, members)| {
                 if let Some(s) = &changes.session {
                     session.insert("session", serde_json::to_vec(s).unwrap())?;
                 }
@@ -99,14 +104,14 @@ impl Store {
         room_id: &RoomId,
         state_key: &UserId,
     ) -> Option<SyncStateEvent<MemberEventContent>> {
-        self.member_tree
+        self.members
             .get(format!("{}{}", room_id.as_str(), state_key.as_str()))
             .unwrap()
             .map(|v| serde_json::from_slice(&v).unwrap())
     }
 
     pub fn get_session(&self) -> Option<Session> {
-        self.session_tree
+        self.session
             .get("session")
             .unwrap()
             .map(|s| serde_json::from_slice(&s).unwrap())
@@ -179,10 +184,10 @@ mod test {
         let room_id = room_id!("!test:localhost");
         let user_id = user_id();
 
-        assert!(store.get_member_event(&room_id, &user_id).is_none());
+        assert!(store.get_member_event(&room_id, &user_id).await.is_none());
         let changes = StateChanges::from_event(&room_id!("!test:localhost"), membership_event());
 
         store.save_changes(&changes).await;
-        assert!(store.get_member_event(&room_id, &user_id).is_some());
+        assert!(store.get_member_event(&room_id, &user_id).await.is_some());
     }
 }

@@ -27,7 +27,7 @@ use matrix_sdk_common::{
     api::r0 as api,
     events::{
         room::member::MemberEventContent, AnyStrippedStateEvent, AnySyncRoomEvent,
-        AnySyncStateEvent,
+        AnySyncStateEvent, SyncStateEvent,
     },
     identifiers::{RoomId, UserId},
     locks::RwLock,
@@ -124,6 +124,13 @@ fn hoist_and_deserialize_state_event(
     }
 
     Ok(ev)
+}
+
+fn calculate_membership_change(
+    existing_event: SyncStateEvent<MemberEventContent>,
+    new_event: SyncStateEvent<MemberEventContent>,
+) -> bool {
+    false
 }
 
 fn stripped_deserialize_prev_content(
