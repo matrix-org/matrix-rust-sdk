@@ -21,6 +21,8 @@ use std::{
     sync::Arc,
 };
 
+use dashmap::DashMap;
+
 #[cfg(feature = "encryption")]
 use matrix_sdk_common::locks::Mutex;
 use matrix_sdk_common::{
@@ -43,15 +45,16 @@ use matrix_sdk_common::{
 #[cfg(feature = "encryption")]
 use matrix_sdk_crypto::{
     store::{CryptoStore, CryptoStoreError},
-    Device, IncomingResponse, OlmError, OlmMachine, OutgoingRequest, Sas, ToDeviceRequest,
-    UserDevices,
+    Device, EncryptionSettings, IncomingResponse, OlmError, OlmMachine, OutgoingRequest, Sas,
+    ToDeviceRequest, UserDevices,
 };
+use tracing::info;
 use zeroize::Zeroizing;
 
 use crate::{
     error::Result,
     session::Session,
-    store::{StateChanges, Store},
+    store::{RoomSummary, StateChanges, Store},
 };
 
 pub type Token = String;
@@ -180,6 +183,7 @@ pub struct BaseClient {
     pub(crate) sync_token: Arc<RwLock<Option<Token>>>,
     /// Database
     store: Store,
+    joined_rooms: Arc<DashMap<RoomId, RoomSummary>>,
     #[cfg(feature = "encryption")]
     olm: Arc<Mutex<Option<OlmMachine>>>,
     #[cfg(feature = "encryption")]
@@ -282,10 +286,18 @@ impl BaseClient {
     /// * `config` - An optional session if the user already has one from a
     /// previous login call.
     pub fn new_with_config(config: BaseClientConfig) -> Result<Self> {
+        let store = if let Some(path) = &config.store_path {
+            info!("Opening store in path {}", path.display());
+            Store::open_with_path(path)
+        } else {
+            Store::open()
+        };
+
         Ok(BaseClient {
             session: Arc::new(RwLock::new(None)),
             sync_token: Arc::new(RwLock::new(None)),
-            store: Store::open(),
+            store,
+            joined_rooms: Arc::new(DashMap::new()),
             #[cfg(feature = "encryption")]
             olm: Arc::new(Mutex::new(None)),
             #[cfg(feature = "encryption")]
@@ -429,27 +441,45 @@ impl BaseClient {
             }
         }
 
-        let changes = StateChanges::default();
+        let mut changes = StateChanges::default();
 
         for (room_id, room) in &response.rooms.join {
             for e in &room.state.events {
+                // info!("Handling event for room {} {:#?}", room_id, e);
                 if let Ok(event) = hoist_and_deserialize_state_event(e) {
                     match event {
                         AnySyncStateEvent::RoomMember(member) => {
-                            let member_id = UserId::try_from(member.state_key).unwrap();
-                            let prev_member =
-                                self.store.get_member_event(room_id, &member_id).await;
+                            // let member_id = UserId::try_from(member.state_key.clone()).unwrap();
+                            // self.store.get_member_event(room_id, &member_id).await;
                             use matrix_sdk_common::events::room::member::MembershipState::*;
 
-                            match member.content.membership {
+                            // TODO this isn't right, check the diff against
+                            // your previous state.
+                            match &member.content.membership {
                                 Join => {
+                                    info!("ADDING MEMBER {} to {}", member.state_key, room_id);
+                                    changes.add_joined_member(room_id, member)
                                     // TODO check if the display name is
                                     // ambigous
+                                }
+                                Invited => {
+                                    info!(
+                                        "ADDING INVITED MEMBER {} to {}",
+                                        member.state_key, room_id
+                                    );
+                                    changes.add_invited_member(room_id, member)
                                 }
                                 _ => (),
                             }
                         }
-                        _ => (),
+                        AnySyncStateEvent::RoomCreate(create) => {
+                            info!("Creating new room {}", room_id);
+                            let room =
+                                RoomSummary::new(self.store.clone(), room_id, &create.content);
+                            self.joined_rooms.insert(room_id.clone(), room.clone());
+                            changes.add_room_summary(room_id.clone(), room);
+                        }
+                        _ => changes.add_state_event(room_id, event),
                     }
                 }
             }
@@ -542,28 +572,27 @@ impl BaseClient {
     #[cfg(feature = "encryption")]
     #[cfg_attr(feature = "docs", doc(cfg(encryption)))]
     pub async fn share_group_session(&self, room_id: &RoomId) -> Result<Vec<Arc<ToDeviceRequest>>> {
-        todo!()
-        // let room = self.get_joined_room(room_id).await.expect("No room found");
-        // let olm = self.olm.lock().await;
+        let olm = self.olm.lock().await;
 
-        // match &*olm {
-        //     Some(o) => {
-        //         let room = room.write().await;
+        match &*olm {
+            Some(o) => {
+                // XXX: We construct members in a slightly roundabout way instead of chaining the
+                // iterators directly because of https://github.com/rust-lang/rust/issues/64552
+                // let joined_members = room.joined_members.keys();
+                // let invited_members = room.joined_members.keys();
+                // let members: Vec<&UserId> = joined_members.chain(invited_members).collect();
+                let members = self.store.get_joined_members(room_id).await;
+                Ok(
+                    o.share_group_session(room_id, members.iter(), EncryptionSettings::default())
+                        .await?,
+                )
+            }
+            None => panic!("Olm machine wasn't started"),
+        }
+    }
 
-        //         // XXX: We construct members in a slightly roundabout way instead of chaining the
-        //         // iterators directly because of https://github.com/rust-lang/rust/issues/64552
-        //         let joined_members = room.joined_members.keys();
-        //         let invited_members = room.joined_members.keys();
-        //         let members: Vec<&UserId> = joined_members.chain(invited_members).collect();
-        //         Ok(o.share_group_session(
-        //             room_id,
-        //             members.into_iter(),
-        //             room.encrypted.clone().unwrap_or_default(),
-        //         )
-        //         .await?)
-        //     }
-        //     None => panic!("Olm machine wasn't started"),
-        // }
+    pub fn get_joined_room(&self, room_id: &RoomId) -> Option<RoomSummary> {
+        self.joined_rooms.get(room_id).map(|r| r.clone())
     }
 
     /// Encrypt a message event content.

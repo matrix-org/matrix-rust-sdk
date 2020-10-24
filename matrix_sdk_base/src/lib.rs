@@ -47,7 +47,7 @@ mod error;
 mod session;
 mod store;
 
-pub use store::Store;
+pub use store::{RoomSummary, Store};
 
 pub use client::{BaseClient, BaseClientConfig, RoomState, RoomStateType};
 

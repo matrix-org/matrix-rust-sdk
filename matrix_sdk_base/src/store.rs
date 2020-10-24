@@ -1,9 +1,22 @@
-use std::{collections::BTreeMap, convert::TryFrom};
+use std::{
+    collections::BTreeMap,
+    convert::TryFrom,
+    path::Path,
+    sync::{Arc, Mutex as SyncMutex},
+};
 
+use futures::executor::block_on;
 use matrix_sdk_common::{
-    events::{room::member::MemberEventContent, AnySyncStateEvent, SyncStateEvent},
+    events::{
+        room::{
+            create::CreateEventContent, encryption::EncryptionEventContent,
+            member::MemberEventContent,
+        },
+        AnySyncStateEvent, SyncStateEvent,
+    },
     identifiers::{RoomId, UserId},
 };
+use serde::{Deserialize, Serialize};
 use serde_json;
 
 use sled::{transaction::TransactionResult, Config, Db, Transactional, Tree};
@@ -13,7 +26,9 @@ pub struct Store {
     inner: Db,
     session: Tree,
     members: Tree,
+    joined_user_ids: Tree,
     room_state: Tree,
+    room_summaries: Tree,
 }
 
 use crate::Session;
@@ -23,9 +38,9 @@ pub struct StateChanges {
     session: Option<Session>,
     members: BTreeMap<RoomId, BTreeMap<UserId, SyncStateEvent<MemberEventContent>>>,
     state: BTreeMap<RoomId, BTreeMap<String, AnySyncStateEvent>>,
-    display_names: BTreeMap<RoomId, BTreeMap<String, BTreeMap<UserId, ()>>>,
-
-    added_user_ids: BTreeMap<RoomId, UserId>,
+    room_summaries: BTreeMap<RoomId, RoomSummary>,
+    // display_names: BTreeMap<RoomId, BTreeMap<String, BTreeMap<UserId, ()>>>,
+    joined_user_ids: BTreeMap<RoomId, UserId>,
     invited_user_ids: BTreeMap<RoomId, UserId>,
     removed_user_ids: BTreeMap<RoomId, UserId>,
 }
@@ -37,10 +52,37 @@ impl StateChanges {
         event: SyncStateEvent<MemberEventContent>,
     ) {
         let user_id = UserId::try_from(event.state_key.as_str()).unwrap();
+        self.joined_user_ids
+            .insert(room_id.to_owned(), user_id.clone());
         self.members
             .entry(room_id.to_owned())
             .or_insert_with(BTreeMap::new)
             .insert(user_id, event);
+    }
+
+    pub fn add_invited_member(
+        &mut self,
+        room_id: &RoomId,
+        event: SyncStateEvent<MemberEventContent>,
+    ) {
+        let user_id = UserId::try_from(event.state_key.as_str()).unwrap();
+        self.invited_user_ids
+            .insert(room_id.to_owned(), user_id.clone());
+        self.members
+            .entry(room_id.to_owned())
+            .or_insert_with(BTreeMap::new)
+            .insert(user_id, event);
+    }
+
+    pub fn add_room_summary(&mut self, room_id: RoomId, summary: RoomSummary) {
+        self.room_summaries.insert(room_id, summary);
+    }
+
+    pub fn add_state_event(&mut self, room_id: &RoomId, event: AnySyncStateEvent) {
+        self.state
+            .entry(room_id.to_owned())
+            .or_insert_with(BTreeMap::new)
+            .insert(event.state_key().to_string(), event);
     }
 
     pub fn from_event(room_id: &RoomId, event: SyncStateEvent<MemberEventContent>) -> Self {
@@ -60,24 +102,136 @@ impl From<Session> for StateChanges {
     }
 }
 
+#[derive(Debug, Clone)]
+pub struct RoomSummary {
+    room_id: Arc<RoomId>,
+    inner: Arc<SyncMutex<InnerSummary>>,
+    store: Store,
+}
+
+impl RoomSummary {
+    pub fn new(store: Store, room_id: &RoomId, creation_event: &CreateEventContent) -> Self {
+        let room_id = Arc::new(room_id.clone());
+
+        Self {
+            room_id: room_id.clone(),
+            store,
+            inner: Arc::new(SyncMutex::new(InnerSummary {
+                creation_content: creation_event.clone(),
+                room_id,
+                encryption: None,
+                last_prev_batch: None,
+            })),
+        }
+    }
+
+    fn serialize(&self) -> Vec<u8> {
+        let inner = self.inner.lock().unwrap();
+        serde_json::to_vec(&*inner).unwrap()
+    }
+
+    pub async fn joined_user_ids(&self) -> Vec<UserId> {
+        self.store.get_joined_members(&self.room_id).await
+    }
+
+    pub fn is_encrypted(&self) -> bool {
+        self.inner.lock().unwrap().encryption.is_some()
+    }
+
+    pub fn get_member(&self, user_id: &UserId) -> Option<RoomMember> {
+        block_on(self.store.get_member_event(&self.room_id, user_id)).map(|e| e.into())
+    }
+
+    pub fn room_id(&self) -> &RoomId {
+        &self.room_id
+    }
+
+    pub fn display_name(&self) -> String {
+        "TEST ROOM NAME".to_string()
+    }
+}
+
+#[derive(Debug)]
+pub struct RoomMember {
+    event: Arc<SyncStateEvent<MemberEventContent>>,
+}
+
+impl RoomMember {
+    pub fn display_name(&self) -> &Option<String> {
+        &self.event.content.displayname
+    }
+
+    pub fn disambiguated_name(&self) -> String {
+        self.event.state_key.clone()
+    }
+
+    pub fn name(&self) -> String {
+        self.event.state_key.clone()
+    }
+
+    pub fn unique_name(&self) -> String {
+        self.event.state_key.clone()
+    }
+}
+
+impl From<SyncStateEvent<MemberEventContent>> for RoomMember {
+    fn from(event: SyncStateEvent<MemberEventContent>) -> Self {
+        Self {
+            event: Arc::new(event),
+        }
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct InnerSummary {
+    room_id: Arc<RoomId>,
+    creation_content: CreateEventContent,
+    encryption: Option<EncryptionEventContent>,
+    last_prev_batch: Option<String>,
+}
+
 impl Store {
-    pub fn open() -> Self {
-        let db = Config::new().temporary(true).open().unwrap();
+    fn open_helper(db: Db) -> Self {
         let session = db.open_tree("session").unwrap();
+
         let members = db.open_tree("members").unwrap();
-        let room_state = db.open_tree("members").unwrap();
+        let joined_user_ids = db.open_tree("joined_user_ids").unwrap();
+
+        let room_state = db.open_tree("room_state").unwrap();
+        let room_summaries = db.open_tree("room_summaries").unwrap();
 
         Self {
             inner: db,
             session,
             members,
+            joined_user_ids,
             room_state,
+            room_summaries,
         }
     }
 
+    pub fn open() -> Self {
+        let db = Config::new().temporary(true).open().unwrap();
+
+        Store::open_helper(db)
+    }
+
+    pub fn open_with_path(path: impl AsRef<Path>) -> Self {
+        let path = path.as_ref().join("matrix-sdk-state");
+        let db = Config::new().temporary(false).path(path).open().unwrap();
+
+        Store::open_helper(db)
+    }
+
     pub async fn save_changes(&self, changes: &StateChanges) {
-        let ret: TransactionResult<()> =
-            (&self.session, &self.members).transaction(|(session, members)| {
+        let ret: TransactionResult<()> = (
+            &self.session,
+            &self.members,
+            &self.joined_user_ids,
+            &self.room_state,
+            &self.room_summaries,
+        )
+            .transaction(|(session, members, joined, state, summaries)| {
                 if let Some(s) = &changes.session {
                     session.insert("session", serde_json::to_vec(s).unwrap())?;
                 }
@@ -89,6 +243,23 @@ impl Store {
                             serde_json::to_vec(&event).unwrap(),
                         )?;
                     }
+                }
+
+                for (room, user) in &changes.joined_user_ids {
+                    joined.insert(room.as_bytes(), user.as_bytes())?;
+                }
+
+                for (room, events) in &changes.state {
+                    for (state_key, event) in events {
+                        state.insert(
+                            format!("{}{}", room.as_str(), state_key).as_bytes(),
+                            serde_json::to_vec(&event).unwrap(),
+                        )?;
+                    }
+                }
+
+                for (room_id, summary) in &changes.room_summaries {
+                    summaries.insert(room_id.as_str().as_bytes(), summary.serialize())?;
                 }
 
                 Ok(())
@@ -108,6 +279,13 @@ impl Store {
             .get(format!("{}{}", room_id.as_str(), state_key.as_str()))
             .unwrap()
             .map(|v| serde_json::from_slice(&v).unwrap())
+    }
+
+    pub async fn get_joined_members(&self, room_id: &RoomId) -> Vec<UserId> {
+        self.joined_user_ids
+            .scan_prefix(room_id.as_bytes())
+            .map(|u| UserId::try_from(String::from_utf8_lossy(&u.unwrap().1).to_string()).unwrap())
+            .collect()
     }
 
     pub fn get_session(&self) -> Option<Session> {

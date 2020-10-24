@@ -40,7 +40,7 @@ use zeroize::Zeroizing;
 use tracing::{debug, warn};
 use tracing::{error, info, instrument};
 
-use matrix_sdk_base::{BaseClient, BaseClientConfig, Room, Session, StateStore};
+use matrix_sdk_base::{BaseClient, BaseClientConfig, RoomSummary, Session};
 
 #[cfg(feature = "encryption")]
 use matrix_sdk_base::crypto::{
@@ -117,7 +117,7 @@ use matrix_sdk_common::{
 
 use crate::{
     http_client::{client_with_config, HttpClient, HttpSend},
-    Error, EventEmitter, OutgoingRequest, Result,
+    Error, OutgoingRequest, Result,
 };
 
 #[cfg(feature = "encryption")]
@@ -246,13 +246,13 @@ impl ClientConfig {
         Ok(self)
     }
 
-    /// Set a custom implementation of a `StateStore`.
-    ///
-    /// The state store should be opened before being set.
-    pub fn state_store(mut self, store: Box<dyn StateStore>) -> Self {
-        self.base_config = self.base_config.state_store(store);
-        self
-    }
+    ///// Set a custom implementation of a `StateStore`.
+    /////
+    ///// The state store should be opened before being set.
+    //pub fn state_store(mut self, store: Box<dyn StateStore>) -> Self {
+    //    self.base_config = self.base_config.state_store(store);
+    //    self
+    //}
 
     /// Set the path for storage.
     ///
@@ -429,65 +429,54 @@ impl Client {
         session.as_ref().cloned().map(|s| s.user_id)
     }
 
-    /// Add `EventEmitter` to `Client`.
-    ///
-    /// The methods of `EventEmitter` are called when the respective `RoomEvents` occur.
-    pub async fn add_event_emitter(&mut self, emitter: Box<dyn EventEmitter>) {
-        self.base_client.add_event_emitter(emitter).await;
-    }
+    ///// Add `EventEmitter` to `Client`.
+    /////
+    ///// The methods of `EventEmitter` are called when the respective `RoomEvents` occur.
+    //pub async fn add_event_emitter(&mut self, emitter: Box<dyn EventEmitter>) {
+    //    self.base_client.add_event_emitter(emitter).await;
+    //}
 
-    /// Returns the joined rooms this client knows about.
-    pub fn joined_rooms(&self) -> Arc<RwLock<HashMap<RoomId, Arc<RwLock<Room>>>>> {
-        self.base_client.joined_rooms()
-    }
+    // /// Returns the joined rooms this client knows about.
+    // pub fn joined_rooms(&self) -> Arc<RwLock<HashMap<RoomId, Arc<RwLock<Room>>>>> {
+    //     self.base_client.joined_rooms()
+    // }
 
-    /// Returns the invited rooms this client knows about.
-    pub fn invited_rooms(&self) -> Arc<RwLock<HashMap<RoomId, Arc<RwLock<Room>>>>> {
-        self.base_client.invited_rooms()
-    }
+    // /// Returns the invited rooms this client knows about.
+    // pub fn invited_rooms(&self) -> Arc<RwLock<HashMap<RoomId, Arc<RwLock<Room>>>>> {
+    //     self.base_client.invited_rooms()
+    // }
 
-    /// Returns the left rooms this client knows about.
-    pub fn left_rooms(&self) -> Arc<RwLock<HashMap<RoomId, Arc<RwLock<Room>>>>> {
-        self.base_client.left_rooms()
-    }
+    // /// Returns the left rooms this client knows about.
+    // pub fn left_rooms(&self) -> Arc<RwLock<HashMap<RoomId, Arc<RwLock<Room>>>>> {
+    //     self.base_client.left_rooms()
+    // }
 
     /// Get a joined room with the given room id.
     ///
     /// # Arguments
     ///
     /// `room_id` - The unique id of the room that should be fetched.
-    pub async fn get_joined_room(&self, room_id: &RoomId) -> Option<Arc<RwLock<Room>>> {
-        self.base_client.get_joined_room(room_id).await
+    pub fn get_joined_room(&self, room_id: &RoomId) -> Option<RoomSummary> {
+        self.base_client.get_joined_room(room_id)
     }
 
-    /// Get an invited room with the given room id.
-    ///
-    /// # Arguments
-    ///
-    /// `room_id` - The unique id of the room that should be fetched.
-    pub async fn get_invited_room(&self, room_id: &RoomId) -> Option<Arc<RwLock<Room>>> {
-        self.base_client.get_invited_room(room_id).await
-    }
+    ///// Get an invited room with the given room id.
+    /////
+    ///// # Arguments
+    /////
+    ///// `room_id` - The unique id of the room that should be fetched.
+    //pub async fn get_invited_room(&self, room_id: &RoomId) -> Option<Arc<RwLock<Room>>> {
+    //    self.base_client.get_invited_room(room_id).await
+    //}
 
-    /// Get a left room with the given room id.
-    ///
-    /// # Arguments
-    ///
-    /// `room_id` - The unique id of the room that should be fetched.
-    pub async fn get_left_room(&self, room_id: &RoomId) -> Option<Arc<RwLock<Room>>> {
-        self.base_client.get_left_room(room_id).await
-    }
-
-    /// This allows `Client` to manually store `Room` state with the provided
-    /// `StateStore`.
-    ///
-    /// Returns Ok when a successful `Room` store occurs.
-    pub async fn store_room_state(&self, room_id: &RoomId) -> Result<()> {
-        self.base_client
-            .store_room_state(room_id)
-            .await
-            .map_err(Into::into)
-    }
+    ///// Get a left room with the given room id.
+    /////
+    ///// # Arguments
+    /////
+    ///// `room_id` - The unique id of the room that should be fetched.
+    //pub async fn get_left_room(&self, room_id: &RoomId) -> Option<Arc<RwLock<Room>>> {
+    //    self.base_client.get_left_room(room_id).await
+    //}
 
     /// Login to the server.
     ///
@@ -1021,13 +1010,10 @@ impl Client {
                 let _guard = mutex.lock().await;
 
                 {
-                    let room = self.base_client.get_joined_room(room_id).await;
-                    let room = room.as_ref().unwrap().read().await;
-                    let mut members = room
-                        .joined_members
-                        .keys()
-                        .chain(room.invited_members.keys());
-                    self.claim_one_time_keys(&mut members).await?;
+                    let room = self.base_client.get_joined_room(room_id).unwrap();
+                    let members = room.joined_user_ids().await;
+                    let mut members_iter = members.iter();
+                    self.claim_one_time_keys(&mut members_iter).await?;
                 };
 
                 let response = self.share_group_session(room_id).await;
@@ -1120,10 +1106,8 @@ impl Client {
     /// Returns true if a room with the given id was found and the room is
     /// encrypted, false if the room wasn't found or isn't encrypted.
     async fn is_room_encrypted(&self, room_id: &RoomId) -> bool {
-        let room = self.base_client.get_joined_room(room_id).await;
-
-        match room {
-            Some(r) => r.read().await.is_encrypted(),
+        match self.base_client.get_joined_room(room_id) {
+            Some(r) => r.is_encrypted(),
             None => false,
         }
     }
@@ -1937,7 +1921,6 @@ mod test {
         get_public_rooms, get_public_rooms_filtered, register::RegistrationKind, Client,
         ClientConfig, Invite3pid, Session, SyncSettings, Url,
     };
-    use matrix_sdk_base::JsonStore;
     use matrix_sdk_common::{
         api::r0::{
             account::register::Request as RegistrationRequest,
@@ -2005,78 +1988,78 @@ mod test {
         assert!(client.devices().await.is_ok());
     }
 
-    #[tokio::test]
-    async fn test_join_leave_room() {
-        let homeserver = Url::from_str(&mockito::server_url()).unwrap();
+    // #[tokio::test]
+    // async fn test_join_leave_room() {
+    //     let homeserver = Url::from_str(&mockito::server_url()).unwrap();
 
-        let room_id = room_id!("!SVkFJHzfwvuaIEawgC:localhost");
+    //     let room_id = room_id!("!SVkFJHzfwvuaIEawgC:localhost");
 
-        let session = Session {
-            access_token: "1234".to_owned(),
-            user_id: user_id!("@example:localhost"),
-            device_id: "DEVICEID".into(),
-        };
+    //     let session = Session {
+    //         access_token: "1234".to_owned(),
+    //         user_id: user_id!("@example:localhost"),
+    //         device_id: "DEVICEID".into(),
+    //     };
 
-        let _m = mock(
-            "GET",
-            Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_string()),
-        )
-        .with_status(200)
-        .with_body(test_json::SYNC.to_string())
-        .create();
+    //     let _m = mock(
+    //         "GET",
+    //         Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_string()),
+    //     )
+    //     .with_status(200)
+    //     .with_body(test_json::SYNC.to_string())
+    //     .create();
 
-        let dir = tempdir().unwrap();
-        let path: &Path = dir.path();
-        let store = Box::new(JsonStore::open(path).unwrap());
+    //     let dir = tempdir().unwrap();
+    //     let path: &Path = dir.path();
+    //     let store = Box::new(JsonStore::open(path).unwrap());
 
-        let config = ClientConfig::default().state_store(store);
-        let client = Client::new_with_config(homeserver.clone(), config).unwrap();
-        client.restore_login(session.clone()).await.unwrap();
+    //     let config = ClientConfig::default().state_store(store);
+    //     let client = Client::new_with_config(homeserver.clone(), config).unwrap();
+    //     client.restore_login(session.clone()).await.unwrap();
 
-        let room = client.get_joined_room(&room_id).await;
-        assert!(room.is_none());
+    //     let room = client.get_joined_room(&room_id).await;
+    //     assert!(room.is_none());
 
-        client.sync_once(SyncSettings::default()).await.unwrap();
+    //     client.sync_once(SyncSettings::default()).await.unwrap();
 
-        let room = client.get_left_room(&room_id).await;
-        assert!(room.is_none());
+    //     let room = client.get_left_room(&room_id).await;
+    //     assert!(room.is_none());
 
-        let room = client.get_joined_room(&room_id).await;
-        assert!(room.is_some());
+    //     let room = client.get_joined_room(&room_id).await;
+    //     assert!(room.is_some());
 
-        // test store reloads with correct room state from JsonStore
-        let store = Box::new(JsonStore::open(path).unwrap());
-        let config = ClientConfig::default().state_store(store);
-        let joined_client = Client::new_with_config(homeserver, config).unwrap();
-        joined_client.restore_login(session).await.unwrap();
+    //     // test store reloads with correct room state from JsonStore
+    //     let store = Box::new(JsonStore::open(path).unwrap());
+    //     let config = ClientConfig::default().state_store(store);
+    //     let joined_client = Client::new_with_config(homeserver, config).unwrap();
+    //     joined_client.restore_login(session).await.unwrap();
 
-        // joined room reloaded from state store
-        joined_client
-            .sync_once(SyncSettings::default())
-            .await
-            .unwrap();
-        let room = joined_client.get_joined_room(&room_id).await;
-        assert!(room.is_some());
+    //     // joined room reloaded from state store
+    //     joined_client
+    //         .sync_once(SyncSettings::default())
+    //         .await
+    //         .unwrap();
+    //     let room = joined_client.get_joined_room(&room_id).await;
+    //     assert!(room.is_some());
 
-        let _m = mock(
-            "GET",
-            Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_string()),
-        )
-        .with_status(200)
-        .with_body(test_json::LEAVE_SYNC_EVENT.to_string())
-        .create();
+    //     let _m = mock(
+    //         "GET",
+    //         Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_string()),
+    //     )
+    //     .with_status(200)
+    //     .with_body(test_json::LEAVE_SYNC_EVENT.to_string())
+    //     .create();
 
-        joined_client
-            .sync_once(SyncSettings::default())
-            .await
-            .unwrap();
+    //     joined_client
+    //         .sync_once(SyncSettings::default())
+    //         .await
+    //         .unwrap();
 
-        let room = joined_client.get_joined_room(&room_id).await;
-        assert!(room.is_none());
+    //     let room = joined_client.get_joined_room(&room_id).await;
+    //     assert!(room.is_none());
 
-        let room = joined_client.get_left_room(&room_id).await;
-        assert!(room.is_some());
-    }
+    //     let room = joined_client.get_left_room(&room_id).await;
+    //     assert!(room.is_some());
+    // }
 
     #[tokio::test]
     async fn account_data() {
@@ -2649,62 +2632,62 @@ mod test {
             .is_some())
     }
 
-    #[tokio::test]
-    async fn test_client_sync_store() {
-        let homeserver = url::Url::from_str(&mockito::server_url()).unwrap();
+    // #[tokio::test]
+    // async fn test_client_sync_store() {
+    //     let homeserver = url::Url::from_str(&mockito::server_url()).unwrap();
 
-        let session = Session {
-            access_token: "1234".to_owned(),
-            user_id: user_id!("@cheeky_monkey:matrix.org"),
-            device_id: "DEVICEID".into(),
-        };
+    //     let session = Session {
+    //         access_token: "1234".to_owned(),
+    //         user_id: user_id!("@cheeky_monkey:matrix.org"),
+    //         device_id: "DEVICEID".into(),
+    //     };
 
-        let _m = mock(
-            "GET",
-            Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_string()),
-        )
-        .with_status(200)
-        .with_body(test_json::SYNC.to_string())
-        .create();
+    //     let _m = mock(
+    //         "GET",
+    //         Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_string()),
+    //     )
+    //     .with_status(200)
+    //     .with_body(test_json::SYNC.to_string())
+    //     .create();
 
-        let _m = mock("POST", "/_matrix/client/r0/login")
-            .with_status(200)
-            .with_body(test_json::LOGIN.to_string())
-            .create();
+    //     let _m = mock("POST", "/_matrix/client/r0/login")
+    //         .with_status(200)
+    //         .with_body(test_json::LOGIN.to_string())
+    //         .create();
 
-        let dir = tempdir().unwrap();
-        // a sync response to populate our JSON store
-        let config =
-            ClientConfig::default().state_store(Box::new(JsonStore::open(dir.path()).unwrap()));
-        let client = Client::new_with_config(homeserver.clone(), config).unwrap();
-        client.restore_login(session.clone()).await.unwrap();
-        let sync_settings = SyncSettings::new().timeout(std::time::Duration::from_millis(3000));
+    //     let dir = tempdir().unwrap();
+    //     // a sync response to populate our JSON store
+    //     let config =
+    //         ClientConfig::default().state_store(Box::new(JsonStore::open(dir.path()).unwrap()));
+    //     let client = Client::new_with_config(homeserver.clone(), config).unwrap();
+    //     client.restore_login(session.clone()).await.unwrap();
+    //     let sync_settings = SyncSettings::new().timeout(std::time::Duration::from_millis(3000));
 
-        // gather state to save to the db, the first time through loading will be skipped
-        let _ = client.sync_once(sync_settings.clone()).await.unwrap();
+    //     // gather state to save to the db, the first time through loading will be skipped
+    //     let _ = client.sync_once(sync_settings.clone()).await.unwrap();
 
-        // now syncing the client will update from the state store
-        let config =
-            ClientConfig::default().state_store(Box::new(JsonStore::open(dir.path()).unwrap()));
-        let client = Client::new_with_config(homeserver, config).unwrap();
-        client.restore_login(session.clone()).await.unwrap();
-        client.sync_once(sync_settings).await.unwrap();
+    //     // now syncing the client will update from the state store
+    //     let config =
+    //         ClientConfig::default().state_store(Box::new(JsonStore::open(dir.path()).unwrap()));
+    //     let client = Client::new_with_config(homeserver, config).unwrap();
+    //     client.restore_login(session.clone()).await.unwrap();
+    //     client.sync_once(sync_settings).await.unwrap();
 
-        let base_client = &client.base_client;
+    //     let base_client = &client.base_client;
 
-        // assert the synced client and the logged in client are equal
-        assert_eq!(*base_client.session().read().await, Some(session));
-        assert_eq!(
-            base_client.sync_token().await,
-            Some("s526_47314_0_7_1_1_1_11444_1".to_string())
-        );
+    //     // assert the synced client and the logged in client are equal
+    //     assert_eq!(*base_client.session().read().await, Some(session));
+    //     assert_eq!(
+    //         base_client.sync_token().await,
+    //         Some("s526_47314_0_7_1_1_1_11444_1".to_string())
+    //     );
 
-        // This is commented out because this field is private...
-        // assert_eq!(
-        //     *base_client.ignored_users.read().await,
-        //     vec![user_id!("@someone:example.org")]
-        // );
-    }
+    //     // This is commented out because this field is private...
+    //     // assert_eq!(
+    //     //     *base_client.ignored_users.read().await,
+    //     //     vec![user_id!("@someone:example.org")]
+    //     // );
+    // }
 
     #[tokio::test]
     async fn sync() {

@@ -26,6 +26,7 @@ docs = ["encryption", "sqlite_cryptostore", "messages"]
 [dependencies]
 async-trait = "0.1.41"
 serde = "1.0.116"
+dashmap= "*"
 serde_json = "1.0.58"
 zeroize = "1.1.1"
 tracing = "0.1.21"
@@ -37,6 +38,7 @@ matrix-sdk-crypto = { version = "0.1.0", path = "../matrix_sdk_crypto", optional
 # Misc dependencies
 thiserror = "1.0.21"
 sled = "0.34.4"
+futures = "0.3.6"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies.tokio]
 version = "0.2.22"
@@ -44,7 +46,6 @@ default-features = false
 features = ["sync", "fs"]
 
 [dev-dependencies]
-futures = "0.3.6"
 matrix-sdk-test = { version = "0.1.0", path = "../matrix_sdk_test" }
 http = "0.2.1"
 tracing-subscriber = "0.2.13"
