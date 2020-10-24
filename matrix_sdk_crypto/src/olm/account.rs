@@ -30,7 +30,9 @@ use tracing::{debug, trace, warn};
 #[cfg(test)]
 use matrix_sdk_common::events::EventType;
 use matrix_sdk_common::{
-    api::r0::keys::{upload_keys, OneTimeKey, SignedKey},
+    api::r0::keys::{
+        upload_keys, upload_signatures::Request as SignatureUploadRequest, OneTimeKey, SignedKey,
+    },
     encryption::DeviceKeys,
     events::{room::encrypted::EncryptedEventContent, AnyToDeviceEvent},
     identifiers::{
@@ -50,13 +52,16 @@ use olm_rs::{
 };
 
 use crate::{
-    error::{EventError, OlmResult, SessionCreationError},
+    error::{EventError, OlmResult, SessionCreationError, SignatureError},
     identities::ReadOnlyDevice,
     store::Store,
     OlmError,
 };
 
-use super::{EncryptionSettings, InboundGroupSession, OutboundGroupSession, Session};
+use super::{
+    EncryptionSettings, InboundGroupSession, OutboundGroupSession, PrivateCrossSigningIdentity,
+    Session,
+};
 
 #[derive(Debug, Clone)]
 pub struct Account {
@@ -618,9 +623,7 @@ impl ReadOnlyAccount {
         })
     }
 
-    /// Sign the device keys of the account and return them so they can be
-    /// uploaded.
-    pub(crate) async fn device_keys(&self) -> DeviceKeys {
+    pub(crate) fn unsigned_device_keys(&self) -> DeviceKeys {
         let identity_keys = self.identity_keys();
 
         let mut keys = BTreeMap::new();
@@ -634,32 +637,39 @@ impl ReadOnlyAccount {
             identity_keys.ed25519().to_owned(),
         );
 
-        let device_keys = json!({
-            "user_id": (*self.user_id).clone(),
-            "device_id": (*self.device_id).clone(),
-            "algorithms": Self::ALGORITHMS,
-            "keys": keys,
-        });
-
-        let mut signatures = BTreeMap::new();
-
-        let mut signature = BTreeMap::new();
-        signature.insert(
-            DeviceKeyId::from_parts(DeviceKeyAlgorithm::Ed25519, &self.device_id),
-            self.sign_json(&device_keys).await,
-        );
-        signatures.insert((*self.user_id).clone(), signature);
-
         DeviceKeys::new(
             (*self.user_id).clone(),
             (*self.device_id).clone(),
-            vec![
-                EventEncryptionAlgorithm::OlmV1Curve25519AesSha2,
-                EventEncryptionAlgorithm::MegolmV1AesSha2,
-            ],
+            Self::ALGORITHMS.iter().map(|a| (&**a).clone()).collect(),
             keys,
-            signatures,
+            BTreeMap::new(),
         )
+    }
+
+    /// Sign the device keys of the account and return them so they can be
+    /// uploaded.
+    pub(crate) async fn device_keys(&self) -> DeviceKeys {
+        let mut device_keys = self.unsigned_device_keys();
+        let jsond_device_keys = serde_json::to_value(&device_keys).unwrap();
+
+        device_keys
+            .signatures
+            .entry(self.user_id().clone())
+            .or_insert_with(BTreeMap::new)
+            .insert(
+                DeviceKeyId::from_parts(DeviceKeyAlgorithm::Ed25519, &self.device_id),
+                self.sign_json(jsond_device_keys)
+                    .await
+                    .expect("Can't sign own device keys"),
+            );
+
+        device_keys
+    }
+
+    pub(crate) async fn bootstrap_cross_signing(
+        &self,
+    ) -> (PrivateCrossSigningIdentity, SignatureUploadRequest) {
+        PrivateCrossSigningIdentity::new_with_account(self).await
     }
 
     /// Convert a JSON value to the canonical representation and sign the JSON
@@ -673,10 +683,13 @@ impl ReadOnlyAccount {
     /// # Panic
     ///
     /// Panics if the json value can't be serialized.
-    pub async fn sign_json(&self, json: &Value) -> String {
-        let canonical_json = cjson::to_string(json)
-            .unwrap_or_else(|_| panic!(format!("Can't serialize {} to canonical JSON", json)));
-        self.sign(&canonical_json).await
+    pub async fn sign_json(&self, mut json: Value) -> Result<String, SignatureError> {
+        let json_object = json.as_object_mut().ok_or(SignatureError::NotAnObject)?;
+        let _ = json_object.remove("unsigned");
+        let _ = json_object.remove("signatures");
+
+        let canonical_json = cjson::to_string(&json)?;
+        Ok(self.sign(&canonical_json).await)
     }
 
     pub(crate) async fn signed_one_time_keys_helper(
@@ -690,7 +703,10 @@ impl ReadOnlyAccount {
                 "key": key,
             });
 
-            let signature = self.sign_json(&key_json).await;
+            let signature = self
+                .sign_json(key_json)
+                .await
+                .expect("Can't sign own one-time keys");
 
             let mut signature_map = BTreeMap::new();
 

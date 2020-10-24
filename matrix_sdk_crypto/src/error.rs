@@ -148,6 +148,9 @@ pub enum SignatureError {
     #[error("the provided JSON object can't be converted to a canonical representation")]
     CanonicalJsonError(CjsonError),
 
+    #[error(transparent)]
+    JsonError(#[from] SerdeError),
+
     #[error("the signature didn't match the provided key")]
     VerificationError,
 }
