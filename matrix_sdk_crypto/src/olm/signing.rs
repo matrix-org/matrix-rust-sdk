@@ -20,8 +20,12 @@ use aes_gcm::{
 };
 use base64::{decode_config, encode_config, DecodeError, URL_SAFE_NO_PAD};
 use getrandom::getrandom;
+use matrix_sdk_common::{
+    encryption::DeviceKeys,
+    identifiers::{DeviceKeyAlgorithm, DeviceKeyId},
+};
 use serde::{Deserialize, Serialize};
-use serde_json::Error as JsonError;
+use serde_json::{Error as JsonError, Value};
 use std::{
     collections::BTreeMap,
     sync::{
@@ -35,15 +39,21 @@ use zeroize::Zeroizing;
 use olm_rs::{errors::OlmUtilityError, pk::OlmPkSigning, utility::OlmUtility};
 
 use matrix_sdk_common::{
-    api::r0::keys::{CrossSigningKey, KeyUsage},
+    api::r0::keys::{
+        upload_signatures::Request as SignatureUploadRequest, CrossSigningKey, KeyUsage,
+    },
     identifiers::UserId,
     locks::Mutex,
 };
 
 use crate::{
+    error::SignatureError,
     identities::{MasterPubkey, SelfSigningPubkey, UserSigningPubkey},
     requests::UploadSigningKeysRequest,
+    UserIdentity,
 };
+
+use crate::ReadOnlyAccount;
 
 const NONCE_SIZE: usize = 12;
 
@@ -163,6 +173,10 @@ impl UserSigning {
         PickledUserSigning { pickle, public_key }
     }
 
+    async fn sign_user(&self, _: &UserIdentity) -> BTreeMap<UserId, BTreeMap<String, Value>> {
+        todo!();
+    }
+
     fn from_pickle(pickle: PickledUserSigning, pickle_key: &[u8]) -> Result<Self, SigningError> {
         let inner = Signing::from_pickle(pickle.pickle, pickle_key)?;
 
@@ -178,6 +192,29 @@ impl SelfSigning {
         let pickle = self.inner.pickle(pickle_key).await;
         let public_key = self.public_key.clone().into();
         PickledSelfSigning { pickle, public_key }
+    }
+
+    async fn sign_device_raw(&self, value: Value) -> Result<Signature, SignatureError> {
+        self.inner.sign_json(value).await
+    }
+
+    async fn sign_device(&self, device_keys: &mut DeviceKeys) -> Result<(), SignatureError> {
+        let json_device = serde_json::to_value(&device_keys)?;
+        let signature = self.sign_device_raw(json_device).await?;
+
+        device_keys
+            .signatures
+            .entry(self.public_key.user_id().to_owned())
+            .or_insert_with(BTreeMap::new)
+            .insert(
+                DeviceKeyId::from_parts(
+                    DeviceKeyAlgorithm::Ed25519,
+                    self.inner.public_key.as_str().into(),
+                ),
+                signature.0,
+            );
+
+        Ok(())
     }
 
     fn from_pickle(pickle: PickledSelfSigning, pickle_key: &[u8]) -> Result<Self, SigningError> {
@@ -346,6 +383,13 @@ impl Signing {
         utility.ed25519_verify(self.public_key.as_str(), message, signature.as_str())
     }
 
+    async fn sign_json(&self, mut json: Value) -> Result<Signature, SignatureError> {
+        let json_object = json.as_object_mut().ok_or(SignatureError::NotAnObject)?;
+        let _ = json_object.remove("signatures");
+        let canonical_json = cjson::to_string(json_object)?;
+        Ok(self.sign(&canonical_json).await)
+    }
+
     async fn sign(&self, message: &str) -> Signature {
         Signature(self.inner.lock().await.sign(message))
     }
@@ -356,6 +400,14 @@ impl PrivateCrossSigningIdentity {
         &self.user_id
     }
 
+    pub async fn is_empty(&self) -> bool {
+        let has_master = self.master_key.lock().await.is_some();
+        let has_user = self.user_signing_key.lock().await.is_some();
+        let has_self = self.self_signing_key.lock().await.is_some();
+
+        !(has_master && has_user && has_self)
+    }
+
     pub(crate) fn empty(user_id: UserId) -> Self {
         Self {
             user_id: Arc::new(user_id),
@@ -363,6 +415,94 @@ impl PrivateCrossSigningIdentity {
             master_key: Arc::new(Mutex::new(None)),
             self_signing_key: Arc::new(Mutex::new(None)),
             user_signing_key: Arc::new(Mutex::new(None)),
+        }
+    }
+
+    pub(crate) async fn sign_device(
+        &self,
+        mut device_keys: DeviceKeys,
+    ) -> Result<SignatureUploadRequest, SignatureError> {
+        self.self_signing_key
+            .lock()
+            .await
+            .as_ref()
+            .ok_or(SignatureError::MissingSigningKey)?
+            .sign_device(&mut device_keys)
+            .await?;
+
+        let mut signed_keys = BTreeMap::new();
+        signed_keys
+            .entry((&*self.user_id).to_owned())
+            .or_insert_with(BTreeMap::new)
+            .insert(
+                device_keys.device_id.to_string(),
+                serde_json::to_value(device_keys)?,
+            );
+
+        Ok(SignatureUploadRequest { signed_keys })
+    }
+
+    pub(crate) async fn new_with_account(
+        account: &ReadOnlyAccount,
+    ) -> (Self, SignatureUploadRequest) {
+        let master = Signing::new();
+
+        let mut public_key =
+            master.cross_signing_key(account.user_id().to_owned(), KeyUsage::Master);
+        let signature = account
+            .sign_json(
+                serde_json::to_value(&public_key)
+                    .expect("Can't convert own public master key to json"),
+            )
+            .await
+            .expect("Can't sign own public master key");
+        public_key
+            .signatures
+            .entry(account.user_id().to_owned())
+            .or_insert_with(BTreeMap::new)
+            .insert(format!("ed25519:{}", account.device_id()), signature);
+
+        let master = MasterSigning {
+            inner: master,
+            public_key: public_key.into(),
+        };
+
+        let identity = Self::new_helper(account.user_id(), master).await;
+        let device_keys = account.unsigned_device_keys();
+        let request = identity
+            .sign_device(device_keys)
+            .await
+            .expect("Can't sign own device with new cross signign keys");
+
+        (identity, request)
+    }
+
+    async fn new_helper(user_id: &UserId, master: MasterSigning) -> Self {
+        let user = Signing::new();
+        let mut public_key = user.cross_signing_key(user_id.to_owned(), KeyUsage::UserSigning);
+        master.sign_subkey(&mut public_key).await;
+
+        let user = UserSigning {
+            inner: user,
+            public_key: public_key.into(),
+        };
+
+        let self_signing = Signing::new();
+        let mut public_key =
+            self_signing.cross_signing_key(user_id.to_owned(), KeyUsage::SelfSigning);
+        master.sign_subkey(&mut public_key).await;
+
+        let self_signing = SelfSigning {
+            inner: self_signing,
+            public_key: public_key.into(),
+        };
+
+        Self {
+            user_id: Arc::new(user_id.to_owned()),
+            shared: Arc::new(AtomicBool::new(false)),
+            master_key: Arc::new(Mutex::new(Some(master))),
+            self_signing_key: Arc::new(Mutex::new(Some(self_signing))),
+            user_signing_key: Arc::new(Mutex::new(Some(user))),
         }
     }
 
@@ -520,6 +660,8 @@ impl PrivateCrossSigningIdentity {
 
 #[cfg(test)]
 mod test {
+    use crate::olm::ReadOnlyAccount;
+
     use super::{PrivateCrossSigningIdentity, Signing};
 
     use matrix_sdk_common::identifiers::{user_id, UserId};
@@ -616,5 +758,15 @@ mod test {
             &*identity.self_signing_key.lock().await,
             &*unpickled.self_signing_key.lock().await
         );
+    }
+
+    #[async_test]
+    async fn private_identity_signed_by_accound() {
+        let account = ReadOnlyAccount::new(&user_id(), "DEVICEID".into());
+        let (identity, _) = PrivateCrossSigningIdentity::new_with_account(&account).await;
+        let master = identity.master_key.lock().await;
+        let master = master.as_ref().unwrap();
+
+        assert!(!master.public_key.signatures().is_empty());
     }
 }

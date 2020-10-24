@@ -107,7 +107,7 @@ use matrix_sdk_common::{
 #[cfg(feature = "encryption")]
 use matrix_sdk_common::{
     api::r0::{
-        keys::{get_keys, upload_keys},
+        keys::{get_keys, upload_keys, upload_signing_keys::Request as UploadSigningKeysRequest},
         to_device::send_event_to_device::{
             Request as RumaToDeviceRequest, Response as ToDeviceResponse,
         },
@@ -1821,6 +1821,33 @@ impl Client {
             inner: d,
             http_client: self.http_client.clone(),
         }))
+    }
+
+    /// TODO
+    #[cfg(feature = "encryption")]
+    #[cfg_attr(feature = "docs", doc(cfg(encryption)))]
+    pub async fn bootstrap_cross_signing(&self, auth_data: Option<AuthData<'_>>) -> Result<()> {
+        let olm = self
+            .base_client
+            .olm_machine()
+            .await
+            .ok_or(Error::AuthenticationRequired)?;
+
+        let (request, signature_request) = olm.bootstrap_cross_signing(false).await?;
+
+        println!("HELLOOO MAKING REQUEST {:#?}", request);
+
+        let request = UploadSigningKeysRequest {
+            auth: auth_data,
+            master_key: request.master_key,
+            self_signing_key: request.self_signing_key,
+            user_signing_key: request.user_signing_key,
+        };
+
+        self.send(request).await?;
+        self.send(signature_request).await?;
+
+        Ok(())
     }
 
     /// Get a map holding all the devices of an user.

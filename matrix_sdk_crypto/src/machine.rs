@@ -26,6 +26,7 @@ use matrix_sdk_common::{
             claim_keys::{Request as KeysClaimRequest, Response as KeysClaimResponse},
             get_keys::Response as KeysQueryResponse,
             upload_keys,
+            upload_signatures::Request as UploadSignaturesRequest,
         },
         sync::sync_events::Response as SyncResponse,
     },
@@ -95,6 +96,7 @@ pub struct OlmMachine {
     /// State machine handling public user identities and devices, keeping track
     /// of when a key query needs to be done and handling one.
     identity_manager: IdentityManager,
+    cross_signing_request: Arc<Mutex<Option<UploadSignaturesRequest>>>,
 }
 
 #[cfg(not(tarpaulin_include))]
@@ -181,13 +183,14 @@ impl OlmMachine {
             user_id,
             device_id,
             account,
+            user_identity,
             store,
             session_manager,
             group_session_manager,
             verification_machine,
             key_request_machine,
             identity_manager,
-            user_identity,
+            cross_signing_request: Arc::new(Mutex::new(None)),
         }
     }
 
@@ -369,12 +372,32 @@ impl OlmMachine {
     /// devices.
     ///
     /// Uploading these keys will require user interactive auth.
-    pub async fn bootstrap_cross_signing(&self) -> StoreResult<UploadSigningKeysRequest> {
-        // TODO should we save the request until we get a response?
+    pub async fn bootstrap_cross_signing(
+        &self,
+        reset: bool,
+    ) -> StoreResult<(UploadSigningKeysRequest, UploadSignaturesRequest)> {
         let mut identity = self.user_identity.lock().await;
-        *identity = PrivateCrossSigningIdentity::new(self.user_id().to_owned()).await;
-        self.store.save_identity(identity.clone()).await?;
-        Ok(identity.as_upload_request().await)
+
+        if identity.is_empty().await || reset {
+            info!("Creating new cross signing identity");
+            let (id, signature_request) = self.account.bootstrap_cross_signing().await;
+            let request = id.as_upload_request().await;
+
+            *identity = id;
+
+            self.store.save_identity(identity.clone()).await?;
+            Ok((request, signature_request))
+        } else {
+            info!("Trying to upload the existing cross signing identity");
+            let request = identity.as_upload_request().await;
+            let device_keys = self.account.unsigned_device_keys();
+            // TODO remove this expect.
+            let signature_request = identity
+                .sign_device(device_keys)
+                .await
+                .expect("Can't sign device keys");
+            Ok((request, signature_request))
+        }
     }
 
     /// Should device or one-time keys be uploaded to the server.
