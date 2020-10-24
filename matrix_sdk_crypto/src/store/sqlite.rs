@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use std::{
-    collections::{BTreeMap, HashSet},
+    collections::{BTreeMap, HashMap, HashSet},
     convert::TryFrom,
     path::{Path, PathBuf},
     result::Result as StdResult,
@@ -25,27 +25,31 @@ use dashmap::DashSet;
 use matrix_sdk_common::{
     api::r0::keys::{CrossSigningKey, KeyUsage},
     identifiers::{
-        DeviceId, DeviceKeyAlgorithm, DeviceKeyId, EventEncryptionAlgorithm, RoomId, UserId,
+        DeviceId, DeviceIdBox, DeviceKeyAlgorithm, DeviceKeyId, EventEncryptionAlgorithm, RoomId,
+        UserId,
     },
     instant::Duration,
     locks::Mutex,
 };
-use sqlx::{query, query_as, sqlite::SqliteQueryAs, Connect, Executor, SqliteConnection};
-use url::Url;
-use zeroize::Zeroizing;
+use sqlx::{query, query_as, sqlite::SqliteConnectOptions, Connection, Executor, SqliteConnection};
 
 use super::{
-    caches::{DeviceStore, GroupSessionStore, ReadOnlyUserDevices, SessionStore},
-    CryptoStore, CryptoStoreError, Result,
+    caches::SessionStore,
+    pickle_key::{EncryptedPickleKey, PickleKey},
+    Changes, CryptoStore, CryptoStoreError, Result,
 };
 use crate::{
     identities::{LocalTrust, OwnUserIdentity, ReadOnlyDevice, UserIdentities, UserIdentity},
     olm::{
         AccountPickle, IdentityKeys, InboundGroupSession, InboundGroupSessionPickle,
-        PickledAccount, PickledInboundGroupSession, PickledSession, PicklingMode, ReadOnlyAccount,
-        Session, SessionPickle,
+        PickledAccount, PickledCrossSigningIdentity, PickledInboundGroupSession, PickledSession,
+        PicklingMode, PrivateCrossSigningIdentity, ReadOnlyAccount, Session, SessionPickle,
     },
 };
+
+/// This needs to be 32 bytes long since AES-GCM requires it, otherwise we will
+/// panic once we try to pickle a Signing object.
+const DEFAULT_PICKLE: &str = "DEFAULT_PICKLE_PASSPHRASE_123456";
 
 /// SQLite based implementation of a `CryptoStore`.
 #[derive(Clone)]
@@ -57,13 +61,11 @@ pub struct SqliteStore {
     path: Arc<PathBuf>,
 
     sessions: SessionStore,
-    inbound_group_sessions: GroupSessionStore,
-    devices: DeviceStore,
     tracked_users: Arc<DashSet<UserId>>,
     users_for_key_query: Arc<DashSet<UserId>>,
 
     connection: Arc<Mutex<SqliteConnection>>,
-    pickle_passphrase: Arc<Option<Zeroizing<String>>>,
+    pickle_key: Arc<PickleKey>,
 }
 
 #[derive(Clone)]
@@ -122,44 +124,43 @@ impl SqliteStore {
         path: P,
         passphrase: &str,
     ) -> Result<SqliteStore> {
-        SqliteStore::open_helper(
-            user_id,
-            device_id,
-            path,
-            Some(Zeroizing::new(passphrase.to_owned())),
-        )
-        .await
-    }
-
-    fn path_to_url(path: &Path) -> Result<Url> {
-        // TODO this returns an empty error if the path isn't absolute.
-        let url = Url::from_directory_path(path).expect("Invalid path");
-        Ok(url.join(DATABASE_NAME)?)
+        SqliteStore::open_helper(user_id, device_id, path, Some(passphrase)).await
     }
 
     async fn open_helper<P: AsRef<Path>>(
         user_id: &UserId,
         device_id: &DeviceId,
         path: P,
-        passphrase: Option<Zeroizing<String>>,
+        passphrase: Option<&str>,
     ) -> Result<SqliteStore> {
-        let url = SqliteStore::path_to_url(path.as_ref())?;
-        let connection = SqliteConnection::connect(url.as_ref()).await?;
+        let path = path.as_ref().join(DATABASE_NAME);
+        let options = SqliteConnectOptions::new()
+            .foreign_keys(true)
+            .create_if_missing(true)
+            .read_only(false)
+            .filename(&path);
+
+        let mut connection = SqliteConnection::connect_with(&options).await?;
+        Self::create_tables(&mut connection).await?;
+
+        let pickle_key = if let Some(passphrase) = passphrase {
+            Self::get_or_create_pickle_key(user_id, device_id, &passphrase, &mut connection).await?
+        } else {
+            PickleKey::try_from(DEFAULT_PICKLE.as_bytes().to_vec())
+                .expect("Can't create default pickle key")
+        };
 
         let store = SqliteStore {
             user_id: Arc::new(user_id.to_owned()),
             device_id: Arc::new(device_id.into()),
             account_info: Arc::new(SyncMutex::new(None)),
             sessions: SessionStore::new(),
-            inbound_group_sessions: GroupSessionStore::new(),
-            devices: DeviceStore::new(),
-            path: Arc::new(path.as_ref().to_owned()),
+            path: Arc::new(path),
             connection: Arc::new(Mutex::new(connection)),
-            pickle_passphrase: Arc::new(passphrase),
             tracked_users: Arc::new(DashSet::new()),
             users_for_key_query: Arc::new(DashSet::new()),
+            pickle_key: Arc::new(pickle_key),
         };
-        store.create_tables().await?;
 
         Ok(store)
     }
@@ -172,8 +173,7 @@ impl SqliteStore {
             .map(|i| i.account_id)
     }
 
-    async fn create_tables(&self) -> Result<()> {
-        let mut connection = self.connection.lock().await;
+    async fn create_tables(connection: &mut SqliteConnection) -> Result<()> {
         connection
             .execute(
                 r#"
@@ -184,6 +184,37 @@ impl SqliteStore {
                 "pickle" BLOB NOT NULL,
                 "shared" INTEGER NOT NULL,
                 "uploaded_key_count" INTEGER NOT NULL,
+                UNIQUE(user_id,device_id)
+            );
+        "#,
+            )
+            .await?;
+
+        connection
+            .execute(
+                r#"
+            CREATE TABLE IF NOT EXISTS private_identities (
+                "id" INTEGER NOT NULL PRIMARY KEY,
+                "account_id" INTEGER NOT NULL,
+                "user_id" TEXT NOT NULL,
+                "pickle" TEXT NOT NULL,
+                "shared" INTEGER NOT NULL,
+                FOREIGN KEY ("account_id") REFERENCES "accounts" ("id")
+                    ON DELETE CASCADE
+                UNIQUE(account_id, user_id)
+            );
+        "#,
+            )
+            .await?;
+
+        connection
+            .execute(
+                r#"
+            CREATE TABLE IF NOT EXISTS pickle_keys (
+                "id" INTEGER NOT NULL PRIMARY KEY,
+                "user_id" TEXT NOT NULL,
+                "device_id" TEXT NOT NULL,
+                "key" TEXT NOT NULL,
                 UNIQUE(user_id,device_id)
             );
         "#,
@@ -463,11 +494,68 @@ impl SqliteStore {
         Ok(())
     }
 
-    async fn lazy_load_sessions(&self, sender_key: &str) -> Result<()> {
+    async fn save_pickle_key(
+        user_id: &UserId,
+        device_id: &DeviceId,
+        key: EncryptedPickleKey,
+        connection: &mut SqliteConnection,
+    ) -> Result<()> {
+        let key = serde_json::to_string(&key)?;
+
+        query(
+            "INSERT INTO pickle_keys (
+                user_id, device_id, key
+             ) VALUES (?1, ?2, ?3)
+             ON CONFLICT(user_id, device_id) DO UPDATE SET
+                key = excluded.key
+             ",
+        )
+        .bind(user_id.as_str())
+        .bind(device_id.as_str())
+        .bind(key)
+        .execute(&mut *connection)
+        .await?;
+
+        Ok(())
+    }
+
+    async fn get_or_create_pickle_key(
+        user_id: &UserId,
+        device_id: &DeviceId,
+        passphrase: &str,
+        connection: &mut SqliteConnection,
+    ) -> Result<PickleKey> {
+        let row: Option<(String,)> =
+            query_as("SELECT key FROM pickle_keys WHERE user_id = ? and device_id = ?")
+                .bind(user_id.as_str())
+                .bind(device_id.as_str())
+                .fetch_optional(&mut *connection)
+                .await?;
+
+        Ok(if let Some(row) = row {
+            let encrypted: EncryptedPickleKey = serde_json::from_str(&row.0)?;
+            PickleKey::from_encrypted(passphrase, encrypted)
+                .map_err(|_| CryptoStoreError::UnpicklingError)?
+        } else {
+            let key = PickleKey::new();
+            let encrypted = key.encrypt(passphrase);
+            Self::save_pickle_key(user_id, device_id, encrypted, connection).await?;
+
+            key
+        })
+    }
+
+    async fn lazy_load_sessions(
+        &self,
+        connection: &mut SqliteConnection,
+        sender_key: &str,
+    ) -> Result<()> {
         let loaded_sessions = self.sessions.get(sender_key).is_some();
 
         if !loaded_sessions {
-            let sessions = self.load_sessions_for(sender_key).await?;
+            let sessions = self
+                .load_sessions_for_helper(connection, sender_key)
+                .await?;
 
             if !sessions.is_empty() {
                 self.sessions.set_for_sender(sender_key, sessions);
@@ -477,20 +565,33 @@ impl SqliteStore {
         Ok(())
     }
 
-    async fn get_sessions_for(&self, sender_key: &str) -> Result<Option<Arc<Mutex<Vec<Session>>>>> {
-        self.lazy_load_sessions(sender_key).await?;
+    async fn get_sessions_for(
+        &self,
+        connection: &mut SqliteConnection,
+        sender_key: &str,
+    ) -> Result<Option<Arc<Mutex<Vec<Session>>>>> {
+        self.lazy_load_sessions(connection, sender_key).await?;
         Ok(self.sessions.get(sender_key))
     }
 
+    #[cfg(test)]
     async fn load_sessions_for(&self, sender_key: &str) -> Result<Vec<Session>> {
+        let mut connection = self.connection.lock().await;
+        self.load_sessions_for_helper(&mut connection, sender_key)
+            .await
+    }
+
+    async fn load_sessions_for_helper(
+        &self,
+        connection: &mut SqliteConnection,
+        sender_key: &str,
+    ) -> Result<Vec<Session>> {
         let account_info = self
             .account_info
             .lock()
             .unwrap()
             .clone()
             .ok_or(CryptoStoreError::AccountUnset)?;
-        let mut connection = self.connection.lock().await;
-
         let mut rows: Vec<(String, String, String, String)> = query_as(
             "SELECT pickle, sender_key, creation_time, last_use_time
              FROM sessions WHERE account_id = ? and sender_key = ?",
@@ -526,7 +627,113 @@ impl SqliteStore {
             .collect::<Result<Vec<Session>>>()?)
     }
 
-    async fn load_inbound_group_sessions(&self) -> Result<()> {
+    async fn load_inbound_session_data(
+        &self,
+        connection: &mut SqliteConnection,
+        session_row_id: i64,
+        pickle: String,
+        sender_key: String,
+        room_id: RoomId,
+        imported: bool,
+    ) -> Result<InboundGroupSession> {
+        let key_rows: Vec<(String, String)> =
+            query_as("SELECT algorithm, key FROM group_session_claimed_keys WHERE session_id = ?")
+                .bind(session_row_id)
+                .fetch_all(&mut *connection)
+                .await?;
+
+        let claimed_keys: BTreeMap<DeviceKeyAlgorithm, String> = key_rows
+            .into_iter()
+            .filter_map(|row| {
+                let algorithm = row.0.parse::<DeviceKeyAlgorithm>().ok()?;
+                let key = row.1;
+
+                Some((algorithm, key))
+            })
+            .collect();
+
+        let mut chain_rows: Vec<(String,)> =
+            query_as("SELECT key, key FROM group_session_chains WHERE session_id = ?")
+                .bind(session_row_id)
+                .fetch_all(&mut *connection)
+                .await?;
+
+        let chains: Vec<String> = chain_rows.drain(..).map(|r| r.0).collect();
+
+        let chains = if chains.is_empty() {
+            None
+        } else {
+            Some(chains)
+        };
+
+        let pickle = PickledInboundGroupSession {
+            pickle: InboundGroupSessionPickle::from(pickle),
+            sender_key,
+            signing_key: claimed_keys,
+            room_id,
+            forwarding_chains: chains,
+            imported,
+        };
+
+        Ok(InboundGroupSession::from_pickle(
+            pickle,
+            self.get_pickle_mode(),
+        )?)
+    }
+
+    async fn load_inbound_group_session_helper(
+        &self,
+        room_id: &RoomId,
+        sender_key: &str,
+        session_id: &str,
+    ) -> Result<Option<InboundGroupSession>> {
+        let account_id = self.account_id().ok_or(CryptoStoreError::AccountUnset)?;
+        let mut connection = self.connection.lock().await;
+
+        let row: Option<(i64, String, bool)> = query_as(
+            "SELECT id, pickle, imported
+             FROM inbound_group_sessions
+             WHERE (
+                 account_id = ? and
+                 room_id = ? and
+                 sender_key = ? and
+                 session_id = ?
+             )",
+        )
+        .bind(account_id)
+        .bind(room_id.as_str())
+        .bind(sender_key)
+        .bind(session_id)
+        .fetch_optional(&mut *connection)
+        .await?;
+
+        let row = if let Some(r) = row {
+            r
+        } else {
+            return Ok(None);
+        };
+
+        let session_row_id = row.0;
+        let pickle = row.1;
+        let imported = row.2;
+
+        let session = self
+            .load_inbound_session_data(
+                &mut connection,
+                session_row_id,
+                pickle,
+                sender_key.to_owned(),
+                room_id.to_owned(),
+                imported,
+            )
+            .await?;
+
+        Ok(Some(session))
+    }
+
+    async fn load_inbound_group_sessions(&self) -> Result<Vec<InboundGroupSession>> {
+        let mut sessions = Vec::new();
+
         let account_id = self.account_id().ok_or(CryptoStoreError::AccountUnset)?;
         let mut connection = self.connection.lock().await;
 
@@ -542,57 +749,24 @@ impl SqliteStore {
             let session_row_id = row.0;
             let pickle = row.1;
             let sender_key = row.2;
-            let room_id = row.3;
+            let room_id = RoomId::try_from(row.3)?;
             let imported = row.4;
 
-            let key_rows: Vec<(String, String)> = query_as(
-                "SELECT algorithm, key FROM group_session_claimed_keys WHERE session_id = ?",
-            )
-            .bind(session_row_id)
-            .fetch_all(&mut *connection)
-            .await?;
-
-            let claimed_keys: BTreeMap<DeviceKeyAlgorithm, String> = key_rows
-                .into_iter()
-                .filter_map(|row| {
-                    let algorithm = row.0.parse::<DeviceKeyAlgorithm>().ok()?;
-                    let key = row.1;
-
-                    Some((algorithm, key))
-                })
-                .collect();
-
-            let mut chain_rows: Vec<(String,)> =
-                query_as("SELECT key, key FROM group_session_chains WHERE session_id = ?")
-                    .bind(session_row_id)
-                    .fetch_all(&mut *connection)
-                    .await?;
-
-            let chains: Vec<String> = chain_rows.drain(..).map(|r| r.0).collect();
-
-            let chains = if chains.is_empty() {
-                None
-            } else {
-                Some(chains)
-            };
-
-            let pickle = PickledInboundGroupSession {
-                pickle: InboundGroupSessionPickle::from(pickle),
-                sender_key,
-                signing_key: claimed_keys,
-                room_id: RoomId::try_from(room_id)?,
-                forwarding_chains: chains,
-                imported,
-            };
-
-            self.inbound_group_sessions
-                .add(InboundGroupSession::from_pickle(
+            let session = self
+                .load_inbound_session_data(
+                    &mut connection,
+                    session_row_id,
                     pickle,
-                    self.get_pickle_mode(),
-                )?);
+                    sender_key,
+                    room_id.to_owned(),
+                    imported,
+                )
+                .await?;
+
+            sessions.push(session);
         }
 
-        Ok(())
+        Ok(sessions)
     }
 
     async fn save_tracked_user(&self, user: &UserId, dirty: bool) -> Result<()> {
@@ -647,118 +821,175 @@ impl SqliteStore {
         Ok(())
     }
 
-    async fn load_devices(&self) -> Result<()> {
-        let account_id = self.account_id().ok_or(CryptoStoreError::AccountUnset)?;
-        let mut connection = self.connection.lock().await;
+    async fn load_device_data(
+        &self,
+        connection: &mut SqliteConnection,
+        device_row_id: i64,
+        user_id: &UserId,
+        device_id: DeviceIdBox,
+        trust_state: LocalTrust,
+        display_name: Option<String>,
+    ) -> Result<ReadOnlyDevice> {
+        let algorithm_rows: Vec<(String,)> =
+            query_as("SELECT algorithm FROM algorithms WHERE device_id = ?")
+                .bind(device_row_id)
+                .fetch_all(&mut *connection)
+                .await?;
 
-        let rows: Vec<(i64, String, String, Option<String>, i64)> = query_as(
-            "SELECT id, user_id, device_id, display_name, trust_state
-             FROM devices WHERE account_id = ?",
+        let algorithms = algorithm_rows
+            .iter()
+            .map(|row| {
+                let algorithm: &str = &row.0;
+                EventEncryptionAlgorithm::from(algorithm)
+            })
+            .collect::<Vec<EventEncryptionAlgorithm>>();
+
+        let key_rows: Vec<(String, String)> =
+            query_as("SELECT algorithm, key FROM device_keys WHERE device_id = ?")
+                .bind(device_row_id)
+                .fetch_all(&mut *connection)
+                .await?;
+
+        let keys: BTreeMap<DeviceKeyId, String> = key_rows
+            .into_iter()
+            .filter_map(|row| {
+                let algorithm = row.0.parse::<DeviceKeyAlgorithm>().ok()?;
+                let key = row.1;
+
+                Some((DeviceKeyId::from_parts(algorithm, &device_id), key))
+            })
+            .collect();
+
+        let signature_rows: Vec<(String, String, String)> = query_as(
+            "SELECT user_id, key_algorithm, signature
+                     FROM device_signatures WHERE device_id = ?",
         )
-        .bind(account_id)
+        .bind(device_row_id)
         .fetch_all(&mut *connection)
         .await?;
 
-        for row in rows {
-            let device_row_id = row.0;
-            let user_id: &str = &row.1;
-            let user_id = if let Ok(u) = UserId::try_from(user_id) {
+        let mut signatures: BTreeMap<UserId, BTreeMap<DeviceKeyId, String>> = BTreeMap::new();
+
+        for row in signature_rows {
+            let user_id = if let Ok(u) = UserId::try_from(&*row.0) {
                 u
             } else {
                 continue;
             };
 
-            let device_id = &row.2.to_string();
-            let display_name = &row.3;
-            let trust_state = LocalTrust::from(row.4);
+            let key_algorithm = if let Ok(k) = row.1.parse::<DeviceKeyAlgorithm>() {
+                k
+            } else {
+                continue;
+            };
 
-            let algorithm_rows: Vec<(String,)> =
-                query_as("SELECT algorithm FROM algorithms WHERE device_id = ?")
-                    .bind(device_row_id)
-                    .fetch_all(&mut *connection)
-                    .await?;
+            let signature = row.2;
 
-            let algorithms = algorithm_rows
-                .iter()
-                .map(|row| {
-                    let algorithm: &str = &row.0;
-                    EventEncryptionAlgorithm::from(algorithm)
-                })
-                .collect::<Vec<EventEncryptionAlgorithm>>();
-
-            let key_rows: Vec<(String, String)> =
-                query_as("SELECT algorithm, key FROM device_keys WHERE device_id = ?")
-                    .bind(device_row_id)
-                    .fetch_all(&mut *connection)
-                    .await?;
-
-            let keys: BTreeMap<DeviceKeyId, String> = key_rows
-                .into_iter()
-                .filter_map(|row| {
-                    let algorithm = row.0.parse::<DeviceKeyAlgorithm>().ok()?;
-                    let key = row.1;
-
-                    Some((
-                        DeviceKeyId::from_parts(algorithm, device_id.as_str().into()),
-                        key,
-                    ))
-                })
-                .collect();
-
-            let signature_rows: Vec<(String, String, String)> = query_as(
-                "SELECT user_id, key_algorithm, signature
-                         FROM device_signatures WHERE device_id = ?",
-            )
-            .bind(device_row_id)
-            .fetch_all(&mut *connection)
-            .await?;
-
-            let mut signatures: BTreeMap<UserId, BTreeMap<DeviceKeyId, String>> = BTreeMap::new();
-
-            for row in signature_rows {
-                let user_id = if let Ok(u) = UserId::try_from(&*row.0) {
-                    u
-                } else {
-                    continue;
-                };
-
-                let key_algorithm = if let Ok(k) = row.1.parse::<DeviceKeyAlgorithm>() {
-                    k
-                } else {
-                    continue;
-                };
-
-                let signature = row.2;
-
-                signatures
-                    .entry(user_id)
-                    .or_insert_with(BTreeMap::new)
-                    .insert(
-                        DeviceKeyId::from_parts(key_algorithm, device_id.as_str().into()),
-                        signature.to_owned(),
-                    );
-            }
-
-            let device = ReadOnlyDevice::new(
-                user_id,
-                device_id.as_str().into(),
-                display_name.clone(),
-                trust_state,
-                algorithms,
-                keys,
-                signatures,
-            );
-
-            self.devices.add(device);
+            signatures
+                .entry(user_id)
+                .or_insert_with(BTreeMap::new)
+                .insert(
+                    DeviceKeyId::from_parts(key_algorithm, device_id.as_str().into()),
+                    signature.to_owned(),
+                );
         }
 
-        Ok(())
+        Ok(ReadOnlyDevice::new(
+            user_id.to_owned(),
+            device_id,
+            display_name.clone(),
+            trust_state,
+            algorithms,
+            keys,
+            signatures,
+        ))
     }
 
-    async fn save_device_helper(&self, device: ReadOnlyDevice) -> Result<()> {
+    async fn get_single_device(
+        &self,
+        user_id: &UserId,
+        device_id: &DeviceId,
+    ) -> Result<Option<ReadOnlyDevice>> {
         let account_id = self.account_id().ok_or(CryptoStoreError::AccountUnset)?;
-
         let mut connection = self.connection.lock().await;
+
+        let row: Option<(i64, Option<String>, i64)> = query_as(
+            "SELECT id, display_name, trust_state
+             FROM devices WHERE account_id = ? and user_id = ? and device_id = ?",
+        )
+        .bind(account_id)
+        .bind(user_id.as_str())
+        .bind(device_id.as_str())
+        .fetch_optional(&mut *connection)
+        .await?;
+
+        let row = if let Some(r) = row {
+            r
+        } else {
+            return Ok(None);
+        };
+
+        let device_row_id = row.0;
+        let display_name = row.1;
+        let trust_state = LocalTrust::from(row.2);
+        let device = self
+            .load_device_data(
+                &mut connection,
+                device_row_id,
+                user_id,
+                device_id.into(),
+                trust_state,
+                display_name,
+            )
+            .await?;
+
+        Ok(Some(device))
+    }
+
+    async fn load_devices(&self, user_id: &UserId) -> Result<HashMap<DeviceIdBox, ReadOnlyDevice>> {
+        let mut devices = HashMap::new();
+
+        let account_id = self.account_id().ok_or(CryptoStoreError::AccountUnset)?;
+        let mut connection = self.connection.lock().await;
+
+        let mut rows: Vec<(i64, String, Option<String>, i64)> = query_as(
+            "SELECT id, device_id, display_name, trust_state
+             FROM devices WHERE account_id = ? and user_id = ?",
+        )
+        .bind(account_id)
+        .bind(user_id.as_str())
+        .fetch_all(&mut *connection)
+        .await?;
+
+        for row in rows.drain(..) {
+            let device_row_id = row.0;
+            let device_id: DeviceIdBox = row.1.into();
+            let display_name = row.2;
+            let trust_state = LocalTrust::from(row.3);
+
+            let device = self
+                .load_device_data(
+                    &mut connection,
+                    device_row_id,
+                    user_id,
+                    device_id.clone(),
+                    trust_state,
+                    display_name,
+                )
+                .await?;
+
+            devices.insert(device_id, device);
+        }
+
+        Ok(devices)
+    }
+
+    async fn save_device_helper(
+        &self,
+        connection: &mut SqliteConnection,
+        device: ReadOnlyDevice,
+    ) -> Result<()> {
+        let account_id = self.account_id().ok_or(CryptoStoreError::AccountUnset)?;
 
         query(
             "INSERT INTO devices (
@@ -837,12 +1068,11 @@ impl SqliteStore {
     }
 
     fn get_pickle_mode(&self) -> PicklingMode {
-        match &*self.pickle_passphrase {
-            Some(p) => PicklingMode::Encrypted {
-                key: p.as_bytes().to_vec(),
-            },
-            None => PicklingMode::Unencrypted,
-        }
+        self.pickle_key.pickle_mode()
+    }
+
+    fn get_pickle_key(&self) -> &[u8] {
+        self.pickle_key.key()
     }
 
     async fn save_inbound_group_session_helper(
@@ -1108,10 +1338,140 @@ impl SqliteStore {
         Ok(())
     }
 
-    async fn save_user_helper(&self, user: &UserIdentities) -> Result<()> {
+    #[cfg(test)]
+    async fn save_sessions(&self, sessions: &[Session]) -> Result<()> {
+        let mut connection = self.connection.lock().await;
+        let mut transaction = connection.begin().await?;
+
+        self.save_sessions_helper(&mut transaction, sessions)
+            .await?;
+        transaction.commit().await?;
+
+        Ok(())
+    }
+
+    async fn save_sessions_helper(
+        &self,
+        connection: &mut SqliteConnection,
+        sessions: &[Session],
+    ) -> Result<()> {
         let account_id = self.account_id().ok_or(CryptoStoreError::AccountUnset)?;
 
+        for session in sessions {
+            self.lazy_load_sessions(connection, &session.sender_key)
+                .await?;
+        }
+
+        for session in sessions {
+            self.sessions.add(session.clone()).await;
+
+            let pickle = session.pickle(self.get_pickle_mode()).await;
+
+            let session_id = session.session_id();
+            let creation_time = serde_json::to_string(&pickle.creation_time)?;
+            let last_use_time = serde_json::to_string(&pickle.last_use_time)?;
+
+            query(
+                "REPLACE INTO sessions (
+                    session_id, account_id, creation_time, last_use_time, sender_key, pickle
+                 ) VALUES (?, ?, ?, ?, ?, ?)",
+            )
+            .bind(&session_id)
+            .bind(&account_id)
+            .bind(&*creation_time)
+            .bind(&*last_use_time)
+            .bind(&pickle.sender_key)
+            .bind(&pickle.pickle.as_str())
+            .execute(&mut *connection)
+            .await?;
+        }
+
+        Ok(())
+    }
+
+    async fn save_devices(
+        &self,
+        mut connection: &mut SqliteConnection,
+        devices: &[ReadOnlyDevice],
+    ) -> Result<()> {
+        for device in devices {
+            self.save_device_helper(&mut connection, device.clone())
+                .await?
+        }
+
+        Ok(())
+    }
+
+    async fn delete_devices(
+        &self,
+        connection: &mut SqliteConnection,
+        devices: &[ReadOnlyDevice],
+    ) -> Result<()> {
+        let account_id = self.account_id().ok_or(CryptoStoreError::AccountUnset)?;
+
+        for device in devices {
+            query(
+                "DELETE FROM devices
+                 WHERE account_id = ?1 and user_id = ?2 and device_id = ?3
+                 ",
+            )
+            .bind(account_id)
+            .bind(&device.user_id().to_string())
+            .bind(device.device_id().as_str())
+            .execute(&mut *connection)
+            .await?;
+        }
+
+        Ok(())
+    }
+
+    #[cfg(test)]
+    async fn save_inbound_group_sessions_test(
+        &self,
+        sessions: &[InboundGroupSession],
+    ) -> Result<()> {
         let mut connection = self.connection.lock().await;
+        let mut transaction = connection.begin().await?;
+
+        self.save_inbound_group_sessions(&mut transaction, sessions)
+            .await?;
+
+        transaction.commit().await?;
+        Ok(())
+    }
+
+    async fn save_inbound_group_sessions(
+        &self,
+        connection: &mut SqliteConnection,
+        sessions: &[InboundGroupSession],
+    ) -> Result<()> {
+        let account_id = self.account_id().ok_or(CryptoStoreError::AccountUnset)?;
+
+        for session in sessions {
+            self.save_inbound_group_session_helper(account_id, connection, session)
+                .await?;
+        }
+
+        Ok(())
+    }
+
+    async fn save_user_identities(
+        &self,
+        mut connection: &mut SqliteConnection,
+        users: &[UserIdentities],
+    ) -> Result<()> {
+        for user in users {
+            self.save_user_helper(&mut connection, user).await?;
+        }
+        Ok(())
+    }
+
+    async fn save_user_helper(
+        &self,
+        mut connection: &mut SqliteConnection,
+        user: &UserIdentities,
+    ) -> Result<()> {
+        let account_id = self.account_id().ok_or(CryptoStoreError::AccountUnset)?;
 
         query("REPLACE INTO users (account_id, user_id) VALUES (?1, ?2)")
             .bind(account_id)
@@ -1202,16 +1562,14 @@ impl CryptoStore for SqliteStore {
 
         drop(connection);
 
-        self.load_inbound_group_sessions().await?;
-        self.load_devices().await?;
         self.load_tracked_users().await?;
 
         Ok(result)
     }
 
     async fn save_account(&self, account: ReadOnlyAccount) -> Result<()> {
-        let pickle = account.pickle(self.get_pickle_mode()).await;
         let mut connection = self.connection.lock().await;
+        let pickle = account.pickle(self.get_pickle_mode()).await;
 
         query(
             "INSERT INTO accounts (
@@ -1246,57 +1604,91 @@ impl CryptoStore for SqliteStore {
         Ok(())
     }
 
-    async fn save_sessions(&self, sessions: &[Session]) -> Result<()> {
+    async fn save_identity(&self, identity: PrivateCrossSigningIdentity) -> Result<()> {
         let account_id = self.account_id().ok_or(CryptoStoreError::AccountUnset)?;
 
-        // TODO turn this into a transaction
-        for session in sessions {
-            self.lazy_load_sessions(&session.sender_key).await?;
-            self.sessions.add(session.clone()).await;
+        let pickle = identity.pickle(self.get_pickle_key()).await?;
 
-            let pickle = session.pickle(self.get_pickle_mode()).await;
+        let mut connection = self.connection.lock().await;
 
-            let session_id = session.session_id();
-            let creation_time = serde_json::to_string(&pickle.creation_time)?;
-            let last_use_time = serde_json::to_string(&pickle.last_use_time)?;
+        query(
+            "INSERT INTO private_identities (
+                account_id, user_id, pickle, shared
+             ) VALUES (?1, ?2, ?3, ?4)
+             ON CONFLICT(account_id, user_id) DO UPDATE SET
+                pickle = excluded.pickle,
+                shared = excluded.shared
+             ",
+        )
+        .bind(account_id)
+        .bind(pickle.user_id.as_str())
+        .bind(pickle.pickle)
+        .bind(pickle.shared)
+        .execute(&mut *connection)
+        .await?;
 
-            let mut connection = self.connection.lock().await;
+        Ok(())
+    }
 
-            query(
-                "REPLACE INTO sessions (
-                    session_id, account_id, creation_time, last_use_time, sender_key, pickle
-                 ) VALUES (?, ?, ?, ?, ?, ?)",
-            )
-            .bind(&session_id)
-            .bind(&account_id)
-            .bind(&*creation_time)
-            .bind(&*last_use_time)
-            .bind(&pickle.sender_key)
-            .bind(&pickle.pickle.as_str())
-            .execute(&mut *connection)
-            .await?;
+    async fn load_identity(&self) -> Result<Option<PrivateCrossSigningIdentity>> {
+        let account_id = self.account_id().ok_or(CryptoStoreError::AccountUnset)?;
+        let mut connection = self.connection.lock().await;
+
+        let row: Option<(String, bool)> = query_as(
+            "SELECT pickle, shared FROM private_identities
+                      WHERE account_id = ?",
+        )
+        .bind(account_id)
+        .fetch_optional(&mut *connection)
+        .await?;
+
+        if let Some(row) = row {
+            let pickle = PickledCrossSigningIdentity {
+                user_id: (&*self.user_id).clone(),
+                pickle: row.0,
+                shared: row.1,
+            };
+
+            // TODO remove this unwrap
+            let identity = PrivateCrossSigningIdentity::from_pickle(pickle, self.get_pickle_key())
+                .await
+                .unwrap();
+
+            Ok(Some(identity))
+        } else {
+            Ok(None)
         }
+    }
+
+    async fn save_changes(&self, changes: Changes) -> Result<()> {
+        let mut connection = self.connection.lock().await;
+        let mut transaction = connection.begin().await?;
+
+        self.save_sessions_helper(&mut transaction, &changes.sessions)
+            .await?;
+        self.save_inbound_group_sessions(&mut transaction, &changes.inbound_group_sessions)
+            .await?;
+
+        self.save_devices(&mut transaction, &changes.devices.new)
+            .await?;
+        self.save_devices(&mut transaction, &changes.devices.changed)
+            .await?;
+        self.delete_devices(&mut transaction, &changes.devices.deleted)
+            .await?;
+
+        self.save_user_identities(&mut transaction, &changes.identities.new)
+            .await?;
+        self.save_user_identities(&mut transaction, &changes.identities.changed)
+            .await?;
+
+        transaction.commit().await?;
 
         Ok(())
     }
 
     async fn get_sessions(&self, sender_key: &str) -> Result<Option<Arc<Mutex<Vec<Session>>>>> {
-        Ok(self.get_sessions_for(sender_key).await?)
-    }
-
-    async fn save_inbound_group_sessions(&self, sessions: &[InboundGroupSession]) -> Result<()> {
-        let account_id = self.account_id().ok_or(CryptoStoreError::AccountUnset)?;
         let mut connection = self.connection.lock().await;
-
-        // FIXME use a transaction here once sqlx gets better support for them.
-
-        for session in sessions {
-            self.save_inbound_group_session_helper(account_id, &mut connection, session)
-                .await?;
-            self.inbound_group_sessions.add(session.clone());
-        }
-
-        Ok(())
+        Ok(self.get_sessions_for(&mut connection, sender_key).await?)
     }
 
     async fn get_inbound_group_session(
@@ -1306,12 +1698,12 @@ impl CryptoStore for SqliteStore {
         session_id: &str,
     ) -> Result<Option<InboundGroupSession>> {
         Ok(self
-            .inbound_group_sessions
-            .get(room_id, sender_key, session_id))
+            .load_inbound_group_session_helper(room_id, sender_key, session_id)
+            .await?)
     }
 
     async fn get_inbound_group_sessions(&self) -> Result<Vec<InboundGroupSession>> {
-        Ok(self.inbound_group_sessions.get_all())
+        Ok(self.load_inbound_group_sessions().await?)
     }
 
     fn is_user_tracked(&self, user_id: &UserId) -> bool {
@@ -1341,56 +1733,23 @@ impl CryptoStore for SqliteStore {
         Ok(already_added)
     }
 
-    async fn save_devices(&self, devices: &[ReadOnlyDevice]) -> Result<()> {
-        // TODO turn this into a bulk transaction.
-        for device in devices {
-            self.devices.add(device.clone());
-            self.save_device_helper(device.clone()).await?
-        }
-
-        Ok(())
-    }
-
-    async fn delete_device(&self, device: ReadOnlyDevice) -> Result<()> {
-        let account_id = self.account_id().ok_or(CryptoStoreError::AccountUnset)?;
-        let mut connection = self.connection.lock().await;
-
-        query(
-            "DELETE FROM devices
-             WHERE account_id = ?1 and user_id = ?2 and device_id = ?3
-             ",
-        )
-        .bind(account_id)
-        .bind(&device.user_id().to_string())
-        .bind(device.device_id().as_str())
-        .execute(&mut *connection)
-        .await?;
-
-        Ok(())
-    }
-
     async fn get_device(
         &self,
         user_id: &UserId,
         device_id: &DeviceId,
     ) -> Result<Option<ReadOnlyDevice>> {
-        Ok(self.devices.get(user_id, device_id))
+        self.get_single_device(user_id, device_id).await
     }
 
-    async fn get_user_devices(&self, user_id: &UserId) -> Result<ReadOnlyUserDevices> {
-        Ok(self.devices.user_devices(user_id))
+    async fn get_user_devices(
+        &self,
+        user_id: &UserId,
+    ) -> Result<HashMap<DeviceIdBox, ReadOnlyDevice>> {
+        Ok(self.load_devices(user_id).await?)
     }
 
     async fn get_user_identity(&self, user_id: &UserId) -> Result<Option<UserIdentities>> {
         self.load_user(user_id).await
-    }
-
-    async fn save_user_identities(&self, users: &[UserIdentities]) -> Result<()> {
-        for user in users {
-            self.save_user_helper(user).await?;
-        }
-
-        Ok(())
     }
 
     async fn save_value(&self, key: String, value: String) -> Result<()> {
@@ -1457,7 +1816,11 @@ mod test {
             device::test::get_device,
             user::test::{get_other_identity, get_own_identity},
         },
-        olm::{GroupSessionKey, InboundGroupSession, ReadOnlyAccount, Session},
+        olm::{
+            GroupSessionKey, InboundGroupSession, PrivateCrossSigningIdentity, ReadOnlyAccount,
+            Session,
+        },
+        store::{Changes, DeviceChanges, IdentityChanges},
     };
     use matrix_sdk_common::{
         api::r0::keys::SignedKey,
@@ -1549,7 +1912,7 @@ mod test {
         (alice, session)
     }
 
-    #[tokio::test]
+    #[tokio::test(threaded_scheduler)]
     async fn create_store() {
         let tmpdir = tempdir().unwrap();
         let tmpdir_path = tmpdir.path().to_str().unwrap();
@@ -1558,7 +1921,7 @@ mod test {
             .expect("Can't create store");
     }
 
-    #[tokio::test]
+    #[tokio::test(threaded_scheduler)]
     async fn save_account() {
         let (store, _dir) = get_store(None).await;
         assert!(store.load_account().await.unwrap().is_none());
@@ -1570,7 +1933,7 @@ mod test {
             .expect("Can't save account");
     }
 
-    #[tokio::test]
+    #[tokio::test(threaded_scheduler)]
     async fn load_account() {
         let (store, _dir) = get_store(None).await;
         let account = get_account();
@@ -1586,7 +1949,7 @@ mod test {
         assert_eq!(account, loaded_account);
     }
 
-    #[tokio::test]
+    #[tokio::test(threaded_scheduler)]
     async fn load_account_with_passphrase() {
         let (store, _dir) = get_store(Some("secret_passphrase")).await;
         let account = get_account();
@@ -1602,7 +1965,7 @@ mod test {
         assert_eq!(account, loaded_account);
     }
 
-    #[tokio::test]
+    #[tokio::test(threaded_scheduler)]
     async fn save_and_share_account() {
         let (store, _dir) = get_store(None).await;
         let account = get_account();
@@ -1630,7 +1993,7 @@ mod test {
         );
     }
 
-    #[tokio::test]
+    #[tokio::test(threaded_scheduler)]
     async fn save_session() {
         let (store, _dir) = get_store(None).await;
         let (account, session) = get_account_and_session().await;
@@ -1645,7 +2008,7 @@ mod test {
         store.save_sessions(&[session]).await.unwrap();
     }
 
-    #[tokio::test]
+    #[tokio::test(threaded_scheduler)]
     async fn load_sessions() {
         let (store, _dir) = get_store(None).await;
         let (account, session) = get_account_and_session().await;
@@ -1664,7 +2027,7 @@ mod test {
         assert_eq!(&session, loaded_session);
     }
 
-    #[tokio::test]
+    #[tokio::test(threaded_scheduler)]
     async fn add_and_save_session() {
         let (store, dir) = get_store(None).await;
         let (account, session) = get_account_and_session().await;
@@ -1699,7 +2062,7 @@ mod test {
         assert_eq!(session_id, session.session_id());
     }
 
-    #[tokio::test]
+    #[tokio::test(threaded_scheduler)]
     async fn save_inbound_group_session() {
         let (account, store, _dir) = get_loaded_store().await;
 
@@ -1714,12 +2077,12 @@ mod test {
         .expect("Can't create session");
 
         store
-            .save_inbound_group_sessions(&[session])
+            .save_inbound_group_sessions_test(&[session])
             .await
             .expect("Can't save group session");
     }
 
-    #[tokio::test]
+    #[tokio::test(threaded_scheduler)]
     async fn load_inbound_group_session() {
         let (account, store, dir) = get_loaded_store().await;
 
@@ -1740,7 +2103,7 @@ mod test {
         let session = InboundGroupSession::from_export(export).unwrap();
 
         store
-            .save_inbound_group_sessions(&[session.clone()])
+            .save_inbound_group_sessions_test(&[session.clone()])
             .await
             .expect("Can't save group session");
 
@@ -1749,7 +2112,6 @@ mod test {
             .expect("Can't create store");
 
         store.load_account().await.unwrap();
-        store.load_inbound_group_sessions().await.unwrap();
 
         let loaded_session = store
             .get_inbound_group_session(&session.room_id, &session.sender_key, session.session_id())
@@ -1761,7 +2123,7 @@ mod test {
         assert!(!export.forwarding_curve25519_key_chain.is_empty())
     }
 
-    #[tokio::test]
+    #[tokio::test(threaded_scheduler)]
     async fn test_tracked_users() {
         let (_account, store, dir) = get_loaded_store().await;
         let device = get_device();
@@ -1808,12 +2170,20 @@ mod test {
         assert!(!store.users_for_key_query().contains(device.user_id()));
     }
 
-    #[tokio::test]
+    #[tokio::test(threaded_scheduler)]
     async fn device_saving() {
         let (_account, store, dir) = get_loaded_store().await;
         let device = get_device();
 
-        store.save_devices(&[device.clone()]).await.unwrap();
+        let changes = Changes {
+            devices: DeviceChanges {
+                changed: vec![device.clone()],
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+
+        store.save_changes(changes).await.unwrap();
 
         drop(store);
 
@@ -1838,17 +2208,34 @@ mod test {
         assert_eq!(device.keys(), loaded_device.keys());
 
         let user_devices = store.get_user_devices(device.user_id()).await.unwrap();
-        assert_eq!(user_devices.keys().next().unwrap(), device.device_id());
-        assert_eq!(user_devices.devices().next().unwrap(), &device);
+        assert_eq!(&**user_devices.keys().next().unwrap(), device.device_id());
+        assert_eq!(user_devices.values().next().unwrap(), &device);
     }
 
-    #[tokio::test]
+    #[tokio::test(threaded_scheduler)]
     async fn device_deleting() {
         let (_account, store, dir) = get_loaded_store().await;
         let device = get_device();
 
-        store.save_devices(&[device.clone()]).await.unwrap();
-        store.delete_device(device.clone()).await.unwrap();
+        let changes = Changes {
+            devices: DeviceChanges {
+                changed: vec![device.clone()],
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+
+        store.save_changes(changes).await.unwrap();
+
+        let changes = Changes {
+            devices: DeviceChanges {
+                deleted: vec![device.clone()],
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+
+        store.save_changes(changes).await.unwrap();
 
         let store = SqliteStore::open(&alice_id(), &alice_device_id(), dir.path())
             .await
@@ -1864,7 +2251,7 @@ mod test {
         assert!(loaded_device.is_none());
     }
 
-    #[tokio::test]
+    #[tokio::test(threaded_scheduler)]
     async fn user_saving() {
         let dir = tempdir().unwrap();
         let tmpdir_path = dir.path().to_str().unwrap();
@@ -1885,8 +2272,16 @@ mod test {
 
         let own_identity = get_own_identity();
 
+        let changes = Changes {
+            identities: IdentityChanges {
+                changed: vec![own_identity.clone().into()],
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+
         store
-            .save_user_identities(&[own_identity.clone().into()])
+            .save_changes(changes)
             .await
             .expect("Can't save identity");
 
@@ -1913,10 +2308,15 @@ mod test {
 
         let other_identity = get_other_identity();
 
-        store
-            .save_user_identities(&[other_identity.clone().into()])
-            .await
-            .unwrap();
+        let changes = Changes {
+            identities: IdentityChanges {
+                changed: vec![other_identity.clone().into()],
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+
+        store.save_changes(changes).await.unwrap();
 
         let loaded_user = store
             .load_user(other_identity.user_id())
@@ -1933,15 +2333,31 @@ mod test {
 
         own_identity.mark_as_verified();
 
-        store
-            .save_user_identities(&[own_identity.into()])
-            .await
-            .unwrap();
+        let changes = Changes {
+            identities: IdentityChanges {
+                changed: vec![own_identity.into()],
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+
+        store.save_changes(changes).await.unwrap();
         let loaded_user = store.load_user(&user_id).await.unwrap().unwrap();
         assert!(loaded_user.own().unwrap().is_verified())
     }
 
-    #[tokio::test]
+    #[tokio::test(threaded_scheduler)]
+    async fn private_identity_saving() {
+        let (_, store, _dir) = get_loaded_store().await;
+        assert!(store.load_identity().await.unwrap().is_none());
+        let identity = PrivateCrossSigningIdentity::new((&*store.user_id).clone()).await;
+
+        store.save_identity(identity.clone()).await.unwrap();
+        let loaded_identity = store.load_identity().await.unwrap().unwrap();
+        assert_eq!(identity.user_id(), loaded_identity.user_id());
+    }
+
+    #[tokio::test(threaded_scheduler)]
     async fn key_value_saving() {
         let (_, store, _dir) = get_loaded_store().await;
         let key = "test_key".to_string();

@@ -20,6 +20,7 @@
 mod account;
 mod group_sessions;
 mod session;
+mod signing;
 mod utility;
 
 pub(crate) use account::Account;
@@ -31,6 +32,7 @@ pub use group_sessions::{
 pub(crate) use group_sessions::{GroupSessionKey, OutboundGroupSession};
 pub use olm_rs::{account::IdentityKeys, PicklingMode};
 pub use session::{PickledSession, Session, SessionPickle};
+pub use signing::{PickledCrossSigningIdentity, PrivateCrossSigningIdentity};
 pub(crate) use utility::Utility;
 
 #[cfg(test)]

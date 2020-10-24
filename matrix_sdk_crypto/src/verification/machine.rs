@@ -16,6 +16,7 @@ use std::sync::Arc;
 
 use dashmap::DashMap;
 
+use matrix_sdk_common::locks::Mutex;
 use tracing::{trace, warn};
 
 use matrix_sdk_common::{
@@ -26,6 +27,7 @@ use matrix_sdk_common::{
 
 use super::sas::{content_to_request, Sas};
 use crate::{
+    olm::PrivateCrossSigningIdentity,
     requests::{OutgoingRequest, ToDeviceRequest},
     store::{CryptoStore, CryptoStoreError},
     ReadOnlyAccount, ReadOnlyDevice,
@@ -34,15 +36,21 @@ use crate::{
 #[derive(Clone, Debug)]
 pub struct VerificationMachine {
     account: ReadOnlyAccount,
+    user_identity: Arc<Mutex<PrivateCrossSigningIdentity>>,
     pub(crate) store: Arc<Box<dyn CryptoStore>>,
     verifications: Arc<DashMap<String, Sas>>,
     outgoing_to_device_messages: Arc<DashMap<Uuid, OutgoingRequest>>,
 }
 
 impl VerificationMachine {
-    pub(crate) fn new(account: ReadOnlyAccount, store: Arc<Box<dyn CryptoStore>>) -> Self {
+    pub(crate) fn new(
+        account: ReadOnlyAccount,
+        identity: Arc<Mutex<PrivateCrossSigningIdentity>>,
+        store: Arc<Box<dyn CryptoStore>>,
+    ) -> Self {
         Self {
             account,
+            user_identity: identity,
             store,
             verifications: Arc::new(DashMap::new()),
             outgoing_to_device_messages: Arc::new(DashMap::new()),
@@ -194,18 +202,14 @@ impl VerificationMachine {
                     self.receive_event_helper(&s, event);
 
                     if s.is_done() {
-                        if !s.mark_device_as_verified().await? {
-                            if let Some(r) = s.cancel() {
-                                self.outgoing_to_device_messages.insert(
-                                    r.txn_id,
-                                    OutgoingRequest {
-                                        request_id: r.txn_id,
-                                        request: Arc::new(r.into()),
-                                    },
-                                );
-                            }
-                        } else {
-                            s.mark_identity_as_verified().await?;
+                        if let Some(r) = s.mark_as_done().await? {
+                            self.outgoing_to_device_messages.insert(
+                                r.txn_id,
+                                OutgoingRequest {
+                                    request_id: r.txn_id,
+                                    request: Arc::new(r.into()),
+                                },
+                            );
                         }
                     }
                 };
@@ -228,10 +232,12 @@ mod test {
     use matrix_sdk_common::{
         events::AnyToDeviceEventContent,
         identifiers::{DeviceId, UserId},
+        locks::Mutex,
     };
 
     use super::{Sas, VerificationMachine};
     use crate::{
+        olm::PrivateCrossSigningIdentity,
         requests::OutgoingRequests,
         store::{CryptoStore, MemoryStore},
         verification::test::{get_content_from_request, wrap_any_to_device_content},
@@ -258,18 +264,17 @@ mod test {
         let alice = ReadOnlyAccount::new(&alice_id(), &alice_device_id());
         let bob = ReadOnlyAccount::new(&bob_id(), &bob_device_id());
         let store = MemoryStore::new();
-        let bob_store: Arc<Box<dyn CryptoStore>> = Arc::new(Box::new(MemoryStore::new()));
+        let bob_store = MemoryStore::new();
 
         let bob_device = ReadOnlyDevice::from_account(&bob).await;
         let alice_device = ReadOnlyDevice::from_account(&alice).await;
 
-        store.save_devices(&[bob_device]).await.unwrap();
-        bob_store
-            .save_devices(&[alice_device.clone()])
-            .await
-            .unwrap();
+        store.save_devices(vec![bob_device]).await;
+        bob_store.save_devices(vec![alice_device.clone()]).await;
 
-        let machine = VerificationMachine::new(alice, Arc::new(Box::new(store)));
+        let bob_store: Arc<Box<dyn CryptoStore>> = Arc::new(Box::new(bob_store));
+        let identity = Arc::new(Mutex::new(PrivateCrossSigningIdentity::empty(alice_id())));
+        let machine = VerificationMachine::new(alice, identity, Arc::new(Box::new(store)));
         let (bob_sas, start_content) = Sas::start(bob, alice_device, bob_store, None);
         machine
             .receive_event(&mut wrap_any_to_device_content(
@@ -285,8 +290,9 @@ mod test {
     #[test]
     fn create() {
         let alice = ReadOnlyAccount::new(&alice_id(), &alice_device_id());
+        let identity = Arc::new(Mutex::new(PrivateCrossSigningIdentity::empty(alice_id())));
         let store = MemoryStore::new();
-        let _ = VerificationMachine::new(alice, Arc::new(Box::new(store)));
+        let _ = VerificationMachine::new(alice, identity, Arc::new(Box::new(store)));
     }
 
     #[tokio::test]

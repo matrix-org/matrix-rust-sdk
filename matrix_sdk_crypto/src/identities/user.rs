@@ -86,6 +86,24 @@ impl From<CrossSigningKey> for UserSigningPubkey {
     }
 }
 
+impl Into<CrossSigningKey> for MasterPubkey {
+    fn into(self) -> CrossSigningKey {
+        self.0.as_ref().clone()
+    }
+}
+
+impl Into<CrossSigningKey> for UserSigningPubkey {
+    fn into(self) -> CrossSigningKey {
+        self.0.as_ref().clone()
+    }
+}
+
+impl Into<CrossSigningKey> for SelfSigningPubkey {
+    fn into(self) -> CrossSigningKey {
+        self.0.as_ref().clone()
+    }
+}
+
 impl AsRef<CrossSigningKey> for MasterPubkey {
     fn as_ref(&self) -> &CrossSigningKey {
         &self.0
@@ -135,7 +153,7 @@ impl<'a> From<&'a UserSigningPubkey> for CrossSigningSubKeys<'a> {
 }
 
 /// Enum over the cross signing sub-keys.
-enum CrossSigningSubKeys<'a> {
+pub(crate) enum CrossSigningSubKeys<'a> {
     /// The self signing subkey.
     SelfSigning(&'a SelfSigningPubkey),
     /// The user signing subkey.
@@ -152,7 +170,7 @@ impl<'a> CrossSigningSubKeys<'a> {
     }
 
     /// Get the `CrossSigningKey` from an sub-keys enum
-    fn cross_signing_key(&self) -> &CrossSigningKey {
+    pub(crate) fn cross_signing_key(&self) -> &CrossSigningKey {
         match self {
             CrossSigningSubKeys::SelfSigning(key) => &key.0,
             CrossSigningSubKeys::UserSigning(key) => &key.0,
@@ -198,7 +216,7 @@ impl MasterPubkey {
     ///
     /// Returns an empty result if the signature check succeeded, otherwise a
     /// SignatureError indicating why the check failed.
-    fn verify_subkey<'a>(
+    pub(crate) fn verify_subkey<'a>(
         &self,
         subkey: impl Into<CrossSigningSubKeys<'a>>,
     ) -> Result<(), SignatureError> {
@@ -666,13 +684,13 @@ pub(crate) mod test {
             manager::test::{other_key_query, own_key_query},
             Device, ReadOnlyDevice,
         },
-        olm::ReadOnlyAccount,
+        olm::{PrivateCrossSigningIdentity, ReadOnlyAccount},
         store::MemoryStore,
         verification::VerificationMachine,
     };
 
     use matrix_sdk_common::{
-        api::r0::keys::get_keys::Response as KeyQueryResponse, identifiers::user_id,
+        api::r0::keys::get_keys::Response as KeyQueryResponse, identifiers::user_id, locks::Mutex,
     };
 
     use super::{OwnUserIdentity, UserIdentities, UserIdentity};
@@ -734,8 +752,12 @@ pub(crate) mod test {
         assert!(identity.is_device_signed(&first).is_err());
         assert!(identity.is_device_signed(&second).is_ok());
 
+        let private_identity = Arc::new(Mutex::new(PrivateCrossSigningIdentity::empty(
+            second.user_id().clone(),
+        )));
         let verification_machine = VerificationMachine::new(
             ReadOnlyAccount::new(second.user_id(), second.device_id()),
+            private_identity,
             Arc::new(Box::new(MemoryStore::new())),
         );
 

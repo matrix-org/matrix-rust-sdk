@@ -27,7 +27,7 @@ docs = ["encryption", "sqlite_cryptostore", "messages"]
 async-trait = "0.1.41"
 serde = "1.0.116"
 dashmap= "*"
-serde_json = "1.0.58"
+serde_json = "1.0.59"
 zeroize = "1.1.1"
 tracing = "0.1.21"
 

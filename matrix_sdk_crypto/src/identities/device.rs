@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use std::{
-    collections::BTreeMap,
+    collections::{BTreeMap, HashMap},
     convert::{TryFrom, TryInto},
     ops::Deref,
     sync::{
@@ -30,13 +30,19 @@ use matrix_sdk_common::{
         forwarded_room_key::ForwardedRoomKeyEventContent, room::encrypted::EncryptedEventContent,
         EventType,
     },
-    identifiers::{DeviceId, DeviceKeyAlgorithm, DeviceKeyId, EventEncryptionAlgorithm, UserId},
+    identifiers::{
+        DeviceId, DeviceIdBox, DeviceKeyAlgorithm, DeviceKeyId, EventEncryptionAlgorithm, UserId,
+    },
+    locks::Mutex,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use tracing::warn;
 
-use crate::olm::InboundGroupSession;
+use crate::{
+    olm::{InboundGroupSession, Session},
+    store::{Changes, DeviceChanges},
+};
 #[cfg(test)]
 use crate::{OlmMachine, ReadOnlyAccount};
 
@@ -44,7 +50,7 @@ use crate::{
     error::{EventError, OlmError, OlmResult, SignatureError},
     identities::{OwnUserIdentity, UserIdentities},
     olm::Utility,
-    store::{caches::ReadOnlyUserDevices, CryptoStore, Result as StoreResult},
+    store::{CryptoStore, Result as StoreResult},
     verification::VerificationMachine,
     Sas, ToDeviceRequest,
 };
@@ -89,6 +95,15 @@ impl Device {
             .await
     }
 
+    /// Get the Olm sessions that belong to this device.
+    pub(crate) async fn get_sessions(&self) -> StoreResult<Option<Arc<Mutex<Vec<Session>>>>> {
+        if let Some(k) = self.get_key(DeviceKeyAlgorithm::Curve25519) {
+            self.verification_machine.store.get_sessions(k).await
+        } else {
+            Ok(None)
+        }
+    }
+
     /// Get the trust state of the device.
     pub fn trust_state(&self) -> bool {
         self.inner
@@ -106,10 +121,15 @@ impl Device {
     pub async fn set_local_trust(&self, trust_state: LocalTrust) -> StoreResult<()> {
         self.inner.set_trust_state(trust_state);
 
-        self.verification_machine
-            .store
-            .save_devices(&[self.inner.clone()])
-            .await
+        let changes = Changes {
+            devices: DeviceChanges {
+                changed: vec![self.inner.clone()],
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+
+        self.verification_machine.store.save_changes(changes).await
     }
 
     /// Encrypt the given content for this `Device`.
@@ -123,7 +143,7 @@ impl Device {
         &self,
         event_type: EventType,
         content: Value,
-    ) -> OlmResult<EncryptedEventContent> {
+    ) -> OlmResult<(Session, EncryptedEventContent)> {
         self.inner
             .encrypt(&**self.verification_machine.store, event_type, content)
             .await
@@ -134,7 +154,7 @@ impl Device {
     pub async fn encrypt_session(
         &self,
         session: InboundGroupSession,
-    ) -> OlmResult<EncryptedEventContent> {
+    ) -> OlmResult<(Session, EncryptedEventContent)> {
         let export = session.export().await;
 
         let content: ForwardedRoomKeyEventContent = if let Ok(c) = export.try_into() {
@@ -158,7 +178,7 @@ impl Device {
 /// A read only view over all devices belonging to a user.
 #[derive(Debug)]
 pub struct UserDevices {
-    pub(crate) inner: ReadOnlyUserDevices,
+    pub(crate) inner: HashMap<DeviceIdBox, ReadOnlyDevice>,
     pub(crate) verification_machine: VerificationMachine,
     pub(crate) own_identity: Option<OwnUserIdentity>,
     pub(crate) device_owner_identity: Option<UserIdentities>,
@@ -168,7 +188,7 @@ impl UserDevices {
     /// Get the specific device with the given device id.
     pub fn get(&self, device_id: &DeviceId) -> Option<Device> {
         self.inner.get(device_id).map(|d| Device {
-            inner: d,
+            inner: d.clone(),
             verification_machine: self.verification_machine.clone(),
             own_identity: self.own_identity.clone(),
             device_owner_identity: self.device_owner_identity.clone(),
@@ -176,13 +196,13 @@ impl UserDevices {
     }
 
     /// Iterator over all the device ids of the user devices.
-    pub fn keys(&self) -> impl Iterator<Item = &DeviceId> {
+    pub fn keys(&self) -> impl Iterator<Item = &DeviceIdBox> {
         self.inner.keys()
     }
 
     /// Iterator over all the devices of the user devices.
     pub fn devices(&self) -> impl Iterator<Item = Device> + '_ {
-        self.inner.devices().map(move |d| Device {
+        self.inner.values().map(move |d| Device {
             inner: d.clone(),
             verification_machine: self.verification_machine.clone(),
             own_identity: self.own_identity.clone(),
@@ -352,7 +372,7 @@ impl ReadOnlyDevice {
         store: &dyn CryptoStore,
         event_type: EventType,
         content: Value,
-    ) -> OlmResult<EncryptedEventContent> {
+    ) -> OlmResult<(Session, EncryptedEventContent)> {
         let sender_key = if let Some(k) = self.get_key(DeviceKeyAlgorithm::Curve25519) {
             k
         } else {
@@ -384,10 +404,9 @@ impl ReadOnlyDevice {
             return Err(OlmError::MissingSession);
         };
 
-        let message = session.encrypt(&self, event_type, content).await;
-        store.save_sessions(&[session]).await?;
+        let message = session.encrypt(&self, event_type, content).await?;
 
-        message
+        Ok((session, message))
     }
 
     /// Update a device with a new device keys struct.

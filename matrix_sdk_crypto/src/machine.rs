@@ -17,6 +17,7 @@ use std::path::Path;
 use std::{collections::BTreeMap, mem, sync::Arc};
 
 use dashmap::DashMap;
+use matrix_sdk_common::locks::Mutex;
 use tracing::{debug, error, info, instrument, trace, warn};
 
 use matrix_sdk_common::{
@@ -25,6 +26,7 @@ use matrix_sdk_common::{
             claim_keys::{Request as KeysClaimRequest, Response as KeysClaimResponse},
             get_keys::Response as KeysQueryResponse,
             upload_keys,
+            upload_signatures::Request as UploadSignaturesRequest,
         },
         sync::sync_events::Response as SyncResponse,
     },
@@ -45,17 +47,19 @@ use matrix_sdk_common::{
 #[cfg(feature = "sqlite_cryptostore")]
 use crate::store::sqlite::SqliteStore;
 use crate::{
-    error::{EventError, MegolmError, MegolmResult, OlmResult},
-    group_manager::GroupSessionManager,
-    identities::{Device, IdentityManager, ReadOnlyDevice, UserDevices, UserIdentities},
+    error::{EventError, MegolmError, MegolmResult, OlmError, OlmResult},
+    identities::{Device, IdentityManager, UserDevices},
     key_request::KeyRequestMachine,
     olm::{
         Account, EncryptionSettings, ExportedRoomKey, GroupSessionKey, IdentityKeys,
-        InboundGroupSession, ReadOnlyAccount,
+        InboundGroupSession, PrivateCrossSigningIdentity, ReadOnlyAccount, Session,
     },
-    requests::{IncomingResponse, OutgoingRequest},
-    session_manager::SessionManager,
-    store::{CryptoStore, MemoryStore, Result as StoreResult, Store},
+    requests::{IncomingResponse, OutgoingRequest, UploadSigningKeysRequest},
+    session_manager::{GroupSessionManager, SessionManager},
+    store::{
+        Changes, CryptoStore, DeviceChanges, IdentityChanges, MemoryStore, Result as StoreResult,
+        Store,
+    },
     verification::{Sas, VerificationMachine},
     ToDeviceRequest,
 };
@@ -70,6 +74,11 @@ pub struct OlmMachine {
     device_id: Arc<Box<DeviceId>>,
     /// Our underlying Olm Account holding our identity keys.
     account: Account,
+    /// The private part of our cross signing identity.
+    /// Used to sign devices and other users, might be missing if some other
+    /// device bootstraped cross signing or cross signing isn't bootstrapped at
+    /// all.
+    user_identity: Arc<Mutex<PrivateCrossSigningIdentity>>,
     /// Store for the encryption keys.
     /// Persists all the encryption keys so a client can resume the session
     /// without the need to create new keys.
@@ -87,6 +96,7 @@ pub struct OlmMachine {
     /// State machine handling public user identities and devices, keeping track
     /// of when a key query needs to be done and handling one.
     identity_manager: IdentityManager,
+    cross_signing_request: Arc<Mutex<Option<UploadSignaturesRequest>>>,
 }
 
 #[cfg(not(tarpaulin_include))]
@@ -115,7 +125,13 @@ impl OlmMachine {
         let device_id: DeviceIdBox = device_id.into();
         let account = ReadOnlyAccount::new(&user_id, &device_id);
 
-        OlmMachine::new_helper(user_id, device_id, store, account)
+        OlmMachine::new_helper(
+            user_id,
+            device_id,
+            store,
+            account,
+            PrivateCrossSigningIdentity::empty(user_id.to_owned()),
+        )
     }
 
     fn new_helper(
@@ -123,19 +139,25 @@ impl OlmMachine {
         device_id: DeviceIdBox,
         store: Box<dyn CryptoStore>,
         account: ReadOnlyAccount,
+        user_identity: PrivateCrossSigningIdentity,
     ) -> Self {
         let user_id = Arc::new(user_id.clone());
+        let user_identity = Arc::new(Mutex::new(user_identity));
 
         let store = Arc::new(store);
-        let verification_machine = VerificationMachine::new(account.clone(), store.clone());
+        let verification_machine =
+            VerificationMachine::new(account.clone(), user_identity.clone(), store.clone());
         let store = Store::new(user_id.clone(), store, verification_machine.clone());
         let device_id: Arc<DeviceIdBox> = Arc::new(device_id);
         let outbound_group_sessions = Arc::new(DashMap::new());
+        let users_for_key_claim = Arc::new(DashMap::new());
+
         let key_request_machine = KeyRequestMachine::new(
             user_id.clone(),
             device_id.clone(),
             store.clone(),
             outbound_group_sessions,
+            users_for_key_claim.clone(),
         );
 
         let account = Account {
@@ -143,8 +165,12 @@ impl OlmMachine {
             store: store.clone(),
         };
 
-        let session_manager =
-            SessionManager::new(account.clone(), key_request_machine.clone(), store.clone());
+        let session_manager = SessionManager::new(
+            account.clone(),
+            users_for_key_claim,
+            key_request_machine.clone(),
+            store.clone(),
+        );
         let group_session_manager = GroupSessionManager::new(account.clone(), store.clone());
         let identity_manager = IdentityManager::new(
             user_id.clone(),
@@ -157,12 +183,14 @@ impl OlmMachine {
             user_id,
             device_id,
             account,
+            user_identity,
             store,
             session_manager,
             group_session_manager,
             verification_machine,
             key_request_machine,
             identity_manager,
+            cross_signing_request: Arc::new(Mutex::new(None)),
         }
     }
 
@@ -197,11 +225,26 @@ impl OlmMachine {
             }
             None => {
                 debug!("Creating a new account");
-                ReadOnlyAccount::new(&user_id, &device_id)
+                let account = ReadOnlyAccount::new(&user_id, &device_id);
+                store.save_account(account.clone()).await?;
+                account
             }
         };
 
-        Ok(OlmMachine::new_helper(&user_id, device_id, store, account))
+        let identity = match store.load_identity().await? {
+            Some(i) => {
+                debug!("Restored the cross signing identity");
+                i
+            }
+            None => {
+                debug!("Creating an empty cross signing identity stub");
+                PrivateCrossSigningIdentity::empty(user_id.clone())
+            }
+        };
+
+        Ok(OlmMachine::new_helper(
+            &user_id, device_id, store, account, identity,
+        ))
     }
 
     /// Create a new machine with the default crypto store.
@@ -305,9 +348,56 @@ impl OlmMachine {
             IncomingResponse::ToDevice(_) => {
                 self.mark_to_device_request_as_sent(&request_id).await?;
             }
+            IncomingResponse::SigningKeysUpload(_) => {
+                self.receive_cross_signing_upload_response().await?;
+            }
         };
 
         Ok(())
+    }
+
+    /// Mark the cross signing identity as shared.
+    async fn receive_cross_signing_upload_response(&self) -> StoreResult<()> {
+        self.user_identity.lock().await.mark_as_shared();
+        self.store
+            .save_identity((&*self.user_identity.lock().await).clone())
+            .await
+    }
+
+    /// Create a new cross signing identity and get the upload request to push
+    /// the new public keys to the server.
+    ///
+    /// **Warning**: This will delete any existing cross signing keys that might
+    /// exist on the server and thus will reset the trust between all the
+    /// devices.
+    ///
+    /// Uploading these keys will require user interactive auth.
+    pub async fn bootstrap_cross_signing(
+        &self,
+        reset: bool,
+    ) -> StoreResult<(UploadSigningKeysRequest, UploadSignaturesRequest)> {
+        let mut identity = self.user_identity.lock().await;
+
+        if identity.is_empty().await || reset {
+            info!("Creating new cross signing identity");
+            let (id, signature_request) = self.account.bootstrap_cross_signing().await;
+            let request = id.as_upload_request().await;
+
+            *identity = id;
+
+            self.store.save_identity(identity.clone()).await?;
+            Ok((request, signature_request))
+        } else {
+            info!("Trying to upload the existing cross signing identity");
+            let request = identity.as_upload_request().await;
+            let device_keys = self.account.unsigned_device_keys();
+            // TODO remove this expect.
+            let signature_request = identity
+                .sign_device(device_keys)
+                .await
+                .expect("Can't sign device keys");
+            Ok((request, signature_request))
+        }
     }
 
     /// Should device or one-time keys be uploaded to the server.
@@ -417,7 +507,7 @@ impl OlmMachine {
     async fn receive_keys_query_response(
         &self,
         response: &KeysQueryResponse,
-    ) -> OlmResult<(Vec<ReadOnlyDevice>, Vec<UserIdentities>)> {
+    ) -> OlmResult<(DeviceChanges, IdentityChanges)> {
         self.identity_manager
             .receive_keys_query_response(response)
             .await
@@ -448,12 +538,12 @@ impl OlmMachine {
     async fn decrypt_to_device_event(
         &self,
         event: &ToDeviceEvent<EncryptedEventContent>,
-    ) -> OlmResult<Raw<AnyToDeviceEvent>> {
-        let (decrypted_event, sender_key, signing_key) =
+    ) -> OlmResult<(Session, Raw<AnyToDeviceEvent>, Option<InboundGroupSession>)> {
+        let (session, decrypted_event, sender_key, signing_key) =
             self.account.decrypt_to_device_event(event).await?;
         // Handle the decrypted event, e.g. fetch out Megolm sessions out of
         // the event.
-        if let Some(event) = self
+        if let (Some(event), group_session) = self
             .handle_decrypted_to_device_event(&sender_key, &signing_key, &decrypted_event)
             .await?
         {
@@ -462,9 +552,9 @@ impl OlmMachine {
             // don't want them to be able to do silly things with it. Handling
             // events modifies them and returns a modified one, so replace it
             // here if we get one.
-            Ok(event)
+            Ok((session, event, group_session))
         } else {
-            Ok(decrypted_event)
+            Ok((session, decrypted_event, None))
         }
     }
 
@@ -474,7 +564,7 @@ impl OlmMachine {
         sender_key: &str,
         signing_key: &str,
         event: &mut ToDeviceEvent<RoomKeyEventContent>,
-    ) -> OlmResult<Option<Raw<AnyToDeviceEvent>>> {
+    ) -> OlmResult<(Option<Raw<AnyToDeviceEvent>>, Option<InboundGroupSession>)> {
         match event.content.algorithm {
             EventEncryptionAlgorithm::MegolmV1AesSha2 => {
                 let session_key = GroupSessionKey(mem::take(&mut event.content.session_key));
@@ -485,17 +575,15 @@ impl OlmMachine {
                     &event.content.room_id,
                     session_key,
                 )?;
-                let _ = self.store.save_inbound_group_sessions(&[session]).await?;
-
                 let event = Raw::from(AnyToDeviceEvent::RoomKey(event.clone()));
-                Ok(Some(event))
+                Ok((Some(event), Some(session)))
             }
             _ => {
                 warn!(
                     "Received room key with unsupported key algorithm {}",
                     event.content.algorithm
                 );
-                Ok(None)
+                Ok((None, None))
             }
         }
     }
@@ -505,9 +593,14 @@ impl OlmMachine {
         &self,
         room_id: &RoomId,
     ) -> OlmResult<()> {
-        self.group_session_manager
+        let (_, session) = self
+            .group_session_manager
             .create_outbound_group_session(room_id, EncryptionSettings::default())
-            .await
+            .await?;
+
+        self.store.save_inbound_group_sessions(&[session]).await?;
+
+        Ok(())
     }
 
     /// Encrypt a room message for the given room.
@@ -597,12 +690,12 @@ impl OlmMachine {
         sender_key: &str,
         signing_key: &str,
         event: &Raw<AnyToDeviceEvent>,
-    ) -> OlmResult<Option<Raw<AnyToDeviceEvent>>> {
+    ) -> OlmResult<(Option<Raw<AnyToDeviceEvent>>, Option<InboundGroupSession>)> {
         let event = if let Ok(e) = event.deserialize() {
             e
         } else {
             warn!("Decrypted to-device event failed to be parsed correctly");
-            return Ok(None);
+            return Ok((None, None));
         };
 
         match event {
@@ -615,7 +708,7 @@ impl OlmMachine {
                 .await?),
             _ => {
                 warn!("Received a unexpected encrypted to-device event");
-                Ok(None)
+                Ok((None, None))
             }
         }
     }
@@ -638,6 +731,8 @@ impl OlmMachine {
             .mark_outgoing_request_as_sent(request_id)
             .await?;
         self.group_session_manager.mark_request_as_sent(request_id);
+        self.session_manager
+            .mark_outgoing_request_as_sent(request_id);
 
         Ok(())
     }
@@ -647,11 +742,8 @@ impl OlmMachine {
         self.verification_machine.get_sas(flow_id)
     }
 
-    async fn update_one_time_key_count(
-        &self,
-        key_count: &BTreeMap<DeviceKeyAlgorithm, UInt>,
-    ) -> StoreResult<()> {
-        self.account.update_uploaded_key_count(key_count).await
+    async fn update_one_time_key_count(&self, key_count: &BTreeMap<DeviceKeyAlgorithm, UInt>) {
+        self.account.update_uploaded_key_count(key_count).await;
     }
 
     /// Handle a sync response and update the internal state of the Olm machine.
@@ -667,15 +759,19 @@ impl OlmMachine {
     ///
     /// [`decrypt_room_event`]: #method.decrypt_room_event
     #[instrument(skip(response))]
-    pub async fn receive_sync_response(&self, response: &mut SyncResponse) {
+    pub async fn receive_sync_response(&self, response: &mut SyncResponse) -> OlmResult<()> {
+        // Remove verification objects that have expired or are done.
         self.verification_machine.garbage_collect();
 
-        if let Err(e) = self
-            .update_one_time_key_count(&response.device_one_time_keys_count)
-            .await
-        {
-            error!("Error updating the one-time key count {:?}", e);
-        }
+        // Always save the account, a new session might get created which also
+        // touches the account.
+        let mut changes = Changes {
+            account: Some(self.account.inner.clone()),
+            ..Default::default()
+        };
+
+        self.update_one_time_key_count(&response.device_one_time_keys_count)
+            .await;
 
         for user_id in &response.device_lists.changed {
             if let Err(e) = self.identity_manager.mark_user_as_changed(&user_id).await {
@@ -696,18 +792,36 @@ impl OlmMachine {
 
             match &mut event {
                 AnyToDeviceEvent::RoomEncrypted(e) => {
-                    let decrypted_event = match self.decrypt_to_device_event(e).await {
-                        Ok(e) => e,
-                        Err(err) => {
-                            warn!(
-                                "Failed to decrypt to-device event from {} {}",
-                                e.sender, err
-                            );
-                            // TODO if the session is wedged mark it for
-                            // unwedging.
-                            continue;
-                        }
-                    };
+                    let (session, decrypted_event, group_session) =
+                        match self.decrypt_to_device_event(e).await {
+                            Ok(e) => e,
+                            Err(err) => {
+                                warn!(
+                                    "Failed to decrypt to-device event from {} {}",
+                                    e.sender, err
+                                );
+
+                                if let OlmError::SessionWedged(sender, curve_key) = err {
+                                    if let Err(e) = self
+                                        .session_manager
+                                        .mark_device_as_wedged(&sender, &curve_key)
+                                        .await
+                                    {
+                                        error!(
+                                            "Couldn't mark device from {} to be unwedged {:?}",
+                                            sender, e
+                                        );
+                                    }
+                                }
+                                continue;
+                            }
+                        };
+
+                    changes.sessions.push(session);
+
+                    if let Some(group_session) = group_session {
+                        changes.inbound_group_sessions.push(group_session);
+                    }
 
                     *event_result = decrypted_event;
                 }
@@ -726,13 +840,14 @@ impl OlmMachine {
             }
         }
 
-        if let Err(e) = self
+        let changed_sessions = self
             .key_request_machine
             .collect_incoming_key_requests()
-            .await
-        {
-            error!("Error collecting our key share requests {:?}", e);
-        }
+            .await?;
+
+        changes.sessions.extend(changed_sessions);
+
+        Ok(self.store.save_changes(changes).await?)
     }
 
     /// Decrypt an event from a room timeline.
@@ -887,6 +1002,7 @@ impl OlmMachine {
             // Only import the session if we didn't have this session or if it's
             // a better version of the same session, that is the first known
             // index is lower.
+            // TODO load all sessions so we don't do a thousand small loads.
             if let Some(existing_session) = self
                 .store
                 .get_inbound_group_session(
@@ -909,7 +1025,17 @@ impl OlmMachine {
 
         let num_sessions = sessions.len();
 
-        self.store.save_inbound_group_sessions(&sessions).await?;
+        let changes = Changes {
+            inbound_group_sessions: sessions,
+            ..Default::default()
+        };
+
+        self.store.save_changes(changes).await?;
+
+        info!(
+            "Successfully imported {} inbound group sessions",
+            num_sessions
+        );
 
         Ok(num_sessions)
     }
@@ -1130,15 +1256,19 @@ pub(crate) mod test {
             .unwrap()
             .unwrap();
 
+        let (session, content) = bob_device
+            .encrypt(EventType::Dummy, json!({}))
+            .await
+            .unwrap();
+        alice.store.save_sessions(&[session]).await.unwrap();
+
         let event = ToDeviceEvent {
             sender: alice.user_id().clone(),
-            content: bob_device
-                .encrypt(EventType::Dummy, json!({}))
-                .await
-                .unwrap(),
+            content,
         };
 
-        bob.decrypt_to_device_event(&event).await.unwrap();
+        let (session, _, _) = bob.decrypt_to_device_event(&event).await.unwrap();
+        bob.store.save_sessions(&[session]).await.unwrap();
 
         (alice, bob)
     }
@@ -1424,13 +1554,15 @@ pub(crate) mod test {
             content: bob_device
                 .encrypt(EventType::Dummy, json!({}))
                 .await
-                .unwrap(),
+                .unwrap()
+                .1,
         };
 
         let event = bob
             .decrypt_to_device_event(&event)
             .await
             .unwrap()
+            .1
             .deserialize()
             .unwrap();
 
@@ -1466,12 +1598,14 @@ pub(crate) mod test {
             .get_outbound_group_session(&room_id)
             .unwrap();
 
-        let event = bob
-            .decrypt_to_device_event(&event)
+        let (session, event, group_session) = bob.decrypt_to_device_event(&event).await.unwrap();
+
+        bob.store.save_sessions(&[session]).await.unwrap();
+        bob.store
+            .save_inbound_group_sessions(&[group_session.unwrap()])
             .await
-            .unwrap()
-            .deserialize()
             .unwrap();
+        let event = event.deserialize().unwrap();
 
         if let AnyToDeviceEvent::RoomKey(event) = event {
             assert_eq!(&event.sender, alice.user_id());
@@ -1511,7 +1645,11 @@ pub(crate) mod test {
             content: to_device_requests_to_content(to_device_requests),
         };
 
-        bob.decrypt_to_device_event(&event).await.unwrap();
+        let (_, _, group_session) = bob.decrypt_to_device_event(&event).await.unwrap();
+        bob.store
+            .save_inbound_group_sessions(&[group_session.unwrap()])
+            .await
+            .unwrap();
 
         let plaintext = "It is a secret to everybody";
 
@@ -1557,7 +1695,7 @@ pub(crate) mod test {
         }
     }
 
-    #[tokio::test]
+    #[tokio::test(threaded_scheduler)]
     #[cfg(feature = "sqlite_cryptostore")]
     async fn test_machine_with_default_store() {
         let tmpdir = tempdir().unwrap();

@@ -28,8 +28,8 @@ use tracing::{debug, info};
 
 use crate::{
     error::{EventError, MegolmResult, OlmResult},
-    olm::{Account, OutboundGroupSession},
-    store::Store,
+    olm::{Account, InboundGroupSession, OutboundGroupSession},
+    store::{Changes, Store},
     Device, EncryptionSettings, OlmError, ToDeviceRequest,
 };
 
@@ -140,19 +140,17 @@ impl GroupSessionManager {
         &self,
         room_id: &RoomId,
         settings: EncryptionSettings,
-    ) -> OlmResult<()> {
+    ) -> OlmResult<(OutboundGroupSession, InboundGroupSession)> {
         let (outbound, inbound) = self
             .account
             .create_group_session_pair(room_id, settings)
             .await
             .map_err(|_| EventError::UnsupportedAlgorithm)?;
 
-        let _ = self.store.save_inbound_group_sessions(&[inbound]).await?;
-
         let _ = self
             .outbound_group_sessions
-            .insert(room_id.to_owned(), outbound);
-        Ok(())
+            .insert(room_id.to_owned(), outbound.clone());
+        Ok((outbound, inbound))
     }
 
     /// Get to-device requests to share a group session with users in a room.
@@ -169,13 +167,12 @@ impl GroupSessionManager {
         users: impl Iterator<Item = &UserId>,
         encryption_settings: impl Into<EncryptionSettings>,
     ) -> OlmResult<Vec<Arc<ToDeviceRequest>>> {
-        self.create_outbound_group_session(room_id, encryption_settings.into())
-            .await?;
-        let session = self.outbound_group_sessions.get(room_id).unwrap();
+        let mut changes = Changes::default();
 
-        if session.shared() {
-            panic!("Session is already shared");
-        }
+        let (session, inbound_session) = self
+            .create_outbound_group_session(room_id, encryption_settings.into())
+            .await?;
+        changes.inbound_group_sessions.push(inbound_session);
 
         let mut devices: Vec<Device> = Vec::new();
 
@@ -196,7 +193,7 @@ impl GroupSessionManager {
                     .encrypt(EventType::RoomKey, key_content.clone())
                     .await;
 
-                let encrypted = match encrypted {
+                let (used_session, encrypted) = match encrypted {
                     Ok(c) => c,
                     Err(OlmError::MissingSession)
                     | Err(OlmError::EventError(EventError::MissingSenderKey)) => {
@@ -204,6 +201,8 @@ impl GroupSessionManager {
                     }
                     Err(e) => return Err(e),
                 };
+
+                changes.sessions.push(used_session);
 
                 messages
                     .entry(device.user_id().clone())
@@ -236,6 +235,8 @@ impl GroupSessionManager {
             );
             session.mark_as_shared();
         }
+
+        self.store.save_changes(changes).await?;
 
         Ok(requests)
     }

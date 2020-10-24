@@ -12,20 +12,26 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{collections::HashSet, sync::Arc};
+use std::{
+    collections::{HashMap, HashSet},
+    sync::Arc,
+};
 
 use dashmap::{DashMap, DashSet};
 use matrix_sdk_common::{
-    identifiers::{DeviceId, RoomId, UserId},
+    identifiers::{DeviceId, DeviceIdBox, RoomId, UserId},
     locks::Mutex,
 };
 use matrix_sdk_common_macros::async_trait;
 
 use super::{
-    caches::{DeviceStore, GroupSessionStore, ReadOnlyUserDevices, SessionStore},
-    CryptoStore, InboundGroupSession, ReadOnlyAccount, Result, Session,
+    caches::{DeviceStore, GroupSessionStore, SessionStore},
+    Changes, CryptoStore, InboundGroupSession, ReadOnlyAccount, Result, Session,
 };
-use crate::identities::{ReadOnlyDevice, UserIdentities};
+use crate::{
+    identities::{ReadOnlyDevice, UserIdentities},
+    olm::PrivateCrossSigningIdentity,
+};
 
 /// An in-memory only store that will forget all the E2EE key once it's dropped.
 #[derive(Debug, Clone)]
@@ -58,6 +64,30 @@ impl MemoryStore {
     pub fn new() -> Self {
         Self::default()
     }
+
+    pub(crate) async fn save_devices(&self, mut devices: Vec<ReadOnlyDevice>) {
+        for device in devices.drain(..) {
+            let _ = self.devices.add(device);
+        }
+    }
+
+    async fn delete_devices(&self, mut devices: Vec<ReadOnlyDevice>) {
+        for device in devices.drain(..) {
+            let _ = self.devices.remove(device.user_id(), device.device_id());
+        }
+    }
+
+    async fn save_sessions(&self, mut sessions: Vec<Session>) {
+        for session in sessions.drain(..) {
+            let _ = self.sessions.add(session.clone()).await;
+        }
+    }
+
+    async fn save_inbound_group_sessions(&self, mut sessions: Vec<InboundGroupSession>) {
+        for session in sessions.drain(..) {
+            self.inbound_group_sessions.add(session);
+        }
+    }
 }
 
 #[async_trait]
@@ -70,9 +100,24 @@ impl CryptoStore for MemoryStore {
         Ok(())
     }
 
-    async fn save_sessions(&self, sessions: &[Session]) -> Result<()> {
-        for session in sessions {
-            let _ = self.sessions.add(session.clone()).await;
+    async fn save_changes(&self, mut changes: Changes) -> Result<()> {
+        self.save_sessions(changes.sessions).await;
+        self.save_inbound_group_sessions(changes.inbound_group_sessions)
+            .await;
+
+        self.save_devices(changes.devices.new).await;
+        self.save_devices(changes.devices.changed).await;
+        self.delete_devices(changes.devices.deleted).await;
+
+        for identity in changes
+            .identities
+            .new
+            .drain(..)
+            .chain(changes.identities.changed)
+        {
+            let _ = self
+                .identities
+                .insert(identity.user_id().to_owned(), identity.clone());
         }
 
         Ok(())
@@ -80,14 +125,6 @@ impl CryptoStore for MemoryStore {
 
     async fn get_sessions(&self, sender_key: &str) -> Result<Option<Arc<Mutex<Vec<Session>>>>> {
         Ok(self.sessions.get(sender_key))
-    }
-
-    async fn save_inbound_group_sessions(&self, sessions: &[InboundGroupSession]) -> Result<()> {
-        for session in sessions {
-            self.inbound_group_sessions.add(session.clone());
-        }
-
-        Ok(())
     }
 
     async fn get_inbound_group_session(
@@ -148,35 +185,16 @@ impl CryptoStore for MemoryStore {
         Ok(self.devices.get(user_id, device_id))
     }
 
-    async fn delete_device(&self, device: ReadOnlyDevice) -> Result<()> {
-        let _ = self.devices.remove(device.user_id(), device.device_id());
-        Ok(())
-    }
-
-    async fn get_user_devices(&self, user_id: &UserId) -> Result<ReadOnlyUserDevices> {
+    async fn get_user_devices(
+        &self,
+        user_id: &UserId,
+    ) -> Result<HashMap<DeviceIdBox, ReadOnlyDevice>> {
         Ok(self.devices.user_devices(user_id))
-    }
-
-    async fn save_devices(&self, devices: &[ReadOnlyDevice]) -> Result<()> {
-        for device in devices {
-            let _ = self.devices.add(device.clone());
-        }
-
-        Ok(())
     }
 
     async fn get_user_identity(&self, user_id: &UserId) -> Result<Option<UserIdentities>> {
         #[allow(clippy::map_clone)]
         Ok(self.identities.get(user_id).map(|i| i.clone()))
-    }
-
-    async fn save_user_identities(&self, identities: &[UserIdentities]) -> Result<()> {
-        for identity in identities {
-            let _ = self
-                .identities
-                .insert(identity.user_id().to_owned(), identity.clone());
-        }
-        Ok(())
     }
 
     async fn save_value(&self, key: String, value: String) -> Result<()> {
@@ -191,6 +209,14 @@ impl CryptoStore for MemoryStore {
 
     async fn get_value(&self, key: &str) -> Result<Option<String>> {
         Ok(self.values.get(key).map(|v| v.to_owned()))
+    }
+
+    async fn save_identity(&self, _: PrivateCrossSigningIdentity) -> Result<()> {
+        Ok(())
+    }
+
+    async fn load_identity(&self) -> Result<Option<PrivateCrossSigningIdentity>> {
+        Ok(None)
     }
 }
 
@@ -211,7 +237,7 @@ mod test {
         assert!(store.load_account().await.unwrap().is_none());
         store.save_account(account).await.unwrap();
 
-        store.save_sessions(&[session.clone()]).await.unwrap();
+        store.save_sessions(vec![session.clone()]).await;
 
         let sessions = store
             .get_sessions(&session.sender_key)
@@ -244,9 +270,8 @@ mod test {
 
         let store = MemoryStore::new();
         let _ = store
-            .save_inbound_group_sessions(&[inbound.clone()])
-            .await
-            .unwrap();
+            .save_inbound_group_sessions(vec![inbound.clone()])
+            .await;
 
         let loaded_session = store
             .get_inbound_group_session(&room_id, "test_key", outbound.session_id())
@@ -261,7 +286,7 @@ mod test {
         let device = get_device();
         let store = MemoryStore::new();
 
-        store.save_devices(&[device.clone()]).await.unwrap();
+        store.save_devices(vec![device.clone()]).await;
 
         let loaded_device = store
             .get_device(device.user_id(), device.device_id())
@@ -273,14 +298,14 @@ mod test {
 
         let user_devices = store.get_user_devices(device.user_id()).await.unwrap();
 
-        assert_eq!(user_devices.keys().next().unwrap(), device.device_id());
-        assert_eq!(user_devices.devices().next().unwrap(), &device);
+        assert_eq!(&**user_devices.keys().next().unwrap(), device.device_id());
+        assert_eq!(user_devices.values().next().unwrap(), &device);
 
         let loaded_device = user_devices.get(device.device_id()).unwrap();
 
-        assert_eq!(device, loaded_device);
+        assert_eq!(&device, loaded_device);
 
-        store.delete_device(device.clone()).await.unwrap();
+        store.delete_devices(vec![device.clone()]).await;
         assert!(store
             .get_device(device.user_id(), device.device_id())
             .await

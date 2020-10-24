@@ -34,7 +34,7 @@ use matrix_sdk_common::{
 
 use crate::{
     identities::{LocalTrust, ReadOnlyDevice, UserIdentities},
-    store::{CryptoStore, CryptoStoreError},
+    store::{Changes, CryptoStore, CryptoStoreError, DeviceChanges},
     ReadOnlyAccount, ToDeviceRequest,
 };
 
@@ -189,34 +189,64 @@ impl Sas {
             (content, guard.is_done())
         };
 
-        if done {
-            // TODO move the logic that marks and stores the device into the
-            // else branch and only after the identity was verified as well. We
-            // dont' want to verify one without the other.
-            if !self.mark_device_as_verified().await? {
-                return Ok(self.cancel());
-            } else {
-                self.mark_identity_as_verified().await?;
-            }
-        }
+        let cancel = if done {
+            self.mark_as_done().await?
+        } else {
+            None
+        };
 
-        Ok(content.map(|c| {
-            let content = AnyToDeviceEventContent::KeyVerificationMac(c);
-            self.content_to_request(content)
-        }))
+        if cancel.is_some() {
+            Ok(cancel)
+        } else {
+            Ok(content.map(|c| {
+                let content = AnyToDeviceEventContent::KeyVerificationMac(c);
+                self.content_to_request(content)
+            }))
+        }
     }
 
-    pub(crate) async fn mark_identity_as_verified(&self) -> Result<bool, CryptoStoreError> {
+    pub(crate) async fn mark_as_done(&self) -> Result<Option<ToDeviceRequest>, CryptoStoreError> {
+        if let Some(device) = self.mark_device_as_verified().await? {
+            let identity = self.mark_identity_as_verified().await?;
+
+            let mut changes = Changes {
+                devices: DeviceChanges {
+                    changed: vec![device],
+                    ..Default::default()
+                },
+                ..Default::default()
+            };
+
+            if let Some(i) = identity {
+                changes.identities.changed.push(i);
+            }
+
+            self.store.save_changes(changes).await?;
+            Ok(None)
+        } else {
+            Ok(self.cancel())
+        }
+    }
+
+    pub(crate) async fn mark_identity_as_verified(
+        &self,
+    ) -> Result<Option<UserIdentities>, CryptoStoreError> {
         // If there wasn't an identity available during the verification flow
         // return early as there's nothing to do.
         if self.other_identity.is_none() {
-            return Ok(false);
+            return Ok(None);
         }
 
+        // TODO signal an error, e.g. when the identity got deleted so we don't
+        // verify/save the device either.
         let identity = self.store.get_user_identity(self.other_user_id()).await?;
 
         if let Some(identity) = identity {
-            if identity.master_key() == self.other_identity.as_ref().unwrap().master_key() {
+            if self
+                .other_identity
+                .as_ref()
+                .map_or(false, |i| i.master_key() == identity.master_key())
+            {
                 if self
                     .verified_identities()
                     .map_or(false, |i| i.contains(&identity))
@@ -228,13 +258,12 @@ impl Sas {
 
                     if let UserIdentities::Own(i) = &identity {
                         i.mark_as_verified();
-                        self.store.save_user_identities(&[identity]).await?;
                     }
                     // TODO if we have the private part of the user signing
                     // key we should sign and upload a signature for this
                     // identity.
 
-                    Ok(true)
+                    Ok(Some(identity))
                 } else {
                     info!(
                         "The interactive verification process didn't contain a \
@@ -243,7 +272,7 @@ impl Sas {
                         self.verified_identities(),
                     );
 
-                    Ok(false)
+                    Ok(None)
                 }
             } else {
                 warn!(
@@ -252,7 +281,7 @@ impl Sas {
                     identity.user_id(),
                 );
 
-                Ok(false)
+                Ok(None)
             }
         } else {
             info!(
@@ -260,11 +289,13 @@ impl Sas {
                   verification was going on.",
                 self.other_user_id(),
             );
-            Ok(false)
+            Ok(None)
         }
     }
 
-    pub(crate) async fn mark_device_as_verified(&self) -> Result<bool, CryptoStoreError> {
+    pub(crate) async fn mark_device_as_verified(
+        &self,
+    ) -> Result<Option<ReadOnlyDevice>, CryptoStoreError> {
         let device = self
             .store
             .get_device(self.other_user_id(), self.other_device_id())
@@ -283,12 +314,11 @@ impl Sas {
                     );
 
                     device.set_trust_state(LocalTrust::Verified);
-                    self.store.save_devices(&[device]).await?;
                     // TODO if this is a device from our own user and we have
                     // the private part of the self signing key, we should sign
                     // the device and upload the signature.
 
-                    Ok(true)
+                    Ok(Some(device))
                 } else {
                     info!(
                         "The interactive verification process didn't contain a \
@@ -297,7 +327,7 @@ impl Sas {
                         device.device_id()
                     );
 
-                    Ok(false)
+                    Ok(None)
                 }
             } else {
                 warn!(
@@ -306,7 +336,7 @@ impl Sas {
                     device.user_id(),
                     device.device_id()
                 );
-                Ok(false)
+                Ok(None)
             }
         } else {
             let device = self.other_device();
@@ -317,7 +347,7 @@ impl Sas {
                 device.user_id(),
                 device.device_id()
             );
-            Ok(false)
+            Ok(None)
         }
     }
 
@@ -777,12 +807,11 @@ mod test {
         let bob_device = ReadOnlyDevice::from_account(&bob).await;
 
         let alice_store: Arc<Box<dyn CryptoStore>> = Arc::new(Box::new(MemoryStore::new()));
-        let bob_store: Arc<Box<dyn CryptoStore>> = Arc::new(Box::new(MemoryStore::new()));
+        let bob_store = MemoryStore::new();
 
-        bob_store
-            .save_devices(&[alice_device.clone()])
-            .await
-            .unwrap();
+        bob_store.save_devices(vec![alice_device.clone()]).await;
+
+        let bob_store: Arc<Box<dyn CryptoStore>> = Arc::new(Box::new(bob_store));
 
         let (alice, content) = Sas::start(alice, bob_device, alice_store, None);
         let event = wrap_to_device_event(alice.user_id(), content);

@@ -20,6 +20,8 @@ use matrix_sdk_common::{
             claim_keys::Response as KeysClaimResponse,
             get_keys::Response as KeysQueryResponse,
             upload_keys::{Request as KeysUploadRequest, Response as KeysUploadResponse},
+            upload_signing_keys::Response as SigningKeysUploadResponse,
+            CrossSigningKey,
         },
         to_device::{send_event_to_device::Response as ToDeviceResponse, DeviceIdOrAllDevices},
     },
@@ -54,6 +56,21 @@ impl ToDeviceRequest {
     pub fn txn_id_string(&self) -> String {
         self.txn_id.to_string()
     }
+}
+
+/// Request that will publish a cross signing identity.
+///
+/// This uploads the public cross signing key triplet.
+#[derive(Debug, Clone)]
+pub struct UploadSigningKeysRequest {
+    /// The user's master key.
+    pub master_key: Option<CrossSigningKey>,
+    /// The user's self-signing key. Must be signed with the accompanied master, or by the
+    /// user's most recently uploaded master key if no master key is included in the request.
+    pub self_signing_key: Option<CrossSigningKey>,
+    /// The user's user-signing key. Must be signed with the accompanied master, or by the
+    /// user's most recently uploaded master key if no master key is included in the request.
+    pub user_signing_key: Option<CrossSigningKey>,
 }
 
 /// Customized version of `ruma_client_api::r0::keys::get_keys::Request`, without any references.
@@ -141,6 +158,9 @@ pub enum IncomingResponse<'a> {
     /// The key claiming requests, giving us new one-time keys of other users so
     /// new Olm sessions can be created.
     KeysClaim(&'a KeysClaimResponse),
+    /// The cross signing keys upload response, marking our private cross
+    /// signing identity as shared.
+    SigningKeysUpload(&'a SigningKeysUploadResponse),
 }
 
 impl<'a> From<&'a KeysUploadResponse> for IncomingResponse<'a> {

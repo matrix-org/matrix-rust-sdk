@@ -29,7 +29,6 @@
 
 mod error;
 mod file_encryption;
-mod group_manager;
 mod identities;
 mod key_request;
 mod machine;

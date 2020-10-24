@@ -41,7 +41,7 @@ use matrix_sdk_common::{
 
 use crate::{
     error::{OlmError, OlmResult},
-    olm::{InboundGroupSession, OutboundGroupSession},
+    olm::{InboundGroupSession, OutboundGroupSession, Session},
     requests::{OutgoingRequest, ToDeviceRequest},
     store::{CryptoStoreError, Store},
     Device,
@@ -196,6 +196,7 @@ impl KeyRequestMachine {
         device_id: Arc<DeviceIdBox>,
         store: Store,
         outbound_group_sessions: Arc<DashMap<RoomId, OutboundGroupSession>>,
+        users_for_key_claim: Arc<DashMap<UserId, DashSet<DeviceIdBox>>>,
     ) -> Self {
         Self {
             user_id,
@@ -205,18 +206,13 @@ impl KeyRequestMachine {
             outgoing_to_device_requests: Arc::new(DashMap::new()),
             incoming_key_requests: Arc::new(DashMap::new()),
             wait_queue: WaitQueue::new(),
-            users_for_key_claim: Arc::new(DashMap::new()),
+            users_for_key_claim,
         }
     }
 
     /// Our own user id.
     pub fn user_id(&self) -> &UserId {
         &self.user_id
-    }
-
-    /// Get the map of user/devices which we need to claim one-time for.
-    pub fn users_for_key_claim(&self) -> &DashMap<UserId, DashSet<DeviceIdBox>> {
-        &self.users_for_key_claim
     }
 
     pub fn outgoing_to_device_requests(&self) -> Vec<OutgoingRequest> {
@@ -239,15 +235,18 @@ impl KeyRequestMachine {
 
     /// Handle all the incoming key requests that are queued up and empty our
     /// key request queue.
-    pub async fn collect_incoming_key_requests(&self) -> OlmResult<()> {
+    pub async fn collect_incoming_key_requests(&self) -> OlmResult<Vec<Session>> {
+        let mut changed_sessions = Vec::new();
         for item in self.incoming_key_requests.iter() {
             let event = item.value();
-            self.handle_key_request(event).await?;
+            if let Some(s) = self.handle_key_request(event).await? {
+                changed_sessions.push(s);
+            }
         }
 
         self.incoming_key_requests.clear();
 
-        Ok(())
+        Ok(changed_sessions)
     }
 
     /// Store the key share request for later, once we get an Olm session with
@@ -298,7 +297,7 @@ impl KeyRequestMachine {
     async fn handle_key_request(
         &self,
         event: &ToDeviceEvent<RoomKeyRequestEventContent>,
-    ) -> OlmResult<()> {
+    ) -> OlmResult<Option<Session>> {
         let key_info = match event.content.action {
             Action::Request => {
                 if let Some(info) = &event.content.body {
@@ -309,11 +308,11 @@ impl KeyRequestMachine {
                           action, but no key info was found",
                         event.sender, event.content.requesting_device_id
                     );
-                    return Ok(());
+                    return Ok(None);
                 }
             }
             // We ignore cancellations here since there's nothing to serve.
-            Action::CancelRequest => return Ok(()),
+            Action::CancelRequest => return Ok(None),
         };
 
         let session = self
@@ -332,7 +331,7 @@ impl KeyRequestMachine {
                 "Received a key request from {} {} for an unknown inbound group session {}.",
                 &event.sender, &event.content.requesting_device_id, &key_info.session_id
             );
-            return Ok(());
+            return Ok(None);
         };
 
         let device = self
@@ -353,6 +352,8 @@ impl KeyRequestMachine {
                     device.device_id(),
                     e
                 );
+
+                Ok(None)
             } else {
                 info!(
                     "Serving a key request for {} from {} {}.",
@@ -361,20 +362,20 @@ impl KeyRequestMachine {
                     device.device_id()
                 );
 
-                if let Err(e) = self.share_session(&session, &device).await {
-                    match e {
-                        OlmError::MissingSession => {
-                            info!(
-                                "Key request from {} {} is missing an Olm session, \
-                                 putting the request in the wait queue",
-                                device.user_id(),
-                                device.device_id()
-                            );
-                            self.handle_key_share_without_session(device, event);
-                            return Ok(());
-                        }
-                        e => return Err(e),
+                match self.share_session(&session, &device).await {
+                    Ok(s) => Ok(Some(s)),
+                    Err(OlmError::MissingSession) => {
+                        info!(
+                            "Key request from {} {} is missing an Olm session, \
+                             putting the request in the wait queue",
+                            device.user_id(),
+                            device.device_id()
+                        );
+                        self.handle_key_share_without_session(device, event);
+
+                        Ok(None)
                     }
+                    Err(e) => Err(e),
                 }
             }
         } else {
@@ -383,13 +384,17 @@ impl KeyRequestMachine {
                 &event.sender, &event.content.requesting_device_id
             );
             self.store.update_tracked_user(&event.sender, true).await?;
-        }
 
-        Ok(())
+            Ok(None)
+        }
     }
 
-    async fn share_session(&self, session: &InboundGroupSession, device: &Device) -> OlmResult<()> {
-        let content = device.encrypt_session(session.clone()).await?;
+    async fn share_session(
+        &self,
+        session: &InboundGroupSession,
+        device: &Device,
+    ) -> OlmResult<Session> {
+        let (used_session, content) = device.encrypt_session(session.clone()).await?;
 
         let id = Uuid::new_v4();
         let mut messages = BTreeMap::new();
@@ -416,7 +421,7 @@ impl KeyRequestMachine {
 
         self.outgoing_to_device_requests.insert(id, request);
 
-        Ok(())
+        Ok(used_session)
     }
 
     /// Check if it's ok to share a session with the given device.
@@ -573,23 +578,20 @@ impl KeyRequestMachine {
         Ok(())
     }
 
-    /// Save an inbound group session we received using a key forward.
+    /// Mark the given outgoing key info as done.
     ///
-    /// At the same time delete the key info since we received the wanted key.
-    async fn save_session(
-        &self,
-        key_info: OugoingKeyInfo,
-        session: InboundGroupSession,
-    ) -> Result<(), CryptoStoreError> {
+    /// This will queue up a request cancelation.
+    async fn mark_as_done(&self, key_info: OugoingKeyInfo) -> Result<(), CryptoStoreError> {
         // TODO perhaps only remove the key info if the first known index is 0.
         trace!(
             "Successfully received a forwarded room key for {:#?}",
             key_info
         );
 
-        self.store.save_inbound_group_sessions(&[session]).await?;
         self.outgoing_to_device_requests
             .remove(&key_info.request_id);
+        // TODO return the key info instead of deleting it so the sync handler
+        // can delete it in one transaction.
         self.delete_key_info(&key_info).await?;
 
         let content = RoomKeyRequestEventContent {
@@ -613,7 +615,8 @@ impl KeyRequestMachine {
         &self,
         sender_key: &str,
         event: &mut ToDeviceEvent<ForwardedRoomKeyEventContent>,
-    ) -> Result<Option<Raw<AnyToDeviceEvent>>, CryptoStoreError> {
+    ) -> Result<(Option<Raw<AnyToDeviceEvent>>, Option<InboundGroupSession>), CryptoStoreError>
+    {
         let key_info = self.get_key_info(&event.content).await?;
 
         if let Some(info) = key_info {
@@ -630,27 +633,32 @@ impl KeyRequestMachine {
 
             // If we have a previous session, check if we have a better version
             // and store the new one if so.
-            if let Some(old_session) = old_session {
+            let session = if let Some(old_session) = old_session {
                 let first_old_index = old_session.first_known_index().await;
                 let first_index = session.first_known_index().await;
 
                 if first_old_index > first_index {
-                    self.save_session(info, session).await?;
+                    self.mark_as_done(info).await?;
+                    Some(session)
+                } else {
+                    None
                 }
             // If we didn't have a previous session, store it.
             } else {
-                self.save_session(info, session).await?;
-            }
+                self.mark_as_done(info).await?;
+                Some(session)
+            };
 
-            Ok(Some(Raw::from(AnyToDeviceEvent::ForwardedRoomKey(
-                event.clone(),
-            ))))
+            Ok((
+                Some(Raw::from(AnyToDeviceEvent::ForwardedRoomKey(event.clone()))),
+                session,
+            ))
         } else {
             info!(
                 "Received a forwarded room key from {}, but no key info was found.",
                 event.sender,
             );
-            Ok(None)
+            Ok((None, None))
         }
     }
 }
@@ -666,13 +674,14 @@ mod test {
             AnyToDeviceEvent, ToDeviceEvent,
         },
         identifiers::{room_id, user_id, DeviceIdBox, RoomId, UserId},
+        locks::Mutex,
     };
     use matrix_sdk_test::async_test;
     use std::{convert::TryInto, sync::Arc};
 
     use crate::{
         identities::{LocalTrust, ReadOnlyDevice},
-        olm::{Account, ReadOnlyAccount},
+        olm::{Account, PrivateCrossSigningIdentity, ReadOnlyAccount},
         store::{CryptoStore, MemoryStore, Store},
         verification::VerificationMachine,
     };
@@ -711,13 +720,15 @@ mod test {
         let user_id = Arc::new(bob_id());
         let account = ReadOnlyAccount::new(&user_id, &alice_device_id());
         let store: Arc<Box<dyn CryptoStore>> = Arc::new(Box::new(MemoryStore::new()));
-        let verification = VerificationMachine::new(account, store.clone());
+        let identity = Arc::new(Mutex::new(PrivateCrossSigningIdentity::empty(bob_id())));
+        let verification = VerificationMachine::new(account, identity, store.clone());
         let store = Store::new(user_id.clone(), store, verification);
 
         KeyRequestMachine::new(
             user_id,
             Arc::new(bob_device_id()),
             store,
+            Arc::new(DashMap::new()),
             Arc::new(DashMap::new()),
         )
     }
@@ -727,7 +738,8 @@ mod test {
         let account = ReadOnlyAccount::new(&user_id, &alice_device_id());
         let device = ReadOnlyDevice::from_account(&account).await;
         let store: Arc<Box<dyn CryptoStore>> = Arc::new(Box::new(MemoryStore::new()));
-        let verification = VerificationMachine::new(account, store.clone());
+        let identity = Arc::new(Mutex::new(PrivateCrossSigningIdentity::empty(alice_id())));
+        let verification = VerificationMachine::new(account, identity, store.clone());
         let store = Store::new(user_id.clone(), store, verification);
         store.save_devices(&[device]).await.unwrap();
 
@@ -735,6 +747,7 @@ mod test {
             user_id,
             Arc::new(alice_device_id()),
             store,
+            Arc::new(DashMap::new()),
             Arc::new(DashMap::new()),
         )
     }
@@ -833,19 +846,19 @@ mod test {
                 .is_none()
         );
 
-        machine
+        let (_, first_session) = machine
             .receive_forwarded_room_key(&session.sender_key, &mut event)
             .await
             .unwrap();
-
-        let first_session = machine
-            .store
-            .get_inbound_group_session(session.room_id(), &session.sender_key, session.session_id())
-            .await
-            .unwrap()
-            .unwrap();
+        let first_session = first_session.unwrap();
 
         assert_eq!(first_session.first_known_index().await, 10);
+
+        machine
+            .store
+            .save_inbound_group_sessions(&[first_session.clone()])
+            .await
+            .unwrap();
 
         // Get the cancel request.
         let request = machine.outgoing_to_device_requests.iter().next().unwrap();
@@ -877,19 +890,12 @@ mod test {
             content,
         };
 
-        machine
+        let (_, second_session) = machine
             .receive_forwarded_room_key(&session.sender_key, &mut event)
             .await
             .unwrap();
 
-        let second_session = machine
-            .store
-            .get_inbound_group_session(session.room_id(), &session.sender_key, session.session_id())
-            .await
-            .unwrap()
-            .unwrap();
-
-        assert_eq!(second_session.first_known_index().await, 10);
+        assert!(second_session.is_none());
 
         let export = session.export_at_index(0).await.unwrap();
 
@@ -900,18 +906,12 @@ mod test {
             content,
         };
 
-        machine
+        let (_, second_session) = machine
             .receive_forwarded_room_key(&session.sender_key, &mut event)
             .await
             .unwrap();
-        let second_session = machine
-            .store
-            .get_inbound_group_session(session.room_id(), &session.sender_key, session.session_id())
-            .await
-            .unwrap()
-            .unwrap();
 
-        assert_eq!(second_session.first_known_index().await, 0);
+        assert_eq!(second_session.unwrap().first_known_index().await, 0);
     }
 
     #[async_test]
@@ -1134,12 +1134,17 @@ mod test {
             .unwrap()
             .is_none());
 
-        let (decrypted, sender_key, _) =
+        let (_, decrypted, sender_key, _) =
             alice_account.decrypt_to_device_event(&event).await.unwrap();
 
         if let AnyToDeviceEvent::ForwardedRoomKey(mut e) = decrypted.deserialize().unwrap() {
-            alice_machine
+            let (_, session) = alice_machine
                 .receive_forwarded_room_key(&sender_key, &mut e)
+                .await
+                .unwrap();
+            alice_machine
+                .store
+                .save_inbound_group_sessions(&[session.unwrap()])
                 .await
                 .unwrap();
         } else {
@@ -1317,12 +1322,17 @@ mod test {
             .unwrap()
             .is_none());
 
-        let (decrypted, sender_key, _) =
+        let (_, decrypted, sender_key, _) =
             alice_account.decrypt_to_device_event(&event).await.unwrap();
 
         if let AnyToDeviceEvent::ForwardedRoomKey(mut e) = decrypted.deserialize().unwrap() {
-            alice_machine
+            let (_, session) = alice_machine
                 .receive_forwarded_room_key(&sender_key, &mut e)
+                .await
+                .unwrap();
+            alice_machine
+                .store
+                .save_inbound_group_sessions(&[session.unwrap()])
                 .await
                 .unwrap();
         } else {

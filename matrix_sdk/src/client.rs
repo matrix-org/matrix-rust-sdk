@@ -65,7 +65,7 @@ pub enum LoopCtrl {
 use matrix_sdk_common::{
     api::r0::{
         account::register,
-        device::get_devices,
+        device::{delete_devices, get_devices},
         directory::{get_public_rooms, get_public_rooms_filtered},
         media::create_content,
         membership::{
@@ -82,6 +82,7 @@ use matrix_sdk_common::{
         typing::create_typing_event::{
             Request as TypingRequest, Response as TypingResponse, Typing,
         },
+        uiaa::AuthData,
     },
     assign,
     events::{
@@ -94,7 +95,7 @@ use matrix_sdk_common::{
         },
         AnyMessageEventContent,
     },
-    identifiers::{EventId, RoomId, RoomIdOrAliasId, ServerName, UserId},
+    identifiers::{DeviceIdBox, EventId, RoomId, RoomIdOrAliasId, ServerName, UserId},
     instant::{Duration, Instant},
     js_int::UInt,
     locks::RwLock,
@@ -106,12 +107,11 @@ use matrix_sdk_common::{
 #[cfg(feature = "encryption")]
 use matrix_sdk_common::{
     api::r0::{
-        keys::{get_keys, upload_keys},
+        keys::{get_keys, upload_keys, upload_signing_keys::Request as UploadSigningKeysRequest},
         to_device::send_event_to_device::{
             Request as RumaToDeviceRequest, Response as ToDeviceResponse,
         },
     },
-    identifiers::DeviceIdBox,
     locks::Mutex,
 };
 
@@ -1369,6 +1369,71 @@ impl Client {
         self.send(request).await
     }
 
+    /// Delete the given devices from the server.
+    ///
+    /// # Arguments
+    ///
+    /// * `devices` - The list of devices that should be deleted from the
+    /// server.
+    ///
+    /// * `auth_data` - This request requires user interactive auth, the first
+    /// request needs to set this to `None` and will always fail with an
+    /// `UiaaResponse`. The response will contain information for the
+    /// interactive auth and the same request needs to be made but this time
+    /// with some `auth_data` provided.
+    ///
+    /// ```no_run
+    /// # use matrix_sdk::{
+    /// #    api::r0::uiaa::{UiaaResponse, AuthData},
+    /// #    Client, SyncSettings, Error, FromHttpResponseError, ServerError,
+    /// # };
+    /// # use futures::executor::block_on;
+    /// # use serde_json::json;
+    /// # use url::Url;
+    /// # use std::{collections::BTreeMap, convert::TryFrom};
+    /// # block_on(async {
+    /// # let homeserver = Url::parse("http://localhost:8080").unwrap();
+    /// # let mut client = Client::new(homeserver).unwrap();
+    /// let devices = &["DEVICEID".into()];
+    ///
+    /// if let Err(e) = client.delete_devices(devices, None).await {
+    ///     if let Some(info) = e.uiaa_response() {
+    ///         let mut auth_parameters = BTreeMap::new();
+    ///
+    ///         let identifier = json!({
+    ///             "type": "m.id.user",
+    ///             "user": "example",
+    ///         });
+    ///         auth_parameters.insert("identifier".to_owned(), identifier);
+    ///         auth_parameters.insert("password".to_owned(), "wordpass".into());
+    ///
+    ///         // This is needed because of https://github.com/matrix-org/synapse/issues/5665
+    ///         auth_parameters.insert("user".to_owned(), "@example:localhost".into());
+    ///
+    ///         let auth_data = AuthData::DirectRequest {
+    ///             kind: "m.login.password",
+    ///             auth_parameters,
+    ///             session: info.session.as_deref(),
+    ///         };
+    ///
+    ///         client
+    ///             .delete_devices(devices, Some(auth_data))
+    ///             .await
+    ///             .expect("Can't delete devices");
+    ///     }
+    /// }
+    /// # });
+    pub async fn delete_devices(
+        &self,
+        devices: &[DeviceIdBox],
+        auth_data: Option<AuthData<'_>>,
+    ) -> Result<delete_devices::Response> {
+        let mut request = delete_devices::Request::new(devices);
+        request.auth = auth_data;
+
+        self.send(request).await
+    }
+
     /// Synchronize the client's state with the latest state on the server.
     ///
     /// **Note**: You should not use this method to repeatedly sync if encryption
@@ -1742,6 +1807,33 @@ impl Client {
         }))
     }
 
+    /// TODO
+    #[cfg(feature = "encryption")]
+    #[cfg_attr(feature = "docs", doc(cfg(encryption)))]
+    pub async fn bootstrap_cross_signing(&self, auth_data: Option<AuthData<'_>>) -> Result<()> {
+        let olm = self
+            .base_client
+            .olm_machine()
+            .await
+            .ok_or(Error::AuthenticationRequired)?;
+
+        let (request, signature_request) = olm.bootstrap_cross_signing(false).await?;
+
+        println!("HELLOOO MAKING REQUEST {:#?}", request);
+
+        let request = UploadSigningKeysRequest {
+            auth: auth_data,
+            master_key: request.master_key,
+            self_signing_key: request.self_signing_key,
+            user_signing_key: request.user_signing_key,
+        };
+
+        self.send(request).await?;
+        self.send(signature_request).await?;
+
+        Ok(())
+    }
+
     /// Get a map holding all the devices of an user.
     ///
     /// This will always return an empty map if the client hasn't been logged
@@ -1799,6 +1891,8 @@ impl Client {
     /// if the closure returns `false` it will not be included.
     ///
     /// # Panics
+    ///
+    /// This method will panic if it isn't run on a Tokio runtime.
     ///
     /// This method will panic if it can't get enough randomness from the OS to
     /// encrypt the exported keys securely.
@@ -1868,6 +1962,17 @@ impl Client {
 
     /// Import E2EE keys from the given file path.
     ///
+    /// # Arguments
+    ///
+    /// * `path` - The file path where the exported key file will can be found.
+    ///
+    /// * `passphrase` - The passphrase that should be used to decrypt the
+    /// exported room keys.
+    ///
+    /// # Panics
+    ///
+    /// This method will panic if it isn't run on a Tokio runtime.
+    ///
     /// ```no_run
     /// # use std::{path::PathBuf, time::Duration};
     /// # use matrix_sdk::{
@@ -1893,7 +1998,7 @@ impl Client {
         feature = "docs",
         doc(cfg(all(encryption, not(target_arch = "wasm32"))))
     )]
-    pub async fn import_keys(&self, path: PathBuf, passphrase: &str) -> Result<()> {
+    pub async fn import_keys(&self, path: PathBuf, passphrase: &str) -> Result<usize> {
         let olm = self
             .base_client
             .olm_machine()
@@ -1909,9 +2014,7 @@ impl Client {
         let task = tokio::task::spawn_blocking(decrypt);
         let import = task.await.expect("Task join error").unwrap();
 
-        olm.import_keys(import).await.unwrap();
-
-        Ok(())
+        Ok(olm.import_keys(import).await?)
     }
 }
 
@@ -1941,7 +2044,10 @@ mod test {
     use serde_json::json;
     use tempfile::tempdir;
 
-    use std::{convert::TryInto, io::Cursor, path::Path, str::FromStr, time::Duration};
+    use std::{
+        collections::BTreeMap, convert::TryInto, io::Cursor, path::Path, str::FromStr,
+        time::Duration,
+    };
 
     async fn logged_in_client() -> Client {
         let session = Session {
@@ -2739,5 +2845,62 @@ mod test {
             .unwrap();
 
         assert_eq!("tutorial".to_string(), room.read().await.display_name());
+    }
+
+    #[tokio::test]
+    async fn delete_devices() {
+        let homeserver = Url::from_str(&mockito::server_url()).unwrap();
+        let client = Client::new(homeserver).unwrap();
+
+        let _m = mock("POST", "/_matrix/client/r0/delete_devices")
+            .with_status(401)
+            .with_body(
+                json!({
+                    "flows": [
+                        {
+                            "stages": [
+                                "m.login.password"
+                            ]
+                        }
+                    ],
+                    "params": {},
+                    "session": "vBslorikviAjxzYBASOBGfPp"
+                })
+                .to_string(),
+            )
+            .create();
+
+        let _m = mock("POST", "/_matrix/client/r0/delete_devices")
+            .with_status(401)
+            // empty response
+            // TODO rename that response type.
+            .with_body(test_json::LOGOUT.to_string())
+            .create();
+
+        let devices = &["DEVICEID".into()];
+
+        if let Err(e) = client.delete_devices(devices, None).await {
+            if let Some(info) = e.uiaa_response() {
+                let mut auth_parameters = BTreeMap::new();
+
+                let identifier = json!({
+                    "type": "m.id.user",
+                    "user": "example",
+                });
+                auth_parameters.insert("identifier".to_owned(), identifier);
+                auth_parameters.insert("password".to_owned(), "wordpass".into());
+
+                let auth_data = AuthData::DirectRequest {
+                    kind: "m.login.password",
+                    auth_parameters,
+                    session: info.session.as_deref(),
+                };
+
+                client
+                    .delete_devices(devices, Some(auth_data))
+                    .await
+                    .unwrap();
+            }
+        }
     }
 }
