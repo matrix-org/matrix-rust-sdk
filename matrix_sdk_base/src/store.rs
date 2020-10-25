@@ -37,13 +37,14 @@ pub struct Store {
 }
 
 use crate::Session;
+use crate::client::hoist_and_deserialize_state_event;
 
 #[derive(Debug, Default)]
 pub struct StateChanges {
     session: Option<Session>,
     members: BTreeMap<RoomId, BTreeMap<UserId, SyncStateEvent<MemberEventContent>>>,
     state: BTreeMap<RoomId, BTreeMap<String, AnySyncStateEvent>>,
-    room_summaries: BTreeMap<RoomId, Room>,
+    room_summaries: BTreeMap<RoomId, InnerSummary>,
     // display_names: BTreeMap<RoomId, BTreeMap<String, BTreeMap<UserId, ()>>>,
     joined_user_ids: BTreeMap<RoomId, UserId>,
     invited_user_ids: BTreeMap<RoomId, UserId>,
@@ -79,8 +80,8 @@ impl StateChanges {
             .insert(user_id, event);
     }
 
-    pub fn add_room(&mut self, room: Room) {
-        self.room_summaries.insert(room.room_id().to_owned(), room);
+    pub fn add_room(&mut self, room: InnerSummary) {
+        self.room_summaries.insert(room.room_id.as_ref().to_owned(), room);
     }
 
     pub fn add_state_event(&mut self, room_id: &RoomId, event: AnySyncStateEvent) {
@@ -153,22 +154,34 @@ impl Room {
     }
 
     pub fn handle_state_events(&self, state_events: &[Raw<AnySyncStateEvent>]) -> InnerSummary {
+        // let summary = (&*self.inner.lock().unwrap()).clone();
+
+        // for e in state_events {
+        //         if let Ok(event) = hoist_and_deserialize_state_event(e) {
+        //             match event {
+        //                 _ => {
+        //                     self.handle_state_event(&mut summary, &event);
+        //                 }
+        //             }
+        //         }
+        //     }
+
         todo!();
     }
 
-    pub fn handle_state_event(&self, event: &AnySyncStateEvent) -> bool {
+    pub fn handle_state_event(&self, summary: &mut InnerSummary, event: &AnySyncStateEvent) -> bool {
         match event {
             AnySyncStateEvent::RoomEncryption(encryption) => {
                 info!("MARKING ROOM {} AS ENCRYPTED", self.room_id);
-                self.mark_as_encrypted(encryption);
+                summary.encryption = Some(encryption.content.clone());
                 true
             }
             AnySyncStateEvent::RoomName(n) => {
-                self.set_name(&n);
+                summary.name = n.content.name().map(|n| n.to_string());
                 true
             }
             AnySyncStateEvent::RoomCanonicalAlias(a) => {
-                self.set_canonical_alias(&a);
+                summary.canonical_alias = a.content.alias.clone();
                 true
             }
             _ => false,
@@ -211,31 +224,10 @@ impl Room {
         }
     }
 
-    pub fn update_summary(&self, summary: &RumaSummary) -> bool {
+    pub fn update_summary(&self, summary: InnerSummary) {
         let mut inner = self.inner.lock().unwrap();
-
-        let mut changed = false;
-
         info!("UPDAGING SUMMARY FOR {} WITH {:#?}", self.room_id, summary);
-
-        if !summary.is_empty() {
-            if !summary.heroes.is_empty() {
-                inner.summary.heroes = summary.heroes.clone();
-                changed = true;
-            }
-
-            if let Some(joined) = summary.joined_member_count {
-                inner.summary.joined_member_count = joined.into();
-                changed = true;
-            }
-
-            if let Some(invited) = summary.invited_member_count {
-                inner.summary.invited_member_count = invited.into();
-                changed = true;
-            }
-        }
-
-        changed
+        *inner = summary;
     }
 
     pub fn get_member(&self, user_id: &UserId) -> Option<RoomMember> {
@@ -353,6 +345,35 @@ impl InnerSummary {
             "Empty room".to_string()
             // }
         }
+    }
+
+    fn update(&mut self, summary: RumaSummary) -> bool {
+        let mut changed = false;
+
+        info!("UPDAGING SUMMARY FOR {} WITH {:#?}", self.room_id, summary);
+
+        if !summary.is_empty() {
+            if !summary.heroes.is_empty() {
+                self.summary.heroes = summary.heroes.clone();
+                changed = true;
+            }
+
+            if let Some(joined) = summary.joined_member_count {
+                self.summary.joined_member_count = joined.into();
+                changed = true;
+            }
+
+            if let Some(invited) = summary.invited_member_count {
+                self.summary.invited_member_count = invited.into();
+                changed = true;
+            }
+        }
+
+        changed
+    }
+
+    fn serialize(&self) -> Vec<u8> {
+        serde_json::to_vec(&self).unwrap()
     }
 }
 

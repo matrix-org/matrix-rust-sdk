@@ -86,7 +86,7 @@ pub struct AdditionalUnsignedData {
 ///
 /// [synapse-bug]: <https://github.com/matrix-org/matrix-doc/issues/684#issuecomment-641182668>
 /// [discussion]: <https://github.com/matrix-org/matrix-doc/issues/684#issuecomment-641182668>
-fn hoist_and_deserialize_state_event(
+pub fn hoist_and_deserialize_state_event(
     event: &Raw<AnySyncStateEvent>,
 ) -> StdResult<AnySyncStateEvent, serde_json::Error> {
     let prev_content = serde_json::from_str::<AdditionalEventData>(event.json().get())?
@@ -444,6 +444,9 @@ impl BaseClient {
             }
         }
 
+        // TODO we'll want a flow where we calculate changes using a room
+        // summary snapshot, then we store the new snapshots, only then do we
+        // apply and emit the new events and rooms.
         let mut changes = StateChanges::default();
 
         let handle_membership =
@@ -472,45 +475,43 @@ impl BaseClient {
         for (room_id, room_info) in &response.rooms.join {
             let room = self.get_or_create_room(room_id, RoomType::Joined);
 
-            if room.update_summary(&room_info.summary) {
-                changes.add_room(room.clone())
-            }
+            // if room.update_summary(&room_info.summary) {
+            //     changes.add_room(room.clone())
+            // }
 
-            for e in &room_info.state.events {
-                if let Ok(event) = hoist_and_deserialize_state_event(e) {
-                    match event {
-                        AnySyncStateEvent::RoomMember(member) => {
-                            handle_membership(&mut changes, room_id, member);
-                        }
-                        _ => {
-                            if room.handle_state_event(&event) {
-                                changes.add_room(room.clone());
-                            }
-                            changes.add_state_event(room_id, event);
-                        }
-                    }
-                }
-            }
+            // for e in &room_info.state.events {
+            //     if let Ok(event) = hoist_and_deserialize_state_event(e) {
+            //         match event {
+            //             AnySyncStateEvent::RoomMember(member) => {
+            //                 handle_membership(&mut changes, room_id, member);
+            //             }
+            //             _ => {
+            //                 changes.add_room(room.handle_state_event(&event));
+            //                 changes.add_state_event(room_id, event);
+            //             }
+            //         }
+            //     }
+            // }
 
-            if room.set_prev_batch(room_info.timeline.prev_batch.clone()) {
-                changes.add_room(room.clone());
-            }
+            // if room.set_prev_batch(room_info.timeline.prev_batch.clone()) {
+            //     changes.add_room(room.clone());
+            // }
 
             for event in &room_info.timeline.events {
                 if let Ok(e) = hoist_room_event_prev_content(event) {
                     match e {
                         AnySyncRoomEvent::State(s) => {
-                            match s {
-                                AnySyncStateEvent::RoomMember(member) => {
-                                    handle_membership(&mut changes, room_id, member);
-                                }
-                                _ => {
-                                    if room.handle_state_event(&s) {
-                                        changes.add_room(room.clone());
-                                    }
-                                    changes.add_state_event(room_id, s);
-                                }
-                            }
+                            // match s {
+                            //     AnySyncStateEvent::RoomMember(member) => {
+                            //         handle_membership(&mut changes, room_id, member);
+                            //     }
+                            //     _ => {
+                            //         if room.handle_state_event(&s) {
+                            //             changes.add_room(room.clone());
+                            //         }
+                            //         changes.add_state_event(room_id, s);
+                            //     }
+                            // }
                         }
                         AnySyncRoomEvent::Message(_) => {
                             // TODO decrypt the event if it's an encrypted one.

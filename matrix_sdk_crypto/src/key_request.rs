@@ -313,6 +313,7 @@ impl KeyRequestMachine {
             }
             // We ignore cancellations here since there's nothing to serve.
             Action::CancelRequest => return Ok(None),
+            Action::_Custom(_) => return Ok(None),
         };
 
         let session = self
