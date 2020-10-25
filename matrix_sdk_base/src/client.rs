@@ -29,7 +29,7 @@ use matrix_sdk_common::{
     api::r0 as api,
     events::{
         room::member::MemberEventContent, AnyStrippedStateEvent, AnySyncRoomEvent,
-        AnySyncStateEvent, SyncStateEvent,
+        AnySyncStateEvent, SyncStateEvent, AnySyncMessageEvent
     },
     identifiers::{RoomId, UserId},
     locks::RwLock,
@@ -51,10 +51,11 @@ use matrix_sdk_crypto::{
 use tracing::info;
 use zeroize::Zeroizing;
 
+use crate::store::RoomType;
 use crate::{
     error::Result,
     session::Session,
-    store::{RoomSummary, StateChanges, Store},
+    store::{Room, StateChanges, Store},
 };
 
 pub type Token = String;
@@ -77,7 +78,7 @@ pub struct AdditionalUnsignedData {
     pub prev_content: Option<Raw<MemberEventContent>>,
 }
 
-/// Transform room event by hoisting `prev_content` field from `unsigned` to the top level.
+/// Transform state event by hoisting `prev_content` field from `unsigned` to the top level.
 ///
 /// Due to a [bug in synapse][synapse-bug], `prev_content` often ends up in `unsigned` contrary to
 /// the C2S spec. Some more discussion can be found [here][discussion]. Until this is fixed in
@@ -85,32 +86,6 @@ pub struct AdditionalUnsignedData {
 ///
 /// [synapse-bug]: <https://github.com/matrix-org/matrix-doc/issues/684#issuecomment-641182668>
 /// [discussion]: <https://github.com/matrix-org/matrix-doc/issues/684#issuecomment-641182668>
-fn hoist_room_event_prev_content(event: &Raw<AnySyncRoomEvent>) -> Option<Raw<AnySyncRoomEvent>> {
-    let prev_content = serde_json::from_str::<AdditionalEventData>(event.json().get())
-        .map(|more_unsigned| more_unsigned.unsigned)
-        .map(|additional| additional.prev_content)
-        .ok()
-        .flatten()?;
-
-    let mut ev = event.deserialize().ok()?;
-
-    match &mut ev {
-        AnySyncRoomEvent::State(AnySyncStateEvent::RoomMember(ref mut member))
-            if member.prev_content.is_none() =>
-        {
-            if let Ok(prev) = prev_content.deserialize() {
-                member.prev_content = Some(prev)
-            }
-
-            Some(Raw::from(ev))
-        }
-        _ => None,
-    }
-}
-
-/// Transform state event by hoisting `prev_content` field from `unsigned` to the top level.
-///
-/// See comment of `hoist_room_event_prev_content`.
 fn hoist_and_deserialize_state_event(
     event: &Raw<AnySyncStateEvent>,
 ) -> StdResult<AnySyncStateEvent, serde_json::Error> {
@@ -124,6 +99,25 @@ fn hoist_and_deserialize_state_event(
         if member.prev_content.is_none() {
             member.prev_content = prev_content.map(|e| e.deserialize().ok()).flatten();
         }
+    }
+
+    Ok(ev)
+}
+
+fn hoist_room_event_prev_content(event: &Raw<AnySyncRoomEvent>) -> StdResult<AnySyncRoomEvent, serde_json::Error> {
+    let prev_content = serde_json::from_str::<AdditionalEventData>(event.json().get())
+        .map(|more_unsigned| more_unsigned.unsigned)
+        .map(|additional| additional.prev_content)?;
+
+    let mut ev = event.deserialize()?;
+
+    match &mut ev {
+        AnySyncRoomEvent::State(AnySyncStateEvent::RoomMember(ref mut member))
+            if member.prev_content.is_none() =>
+        {
+            member.prev_content = prev_content.map(|p| p.deserialize().ok()).flatten();
+        }
+        _ => (),
     }
 
     Ok(ev)
@@ -183,7 +177,7 @@ pub struct BaseClient {
     pub(crate) sync_token: Arc<RwLock<Option<Token>>>,
     /// Database
     store: Store,
-    joined_rooms: Arc<DashMap<RoomId, RoomSummary>>,
+    joined_rooms: Arc<DashMap<RoomId, Room>>,
     #[cfg(feature = "encryption")]
     olm: Arc<Mutex<Option<OlmMachine>>>,
     #[cfg(feature = "encryption")]
@@ -410,6 +404,17 @@ impl BaseClient {
         self.sync_token.read().await.clone()
     }
 
+    fn get_or_create_room(&self, room_id: &RoomId, room_type: RoomType) -> Room {
+        match room_type {
+            RoomType::Joined => self
+                .joined_rooms
+                .entry(room_id.clone())
+                .or_insert_with(|| Room::new(self.store.clone(), room_id, room_type))
+                .clone(),
+            _ => todo!(),
+        }
+    }
+
     /// Receive a response from a sync call.
     ///
     /// # Arguments
@@ -426,8 +431,6 @@ impl BaseClient {
             return Ok(());
         }
 
-        *self.sync_token.write().await = Some(response.next_batch.clone());
-
         #[cfg(feature = "encryption")]
         {
             let olm = self.olm.lock().await;
@@ -437,55 +440,89 @@ impl BaseClient {
                 // decryptes to-device events, but leaves room events alone.
                 // This makes sure that we have the deryption keys for the room
                 // events at hand.
-                o.receive_sync_response(response).await;
+                o.receive_sync_response(response).await?;
             }
         }
 
         let mut changes = StateChanges::default();
 
-        for (room_id, room) in &response.rooms.join {
-            for e in &room.state.events {
-                // info!("Handling event for room {} {:#?}", room_id, e);
+        let handle_membership =
+            |changes: &mut StateChanges, room_id, event: SyncStateEvent<MemberEventContent>| {
+                // let member_id = UserId::try_from(member.state_key.clone()).unwrap();
+                // self.store.get_member_event(room_id, &member_id).await;
+
+                // TODO this isn't right, check the diff against
+                // your previous state.
+                use matrix_sdk_common::events::room::member::MembershipState::*;
+                match &event.content.membership {
+                    Join => {
+                        info!("ADDING MEMBER {} to {}", event.state_key, room_id);
+                        changes.add_joined_member(room_id, event)
+                        // TODO check if the display name is
+                        // ambigous
+                    }
+                    Invite => {
+                        info!("ADDING INVITED MEMBER {} to {}", event.state_key, room_id);
+                        changes.add_invited_member(room_id, event)
+                    }
+                    _ => (),
+                }
+            };
+
+        for (room_id, room_info) in &response.rooms.join {
+            let room = self.get_or_create_room(room_id, RoomType::Joined);
+
+            if room.update_summary(&room_info.summary) {
+                changes.add_room(room.clone())
+            }
+
+            for e in &room_info.state.events {
                 if let Ok(event) = hoist_and_deserialize_state_event(e) {
                     match event {
                         AnySyncStateEvent::RoomMember(member) => {
-                            // let member_id = UserId::try_from(member.state_key.clone()).unwrap();
-                            // self.store.get_member_event(room_id, &member_id).await;
-                            use matrix_sdk_common::events::room::member::MembershipState::*;
+                            handle_membership(&mut changes, room_id, member);
+                        }
+                        _ => {
+                            if room.handle_state_event(&event) {
+                                changes.add_room(room.clone());
+                            }
+                            changes.add_state_event(room_id, event);
+                        }
+                    }
+                }
+            }
 
-                            // TODO this isn't right, check the diff against
-                            // your previous state.
-                            match &member.content.membership {
-                                Join => {
-                                    info!("ADDING MEMBER {} to {}", member.state_key, room_id);
-                                    changes.add_joined_member(room_id, member)
-                                    // TODO check if the display name is
-                                    // ambigous
+            if room.set_prev_batch(room_info.timeline.prev_batch.clone()) {
+                changes.add_room(room.clone());
+            }
+
+            for event in &room_info.timeline.events {
+                if let Ok(e) = hoist_room_event_prev_content(event) {
+                    match e {
+                        AnySyncRoomEvent::State(s) => {
+                            match s {
+                                AnySyncStateEvent::RoomMember(member) => {
+                                    handle_membership(&mut changes, room_id, member);
                                 }
-                                Invited => {
-                                    info!(
-                                        "ADDING INVITED MEMBER {} to {}",
-                                        member.state_key, room_id
-                                    );
-                                    changes.add_invited_member(room_id, member)
+                                _ => {
+                                    if room.handle_state_event(&s) {
+                                        changes.add_room(room.clone());
+                                    }
+                                    changes.add_state_event(room_id, s);
                                 }
-                                _ => (),
                             }
                         }
-                        AnySyncStateEvent::RoomCreate(create) => {
-                            info!("Creating new room {}", room_id);
-                            let room =
-                                RoomSummary::new(self.store.clone(), room_id, &create.content);
-                            self.joined_rooms.insert(room_id.clone(), room.clone());
-                            changes.add_room_summary(room_id.clone(), room);
+                        AnySyncRoomEvent::Message(_) => {
+                            // TODO decrypt the event if it's an encrypted one.
                         }
-                        _ => changes.add_state_event(room_id, event),
+                        _ => (),
                     }
                 }
             }
         }
 
         self.store.save_changes(&changes).await;
+        *self.sync_token.write().await = Some(response.next_batch.clone());
 
         Ok(())
     }
@@ -591,7 +628,7 @@ impl BaseClient {
         }
     }
 
-    pub fn get_joined_room(&self, room_id: &RoomId) -> Option<RoomSummary> {
+    pub fn get_joined_room(&self, room_id: &RoomId) -> Option<Room> {
         self.joined_rooms.get(room_id).map(|r| r.clone())
     }
 

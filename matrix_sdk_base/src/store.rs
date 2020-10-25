@@ -6,20 +6,25 @@ use std::{
 };
 
 use futures::executor::block_on;
+use matrix_sdk_common::Raw;
+use matrix_sdk_common::events::room::canonical_alias::CanonicalAliasEventContent;
+use matrix_sdk_common::events::room::name::NameEventContent;
+use matrix_sdk_common::identifiers::RoomAliasId;
 use matrix_sdk_common::{
+    api::r0::sync::sync_events::RoomSummary as RumaSummary,
     events::{
         room::{
             create::CreateEventContent, encryption::EncryptionEventContent,
             member::MemberEventContent,
         },
-        AnySyncStateEvent, SyncStateEvent,
+        AnySyncStateEvent, EventContent, SyncStateEvent,
     },
     identifiers::{RoomId, UserId},
 };
 use serde::{Deserialize, Serialize};
-use serde_json;
 
 use sled::{transaction::TransactionResult, Config, Db, Transactional, Tree};
+use tracing::info;
 
 #[derive(Debug, Clone)]
 pub struct Store {
@@ -38,7 +43,7 @@ pub struct StateChanges {
     session: Option<Session>,
     members: BTreeMap<RoomId, BTreeMap<UserId, SyncStateEvent<MemberEventContent>>>,
     state: BTreeMap<RoomId, BTreeMap<String, AnySyncStateEvent>>,
-    room_summaries: BTreeMap<RoomId, RoomSummary>,
+    room_summaries: BTreeMap<RoomId, Room>,
     // display_names: BTreeMap<RoomId, BTreeMap<String, BTreeMap<UserId, ()>>>,
     joined_user_ids: BTreeMap<RoomId, UserId>,
     invited_user_ids: BTreeMap<RoomId, UserId>,
@@ -74,8 +79,8 @@ impl StateChanges {
             .insert(user_id, event);
     }
 
-    pub fn add_room_summary(&mut self, room_id: RoomId, summary: RoomSummary) {
-        self.room_summaries.insert(room_id, summary);
+    pub fn add_room(&mut self, room: Room) {
+        self.room_summaries.insert(room.room_id().to_owned(), room);
     }
 
     pub fn add_state_event(&mut self, room_id: &RoomId, event: AnySyncStateEvent) {
@@ -103,25 +108,70 @@ impl From<Session> for StateChanges {
 }
 
 #[derive(Debug, Clone)]
-pub struct RoomSummary {
+pub struct Room {
     room_id: Arc<RoomId>,
     inner: Arc<SyncMutex<InnerSummary>>,
     store: Store,
 }
 
-impl RoomSummary {
-    pub fn new(store: Store, room_id: &RoomId, creation_event: &CreateEventContent) -> Self {
+#[derive(Debug, Default, Serialize, Deserialize)]
+pub struct SomeSummary {
+    heroes: Vec<String>,
+    joined_member_count: u64,
+    invited_member_count: u64,
+}
+
+/// Signals to the `BaseClient` which `RoomState` to send to `EventEmitter`.
+#[derive(Debug, Serialize, Deserialize)]
+pub enum RoomType {
+    /// Represents a joined room, the `joined_rooms` HashMap will be used.
+    Joined,
+    /// Represents a left room, the `left_rooms` HashMap will be used.
+    Left,
+    /// Represents an invited room, the `invited_rooms` HashMap will be used.
+    Invited,
+}
+
+impl Room {
+    pub fn new(store: Store, room_id: &RoomId, room_type: RoomType) -> Self {
         let room_id = Arc::new(room_id.clone());
 
         Self {
             room_id: room_id.clone(),
             store,
             inner: Arc::new(SyncMutex::new(InnerSummary {
-                creation_content: creation_event.clone(),
                 room_id,
+                room_type,
                 encryption: None,
+                summary: Default::default(),
                 last_prev_batch: None,
+                name: None,
+                canonical_alias: None,
+                avatar_url: None,
             })),
+        }
+    }
+
+    pub fn handle_state_events(&self, state_events: &[Raw<AnySyncStateEvent>]) -> InnerSummary {
+        todo!();
+    }
+
+    pub fn handle_state_event(&self, event: &AnySyncStateEvent) -> bool {
+        match event {
+            AnySyncStateEvent::RoomEncryption(encryption) => {
+                info!("MARKING ROOM {} AS ENCRYPTED", self.room_id);
+                self.mark_as_encrypted(encryption);
+                true
+            }
+            AnySyncStateEvent::RoomName(n) => {
+                self.set_name(&n);
+                true
+            }
+            AnySyncStateEvent::RoomCanonicalAlias(a) => {
+                self.set_canonical_alias(&a);
+                true
+            }
+            _ => false,
         }
     }
 
@@ -138,6 +188,56 @@ impl RoomSummary {
         self.inner.lock().unwrap().encryption.is_some()
     }
 
+    pub fn mark_as_encrypted(&self, event: &SyncStateEvent<EncryptionEventContent>) {
+        self.inner.lock().unwrap().encryption = Some(event.content.clone());
+    }
+
+    pub fn set_name(&self, event: &SyncStateEvent<NameEventContent>) {
+        self.inner.lock().unwrap().name = event.content.name().map(|n| n.to_string());
+    }
+
+    pub fn set_canonical_alias(&self, event: &SyncStateEvent<CanonicalAliasEventContent>) {
+        self.inner.lock().unwrap().canonical_alias = event.content.alias.clone();
+    }
+
+    pub fn set_prev_batch(&self, prev_batch: Option<String>) -> bool {
+        let mut inner = self.inner.lock().unwrap();
+
+        if inner.last_prev_batch != prev_batch {
+            inner.last_prev_batch = prev_batch;
+            true
+        } else {
+            false
+        }
+    }
+
+    pub fn update_summary(&self, summary: &RumaSummary) -> bool {
+        let mut inner = self.inner.lock().unwrap();
+
+        let mut changed = false;
+
+        info!("UPDAGING SUMMARY FOR {} WITH {:#?}", self.room_id, summary);
+
+        if !summary.is_empty() {
+            if !summary.heroes.is_empty() {
+                inner.summary.heroes = summary.heroes.clone();
+                changed = true;
+            }
+
+            if let Some(joined) = summary.joined_member_count {
+                inner.summary.joined_member_count = joined.into();
+                changed = true;
+            }
+
+            if let Some(invited) = summary.invited_member_count {
+                inner.summary.invited_member_count = invited.into();
+                changed = true;
+            }
+        }
+
+        changed
+    }
+
     pub fn get_member(&self, user_id: &UserId) -> Option<RoomMember> {
         block_on(self.store.get_member_event(&self.room_id, user_id)).map(|e| e.into())
     }
@@ -147,7 +247,7 @@ impl RoomSummary {
     }
 
     pub fn display_name(&self) -> String {
-        "TEST ROOM NAME".to_string()
+        self.inner.lock().unwrap().calculate_name()
     }
 }
 
@@ -183,11 +283,77 @@ impl From<SyncStateEvent<MemberEventContent>> for RoomMember {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
-struct InnerSummary {
+pub struct InnerSummary {
     room_id: Arc<RoomId>,
-    creation_content: CreateEventContent,
+    room_type: RoomType,
+
+    name: Option<String>,
+    canonical_alias: Option<RoomAliasId>,
+    avatar_url: Option<String>,
+
+    summary: SomeSummary,
+
     encryption: Option<EncryptionEventContent>,
     last_prev_batch: Option<String>,
+}
+
+impl InnerSummary {
+    /// Calculate the canonical display name of the room, taking into account
+    /// its name, aliases and members.
+    ///
+    /// The display name is calculated according to [this algorithm][spec].
+    ///
+    /// [spec]:
+    /// <https://matrix.org/docs/spec/client_server/latest#calculating-the-display-name-for-a-room>
+    pub fn calculate_name(&self) -> String {
+        if let Some(name) = &self.name {
+            let name = name.trim();
+            name.to_string()
+        } else if let Some(alias) = &self.canonical_alias {
+            let alias = alias.alias().trim();
+            alias.to_string()
+        } else {
+            // let joined = self.joined_member_count.unwrap_or_else(|| uint!(0));
+            // let invited = self.invited_member_count.unwrap_or_else(|| uint!(0));
+            // let heroes_count = self.summary.heroes.len();
+            // let invited_joined = (invited + joined).saturating_sub(uint!(1));
+
+            // let members = joined_members.values().chain(invited_members.values());
+
+            // // TODO: This should use `self.heroes` but it is always empty??
+            // if heroes >= invited_joined {
+            //     let mut names = members
+            //         .filter(|m| m.user_id != *own_user_id)
+            //         .take(3)
+            //         .map(|mem| {
+            //             mem.display_name
+            //                 .clone()
+            //                 .unwrap_or_else(|| mem.user_id.localpart().to_string())
+            //         })
+            //         .collect::<Vec<String>>();
+            //     // stabilize ordering
+            //     names.sort();
+            //     names.join(", ")
+            // } else if heroes < invited_joined && invited + joined > uint!(1) {
+            //     let mut names = members
+            //         .filter(|m| m.user_id != *own_user_id)
+            //         .take(3)
+            //         .map(|mem| {
+            //             mem.display_name
+            //                 .clone()
+            //                 .unwrap_or_else(|| mem.user_id.localpart().to_string())
+            //         })
+            //         .collect::<Vec<String>>();
+            //     names.sort();
+
+            //     // TODO: What length does the spec want us to use here and in
+            //     // the `else`?
+            //     format!("{}, and {} others", names.join(", "), (joined + invited))
+            // } else {
+            "Empty room".to_string()
+            // }
+        }
+    }
 }
 
 impl Store {
@@ -224,6 +390,7 @@ impl Store {
     }
 
     pub async fn save_changes(&self, changes: &StateChanges) {
+        info!("SAVING CHANGES OF SIZE {}", std::mem::size_of_val(changes));
         let ret: TransactionResult<()> = (
             &self.session,
             &self.members,
@@ -252,7 +419,13 @@ impl Store {
                 for (room, events) in &changes.state {
                     for (state_key, event) in events {
                         state.insert(
-                            format!("{}{}", room.as_str(), state_key).as_bytes(),
+                            format!(
+                                "{}{}{}",
+                                room.as_str(),
+                                event.content().event_type(),
+                                state_key
+                            )
+                            .as_bytes(),
                             serde_json::to_vec(&event).unwrap(),
                         )?;
                     }

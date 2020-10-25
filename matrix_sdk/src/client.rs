@@ -40,7 +40,7 @@ use zeroize::Zeroizing;
 use tracing::{debug, warn};
 use tracing::{error, info, instrument};
 
-use matrix_sdk_base::{BaseClient, BaseClientConfig, RoomSummary, Session};
+use matrix_sdk_base::{BaseClient, BaseClientConfig, Room, Session};
 
 #[cfg(feature = "encryption")]
 use matrix_sdk_base::crypto::{
@@ -456,7 +456,7 @@ impl Client {
     /// # Arguments
     ///
     /// `room_id` - The unique id of the room that should be fetched.
-    pub fn get_joined_room(&self, room_id: &RoomId) -> Option<RoomSummary> {
+    pub fn get_joined_room(&self, room_id: &RoomId) -> Option<Room> {
         self.base_client.get_joined_room(room_id)
     }
 
