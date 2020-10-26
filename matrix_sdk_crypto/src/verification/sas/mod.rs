@@ -190,6 +190,7 @@ impl Sas {
         };
 
         let cancel = if done {
+            // Pass on the signature upload request here as well.
             self.mark_as_done().await?
         } else {
             None
