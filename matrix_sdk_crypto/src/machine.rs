@@ -380,8 +380,7 @@ impl OlmMachine {
 
         if identity.is_empty().await || reset {
             info!("Creating new cross signing identity");
-            let (id, signature_request) = self.account.bootstrap_cross_signing().await;
-            let request = id.as_upload_request().await;
+            let (id, request, signature_request) = self.account.bootstrap_cross_signing().await;
 
             *identity = id;
 

@@ -56,10 +56,20 @@ pub struct PickledCrossSigningIdentity {
 }
 
 impl PrivateCrossSigningIdentity {
+    /// Get the user id that this identity belongs to.
     pub fn user_id(&self) -> &UserId {
         &self.user_id
     }
 
+    /// Is the identity empty.
+    ///
+    /// An empty identity doesn't contain any private keys.
+    ///
+    /// It is usual for the identity not to contain the master key since the
+    /// master key is only needed to sign the subkeys.
+    ///
+    /// An empty identity indicates that either no identity was created for this
+    /// use or that another device created it and hasn't shared it yet with us.
     pub async fn is_empty(&self) -> bool {
         let has_master = self.master_key.lock().await.is_some();
         let has_user = self.user_signing_key.lock().await.is_some();
@@ -68,6 +78,7 @@ impl PrivateCrossSigningIdentity {
         !(has_master && has_user && has_self)
     }
 
+    /// Create a new empty identity.
     pub(crate) fn empty(user_id: UserId) -> Self {
         Self {
             user_id: Arc::new(user_id),
@@ -78,6 +89,7 @@ impl PrivateCrossSigningIdentity {
         }
     }
 
+    /// Sign the given device keys with this identity.
     pub(crate) async fn sign_device(
         &self,
         mut device_keys: DeviceKeys,
@@ -102,9 +114,20 @@ impl PrivateCrossSigningIdentity {
         Ok(SignatureUploadRequest { signed_keys })
     }
 
+    /// Create a new identity for the given Olm Account.
+    ///
+    /// Returns the new identity, the upload signing keys request and a
+    /// signature upload request that contains the signature of the account
+    /// signed by the self signing key.
+    ///
+    /// # Arguments
+    ///
+    /// * `account` - The Olm account that is creating the new identity. The
+    /// account will sign the master key and the self signing key will sign the
+    /// account.
     pub(crate) async fn new_with_account(
         account: &ReadOnlyAccount,
-    ) -> (Self, SignatureUploadRequest) {
+    ) -> (Self, UploadSigningKeysRequest, SignatureUploadRequest) {
         let master = Signing::new();
 
         let mut public_key =
@@ -129,12 +152,14 @@ impl PrivateCrossSigningIdentity {
 
         let identity = Self::new_helper(account.user_id(), master).await;
         let device_keys = account.unsigned_device_keys();
-        let request = identity
+        let signature_request = identity
             .sign_device(device_keys)
             .await
             .expect("Can't sign own device with new cross signign keys");
 
-        (identity, request)
+        let request = identity.as_upload_request().await;
+
+        (identity, request, signature_request)
     }
 
     async fn new_helper(user_id: &UserId, master: MasterSigning) -> Self {
@@ -166,6 +191,8 @@ impl PrivateCrossSigningIdentity {
         }
     }
 
+    /// Create a new cross signing identity without signing the device that
+    /// created it.
     pub(crate) async fn new(user_id: UserId) -> Self {
         let master = Signing::new();
 
@@ -175,41 +202,32 @@ impl PrivateCrossSigningIdentity {
             public_key: public_key.into(),
         };
 
-        let user = Signing::new();
-        let mut public_key = user.cross_signing_key(user_id.clone(), KeyUsage::UserSigning);
-        master.sign_subkey(&mut public_key).await;
-
-        let user = UserSigning {
-            inner: user,
-            public_key: public_key.into(),
-        };
-
-        let self_signing = Signing::new();
-        let mut public_key = self_signing.cross_signing_key(user_id.clone(), KeyUsage::SelfSigning);
-        master.sign_subkey(&mut public_key).await;
-
-        let self_signing = SelfSigning {
-            inner: self_signing,
-            public_key: public_key.into(),
-        };
-
-        Self {
-            user_id: Arc::new(user_id),
-            shared: Arc::new(AtomicBool::new(false)),
-            master_key: Arc::new(Mutex::new(Some(master))),
-            self_signing_key: Arc::new(Mutex::new(Some(self_signing))),
-            user_signing_key: Arc::new(Mutex::new(Some(user))),
-        }
+        Self::new_helper(&user_id, master).await
     }
 
+    /// Mark the identity as shared.
     pub fn mark_as_shared(&self) {
         self.shared.store(true, Ordering::SeqCst)
     }
 
+    /// Has the identity been shared.
+    ///
+    /// A shared identity here means that the public keys of the identity have
+    /// been uploaded to the server.
     pub fn shared(&self) -> bool {
         self.shared.load(Ordering::SeqCst)
     }
 
+    /// Store the cross signing identity as a pickle.
+    ///
+    /// # Arguments
+    ///
+    /// * `pickle_key` - The key that should be used to encrypt the signing
+    /// object, must be 32 bytes long.
+    ///
+    /// # Panics
+    ///
+    /// This will panic if the provided pickle key isn't 32 bytes long.
     pub async fn pickle(
         &self,
         pickle_key: &[u8],
@@ -285,6 +303,8 @@ impl PrivateCrossSigningIdentity {
         })
     }
 
+    /// Get the upload request that is needed to share the public keys of this
+    /// identity.
     pub(crate) async fn as_upload_request(&self) -> UploadSigningKeysRequest {
         let master_key = self
             .master_key
@@ -423,7 +443,7 @@ mod test {
     #[async_test]
     async fn private_identity_signed_by_accound() {
         let account = ReadOnlyAccount::new(&user_id(), "DEVICEID".into());
-        let (identity, _) = PrivateCrossSigningIdentity::new_with_account(&account).await;
+        let (identity, _, _) = PrivateCrossSigningIdentity::new_with_account(&account).await;
         let master = identity.master_key.lock().await;
         let master = master.as_ref().unwrap();
 

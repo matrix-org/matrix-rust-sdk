@@ -54,6 +54,7 @@ use olm_rs::{
 use crate::{
     error::{EventError, OlmResult, SessionCreationError, SignatureError},
     identities::ReadOnlyDevice,
+    requests::UploadSigningKeysRequest,
     store::Store,
     OlmError,
 };
@@ -668,7 +669,11 @@ impl ReadOnlyAccount {
 
     pub(crate) async fn bootstrap_cross_signing(
         &self,
-    ) -> (PrivateCrossSigningIdentity, SignatureUploadRequest) {
+    ) -> (
+        PrivateCrossSigningIdentity,
+        UploadSigningKeysRequest,
+        SignatureUploadRequest,
+    ) {
         PrivateCrossSigningIdentity::new_with_account(self).await
     }
 
