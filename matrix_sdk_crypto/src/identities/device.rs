@@ -62,7 +62,7 @@ pub struct ReadOnlyDevice {
     device_id: Arc<Box<DeviceId>>,
     algorithms: Arc<Vec<EventEncryptionAlgorithm>>,
     keys: Arc<BTreeMap<DeviceKeyId, String>>,
-    signatures: Arc<BTreeMap<UserId, BTreeMap<DeviceKeyId, String>>>,
+    pub(crate) signatures: Arc<BTreeMap<UserId, BTreeMap<DeviceKeyId, String>>>,
     display_name: Arc<Option<String>>,
     deleted: Arc<AtomicBool>,
     trust_state: Arc<Atomic<LocalTrust>>,
@@ -436,6 +436,18 @@ impl ReadOnlyDevice {
             signing_key,
             json,
         )
+    }
+
+    #[cfg(test)]
+    pub(crate) fn as_device_keys(&self) -> DeviceKeys {
+        DeviceKeys {
+            user_id: self.user_id().clone(),
+            device_id: self.device_id().into(),
+            keys: self.keys().clone(),
+            algorithms: self.algorithms().to_vec(),
+            signatures: self.signatures().to_owned(),
+            unsigned: Default::default(),
+        }
     }
 
     pub(crate) fn as_signature_message(&self) -> Value {

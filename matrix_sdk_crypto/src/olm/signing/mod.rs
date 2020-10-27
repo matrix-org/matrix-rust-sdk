@@ -12,13 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#![allow(dead_code, missing_docs)]
-
 mod pk_signing;
 
 use matrix_sdk_common::encryption::DeviceKeys;
 use serde::{Deserialize, Serialize};
-use serde_json::Error as JsonError;
+use serde_json::{Error as JsonError, Value};
 use std::{
     collections::BTreeMap,
     sync::{
@@ -33,25 +31,40 @@ use matrix_sdk_common::{
     locks::Mutex,
 };
 
-use crate::{error::SignatureError, requests::UploadSigningKeysRequest};
-
-use crate::ReadOnlyAccount;
+use crate::{
+    error::SignatureError, requests::UploadSigningKeysRequest, ReadOnlyAccount, UserIdentity,
+};
 
 use pk_signing::{MasterSigning, PickledSignings, SelfSigning, Signing, SigningError, UserSigning};
 
+/// Private cross signing identity.
+///
+/// This object holds the private and public ed25519 key triplet that is used
+/// for cross signing.
+///
+/// The object might be comletely empty or have only some of the key pairs
+/// available.
+///
+/// It can be used to sign devices or other identities.
 #[derive(Clone, Debug)]
 pub struct PrivateCrossSigningIdentity {
     user_id: Arc<UserId>,
     shared: Arc<AtomicBool>,
-    master_key: Arc<Mutex<Option<MasterSigning>>>,
-    user_signing_key: Arc<Mutex<Option<UserSigning>>>,
-    self_signing_key: Arc<Mutex<Option<SelfSigning>>>,
+    pub(crate) master_key: Arc<Mutex<Option<MasterSigning>>>,
+    pub(crate) user_signing_key: Arc<Mutex<Option<UserSigning>>>,
+    pub(crate) self_signing_key: Arc<Mutex<Option<SelfSigning>>>,
 }
 
+/// The pickled version of a `PrivateCrossSigningIdentity`.
+///
+/// Can be used to store the identity.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PickledCrossSigningIdentity {
+    /// The user id of the identity owner.
     pub user_id: UserId,
+    /// Have the public keys of the identity been shared.
     pub shared: bool,
+    /// The encrypted pickle of the identity.
     pub pickle: String,
 }
 
@@ -87,6 +100,21 @@ impl PrivateCrossSigningIdentity {
             self_signing_key: Arc::new(Mutex::new(None)),
             user_signing_key: Arc::new(Mutex::new(None)),
         }
+    }
+
+    /// Sign the given public user identity with this private identity.
+    #[allow(dead_code)]
+    pub(crate) async fn sign_user(
+        &self,
+        user_identity: &UserIdentity,
+    ) -> Result<BTreeMap<UserId, BTreeMap<String, Value>>, SignatureError> {
+        self.user_signing_key
+            .lock()
+            .await
+            .as_ref()
+            .ok_or(SignatureError::MissingSigningKey)?
+            .sign_user(&user_identity)
+            .await
     }
 
     /// Sign the given device keys with this identity.
@@ -193,6 +221,7 @@ impl PrivateCrossSigningIdentity {
 
     /// Create a new cross signing identity without signing the device that
     /// created it.
+    #[cfg(test)]
     pub(crate) async fn new(user_id: UserId) -> Self {
         let master = Signing::new();
 
@@ -340,11 +369,18 @@ impl PrivateCrossSigningIdentity {
 
 #[cfg(test)]
 mod test {
-    use crate::olm::ReadOnlyAccount;
+    use crate::{
+        identities::{ReadOnlyDevice, UserIdentity},
+        olm::ReadOnlyAccount,
+    };
+    use std::{collections::BTreeMap, sync::Arc};
 
     use super::{PrivateCrossSigningIdentity, Signing};
 
-    use matrix_sdk_common::identifiers::{user_id, UserId};
+    use matrix_sdk_common::{
+        api::r0::keys::CrossSigningKey,
+        identifiers::{user_id, UserId},
+    };
     use matrix_sdk_test::async_test;
 
     fn user_id() -> UserId {
@@ -448,5 +484,61 @@ mod test {
         let master = master.as_ref().unwrap();
 
         assert!(!master.public_key.signatures().is_empty());
+    }
+
+    #[async_test]
+    async fn sign_device() {
+        let account = ReadOnlyAccount::new(&user_id(), "DEVICEID".into());
+        let (identity, _, _) = PrivateCrossSigningIdentity::new_with_account(&account).await;
+
+        let mut device = ReadOnlyDevice::from_account(&account).await;
+        let self_signing = identity.self_signing_key.lock().await;
+        let self_signing = self_signing.as_ref().unwrap();
+
+        let mut device_keys = device.as_device_keys();
+        self_signing.sign_device(&mut device_keys).await.unwrap();
+        device.signatures = Arc::new(device_keys.signatures);
+
+        let public_key = &self_signing.public_key;
+        public_key.verify_device(&device).unwrap()
+    }
+
+    #[async_test]
+    async fn sign_user_identity() {
+        let account = ReadOnlyAccount::new(&user_id(), "DEVICEID".into());
+        let (identity, _, _) = PrivateCrossSigningIdentity::new_with_account(&account).await;
+
+        let bob_account = ReadOnlyAccount::new(&user_id!("@bob:localhost"), "DEVICEID".into());
+        let (bob_private, _, _) = PrivateCrossSigningIdentity::new_with_account(&bob_account).await;
+        let mut bob_public = UserIdentity::from_private(&bob_private).await;
+
+        let user_signing = identity.user_signing_key.lock().await;
+        let user_signing = user_signing.as_ref().unwrap();
+
+        let signatures = user_signing.sign_user(&bob_public).await.unwrap();
+
+        let (key_id, signature) = signatures
+            .iter()
+            .next()
+            .unwrap()
+            .1
+            .iter()
+            .next()
+            .map(|(k, s)| (k.to_string(), serde_json::from_value(s.to_owned()).unwrap()))
+            .unwrap();
+
+        let mut master: CrossSigningKey = bob_public.master_key.as_ref().clone();
+        master
+            .signatures
+            .entry(identity.user_id().to_owned())
+            .or_insert_with(BTreeMap::new)
+            .insert(key_id, signature);
+
+        bob_public.master_key = master.into();
+
+        user_signing
+            .public_key
+            .verify_master_key(bob_public.master_key())
+            .unwrap();
     }
 }

@@ -28,7 +28,10 @@ use std::{collections::BTreeMap, sync::Arc};
 use thiserror::Error;
 use zeroize::Zeroizing;
 
-use olm_rs::{errors::OlmUtilityError, pk::OlmPkSigning, utility::OlmUtility};
+use olm_rs::pk::OlmPkSigning;
+
+#[cfg(test)]
+use olm_rs::{errors::OlmUtilityError, utility::OlmUtility};
 
 use matrix_sdk_common::{
     api::r0::keys::{CrossSigningKey, KeyUsage},
@@ -121,6 +124,7 @@ pub struct PickledSelfSigning {
 }
 
 impl Signature {
+    #[cfg(test)]
     pub fn as_str(&self) -> &str {
         &self.0
     }
@@ -183,7 +187,11 @@ impl MasterSigning {
             .entry(self.public_key.user_id().to_owned())
             .or_insert_with(BTreeMap::new)
             .insert(
-                format!("ed25519:{}", self.inner.public_key().as_str()),
+                DeviceKeyId::from_parts(
+                    DeviceKeyAlgorithm::Ed25519,
+                    self.inner.public_key().as_str().into(),
+                )
+                .to_string(),
                 signature.0,
             );
     }
@@ -196,8 +204,32 @@ impl UserSigning {
         PickledUserSigning { pickle, public_key }
     }
 
-    pub async fn sign_user(&self, _: &UserIdentity) -> BTreeMap<UserId, BTreeMap<String, Value>> {
-        todo!();
+    #[allow(dead_code)]
+    pub async fn sign_user(
+        &self,
+        user: &UserIdentity,
+    ) -> Result<BTreeMap<UserId, BTreeMap<String, Value>>, SignatureError> {
+        let user_master: &CrossSigningKey = user.master_key().as_ref();
+        let signature = self
+            .inner
+            .sign_json(serde_json::to_value(user_master)?)
+            .await?;
+
+        let mut signatures = BTreeMap::new();
+
+        signatures
+            .entry(self.public_key.user_id().to_owned())
+            .or_insert_with(BTreeMap::new)
+            .insert(
+                DeviceKeyId::from_parts(
+                    DeviceKeyAlgorithm::Ed25519,
+                    self.inner.public_key.as_str().into(),
+                )
+                .to_string(),
+                serde_json::to_value(signature.0)?,
+            );
+
+        Ok(signatures)
     }
 
     pub fn from_pickle(
@@ -220,13 +252,13 @@ impl SelfSigning {
         PickledSelfSigning { pickle, public_key }
     }
 
-    pub async fn sign_device_raw(&self, value: Value) -> Result<Signature, SignatureError> {
+    pub async fn sign_device_helper(&self, value: Value) -> Result<Signature, SignatureError> {
         self.inner.sign_json(value).await
     }
 
     pub async fn sign_device(&self, device_keys: &mut DeviceKeys) -> Result<(), SignatureError> {
         let json_device = serde_json::to_value(&device_keys)?;
-        let signature = self.sign_device_raw(json_device).await?;
+        let signature = self.sign_device_helper(json_device).await?;
 
         device_keys
             .signatures
@@ -346,7 +378,11 @@ impl Signing {
         let mut keys = BTreeMap::new();
 
         keys.insert(
-            format!("ed25519:{}", self.public_key().as_str()),
+            DeviceKeyId::from_parts(
+                DeviceKeyAlgorithm::Ed25519,
+                self.public_key().as_str().into(),
+            )
+            .to_string(),
             self.public_key().to_string(),
         );
 
@@ -358,6 +394,7 @@ impl Signing {
         }
     }
 
+    #[cfg(test)]
     pub async fn verify(
         &self,
         message: &str,

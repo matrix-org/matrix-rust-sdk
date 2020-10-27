@@ -29,6 +29,8 @@ use matrix_sdk_common::{
     identifiers::{DeviceKeyId, UserId},
 };
 
+#[cfg(test)]
+use crate::olm::PrivateCrossSigningIdentity;
 use crate::{error::SignatureError, olm::Utility, ReadOnlyDevice};
 
 /// Wrapper for a cross signing key marking it as the master key.
@@ -278,7 +280,10 @@ impl UserSigningPubkey {
     ///
     /// Returns an empty result if the signature check succeeded, otherwise a
     /// SignatureError indicating why the check failed.
-    fn verify_master_key(&self, master_key: &MasterPubkey) -> Result<(), SignatureError> {
+    pub(crate) fn verify_master_key(
+        &self,
+        master_key: &MasterPubkey,
+    ) -> Result<(), SignatureError> {
         let (key_id, key) = self
             .0
             .keys
@@ -326,7 +331,7 @@ impl SelfSigningPubkey {
     ///
     /// Returns an empty result if the signature check succeeded, otherwise a
     /// SignatureError indicating why the check failed.
-    fn verify_device(&self, device: &ReadOnlyDevice) -> Result<(), SignatureError> {
+    pub(crate) fn verify_device(&self, device: &ReadOnlyDevice) -> Result<(), SignatureError> {
         let (key_id, key) = self
             .0
             .keys
@@ -443,7 +448,7 @@ impl PartialEq for UserIdentities {
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct UserIdentity {
     user_id: Arc<UserId>,
-    master_key: MasterPubkey,
+    pub(crate) master_key: MasterPubkey,
     self_signing_key: SelfSigningPubkey,
 }
 
@@ -469,6 +474,32 @@ impl UserIdentity {
             master_key,
             self_signing_key,
         })
+    }
+
+    #[cfg(test)]
+    pub async fn from_private(identity: &PrivateCrossSigningIdentity) -> Self {
+        let master_key = identity
+            .master_key
+            .lock()
+            .await
+            .as_ref()
+            .unwrap()
+            .public_key
+            .clone();
+        let self_signing_key = identity
+            .self_signing_key
+            .lock()
+            .await
+            .as_ref()
+            .unwrap()
+            .public_key
+            .clone();
+
+        Self {
+            user_id: Arc::new(identity.user_id().clone()),
+            master_key,
+            self_signing_key,
+        }
     }
 
     /// Get the user id of this identity.
