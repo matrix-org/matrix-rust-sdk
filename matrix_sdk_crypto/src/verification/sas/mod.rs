@@ -34,6 +34,7 @@ use matrix_sdk_common::{
 
 use crate::{
     identities::{LocalTrust, ReadOnlyDevice, UserIdentities},
+    olm::PrivateCrossSigningIdentity,
     store::{Changes, CryptoStore, CryptoStoreError, DeviceChanges},
     ReadOnlyAccount, ToDeviceRequest,
 };
@@ -49,6 +50,7 @@ pub struct Sas {
     inner: Arc<Mutex<InnerSas>>,
     store: Arc<Box<dyn CryptoStore>>,
     account: ReadOnlyAccount,
+    private_identity: PrivateCrossSigningIdentity,
     other_device: ReadOnlyDevice,
     other_identity: Option<UserIdentities>,
     flow_id: Arc<String>,
@@ -103,6 +105,7 @@ impl Sas {
     /// sent out through the server to the other device.
     pub(crate) fn start(
         account: ReadOnlyAccount,
+        private_identity: PrivateCrossSigningIdentity,
         other_device: ReadOnlyDevice,
         store: Arc<Box<dyn CryptoStore>>,
         other_identity: Option<UserIdentities>,
@@ -117,6 +120,7 @@ impl Sas {
         let sas = Sas {
             inner: Arc::new(Mutex::new(inner)),
             account,
+            private_identity,
             store,
             other_device,
             flow_id,
@@ -138,6 +142,7 @@ impl Sas {
     /// the other side.
     pub(crate) fn from_start_event(
         account: ReadOnlyAccount,
+        private_identity: PrivateCrossSigningIdentity,
         other_device: ReadOnlyDevice,
         store: Arc<Box<dyn CryptoStore>>,
         event: &ToDeviceEvent<StartEventContent>,
@@ -154,6 +159,7 @@ impl Sas {
         Ok(Sas {
             inner: Arc::new(Mutex::new(inner)),
             account,
+            private_identity,
             other_device,
             other_identity,
             store,
@@ -260,9 +266,6 @@ impl Sas {
                     if let UserIdentities::Own(i) = &identity {
                         i.mark_as_verified();
                     }
-                    // TODO if we have the private part of the user signing
-                    // key we should sign and upload a signature for this
-                    // identity.
 
                     Ok(Some(identity))
                 } else {
@@ -315,9 +318,6 @@ impl Sas {
                     );
 
                     device.set_trust_state(LocalTrust::Verified);
-                    // TODO if this is a device from our own user and we have
-                    // the private part of the self signing key, we should sign
-                    // the device and upload the signature.
 
                     Ok(Some(device))
                 } else {
@@ -685,6 +685,7 @@ mod test {
     };
 
     use crate::{
+        olm::PrivateCrossSigningIdentity,
         store::{CryptoStore, MemoryStore},
         verification::test::{get_content_from_request, wrap_any_to_device_content},
         ReadOnlyAccount, ReadOnlyDevice,
@@ -814,10 +815,24 @@ mod test {
 
         let bob_store: Arc<Box<dyn CryptoStore>> = Arc::new(Box::new(bob_store));
 
-        let (alice, content) = Sas::start(alice, bob_device, alice_store, None);
+        let (alice, content) = Sas::start(
+            alice,
+            PrivateCrossSigningIdentity::empty(alice_id()),
+            bob_device,
+            alice_store,
+            None,
+        );
         let event = wrap_to_device_event(alice.user_id(), content);
 
-        let bob = Sas::from_start_event(bob, alice_device, bob_store, &event, None).unwrap();
+        let bob = Sas::from_start_event(
+            bob,
+            PrivateCrossSigningIdentity::empty(bob_id()),
+            alice_device,
+            bob_store,
+            &event,
+            None,
+        )
+        .unwrap();
         let mut event = wrap_any_to_device_content(
             bob.user_id(),
             get_content_from_request(&bob.accept().unwrap()),
