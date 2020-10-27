@@ -32,7 +32,8 @@ use matrix_sdk_common::{
 };
 
 use crate::{
-    error::SignatureError, requests::UploadSigningKeysRequest, ReadOnlyAccount, UserIdentity,
+    error::SignatureError, requests::UploadSigningKeysRequest, ReadOnlyAccount, ReadOnlyDevice,
+    UserIdentity,
 };
 
 use pk_signing::{MasterSigning, PickledSignings, SelfSigning, Signing, SigningError, UserSigning};
@@ -118,7 +119,25 @@ impl PrivateCrossSigningIdentity {
     }
 
     /// Sign the given device keys with this identity.
+    #[allow(dead_code)]
     pub(crate) async fn sign_device(
+        &self,
+        device: &ReadOnlyDevice,
+    ) -> Result<SignatureUploadRequest, SignatureError> {
+        let device_keys = device.as_device_keys();
+        self.sign_device_keys(device_keys).await
+    }
+
+    /// Sign an Olm account with this private identity.
+    pub(crate) async fn sign_account(
+        &self,
+        account: &ReadOnlyAccount,
+    ) -> Result<SignatureUploadRequest, SignatureError> {
+        let device_keys = account.unsigned_device_keys();
+        self.sign_device_keys(device_keys).await
+    }
+
+    async fn sign_device_keys(
         &self,
         mut device_keys: DeviceKeys,
     ) -> Result<SignatureUploadRequest, SignatureError> {
@@ -179,9 +198,8 @@ impl PrivateCrossSigningIdentity {
         };
 
         let identity = Self::new_helper(account.user_id(), master).await;
-        let device_keys = account.unsigned_device_keys();
         let signature_request = identity
-            .sign_device(device_keys)
+            .sign_account(account)
             .await
             .expect("Can't sign own device with new cross signign keys");
 

@@ -389,10 +389,9 @@ impl OlmMachine {
         } else {
             info!("Trying to upload the existing cross signing identity");
             let request = identity.as_upload_request().await;
-            let device_keys = self.account.unsigned_device_keys();
             // TODO remove this expect.
             let signature_request = identity
-                .sign_device(device_keys)
+                .sign_account(&self.account)
                 .await
                 .expect("Can't sign device keys");
             Ok((request, signature_request))

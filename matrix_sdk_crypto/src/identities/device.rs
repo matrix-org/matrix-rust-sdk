@@ -438,7 +438,6 @@ impl ReadOnlyDevice {
         )
     }
 
-    #[cfg(test)]
     pub(crate) fn as_device_keys(&self) -> DeviceKeys {
         DeviceKeys {
             user_id: self.user_id().clone(),
