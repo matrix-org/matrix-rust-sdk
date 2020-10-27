@@ -19,9 +19,10 @@ mod sas_state;
 use std::time::Instant;
 
 use std::sync::{Arc, Mutex};
-use tracing::{info, trace, warn};
+use tracing::{error, info, trace, warn};
 
 use matrix_sdk_common::{
+    api::r0::keys::upload_signatures::Request as SignatureUploadRequest,
     events::{
         key::verification::{
             accept::AcceptEventContent, cancel::CancelCode, mac::MacEventContent,
@@ -33,6 +34,7 @@ use matrix_sdk_common::{
 };
 
 use crate::{
+    error::SignatureError,
     identities::{LocalTrust, ReadOnlyDevice, UserIdentities},
     olm::PrivateCrossSigningIdentity,
     store::{Changes, CryptoStore, CryptoStoreError, DeviceChanges},
@@ -43,6 +45,17 @@ pub use helpers::content_to_request;
 use sas_state::{
     Accepted, Canceled, Confirmed, Created, Done, KeyReceived, MacReceived, SasState, Started,
 };
+
+#[derive(Debug)]
+/// A result of a verification flow.
+pub enum VerificationResult {
+    /// The verification succeeded, nothing needs to be done.
+    Ok,
+    /// The verification was canceled.
+    Cancel(ToDeviceRequest),
+    /// The verification is done and has signatures that need to be uploaded.
+    SignatureUpload(SignatureUploadRequest),
+}
 
 #[derive(Clone, Debug)]
 /// Short authentication string object.
@@ -185,7 +198,9 @@ impl Sas {
     /// Does nothing if we're not in a state where we can confirm the short auth
     /// string, otherwise returns a `MacEventContent` that needs to be sent to
     /// the server.
-    pub async fn confirm(&self) -> Result<Option<ToDeviceRequest>, CryptoStoreError> {
+    pub async fn confirm(
+        &self,
+    ) -> Result<(Option<ToDeviceRequest>, Option<SignatureUploadRequest>), CryptoStoreError> {
         let (content, done) = {
             let mut guard = self.inner.lock().unwrap();
             let sas: InnerSas = (*guard).clone();
@@ -195,26 +210,51 @@ impl Sas {
             (content, guard.is_done())
         };
 
-        let cancel = if done {
-            // Pass on the signature upload request here as well.
-            self.mark_as_done().await?
-        } else {
-            None
-        };
+        let mac_request = content
+            .map(|c| self.content_to_request(AnyToDeviceEventContent::KeyVerificationMac(c)));
 
-        if cancel.is_some() {
-            Ok(cancel)
+        if done {
+            match self.mark_as_done().await? {
+                VerificationResult::Cancel(r) => Ok((Some(r), None)),
+                VerificationResult::Ok => Ok((mac_request, None)),
+                VerificationResult::SignatureUpload(r) => Ok((mac_request, Some(r))),
+            }
         } else {
-            Ok(content.map(|c| {
-                let content = AnyToDeviceEventContent::KeyVerificationMac(c);
-                self.content_to_request(content)
-            }))
+            Ok((mac_request, None))
         }
     }
 
-    pub(crate) async fn mark_as_done(&self) -> Result<Option<ToDeviceRequest>, CryptoStoreError> {
+    pub(crate) async fn mark_as_done(&self) -> Result<VerificationResult, CryptoStoreError> {
         if let Some(device) = self.mark_device_as_verified().await? {
             let identity = self.mark_identity_as_verified().await?;
+
+            // We only sign devices of our own user here.
+            let signature_request = if device.user_id() == self.user_id() {
+                match self.private_identity.sign_device(&device).await {
+                    Ok(r) => Some(r),
+                    Err(SignatureError::MissingSigningKey) => {
+                        warn!(
+                            "Can't sign the device keys for {} {}, \
+                                  no private user signing key found",
+                            device.user_id(),
+                            device.device_id(),
+                        );
+
+                        None
+                    }
+                    Err(e) => {
+                        error!(
+                            "Error signing device keys for {} {} {:?}",
+                            device.user_id(),
+                            device.device_id(),
+                            e
+                        );
+                        None
+                    }
+                }
+            } else {
+                None
+            };
 
             let mut changes = Changes {
                 devices: DeviceChanges {
@@ -224,14 +264,68 @@ impl Sas {
                 ..Default::default()
             };
 
-            if let Some(i) = identity {
-                changes.identities.changed.push(i);
-            }
+            let identity_signature_request = if let Some(i) = identity {
+                // We only sign other users here.
+                let request = if let Some(i) = i.other() {
+                    // Signing can fail if the user signing key is missing.
+                    match self.private_identity.sign_user(&i).await {
+                        Ok(r) => Some(r),
+                        Err(SignatureError::MissingSigningKey) => {
+                            warn!(
+                                "Can't sign the public cross signing keys for {}, \
+                                  no private user signing key found",
+                                i.user_id()
+                            );
+                            None
+                        }
+                        Err(e) => {
+                            error!(
+                                "Error signing the public cross signing keys for {} {:?}",
+                                i.user_id(),
+                                e
+                            );
+                            None
+                        }
+                    }
+                } else {
+                    None
+                };
 
+                changes.identities.changed.push(i);
+
+                request
+            } else {
+                None
+            };
+
+            // If there are two signature upload requests, merge them. Otherwise
+            // use the one we have or None.
+            //
+            // Realistically at most one reuqest will be used but let's make
+            // this future proof.
+            let merged_request = if let Some(mut r) = signature_request {
+                if let Some(user_request) = identity_signature_request {
+                    r.signed_keys.extend(user_request.signed_keys);
+                    Some(r)
+                } else {
+                    Some(r)
+                }
+            } else if let Some(r) = identity_signature_request {
+                Some(r)
+            } else {
+                None
+            };
+
+            // TODO store the request as well.
             self.store.save_changes(changes).await?;
-            Ok(None)
+            Ok(merged_request
+                .map(|r| VerificationResult::SignatureUpload(r))
+                .unwrap_or(VerificationResult::Ok))
         } else {
-            Ok(self.cancel())
+            Ok(self
+                .cancel()
+                .map(|r| VerificationResult::Cancel(r))
+                .unwrap_or(VerificationResult::Ok))
         }
     }
 
@@ -857,13 +951,13 @@ mod test {
 
         let mut event = wrap_any_to_device_content(
             alice.user_id(),
-            get_content_from_request(&alice.confirm().await.unwrap().unwrap()),
+            get_content_from_request(&alice.confirm().await.unwrap().0.unwrap()),
         );
         bob.receive_event(&mut event);
 
         let mut event = wrap_any_to_device_content(
             bob.user_id(),
-            get_content_from_request(&bob.confirm().await.unwrap().unwrap()),
+            get_content_from_request(&bob.confirm().await.unwrap().0.unwrap()),
         );
         alice.receive_event(&mut event);
 

@@ -25,7 +25,7 @@ use matrix_sdk_common::{
     uuid::Uuid,
 };
 
-use super::sas::{content_to_request, Sas};
+use super::sas::{content_to_request, Sas, VerificationResult};
 use crate::{
     olm::PrivateCrossSigningIdentity,
     requests::{OutgoingRequest, ToDeviceRequest},
@@ -206,14 +206,28 @@ impl VerificationMachine {
                     self.receive_event_helper(&s, event);
 
                     if s.is_done() {
-                        if let Some(r) = s.mark_as_done().await? {
-                            self.outgoing_to_device_messages.insert(
-                                r.txn_id,
-                                OutgoingRequest {
-                                    request_id: r.txn_id,
-                                    request: Arc::new(r.into()),
-                                },
-                            );
+                        match s.mark_as_done().await? {
+                            VerificationResult::Ok => (),
+                            VerificationResult::Cancel(r) => {
+                                self.outgoing_to_device_messages.insert(
+                                    r.txn_id,
+                                    OutgoingRequest {
+                                        request_id: r.txn_id,
+                                        request: Arc::new(r.into()),
+                                    },
+                                );
+                            }
+                            VerificationResult::SignatureUpload(r) => {
+                                let request_id = Uuid::new_v4();
+
+                                self.outgoing_to_device_messages.insert(
+                                    request_id,
+                                    OutgoingRequest {
+                                        request_id,
+                                        request: Arc::new(r.into()),
+                                    },
+                                );
+                            }
                         }
                     }
                 };
@@ -352,13 +366,13 @@ mod test {
 
         let mut event = wrap_any_to_device_content(
             alice.user_id(),
-            get_content_from_request(&alice.confirm().await.unwrap().unwrap()),
+            get_content_from_request(&alice.confirm().await.unwrap().0.unwrap()),
         );
         bob.receive_event(&mut event);
 
         let mut event = wrap_any_to_device_content(
             bob.user_id(),
-            get_content_from_request(&bob.confirm().await.unwrap().unwrap()),
+            get_content_from_request(&bob.confirm().await.unwrap().0.unwrap()),
         );
         alice.receive_event(&mut event);
 

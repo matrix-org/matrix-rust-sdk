@@ -351,6 +351,9 @@ impl OlmMachine {
             IncomingResponse::SigningKeysUpload(_) => {
                 self.receive_cross_signing_upload_response().await?;
             }
+            IncomingResponse::SignatureUpload(_) => {
+                self.verification_machine.mark_request_as_sent(request_id);
+            }
         };
 
         Ok(())
@@ -1785,6 +1788,7 @@ pub(crate) mod test {
             .confirm()
             .await
             .unwrap()
+            .0
             .map(|r| request_to_event(bob.user_id(), &r))
             .unwrap();
         alice.handle_verification_event(&mut event).await;
@@ -1796,6 +1800,7 @@ pub(crate) mod test {
             .confirm()
             .await
             .unwrap()
+            .0
             .map(|r| request_to_event(alice.user_id(), &r))
             .unwrap();
 

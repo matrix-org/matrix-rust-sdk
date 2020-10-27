@@ -1616,6 +1616,15 @@ impl Client {
                                     .unwrap();
                             }
                         }
+                        OutgoingRequests::SignatureUpload(request) => {
+                            // TODO remove this unwrap.
+                            if let Ok(resp) = self.send(request.clone()).await {
+                                self.base_client
+                                    .mark_request_as_sent(&r.request_id(), &resp)
+                                    .await
+                                    .unwrap();
+                            }
+                        }
                     }
                 }
             }

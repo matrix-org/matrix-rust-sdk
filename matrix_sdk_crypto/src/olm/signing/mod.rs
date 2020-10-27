@@ -14,9 +14,8 @@
 
 mod pk_signing;
 
-use matrix_sdk_common::encryption::DeviceKeys;
 use serde::{Deserialize, Serialize};
-use serde_json::{Error as JsonError, Value};
+use serde_json::Error as JsonError;
 use std::{
     collections::BTreeMap,
     sync::{
@@ -27,7 +26,8 @@ use std::{
 
 use matrix_sdk_common::{
     api::r0::keys::{upload_signatures::Request as SignatureUploadRequest, KeyUsage},
-    identifiers::UserId,
+    encryption::DeviceKeys,
+    identifiers::{DeviceKeyAlgorithm, DeviceKeyId, UserId},
     locks::Mutex,
 };
 
@@ -108,14 +108,17 @@ impl PrivateCrossSigningIdentity {
     pub(crate) async fn sign_user(
         &self,
         user_identity: &UserIdentity,
-    ) -> Result<BTreeMap<UserId, BTreeMap<String, Value>>, SignatureError> {
-        self.user_signing_key
+    ) -> Result<SignatureUploadRequest, SignatureError> {
+        let signed_keys = self
+            .user_signing_key
             .lock()
             .await
             .as_ref()
             .ok_or(SignatureError::MissingSigningKey)?
             .sign_user(&user_identity)
-            .await
+            .await?;
+
+        Ok(SignatureUploadRequest { signed_keys })
     }
 
     /// Sign the given device keys with this identity.
@@ -190,7 +193,11 @@ impl PrivateCrossSigningIdentity {
             .signatures
             .entry(account.user_id().to_owned())
             .or_insert_with(BTreeMap::new)
-            .insert(format!("ed25519:{}", account.device_id()), signature);
+            .insert(
+                DeviceKeyId::from_parts(DeviceKeyAlgorithm::Ed25519, account.device_id())
+                    .to_string(),
+                signature,
+            );
 
         let master = MasterSigning {
             inner: master,
