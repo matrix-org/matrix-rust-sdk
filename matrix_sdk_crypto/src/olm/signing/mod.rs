@@ -122,12 +122,12 @@ impl PrivateCrossSigningIdentity {
     }
 
     /// Sign the given device keys with this identity.
-    #[allow(dead_code)]
     pub(crate) async fn sign_device(
         &self,
         device: &ReadOnlyDevice,
     ) -> Result<SignatureUploadRequest, SignatureError> {
-        let device_keys = device.as_device_keys();
+        let mut device_keys = device.as_device_keys();
+        device_keys.signatures.clear();
         self.sign_device_keys(device_keys).await
     }
 
