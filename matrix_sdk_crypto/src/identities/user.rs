@@ -804,7 +804,7 @@ pub(crate) mod test {
         let second = Device {
             inner: second,
             verification_machine,
-            private_identity: private_identity.clone(),
+            private_identity,
             own_identity: Some(identity.clone()),
             device_owner_identity: Some(UserIdentities::Own(identity.clone())),
         };

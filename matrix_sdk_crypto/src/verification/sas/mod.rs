@@ -319,12 +319,12 @@ impl Sas {
             // TODO store the request as well.
             self.store.save_changes(changes).await?;
             Ok(merged_request
-                .map(|r| VerificationResult::SignatureUpload(r))
+                .map(VerificationResult::SignatureUpload)
                 .unwrap_or(VerificationResult::Ok))
         } else {
             Ok(self
                 .cancel()
-                .map(|r| VerificationResult::Cancel(r))
+                .map(VerificationResult::Cancel)
                 .unwrap_or(VerificationResult::Ok))
         }
     }
