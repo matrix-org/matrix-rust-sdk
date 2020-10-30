@@ -788,13 +788,14 @@ pub(crate) mod test {
         )));
         let verification_machine = VerificationMachine::new(
             ReadOnlyAccount::new(second.user_id(), second.device_id()),
-            private_identity,
+            private_identity.clone(),
             Arc::new(Box::new(MemoryStore::new())),
         );
 
         let first = Device {
             inner: first,
             verification_machine: verification_machine.clone(),
+            private_identity: private_identity.clone(),
             own_identity: Some(identity.clone()),
             device_owner_identity: Some(UserIdentities::Own(identity.clone())),
         };
@@ -802,6 +803,7 @@ pub(crate) mod test {
         let second = Device {
             inner: second,
             verification_machine,
+            private_identity: private_identity.clone(),
             own_identity: Some(identity.clone()),
             device_owner_identity: Some(UserIdentities::Own(identity.clone())),
         };

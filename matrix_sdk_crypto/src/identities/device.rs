@@ -40,7 +40,7 @@ use serde_json::{json, Value};
 use tracing::warn;
 
 use crate::{
-    olm::{InboundGroupSession, Session},
+    olm::{InboundGroupSession, PrivateCrossSigningIdentity, Session},
     store::{Changes, DeviceChanges},
 };
 #[cfg(test)]
@@ -72,6 +72,7 @@ pub struct ReadOnlyDevice {
 /// A device represents a E2EE capable client of an user.
 pub struct Device {
     pub(crate) inner: ReadOnlyDevice,
+    pub(crate) private_identity: Arc<Mutex<PrivateCrossSigningIdentity>>,
     pub(crate) verification_machine: VerificationMachine,
     pub(crate) own_identity: Option<OwnUserIdentity>,
     pub(crate) device_owner_identity: Option<UserIdentities>,
@@ -179,6 +180,7 @@ impl Device {
 #[derive(Debug)]
 pub struct UserDevices {
     pub(crate) inner: HashMap<DeviceIdBox, ReadOnlyDevice>,
+    pub(crate) private_identity: Arc<Mutex<PrivateCrossSigningIdentity>>,
     pub(crate) verification_machine: VerificationMachine,
     pub(crate) own_identity: Option<OwnUserIdentity>,
     pub(crate) device_owner_identity: Option<UserIdentities>,
@@ -189,6 +191,7 @@ impl UserDevices {
     pub fn get(&self, device_id: &DeviceId) -> Option<Device> {
         self.inner.get(device_id).map(|d| Device {
             inner: d.clone(),
+            private_identity: self.private_identity.clone(),
             verification_machine: self.verification_machine.clone(),
             own_identity: self.own_identity.clone(),
             device_owner_identity: self.device_owner_identity.clone(),
@@ -204,6 +207,7 @@ impl UserDevices {
     pub fn devices(&self) -> impl Iterator<Item = Device> + '_ {
         self.inner.values().map(move |d| Device {
             inner: d.clone(),
+            private_identity: self.private_identity.clone(),
             verification_machine: self.verification_machine.clone(),
             own_identity: self.own_identity.clone(),
             device_owner_identity: self.device_owner_identity.clone(),
