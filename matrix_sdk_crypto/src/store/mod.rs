@@ -98,6 +98,7 @@ pub type Result<T> = std::result::Result<T, CryptoStoreError>;
 #[derive(Debug, Clone)]
 pub(crate) struct Store {
     user_id: Arc<UserId>,
+    identity: Arc<Mutex<PrivateCrossSigningIdentity>>,
     inner: Arc<Box<dyn CryptoStore>>,
     verification_machine: VerificationMachine,
 }
@@ -130,11 +131,13 @@ pub struct DeviceChanges {
 impl Store {
     pub fn new(
         user_id: Arc<UserId>,
+        identity: Arc<Mutex<PrivateCrossSigningIdentity>>,
         store: Arc<Box<dyn CryptoStore>>,
         verification_machine: VerificationMachine,
     ) -> Self {
         Self {
             user_id,
+            identity,
             inner: store,
             verification_machine,
         }

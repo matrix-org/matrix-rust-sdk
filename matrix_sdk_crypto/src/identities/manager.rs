@@ -415,9 +415,10 @@ pub(crate) mod test {
         let user_id = Arc::new(user_id());
         let account = ReadOnlyAccount::new(&user_id, &device_id());
         let store: Arc<Box<dyn CryptoStore>> = Arc::new(Box::new(MemoryStore::new()));
-        let verification = VerificationMachine::new(account.clone(), identity, store);
+        let verification = VerificationMachine::new(account.clone(), identity.clone(), store);
         let store = Store::new(
             user_id.clone(),
+            identity,
             Arc::new(Box::new(MemoryStore::new())),
             verification,
         );

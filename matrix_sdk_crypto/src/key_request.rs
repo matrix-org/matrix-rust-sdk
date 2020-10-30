@@ -721,8 +721,8 @@ mod test {
         let account = ReadOnlyAccount::new(&user_id, &alice_device_id());
         let store: Arc<Box<dyn CryptoStore>> = Arc::new(Box::new(MemoryStore::new()));
         let identity = Arc::new(Mutex::new(PrivateCrossSigningIdentity::empty(bob_id())));
-        let verification = VerificationMachine::new(account, identity, store.clone());
-        let store = Store::new(user_id.clone(), store, verification);
+        let verification = VerificationMachine::new(account, identity.clone(), store.clone());
+        let store = Store::new(user_id.clone(), identity, store, verification);
 
         KeyRequestMachine::new(
             user_id,
@@ -739,8 +739,8 @@ mod test {
         let device = ReadOnlyDevice::from_account(&account).await;
         let store: Arc<Box<dyn CryptoStore>> = Arc::new(Box::new(MemoryStore::new()));
         let identity = Arc::new(Mutex::new(PrivateCrossSigningIdentity::empty(alice_id())));
-        let verification = VerificationMachine::new(account, identity, store.clone());
-        let store = Store::new(user_id.clone(), store, verification);
+        let verification = VerificationMachine::new(account, identity.clone(), store.clone());
+        let store = Store::new(user_id.clone(), identity, store, verification);
         store.save_devices(&[device]).await.unwrap();
 
         KeyRequestMachine::new(
