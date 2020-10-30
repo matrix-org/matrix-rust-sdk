@@ -392,6 +392,19 @@ impl OlmMachine {
 
             *identity = id;
 
+            let public = identity.as_public_identity().await.expect(
+                "Couldn't create a public version of the identity from a new private identity",
+            );
+
+            let changes = Changes {
+                identities: IdentityChanges {
+                    new: vec![public.into()],
+                    ..Default::default()
+                },
+                ..Default::default()
+            };
+
+            self.store.save_changes(changes).await?;
             self.store.save_identity(identity.clone()).await?;
             Ok((request, signature_request))
         } else {

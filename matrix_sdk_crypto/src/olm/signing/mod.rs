@@ -32,8 +32,8 @@ use matrix_sdk_common::{
 };
 
 use crate::{
-    error::SignatureError, requests::UploadSigningKeysRequest, ReadOnlyAccount, ReadOnlyDevice,
-    UserIdentity,
+    error::SignatureError, requests::UploadSigningKeysRequest, OwnUserIdentity, ReadOnlyAccount,
+    ReadOnlyDevice, UserIdentity,
 };
 
 use pk_signing::{MasterSigning, PickledSignings, SelfSigning, Signing, SigningError, UserSigning};
@@ -103,6 +103,37 @@ impl PrivateCrossSigningIdentity {
         }
     }
 
+    pub(crate) async fn as_public_identity(&self) -> Result<OwnUserIdentity, SignatureError> {
+        let master = self
+            .master_key
+            .lock()
+            .await
+            .as_ref()
+            .ok_or(SignatureError::MissingSigningKey)?
+            .public_key
+            .clone();
+        let self_signing = self
+            .self_signing_key
+            .lock()
+            .await
+            .as_ref()
+            .ok_or(SignatureError::MissingSigningKey)?
+            .public_key
+            .clone();
+        let user_signing = self
+            .user_signing_key
+            .lock()
+            .await
+            .as_ref()
+            .ok_or(SignatureError::MissingSigningKey)?
+            .public_key
+            .clone();
+        let identity = OwnUserIdentity::new(master, self_signing, user_signing)?;
+        identity.mark_as_verified();
+
+        Ok(identity)
+    }
+
     /// Sign the given public user identity with this private identity.
     #[allow(dead_code)]
     pub(crate) async fn sign_user(
@@ -128,7 +159,7 @@ impl PrivateCrossSigningIdentity {
     ) -> Result<SignatureUploadRequest, SignatureError> {
         let mut device_keys = device.as_device_keys();
         device_keys.signatures.clear();
-        self.sign_device_keys(device_keys).await
+        self.sign_device_keys(&mut device_keys).await
     }
 
     /// Sign an Olm account with this private identity.
@@ -136,13 +167,13 @@ impl PrivateCrossSigningIdentity {
         &self,
         account: &ReadOnlyAccount,
     ) -> Result<SignatureUploadRequest, SignatureError> {
-        let device_keys = account.unsigned_device_keys();
-        self.sign_device_keys(device_keys).await
+        let mut device_keys = account.unsigned_device_keys();
+        self.sign_device_keys(&mut device_keys).await
     }
 
-    async fn sign_device_keys(
+    pub(crate) async fn sign_device_keys(
         &self,
-        mut device_keys: DeviceKeys,
+        mut device_keys: &mut DeviceKeys,
     ) -> Result<SignatureUploadRequest, SignatureError> {
         self.self_signing_key
             .lock()

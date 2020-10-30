@@ -1844,8 +1844,6 @@ impl Client {
 
         let (request, signature_request) = olm.bootstrap_cross_signing(false).await?;
 
-        println!("HELLOOO MAKING REQUEST {:#?}", request);
-
         let request = UploadSigningKeysRequest {
             auth: auth_data,
             master_key: request.master_key,

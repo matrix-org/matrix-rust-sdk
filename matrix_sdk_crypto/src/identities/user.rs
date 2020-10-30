@@ -723,6 +723,7 @@ pub(crate) mod test {
     use matrix_sdk_common::{
         api::r0::keys::get_keys::Response as KeyQueryResponse, identifiers::user_id, locks::Mutex,
     };
+    use matrix_sdk_test::async_test;
 
     use super::{OwnUserIdentity, UserIdentities, UserIdentity};
 
@@ -817,5 +818,40 @@ pub(crate) mod test {
         identity.mark_as_verified();
         assert!(second.trust_state());
         assert!(!first.trust_state());
+    }
+
+    #[async_test]
+    async fn own_device_with_private_identity() {
+        let response = own_key_query();
+        let (_, device) = device(&response);
+
+        let account = ReadOnlyAccount::new(device.user_id(), device.device_id());
+        let (identity, _, _) = PrivateCrossSigningIdentity::new_with_account(&account).await;
+
+        let id = Arc::new(Mutex::new(identity.clone()));
+
+        let verification_machine = VerificationMachine::new(
+            ReadOnlyAccount::new(device.user_id(), device.device_id()),
+            id.clone(),
+            Arc::new(Box::new(MemoryStore::new())),
+        );
+
+        let public_identity = identity.as_public_identity().await.unwrap();
+
+        let mut device = Device {
+            inner: device,
+            verification_machine: verification_machine.clone(),
+            private_identity: id.clone(),
+            own_identity: Some(public_identity.clone()),
+            device_owner_identity: Some(public_identity.clone().into()),
+        };
+
+        assert!(!device.trust_state());
+
+        let mut device_keys = device.as_device_keys();
+
+        identity.sign_device_keys(&mut device_keys).await.unwrap();
+        device.inner.signatures = Arc::new(device_keys.signatures);
+        assert!(device.trust_state());
     }
 }
