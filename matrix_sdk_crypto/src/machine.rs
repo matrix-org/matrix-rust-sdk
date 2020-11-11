@@ -147,7 +147,12 @@ impl OlmMachine {
         let store = Arc::new(store);
         let verification_machine =
             VerificationMachine::new(account.clone(), user_identity.clone(), store.clone());
-        let store = Store::new(user_id.clone(), store, verification_machine.clone());
+        let store = Store::new(
+            user_id.clone(),
+            user_identity.clone(),
+            store,
+            verification_machine.clone(),
+        );
         let device_id: Arc<DeviceIdBox> = Arc::new(device_id);
         let outbound_group_sessions = Arc::new(DashMap::new());
         let users_for_key_claim = Arc::new(DashMap::new());
@@ -351,6 +356,9 @@ impl OlmMachine {
             IncomingResponse::SigningKeysUpload(_) => {
                 self.receive_cross_signing_upload_response().await?;
             }
+            IncomingResponse::SignatureUpload(_) => {
+                self.verification_machine.mark_request_as_sent(request_id);
+            }
         };
 
         Ok(())
@@ -380,20 +388,31 @@ impl OlmMachine {
 
         if identity.is_empty().await || reset {
             info!("Creating new cross signing identity");
-            let (id, signature_request) = self.account.bootstrap_cross_signing().await;
-            let request = id.as_upload_request().await;
+            let (id, request, signature_request) = self.account.bootstrap_cross_signing().await;
 
             *identity = id;
 
+            let public = identity.as_public_identity().await.expect(
+                "Couldn't create a public version of the identity from a new private identity",
+            );
+
+            let changes = Changes {
+                identities: IdentityChanges {
+                    new: vec![public.into()],
+                    ..Default::default()
+                },
+                ..Default::default()
+            };
+
+            self.store.save_changes(changes).await?;
             self.store.save_identity(identity.clone()).await?;
             Ok((request, signature_request))
         } else {
             info!("Trying to upload the existing cross signing identity");
             let request = identity.as_upload_request().await;
-            let device_keys = self.account.unsigned_device_keys();
             // TODO remove this expect.
             let signature_request = identity
-                .sign_device(device_keys)
+                .sign_account(&self.account)
                 .await
                 .expect("Can't sign device keys");
             Ok((request, signature_request))
@@ -1787,6 +1806,7 @@ pub(crate) mod test {
             .confirm()
             .await
             .unwrap()
+            .0
             .map(|r| request_to_event(bob.user_id(), &r))
             .unwrap();
         alice.handle_verification_event(&mut event).await;
@@ -1798,6 +1818,7 @@ pub(crate) mod test {
             .confirm()
             .await
             .unwrap()
+            .0
             .map(|r| request_to_event(alice.user_id(), &r))
             .unwrap();
 

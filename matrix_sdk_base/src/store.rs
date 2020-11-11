@@ -6,20 +6,17 @@ use std::{
 };
 
 use futures::executor::block_on;
-use matrix_sdk_common::Raw;
-use matrix_sdk_common::events::room::canonical_alias::CanonicalAliasEventContent;
-use matrix_sdk_common::events::room::name::NameEventContent;
-use matrix_sdk_common::identifiers::RoomAliasId;
 use matrix_sdk_common::{
     api::r0::sync::sync_events::RoomSummary as RumaSummary,
     events::{
         room::{
-            create::CreateEventContent, encryption::EncryptionEventContent,
-            member::MemberEventContent,
+            canonical_alias::CanonicalAliasEventContent, create::CreateEventContent,
+            encryption::EncryptionEventContent, member::MemberEventContent, name::NameEventContent,
         },
         AnySyncStateEvent, EventContent, SyncStateEvent,
     },
-    identifiers::{RoomId, UserId},
+    identifiers::{RoomAliasId, RoomId, UserId},
+    Raw,
 };
 use serde::{Deserialize, Serialize};
 
@@ -36,8 +33,7 @@ pub struct Store {
     room_summaries: Tree,
 }
 
-use crate::Session;
-use crate::client::hoist_and_deserialize_state_event;
+use crate::{client::hoist_and_deserialize_state_event, Session};
 
 #[derive(Debug, Default)]
 pub struct StateChanges {
@@ -81,7 +77,8 @@ impl StateChanges {
     }
 
     pub fn add_room(&mut self, room: InnerSummary) {
-        self.room_summaries.insert(room.room_id.as_ref().to_owned(), room);
+        self.room_summaries
+            .insert(room.room_id.as_ref().to_owned(), room);
     }
 
     pub fn add_state_event(&mut self, room_id: &RoomId, event: AnySyncStateEvent) {
@@ -169,7 +166,11 @@ impl Room {
         todo!();
     }
 
-    pub fn handle_state_event(&self, summary: &mut InnerSummary, event: &AnySyncStateEvent) -> bool {
+    pub fn handle_state_event(
+        &self,
+        summary: &mut InnerSummary,
+        event: &AnySyncStateEvent,
+    ) -> bool {
         match event {
             AnySyncStateEvent::RoomEncryption(encryption) => {
                 info!("MARKING ROOM {} AS ENCRYPTED", self.room_id);

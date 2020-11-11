@@ -1451,10 +1451,10 @@ impl Client {
         sync_settings: SyncSettings<'_>,
     ) -> Result<sync_events::Response> {
         let request = assign!(sync_events::Request::new(), {
-            filter: sync_settings.filter,
+            filter: sync_settings.filter.as_ref(),
             since: sync_settings.token.as_deref(),
             full_state: sync_settings.full_state,
-            set_presence: PresenceState::Online,
+            set_presence: &PresenceState::Online,
             timeout: sync_settings.timeout,
         });
 
@@ -1551,7 +1551,7 @@ impl Client {
         C: Future<Output = LoopCtrl>,
     {
         let mut sync_settings = sync_settings;
-        let filter = sync_settings.filter;
+        let filter = sync_settings.filter.clone();
         let mut last_sync_time: Option<Instant> = None;
 
         if sync_settings.token.is_none() {
@@ -1600,6 +1600,15 @@ impl Client {
                                     .unwrap();
                             }
                         }
+                        OutgoingRequests::SignatureUpload(request) => {
+                            // TODO remove this unwrap.
+                            if let Ok(resp) = self.send(request.clone()).await {
+                                self.base_client
+                                    .mark_request_as_sent(&r.request_id(), &resp)
+                                    .await
+                                    .unwrap();
+                            }
+                        }
                     }
                 }
             }
@@ -1627,7 +1636,7 @@ impl Client {
                     .expect("No sync token found after initial sync"),
             );
             if let Some(f) = filter.as_ref() {
-                sync_settings = sync_settings.filter(*f);
+                sync_settings = sync_settings.filter(f.clone());
             }
         }
     }
@@ -1807,7 +1816,58 @@ impl Client {
         }))
     }
 
-    /// TODO
+    /// Create and upload a new cross signing identity.
+    ///
+    /// # Arguments
+    ///
+    /// * `auth_data` - This request requires user interactive auth, the first
+    /// request needs to set this to `None` and will always fail with an
+    /// `UiaaResponse`. The response will contain information for the
+    /// interactive auth and the same request needs to be made but this time
+    /// with some `auth_data` provided.
+    ///
+    /// # Examples
+    /// ```no_run
+    /// # use std::{convert::TryFrom, collections::BTreeMap};
+    /// # use matrix_sdk::{Client, identifiers::UserId};
+    /// # use matrix_sdk::api::r0::uiaa::AuthData;
+    /// # use url::Url;
+    /// # use futures::executor::block_on;
+    /// # use serde_json::json;
+    /// # let user_id = UserId::try_from("@alice:example.org").unwrap();
+    /// # let homeserver = Url::parse("http://example.com").unwrap();
+    /// # let client = Client::new(homeserver).unwrap();
+    /// # block_on(async {
+    ///
+    /// fn auth_data<'a>(user: &UserId, password: &str, session: Option<&'a str>) -> AuthData<'a> {
+    ///     let mut auth_parameters = BTreeMap::new();
+    ///     let identifier = json!({
+    ///         "type": "m.id.user",
+    ///         "user": user,
+    ///     });
+    ///     auth_parameters.insert("identifier".to_owned(), identifier);
+    ///     auth_parameters.insert("password".to_owned(), password.to_owned().into());
+    ///     // This is needed because of https://github.com/matrix-org/synapse/issues/5665
+    ///     auth_parameters.insert("user".to_owned(), user.as_str().into());
+    ///     AuthData::DirectRequest {
+    ///         kind: "m.login.password",
+    ///         auth_parameters,
+    ///         session,
+    ///     }
+    /// }
+    ///
+    /// if let Err(e) = client.bootstrap_cross_signing(None).await {
+    ///     if let Some(response) = e.uiaa_response() {
+    ///         let auth_data = auth_data(&user_id, "wordpass", response.session.as_deref());
+    ///            client
+    ///                .bootstrap_cross_signing(Some(auth_data))
+    ///                .await
+    ///                .expect("Couldn't bootstrap cross signing")
+    ///     } else {
+    ///         panic!("Error durign cross signing bootstrap {:#?}", e);
+    ///     }
+    /// }
+    /// # })
     #[cfg(feature = "encryption")]
     #[cfg_attr(feature = "docs", doc(cfg(encryption)))]
     pub async fn bootstrap_cross_signing(&self, auth_data: Option<AuthData<'_>>) -> Result<()> {
@@ -1818,8 +1878,6 @@ impl Client {
             .ok_or(Error::AuthenticationRequired)?;
 
         let (request, signature_request) = olm.bootstrap_cross_signing(false).await?;
-
-        println!("HELLOOO MAKING REQUEST {:#?}", request);
 
         let request = UploadSigningKeysRequest {
             auth: auth_data,

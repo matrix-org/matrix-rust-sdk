@@ -29,6 +29,8 @@ use matrix_sdk_common::{
     identifiers::{DeviceKeyId, UserId},
 };
 
+#[cfg(test)]
+use crate::olm::PrivateCrossSigningIdentity;
 use crate::{error::SignatureError, olm::Utility, ReadOnlyDevice};
 
 /// Wrapper for a cross signing key marking it as the master key.
@@ -278,7 +280,10 @@ impl UserSigningPubkey {
     ///
     /// Returns an empty result if the signature check succeeded, otherwise a
     /// SignatureError indicating why the check failed.
-    fn verify_master_key(&self, master_key: &MasterPubkey) -> Result<(), SignatureError> {
+    pub(crate) fn verify_master_key(
+        &self,
+        master_key: &MasterPubkey,
+    ) -> Result<(), SignatureError> {
         let (key_id, key) = self
             .0
             .keys
@@ -326,7 +331,7 @@ impl SelfSigningPubkey {
     ///
     /// Returns an empty result if the signature check succeeded, otherwise a
     /// SignatureError indicating why the check failed.
-    fn verify_device(&self, device: &ReadOnlyDevice) -> Result<(), SignatureError> {
+    pub(crate) fn verify_device(&self, device: &ReadOnlyDevice) -> Result<(), SignatureError> {
         let (key_id, key) = self
             .0
             .keys
@@ -443,7 +448,7 @@ impl PartialEq for UserIdentities {
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct UserIdentity {
     user_id: Arc<UserId>,
-    master_key: MasterPubkey,
+    pub(crate) master_key: MasterPubkey,
     self_signing_key: SelfSigningPubkey,
 }
 
@@ -469,6 +474,32 @@ impl UserIdentity {
             master_key,
             self_signing_key,
         })
+    }
+
+    #[cfg(test)]
+    pub async fn from_private(identity: &PrivateCrossSigningIdentity) -> Self {
+        let master_key = identity
+            .master_key
+            .lock()
+            .await
+            .as_ref()
+            .unwrap()
+            .public_key
+            .clone();
+        let self_signing_key = identity
+            .self_signing_key
+            .lock()
+            .await
+            .as_ref()
+            .unwrap()
+            .public_key
+            .clone();
+
+        Self {
+            user_id: Arc::new(identity.user_id().clone()),
+            master_key,
+            self_signing_key,
+        }
     }
 
     /// Get the user id of this identity.
@@ -692,6 +723,7 @@ pub(crate) mod test {
     use matrix_sdk_common::{
         api::r0::keys::get_keys::Response as KeyQueryResponse, identifiers::user_id, locks::Mutex,
     };
+    use matrix_sdk_test::async_test;
 
     use super::{OwnUserIdentity, UserIdentities, UserIdentity};
 
@@ -757,13 +789,14 @@ pub(crate) mod test {
         )));
         let verification_machine = VerificationMachine::new(
             ReadOnlyAccount::new(second.user_id(), second.device_id()),
-            private_identity,
+            private_identity.clone(),
             Arc::new(Box::new(MemoryStore::new())),
         );
 
         let first = Device {
             inner: first,
             verification_machine: verification_machine.clone(),
+            private_identity: private_identity.clone(),
             own_identity: Some(identity.clone()),
             device_owner_identity: Some(UserIdentities::Own(identity.clone())),
         };
@@ -771,6 +804,7 @@ pub(crate) mod test {
         let second = Device {
             inner: second,
             verification_machine,
+            private_identity,
             own_identity: Some(identity.clone()),
             device_owner_identity: Some(UserIdentities::Own(identity.clone())),
         };
@@ -784,5 +818,40 @@ pub(crate) mod test {
         identity.mark_as_verified();
         assert!(second.trust_state());
         assert!(!first.trust_state());
+    }
+
+    #[async_test]
+    async fn own_device_with_private_identity() {
+        let response = own_key_query();
+        let (_, device) = device(&response);
+
+        let account = ReadOnlyAccount::new(device.user_id(), device.device_id());
+        let (identity, _, _) = PrivateCrossSigningIdentity::new_with_account(&account).await;
+
+        let id = Arc::new(Mutex::new(identity.clone()));
+
+        let verification_machine = VerificationMachine::new(
+            ReadOnlyAccount::new(device.user_id(), device.device_id()),
+            id.clone(),
+            Arc::new(Box::new(MemoryStore::new())),
+        );
+
+        let public_identity = identity.as_public_identity().await.unwrap();
+
+        let mut device = Device {
+            inner: device,
+            verification_machine: verification_machine.clone(),
+            private_identity: id.clone(),
+            own_identity: Some(public_identity.clone()),
+            device_owner_identity: Some(public_identity.clone().into()),
+        };
+
+        assert!(!device.trust_state());
+
+        let mut device_keys = device.as_device_keys();
+
+        identity.sign_device_keys(&mut device_keys).await.unwrap();
+        device.inner.signatures = Arc::new(device_keys.signatures);
+        assert!(device.trust_state());
     }
 }

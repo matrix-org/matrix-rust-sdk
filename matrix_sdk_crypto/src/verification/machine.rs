@@ -25,7 +25,7 @@ use matrix_sdk_common::{
     uuid::Uuid,
 };
 
-use super::sas::{content_to_request, Sas};
+use super::sas::{content_to_request, Sas, VerificationResult};
 use crate::{
     olm::PrivateCrossSigningIdentity,
     requests::{OutgoingRequest, ToDeviceRequest},
@@ -36,7 +36,7 @@ use crate::{
 #[derive(Clone, Debug)]
 pub struct VerificationMachine {
     account: ReadOnlyAccount,
-    user_identity: Arc<Mutex<PrivateCrossSigningIdentity>>,
+    private_identity: Arc<Mutex<PrivateCrossSigningIdentity>>,
     pub(crate) store: Arc<Box<dyn CryptoStore>>,
     verifications: Arc<DashMap<String, Sas>>,
     outgoing_to_device_messages: Arc<DashMap<Uuid, OutgoingRequest>>,
@@ -50,7 +50,7 @@ impl VerificationMachine {
     ) -> Self {
         Self {
             account,
-            user_identity: identity,
+            private_identity: identity,
             store,
             verifications: Arc::new(DashMap::new()),
             outgoing_to_device_messages: Arc::new(DashMap::new()),
@@ -62,9 +62,11 @@ impl VerificationMachine {
         device: ReadOnlyDevice,
     ) -> Result<(Sas, ToDeviceRequest), CryptoStoreError> {
         let identity = self.store.get_user_identity(device.user_id()).await?;
+        let private_identity = self.private_identity.lock().await.clone();
 
         let (sas, content) = Sas::start(
             self.account.clone(),
+            private_identity,
             device.clone(),
             self.store.clone(),
             identity,
@@ -158,8 +160,10 @@ impl VerificationMachine {
                     .get_device(&e.sender, &e.content.from_device)
                     .await?
                 {
+                    let private_identity = self.private_identity.lock().await.clone();
                     match Sas::from_start_event(
                         self.account.clone(),
+                        private_identity,
                         d,
                         self.store.clone(),
                         e,
@@ -202,14 +206,28 @@ impl VerificationMachine {
                     self.receive_event_helper(&s, event);
 
                     if s.is_done() {
-                        if let Some(r) = s.mark_as_done().await? {
-                            self.outgoing_to_device_messages.insert(
-                                r.txn_id,
-                                OutgoingRequest {
-                                    request_id: r.txn_id,
-                                    request: Arc::new(r.into()),
-                                },
-                            );
+                        match s.mark_as_done().await? {
+                            VerificationResult::Ok => (),
+                            VerificationResult::Cancel(r) => {
+                                self.outgoing_to_device_messages.insert(
+                                    r.txn_id,
+                                    OutgoingRequest {
+                                        request_id: r.txn_id,
+                                        request: Arc::new(r.into()),
+                                    },
+                                );
+                            }
+                            VerificationResult::SignatureUpload(r) => {
+                                let request_id = Uuid::new_v4();
+
+                                self.outgoing_to_device_messages.insert(
+                                    request_id,
+                                    OutgoingRequest {
+                                        request_id,
+                                        request: Arc::new(r.into()),
+                                    },
+                                );
+                            }
                         }
                     }
                 };
@@ -275,7 +293,13 @@ mod test {
         let bob_store: Arc<Box<dyn CryptoStore>> = Arc::new(Box::new(bob_store));
         let identity = Arc::new(Mutex::new(PrivateCrossSigningIdentity::empty(alice_id())));
         let machine = VerificationMachine::new(alice, identity, Arc::new(Box::new(store)));
-        let (bob_sas, start_content) = Sas::start(bob, alice_device, bob_store, None);
+        let (bob_sas, start_content) = Sas::start(
+            bob,
+            PrivateCrossSigningIdentity::empty(bob_id()),
+            alice_device,
+            bob_store,
+            None,
+        );
         machine
             .receive_event(&mut wrap_any_to_device_content(
                 bob_sas.user_id(),
@@ -342,13 +366,13 @@ mod test {
 
         let mut event = wrap_any_to_device_content(
             alice.user_id(),
-            get_content_from_request(&alice.confirm().await.unwrap().unwrap()),
+            get_content_from_request(&alice.confirm().await.unwrap().0.unwrap()),
         );
         bob.receive_event(&mut event);
 
         let mut event = wrap_any_to_device_content(
             bob.user_id(),
-            get_content_from_request(&bob.confirm().await.unwrap().unwrap()),
+            get_content_from_request(&bob.confirm().await.unwrap().0.unwrap()),
         );
         alice.receive_event(&mut event);
 

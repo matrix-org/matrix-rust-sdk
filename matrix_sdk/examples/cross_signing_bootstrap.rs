@@ -9,10 +9,8 @@ use serde_json::json;
 use url::Url;
 
 use matrix_sdk::{
-    self,
-    api::r0::uiaa::AuthData,
-    identifiers::{user_id, UserId},
-    Client, ClientConfig, LoopCtrl, SyncSettings,
+    self, api::r0::uiaa::AuthData, identifiers::UserId, Client, ClientConfig, LoopCtrl,
+    SyncSettings,
 };
 
 fn auth_data<'a>(user: &UserId, password: &str, session: Option<&'a str>) -> AuthData<'a> {
@@ -35,7 +33,7 @@ fn auth_data<'a>(user: &UserId, password: &str, session: Option<&'a str>) -> Aut
     }
 }
 
-async fn bootstrap(client: Client) {
+async fn bootstrap(client: Client, user_id: UserId, password: String) {
     println!("Bootstrapping a new cross signing identity, press enter to continue.");
 
     let mut input = String::new();
@@ -46,11 +44,7 @@ async fn bootstrap(client: Client) {
 
     if let Err(e) = client.bootstrap_cross_signing(None).await {
         if let Some(response) = e.uiaa_response() {
-            let auth_data = auth_data(
-                &user_id!("@example:localhost"),
-                "wordpass",
-                response.session.as_deref(),
-            );
+            let auth_data = auth_data(&user_id, &password, response.session.as_deref());
             client
                 .bootstrap_cross_signing(Some(auth_data))
                 .await
@@ -73,10 +67,11 @@ async fn login(
     let homeserver_url = Url::parse(&homeserver_url).expect("Couldn't parse the homeserver URL");
     let client = Client::new_with_config(homeserver_url, client_config).unwrap();
 
-    client
+    let response = client
         .login(username, password, None, Some("rust-sdk"))
         .await?;
 
+    let user_id = &response.user_id;
     let client_ref = &client;
     let asked = AtomicBool::new(false);
     let asked_ref = &asked;
@@ -85,10 +80,16 @@ async fn login(
         .sync_with_callback(SyncSettings::new(), |_| async move {
             let asked = asked_ref;
             let client = &client_ref;
+            let user_id = &user_id;
+            let password = &password;
 
             // Wait for sync to be done then ask the user to bootstrap.
             if !asked.load(Ordering::SeqCst) {
-                tokio::spawn(bootstrap((*client).clone()));
+                tokio::spawn(bootstrap(
+                    (*client).clone(),
+                    (*user_id).clone(),
+                    password.to_string(),
+                ));
             }
 
             asked.store(true, Ordering::SeqCst);

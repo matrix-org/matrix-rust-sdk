@@ -20,6 +20,9 @@ use matrix_sdk_common::{
             claim_keys::Response as KeysClaimResponse,
             get_keys::Response as KeysQueryResponse,
             upload_keys::{Request as KeysUploadRequest, Response as KeysUploadResponse},
+            upload_signatures::{
+                Request as SignatureUploadRequest, Response as SignatureUploadResponse,
+            },
             upload_signing_keys::Response as SigningKeysUploadResponse,
             CrossSigningKey,
         },
@@ -114,6 +117,9 @@ pub enum OutgoingRequests {
     /// things, the main use is key requests/forwards and interactive device
     /// verification.
     ToDeviceRequest(ToDeviceRequest),
+    /// Signature upload request, this request is used after a successful device
+    /// or user verification is done.
+    SignatureUpload(SignatureUploadRequest),
 }
 
 #[cfg(test)]
@@ -144,6 +150,12 @@ impl From<ToDeviceRequest> for OutgoingRequests {
     }
 }
 
+impl From<SignatureUploadRequest> for OutgoingRequests {
+    fn from(request: SignatureUploadRequest) -> Self {
+        OutgoingRequests::SignatureUpload(request)
+    }
+}
+
 /// Enum over all the incoming responses we need to receive.
 #[derive(Debug)]
 pub enum IncomingResponse<'a> {
@@ -161,6 +173,9 @@ pub enum IncomingResponse<'a> {
     /// The cross signing keys upload response, marking our private cross
     /// signing identity as shared.
     SigningKeysUpload(&'a SigningKeysUploadResponse),
+    /// The cross signing keys upload response, marking our private cross
+    /// signing identity as shared.
+    SignatureUpload(&'a SignatureUploadResponse),
 }
 
 impl<'a> From<&'a KeysUploadResponse> for IncomingResponse<'a> {
@@ -184,6 +199,12 @@ impl<'a> From<&'a ToDeviceResponse> for IncomingResponse<'a> {
 impl<'a> From<&'a KeysClaimResponse> for IncomingResponse<'a> {
     fn from(response: &'a KeysClaimResponse) -> Self {
         IncomingResponse::KeysClaim(response)
+    }
+}
+
+impl<'a> From<&'a SignatureUploadResponse> for IncomingResponse<'a> {
+    fn from(response: &'a SignatureUploadResponse) -> Self {
+        IncomingResponse::SignatureUpload(response)
     }
 }
 

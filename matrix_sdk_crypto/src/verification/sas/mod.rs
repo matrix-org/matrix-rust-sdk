@@ -19,9 +19,10 @@ mod sas_state;
 use std::time::Instant;
 
 use std::sync::{Arc, Mutex};
-use tracing::{info, trace, warn};
+use tracing::{error, info, trace, warn};
 
 use matrix_sdk_common::{
+    api::r0::keys::upload_signatures::Request as SignatureUploadRequest,
     events::{
         key::verification::{
             accept::AcceptEventContent, cancel::CancelCode, mac::MacEventContent,
@@ -33,7 +34,9 @@ use matrix_sdk_common::{
 };
 
 use crate::{
+    error::SignatureError,
     identities::{LocalTrust, ReadOnlyDevice, UserIdentities},
+    olm::PrivateCrossSigningIdentity,
     store::{Changes, CryptoStore, CryptoStoreError, DeviceChanges},
     ReadOnlyAccount, ToDeviceRequest,
 };
@@ -43,12 +46,24 @@ use sas_state::{
     Accepted, Canceled, Confirmed, Created, Done, KeyReceived, MacReceived, SasState, Started,
 };
 
+#[derive(Debug)]
+/// A result of a verification flow.
+pub enum VerificationResult {
+    /// The verification succeeded, nothing needs to be done.
+    Ok,
+    /// The verification was canceled.
+    Cancel(ToDeviceRequest),
+    /// The verification is done and has signatures that need to be uploaded.
+    SignatureUpload(SignatureUploadRequest),
+}
+
 #[derive(Clone, Debug)]
 /// Short authentication string object.
 pub struct Sas {
     inner: Arc<Mutex<InnerSas>>,
     store: Arc<Box<dyn CryptoStore>>,
     account: ReadOnlyAccount,
+    private_identity: PrivateCrossSigningIdentity,
     other_device: ReadOnlyDevice,
     other_identity: Option<UserIdentities>,
     flow_id: Arc<String>,
@@ -103,6 +118,7 @@ impl Sas {
     /// sent out through the server to the other device.
     pub(crate) fn start(
         account: ReadOnlyAccount,
+        private_identity: PrivateCrossSigningIdentity,
         other_device: ReadOnlyDevice,
         store: Arc<Box<dyn CryptoStore>>,
         other_identity: Option<UserIdentities>,
@@ -117,6 +133,7 @@ impl Sas {
         let sas = Sas {
             inner: Arc::new(Mutex::new(inner)),
             account,
+            private_identity,
             store,
             other_device,
             flow_id,
@@ -138,6 +155,7 @@ impl Sas {
     /// the other side.
     pub(crate) fn from_start_event(
         account: ReadOnlyAccount,
+        private_identity: PrivateCrossSigningIdentity,
         other_device: ReadOnlyDevice,
         store: Arc<Box<dyn CryptoStore>>,
         event: &ToDeviceEvent<StartEventContent>,
@@ -154,6 +172,7 @@ impl Sas {
         Ok(Sas {
             inner: Arc::new(Mutex::new(inner)),
             account,
+            private_identity,
             other_device,
             other_identity,
             store,
@@ -179,7 +198,9 @@ impl Sas {
     /// Does nothing if we're not in a state where we can confirm the short auth
     /// string, otherwise returns a `MacEventContent` that needs to be sent to
     /// the server.
-    pub async fn confirm(&self) -> Result<Option<ToDeviceRequest>, CryptoStoreError> {
+    pub async fn confirm(
+        &self,
+    ) -> Result<(Option<ToDeviceRequest>, Option<SignatureUploadRequest>), CryptoStoreError> {
         let (content, done) = {
             let mut guard = self.inner.lock().unwrap();
             let sas: InnerSas = (*guard).clone();
@@ -189,25 +210,51 @@ impl Sas {
             (content, guard.is_done())
         };
 
-        let cancel = if done {
-            self.mark_as_done().await?
-        } else {
-            None
-        };
+        let mac_request = content
+            .map(|c| self.content_to_request(AnyToDeviceEventContent::KeyVerificationMac(c)));
 
-        if cancel.is_some() {
-            Ok(cancel)
+        if done {
+            match self.mark_as_done().await? {
+                VerificationResult::Cancel(r) => Ok((Some(r), None)),
+                VerificationResult::Ok => Ok((mac_request, None)),
+                VerificationResult::SignatureUpload(r) => Ok((mac_request, Some(r))),
+            }
         } else {
-            Ok(content.map(|c| {
-                let content = AnyToDeviceEventContent::KeyVerificationMac(c);
-                self.content_to_request(content)
-            }))
+            Ok((mac_request, None))
         }
     }
 
-    pub(crate) async fn mark_as_done(&self) -> Result<Option<ToDeviceRequest>, CryptoStoreError> {
+    pub(crate) async fn mark_as_done(&self) -> Result<VerificationResult, CryptoStoreError> {
         if let Some(device) = self.mark_device_as_verified().await? {
             let identity = self.mark_identity_as_verified().await?;
+
+            // We only sign devices of our own user here.
+            let signature_request = if device.user_id() == self.user_id() {
+                match self.private_identity.sign_device(&device).await {
+                    Ok(r) => Some(r),
+                    Err(SignatureError::MissingSigningKey) => {
+                        warn!(
+                            "Can't sign the device keys for {} {}, \
+                                  no private user signing key found",
+                            device.user_id(),
+                            device.device_id(),
+                        );
+
+                        None
+                    }
+                    Err(e) => {
+                        error!(
+                            "Error signing device keys for {} {} {:?}",
+                            device.user_id(),
+                            device.device_id(),
+                            e
+                        );
+                        None
+                    }
+                }
+            } else {
+                None
+            };
 
             let mut changes = Changes {
                 devices: DeviceChanges {
@@ -217,14 +264,68 @@ impl Sas {
                 ..Default::default()
             };
 
-            if let Some(i) = identity {
-                changes.identities.changed.push(i);
-            }
+            let identity_signature_request = if let Some(i) = identity {
+                // We only sign other users here.
+                let request = if let Some(i) = i.other() {
+                    // Signing can fail if the user signing key is missing.
+                    match self.private_identity.sign_user(&i).await {
+                        Ok(r) => Some(r),
+                        Err(SignatureError::MissingSigningKey) => {
+                            warn!(
+                                "Can't sign the public cross signing keys for {}, \
+                                  no private user signing key found",
+                                i.user_id()
+                            );
+                            None
+                        }
+                        Err(e) => {
+                            error!(
+                                "Error signing the public cross signing keys for {} {:?}",
+                                i.user_id(),
+                                e
+                            );
+                            None
+                        }
+                    }
+                } else {
+                    None
+                };
 
+                changes.identities.changed.push(i);
+
+                request
+            } else {
+                None
+            };
+
+            // If there are two signature upload requests, merge them. Otherwise
+            // use the one we have or None.
+            //
+            // Realistically at most one reuqest will be used but let's make
+            // this future proof.
+            let merged_request = if let Some(mut r) = signature_request {
+                if let Some(user_request) = identity_signature_request {
+                    r.signed_keys.extend(user_request.signed_keys);
+                    Some(r)
+                } else {
+                    Some(r)
+                }
+            } else if let Some(r) = identity_signature_request {
+                Some(r)
+            } else {
+                None
+            };
+
+            // TODO store the request as well.
             self.store.save_changes(changes).await?;
-            Ok(None)
+            Ok(merged_request
+                .map(VerificationResult::SignatureUpload)
+                .unwrap_or(VerificationResult::Ok))
         } else {
-            Ok(self.cancel())
+            Ok(self
+                .cancel()
+                .map(VerificationResult::Cancel)
+                .unwrap_or(VerificationResult::Ok))
         }
     }
 
@@ -259,9 +360,6 @@ impl Sas {
                     if let UserIdentities::Own(i) = &identity {
                         i.mark_as_verified();
                     }
-                    // TODO if we have the private part of the user signing
-                    // key we should sign and upload a signature for this
-                    // identity.
 
                     Ok(Some(identity))
                 } else {
@@ -314,9 +412,6 @@ impl Sas {
                     );
 
                     device.set_trust_state(LocalTrust::Verified);
-                    // TODO if this is a device from our own user and we have
-                    // the private part of the self signing key, we should sign
-                    // the device and upload the signature.
 
                     Ok(Some(device))
                 } else {
@@ -684,6 +779,7 @@ mod test {
     };
 
     use crate::{
+        olm::PrivateCrossSigningIdentity,
         store::{CryptoStore, MemoryStore},
         verification::test::{get_content_from_request, wrap_any_to_device_content},
         ReadOnlyAccount, ReadOnlyDevice,
@@ -813,10 +909,24 @@ mod test {
 
         let bob_store: Arc<Box<dyn CryptoStore>> = Arc::new(Box::new(bob_store));
 
-        let (alice, content) = Sas::start(alice, bob_device, alice_store, None);
+        let (alice, content) = Sas::start(
+            alice,
+            PrivateCrossSigningIdentity::empty(alice_id()),
+            bob_device,
+            alice_store,
+            None,
+        );
         let event = wrap_to_device_event(alice.user_id(), content);
 
-        let bob = Sas::from_start_event(bob, alice_device, bob_store, &event, None).unwrap();
+        let bob = Sas::from_start_event(
+            bob,
+            PrivateCrossSigningIdentity::empty(bob_id()),
+            alice_device,
+            bob_store,
+            &event,
+            None,
+        )
+        .unwrap();
         let mut event = wrap_any_to_device_content(
             bob.user_id(),
             get_content_from_request(&bob.accept().unwrap()),
@@ -841,13 +951,13 @@ mod test {
 
         let mut event = wrap_any_to_device_content(
             alice.user_id(),
-            get_content_from_request(&alice.confirm().await.unwrap().unwrap()),
+            get_content_from_request(&alice.confirm().await.unwrap().0.unwrap()),
         );
         bob.receive_event(&mut event);
 
         let mut event = wrap_any_to_device_content(
             bob.user_id(),
-            get_content_from_request(&bob.confirm().await.unwrap().unwrap()),
+            get_content_from_request(&bob.confirm().await.unwrap().0.unwrap()),
         );
         alice.receive_event(&mut event);
 

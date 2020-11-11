@@ -98,6 +98,7 @@ pub type Result<T> = std::result::Result<T, CryptoStoreError>;
 #[derive(Debug, Clone)]
 pub(crate) struct Store {
     user_id: Arc<UserId>,
+    identity: Arc<Mutex<PrivateCrossSigningIdentity>>,
     inner: Arc<Box<dyn CryptoStore>>,
     verification_machine: VerificationMachine,
 }
@@ -130,11 +131,13 @@ pub struct DeviceChanges {
 impl Store {
     pub fn new(
         user_id: Arc<UserId>,
+        identity: Arc<Mutex<PrivateCrossSigningIdentity>>,
         store: Arc<Box<dyn CryptoStore>>,
         verification_machine: VerificationMachine,
     ) -> Self {
         Self {
             user_id,
+            identity,
             inner: store,
             verification_machine,
         }
@@ -216,6 +219,7 @@ impl Store {
 
         Ok(UserDevices {
             inner: devices,
+            private_identity: self.identity.clone(),
             verification_machine: self.verification_machine.clone(),
             own_identity,
             device_owner_identity,
@@ -240,6 +244,7 @@ impl Store {
             .await?
             .map(|d| Device {
                 inner: d,
+                private_identity: self.identity.clone(),
                 verification_machine: self.verification_machine.clone(),
                 own_identity,
                 device_owner_identity,

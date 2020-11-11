@@ -38,11 +38,17 @@ impl Sas {
 
     /// Confirm that the short auth strings match on both sides.
     pub async fn confirm(&self) -> Result<()> {
-        if let Some(req) = self.inner.confirm().await? {
+        let (to_device, signature) = self.inner.confirm().await?;
+
+        if let Some(req) = to_device {
             let txn_id_string = req.txn_id_string();
             let request = ToDeviceRequest::new(req.event_type, &txn_id_string, req.messages);
 
             self.http_client.send(request).await?;
+        }
+
+        if let Some(s) = signature {
+            self.http_client.send(s).await?;
         }
 
         Ok(())

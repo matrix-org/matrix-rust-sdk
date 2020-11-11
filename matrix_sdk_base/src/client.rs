@@ -28,8 +28,8 @@ use matrix_sdk_common::locks::Mutex;
 use matrix_sdk_common::{
     api::r0 as api,
     events::{
-        room::member::MemberEventContent, AnyStrippedStateEvent, AnySyncRoomEvent,
-        AnySyncStateEvent, SyncStateEvent, AnySyncMessageEvent
+        room::member::MemberEventContent, AnyStrippedStateEvent, AnySyncMessageEvent,
+        AnySyncRoomEvent, AnySyncStateEvent, SyncStateEvent,
     },
     identifiers::{RoomId, UserId},
     locks::RwLock,
@@ -51,11 +51,10 @@ use matrix_sdk_crypto::{
 use tracing::info;
 use zeroize::Zeroizing;
 
-use crate::store::RoomType;
 use crate::{
     error::Result,
     session::Session,
-    store::{Room, StateChanges, Store},
+    store::{Room, RoomType, StateChanges, Store},
 };
 
 pub type Token = String;
@@ -104,7 +103,9 @@ pub fn hoist_and_deserialize_state_event(
     Ok(ev)
 }
 
-fn hoist_room_event_prev_content(event: &Raw<AnySyncRoomEvent>) -> StdResult<AnySyncRoomEvent, serde_json::Error> {
+fn hoist_room_event_prev_content(
+    event: &Raw<AnySyncRoomEvent>,
+) -> StdResult<AnySyncRoomEvent, serde_json::Error> {
     let prev_content = serde_json::from_str::<AdditionalEventData>(event.json().get())
         .map(|more_unsigned| more_unsigned.unsigned)
         .map(|additional| additional.prev_content)?;

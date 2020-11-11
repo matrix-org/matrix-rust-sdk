@@ -354,12 +354,13 @@ mod test {
         let identity = Arc::new(Mutex::new(PrivateCrossSigningIdentity::empty(
             user_id.clone(),
         )));
-        let verification = VerificationMachine::new(account.clone(), identity, store.clone());
+        let verification =
+            VerificationMachine::new(account.clone(), identity.clone(), store.clone());
 
         let user_id = Arc::new(user_id);
         let device_id = Arc::new(device_id);
 
-        let store = Store::new(user_id.clone(), store, verification);
+        let store = Store::new(user_id.clone(), identity, store, verification);
 
         let account = Account {
             inner: account,
