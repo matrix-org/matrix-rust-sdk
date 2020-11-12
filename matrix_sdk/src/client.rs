@@ -16,7 +16,6 @@
 #[cfg(feature = "encryption")]
 use std::{collections::BTreeMap, io::Write, path::PathBuf};
 use std::{
-    collections::HashMap,
     convert::{TryFrom, TryInto},
     fmt::{self, Debug},
     future::Future,
@@ -98,7 +97,6 @@ use matrix_sdk_common::{
     identifiers::{DeviceIdBox, EventId, RoomId, RoomIdOrAliasId, ServerName, UserId},
     instant::{Duration, Instant},
     js_int::UInt,
-    locks::RwLock,
     presence::PresenceState,
     uuid::Uuid,
     FromHttpResponseError,

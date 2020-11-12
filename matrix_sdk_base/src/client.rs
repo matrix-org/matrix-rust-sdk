@@ -14,7 +14,6 @@
 // limitations under the License.
 
 use std::{
-    convert::TryFrom,
     fmt,
     path::{Path, PathBuf},
     result::Result as StdResult,
@@ -28,8 +27,8 @@ use matrix_sdk_common::locks::Mutex;
 use matrix_sdk_common::{
     api::r0 as api,
     events::{
-        room::member::MemberEventContent, AnyStrippedStateEvent, AnySyncMessageEvent,
-        AnySyncRoomEvent, AnySyncStateEvent, SyncStateEvent,
+        room::member::MemberEventContent, AnyStrippedStateEvent, AnySyncRoomEvent,
+        AnySyncStateEvent, SyncStateEvent,
     },
     identifiers::{RoomId, UserId},
     locks::RwLock,
@@ -122,13 +121,6 @@ fn hoist_room_event_prev_content(
     }
 
     Ok(ev)
-}
-
-fn calculate_membership_change(
-    existing_event: SyncStateEvent<MemberEventContent>,
-    new_event: SyncStateEvent<MemberEventContent>,
-) -> bool {
-    false
 }
 
 fn stripped_deserialize_prev_content(
@@ -405,12 +397,18 @@ impl BaseClient {
         self.sync_token.read().await.clone()
     }
 
-    fn get_or_create_room(&self, room_id: &RoomId, room_type: RoomType) -> Room {
+    async fn get_or_create_room(&self, room_id: &RoomId, room_type: RoomType) -> Room {
+        let session = self.session.read().await;
+        let user_id = &session
+            .as_ref()
+            .expect("Creating room while not being logged in")
+            .user_id;
+
         match room_type {
             RoomType::Joined => self
                 .joined_rooms
                 .entry(room_id.clone())
-                .or_insert_with(|| Room::new(self.store.clone(), room_id, room_type))
+                .or_insert_with(|| Room::new(user_id, self.store.clone(), room_id, room_type))
                 .clone(),
             _ => todo!(),
         }
@@ -474,7 +472,7 @@ impl BaseClient {
             };
 
         for (room_id, room_info) in &response.rooms.join {
-            let room = self.get_or_create_room(room_id, RoomType::Joined);
+            let room = self.get_or_create_room(room_id, RoomType::Joined).await;
 
             let mut summary = room.clone_summary();
             summary.update(&room_info.summary);
@@ -497,17 +495,15 @@ impl BaseClient {
             for event in &room_info.timeline.events {
                 if let Ok(e) = hoist_room_event_prev_content(event) {
                     match e {
-                        AnySyncRoomEvent::State(s) => {
-                            match s {
-                                AnySyncStateEvent::RoomMember(member) => {
-                                    handle_membership(&mut changes, room_id, member);
-                                }
-                                _ => {
-                                    summary.handle_state_event(&s);
-                                    changes.add_state_event(room_id, s);
-                                }
+                        AnySyncRoomEvent::State(s) => match s {
+                            AnySyncStateEvent::RoomMember(member) => {
+                                handle_membership(&mut changes, room_id, member);
                             }
-                        }
+                            _ => {
+                                summary.handle_state_event(&s);
+                                changes.add_state_event(room_id, s);
+                            }
+                        },
                         AnySyncRoomEvent::Message(_) => {
                             // TODO decrypt the event if it's an encrypted one.
                         }
@@ -624,7 +620,7 @@ impl BaseClient {
                 // let joined_members = room.joined_members.keys();
                 // let invited_members = room.joined_members.keys();
                 // let members: Vec<&UserId> = joined_members.chain(invited_members).collect();
-                let members = self.store.get_joined_members(room_id).await;
+                let members = self.store.get_joined_user_ids(room_id).await;
                 Ok(
                     o.share_group_session(room_id, members.iter(), EncryptionSettings::default())
                         .await?,

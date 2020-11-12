@@ -9,10 +9,7 @@ use futures::executor::block_on;
 use matrix_sdk_common::{
     api::r0::sync::sync_events::RoomSummary as RumaSummary,
     events::{
-        room::{
-            canonical_alias::CanonicalAliasEventContent, create::CreateEventContent,
-            encryption::EncryptionEventContent, member::MemberEventContent, name::NameEventContent,
-        },
+        room::{encryption::EncryptionEventContent, member::MemberEventContent},
         AnySyncStateEvent, EventContent, SyncStateEvent,
     },
     identifiers::{RoomAliasId, RoomId, UserId},
@@ -29,6 +26,7 @@ pub struct Store {
     session: Tree,
     members: Tree,
     joined_user_ids: Tree,
+    invited_user_ids: Tree,
     room_state: Tree,
     room_summaries: Tree,
 }
@@ -42,8 +40,8 @@ pub struct StateChanges {
     state: BTreeMap<RoomId, BTreeMap<String, AnySyncStateEvent>>,
     pub room_summaries: BTreeMap<RoomId, InnerSummary>,
     // display_names: BTreeMap<RoomId, BTreeMap<String, BTreeMap<UserId, ()>>>,
-    joined_user_ids: BTreeMap<RoomId, UserId>,
-    invited_user_ids: BTreeMap<RoomId, UserId>,
+    joined_user_ids: BTreeMap<RoomId, Vec<UserId>>,
+    invited_user_ids: BTreeMap<RoomId, Vec<UserId>>,
     removed_user_ids: BTreeMap<RoomId, UserId>,
 }
 
@@ -55,7 +53,9 @@ impl StateChanges {
     ) {
         let user_id = UserId::try_from(event.state_key.as_str()).unwrap();
         self.joined_user_ids
-            .insert(room_id.to_owned(), user_id.clone());
+            .entry(room_id.to_owned())
+            .or_insert_with(Vec::new)
+            .push(user_id.clone());
         self.members
             .entry(room_id.to_owned())
             .or_insert_with(BTreeMap::new)
@@ -69,7 +69,9 @@ impl StateChanges {
     ) {
         let user_id = UserId::try_from(event.state_key.as_str()).unwrap();
         self.invited_user_ids
-            .insert(room_id.to_owned(), user_id.clone());
+            .entry(room_id.to_owned())
+            .or_insert_with(Vec::new)
+            .push(user_id.clone());
         self.members
             .entry(room_id.to_owned())
             .or_insert_with(BTreeMap::new)
@@ -108,6 +110,7 @@ impl From<Session> for StateChanges {
 #[derive(Debug, Clone)]
 pub struct Room {
     room_id: Arc<RoomId>,
+    own_user_id: Arc<UserId>,
     inner: Arc<SyncMutex<InnerSummary>>,
     store: Store,
 }
@@ -131,10 +134,11 @@ pub enum RoomType {
 }
 
 impl Room {
-    pub fn new(store: Store, room_id: &RoomId, room_type: RoomType) -> Self {
+    pub fn new(own_user_id: &UserId, store: Store, room_id: &RoomId, room_type: RoomType) -> Self {
         let room_id = Arc::new(room_id.clone());
 
         Self {
+            own_user_id: Arc::new(own_user_id.clone()),
             room_id: room_id.clone(),
             store,
             inner: Arc::new(SyncMutex::new(InnerSummary {
@@ -150,12 +154,95 @@ impl Room {
         }
     }
 
+    pub async fn get_j_members(&self) -> Vec<RoomMember> {
+        let joined = self.store.get_joined_user_ids(self.room_id()).await;
+        let invited = self.store.get_invited_user_ids(self.room_id()).await;
+
+        let mut members = Vec::new();
+
+        for user in joined.into_iter().chain(invited) {
+            self.store
+                .get_member_event(self.room_id(), &user)
+                .await
+                .map(|e| members.push(e.into()));
+        }
+
+        members
+    }
+
+    /// Calculate the canonical display name of the room, taking into account
+    /// its name, aliases and members.
+    ///
+    /// The display name is calculated according to [this algorithm][spec].
+    ///
+    /// [spec]:
+    /// <https://matrix.org/docs/spec/client_server/latest#calculating-the-display-name-for-a-room>
+    pub async fn calculate_name(&self) -> String {
+        let inner = self.inner.lock().unwrap();
+
+        if let Some(name) = &inner.name {
+            let name = name.trim();
+            name.to_string()
+        } else if let Some(alias) = &inner.canonical_alias {
+            let alias = alias.alias().trim();
+            alias.to_string()
+        } else {
+            let joined = inner.summary.joined_member_count;
+            let invited = inner.summary.invited_member_count;
+            let heroes_count = inner.summary.heroes.len() as u64;
+            let invited_joined = (invited + joined).saturating_sub(1);
+
+            let members = self.get_j_members().await;
+
+            info!(
+                "Calculating name for {}, hero count {} members {:#?}",
+                self.room_id(),
+                heroes_count,
+                members
+            );
+            // TODO: This should use `self.heroes` but it is always empty??
+            if heroes_count >= invited_joined {
+                let mut names = members
+                    .iter()
+                    .filter(|m| &m.user_id() != &*self.own_user_id)
+                    .take(3)
+                    .map(|mem| {
+                        mem.display_name()
+                            .clone()
+                            .unwrap_or_else(|| mem.user_id().localpart().to_string())
+                    })
+                    .collect::<Vec<String>>();
+                // stabilize ordering
+                names.sort();
+                names.join(", ")
+            } else if heroes_count < invited_joined && invited + joined > 1 {
+                let mut names = members
+                    .iter()
+                    .filter(|m| &m.user_id() != &*self.own_user_id)
+                    .take(3)
+                    .map(|mem| {
+                        mem.display_name()
+                            .clone()
+                            .unwrap_or_else(|| mem.user_id().localpart().to_string())
+                    })
+                    .collect::<Vec<String>>();
+                names.sort();
+
+                // TODO: What length does the spec want us to use here and in
+                // the `else`?
+                format!("{}, and {} others", names.join(", "), (joined + invited))
+            } else {
+                "Empty room".to_string()
+            }
+        }
+    }
+
     pub(crate) fn clone_summary(&self) -> InnerSummary {
         (*self.inner.lock().unwrap()).clone()
     }
 
     pub async fn joined_user_ids(&self) -> Vec<UserId> {
-        self.store.get_joined_members(&self.room_id).await
+        self.store.get_joined_user_ids(&self.room_id).await
     }
 
     pub fn is_encrypted(&self) -> bool {
@@ -176,17 +263,21 @@ impl Room {
         &self.room_id
     }
 
-    pub fn display_name(&self) -> String {
-        self.inner.lock().unwrap().calculate_name()
+    pub async fn display_name(&self) -> String {
+        self.calculate_name().await
     }
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct RoomMember {
     event: Arc<SyncStateEvent<MemberEventContent>>,
 }
 
 impl RoomMember {
+    pub fn user_id(&self) -> UserId {
+        UserId::try_from(self.event.state_key.clone()).unwrap()
+    }
+
     pub fn display_name(&self) -> &Option<String> {
         &self.event.content.displayname
     }
@@ -228,63 +319,6 @@ pub struct InnerSummary {
 }
 
 impl InnerSummary {
-    /// Calculate the canonical display name of the room, taking into account
-    /// its name, aliases and members.
-    ///
-    /// The display name is calculated according to [this algorithm][spec].
-    ///
-    /// [spec]:
-    /// <https://matrix.org/docs/spec/client_server/latest#calculating-the-display-name-for-a-room>
-    pub fn calculate_name(&self) -> String {
-        if let Some(name) = &self.name {
-            let name = name.trim();
-            name.to_string()
-        } else if let Some(alias) = &self.canonical_alias {
-            let alias = alias.alias().trim();
-            alias.to_string()
-        } else {
-            // let joined = self.joined_member_count.unwrap_or_else(|| uint!(0));
-            // let invited = self.invited_member_count.unwrap_or_else(|| uint!(0));
-            // let heroes_count = self.summary.heroes.len();
-            // let invited_joined = (invited + joined).saturating_sub(uint!(1));
-
-            // let members = joined_members.values().chain(invited_members.values());
-
-            // // TODO: This should use `self.heroes` but it is always empty??
-            // if heroes >= invited_joined {
-            //     let mut names = members
-            //         .filter(|m| m.user_id != *own_user_id)
-            //         .take(3)
-            //         .map(|mem| {
-            //             mem.display_name
-            //                 .clone()
-            //                 .unwrap_or_else(|| mem.user_id.localpart().to_string())
-            //         })
-            //         .collect::<Vec<String>>();
-            //     // stabilize ordering
-            //     names.sort();
-            //     names.join(", ")
-            // } else if heroes < invited_joined && invited + joined > uint!(1) {
-            //     let mut names = members
-            //         .filter(|m| m.user_id != *own_user_id)
-            //         .take(3)
-            //         .map(|mem| {
-            //             mem.display_name
-            //                 .clone()
-            //                 .unwrap_or_else(|| mem.user_id.localpart().to_string())
-            //         })
-            //         .collect::<Vec<String>>();
-            //     names.sort();
-
-            //     // TODO: What length does the spec want us to use here and in
-            //     // the `else`?
-            //     format!("{}, and {} others", names.join(", "), (joined + invited))
-            // } else {
-            "Empty room".to_string()
-            // }
-        }
-    }
-
     pub fn handle_state_events(&mut self, state_events: &[Raw<AnySyncStateEvent>]) {
         for e in state_events {
             if let Ok(event) = hoist_and_deserialize_state_event(e) {
@@ -297,18 +331,6 @@ impl InnerSummary {
         }
     }
 
-    pub fn mark_as_encrypted(&mut self, event: &SyncStateEvent<EncryptionEventContent>) {
-        self.encryption = Some(event.content.clone());
-    }
-
-    pub fn set_name(&mut self, event: &SyncStateEvent<NameEventContent>) {
-        self.name = event.content.name().map(|n| n.to_string());
-    }
-
-    pub fn set_canonical_alias(&mut self, event: &SyncStateEvent<CanonicalAliasEventContent>) {
-        self.canonical_alias = event.content.alias.clone();
-    }
-
     pub fn set_prev_batch(&mut self, prev_batch: Option<&str>) -> bool {
         if self.last_prev_batch.as_deref() != prev_batch {
             self.last_prev_batch = prev_batch.map(|p| p.to_string());
@@ -318,10 +340,7 @@ impl InnerSummary {
         }
     }
 
-    pub fn handle_state_event(
-        &mut self,
-        event: &AnySyncStateEvent,
-    ) -> bool {
+    pub fn handle_state_event(&mut self, event: &AnySyncStateEvent) -> bool {
         match event {
             AnySyncStateEvent::RoomEncryption(encryption) => {
                 info!("MARKING ROOM {} AS ENCRYPTED", self.room_id);
@@ -376,6 +395,7 @@ impl Store {
 
         let members = db.open_tree("members").unwrap();
         let joined_user_ids = db.open_tree("joined_user_ids").unwrap();
+        let invited_user_ids = db.open_tree("invited_user_ids").unwrap();
 
         let room_state = db.open_tree("room_state").unwrap();
         let room_summaries = db.open_tree("room_summaries").unwrap();
@@ -385,6 +405,7 @@ impl Store {
             session,
             members,
             joined_user_ids,
+            invited_user_ids,
             room_state,
             room_summaries,
         }
@@ -409,10 +430,11 @@ impl Store {
             &self.session,
             &self.members,
             &self.joined_user_ids,
+            &self.invited_user_ids,
             &self.room_state,
             &self.room_summaries,
         )
-            .transaction(|(session, members, joined, state, summaries)| {
+            .transaction(|(session, members, joined, invited, state, summaries)| {
                 if let Some(s) = &changes.session {
                     session.insert("session", serde_json::to_vec(s).unwrap())?;
                 }
@@ -426,8 +448,22 @@ impl Store {
                     }
                 }
 
-                for (room, user) in &changes.joined_user_ids {
-                    joined.insert(room.as_bytes(), user.as_bytes())?;
+                for (room, users) in &changes.joined_user_ids {
+                    for user in users {
+                        let key = format!("{}{}", room.as_str(), user.as_str());
+                        info!("SAVING joined {}", &key);
+                        joined.insert(key.as_bytes(), user.as_bytes())?;
+                        invited.remove(key.as_bytes())?;
+                    }
+                }
+
+                for (room, users) in &changes.invited_user_ids {
+                    for user in users {
+                        let key = format!("{}{}", room.as_str(), user.as_str());
+                        info!("SAVING invited {}", &key);
+                        invited.insert(key.as_bytes(), user.as_bytes())?;
+                        joined.remove(key.as_bytes())?;
+                    }
                 }
 
                 for (room, events) in &changes.state {
@@ -468,7 +504,14 @@ impl Store {
             .map(|v| serde_json::from_slice(&v).unwrap())
     }
 
-    pub async fn get_joined_members(&self, room_id: &RoomId) -> Vec<UserId> {
+    pub async fn get_invited_user_ids(&self, room_id: &RoomId) -> Vec<UserId> {
+        self.invited_user_ids
+            .scan_prefix(room_id.as_bytes())
+            .map(|u| UserId::try_from(String::from_utf8_lossy(&u.unwrap().1).to_string()).unwrap())
+            .collect()
+    }
+
+    pub async fn get_joined_user_ids(&self, room_id: &RoomId) -> Vec<UserId> {
         self.joined_user_ids
             .scan_prefix(room_id.as_bytes())
             .map(|u| UserId::try_from(String::from_utf8_lossy(&u.unwrap().1).to_string()).unwrap())
