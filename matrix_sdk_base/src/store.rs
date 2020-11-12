@@ -40,7 +40,7 @@ pub struct StateChanges {
     session: Option<Session>,
     members: BTreeMap<RoomId, BTreeMap<UserId, SyncStateEvent<MemberEventContent>>>,
     state: BTreeMap<RoomId, BTreeMap<String, AnySyncStateEvent>>,
-    room_summaries: BTreeMap<RoomId, InnerSummary>,
+    pub room_summaries: BTreeMap<RoomId, InnerSummary>,
     // display_names: BTreeMap<RoomId, BTreeMap<String, BTreeMap<UserId, ()>>>,
     joined_user_ids: BTreeMap<RoomId, UserId>,
     invited_user_ids: BTreeMap<RoomId, UserId>,
@@ -112,7 +112,7 @@ pub struct Room {
     store: Store,
 }
 
-#[derive(Debug, Default, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct SomeSummary {
     heroes: Vec<String>,
     joined_member_count: u64,
@@ -120,7 +120,7 @@ pub struct SomeSummary {
 }
 
 /// Signals to the `BaseClient` which `RoomState` to send to `EventEmitter`.
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
 pub enum RoomType {
     /// Represents a joined room, the `joined_rooms` HashMap will be used.
     Joined,
@@ -150,48 +150,8 @@ impl Room {
         }
     }
 
-    pub fn handle_state_events(&self, state_events: &[Raw<AnySyncStateEvent>]) -> InnerSummary {
-        // let summary = (&*self.inner.lock().unwrap()).clone();
-
-        // for e in state_events {
-        //         if let Ok(event) = hoist_and_deserialize_state_event(e) {
-        //             match event {
-        //                 _ => {
-        //                     self.handle_state_event(&mut summary, &event);
-        //                 }
-        //             }
-        //         }
-        //     }
-
-        todo!();
-    }
-
-    pub fn handle_state_event(
-        &self,
-        summary: &mut InnerSummary,
-        event: &AnySyncStateEvent,
-    ) -> bool {
-        match event {
-            AnySyncStateEvent::RoomEncryption(encryption) => {
-                info!("MARKING ROOM {} AS ENCRYPTED", self.room_id);
-                summary.encryption = Some(encryption.content.clone());
-                true
-            }
-            AnySyncStateEvent::RoomName(n) => {
-                summary.name = n.content.name().map(|n| n.to_string());
-                true
-            }
-            AnySyncStateEvent::RoomCanonicalAlias(a) => {
-                summary.canonical_alias = a.content.alias.clone();
-                true
-            }
-            _ => false,
-        }
-    }
-
-    fn serialize(&self) -> Vec<u8> {
-        let inner = self.inner.lock().unwrap();
-        serde_json::to_vec(&*inner).unwrap()
+    pub(crate) fn clone_summary(&self) -> InnerSummary {
+        (*self.inner.lock().unwrap()).clone()
     }
 
     pub async fn joined_user_ids(&self) -> Vec<UserId> {
@@ -200,29 +160,6 @@ impl Room {
 
     pub fn is_encrypted(&self) -> bool {
         self.inner.lock().unwrap().encryption.is_some()
-    }
-
-    pub fn mark_as_encrypted(&self, event: &SyncStateEvent<EncryptionEventContent>) {
-        self.inner.lock().unwrap().encryption = Some(event.content.clone());
-    }
-
-    pub fn set_name(&self, event: &SyncStateEvent<NameEventContent>) {
-        self.inner.lock().unwrap().name = event.content.name().map(|n| n.to_string());
-    }
-
-    pub fn set_canonical_alias(&self, event: &SyncStateEvent<CanonicalAliasEventContent>) {
-        self.inner.lock().unwrap().canonical_alias = event.content.alias.clone();
-    }
-
-    pub fn set_prev_batch(&self, prev_batch: Option<String>) -> bool {
-        let mut inner = self.inner.lock().unwrap();
-
-        if inner.last_prev_batch != prev_batch {
-            inner.last_prev_batch = prev_batch;
-            true
-        } else {
-            false
-        }
     }
 
     pub fn update_summary(&self, summary: InnerSummary) {
@@ -275,7 +212,7 @@ impl From<SyncStateEvent<MemberEventContent>> for RoomMember {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct InnerSummary {
     room_id: Arc<RoomId>,
     room_type: RoomType,
@@ -348,7 +285,62 @@ impl InnerSummary {
         }
     }
 
-    fn update(&mut self, summary: RumaSummary) -> bool {
+    pub fn handle_state_events(&mut self, state_events: &[Raw<AnySyncStateEvent>]) {
+        for e in state_events {
+            if let Ok(event) = hoist_and_deserialize_state_event(e) {
+                match event {
+                    _ => {
+                        self.handle_state_event(&event);
+                    }
+                }
+            }
+        }
+    }
+
+    pub fn mark_as_encrypted(&mut self, event: &SyncStateEvent<EncryptionEventContent>) {
+        self.encryption = Some(event.content.clone());
+    }
+
+    pub fn set_name(&mut self, event: &SyncStateEvent<NameEventContent>) {
+        self.name = event.content.name().map(|n| n.to_string());
+    }
+
+    pub fn set_canonical_alias(&mut self, event: &SyncStateEvent<CanonicalAliasEventContent>) {
+        self.canonical_alias = event.content.alias.clone();
+    }
+
+    pub fn set_prev_batch(&mut self, prev_batch: Option<&str>) -> bool {
+        if self.last_prev_batch.as_deref() != prev_batch {
+            self.last_prev_batch = prev_batch.map(|p| p.to_string());
+            true
+        } else {
+            false
+        }
+    }
+
+    pub fn handle_state_event(
+        &mut self,
+        event: &AnySyncStateEvent,
+    ) -> bool {
+        match event {
+            AnySyncStateEvent::RoomEncryption(encryption) => {
+                info!("MARKING ROOM {} AS ENCRYPTED", self.room_id);
+                self.encryption = Some(encryption.content.clone());
+                true
+            }
+            AnySyncStateEvent::RoomName(n) => {
+                self.name = n.content.name().map(|n| n.to_string());
+                true
+            }
+            AnySyncStateEvent::RoomCanonicalAlias(a) => {
+                self.canonical_alias = a.content.alias.clone();
+                true
+            }
+            _ => false,
+        }
+    }
+
+    pub(crate) fn update(&mut self, summary: &RumaSummary) -> bool {
         let mut changed = false;
 
         info!("UPDAGING SUMMARY FOR {} WITH {:#?}", self.room_id, summary);

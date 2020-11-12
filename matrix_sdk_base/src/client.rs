@@ -469,50 +469,44 @@ impl BaseClient {
                         info!("ADDING INVITED MEMBER {} to {}", event.state_key, room_id);
                         changes.add_invited_member(room_id, event)
                     }
-                    _ => (),
+                    _ => info!("UNHANDLED MEMBERSHIP"),
                 }
             };
 
         for (room_id, room_info) in &response.rooms.join {
             let room = self.get_or_create_room(room_id, RoomType::Joined);
 
-            // if room.update_summary(&room_info.summary) {
-            //     changes.add_room(room.clone())
-            // }
+            let mut summary = room.clone_summary();
+            summary.update(&room_info.summary);
+            summary.set_prev_batch(room_info.timeline.prev_batch.as_deref());
 
-            // for e in &room_info.state.events {
-            //     if let Ok(event) = hoist_and_deserialize_state_event(e) {
-            //         match event {
-            //             AnySyncStateEvent::RoomMember(member) => {
-            //                 handle_membership(&mut changes, room_id, member);
-            //             }
-            //             _ => {
-            //                 changes.add_room(room.handle_state_event(&event));
-            //                 changes.add_state_event(room_id, event);
-            //             }
-            //         }
-            //     }
-            // }
-
-            // if room.set_prev_batch(room_info.timeline.prev_batch.clone()) {
-            //     changes.add_room(room.clone());
-            // }
+            for e in &room_info.state.events {
+                if let Ok(event) = hoist_and_deserialize_state_event(e) {
+                    match event {
+                        AnySyncStateEvent::RoomMember(member) => {
+                            handle_membership(&mut changes, room_id, member);
+                        }
+                        e => {
+                            summary.handle_state_event(&e);
+                            changes.add_state_event(room_id, e);
+                        }
+                    }
+                }
+            }
 
             for event in &room_info.timeline.events {
                 if let Ok(e) = hoist_room_event_prev_content(event) {
                     match e {
                         AnySyncRoomEvent::State(s) => {
-                            // match s {
-                            //     AnySyncStateEvent::RoomMember(member) => {
-                            //         handle_membership(&mut changes, room_id, member);
-                            //     }
-                            //     _ => {
-                            //         if room.handle_state_event(&s) {
-                            //             changes.add_room(room.clone());
-                            //         }
-                            //         changes.add_state_event(room_id, s);
-                            //     }
-                            // }
+                            match s {
+                                AnySyncStateEvent::RoomMember(member) => {
+                                    handle_membership(&mut changes, room_id, member);
+                                }
+                                _ => {
+                                    summary.handle_state_event(&s);
+                                    changes.add_state_event(room_id, s);
+                                }
+                            }
                         }
                         AnySyncRoomEvent::Message(_) => {
                             // TODO decrypt the event if it's an encrypted one.
@@ -521,10 +515,20 @@ impl BaseClient {
                     }
                 }
             }
+
+            changes.add_room(summary);
         }
 
         self.store.save_changes(&changes).await;
+
         *self.sync_token.write().await = Some(response.next_batch.clone());
+
+        // TODO emit room changes here
+        for (room_id, summary) in changes.room_summaries {
+            if let Some(room) = self.get_joined_room(&room_id) {
+                room.update_summary(summary)
+            }
+        }
 
         Ok(())
     }
