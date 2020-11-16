@@ -27,6 +27,7 @@ use std::{
 
 #[cfg(feature = "encryption")]
 use dashmap::DashMap;
+use futures::StreamExt;
 use futures_timer::Delay as sleep;
 use http::HeaderValue;
 use mime::{self, Mime};
@@ -1010,8 +1011,9 @@ impl Client {
                 {
                     let room = self.base_client.get_joined_room(room_id).unwrap();
                     let members = room.joined_user_ids().await;
-                    let mut members_iter = members.iter();
-                    self.claim_one_time_keys(&mut members_iter).await?;
+                    // TODO don't collect here.
+                    let members_iter: Vec<UserId> = members.collect().await;
+                    self.claim_one_time_keys(&mut members_iter.iter()).await?;
                 };
 
                 let response = self.share_group_session(room_id).await;

@@ -22,6 +22,7 @@ use std::{
 
 use dashmap::DashMap;
 
+use futures::StreamExt;
 #[cfg(feature = "encryption")]
 use matrix_sdk_common::locks::Mutex;
 use matrix_sdk_common::{
@@ -512,6 +513,19 @@ impl BaseClient {
                 }
             }
 
+            #[cfg(feature = "encryption")]
+            if summary.is_encrypted() {
+                if let Some(o) = self.olm_machine().await {
+                    if let Some(users) = changes.joined_user_ids.get(room_id) {
+                        o.update_tracked_users(users).await
+                    }
+
+                    if let Some(users) = changes.invited_user_ids.get(room_id) {
+                        o.update_tracked_users(users).await
+                    }
+                }
+            }
+
             changes.add_room(summary);
         }
 
@@ -615,12 +629,10 @@ impl BaseClient {
 
         match &*olm {
             Some(o) => {
-                // XXX: We construct members in a slightly roundabout way instead of chaining the
-                // iterators directly because of https://github.com/rust-lang/rust/issues/64552
-                // let joined_members = room.joined_members.keys();
-                // let invited_members = room.joined_members.keys();
-                // let members: Vec<&UserId> = joined_members.chain(invited_members).collect();
-                let members = self.store.get_joined_user_ids(room_id).await;
+                let joined = self.store.get_joined_user_ids(room_id).await;
+                let invited = self.store.get_invited_user_ids(room_id).await;
+                // TODO don't use collect here.
+                let members: Vec<UserId> = joined.chain(invited).collect().await;
                 Ok(
                     o.share_group_session(room_id, members.iter(), EncryptionSettings::default())
                         .await?,
