@@ -298,7 +298,7 @@ impl KeyRequestMachine {
         &self,
         event: &ToDeviceEvent<RoomKeyRequestEventContent>,
     ) -> OlmResult<()> {
-        let key_info = match event.content.action {
+        let key_info = match &event.content.action {
             Action::Request => {
                 if let Some(info) = &event.content.body {
                     info
@@ -313,9 +313,10 @@ impl KeyRequestMachine {
             }
             // We ignore cancellations here since there's nothing to serve.
             Action::CancelRequest => return Ok(()),
-            // There is no other action defined, but ruma makes all enums
-            // non-exhaustive.
-            _ => return Ok(()),
+            action => {
+                warn!("Unknown room key request action: {:?}", action);
+                return Ok(());
+            }
         };
 
         let session = self
