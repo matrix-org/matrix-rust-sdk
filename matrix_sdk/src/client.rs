@@ -1402,10 +1402,10 @@ impl Client {
         sync_settings: SyncSettings<'_>,
     ) -> Result<sync_events::Response> {
         let request = assign!(sync_events::Request::new(), {
-            filter: sync_settings.filter,
+            filter: sync_settings.filter.as_ref(),
             since: sync_settings.token.as_deref(),
             full_state: sync_settings.full_state,
-            set_presence: PresenceState::Online,
+            set_presence: &PresenceState::Online,
             timeout: sync_settings.timeout,
         });
 
@@ -1496,13 +1496,11 @@ impl Client {
     #[instrument(skip(callback))]
     pub async fn sync_with_callback<C>(
         &self,
-        sync_settings: SyncSettings<'_>,
+        mut sync_settings: SyncSettings<'_>,
         callback: impl Fn(sync_events::Response) -> C,
     ) where
         C: Future<Output = LoopCtrl>,
     {
-        let mut sync_settings = sync_settings;
-        let filter = sync_settings.filter;
         let mut last_sync_time: Option<Instant> = None;
 
         if sync_settings.token.is_none() {
@@ -1510,6 +1508,7 @@ impl Client {
         }
 
         loop {
+            let filter = sync_settings.filter.clone();
             let response = self.sync_once(sync_settings.clone()).await;
 
             let response = match response {
@@ -1577,8 +1576,8 @@ impl Client {
                     .await
                     .expect("No sync token found after initial sync"),
             );
-            if let Some(f) = filter.as_ref() {
-                sync_settings = sync_settings.filter(*f);
+            if let Some(f) = filter {
+                sync_settings = sync_settings.filter(f);
             }
         }
     }
