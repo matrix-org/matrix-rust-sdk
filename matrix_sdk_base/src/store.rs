@@ -158,6 +158,10 @@ impl Room {
         }
     }
 
+    pub async fn are_members_synced(&self) -> bool {
+        true
+    }
+
     pub async fn get_j_members(&self) -> impl Stream<Item = RoomMember> + '_ {
         let joined = self.store.get_joined_user_ids(self.room_id()).await;
         let invited = self.store.get_invited_user_ids(self.room_id()).await;

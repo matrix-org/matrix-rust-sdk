@@ -14,6 +14,7 @@
 // limitations under the License.
 
 use std::{
+    convert::TryFrom,
     fmt,
     path::{Path, PathBuf},
     result::Result as StdResult,
@@ -29,7 +30,7 @@ use matrix_sdk_common::{
     api::r0 as api,
     events::{
         room::member::MemberEventContent, AnyStrippedStateEvent, AnySyncRoomEvent,
-        AnySyncStateEvent, SyncStateEvent,
+        AnySyncStateEvent, StateEvent, SyncStateEvent,
     },
     identifiers::{RoomId, UserId},
     locks::RwLock,
@@ -103,6 +104,22 @@ pub fn hoist_and_deserialize_state_event(
     Ok(ev)
 }
 
+fn hoist_member_event(
+    event: &Raw<StateEvent<MemberEventContent>>,
+) -> StdResult<StateEvent<MemberEventContent>, serde_json::Error> {
+    let prev_content = serde_json::from_str::<AdditionalEventData>(event.json().get())?
+        .unsigned
+        .prev_content;
+
+    let mut e = event.deserialize()?;
+
+    if e.prev_content.is_none() {
+        e.prev_content = prev_content.map(|e| e.deserialize().ok()).flatten();
+    }
+
+    Ok(e)
+}
+
 fn hoist_room_event_prev_content(
     event: &Raw<AnySyncRoomEvent>,
 ) -> StdResult<AnySyncRoomEvent, serde_json::Error> {
@@ -130,6 +147,27 @@ fn stripped_deserialize_prev_content(
     serde_json::from_str::<AdditionalEventData>(event.json().get())
         .map(|more_unsigned| more_unsigned.unsigned)
         .ok()
+}
+
+fn handle_membership(
+    changes: &mut StateChanges,
+    room_id: &RoomId,
+    event: SyncStateEvent<MemberEventContent>,
+) {
+    use matrix_sdk_common::events::room::member::MembershipState::*;
+    match &event.content.membership {
+        Join => {
+            info!("ADDING MEMBER {} to {}", event.state_key, room_id);
+            changes.add_joined_member(room_id, event)
+            // TODO check if the display name is
+            // ambigous
+        }
+        Invite => {
+            info!("ADDING INVITED MEMBER {} to {}", event.state_key, room_id);
+            changes.add_invited_member(room_id, event)
+        }
+        _ => info!("UNHANDLED MEMBERSHIP"),
+    }
 }
 
 /// Signals to the `BaseClient` which `RoomState` to send to `EventEmitter`.
@@ -449,29 +487,6 @@ impl BaseClient {
         // apply and emit the new events and rooms.
         let mut changes = StateChanges::default();
 
-        let handle_membership =
-            |changes: &mut StateChanges, room_id, event: SyncStateEvent<MemberEventContent>| {
-                // let member_id = UserId::try_from(member.state_key.clone()).unwrap();
-                // self.store.get_member_event(room_id, &member_id).await;
-
-                // TODO this isn't right, check the diff against
-                // your previous state.
-                use matrix_sdk_common::events::room::member::MembershipState::*;
-                match &event.content.membership {
-                    Join => {
-                        info!("ADDING MEMBER {} to {}", event.state_key, room_id);
-                        changes.add_joined_member(room_id, event)
-                        // TODO check if the display name is
-                        // ambigous
-                    }
-                    Invite => {
-                        info!("ADDING INVITED MEMBER {} to {}", event.state_key, room_id);
-                        changes.add_invited_member(room_id, event)
-                    }
-                    _ => info!("UNHANDLED MEMBERSHIP"),
-                }
-            };
-
         for (room_id, room_info) in &response.rooms.join {
             let room = self.get_or_create_room(room_id, RoomType::Joined).await;
 
@@ -538,6 +553,36 @@ impl BaseClient {
             if let Some(room) = self.get_joined_room(&room_id) {
                 room.update_summary(summary)
             }
+        }
+
+        Ok(())
+    }
+
+    pub async fn receive_members(
+        &self,
+        room_id: &RoomId,
+        response: &api::membership::get_member_events::Response,
+    ) -> Result<()> {
+        if self.get_joined_room(room_id).is_some() {
+            let mut changes = StateChanges::default();
+
+            // TODO make sure we don't overwrite memership events from a sync.
+            for e in &response.chunk {
+                if let Ok(event) = hoist_member_event(e) {
+                    if let Ok(user_id) = UserId::try_from(event.state_key.as_str()) {
+                        if self
+                            .store
+                            .get_member_event(room_id, &user_id)
+                            .await
+                            .is_none()
+                        {
+                            handle_membership(&mut changes, room_id, event.into());
+                        }
+                    }
+                }
+            }
+
+            self.store.save_changes(&changes).await;
         }
 
         Ok(())

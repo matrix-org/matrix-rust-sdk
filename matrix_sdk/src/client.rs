@@ -69,7 +69,7 @@ use matrix_sdk_common::{
         directory::{get_public_rooms, get_public_rooms_filtered},
         media::create_content,
         membership::{
-            ban_user, forget_room,
+            ban_user, forget_room, get_member_events,
             invite_user::{self, InvitationRecipient},
             join_room_by_id, join_room_by_id_or_alias, kick_user, leave_room, Invite3pid,
         },
@@ -1088,6 +1088,11 @@ impl Client {
 
         #[cfg(feature = "encryption")]
         let content = if self.is_room_encrypted(room_id).await {
+            if !self.are_members_synced(room_id).await {
+                self.room_members(room_id).await?;
+                // TODO query keys here?
+            }
+
             self.preshare_group_session(room_id).await?;
             AnyMessageEventContent::RoomEncrypted(self.base_client.encrypt(room_id, content).await?)
         } else {
@@ -1109,6 +1114,13 @@ impl Client {
         match self.base_client.get_joined_room(room_id) {
             Some(r) => r.is_encrypted(),
             None => false,
+        }
+    }
+
+    async fn are_members_synced(&self, room_id: &RoomId) -> bool {
+        match self.base_client.get_joined_room(room_id) {
+            Some(r) => r.is_encrypted(),
+            None => true,
         }
     }
 
@@ -1432,6 +1444,16 @@ impl Client {
         request.auth = auth_data;
 
         self.send(request).await
+    }
+
+    #[allow(dead_code)]
+    async fn room_members(&self, room_id: &RoomId) -> Result<()> {
+        let request = get_member_events::Request::new(room_id);
+        let response = self.send(request).await?;
+
+        self.base_client.receive_members(room_id, &response).await?;
+
+        Ok(())
     }
 
     /// Synchronize the client's state with the latest state on the server.
