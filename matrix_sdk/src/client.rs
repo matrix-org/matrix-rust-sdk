@@ -40,7 +40,7 @@ use zeroize::Zeroizing;
 use tracing::{debug, warn};
 use tracing::{error, info, instrument};
 
-use matrix_sdk_base::{BaseClient, BaseClientConfig, Room, Session};
+use matrix_sdk_base::{responses::SyncResponse, BaseClient, BaseClientConfig, Room, Session};
 
 #[cfg(feature = "encryption")]
 use matrix_sdk_base::crypto::{
@@ -1119,7 +1119,7 @@ impl Client {
 
     async fn are_members_synced(&self, room_id: &RoomId) -> bool {
         match self.base_client.get_joined_room(room_id) {
-            Some(r) => r.is_encrypted(),
+            Some(r) => r.are_members_synced(),
             None => true,
         }
     }
@@ -1468,10 +1468,7 @@ impl Client {
     ///
     /// [`sync`]: #method.sync
     #[instrument]
-    pub async fn sync_once(
-        &self,
-        sync_settings: SyncSettings<'_>,
-    ) -> Result<sync_events::Response> {
+    pub async fn sync_once(&self, sync_settings: SyncSettings<'_>) -> Result<SyncResponse> {
         let request = assign!(sync_events::Request::new(), {
             filter: sync_settings.filter.as_ref(),
             since: sync_settings.token.as_deref(),
@@ -1482,11 +1479,10 @@ impl Client {
 
         let mut response = self.send(request).await?;
 
-        self.base_client
+        Ok(self
+            .base_client
             .receive_sync_response(&mut response)
-            .await?;
-
-        Ok(response)
+            .await?)
     }
 
     /// Repeatedly call sync to synchronize the client state with the server.
@@ -1568,7 +1564,7 @@ impl Client {
     pub async fn sync_with_callback<C>(
         &self,
         sync_settings: SyncSettings<'_>,
-        callback: impl Fn(sync_events::Response) -> C,
+        callback: impl Fn(SyncResponse) -> C,
     ) where
         C: Future<Output = LoopCtrl>,
     {

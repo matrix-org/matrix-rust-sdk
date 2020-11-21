@@ -44,6 +44,7 @@ pub use matrix_sdk_common::*;
 
 mod client;
 mod error;
+pub mod responses;
 mod session;
 mod store;
 

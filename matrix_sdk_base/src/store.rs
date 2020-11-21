@@ -151,6 +151,7 @@ impl Room {
                 encryption: None,
                 summary: Default::default(),
                 last_prev_batch: None,
+                members_synced: false,
                 name: None,
                 canonical_alias: None,
                 avatar_url: None,
@@ -158,8 +159,8 @@ impl Room {
         }
     }
 
-    pub async fn are_members_synced(&self) -> bool {
-        true
+    pub fn are_members_synced(&self) -> bool {
+        self.inner.lock().unwrap().members_synced
     }
 
     pub async fn get_j_members(&self) -> impl Stream<Item = RoomMember> + '_ {
@@ -327,6 +328,7 @@ pub struct InnerSummary {
     avatar_url: Option<String>,
 
     summary: SomeSummary,
+    members_synced: bool,
 
     encryption: Option<EncryptionEventContent>,
     last_prev_batch: Option<String>,
@@ -343,6 +345,14 @@ impl InnerSummary {
                 }
             }
         }
+    }
+
+    pub fn mark_members_synced(&mut self) {
+        self.members_synced = true;
+    }
+
+    pub fn mark_members_missing(&mut self) {
+        self.members_synced = false;
     }
 
     pub fn set_prev_batch(&mut self, prev_batch: Option<&str>) -> bool {

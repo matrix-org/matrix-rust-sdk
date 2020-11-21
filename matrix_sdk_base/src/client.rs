@@ -39,7 +39,7 @@ use matrix_sdk_common::{
 #[cfg(feature = "encryption")]
 use matrix_sdk_common::{
     api::r0::keys::claim_keys::Request as KeysClaimRequest,
-    events::{room::encrypted::EncryptedEventContent, AnyMessageEventContent},
+    events::{room::encrypted::EncryptedEventContent, AnyMessageEventContent, AnySyncMessageEvent},
     identifiers::DeviceId,
     uuid::Uuid,
 };
@@ -49,11 +49,12 @@ use matrix_sdk_crypto::{
     Device, EncryptionSettings, IncomingResponse, OlmError, OlmMachine, OutgoingRequest, Sas,
     ToDeviceRequest, UserDevices,
 };
-use tracing::info;
+use tracing::{info, warn};
 use zeroize::Zeroizing;
 
 use crate::{
     error::Result,
+    responses::{JoinedRoom, Rooms, State, SyncResponse, Timeline},
     session::Session,
     store::{Room, RoomType, StateChanges, Store},
 };
@@ -125,7 +126,9 @@ fn hoist_room_event_prev_content(
 ) -> StdResult<AnySyncRoomEvent, serde_json::Error> {
     let prev_content = serde_json::from_str::<AdditionalEventData>(event.json().get())
         .map(|more_unsigned| more_unsigned.unsigned)
-        .map(|additional| additional.prev_content)?;
+        .map(|additional| additional.prev_content)?
+        .map(|p| p.deserialize().ok())
+        .flatten();
 
     let mut ev = event.deserialize()?;
 
@@ -133,7 +136,7 @@ fn hoist_room_event_prev_content(
         AnySyncRoomEvent::State(AnySyncStateEvent::RoomMember(ref mut member))
             if member.prev_content.is_none() =>
         {
-            member.prev_content = prev_content.map(|p| p.deserialize().ok()).flatten();
+            member.prev_content = prev_content;
         }
         _ => (),
     }
@@ -152,19 +155,19 @@ fn stripped_deserialize_prev_content(
 fn handle_membership(
     changes: &mut StateChanges,
     room_id: &RoomId,
-    event: SyncStateEvent<MemberEventContent>,
+    event: &SyncStateEvent<MemberEventContent>,
 ) {
     use matrix_sdk_common::events::room::member::MembershipState::*;
     match &event.content.membership {
         Join => {
             info!("ADDING MEMBER {} to {}", event.state_key, room_id);
-            changes.add_joined_member(room_id, event)
+            changes.add_joined_member(room_id, event.clone())
             // TODO check if the display name is
             // ambigous
         }
         Invite => {
             info!("ADDING INVITED MEMBER {} to {}", event.state_key, room_id);
-            changes.add_invited_member(room_id, event)
+            changes.add_invited_member(room_id, event.clone())
         }
         _ => info!("UNHANDLED MEMBERSHIP"),
     }
@@ -461,12 +464,12 @@ impl BaseClient {
     pub async fn receive_sync_response(
         &self,
         response: &mut api::sync::sync_events::Response,
-    ) -> Result<()> {
+    ) -> Result<SyncResponse> {
         // The server might respond multiple times with the same sync token, in
         // that case we already received this response and there's nothing to
         // do.
         if self.sync_token.read().await.as_ref() == Some(&response.next_batch) {
-            return Ok(());
+            return Ok(SyncResponse::new_empty(response.next_batch.clone()));
         }
 
         #[cfg(feature = "encryption")]
@@ -487,6 +490,8 @@ impl BaseClient {
         // apply and emit the new events and rooms.
         let mut changes = StateChanges::default();
 
+        let mut rooms = Rooms::default();
+
         for (room_id, room_info) in &response.rooms.join {
             let room = self.get_or_create_room(room_id, RoomType::Joined).await;
 
@@ -494,37 +499,60 @@ impl BaseClient {
             summary.update(&room_info.summary);
             summary.set_prev_batch(room_info.timeline.prev_batch.as_deref());
 
+            let mut state = State::default();
+
             for e in &room_info.state.events {
                 if let Ok(event) = hoist_and_deserialize_state_event(e) {
-                    match event {
+                    match &event {
                         AnySyncStateEvent::RoomMember(member) => {
                             handle_membership(&mut changes, room_id, member);
                         }
                         e => {
                             summary.handle_state_event(&e);
-                            changes.add_state_event(room_id, e);
+                            changes.add_state_event(room_id, e.clone());
                         }
                     }
+
+                    state.events.push(event);
                 }
             }
 
+            let mut timeline = Timeline::new(
+                room_info.timeline.limited,
+                room_info.timeline.prev_batch.clone(),
+            );
+
             for event in &room_info.timeline.events {
-                if let Ok(e) = hoist_room_event_prev_content(event) {
-                    match e {
+                if let Ok(mut e) = hoist_room_event_prev_content(event) {
+                    match &mut e {
                         AnySyncRoomEvent::State(s) => match s {
                             AnySyncStateEvent::RoomMember(member) => {
                                 handle_membership(&mut changes, room_id, member);
                             }
                             _ => {
                                 summary.handle_state_event(&s);
-                                changes.add_state_event(room_id, s);
+                                changes.add_state_event(room_id, s.clone());
                             }
                         },
-                        AnySyncRoomEvent::Message(_) => {
-                            // TODO decrypt the event if it's an encrypted one.
+                        AnySyncRoomEvent::Message(message) =>
+                        {
+                            #[cfg(feature = "encryption")]
+                            if let AnySyncMessageEvent::RoomEncrypted(encrypted) = message {
+                                if let Some(olm) = self.olm_machine().await {
+                                    if let Ok(decrypted) =
+                                        olm.decrypt_room_event(encrypted, room_id).await
+                                    {
+                                        if let Ok(decrypted) = decrypted.deserialize() {
+                                            e = decrypted;
+                                        }
+                                    }
+                                }
+                            }
                         }
                         _ => (),
                     }
+
+                    timeline.events.push(e);
                 }
             }
 
@@ -541,6 +569,14 @@ impl BaseClient {
                 }
             }
 
+            rooms
+                .join
+                .insert(room_id.to_owned(), JoinedRoom::new(timeline, state));
+
+            if room_info.timeline.limited {
+                summary.mark_members_missing();
+            }
+
             changes.add_room(summary);
         }
 
@@ -555,7 +591,7 @@ impl BaseClient {
             }
         }
 
-        Ok(())
+        Ok(SyncResponse::new(response.next_batch.clone(), rooms))
     }
 
     pub async fn receive_members(
@@ -563,8 +599,13 @@ impl BaseClient {
         room_id: &RoomId,
         response: &api::membership::get_member_events::Response,
     ) -> Result<()> {
-        if self.get_joined_room(room_id).is_some() {
+        if let Some(room) = self.get_joined_room(room_id) {
+            let mut summary = room.clone_summary();
+            summary.mark_members_synced();
+
             let mut changes = StateChanges::default();
+
+            changes.add_room(summary);
 
             // TODO make sure we don't overwrite memership events from a sync.
             for e in &response.chunk {
@@ -576,7 +617,7 @@ impl BaseClient {
                             .await
                             .is_none()
                         {
-                            handle_membership(&mut changes, room_id, event.into());
+                            handle_membership(&mut changes, room_id, &event.into());
                         }
                     }
                 }
