@@ -452,6 +452,19 @@ impl Store {
         Store::open_helper(db)
     }
 
+    pub async fn save_filter(&self, filter_name: &str, filter_id: &str) {
+        self.session
+            .insert(&format!("filter{}", filter_name), filter_id)
+            .unwrap();
+    }
+
+    pub async fn get_filter(&self, filter_name: &str) -> Option<String> {
+        self.session
+            .get(&format!("filter{}", filter_name))
+            .unwrap()
+            .map(|f| String::from_utf8_lossy(&f).to_string())
+    }
+
     pub async fn save_changes(&self, changes: &StateChanges) {
         let ret: TransactionResult<()> = (
             &self.session,

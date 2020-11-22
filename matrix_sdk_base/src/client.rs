@@ -49,7 +49,7 @@ use matrix_sdk_crypto::{
     Device, EncryptionSettings, IncomingResponse, OlmError, OlmMachine, OutgoingRequest, Sas,
     ToDeviceRequest, UserDevices,
 };
-use tracing::{info, warn};
+use tracing::info;
 use zeroize::Zeroizing;
 
 use crate::{
@@ -627,6 +627,20 @@ impl BaseClient {
         }
 
         Ok(())
+    }
+
+    pub async fn receive_filter_upload(
+        &self,
+        filter_name: &str,
+        response: &api::filter::create_filter::Response,
+    ) {
+        self.store
+            .save_filter(filter_name, &response.filter_id)
+            .await;
+    }
+
+    pub async fn get_filter(&self, filter_name: &str) -> Option<String> {
+        self.store.get_filter(filter_name).await
     }
 
     /// Should the client share a group session for the given room.

@@ -67,6 +67,7 @@ use matrix_sdk_common::{
         account::register,
         device::{delete_devices, get_devices},
         directory::{get_public_rooms, get_public_rooms_filtered},
+        filter::{create_filter::Request as FilterUploadRequest, FilterDefinition},
         media::create_content,
         membership::{
             ban_user, forget_room, get_member_events,
@@ -604,6 +605,27 @@ impl Client {
 
         let request = registration.into();
         self.send(request).await
+    }
+
+    /// Get or upload a sync filter.
+    pub async fn get_or_upload_filter(
+        &self,
+        filter_name: &str,
+        definition: FilterDefinition<'_>,
+    ) -> Result<String> {
+        if let Some(filter) = self.base_client.get_filter(filter_name).await {
+            Ok(filter)
+        } else {
+            let user_id = self.user_id().await.ok_or(Error::AuthenticationRequired)?;
+            let request = FilterUploadRequest::new(&user_id, definition);
+            let response = self.send(request).await?;
+
+            self.base_client
+                .receive_filter_upload(filter_name, &response)
+                .await;
+
+            Ok(response.filter_id)
+        }
     }
 
     /// Join a room by `RoomId`.
