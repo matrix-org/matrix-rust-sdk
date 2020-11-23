@@ -1468,7 +1468,6 @@ impl Client {
         self.send(request).await
     }
 
-    #[allow(dead_code)]
     async fn room_members(&self, room_id: &RoomId) -> Result<()> {
         let request = get_member_events::Request::new(room_id);
         let response = self.send(request).await?;

@@ -605,8 +605,6 @@ impl BaseClient {
 
             let mut changes = StateChanges::default();
 
-            changes.add_room(summary);
-
             // TODO make sure we don't overwrite memership events from a sync.
             for e in &response.chunk {
                 if let Ok(event) = hoist_member_event(e) {
@@ -622,6 +620,21 @@ impl BaseClient {
                     }
                 }
             }
+
+            #[cfg(feature = "encryption")]
+            if summary.is_encrypted() {
+                if let Some(o) = self.olm_machine().await {
+                    if let Some(users) = changes.joined_user_ids.get(room_id) {
+                        o.update_tracked_users(users).await
+                    }
+
+                    if let Some(users) = changes.invited_user_ids.get(room_id) {
+                        o.update_tracked_users(users).await
+                    }
+                }
+            }
+
+            changes.add_room(summary);
 
             self.store.save_changes(&changes).await;
         }
