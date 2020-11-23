@@ -22,7 +22,6 @@ js_int = "0.1.9"
 version = "0.0.1"
 git = "https://github.com/ruma/ruma"
 rev = "d16fd4b2c1be1b06fd9be99373a3e77d74fadff3"
-default-features = false
 features = ["client-api", "unstable-pre-spec", "unstable-synapse-quirks"]
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
