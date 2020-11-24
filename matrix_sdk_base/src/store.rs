@@ -214,7 +214,23 @@ impl Room {
 
             let is_own_member = |m: &RoomMember| &m.user_id() == &*own_user_id;
 
-            if heroes_count >= invited_joined {
+            if !inner.summary.heroes.is_empty() {
+                let mut names = stream::iter(inner.summary.heroes.iter())
+                    .take(3)
+                    .filter_map(|u| async move {
+                        let user_id = UserId::try_from(u.as_str()).ok()?;
+                        self.get_member(&user_id).await
+                    })
+                    .map(|mem| {
+                        mem.display_name()
+                            .clone()
+                            .unwrap_or_else(|| mem.user_id().localpart().to_string())
+                    })
+                    .collect::<Vec<String>>()
+                    .await;
+                names.sort();
+                names.join(", ")
+            } else if heroes_count >= invited_joined {
                 let mut names = members
                     .filter(|m| future::ready(is_own_member(m)))
                     .take(3)
