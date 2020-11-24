@@ -283,8 +283,11 @@ impl Room {
         *inner = summary;
     }
 
-    pub fn get_member(&self, user_id: &UserId) -> Option<RoomMember> {
-        block_on(self.store.get_member_event(&self.room_id, user_id)).map(|e| e.into())
+    pub async fn get_member(&self, user_id: &UserId) -> Option<RoomMember> {
+        self.store
+            .get_member_event(&self.room_id, user_id)
+            .await
+            .map(|e| e.into())
     }
 
     pub fn room_id(&self) -> &RoomId {
