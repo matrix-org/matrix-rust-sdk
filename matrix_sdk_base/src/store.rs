@@ -155,6 +155,7 @@ impl Room {
                 name: None,
                 canonical_alias: None,
                 avatar_url: None,
+                topic: None,
             })),
         }
     }
@@ -326,6 +327,7 @@ pub struct InnerSummary {
     name: Option<String>,
     canonical_alias: Option<RoomAliasId>,
     avatar_url: Option<String>,
+    topic: Option<String>,
 
     summary: SomeSummary,
     members_synced: bool,
@@ -377,6 +379,10 @@ impl InnerSummary {
             }
             AnySyncStateEvent::RoomCanonicalAlias(a) => {
                 self.canonical_alias = a.content.alias.clone();
+                true
+            }
+            AnySyncStateEvent::RoomTopic(t) => {
+                self.topic = Some(t.content.topic.clone());
                 true
             }
             _ => false,
