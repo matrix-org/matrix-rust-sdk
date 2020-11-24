@@ -169,7 +169,7 @@ fn handle_membership(
             info!("ADDING INVITED MEMBER {} to {}", event.state_key, room_id);
             changes.add_invited_member(room_id, event.clone())
         }
-        _ => info!("UNHANDLED MEMBERSHIP"),
+        membership => info!("UNHANDLED MEMBERSHIP {} {:?}", event.state_key, membership),
     }
 }
 
