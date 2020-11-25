@@ -1945,10 +1945,7 @@ mod test {
         },
         assign,
         directory::Filter,
-        events::{
-            room::message::{MessageEventContent, TextMessageEventContent},
-            AnyMessageEventContent,
-        },
+        events::{room::message::MessageEventContent, AnyMessageEventContent},
         identifiers::{event_id, room_id, user_id},
         thirdparty,
     };
@@ -2490,13 +2487,8 @@ mod test {
 
         let room_id = room_id!("!testroom:example.org");
 
-        let content = AnyMessageEventContent::RoomMessage(MessageEventContent::Text(
-            TextMessageEventContent {
-                body: "Hello world".to_owned(),
-                relates_to: None,
-                formatted: None,
-            },
-        ));
+        let content =
+            AnyMessageEventContent::RoomMessage(MessageEventContent::text_plain("Hello world"));
         let txn_id = Uuid::new_v4();
         let response = client
             .room_send(&room_id, content, Some(txn_id))
