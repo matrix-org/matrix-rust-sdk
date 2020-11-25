@@ -46,8 +46,8 @@ pub struct Session {
     pub(crate) device_id: Arc<Box<DeviceId>>,
     pub(crate) our_identity_keys: Arc<IdentityKeys>,
     pub(crate) inner: Arc<Mutex<OlmSession>>,
-    pub(crate) session_id: Arc<String>,
-    pub(crate) sender_key: Arc<String>,
+    pub(crate) session_id: Arc<str>,
+    pub(crate) sender_key: Arc<str>,
     pub(crate) creation_time: Arc<Instant>,
     pub(crate) last_use_time: Arc<Instant>,
 }
@@ -232,8 +232,8 @@ impl Session {
             device_id,
             our_identity_keys,
             inner: Arc::new(Mutex::new(session)),
-            session_id: Arc::new(session_id),
-            sender_key: Arc::new(pickle.sender_key),
+            session_id: session_id.into(),
+            sender_key: pickle.sender_key.into(),
             creation_time: Arc::new(creation_time),
             last_use_time: Arc::new(last_use_time),
         })

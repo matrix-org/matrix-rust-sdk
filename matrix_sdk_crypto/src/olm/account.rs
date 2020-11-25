@@ -746,8 +746,8 @@ impl ReadOnlyAccount {
             device_id: self.device_id.clone(),
             our_identity_keys: self.identity_keys.clone(),
             inner: Arc::new(Mutex::new(session)),
-            session_id: Arc::new(session_id),
-            sender_key: Arc::new(their_identity_key.to_owned()),
+            session_id: session_id.into(),
+            sender_key: their_identity_key.into(),
             creation_time: Arc::new(now),
             last_use_time: Arc::new(now),
         })
@@ -851,8 +851,8 @@ impl ReadOnlyAccount {
             device_id: self.device_id.clone(),
             our_identity_keys: self.identity_keys.clone(),
             inner: Arc::new(Mutex::new(session)),
-            session_id: Arc::new(session_id),
-            sender_key: Arc::new(their_identity_key.to_owned()),
+            session_id: session_id.into(),
+            sender_key: their_identity_key.into(),
             creation_time: Arc::new(now),
             last_use_time: Arc::new(now),
         })

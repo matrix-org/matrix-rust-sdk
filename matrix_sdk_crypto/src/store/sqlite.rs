@@ -15,7 +15,7 @@
 use std::{
     collections::{BTreeMap, HashSet},
     convert::TryFrom,
-    path::{Path, PathBuf},
+    path::Path,
     result::Result as StdResult,
     sync::{Arc, Mutex as SyncMutex},
 };
@@ -54,7 +54,7 @@ pub struct SqliteStore {
     user_id: Arc<UserId>,
     device_id: Arc<Box<DeviceId>>,
     account_info: Arc<SyncMutex<Option<AccountInfo>>>,
-    path: Arc<PathBuf>,
+    path: Arc<Path>,
 
     sessions: SessionStore,
     inbound_group_sessions: GroupSessionStore,
@@ -153,7 +153,7 @@ impl SqliteStore {
             sessions: SessionStore::new(),
             inbound_group_sessions: GroupSessionStore::new(),
             devices: DeviceStore::new(),
-            path: Arc::new(path.as_ref().to_owned()),
+            path: path.as_ref().into(),
             connection: Arc::new(Mutex::new(connection)),
             pickle_passphrase: Arc::new(passphrase),
             tracked_users: Arc::new(DashSet::new()),

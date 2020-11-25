@@ -51,7 +51,7 @@ pub struct Sas {
     account: ReadOnlyAccount,
     other_device: ReadOnlyDevice,
     other_identity: Option<UserIdentities>,
-    flow_id: Arc<String>,
+    flow_id: Arc<str>,
 }
 
 impl Sas {
@@ -399,11 +399,11 @@ impl Sas {
         content
     }
 
-    pub(crate) fn verified_devices(&self) -> Option<Arc<Vec<ReadOnlyDevice>>> {
+    pub(crate) fn verified_devices(&self) -> Option<Arc<[ReadOnlyDevice]>> {
         self.inner.lock().unwrap().verified_devices()
     }
 
-    pub(crate) fn verified_identities(&self) -> Option<Arc<Vec<UserIdentities>>> {
+    pub(crate) fn verified_identities(&self) -> Option<Arc<[UserIdentities]>> {
         self.inner.lock().unwrap().verified_identities()
     }
 
@@ -598,7 +598,7 @@ impl InnerSas {
         }
     }
 
-    fn verification_flow_id(&self) -> Arc<String> {
+    fn verification_flow_id(&self) -> Arc<str> {
         match self {
             InnerSas::Created(s) => s.verification_flow_id.clone(),
             InnerSas::Started(s) => s.verification_flow_id.clone(),
@@ -627,7 +627,7 @@ impl InnerSas {
         }
     }
 
-    fn verified_devices(&self) -> Option<Arc<Vec<ReadOnlyDevice>>> {
+    fn verified_devices(&self) -> Option<Arc<[ReadOnlyDevice]>> {
         if let InnerSas::Done(s) = self {
             Some(s.verified_devices())
         } else {
@@ -635,7 +635,7 @@ impl InnerSas {
         }
     }
 
-    fn verified_identities(&self) -> Option<Arc<Vec<UserIdentities>>> {
+    fn verified_identities(&self) -> Option<Arc<[UserIdentities]>> {
         if let InnerSas::Done(s) = self {
             Some(s.verified_identities())
         } else {
