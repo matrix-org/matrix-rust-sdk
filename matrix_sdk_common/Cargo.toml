@@ -21,17 +21,17 @@ js_int = "0.1.9"
 [dependencies.ruma]
 version = "0.0.1"
 git = "https://github.com/ruma/ruma"
-rev = "c0eee624311c12ee9c3eb14737988e3f0a60fb3f"
-features = ["client-api", "unstable-pre-spec", "unstable-exhaustive-types"]
+rev = "48d1c9747561686e1c5627405780f6de01ee17b1"
+features = ["client-api", "unstable-pre-spec"]
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-uuid = { version = "0.8.1", features = ["v4", "serde"] }
+uuid = { version = "0.8.1", default-features = false, features = ["v4", "serde"] }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies.tokio]
 version = "0.2.22"
 default-features = false
-features = ["sync", "time", "fs"]
+features = ["sync"]
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 futures-locks = { version = "0.6.0", default-features = false }
-uuid = { version = "0.8.1", features = ["v4", "wasm-bindgen"] }
+uuid = { version = "0.8.1", default-features = false, features = ["v4", "wasm-bindgen"] }

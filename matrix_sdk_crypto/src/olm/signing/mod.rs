@@ -149,7 +149,7 @@ impl PrivateCrossSigningIdentity {
             .sign_user(&user_identity)
             .await?;
 
-        Ok(SignatureUploadRequest { signed_keys })
+        Ok(SignatureUploadRequest::new(signed_keys))
     }
 
     /// Sign the given device keys with this identity.
@@ -192,7 +192,7 @@ impl PrivateCrossSigningIdentity {
                 serde_json::to_value(device_keys)?,
             );
 
-        Ok(SignatureUploadRequest { signed_keys })
+        Ok(SignatureUploadRequest::new(signed_keys))
     }
 
     /// Create a new identity for the given Olm Account.
@@ -215,11 +215,11 @@ impl PrivateCrossSigningIdentity {
             master.cross_signing_key(account.user_id().to_owned(), KeyUsage::Master);
         let signature = account
             .sign_json(
-                serde_json::to_value(&public_key)
+                &serde_json::to_value(&public_key)
                     .expect("Can't convert own public master key to json"),
             )
-            .await
-            .expect("Can't sign own public master key");
+            .await;
+
         public_key
             .signatures
             .entry(account.user_id().to_owned())

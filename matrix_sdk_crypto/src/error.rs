@@ -12,7 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use cjson::Error as CjsonError;
 use matrix_sdk_common::identifiers::{DeviceId, Error as IdentifierError, UserId};
 use olm_rs::errors::{OlmGroupSessionError, OlmSessionError};
 use serde_json::Error as SerdeError;
@@ -145,14 +144,11 @@ pub enum SignatureError {
     #[error("the provided JSON object doesn't contain a signatures field")]
     NoSignatureFound,
 
-    #[error("the provided JSON object can't be converted to a canonical representation")]
-    CanonicalJsonError(CjsonError),
+    #[error("the signature didn't match the provided key")]
+    VerificationError,
 
     #[error(transparent)]
     JsonError(#[from] SerdeError),
-
-    #[error("the signature didn't match the provided key")]
-    VerificationError,
 }
 
 #[derive(Error, Debug)]
@@ -176,10 +172,4 @@ pub(crate) enum SessionCreationError {
     DeviceMissingCurveKey(UserId, Box<DeviceId>),
     #[error("Error creating new Olm session for {0} {1}: {2:?}")]
     OlmError(UserId, Box<DeviceId>, OlmSessionError),
-}
-
-impl From<CjsonError> for SignatureError {
-    fn from(error: CjsonError) -> Self {
-        Self::CanonicalJsonError(error)
-    }
 }

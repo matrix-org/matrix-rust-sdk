@@ -23,7 +23,7 @@ use matrix_sdk_common::{
     identifiers::{DeviceKeyAlgorithm, DeviceKeyId},
 };
 use serde::{Deserialize, Serialize};
-use serde_json::{Error as JsonError, Value};
+use serde_json::{json, Error as JsonError, Value};
 use std::{collections::BTreeMap, sync::Arc};
 use thiserror::Error;
 use zeroize::Zeroizing;
@@ -171,14 +171,13 @@ impl MasterSigning {
 
     pub async fn sign_subkey<'a>(&self, subkey: &mut CrossSigningKey) {
         // TODO create a borrowed version of a cross singing key.
-        let subkey_wihtout_signatures = CrossSigningKey {
-            user_id: subkey.user_id.clone(),
-            keys: subkey.keys.clone(),
-            usage: subkey.usage.clone(),
-            signatures: BTreeMap::new(),
-        };
+        let subkey_wihtout_signatures = json!({
+            "user_id": subkey.user_id.clone(),
+            "keys": subkey.keys.clone(),
+            "usage": subkey.usage.clone(),
+        });
 
-        let message = cjson::to_string(&subkey_wihtout_signatures)
+        let message = serde_json::to_string(&subkey_wihtout_signatures)
             .expect("Can't serialize cross signing subkey");
         let signature = self.inner.sign(&message).await;
 
@@ -257,7 +256,15 @@ impl SelfSigning {
     }
 
     pub async fn sign_device(&self, device_keys: &mut DeviceKeys) -> Result<(), SignatureError> {
-        let json_device = serde_json::to_value(&device_keys)?;
+        // Create a copy of the device keys containing only fields that will
+        // get signed.
+        let json_device = json!({
+            "user_id": device_keys.user_id,
+            "device_id": device_keys.device_id,
+            "algorithms": device_keys.algorithms,
+            "keys": device_keys.keys,
+        });
+
         let signature = self.sign_device_helper(json_device).await?;
 
         device_keys
@@ -407,7 +414,7 @@ impl Signing {
     pub async fn sign_json(&self, mut json: Value) -> Result<Signature, SignatureError> {
         let json_object = json.as_object_mut().ok_or(SignatureError::NotAnObject)?;
         let _ = json_object.remove("signatures");
-        let canonical_json = cjson::to_string(json_object)?;
+        let canonical_json = serde_json::to_string(json_object)?;
         Ok(self.sign(&canonical_json).await)
     }
 

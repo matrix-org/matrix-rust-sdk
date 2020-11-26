@@ -17,8 +17,7 @@ use std::path::Path;
 use std::{collections::BTreeMap, mem, sync::Arc};
 
 use dashmap::DashMap;
-use matrix_sdk_common::locks::Mutex;
-use tracing::{debug, error, info, instrument, trace, warn};
+use tracing::{debug, error, info, trace, warn};
 
 use matrix_sdk_common::{
     api::r0::{
@@ -40,6 +39,7 @@ use matrix_sdk_common::{
         DeviceId, DeviceIdBox, DeviceKeyAlgorithm, EventEncryptionAlgorithm, RoomId, UserId,
     },
     js_int::UInt,
+    locks::Mutex,
     uuid::Uuid,
     Raw,
 };
@@ -262,7 +262,6 @@ impl OlmMachine {
     ///
     /// * `device_id` - The unique id of the device that owns this machine.
     #[cfg(feature = "sqlite_cryptostore")]
-    #[instrument(skip(path, passphrase))]
     #[cfg_attr(feature = "docs", doc(cfg(r#sqlite_cryptostore)))]
     pub async fn new_with_default_store(
         user_id: &UserId,
@@ -460,7 +459,6 @@ impl OlmMachine {
     ///
     /// * `response` - The keys upload response of the request that the client
     /// performed.
-    #[instrument]
     async fn receive_keys_upload_response(
         &self,
         response: &upload_keys::Response,
@@ -777,7 +775,6 @@ impl OlmMachine {
     /// * `response` - The sync latest sync response.
     ///
     /// [`decrypt_room_event`]: #method.decrypt_room_event
-    #[instrument(skip(response))]
     pub async fn receive_sync_response(&self, response: &mut SyncResponse) -> OlmResult<()> {
         // Remove verification objects that have expired or are done.
         self.verification_machine.garbage_collect();

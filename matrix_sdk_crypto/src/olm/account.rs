@@ -52,7 +52,7 @@ use olm_rs::{
 };
 
 use crate::{
-    error::{EventError, OlmResult, SessionCreationError, SignatureError},
+    error::{EventError, OlmResult, SessionCreationError},
     identities::ReadOnlyDevice,
     requests::UploadSigningKeysRequest,
     store::Store,
@@ -651,7 +651,15 @@ impl ReadOnlyAccount {
     /// uploaded.
     pub(crate) async fn device_keys(&self) -> DeviceKeys {
         let mut device_keys = self.unsigned_device_keys();
-        let jsond_device_keys = serde_json::to_value(&device_keys).unwrap();
+
+        // Create a copy of the device keys containing only fields that will
+        // get signed.
+        let json_device_keys = json!({
+            "user_id": device_keys.user_id,
+            "device_id": device_keys.device_id,
+            "algorithms": device_keys.algorithms,
+            "keys": device_keys.keys,
+        });
 
         device_keys
             .signatures
@@ -659,9 +667,7 @@ impl ReadOnlyAccount {
             .or_insert_with(BTreeMap::new)
             .insert(
                 DeviceKeyId::from_parts(DeviceKeyAlgorithm::Ed25519, &self.device_id),
-                self.sign_json(jsond_device_keys)
-                    .await
-                    .expect("Can't sign own device keys"),
+                self.sign_json(&json_device_keys).await,
             );
 
         device_keys
@@ -688,13 +694,8 @@ impl ReadOnlyAccount {
     /// # Panic
     ///
     /// Panics if the json value can't be serialized.
-    pub async fn sign_json(&self, mut json: Value) -> Result<String, SignatureError> {
-        let json_object = json.as_object_mut().ok_or(SignatureError::NotAnObject)?;
-        let _ = json_object.remove("unsigned");
-        let _ = json_object.remove("signatures");
-
-        let canonical_json = cjson::to_string(&json)?;
-        Ok(self.sign(&canonical_json).await)
+    pub async fn sign_json(&self, json: &Value) -> String {
+        self.sign(&json.to_string()).await
     }
 
     pub(crate) async fn signed_one_time_keys_helper(
@@ -708,10 +709,7 @@ impl ReadOnlyAccount {
                 "key": key,
             });
 
-            let signature = self
-                .sign_json(key_json)
-                .await
-                .expect("Can't sign own one-time keys");
+            let signature = self.sign_json(&key_json).await;
 
             let mut signature_map = BTreeMap::new();
 
@@ -779,8 +777,8 @@ impl ReadOnlyAccount {
             device_id: self.device_id.clone(),
             our_identity_keys: self.identity_keys.clone(),
             inner: Arc::new(Mutex::new(session)),
-            session_id: Arc::new(session_id),
-            sender_key: Arc::new(their_identity_key.to_owned()),
+            session_id: session_id.into(),
+            sender_key: their_identity_key.into(),
             creation_time: Arc::new(now),
             last_use_time: Arc::new(now),
         })
@@ -884,8 +882,8 @@ impl ReadOnlyAccount {
             device_id: self.device_id.clone(),
             our_identity_keys: self.identity_keys.clone(),
             inner: Arc::new(Mutex::new(session)),
-            session_id: Arc::new(session_id),
-            sender_key: Arc::new(their_identity_key.to_owned()),
+            session_id: session_id.into(),
+            sender_key: their_identity_key.into(),
             creation_time: Arc::new(now),
             last_use_time: Arc::new(now),
         })

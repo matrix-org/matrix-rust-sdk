@@ -25,7 +25,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::value::to_raw_value;
 use std::{collections::BTreeMap, sync::Arc};
 use thiserror::Error;
-use tracing::{error, info, instrument, trace, warn};
+use tracing::{error, info, trace, warn};
 
 use matrix_sdk_common::{
     api::r0::to_device::DeviceIdOrAllDevices,
@@ -293,12 +293,11 @@ impl KeyRequestMachine {
     }
 
     /// Handle a single incoming key request.
-    #[instrument]
     async fn handle_key_request(
         &self,
         event: &ToDeviceEvent<RoomKeyRequestEventContent>,
     ) -> OlmResult<Option<Session>> {
-        let key_info = match event.content.action {
+        let key_info = match &event.content.action {
             Action::Request => {
                 if let Some(info) = &event.content.body {
                     info
@@ -313,6 +312,10 @@ impl KeyRequestMachine {
             }
             // We ignore cancellations here since there's nothing to serve.
             Action::CancelRequest => return Ok(None),
+            action => {
+                warn!("Unknown room key request action: {:?}", action);
+                return Ok(None);
+            }
         };
 
         let session = self

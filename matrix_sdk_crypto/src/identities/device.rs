@@ -60,7 +60,7 @@ use crate::{
 pub struct ReadOnlyDevice {
     user_id: Arc<UserId>,
     device_id: Arc<Box<DeviceId>>,
-    algorithms: Arc<Vec<EventEncryptionAlgorithm>>,
+    algorithms: Arc<[EventEncryptionAlgorithm]>,
     keys: Arc<BTreeMap<DeviceKeyId, String>>,
     pub(crate) signatures: Arc<BTreeMap<UserId, BTreeMap<DeviceKeyId, String>>>,
     display_name: Arc<Option<String>>,
@@ -257,7 +257,7 @@ impl ReadOnlyDevice {
             display_name: Arc::new(display_name),
             trust_state: Arc::new(Atomic::new(trust_state)),
             signatures: Arc::new(signatures),
-            algorithms: Arc::new(algorithms),
+            algorithms: algorithms.into(),
             keys: Arc::new(keys),
             deleted: Arc::new(AtomicBool::new(false)),
         }
@@ -419,7 +419,7 @@ impl ReadOnlyDevice {
 
         let display_name = Arc::new(device_keys.unsigned.device_display_name.clone());
 
-        self.algorithms = Arc::new(device_keys.algorithms.clone());
+        self.algorithms = device_keys.algorithms.as_slice().into();
         self.keys = Arc::new(device_keys.keys.clone());
         self.signatures = Arc::new(device_keys.signatures.clone());
         self.display_name = display_name;
@@ -443,14 +443,13 @@ impl ReadOnlyDevice {
     }
 
     pub(crate) fn as_device_keys(&self) -> DeviceKeys {
-        DeviceKeys {
-            user_id: self.user_id().clone(),
-            device_id: self.device_id().into(),
-            keys: self.keys().clone(),
-            algorithms: self.algorithms().to_vec(),
-            signatures: self.signatures().to_owned(),
-            unsigned: Default::default(),
-        }
+        DeviceKeys::new(
+            self.user_id().clone(),
+            self.device_id().into(),
+            self.algorithms().to_vec(),
+            self.keys().clone(),
+            self.signatures().to_owned(),
+        )
     }
 
     pub(crate) fn as_signature_message(&self) -> Value {
@@ -467,7 +466,8 @@ impl ReadOnlyDevice {
         &self,
         device_keys: &DeviceKeys,
     ) -> Result<(), SignatureError> {
-        self.is_signed_by_device(&mut json!(&device_keys))
+        let mut device_keys = serde_json::to_value(device_keys).unwrap();
+        self.is_signed_by_device(&mut device_keys)
     }
 
     pub(crate) fn verify_one_time_key(
@@ -501,7 +501,7 @@ impl TryFrom<&DeviceKeys> for ReadOnlyDevice {
         let device = Self {
             user_id: Arc::new(device_keys.user_id.clone()),
             device_id: Arc::new(device_keys.device_id.clone()),
-            algorithms: Arc::new(device_keys.algorithms.clone()),
+            algorithms: device_keys.algorithms.as_slice().into(),
             signatures: Arc::new(device_keys.signatures.clone()),
             keys: Arc::new(device_keys.keys.clone()),
             display_name: Arc::new(device_keys.unsigned.device_display_name.clone()),

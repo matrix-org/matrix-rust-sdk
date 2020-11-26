@@ -27,7 +27,7 @@ use matrix_sdk_common::events::room::JsonWebKey;
 use getrandom::getrandom;
 
 use aes_ctr::{
-    stream_cipher::{NewStreamCipher, SyncStreamCipher},
+    cipher::{NewStreamCipher, SyncStreamCipher},
     Aes256Ctr,
 };
 use base64::DecodeError;

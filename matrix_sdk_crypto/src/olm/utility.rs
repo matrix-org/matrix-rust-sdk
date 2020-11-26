@@ -63,7 +63,7 @@ impl Utility {
         let unsigned = json_object.remove("unsigned");
         let signatures = json_object.remove("signatures");
 
-        let canonical_json = cjson::to_string(json_object)?;
+        let canonical_json = serde_json::to_string(json_object)?;
 
         if let Some(u) = unsigned {
             json_object.insert("unsigned".to_string(), u);

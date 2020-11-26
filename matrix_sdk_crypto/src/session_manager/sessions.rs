@@ -405,10 +405,7 @@ mod test {
             .or_insert_with(BTreeMap::new)
             .insert(bob.device_id().into(), one_time);
 
-        let response = KeyClaimResponse {
-            failures: BTreeMap::new(),
-            one_time_keys,
-        };
+        let response = KeyClaimResponse::new(one_time_keys);
 
         manager
             .receive_keys_claim_response(&response)
@@ -476,10 +473,7 @@ mod test {
             .or_insert_with(BTreeMap::new)
             .insert(bob.device_id().into(), one_time);
 
-        let response = KeyClaimResponse {
-            failures: BTreeMap::new(),
-            one_time_keys,
-        };
+        let response = KeyClaimResponse::new(one_time_keys);
 
         assert!(manager.outgoing_to_device_requests.is_empty());
 
