@@ -144,7 +144,7 @@ pub struct SasState<S: Clone> {
     ///
     /// This will be the transaction id for to-device events and the relates_to
     /// field for in-room events.
-    pub verification_flow_id: Arc<String>,
+    pub verification_flow_id: Arc<str>,
 
     /// The SAS state we're in.
     state: Arc<S>,
@@ -209,8 +209,8 @@ pub struct Confirmed {
 pub struct MacReceived {
     we_started: bool,
     their_pubkey: String,
-    verified_devices: Arc<Vec<ReadOnlyDevice>>,
-    verified_master_keys: Arc<Vec<UserIdentities>>,
+    verified_devices: Arc<[ReadOnlyDevice]>,
+    verified_master_keys: Arc<[UserIdentities]>,
 }
 
 /// The SAS state indicating that the verification finished successfully.
@@ -219,8 +219,8 @@ pub struct MacReceived {
 /// the master keys in the verified devices list.
 #[derive(Clone, Debug)]
 pub struct Done {
-    verified_devices: Arc<Vec<ReadOnlyDevice>>,
-    verified_master_keys: Arc<Vec<UserIdentities>>,
+    verified_devices: Arc<[ReadOnlyDevice]>,
+    verified_master_keys: Arc<[UserIdentities]>,
 }
 
 #[derive(Clone, Debug)]
@@ -269,7 +269,7 @@ impl<S: Clone> SasState<S> {
     }
 
     fn check_event(&self, sender: &UserId, flow_id: &str) -> Result<(), CancelCode> {
-        if flow_id != *self.verification_flow_id {
+        if *flow_id != *self.verification_flow_id {
             Err(CancelCode::UnknownTransaction)
         } else if sender != self.ids.other_device.user_id() {
             Err(CancelCode::UserMismatch)
@@ -303,7 +303,7 @@ impl SasState<Created> {
                 other_device,
                 other_identity,
             },
-            verification_flow_id: Arc::new(verification_flow_id),
+            verification_flow_id: verification_flow_id.into(),
 
             creation_time: Arc::new(Instant::now()),
             last_event_time: Arc::new(Instant::now()),
@@ -351,7 +351,7 @@ impl SasState<Created> {
             let accepted_protocols =
                 AcceptedProtocols::try_from(content.clone()).map_err(|c| self.clone().cancel(c))?;
 
-            let json_start_content = cjson::to_string(&self.as_content())
+            let json_start_content = serde_json::to_string(&self.as_content())
                 .expect("Can't deserialize start event content");
 
             Ok(SasState {
@@ -396,7 +396,8 @@ impl SasState<Started> {
             let sas = OlmSas::new();
             let utility = OlmUtility::new();
 
-            let json_content = cjson::to_string(&event.content).expect("Can't serialize content");
+            let json_content =
+                serde_json::to_string(&event.content).expect("Can't serialize content");
             let pubkey = sas.public_key();
             let commitment = utility.sha256_utf8_msg(&format!("{}{}", pubkey, json_content));
 
@@ -412,7 +413,7 @@ impl SasState<Started> {
                 creation_time: Arc::new(Instant::now()),
                 last_event_time: Arc::new(Instant::now()),
 
-                verification_flow_id: Arc::new(event.content.transaction_id.clone()),
+                verification_flow_id: event.content.transaction_id.as_str().into(),
 
                 state: Arc::new(Started {
                     protocol_definitions: content.clone(),
@@ -451,7 +452,7 @@ impl SasState<Started> {
                     other_identity,
                 },
 
-                verification_flow_id: Arc::new(event.content.transaction_id.clone()),
+                verification_flow_id: event.content.transaction_id.as_str().into(),
                 state: Arc::new(Canceled::new(CancelCode::UnknownMethod)),
             })
         }
@@ -656,8 +657,8 @@ impl SasState<KeyReceived> {
             state: Arc::new(MacReceived {
                 we_started: self.state.we_started,
                 their_pubkey: self.state.their_pubkey.clone(),
-                verified_devices: Arc::new(devices),
-                verified_master_keys: Arc::new(master_keys),
+                verified_devices: devices.into(),
+                verified_master_keys: master_keys.into(),
             }),
         })
     }
@@ -711,8 +712,8 @@ impl SasState<Confirmed> {
             ids: self.ids,
 
             state: Arc::new(Done {
-                verified_devices: Arc::new(devices),
-                verified_master_keys: Arc::new(master_keys),
+                verified_devices: devices.into(),
+                verified_master_keys: master_keys.into(),
             }),
         })
     }
@@ -791,12 +792,12 @@ impl SasState<Done> {
     }
 
     /// Get the list of verified devices.
-    pub fn verified_devices(&self) -> Arc<Vec<ReadOnlyDevice>> {
+    pub fn verified_devices(&self) -> Arc<[ReadOnlyDevice]> {
         self.state.verified_devices.clone()
     }
 
     /// Get the list of verified identities.
-    pub fn verified_identities(&self) -> Arc<Vec<UserIdentities>> {
+    pub fn verified_identities(&self) -> Arc<[UserIdentities]> {
         self.state.verified_master_keys.clone()
     }
 }

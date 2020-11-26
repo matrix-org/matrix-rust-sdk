@@ -1586,13 +1586,11 @@ impl Client {
     #[instrument(skip(callback))]
     pub async fn sync_with_callback<C>(
         &self,
-        sync_settings: SyncSettings<'_>,
+        mut sync_settings: SyncSettings<'_>,
         callback: impl Fn(SyncResponse) -> C,
     ) where
         C: Future<Output = LoopCtrl>,
     {
-        let mut sync_settings = sync_settings;
-        let filter = sync_settings.filter.clone();
         let mut last_sync_time: Option<Instant> = None;
 
         if sync_settings.token.is_none() {
@@ -1600,6 +1598,7 @@ impl Client {
         }
 
         loop {
+            let filter = sync_settings.filter.clone();
             let response = self.sync_once(sync_settings.clone()).await;
 
             let response = match response {
@@ -1676,8 +1675,8 @@ impl Client {
                     .await
                     .expect("No sync token found after initial sync"),
             );
-            if let Some(f) = filter.as_ref() {
-                sync_settings = sync_settings.filter(f.clone());
+            if let Some(f) = filter {
+                sync_settings = sync_settings.filter(f);
             }
         }
     }
@@ -1920,12 +1919,12 @@ impl Client {
 
         let (request, signature_request) = olm.bootstrap_cross_signing(false).await?;
 
-        let request = UploadSigningKeysRequest {
+        let request = assign!(UploadSigningKeysRequest::new(), {
             auth: auth_data,
             master_key: request.master_key,
             self_signing_key: request.self_signing_key,
             user_signing_key: request.user_signing_key,
-        };
+        });
 
         self.send(request).await?;
         self.send(signature_request).await?;
@@ -2131,10 +2130,7 @@ mod test {
         },
         assign,
         directory::Filter,
-        events::{
-            room::message::{MessageEventContent, TextMessageEventContent},
-            AnyMessageEventContent,
-        },
+        events::{room::message::MessageEventContent, AnyMessageEventContent},
         identifiers::{event_id, room_id, user_id},
         thirdparty,
     };
@@ -2679,13 +2675,8 @@ mod test {
 
         let room_id = room_id!("!testroom:example.org");
 
-        let content = AnyMessageEventContent::RoomMessage(MessageEventContent::Text(
-            TextMessageEventContent {
-                body: "Hello world".to_owned(),
-                relates_to: None,
-                formatted: None,
-            },
-        ));
+        let content =
+            AnyMessageEventContent::RoomMessage(MessageEventContent::text_plain("Hello world"));
         let txn_id = Uuid::new_v4();
         let response = client
             .room_send(&room_id, content, Some(txn_id))

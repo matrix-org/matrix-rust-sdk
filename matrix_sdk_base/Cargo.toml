@@ -25,7 +25,7 @@ docs = ["encryption", "sqlite_cryptostore", "messages"]
 
 [dependencies]
 async-trait = "0.1.41"
-serde = "1.0.116"
+serde = "1.0.117"
 dashmap= "*"
 serde_json = "1.0.59"
 zeroize = "1.1.1"
@@ -53,7 +53,7 @@ tempfile = "3.1.0"
 mockito = "0.27.0"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
-tokio = { version = "0.2.22", features = ["rt-threaded", "macros"] }
+tokio = { version = "0.2.22", default-features = false, features = ["rt-threaded", "macros"] }
 
 [target.'cfg(target_arch = "wasm32")'.dev-dependencies]
 wasm-bindgen-test = "0.3.18"

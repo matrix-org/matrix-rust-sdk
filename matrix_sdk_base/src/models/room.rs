@@ -934,7 +934,7 @@ impl Room {
                 member.currently_active = *currently_active;
                 member.display_name = displayname.clone();
                 member.last_active_ago = *last_active_ago;
-                member.presence = Some(*presence);
+                member.presence = Some(presence.clone());
                 member.status_msg = status_msg.clone();
 
                 true
@@ -1091,6 +1091,7 @@ impl Describe for MembershipState {
             Self::Join => "is a member of",
             Self::Knock => "is requesting access to",
             Self::Leave => "has left",
+            _ => "unhandled case of MembershipState",
         }
         .to_string()
     }
@@ -1123,6 +1124,7 @@ impl Describe for MembershipChange {
             Self::None => "did nothing in",
             Self::NotImplemented => "NOT IMPLEMENTED",
             Self::Error => "ERROR",
+            _ => "unhandled case of MembershipChange",
         }
         .to_string()
     }

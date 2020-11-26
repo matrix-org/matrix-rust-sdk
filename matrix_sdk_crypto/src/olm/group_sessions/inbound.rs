@@ -56,8 +56,8 @@ use crate::error::{EventError, MegolmResult};
 #[derive(Clone)]
 pub struct InboundGroupSession {
     inner: Arc<Mutex<OlmInboundGroupSession>>,
-    session_id: Arc<String>,
-    pub(crate) sender_key: Arc<String>,
+    session_id: Arc<str>,
+    pub(crate) sender_key: Arc<str>,
     pub(crate) signing_key: Arc<BTreeMap<DeviceKeyAlgorithm, String>>,
     pub(crate) room_id: Arc<RoomId>,
     forwarding_chains: Arc<Mutex<Option<Vec<String>>>>,
@@ -95,8 +95,8 @@ impl InboundGroupSession {
 
         Ok(InboundGroupSession {
             inner: Arc::new(Mutex::new(session)),
-            session_id: Arc::new(session_id),
-            sender_key: Arc::new(sender_key.to_owned()),
+            session_id: session_id.into(),
+            sender_key: sender_key.to_owned().into(),
             signing_key: Arc::new(keys),
             room_id: Arc::new(room_id.clone()),
             forwarding_chains: Arc::new(Mutex::new(None)),
@@ -145,8 +145,8 @@ impl InboundGroupSession {
 
         Ok(InboundGroupSession {
             inner: Arc::new(Mutex::new(session)),
-            session_id: Arc::new(content.session_id.clone()),
-            sender_key: Arc::new(content.sender_key.clone()),
+            session_id: content.session_id.as_str().into(),
+            sender_key: content.sender_key.as_str().into(),
             signing_key: Arc::new(sender_claimed_key),
             room_id: Arc::new(content.room_id.clone()),
             forwarding_chains: Arc::new(Mutex::new(Some(forwarding_chains))),
@@ -225,8 +225,8 @@ impl InboundGroupSession {
 
         Ok(InboundGroupSession {
             inner: Arc::new(Mutex::new(session)),
-            session_id: Arc::new(session_id),
-            sender_key: Arc::new(pickle.sender_key),
+            session_id: session_id.into(),
+            sender_key: pickle.sender_key.into(),
             signing_key: Arc::new(pickle.signing_key),
             room_id: Arc::new(pickle.room_id),
             forwarding_chains: Arc::new(Mutex::new(pickle.forwarding_chains)),
@@ -377,8 +377,8 @@ impl TryFrom<ExportedRoomKey> for InboundGroupSession {
 
         Ok(InboundGroupSession {
             inner: Arc::new(Mutex::new(session)),
-            session_id: Arc::new(key.session_id),
-            sender_key: Arc::new(key.sender_key),
+            session_id: key.session_id.into(),
+            sender_key: key.sender_key.into(),
             signing_key: Arc::new(key.sender_claimed_keys),
             room_id: Arc::new(key.room_id),
             forwarding_chains: Arc::new(Mutex::new(forwarding_chains)),

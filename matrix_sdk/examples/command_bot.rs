@@ -38,12 +38,8 @@ impl EventEmitter for CommandBot {
             };
 
             if msg_body.contains("!party") {
-                let content = AnyMessageEventContent::RoomMessage(MessageEventContent::Text(
-                    TextMessageEventContent {
-                        body: "🎉🎊🥳 let's PARTY!! 🥳🎊🎉".to_string(),
-                        formatted: None,
-                        relates_to: None,
-                    },
+                let content = AnyMessageEventContent::RoomMessage(MessageEventContent::text_plain(
+                    "🎉🎊🥳 let's PARTY!! 🥳🎊🎉",
                 ));
                 // we clone here to hold the lock for as little time as possible.
                 let room_id = room.read().await.room_id.clone();
