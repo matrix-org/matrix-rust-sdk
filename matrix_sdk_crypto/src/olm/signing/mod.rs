@@ -135,7 +135,6 @@ impl PrivateCrossSigningIdentity {
     }
 
     /// Sign the given public user identity with this private identity.
-    #[allow(dead_code)]
     pub(crate) async fn sign_user(
         &self,
         user_identity: &UserIdentity,

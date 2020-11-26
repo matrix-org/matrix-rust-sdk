@@ -203,7 +203,6 @@ impl UserSigning {
         PickledUserSigning { pickle, public_key }
     }
 
-    #[allow(dead_code)]
     pub async fn sign_user(
         &self,
         user: &UserIdentity,
