@@ -42,6 +42,7 @@ async fn bootstrap(client: Client, user_id: UserId, password: String) {
         .read_line(&mut input)
         .expect("error: unable to read user input");
 
+    #[cfg(feature = "encryption")]
     if let Err(e) = client.bootstrap_cross_signing(None).await {
         if let Some(response) = e.uiaa_response() {
             let auth_data = auth_data(&user_id, &password, response.session.as_deref());
@@ -53,6 +54,9 @@ async fn bootstrap(client: Client, user_id: UserId, password: String) {
             panic!("Error durign cross signing bootstrap {:#?}", e);
         }
     }
+
+    #[cfg(not(feature = "encryption"))]
+    panic!("Cross signing requires the encryption feature to be enabled");
 }
 
 async fn login(
