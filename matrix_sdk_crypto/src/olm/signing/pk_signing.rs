@@ -137,7 +137,7 @@ impl PickledSigning {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct PublicSigningKey(Arc<String>);
+pub struct PublicSigningKey(Arc<str>);
 
 impl PublicSigningKey {
     pub fn as_str(&self) -> &str {
@@ -328,7 +328,7 @@ impl Signing {
 
     pub fn from_seed(seed: Vec<u8>) -> Self {
         let inner = OlmPkSigning::new(seed.clone()).expect("Unable to create pk signing object");
-        let public_key = PublicSigningKey(Arc::new(inner.public_key().to_owned()));
+        let public_key = PublicSigningKey(inner.public_key().into());
 
         Signing {
             inner: Arc::new(Mutex::new(inner)),
