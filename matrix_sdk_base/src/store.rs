@@ -12,6 +12,7 @@ use futures::{
 use matrix_sdk_common::{
     api::r0::sync::sync_events::RoomSummary as RumaSummary,
     events::{
+        presence::PresenceEvent,
         room::{encryption::EncryptionEventContent, member::MemberEventContent},
         AnySyncStateEvent, EventContent, SyncStateEvent,
     },
@@ -32,20 +33,22 @@ pub struct Store {
     invited_user_ids: Tree,
     room_state: Tree,
     room_summaries: Tree,
+    presence: Tree,
 }
 
 use crate::{client::hoist_and_deserialize_state_event, Session};
 
 #[derive(Debug, Default)]
 pub struct StateChanges {
-    session: Option<Session>,
-    members: BTreeMap<RoomId, BTreeMap<UserId, SyncStateEvent<MemberEventContent>>>,
-    state: BTreeMap<RoomId, BTreeMap<String, AnySyncStateEvent>>,
+    pub session: Option<Session>,
+    pub members: BTreeMap<RoomId, BTreeMap<UserId, SyncStateEvent<MemberEventContent>>>,
+    pub state: BTreeMap<RoomId, BTreeMap<String, AnySyncStateEvent>>,
     pub room_summaries: BTreeMap<RoomId, InnerSummary>,
     // display_names: BTreeMap<RoomId, BTreeMap<String, BTreeMap<UserId, ()>>>,
     pub joined_user_ids: BTreeMap<RoomId, Vec<UserId>>,
     pub invited_user_ids: BTreeMap<RoomId, Vec<UserId>>,
-    removed_user_ids: BTreeMap<RoomId, UserId>,
+    pub removed_user_ids: BTreeMap<RoomId, UserId>,
+    pub presence: BTreeMap<UserId, PresenceEvent>,
 }
 
 impl StateChanges {
@@ -63,6 +66,10 @@ impl StateChanges {
             .entry(room_id.to_owned())
             .or_insert_with(BTreeMap::new)
             .insert(user_id, event);
+    }
+
+    pub fn add_presence_event(&mut self, event: PresenceEvent) {
+        self.presence.insert(event.sender.clone(), event);
     }
 
     pub fn add_invited_member(
@@ -455,6 +462,7 @@ impl Store {
 
         let room_state = db.open_tree("room_state").unwrap();
         let room_summaries = db.open_tree("room_summaries").unwrap();
+        let presence = db.open_tree("presence").unwrap();
 
         Self {
             inner: db,
@@ -462,6 +470,7 @@ impl Store {
             members,
             joined_user_ids,
             invited_user_ids,
+            presence,
             room_state,
             room_summaries,
         }
@@ -501,60 +510,67 @@ impl Store {
             &self.invited_user_ids,
             &self.room_state,
             &self.room_summaries,
+            &self.presence,
         )
-            .transaction(|(session, members, joined, invited, state, summaries)| {
-                if let Some(s) = &changes.session {
-                    session.insert("session", serde_json::to_vec(s).unwrap())?;
-                }
-
-                for (room, events) in &changes.members {
-                    for (user_id, event) in events {
-                        members.insert(
-                            format!("{}{}", room.as_str(), user_id.as_str()).as_str(),
-                            serde_json::to_vec(&event).unwrap(),
-                        )?;
+            .transaction(
+                |(session, members, joined, invited, state, summaries, presence)| {
+                    if let Some(s) = &changes.session {
+                        session.insert("session", serde_json::to_vec(s).unwrap())?;
                     }
-                }
 
-                for (room, users) in &changes.joined_user_ids {
-                    for user in users {
-                        let key = format!("{}{}", room.as_str(), user.as_str());
-                        info!("SAVING joined {}", &key);
-                        joined.insert(key.as_bytes(), user.as_bytes())?;
-                        invited.remove(key.as_bytes())?;
+                    for (room, events) in &changes.members {
+                        for (user_id, event) in events {
+                            members.insert(
+                                format!("{}{}", room.as_str(), user_id.as_str()).as_str(),
+                                serde_json::to_vec(&event).unwrap(),
+                            )?;
+                        }
                     }
-                }
 
-                for (room, users) in &changes.invited_user_ids {
-                    for user in users {
-                        let key = format!("{}{}", room.as_str(), user.as_str());
-                        info!("SAVING invited {}", &key);
-                        invited.insert(key.as_bytes(), user.as_bytes())?;
-                        joined.remove(key.as_bytes())?;
+                    for (room, users) in &changes.joined_user_ids {
+                        for user in users {
+                            let key = format!("{}{}", room.as_str(), user.as_str());
+                            info!("SAVING joined {}", &key);
+                            joined.insert(key.as_bytes(), user.as_bytes())?;
+                            invited.remove(key.as_bytes())?;
+                        }
                     }
-                }
 
-                for (room, events) in &changes.state {
-                    for (state_key, event) in events {
-                        state.insert(
-                            format!(
-                                "{}{}{}",
-                                room.as_str(),
-                                event.content().event_type(),
-                                state_key
-                            )
-                            .as_bytes(),
-                            serde_json::to_vec(&event).unwrap(),
-                        )?;
+                    for (room, users) in &changes.invited_user_ids {
+                        for user in users {
+                            let key = format!("{}{}", room.as_str(), user.as_str());
+                            info!("SAVING invited {}", &key);
+                            invited.insert(key.as_bytes(), user.as_bytes())?;
+                            joined.remove(key.as_bytes())?;
+                        }
                     }
-                }
 
-                for (room_id, summary) in &changes.room_summaries {
-                    summaries.insert(room_id.as_str().as_bytes(), summary.serialize())?;
-                }
+                    for (room, events) in &changes.state {
+                        for (state_key, event) in events {
+                            state.insert(
+                                format!(
+                                    "{}{}{}",
+                                    room.as_str(),
+                                    event.content().event_type(),
+                                    state_key
+                                )
+                                .as_bytes(),
+                                serde_json::to_vec(&event).unwrap(),
+                            )?;
+                        }
+                    }
 
-                Ok(())
-            });
+                    for (room_id, summary) in &changes.room_summaries {
+                        summaries.insert(room_id.as_bytes(), summary.serialize())?;
+                    }
+
+                    for (sender, event) in &changes.presence {
+                        presence.insert(sender.as_bytes(), serde_json::to_vec(&event).unwrap())?;
+                    }
+
+                    Ok(())
+                },
+            );
 
         ret.unwrap();
 

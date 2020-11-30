@@ -2,9 +2,11 @@ use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
 use matrix_sdk_common::{
-    events::{AnySyncRoomEvent, AnySyncStateEvent},
+    events::{presence::PresenceEvent, AnySyncRoomEvent, AnySyncStateEvent},
     identifiers::RoomId,
 };
+
+use crate::store::StateChanges;
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
 pub struct SyncResponse {
@@ -12,10 +14,8 @@ pub struct SyncResponse {
     pub next_batch: String,
     /// Updates to rooms.
     pub rooms: Rooms,
-    ///// Updates to the presence status of other users.
-    //#[serde(default, skip_serializing_if = "Presence::is_empty")]
-    //pub presence: Presence,
-
+    /// Updates to the presence status of other users.
+    pub presence: Presence,
     ///// The global private data created by this user.
     //#[serde(default, skip_serializing_if = "AccountData::is_empty")]
     //pub account_data: AccountData,
@@ -37,8 +37,15 @@ pub struct SyncResponse {
 }
 
 impl SyncResponse {
-    pub fn new(next_batch: String, rooms: Rooms) -> Self {
-        Self { next_batch, rooms }
+    pub fn new(next_batch: String, rooms: Rooms, changes: StateChanges) -> Self {
+        Self {
+            next_batch,
+            rooms,
+            presence: Presence {
+                events: changes.presence.into_iter().map(|(_, v)| v).collect(),
+            },
+            ..Default::default()
+        }
     }
 
     pub fn new_empty(next_batch: String) -> Self {
@@ -47,6 +54,13 @@ impl SyncResponse {
             ..Default::default()
         }
     }
+}
+
+/// Updates to the presence status of other users.
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+pub struct Presence {
+    /// A list of events.
+    pub events: Vec<PresenceEvent>,
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]

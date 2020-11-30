@@ -579,18 +579,28 @@ impl BaseClient {
             changes.add_room(summary);
         }
 
+        for event in &response.presence.events {
+            if let Ok(e) = event.deserialize() {
+                changes.add_presence_event(e);
+            }
+        }
+
         self.store.save_changes(&changes).await;
         *self.sync_token.write().await = Some(response.next_batch.clone());
-        self.apply_changes(changes).await;
+        self.apply_changes(&changes).await;
 
-        Ok(SyncResponse::new(response.next_batch.clone(), rooms))
+        Ok(SyncResponse::new(
+            response.next_batch.clone(),
+            rooms,
+            changes,
+        ))
     }
 
-    async fn apply_changes(&self, changes: StateChanges) {
+    async fn apply_changes(&self, changes: &StateChanges) {
         // TODO emit room changes here
-        for (room_id, summary) in changes.room_summaries {
+        for (room_id, summary) in &changes.room_summaries {
             if let Some(room) = self.get_joined_room(&room_id) {
-                room.update_summary(summary)
+                room.update_summary(summary.clone())
             }
         }
     }
@@ -638,7 +648,7 @@ impl BaseClient {
             changes.add_room(summary);
 
             self.store.save_changes(&changes).await;
-            self.apply_changes(changes).await;
+            self.apply_changes(&changes).await;
         }
 
         Ok(())
