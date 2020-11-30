@@ -1500,12 +1500,9 @@ impl Client {
             timeout: sync_settings.timeout,
         });
 
-        let mut response = self.send(request).await?;
+        let response = self.send(request).await?;
 
-        Ok(self
-            .base_client
-            .receive_sync_response(&mut response)
-            .await?)
+        Ok(self.base_client.receive_sync_response(response).await?)
     }
 
     /// Repeatedly call sync to synchronize the client state with the server.

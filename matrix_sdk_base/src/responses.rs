@@ -2,8 +2,9 @@ use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
 use matrix_sdk_common::{
-    events::{presence::PresenceEvent, AnySyncRoomEvent, AnySyncStateEvent},
-    identifiers::RoomId,
+    api::r0::sync::sync_events::{self, DeviceLists},
+    events::{presence::PresenceEvent, AnySyncRoomEvent, AnySyncStateEvent, AnyToDeviceEvent},
+    identifiers::{DeviceKeyAlgorithm, RoomId},
 };
 
 use crate::store::StateChanges;
@@ -19,31 +20,31 @@ pub struct SyncResponse {
     ///// The global private data created by this user.
     //#[serde(default, skip_serializing_if = "AccountData::is_empty")]
     //pub account_data: AccountData,
-
-    ///// Messages sent dirrectly between devices.
-    //#[serde(default, skip_serializing_if = "ToDevice::is_empty")]
-    //pub to_device: ToDevice,
-
-    ///// Information on E2E device updates.
-    /////
-    ///// Only present on an incremental sync.
-    //#[serde(default, skip_serializing_if = "DeviceLists::is_empty")]
-    //pub device_lists: DeviceLists,
-
-    ///// For each key algorithm, the number of unclaimed one-time keys
-    ///// currently held on the server for a device.
-    //#[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
-    //pub device_one_time_keys_count: BTreeMap<KeyAlgorithm, UInt>,
+    /// Messages sent dirrectly between devices.
+    pub to_device: ToDevice,
+    /// Information on E2E device updates.
+    ///
+    /// Only present on an incremental sync.
+    pub device_lists: DeviceLists,
+    /// For each key algorithm, the number of unclaimed one-time keys
+    /// currently held on the server for a device.
+    pub device_one_time_keys_count: BTreeMap<DeviceKeyAlgorithm, u64>,
 }
 
 impl SyncResponse {
-    pub fn new(next_batch: String, rooms: Rooms, changes: StateChanges) -> Self {
+    pub fn new(response: sync_events::Response, rooms: Rooms, changes: StateChanges) -> Self {
         Self {
-            next_batch,
+            next_batch: response.next_batch,
             rooms,
             presence: Presence {
                 events: changes.presence.into_iter().map(|(_, v)| v).collect(),
             },
+            device_lists: response.device_lists,
+            device_one_time_keys_count: response
+                .device_one_time_keys_count
+                .into_iter()
+                .map(|(k, v)| (k, v.into()))
+                .collect(),
             ..Default::default()
         }
     }
@@ -61,6 +62,13 @@ impl SyncResponse {
 pub struct Presence {
     /// A list of events.
     pub events: Vec<PresenceEvent>,
+}
+
+/// Messages sent dirrectly between devices.
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+pub struct ToDevice {
+    /// A list of events.
+    pub events: Vec<AnyToDeviceEvent>,
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
@@ -88,13 +96,11 @@ pub struct JoinedRoom {
     // #[serde(default, skip_serializing_if = "UnreadNotificationsCount::is_empty")]
     // pub unread_notifications: UnreadNotificationsCount,
     /// The timeline of messages and state changes in the room.
-    #[serde(default, skip_serializing_if = "Timeline::is_empty")]
     pub timeline: Timeline,
 
     /// Updates to the state, between the time indicated by the `since` parameter, and the start
     /// of the `timeline` (or all state up to the start of the `timeline`, if `since` is not
     /// given, or `full_state` is true).
-    #[serde(default, skip_serializing_if = "State::is_empty")]
     pub state: State,
     // /// The private data that this user has attached to this room.
     // #[serde(default, skip_serializing_if = "AccountData::is_empty")]
@@ -116,12 +122,10 @@ impl JoinedRoom {
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
 pub struct Timeline {
     /// True if the number of events returned was limited by the `limit` on the filter.
-    #[serde(default)]
     pub limited: bool,
 
     /// A token that can be supplied to to the `from` parameter of the
     /// `/rooms/{roomId}/messages` endpoint.
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub prev_batch: Option<String>,
 
     /// A list of events.
@@ -136,10 +140,6 @@ impl Timeline {
             ..Default::default()
         }
     }
-
-    fn is_empty(&self) -> bool {
-        self.events.is_empty()
-    }
 }
 
 /// State events in the room.
@@ -147,10 +147,4 @@ impl Timeline {
 pub struct State {
     /// A list of state events.
     pub events: Vec<AnySyncStateEvent>,
-}
-
-impl State {
-    fn is_empty(&self) -> bool {
-        self.events.is_empty()
-    }
 }

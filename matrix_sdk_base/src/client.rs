@@ -463,7 +463,7 @@ impl BaseClient {
     /// * `response` - The response that we received after a successful sync.
     pub async fn receive_sync_response(
         &self,
-        response: &mut api::sync::sync_events::Response,
+        mut response: api::sync::sync_events::Response,
     ) -> Result<SyncResponse> {
         // The server might respond multiple times with the same sync token, in
         // that case we already received this response and there's nothing to
@@ -481,7 +481,7 @@ impl BaseClient {
                 // decryptes to-device events, but leaves room events alone.
                 // This makes sure that we have the deryption keys for the room
                 // events at hand.
-                o.receive_sync_response(response).await?;
+                o.receive_sync_response(&mut response).await?;
             }
         }
 
@@ -589,11 +589,7 @@ impl BaseClient {
         *self.sync_token.write().await = Some(response.next_batch.clone());
         self.apply_changes(&changes).await;
 
-        Ok(SyncResponse::new(
-            response.next_batch.clone(),
-            rooms,
-            changes,
-        ))
+        Ok(SyncResponse::new(response, rooms, changes))
     }
 
     async fn apply_changes(&self, changes: &StateChanges) {
