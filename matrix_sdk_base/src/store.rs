@@ -175,10 +175,15 @@ impl Room {
         let invited = self.store.get_invited_user_ids(self.room_id()).await;
 
         let x = move |u| async move {
+            let presence = self.store.get_presence_event(&u).await;
+
             self.store
                 .get_member_event(self.room_id(), &u)
                 .await
-                .map(|m| m.into())
+                .map(|m| RoomMember {
+                    event: m.into(),
+                    presence: presence.into(),
+                })
         };
 
         joined.chain(invited).filter_map(x)
@@ -294,10 +299,15 @@ impl Room {
     }
 
     pub async fn get_member(&self, user_id: &UserId) -> Option<RoomMember> {
+        let presence = self.store.get_presence_event(user_id).await;
+
         self.store
             .get_member_event(&self.room_id, user_id)
             .await
-            .map(|e| e.into())
+            .map(|e| RoomMember {
+                event: e.into(),
+                presence: presence.into(),
+            })
     }
 
     pub fn room_id(&self) -> &RoomId {
@@ -316,6 +326,7 @@ impl Room {
 #[derive(Clone, Debug)]
 pub struct RoomMember {
     event: Arc<SyncStateEvent<MemberEventContent>>,
+    presence: Arc<Option<PresenceEvent>>,
 }
 
 impl RoomMember {
@@ -337,14 +348,6 @@ impl RoomMember {
 
     pub fn unique_name(&self) -> String {
         self.event.state_key.clone()
-    }
-}
-
-impl From<SyncStateEvent<MemberEventContent>> for RoomMember {
-    fn from(event: SyncStateEvent<MemberEventContent>) -> Self {
-        Self {
-            event: Arc::new(event),
-        }
     }
 }
 
@@ -575,6 +578,13 @@ impl Store {
         ret.unwrap();
 
         self.inner.flush_async().await.unwrap();
+    }
+
+    pub async fn get_presence_event(&self, user_id: &UserId) -> Option<PresenceEvent> {
+        self.presence
+            .get(user_id.as_bytes())
+            .unwrap()
+            .map(|e| serde_json::from_slice(&e).unwrap())
     }
 
     pub async fn get_member_event(
