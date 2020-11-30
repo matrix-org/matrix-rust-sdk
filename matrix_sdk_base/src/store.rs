@@ -6,7 +6,6 @@ use std::{
 };
 
 use futures::{
-    executor::block_on,
     future,
     stream::{self, Stream, StreamExt},
 };
@@ -264,6 +263,10 @@ impl Room {
                 "Empty room".to_string()
             }
         }
+    }
+
+    pub fn own_user_id(&self) -> &UserId {
+        &self.own_user_id
     }
 
     pub(crate) fn clone_summary(&self) -> InnerSummary {

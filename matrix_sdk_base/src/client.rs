@@ -485,9 +485,6 @@ impl BaseClient {
             }
         }
 
-        // TODO we'll want a flow where we calculate changes using a room
-        // summary snapshot, then we store the new snapshots, only then do we
-        // apply and emit the new events and rooms.
         let mut changes = StateChanges::default();
 
         let mut rooms = Rooms::default();
@@ -558,6 +555,8 @@ impl BaseClient {
 
             #[cfg(feature = "encryption")]
             if summary.is_encrypted() {
+                // TODO if the room isn't encrypted but the new summary is,
+                // add all the room users.
                 if let Some(o) = self.olm_machine().await {
                     if let Some(users) = changes.joined_user_ids.get(room_id) {
                         o.update_tracked_users(users).await
@@ -581,17 +580,19 @@ impl BaseClient {
         }
 
         self.store.save_changes(&changes).await;
-
         *self.sync_token.write().await = Some(response.next_batch.clone());
+        self.apply_changes(changes).await;
 
+        Ok(SyncResponse::new(response.next_batch.clone(), rooms))
+    }
+
+    async fn apply_changes(&self, changes: StateChanges) {
         // TODO emit room changes here
         for (room_id, summary) in changes.room_summaries {
             if let Some(room) = self.get_joined_room(&room_id) {
                 room.update_summary(summary)
             }
         }
-
-        Ok(SyncResponse::new(response.next_batch.clone(), rooms))
     }
 
     pub async fn receive_members(
@@ -637,6 +638,7 @@ impl BaseClient {
             changes.add_room(summary);
 
             self.store.save_changes(&changes).await;
+            self.apply_changes(changes).await;
         }
 
         Ok(())
