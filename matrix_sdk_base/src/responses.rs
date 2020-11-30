@@ -18,7 +18,6 @@ pub struct SyncResponse {
     /// Updates to the presence status of other users.
     pub presence: Presence,
     ///// The global private data created by this user.
-    //#[serde(default, skip_serializing_if = "AccountData::is_empty")]
     //pub account_data: AccountData,
     /// Messages sent dirrectly between devices.
     pub to_device: ToDevice,
@@ -74,41 +73,28 @@ pub struct ToDevice {
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
 pub struct Rooms {
     // /// The rooms that the user has left or been banned from.
-    // #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     // pub leave: BTreeMap<RoomId, LeftRoom>,
     /// The rooms that the user has joined.
-    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub join: BTreeMap<RoomId, JoinedRoom>,
     // /// The rooms that the user has been invited to.
-    // #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     // pub invite: BTreeMap<RoomId, InvitedRoom>,
 }
 
 /// Updates to joined rooms.
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct JoinedRoom {
-    // /// Information about the room which clients may need to correctly render it
-    // /// to users.
-    // #[serde(default, skip_serializing_if = "RoomSummary::is_empty")]
-    // pub summary: RoomSummary,
-
     // /// Counts of unread notifications for this room.
-    // #[serde(default, skip_serializing_if = "UnreadNotificationsCount::is_empty")]
     // pub unread_notifications: UnreadNotificationsCount,
     /// The timeline of messages and state changes in the room.
     pub timeline: Timeline,
-
     /// Updates to the state, between the time indicated by the `since` parameter, and the start
     /// of the `timeline` (or all state up to the start of the `timeline`, if `since` is not
     /// given, or `full_state` is true).
     pub state: State,
     // /// The private data that this user has attached to this room.
-    // #[serde(default, skip_serializing_if = "AccountData::is_empty")]
     // pub account_data: AccountData,
-
     // /// The ephemeral events in the room that aren't recorded in the timeline or state of the
     // /// room. e.g. typing.
-    // #[serde(default, skip_serializing_if = "Ephemeral::is_empty")]
     // pub ephemeral: Ephemeral,
 }
 

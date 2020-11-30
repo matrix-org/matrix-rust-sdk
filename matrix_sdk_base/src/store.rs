@@ -139,8 +139,6 @@ pub enum RoomType {
     Joined,
     /// Represents a left room, the `left_rooms` HashMap will be used.
     Left,
-    /// Represents an invited room, the `invited_rooms` HashMap will be used.
-    Invited,
 }
 
 impl Room {

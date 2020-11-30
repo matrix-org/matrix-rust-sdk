@@ -458,7 +458,7 @@ impl Client {
     ///
     /// `room_id` - The unique id of the room that should be fetched.
     pub fn get_joined_room(&self, room_id: &RoomId) -> Option<Room> {
-        self.base_client.get_joined_room(room_id)
+        self.base_client.get_room(room_id)
     }
 
     ///// Get an invited room with the given room id.
@@ -1032,7 +1032,7 @@ impl Client {
                 let _guard = mutex.lock().await;
 
                 {
-                    let room = self.base_client.get_joined_room(room_id).unwrap();
+                    let room = self.base_client.get_room(room_id).unwrap();
                     let members = room.joined_user_ids().await;
                     // TODO don't collect here.
                     let members_iter: Vec<UserId> = members.collect().await;
@@ -1134,14 +1134,14 @@ impl Client {
     /// Returns true if a room with the given id was found and the room is
     /// encrypted, false if the room wasn't found or isn't encrypted.
     async fn is_room_encrypted(&self, room_id: &RoomId) -> bool {
-        match self.base_client.get_joined_room(room_id) {
+        match self.base_client.get_room(room_id) {
             Some(r) => r.is_encrypted(),
             None => false,
         }
     }
 
     async fn are_members_synced(&self, room_id: &RoomId) -> bool {
-        match self.base_client.get_joined_room(room_id) {
+        match self.base_client.get_room(room_id) {
             Some(r) => r.are_members_synced(),
             None => true,
         }

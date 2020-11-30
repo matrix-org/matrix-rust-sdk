@@ -56,7 +56,7 @@ use crate::{
     error::Result,
     responses::{JoinedRoom, Rooms, State, SyncResponse, Timeline},
     session::Session,
-    store::{Room, RoomType, StateChanges, Store},
+    store::{InnerSummary, Room, RoomType, StateChanges, Store},
 };
 
 pub type Token = String;
@@ -212,7 +212,7 @@ pub struct BaseClient {
     pub(crate) sync_token: Arc<RwLock<Option<Token>>>,
     /// Database
     store: Store,
-    joined_rooms: Arc<DashMap<RoomId, Room>>,
+    rooms: Arc<DashMap<RoomId, Room>>,
     #[cfg(feature = "encryption")]
     olm: Arc<Mutex<Option<OlmMachine>>>,
     #[cfg(feature = "encryption")]
@@ -326,7 +326,7 @@ impl BaseClient {
             session: Arc::new(RwLock::new(None)),
             sync_token: Arc::new(RwLock::new(None)),
             store,
-            joined_rooms: Arc::new(DashMap::new()),
+            rooms: Arc::new(DashMap::new()),
             #[cfg(feature = "encryption")]
             olm: Arc::new(Mutex::new(None)),
             #[cfg(feature = "encryption")]
@@ -446,14 +446,84 @@ impl BaseClient {
             .expect("Creating room while not being logged in")
             .user_id;
 
-        match room_type {
-            RoomType::Joined => self
-                .joined_rooms
-                .entry(room_id.clone())
-                .or_insert_with(|| Room::new(user_id, self.store.clone(), room_id, room_type))
-                .clone(),
-            _ => todo!(),
+        self.rooms
+            .entry(room_id.clone())
+            .or_insert_with(|| Room::new(user_id, self.store.clone(), room_id, room_type))
+            .clone()
+    }
+
+    async fn handle_timeline(
+        &self,
+        room_id: &RoomId,
+        ruma_timeline: &api::sync::sync_events::Timeline,
+        summary: &mut InnerSummary,
+        mut changes: &mut StateChanges,
+    ) -> Timeline {
+        let mut timeline = Timeline::new(ruma_timeline.limited, ruma_timeline.prev_batch.clone());
+
+        for event in &ruma_timeline.events {
+            if let Ok(mut e) = hoist_room_event_prev_content(event) {
+                match &mut e {
+                    AnySyncRoomEvent::State(s) => match s {
+                        AnySyncStateEvent::RoomMember(member) => {
+                            handle_membership(&mut changes, room_id, member);
+                        }
+                        _ => {
+                            summary.handle_state_event(&s);
+                            changes.add_state_event(room_id, s.clone());
+                        }
+                    },
+                    AnySyncRoomEvent::Message(message) =>
+                    {
+                        #[cfg(feature = "encryption")]
+                        if let AnySyncMessageEvent::RoomEncrypted(encrypted) = message {
+                            if let Some(olm) = self.olm_machine().await {
+                                if let Ok(decrypted) =
+                                    olm.decrypt_room_event(encrypted, room_id).await
+                                {
+                                    if let Ok(decrypted) = decrypted.deserialize() {
+                                        e = decrypted;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    _ => (),
+                }
+
+                timeline.events.push(e);
+            }
         }
+
+        timeline
+    }
+
+    async fn handle_state(
+        &self,
+        room_id: &RoomId,
+        events: &[Raw<AnySyncStateEvent>],
+        summary: &mut InnerSummary,
+        mut changes: &mut StateChanges,
+    ) -> State {
+        let mut state = State::default();
+
+        for e in events {
+            if let Ok(event) = hoist_and_deserialize_state_event(e) {
+                match &event {
+                    AnySyncStateEvent::RoomMember(member) => {
+                        handle_membership(&mut changes, room_id, member);
+                    }
+                    e => {
+                        summary.handle_state_event(&e);
+                        changes.add_state_event(room_id, e.clone());
+                    }
+                }
+
+                state.events.push(event);
+            }
+        }
+
+        state
     }
 
     /// Receive a response from a sync call.
@@ -486,7 +556,6 @@ impl BaseClient {
         }
 
         let mut changes = StateChanges::default();
-
         let mut rooms = Rooms::default();
 
         for (room_id, room_info) in &response.rooms.join {
@@ -496,62 +565,18 @@ impl BaseClient {
             summary.update(&room_info.summary);
             summary.set_prev_batch(room_info.timeline.prev_batch.as_deref());
 
-            let mut state = State::default();
+            let state = self
+                .handle_state(
+                    &room_id,
+                    &room_info.state.events,
+                    &mut summary,
+                    &mut changes,
+                )
+                .await;
 
-            for e in &room_info.state.events {
-                if let Ok(event) = hoist_and_deserialize_state_event(e) {
-                    match &event {
-                        AnySyncStateEvent::RoomMember(member) => {
-                            handle_membership(&mut changes, room_id, member);
-                        }
-                        e => {
-                            summary.handle_state_event(&e);
-                            changes.add_state_event(room_id, e.clone());
-                        }
-                    }
-
-                    state.events.push(event);
-                }
-            }
-
-            let mut timeline = Timeline::new(
-                room_info.timeline.limited,
-                room_info.timeline.prev_batch.clone(),
-            );
-
-            for event in &room_info.timeline.events {
-                if let Ok(mut e) = hoist_room_event_prev_content(event) {
-                    match &mut e {
-                        AnySyncRoomEvent::State(s) => match s {
-                            AnySyncStateEvent::RoomMember(member) => {
-                                handle_membership(&mut changes, room_id, member);
-                            }
-                            _ => {
-                                summary.handle_state_event(&s);
-                                changes.add_state_event(room_id, s.clone());
-                            }
-                        },
-                        AnySyncRoomEvent::Message(message) =>
-                        {
-                            #[cfg(feature = "encryption")]
-                            if let AnySyncMessageEvent::RoomEncrypted(encrypted) = message {
-                                if let Some(olm) = self.olm_machine().await {
-                                    if let Ok(decrypted) =
-                                        olm.decrypt_room_event(encrypted, room_id).await
-                                    {
-                                        if let Ok(decrypted) = decrypted.deserialize() {
-                                            e = decrypted;
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                        _ => (),
-                    }
-
-                    timeline.events.push(e);
-                }
-            }
+            let timeline = self
+                .handle_timeline(&room_id, &room_info.timeline, &mut summary, &mut changes)
+                .await;
 
             #[cfg(feature = "encryption")]
             if summary.is_encrypted() {
@@ -595,7 +620,7 @@ impl BaseClient {
     async fn apply_changes(&self, changes: &StateChanges) {
         // TODO emit room changes here
         for (room_id, summary) in &changes.room_summaries {
-            if let Some(room) = self.get_joined_room(&room_id) {
+            if let Some(room) = self.get_room(&room_id) {
                 room.update_summary(summary.clone())
             }
         }
@@ -606,7 +631,7 @@ impl BaseClient {
         room_id: &RoomId,
         response: &api::membership::get_member_events::Response,
     ) -> Result<()> {
-        if let Some(room) = self.get_joined_room(room_id) {
+        if let Some(room) = self.get_room(room_id) {
             let mut summary = room.clone_summary();
             summary.mark_members_synced();
 
@@ -763,8 +788,8 @@ impl BaseClient {
         }
     }
 
-    pub fn get_joined_room(&self, room_id: &RoomId) -> Option<Room> {
-        self.joined_rooms.get(room_id).map(|r| r.clone())
+    pub fn get_room(&self, room_id: &RoomId) -> Option<Room> {
+        self.rooms.get(room_id).map(|r| r.clone())
     }
 
     /// Encrypt a message event content.
