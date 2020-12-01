@@ -52,7 +52,7 @@ use crate::{
     key_request::KeyRequestMachine,
     olm::{
         Account, EncryptionSettings, ExportedRoomKey, GroupSessionKey, IdentityKeys,
-        InboundGroupSession, PrivateCrossSigningIdentity, ReadOnlyAccount, Session,
+        InboundGroupSession, OlmDecryptionInfo, PrivateCrossSigningIdentity, ReadOnlyAccount,
     },
     requests::{IncomingResponse, OutgoingRequest, UploadSigningKeysRequest},
     session_manager::{GroupSessionManager, SessionManager},
@@ -555,24 +555,23 @@ impl OlmMachine {
     async fn decrypt_to_device_event(
         &self,
         event: &ToDeviceEvent<EncryptedEventContent>,
-    ) -> OlmResult<(Session, Raw<AnyToDeviceEvent>, Option<InboundGroupSession>)> {
-        let (session, decrypted_event, sender_key, signing_key) =
-            self.account.decrypt_to_device_event(event).await?;
+    ) -> OlmResult<OlmDecryptionInfo> {
+        let mut decrypted = self.account.decrypt_to_device_event(event).await?;
         // Handle the decrypted event, e.g. fetch out Megolm sessions out of
         // the event.
-        if let (Some(event), group_session) = self
-            .handle_decrypted_to_device_event(&sender_key, &signing_key, &decrypted_event)
-            .await?
+        if let (Some(event), group_session) =
+            self.handle_decrypted_to_device_event(&decrypted).await?
         {
             // Some events may have sensitive data e.g. private keys, while we
             // want to notify our users that a private key was received we
             // don't want them to be able to do silly things with it. Handling
             // events modifies them and returns a modified one, so replace it
             // here if we get one.
-            Ok((session, event, group_session))
-        } else {
-            Ok((session, decrypted_event, None))
+            decrypted.event = event;
+            decrypted.inbound_group_session = group_session;
         }
+
+        Ok(decrypted)
     }
 
     /// Create a group session from a room key and add it to our crypto store.
@@ -704,27 +703,29 @@ impl OlmMachine {
     /// * `event` - The decrypted to-device event.
     async fn handle_decrypted_to_device_event(
         &self,
-        sender_key: &str,
-        signing_key: &str,
-        event: &Raw<AnyToDeviceEvent>,
+        decrypted: &OlmDecryptionInfo,
     ) -> OlmResult<(Option<Raw<AnyToDeviceEvent>>, Option<InboundGroupSession>)> {
-        let event = if let Ok(e) = event.deserialize() {
-            e
-        } else {
-            warn!("Decrypted to-device event failed to be parsed correctly");
-            return Ok((None, None));
+        let event = match decrypted.event.deserialize() {
+            Ok(e) => e,
+            Err(e) => {
+                warn!(
+                    "Decrypted to-device event failed to be parsed correctly {:?}",
+                    e
+                );
+                return Ok((None, None));
+            }
         };
 
         match event {
-            AnyToDeviceEvent::RoomKey(mut e) => {
-                Ok(self.add_room_key(sender_key, signing_key, &mut e).await?)
-            }
+            AnyToDeviceEvent::RoomKey(mut e) => Ok(self
+                .add_room_key(&decrypted.sender_key, &decrypted.signing_key, &mut e)
+                .await?),
             AnyToDeviceEvent::ForwardedRoomKey(mut e) => Ok(self
                 .key_request_machine
-                .receive_forwarded_room_key(sender_key, &mut e)
+                .receive_forwarded_room_key(&decrypted.sender_key, &mut e)
                 .await?),
             _ => {
-                warn!("Received a unexpected encrypted to-device event");
+                warn!("Received an unexpected encrypted to-device event");
                 Ok((None, None))
             }
         }
@@ -808,38 +809,37 @@ impl OlmMachine {
 
             match &mut event {
                 AnyToDeviceEvent::RoomEncrypted(e) => {
-                    let (session, decrypted_event, group_session) =
-                        match self.decrypt_to_device_event(e).await {
-                            Ok(e) => e,
-                            Err(err) => {
-                                warn!(
-                                    "Failed to decrypt to-device event from {} {}",
-                                    e.sender, err
-                                );
+                    let decrypted = match self.decrypt_to_device_event(e).await {
+                        Ok(e) => e,
+                        Err(err) => {
+                            warn!(
+                                "Failed to decrypt to-device event from {} {}",
+                                e.sender, err
+                            );
 
-                                if let OlmError::SessionWedged(sender, curve_key) = err {
-                                    if let Err(e) = self
-                                        .session_manager
-                                        .mark_device_as_wedged(&sender, &curve_key)
-                                        .await
-                                    {
-                                        error!(
-                                            "Couldn't mark device from {} to be unwedged {:?}",
-                                            sender, e
-                                        );
-                                    }
+                            if let OlmError::SessionWedged(sender, curve_key) = err {
+                                if let Err(e) = self
+                                    .session_manager
+                                    .mark_device_as_wedged(&sender, &curve_key)
+                                    .await
+                                {
+                                    error!(
+                                        "Couldn't mark device from {} to be unwedged {:?}",
+                                        sender, e
+                                    );
                                 }
-                                continue;
                             }
-                        };
+                            continue;
+                        }
+                    };
 
-                    changes.sessions.push(session);
+                    changes.sessions.push(decrypted.session);
 
-                    if let Some(group_session) = group_session {
+                    if let Some(group_session) = decrypted.inbound_group_session {
                         changes.inbound_group_sessions.push(group_session);
                     }
 
-                    *event_result = decrypted_event;
+                    *event_result = decrypted.event;
                 }
                 AnyToDeviceEvent::RoomKeyRequest(e) => {
                     self.key_request_machine.receive_incoming_key_request(e)
@@ -1283,8 +1283,8 @@ pub(crate) mod test {
             content,
         };
 
-        let (session, _, _) = bob.decrypt_to_device_event(&event).await.unwrap();
-        bob.store.save_sessions(&[session]).await.unwrap();
+        let decrypted = bob.decrypt_to_device_event(&event).await.unwrap();
+        bob.store.save_sessions(&[decrypted.session]).await.unwrap();
 
         (alice, bob)
     }
@@ -1578,7 +1578,7 @@ pub(crate) mod test {
             .decrypt_to_device_event(&event)
             .await
             .unwrap()
-            .1
+            .event
             .deserialize()
             .unwrap();
 
@@ -1614,14 +1614,14 @@ pub(crate) mod test {
             .get_outbound_group_session(&room_id)
             .unwrap();
 
-        let (session, event, group_session) = bob.decrypt_to_device_event(&event).await.unwrap();
+        let decrypted = bob.decrypt_to_device_event(&event).await.unwrap();
 
-        bob.store.save_sessions(&[session]).await.unwrap();
+        bob.store.save_sessions(&[decrypted.session]).await.unwrap();
         bob.store
-            .save_inbound_group_sessions(&[group_session.unwrap()])
+            .save_inbound_group_sessions(&[decrypted.inbound_group_session.unwrap()])
             .await
             .unwrap();
-        let event = event.deserialize().unwrap();
+        let event = decrypted.event.deserialize().unwrap();
 
         if let AnyToDeviceEvent::RoomKey(event) = event {
             assert_eq!(&event.sender, alice.user_id());
@@ -1661,7 +1661,11 @@ pub(crate) mod test {
             content: to_device_requests_to_content(to_device_requests),
         };
 
-        let (_, _, group_session) = bob.decrypt_to_device_event(&event).await.unwrap();
+        let group_session = bob
+            .decrypt_to_device_event(&event)
+            .await
+            .unwrap()
+            .inbound_group_session;
         bob.store
             .save_inbound_group_sessions(&[group_session.unwrap()])
             .await
