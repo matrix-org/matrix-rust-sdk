@@ -342,13 +342,22 @@ pub trait CryptoStore: Debug {
     /// * `account` - The account that should be stored.
     async fn save_account(&self, account: ReadOnlyAccount) -> Result<()>;
 
-    /// TODO
+    /// Save the given privat identity in the store.
+    ///
+    /// # Arguments
+    ///
+    /// * `identity` - The private cross signing identity that should be saved
+    /// in the store.
     async fn save_identity(&self, identity: PrivateCrossSigningIdentity) -> Result<()>;
 
-    /// TODO
+    /// Try to load a private cross signing identity, if one is stored.
     async fn load_identity(&self) -> Result<Option<PrivateCrossSigningIdentity>>;
 
-    /// TODO
+    /// Save the set of changes to the store.
+    ///
+    /// # Arguments
+    ///
+    /// * `changes` - The set of changes that should be stored.
     async fn save_changes(&self, changes: Changes) -> Result<()>;
 
     /// Get all the sessions that belong to the given sender key.
