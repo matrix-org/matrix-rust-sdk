@@ -131,7 +131,10 @@ impl Account {
                 .chain(&[message_type])
                 .chain(&ciphertext.body);
 
-            let hash = encode(sha.finalize().as_slice());
+            let message_hash = OlmMessageHash {
+                sender_key: content.sender_key.clone(),
+                hash: encode(sha.finalize().as_slice()),
+            };
 
             // Create a OlmMessage from the ciphertext and the type.
             let message =
@@ -139,18 +142,26 @@ impl Account {
                     .map_err(|_| EventError::UnsupportedOlmType)?;
 
             // Decrypt the OlmMessage and get a Ruma event out of it.
-            let (session, event, signing_key) = self
+            let (session, event, signing_key) = match self
                 .decrypt_olm_message(&event.sender, &content.sender_key, message)
-                .await?;
+                .await
+            {
+                Ok(d) => d,
+                Err(OlmError::SessionWedged(user_id, sender_key)) => {
+                    if self.store.is_message_known(&message_hash).await? {
+                        return Err(OlmError::ReplayedMessage(user_id, sender_key));
+                    } else {
+                        return Err(OlmError::SessionWedged(user_id, sender_key));
+                    }
+                }
+                Err(e) => return Err(e.into()),
+            };
 
             debug!("Decrypted a to-device event {:?}", event);
 
             Ok(OlmDecryptionInfo {
                 session,
-                message_hash: OlmMessageHash {
-                    hash,
-                    sender_key: content.sender_key.clone(),
-                },
+                message_hash,
                 event,
                 signing_key,
                 sender_key: content.sender_key.clone(),
