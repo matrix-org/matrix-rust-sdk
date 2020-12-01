@@ -220,10 +220,6 @@ impl CryptoStore for MemoryStore {
         Ok(self.values.get(key).map(|v| v.to_owned()))
     }
 
-    async fn save_identity(&self, _: PrivateCrossSigningIdentity) -> Result<()> {
-        Ok(())
-    }
-
     async fn load_identity(&self) -> Result<Option<PrivateCrossSigningIdentity>> {
         Ok(None)
     }

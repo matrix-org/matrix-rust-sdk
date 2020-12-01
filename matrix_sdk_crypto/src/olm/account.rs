@@ -57,7 +57,7 @@ use crate::{
     file_encryption::encode,
     identities::ReadOnlyDevice,
     requests::UploadSigningKeysRequest,
-    store::Store,
+    store::{Changes, Store},
     OlmError,
 };
 
@@ -73,8 +73,24 @@ pub struct Account {
 }
 
 #[derive(Debug, Clone)]
+pub enum SessionType {
+    New(Session),
+    Existing(Session),
+}
+
+impl SessionType {
+    #[cfg(test)]
+    pub fn session(self) -> Session {
+        match self {
+            SessionType::New(s) => s,
+            SessionType::Existing(s) => s,
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
 pub struct OlmDecryptionInfo {
-    pub session: Session,
+    pub session: SessionType,
     pub message_hash: OlmMessageHash,
     pub event: Raw<AnyToDeviceEvent>,
     pub signing_key: String,
@@ -274,7 +290,7 @@ impl Account {
         sender: &UserId,
         sender_key: &str,
         message: OlmMessage,
-    ) -> OlmResult<(Session, Raw<AnyToDeviceEvent>, String)> {
+    ) -> OlmResult<(SessionType, Raw<AnyToDeviceEvent>, String)> {
         // First try to decrypt using an existing session.
         let (session, plaintext) = if let Some(d) = self
             .try_decrypt_olm_message(sender, sender_key, &message)
@@ -282,7 +298,7 @@ impl Account {
         {
             // Decryption succeeded, de-structure the session/plaintext out of
             // the Option.
-            d
+            (SessionType::Existing(d.0), d.1)
         } else {
             // Decryption failed with every known session, let's try to create a
             // new session.
@@ -329,7 +345,7 @@ impl Account {
             // Decrypt our message, this shouldn't fail since we're using a
             // newly created Session.
             let plaintext = session.decrypt(message).await?;
-            (session, plaintext)
+            (SessionType::New(session), plaintext)
         };
 
         trace!("Successfully decrypted a Olm message: {}", plaintext);
@@ -340,7 +356,20 @@ impl Account {
                 // We might created a new session but decryption might still
                 // have failed, store it for the error case here, this is fine
                 // since we don't expect this to happen often or at all.
-                self.store.save_sessions(&[session]).await?;
+                match session {
+                    SessionType::New(s) => {
+                        let changes = Changes {
+                            account: Some(self.inner.clone()),
+                            sessions: vec![s],
+                            ..Default::default()
+                        };
+                        self.store.save_changes(changes).await?;
+                    }
+                    SessionType::Existing(s) => {
+                        self.store.save_sessions(&[s]).await?;
+                    }
+                }
+
                 return Err(e);
             }
         };

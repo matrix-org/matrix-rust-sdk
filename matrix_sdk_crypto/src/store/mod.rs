@@ -109,6 +109,7 @@ pub(crate) struct Store {
 #[allow(missing_docs)]
 pub struct Changes {
     pub account: Option<ReadOnlyAccount>,
+    pub private_identity: Option<PrivateCrossSigningIdentity>,
     pub sessions: Vec<Session>,
     pub message_hashes: Vec<OlmMessageHash>,
     pub inbound_group_sessions: Vec<InboundGroupSession>,
@@ -344,14 +345,6 @@ pub trait CryptoStore: Debug {
     ///
     /// * `account` - The account that should be stored.
     async fn save_account(&self, account: ReadOnlyAccount) -> Result<()>;
-
-    /// Save the given privat identity in the store.
-    ///
-    /// # Arguments
-    ///
-    /// * `identity` - The private cross signing identity that should be saved
-    /// in the store.
-    async fn save_identity(&self, identity: PrivateCrossSigningIdentity) -> Result<()>;
 
     /// Try to load a private cross signing identity, if one is stored.
     async fn load_identity(&self) -> Result<Option<PrivateCrossSigningIdentity>>;

@@ -53,6 +53,7 @@ use crate::{
     olm::{
         Account, EncryptionSettings, ExportedRoomKey, GroupSessionKey, IdentityKeys,
         InboundGroupSession, OlmDecryptionInfo, PrivateCrossSigningIdentity, ReadOnlyAccount,
+        SessionType,
     },
     requests::{IncomingResponse, OutgoingRequest, UploadSigningKeysRequest},
     session_manager::{GroupSessionManager, SessionManager},
@@ -365,10 +366,15 @@ impl OlmMachine {
 
     /// Mark the cross signing identity as shared.
     async fn receive_cross_signing_upload_response(&self) -> StoreResult<()> {
-        self.user_identity.lock().await.mark_as_shared();
-        self.store
-            .save_identity((&*self.user_identity.lock().await).clone())
-            .await
+        let identity = self.user_identity.lock().await;
+        identity.mark_as_shared();
+
+        let changes = Changes {
+            private_identity: Some(identity.clone()),
+            ..Default::default()
+        };
+
+        self.store.save_changes(changes).await
     }
 
     /// Create a new cross signing identity and get the upload request to push
@@ -400,11 +406,12 @@ impl OlmMachine {
                     new: vec![public.into()],
                     ..Default::default()
                 },
+                private_identity: Some(identity.clone()),
                 ..Default::default()
             };
 
             self.store.save_changes(changes).await?;
-            self.store.save_identity(identity.clone()).await?;
+
             Ok((request, signature_request))
         } else {
             info!("Trying to upload the existing cross signing identity");
@@ -833,7 +840,18 @@ impl OlmMachine {
                         }
                     };
 
-                    changes.sessions.push(decrypted.session);
+                    // New sessions modify the account so we need to save that
+                    // one as well.
+                    match decrypted.session {
+                        SessionType::New(s) => {
+                            changes.sessions.push(s);
+                            changes.account = Some(self.account.inner.clone());
+                        }
+                        SessionType::Existing(s) => {
+                            changes.sessions.push(s);
+                        }
+                    }
+
                     changes.message_hashes.push(decrypted.message_hash);
 
                     if let Some(group_session) = decrypted.inbound_group_session {
@@ -1285,7 +1303,10 @@ pub(crate) mod test {
         };
 
         let decrypted = bob.decrypt_to_device_event(&event).await.unwrap();
-        bob.store.save_sessions(&[decrypted.session]).await.unwrap();
+        bob.store
+            .save_sessions(&[decrypted.session.session()])
+            .await
+            .unwrap();
 
         (alice, bob)
     }
@@ -1617,7 +1638,10 @@ pub(crate) mod test {
 
         let decrypted = bob.decrypt_to_device_event(&event).await.unwrap();
 
-        bob.store.save_sessions(&[decrypted.session]).await.unwrap();
+        bob.store
+            .save_sessions(&[decrypted.session.session()])
+            .await
+            .unwrap();
         bob.store
             .save_inbound_group_sessions(&[decrypted.inbound_group_session.unwrap()])
             .await

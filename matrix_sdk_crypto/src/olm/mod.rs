@@ -23,7 +23,7 @@ mod session;
 mod signing;
 mod utility;
 
-pub(crate) use account::{Account, OlmDecryptionInfo};
+pub(crate) use account::{Account, OlmDecryptionInfo, SessionType};
 pub use account::{AccountPickle, OlmMessageHash, PickledAccount, ReadOnlyAccount};
 pub use group_sessions::{
     EncryptionSettings, ExportedRoomKey, InboundGroupSession, InboundGroupSessionPickle,
