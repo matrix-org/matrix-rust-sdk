@@ -82,7 +82,9 @@ use matrix_sdk_common_macros::send_sync;
 use crate::{
     error::SessionUnpicklingError,
     identities::{Device, ReadOnlyDevice, UserDevices, UserIdentities},
-    olm::{InboundGroupSession, PrivateCrossSigningIdentity, ReadOnlyAccount, Session},
+    olm::{
+        InboundGroupSession, OlmMessageHash, PrivateCrossSigningIdentity, ReadOnlyAccount, Session,
+    },
     verification::VerificationMachine,
 };
 
@@ -108,6 +110,7 @@ pub(crate) struct Store {
 pub struct Changes {
     pub account: Option<ReadOnlyAccount>,
     pub sessions: Vec<Session>,
+    pub message_hashes: Vec<OlmMessageHash>,
     pub inbound_group_sessions: Vec<InboundGroupSession>,
     pub identities: IdentityChanges,
     pub devices: DeviceChanges,
@@ -444,4 +447,7 @@ pub trait CryptoStore: Debug {
 
     /// Load a serializeable object from the store.
     async fn get_value(&self, key: &str) -> Result<Option<String>>;
+
+    /// Check if a hash for an Olm message stored in the database.
+    async fn is_message_known(&self, message_hash: &OlmMessageHash) -> Result<bool>;
 }

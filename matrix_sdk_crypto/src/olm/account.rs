@@ -72,13 +72,25 @@ pub struct Account {
     pub(crate) store: Store,
 }
 
+#[derive(Debug, Clone)]
 pub struct OlmDecryptionInfo {
     pub session: Session,
-    pub message_hash: String,
+    pub message_hash: OlmMessageHash,
     pub event: Raw<AnyToDeviceEvent>,
     pub signing_key: String,
     pub sender_key: String,
     pub inbound_group_session: Option<InboundGroupSession>,
+}
+
+/// A hash of a succesfully decrypted Olm message.
+///
+/// Can be used to check if a message has been replayed to us.
+#[derive(Debug, Clone)]
+pub struct OlmMessageHash {
+    /// The curve25519 key of the sender that sent us the Olm message.
+    pub sender_key: String,
+    /// The hash of the message.
+    pub hash: String,
 }
 
 impl Deref for Account {
@@ -119,7 +131,7 @@ impl Account {
                 .chain(&[message_type])
                 .chain(&ciphertext.body);
 
-            let message_hash = encode(sha.finalize().as_slice());
+            let hash = encode(sha.finalize().as_slice());
 
             // Create a OlmMessage from the ciphertext and the type.
             let message =
@@ -135,7 +147,10 @@ impl Account {
 
             Ok(OlmDecryptionInfo {
                 session,
-                message_hash,
+                message_hash: OlmMessageHash {
+                    hash,
+                    sender_key: content.sender_key.clone(),
+                },
                 event,
                 signing_key,
                 sender_key: content.sender_key.clone(),

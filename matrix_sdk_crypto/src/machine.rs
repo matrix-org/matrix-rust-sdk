@@ -834,6 +834,7 @@ impl OlmMachine {
                     };
 
                     changes.sessions.push(decrypted.session);
+                    changes.message_hashes.push(decrypted.message_hash);
 
                     if let Some(group_session) = decrypted.inbound_group_session {
                         changes.inbound_group_sessions.push(group_session);

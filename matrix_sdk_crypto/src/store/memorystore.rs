@@ -40,6 +40,7 @@ pub struct MemoryStore {
     inbound_group_sessions: GroupSessionStore,
     tracked_users: Arc<DashSet<UserId>>,
     users_for_key_query: Arc<DashSet<UserId>>,
+    olm_hashes: Arc<DashMap<String, DashSet<String>>>,
     devices: DeviceStore,
     identities: Arc<DashMap<UserId, UserIdentities>>,
     values: Arc<DashMap<String, String>>,
@@ -52,6 +53,7 @@ impl Default for MemoryStore {
             inbound_group_sessions: GroupSessionStore::new(),
             tracked_users: Arc::new(DashSet::new()),
             users_for_key_query: Arc::new(DashSet::new()),
+            olm_hashes: Arc::new(DashMap::new()),
             devices: DeviceStore::new(),
             identities: Arc::new(DashMap::new()),
             values: Arc::new(DashMap::new()),
@@ -118,6 +120,13 @@ impl CryptoStore for MemoryStore {
             let _ = self
                 .identities
                 .insert(identity.user_id().to_owned(), identity.clone());
+        }
+
+        for hash in changes.message_hashes {
+            self.olm_hashes
+                .entry(hash.sender_key.to_owned())
+                .or_insert_with(DashSet::new)
+                .insert(hash.hash.clone());
         }
 
         Ok(())
@@ -218,14 +227,22 @@ impl CryptoStore for MemoryStore {
     async fn load_identity(&self) -> Result<Option<PrivateCrossSigningIdentity>> {
         Ok(None)
     }
+
+    async fn is_message_known(&self, message_hash: &crate::olm::OlmMessageHash) -> Result<bool> {
+        Ok(self
+            .olm_hashes
+            .entry(message_hash.sender_key.to_owned())
+            .or_insert_with(DashSet::new)
+            .contains(&message_hash.hash))
+    }
 }
 
 #[cfg(test)]
 mod test {
     use crate::{
         identities::device::test::get_device,
-        olm::{test::get_account_and_session, InboundGroupSession},
-        store::{memorystore::MemoryStore, CryptoStore},
+        olm::{test::get_account_and_session, InboundGroupSession, OlmMessageHash},
+        store::{memorystore::MemoryStore, Changes, CryptoStore},
     };
     use matrix_sdk_common::identifiers::room_id;
 
@@ -328,5 +345,22 @@ mod test {
             .unwrap());
 
         assert!(store.is_user_tracked(device.user_id()));
+    }
+
+    #[tokio::test]
+    async fn test_message_hash() {
+        let store = MemoryStore::new();
+
+        let hash = OlmMessageHash {
+            sender_key: "test_sender".to_owned(),
+            hash: "test_hash".to_owned(),
+        };
+
+        let mut changes = Changes::default();
+        changes.message_hashes.push(hash.clone());
+
+        assert!(!store.is_message_known(&hash).await.unwrap());
+        store.save_changes(changes).await.unwrap();
+        assert!(store.is_message_known(&hash).await.unwrap());
     }
 }
