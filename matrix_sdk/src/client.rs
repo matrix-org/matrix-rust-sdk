@@ -792,7 +792,7 @@ impl Client {
         since: Option<&str>,
         server: Option<&ServerName>,
     ) -> Result<get_public_rooms::Response> {
-        let limit = limit.map(|n| UInt::try_from(n).ok()).flatten();
+        let limit = limit.map(|n| UInt::from(n));
 
         let request = assign!(get_public_rooms::Request::new(), {
             limit,
