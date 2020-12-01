@@ -117,9 +117,6 @@ impl Default for AcceptedProtocols {
     }
 }
 
-// TODO implement expiration of the verification flow using the timeouts defined
-// in the spec.
-
 /// A type level state machine modeling the Sas flow.
 ///
 /// This is the generic struc holding common data between the different states
