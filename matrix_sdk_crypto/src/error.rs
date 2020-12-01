@@ -47,8 +47,15 @@ pub enum OlmError {
     Store(#[from] CryptoStoreError),
 
     /// The session with a device has become corrupted.
-    #[error("decryption failed likely because an Olm from {0} with sender key {1} was wedged")]
+    #[error(
+        "decryption failed likely because an Olm session from {0} with sender key {1} was wedged"
+    )]
     SessionWedged(UserId, String),
+
+    /// An Olm message got replayed while the Olm ratchet has already moved
+    /// forward.
+    #[error("decryption failed because an Olm message from {0} with sender key {1} was replayed")]
+    ReplayedMessage(UserId, String),
 
     /// Encryption failed because the device does not have a valid Olm session
     /// with us.

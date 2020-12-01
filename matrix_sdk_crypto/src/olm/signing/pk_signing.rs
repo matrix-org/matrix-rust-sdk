@@ -170,7 +170,6 @@ impl MasterSigning {
     }
 
     pub async fn sign_subkey<'a>(&self, subkey: &mut CrossSigningKey) {
-        // TODO create a borrowed version of a cross singing key.
         let subkey_wihtout_signatures = json!({
             "user_id": subkey.user_id.clone(),
             "keys": subkey.keys.clone(),

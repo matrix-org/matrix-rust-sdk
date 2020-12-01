@@ -46,11 +46,10 @@ base64 = "0.13.0"
 byteorder = "1.3.4"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies.sqlx]
-git = "https://github.com/launchbadge/sqlx/"
-rev = "fd25a7530cf087e1529553ff854f192738db3461"
+version = "0.4.1"
 optional = true
 default-features = false
-features = ["runtime-tokio", "sqlite", "macros"]
+features = ["runtime-tokio-native-tls", "sqlite", "macros"]
 
 [dev-dependencies]
 tokio = { version = "0.2.22", default-features = false, features = ["rt-threaded", "macros"] }
