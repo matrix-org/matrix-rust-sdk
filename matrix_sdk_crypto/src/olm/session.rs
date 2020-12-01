@@ -126,9 +126,7 @@ impl Session {
             "content": content,
         });
 
-        let plaintext = serde_json::to_string(&payload)
-            .unwrap_or_else(|_| panic!(format!("Can't serialize {} to canonical JSON", payload)));
-
+        let plaintext = serde_json::to_string(&payload)?;
         let ciphertext = self.encrypt_helper(&plaintext).await.to_tuple();
 
         let message_type = ciphertext.0;

@@ -42,8 +42,9 @@ use crate::{
     identities::{LocalTrust, OwnUserIdentity, ReadOnlyDevice, UserIdentities, UserIdentity},
     olm::{
         AccountPickle, IdentityKeys, InboundGroupSession, InboundGroupSessionPickle,
-        PickledAccount, PickledCrossSigningIdentity, PickledInboundGroupSession, PickledSession,
-        PicklingMode, PrivateCrossSigningIdentity, ReadOnlyAccount, Session, SessionPickle,
+        OlmMessageHash, PickledAccount, PickledCrossSigningIdentity, PickledInboundGroupSession,
+        PickledSession, PicklingMode, PrivateCrossSigningIdentity, ReadOnlyAccount, Session,
+        SessionPickle,
     },
 };
 
@@ -487,6 +488,24 @@ impl SqliteStore {
             );
 
             CREATE INDEX IF NOT EXISTS "key_values_index" ON "key_value" ("account_id");
+        "#,
+            )
+            .await?;
+
+        connection
+            .execute(
+                r#"
+            CREATE TABLE IF NOT EXISTS olm_hashes (
+                "id" INTEGER NOT NULL PRIMARY KEY,
+                "account_id" INTEGER NOT NULL,
+                "sender_key" TEXT NOT NULL,
+                "hash" TEXT NOT NULL,
+                FOREIGN KEY ("account_id") REFERENCES "accounts" ("id")
+                    ON DELETE CASCADE
+                UNIQUE(account_id,sender_key,hash)
+            );
+
+            CREATE INDEX IF NOT EXISTS "olm_hashes_index" ON "olm_hashes" ("account_id");
         "#,
             )
             .await?;
@@ -1466,6 +1485,92 @@ impl SqliteStore {
         Ok(())
     }
 
+    async fn save_olm_hashses(
+        &self,
+        connection: &mut SqliteConnection,
+        hashes: &[OlmMessageHash],
+    ) -> Result<()> {
+        let account_id = self.account_id().ok_or(CryptoStoreError::AccountUnset)?;
+
+        for hash in hashes {
+            query("REPLACE INTO olm_hashes (account_id, sender_key, hash) VALUES (?1, ?2, ?3)")
+                .bind(account_id)
+                .bind(&hash.sender_key)
+                .bind(&hash.hash)
+                .execute(&mut *connection)
+                .await?;
+        }
+
+        Ok(())
+    }
+
+    async fn save_identity(
+        &self,
+        connection: &mut SqliteConnection,
+        identity: PrivateCrossSigningIdentity,
+    ) -> Result<()> {
+        let account_id = self.account_id().ok_or(CryptoStoreError::AccountUnset)?;
+        let pickle = identity.pickle(self.get_pickle_key()).await?;
+
+        query(
+            "INSERT INTO private_identities (
+                account_id, user_id, pickle, shared
+             ) VALUES (?1, ?2, ?3, ?4)
+             ON CONFLICT(account_id, user_id) DO UPDATE SET
+                pickle = excluded.pickle,
+                shared = excluded.shared
+             ",
+        )
+        .bind(account_id)
+        .bind(pickle.user_id.as_str())
+        .bind(pickle.pickle)
+        .bind(pickle.shared)
+        .execute(&mut *connection)
+        .await?;
+
+        Ok(())
+    }
+
+    async fn save_account_helper(
+        &self,
+        connection: &mut SqliteConnection,
+        account: ReadOnlyAccount,
+    ) -> Result<()> {
+        let pickle = account.pickle(self.get_pickle_mode()).await;
+
+        query(
+            "INSERT INTO accounts (
+                user_id, device_id, pickle, shared, uploaded_key_count
+             ) VALUES (?1, ?2, ?3, ?4, ?5)
+             ON CONFLICT(user_id, device_id) DO UPDATE SET
+                pickle = excluded.pickle,
+                shared = excluded.shared,
+                uploaded_key_count = excluded.uploaded_key_count
+             ",
+        )
+        .bind(pickle.user_id.as_str())
+        .bind(pickle.device_id.as_str())
+        .bind(pickle.pickle.as_str())
+        .bind(pickle.shared)
+        .bind(pickle.uploaded_signed_key_count)
+        .execute(&mut *connection)
+        .await?;
+
+        let account_id: (i64,) =
+            query_as("SELECT id FROM accounts WHERE user_id = ? and device_id = ?")
+                .bind(self.user_id.as_str())
+                .bind(self.device_id.as_str())
+                .fetch_one(&mut *connection)
+                .await?;
+
+        *self.account_info.lock().unwrap() = Some(AccountInfo {
+            account_id: account_id.0,
+            identity_keys: account.identity_keys.clone(),
+        });
+
+        Ok(())
+    }
+
     async fn save_user_helper(
         &self,
         mut connection: &mut SqliteConnection,
@@ -1569,65 +1674,7 @@ impl CryptoStore for SqliteStore {
 
     async fn save_account(&self, account: ReadOnlyAccount) -> Result<()> {
         let mut connection = self.connection.lock().await;
-        let pickle = account.pickle(self.get_pickle_mode()).await;
-
-        query(
-            "INSERT INTO accounts (
-                user_id, device_id, pickle, shared, uploaded_key_count
-             ) VALUES (?1, ?2, ?3, ?4, ?5)
-             ON CONFLICT(user_id, device_id) DO UPDATE SET
-                pickle = excluded.pickle,
-                shared = excluded.shared,
-                uploaded_key_count = excluded.uploaded_key_count
-             ",
-        )
-        .bind(pickle.user_id.as_str())
-        .bind(pickle.device_id.as_str())
-        .bind(pickle.pickle.as_str())
-        .bind(pickle.shared)
-        .bind(pickle.uploaded_signed_key_count)
-        .execute(&mut *connection)
-        .await?;
-
-        let account_id: (i64,) =
-            query_as("SELECT id FROM accounts WHERE user_id = ? and device_id = ?")
-                .bind(self.user_id.as_str())
-                .bind(self.device_id.as_str())
-                .fetch_one(&mut *connection)
-                .await?;
-
-        *self.account_info.lock().unwrap() = Some(AccountInfo {
-            account_id: account_id.0,
-            identity_keys: account.identity_keys.clone(),
-        });
-
-        Ok(())
-    }
-
-    async fn save_identity(&self, identity: PrivateCrossSigningIdentity) -> Result<()> {
-        let account_id = self.account_id().ok_or(CryptoStoreError::AccountUnset)?;
-
-        let pickle = identity.pickle(self.get_pickle_key()).await?;
-
-        let mut connection = self.connection.lock().await;
-
-        query(
-            "INSERT INTO private_identities (
-                account_id, user_id, pickle, shared
-             ) VALUES (?1, ?2, ?3, ?4)
-             ON CONFLICT(account_id, user_id) DO UPDATE SET
-                pickle = excluded.pickle,
-                shared = excluded.shared
-             ",
-        )
-        .bind(account_id)
-        .bind(pickle.user_id.as_str())
-        .bind(pickle.pickle)
-        .bind(pickle.shared)
-        .execute(&mut *connection)
-        .await?;
-
-        Ok(())
+        self.save_account_helper(&mut connection, account).await
     }
 
     async fn load_identity(&self) -> Result<Option<PrivateCrossSigningIdentity>> {
@@ -1664,6 +1711,14 @@ impl CryptoStore for SqliteStore {
         let mut connection = self.connection.lock().await;
         let mut transaction = connection.begin().await?;
 
+        if let Some(account) = changes.account {
+            self.save_account_helper(&mut transaction, account).await?;
+        }
+
+        if let Some(identity) = changes.private_identity {
+            self.save_identity(&mut transaction, identity).await?;
+        }
+
         self.save_sessions_helper(&mut transaction, &changes.sessions)
             .await?;
         self.save_inbound_group_sessions(&mut transaction, &changes.inbound_group_sessions)
@@ -1679,6 +1734,8 @@ impl CryptoStore for SqliteStore {
         self.save_user_identities(&mut transaction, &changes.identities.new)
             .await?;
         self.save_user_identities(&mut transaction, &changes.identities.changed)
+            .await?;
+        self.save_olm_hashses(&mut transaction, &changes.message_hashes)
             .await?;
 
         transaction.commit().await?;
@@ -1796,6 +1853,22 @@ impl CryptoStore for SqliteStore {
 
         Ok(row.map(|r| r.0))
     }
+
+    async fn is_message_known(&self, message_hash: &OlmMessageHash) -> Result<bool> {
+        let account_id = self.account_id().ok_or(CryptoStoreError::AccountUnset)?;
+        let mut connection = self.connection.lock().await;
+
+        let row: Option<(String,)> = query_as(
+            "SELECT hash FROM olm_hashes WHERE account_id = ? and sender_key = ? and hash = ?",
+        )
+        .bind(account_id)
+        .bind(&message_hash.sender_key)
+        .bind(&message_hash.hash)
+        .fetch_optional(&mut *connection)
+        .await?;
+
+        Ok(row.is_some())
+    }
 }
 
 #[cfg(not(tarpaulin_include))]
@@ -1817,8 +1890,8 @@ mod test {
             user::test::{get_other_identity, get_own_identity},
         },
         olm::{
-            GroupSessionKey, InboundGroupSession, PrivateCrossSigningIdentity, ReadOnlyAccount,
-            Session,
+            GroupSessionKey, InboundGroupSession, OlmMessageHash, PrivateCrossSigningIdentity,
+            ReadOnlyAccount, Session,
         },
         store::{Changes, DeviceChanges, IdentityChanges},
     };
@@ -2352,7 +2425,12 @@ mod test {
         assert!(store.load_identity().await.unwrap().is_none());
         let identity = PrivateCrossSigningIdentity::new((&*store.user_id).clone()).await;
 
-        store.save_identity(identity.clone()).await.unwrap();
+        let changes = Changes {
+            private_identity: Some(identity.clone()),
+            ..Default::default()
+        };
+
+        store.save_changes(changes).await.unwrap();
         let loaded_identity = store.load_identity().await.unwrap().unwrap();
         assert_eq!(identity.user_id(), loaded_identity.user_id());
     }
@@ -2370,5 +2448,22 @@ mod test {
 
         store.remove_value(&key).await.unwrap();
         assert!(store.get_value(&key).await.unwrap().is_none());
+    }
+
+    #[tokio::test(threaded_scheduler)]
+    async fn olm_hash_saving() {
+        let (_, store, _dir) = get_loaded_store().await;
+
+        let hash = OlmMessageHash {
+            sender_key: "test_sender".to_owned(),
+            hash: "test_hash".to_owned(),
+        };
+
+        let mut changes = Changes::default();
+        changes.message_hashes.push(hash.clone());
+
+        assert!(!store.is_message_known(&hash).await.unwrap());
+        store.save_changes(changes).await.unwrap();
+        assert!(store.is_message_known(&hash).await.unwrap());
     }
 }

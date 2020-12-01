@@ -82,7 +82,9 @@ use matrix_sdk_common_macros::send_sync;
 use crate::{
     error::SessionUnpicklingError,
     identities::{Device, ReadOnlyDevice, UserDevices, UserIdentities},
-    olm::{InboundGroupSession, PrivateCrossSigningIdentity, ReadOnlyAccount, Session},
+    olm::{
+        InboundGroupSession, OlmMessageHash, PrivateCrossSigningIdentity, ReadOnlyAccount, Session,
+    },
     verification::VerificationMachine,
 };
 
@@ -107,7 +109,9 @@ pub(crate) struct Store {
 #[allow(missing_docs)]
 pub struct Changes {
     pub account: Option<ReadOnlyAccount>,
+    pub private_identity: Option<PrivateCrossSigningIdentity>,
     pub sessions: Vec<Session>,
+    pub message_hashes: Vec<OlmMessageHash>,
     pub inbound_group_sessions: Vec<InboundGroupSession>,
     pub identities: IdentityChanges,
     pub devices: DeviceChanges,
@@ -342,13 +346,14 @@ pub trait CryptoStore: Debug {
     /// * `account` - The account that should be stored.
     async fn save_account(&self, account: ReadOnlyAccount) -> Result<()>;
 
-    /// TODO
-    async fn save_identity(&self, identity: PrivateCrossSigningIdentity) -> Result<()>;
-
-    /// TODO
+    /// Try to load a private cross signing identity, if one is stored.
     async fn load_identity(&self) -> Result<Option<PrivateCrossSigningIdentity>>;
 
-    /// TODO
+    /// Save the set of changes to the store.
+    ///
+    /// # Arguments
+    ///
+    /// * `changes` - The set of changes that should be stored.
     async fn save_changes(&self, changes: Changes) -> Result<()>;
 
     /// Get all the sessions that belong to the given sender key.
@@ -435,4 +440,7 @@ pub trait CryptoStore: Debug {
 
     /// Load a serializeable object from the store.
     async fn get_value(&self, key: &str) -> Result<Option<String>>;
+
+    /// Check if a hash for an Olm message stored in the database.
+    async fn is_message_known(&self, message_hash: &OlmMessageHash) -> Result<bool>;
 }

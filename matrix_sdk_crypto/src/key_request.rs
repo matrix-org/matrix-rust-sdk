@@ -1137,12 +1137,11 @@ mod test {
             .unwrap()
             .is_none());
 
-        let (_, decrypted, sender_key, _) =
-            alice_account.decrypt_to_device_event(&event).await.unwrap();
+        let decrypted = alice_account.decrypt_to_device_event(&event).await.unwrap();
 
-        if let AnyToDeviceEvent::ForwardedRoomKey(mut e) = decrypted.deserialize().unwrap() {
+        if let AnyToDeviceEvent::ForwardedRoomKey(mut e) = decrypted.event.deserialize().unwrap() {
             let (_, session) = alice_machine
-                .receive_forwarded_room_key(&sender_key, &mut e)
+                .receive_forwarded_room_key(&decrypted.sender_key, &mut e)
                 .await
                 .unwrap();
             alice_machine
@@ -1157,7 +1156,11 @@ mod test {
         // Check that alice now does have the session.
         let session = alice_machine
             .store
-            .get_inbound_group_session(&room_id(), &sender_key, group_session.session_id())
+            .get_inbound_group_session(
+                &room_id(),
+                &decrypted.sender_key,
+                group_session.session_id(),
+            )
             .await
             .unwrap()
             .unwrap();
@@ -1325,12 +1328,11 @@ mod test {
             .unwrap()
             .is_none());
 
-        let (_, decrypted, sender_key, _) =
-            alice_account.decrypt_to_device_event(&event).await.unwrap();
+        let decrypted = alice_account.decrypt_to_device_event(&event).await.unwrap();
 
-        if let AnyToDeviceEvent::ForwardedRoomKey(mut e) = decrypted.deserialize().unwrap() {
+        if let AnyToDeviceEvent::ForwardedRoomKey(mut e) = decrypted.event.deserialize().unwrap() {
             let (_, session) = alice_machine
-                .receive_forwarded_room_key(&sender_key, &mut e)
+                .receive_forwarded_room_key(&decrypted.sender_key, &mut e)
                 .await
                 .unwrap();
             alice_machine
@@ -1345,7 +1347,11 @@ mod test {
         // Check that alice now does have the session.
         let session = alice_machine
             .store
-            .get_inbound_group_session(&room_id(), &sender_key, group_session.session_id())
+            .get_inbound_group_session(
+                &room_id(),
+                &decrypted.sender_key,
+                group_session.session_id(),
+            )
             .await
             .unwrap()
             .unwrap();
