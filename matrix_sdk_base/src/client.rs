@@ -54,7 +54,7 @@ use zeroize::Zeroizing;
 
 use crate::{
     error::Result,
-    responses::{JoinedRoom, Rooms, State, SyncResponse, Timeline},
+    responses::{JoinedRoom, LeftRoom, Presence, Rooms, State, SyncResponse, Timeline},
     session::Session,
     store::{InnerSummary, Room, RoomType, StateChanges, Store},
 };
@@ -539,7 +539,7 @@ impl BaseClient {
         // that case we already received this response and there's nothing to
         // do.
         if self.sync_token.read().await.as_ref() == Some(&response.next_batch) {
-            return Ok(SyncResponse::new_empty(response.next_batch.clone()));
+            return Ok(SyncResponse::new(response.next_batch));
         }
 
         #[cfg(feature = "encryption")]
@@ -558,10 +558,11 @@ impl BaseClient {
         let mut changes = StateChanges::default();
         let mut rooms = Rooms::default();
 
-        for (room_id, room_info) in &response.rooms.join {
-            let room = self.get_or_create_room(room_id, RoomType::Joined).await;
-
+        for (room_id, room_info) in response.rooms.join {
+            let room = self.get_or_create_room(&room_id, RoomType::Joined).await;
             let mut summary = room.clone_summary();
+
+            summary.mark_as_joined();
             summary.update(&room_info.summary);
             summary.set_prev_batch(room_info.timeline.prev_batch.as_deref());
 
@@ -583,25 +584,44 @@ impl BaseClient {
                 // TODO if the room isn't encrypted but the new summary is,
                 // add all the room users.
                 if let Some(o) = self.olm_machine().await {
-                    if let Some(users) = changes.joined_user_ids.get(room_id) {
+                    if let Some(users) = changes.joined_user_ids.get(&room_id) {
                         o.update_tracked_users(users).await
                     }
 
-                    if let Some(users) = changes.invited_user_ids.get(room_id) {
+                    if let Some(users) = changes.invited_user_ids.get(&room_id) {
                         o.update_tracked_users(users).await
                     }
                 }
             }
 
-            rooms
-                .join
-                .insert(room_id.to_owned(), JoinedRoom::new(timeline, state));
-
             if room_info.timeline.limited {
                 summary.mark_members_missing();
             }
 
+            rooms.join.insert(room_id, JoinedRoom::new(timeline, state));
+
             changes.add_room(summary);
+        }
+
+        for (room_id, room_info) in response.rooms.leave {
+            let room = self.get_or_create_room(&room_id, RoomType::Left).await;
+            let mut summary = room.clone_summary();
+            summary.mark_as_left();
+
+            let state = self
+                .handle_state(
+                    &room_id,
+                    &room_info.state.events,
+                    &mut summary,
+                    &mut changes,
+                )
+                .await;
+
+            let timeline = self
+                .handle_timeline(&room_id, &room_info.timeline, &mut summary, &mut changes)
+                .await;
+
+            rooms.leave.insert(room_id, LeftRoom::new(timeline, state));
         }
 
         for event in &response.presence.events {
@@ -614,7 +634,21 @@ impl BaseClient {
         *self.sync_token.write().await = Some(response.next_batch.clone());
         self.apply_changes(&changes).await;
 
-        Ok(SyncResponse::new(response, rooms, changes))
+        Ok(SyncResponse {
+            next_batch: response.next_batch,
+            rooms,
+            presence: Presence {
+                events: changes.presence.into_iter().map(|(_, v)| v).collect(),
+            },
+            device_lists: response.device_lists,
+            device_one_time_keys_count: response
+                .device_one_time_keys_count
+                .into_iter()
+                .map(|(k, v)| (k, v.into()))
+                .collect(),
+
+            ..Default::default()
+        })
     }
 
     async fn apply_changes(&self, changes: &StateChanges) {

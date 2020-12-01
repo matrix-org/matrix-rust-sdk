@@ -2,12 +2,10 @@ use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
 use matrix_sdk_common::{
-    api::r0::sync::sync_events::{self, DeviceLists},
+    api::r0::sync::sync_events::DeviceLists,
     events::{presence::PresenceEvent, AnySyncRoomEvent, AnySyncStateEvent, AnyToDeviceEvent},
     identifiers::{DeviceKeyAlgorithm, RoomId},
 };
-
-use crate::store::StateChanges;
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
 pub struct SyncResponse {
@@ -31,24 +29,7 @@ pub struct SyncResponse {
 }
 
 impl SyncResponse {
-    pub fn new(response: sync_events::Response, rooms: Rooms, changes: StateChanges) -> Self {
-        Self {
-            next_batch: response.next_batch,
-            rooms,
-            presence: Presence {
-                events: changes.presence.into_iter().map(|(_, v)| v).collect(),
-            },
-            device_lists: response.device_lists,
-            device_one_time_keys_count: response
-                .device_one_time_keys_count
-                .into_iter()
-                .map(|(k, v)| (k, v.into()))
-                .collect(),
-            ..Default::default()
-        }
-    }
-
-    pub fn new_empty(next_batch: String) -> Self {
+    pub fn new(next_batch: String) -> Self {
         Self {
             next_batch,
             ..Default::default()
@@ -72,8 +53,8 @@ pub struct ToDevice {
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
 pub struct Rooms {
-    // /// The rooms that the user has left or been banned from.
-    // pub leave: BTreeMap<RoomId, LeftRoom>,
+    /// The rooms that the user has left or been banned from.
+    pub leave: BTreeMap<RoomId, LeftRoom>,
     /// The rooms that the user has joined.
     pub join: BTreeMap<RoomId, JoinedRoom>,
     // /// The rooms that the user has been invited to.
@@ -99,6 +80,23 @@ pub struct JoinedRoom {
 }
 
 impl JoinedRoom {
+    pub fn new(timeline: Timeline, state: State) -> Self {
+        Self { timeline, state }
+    }
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct LeftRoom {
+    /// The timeline of messages and state changes in the room up to the point
+    /// when the user left.
+    pub timeline: Timeline,
+    /// Updates to the state, between the time indicated by the `since` parameter, and the start
+    /// of the `timeline` (or all state up to the start of the `timeline`, if `since` is not
+    /// given, or `full_state` is true).
+    pub state: State,
+}
+
+impl LeftRoom {
     pub fn new(timeline: Timeline, state: State) -> Self {
         Self { timeline, state }
     }

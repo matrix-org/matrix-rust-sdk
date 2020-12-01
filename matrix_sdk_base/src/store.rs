@@ -379,6 +379,14 @@ impl InnerSummary {
         }
     }
 
+    pub fn mark_as_joined(&mut self) {
+        self.room_type = RoomType::Joined;
+    }
+
+    pub fn mark_as_left(&mut self) {
+        self.room_type = RoomType::Left;
+    }
+
     pub fn mark_members_synced(&mut self) {
         self.members_synced = true;
     }
