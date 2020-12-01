@@ -17,7 +17,7 @@
 use std::{collections::BTreeMap, io::Write, path::PathBuf};
 use std::{
     collections::HashMap,
-    convert::{TryFrom, TryInto},
+    convert::TryInto,
     fmt::{self, Debug},
     future::Future,
     io::Read,
