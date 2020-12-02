@@ -57,6 +57,7 @@ use crate::error::{EventError, MegolmResult};
 pub struct InboundGroupSession {
     inner: Arc<Mutex<OlmInboundGroupSession>>,
     session_id: Arc<str>,
+    first_known_index: u32,
     pub(crate) sender_key: Arc<str>,
     pub(crate) signing_key: Arc<BTreeMap<DeviceKeyAlgorithm, String>>,
     pub(crate) room_id: Arc<RoomId>,
@@ -89,6 +90,7 @@ impl InboundGroupSession {
     ) -> Result<Self, OlmGroupSessionError> {
         let session = OlmInboundGroupSession::new(&session_key.0)?;
         let session_id = session.session_id();
+        let first_known_index = session.first_known_index();
 
         let mut keys: BTreeMap<DeviceKeyAlgorithm, String> = BTreeMap::new();
         keys.insert(DeviceKeyAlgorithm::Ed25519, signing_key.to_owned());
@@ -97,6 +99,7 @@ impl InboundGroupSession {
             inner: Arc::new(Mutex::new(session)),
             session_id: session_id.into(),
             sender_key: sender_key.to_owned().into(),
+            first_known_index,
             signing_key: Arc::new(keys),
             room_id: Arc::new(room_id.clone()),
             forwarding_chains: Arc::new(Mutex::new(None)),
@@ -134,6 +137,7 @@ impl InboundGroupSession {
         let key = Zeroizing::from(mem::take(&mut content.session_key));
 
         let session = OlmInboundGroupSession::import(&key)?;
+        let first_known_index = session.first_known_index();
         let mut forwarding_chains = content.forwarding_curve25519_key_chain.clone();
         forwarding_chains.push(sender_key.to_owned());
 
@@ -147,6 +151,7 @@ impl InboundGroupSession {
             inner: Arc::new(Mutex::new(session)),
             session_id: content.session_id.as_str().into(),
             sender_key: content.sender_key.as_str().into(),
+            first_known_index,
             signing_key: Arc::new(sender_claimed_key),
             room_id: Arc::new(content.room_id.clone()),
             forwarding_chains: Arc::new(Mutex::new(Some(forwarding_chains))),
@@ -178,7 +183,7 @@ impl InboundGroupSession {
     /// If only a limited part of this session should be exported use
     /// [`export_at_index()`](#method.export_at_index).
     pub async fn export(&self) -> ExportedRoomKey {
-        self.export_at_index(self.first_known_index().await)
+        self.export_at_index(self.first_known_index())
             .await
             .expect("Can't export at the first known index")
     }
@@ -221,12 +226,14 @@ impl InboundGroupSession {
         pickle_mode: PicklingMode,
     ) -> Result<Self, OlmGroupSessionError> {
         let session = OlmInboundGroupSession::unpickle(pickle.pickle.0, pickle_mode)?;
+        let first_known_index = session.first_known_index();
         let session_id = session.session_id();
 
         Ok(InboundGroupSession {
             inner: Arc::new(Mutex::new(session)),
             session_id: session_id.into(),
             sender_key: pickle.sender_key.into(),
+            first_known_index,
             signing_key: Arc::new(pickle.signing_key),
             room_id: Arc::new(pickle.room_id),
             forwarding_chains: Arc::new(Mutex::new(pickle.forwarding_chains)),
@@ -245,8 +252,8 @@ impl InboundGroupSession {
     }
 
     /// Get the first message index we know how to decrypt.
-    pub async fn first_known_index(&self) -> u32 {
-        self.inner.lock().await.first_known_index()
+    pub fn first_known_index(&self) -> u32 {
+        self.first_known_index
     }
 
     /// Decrypt the given ciphertext.
@@ -368,6 +375,7 @@ impl TryFrom<ExportedRoomKey> for InboundGroupSession {
 
     fn try_from(key: ExportedRoomKey) -> Result<Self, Self::Error> {
         let session = OlmInboundGroupSession::import(&key.session_key.0)?;
+        let first_known_index = session.first_known_index();
 
         let forwarding_chains = if key.forwarding_curve25519_key_chain.is_empty() {
             None
@@ -379,6 +387,7 @@ impl TryFrom<ExportedRoomKey> for InboundGroupSession {
             inner: Arc::new(Mutex::new(session)),
             session_id: key.session_id.into(),
             sender_key: key.sender_key.into(),
+            first_known_index,
             signing_key: Arc::new(key.sender_claimed_keys),
             room_id: Arc::new(key.room_id),
             forwarding_chains: Arc::new(Mutex::new(forwarding_chains)),

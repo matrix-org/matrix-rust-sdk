@@ -213,7 +213,7 @@ pub(crate) mod test {
         )
         .unwrap();
 
-        assert_eq!(0, inbound.first_known_index().await);
+        assert_eq!(0, inbound.first_known_index());
 
         assert_eq!(outbound.session_id(), inbound.session_id());
 

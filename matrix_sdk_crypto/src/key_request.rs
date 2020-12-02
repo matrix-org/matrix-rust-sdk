@@ -637,8 +637,8 @@ impl KeyRequestMachine {
             // If we have a previous session, check if we have a better version
             // and store the new one if so.
             let session = if let Some(old_session) = old_session {
-                let first_old_index = old_session.first_known_index().await;
-                let first_index = session.first_known_index().await;
+                let first_old_index = old_session.first_known_index();
+                let first_index = session.first_known_index();
 
                 if first_old_index > first_index {
                     self.mark_as_done(info).await?;
@@ -855,7 +855,7 @@ mod test {
             .unwrap();
         let first_session = first_session.unwrap();
 
-        assert_eq!(first_session.first_known_index().await, 10);
+        assert_eq!(first_session.first_known_index(), 10);
 
         machine
             .store
@@ -914,7 +914,7 @@ mod test {
             .await
             .unwrap();
 
-        assert_eq!(second_session.unwrap().first_known_index().await, 0);
+        assert_eq!(second_session.unwrap().first_known_index(), 0);
     }
 
     #[async_test]

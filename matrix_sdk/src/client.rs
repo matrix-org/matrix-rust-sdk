@@ -2042,6 +2042,10 @@ impl Client {
     /// * `passphrase` - The passphrase that should be used to decrypt the
     /// exported room keys.
     ///
+    /// Returns a tuple of numbers that represent the number of sessions that
+    /// were imported and the total number of sessions that were found in the
+    /// key export.
+    ///
     /// # Panics
     ///
     /// This method will panic if it isn't run on a Tokio runtime.
@@ -2071,7 +2075,7 @@ impl Client {
         feature = "docs",
         doc(cfg(all(encryption, not(target_arch = "wasm32"))))
     )]
-    pub async fn import_keys(&self, path: PathBuf, passphrase: &str) -> Result<usize> {
+    pub async fn import_keys(&self, path: PathBuf, passphrase: &str) -> Result<(usize, usize)> {
         let olm = self
             .base_client
             .olm_machine()

@@ -314,7 +314,7 @@ mod test {
         let decrypted = decrypt_key_export(Cursor::new(encrypted), "1234").unwrap();
 
         assert_eq!(export, decrypted);
-        assert_eq!(machine.import_keys(decrypted).await.unwrap(), 0);
+        assert_eq!(machine.import_keys(decrypted).await.unwrap(), (0, 1));
     }
 
     #[test]
