@@ -34,8 +34,8 @@ pub use olm_rs::{
 
 use matrix_sdk_common::{
     events::{
-        forwarded_room_key::ForwardedRoomKeyEventContent, room::encrypted::EncryptedEventContent,
-        AnySyncRoomEvent, SyncMessageEvent,
+        forwarded_room_key::ForwardedRoomKeyToDeviceEventContent,
+        room::encrypted::EncryptedEventContent, AnySyncRoomEvent, SyncMessageEvent,
     },
     identifiers::{DeviceKeyAlgorithm, EventEncryptionAlgorithm, RoomId},
     locks::Mutex,
@@ -132,7 +132,7 @@ impl InboundGroupSession {
     /// to create the `InboundGroupSession`.
     pub(crate) fn from_forwarded_key(
         sender_key: &str,
-        content: &mut ForwardedRoomKeyEventContent,
+        content: &mut ForwardedRoomKeyToDeviceEventContent,
     ) -> Result<Self, OlmGroupSessionError> {
         let key = Zeroizing::from(mem::take(&mut content.session_key));
 

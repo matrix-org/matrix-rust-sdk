@@ -25,13 +25,13 @@ use matrix_sdk_common::{
     events::{
         key::verification::{
             accept::{
-                AcceptEventContent, AcceptMethod, MSasV1Content as AcceptV1Content,
+                AcceptMethod, AcceptToDeviceEventContent, MSasV1Content as AcceptV1Content,
                 MSasV1ContentInit as AcceptV1ContentInit,
             },
-            cancel::{CancelCode, CancelEventContent},
-            key::KeyEventContent,
-            mac::MacEventContent,
-            start::{MSasV1Content, MSasV1ContentInit, StartEventContent, StartMethod},
+            cancel::{CancelCode, CancelToDeviceEventContent},
+            key::KeyToDeviceEventContent,
+            mac::MacToDeviceEventContent,
+            start::{MSasV1Content, MSasV1ContentInit, StartMethod, StartToDeviceEventContent},
             HashAlgorithm, KeyAgreementProtocol, MessageAuthenticationCode,
             ShortAuthenticationString, VerificationMethod,
         },
@@ -319,8 +319,8 @@ impl SasState<Created> {
     /// Get the content for the start event.
     ///
     /// The content needs to be sent to the other device.
-    pub fn as_content(&self) -> StartEventContent {
-        StartEventContent {
+    pub fn as_content(&self) -> StartToDeviceEventContent {
+        StartToDeviceEventContent {
             transaction_id: self.verification_flow_id.to_string(),
             from_device: self.device_id().into(),
             method: StartMethod::MSasV1(
@@ -339,7 +339,7 @@ impl SasState<Created> {
     /// the other side.
     pub fn into_accepted(
         self,
-        event: &ToDeviceEvent<AcceptEventContent>,
+        event: &ToDeviceEvent<AcceptToDeviceEventContent>,
     ) -> Result<SasState<Accepted>, SasState<Canceled>> {
         self.check_event(&event.sender, &event.content.transaction_id)
             .map_err(|c| self.clone().cancel(c))?;
@@ -386,7 +386,7 @@ impl SasState<Started> {
     pub fn from_start_event(
         account: ReadOnlyAccount,
         other_device: ReadOnlyDevice,
-        event: &ToDeviceEvent<StartEventContent>,
+        event: &ToDeviceEvent<StartToDeviceEventContent>,
         other_identity: Option<UserIdentities>,
     ) -> Result<SasState<Started>, SasState<Canceled>> {
         if let StartMethod::MSasV1(content) = &event.content.method {
@@ -462,10 +462,10 @@ impl SasState<Started> {
     /// This should be sent out automatically if the SAS verification flow has
     /// been started because of a
     /// m.key.verification.request -> m.key.verification.ready flow.
-    pub fn as_content(&self) -> AcceptEventContent {
+    pub fn as_content(&self) -> AcceptToDeviceEventContent {
         let accepted_protocols = AcceptedProtocols::default();
 
-        AcceptEventContent {
+        AcceptToDeviceEventContent {
             transaction_id: self.verification_flow_id.to_string(),
             method: AcceptMethod::MSasV1(
                 AcceptV1ContentInit {
@@ -494,7 +494,7 @@ impl SasState<Started> {
     /// anymore.
     pub fn into_key_received(
         self,
-        event: &mut ToDeviceEvent<KeyEventContent>,
+        event: &mut ToDeviceEvent<KeyToDeviceEventContent>,
     ) -> Result<SasState<KeyReceived>, SasState<Canceled>> {
         self.check_event(&event.sender, &event.content.transaction_id)
             .map_err(|c| self.clone().cancel(c))?;
@@ -535,7 +535,7 @@ impl SasState<Accepted> {
     /// anymore.
     pub fn into_key_received(
         self,
-        event: &mut ToDeviceEvent<KeyEventContent>,
+        event: &mut ToDeviceEvent<KeyToDeviceEventContent>,
     ) -> Result<SasState<KeyReceived>, SasState<Canceled>> {
         self.check_event(&event.sender, &event.content.transaction_id)
             .map_err(|c| self.clone().cancel(c))?;
@@ -575,8 +575,8 @@ impl SasState<Accepted> {
     /// Get the content for the key event.
     ///
     /// The content needs to be automatically sent to the other side.
-    pub fn as_content(&self) -> KeyEventContent {
-        KeyEventContent {
+    pub fn as_content(&self) -> KeyToDeviceEventContent {
+        KeyToDeviceEventContent {
             transaction_id: self.verification_flow_id.to_string(),
             key: self.inner.lock().unwrap().public_key(),
         }
@@ -588,8 +588,8 @@ impl SasState<KeyReceived> {
     ///
     /// The content needs to be automatically sent to the other side if and only
     /// if we_started is false.
-    pub fn as_content(&self) -> KeyEventContent {
-        KeyEventContent {
+    pub fn as_content(&self) -> KeyToDeviceEventContent {
+        KeyToDeviceEventContent {
             transaction_id: self.verification_flow_id.to_string(),
             key: self.inner.lock().unwrap().public_key(),
         }
@@ -632,7 +632,7 @@ impl SasState<KeyReceived> {
     /// the other side.
     pub fn into_mac_received(
         self,
-        event: &ToDeviceEvent<MacEventContent>,
+        event: &ToDeviceEvent<MacToDeviceEventContent>,
     ) -> Result<SasState<MacReceived>, SasState<Canceled>> {
         self.check_event(&event.sender, &event.content.transaction_id)
             .map_err(|c| self.clone().cancel(c))?;
@@ -688,7 +688,7 @@ impl SasState<Confirmed> {
     /// the other side.
     pub fn into_done(
         self,
-        event: &ToDeviceEvent<MacEventContent>,
+        event: &ToDeviceEvent<MacToDeviceEventContent>,
     ) -> Result<SasState<Done>, SasState<Canceled>> {
         self.check_event(&event.sender, &event.content.transaction_id)
             .map_err(|c| self.clone().cancel(c))?;
@@ -718,7 +718,7 @@ impl SasState<Confirmed> {
     /// Get the content for the mac event.
     ///
     /// The content needs to be automatically sent to the other side.
-    pub fn as_content(&self) -> MacEventContent {
+    pub fn as_content(&self) -> MacToDeviceEventContent {
         get_mac_content(
             &self.inner.lock().unwrap(),
             &self.ids,
@@ -780,7 +780,7 @@ impl SasState<Done> {
     ///
     /// The content needs to be automatically sent to the other side if it
     /// wasn't already sent.
-    pub fn as_content(&self) -> MacEventContent {
+    pub fn as_content(&self) -> MacToDeviceEventContent {
         get_mac_content(
             &self.inner.lock().unwrap(),
             &self.ids,
@@ -829,7 +829,7 @@ impl Canceled {
 
 impl SasState<Canceled> {
     pub fn as_content(&self) -> AnyToDeviceEventContent {
-        AnyToDeviceEventContent::KeyVerificationCancel(CancelEventContent {
+        AnyToDeviceEventContent::KeyVerificationCancel(CancelToDeviceEventContent {
             transaction_id: self.verification_flow_id.to_string(),
             reason: self.state.reason.to_string(),
             code: self.state.cancel_code.clone(),

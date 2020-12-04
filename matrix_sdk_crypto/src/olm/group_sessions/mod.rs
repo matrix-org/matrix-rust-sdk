@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use matrix_sdk_common::{
-    events::forwarded_room_key::ForwardedRoomKeyEventContent,
+    events::forwarded_room_key::ForwardedRoomKeyToDeviceEventContent,
     identifiers::{DeviceKeyAlgorithm, EventEncryptionAlgorithm, RoomId},
 };
 use serde::{Deserialize, Serialize};
@@ -66,7 +66,7 @@ pub struct ExportedRoomKey {
     pub forwarding_curve25519_key_chain: Vec<String>,
 }
 
-impl TryInto<ForwardedRoomKeyEventContent> for ExportedRoomKey {
+impl TryInto<ForwardedRoomKeyToDeviceEventContent> for ExportedRoomKey {
     type Error = ();
 
     /// Convert an exported room key into a content for a forwarded room key
@@ -75,7 +75,7 @@ impl TryInto<ForwardedRoomKeyEventContent> for ExportedRoomKey {
     /// This will fail if the exported room key has multiple sender claimed keys
     /// or if the algorithm of the claimed sender key isn't
     /// `DeviceKeyAlgorithm::Ed25519`.
-    fn try_into(self) -> Result<ForwardedRoomKeyEventContent, Self::Error> {
+    fn try_into(self) -> Result<ForwardedRoomKeyToDeviceEventContent, Self::Error> {
         if self.sender_claimed_keys.len() != 1 {
             Err(())
         } else {
@@ -85,7 +85,7 @@ impl TryInto<ForwardedRoomKeyEventContent> for ExportedRoomKey {
                 return Err(());
             }
 
-            Ok(ForwardedRoomKeyEventContent {
+            Ok(ForwardedRoomKeyToDeviceEventContent {
                 algorithm: self.algorithm,
                 room_id: self.room_id,
                 sender_key: self.sender_key,
@@ -98,9 +98,9 @@ impl TryInto<ForwardedRoomKeyEventContent> for ExportedRoomKey {
     }
 }
 
-impl From<ForwardedRoomKeyEventContent> for ExportedRoomKey {
+impl From<ForwardedRoomKeyToDeviceEventContent> for ExportedRoomKey {
     /// Convert the content of a forwarded room key into a exported room key.
-    fn from(forwarded_key: ForwardedRoomKeyEventContent) -> Self {
+    fn from(forwarded_key: ForwardedRoomKeyToDeviceEventContent) -> Self {
         let mut sender_claimed_keys: BTreeMap<DeviceKeyAlgorithm, String> = BTreeMap::new();
         sender_claimed_keys.insert(
             DeviceKeyAlgorithm::Ed25519,
