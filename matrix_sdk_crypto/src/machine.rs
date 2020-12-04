@@ -1012,7 +1012,9 @@ impl OlmMachine {
     /// imported into our store. If we already have a better version of a key
     /// the key will *not* be imported.
     ///
-    /// Returns the number of sessions that were imported to the store.
+    /// Returns a tuple of numbers that represent the number of sessions that
+    /// were imported and the total number of sessions that were found in the
+    /// key export.
     ///
     /// # Examples
     /// ```no_run
@@ -1028,32 +1030,47 @@ impl OlmMachine {
     /// machine.import_keys(exported_keys).await.unwrap();
     /// # });
     /// ```
-    pub async fn import_keys(&self, mut exported_keys: Vec<ExportedRoomKey>) -> StoreResult<usize> {
+    pub async fn import_keys(
+        &self,
+        exported_keys: Vec<ExportedRoomKey>,
+    ) -> StoreResult<(usize, usize)> {
+        struct ShallowSessions {
+            inner: BTreeMap<Arc<RoomId>, u32>,
+        }
+
+        impl ShallowSessions {
+            fn has_better_session(&self, session: &InboundGroupSession) -> bool {
+                self.inner
+                    .get(&session.room_id)
+                    .map(|existing| existing <= &session.first_known_index())
+                    .unwrap_or(false)
+            }
+        }
+
         let mut sessions = Vec::new();
 
-        for key in exported_keys.drain(..) {
+        let existing_sessions = ShallowSessions {
+            inner: self
+                .store
+                .get_inbound_group_sessions()
+                .await?
+                .into_iter()
+                .map(|s| {
+                    let index = s.first_known_index();
+                    (s.room_id, index)
+                })
+                .collect(),
+        };
+
+        let total_sessions = exported_keys.len();
+
+        for key in exported_keys.into_iter() {
             let session = InboundGroupSession::from_export(key)?;
 
             // Only import the session if we didn't have this session or if it's
             // a better version of the same session, that is the first known
             // index is lower.
-            // TODO load all sessions so we don't do a thousand small loads.
-            if let Some(existing_session) = self
-                .store
-                .get_inbound_group_session(
-                    &session.room_id,
-                    &session.sender_key,
-                    session.session_id(),
-                )
-                .await?
-            {
-                let first_index = session.first_known_index().await;
-                let existing_index = existing_session.first_known_index().await;
-
-                if first_index < existing_index {
-                    sessions.push(session)
-                }
-            } else {
+            if !existing_sessions.has_better_session(&session) {
                 sessions.push(session)
             }
         }
@@ -1072,7 +1089,7 @@ impl OlmMachine {
             num_sessions
         );
 
-        Ok(num_sessions)
+        Ok((num_sessions, total_sessions))
     }
 
     /// Export the keys that match the given predicate.

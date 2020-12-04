@@ -7,7 +7,9 @@ pub use ruma::{
         error::{FromHttpRequestError, FromHttpResponseError, IntoHttpError, ServerError},
         AuthScheme, EndpointError, OutgoingRequest,
     },
-    directory, encryption, events, identifiers, presence, push, thirdparty, Outgoing, Raw,
+    directory, encryption, events, identifiers, presence, push,
+    serde::Raw,
+    thirdparty, Outgoing,
 };
 
 pub use uuid;

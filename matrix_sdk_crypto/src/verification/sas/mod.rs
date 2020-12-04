@@ -25,8 +25,8 @@ use matrix_sdk_common::{
     api::r0::keys::upload_signatures::Request as SignatureUploadRequest,
     events::{
         key::verification::{
-            accept::AcceptEventContent, cancel::CancelCode, mac::MacEventContent,
-            start::StartEventContent,
+            accept::AcceptToDeviceEventContent, cancel::CancelCode, mac::MacToDeviceEventContent,
+            start::StartToDeviceEventContent,
         },
         AnyToDeviceEvent, AnyToDeviceEventContent, ToDeviceEvent,
     },
@@ -122,7 +122,7 @@ impl Sas {
         other_device: ReadOnlyDevice,
         store: Arc<Box<dyn CryptoStore>>,
         other_identity: Option<UserIdentities>,
-    ) -> (Sas, StartEventContent) {
+    ) -> (Sas, StartToDeviceEventContent) {
         let (inner, content) = InnerSas::start(
             account.clone(),
             other_device.clone(),
@@ -158,7 +158,7 @@ impl Sas {
         private_identity: PrivateCrossSigningIdentity,
         other_device: ReadOnlyDevice,
         store: Arc<Box<dyn CryptoStore>>,
-        event: &ToDeviceEvent<StartEventContent>,
+        event: &ToDeviceEvent<StartToDeviceEventContent>,
         other_identity: Option<UserIdentities>,
     ) -> Result<Sas, AnyToDeviceEventContent> {
         let inner = InnerSas::from_start_event(
@@ -554,7 +554,7 @@ impl InnerSas {
         account: ReadOnlyAccount,
         other_device: ReadOnlyDevice,
         other_identity: Option<UserIdentities>,
-    ) -> (InnerSas, StartEventContent) {
+    ) -> (InnerSas, StartToDeviceEventContent) {
         let sas = SasState::<Created>::new(account, other_device, other_identity);
         let content = sas.as_content();
         (InnerSas::Created(sas), content)
@@ -563,7 +563,7 @@ impl InnerSas {
     fn from_start_event(
         account: ReadOnlyAccount,
         other_device: ReadOnlyDevice,
-        event: &ToDeviceEvent<StartEventContent>,
+        event: &ToDeviceEvent<StartToDeviceEventContent>,
         other_identity: Option<UserIdentities>,
     ) -> Result<InnerSas, AnyToDeviceEventContent> {
         match SasState::<Started>::from_start_event(account, other_device, event, other_identity) {
@@ -572,7 +572,7 @@ impl InnerSas {
         }
     }
 
-    fn accept(&self) -> Option<AcceptEventContent> {
+    fn accept(&self) -> Option<AcceptToDeviceEventContent> {
         if let InnerSas::Started(s) = self {
             Some(s.as_content())
         } else {
@@ -610,7 +610,7 @@ impl InnerSas {
         (InnerSas::Canceled(sas), Some(content))
     }
 
-    fn confirm(self) -> (InnerSas, Option<MacEventContent>) {
+    fn confirm(self) -> (InnerSas, Option<MacToDeviceEventContent>) {
         match self {
             InnerSas::KeyRecieved(s) => {
                 let sas = s.confirm();

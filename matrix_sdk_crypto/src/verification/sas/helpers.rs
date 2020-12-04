@@ -21,7 +21,7 @@ use olm_rs::sas::OlmSas;
 use matrix_sdk_common::{
     api::r0::to_device::DeviceIdOrAllDevices,
     events::{
-        key::verification::{cancel::CancelCode, mac::MacEventContent},
+        key::verification::{cancel::CancelCode, mac::MacToDeviceEventContent},
         AnyToDeviceEventContent, EventType, ToDeviceEvent,
     },
     identifiers::{DeviceId, DeviceKeyAlgorithm, DeviceKeyId, UserId},
@@ -159,7 +159,7 @@ pub fn receive_mac_event(
     sas: &OlmSas,
     ids: &SasIds,
     flow_id: &str,
-    event: &ToDeviceEvent<MacEventContent>,
+    event: &ToDeviceEvent<MacToDeviceEventContent>,
 ) -> Result<(Vec<ReadOnlyDevice>, Vec<UserIdentities>), CancelCode> {
     let mut verified_devices = Vec::new();
     let mut verified_identities = Vec::new();
@@ -270,7 +270,7 @@ fn extra_mac_info_send(ids: &SasIds, flow_id: &str) -> String {
 /// # Panics
 ///
 /// This will panic if the public key of the other side wasn't set.
-pub fn get_mac_content(sas: &OlmSas, ids: &SasIds, flow_id: &str) -> MacEventContent {
+pub fn get_mac_content(sas: &OlmSas, ids: &SasIds, flow_id: &str) -> MacToDeviceEventContent {
     let mut mac: BTreeMap<String, String> = BTreeMap::new();
 
     let key_id = DeviceKeyId::from_parts(DeviceKeyAlgorithm::Ed25519, ids.account.device_id());
@@ -291,7 +291,7 @@ pub fn get_mac_content(sas: &OlmSas, ids: &SasIds, flow_id: &str) -> MacEventCon
         .calculate_mac(&keys.join(","), &format!("{}KEY_IDS", &info))
         .expect("Can't calculate SAS MAC");
 
-    MacEventContent {
+    MacToDeviceEventContent {
         transaction_id: flow_id.to_owned(),
         keys,
         mac,
