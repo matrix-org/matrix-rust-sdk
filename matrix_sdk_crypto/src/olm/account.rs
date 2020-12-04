@@ -307,7 +307,7 @@ impl Account {
                 // return with an error if it isn't one.
                 OlmMessage::Message(_) => {
                     warn!(
-                        "Failed to decrypt a non-pre-key message with all
+                        "Failed to decrypt a non-pre-key message with all \
                           available sessions {} {}",
                         sender, sender_key
                     );

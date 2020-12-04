@@ -136,8 +136,8 @@ impl IdentityManager {
 
                 if user_id != &device_keys.user_id || device_id != &device_keys.device_id {
                     warn!(
-                        "Mismatch in device keys payload of device {} from user {}",
-                        device_keys.device_id, device_keys.user_id
+                        "Mismatch in device keys payload of device {}|{} from user {}|{}",
+                        device_id, device_keys.device_id, user_id, device_keys.user_id
                     );
                     continue;
                 }
