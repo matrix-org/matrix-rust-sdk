@@ -309,6 +309,21 @@ impl InboundGroupSession {
             serde_json::to_value(&event.unsigned).unwrap_or_default(),
         );
 
+        if let Some(decrypted_content) = decrypted_object
+            .get_mut("content")
+            .map(|c| c.as_object_mut())
+            .flatten()
+        {
+            if !decrypted_content.contains_key("m.relates_to") {
+                if let Some(relation) = &content.relates_to {
+                    decrypted_content.insert(
+                        "m.relates_to".to_owned(),
+                        serde_json::to_value(relation).unwrap_or_default(),
+                    );
+                }
+            }
+        }
+
         Ok((
             serde_json::from_value::<Raw<AnySyncRoomEvent>>(decrypted_value)?,
             message_index,
