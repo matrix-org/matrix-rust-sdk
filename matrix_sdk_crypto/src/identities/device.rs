@@ -27,8 +27,8 @@ use matrix_sdk_common::{
     api::r0::keys::SignedKey,
     encryption::DeviceKeys,
     events::{
-        forwarded_room_key::ForwardedRoomKeyEventContent, room::encrypted::EncryptedEventContent,
-        EventType,
+        forwarded_room_key::ForwardedRoomKeyToDeviceEventContent,
+        room::encrypted::EncryptedEventContent, EventType,
     },
     identifiers::{
         DeviceId, DeviceIdBox, DeviceKeyAlgorithm, DeviceKeyId, EventEncryptionAlgorithm, UserId,
@@ -158,7 +158,7 @@ impl Device {
     ) -> OlmResult<(Session, EncryptedEventContent)> {
         let export = session.export().await;
 
-        let content: ForwardedRoomKeyEventContent = if let Ok(c) = export.try_into() {
+        let content: ForwardedRoomKeyToDeviceEventContent = if let Ok(c) = export.try_into() {
             c
         } else {
             // TODO remove this panic.

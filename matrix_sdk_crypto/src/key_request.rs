@@ -30,8 +30,8 @@ use tracing::{error, info, trace, warn};
 use matrix_sdk_common::{
     api::r0::to_device::DeviceIdOrAllDevices,
     events::{
-        forwarded_room_key::ForwardedRoomKeyEventContent,
-        room_key_request::{Action, RequestedKeyInfo, RoomKeyRequestEventContent},
+        forwarded_room_key::ForwardedRoomKeyToDeviceEventContent,
+        room_key_request::{Action, RequestedKeyInfo, RoomKeyRequestToDeviceEventContent},
         AnyToDeviceEvent, EventType, ToDeviceEvent,
     },
     identifiers::{DeviceId, DeviceIdBox, EventEncryptionAlgorithm, RoomId, UserId},
@@ -67,8 +67,9 @@ pub enum KeyshareDecision {
 /// device that requested the key doesn't share an Olm session with us.
 #[derive(Debug, Clone)]
 struct WaitQueue {
-    requests_waiting_for_session:
-        Arc<DashMap<(UserId, DeviceIdBox, String), ToDeviceEvent<RoomKeyRequestEventContent>>>,
+    requests_waiting_for_session: Arc<
+        DashMap<(UserId, DeviceIdBox, String), ToDeviceEvent<RoomKeyRequestToDeviceEventContent>>,
+    >,
     requests_ids_waiting: Arc<DashMap<(UserId, DeviceIdBox), DashSet<String>>>,
 }
 
@@ -85,7 +86,7 @@ impl WaitQueue {
         self.requests_ids_waiting.is_empty() && self.requests_waiting_for_session.is_empty()
     }
 
-    fn insert(&self, device: &Device, event: &ToDeviceEvent<RoomKeyRequestEventContent>) {
+    fn insert(&self, device: &Device, event: &ToDeviceEvent<RoomKeyRequestToDeviceEventContent>) {
         let key = (
             device.user_id().to_owned(),
             device.device_id().into(),
@@ -106,7 +107,7 @@ impl WaitQueue {
         device_id: &DeviceId,
     ) -> Vec<(
         (UserId, DeviceIdBox, String),
-        ToDeviceEvent<RoomKeyRequestEventContent>,
+        ToDeviceEvent<RoomKeyRequestToDeviceEventContent>,
     )> {
         self.requests_ids_waiting
             .remove(&(user_id.to_owned(), device_id.into()))
@@ -130,8 +131,9 @@ pub(crate) struct KeyRequestMachine {
     store: Store,
     outbound_group_sessions: Arc<DashMap<RoomId, OutboundGroupSession>>,
     outgoing_to_device_requests: Arc<DashMap<Uuid, OutgoingRequest>>,
-    incoming_key_requests:
-        Arc<DashMap<(UserId, DeviceIdBox, String), ToDeviceEvent<RoomKeyRequestEventContent>>>,
+    incoming_key_requests: Arc<
+        DashMap<(UserId, DeviceIdBox, String), ToDeviceEvent<RoomKeyRequestToDeviceEventContent>>,
+    >,
     wait_queue: WaitQueue,
     users_for_key_claim: Arc<DashMap<UserId, DashSet<DeviceIdBox>>>,
 }
@@ -156,7 +158,7 @@ impl Encode for RequestedKeyInfo {
     }
 }
 
-impl Encode for ForwardedRoomKeyEventContent {
+impl Encode for ForwardedRoomKeyToDeviceEventContent {
     fn encode(&self) -> String {
         format!(
             "{}|{}|{}|{}",
@@ -168,7 +170,7 @@ impl Encode for ForwardedRoomKeyEventContent {
 fn wrap_key_request_content(
     recipient: UserId,
     id: Uuid,
-    content: &RoomKeyRequestEventContent,
+    content: &RoomKeyRequestToDeviceEventContent,
 ) -> Result<OutgoingRequest, serde_json::Error> {
     let mut messages = BTreeMap::new();
 
@@ -224,7 +226,10 @@ impl KeyRequestMachine {
     }
 
     /// Receive a room key request event.
-    pub fn receive_incoming_key_request(&self, event: &ToDeviceEvent<RoomKeyRequestEventContent>) {
+    pub fn receive_incoming_key_request(
+        &self,
+        event: &ToDeviceEvent<RoomKeyRequestToDeviceEventContent>,
+    ) {
         let sender = event.sender.clone();
         let device_id = event.content.requesting_device_id.clone();
         let request_id = event.content.request_id.clone();
@@ -255,7 +260,7 @@ impl KeyRequestMachine {
     fn handle_key_share_without_session(
         &self,
         device: Device,
-        event: &ToDeviceEvent<RoomKeyRequestEventContent>,
+        event: &ToDeviceEvent<RoomKeyRequestToDeviceEventContent>,
     ) {
         self.users_for_key_claim
             .entry(device.user_id().to_owned())
@@ -295,7 +300,7 @@ impl KeyRequestMachine {
     /// Handle a single incoming key request.
     async fn handle_key_request(
         &self,
-        event: &ToDeviceEvent<RoomKeyRequestEventContent>,
+        event: &ToDeviceEvent<RoomKeyRequestToDeviceEventContent>,
     ) -> OlmResult<Option<Session>> {
         let key_info = match &event.content.action {
             Action::Request => {
@@ -505,7 +510,7 @@ impl KeyRequestMachine {
 
         let id = Uuid::new_v4();
 
-        let content = RoomKeyRequestEventContent {
+        let content = RoomKeyRequestToDeviceEventContent {
             action: Action::Request,
             request_id: id.to_string(),
             requesting_device_id: (&*self.device_id).clone(),
@@ -546,7 +551,7 @@ impl KeyRequestMachine {
     /// Get an outgoing key info that matches the forwarded room key content.
     async fn get_key_info(
         &self,
-        content: &ForwardedRoomKeyEventContent,
+        content: &ForwardedRoomKeyToDeviceEventContent,
     ) -> Result<Option<OugoingKeyInfo>, CryptoStoreError> {
         let id: Option<Uuid> = self.store.get_object(&content.encode()).await?;
 
@@ -597,7 +602,7 @@ impl KeyRequestMachine {
         // can delete it in one transaction.
         self.delete_key_info(&key_info).await?;
 
-        let content = RoomKeyRequestEventContent {
+        let content = RoomKeyRequestToDeviceEventContent {
             action: Action::CancelRequest,
             request_id: key_info.request_id.to_string(),
             requesting_device_id: (&*self.device_id).clone(),
@@ -617,7 +622,7 @@ impl KeyRequestMachine {
     pub async fn receive_forwarded_room_key(
         &self,
         sender_key: &str,
-        event: &mut ToDeviceEvent<ForwardedRoomKeyEventContent>,
+        event: &mut ToDeviceEvent<ForwardedRoomKeyToDeviceEventContent>,
     ) -> Result<(Option<Raw<AnyToDeviceEvent>>, Option<InboundGroupSession>), CryptoStoreError>
     {
         let key_info = self.get_key_info(&event.content).await?;
@@ -672,9 +677,9 @@ mod test {
     use matrix_sdk_common::{
         api::r0::to_device::DeviceIdOrAllDevices,
         events::{
-            forwarded_room_key::ForwardedRoomKeyEventContent,
-            room::encrypted::EncryptedEventContent, room_key_request::RoomKeyRequestEventContent,
-            AnyToDeviceEvent, ToDeviceEvent,
+            forwarded_room_key::ForwardedRoomKeyToDeviceEventContent,
+            room::encrypted::EncryptedEventContent,
+            room_key_request::RoomKeyRequestToDeviceEventContent, AnyToDeviceEvent, ToDeviceEvent,
         },
         identifiers::{room_id, user_id, DeviceIdBox, RoomId, UserId},
         locks::Mutex,
@@ -829,7 +834,7 @@ mod test {
 
         let export = session.export_at_index(10).await.unwrap();
 
-        let content: ForwardedRoomKeyEventContent = export.try_into().unwrap();
+        let content: ForwardedRoomKeyToDeviceEventContent = export.try_into().unwrap();
 
         let mut event = ToDeviceEvent {
             sender: alice_id(),
@@ -886,7 +891,7 @@ mod test {
 
         let export = session.export_at_index(15).await.unwrap();
 
-        let content: ForwardedRoomKeyEventContent = export.try_into().unwrap();
+        let content: ForwardedRoomKeyToDeviceEventContent = export.try_into().unwrap();
 
         let mut event = ToDeviceEvent {
             sender: alice_id(),
@@ -902,7 +907,7 @@ mod test {
 
         let export = session.export_at_index(0).await.unwrap();
 
-        let content: ForwardedRoomKeyEventContent = export.try_into().unwrap();
+        let content: ForwardedRoomKeyToDeviceEventContent = export.try_into().unwrap();
 
         let mut event = ToDeviceEvent {
             sender: alice_id(),
@@ -1073,7 +1078,8 @@ mod test {
             .unwrap()
             .get(&DeviceIdOrAllDevices::AllDevices)
             .unwrap();
-        let content: RoomKeyRequestEventContent = serde_json::from_str(content.get()).unwrap();
+        let content: RoomKeyRequestToDeviceEventContent =
+            serde_json::from_str(content.get()).unwrap();
 
         drop(request);
         alice_machine
@@ -1241,7 +1247,8 @@ mod test {
             .unwrap()
             .get(&DeviceIdOrAllDevices::AllDevices)
             .unwrap();
-        let content: RoomKeyRequestEventContent = serde_json::from_str(content.get()).unwrap();
+        let content: RoomKeyRequestToDeviceEventContent =
+            serde_json::from_str(content.get()).unwrap();
 
         drop(request);
         alice_machine

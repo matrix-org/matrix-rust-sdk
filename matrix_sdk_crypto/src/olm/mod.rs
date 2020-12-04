@@ -40,7 +40,7 @@ pub(crate) mod test {
     use crate::olm::{InboundGroupSession, ReadOnlyAccount, Session};
     use matrix_sdk_common::{
         api::r0::keys::SignedKey,
-        events::forwarded_room_key::ForwardedRoomKeyEventContent,
+        events::forwarded_room_key::ForwardedRoomKeyToDeviceEventContent,
         identifiers::{room_id, user_id, DeviceId, UserId},
     };
     use olm_rs::session::OlmMessage;
@@ -237,7 +237,7 @@ pub(crate) mod test {
             .unwrap();
 
         let export = inbound.export().await;
-        let export: ForwardedRoomKeyEventContent = export.try_into().unwrap();
+        let export: ForwardedRoomKeyToDeviceEventContent = export.try_into().unwrap();
 
         let imported = InboundGroupSession::from_export(export).unwrap();
 
