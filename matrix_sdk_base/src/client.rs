@@ -49,7 +49,7 @@ use matrix_sdk_crypto::{
     Device, EncryptionSettings, IncomingResponse, OlmError, OlmMachine, OutgoingRequest, Sas,
     ToDeviceRequest, UserDevices,
 };
-use tracing::info;
+use tracing::{info, warn};
 use zeroize::Zeroizing;
 
 use crate::{
@@ -481,8 +481,11 @@ impl BaseClient {
                                 if let Ok(decrypted) =
                                     olm.decrypt_room_event(encrypted, room_id).await
                                 {
-                                    if let Ok(decrypted) = decrypted.deserialize() {
-                                        e = decrypted;
+                                    match decrypted.deserialize() {
+                                        Ok(decrypted) => e = decrypted,
+                                        Err(e) => {
+                                            warn!("Error deserializing a decrypted event {:?} ", e)
+                                        }
                                     }
                                 }
                             }
