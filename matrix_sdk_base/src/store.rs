@@ -13,8 +13,11 @@ use matrix_sdk_common::{
     api::r0::sync::sync_events::RoomSummary as RumaSummary,
     events::{
         presence::PresenceEvent,
-        room::{encryption::EncryptionEventContent, member::MemberEventContent},
-        AnySyncStateEvent, EventContent, SyncStateEvent,
+        room::{
+            encryption::EncryptionEventContent, member::MemberEventContent,
+            power_levels::PowerLevelsEventContent,
+        },
+        AnySyncStateEvent, EventContent, EventType, SyncStateEvent,
     },
     identifiers::{RoomAliasId, RoomId, UserId},
     Raw,
@@ -174,13 +177,27 @@ impl Room {
 
         let x = move |u| async move {
             let presence = self.store.get_presence_event(&u).await;
+            let power = self
+                .store
+                .get_state_event(self.room_id(), EventType::RoomPowerLevels, "")
+                .await
+                .map(|e| {
+                    if let AnySyncStateEvent::RoomPowerLevels(e) = e {
+                        Some(e)
+                    } else {
+                        None
+                    }
+                })
+                .flatten();
 
             self.store
                 .get_member_event(self.room_id(), &u)
                 .await
                 .map(|m| RoomMember {
+                    user_id: UserId::try_from(m.state_key.as_str()).unwrap().into(),
                     event: m.into(),
                     presence: presence.into(),
+                    power_levles: power.into(),
                 })
         };
 
@@ -221,7 +238,7 @@ impl Room {
             //
             let own_user_id = self.own_user_id.clone();
 
-            let is_own_member = |m: &RoomMember| &m.user_id() == &*own_user_id;
+            let is_own_member = |m: &RoomMember| m.user_id() == &*own_user_id;
 
             if !inner.summary.heroes.is_empty() {
                 let mut names = stream::iter(inner.summary.heroes.iter())
@@ -232,7 +249,7 @@ impl Room {
                     })
                     .map(|mem| {
                         mem.display_name()
-                            .clone()
+                            .map(|d| d.to_string())
                             .unwrap_or_else(|| mem.user_id().localpart().to_string())
                     })
                     .collect::<Vec<String>>()
@@ -245,7 +262,7 @@ impl Room {
                     .take(3)
                     .map(|mem| {
                         mem.display_name()
-                            .clone()
+                            .map(|d| d.to_string())
                             .unwrap_or_else(|| mem.user_id().localpart().to_string())
                     })
                     .collect::<Vec<String>>()
@@ -259,7 +276,7 @@ impl Room {
                     .take(3)
                     .map(|mem| {
                         mem.display_name()
-                            .clone()
+                            .map(|d| d.to_string())
                             .unwrap_or_else(|| mem.user_id().localpart().to_string())
                     })
                     .collect::<Vec<String>>()
@@ -298,13 +315,27 @@ impl Room {
 
     pub async fn get_member(&self, user_id: &UserId) -> Option<RoomMember> {
         let presence = self.store.get_presence_event(user_id).await;
+        let power = self
+            .store
+            .get_state_event(self.room_id(), EventType::RoomPowerLevels, "")
+            .await
+            .map(|e| {
+                if let AnySyncStateEvent::RoomPowerLevels(e) = e {
+                    Some(e)
+                } else {
+                    None
+                }
+            })
+            .flatten();
 
         self.store
             .get_member_event(&self.room_id, user_id)
             .await
             .map(|e| RoomMember {
+                user_id: UserId::try_from(e.state_key.as_str()).unwrap().into(),
                 event: e.into(),
                 presence: presence.into(),
+                power_levles: power.into(),
             })
     }
 
@@ -323,29 +354,33 @@ impl Room {
 
 #[derive(Clone, Debug)]
 pub struct RoomMember {
+    user_id: Arc<UserId>,
     event: Arc<SyncStateEvent<MemberEventContent>>,
     presence: Arc<Option<PresenceEvent>>,
+    power_levles: Arc<Option<SyncStateEvent<PowerLevelsEventContent>>>,
 }
 
 impl RoomMember {
-    pub fn user_id(&self) -> UserId {
-        UserId::try_from(self.event.state_key.clone()).unwrap()
+    pub fn user_id(&self) -> &UserId {
+        &self.user_id
     }
 
-    pub fn display_name(&self) -> &Option<String> {
-        &self.event.content.displayname
+    pub fn display_name(&self) -> Option<&str> {
+        self.event.content.displayname.as_deref()
     }
 
-    pub fn disambiguated_name(&self) -> String {
-        self.event.state_key.clone()
-    }
-
-    pub fn name(&self) -> String {
-        self.event.state_key.clone()
-    }
-
-    pub fn unique_name(&self) -> String {
-        self.event.state_key.clone()
+    pub fn power_level(&self) -> i64 {
+        self.power_levles
+            .as_ref()
+            .as_ref()
+            .map(|e| {
+                e.content
+                    .users
+                    .get(&self.user_id())
+                    .map(|p| (*p).into())
+                    .unwrap_or(e.content.users_default.into())
+            })
+            .unwrap_or(0)
     }
 }
 
@@ -589,6 +624,18 @@ impl Store {
     pub async fn get_presence_event(&self, user_id: &UserId) -> Option<PresenceEvent> {
         self.presence
             .get(user_id.as_bytes())
+            .unwrap()
+            .map(|e| serde_json::from_slice(&e).unwrap())
+    }
+
+    pub async fn get_state_event(
+        &self,
+        room_id: &RoomId,
+        event_type: EventType,
+        state_key: &str,
+    ) -> Option<AnySyncStateEvent> {
+        self.room_state
+            .get(format!("{}{}{}", room_id.as_str(), event_type, state_key).as_bytes())
             .unwrap()
             .map(|e| serde_json::from_slice(&e).unwrap())
     }

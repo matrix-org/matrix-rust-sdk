@@ -48,7 +48,7 @@ pub mod responses;
 mod session;
 mod store;
 
-pub use store::{Room, Store};
+pub use store::{Room, RoomMember, Store};
 
 pub use client::{BaseClient, BaseClientConfig, RoomState, RoomStateType};
 
