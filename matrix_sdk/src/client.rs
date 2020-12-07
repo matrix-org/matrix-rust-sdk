@@ -431,7 +431,24 @@ impl Client {
     }
 
     /// Fetches the display name of the owner of the client.
-    pub async fn user_display_name(&self) -> Result<Option<String>> {
+    ///
+    /// # Example
+    /// ```no_run
+    /// # use futures::executor::block_on;
+    /// # use matrix_sdk::Client;
+    /// # use url::Url;
+    /// # let homeserver = Url::parse("http://example.com").unwrap();
+    /// # block_on(async {
+    /// let user = "example";
+    /// let client = Client::new(homeserver).unwrap();
+    /// client.login(user, "password", None, None).await.unwrap();
+    ///
+    /// if let Some(name) = client.display_name().await {
+    ///     println!("Logged in as user '{}' with display name '{}'", user, name);
+    /// }
+    /// # })
+    /// ```
+    pub async fn display_name(&self) -> Result<Option<String>> {
         let user_id = self.user_id().await.ok_or(Error::AuthenticationRequired)?;
         let request = get_display_name::Request::new(&user_id);
         let response = self.send(request).await?;
@@ -439,7 +456,22 @@ impl Client {
     }
 
     /// Sets the display name of the owner of the client.
-    pub async fn set_user_display_name(&self, name: Option<&str>) -> Result<()> {
+    ///
+    /// # Example
+    /// ```no_run
+    /// # use futures::executor::block_on;
+    /// # use matrix_sdk::Client;
+    /// # use url::Url;
+    /// # let homeserver = Url::parse("http://example.com").unwrap();
+    /// # block_on(async {
+    /// let user = "example";
+    /// let client = Client::new(homeserver).unwrap();
+    /// client.login(user, "password", None, None).await.unwrap();
+    ///
+    /// client.set_display_name(Some("Alice")).await.expect("Failed setting display name");
+    /// # })
+    /// ```
+    pub async fn set_display_name(&self, name: Option<&str>) -> Result<()> {
         let user_id = self.user_id().await.ok_or(Error::AuthenticationRequired)?;
         let request = set_display_name::Request::new(&user_id, name);
         self.send(request).await?;
