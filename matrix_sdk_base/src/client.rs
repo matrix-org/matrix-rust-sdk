@@ -29,7 +29,7 @@ use matrix_sdk_common::locks::Mutex;
 use matrix_sdk_common::{
     api::r0 as api,
     events::{
-        room::member::MemberEventContent, AnyStrippedStateEvent, AnySyncRoomEvent,
+        room::member::MemberEventContent, AnyBasicEvent, AnyStrippedStateEvent, AnySyncRoomEvent,
         AnySyncStateEvent, StateEvent, SyncStateEvent,
     },
     identifiers::{RoomId, UserId},
@@ -54,7 +54,9 @@ use zeroize::Zeroizing;
 
 use crate::{
     error::Result,
-    responses::{JoinedRoom, LeftRoom, Presence, Rooms, State, SyncResponse, Timeline},
+    responses::{
+        AccountData, JoinedRoom, LeftRoom, Presence, Rooms, State, SyncResponse, Timeline,
+    },
     session::Session,
     store::{InnerSummary, Room, RoomType, StateChanges, Store},
 };
@@ -529,6 +531,22 @@ impl BaseClient {
         state
     }
 
+    async fn handle_room_account_data(
+        &self,
+        room_id: &RoomId,
+        events: &[Raw<AnyBasicEvent>],
+        changes: &mut StateChanges,
+    ) -> AccountData {
+        let events: Vec<AnyBasicEvent> =
+            events.iter().filter_map(|e| e.deserialize().ok()).collect();
+
+        for event in &events {
+            changes.add_room_account_data(room_id, event.clone());
+        }
+
+        AccountData { events }
+    }
+
     /// Receive a response from a sync call.
     ///
     /// # Arguments
@@ -582,6 +600,10 @@ impl BaseClient {
                 .handle_timeline(&room_id, &room_info.timeline, &mut summary, &mut changes)
                 .await;
 
+            let account_data = self
+                .handle_room_account_data(&room_id, &room_info.account_data.events, &mut changes)
+                .await;
+
             #[cfg(feature = "encryption")]
             if summary.is_encrypted() {
                 // TODO if the room isn't encrypted but the new summary is,
@@ -601,7 +623,9 @@ impl BaseClient {
                 summary.mark_members_missing();
             }
 
-            rooms.join.insert(room_id, JoinedRoom::new(timeline, state));
+            rooms
+                .join
+                .insert(room_id, JoinedRoom::new(timeline, state, account_data));
 
             changes.add_room(summary);
         }
@@ -624,7 +648,13 @@ impl BaseClient {
                 .handle_timeline(&room_id, &room_info.timeline, &mut summary, &mut changes)
                 .await;
 
-            rooms.leave.insert(room_id, LeftRoom::new(timeline, state));
+            let account_data = self
+                .handle_room_account_data(&room_id, &room_info.account_data.events, &mut changes)
+                .await;
+
+            rooms
+                .leave
+                .insert(room_id, LeftRoom::new(timeline, state, account_data));
         }
 
         for event in &response.presence.events {

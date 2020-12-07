@@ -17,10 +17,9 @@ use matrix_sdk_common::{
             encryption::EncryptionEventContent, member::MemberEventContent,
             power_levels::PowerLevelsEventContent,
         },
-        AnySyncStateEvent, EventContent, EventType, SyncStateEvent,
+        AnyBasicEvent, AnySyncStateEvent, EventContent, EventType, SyncStateEvent,
     },
     identifiers::{RoomAliasId, RoomId, UserId},
-    Raw,
 };
 use serde::{Deserialize, Serialize};
 
@@ -34,18 +33,20 @@ pub struct Store {
     members: Tree,
     joined_user_ids: Tree,
     invited_user_ids: Tree,
-    room_state: Tree,
     room_summaries: Tree,
+    room_state: Tree,
+    room_account_data: Tree,
     presence: Tree,
 }
 
-use crate::{client::hoist_and_deserialize_state_event, Session};
+use crate::Session;
 
 #[derive(Debug, Default)]
 pub struct StateChanges {
     pub session: Option<Session>,
     pub members: BTreeMap<RoomId, BTreeMap<UserId, SyncStateEvent<MemberEventContent>>>,
     pub state: BTreeMap<RoomId, BTreeMap<String, AnySyncStateEvent>>,
+    pub room_account_data: BTreeMap<RoomId, BTreeMap<String, AnyBasicEvent>>,
     pub room_summaries: BTreeMap<RoomId, InnerSummary>,
     // display_names: BTreeMap<RoomId, BTreeMap<String, BTreeMap<UserId, ()>>>,
     pub joined_user_ids: BTreeMap<RoomId, Vec<UserId>>,
@@ -94,6 +95,13 @@ impl StateChanges {
     pub fn add_room(&mut self, room: InnerSummary) {
         self.room_summaries
             .insert(room.room_id.as_ref().to_owned(), room);
+    }
+
+    pub fn add_room_account_data(&mut self, room_id: &RoomId, event: AnyBasicEvent) {
+        self.room_account_data
+            .entry(room_id.to_owned())
+            .or_insert_with(BTreeMap::new)
+            .insert(event.content().event_type().to_owned(), event);
     }
 
     pub fn add_state_event(&mut self, room_id: &RoomId, event: AnySyncStateEvent) {
@@ -402,18 +410,6 @@ pub struct InnerSummary {
 }
 
 impl InnerSummary {
-    pub fn handle_state_events(&mut self, state_events: &[Raw<AnySyncStateEvent>]) {
-        for e in state_events {
-            if let Ok(event) = hoist_and_deserialize_state_event(e) {
-                match event {
-                    _ => {
-                        self.handle_state_event(&event);
-                    }
-                }
-            }
-        }
-    }
-
     pub fn mark_as_joined(&mut self) {
         self.room_type = RoomType::Joined;
     }
@@ -507,6 +503,7 @@ impl Store {
         let room_state = db.open_tree("room_state").unwrap();
         let room_summaries = db.open_tree("room_summaries").unwrap();
         let presence = db.open_tree("presence").unwrap();
+        let room_account_data = db.open_tree("room_account_data").unwrap();
 
         Self {
             inner: db,
@@ -514,6 +511,7 @@ impl Store {
             members,
             joined_user_ids,
             invited_user_ids,
+            room_account_data,
             presence,
             room_state,
             room_summaries,
@@ -552,12 +550,22 @@ impl Store {
             &self.members,
             &self.joined_user_ids,
             &self.invited_user_ids,
-            &self.room_state,
             &self.room_summaries,
+            &self.room_state,
+            &self.room_account_data,
             &self.presence,
         )
             .transaction(
-                |(session, members, joined, invited, state, summaries, presence)| {
+                |(
+                    session,
+                    members,
+                    joined,
+                    invited,
+                    summaries,
+                    state,
+                    room_account_data,
+                    presence,
+                )| {
                     if let Some(s) = &changes.session {
                         session.insert("session", serde_json::to_vec(s).unwrap())?;
                     }
@@ -566,6 +574,15 @@ impl Store {
                         for (user_id, event) in events {
                             members.insert(
                                 format!("{}{}", room.as_str(), user_id.as_str()).as_str(),
+                                serde_json::to_vec(&event).unwrap(),
+                            )?;
+                        }
+                    }
+
+                    for (room, events) in &changes.room_account_data {
+                        for (event_type, event) in events {
+                            room_account_data.insert(
+                                format!("{}{}", room.as_str(), event_type).as_str(),
                                 serde_json::to_vec(&event).unwrap(),
                             )?;
                         }

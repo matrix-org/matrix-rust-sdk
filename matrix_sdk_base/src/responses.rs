@@ -3,7 +3,10 @@ use std::collections::BTreeMap;
 
 use matrix_sdk_common::{
     api::r0::sync::sync_events::DeviceLists,
-    events::{presence::PresenceEvent, AnySyncRoomEvent, AnySyncStateEvent, AnyToDeviceEvent},
+    events::{
+        presence::PresenceEvent, AnyBasicEvent, AnySyncRoomEvent, AnySyncStateEvent,
+        AnyToDeviceEvent,
+    },
     identifiers::{DeviceKeyAlgorithm, RoomId},
 };
 
@@ -44,6 +47,13 @@ pub struct Presence {
     pub events: Vec<PresenceEvent>,
 }
 
+/// Data that the user has attached to either the account or a specific room.
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+pub struct AccountData {
+    /// The list of account data events.
+    pub events: Vec<AnyBasicEvent>,
+}
+
 /// Messages sent dirrectly between devices.
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
 pub struct ToDevice {
@@ -72,16 +82,20 @@ pub struct JoinedRoom {
     /// of the `timeline` (or all state up to the start of the `timeline`, if `since` is not
     /// given, or `full_state` is true).
     pub state: State,
-    // /// The private data that this user has attached to this room.
-    // pub account_data: AccountData,
+    /// The private data that this user has attached to this room.
+    pub account_data: AccountData,
     // /// The ephemeral events in the room that aren't recorded in the timeline or state of the
     // /// room. e.g. typing.
     // pub ephemeral: Ephemeral,
 }
 
 impl JoinedRoom {
-    pub fn new(timeline: Timeline, state: State) -> Self {
-        Self { timeline, state }
+    pub fn new(timeline: Timeline, state: State, account_data: AccountData) -> Self {
+        Self {
+            timeline,
+            state,
+            account_data,
+        }
     }
 }
 
@@ -94,11 +108,17 @@ pub struct LeftRoom {
     /// of the `timeline` (or all state up to the start of the `timeline`, if `since` is not
     /// given, or `full_state` is true).
     pub state: State,
+    /// The private data that this user has attached to this room.
+    pub account_data: AccountData,
 }
 
 impl LeftRoom {
-    pub fn new(timeline: Timeline, state: State) -> Self {
-        Self { timeline, state }
+    pub fn new(timeline: Timeline, state: State, account_data: AccountData) -> Self {
+        Self {
+            timeline,
+            state,
+            account_data,
+        }
     }
 }
 
