@@ -74,6 +74,7 @@ use matrix_sdk_common::{
             join_room_by_id, join_room_by_id_or_alias, kick_user, leave_room, Invite3pid,
         },
         message::{get_message_events, send_message_event},
+        profile::{get_display_name, set_display_name},
         read_marker::set_read_marker,
         receipt::create_receipt,
         room::create_room,
@@ -427,6 +428,22 @@ impl Client {
     pub async fn user_id(&self) -> Option<UserId> {
         let session = self.base_client.session().read().await;
         session.as_ref().cloned().map(|s| s.user_id)
+    }
+
+    /// Fetches the display name of the owner of the client.
+    pub async fn user_display_name(&self) -> Result<Option<String>> {
+        let user_id = self.user_id().await.ok_or(Error::AuthenticationRequired)?;
+        let request = get_display_name::Request::new(&user_id);
+        let response = self.send(request).await?;
+        Ok(response.displayname)
+    }
+
+    /// Sets the display name of the owner of the client.
+    pub async fn set_user_display_name(&self, name: Option<&str>) -> Result<()> {
+        let user_id = self.user_id().await.ok_or(Error::AuthenticationRequired)?;
+        let request = set_display_name::Request::new(&user_id, name);
+        self.send(request).await?;
+        Ok(())
     }
 
     /// Add `EventEmitter` to `Client`.
