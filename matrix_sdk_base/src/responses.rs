@@ -20,8 +20,8 @@ pub struct SyncResponse {
     pub rooms: Rooms,
     /// Updates to the presence status of other users.
     pub presence: Presence,
-    ///// The global private data created by this user.
-    //pub account_data: AccountData,
+    /// The global private data created by this user.
+    pub account_data: AccountData,
     /// Messages sent dirrectly between devices.
     pub to_device: ToDevice,
     /// Information on E2E device updates.

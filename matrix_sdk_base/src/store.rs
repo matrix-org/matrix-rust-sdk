@@ -30,6 +30,7 @@ use tracing::info;
 pub struct Store {
     inner: Db,
     session: Tree,
+    account_data: Tree,
     members: Tree,
     joined_user_ids: Tree,
     invited_user_ids: Tree,
@@ -46,6 +47,7 @@ pub struct StateChanges {
     pub session: Option<Session>,
     pub members: BTreeMap<RoomId, BTreeMap<UserId, SyncStateEvent<MemberEventContent>>>,
     pub state: BTreeMap<RoomId, BTreeMap<String, AnySyncStateEvent>>,
+    pub account_data: BTreeMap<String, AnyBasicEvent>,
     pub room_account_data: BTreeMap<RoomId, BTreeMap<String, AnyBasicEvent>>,
     pub room_summaries: BTreeMap<RoomId, InnerSummary>,
     // display_names: BTreeMap<RoomId, BTreeMap<String, BTreeMap<UserId, ()>>>,
@@ -95,6 +97,11 @@ impl StateChanges {
     pub fn add_room(&mut self, room: InnerSummary) {
         self.room_summaries
             .insert(room.room_id.as_ref().to_owned(), room);
+    }
+
+    pub fn add_account_data(&mut self, event: AnyBasicEvent) {
+        self.account_data
+            .insert(event.content().event_type().to_owned(), event);
     }
 
     pub fn add_room_account_data(&mut self, room_id: &RoomId, event: AnyBasicEvent) {
@@ -501,6 +508,7 @@ impl InnerSummary {
 impl Store {
     fn open_helper(db: Db) -> Self {
         let session = db.open_tree("session").unwrap();
+        let account_data = db.open_tree("account_data").unwrap();
 
         let members = db.open_tree("members").unwrap();
         let joined_user_ids = db.open_tree("joined_user_ids").unwrap();
@@ -514,6 +522,7 @@ impl Store {
         Self {
             inner: db,
             session,
+            account_data,
             members,
             joined_user_ids,
             invited_user_ids,
@@ -553,6 +562,7 @@ impl Store {
     pub async fn save_changes(&self, changes: &StateChanges) {
         let ret: TransactionResult<()> = (
             &self.session,
+            &self.account_data,
             &self.members,
             &self.joined_user_ids,
             &self.invited_user_ids,
@@ -564,6 +574,7 @@ impl Store {
             .transaction(
                 |(
                     session,
+                    account_data,
                     members,
                     joined,
                     invited,
@@ -583,6 +594,11 @@ impl Store {
                                 serde_json::to_vec(&event).unwrap(),
                             )?;
                         }
+                    }
+
+                    for (event_type, event) in &changes.account_data {
+                        account_data
+                            .insert(event_type.as_str(), serde_json::to_vec(&event).unwrap())?;
                     }
 
                     for (room, events) in &changes.room_account_data {

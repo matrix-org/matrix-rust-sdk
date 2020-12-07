@@ -639,13 +639,7 @@ impl BaseClient {
 
             rooms.join.insert(
                 room_id,
-                JoinedRoom::new(
-                    timeline,
-                    state,
-                    account_data,
-                    ephemeral,
-                    notification_count,
-                ),
+                JoinedRoom::new(timeline, state, account_data, ephemeral, notification_count),
             );
 
             changes.add_room(summary);
@@ -684,6 +678,12 @@ impl BaseClient {
             }
         }
 
+        for event in &response.account_data.events {
+            if let Ok(e) = event.deserialize() {
+                changes.add_account_data(e);
+            }
+        }
+
         self.store.save_changes(&changes).await;
         *self.sync_token.write().await = Some(response.next_batch.clone());
         self.apply_changes(&changes).await;
@@ -693,6 +693,9 @@ impl BaseClient {
             rooms,
             presence: Presence {
                 events: changes.presence.into_iter().map(|(_, v)| v).collect(),
+            },
+            account_data: AccountData {
+                events: changes.account_data.into_iter().map(|(_, e)| e).collect(),
             },
             device_lists: response.device_lists,
             device_one_time_keys_count: response
