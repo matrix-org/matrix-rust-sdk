@@ -443,7 +443,7 @@ impl Client {
     /// let client = Client::new(homeserver).unwrap();
     /// client.login(user, "password", None, None).await.unwrap();
     ///
-    /// if let Some(name) = client.display_name().await {
+    /// if let Some(name) = client.display_name().await.unwrap() {
     ///     println!("Logged in as user '{}' with display name '{}'", user, name);
     /// }
     /// # })
