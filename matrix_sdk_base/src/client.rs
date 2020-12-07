@@ -624,6 +624,9 @@ impl BaseClient {
                 summary.mark_members_missing();
             }
 
+            let notification_count = room_info.unread_notifications.into();
+            summary.update_notification_count(notification_count);
+
             // TODO should we store this?
             let ephemeral = Ephemeral {
                 events: room_info
@@ -636,7 +639,13 @@ impl BaseClient {
 
             rooms.join.insert(
                 room_id,
-                JoinedRoom::new(timeline, state, account_data, ephemeral),
+                JoinedRoom::new(
+                    timeline,
+                    state,
+                    account_data,
+                    ephemeral,
+                    notification_count,
+                ),
             );
 
             changes.add_room(summary);

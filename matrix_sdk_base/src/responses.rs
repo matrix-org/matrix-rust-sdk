@@ -2,7 +2,9 @@ use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
 use matrix_sdk_common::{
-    api::r0::sync::sync_events::DeviceLists,
+    api::r0::sync::sync_events::{
+        DeviceLists, UnreadNotificationsCount as RumaUnreadNotificationsCount,
+    },
     events::{
         presence::PresenceEvent, AnyBasicEvent, AnySyncEphemeralRoomEvent, AnySyncRoomEvent,
         AnySyncStateEvent, AnyToDeviceEvent,
@@ -74,8 +76,8 @@ pub struct Rooms {
 /// Updates to joined rooms.
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct JoinedRoom {
-    // /// Counts of unread notifications for this room.
-    // pub unread_notifications: UnreadNotificationsCount,
+    /// Counts of unread notifications for this room.
+    pub unread_notifications: UnreadNotificationsCount,
     /// The timeline of messages and state changes in the room.
     pub timeline: Timeline,
     /// Updates to the state, between the time indicated by the `since` parameter, and the start
@@ -95,12 +97,35 @@ impl JoinedRoom {
         state: State,
         account_data: AccountData,
         ephemeral: Ephemeral,
+        unread_notifications: UnreadNotificationsCount,
     ) -> Self {
         Self {
             timeline,
             state,
             account_data,
             ephemeral,
+            unread_notifications,
+        }
+    }
+}
+
+/// Counts of unread notifications for a room.
+#[derive(Copy, Clone, Debug, Default, Deserialize, Serialize)]
+pub struct UnreadNotificationsCount {
+    /// The number of unread notifications for this room with the highlight flag set.
+    highlight_count: u64,
+    /// The total number of unread notifications for this room.
+    notification_count: u64,
+}
+
+impl From<RumaUnreadNotificationsCount> for UnreadNotificationsCount {
+    fn from(notifications: RumaUnreadNotificationsCount) -> Self {
+        Self {
+            highlight_count: notifications.highlight_count.map(|c| c.into()).unwrap_or(0),
+            notification_count: notifications
+                .notification_count
+                .map(|c| c.into())
+                .unwrap_or(0),
         }
     }
 }

@@ -39,7 +39,7 @@ pub struct Store {
     presence: Tree,
 }
 
-use crate::Session;
+use crate::{responses::UnreadNotificationsCount, Session};
 
 #[derive(Debug, Default)]
 pub struct StateChanges {
@@ -171,6 +171,7 @@ impl Room {
                 canonical_alias: None,
                 avatar_url: None,
                 topic: None,
+                notification_counts: Default::default(),
             })),
         }
     }
@@ -402,6 +403,7 @@ pub struct InnerSummary {
     avatar_url: Option<String>,
     topic: Option<String>,
 
+    notification_counts: UnreadNotificationsCount,
     summary: SomeSummary,
     members_synced: bool,
 
@@ -460,6 +462,10 @@ impl InnerSummary {
 
     pub fn is_encrypted(&self) -> bool {
         self.encryption.is_some()
+    }
+
+    pub fn update_notification_count(&mut self, notification_counts: UnreadNotificationsCount) {
+        self.notification_counts = notification_counts;
     }
 
     pub(crate) fn update(&mut self, summary: &RumaSummary) -> bool {
