@@ -4,8 +4,8 @@ use std::collections::BTreeMap;
 use matrix_sdk_common::{
     api::r0::sync::sync_events::DeviceLists,
     events::{
-        presence::PresenceEvent, AnyBasicEvent, AnySyncRoomEvent, AnySyncStateEvent,
-        AnyToDeviceEvent,
+        presence::PresenceEvent, AnyBasicEvent, AnySyncEphemeralRoomEvent, AnySyncRoomEvent,
+        AnySyncStateEvent, AnyToDeviceEvent,
     },
     identifiers::{DeviceKeyAlgorithm, RoomId},
 };
@@ -84,19 +84,32 @@ pub struct JoinedRoom {
     pub state: State,
     /// The private data that this user has attached to this room.
     pub account_data: AccountData,
-    // /// The ephemeral events in the room that aren't recorded in the timeline or state of the
-    // /// room. e.g. typing.
-    // pub ephemeral: Ephemeral,
+    /// The ephemeral events in the room that aren't recorded in the timeline or state of the
+    /// room. e.g. typing.
+    pub ephemeral: Ephemeral,
 }
 
 impl JoinedRoom {
-    pub fn new(timeline: Timeline, state: State, account_data: AccountData) -> Self {
+    pub fn new(
+        timeline: Timeline,
+        state: State,
+        account_data: AccountData,
+        ephemeral: Ephemeral,
+    ) -> Self {
         Self {
             timeline,
             state,
             account_data,
+            ephemeral,
         }
     }
+}
+
+/// The ephemeral events in the room that aren't recorded in the timeline or
+/// state of the room. e.g. typing.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct Ephemeral {
+    pub events: Vec<AnySyncEphemeralRoomEvent>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]

@@ -55,7 +55,8 @@ use zeroize::Zeroizing;
 use crate::{
     error::Result,
     responses::{
-        AccountData, JoinedRoom, LeftRoom, Presence, Rooms, State, SyncResponse, Timeline,
+        AccountData, Ephemeral, JoinedRoom, LeftRoom, Presence, Rooms, State, SyncResponse,
+        Timeline,
     },
     session::Session,
     store::{InnerSummary, Room, RoomType, StateChanges, Store},
@@ -623,9 +624,20 @@ impl BaseClient {
                 summary.mark_members_missing();
             }
 
-            rooms
-                .join
-                .insert(room_id, JoinedRoom::new(timeline, state, account_data));
+            // TODO should we store this?
+            let ephemeral = Ephemeral {
+                events: room_info
+                    .ephemeral
+                    .events
+                    .into_iter()
+                    .filter_map(|e| e.deserialize().ok())
+                    .collect(),
+            };
+
+            rooms.join.insert(
+                room_id,
+                JoinedRoom::new(timeline, state, account_data, ephemeral),
+            );
 
             changes.add_room(summary);
         }
