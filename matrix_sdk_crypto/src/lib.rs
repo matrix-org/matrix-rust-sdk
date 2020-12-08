@@ -36,6 +36,7 @@ pub mod olm;
 mod requests;
 mod session_manager;
 pub mod store;
+mod utilities;
 mod verification;
 
 pub use error::{MegolmError, OlmError};

@@ -8,7 +8,7 @@ pub use ruma::{
         AuthScheme, EndpointError, OutgoingRequest,
     },
     directory, encryption, events, identifiers, presence, push,
-    serde::Raw,
+    serde::{CanonicalJsonValue, Raw},
     thirdparty, Outgoing,
 };
 

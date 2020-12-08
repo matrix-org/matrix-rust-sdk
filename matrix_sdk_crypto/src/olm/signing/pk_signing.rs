@@ -16,7 +16,6 @@ use aes_gcm::{
     aead::{generic_array::GenericArray, Aead, NewAead},
     Aes256Gcm,
 };
-use base64::{decode_config, encode_config, DecodeError, URL_SAFE_NO_PAD};
 use getrandom::getrandom;
 use matrix_sdk_common::{
     encryption::DeviceKeys,
@@ -42,18 +41,11 @@ use matrix_sdk_common::{
 use crate::{
     error::SignatureError,
     identities::{MasterPubkey, SelfSigningPubkey, UserSigningPubkey},
+    utilities::{decode_url_safe as decode, encode_url_safe as encode, DecodeError},
     UserIdentity,
 };
 
 const NONCE_SIZE: usize = 12;
-
-fn encode<T: AsRef<[u8]>>(input: T) -> String {
-    encode_config(input, URL_SAFE_NO_PAD)
-}
-
-fn decode<T: AsRef<[u8]>>(input: T) -> Result<Vec<u8>, DecodeError> {
-    decode_config(input, URL_SAFE_NO_PAD)
-}
 
 /// Error type reporting failures in the Signign operations.
 #[derive(Debug, Error)]

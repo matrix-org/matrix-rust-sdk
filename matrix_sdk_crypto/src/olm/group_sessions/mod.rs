@@ -138,7 +138,7 @@ mod test {
     use crate::ReadOnlyAccount;
 
     #[tokio::test]
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(target_os = "linux")]
     async fn expiration() {
         let settings = EncryptionSettings {
             rotation_period_msgs: 1,

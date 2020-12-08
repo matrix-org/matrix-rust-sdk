@@ -19,7 +19,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use olm_rs::{sas::OlmSas, utility::OlmUtility};
+use olm_rs::sas::OlmSas;
 
 use matrix_sdk_common::{
     events::{
@@ -40,8 +40,11 @@ use matrix_sdk_common::{
     identifiers::{DeviceId, UserId},
     uuid::Uuid,
 };
+use tracing::error;
 
-use super::helpers::{get_decimal, get_emoji, get_mac_content, receive_mac_event, SasIds};
+use super::helpers::{
+    calculate_commitment, get_decimal, get_emoji, get_mac_content, receive_mac_event, SasIds,
+};
 
 use crate::{
     identities::{ReadOnlyDevice, UserIdentities},
@@ -176,7 +179,7 @@ pub struct Started {
 #[derive(Clone, Debug)]
 pub struct Accepted {
     accepted_protocols: Arc<AcceptedProtocols>,
-    json_start_content: String,
+    start_content: Arc<StartToDeviceEventContent>,
     commitment: String,
 }
 
@@ -348,8 +351,7 @@ impl SasState<Created> {
             let accepted_protocols =
                 AcceptedProtocols::try_from(content.clone()).map_err(|c| self.clone().cancel(c))?;
 
-            let json_start_content = serde_json::to_string(&self.as_content())
-                .expect("Can't deserialize start event content");
+            let start_content = self.as_content().into();
 
             Ok(SasState {
                 inner: self.inner,
@@ -358,9 +360,9 @@ impl SasState<Created> {
                 creation_time: self.creation_time,
                 last_event_time: self.last_event_time,
                 state: Arc::new(Accepted {
-                    json_start_content,
+                    start_content,
                     commitment: content.commitment.clone(),
-                    accepted_protocols: Arc::new(accepted_protocols),
+                    accepted_protocols: accepted_protocols.into(),
                 }),
             })
         } else {
@@ -391,12 +393,14 @@ impl SasState<Started> {
     ) -> Result<SasState<Started>, SasState<Canceled>> {
         if let StartMethod::MSasV1(content) = &event.content.method {
             let sas = OlmSas::new();
-            let utility = OlmUtility::new();
 
-            let json_content =
-                serde_json::to_string(&event.content).expect("Can't serialize content");
             let pubkey = sas.public_key();
-            let commitment = utility.sha256_utf8_msg(&format!("{}{}", pubkey, json_content));
+            let commitment = calculate_commitment(&pubkey, &event.content);
+
+            error!(
+                "Calculated commitment for pubkey {} and content {:?} {}",
+                pubkey, event.content, commitment
+            );
 
             let sas = SasState {
                 inner: Arc::new(Mutex::new(sas)),
@@ -540,11 +544,7 @@ impl SasState<Accepted> {
         self.check_event(&event.sender, &event.content.transaction_id)
             .map_err(|c| self.clone().cancel(c))?;
 
-        let utility = OlmUtility::new();
-        let commitment = utility.sha256_utf8_msg(&format!(
-            "{}{}",
-            event.content.key, self.state.json_start_content
-        ));
+        let commitment = calculate_commitment(&event.content.key, &self.state.start_content);
 
         if self.state.commitment != commitment {
             Err(self.cancel(CancelCode::InvalidMessage))

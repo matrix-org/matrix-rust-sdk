@@ -27,8 +27,10 @@ use hmac::{Hmac, Mac, NewMac};
 use pbkdf2::pbkdf2;
 use sha2::{Sha256, Sha512};
 
-use super::{decode, encode, DecodeError};
-use crate::olm::ExportedRoomKey;
+use crate::{
+    olm::ExportedRoomKey,
+    utilities::{decode, encode, DecodeError},
+};
 
 const SALT_SIZE: usize = 16;
 const IV_SIZE: usize = 16;

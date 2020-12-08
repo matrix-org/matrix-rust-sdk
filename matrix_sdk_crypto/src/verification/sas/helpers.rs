@@ -14,6 +14,7 @@
 
 use std::{collections::BTreeMap, convert::TryInto};
 
+use sha2::{Digest, Sha256};
 use tracing::{trace, warn};
 
 use olm_rs::sas::OlmSas;
@@ -21,15 +22,19 @@ use olm_rs::sas::OlmSas;
 use matrix_sdk_common::{
     api::r0::to_device::DeviceIdOrAllDevices,
     events::{
-        key::verification::{cancel::CancelCode, mac::MacToDeviceEventContent},
+        key::verification::{
+            cancel::CancelCode, mac::MacToDeviceEventContent, start::StartToDeviceEventContent,
+        },
         AnyToDeviceEventContent, EventType, ToDeviceEvent,
     },
     identifiers::{DeviceId, DeviceKeyAlgorithm, DeviceKeyId, UserId},
     uuid::Uuid,
+    CanonicalJsonValue,
 };
 
 use crate::{
     identities::{ReadOnlyDevice, UserIdentities},
+    utilities::encode,
     ReadOnlyAccount, ToDeviceRequest,
 };
 
@@ -38,6 +43,29 @@ pub struct SasIds {
     pub account: ReadOnlyAccount,
     pub other_device: ReadOnlyDevice,
     pub other_identity: Option<UserIdentities>,
+}
+
+/// Calculate the commitment for a accept event from the public key and the
+/// start event.
+///
+/// # Arguments
+///
+/// * `public_key` - Our own ephemeral public key that is used for the
+/// interactive verification.
+///
+/// * `content` - The `m.key.verification.start` event content that started the
+/// interactive verification process.
+pub fn calculate_commitment(public_key: &str, content: &StartToDeviceEventContent) -> String {
+    let json_content: CanonicalJsonValue = serde_json::to_value(content)
+        .expect("Can't serialize content")
+        .try_into()
+        .expect("Can't canonicalize content");
+
+    encode(
+        Sha256::new()
+            .chain(&format!("{}{}", public_key, json_content))
+            .finalize(),
+    )
 }
 
 /// Get a tuple of an emoji and a description of the emoji using a number.
@@ -493,12 +521,38 @@ pub fn content_to_request(
 
 #[cfg(test)]
 mod test {
+    use matrix_sdk_common::events::key::verification::start::StartToDeviceEventContent;
     use proptest::prelude::*;
+    use serde_json::json;
 
-    use super::{bytes_to_decimal, bytes_to_emoji, bytes_to_emoji_index, emoji_from_index};
+    use super::{
+        bytes_to_decimal, bytes_to_emoji, bytes_to_emoji_index, calculate_commitment,
+        emoji_from_index,
+    };
 
     #[test]
-    fn test_emoji_generation() {
+    fn commitment_calculation() {
+        let commitment = "CCQmB4JCdB0FW21FdAnHj/Hu8+W9+Nb0vgwPEnZZQ4g";
+
+        let public_key = "Q/NmNFEUS1fS+YeEmiZkjjblKTitrKOAk7cPEumcMlg";
+        let content = json!({
+            "from_device":"XOWLHHFSWM",
+            "transaction_id":"bYxBsirjUJO9osar6ST4i2M2NjrYLA7l",
+            "method":"m.sas.v1",
+            "key_agreement_protocols":["curve25519-hkdf-sha256","curve25519"],
+            "hashes":["sha256"],
+            "message_authentication_codes":["hkdf-hmac-sha256","hmac-sha256"],
+            "short_authentication_string":["decimal","emoji"]
+        });
+
+        let content: StartToDeviceEventContent = serde_json::from_value(content).unwrap();
+        let calculated_commitment = calculate_commitment(public_key, &content);
+
+        assert_eq!(commitment, &calculated_commitment);
+    }
+
+    #[test]
+    fn emoji_generation() {
         let bytes = vec![0, 0, 0, 0, 0, 0];
         let index: Vec<(&'static str, &'static str)> = vec![0, 0, 0, 0, 0, 0, 0]
             .into_iter()
@@ -516,7 +570,7 @@ mod test {
     }
 
     #[test]
-    fn test_decimal_generation() {
+    fn decimal_generation() {
         let bytes = vec![0, 0, 0, 0, 0];
         let result = bytes_to_decimal(bytes);
 

@@ -54,10 +54,10 @@ use olm_rs::{
 
 use crate::{
     error::{EventError, OlmResult, SessionCreationError},
-    file_encryption::encode,
     identities::ReadOnlyDevice,
     requests::UploadSigningKeysRequest,
     store::{Changes, Store},
+    utilities::encode,
     OlmError,
 };
 
@@ -170,7 +170,7 @@ impl Account {
                         return Err(OlmError::SessionWedged(user_id, sender_key));
                     }
                 }
-                Err(e) => return Err(e.into()),
+                Err(e) => return Err(e),
             };
 
             debug!("Decrypted a to-device event {:?}", event);
