@@ -421,7 +421,7 @@ mod test {
     // This test doesn't run on macos because we're modifying the session
     // creation time so we can get around the UNWEDGING_INTERVAL.
     #[async_test]
-    #[cfg(not(target_os = "linux"))]
+    #[cfg(target_os = "linux")]
     async fn session_unwedging() {
         use matrix_sdk_common::{
             identifiers::DeviceKeyAlgorithm,
