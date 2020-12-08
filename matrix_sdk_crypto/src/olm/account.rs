@@ -54,10 +54,10 @@ use olm_rs::{
 
 use crate::{
     error::{EventError, OlmResult, SessionCreationError},
-    file_encryption::encode,
     identities::ReadOnlyDevice,
     requests::UploadSigningKeysRequest,
     store::{Changes, Store},
+    utilities::encode,
     OlmError,
 };
 
