@@ -1,4 +1,4 @@
-name: Lint
+name: CI
 
 on:
   push:
@@ -9,22 +9,44 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  lint:
+  style:
+    name: Check style
     runs-on: ubuntu-latest
 
     steps:
     - name: Checkout the repo
       uses: actions/checkout@v2
+
     - name: Install rust
       uses: actions-rs/toolchain@v1
       with:
         toolchain: stable
+        components: rustfmt
+        profile: minimal
+        override: true
 
     - name: Cargo fmt
       uses: actions-rs/cargo@v1
       with:
         command: fmt
         args: --all -- --check
+
+  clippy:
+    name: Run clippy
+    needs: [style]
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout the repo
+      uses: actions/checkout@v2
+
+    - name: Install rust
+      uses: actions-rs/toolchain@v1
+      with:
+        toolchain: stable
+        components: clippy
+        profile: minimal
+        override: true
 
     - name: Clippy
       uses: actions-rs/cargo@v1
