@@ -316,8 +316,7 @@ mod test {
 
     use matrix_sdk_common::{
         api::r0::keys::claim_keys::Response as KeyClaimResponse,
-        identifiers::{user_id, DeviceIdBox, DeviceKeyAlgorithm, UserId},
-        instant::{Duration, Instant},
+        identifiers::{user_id, DeviceIdBox, UserId},
     };
     use matrix_sdk_test::async_test;
 
@@ -422,8 +421,13 @@ mod test {
     // This test doesn't run on macos because we're modifying the session
     // creation time so we can get around the UNWEDGING_INTERVAL.
     #[async_test]
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(target_os = "linux")]
     async fn session_unwedging() {
+        use matrix_sdk_common::{
+            identifiers::DeviceKeyAlgorithm,
+            instant::{Duration, Instant},
+        };
+
         let manager = session_manager().await;
         let bob = bob_account();
         let (_, mut session) = bob.create_session_for(&manager.account).await;

@@ -380,7 +380,7 @@ mod test {
         assert!(bob.is_done());
     }
 
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(target_os = "linux")]
     #[tokio::test]
     async fn timing_out() {
         let (alice_machine, bob) = setup_verification_machine().await;

@@ -74,6 +74,7 @@ use matrix_sdk_common::{
             join_room_by_id, join_room_by_id_or_alias, kick_user, leave_room, Invite3pid,
         },
         message::{get_message_events, send_message_event},
+        profile::{get_avatar_url, get_display_name, set_avatar_url, set_display_name},
         read_marker::set_read_marker,
         receipt::create_receipt,
         room::create_room,
@@ -427,6 +428,117 @@ impl Client {
     pub async fn user_id(&self) -> Option<UserId> {
         let session = self.base_client.session().read().await;
         session.as_ref().cloned().map(|s| s.user_id)
+    }
+
+    /// Fetches the display name of the owner of the client.
+    ///
+    /// # Example
+    /// ```no_run
+    /// # use futures::executor::block_on;
+    /// # use matrix_sdk::Client;
+    /// # use url::Url;
+    /// # let homeserver = Url::parse("http://example.com").unwrap();
+    /// # block_on(async {
+    /// let user = "example";
+    /// let client = Client::new(homeserver).unwrap();
+    /// client.login(user, "password", None, None).await.unwrap();
+    ///
+    /// if let Some(name) = client.display_name().await.unwrap() {
+    ///     println!("Logged in as user '{}' with display name '{}'", user, name);
+    /// }
+    /// # })
+    /// ```
+    pub async fn display_name(&self) -> Result<Option<String>> {
+        let user_id = self.user_id().await.ok_or(Error::AuthenticationRequired)?;
+        let request = get_display_name::Request::new(&user_id);
+        let response = self.send(request).await?;
+        Ok(response.displayname)
+    }
+
+    /// Sets the display name of the owner of the client.
+    ///
+    /// # Example
+    /// ```no_run
+    /// # use futures::executor::block_on;
+    /// # use matrix_sdk::Client;
+    /// # use url::Url;
+    /// # let homeserver = Url::parse("http://example.com").unwrap();
+    /// # block_on(async {
+    /// let user = "example";
+    /// let client = Client::new(homeserver).unwrap();
+    /// client.login(user, "password", None, None).await.unwrap();
+    ///
+    /// client.set_display_name(Some("Alice")).await.expect("Failed setting display name");
+    /// # })
+    /// ```
+    pub async fn set_display_name(&self, name: Option<&str>) -> Result<()> {
+        let user_id = self.user_id().await.ok_or(Error::AuthenticationRequired)?;
+        let request = set_display_name::Request::new(&user_id, name);
+        self.send(request).await?;
+        Ok(())
+    }
+
+    /// Gets the mxc avatar url of the owner of the client, if set.
+    ///
+    /// # Example
+    /// ```no_run
+    /// # use futures::executor::block_on;
+    /// # use matrix_sdk::Client;
+    /// # use url::Url;
+    /// # let homeserver = Url::parse("http://example.com").unwrap();
+    /// # block_on(async {
+    /// # let user = "example";
+    /// let client = Client::new(homeserver).unwrap();
+    /// client.login(user, "password", None, None).await.unwrap();
+    ///
+    /// if let Some(url) = client.avatar_url().await.unwrap() {
+    ///     println!("Your avatar's mxc url is {}", url);
+    /// }
+    /// # })
+    /// ```
+    pub async fn avatar_url(&self) -> Result<Option<String>> {
+        let user_id = self.user_id().await.ok_or(Error::AuthenticationRequired)?;
+        let request = get_avatar_url::Request::new(&user_id);
+        let response = self.send(request).await?;
+        Ok(response.avatar_url)
+    }
+
+    /// Sets the mxc avatar url of the client's owner. The avatar gets unset if `url` is `None`.
+    pub async fn set_avatar_url(&self, url: Option<&str>) -> Result<()> {
+        let user_id = self.user_id().await.ok_or(Error::AuthenticationRequired)?;
+        let request = set_avatar_url::Request::new(&user_id, url);
+        self.send(request).await?;
+        Ok(())
+    }
+
+    /// Upload and set the owning client's avatar.
+    ///
+    /// The will upload the data produced by the reader to the homeserver's content repository, and
+    /// set the user's avatar to the mxc url for the uploaded file.
+    ///
+    /// This is a convenience method for calling [`upload()`](#method.upload), followed by
+    /// [`set_avatar_url()`](#method.set_avatar_url).
+    ///
+    /// # Example
+    /// ```no_run
+    /// # use std::{path::Path, fs::File, io::Read};
+    /// # use futures::executor::block_on;
+    /// # use matrix_sdk::Client;
+    /// # use url::Url;
+    /// # block_on(async {
+    /// # let homeserver = Url::parse("http://locahost:8080").unwrap();
+    /// # let client = Client::new(homeserver).unwrap();
+    /// let path = Path::new("/home/example/selfie.jpg");
+    /// let mut image = File::open(&path).unwrap();
+    ///
+    /// client.upload_avatar(&mime::IMAGE_JPEG, &mut image).await.expect("Can't set avatar");
+    /// # })
+    /// ```
+    pub async fn upload_avatar<R: Read>(&self, content_type: &Mime, reader: &mut R) -> Result<()> {
+        let upload_response = self.upload(content_type, reader).await?;
+        self.set_avatar_url(Some(&upload_response.content_uri))
+            .await?;
+        Ok(())
     }
 
     /// Add `EventEmitter` to `Client`.
@@ -792,7 +904,7 @@ impl Client {
         since: Option<&str>,
         server: Option<&ServerName>,
     ) -> Result<get_public_rooms::Response> {
-        let limit = limit.map(|n| UInt::from(n));
+        let limit = limit.map(UInt::from);
 
         let request = assign!(get_public_rooms::Request::new(), {
             limit,

@@ -170,7 +170,7 @@ impl Account {
                         return Err(OlmError::SessionWedged(user_id, sender_key));
                     }
                 }
-                Err(e) => return Err(e.into()),
+                Err(e) => return Err(e),
             };
 
             debug!("Decrypted a to-device event {:?}", event);
