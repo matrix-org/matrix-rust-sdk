@@ -224,10 +224,8 @@ mod test {
     use crate::{
         identifiers::{room_id, user_id},
         push::Ruleset,
-        BaseClient, BaseClientConfig, Session,
+        Session,
     };
-
-    use matrix_sdk_test::{sync_response, SyncResponseFile};
 
     #[tokio::test]
     async fn test_store_client_state() {
