@@ -2,6 +2,7 @@ name: Code coverage
 
 on:
   push:
+    branches: [ master ]
 
 env:
   CARGO_TERM_COLOR: always
