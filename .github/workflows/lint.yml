@@ -9,7 +9,7 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  check:
+  lint:
     runs-on: ubuntu-latest
 
     steps:
@@ -21,7 +21,7 @@ jobs:
     - uses: actions-rs/cargo@v1
       with:
         command: fmt
-        args: --all --check
+        args: --all -- --check
 
     - uses: actions-rs/cargo@v1
       with:
