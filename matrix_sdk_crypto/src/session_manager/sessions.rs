@@ -422,7 +422,7 @@ mod test {
     // This test doesn't run on macos because we're modifying the session
     // creation time so we can get around the UNWEDGING_INTERVAL.
     #[async_test]
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(not(target_os = "linux"))]
     async fn session_unwedging() {
         let manager = session_manager().await;
         let bob = bob_account();
