@@ -224,10 +224,8 @@ mod test {
     use crate::{
         identifiers::{room_id, user_id},
         push::Ruleset,
-        BaseClient, BaseClientConfig, Session,
+        Session,
     };
-
-    use matrix_sdk_test::{sync_response, SyncResponseFile};
 
     #[tokio::test]
     async fn test_store_client_state() {
@@ -359,45 +357,5 @@ mod test {
         let AllRooms { invited, .. } = store.load_all_rooms().await.unwrap();
         // test that we have removed the correct room
         assert!(invited.is_empty());
-    }
-
-    #[tokio::test]
-    async fn test_client_sync_store() {
-        let dir = tempdir().unwrap();
-        let path: &Path = dir.path();
-
-        let session = Session {
-            access_token: "1234".to_owned(),
-            user_id: user_id!("@cheeky_monkey:matrix.org"),
-            device_id: "DEVICEID".into(),
-        };
-
-        // a sync response to populate our JSON store
-        let store = Box::new(JsonStore::open(path).unwrap());
-        let client =
-            BaseClient::new_with_config(BaseClientConfig::new().state_store(store)).unwrap();
-        client.restore_login(session.clone()).await.unwrap();
-
-        let mut response = sync_response(SyncResponseFile::Default);
-
-        // gather state to save to the db, the first time through loading will be skipped
-        client.receive_sync_response(&mut response).await.unwrap();
-
-        // now syncing the client will update from the state store
-        let store = Box::new(JsonStore::open(path).unwrap());
-        let client =
-            BaseClient::new_with_config(BaseClientConfig::new().state_store(store)).unwrap();
-        client.restore_login(session.clone()).await.unwrap();
-
-        // assert the synced client and the logged in client are equal
-        assert_eq!(*client.session().read().await, Some(session));
-        assert_eq!(
-            client.sync_token().await,
-            Some("s526_47314_0_7_1_1_1_11444_1".to_string())
-        );
-        assert_eq!(
-            *client.ignored_users.read().await,
-            vec![user_id!("@someone:example.org")]
-        );
     }
 }
