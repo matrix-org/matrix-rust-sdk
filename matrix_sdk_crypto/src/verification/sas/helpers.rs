@@ -14,9 +14,10 @@
 
 use std::{collections::BTreeMap, convert::TryInto};
 
+use sha2::{Digest, Sha256};
 use tracing::{trace, warn};
 
-use olm_rs::{sas::OlmSas, utility::OlmUtility};
+use olm_rs::sas::OlmSas;
 
 use matrix_sdk_common::{
     api::r0::to_device::DeviceIdOrAllDevices,
@@ -33,6 +34,7 @@ use matrix_sdk_common::{
 
 use crate::{
     identities::{ReadOnlyDevice, UserIdentities},
+    utilities::encode,
     ReadOnlyAccount, ToDeviceRequest,
 };
 
@@ -59,8 +61,11 @@ pub fn calculate_commitment(public_key: &str, content: &StartToDeviceEventConten
         .try_into()
         .expect("Can't canonicalize content");
 
-    let utility = OlmUtility::new();
-    utility.sha256_utf8_msg(&format!("{}{}", public_key, json_content))
+    encode(
+        Sha256::new()
+            .chain(&format!("{}{}", public_key, json_content))
+            .finalize(),
+    )
 }
 
 /// Get a tuple of an emoji and a description of the emoji using a number.
