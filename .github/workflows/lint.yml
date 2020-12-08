@@ -49,9 +49,9 @@ jobs:
         override: true
 
     - name: Clippy
-      uses: actions-rs/clippy-check@v1
+      uses: actions-rs/cargo@v1
       with:
-        token: ${{ secrets.GITHUB_TOKEN }}
+        command: clippy
         args: --all-targets -- -D warnings
 
   test:
