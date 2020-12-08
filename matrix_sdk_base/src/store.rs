@@ -17,7 +17,8 @@ use matrix_sdk_common::{
             encryption::EncryptionEventContent, member::MemberEventContent,
             power_levels::PowerLevelsEventContent,
         },
-        AnyBasicEvent, AnySyncStateEvent, EventContent, EventType, SyncStateEvent,
+        AnyBasicEvent, AnyStrippedStateEvent, AnySyncStateEvent, EventContent, EventType,
+        SyncStateEvent,
     },
     identifiers::{RoomAliasId, RoomId, UserId},
 };
@@ -55,6 +56,8 @@ pub struct StateChanges {
     pub invited_user_ids: BTreeMap<RoomId, Vec<UserId>>,
     pub removed_user_ids: BTreeMap<RoomId, UserId>,
     pub presence: BTreeMap<UserId, PresenceEvent>,
+    pub invitest_state: BTreeMap<RoomId, BTreeMap<String, AnyStrippedStateEvent>>,
+    pub invited_room_info: BTreeMap<RoomId, InnerSummary>,
 }
 
 impl StateChanges {
@@ -109,6 +112,13 @@ impl StateChanges {
             .entry(room_id.to_owned())
             .or_insert_with(BTreeMap::new)
             .insert(event.content().event_type().to_owned(), event);
+    }
+
+    pub fn add_invited_state(&mut self, room_id: &RoomId, event: AnyStrippedStateEvent) {
+        self.invitest_state
+            .entry(room_id.to_owned())
+            .or_insert_with(BTreeMap::new)
+            .insert(event.state_key().to_string(), event);
     }
 
     pub fn add_state_event(&mut self, room_id: &RoomId, event: AnySyncStateEvent) {

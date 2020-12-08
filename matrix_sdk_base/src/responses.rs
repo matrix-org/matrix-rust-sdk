@@ -6,8 +6,8 @@ use matrix_sdk_common::{
         DeviceLists, UnreadNotificationsCount as RumaUnreadNotificationsCount,
     },
     events::{
-        presence::PresenceEvent, AnyBasicEvent, AnySyncEphemeralRoomEvent, AnySyncRoomEvent,
-        AnySyncStateEvent, AnyToDeviceEvent,
+        presence::PresenceEvent, AnyBasicEvent, AnyStrippedStateEvent, AnySyncEphemeralRoomEvent,
+        AnySyncRoomEvent, AnySyncStateEvent, AnyToDeviceEvent,
     },
     identifiers::{DeviceKeyAlgorithm, RoomId},
 };
@@ -69,8 +69,8 @@ pub struct Rooms {
     pub leave: BTreeMap<RoomId, LeftRoom>,
     /// The rooms that the user has joined.
     pub join: BTreeMap<RoomId, JoinedRoom>,
-    // /// The rooms that the user has been invited to.
-    // pub invite: BTreeMap<RoomId, InvitedRoom>,
+    /// The rooms that the user has been invited to.
+    pub invite: BTreeMap<RoomId, InvitedRoom>,
 }
 
 /// Updates to joined rooms.
@@ -107,6 +107,20 @@ impl JoinedRoom {
             unread_notifications,
         }
     }
+}
+
+/// Updates to the rooms that the user has been invited to.
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+pub struct InvitedRoom {
+    /// The state of a room that the user has been invited to.
+    pub invite_state: InviteState,
+}
+
+/// The state of a room that the user has been invited to.
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+pub struct InviteState {
+    /// A list of state events.
+    pub events: Vec<AnyStrippedStateEvent>,
 }
 
 /// Counts of unread notifications for a room.
