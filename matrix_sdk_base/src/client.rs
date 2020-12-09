@@ -58,8 +58,9 @@ use crate::{
         AccountData, Ephemeral, JoinedRoom, LeftRoom, Presence, Rooms, State, SyncResponse,
         Timeline,
     },
+    rooms::{InnerSummary, Room, RoomType},
     session::Session,
-    store::{InnerSummary, Room, RoomType, StateChanges, Store},
+    store::{StateChanges, Store},
 };
 
 pub type Token = String;

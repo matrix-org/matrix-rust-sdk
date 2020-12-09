@@ -45,10 +45,12 @@ pub use matrix_sdk_common::*;
 mod client;
 mod error;
 pub mod responses;
+mod rooms;
 mod session;
 mod store;
 
-pub use store::{Room, RoomMember, Store};
+pub use rooms::{InnerSummary, Room, RoomMember};
+pub use store::Store;
 
 pub use client::{BaseClient, BaseClientConfig, RoomState, RoomStateType};
 
