@@ -12,7 +12,7 @@ use matrix_sdk_common::{
 use sled::{transaction::TransactionResult, Config, Db, Transactional, Tree};
 use tracing::info;
 
-use crate::{rooms::InnerSummary, Session};
+use crate::{rooms::RoomInfo, Session};
 
 #[derive(Debug, Clone)]
 pub struct Store {
@@ -35,14 +35,14 @@ pub struct StateChanges {
     pub state: BTreeMap<RoomId, BTreeMap<String, AnySyncStateEvent>>,
     pub account_data: BTreeMap<String, AnyBasicEvent>,
     pub room_account_data: BTreeMap<RoomId, BTreeMap<String, AnyBasicEvent>>,
-    pub room_summaries: BTreeMap<RoomId, InnerSummary>,
+    pub room_summaries: BTreeMap<RoomId, RoomInfo>,
     // display_names: BTreeMap<RoomId, BTreeMap<String, BTreeMap<UserId, ()>>>,
     pub joined_user_ids: BTreeMap<RoomId, Vec<UserId>>,
     pub invited_user_ids: BTreeMap<RoomId, Vec<UserId>>,
     pub removed_user_ids: BTreeMap<RoomId, UserId>,
     pub presence: BTreeMap<UserId, PresenceEvent>,
     pub invitest_state: BTreeMap<RoomId, BTreeMap<String, AnyStrippedStateEvent>>,
-    pub invited_room_info: BTreeMap<RoomId, InnerSummary>,
+    pub invited_room_info: BTreeMap<RoomId, RoomInfo>,
 }
 
 impl StateChanges {
@@ -82,7 +82,7 @@ impl StateChanges {
             .insert(user_id, event);
     }
 
-    pub fn add_room(&mut self, room: InnerSummary) {
+    pub fn add_room(&mut self, room: RoomInfo) {
         self.room_summaries
             .insert(room.room_id.as_ref().to_owned(), room);
     }

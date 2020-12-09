@@ -28,8 +28,6 @@ use matrix_sdk_common::{
 };
 use serde::{Deserialize, Serialize};
 
-use tracing::info;
-
 use crate::{responses::UnreadNotificationsCount, store::Store};
 
 use super::RoomMember;
@@ -38,12 +36,12 @@ use super::RoomMember;
 pub struct Room {
     room_id: Arc<RoomId>,
     own_user_id: Arc<UserId>,
-    inner: Arc<SyncMutex<InnerSummary>>,
+    inner: Arc<SyncMutex<RoomInfo>>,
     store: Store,
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
-pub struct SomeSummary {
+pub struct RoomSummary {
     heroes: Vec<String>,
     joined_member_count: u64,
     invited_member_count: u64,
@@ -66,7 +64,7 @@ impl Room {
             own_user_id: Arc::new(own_user_id.clone()),
             room_id: room_id.clone(),
             store,
-            inner: Arc::new(SyncMutex::new(InnerSummary {
+            inner: Arc::new(SyncMutex::new(RoomInfo {
                 room_id,
                 room_type,
                 encryption: None,
@@ -211,7 +209,7 @@ impl Room {
         &self.own_user_id
     }
 
-    pub(crate) fn clone_summary(&self) -> InnerSummary {
+    pub(crate) fn clone_summary(&self) -> RoomInfo {
         (*self.inner.lock().unwrap()).clone()
     }
 
@@ -223,7 +221,7 @@ impl Room {
         self.inner.lock().unwrap().encryption.is_some()
     }
 
-    pub fn update_summary(&self, summary: InnerSummary) {
+    pub fn update_summary(&self, summary: RoomInfo) {
         let mut inner = self.inner.lock().unwrap();
         *inner = summary;
     }
@@ -268,7 +266,7 @@ impl Room {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct InnerSummary {
+pub struct RoomInfo {
     pub room_id: Arc<RoomId>,
     pub room_type: RoomType,
 
@@ -278,14 +276,14 @@ pub struct InnerSummary {
     pub topic: Option<String>,
 
     pub notification_counts: UnreadNotificationsCount,
-    pub summary: SomeSummary,
+    pub summary: RoomSummary,
     pub members_synced: bool,
 
     pub encryption: Option<EncryptionEventContent>,
     pub last_prev_batch: Option<String>,
 }
 
-impl InnerSummary {
+impl RoomInfo {
     pub fn mark_as_joined(&mut self) {
         self.room_type = RoomType::Joined;
     }
@@ -314,7 +312,6 @@ impl InnerSummary {
     pub fn handle_state_event(&mut self, event: &AnySyncStateEvent) -> bool {
         match event {
             AnySyncStateEvent::RoomEncryption(encryption) => {
-                info!("MARKING ROOM {} AS ENCRYPTED", self.room_id);
                 self.encryption = Some(encryption.content.clone());
                 true
             }
@@ -344,8 +341,6 @@ impl InnerSummary {
 
     pub(crate) fn update(&mut self, summary: &RumaSummary) -> bool {
         let mut changed = false;
-
-        info!("UPDAGING SUMMARY FOR {} WITH {:#?}", self.room_id, summary);
 
         if !summary.is_empty() {
             if !summary.heroes.is_empty() {

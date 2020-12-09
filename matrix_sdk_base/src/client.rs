@@ -58,7 +58,7 @@ use crate::{
         AccountData, Ephemeral, JoinedRoom, LeftRoom, Presence, Rooms, State, SyncResponse,
         Timeline,
     },
-    rooms::{InnerSummary, Room, RoomType},
+    rooms::{RoomInfo, Room, RoomType},
     session::Session,
     store::{StateChanges, Store},
 };
@@ -460,7 +460,7 @@ impl BaseClient {
         &self,
         room_id: &RoomId,
         ruma_timeline: &api::sync::sync_events::Timeline,
-        summary: &mut InnerSummary,
+        summary: &mut RoomInfo,
         mut changes: &mut StateChanges,
     ) -> Timeline {
         let mut timeline = Timeline::new(ruma_timeline.limited, ruma_timeline.prev_batch.clone());
@@ -509,7 +509,7 @@ impl BaseClient {
         &self,
         room_id: &RoomId,
         events: &[Raw<AnySyncStateEvent>],
-        summary: &mut InnerSummary,
+        summary: &mut RoomInfo,
         mut changes: &mut StateChanges,
     ) -> State {
         let mut state = State::default();
