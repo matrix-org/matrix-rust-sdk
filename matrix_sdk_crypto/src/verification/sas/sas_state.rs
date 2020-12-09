@@ -14,7 +14,6 @@
 
 use std::{
     convert::TryFrom,
-    mem,
     sync::{Arc, Mutex},
     time::{Duration, Instant},
 };
@@ -498,14 +497,14 @@ impl SasState<Started> {
     /// anymore.
     pub fn into_key_received(
         self,
-        event: &mut ToDeviceEvent<KeyToDeviceEventContent>,
+        event: &ToDeviceEvent<KeyToDeviceEventContent>,
     ) -> Result<SasState<KeyReceived>, SasState<Canceled>> {
         self.check_event(&event.sender, &event.content.transaction_id)
             .map_err(|c| self.clone().cancel(c))?;
 
         let accepted_protocols = AcceptedProtocols::default();
 
-        let their_pubkey = mem::take(&mut event.content.key);
+        let their_pubkey = event.content.key.clone();
 
         self.inner
             .lock()
@@ -539,7 +538,7 @@ impl SasState<Accepted> {
     /// anymore.
     pub fn into_key_received(
         self,
-        event: &mut ToDeviceEvent<KeyToDeviceEventContent>,
+        event: &ToDeviceEvent<KeyToDeviceEventContent>,
     ) -> Result<SasState<KeyReceived>, SasState<Canceled>> {
         self.check_event(&event.sender, &event.content.transaction_id)
             .map_err(|c| self.clone().cancel(c))?;
@@ -549,7 +548,7 @@ impl SasState<Accepted> {
         if self.state.commitment != commitment {
             Err(self.cancel(CancelCode::InvalidMessage))
         } else {
-            let their_pubkey = mem::take(&mut event.content.key);
+            let their_pubkey = event.content.key.clone();
 
             self.inner
                 .lock()

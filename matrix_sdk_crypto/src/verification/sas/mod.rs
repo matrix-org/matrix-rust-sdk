@@ -514,7 +514,7 @@ impl Sas {
 
     pub(crate) fn receive_event(
         &self,
-        event: &mut AnyToDeviceEvent,
+        event: &AnyToDeviceEvent,
     ) -> Option<AnyToDeviceEventContent> {
         let mut guard = self.inner.lock().unwrap();
         let sas: InnerSas = (*guard).clone();
@@ -628,7 +628,7 @@ impl InnerSas {
 
     fn receive_event(
         self,
-        event: &mut AnyToDeviceEvent,
+        event: &AnyToDeviceEvent,
     ) -> (InnerSas, Option<AnyToDeviceEventContent>) {
         match event {
             AnyToDeviceEvent::KeyVerificationAccept(e) => {

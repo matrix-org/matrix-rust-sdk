@@ -53,4 +53,4 @@ pub(crate) use olm::ReadOnlyAccount;
 pub use requests::{
     IncomingResponse, KeysQueryRequest, OutgoingRequest, OutgoingRequests, ToDeviceRequest,
 };
-pub use verification::Sas;
+pub use verification::{Sas, VerificationRequest};

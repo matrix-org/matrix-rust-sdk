@@ -16,16 +16,23 @@ use std::sync::Arc;
 
 use dashmap::DashMap;
 
-use matrix_sdk_common::locks::Mutex;
-use tracing::{trace, warn};
+use tracing::{info, trace, warn};
 
 use matrix_sdk_common::{
-    events::{AnyToDeviceEvent, AnyToDeviceEventContent},
-    identifiers::{DeviceId, UserId},
+    events::{
+        room::message::MessageEventContent, AnySyncMessageEvent, AnySyncRoomEvent,
+        AnyToDeviceEvent, AnyToDeviceEventContent,
+    },
+    identifiers::{DeviceId, EventId, RoomId, UserId},
+    locks::Mutex,
     uuid::Uuid,
 };
 
-use super::sas::{content_to_request, Sas, VerificationResult};
+use super::{
+    requests::VerificationRequest,
+    sas::{content_to_request, Sas, VerificationResult},
+};
+
 use crate::{
     olm::PrivateCrossSigningIdentity,
     requests::{OutgoingRequest, ToDeviceRequest},
@@ -39,6 +46,7 @@ pub struct VerificationMachine {
     private_identity: Arc<Mutex<PrivateCrossSigningIdentity>>,
     pub(crate) store: Arc<Box<dyn CryptoStore>>,
     verifications: Arc<DashMap<String, Sas>>,
+    requests: Arc<DashMap<EventId, VerificationRequest>>,
     outgoing_to_device_messages: Arc<DashMap<Uuid, OutgoingRequest>>,
 }
 
@@ -52,8 +60,9 @@ impl VerificationMachine {
             account,
             private_identity: identity,
             store,
-            verifications: Arc::new(DashMap::new()),
-            outgoing_to_device_messages: Arc::new(DashMap::new()),
+            verifications: DashMap::new().into(),
+            requests: DashMap::new().into(),
+            outgoing_to_device_messages: DashMap::new().into(),
         }
     }
 
@@ -84,6 +93,11 @@ impl VerificationMachine {
         Ok((sas, request))
     }
 
+    pub fn get_request(&self, flow_id: &EventId) -> Option<VerificationRequest> {
+        #[allow(clippy::map_clone)]
+        self.requests.get(flow_id).map(|s| s.clone())
+    }
+
     pub fn get_sas(&self, transaction_id: &str) -> Option<Sas> {
         #[allow(clippy::map_clone)]
         self.verifications.get(transaction_id).map(|s| s.clone())
@@ -106,7 +120,7 @@ impl VerificationMachine {
         self.outgoing_to_device_messages.insert(request_id, request);
     }
 
-    fn receive_event_helper(&self, sas: &Sas, event: &mut AnyToDeviceEvent) {
+    fn receive_event_helper(&self, sas: &Sas, event: &AnyToDeviceEvent) {
         if let Some(c) = sas.receive_event(event) {
             self.queue_up_content(sas.other_user_id(), sas.other_device_id(), c);
         }
@@ -141,10 +155,40 @@ impl VerificationMachine {
         }
     }
 
-    pub async fn receive_event(
+    pub async fn receive_room_event(
         &self,
-        event: &mut AnyToDeviceEvent,
+        room_id: &RoomId,
+        event: &AnySyncRoomEvent,
     ) -> Result<(), CryptoStoreError> {
+        match event {
+            AnySyncRoomEvent::Message(AnySyncMessageEvent::RoomMessage(m)) => {
+                if let MessageEventContent::VerificationRequest(r) = &m.content {
+                    if self.account.user_id() == &r.to {
+                        info!(
+                            "Received a new verification request from {} {}",
+                            m.sender, r.from_device
+                        );
+
+                        let request = VerificationRequest::from_request_event(
+                            room_id,
+                            self.account.user_id(),
+                            self.account.device_id(),
+                            &m.sender,
+                            &m.event_id,
+                            r,
+                        );
+
+                        self.requests.insert(m.event_id.clone(), request);
+                    }
+                }
+            }
+            _ => (),
+        }
+
+        Ok(())
+    }
+
+    pub async fn receive_event(&self, event: &AnyToDeviceEvent) -> Result<(), CryptoStoreError> {
         trace!("Received a key verification event {:?}", event);
 
         match event {

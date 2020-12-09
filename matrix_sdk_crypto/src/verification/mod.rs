@@ -13,9 +13,11 @@
 // limitations under the License.
 
 mod machine;
+mod requests;
 mod sas;
 
 pub use machine::VerificationMachine;
+pub use requests::VerificationRequest;
 pub use sas::{Sas, VerificationResult};
 
 #[cfg(test)]

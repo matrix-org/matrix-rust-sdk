@@ -118,6 +118,7 @@ use matrix_sdk_common::{
 
 use crate::{
     http_client::{client_with_config, HttpClient, HttpSend},
+    verification_request::VerificationRequest,
     Error, EventEmitter, OutgoingRequest, Result,
 };
 
@@ -1891,6 +1892,19 @@ impl Client {
             .map(|sas| Sas {
                 inner: sas,
                 http_client: self.http_client.clone(),
+            })
+    }
+
+    /// Get a `VerificationRequest` object with the given flow id.
+    #[cfg(feature = "encryption")]
+    #[cfg_attr(feature = "docs", doc(cfg(encryption)))]
+    pub async fn get_verification_request(&self, flow_id: &EventId) -> Option<VerificationRequest> {
+        let olm = self.base_client.olm_machine().await?;
+
+        olm.get_verification_request(flow_id)
+            .map(|r| VerificationRequest {
+                inner: r,
+                client: self.clone(),
             })
     }
 

@@ -36,7 +36,8 @@ use matrix_sdk_common::{
         ToDeviceEvent,
     },
     identifiers::{
-        DeviceId, DeviceIdBox, DeviceKeyAlgorithm, EventEncryptionAlgorithm, RoomId, UserId,
+        DeviceId, DeviceIdBox, DeviceKeyAlgorithm, EventEncryptionAlgorithm, EventId, RoomId,
+        UserId,
     },
     js_int::UInt,
     locks::Mutex,
@@ -44,8 +45,6 @@ use matrix_sdk_common::{
     Raw,
 };
 
-#[cfg(feature = "sqlite_cryptostore")]
-use crate::store::sqlite::SqliteStore;
 use crate::{
     error::{EventError, MegolmError, MegolmResult, OlmError, OlmResult},
     identities::{Device, IdentityManager, UserDevices},
@@ -64,6 +63,8 @@ use crate::{
     verification::{Sas, VerificationMachine},
     ToDeviceRequest,
 };
+#[cfg(feature = "sqlite_cryptostore")]
+use crate::{store::sqlite::SqliteStore, verification::VerificationRequest};
 
 /// State machine implementation of the Olm/Megolm encryption protocol used for
 /// Matrix end to end encryption.
@@ -767,6 +768,11 @@ impl OlmMachine {
         self.verification_machine.get_sas(flow_id)
     }
 
+    /// Get a verification request object with the given flow id.
+    pub fn get_verification_request(&self, flow_id: &EventId) -> Option<VerificationRequest> {
+        self.verification_machine.get_request(flow_id)
+    }
+
     async fn update_one_time_key_count(&self, key_count: &BTreeMap<DeviceKeyAlgorithm, UInt>) {
         self.account.update_uploaded_key_count(key_count).await;
     }
@@ -923,6 +929,12 @@ impl OlmMachine {
         trace!("Successfully decrypted Megolm event {:?}", decrypted_event);
         // TODO set the encryption info on the event (is it verified, was it
         // decrypted, sender key...)
+
+        if let Ok(e) = decrypted_event.deserialize() {
+            self.verification_machine
+                .receive_room_event(room_id, &e)
+                .await?;
+        }
 
         Ok(decrypted_event)
     }

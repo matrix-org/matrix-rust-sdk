@@ -88,6 +88,8 @@ mod http_client;
 mod device;
 #[cfg(feature = "encryption")]
 mod sas;
+#[cfg(feature = "encryption")]
+mod verification_request;
 
 pub use client::{Client, ClientConfig, LoopCtrl, SyncSettings};
 #[cfg(feature = "encryption")]

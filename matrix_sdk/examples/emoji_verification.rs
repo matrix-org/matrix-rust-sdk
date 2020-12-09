@@ -1,9 +1,20 @@
-use std::{env, io, process::exit};
+use std::{
+    env, io,
+    process::exit,
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    },
+};
 use url::Url;
 
 use matrix_sdk::{
-    self, events::AnyToDeviceEvent, identifiers::UserId, Client, ClientConfig, LoopCtrl, Sas,
-    SyncSettings,
+    self,
+    events::{
+        room::message::MessageEventContent, AnySyncMessageEvent, AnySyncRoomEvent, AnyToDeviceEvent,
+    },
+    identifiers::UserId,
+    Client, ClientConfig, LoopCtrl, Sas, SyncSettings,
 };
 
 async fn wait_for_confirmation(client: Client, sas: Sas) {
@@ -68,10 +79,13 @@ async fn login(
         .await?;
 
     let client_ref = &client;
+    let initial_sync = Arc::new(AtomicBool::from(true));
+    let initial_ref = &initial_sync;
 
     client
         .sync_with_callback(SyncSettings::new(), |response| async move {
             let client = &client_ref;
+            let initial = &initial_ref;
 
             for event in &response.to_device.events {
                 let e = event
@@ -117,6 +131,30 @@ async fn login(
                     _ => (),
                 }
             }
+
+            if !initial.load(Ordering::SeqCst) {
+                for (_room_id, room_info) in response.rooms.join {
+                    for event in room_info.timeline.events {
+                        if let Ok(AnySyncRoomEvent::Message(AnySyncMessageEvent::RoomMessage(m))) =
+                            event.deserialize()
+                        {
+                            if let MessageEventContent::VerificationRequest(_) = &m.content {
+                                let request = client
+                                    .get_verification_request(&m.event_id)
+                                    .await
+                                    .expect("Request object wasn't created");
+
+                                request
+                                    .accept()
+                                    .await
+                                    .expect("Can't accept verification request");
+                            }
+                        }
+                    }
+                }
+            }
+
+            initial.store(false, Ordering::SeqCst);
 
             LoopCtrl::Continue
         })
