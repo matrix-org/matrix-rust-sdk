@@ -31,7 +31,7 @@ use matrix_sdk_common::{
         },
         AnyToDeviceEvent, AnyToDeviceEventContent, ToDeviceEvent,
     },
-    identifiers::{DeviceId, UserId},
+    identifiers::{DeviceId, EventId, RoomId, UserId},
 };
 
 use crate::{
@@ -44,6 +44,7 @@ use crate::{
 
 pub use helpers::content_to_request;
 use inner_sas::InnerSas;
+pub use sas_state::FlowId;
 
 #[derive(Debug)]
 /// A result of a verification flow.
@@ -65,7 +66,7 @@ pub struct Sas {
     private_identity: PrivateCrossSigningIdentity,
     other_device: ReadOnlyDevice,
     other_identity: Option<UserIdentities>,
-    flow_id: Arc<str>,
+    flow_id: Arc<FlowId>,
 }
 
 impl Sas {
@@ -95,7 +96,7 @@ impl Sas {
     }
 
     /// Get the unique ID that identifies this SAS verification flow.
-    pub fn flow_id(&self) -> &str {
+    pub fn flow_id(&self) -> &FlowId {
         &self.flow_id
     }
 

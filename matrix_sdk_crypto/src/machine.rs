@@ -1825,7 +1825,7 @@ pub(crate) mod test {
         let mut event = request_to_event(alice.user_id(), &request);
         bob.handle_verification_event(&mut event).await;
 
-        let bob_sas = bob.get_verification(alice_sas.flow_id()).unwrap();
+        let bob_sas = bob.get_verification(alice_sas.flow_id().as_str()).unwrap();
 
         assert!(alice_sas.emoji().is_none());
         assert!(bob_sas.emoji().is_none());

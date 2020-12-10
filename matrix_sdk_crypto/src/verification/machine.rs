@@ -88,7 +88,7 @@ impl VerificationMachine {
         );
 
         self.verifications
-            .insert(sas.flow_id().to_owned(), sas.clone());
+            .insert(sas.flow_id().to_string(), sas.clone());
 
         Ok((sas, request))
     }
@@ -367,7 +367,7 @@ mod test {
     async fn full_flow() {
         let (alice_machine, bob) = setup_verification_machine().await;
 
-        let alice = alice_machine.get_sas(bob.flow_id()).unwrap();
+        let alice = alice_machine.get_sas(bob.flow_id().as_str()).unwrap();
 
         let mut event = alice
             .accept()
@@ -428,7 +428,7 @@ mod test {
     #[tokio::test]
     async fn timing_out() {
         let (alice_machine, bob) = setup_verification_machine().await;
-        let alice = alice_machine.get_sas(bob.flow_id()).unwrap();
+        let alice = alice_machine.get_sas(bob.flow_id().as_str()).unwrap();
 
         assert!(!alice.timed_out());
         assert!(alice_machine.outgoing_to_device_messages.is_empty());

@@ -31,7 +31,8 @@ use crate::{
 };
 
 use super::sas_state::{
-    Accepted, Canceled, Confirmed, Created, Done, KeyReceived, MacReceived, SasState, Started,
+    Accepted, Canceled, Confirmed, Created, Done, FlowId, KeyReceived, MacReceived, SasState,
+    Started,
 };
 
 #[derive(Clone, Debug)]
@@ -220,7 +221,7 @@ impl InnerSas {
         }
     }
 
-    pub fn verification_flow_id(&self) -> Arc<str> {
+    pub fn verification_flow_id(&self) -> Arc<FlowId> {
         match self {
             InnerSas::Created(s) => s.verification_flow_id.clone(),
             InnerSas::Started(s) => s.verification_flow_id.clone(),

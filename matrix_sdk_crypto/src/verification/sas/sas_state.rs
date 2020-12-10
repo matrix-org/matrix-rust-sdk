@@ -36,7 +36,7 @@ use matrix_sdk_common::{
         },
         AnyToDeviceEventContent, ToDeviceEvent,
     },
-    identifiers::{DeviceId, UserId},
+    identifiers::{DeviceId, RoomId, UserId},
     uuid::Uuid,
 };
 use tracing::error;
@@ -64,6 +64,28 @@ const MAX_AGE: Duration = Duration::from_secs(60 * 5);
 
 // The max time a SAS object will wait for a new event to arrive.
 const MAX_EVENT_TIMEOUT: Duration = Duration::from_secs(60);
+
+#[derive(Clone, Debug)]
+pub enum FlowId {
+    ToDevice(String),
+    InRoom(RoomId),
+}
+
+impl FlowId {
+    pub fn to_string(&self) -> String {
+        match self {
+            FlowId::InRoom(r) => r.to_string(),
+            FlowId::ToDevice(t) => t.to_string(),
+        }
+    }
+
+    pub fn as_str(&self) -> &str {
+        match self {
+            FlowId::InRoom(r) => r.as_str(),
+            FlowId::ToDevice(t) => t.as_str(),
+        }
+    }
+}
 
 /// Struct containing the protocols that were agreed to be used for the SAS
 /// flow.
@@ -143,7 +165,7 @@ pub struct SasState<S: Clone> {
     ///
     /// This will be the transaction id for to-device events and the relates_to
     /// field for in-room events.
-    pub verification_flow_id: Arc<str>,
+    pub verification_flow_id: Arc<FlowId>,
 
     /// The SAS state we're in.
     state: Arc<S>,
@@ -268,7 +290,7 @@ impl<S: Clone> SasState<S> {
     }
 
     fn check_event(&self, sender: &UserId, flow_id: &str) -> Result<(), CancelCode> {
-        if *flow_id != *self.verification_flow_id {
+        if *flow_id != *self.verification_flow_id.as_str() {
             Err(CancelCode::UnknownTransaction)
         } else if sender != self.ids.other_device.user_id() {
             Err(CancelCode::UserMismatch)
@@ -302,7 +324,7 @@ impl SasState<Created> {
                 other_device,
                 other_identity,
             },
-            verification_flow_id: verification_flow_id.into(),
+            verification_flow_id: FlowId::ToDevice(verification_flow_id).into(),
 
             creation_time: Arc::new(Instant::now()),
             last_event_time: Arc::new(Instant::now()),
@@ -413,7 +435,7 @@ impl SasState<Started> {
                 creation_time: Arc::new(Instant::now()),
                 last_event_time: Arc::new(Instant::now()),
 
-                verification_flow_id: event.content.transaction_id.as_str().into(),
+                verification_flow_id: FlowId::ToDevice(event.content.transaction_id.clone()).into(),
 
                 state: Arc::new(Started {
                     protocol_definitions: content.clone(),
@@ -452,7 +474,7 @@ impl SasState<Started> {
                     other_identity,
                 },
 
-                verification_flow_id: event.content.transaction_id.as_str().into(),
+                verification_flow_id: FlowId::ToDevice(event.content.transaction_id.clone()).into(),
                 state: Arc::new(Canceled::new(CancelCode::UnknownMethod)),
             })
         }
@@ -575,9 +597,14 @@ impl SasState<Accepted> {
     ///
     /// The content needs to be automatically sent to the other side.
     pub fn as_content(&self) -> KeyToDeviceEventContent {
-        KeyToDeviceEventContent {
-            transaction_id: self.verification_flow_id.to_string(),
-            key: self.inner.lock().unwrap().public_key(),
+        match &*self.verification_flow_id {
+            FlowId::ToDevice(s) => KeyToDeviceEventContent {
+                transaction_id: s.to_string(),
+                key: self.inner.lock().unwrap().public_key(),
+            },
+            FlowId::InRoom(r) => {
+                todo!("In-room verifications aren't implemented")
+            }
         }
     }
 }
@@ -588,9 +615,12 @@ impl SasState<KeyReceived> {
     /// The content needs to be automatically sent to the other side if and only
     /// if we_started is false.
     pub fn as_content(&self) -> KeyToDeviceEventContent {
-        KeyToDeviceEventContent {
-            transaction_id: self.verification_flow_id.to_string(),
-            key: self.inner.lock().unwrap().public_key(),
+        match self.verification_flow_id.as_ref() {
+            FlowId::ToDevice(s) => KeyToDeviceEventContent {
+                transaction_id: s.to_string(),
+                key: self.inner.lock().unwrap().public_key(),
+            },
+            _ => todo!(),
         }
     }
 
@@ -603,7 +633,7 @@ impl SasState<KeyReceived> {
             &self.inner.lock().unwrap(),
             &self.ids,
             &self.state.their_pubkey,
-            &self.verification_flow_id,
+            self.verification_flow_id.as_str(),
             self.state.we_started,
         )
     }
@@ -617,7 +647,7 @@ impl SasState<KeyReceived> {
             &self.inner.lock().unwrap(),
             &self.ids,
             &self.state.their_pubkey,
-            &self.verification_flow_id,
+            self.verification_flow_id.as_str(),
             self.state.we_started,
         )
     }
@@ -639,7 +669,7 @@ impl SasState<KeyReceived> {
         let (devices, master_keys) = receive_mac_event(
             &self.inner.lock().unwrap(),
             &self.ids,
-            &self.verification_flow_id,
+            self.verification_flow_id.as_str(),
             event,
         )
         .map_err(|c| self.clone().cancel(c))?;
@@ -695,7 +725,7 @@ impl SasState<Confirmed> {
         let (devices, master_keys) = receive_mac_event(
             &self.inner.lock().unwrap(),
             &self.ids,
-            &self.verification_flow_id,
+            &self.verification_flow_id.as_str(),
             event,
         )
         .map_err(|c| self.clone().cancel(c))?;
@@ -754,7 +784,7 @@ impl SasState<MacReceived> {
             &self.inner.lock().unwrap(),
             &self.ids,
             &self.state.their_pubkey,
-            &self.verification_flow_id,
+            &self.verification_flow_id.as_str(),
             self.state.we_started,
         )
     }
@@ -768,7 +798,7 @@ impl SasState<MacReceived> {
             &self.inner.lock().unwrap(),
             &self.ids,
             &self.state.their_pubkey,
-            &self.verification_flow_id,
+            &self.verification_flow_id.as_str(),
             self.state.we_started,
         )
     }
@@ -828,11 +858,16 @@ impl Canceled {
 
 impl SasState<Canceled> {
     pub fn as_content(&self) -> AnyToDeviceEventContent {
-        AnyToDeviceEventContent::KeyVerificationCancel(CancelToDeviceEventContent {
-            transaction_id: self.verification_flow_id.to_string(),
-            reason: self.state.reason.to_string(),
-            code: self.state.cancel_code.clone(),
-        })
+        match self.verification_flow_id.as_ref() {
+            FlowId::ToDevice(s) => {
+                AnyToDeviceEventContent::KeyVerificationCancel(CancelToDeviceEventContent {
+                    transaction_id: self.verification_flow_id.to_string(),
+                    reason: self.state.reason.to_string(),
+                    code: self.state.cancel_code.clone(),
+                })
+            }
+            _ => todo!(),
+        }
     }
 }
 
