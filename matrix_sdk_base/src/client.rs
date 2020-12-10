@@ -32,7 +32,7 @@ use matrix_sdk_common::{
         room::member::MemberEventContent, AnyBasicEvent, AnyStrippedStateEvent, AnySyncRoomEvent,
         AnySyncStateEvent, StateEvent, SyncStateEvent,
     },
-    identifiers::{RoomId, UserId},
+    identifiers::{RoomId, UserId, room_id},
     locks::RwLock,
     Raw,
 };
@@ -49,7 +49,7 @@ use matrix_sdk_crypto::{
     Device, EncryptionSettings, IncomingResponse, OlmError, OlmMachine, OutgoingRequest, Sas,
     ToDeviceRequest, UserDevices,
 };
-use tracing::{info, warn};
+use tracing::{error, info, warn};
 use zeroize::Zeroizing;
 
 use crate::{
@@ -58,7 +58,7 @@ use crate::{
         AccountData, Ephemeral, JoinedRoom, LeftRoom, Presence, Rooms, State, SyncResponse,
         Timeline,
     },
-    rooms::{RoomInfo, Room, RoomType},
+    rooms::{Room, RoomInfo, RoomType},
     session::Session,
     store::{StateChanges, Store},
 };
@@ -515,18 +515,25 @@ impl BaseClient {
         let mut state = State::default();
 
         for e in events {
-            if let Ok(event) = hoist_and_deserialize_state_event(e) {
-                match &event {
-                    AnySyncStateEvent::RoomMember(member) => {
-                        handle_membership(&mut changes, room_id, member);
-                    }
-                    e => {
-                        summary.handle_state_event(&e);
-                        changes.add_state_event(room_id, e.clone());
-                    }
-                }
+            match hoist_and_deserialize_state_event(e) {
+                Ok(event) => {
+                    match &event {
+                        AnySyncStateEvent::RoomMember(member) => {
+                            handle_membership(&mut changes, room_id, member);
+                        }
+                        e => {
+                            summary.handle_state_event(&e);
 
-                state.events.push(event);
+                            changes.add_state_event(room_id, e.clone());
+                        }
+                    }
+
+                    state.events.push(event);
+                }
+                Err(err) => warn!(
+                    "Couldn't deserialize state event for room {}: {:?} {:#?}",
+                    room_id, err, e
+                ),
             }
         }
 

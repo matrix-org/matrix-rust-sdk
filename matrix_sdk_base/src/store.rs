@@ -110,7 +110,7 @@ impl StateChanges {
         self.state
             .entry(room_id.to_owned())
             .or_insert_with(BTreeMap::new)
-            .insert(event.state_key().to_string(), event);
+            .insert(event.content().event_type().to_string(), event);
     }
 
     pub fn from_event(room_id: &RoomId, event: SyncStateEvent<MemberEventContent>) -> Self {
@@ -254,13 +254,13 @@ impl Store {
                     }
 
                     for (room, events) in &changes.state {
-                        for (state_key, event) in events {
+                        for (_, event) in events {
                             state.insert(
                                 format!(
                                     "{}{}{}",
                                     room.as_str(),
                                     event.content().event_type(),
-                                    state_key
+                                    event.state_key(),
                                 )
                                 .as_bytes(),
                                 serde_json::to_vec(&event).unwrap(),
@@ -332,6 +332,12 @@ impl Store {
                 .map(|u| {
                     UserId::try_from(String::from_utf8_lossy(&u.unwrap().1).to_string()).unwrap()
                 }),
+        )
+    }
+
+    pub async fn get_room_infos(&self) -> impl Stream<Item = RoomInfo> {
+        stream::iter(
+            self.room_summaries.iter().map(|r| serde_json::from_slice(&r.unwrap().1).unwrap())
         )
     }
 
