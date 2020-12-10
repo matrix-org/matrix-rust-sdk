@@ -17,12 +17,15 @@ use std::time::Instant;
 
 use std::sync::Arc;
 
-use matrix_sdk_common::events::{
-    key::verification::{
-        accept::AcceptToDeviceEventContent, cancel::CancelCode, mac::MacToDeviceEventContent,
-        start::StartToDeviceEventContent,
+use matrix_sdk_common::{
+    events::{
+        key::verification::{
+            accept::AcceptToDeviceEventContent, cancel::CancelCode, mac::MacToDeviceEventContent,
+            start::StartToDeviceEventContent,
+        },
+        AnyToDeviceEvent, AnyToDeviceEventContent, ToDeviceEvent,
     },
-    AnyToDeviceEvent, AnyToDeviceEventContent, ToDeviceEvent,
+    identifiers::EventId,
 };
 
 use crate::{
@@ -30,9 +33,12 @@ use crate::{
     ReadOnlyAccount,
 };
 
-use super::sas_state::{
-    Accepted, Canceled, Confirmed, Created, Done, FlowId, KeyReceived, MacReceived, SasState,
-    Started,
+use super::{
+    event_enums::OutgoingContent,
+    sas_state::{
+        Accepted, Canceled, Confirmed, Created, Done, FlowId, KeyReceived, MacReceived, SasState,
+        Started,
+    },
 };
 
 #[derive(Clone, Debug)]
@@ -52,8 +58,19 @@ impl InnerSas {
         account: ReadOnlyAccount,
         other_device: ReadOnlyDevice,
         other_identity: Option<UserIdentities>,
-    ) -> (InnerSas, StartToDeviceEventContent) {
+    ) -> (InnerSas, OutgoingContent) {
         let sas = SasState::<Created>::new(account, other_device, other_identity);
+        let content = sas.as_content();
+        (InnerSas::Created(sas), content)
+    }
+
+    pub fn start_in_room(
+        event_id: EventId,
+        account: ReadOnlyAccount,
+        other_device: ReadOnlyDevice,
+        other_identity: Option<UserIdentities>,
+    ) -> (InnerSas, OutgoingContent) {
+        let sas = SasState::<Created>::new_in_room(event_id, account, other_device, other_identity);
         let content = sas.as_content();
         (InnerSas::Created(sas), content)
     }

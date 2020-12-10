@@ -30,19 +30,25 @@ use matrix_sdk_common::{
             cancel::{CancelCode, CancelToDeviceEventContent},
             key::KeyToDeviceEventContent,
             mac::MacToDeviceEventContent,
-            start::{MSasV1Content, MSasV1ContentInit, StartMethod, StartToDeviceEventContent},
-            HashAlgorithm, KeyAgreementProtocol, MessageAuthenticationCode,
+            start::{
+                MSasV1Content, MSasV1ContentInit, StartEventContent, StartMethod,
+                StartToDeviceEventContent,
+            },
+            HashAlgorithm, KeyAgreementProtocol, MessageAuthenticationCode, Relation,
             ShortAuthenticationString, VerificationMethod,
         },
-        AnyToDeviceEventContent, ToDeviceEvent,
+        AnyMessageEventContent, AnyToDeviceEventContent, ToDeviceEvent,
     },
-    identifiers::{DeviceId, RoomId, UserId},
+    identifiers::{DeviceId, EventId, UserId},
     uuid::Uuid,
 };
 use tracing::error;
 
-use super::helpers::{
-    calculate_commitment, get_decimal, get_emoji, get_mac_content, receive_mac_event, SasIds,
+use super::{
+    event_enums::{OutgoingContent, StartContent},
+    helpers::{
+        calculate_commitment, get_decimal, get_emoji, get_mac_content, receive_mac_event, SasIds,
+    },
 };
 
 use crate::{
@@ -68,7 +74,7 @@ const MAX_EVENT_TIMEOUT: Duration = Duration::from_secs(60);
 #[derive(Clone, Debug)]
 pub enum FlowId {
     ToDevice(String),
-    InRoom(RoomId),
+    InRoom(EventId),
 }
 
 impl FlowId {
@@ -200,7 +206,7 @@ pub struct Started {
 #[derive(Clone, Debug)]
 pub struct Accepted {
     accepted_protocols: Arc<AcceptedProtocols>,
-    start_content: Arc<StartToDeviceEventContent>,
+    start_content: Arc<StartContent>,
     commitment: String,
 }
 
@@ -310,13 +316,45 @@ impl SasState<Created> {
     /// * `account` - Our own account.
     ///
     /// * `other_device` - The other device which we are going to verify.
+    ///
+    /// * `other_identity` - The identity of the other user if one exists.
     pub fn new(
         account: ReadOnlyAccount,
         other_device: ReadOnlyDevice,
         other_identity: Option<UserIdentities>,
     ) -> SasState<Created> {
-        let verification_flow_id = Uuid::new_v4().to_string();
+        let flow_id = FlowId::ToDevice(Uuid::new_v4().to_string());
+        Self::new_helper(flow_id, account, other_device, other_identity)
+    }
 
+    /// Create a new SAS in-room verification flow.
+    ///
+    /// # Arguments
+    ///
+    /// * `event_id` - The event id of the `m.key.verification.request` event
+    /// that started the verification flow.
+    ///
+    /// * `account` - Our own account.
+    ///
+    /// * `other_device` - The other device which we are going to verify.
+    ///
+    /// * `other_identity` - The identity of the other user if one exists.
+    pub fn new_in_room(
+        event_id: EventId,
+        account: ReadOnlyAccount,
+        other_device: ReadOnlyDevice,
+        other_identity: Option<UserIdentities>,
+    ) -> SasState<Created> {
+        let flow_id = FlowId::InRoom(event_id);
+        Self::new_helper(flow_id, account, other_device, other_identity)
+    }
+
+    fn new_helper(
+        flow_id: FlowId,
+        account: ReadOnlyAccount,
+        other_device: ReadOnlyDevice,
+        other_identity: Option<UserIdentities>,
+    ) -> SasState<Created> {
         SasState {
             inner: Arc::new(Mutex::new(OlmSas::new())),
             ids: SasIds {
@@ -324,7 +362,7 @@ impl SasState<Created> {
                 other_device,
                 other_identity,
             },
-            verification_flow_id: FlowId::ToDevice(verification_flow_id).into(),
+            verification_flow_id: flow_id.into(),
 
             creation_time: Arc::new(Instant::now()),
             last_event_time: Arc::new(Instant::now()),
@@ -340,18 +378,34 @@ impl SasState<Created> {
         }
     }
 
+    pub fn as_start_content(&self) -> StartContent {
+        match self.verification_flow_id.as_ref() {
+            FlowId::ToDevice(s) => StartContent::ToDevice(StartToDeviceEventContent {
+                transaction_id: self.verification_flow_id.to_string(),
+                from_device: self.device_id().into(),
+                method: StartMethod::MSasV1(
+                    MSasV1Content::new(self.state.protocol_definitions.clone())
+                        .expect("Invalid initial protocol definitions."),
+                ),
+            }),
+            FlowId::InRoom(e) => StartContent::Room(StartEventContent {
+                from_device: self.device_id().into(),
+                method: StartMethod::MSasV1(
+                    MSasV1Content::new(self.state.protocol_definitions.clone())
+                        .expect("Invalid initial protocol definitions."),
+                ),
+                relation: Relation {
+                    event_id: e.clone(),
+                },
+            }),
+        }
+    }
+
     /// Get the content for the start event.
     ///
     /// The content needs to be sent to the other device.
-    pub fn as_content(&self) -> StartToDeviceEventContent {
-        StartToDeviceEventContent {
-            transaction_id: self.verification_flow_id.to_string(),
-            from_device: self.device_id().into(),
-            method: StartMethod::MSasV1(
-                MSasV1Content::new(self.state.protocol_definitions.clone())
-                    .expect("Invalid initial protocol definitions."),
-            ),
-        }
+    pub fn as_content(&self) -> OutgoingContent {
+        self.as_start_content().into()
     }
 
     /// Receive a m.key.verification.accept event, changing the state into
@@ -372,7 +426,7 @@ impl SasState<Created> {
             let accepted_protocols =
                 AcceptedProtocols::try_from(content.clone()).map_err(|c| self.clone().cancel(c))?;
 
-            let start_content = self.as_content().into();
+            let start_content = self.as_start_content().into();
 
             Ok(SasState {
                 inner: self.inner,
@@ -416,7 +470,7 @@ impl SasState<Started> {
             let sas = OlmSas::new();
 
             let pubkey = sas.public_key();
-            let commitment = calculate_commitment(&pubkey, &event.content);
+            let commitment = calculate_commitment(&pubkey, event.content.clone());
 
             error!(
                 "Calculated commitment for pubkey {} and content {:?} {}",
@@ -565,7 +619,10 @@ impl SasState<Accepted> {
         self.check_event(&event.sender, &event.content.transaction_id)
             .map_err(|c| self.clone().cancel(c))?;
 
-        let commitment = calculate_commitment(&event.content.key, &self.state.start_content);
+        let commitment = calculate_commitment(
+            &event.content.key,
+            self.state.start_content.as_ref().clone(),
+        );
 
         if self.state.commitment != commitment {
             Err(self.cancel(CancelCode::InvalidMessage))

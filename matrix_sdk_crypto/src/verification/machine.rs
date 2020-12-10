@@ -30,14 +30,14 @@ use matrix_sdk_common::{
 
 use super::{
     requests::VerificationRequest,
-    sas::{content_to_request, Sas, VerificationResult},
+    sas::{content_to_request, OutgoingContent, Sas, VerificationResult},
 };
 
 use crate::{
     olm::PrivateCrossSigningIdentity,
     requests::{OutgoingRequest, ToDeviceRequest},
     store::{CryptoStore, CryptoStoreError},
-    ReadOnlyAccount, ReadOnlyDevice,
+    OutgoingRequests, ReadOnlyAccount, ReadOnlyDevice,
 };
 
 #[derive(Clone, Debug)]
@@ -46,6 +46,7 @@ pub struct VerificationMachine {
     private_identity: Arc<Mutex<PrivateCrossSigningIdentity>>,
     pub(crate) store: Arc<Box<dyn CryptoStore>>,
     verifications: Arc<DashMap<String, Sas>>,
+    room_verifications: Arc<DashMap<String, Sas>>,
     requests: Arc<DashMap<EventId, VerificationRequest>>,
     outgoing_to_device_messages: Arc<DashMap<Uuid, OutgoingRequest>>,
 }
@@ -63,13 +64,14 @@ impl VerificationMachine {
             verifications: DashMap::new().into(),
             requests: DashMap::new().into(),
             outgoing_to_device_messages: DashMap::new().into(),
+            room_verifications: DashMap::new().into(),
         }
     }
 
     pub async fn start_sas(
         &self,
         device: ReadOnlyDevice,
-    ) -> Result<(Sas, ToDeviceRequest), CryptoStoreError> {
+    ) -> Result<(Sas, OutgoingRequests), CryptoStoreError> {
         let identity = self.store.get_user_identity(device.user_id()).await?;
         let private_identity = self.private_identity.lock().await.clone();
 
@@ -81,14 +83,17 @@ impl VerificationMachine {
             identity,
         );
 
-        let request = content_to_request(
-            device.user_id(),
-            device.device_id(),
-            AnyToDeviceEventContent::KeyVerificationStart(content),
-        );
+        let request: OutgoingRequests = match content {
+            OutgoingContent::Room(c) => todo!(),
+            OutgoingContent::ToDevice(c) => {
+                let request = content_to_request(device.user_id(), device.device_id(), c);
 
-        self.verifications
-            .insert(sas.flow_id().to_string(), sas.clone());
+                self.verifications
+                    .insert(sas.flow_id().to_string(), sas.clone());
+
+                request.into()
+            }
+        };
 
         Ok((sas, request))
     }
@@ -170,9 +175,9 @@ impl VerificationMachine {
                         );
 
                         let request = VerificationRequest::from_request_event(
+                            self.account.clone(),
+                            self.store.clone(),
                             room_id,
-                            self.account.user_id(),
-                            self.account.device_id(),
                             &m.sender,
                             &m.event_id,
                             r,

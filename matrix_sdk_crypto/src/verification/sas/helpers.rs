@@ -38,7 +38,7 @@ use crate::{
     ReadOnlyAccount, ToDeviceRequest,
 };
 
-use super::sas_state::FlowId;
+use super::{event_enums::StartContent, sas_state::FlowId};
 
 #[derive(Clone, Debug)]
 pub struct SasIds {
@@ -57,15 +57,12 @@ pub struct SasIds {
 ///
 /// * `content` - The `m.key.verification.start` event content that started the
 /// interactive verification process.
-pub fn calculate_commitment(public_key: &str, content: &StartToDeviceEventContent) -> String {
-    let json_content: CanonicalJsonValue = serde_json::to_value(content)
-        .expect("Can't serialize content")
-        .try_into()
-        .expect("Can't canonicalize content");
+pub fn calculate_commitment(public_key: &str, content: impl Into<StartContent>) -> String {
+    let content = content.into().to_canonical_json();
 
     encode(
         Sha256::new()
-            .chain(&format!("{}{}", public_key, json_content))
+            .chain(&format!("{}{}", public_key, content))
             .finalize(),
     )
 }

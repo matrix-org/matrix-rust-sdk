@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+mod event_enums;
 mod helpers;
 mod inner_sas;
 mod sas_state;
@@ -45,6 +46,8 @@ use crate::{
 pub use helpers::content_to_request;
 use inner_sas::InnerSas;
 pub use sas_state::FlowId;
+
+pub use event_enums::{OutgoingContent, StartContent};
 
 #[derive(Debug)]
 /// A result of a verification flow.
@@ -106,6 +109,30 @@ impl Sas {
         self.inner.lock().unwrap().set_creation_time(time)
     }
 
+    fn start_helper(
+        inner_sas: InnerSas,
+        content: OutgoingContent,
+        account: ReadOnlyAccount,
+        private_identity: PrivateCrossSigningIdentity,
+        other_device: ReadOnlyDevice,
+        store: Arc<Box<dyn CryptoStore>>,
+        other_identity: Option<UserIdentities>,
+    ) -> (Sas, OutgoingContent) {
+        let flow_id = inner_sas.verification_flow_id();
+
+        let sas = Sas {
+            inner: Arc::new(Mutex::new(inner_sas)),
+            account,
+            private_identity,
+            store,
+            other_device,
+            flow_id,
+            other_identity,
+        };
+
+        (sas, content)
+    }
+
     /// Start a new SAS auth flow with the given device.
     ///
     /// # Arguments
@@ -122,25 +149,60 @@ impl Sas {
         other_device: ReadOnlyDevice,
         store: Arc<Box<dyn CryptoStore>>,
         other_identity: Option<UserIdentities>,
-    ) -> (Sas, StartToDeviceEventContent) {
+    ) -> (Sas, OutgoingContent) {
         let (inner, content) = InnerSas::start(
             account.clone(),
             other_device.clone(),
             other_identity.clone(),
         );
-        let flow_id = inner.verification_flow_id();
 
-        let sas = Sas {
-            inner: Arc::new(Mutex::new(inner)),
+        Self::start_helper(
+            inner,
+            content,
             account,
             private_identity,
-            store,
             other_device,
-            flow_id,
+            store,
             other_identity,
-        };
+        )
+    }
 
-        (sas, content)
+    /// Start a new SAS auth flow with the given device inside the given room.
+    ///
+    /// # Arguments
+    ///
+    /// * `account` - Our own account.
+    ///
+    /// * `other_device` - The other device which we are going to verify.
+    ///
+    /// Returns the new `Sas` object and a `StartEventContent` that needs to be
+    /// sent out through the server to the other device.
+    #[allow(dead_code)]
+    pub(crate) fn start_in_room(
+        flow_id: EventId,
+        room_id: RoomId,
+        account: ReadOnlyAccount,
+        private_identity: PrivateCrossSigningIdentity,
+        other_device: ReadOnlyDevice,
+        store: Arc<Box<dyn CryptoStore>>,
+        other_identity: Option<UserIdentities>,
+    ) -> (Sas, OutgoingContent) {
+        let (inner, content) = InnerSas::start_in_room(
+            flow_id,
+            account.clone(),
+            other_device.clone(),
+            other_identity.clone(),
+        );
+
+        Self::start_helper(
+            inner,
+            content,
+            account,
+            private_identity,
+            other_device,
+            store,
+            other_identity,
+        )
     }
 
     /// Create a new Sas object from a m.key.verification.start request.

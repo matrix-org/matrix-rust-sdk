@@ -19,11 +19,21 @@ use std::sync::{Arc, Mutex};
 use matrix_sdk_common::{
     api::r0::message::send_message_event::Response as RoomMessageResponse,
     events::{
-        key::verification::{ready::ReadyEventContent, Relation, VerificationMethod},
+        key::verification::{
+            ready::ReadyEventContent, start::StartEventContent, Relation, VerificationMethod,
+        },
         room::message::KeyVerificationRequestEventContent,
     },
     identifiers::{DeviceId, DeviceIdBox, EventId, RoomId, UserId},
 };
+
+use crate::{
+    olm::{PrivateCrossSigningIdentity, ReadOnlyAccount},
+    store::CryptoStore,
+    ReadOnlyDevice, Sas, UserIdentities, UserIdentity,
+};
+
+use super::sas::{OutgoingContent, StartContent};
 
 const SUPPORTED_METHODS: &[VerificationMethod] = &[VerificationMethod::MSasV1];
 
@@ -31,14 +41,16 @@ const SUPPORTED_METHODS: &[VerificationMethod] = &[VerificationMethod::MSasV1];
 /// TODO
 pub struct VerificationRequest {
     inner: Arc<Mutex<InnerRequest>>,
+    account: ReadOnlyAccount,
+    store: Arc<Box<dyn CryptoStore>>,
     room_id: Arc<RoomId>,
 }
 
 impl VerificationRequest {
     pub(crate) fn from_request_event(
+        account: ReadOnlyAccount,
+        store: Arc<Box<dyn CryptoStore>>,
         room_id: &RoomId,
-        own_user_id: &UserId,
-        own_device_id: &DeviceId,
         sender: &UserId,
         event_id: &EventId,
         content: &KeyVerificationRequestEventContent,
@@ -46,13 +58,15 @@ impl VerificationRequest {
         Self {
             inner: Arc::new(Mutex::new(InnerRequest::Requested(
                 RequestState::from_request_event(
-                    own_user_id,
-                    own_device_id,
+                    account.user_id(),
+                    account.device_id(),
                     sender,
                     event_id,
                     content,
                 ),
             ))),
+            account,
+            store,
             room_id: room_id.clone().into(),
         }
     }
@@ -74,7 +88,6 @@ enum InnerRequest {
     Sent(RequestState<Sent>),
     Requested(RequestState<Requested>),
     Ready(RequestState<Ready>),
-    Accepted(RequestState<Accepted>),
     Passive(RequestState<Passive>),
 }
 
@@ -82,7 +95,7 @@ impl InnerRequest {
     fn accept(&mut self) -> Option<ReadyEventContent> {
         if let InnerRequest::Requested(s) = self {
             let (state, content) = s.clone().accept();
-            *self = InnerRequest::Accepted(state);
+            *self = InnerRequest::Ready(state);
 
             Some(content)
         } else {
@@ -200,13 +213,12 @@ impl RequestState<Requested> {
         }
     }
 
-    fn accept(self) -> (RequestState<Accepted>, ReadyEventContent) {
-        // TODO let the user pick a method here.
+    fn accept(self) -> (RequestState<Ready>, ReadyEventContent) {
         let state = RequestState {
             own_user_id: self.own_user_id,
             own_device_id: self.own_device_id.clone(),
             other_user_id: self.other_user_id,
-            state: Accepted {
+            state: Ready {
                 methods: self.state.methods.clone(),
                 other_device_id: self.state.other_device_id.clone(),
                 flow_id: self.state.flow_id.clone(),
@@ -238,17 +250,34 @@ struct Ready {
     pub flow_id: EventId,
 }
 
-#[derive(Clone, Debug)]
-struct Accepted {
-    /// The verification methods that were accepted
-    pub methods: Vec<VerificationMethod>,
+impl RequestState<Ready> {
+    fn into_started_sas(
+        self,
+        account: ReadOnlyAccount,
+        private_identity: PrivateCrossSigningIdentity,
+        other_device: ReadOnlyDevice,
+        other_identity: UserIdentity,
+    ) -> Sas {
+        todo!()
+        // Sas::from_start_event(account, private_identity, other_device, other_identity, event)
+    }
 
-    /// The device id of the device that responded to the verification request.
-    pub other_device_id: DeviceIdBox,
-
-    /// The event id of the `m.key.verification.request` event which acts as an
-    /// unique id identifying this verification flow.
-    pub flow_id: EventId,
+    fn start_sas(
+        self,
+        store: Arc<Box<dyn CryptoStore>>,
+        account: ReadOnlyAccount,
+        private_identity: PrivateCrossSigningIdentity,
+        other_device: ReadOnlyDevice,
+        other_identity: Option<UserIdentities>,
+    ) -> (Sas, OutgoingContent) {
+        Sas::start(
+            account,
+            private_identity,
+            other_device,
+            store,
+            other_identity,
+        )
+    }
 }
 
 #[derive(Clone, Debug)]
