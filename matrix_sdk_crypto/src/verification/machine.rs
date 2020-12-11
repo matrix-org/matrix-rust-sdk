@@ -112,17 +112,23 @@ impl VerificationMachine {
         &self,
         recipient: &UserId,
         recipient_device: &DeviceId,
-        content: AnyToDeviceEventContent,
+        content: OutgoingContent,
     ) {
-        let request = content_to_request(recipient, recipient_device, content);
-        let request_id = request.txn_id;
+        match content {
+            OutgoingContent::ToDevice(c) => {
+                let request = content_to_request(recipient, recipient_device, c);
+                let request_id = request.txn_id;
 
-        let request = OutgoingRequest {
-            request_id,
-            request: Arc::new(request.into()),
-        };
+                let request = OutgoingRequest {
+                    request_id,
+                    request: Arc::new(request.into()),
+                };
 
-        self.outgoing_to_device_messages.insert(request_id, request);
+                self.outgoing_to_device_messages.insert(request_id, request);
+            }
+
+            OutgoingContent::Room(c) => todo!(),
+        }
     }
 
     fn receive_event_helper(&self, sas: &Sas, event: &AnyToDeviceEvent) {
@@ -165,29 +171,41 @@ impl VerificationMachine {
         room_id: &RoomId,
         event: &AnySyncRoomEvent,
     ) -> Result<(), CryptoStoreError> {
-        match event {
-            AnySyncRoomEvent::Message(AnySyncMessageEvent::RoomMessage(m)) => {
-                if let MessageEventContent::VerificationRequest(r) = &m.content {
-                    if self.account.user_id() == &r.to {
-                        info!(
-                            "Received a new verification request from {} {}",
-                            m.sender, r.from_device
-                        );
+        if let AnySyncRoomEvent::Message(m) = event {
+            match m {
+                AnySyncMessageEvent::RoomMessage(m) => {
+                    if let MessageEventContent::VerificationRequest(r) = &m.content {
+                        if self.account.user_id() == &r.to {
+                            info!(
+                                "Received a new verification request from {} {}",
+                                m.sender, r.from_device
+                            );
 
-                        let request = VerificationRequest::from_request_event(
-                            self.account.clone(),
-                            self.store.clone(),
-                            room_id,
-                            &m.sender,
-                            &m.event_id,
-                            r,
-                        );
+                            let request = VerificationRequest::from_request_event(
+                                self.account.clone(),
+                                self.private_identity.lock().await.clone(),
+                                self.store.clone(),
+                                room_id,
+                                &m.sender,
+                                &m.event_id,
+                                r,
+                            );
 
-                        self.requests.insert(m.event_id.clone(), request);
+                            self.requests.insert(m.event_id.clone(), request);
+                        }
                     }
                 }
+                AnySyncMessageEvent::KeyVerificationStart(e) => {
+                    info!(
+                        "Received a new verification start event from {} {}",
+                        e.sender, e.content.from_device
+                    );
+
+                    if let Some((_, request)) = self.requests.remove(&e.content.relation.event_id) {
+                    }
+                }
+                _ => (),
             }
-            _ => (),
         }
 
         Ok(())
@@ -215,7 +233,8 @@ impl VerificationMachine {
                         private_identity,
                         d,
                         self.store.clone(),
-                        e,
+                        &e.sender,
+                        e.content.clone(),
                         self.store.get_user_identity(&e.sender).await?,
                     ) {
                         Ok(s) => {

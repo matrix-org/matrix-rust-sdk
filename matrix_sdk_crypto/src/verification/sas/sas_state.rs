@@ -37,7 +37,7 @@ use matrix_sdk_common::{
             HashAlgorithm, KeyAgreementProtocol, MessageAuthenticationCode, Relation,
             ShortAuthenticationString, VerificationMethod,
         },
-        AnyMessageEventContent, AnyToDeviceEventContent, ToDeviceEvent,
+        AnyMessageEventContent, AnyToDeviceEventContent, MessageEvent, ToDeviceEvent,
     },
     identifiers::{DeviceId, EventId, UserId},
     uuid::Uuid,
@@ -447,7 +447,7 @@ impl SasState<Created> {
 }
 
 impl SasState<Started> {
-    /// Create a new SAS verification flow from a m.key.verification.start
+    /// Create a new SAS verification flow from an in-room m.key.verification.start
     /// event.
     ///
     /// This will put us in the `started` state.
@@ -463,18 +463,35 @@ impl SasState<Started> {
     pub fn from_start_event(
         account: ReadOnlyAccount,
         other_device: ReadOnlyDevice,
-        event: &ToDeviceEvent<StartToDeviceEventContent>,
         other_identity: Option<UserIdentities>,
+        sender: &UserId,
+        content: impl Into<StartContent>,
     ) -> Result<SasState<Started>, SasState<Canceled>> {
-        if let StartMethod::MSasV1(content) = &event.content.method {
+        Self::from_start_helper(
+            account,
+            other_device,
+            other_identity,
+            sender,
+            &content.into(),
+        )
+    }
+
+    fn from_start_helper(
+        account: ReadOnlyAccount,
+        other_device: ReadOnlyDevice,
+        other_identity: Option<UserIdentities>,
+        sender: &UserId,
+        content: &StartContent,
+    ) -> Result<SasState<Started>, SasState<Canceled>> {
+        if let StartMethod::MSasV1(method_content) = content.method() {
             let sas = OlmSas::new();
 
             let pubkey = sas.public_key();
-            let commitment = calculate_commitment(&pubkey, event.content.clone());
+            let commitment = calculate_commitment(&pubkey, content.clone());
 
             error!(
                 "Calculated commitment for pubkey {} and content {:?} {}",
-                pubkey, event.content, commitment
+                pubkey, content, commitment
             );
 
             let sas = SasState {
@@ -489,25 +506,25 @@ impl SasState<Started> {
                 creation_time: Arc::new(Instant::now()),
                 last_event_time: Arc::new(Instant::now()),
 
-                verification_flow_id: FlowId::ToDevice(event.content.transaction_id.clone()).into(),
+                verification_flow_id: content.flow_id().into(),
 
                 state: Arc::new(Started {
-                    protocol_definitions: content.clone(),
+                    protocol_definitions: method_content.clone(),
                     commitment,
                 }),
             };
 
-            if !content
+            if !method_content
                 .key_agreement_protocols
                 .contains(&KeyAgreementProtocol::Curve25519HkdfSha256)
-                || !content
+                || !method_content
                     .message_authentication_codes
                     .contains(&MessageAuthenticationCode::HkdfHmacSha256)
-                || !content.hashes.contains(&HashAlgorithm::Sha256)
-                || (!content
+                || !method_content.hashes.contains(&HashAlgorithm::Sha256)
+                || (!method_content
                     .short_authentication_string
                     .contains(&ShortAuthenticationString::Decimal)
-                    && !content
+                    && !method_content
                         .short_authentication_string
                         .contains(&ShortAuthenticationString::Emoji))
             {
@@ -528,7 +545,7 @@ impl SasState<Started> {
                     other_identity,
                 },
 
-                verification_flow_id: FlowId::ToDevice(event.content.transaction_id.clone()).into(),
+                verification_flow_id: content.flow_id().into(),
                 state: Arc::new(Canceled::new(CancelCode::UnknownMethod)),
             })
         }
@@ -914,7 +931,7 @@ impl Canceled {
 }
 
 impl SasState<Canceled> {
-    pub fn as_content(&self) -> AnyToDeviceEventContent {
+    pub fn as_content(&self) -> OutgoingContent {
         match self.verification_flow_id.as_ref() {
             FlowId::ToDevice(s) => {
                 AnyToDeviceEventContent::KeyVerificationCancel(CancelToDeviceEventContent {
@@ -922,6 +939,7 @@ impl SasState<Canceled> {
                     reason: self.state.reason.to_string(),
                     code: self.state.cancel_code.clone(),
                 })
+                .into()
             }
             _ => todo!(),
         }

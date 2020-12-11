@@ -30,7 +30,7 @@ use matrix_sdk_common::{
             cancel::CancelCode,
             start::{StartEventContent, StartToDeviceEventContent},
         },
-        AnyToDeviceEvent, AnyToDeviceEventContent, ToDeviceEvent,
+        AnyToDeviceEvent, AnyToDeviceEventContent, MessageEvent, ToDeviceEvent,
     },
     identifiers::{DeviceId, EventId, RoomId, UserId},
 };
@@ -220,15 +220,18 @@ impl Sas {
         private_identity: PrivateCrossSigningIdentity,
         other_device: ReadOnlyDevice,
         store: Arc<Box<dyn CryptoStore>>,
-        event: &ToDeviceEvent<StartToDeviceEventContent>,
+        sender: &UserId,
+        content: impl Into<StartContent>,
         other_identity: Option<UserIdentities>,
-    ) -> Result<Sas, AnyToDeviceEventContent> {
+    ) -> Result<Sas, OutgoingContent> {
         let inner = InnerSas::from_start_event(
             account.clone(),
             other_device.clone(),
-            event,
+            &sender,
+            content,
             other_identity.clone(),
         )?;
+
         let flow_id = inner.verification_flow_id();
 
         Ok(Sas {
@@ -520,7 +523,13 @@ impl Sas {
         let (sas, content) = sas.cancel(CancelCode::User);
         *guard = sas;
 
-        content.map(|c| self.content_to_request(c))
+        content.map(|c| {
+            if let OutgoingContent::ToDevice(c) = c {
+                self.content_to_request(c)
+            } else {
+                todo!()
+            }
+        })
     }
 
     pub(crate) fn cancel_if_timed_out(&self) -> Option<ToDeviceRequest> {
@@ -531,7 +540,13 @@ impl Sas {
             let sas: InnerSas = (*guard).clone();
             let (sas, content) = sas.cancel(CancelCode::Timeout);
             *guard = sas;
-            content.map(|c| self.content_to_request(c))
+            content.map(|c| {
+                if let OutgoingContent::ToDevice(c) = c {
+                    self.content_to_request(c)
+                } else {
+                    todo!()
+                }
+            })
         } else {
             None
         }
@@ -574,10 +589,7 @@ impl Sas {
         self.inner.lock().unwrap().decimals()
     }
 
-    pub(crate) fn receive_event(
-        &self,
-        event: &AnyToDeviceEvent,
-    ) -> Option<AnyToDeviceEventContent> {
+    pub(crate) fn receive_event(&self, event: &AnyToDeviceEvent) -> Option<OutgoingContent> {
         let mut guard = self.inner.lock().unwrap();
         let sas: InnerSas = (*guard).clone();
         let (sas, content) = sas.receive_event(event);

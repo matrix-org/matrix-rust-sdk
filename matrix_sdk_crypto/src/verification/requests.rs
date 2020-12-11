@@ -23,6 +23,7 @@ use matrix_sdk_common::{
             ready::ReadyEventContent, start::StartEventContent, Relation, VerificationMethod,
         },
         room::message::KeyVerificationRequestEventContent,
+        MessageEvent,
     },
     identifiers::{DeviceId, DeviceIdBox, EventId, RoomId, UserId},
 };
@@ -42,6 +43,7 @@ const SUPPORTED_METHODS: &[VerificationMethod] = &[VerificationMethod::MSasV1];
 pub struct VerificationRequest {
     inner: Arc<Mutex<InnerRequest>>,
     account: ReadOnlyAccount,
+    private_cross_signing_identity: PrivateCrossSigningIdentity,
     store: Arc<Box<dyn CryptoStore>>,
     room_id: Arc<RoomId>,
 }
@@ -49,6 +51,7 @@ pub struct VerificationRequest {
 impl VerificationRequest {
     pub(crate) fn from_request_event(
         account: ReadOnlyAccount,
+        private_cross_signing_identity: PrivateCrossSigningIdentity,
         store: Arc<Box<dyn CryptoStore>>,
         room_id: &RoomId,
         sender: &UserId,
@@ -66,6 +69,7 @@ impl VerificationRequest {
                 ),
             ))),
             account,
+            private_cross_signing_identity,
             store,
             room_id: room_id.clone().into(),
         }
@@ -79,6 +83,25 @@ impl VerificationRequest {
     /// Accept the verification request.
     pub fn accept(&self) -> Option<ReadyEventContent> {
         self.inner.lock().unwrap().accept()
+    }
+
+    pub(crate) fn into_started_sas(
+        &self,
+        event: &MessageEvent<StartEventContent>,
+        device: ReadOnlyDevice,
+        user_identity: Option<UserIdentities>,
+    ) -> Result<Sas, OutgoingContent> {
+        match &*self.inner.lock().unwrap() {
+            InnerRequest::Ready(s) => s.into_started_sas(
+                event,
+                self.store.clone(),
+                self.account.clone(),
+                self.private_cross_signing_identity.clone(),
+                device,
+                user_identity,
+            ),
+            _ => todo!(),
+        }
     }
 }
 
@@ -100,6 +123,29 @@ impl InnerRequest {
             Some(content)
         } else {
             None
+        }
+    }
+
+    fn into_started_sas(
+        &mut self,
+        event: &MessageEvent<StartEventContent>,
+        store: Arc<Box<dyn CryptoStore>>,
+        account: ReadOnlyAccount,
+        private_identity: PrivateCrossSigningIdentity,
+        other_device: ReadOnlyDevice,
+        other_identity: Option<UserIdentities>,
+    ) -> Result<Option<Sas>, OutgoingContent> {
+        if let InnerRequest::Ready(s) = self {
+            Ok(Some(s.into_started_sas(
+                event,
+                store,
+                account,
+                private_identity,
+                other_device,
+                other_identity,
+            )?))
+        } else {
+            Ok(None)
         }
     }
 }
@@ -252,14 +298,23 @@ struct Ready {
 
 impl RequestState<Ready> {
     fn into_started_sas(
-        self,
+        &self,
+        event: &MessageEvent<StartEventContent>,
+        store: Arc<Box<dyn CryptoStore>>,
         account: ReadOnlyAccount,
         private_identity: PrivateCrossSigningIdentity,
         other_device: ReadOnlyDevice,
-        other_identity: UserIdentity,
-    ) -> Sas {
-        todo!()
-        // Sas::from_start_event(account, private_identity, other_device, other_identity, event)
+        other_identity: Option<UserIdentities>,
+    ) -> Result<Sas, OutgoingContent> {
+        Sas::from_start_event(
+            account,
+            private_identity,
+            other_device,
+            store,
+            &event.sender,
+            event.content.clone(),
+            other_identity,
+        )
     }
 
     fn start_sas(
@@ -289,3 +344,6 @@ struct Passive {
     /// unique id identifying this verification flow.
     pub flow_id: EventId,
 }
+
+#[derive(Clone, Debug)]
+struct Started {}

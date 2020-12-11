@@ -20,12 +20,14 @@ use std::sync::Arc;
 use matrix_sdk_common::{
     events::{
         key::verification::{
-            accept::AcceptToDeviceEventContent, cancel::CancelCode, mac::MacToDeviceEventContent,
-            start::StartToDeviceEventContent,
+            accept::AcceptToDeviceEventContent,
+            cancel::CancelCode,
+            mac::MacToDeviceEventContent,
+            start::{StartEventContent, StartToDeviceEventContent},
         },
-        AnyToDeviceEvent, AnyToDeviceEventContent, ToDeviceEvent,
+        AnyToDeviceEvent, AnyToDeviceEventContent, MessageEvent, ToDeviceEvent,
     },
-    identifiers::EventId,
+    identifiers::{EventId, UserId},
 };
 
 use crate::{
@@ -39,6 +41,7 @@ use super::{
         Accepted, Canceled, Confirmed, Created, Done, FlowId, KeyReceived, MacReceived, SasState,
         Started,
     },
+    StartContent,
 };
 
 #[derive(Clone, Debug)]
@@ -78,10 +81,17 @@ impl InnerSas {
     pub fn from_start_event(
         account: ReadOnlyAccount,
         other_device: ReadOnlyDevice,
-        event: &ToDeviceEvent<StartToDeviceEventContent>,
+        sender: &UserId,
+        content: impl Into<StartContent>,
         other_identity: Option<UserIdentities>,
-    ) -> Result<InnerSas, AnyToDeviceEventContent> {
-        match SasState::<Started>::from_start_event(account, other_device, event, other_identity) {
+    ) -> Result<InnerSas, OutgoingContent> {
+        match SasState::<Started>::from_start_event(
+            account,
+            other_device,
+            other_identity,
+            &sender,
+            content,
+        ) {
             Ok(s) => Ok(InnerSas::Started(s)),
             Err(s) => Err(s.as_content()),
         }
@@ -110,7 +120,7 @@ impl InnerSas {
         }
     }
 
-    pub fn cancel(self, code: CancelCode) -> (InnerSas, Option<AnyToDeviceEventContent>) {
+    pub fn cancel(self, code: CancelCode) -> (InnerSas, Option<OutgoingContent>) {
         let sas = match self {
             InnerSas::Created(s) => s.cancel(code),
             InnerSas::Started(s) => s.cancel(code),
@@ -141,10 +151,7 @@ impl InnerSas {
         }
     }
 
-    pub fn receive_event(
-        self,
-        event: &AnyToDeviceEvent,
-    ) -> (InnerSas, Option<AnyToDeviceEventContent>) {
+    pub fn receive_event(self, event: &AnyToDeviceEvent) -> (InnerSas, Option<OutgoingContent>) {
         match event {
             AnyToDeviceEvent::KeyVerificationAccept(e) => {
                 if let InnerSas::Created(s) = self {
@@ -153,7 +160,7 @@ impl InnerSas {
                             let content = s.as_content();
                             (
                                 InnerSas::Accepted(s),
-                                Some(AnyToDeviceEventContent::KeyVerificationKey(content)),
+                                Some(AnyToDeviceEventContent::KeyVerificationKey(content).into()),
                             )
                         }
                         Err(s) => {
@@ -178,7 +185,7 @@ impl InnerSas {
                         let content = s.as_content();
                         (
                             InnerSas::KeyRecieved(s),
-                            Some(AnyToDeviceEventContent::KeyVerificationKey(content)),
+                            Some(AnyToDeviceEventContent::KeyVerificationKey(content).into()),
                         )
                     }
                     Err(s) => {

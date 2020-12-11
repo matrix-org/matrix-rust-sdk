@@ -18,11 +18,16 @@ use std::convert::TryInto;
 
 use matrix_sdk_common::{
     events::{
-        key::verification::start::{StartEventContent, StartToDeviceEventContent},
+        key::verification::{
+            start::{StartEventContent, StartMethod, StartToDeviceEventContent},
+            KeyAgreementProtocol,
+        },
         AnyMessageEventContent, AnyToDeviceEventContent, MessageEvent, ToDeviceEvent,
     },
     CanonicalJsonValue,
 };
+
+use super::FlowId;
 
 #[derive(Clone, Debug)]
 pub enum StartContent {
@@ -31,6 +36,20 @@ pub enum StartContent {
 }
 
 impl StartContent {
+    pub fn method(&self) -> &StartMethod {
+        match self {
+            StartContent::ToDevice(c) => &c.method,
+            StartContent::Room(c) => &c.method,
+        }
+    }
+
+    pub fn flow_id(&self) -> FlowId {
+        match self {
+            StartContent::ToDevice(c) => FlowId::ToDevice(c.transaction_id.clone()),
+            StartContent::Room(c) => FlowId::InRoom(c.relation.event_id.clone()),
+        }
+    }
+
     pub fn to_canonical_json(self) -> CanonicalJsonValue {
         let content = match self {
             StartContent::Room(c) => serde_json::to_value(c),
@@ -65,12 +84,20 @@ pub enum OutgoingContent {
 impl From<StartContent> for OutgoingContent {
     fn from(content: StartContent) -> Self {
         match content {
-            StartContent::Room(c) => {
-                OutgoingContent::Room(AnyMessageEventContent::KeyVerificationStart(c))
-            }
-            StartContent::ToDevice(c) => {
-                OutgoingContent::ToDevice(AnyToDeviceEventContent::KeyVerificationStart(c))
-            }
+            StartContent::Room(c) => AnyMessageEventContent::KeyVerificationStart(c).into(),
+            StartContent::ToDevice(c) => AnyToDeviceEventContent::KeyVerificationStart(c).into(),
         }
+    }
+}
+
+impl From<AnyToDeviceEventContent> for OutgoingContent {
+    fn from(content: AnyToDeviceEventContent) -> Self {
+        OutgoingContent::ToDevice(content)
+    }
+}
+
+impl From<AnyMessageEventContent> for OutgoingContent {
+    fn from(content: AnyMessageEventContent) -> Self {
+        OutgoingContent::Room(content)
     }
 }
