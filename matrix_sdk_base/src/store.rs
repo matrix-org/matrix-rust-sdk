@@ -337,7 +337,9 @@ impl Store {
 
     pub async fn get_room_infos(&self) -> impl Stream<Item = RoomInfo> {
         stream::iter(
-            self.room_summaries.iter().map(|r| serde_json::from_slice(&r.unwrap().1).unwrap())
+            self.room_summaries
+                .iter()
+                .map(|r| serde_json::from_slice(&r.unwrap().1).unwrap()),
         )
     }
 

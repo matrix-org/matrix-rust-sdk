@@ -49,7 +49,7 @@ mod rooms;
 mod session;
 mod store;
 
-pub use rooms::{RoomInfo, Room, RoomMember};
+pub use rooms::{Room, RoomInfo, RoomMember};
 pub use store::Store;
 
 pub use client::{BaseClient, BaseClientConfig, RoomState, RoomStateType};

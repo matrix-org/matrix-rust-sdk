@@ -40,7 +40,9 @@ use zeroize::Zeroizing;
 use tracing::{debug, warn};
 use tracing::{error, info, instrument};
 
-use matrix_sdk_base::{responses::SyncResponse, BaseClient, BaseClientConfig, Room, Session};
+use matrix_sdk_base::{
+    responses::SyncResponse, BaseClient, BaseClientConfig, Room, Session, Store,
+};
 
 #[cfg(feature = "encryption")]
 use matrix_sdk_base::crypto::{
@@ -502,6 +504,11 @@ impl Client {
         let request = get_avatar_url::Request::new(&user_id);
         let response = self.send(request).await?;
         Ok(response.avatar_url)
+    }
+
+    /// Get a reference to the store.
+    pub fn store(&self) -> &Store {
+        self.base_client.store()
     }
 
     /// Sets the mxc avatar url of the client's owner. The avatar gets unset if `url` is `None`.

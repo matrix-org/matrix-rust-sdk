@@ -1,5 +1,5 @@
 mod joined;
 mod members;
 
-pub use joined::{RoomInfo, Room, RoomType};
+pub use joined::{Room, RoomInfo, RoomType};
 pub use members::RoomMember;

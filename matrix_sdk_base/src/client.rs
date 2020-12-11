@@ -32,7 +32,7 @@ use matrix_sdk_common::{
         room::member::MemberEventContent, AnyBasicEvent, AnyStrippedStateEvent, AnySyncRoomEvent,
         AnySyncStateEvent, StateEvent, SyncStateEvent,
     },
-    identifiers::{RoomId, UserId, room_id},
+    identifiers::{room_id, RoomId, UserId},
     locks::RwLock,
     Raw,
 };
@@ -348,6 +348,11 @@ impl BaseClient {
     /// token.
     pub fn session(&self) -> &Arc<RwLock<Option<Session>>> {
         &self.session
+    }
+
+    /// Get a reference to the store.
+    pub fn store(&self) -> &Store {
+        &self.store
     }
 
     /// Is the client logged in.
