@@ -46,7 +46,7 @@ pub struct VerificationMachine {
     private_identity: Arc<Mutex<PrivateCrossSigningIdentity>>,
     pub(crate) store: Arc<Box<dyn CryptoStore>>,
     verifications: Arc<DashMap<String, Sas>>,
-    room_verifications: Arc<DashMap<String, Sas>>,
+    room_verifications: Arc<DashMap<EventId, Sas>>,
     requests: Arc<DashMap<EventId, VerificationRequest>>,
     outgoing_to_device_messages: Arc<DashMap<Uuid, OutgoingRequest>>,
 }
@@ -202,6 +202,32 @@ impl VerificationMachine {
                     );
 
                     if let Some((_, request)) = self.requests.remove(&e.content.relation.event_id) {
+                        if let Some(d) = self
+                            .store
+                            .get_device(&e.sender, &e.content.from_device)
+                            .await?
+                        {
+                            match request.into_started_sas(
+                                e,
+                                d,
+                                self.store.get_user_identity(&e.sender).await?,
+                            ) {
+                                Ok(s) => {
+                                    // TODO we need to queue up the accept event
+                                    // here.
+                                    let accept_event = s.accept();
+                                    self.room_verifications
+                                        .insert(e.content.relation.event_id.clone(), s);
+                                }
+                                Err(c) => {
+                                    warn!(
+                                        "Can't start key verification with {} {}, canceling: {:?}",
+                                        e.sender, e.content.from_device, c
+                                    );
+                                    // self.queue_up_content(&e.sender, &e.content.from_device, c)
+                                }
+                            }
+                        }
                     }
                 }
                 _ => (),

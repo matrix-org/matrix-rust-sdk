@@ -23,7 +23,7 @@ use matrix_sdk_common::{
             ready::ReadyEventContent, start::StartEventContent, Relation, VerificationMethod,
         },
         room::message::KeyVerificationRequestEventContent,
-        MessageEvent,
+        MessageEvent, SyncMessageEvent,
     },
     identifiers::{DeviceId, DeviceIdBox, EventId, RoomId, UserId},
 };
@@ -87,7 +87,7 @@ impl VerificationRequest {
 
     pub(crate) fn into_started_sas(
         &self,
-        event: &MessageEvent<StartEventContent>,
+        event: &SyncMessageEvent<StartEventContent>,
         device: ReadOnlyDevice,
         user_identity: Option<UserIdentities>,
     ) -> Result<Sas, OutgoingContent> {
@@ -128,7 +128,7 @@ impl InnerRequest {
 
     fn into_started_sas(
         &mut self,
-        event: &MessageEvent<StartEventContent>,
+        event: &SyncMessageEvent<StartEventContent>,
         store: Arc<Box<dyn CryptoStore>>,
         account: ReadOnlyAccount,
         private_identity: PrivateCrossSigningIdentity,
@@ -299,7 +299,7 @@ struct Ready {
 impl RequestState<Ready> {
     fn into_started_sas(
         &self,
-        event: &MessageEvent<StartEventContent>,
+        event: &SyncMessageEvent<StartEventContent>,
         store: Arc<Box<dyn CryptoStore>>,
         account: ReadOnlyAccount,
         private_identity: PrivateCrossSigningIdentity,
@@ -344,6 +344,3 @@ struct Passive {
     /// unique id identifying this verification flow.
     pub flow_id: EventId,
 }
-
-#[derive(Clone, Debug)]
-struct Started {}
