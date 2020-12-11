@@ -4,7 +4,8 @@ use futures::stream::{self, Stream};
 use matrix_sdk_common::{
     events::{
         presence::PresenceEvent, room::member::MemberEventContent, AnyBasicEvent,
-        AnyStrippedStateEvent, AnySyncStateEvent, EventContent, EventType, SyncStateEvent,
+        AnyStrippedStateEvent, AnySyncStateEvent, EventContent, EventType, StrippedStateEvent,
+        SyncStateEvent,
     },
     identifiers::{RoomId, UserId},
 };
@@ -22,9 +23,12 @@ pub struct Store {
     members: Tree,
     joined_user_ids: Tree,
     invited_user_ids: Tree,
-    room_summaries: Tree,
+    room_info: Tree,
     room_state: Tree,
     room_account_data: Tree,
+    stripped_room_info: Tree,
+    stripped_room_state: Tree,
+    stripped_members: Tree,
     presence: Tree,
 }
 
@@ -35,13 +39,14 @@ pub struct StateChanges {
     pub state: BTreeMap<RoomId, BTreeMap<String, AnySyncStateEvent>>,
     pub account_data: BTreeMap<String, AnyBasicEvent>,
     pub room_account_data: BTreeMap<RoomId, BTreeMap<String, AnyBasicEvent>>,
-    pub room_summaries: BTreeMap<RoomId, RoomInfo>,
-    // display_names: BTreeMap<RoomId, BTreeMap<String, BTreeMap<UserId, ()>>>,
+    pub room_infos: BTreeMap<RoomId, RoomInfo>,
     pub joined_user_ids: BTreeMap<RoomId, Vec<UserId>>,
     pub invited_user_ids: BTreeMap<RoomId, Vec<UserId>>,
     pub removed_user_ids: BTreeMap<RoomId, UserId>,
     pub presence: BTreeMap<UserId, PresenceEvent>,
-    pub invitest_state: BTreeMap<RoomId, BTreeMap<String, AnyStrippedStateEvent>>,
+    pub stripped_state: BTreeMap<RoomId, BTreeMap<String, AnyStrippedStateEvent>>,
+    pub stripped_members:
+        BTreeMap<RoomId, BTreeMap<UserId, StrippedStateEvent<MemberEventContent>>>,
     pub invited_room_info: BTreeMap<RoomId, RoomInfo>,
 }
 
@@ -83,7 +88,7 @@ impl StateChanges {
     }
 
     pub fn add_room(&mut self, room: RoomInfo) {
-        self.room_summaries
+        self.room_infos
             .insert(room.room_id.as_ref().to_owned(), room);
     }
 
@@ -99,11 +104,23 @@ impl StateChanges {
             .insert(event.content().event_type().to_owned(), event);
     }
 
-    pub fn add_invited_state(&mut self, room_id: &RoomId, event: AnyStrippedStateEvent) {
-        self.invitest_state
+    pub fn add_stripped_state_event(&mut self, room_id: &RoomId, event: AnyStrippedStateEvent) {
+        self.stripped_state
             .entry(room_id.to_owned())
             .or_insert_with(BTreeMap::new)
             .insert(event.state_key().to_string(), event);
+    }
+
+    pub fn add_stripped_member(
+        &mut self,
+        room_id: &RoomId,
+        event: StrippedStateEvent<MemberEventContent>,
+    ) {
+        let user_id = UserId::try_from(event.state_key.as_str()).unwrap();
+        self.stripped_members
+            .entry(room_id.to_owned())
+            .or_insert_with(BTreeMap::new)
+            .insert(user_id, event);
     }
 
     pub fn add_state_event(&mut self, room_id: &RoomId, event: AnySyncStateEvent) {
@@ -140,9 +157,13 @@ impl Store {
         let invited_user_ids = db.open_tree("invited_user_ids").unwrap();
 
         let room_state = db.open_tree("room_state").unwrap();
-        let room_summaries = db.open_tree("room_summaries").unwrap();
+        let room_info = db.open_tree("room_infos").unwrap();
         let presence = db.open_tree("presence").unwrap();
         let room_account_data = db.open_tree("room_account_data").unwrap();
+
+        let stripped_room_info = db.open_tree("stripped_room_info").unwrap();
+        let stripped_members = db.open_tree("stripped_members").unwrap();
+        let stripped_room_state = db.open_tree("stripped_room_state").unwrap();
 
         Self {
             inner: db,
@@ -154,7 +175,10 @@ impl Store {
             room_account_data,
             presence,
             room_state,
-            room_summaries,
+            room_info,
+            stripped_room_info,
+            stripped_members,
+            stripped_room_state,
         }
     }
 
@@ -191,10 +215,13 @@ impl Store {
             &self.members,
             &self.joined_user_ids,
             &self.invited_user_ids,
-            &self.room_summaries,
+            &self.room_info,
             &self.room_state,
             &self.room_account_data,
             &self.presence,
+            &self.stripped_room_info,
+            &self.stripped_members,
+            &self.stripped_room_state,
         )
             .transaction(
                 |(
@@ -207,15 +234,18 @@ impl Store {
                     state,
                     room_account_data,
                     presence,
+                    striped_rooms,
+                    stripped_members,
+                    stripped_state,
                 )| {
                     if let Some(s) = &changes.session {
                         session.insert("session", serde_json::to_vec(s).unwrap())?;
                     }
 
                     for (room, events) in &changes.members {
-                        for (user_id, event) in events {
+                        for (_, event) in events {
                             members.insert(
-                                format!("{}{}", room.as_str(), user_id.as_str()).as_str(),
+                                format!("{}{}", room.as_str(), &event.state_key).as_str(),
                                 serde_json::to_vec(&event).unwrap(),
                             )?;
                         }
@@ -268,12 +298,41 @@ impl Store {
                         }
                     }
 
-                    for (room_id, summary) in &changes.room_summaries {
+                    for (room_id, summary) in &changes.room_infos {
                         summaries.insert(room_id.as_bytes(), summary.serialize())?;
                     }
 
                     for (sender, event) in &changes.presence {
                         presence.insert(sender.as_bytes(), serde_json::to_vec(&event).unwrap())?;
+                    }
+
+                    for (room_id, info) in &changes.invited_room_info {
+                        striped_rooms
+                            .insert(room_id.as_str(), serde_json::to_vec(&info).unwrap())?;
+                    }
+
+                    for (room, events) in &changes.stripped_members {
+                        for (_, event) in events {
+                            stripped_members.insert(
+                                format!("{}{}", room.as_str(), &event.state_key).as_str(),
+                                serde_json::to_vec(&event).unwrap(),
+                            )?;
+                        }
+                    }
+
+                    for (room, events) in &changes.stripped_state {
+                        for (_, event) in events {
+                            stripped_state.insert(
+                                format!(
+                                    "{}{}{}",
+                                    room.as_str(),
+                                    event.content().event_type(),
+                                    event.state_key(),
+                                )
+                                .as_bytes(),
+                                serde_json::to_vec(&event).unwrap(),
+                            )?;
+                        }
                     }
 
                     Ok(())
@@ -337,7 +396,7 @@ impl Store {
 
     pub async fn get_room_infos(&self) -> impl Stream<Item = RoomInfo> {
         stream::iter(
-            self.room_summaries
+            self.room_info
                 .iter()
                 .map(|r| serde_json::from_slice(&r.unwrap().1).unwrap()),
         )

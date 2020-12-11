@@ -54,6 +54,8 @@ pub enum RoomType {
     Joined,
     /// Represents a left room, the `left_rooms` HashMap will be used.
     Left,
+    /// Represents an invited room, the `invited_rooms` HashMap will be used.
+    Invited,
 }
 
 impl Room {
@@ -290,6 +292,10 @@ impl RoomInfo {
 
     pub fn mark_as_left(&mut self) {
         self.room_type = RoomType::Left;
+    }
+
+    pub fn mark_as_invited(&mut self) {
+        self.room_type = RoomType::Invited;
     }
 
     pub fn mark_members_synced(&mut self) {

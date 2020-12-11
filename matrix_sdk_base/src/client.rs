@@ -55,10 +55,10 @@ use zeroize::Zeroizing;
 use crate::{
     error::Result,
     responses::{
-        AccountData, Ephemeral, JoinedRoom, LeftRoom, Presence, Rooms, State, SyncResponse,
-        Timeline,
+        AccountData, Ephemeral, InviteState, InvitedRoom, JoinedRoom, LeftRoom, Presence, Rooms,
+        State, SyncResponse, Timeline,
     },
-    rooms::{Room, RoomInfo, RoomType},
+    rooms::{Room, RoomInfo, RoomType, StrippedRoom},
     session::Session,
     store::{StateChanges, Store},
 };
@@ -148,14 +148,6 @@ fn hoist_room_event_prev_content(
     Ok(ev)
 }
 
-fn stripped_deserialize_prev_content(
-    event: &Raw<AnyStrippedStateEvent>,
-) -> Option<AdditionalUnsignedData> {
-    serde_json::from_str::<AdditionalEventData>(event.json().get())
-        .map(|more_unsigned| more_unsigned.unsigned)
-        .ok()
-}
-
 fn handle_membership(
     changes: &mut StateChanges,
     room_id: &RoomId,
@@ -217,6 +209,7 @@ pub struct BaseClient {
     /// Database
     store: Store,
     rooms: Arc<DashMap<RoomId, Room>>,
+    stripped_rooms: Arc<DashMap<RoomId, StrippedRoom>>,
     #[cfg(feature = "encryption")]
     olm: Arc<Mutex<Option<OlmMachine>>>,
     #[cfg(feature = "encryption")]
@@ -331,6 +324,7 @@ impl BaseClient {
             sync_token: Arc::new(RwLock::new(None)),
             store,
             rooms: Arc::new(DashMap::new()),
+            stripped_rooms: Arc::new(DashMap::new()),
             #[cfg(feature = "encryption")]
             olm: Arc::new(Mutex::new(None)),
             #[cfg(feature = "encryption")]
@@ -446,6 +440,19 @@ impl BaseClient {
     /// This will be None if the client didn't sync at least once.
     pub async fn sync_token(&self) -> Option<String> {
         self.sync_token.read().await.clone()
+    }
+
+    async fn get_or_create_stripped_room(&self, room_id: &RoomId) -> StrippedRoom {
+        let session = self.session.read().await;
+        let user_id = &session
+            .as_ref()
+            .expect("Creating room while not being logged in")
+            .user_id;
+
+        self.stripped_rooms
+            .entry(room_id.clone())
+            .or_insert_with(|| StrippedRoom::new(user_id, self.store.clone(), room_id))
+            .clone()
     }
 
     async fn get_or_create_room(&self, room_id: &RoomId, room_type: RoomType) -> Room {
@@ -685,6 +692,42 @@ impl BaseClient {
                 .insert(room_id, LeftRoom::new(timeline, state, account_data));
         }
 
+        for (room_id, invited) in response.rooms.invite {
+            {
+                let room = self.get_or_create_room(&room_id, RoomType::Invited).await;
+                let mut room_info = room.clone_summary();
+                room_info.mark_as_invited();
+                changes.add_room(room_info);
+            }
+
+            let mut state = InviteState::default();
+
+            let room = self.get_or_create_stripped_room(&room_id).await;
+            let mut room_info = room.clone_summary();
+
+            for event in &invited.invite_state.events {
+                if let Ok(e) = event.deserialize() {
+                    match &e {
+                        AnyStrippedStateEvent::RoomMember(member) => {
+                            changes.add_stripped_member(&room_id, member.clone());
+                        }
+                        _ => {
+                            room_info.handle_state_event(&e);
+                            changes.add_stripped_state_event(&room_id, e.clone());
+                        }
+                    }
+
+                    state.events.push(e);
+                }
+            }
+
+            let room = InvitedRoom {
+                invite_state: state,
+            };
+
+            rooms.invite.insert(room_id, room);
+        }
+
         for event in &response.presence.events {
             if let Ok(e) = event.deserialize() {
                 changes.add_presence_event(e);
@@ -723,7 +766,7 @@ impl BaseClient {
 
     async fn apply_changes(&self, changes: &StateChanges) {
         // TODO emit room changes here
-        for (room_id, summary) in &changes.room_summaries {
+        for (room_id, summary) in &changes.room_infos {
             if let Some(room) = self.get_room(&room_id) {
                 room.update_summary(summary.clone())
             }
