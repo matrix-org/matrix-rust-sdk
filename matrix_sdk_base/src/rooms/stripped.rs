@@ -12,21 +12,15 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{
-    convert::TryFrom,
-    sync::{Arc, Mutex as SyncMutex},
-};
+use std::sync::{Arc, Mutex as SyncMutex};
 
-use futures::stream::{Stream, StreamExt};
 use matrix_sdk_common::{
-    events::{room::encryption::EncryptionEventContent, AnyStrippedStateEvent, EventType},
+    events::{room::encryption::EncryptionEventContent, AnyStrippedStateEvent},
     identifiers::{RoomAliasId, RoomId, UserId},
 };
 use serde::{Deserialize, Serialize};
 
 use crate::store::Store;
-
-use super::RoomMember;
 
 #[derive(Debug, Clone)]
 pub struct StrippedRoom {

@@ -367,8 +367,4 @@ impl RoomInfo {
 
         changed
     }
-
-    pub fn serialize(&self) -> Vec<u8> {
-        serde_json::to_vec(&self).unwrap()
-    }
 }

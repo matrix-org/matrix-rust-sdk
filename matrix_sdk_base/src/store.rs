@@ -1,10 +1,11 @@
-use std::{collections::BTreeMap, convert::TryFrom, path::Path};
+use std::{collections::BTreeMap, convert::TryFrom, path::Path, time::SystemTime};
 
 use futures::stream::{self, Stream};
 use matrix_sdk_common::{
     events::{
-        presence::PresenceEvent, room::member::MemberEventContent, AnyBasicEvent,
-        AnyStrippedStateEvent, AnySyncStateEvent, EventContent, EventType, StrippedStateEvent,
+        presence::PresenceEvent,
+        room::member::{MemberEventContent, MembershipState},
+        AnyBasicEvent, AnyStrippedStateEvent, AnySyncStateEvent, EventContent, EventType,
         SyncStateEvent,
     },
     identifiers::{RoomId, UserId},
@@ -13,7 +14,11 @@ use matrix_sdk_common::{
 use sled::{transaction::TransactionResult, Config, Db, Transactional, Tree};
 use tracing::info;
 
-use crate::{rooms::RoomInfo, Session};
+use crate::{
+    responses::{MemberEvent, StrippedMemberEvent},
+    rooms::RoomInfo,
+    Session,
+};
 
 #[derive(Debug, Clone)]
 pub struct Store {
@@ -35,56 +40,20 @@ pub struct Store {
 #[derive(Debug, Default)]
 pub struct StateChanges {
     pub session: Option<Session>,
-    pub members: BTreeMap<RoomId, BTreeMap<UserId, SyncStateEvent<MemberEventContent>>>,
+    pub members: BTreeMap<RoomId, BTreeMap<UserId, MemberEvent>>,
     pub state: BTreeMap<RoomId, BTreeMap<String, AnySyncStateEvent>>,
     pub account_data: BTreeMap<String, AnyBasicEvent>,
     pub room_account_data: BTreeMap<RoomId, BTreeMap<String, AnyBasicEvent>>,
     pub room_infos: BTreeMap<RoomId, RoomInfo>,
-    pub joined_user_ids: BTreeMap<RoomId, Vec<UserId>>,
-    pub invited_user_ids: BTreeMap<RoomId, Vec<UserId>>,
-    pub removed_user_ids: BTreeMap<RoomId, UserId>,
     pub presence: BTreeMap<UserId, PresenceEvent>,
     pub stripped_state: BTreeMap<RoomId, BTreeMap<String, AnyStrippedStateEvent>>,
-    pub stripped_members:
-        BTreeMap<RoomId, BTreeMap<UserId, StrippedStateEvent<MemberEventContent>>>,
+    pub stripped_members: BTreeMap<RoomId, BTreeMap<UserId, StrippedMemberEvent>>,
     pub invited_room_info: BTreeMap<RoomId, RoomInfo>,
 }
 
 impl StateChanges {
-    pub fn add_joined_member(
-        &mut self,
-        room_id: &RoomId,
-        event: SyncStateEvent<MemberEventContent>,
-    ) {
-        let user_id = UserId::try_from(event.state_key.as_str()).unwrap();
-        self.joined_user_ids
-            .entry(room_id.to_owned())
-            .or_insert_with(Vec::new)
-            .push(user_id.clone());
-        self.members
-            .entry(room_id.to_owned())
-            .or_insert_with(BTreeMap::new)
-            .insert(user_id, event);
-    }
-
     pub fn add_presence_event(&mut self, event: PresenceEvent) {
         self.presence.insert(event.sender.clone(), event);
-    }
-
-    pub fn add_invited_member(
-        &mut self,
-        room_id: &RoomId,
-        event: SyncStateEvent<MemberEventContent>,
-    ) {
-        let user_id = UserId::try_from(event.state_key.as_str()).unwrap();
-        self.invited_user_ids
-            .entry(room_id.to_owned())
-            .or_insert_with(Vec::new)
-            .push(user_id.clone());
-        self.members
-            .entry(room_id.to_owned())
-            .or_insert_with(BTreeMap::new)
-            .insert(user_id, event);
     }
 
     pub fn add_room(&mut self, room: RoomInfo) {
@@ -111,11 +80,7 @@ impl StateChanges {
             .insert(event.state_key().to_string(), event);
     }
 
-    pub fn add_stripped_member(
-        &mut self,
-        room_id: &RoomId,
-        event: StrippedStateEvent<MemberEventContent>,
-    ) {
+    pub fn add_stripped_member(&mut self, room_id: &RoomId, event: StrippedMemberEvent) {
         let user_id = UserId::try_from(event.state_key.as_str()).unwrap();
         self.stripped_members
             .entry(room_id.to_owned())
@@ -128,13 +93,6 @@ impl StateChanges {
             .entry(room_id.to_owned())
             .or_insert_with(BTreeMap::new)
             .insert(event.content().event_type().to_string(), event);
-    }
-
-    pub fn from_event(room_id: &RoomId, event: SyncStateEvent<MemberEventContent>) -> Self {
-        let mut changes = Self::default();
-        changes.add_joined_member(room_id, event);
-
-        changes
     }
 }
 
@@ -209,6 +167,8 @@ impl Store {
     }
 
     pub async fn save_changes(&self, changes: &StateChanges) {
+        let now = SystemTime::now();
+
         let ret: TransactionResult<()> = (
             &self.session,
             &self.account_data,
@@ -244,6 +204,23 @@ impl Store {
 
                     for (room, events) in &changes.members {
                         for (_, event) in events {
+                            let key = format!("{}{}", room.as_str(), event.state_key.as_str());
+
+                            match event.content.membership {
+                                MembershipState::Join => {
+                                    joined.insert(key.as_str(), event.state_key.as_str())?;
+                                    invited.remove(key.as_str())?;
+                                }
+                                MembershipState::Invite => {
+                                    invited.insert(key.as_str(), event.state_key.as_str())?;
+                                    joined.remove(key.as_str())?;
+                                }
+                                _ => {
+                                    joined.remove(key.as_str())?;
+                                    invited.remove(key.as_str())?;
+                                }
+                            }
+
                             members.insert(
                                 format!("{}{}", room.as_str(), &event.state_key).as_str(),
                                 serde_json::to_vec(&event).unwrap(),
@@ -265,24 +242,6 @@ impl Store {
                         }
                     }
 
-                    for (room, users) in &changes.joined_user_ids {
-                        for user in users {
-                            let key = format!("{}{}", room.as_str(), user.as_str());
-                            info!("SAVING joined {}", &key);
-                            joined.insert(key.as_bytes(), user.as_bytes())?;
-                            invited.remove(key.as_bytes())?;
-                        }
-                    }
-
-                    for (room, users) in &changes.invited_user_ids {
-                        for user in users {
-                            let key = format!("{}{}", room.as_str(), user.as_str());
-                            info!("SAVING invited {}", &key);
-                            invited.insert(key.as_bytes(), user.as_bytes())?;
-                            joined.remove(key.as_bytes())?;
-                        }
-                    }
-
                     for (room, events) in &changes.state {
                         for (_, event) in events {
                             state.insert(
@@ -299,7 +258,8 @@ impl Store {
                     }
 
                     for (room_id, summary) in &changes.room_infos {
-                        summaries.insert(room_id.as_bytes(), summary.serialize())?;
+                        summaries
+                            .insert(room_id.as_bytes(), serde_json::to_vec(summary).unwrap())?;
                     }
 
                     for (sender, event) in &changes.presence {
@@ -342,6 +302,8 @@ impl Store {
         ret.unwrap();
 
         self.inner.flush_async().await.unwrap();
+
+        info!("Saved changes in {:?}", now.elapsed().unwrap());
     }
 
     pub async fn get_presence_event(&self, user_id: &UserId) -> Option<PresenceEvent> {

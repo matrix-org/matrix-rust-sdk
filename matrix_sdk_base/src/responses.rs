@@ -1,15 +1,16 @@
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeMap;
+use std::{collections::BTreeMap, convert::TryFrom, time::SystemTime};
 
 use matrix_sdk_common::{
     api::r0::sync::sync_events::{
         DeviceLists, UnreadNotificationsCount as RumaUnreadNotificationsCount,
     },
     events::{
-        presence::PresenceEvent, AnyBasicEvent, AnyStrippedStateEvent, AnySyncEphemeralRoomEvent,
-        AnySyncRoomEvent, AnySyncStateEvent, AnyToDeviceEvent,
+        presence::PresenceEvent, room::member::MemberEventContent, AnyBasicEvent,
+        AnyStrippedStateEvent, AnySyncEphemeralRoomEvent, AnySyncRoomEvent, AnySyncStateEvent,
+        AnyToDeviceEvent, StateEvent, StrippedStateEvent, SyncStateEvent, Unsigned,
     },
-    identifiers::{DeviceKeyAlgorithm, RoomId},
+    identifiers::{DeviceKeyAlgorithm, EventId, RoomId, UserId},
 };
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
@@ -203,4 +204,98 @@ impl Timeline {
 pub struct State {
     /// A list of state events.
     pub events: Vec<AnySyncStateEvent>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(
+    try_from = "SyncStateEvent<MemberEventContent>",
+    into = "SyncStateEvent<MemberEventContent>"
+)]
+pub struct MemberEvent {
+    pub content: MemberEventContent,
+    pub event_id: EventId,
+    pub origin_server_ts: SystemTime,
+    pub prev_content: Option<MemberEventContent>,
+    pub sender: UserId,
+    pub state_key: UserId,
+    pub unsigned: Unsigned,
+}
+
+impl TryFrom<SyncStateEvent<MemberEventContent>> for MemberEvent {
+    type Error = matrix_sdk_common::identifiers::Error;
+
+    fn try_from(event: SyncStateEvent<MemberEventContent>) -> Result<Self, Self::Error> {
+        Ok(MemberEvent {
+            content: event.content,
+            event_id: event.event_id,
+            origin_server_ts: event.origin_server_ts,
+            prev_content: event.prev_content,
+            sender: event.sender,
+            state_key: UserId::try_from(event.state_key)?,
+            unsigned: event.unsigned,
+        })
+    }
+}
+
+impl TryFrom<StateEvent<MemberEventContent>> for MemberEvent {
+    type Error = matrix_sdk_common::identifiers::Error;
+
+    fn try_from(event: StateEvent<MemberEventContent>) -> Result<Self, Self::Error> {
+        Ok(MemberEvent {
+            content: event.content,
+            event_id: event.event_id,
+            origin_server_ts: event.origin_server_ts,
+            prev_content: event.prev_content,
+            sender: event.sender,
+            state_key: UserId::try_from(event.state_key)?,
+            unsigned: event.unsigned,
+        })
+    }
+}
+
+impl Into<SyncStateEvent<MemberEventContent>> for MemberEvent {
+    fn into(self) -> SyncStateEvent<MemberEventContent> {
+        SyncStateEvent {
+            content: self.content,
+            event_id: self.event_id,
+            sender: self.sender,
+            origin_server_ts: self.origin_server_ts,
+            state_key: self.state_key.to_string(),
+            prev_content: self.prev_content,
+            unsigned: self.unsigned,
+        }
+    }
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(
+    try_from = "StrippedStateEvent<MemberEventContent>",
+    into = "StrippedStateEvent<MemberEventContent>"
+)]
+pub struct StrippedMemberEvent {
+    pub content: MemberEventContent,
+    pub sender: UserId,
+    pub state_key: UserId,
+}
+
+impl TryFrom<StrippedStateEvent<MemberEventContent>> for StrippedMemberEvent {
+    type Error = matrix_sdk_common::identifiers::Error;
+
+    fn try_from(event: StrippedStateEvent<MemberEventContent>) -> Result<Self, Self::Error> {
+        Ok(StrippedMemberEvent {
+            content: event.content,
+            sender: event.sender,
+            state_key: UserId::try_from(event.state_key)?,
+        })
+    }
+}
+
+impl Into<StrippedStateEvent<MemberEventContent>> for StrippedMemberEvent {
+    fn into(self) -> StrippedStateEvent<MemberEventContent> {
+        StrippedStateEvent {
+            content: self.content,
+            sender: self.sender,
+            state_key: self.state_key.to_string(),
+        }
+    }
 }
