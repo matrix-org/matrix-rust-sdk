@@ -16,24 +16,23 @@ use std::sync::Arc;
 
 use matrix_sdk_common::{
     events::{
-        presence::PresenceEvent,
-        room::{member::MemberEventContent, power_levels::PowerLevelsEventContent},
-        SyncStateEvent,
+        presence::PresenceEvent, room::power_levels::PowerLevelsEventContent, SyncStateEvent,
     },
     identifiers::UserId,
 };
 
+use crate::responses::MemberEvent;
+
 #[derive(Clone, Debug)]
 pub struct RoomMember {
-    pub(crate) user_id: Arc<UserId>,
-    pub(crate) event: Arc<SyncStateEvent<MemberEventContent>>,
+    pub(crate) event: Arc<MemberEvent>,
     pub(crate) presence: Arc<Option<PresenceEvent>>,
     pub(crate) power_levles: Arc<Option<SyncStateEvent<PowerLevelsEventContent>>>,
 }
 
 impl RoomMember {
     pub fn user_id(&self) -> &UserId {
-        &self.user_id
+        &self.event.state_key
     }
 
     pub fn display_name(&self) -> Option<&str> {

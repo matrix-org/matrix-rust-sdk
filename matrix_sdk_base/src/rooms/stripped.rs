@@ -172,7 +172,7 @@ pub struct StrippedRoomInfo {
 }
 
 impl StrippedRoomInfo {
-    pub fn handle_state_event(&mut self, event: &AnyStrippedStateEvent) -> bool {
+    pub(crate) fn handle_state_event(&mut self, event: &AnyStrippedStateEvent) -> bool {
         match event {
             AnyStrippedStateEvent::RoomEncryption(encryption) => {
                 self.encryption = Some(encryption.content.clone());
@@ -192,13 +192,5 @@ impl StrippedRoomInfo {
             }
             _ => false,
         }
-    }
-
-    pub fn is_encrypted(&self) -> bool {
-        self.encryption.is_some()
-    }
-
-    pub fn serialize(&self) -> Vec<u8> {
-        serde_json::to_vec(&self).unwrap()
     }
 }

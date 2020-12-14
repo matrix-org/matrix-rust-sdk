@@ -109,7 +109,6 @@ impl Room {
                 .get_member_event(self.room_id(), &u)
                 .await
                 .map(|m| RoomMember {
-                    user_id: UserId::try_from(m.state_key.as_str()).unwrap().into(),
                     event: m.into(),
                     presence: presence.into(),
                     power_levles: power.into(),
@@ -247,7 +246,6 @@ impl Room {
             .get_member_event(&self.room_id, user_id)
             .await
             .map(|e| RoomMember {
-                user_id: UserId::try_from(e.state_key.as_str()).unwrap().into(),
                 event: e.into(),
                 presence: presence.into(),
                 power_levles: power.into(),

@@ -3,10 +3,8 @@ use std::{collections::BTreeMap, convert::TryFrom, path::Path, time::SystemTime}
 use futures::stream::{self, Stream};
 use matrix_sdk_common::{
     events::{
-        presence::PresenceEvent,
-        room::member::{MemberEventContent, MembershipState},
-        AnyBasicEvent, AnyStrippedStateEvent, AnySyncStateEvent, EventContent, EventType,
-        SyncStateEvent,
+        presence::PresenceEvent, room::member::MembershipState, AnyBasicEvent,
+        AnyStrippedStateEvent, AnySyncStateEvent, EventContent, EventType,
     },
     identifiers::{RoomId, UserId},
 };
@@ -40,12 +38,14 @@ pub struct Store {
 #[derive(Debug, Default)]
 pub struct StateChanges {
     pub session: Option<Session>,
+    pub account_data: BTreeMap<String, AnyBasicEvent>,
+    pub presence: BTreeMap<UserId, PresenceEvent>,
+
     pub members: BTreeMap<RoomId, BTreeMap<UserId, MemberEvent>>,
     pub state: BTreeMap<RoomId, BTreeMap<String, AnySyncStateEvent>>,
-    pub account_data: BTreeMap<String, AnyBasicEvent>,
     pub room_account_data: BTreeMap<RoomId, BTreeMap<String, AnyBasicEvent>>,
     pub room_infos: BTreeMap<RoomId, RoomInfo>,
-    pub presence: BTreeMap<UserId, PresenceEvent>,
+
     pub stripped_state: BTreeMap<RoomId, BTreeMap<String, AnyStrippedStateEvent>>,
     pub stripped_members: BTreeMap<RoomId, BTreeMap<UserId, StrippedMemberEvent>>,
     pub invited_room_info: BTreeMap<RoomId, RoomInfo>,
@@ -329,7 +329,7 @@ impl Store {
         &self,
         room_id: &RoomId,
         state_key: &UserId,
-    ) -> Option<SyncStateEvent<MemberEventContent>> {
+    ) -> Option<MemberEvent> {
         self.members
             .get(format!("{}{}", room_id.as_str(), state_key.as_str()))
             .unwrap()
@@ -386,7 +386,7 @@ mod test {
     use matrix_sdk_test::async_test;
 
     use super::{StateChanges, Store};
-    use crate::Session;
+    use crate::{responses::MemberEvent, Session};
 
     fn user_id() -> UserId {
         user_id!("@example:localhost")
@@ -396,7 +396,7 @@ mod test {
         "DEVICEID".into()
     }
 
-    fn membership_event() -> SyncStateEvent<MemberEventContent> {
+    fn membership_event() -> MemberEvent {
         let content = MemberEventContent {
             avatar_url: None,
             displayname: None,
@@ -405,12 +405,12 @@ mod test {
             membership: MembershipState::Join,
         };
 
-        SyncStateEvent {
+        MemberEvent {
             event_id: EventId::try_from("$h29iv0s8:example.com").unwrap(),
             content,
             sender: user_id(),
             origin_server_ts: SystemTime::now(),
-            state_key: user_id().to_string(),
+            state_key: user_id(),
             prev_content: None,
             unsigned: Unsigned::default(),
         }
@@ -439,7 +439,12 @@ mod test {
         let user_id = user_id();
 
         assert!(store.get_member_event(&room_id, &user_id).await.is_none());
-        let changes = StateChanges::from_event(&room_id!("!test:localhost"), membership_event());
+        let mut changes = StateChanges::default();
+        changes
+            .members
+            .entry(room_id.clone())
+            .or_default()
+            .insert(user_id.clone(), membership_event());
 
         store.save_changes(&changes).await;
         assert!(store.get_member_event(&room_id, &user_id).await.is_some());
