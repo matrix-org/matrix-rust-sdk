@@ -15,12 +15,14 @@
 use std::sync::{Arc, Mutex as SyncMutex};
 
 use matrix_sdk_common::{
-    events::{room::encryption::EncryptionEventContent, AnyStrippedStateEvent},
-    identifiers::{RoomAliasId, RoomId, UserId},
+    events::AnyStrippedStateEvent,
+    identifiers::{RoomId, UserId},
 };
 use serde::{Deserialize, Serialize};
 
 use crate::store::Store;
+
+use super::BaseRoomInfo;
 
 #[derive(Debug, Clone)]
 pub struct StrippedRoom {
@@ -40,11 +42,7 @@ impl StrippedRoom {
             store,
             inner: Arc::new(SyncMutex::new(StrippedRoomInfo {
                 room_id,
-                encryption: None,
-                name: None,
-                canonical_alias: None,
-                avatar_url: None,
-                topic: None,
+                base_info: BaseRoomInfo::new(),
             })),
         }
     }
@@ -59,10 +57,10 @@ impl StrippedRoom {
     pub async fn calculate_name(&self) -> String {
         let inner = self.inner.lock().unwrap();
 
-        if let Some(name) = &inner.name {
+        if let Some(name) = &inner.base_info.name {
             let name = name.trim();
             name.to_string()
-        } else if let Some(alias) = &inner.canonical_alias {
+        } else if let Some(alias) = &inner.base_info.canonical_alias {
             let alias = alias.alias().trim();
             alias.to_string()
         } else {
@@ -142,12 +140,12 @@ impl StrippedRoom {
         &self.own_user_id
     }
 
-    pub(crate) fn clone_summary(&self) -> StrippedRoomInfo {
+    pub(crate) fn clone_info(&self) -> StrippedRoomInfo {
         (*self.inner.lock().unwrap()).clone()
     }
 
     pub fn is_encrypted(&self) -> bool {
-        self.inner.lock().unwrap().encryption.is_some()
+        self.inner.lock().unwrap().base_info.encryption.is_some()
     }
 
     pub fn room_id(&self) -> &RoomId {
@@ -162,35 +160,11 @@ impl StrippedRoom {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct StrippedRoomInfo {
     pub room_id: Arc<RoomId>,
-
-    pub name: Option<String>,
-    pub canonical_alias: Option<RoomAliasId>,
-    pub avatar_url: Option<String>,
-    pub topic: Option<String>,
-
-    pub encryption: Option<EncryptionEventContent>,
+    pub base_info: BaseRoomInfo,
 }
 
 impl StrippedRoomInfo {
     pub(crate) fn handle_state_event(&mut self, event: &AnyStrippedStateEvent) -> bool {
-        match event {
-            AnyStrippedStateEvent::RoomEncryption(encryption) => {
-                self.encryption = Some(encryption.content.clone());
-                true
-            }
-            AnyStrippedStateEvent::RoomName(n) => {
-                self.name = n.content.name().map(|n| n.to_string());
-                true
-            }
-            AnyStrippedStateEvent::RoomCanonicalAlias(a) => {
-                self.canonical_alias = a.content.alias.clone();
-                true
-            }
-            AnyStrippedStateEvent::RoomTopic(t) => {
-                self.topic = Some(t.content.topic.clone());
-                true
-            }
-            _ => false,
-        }
+        self.base_info.handle_state_event(&event.content())
     }
 }

@@ -30,8 +30,10 @@ use futures::StreamExt;
 use matrix_sdk_common::{
     api::r0 as api,
     events::{
-        presence::PresenceEvent, room::member::{MemberEventContent, MembershipState}, AnyBasicEvent,
-        AnyStrippedStateEvent, AnySyncRoomEvent, AnySyncStateEvent, EventContent, StateEvent,
+        presence::PresenceEvent,
+        room::member::{MemberEventContent, MembershipState},
+        AnyBasicEvent, AnyStrippedStateEvent, AnySyncRoomEvent, AnySyncStateEvent, EventContent,
+        StateEvent,
     },
     identifiers::{RoomId, UserId},
     locks::RwLock,
@@ -40,10 +42,7 @@ use matrix_sdk_common::{
 #[cfg(feature = "encryption")]
 use matrix_sdk_common::{
     api::r0::keys::claim_keys::Request as KeysClaimRequest,
-    events::{
-        room::encrypted::EncryptedEventContent,
-        AnyMessageEventContent, AnySyncMessageEvent,
-    },
+    events::{room::encrypted::EncryptedEventContent, AnyMessageEventContent, AnySyncMessageEvent},
     identifiers::DeviceId,
     locks::Mutex,
     uuid::Uuid,
@@ -456,7 +455,7 @@ impl BaseClient {
         &self,
         room_id: &RoomId,
         ruma_timeline: api::sync::sync_events::Timeline,
-        summary: &mut RoomInfo,
+        room_info: &mut RoomInfo,
         changes: &mut StateChanges,
         user_ids: &mut BTreeSet<UserId>,
     ) -> Timeline {
@@ -485,7 +484,7 @@ impl BaseClient {
                             }
                         }
                         _ => {
-                            summary.handle_state_event(&s);
+                            room_info.handle_state_event(&s);
                             changes.add_state_event(room_id, s.clone());
                         }
                     },
@@ -668,40 +667,39 @@ impl BaseClient {
         let mut changes = StateChanges::default();
         let mut rooms = Rooms::default();
 
-        for (room_id, room_info) in response.rooms.join {
+        for (room_id, new_info) in response.rooms.join {
             let room = self.get_or_create_room(&room_id, RoomType::Joined).await;
-            let mut summary = room.clone_summary();
+            let mut room_info = room.clone_info();
 
-            summary.mark_as_joined();
-            summary.update(&room_info.summary);
-            summary.set_prev_batch(room_info.timeline.prev_batch.as_deref());
+            room_info.update_summary(&new_info.summary);
+            room_info.set_prev_batch(new_info.timeline.prev_batch.as_deref());
 
             let (state, members, state_events, mut user_ids) =
-                self.handle_state(room_info.state.events, &mut summary);
+                self.handle_state(new_info.state.events, &mut room_info);
 
             changes.members.insert(room_id.clone(), members);
             changes.state.insert(room_id.clone(), state_events);
 
-            if room_info.timeline.limited {
-                summary.mark_members_missing();
+            if new_info.timeline.limited {
+                room_info.mark_members_missing();
             }
 
             let timeline = self
                 .handle_timeline(
                     &room_id,
-                    room_info.timeline,
-                    &mut summary,
+                    new_info.timeline,
+                    &mut room_info,
                     &mut changes,
                     &mut user_ids,
                 )
                 .await;
 
             let account_data = self
-                .handle_room_account_data(&room_id, &room_info.account_data.events, &mut changes)
+                .handle_room_account_data(&room_id, &new_info.account_data.events, &mut changes)
                 .await;
 
             #[cfg(feature = "encryption")]
-            if summary.is_encrypted() {
+            if room_info.is_encrypted() {
                 if let Some(o) = self.olm_machine().await {
                     if !room.is_encrypted() {
                         // The room turned on encryption in this sync, we need
@@ -719,12 +717,12 @@ impl BaseClient {
                 }
             }
 
-            let notification_count = room_info.unread_notifications.into();
-            summary.update_notification_count(notification_count);
+            let notification_count = new_info.unread_notifications.into();
+            room_info.update_notification_count(notification_count);
 
             // TODO should we store this?
             let ephemeral = Ephemeral {
-                events: room_info
+                events: new_info
                     .ephemeral
                     .events
                     .into_iter()
@@ -737,16 +735,16 @@ impl BaseClient {
                 JoinedRoom::new(timeline, state, account_data, ephemeral, notification_count),
             );
 
-            changes.add_room(summary);
+            changes.add_room(room_info);
         }
 
-        for (room_id, room_info) in response.rooms.leave {
+        for (room_id, new_info) in response.rooms.leave {
             let room = self.get_or_create_room(&room_id, RoomType::Left).await;
-            let mut summary = room.clone_summary();
-            summary.mark_as_left();
+            let mut room_info = room.clone_info();
+            room_info.mark_as_left();
 
             let (state, members, state_events, mut user_ids) =
-                self.handle_state(room_info.state.events, &mut summary);
+                self.handle_state(new_info.state.events, &mut room_info);
 
             changes.members.insert(room_id.clone(), members);
             changes.state.insert(room_id.clone(), state_events);
@@ -754,15 +752,15 @@ impl BaseClient {
             let timeline = self
                 .handle_timeline(
                     &room_id,
-                    room_info.timeline,
-                    &mut summary,
+                    new_info.timeline,
+                    &mut room_info,
                     &mut changes,
                     &mut user_ids,
                 )
                 .await;
 
             let account_data = self
-                .handle_room_account_data(&room_id, &room_info.account_data.events, &mut changes)
+                .handle_room_account_data(&room_id, &new_info.account_data.events, &mut changes)
                 .await;
 
             rooms
@@ -770,19 +768,19 @@ impl BaseClient {
                 .insert(room_id, LeftRoom::new(timeline, state, account_data));
         }
 
-        for (room_id, invited) in response.rooms.invite {
+        for (room_id, new_info) in response.rooms.invite {
             {
                 let room = self.get_or_create_room(&room_id, RoomType::Invited).await;
-                let mut room_info = room.clone_summary();
+                let mut room_info = room.clone_info();
                 room_info.mark_as_invited();
                 changes.add_room(room_info);
             }
 
             let room = self.get_or_create_stripped_room(&room_id).await;
-            let mut room_info = room.clone_summary();
+            let mut room_info = room.clone_info();
 
             let (state, members, state_events) =
-                self.handle_invited_state(invited.invite_state.events, &mut room_info);
+                self.handle_invited_state(new_info.invite_state.events, &mut room_info);
 
             changes.stripped_members.insert(room_id.clone(), members);
             changes.stripped_state.insert(room_id.clone(), state_events);
@@ -846,9 +844,9 @@ impl BaseClient {
 
     async fn apply_changes(&self, changes: &StateChanges) {
         // TODO emit room changes here
-        for (room_id, summary) in &changes.room_infos {
+        for (room_id, room_info) in &changes.room_infos {
             if let Some(room) = self.get_room(&room_id) {
-                room.update_summary(summary.clone())
+                room.update_summary(room_info.clone())
             }
         }
     }
@@ -859,8 +857,8 @@ impl BaseClient {
         response: &api::membership::get_member_events::Response,
     ) -> Result<()> {
         if let Some(room) = self.get_room(room_id) {
-            let mut summary = room.clone_summary();
-            summary.mark_members_synced();
+            let mut room_info = room.clone_info();
+            room_info.mark_members_synced();
 
             let mut members = BTreeMap::new();
 
@@ -877,7 +875,7 @@ impl BaseClient {
                     .store
                     .get_member_event(&room_id, &member.state_key)
                     .await
-                    .is_some()
+                    .is_none()
                 {
                     #[cfg(feature = "encryption")]
                     match member.content.membership {
@@ -895,13 +893,13 @@ impl BaseClient {
             changes.members.insert(room_id.clone(), members);
 
             #[cfg(feature = "encryption")]
-            if summary.is_encrypted() {
+            if room_info.is_encrypted() {
                 if let Some(o) = self.olm_machine().await {
                     o.update_tracked_users(&user_ids).await
                 }
             }
 
-            changes.add_room(summary);
+            changes.add_room(room_info);
 
             self.store.save_changes(&changes).await;
             self.apply_changes(&changes).await;

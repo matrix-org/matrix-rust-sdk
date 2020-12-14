@@ -23,14 +23,14 @@ use futures::{
 };
 use matrix_sdk_common::{
     api::r0::sync::sync_events::RoomSummary as RumaSummary,
-    events::{room::encryption::EncryptionEventContent, AnySyncStateEvent, EventType},
-    identifiers::{RoomAliasId, RoomId, UserId},
+    events::{AnySyncStateEvent, EventType},
+    identifiers::{RoomId, UserId},
 };
 use serde::{Deserialize, Serialize};
 
 use crate::{responses::UnreadNotificationsCount, store::Store};
 
-use super::RoomMember;
+use super::{BaseRoomInfo, RoomMember};
 
 #[derive(Debug, Clone)]
 pub struct Room {
@@ -69,15 +69,11 @@ impl Room {
             inner: Arc::new(SyncMutex::new(RoomInfo {
                 room_id,
                 room_type,
-                encryption: None,
-                summary: Default::default(),
-                last_prev_batch: None,
-                members_synced: false,
-                name: None,
-                canonical_alias: None,
-                avatar_url: None,
-                topic: None,
                 notification_counts: Default::default(),
+                summary: Default::default(),
+                members_synced: false,
+                last_prev_batch: None,
+                base_info: BaseRoomInfo::new(),
             })),
         }
     }
@@ -128,10 +124,10 @@ impl Room {
     pub async fn calculate_name(&self) -> String {
         let inner = self.inner.lock().unwrap();
 
-        if let Some(name) = &inner.name {
+        if let Some(name) = &inner.base_info.name {
             let name = name.trim();
             name.to_string()
-        } else if let Some(alias) = &inner.canonical_alias {
+        } else if let Some(alias) = &inner.base_info.canonical_alias {
             let alias = alias.alias().trim();
             alias.to_string()
         } else {
@@ -210,7 +206,7 @@ impl Room {
         &self.own_user_id
     }
 
-    pub(crate) fn clone_summary(&self) -> RoomInfo {
+    pub(crate) fn clone_info(&self) -> RoomInfo {
         (*self.inner.lock().unwrap()).clone()
     }
 
@@ -219,7 +215,7 @@ impl Room {
     }
 
     pub fn is_encrypted(&self) -> bool {
-        self.inner.lock().unwrap().encryption.is_some()
+        self.inner.lock().unwrap().is_encrypted()
     }
 
     pub fn update_summary(&self, summary: RoomInfo) {
@@ -270,17 +266,12 @@ pub struct RoomInfo {
     pub room_id: Arc<RoomId>,
     pub room_type: RoomType,
 
-    pub name: Option<String>,
-    pub canonical_alias: Option<RoomAliasId>,
-    pub avatar_url: Option<String>,
-    pub topic: Option<String>,
-
     pub notification_counts: UnreadNotificationsCount,
     pub summary: RoomSummary,
     pub members_synced: bool,
-
-    pub encryption: Option<EncryptionEventContent>,
     pub last_prev_batch: Option<String>,
+
+    pub base_info: BaseRoomInfo,
 }
 
 impl RoomInfo {
@@ -313,37 +304,19 @@ impl RoomInfo {
         }
     }
 
-    pub fn handle_state_event(&mut self, event: &AnySyncStateEvent) -> bool {
-        match event {
-            AnySyncStateEvent::RoomEncryption(encryption) => {
-                self.encryption = Some(encryption.content.clone());
-                true
-            }
-            AnySyncStateEvent::RoomName(n) => {
-                self.name = n.content.name().map(|n| n.to_string());
-                true
-            }
-            AnySyncStateEvent::RoomCanonicalAlias(a) => {
-                self.canonical_alias = a.content.alias.clone();
-                true
-            }
-            AnySyncStateEvent::RoomTopic(t) => {
-                self.topic = Some(t.content.topic.clone());
-                true
-            }
-            _ => false,
-        }
+    pub fn is_encrypted(&self) -> bool {
+        self.base_info.encryption.is_some()
     }
 
-    pub fn is_encrypted(&self) -> bool {
-        self.encryption.is_some()
+    pub fn handle_state_event(&mut self, event: &AnySyncStateEvent) -> bool {
+        self.base_info.handle_state_event(&event.content())
     }
 
     pub fn update_notification_count(&mut self, notification_counts: UnreadNotificationsCount) {
         self.notification_counts = notification_counts;
     }
 
-    pub(crate) fn update(&mut self, summary: &RumaSummary) -> bool {
+    pub(crate) fn update_summary(&mut self, summary: &RumaSummary) -> bool {
         let mut changed = false;
 
         if !summary.is_empty() {
