@@ -27,6 +27,7 @@ use matrix_sdk_common::{
     identifiers::{RoomId, UserId},
 };
 use serde::{Deserialize, Serialize};
+use tracing::info;
 
 use crate::{responses::UnreadNotificationsCount, store::Store};
 
@@ -82,7 +83,7 @@ impl Room {
         self.inner.lock().unwrap().members_synced
     }
 
-    pub async fn get_j_members(&self) -> impl Stream<Item = RoomMember> + '_ {
+    pub async fn get_active_members(&self) -> impl Stream<Item = RoomMember> + '_ {
         let joined = self.store.get_joined_user_ids(self.room_id()).await;
         let invited = self.store.get_invited_user_ids(self.room_id()).await;
 
@@ -136,16 +137,14 @@ impl Room {
             let heroes_count = inner.summary.heroes.len() as u64;
             let invited_joined = (invited + joined).saturating_sub(1);
 
-            let members = self.get_j_members().await;
+            let members = self.get_active_members().await;
 
-            // info!(
-            //     "Calculating name for {}, hero count {} members {:#?}",
-            //     self.room_id(),
-            //     heroes_count,
-            //     members
-            // );
-            // TODO: This should use `self.heroes` but it is always empty??
-            //
+            info!(
+                "Calculating name for {}, hero count {} heroes {:#?}",
+                self.room_id(),
+                heroes_count,
+                inner.summary.heroes
+            );
             let own_user_id = self.own_user_id.clone();
 
             let is_own_member = |m: &RoomMember| m.user_id() == &*own_user_id;
