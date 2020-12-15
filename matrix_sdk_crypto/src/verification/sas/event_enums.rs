@@ -19,11 +19,13 @@ use std::convert::TryInto;
 use matrix_sdk_common::{
     events::{
         key::verification::{
+            accept::{AcceptEventContent, AcceptToDeviceEventContent},
             start::{StartEventContent, StartMethod, StartToDeviceEventContent},
             KeyAgreementProtocol,
         },
         AnyMessageEventContent, AnyToDeviceEventContent, MessageEvent, ToDeviceEvent,
     },
+    identifiers::RoomId,
     CanonicalJsonValue,
 };
 
@@ -32,28 +34,28 @@ use super::FlowId;
 #[derive(Clone, Debug)]
 pub enum StartContent {
     ToDevice(StartToDeviceEventContent),
-    Room(StartEventContent),
+    Room(RoomId, StartEventContent),
 }
 
 impl StartContent {
     pub fn method(&self) -> &StartMethod {
         match self {
             StartContent::ToDevice(c) => &c.method,
-            StartContent::Room(c) => &c.method,
+            StartContent::Room(_, c) => &c.method,
         }
     }
 
     pub fn flow_id(&self) -> FlowId {
         match self {
             StartContent::ToDevice(c) => FlowId::ToDevice(c.transaction_id.clone()),
-            StartContent::Room(c) => FlowId::InRoom(c.relation.event_id.clone()),
+            StartContent::Room(r, c) => FlowId::InRoom(r.clone(), c.relation.event_id.clone()),
         }
     }
 
     pub fn to_canonical_json(self) -> CanonicalJsonValue {
         let content = match self {
-            StartContent::Room(c) => serde_json::to_value(c),
             StartContent::ToDevice(c) => serde_json::to_value(c),
+            StartContent::Room(_, c) => serde_json::to_value(c),
         };
 
         content
@@ -63,9 +65,9 @@ impl StartContent {
     }
 }
 
-impl From<StartEventContent> for StartContent {
-    fn from(content: StartEventContent) -> Self {
-        StartContent::Room(content)
+impl From<(RoomId, StartEventContent)> for StartContent {
+    fn from(tuple: (RoomId, StartEventContent)) -> Self {
+        StartContent::Room(tuple.0, tuple.1)
     }
 }
 
@@ -76,15 +78,33 @@ impl From<StartToDeviceEventContent> for StartContent {
 }
 
 #[derive(Clone, Debug)]
+pub enum AcceptContent {
+    ToDevice(AcceptToDeviceEventContent),
+    Room(RoomId, AcceptEventContent),
+}
+
+impl From<AcceptToDeviceEventContent> for AcceptContent {
+    fn from(content: AcceptToDeviceEventContent) -> Self {
+        AcceptContent::ToDevice(content)
+    }
+}
+
+impl From<(RoomId, AcceptEventContent)> for AcceptContent {
+    fn from(content: (RoomId, AcceptEventContent)) -> Self {
+        AcceptContent::Room(content.0, content.1)
+    }
+}
+
+#[derive(Clone, Debug)]
 pub enum OutgoingContent {
-    Room(AnyMessageEventContent),
+    Room(RoomId, AnyMessageEventContent),
     ToDevice(AnyToDeviceEventContent),
 }
 
 impl From<StartContent> for OutgoingContent {
     fn from(content: StartContent) -> Self {
         match content {
-            StartContent::Room(c) => AnyMessageEventContent::KeyVerificationStart(c).into(),
+            StartContent::Room(r, c) => (r, AnyMessageEventContent::KeyVerificationStart(c)).into(),
             StartContent::ToDevice(c) => AnyToDeviceEventContent::KeyVerificationStart(c).into(),
         }
     }
@@ -96,8 +116,8 @@ impl From<AnyToDeviceEventContent> for OutgoingContent {
     }
 }
 
-impl From<AnyMessageEventContent> for OutgoingContent {
-    fn from(content: AnyMessageEventContent) -> Self {
-        OutgoingContent::Room(content)
+impl From<(RoomId, AnyMessageEventContent)> for OutgoingContent {
+    fn from(content: (RoomId, AnyMessageEventContent)) -> Self {
+        OutgoingContent::Room(content.0, content.1)
     }
 }

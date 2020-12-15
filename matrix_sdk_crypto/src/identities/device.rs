@@ -42,7 +42,7 @@ use tracing::warn;
 use crate::{
     olm::{InboundGroupSession, PrivateCrossSigningIdentity, Session},
     store::{Changes, DeviceChanges},
-    OutgoingRequest, OutgoingRequests,
+    OutgoingRequest, OutgoingRequests, OutgoingVerificationRequest,
 };
 #[cfg(test)]
 use crate::{OlmMachine, ReadOnlyAccount};
@@ -97,7 +97,7 @@ impl Device {
             .start_sas(self.inner.clone())
             .await?;
 
-        if let OutgoingRequests::ToDeviceRequest(r) = request {
+        if let OutgoingVerificationRequest::ToDevice(r) = request {
             Ok((sas, r))
         } else {
             panic!("Invalid verification request type");

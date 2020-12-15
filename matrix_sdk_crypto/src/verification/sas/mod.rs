@@ -20,6 +20,7 @@ mod sas_state;
 #[cfg(test)]
 use std::time::Instant;
 
+use event_enums::AcceptContent;
 use std::sync::{Arc, Mutex};
 use tracing::{error, info, trace, warn};
 
@@ -30,15 +31,18 @@ use matrix_sdk_common::{
             cancel::CancelCode,
             start::{StartEventContent, StartToDeviceEventContent},
         },
-        AnyToDeviceEvent, AnyToDeviceEventContent, MessageEvent, ToDeviceEvent,
+        AnyMessageEventContent, AnyToDeviceEvent, AnyToDeviceEventContent, MessageEvent,
+        ToDeviceEvent,
     },
     identifiers::{DeviceId, EventId, RoomId, UserId},
+    uuid::Uuid,
 };
 
 use crate::{
     error::SignatureError,
     identities::{LocalTrust, ReadOnlyDevice, UserIdentities},
     olm::PrivateCrossSigningIdentity,
+    requests::{OutgoingVerificationRequest, RoomMessageRequest},
     store::{Changes, CryptoStore, CryptoStoreError, DeviceChanges},
     ReadOnlyAccount, ToDeviceRequest,
 };
@@ -189,6 +193,7 @@ impl Sas {
     ) -> (Sas, OutgoingContent) {
         let (inner, content) = InnerSas::start_in_room(
             flow_id,
+            room_id,
             account.clone(),
             other_device.clone(),
             other_identity.clone(),
@@ -249,10 +254,18 @@ impl Sas {
     ///
     /// This does nothing if the verification was already accepted, otherwise it
     /// returns an `AcceptEventContent` that needs to be sent out.
-    pub fn accept(&self) -> Option<ToDeviceRequest> {
-        self.inner.lock().unwrap().accept().map(|c| {
-            let content = AnyToDeviceEventContent::KeyVerificationAccept(c);
-            self.content_to_request(content)
+    pub fn accept(&self) -> Option<OutgoingVerificationRequest> {
+        self.inner.lock().unwrap().accept().map(|c| match c {
+            AcceptContent::ToDevice(c) => {
+                let content = AnyToDeviceEventContent::KeyVerificationAccept(c);
+                self.content_to_request(content).into()
+            }
+            AcceptContent::Room(room_id, content) => RoomMessageRequest {
+                room_id,
+                txn_id: Uuid::new_v4(),
+                content: AnyMessageEventContent::KeyVerificationAccept(content),
+            }
+            .into(),
         })
     }
 

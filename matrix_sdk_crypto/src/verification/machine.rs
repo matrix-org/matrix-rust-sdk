@@ -37,7 +37,8 @@ use crate::{
     olm::PrivateCrossSigningIdentity,
     requests::{OutgoingRequest, ToDeviceRequest},
     store::{CryptoStore, CryptoStoreError},
-    OutgoingRequests, ReadOnlyAccount, ReadOnlyDevice,
+    OutgoingRequests, OutgoingVerificationRequest, ReadOnlyAccount, ReadOnlyDevice,
+    RoomMessageRequest,
 };
 
 #[derive(Clone, Debug)]
@@ -49,6 +50,7 @@ pub struct VerificationMachine {
     room_verifications: Arc<DashMap<EventId, Sas>>,
     requests: Arc<DashMap<EventId, VerificationRequest>>,
     outgoing_to_device_messages: Arc<DashMap<Uuid, OutgoingRequest>>,
+    outgoing_room_messages: Arc<DashMap<Uuid, OutgoingRequest>>,
 }
 
 impl VerificationMachine {
@@ -65,13 +67,14 @@ impl VerificationMachine {
             requests: DashMap::new().into(),
             outgoing_to_device_messages: DashMap::new().into(),
             room_verifications: DashMap::new().into(),
+            outgoing_room_messages: DashMap::new().into(),
         }
     }
 
     pub async fn start_sas(
         &self,
         device: ReadOnlyDevice,
-    ) -> Result<(Sas, OutgoingRequests), CryptoStoreError> {
+    ) -> Result<(Sas, OutgoingVerificationRequest), CryptoStoreError> {
         let identity = self.store.get_user_identity(device.user_id()).await?;
         let private_identity = self.private_identity.lock().await.clone();
 
@@ -83,8 +86,13 @@ impl VerificationMachine {
             identity,
         );
 
-        let request: OutgoingRequests = match content {
-            OutgoingContent::Room(c) => todo!(),
+        let request = match content {
+            OutgoingContent::Room(r, c) => RoomMessageRequest {
+                room_id: r,
+                txn_id: Uuid::new_v4(),
+                content: c,
+            }
+            .into(),
             OutgoingContent::ToDevice(c) => {
                 let request = content_to_request(device.user_id(), device.device_id(), c);
 
@@ -127,7 +135,23 @@ impl VerificationMachine {
                 self.outgoing_to_device_messages.insert(request_id, request);
             }
 
-            OutgoingContent::Room(c) => todo!(),
+            OutgoingContent::Room(r, c) => {
+                let request_id = Uuid::new_v4();
+
+                let request = OutgoingRequest {
+                    request: Arc::new(
+                        RoomMessageRequest {
+                            room_id: r,
+                            txn_id: request_id.clone(),
+                            content: c,
+                        }
+                        .into(),
+                    ),
+                    request_id,
+                };
+
+                self.outgoing_room_messages.insert(request_id, request);
+            }
         }
     }
 
@@ -138,7 +162,15 @@ impl VerificationMachine {
     }
 
     pub fn mark_request_as_sent(&self, uuid: &Uuid) {
+        self.outgoing_room_messages.remove(uuid);
         self.outgoing_to_device_messages.remove(uuid);
+    }
+
+    pub fn outgoing_room_message_requests(&self) -> Vec<OutgoingRequest> {
+        self.outgoing_room_messages
+            .iter()
+            .map(|r| (*r).clone())
+            .collect()
     }
 
     pub fn outgoing_to_device_requests(&self) -> Vec<OutgoingRequest> {
@@ -215,9 +247,23 @@ impl VerificationMachine {
                                 Ok(s) => {
                                     // TODO we need to queue up the accept event
                                     // here.
-                                    let accept_event = s.accept();
+                                    info!(
+                                        "Started a new SAS verification, \
+                                          automatically accepting because of in-room"
+                                    );
+
+                                    let accept_request = s.accept().unwrap();
+
                                     self.room_verifications
                                         .insert(e.content.relation.event_id.clone(), s);
+
+                                    self.outgoing_room_messages.insert(
+                                        accept_request.request_id(),
+                                        OutgoingRequest {
+                                            request_id: accept_request.request_id(),
+                                            request: Arc::new(accept_request.into()),
+                                        },
+                                    );
                                 }
                                 Err(c) => {
                                     warn!(

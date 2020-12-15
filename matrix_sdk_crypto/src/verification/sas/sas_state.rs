@@ -14,6 +14,7 @@
 
 use std::{
     convert::TryFrom,
+    matches,
     sync::{Arc, Mutex},
     time::{Duration, Instant},
 };
@@ -24,8 +25,8 @@ use matrix_sdk_common::{
     events::{
         key::verification::{
             accept::{
-                AcceptMethod, AcceptToDeviceEventContent, MSasV1Content as AcceptV1Content,
-                MSasV1ContentInit as AcceptV1ContentInit,
+                AcceptEventContent, AcceptMethod, AcceptToDeviceEventContent,
+                MSasV1Content as AcceptV1Content, MSasV1ContentInit as AcceptV1ContentInit,
             },
             cancel::{CancelCode, CancelToDeviceEventContent},
             key::KeyToDeviceEventContent,
@@ -39,13 +40,13 @@ use matrix_sdk_common::{
         },
         AnyMessageEventContent, AnyToDeviceEventContent, MessageEvent, ToDeviceEvent,
     },
-    identifiers::{DeviceId, EventId, UserId},
+    identifiers::{DeviceId, EventId, RoomId, UserId},
     uuid::Uuid,
 };
 use tracing::error;
 
 use super::{
-    event_enums::{OutgoingContent, StartContent},
+    event_enums::{AcceptContent, OutgoingContent, StartContent},
     helpers::{
         calculate_commitment, get_decimal, get_emoji, get_mac_content, receive_mac_event, SasIds,
     },
@@ -74,20 +75,28 @@ const MAX_EVENT_TIMEOUT: Duration = Duration::from_secs(60);
 #[derive(Clone, Debug)]
 pub enum FlowId {
     ToDevice(String),
-    InRoom(EventId),
+    InRoom(RoomId, EventId),
 }
 
 impl FlowId {
+    pub fn room_id(&self) -> Option<&RoomId> {
+        if let FlowId::InRoom(r, _) = &self {
+            Some(r)
+        } else {
+            None
+        }
+    }
+
     pub fn to_string(&self) -> String {
         match self {
-            FlowId::InRoom(r) => r.to_string(),
+            FlowId::InRoom(_, r) => r.to_string(),
             FlowId::ToDevice(t) => t.to_string(),
         }
     }
 
     pub fn as_str(&self) -> &str {
         match self {
-            FlowId::InRoom(r) => r.as_str(),
+            FlowId::InRoom(_, r) => r.as_str(),
             FlowId::ToDevice(t) => t.as_str(),
         }
     }
@@ -340,12 +349,13 @@ impl SasState<Created> {
     ///
     /// * `other_identity` - The identity of the other user if one exists.
     pub fn new_in_room(
+        room_id: RoomId,
         event_id: EventId,
         account: ReadOnlyAccount,
         other_device: ReadOnlyDevice,
         other_identity: Option<UserIdentities>,
     ) -> SasState<Created> {
-        let flow_id = FlowId::InRoom(event_id);
+        let flow_id = FlowId::InRoom(room_id, event_id);
         Self::new_helper(flow_id, account, other_device, other_identity)
     }
 
@@ -380,7 +390,7 @@ impl SasState<Created> {
 
     pub fn as_start_content(&self) -> StartContent {
         match self.verification_flow_id.as_ref() {
-            FlowId::ToDevice(s) => StartContent::ToDevice(StartToDeviceEventContent {
+            FlowId::ToDevice(_) => StartContent::ToDevice(StartToDeviceEventContent {
                 transaction_id: self.verification_flow_id.to_string(),
                 from_device: self.device_id().into(),
                 method: StartMethod::MSasV1(
@@ -388,16 +398,19 @@ impl SasState<Created> {
                         .expect("Invalid initial protocol definitions."),
                 ),
             }),
-            FlowId::InRoom(e) => StartContent::Room(StartEventContent {
-                from_device: self.device_id().into(),
-                method: StartMethod::MSasV1(
-                    MSasV1Content::new(self.state.protocol_definitions.clone())
-                        .expect("Invalid initial protocol definitions."),
-                ),
-                relation: Relation {
-                    event_id: e.clone(),
+            FlowId::InRoom(r, e) => StartContent::Room(
+                r.clone(),
+                StartEventContent {
+                    from_device: self.device_id().into(),
+                    method: StartMethod::MSasV1(
+                        MSasV1Content::new(self.state.protocol_definitions.clone())
+                            .expect("Invalid initial protocol definitions."),
+                    ),
+                    relation: Relation {
+                        event_id: e.clone(),
+                    },
                 },
-            }),
+            ),
         }
     }
 
@@ -558,25 +571,40 @@ impl SasState<Started> {
     /// This should be sent out automatically if the SAS verification flow has
     /// been started because of a
     /// m.key.verification.request -> m.key.verification.ready flow.
-    pub fn as_content(&self) -> AcceptToDeviceEventContent {
+    pub fn as_content(&self) -> AcceptContent {
         let accepted_protocols = AcceptedProtocols::default();
 
-        AcceptToDeviceEventContent {
-            transaction_id: self.verification_flow_id.to_string(),
-            method: AcceptMethod::MSasV1(
-                AcceptV1ContentInit {
-                    commitment: self.state.commitment.clone(),
-                    hash: accepted_protocols.hash,
-                    key_agreement_protocol: accepted_protocols.key_agreement_protocol,
-                    message_authentication_code: accepted_protocols.message_auth_code,
-                    short_authentication_string: self
-                        .state
-                        .protocol_definitions
-                        .short_authentication_string
-                        .clone(),
-                }
+        let method = AcceptMethod::MSasV1(
+            AcceptV1ContentInit {
+                commitment: self.state.commitment.clone(),
+                hash: accepted_protocols.hash,
+                key_agreement_protocol: accepted_protocols.key_agreement_protocol,
+                message_authentication_code: accepted_protocols.message_auth_code,
+                short_authentication_string: self
+                    .state
+                    .protocol_definitions
+                    .short_authentication_string
+                    .clone(),
+            }
+            .into(),
+        );
+
+        match self.verification_flow_id.as_ref() {
+            FlowId::ToDevice(_) => AcceptToDeviceEventContent {
+                transaction_id: self.verification_flow_id.to_string(),
+                method,
+            }
+            .into(),
+            FlowId::InRoom(r, e) => (
+                r.clone(),
+                AcceptEventContent {
+                    method,
+                    relation: Relation {
+                        event_id: e.clone(),
+                    },
+                },
+            )
                 .into(),
-            ),
         }
     }
 
@@ -676,7 +704,7 @@ impl SasState<Accepted> {
                 transaction_id: s.to_string(),
                 key: self.inner.lock().unwrap().public_key(),
             },
-            FlowId::InRoom(r) => {
+            FlowId::InRoom(_, r) => {
                 todo!("In-room verifications aren't implemented")
             }
         }

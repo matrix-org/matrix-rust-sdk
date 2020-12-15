@@ -322,6 +322,7 @@ impl OlmMachine {
         }
 
         requests.append(&mut self.outgoing_to_device_requests());
+        requests.append(&mut self.verification_machine.outgoing_room_message_requests());
         requests.append(&mut self.key_request_machine.outgoing_to_device_requests());
 
         requests
@@ -358,6 +359,9 @@ impl OlmMachine {
                 self.receive_cross_signing_upload_response().await?;
             }
             IncomingResponse::SignatureUpload(_) => {
+                self.verification_machine.mark_request_as_sent(request_id);
+            }
+            IncomingResponse::RoomMessage(_) => {
                 self.verification_machine.mark_request_as_sent(request_id);
             }
         };

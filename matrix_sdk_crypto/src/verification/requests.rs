@@ -93,13 +93,15 @@ impl VerificationRequest {
     ) -> Result<Sas, OutgoingContent> {
         match &*self.inner.lock().unwrap() {
             InnerRequest::Ready(s) => s.into_started_sas(
-                event,
+                &event.clone().into_full_event(self.room_id().clone()),
                 self.store.clone(),
                 self.account.clone(),
                 self.private_cross_signing_identity.clone(),
                 device,
                 user_identity,
             ),
+            // TODO cancel here since we got a missmatched message or do
+            // nothing?
             _ => todo!(),
         }
     }
@@ -128,7 +130,7 @@ impl InnerRequest {
 
     fn into_started_sas(
         &mut self,
-        event: &SyncMessageEvent<StartEventContent>,
+        event: &MessageEvent<StartEventContent>,
         store: Arc<Box<dyn CryptoStore>>,
         account: ReadOnlyAccount,
         private_identity: PrivateCrossSigningIdentity,
@@ -299,7 +301,7 @@ struct Ready {
 impl RequestState<Ready> {
     fn into_started_sas(
         &self,
-        event: &SyncMessageEvent<StartEventContent>,
+        event: &MessageEvent<StartEventContent>,
         store: Arc<Box<dyn CryptoStore>>,
         account: ReadOnlyAccount,
         private_identity: PrivateCrossSigningIdentity,
@@ -312,7 +314,7 @@ impl RequestState<Ready> {
             other_device,
             store,
             &event.sender,
-            event.content.clone(),
+            (event.room_id.clone(), event.content.clone()),
             other_identity,
         )
     }
@@ -325,13 +327,14 @@ impl RequestState<Ready> {
         other_device: ReadOnlyDevice,
         other_identity: Option<UserIdentities>,
     ) -> (Sas, OutgoingContent) {
-        Sas::start(
-            account,
-            private_identity,
-            other_device,
-            store,
-            other_identity,
-        )
+        todo!()
+        // Sas::start_in_room(
+        //     account,
+        //     private_identity,
+        //     other_device,
+        //     store,
+        //     other_identity,
+        // )
     }
 }
 

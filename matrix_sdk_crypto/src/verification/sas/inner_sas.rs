@@ -27,7 +27,7 @@ use matrix_sdk_common::{
         },
         AnyToDeviceEvent, AnyToDeviceEventContent, MessageEvent, ToDeviceEvent,
     },
-    identifiers::{EventId, UserId},
+    identifiers::{EventId, RoomId, UserId},
 };
 
 use crate::{
@@ -36,7 +36,7 @@ use crate::{
 };
 
 use super::{
-    event_enums::OutgoingContent,
+    event_enums::{AcceptContent, OutgoingContent},
     sas_state::{
         Accepted, Canceled, Confirmed, Created, Done, FlowId, KeyReceived, MacReceived, SasState,
         Started,
@@ -69,11 +69,18 @@ impl InnerSas {
 
     pub fn start_in_room(
         event_id: EventId,
+        room_id: RoomId,
         account: ReadOnlyAccount,
         other_device: ReadOnlyDevice,
         other_identity: Option<UserIdentities>,
     ) -> (InnerSas, OutgoingContent) {
-        let sas = SasState::<Created>::new_in_room(event_id, account, other_device, other_identity);
+        let sas = SasState::<Created>::new_in_room(
+            room_id,
+            event_id,
+            account,
+            other_device,
+            other_identity,
+        );
         let content = sas.as_content();
         (InnerSas::Created(sas), content)
     }
@@ -97,7 +104,7 @@ impl InnerSas {
         }
     }
 
-    pub fn accept(&self) -> Option<AcceptToDeviceEventContent> {
+    pub fn accept(&self) -> Option<AcceptContent> {
         if let InnerSas::Started(s) = self {
             Some(s.as_content())
         } else {
