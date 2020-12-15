@@ -203,7 +203,7 @@ impl Store {
                     }
 
                     for (room, events) in &changes.members {
-                        for (_, event) in events {
+                        for event in events.values() {
                             let key = format!("{}{}", room.as_str(), event.state_key.as_str());
 
                             match event.content.membership {
@@ -243,7 +243,7 @@ impl Store {
                     }
 
                     for (room, events) in &changes.state {
-                        for (_, event) in events {
+                        for event in events.values() {
                             state.insert(
                                 format!(
                                     "{}{}{}",
@@ -272,7 +272,7 @@ impl Store {
                     }
 
                     for (room, events) in &changes.stripped_members {
-                        for (_, event) in events {
+                        for event in events.values() {
                             stripped_members.insert(
                                 format!("{}{}", room.as_str(), &event.state_key).as_str(),
                                 serde_json::to_vec(&event).unwrap(),
@@ -281,7 +281,7 @@ impl Store {
                     }
 
                     for (room, events) in &changes.stripped_state {
-                        for (_, event) in events {
+                        for event in events.values() {
                             stripped_state.insert(
                                 format!(
                                     "{}{}{}",
@@ -379,7 +379,7 @@ mod test {
     use matrix_sdk_common::{
         events::{
             room::member::{MemberEventContent, MembershipState},
-            SyncStateEvent, Unsigned,
+            Unsigned,
         },
         identifiers::{room_id, user_id, DeviceIdBox, EventId, UserId},
     };
@@ -420,7 +420,7 @@ mod test {
     async fn test_session_saving() {
         let session = Session {
             user_id: user_id(),
-            device_id: device_id().into(),
+            device_id: device_id(),
             access_token: "TEST_TOKEN".to_owned(),
         };
 

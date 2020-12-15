@@ -1022,10 +1022,12 @@ impl BaseClient {
     }
 
     pub fn get_room(&self, room_id: &RoomId) -> Option<Room> {
+        #[allow(clippy::map_clone)]
         self.rooms.get(room_id).map(|r| r.clone())
     }
 
     pub fn get_stripped_room(&self, room_id: &RoomId) -> Option<StrippedRoom> {
+        #[allow(clippy::map_clone)]
         self.stripped_rooms.get(room_id).map(|r| r.clone())
     }
 

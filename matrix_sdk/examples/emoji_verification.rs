@@ -74,11 +74,7 @@ async fn login(
             let client = &client_ref;
 
             for event in &response.to_device.events {
-                let e = event
-                    .deserialize()
-                    .expect("Can't deserialize to-device event");
-
-                match e {
+                match event {
                     AnyToDeviceEvent::KeyVerificationStart(e) => {
                         let sas = client
                             .get_verification(&e.content.transaction_id)

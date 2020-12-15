@@ -140,8 +140,9 @@ impl Room {
             let members = self.get_active_members().await;
 
             info!(
-                "Calculating name for {}, hero count {} heroes {:#?}",
+                "Calculating name for {}, own user {} hero count {} heroes {:#?}",
                 self.room_id(),
+                self.own_user_id,
                 heroes_count,
                 inner.summary.heroes
             );

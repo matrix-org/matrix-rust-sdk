@@ -298,8 +298,7 @@ lazy_static! {
                 "!SVkFJHzfwvuaIEawgC:localhost": {
                     "summary": {
                         "m.heroes": [
-                          "@alice:example.com",
-                          "@bob:example.com"
+                          "@example2:localhost"
                         ],
                         "m.joined_member_count": 2,
                         "m.invited_member_count": 0
