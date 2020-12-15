@@ -1498,6 +1498,18 @@ impl BaseClient {
                         .on_custom_event(room, &CustomEvent::Message(e))
                         .await
                 }
+                AnySyncMessageEvent::CallInvite(e) => {
+                    event_emitter.on_room_call_invite(room, e).await
+                }
+                AnySyncMessageEvent::CallAnswer(e) => {
+                    event_emitter.on_room_call_answer(room, e).await
+                }
+                AnySyncMessageEvent::CallCandidates(e) => {
+                    event_emitter.on_room_call_candidates(room, e).await
+                }
+                AnySyncMessageEvent::CallHangup(e) => {
+                    event_emitter.on_room_call_hangup(room, e).await
+                }
                 _ => {}
             },
             AnySyncRoomEvent::RedactedState(_event) => {}
