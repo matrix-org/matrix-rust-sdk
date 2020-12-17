@@ -25,7 +25,8 @@ use matrix_sdk_common::{
             mac::MacToDeviceEventContent,
             start::{StartEventContent, StartToDeviceEventContent},
         },
-        AnyToDeviceEvent, AnyToDeviceEventContent, MessageEvent, ToDeviceEvent,
+        AnyMessageEvent, AnyMessageEventContent, AnySyncMessageEvent, AnyToDeviceEvent,
+        AnyToDeviceEventContent, MessageEvent, ToDeviceEvent,
     },
     identifiers::{EventId, RoomId, UserId},
 };
@@ -36,7 +37,7 @@ use crate::{
 };
 
 use super::{
-    event_enums::{AcceptContent, OutgoingContent},
+    event_enums::{AcceptContent, CancelContent, MacContent, OutgoingContent},
     sas_state::{
         Accepted, Canceled, Confirmed, Created, Done, FlowId, KeyReceived, MacReceived, SasState,
         Started,
@@ -91,7 +92,7 @@ impl InnerSas {
         sender: &UserId,
         content: impl Into<StartContent>,
         other_identity: Option<UserIdentities>,
-    ) -> Result<InnerSas, OutgoingContent> {
+    ) -> Result<InnerSas, CancelContent> {
         match SasState::<Started>::from_start_event(
             account,
             other_device,
@@ -127,7 +128,7 @@ impl InnerSas {
         }
     }
 
-    pub fn cancel(self, code: CancelCode) -> (InnerSas, Option<OutgoingContent>) {
+    pub fn cancel(self, code: CancelCode) -> (InnerSas, Option<CancelContent>) {
         let sas = match self {
             InnerSas::Created(s) => s.cancel(code),
             InnerSas::Started(s) => s.cancel(code),
@@ -142,7 +143,7 @@ impl InnerSas {
         (InnerSas::Canceled(sas), Some(content))
     }
 
-    pub fn confirm(self) -> (InnerSas, Option<MacToDeviceEventContent>) {
+    pub fn confirm(self) -> (InnerSas, Option<MacContent>) {
         match self {
             InnerSas::KeyRecieved(s) => {
                 let sas = s.confirm();
@@ -158,6 +159,62 @@ impl InnerSas {
         }
     }
 
+    #[allow(dead_code)]
+    pub fn receive_room_event(
+        self,
+        event: &AnyMessageEvent,
+    ) -> (InnerSas, Option<OutgoingContent>) {
+        match event {
+            AnyMessageEvent::KeyVerificationKey(e) => match self {
+                InnerSas::Accepted(s) => {
+                    match s.into_key_received(&e.sender, (e.room_id.clone(), e.content.clone())) {
+                        Ok(s) => (InnerSas::KeyRecieved(s), None),
+                        Err(s) => {
+                            let content = s.as_content();
+                            (InnerSas::Canceled(s), Some(content.into()))
+                        }
+                    }
+                }
+                InnerSas::Started(s) => {
+                    match s.into_key_received(&e.sender, (e.room_id.clone(), e.content.clone())) {
+                        Ok(s) => {
+                            let content = s.as_content();
+                            (InnerSas::KeyRecieved(s), Some(content.into()))
+                        }
+                        Err(s) => {
+                            let content = s.as_content();
+                            (InnerSas::Canceled(s), Some(content.into()))
+                        }
+                    }
+                }
+
+                _ => (self, None),
+            },
+            AnyMessageEvent::KeyVerificationMac(e) => match self {
+                InnerSas::KeyRecieved(s) => {
+                    match s.into_mac_received(&e.sender, (e.room_id.clone(), e.content.clone())) {
+                        Ok(s) => (InnerSas::MacReceived(s), None),
+                        Err(s) => {
+                            let content = s.as_content();
+                            (InnerSas::Canceled(s), Some(content.into()))
+                        }
+                    }
+                }
+                InnerSas::Confirmed(s) => {
+                    match s.into_done(&e.sender, (e.room_id.clone(), e.content.clone())) {
+                        Ok(s) => (InnerSas::Done(s), None),
+                        Err(s) => {
+                            let content = s.as_content();
+                            (InnerSas::Canceled(s), Some(content.into()))
+                        }
+                    }
+                }
+                _ => (self, None),
+            },
+            _ => (self, None),
+        }
+    }
+
     pub fn receive_event(self, event: &AnyToDeviceEvent) -> (InnerSas, Option<OutgoingContent>) {
         match event {
             AnyToDeviceEvent::KeyVerificationAccept(e) => {
@@ -165,14 +222,11 @@ impl InnerSas {
                     match s.into_accepted(e) {
                         Ok(s) => {
                             let content = s.as_content();
-                            (
-                                InnerSas::Accepted(s),
-                                Some(AnyToDeviceEventContent::KeyVerificationKey(content).into()),
-                            )
+                            (InnerSas::Accepted(s), Some(content.into()))
                         }
                         Err(s) => {
                             let content = s.as_content();
-                            (InnerSas::Canceled(s), Some(content))
+                            (InnerSas::Canceled(s), Some(content.into()))
                         }
                     }
                 } else {
@@ -180,41 +234,39 @@ impl InnerSas {
                 }
             }
             AnyToDeviceEvent::KeyVerificationKey(e) => match self {
-                InnerSas::Accepted(s) => match s.into_key_received(e) {
+                InnerSas::Accepted(s) => match s.into_key_received(&e.sender, e.content.clone()) {
                     Ok(s) => (InnerSas::KeyRecieved(s), None),
                     Err(s) => {
                         let content = s.as_content();
-                        (InnerSas::Canceled(s), Some(content))
+                        (InnerSas::Canceled(s), Some(content.into()))
                     }
                 },
-                InnerSas::Started(s) => match s.into_key_received(e) {
+                InnerSas::Started(s) => match s.into_key_received(&e.sender, e.content.clone()) {
                     Ok(s) => {
                         let content = s.as_content();
-                        (
-                            InnerSas::KeyRecieved(s),
-                            Some(AnyToDeviceEventContent::KeyVerificationKey(content).into()),
-                        )
+                        (InnerSas::KeyRecieved(s), Some(content.into()))
                     }
                     Err(s) => {
                         let content = s.as_content();
-                        (InnerSas::Canceled(s), Some(content))
+                        (InnerSas::Canceled(s), Some(content.into()))
                     }
                 },
                 _ => (self, None),
             },
             AnyToDeviceEvent::KeyVerificationMac(e) => match self {
-                InnerSas::KeyRecieved(s) => match s.into_mac_received(e) {
+                InnerSas::KeyRecieved(s) => match s.into_mac_received(&e.sender, e.content.clone())
+                {
                     Ok(s) => (InnerSas::MacReceived(s), None),
                     Err(s) => {
                         let content = s.as_content();
-                        (InnerSas::Canceled(s), Some(content))
+                        (InnerSas::Canceled(s), Some(content.into()))
                     }
                 },
-                InnerSas::Confirmed(s) => match s.into_done(e) {
+                InnerSas::Confirmed(s) => match s.into_done(&e.sender, e.content.clone()) {
                     Ok(s) => (InnerSas::Done(s), None),
                     Err(s) => {
                         let content = s.as_content();
-                        (InnerSas::Canceled(s), Some(content))
+                        (InnerSas::Canceled(s), Some(content.into()))
                     }
                 },
                 _ => (self, None),

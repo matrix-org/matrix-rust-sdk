@@ -14,16 +14,18 @@
 
 #![allow(dead_code)]
 
-use std::convert::TryInto;
+use std::{collections::BTreeMap, convert::TryInto};
 
 use matrix_sdk_common::{
     events::{
         key::verification::{
             accept::{AcceptEventContent, AcceptToDeviceEventContent},
+            cancel::{CancelEventContent, CancelToDeviceEventContent},
+            key::{KeyEventContent, KeyToDeviceEventContent},
+            mac::{MacEventContent, MacToDeviceEventContent},
             start::{StartEventContent, StartMethod, StartToDeviceEventContent},
-            KeyAgreementProtocol,
         },
-        AnyMessageEventContent, AnyToDeviceEventContent, MessageEvent, ToDeviceEvent,
+        AnyMessageEventContent, AnyToDeviceEventContent,
     },
     identifiers::RoomId,
     CanonicalJsonValue,
@@ -95,6 +97,96 @@ impl From<(RoomId, AcceptEventContent)> for AcceptContent {
     }
 }
 
+pub enum KeyContent {
+    ToDevice(KeyToDeviceEventContent),
+    Room(RoomId, KeyEventContent),
+}
+
+impl KeyContent {
+    pub fn flow_id(&self) -> FlowId {
+        match self {
+            KeyContent::ToDevice(c) => FlowId::ToDevice(c.transaction_id.clone()),
+            KeyContent::Room(r, c) => FlowId::InRoom(r.clone(), c.relation.event_id.clone()),
+        }
+    }
+
+    pub fn public_key(&self) -> &str {
+        match self {
+            KeyContent::ToDevice(c) => &c.key,
+            KeyContent::Room(_, c) => &c.key,
+        }
+    }
+}
+
+impl From<KeyToDeviceEventContent> for KeyContent {
+    fn from(content: KeyToDeviceEventContent) -> Self {
+        KeyContent::ToDevice(content)
+    }
+}
+
+impl From<(RoomId, KeyEventContent)> for KeyContent {
+    fn from(content: (RoomId, KeyEventContent)) -> Self {
+        KeyContent::Room(content.0, content.1)
+    }
+}
+
+pub enum MacContent {
+    ToDevice(MacToDeviceEventContent),
+    Room(RoomId, MacEventContent),
+}
+
+impl MacContent {
+    pub fn flow_id(&self) -> FlowId {
+        match self {
+            MacContent::ToDevice(c) => FlowId::ToDevice(c.transaction_id.clone()),
+            MacContent::Room(r, c) => FlowId::InRoom(r.clone(), c.relation.event_id.clone()),
+        }
+    }
+
+    pub fn mac(&self) -> &BTreeMap<String, String> {
+        match self {
+            MacContent::ToDevice(c) => &c.mac,
+            MacContent::Room(_, c) => &c.mac,
+        }
+    }
+
+    pub fn keys(&self) -> &str {
+        match self {
+            MacContent::ToDevice(c) => &c.keys,
+            MacContent::Room(_, c) => &c.keys,
+        }
+    }
+}
+
+impl From<MacToDeviceEventContent> for MacContent {
+    fn from(content: MacToDeviceEventContent) -> Self {
+        MacContent::ToDevice(content)
+    }
+}
+
+impl From<(RoomId, MacEventContent)> for MacContent {
+    fn from(content: (RoomId, MacEventContent)) -> Self {
+        MacContent::Room(content.0, content.1)
+    }
+}
+
+pub enum CancelContent {
+    ToDevice(CancelToDeviceEventContent),
+    Room(RoomId, CancelEventContent),
+}
+
+impl From<(RoomId, CancelEventContent)> for CancelContent {
+    fn from(content: (RoomId, CancelEventContent)) -> Self {
+        CancelContent::Room(content.0, content.1)
+    }
+}
+
+impl From<CancelToDeviceEventContent> for CancelContent {
+    fn from(content: CancelToDeviceEventContent) -> Self {
+        CancelContent::ToDevice(content)
+    }
+}
+
 #[derive(Clone, Debug)]
 pub enum OutgoingContent {
     Room(RoomId, AnyMessageEventContent),
@@ -106,6 +198,26 @@ impl From<StartContent> for OutgoingContent {
         match content {
             StartContent::Room(r, c) => (r, AnyMessageEventContent::KeyVerificationStart(c)).into(),
             StartContent::ToDevice(c) => AnyToDeviceEventContent::KeyVerificationStart(c).into(),
+        }
+    }
+}
+
+impl From<CancelContent> for OutgoingContent {
+    fn from(content: CancelContent) -> Self {
+        match content {
+            CancelContent::Room(r, c) => {
+                (r, AnyMessageEventContent::KeyVerificationCancel(c)).into()
+            }
+            CancelContent::ToDevice(c) => AnyToDeviceEventContent::KeyVerificationCancel(c).into(),
+        }
+    }
+}
+
+impl From<KeyContent> for OutgoingContent {
+    fn from(content: KeyContent) -> Self {
+        match content {
+            KeyContent::Room(r, c) => (r, AnyMessageEventContent::KeyVerificationKey(c)).into(),
+            KeyContent::ToDevice(c) => AnyToDeviceEventContent::KeyVerificationKey(c).into(),
         }
     }
 }

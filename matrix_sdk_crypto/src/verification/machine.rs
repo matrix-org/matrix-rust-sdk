@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::sync::Arc;
+use std::{convert::TryFrom, sync::Arc};
 
 use dashmap::DashMap;
 
@@ -20,7 +20,7 @@ use tracing::{info, trace, warn};
 
 use matrix_sdk_common::{
     events::{
-        room::message::MessageEventContent, AnySyncMessageEvent, AnySyncRoomEvent,
+        room::message::MessageEventContent, AnyMessageEvent, AnySyncMessageEvent, AnySyncRoomEvent,
         AnyToDeviceEvent, AnyToDeviceEventContent,
     },
     identifiers::{DeviceId, EventId, RoomId, UserId},
@@ -112,8 +112,19 @@ impl VerificationMachine {
     }
 
     pub fn get_sas(&self, transaction_id: &str) -> Option<Sas> {
-        #[allow(clippy::map_clone)]
-        self.verifications.get(transaction_id).map(|s| s.clone())
+        let sas = if let Ok(e) = EventId::try_from(transaction_id) {
+            #[allow(clippy::map_clone)]
+            self.room_verifications.get(&e).map(|s| s.clone())
+        } else {
+            None
+        };
+
+        if sas.is_some() {
+            sas
+        } else {
+            #[allow(clippy::map_clone)]
+            self.verifications.get(transaction_id).map(|s| s.clone())
+        }
     }
 
     fn queue_up_content(
@@ -155,6 +166,13 @@ impl VerificationMachine {
         }
     }
 
+    #[allow(dead_code)]
+    fn receive_room_event_helper(&self, sas: &Sas, event: &AnyMessageEvent) {
+        if let Some(c) = sas.receive_room_event(event) {
+            self.queue_up_content(sas.other_user_id(), sas.other_device_id(), c);
+        }
+    }
+
     fn receive_event_helper(&self, sas: &Sas, event: &AnyToDeviceEvent) {
         if let Some(c) = sas.receive_event(event) {
             self.queue_up_content(sas.other_user_id(), sas.other_device_id(), c);
@@ -188,9 +206,9 @@ impl VerificationMachine {
         for sas in self.verifications.iter() {
             if let Some(r) = sas.cancel_if_timed_out() {
                 self.outgoing_to_device_messages.insert(
-                    r.txn_id,
+                    r.request_id(),
                     OutgoingRequest {
-                        request_id: r.txn_id,
+                        request_id: r.request_id(),
                         request: Arc::new(r.into()),
                     },
                 );
@@ -204,6 +222,12 @@ impl VerificationMachine {
         event: &AnySyncRoomEvent,
     ) -> Result<(), CryptoStoreError> {
         if let AnySyncRoomEvent::Message(m) = event {
+            // Since this are room events we will get events that we send out on
+            // our own as well.
+            if m.sender() == self.account.user_id() {
+                return Ok(());
+            }
+
             match m {
                 AnySyncMessageEvent::RoomMessage(m) => {
                     if let MessageEventContent::VerificationRequest(r) = &m.content {
@@ -245,25 +269,19 @@ impl VerificationMachine {
                                 self.store.get_user_identity(&e.sender).await?,
                             ) {
                                 Ok(s) => {
-                                    // TODO we need to queue up the accept event
-                                    // here.
                                     info!(
                                         "Started a new SAS verification, \
                                           automatically accepting because of in-room"
                                     );
 
+                                    // TODO remove this unwrap
                                     let accept_request = s.accept().unwrap();
 
                                     self.room_verifications
                                         .insert(e.content.relation.event_id.clone(), s);
 
-                                    self.outgoing_room_messages.insert(
-                                        accept_request.request_id(),
-                                        OutgoingRequest {
-                                            request_id: accept_request.request_id(),
-                                            request: Arc::new(accept_request.into()),
-                                        },
-                                    );
+                                    self.outgoing_room_messages
+                                        .insert(accept_request.request_id(), accept_request.into());
                                 }
                                 Err(c) => {
                                     warn!(
@@ -275,6 +293,38 @@ impl VerificationMachine {
                             }
                         }
                     }
+                }
+                AnySyncMessageEvent::KeyVerificationKey(e) => {
+                    if let Some(s) = self.room_verifications.get(&e.content.relation.event_id) {
+                        self.receive_room_event_helper(
+                            &s,
+                            &m.clone().into_full_event(room_id.clone()),
+                        )
+                    };
+                }
+                AnySyncMessageEvent::KeyVerificationMac(e) => {
+                    if let Some(s) = self.room_verifications.get(&e.content.relation.event_id) {
+                        self.receive_room_event_helper(
+                            &s,
+                            &m.clone().into_full_event(room_id.clone()),
+                        );
+
+                        if s.is_done() {
+                            match s.mark_as_done().await? {
+                                VerificationResult::Ok => (),
+                                VerificationResult::Cancel(r) => {
+                                    self.outgoing_to_device_messages
+                                        .insert(r.request_id(), r.into());
+                                }
+                                VerificationResult::SignatureUpload(r) => {
+                                    let request: OutgoingRequest = r.into();
+
+                                    self.outgoing_to_device_messages
+                                        .insert(request.request_id, request);
+                                }
+                            }
+                        }
+                    };
                 }
                 _ => (),
             }
@@ -350,9 +400,9 @@ impl VerificationMachine {
                             VerificationResult::Ok => (),
                             VerificationResult::Cancel(r) => {
                                 self.outgoing_to_device_messages.insert(
-                                    r.txn_id,
+                                    r.request_id(),
                                     OutgoingRequest {
-                                        request_id: r.txn_id,
+                                        request_id: r.request_id(),
                                         request: Arc::new(r.into()),
                                     },
                                 );

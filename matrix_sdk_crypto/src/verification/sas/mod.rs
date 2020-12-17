@@ -31,8 +31,8 @@ use matrix_sdk_common::{
             cancel::CancelCode,
             start::{StartEventContent, StartToDeviceEventContent},
         },
-        AnyMessageEventContent, AnyToDeviceEvent, AnyToDeviceEventContent, MessageEvent,
-        ToDeviceEvent,
+        AnyMessageEvent, AnyMessageEventContent, AnySyncMessageEvent, AnyToDeviceEvent,
+        AnyToDeviceEventContent, MessageEvent, ToDeviceEvent,
     },
     identifiers::{DeviceId, EventId, RoomId, UserId},
     uuid::Uuid,
@@ -53,13 +53,15 @@ pub use sas_state::FlowId;
 
 pub use event_enums::{OutgoingContent, StartContent};
 
+use self::event_enums::CancelContent;
+
 #[derive(Debug)]
 /// A result of a verification flow.
 pub enum VerificationResult {
     /// The verification succeeded, nothing needs to be done.
     Ok,
     /// The verification was canceled.
-    Cancel(ToDeviceRequest),
+    Cancel(OutgoingVerificationRequest),
     /// The verification is done and has signatures that need to be uploaded.
     SignatureUpload(SignatureUploadRequest),
 }
@@ -278,7 +280,13 @@ impl Sas {
     /// the server.
     pub async fn confirm(
         &self,
-    ) -> Result<(Option<ToDeviceRequest>, Option<SignatureUploadRequest>), CryptoStoreError> {
+    ) -> Result<
+        (
+            Option<OutgoingVerificationRequest>,
+            Option<SignatureUploadRequest>,
+        ),
+        CryptoStoreError,
+    > {
         let (content, done) = {
             let mut guard = self.inner.lock().unwrap();
             let sas: InnerSas = (*guard).clone();
@@ -288,8 +296,17 @@ impl Sas {
             (content, guard.is_done())
         };
 
-        let mac_request = content
-            .map(|c| self.content_to_request(AnyToDeviceEventContent::KeyVerificationMac(c)));
+        let mac_request = content.map(|c| match c {
+            event_enums::MacContent::ToDevice(c) => self
+                .content_to_request(AnyToDeviceEventContent::KeyVerificationMac(c))
+                .into(),
+            event_enums::MacContent::Room(r, c) => RoomMessageRequest {
+                room_id: r,
+                txn_id: Uuid::new_v4(),
+                content: AnyMessageEventContent::KeyVerificationMac(c),
+            }
+            .into(),
+        });
 
         if done {
             match self.mark_as_done().await? {
@@ -530,22 +547,26 @@ impl Sas {
     ///
     /// Returns None if the `Sas` object is already in a canceled state,
     /// otherwise it returns a request that needs to be sent out.
-    pub fn cancel(&self) -> Option<ToDeviceRequest> {
+    pub fn cancel(&self) -> Option<OutgoingVerificationRequest> {
         let mut guard = self.inner.lock().unwrap();
         let sas: InnerSas = (*guard).clone();
         let (sas, content) = sas.cancel(CancelCode::User);
         *guard = sas;
 
-        content.map(|c| {
-            if let OutgoingContent::ToDevice(c) = c {
-                self.content_to_request(c)
-            } else {
-                todo!()
+        content.map(|c| match c {
+            CancelContent::Room(room_id, content) => RoomMessageRequest {
+                room_id,
+                txn_id: Uuid::new_v4(),
+                content: AnyMessageEventContent::KeyVerificationCancel(content),
             }
+            .into(),
+            CancelContent::ToDevice(c) => self
+                .content_to_request(AnyToDeviceEventContent::KeyVerificationCancel(c))
+                .into(),
         })
     }
 
-    pub(crate) fn cancel_if_timed_out(&self) -> Option<ToDeviceRequest> {
+    pub(crate) fn cancel_if_timed_out(&self) -> Option<OutgoingVerificationRequest> {
         if self.is_canceled() || self.is_done() {
             None
         } else if self.timed_out() {
@@ -553,12 +574,16 @@ impl Sas {
             let sas: InnerSas = (*guard).clone();
             let (sas, content) = sas.cancel(CancelCode::Timeout);
             *guard = sas;
-            content.map(|c| {
-                if let OutgoingContent::ToDevice(c) = c {
-                    self.content_to_request(c)
-                } else {
-                    todo!()
+            content.map(|c| match c {
+                CancelContent::Room(room_id, content) => RoomMessageRequest {
+                    room_id,
+                    txn_id: Uuid::new_v4(),
+                    content: AnyMessageEventContent::KeyVerificationCancel(content),
                 }
+                .into(),
+                CancelContent::ToDevice(c) => self
+                    .content_to_request(AnyToDeviceEventContent::KeyVerificationCancel(c))
+                    .into(),
             })
         } else {
             None
@@ -600,6 +625,15 @@ impl Sas {
     /// string.
     pub fn decimals(&self) -> Option<(u16, u16, u16)> {
         self.inner.lock().unwrap().decimals()
+    }
+
+    pub(crate) fn receive_room_event(&self, event: &AnyMessageEvent) -> Option<OutgoingContent> {
+        let mut guard = self.inner.lock().unwrap();
+        let sas: InnerSas = (*guard).clone();
+        let (sas, content) = sas.receive_room_event(event);
+        *guard = sas;
+
+        content
     }
 
     pub(crate) fn receive_event(&self, event: &AnyToDeviceEvent) -> Option<OutgoingContent> {

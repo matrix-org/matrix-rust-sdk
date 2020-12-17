@@ -166,6 +166,24 @@ impl From<SignatureUploadRequest> for OutgoingRequests {
     }
 }
 
+impl From<OutgoingVerificationRequest> for OutgoingRequest {
+    fn from(r: OutgoingVerificationRequest) -> Self {
+        Self {
+            request_id: r.request_id(),
+            request: Arc::new(r.into()),
+        }
+    }
+}
+
+impl From<SignatureUploadRequest> for OutgoingRequest {
+    fn from(r: SignatureUploadRequest) -> Self {
+        Self {
+            request_id: Uuid::new_v4(),
+            request: Arc::new(r.into()),
+        }
+    }
+}
+
 /// Enum over all the incoming responses we need to receive.
 #[derive(Debug)]
 pub enum IncomingResponse<'a> {

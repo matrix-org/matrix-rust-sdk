@@ -23,7 +23,10 @@ use matrix_sdk_common::{
     api::r0::to_device::DeviceIdOrAllDevices,
     events::{
         key::verification::{
-            cancel::CancelCode, mac::MacToDeviceEventContent, start::StartToDeviceEventContent,
+            cancel::CancelCode,
+            mac::{MacEventContent, MacToDeviceEventContent},
+            start::StartToDeviceEventContent,
+            Relation,
         },
         AnyToDeviceEventContent, EventType, ToDeviceEvent,
     },
@@ -38,7 +41,10 @@ use crate::{
     ReadOnlyAccount, ToDeviceRequest,
 };
 
-use super::{event_enums::StartContent, sas_state::FlowId};
+use super::{
+    event_enums::{MacContent, StartContent},
+    sas_state::FlowId,
+};
 
 #[derive(Clone, Debug)]
 pub struct SasIds {
@@ -186,7 +192,8 @@ pub fn receive_mac_event(
     sas: &OlmSas,
     ids: &SasIds,
     flow_id: &str,
-    event: &ToDeviceEvent<MacToDeviceEventContent>,
+    sender: &UserId,
+    content: &MacContent,
 ) -> Result<(Vec<ReadOnlyDevice>, Vec<UserIdentities>), CancelCode> {
     let mut verified_devices = Vec::new();
     let mut verified_identities = Vec::new();
@@ -195,25 +202,25 @@ pub fn receive_mac_event(
 
     trace!(
         "Received a key.verification.mac event from {} {}",
-        event.sender,
+        sender,
         ids.other_device.device_id()
     );
 
-    let mut keys = event.content.mac.keys().cloned().collect::<Vec<String>>();
+    let mut keys = content.mac().keys().cloned().collect::<Vec<String>>();
     keys.sort();
     let keys = sas
         .calculate_mac(&keys.join(","), &format!("{}KEY_IDS", &info))
         .expect("Can't calculate SAS MAC");
 
-    if keys != event.content.keys {
+    if keys != content.keys() {
         return Err(CancelCode::KeyMismatch);
     }
 
-    for (key_id, key_mac) in &event.content.mac {
+    for (key_id, key_mac) in content.mac() {
         trace!(
             "Checking MAC for the key id {} from {} {}",
             key_id,
-            event.sender,
+            sender,
             ids.other_device.device_id()
         );
         let key_id: DeviceKeyId = match key_id.as_str().try_into() {
@@ -227,6 +234,12 @@ pub fn receive_mac_event(
                     .calculate_mac(key, &format!("{}{}", info, key_id))
                     .expect("Can't calculate SAS MAC")
             {
+                trace!(
+                    "Successfully verified the device key {} from {}",
+                    key_id,
+                    sender
+                );
+
                 verified_devices.push(ids.other_device.clone());
             } else {
                 return Err(CancelCode::KeyMismatch);
@@ -243,7 +256,7 @@ pub fn receive_mac_event(
                     trace!(
                         "Successfully verified the master key {} from {}",
                         key_id,
-                        event.sender
+                        sender
                     );
                     verified_identities.push(identity.clone())
                 } else {
@@ -255,7 +268,7 @@ pub fn receive_mac_event(
                 "Key ID {} in MAC event from {} {} doesn't belong to any device \
                 or user identity",
                 key_id,
-                event.sender,
+                sender,
                 ids.other_device.device_id()
             );
         }
@@ -297,7 +310,7 @@ fn extra_mac_info_send(ids: &SasIds, flow_id: &str) -> String {
 /// # Panics
 ///
 /// This will panic if the public key of the other side wasn't set.
-pub fn get_mac_content(sas: &OlmSas, ids: &SasIds, flow_id: &FlowId) -> MacToDeviceEventContent {
+pub fn get_mac_content(sas: &OlmSas, ids: &SasIds, flow_id: &FlowId) -> MacContent {
     let mut mac: BTreeMap<String, String> = BTreeMap::new();
 
     let key_id = DeviceKeyId::from_parts(DeviceKeyAlgorithm::Ed25519, ids.account.device_id());
@@ -323,8 +336,19 @@ pub fn get_mac_content(sas: &OlmSas, ids: &SasIds, flow_id: &FlowId) -> MacToDev
             transaction_id: s.to_string(),
             keys,
             mac,
-        },
-        _ => todo!(),
+        }
+        .into(),
+        FlowId::InRoom(r, e) => (
+            r.clone(),
+            MacEventContent {
+                mac,
+                keys,
+                relation: Relation {
+                    event_id: e.clone(),
+                },
+            },
+        )
+            .into(),
     }
 }
 

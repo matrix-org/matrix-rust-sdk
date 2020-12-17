@@ -28,8 +28,8 @@ use matrix_sdk_common::{
                 AcceptEventContent, AcceptMethod, AcceptToDeviceEventContent,
                 MSasV1Content as AcceptV1Content, MSasV1ContentInit as AcceptV1ContentInit,
             },
-            cancel::{CancelCode, CancelToDeviceEventContent},
-            key::KeyToDeviceEventContent,
+            cancel::{CancelCode, CancelEventContent, CancelToDeviceEventContent},
+            key::{KeyEventContent, KeyToDeviceEventContent},
             mac::MacToDeviceEventContent,
             start::{
                 MSasV1Content, MSasV1ContentInit, StartEventContent, StartMethod,
@@ -46,7 +46,9 @@ use matrix_sdk_common::{
 use tracing::error;
 
 use super::{
-    event_enums::{AcceptContent, OutgoingContent, StartContent},
+    event_enums::{
+        AcceptContent, CancelContent, KeyContent, MacContent, OutgoingContent, StartContent,
+    },
     helpers::{
         calculate_commitment, get_decimal, get_emoji, get_mac_content, receive_mac_event, SasIds,
     },
@@ -618,14 +620,17 @@ impl SasState<Started> {
     /// anymore.
     pub fn into_key_received(
         self,
-        event: &ToDeviceEvent<KeyToDeviceEventContent>,
+        sender: &UserId,
+        content: impl Into<KeyContent>,
     ) -> Result<SasState<KeyReceived>, SasState<Canceled>> {
-        self.check_event(&event.sender, &event.content.transaction_id)
+        let content = content.into();
+
+        self.check_event(&sender, &content.flow_id().as_str())
             .map_err(|c| self.clone().cancel(c))?;
 
         let accepted_protocols = AcceptedProtocols::default();
 
-        let their_pubkey = event.content.key.clone();
+        let their_pubkey = content.public_key().to_owned();
 
         self.inner
             .lock()
@@ -659,20 +664,23 @@ impl SasState<Accepted> {
     /// anymore.
     pub fn into_key_received(
         self,
-        event: &ToDeviceEvent<KeyToDeviceEventContent>,
+        sender: &UserId,
+        content: impl Into<KeyContent>,
     ) -> Result<SasState<KeyReceived>, SasState<Canceled>> {
-        self.check_event(&event.sender, &event.content.transaction_id)
+        let content = content.into();
+
+        self.check_event(&sender, content.flow_id().as_str())
             .map_err(|c| self.clone().cancel(c))?;
 
         let commitment = calculate_commitment(
-            &event.content.key,
+            content.public_key(),
             self.state.start_content.as_ref().clone(),
         );
 
         if self.state.commitment != commitment {
             Err(self.cancel(CancelCode::InvalidMessage))
         } else {
-            let their_pubkey = event.content.key.clone();
+            let their_pubkey = content.public_key().to_owned();
 
             self.inner
                 .lock()
@@ -698,15 +706,23 @@ impl SasState<Accepted> {
     /// Get the content for the key event.
     ///
     /// The content needs to be automatically sent to the other side.
-    pub fn as_content(&self) -> KeyToDeviceEventContent {
+    pub fn as_content(&self) -> OutgoingContent {
         match &*self.verification_flow_id {
-            FlowId::ToDevice(s) => KeyToDeviceEventContent {
+            FlowId::ToDevice(s) => KeyContent::ToDevice(KeyToDeviceEventContent {
                 transaction_id: s.to_string(),
                 key: self.inner.lock().unwrap().public_key(),
-            },
-            FlowId::InRoom(_, r) => {
-                todo!("In-room verifications aren't implemented")
-            }
+            })
+            .into(),
+            FlowId::InRoom(r, e) => KeyContent::Room(
+                r.clone(),
+                KeyEventContent {
+                    key: self.inner.lock().unwrap().public_key(),
+                    relation: Relation {
+                        event_id: e.clone(),
+                    },
+                },
+            )
+            .into(),
         }
     }
 }
@@ -716,13 +732,23 @@ impl SasState<KeyReceived> {
     ///
     /// The content needs to be automatically sent to the other side if and only
     /// if we_started is false.
-    pub fn as_content(&self) -> KeyToDeviceEventContent {
-        match self.verification_flow_id.as_ref() {
-            FlowId::ToDevice(s) => KeyToDeviceEventContent {
+    pub fn as_content(&self) -> KeyContent {
+        match &*self.verification_flow_id {
+            FlowId::ToDevice(s) => KeyContent::ToDevice(KeyToDeviceEventContent {
                 transaction_id: s.to_string(),
                 key: self.inner.lock().unwrap().public_key(),
-            },
-            _ => todo!(),
+            })
+            .into(),
+            FlowId::InRoom(r, e) => KeyContent::Room(
+                r.clone(),
+                KeyEventContent {
+                    key: self.inner.lock().unwrap().public_key(),
+                    relation: Relation {
+                        event_id: e.clone(),
+                    },
+                },
+            )
+            .into(),
         }
     }
 
@@ -763,16 +789,20 @@ impl SasState<KeyReceived> {
     /// the other side.
     pub fn into_mac_received(
         self,
-        event: &ToDeviceEvent<MacToDeviceEventContent>,
+        sender: &UserId,
+        content: impl Into<MacContent>,
     ) -> Result<SasState<MacReceived>, SasState<Canceled>> {
-        self.check_event(&event.sender, &event.content.transaction_id)
+        let content = content.into();
+
+        self.check_event(&sender, content.flow_id().as_str())
             .map_err(|c| self.clone().cancel(c))?;
 
         let (devices, master_keys) = receive_mac_event(
             &self.inner.lock().unwrap(),
             &self.ids,
             self.verification_flow_id.as_str(),
-            event,
+            sender,
+            &content,
         )
         .map_err(|c| self.clone().cancel(c))?;
 
@@ -819,16 +849,20 @@ impl SasState<Confirmed> {
     /// the other side.
     pub fn into_done(
         self,
-        event: &ToDeviceEvent<MacToDeviceEventContent>,
+        sender: &UserId,
+        content: impl Into<MacContent>,
     ) -> Result<SasState<Done>, SasState<Canceled>> {
-        self.check_event(&event.sender, &event.content.transaction_id)
+        let content = content.into();
+
+        self.check_event(&sender, &content.flow_id().as_str())
             .map_err(|c| self.clone().cancel(c))?;
 
         let (devices, master_keys) = receive_mac_event(
             &self.inner.lock().unwrap(),
             &self.ids,
             &self.verification_flow_id.as_str(),
-            event,
+            sender,
+            &content,
         )
         .map_err(|c| self.clone().cancel(c))?;
 
@@ -849,7 +883,7 @@ impl SasState<Confirmed> {
     /// Get the content for the mac event.
     ///
     /// The content needs to be automatically sent to the other side.
-    pub fn as_content(&self) -> MacToDeviceEventContent {
+    pub fn as_content(&self) -> MacContent {
         get_mac_content(
             &self.inner.lock().unwrap(),
             &self.ids,
@@ -911,7 +945,7 @@ impl SasState<Done> {
     ///
     /// The content needs to be automatically sent to the other side if it
     /// wasn't already sent.
-    pub fn as_content(&self) -> MacToDeviceEventContent {
+    pub fn as_content(&self) -> MacContent {
         get_mac_content(
             &self.inner.lock().unwrap(),
             &self.ids,
@@ -959,17 +993,26 @@ impl Canceled {
 }
 
 impl SasState<Canceled> {
-    pub fn as_content(&self) -> OutgoingContent {
+    pub fn as_content(&self) -> CancelContent {
         match self.verification_flow_id.as_ref() {
-            FlowId::ToDevice(s) => {
-                AnyToDeviceEventContent::KeyVerificationCancel(CancelToDeviceEventContent {
-                    transaction_id: self.verification_flow_id.to_string(),
+            FlowId::ToDevice(s) => CancelToDeviceEventContent {
+                transaction_id: s.clone(),
+                reason: self.state.reason.to_string(),
+                code: self.state.cancel_code.clone(),
+            }
+            .into(),
+
+            FlowId::InRoom(r, e) => (
+                r.clone(),
+                CancelEventContent {
                     reason: self.state.reason.to_string(),
                     code: self.state.cancel_code.clone(),
-                })
-                .into()
-            }
-            _ => todo!(),
+                    relation: Relation {
+                        event_id: e.clone(),
+                    },
+                },
+            )
+                .into(),
         }
     }
 }

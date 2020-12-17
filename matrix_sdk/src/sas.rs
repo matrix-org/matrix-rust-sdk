@@ -39,10 +39,18 @@ impl Sas {
 
     /// Confirm that the short auth strings match on both sides.
     pub async fn confirm(&self) -> Result<()> {
-        let (to_device, signature) = self.inner.confirm().await?;
+        let (request, signature) = self.inner.confirm().await?;
 
-        if let Some(request) = to_device {
-            self.client.send_to_device(&request).await?;
+        match request {
+            Some(OutgoingVerificationRequest::InRoom(r)) => {
+                self.client.room_send_helper(&r).await?;
+            }
+
+            Some(OutgoingVerificationRequest::ToDevice(r)) => {
+                self.client.send_to_device(&r).await?;
+            }
+
+            None => (),
         }
 
         if let Some(s) = signature {
@@ -55,7 +63,14 @@ impl Sas {
     /// Cancel the interactive verification flow.
     pub async fn cancel(&self) -> Result<()> {
         if let Some(request) = self.inner.cancel() {
-            self.client.send_to_device(&request).await?;
+            match request {
+                OutgoingVerificationRequest::ToDevice(r) => {
+                    self.client.send_to_device(&r).await?;
+                }
+                OutgoingVerificationRequest::InRoom(r) => {
+                    self.client.room_send_helper(&r).await?;
+                }
+            }
         }
 
         Ok(())

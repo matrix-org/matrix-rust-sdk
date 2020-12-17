@@ -1160,7 +1160,7 @@ impl Client {
         Ok(())
     }
 
-    async fn room_send_helper(
+    pub(crate) async fn room_send_helper(
         &self,
         request: &RoomMessageRequest,
     ) -> Result<send_message_event::Response> {
