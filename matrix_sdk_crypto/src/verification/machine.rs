@@ -377,7 +377,6 @@ impl VerificationMachine {
                         private_identity,
                         d,
                         self.store.clone(),
-                        &e.sender,
                         e.content.clone(),
                         self.store.get_user_identity(&e.sender).await?,
                     ) {

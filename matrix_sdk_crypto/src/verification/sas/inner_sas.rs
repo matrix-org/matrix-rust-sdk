@@ -19,7 +19,7 @@ use std::sync::Arc;
 
 use matrix_sdk_common::{
     events::{key::verification::cancel::CancelCode, AnyMessageEvent, AnyToDeviceEvent},
-    identifiers::{EventId, RoomId, UserId},
+    identifiers::{EventId, RoomId},
 };
 
 use crate::{
@@ -82,7 +82,6 @@ impl InnerSas {
     pub fn from_start_event(
         account: ReadOnlyAccount,
         other_device: ReadOnlyDevice,
-        sender: &UserId,
         content: impl Into<StartContent>,
         other_identity: Option<UserIdentities>,
     ) -> Result<InnerSas, CancelContent> {

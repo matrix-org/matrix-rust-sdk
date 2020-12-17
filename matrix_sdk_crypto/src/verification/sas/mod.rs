@@ -223,14 +223,12 @@ impl Sas {
         private_identity: PrivateCrossSigningIdentity,
         other_device: ReadOnlyDevice,
         store: Arc<Box<dyn CryptoStore>>,
-        sender: &UserId,
         content: impl Into<StartContent>,
         other_identity: Option<UserIdentities>,
     ) -> Result<Sas, OutgoingContent> {
         let inner = InnerSas::from_start_event(
             account.clone(),
             other_device.clone(),
-            &sender,
             content,
             other_identity.clone(),
         )?;

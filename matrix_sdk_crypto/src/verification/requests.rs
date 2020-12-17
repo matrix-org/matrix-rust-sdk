@@ -313,7 +313,6 @@ impl RequestState<Ready> {
             private_identity,
             other_device,
             store,
-            &event.sender,
             (event.room_id.clone(), event.content.clone()),
             other_identity,
         )
