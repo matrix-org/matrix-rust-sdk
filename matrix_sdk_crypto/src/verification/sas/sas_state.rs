@@ -29,6 +29,7 @@ use matrix_sdk_common::{
                 MSasV1Content as AcceptV1Content, MSasV1ContentInit as AcceptV1ContentInit,
             },
             cancel::{CancelCode, CancelEventContent, CancelToDeviceEventContent},
+            done::DoneEventContent,
             key::{KeyEventContent, KeyToDeviceEventContent},
             mac::MacToDeviceEventContent,
             start::{
@@ -47,7 +48,8 @@ use tracing::error;
 
 use super::{
     event_enums::{
-        AcceptContent, CancelContent, KeyContent, MacContent, OutgoingContent, StartContent,
+        AcceptContent, CancelContent, DoneContent, KeyContent, MacContent, OutgoingContent,
+        StartContent,
     },
     helpers::{
         calculate_commitment, get_decimal, get_emoji, get_mac_content, receive_mac_event, SasIds,
@@ -251,6 +253,15 @@ pub struct MacReceived {
     verified_master_keys: Arc<[UserIdentities]>,
 }
 
+/// The SAS state we're going to be in after we receive a MAC event in a DM. DMs
+/// require a final message `m.key.verification.done` message to conclude the
+/// verificaton. This state waits for such a message.
+#[derive(Clone, Debug)]
+pub struct WaitingForDone {
+    verified_devices: Arc<[ReadOnlyDevice]>,
+    verified_master_keys: Arc<[UserIdentities]>,
+}
+
 /// The SAS state indicating that the verification finished successfully.
 ///
 /// We can now mark the device in our verified devices lits as verified and sign
@@ -298,6 +309,11 @@ impl<S: Clone> SasState<S> {
     /// Did our SAS verification time out.
     pub fn timed_out(&self) -> bool {
         self.creation_time.elapsed() > MAX_AGE || self.last_event_time.elapsed() > MAX_EVENT_TIMEOUT
+    }
+
+    /// Is this verification happening inside a DM.
+    pub fn is_dm_verification(&self) -> bool {
+        matches!(&*self.verification_flow_id, FlowId::InRoom(_, _))
     }
 
     #[cfg(test)]
@@ -880,6 +896,48 @@ impl SasState<Confirmed> {
         })
     }
 
+    /// Receive a m.key.verification.mac event, changing the state into
+    /// a `WaitingForDone` one. This method should be used instead of
+    /// `into_done()` if the verification started with a
+    /// `m.key.verification.request`.
+    ///
+    /// # Arguments
+    ///
+    /// * `event` - The m.key.verification.mac event that was sent to us by
+    /// the other side.
+    pub fn into_waiting_for_done(
+        self,
+        sender: &UserId,
+        content: impl Into<MacContent>,
+    ) -> Result<SasState<WaitingForDone>, SasState<Canceled>> {
+        let content = content.into();
+
+        self.check_event(&sender, &content.flow_id().as_str())
+            .map_err(|c| self.clone().cancel(c))?;
+
+        let (devices, master_keys) = receive_mac_event(
+            &self.inner.lock().unwrap(),
+            &self.ids,
+            &self.verification_flow_id.as_str(),
+            sender,
+            &content,
+        )
+        .map_err(|c| self.clone().cancel(c))?;
+
+        Ok(SasState {
+            inner: self.inner,
+            creation_time: self.creation_time,
+            last_event_time: self.last_event_time,
+            verification_flow_id: self.verification_flow_id,
+            ids: self.ids,
+
+            state: Arc::new(WaitingForDone {
+                verified_devices: devices.into(),
+                verified_master_keys: master_keys.into(),
+            }),
+        })
+    }
+
     /// Get the content for the mac event.
     ///
     /// The content needs to be automatically sent to the other side.
@@ -905,6 +963,26 @@ impl SasState<MacReceived> {
             last_event_time: self.last_event_time,
             ids: self.ids,
             state: Arc::new(Done {
+                verified_devices: self.state.verified_devices.clone(),
+                verified_master_keys: self.state.verified_master_keys.clone(),
+            }),
+        }
+    }
+
+    /// Confirm that the short auth string matches but wait for the other side
+    /// to confirm that it's done.
+    ///
+    /// This needs to be done by the user, this will put us in the `WaitForDone`
+    /// state where we wait for the other side to confirm that the MAC event was
+    /// successfully received.
+    pub fn confirm_and_wait_for_done(self) -> SasState<WaitingForDone> {
+        SasState {
+            inner: self.inner,
+            verification_flow_id: self.verification_flow_id,
+            creation_time: self.creation_time,
+            last_event_time: self.last_event_time,
+            ids: self.ids,
+            state: Arc::new(WaitingForDone {
                 verified_devices: self.state.verified_devices.clone(),
                 verified_master_keys: self.state.verified_master_keys.clone(),
             }),
@@ -940,6 +1018,68 @@ impl SasState<MacReceived> {
     }
 }
 
+impl SasState<WaitingForDone> {
+    /// Get the content for the mac event.
+    ///
+    /// The content needs to be automatically sent to the other side if it
+    /// wasn't already sent.
+    pub fn as_content(&self) -> MacContent {
+        get_mac_content(
+            &self.inner.lock().unwrap(),
+            &self.ids,
+            &self.verification_flow_id,
+        )
+    }
+
+    pub fn done_content(&self) -> DoneContent {
+        match self.verification_flow_id.as_ref() {
+            FlowId::ToDevice(_) => {
+                unreachable!("The done content isn't supported yet for to-device verifications")
+            }
+            FlowId::InRoom(r, e) => (
+                r.clone(),
+                DoneEventContent {
+                    relation: Relation {
+                        event_id: e.clone(),
+                    },
+                },
+            )
+                .into(),
+        }
+    }
+
+    /// Receive a m.key.verification.mac event, changing the state into
+    /// a `Done` one
+    ///
+    /// # Arguments
+    ///
+    /// * `event` - The m.key.verification.mac event that was sent to us by
+    /// the other side.
+    pub fn into_done(
+        self,
+        sender: &UserId,
+        content: impl Into<DoneContent>,
+    ) -> Result<SasState<Done>, SasState<Canceled>> {
+        let content = content.into();
+
+        self.check_event(&sender, &content.flow_id().as_str())
+            .map_err(|c| self.clone().cancel(c))?;
+
+        Ok(SasState {
+            inner: self.inner,
+            creation_time: self.creation_time,
+            last_event_time: self.last_event_time,
+            verification_flow_id: self.verification_flow_id,
+            ids: self.ids,
+
+            state: Arc::new(Done {
+                verified_devices: self.state.verified_devices.clone(),
+                verified_master_keys: self.state.verified_master_keys.clone(),
+            }),
+        })
+    }
+}
+
 impl SasState<Done> {
     /// Get the content for the mac event.
     ///
@@ -951,6 +1091,23 @@ impl SasState<Done> {
             &self.ids,
             &self.verification_flow_id,
         )
+    }
+
+    pub fn done_content(&self) -> DoneContent {
+        match self.verification_flow_id.as_ref() {
+            FlowId::ToDevice(_) => {
+                unreachable!("The done content isn't supported yet for to-device verifications")
+            }
+            FlowId::InRoom(r, e) => (
+                r.clone(),
+                DoneEventContent {
+                    relation: Relation {
+                        event_id: e.clone(),
+                    },
+                },
+            )
+                .into(),
+        }
     }
 
     /// Get the list of verified devices.

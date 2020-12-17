@@ -30,6 +30,7 @@ use matrix_sdk_common::{
     },
     identifiers::{EventId, RoomId, UserId},
 };
+use tracing::trace;
 
 use crate::{
     identities::{ReadOnlyDevice, UserIdentities},
@@ -40,7 +41,7 @@ use super::{
     event_enums::{AcceptContent, CancelContent, MacContent, OutgoingContent},
     sas_state::{
         Accepted, Canceled, Confirmed, Created, Done, FlowId, KeyReceived, MacReceived, SasState,
-        Started,
+        Started, WaitingForDone,
     },
     StartContent,
 };
@@ -53,6 +54,8 @@ pub enum InnerSas {
     KeyRecieved(SasState<KeyReceived>),
     Confirmed(SasState<Confirmed>),
     MacReceived(SasState<MacReceived>),
+    WaitingForDone(SasState<WaitingForDone>),
+    WaitingForDoneUnconfirmed(SasState<WaitingForDone>),
     Done(SasState<Done>),
     Canceled(SasState<Canceled>),
 }
@@ -125,6 +128,8 @@ impl InnerSas {
             InnerSas::Confirmed(s) => s.set_creation_time(time),
             InnerSas::MacReceived(s) => s.set_creation_time(time),
             InnerSas::Done(s) => s.set_creation_time(time),
+            InnerSas::WaitingForDone(s) => s.set_creation_time(time),
+            InnerSas::WaitingForDoneUnconfirmed(s) => s.set_creation_time(time),
         }
     }
 
@@ -151,9 +156,17 @@ impl InnerSas {
                 (InnerSas::Confirmed(sas), Some(content))
             }
             InnerSas::MacReceived(s) => {
-                let sas = s.confirm();
-                let content = sas.as_content();
-                (InnerSas::Done(sas), Some(content))
+                if s.is_dm_verification() {
+                    let sas = s.confirm_and_wait_for_done();
+                    let content = sas.as_content();
+
+                    (InnerSas::WaitingForDoneUnconfirmed(sas), Some(content))
+                } else {
+                    let sas = s.confirm();
+                    let content = sas.as_content();
+
+                    (InnerSas::Done(sas), Some(content))
+                }
             }
             _ => (self, None),
         }
@@ -201,6 +214,22 @@ impl InnerSas {
                     }
                 }
                 InnerSas::Confirmed(s) => {
+                    match s.into_waiting_for_done(&e.sender, (e.room_id.clone(), e.content.clone()))
+                    {
+                        Ok(s) => {
+                            let content = s.done_content();
+                            (InnerSas::WaitingForDone(s), Some(content.into()))
+                        }
+                        Err(s) => {
+                            let content = s.as_content();
+                            (InnerSas::Canceled(s), Some(content.into()))
+                        }
+                    }
+                }
+                _ => (self, None),
+            },
+            AnyMessageEvent::KeyVerificationDone(e) => match self {
+                InnerSas::WaitingForDone(s) => {
                     match s.into_done(&e.sender, (e.room_id.clone(), e.content.clone())) {
                         Ok(s) => (InnerSas::Done(s), None),
                         Err(s) => {
@@ -209,6 +238,19 @@ impl InnerSas {
                         }
                     }
                 }
+                InnerSas::WaitingForDoneUnconfirmed(s) => {
+                    match s.into_done(&e.sender, (e.room_id.clone(), e.content.clone())) {
+                        Ok(s) => {
+                            let content = s.done_content();
+                            (InnerSas::Done(s), Some(content.into()))
+                        }
+                        Err(s) => {
+                            let content = s.as_content();
+                            (InnerSas::Canceled(s), Some(content.into()))
+                        }
+                    }
+                }
+
                 _ => (self, None),
             },
             _ => (self, None),
@@ -300,6 +342,8 @@ impl InnerSas {
             InnerSas::KeyRecieved(s) => s.timed_out(),
             InnerSas::Confirmed(s) => s.timed_out(),
             InnerSas::MacReceived(s) => s.timed_out(),
+            InnerSas::WaitingForDone(s) => s.timed_out(),
+            InnerSas::WaitingForDoneUnconfirmed(s) => s.timed_out(),
             InnerSas::Done(s) => s.timed_out(),
         }
     }
@@ -313,6 +357,8 @@ impl InnerSas {
             InnerSas::KeyRecieved(s) => s.verification_flow_id.clone(),
             InnerSas::Confirmed(s) => s.verification_flow_id.clone(),
             InnerSas::MacReceived(s) => s.verification_flow_id.clone(),
+            InnerSas::WaitingForDone(s) => s.verification_flow_id.clone(),
+            InnerSas::WaitingForDoneUnconfirmed(s) => s.verification_flow_id.clone(),
             InnerSas::Done(s) => s.verification_flow_id.clone(),
         }
     }

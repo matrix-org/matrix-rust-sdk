@@ -222,7 +222,7 @@ impl VerificationMachine {
         event: &AnySyncRoomEvent,
     ) -> Result<(), CryptoStoreError> {
         if let AnySyncRoomEvent::Message(m) = event {
-            // Since this are room events we will get events that we send out on
+            // Since these are room events we will get events that we send out on
             // our own as well.
             if m.sender() == self.account.user_id() {
                 return Ok(());
@@ -308,10 +308,25 @@ impl VerificationMachine {
                             &s,
                             &m.clone().into_full_event(room_id.clone()),
                         );
+                    }
+                }
+
+                AnySyncMessageEvent::KeyVerificationDone(e) => {
+                    if let Some(s) = self.room_verifications.get(&e.content.relation.event_id) {
+                        let content =
+                            s.receive_room_event(&m.clone().into_full_event(room_id.clone()));
 
                         if s.is_done() {
                             match s.mark_as_done().await? {
-                                VerificationResult::Ok => (),
+                                VerificationResult::Ok => {
+                                    if let Some(c) = content {
+                                        self.queue_up_content(
+                                            s.other_user_id(),
+                                            s.other_device_id(),
+                                            c,
+                                        );
+                                    }
+                                }
                                 VerificationResult::Cancel(r) => {
                                     self.outgoing_to_device_messages
                                         .insert(r.request_id(), r.into());
@@ -321,6 +336,14 @@ impl VerificationMachine {
 
                                     self.outgoing_to_device_messages
                                         .insert(request.request_id, request);
+
+                                    if let Some(c) = content {
+                                        self.queue_up_content(
+                                            s.other_user_id(),
+                                            s.other_device_id(),
+                                            c,
+                                        );
+                                    }
                                 }
                             }
                         }

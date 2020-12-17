@@ -21,6 +21,7 @@ use matrix_sdk_common::{
         key::verification::{
             accept::{AcceptEventContent, AcceptToDeviceEventContent},
             cancel::{CancelEventContent, CancelToDeviceEventContent},
+            done::DoneEventContent,
             key::{KeyEventContent, KeyToDeviceEventContent},
             mac::{MacEventContent, MacToDeviceEventContent},
             start::{StartEventContent, StartMethod, StartToDeviceEventContent},
@@ -187,6 +188,24 @@ impl From<CancelToDeviceEventContent> for CancelContent {
     }
 }
 
+pub enum DoneContent {
+    Room(RoomId, DoneEventContent),
+}
+
+impl DoneContent {
+    pub fn flow_id(&self) -> FlowId {
+        match self {
+            DoneContent::Room(r, c) => FlowId::InRoom(r.clone(), c.relation.event_id.clone()),
+        }
+    }
+}
+
+impl From<(RoomId, DoneEventContent)> for DoneContent {
+    fn from(content: (RoomId, DoneEventContent)) -> Self {
+        DoneContent::Room(content.0, content.1)
+    }
+}
+
 #[derive(Clone, Debug)]
 pub enum OutgoingContent {
     Room(RoomId, AnyMessageEventContent),
@@ -218,6 +237,14 @@ impl From<KeyContent> for OutgoingContent {
         match content {
             KeyContent::Room(r, c) => (r, AnyMessageEventContent::KeyVerificationKey(c)).into(),
             KeyContent::ToDevice(c) => AnyToDeviceEventContent::KeyVerificationKey(c).into(),
+        }
+    }
+}
+
+impl From<DoneContent> for OutgoingContent {
+    fn from(content: DoneContent) -> Self {
+        match content {
+            DoneContent::Room(r, c) => (r, AnyMessageEventContent::KeyVerificationDone(c)).into(),
         }
     }
 }
