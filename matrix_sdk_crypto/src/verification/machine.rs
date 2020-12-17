@@ -21,7 +21,7 @@ use tracing::{info, trace, warn};
 use matrix_sdk_common::{
     events::{
         room::message::MessageEventContent, AnyMessageEvent, AnySyncMessageEvent, AnySyncRoomEvent,
-        AnyToDeviceEvent, AnyToDeviceEventContent,
+        AnyToDeviceEvent,
     },
     identifiers::{DeviceId, EventId, RoomId, UserId},
     locks::Mutex,
@@ -35,10 +35,9 @@ use super::{
 
 use crate::{
     olm::PrivateCrossSigningIdentity,
-    requests::{OutgoingRequest, ToDeviceRequest},
+    requests::OutgoingRequest,
     store::{CryptoStore, CryptoStoreError},
-    OutgoingRequests, OutgoingVerificationRequest, ReadOnlyAccount, ReadOnlyDevice,
-    RoomMessageRequest,
+    OutgoingVerificationRequest, ReadOnlyAccount, ReadOnlyDevice, RoomMessageRequest,
 };
 
 #[derive(Clone, Debug)]

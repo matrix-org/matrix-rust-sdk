@@ -27,12 +27,8 @@ use tracing::{error, info, trace, warn};
 use matrix_sdk_common::{
     api::r0::keys::upload_signatures::Request as SignatureUploadRequest,
     events::{
-        key::verification::{
-            cancel::CancelCode,
-            start::{StartEventContent, StartToDeviceEventContent},
-        },
-        AnyMessageEvent, AnyMessageEventContent, AnySyncMessageEvent, AnyToDeviceEvent,
-        AnyToDeviceEventContent, MessageEvent, ToDeviceEvent,
+        key::verification::cancel::CancelCode, AnyMessageEvent, AnyMessageEventContent,
+        AnyToDeviceEvent, AnyToDeviceEventContent,
     },
     identifiers::{DeviceId, EventId, RoomId, UserId},
     uuid::Uuid,

@@ -31,7 +31,6 @@ use matrix_sdk_common::{
             cancel::{CancelCode, CancelEventContent, CancelToDeviceEventContent},
             done::DoneEventContent,
             key::{KeyEventContent, KeyToDeviceEventContent},
-            mac::MacToDeviceEventContent,
             start::{
                 MSasV1Content, MSasV1ContentInit, StartEventContent, StartMethod,
                 StartToDeviceEventContent,
@@ -39,7 +38,7 @@ use matrix_sdk_common::{
             HashAlgorithm, KeyAgreementProtocol, MessageAuthenticationCode, Relation,
             ShortAuthenticationString, VerificationMethod,
         },
-        AnyMessageEventContent, AnyToDeviceEventContent, MessageEvent, ToDeviceEvent,
+        ToDeviceEvent,
     },
     identifiers::{DeviceId, EventId, RoomId, UserId},
     uuid::Uuid,
@@ -495,23 +494,15 @@ impl SasState<Started> {
         account: ReadOnlyAccount,
         other_device: ReadOnlyDevice,
         other_identity: Option<UserIdentities>,
-        sender: &UserId,
         content: impl Into<StartContent>,
     ) -> Result<SasState<Started>, SasState<Canceled>> {
-        Self::from_start_helper(
-            account,
-            other_device,
-            other_identity,
-            sender,
-            &content.into(),
-        )
+        Self::from_start_helper(account, other_device, other_identity, &content.into())
     }
 
     fn from_start_helper(
         account: ReadOnlyAccount,
         other_device: ReadOnlyDevice,
         other_identity: Option<UserIdentities>,
-        sender: &UserId,
         content: &StartContent,
     ) -> Result<SasState<Started>, SasState<Canceled>> {
         if let StartMethod::MSasV1(method_content) = content.method() {

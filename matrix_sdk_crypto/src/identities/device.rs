@@ -42,7 +42,7 @@ use tracing::warn;
 use crate::{
     olm::{InboundGroupSession, PrivateCrossSigningIdentity, Session},
     store::{Changes, DeviceChanges},
-    OutgoingRequest, OutgoingRequests, OutgoingVerificationRequest,
+    OutgoingVerificationRequest,
 };
 #[cfg(test)]
 use crate::{OlmMachine, ReadOnlyAccount};

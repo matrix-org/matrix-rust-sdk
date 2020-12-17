@@ -31,10 +31,10 @@ use matrix_sdk_common::{
 use crate::{
     olm::{PrivateCrossSigningIdentity, ReadOnlyAccount},
     store::CryptoStore,
-    ReadOnlyDevice, Sas, UserIdentities, UserIdentity,
+    ReadOnlyDevice, Sas, UserIdentities,
 };
 
-use super::sas::{OutgoingContent, StartContent};
+use super::sas::OutgoingContent;
 
 const SUPPORTED_METHODS: &[VerificationMethod] = &[VerificationMethod::MSasV1];
 
@@ -321,11 +321,11 @@ impl RequestState<Ready> {
 
     fn start_sas(
         self,
-        store: Arc<Box<dyn CryptoStore>>,
-        account: ReadOnlyAccount,
-        private_identity: PrivateCrossSigningIdentity,
-        other_device: ReadOnlyDevice,
-        other_identity: Option<UserIdentities>,
+        _store: Arc<Box<dyn CryptoStore>>,
+        _account: ReadOnlyAccount,
+        _private_identity: PrivateCrossSigningIdentity,
+        _other_device: ReadOnlyDevice,
+        _other_identity: Option<UserIdentities>,
     ) -> (Sas, OutgoingContent) {
         todo!()
         // Sas::start_in_room(

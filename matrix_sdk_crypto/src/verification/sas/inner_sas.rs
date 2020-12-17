@@ -18,19 +18,9 @@ use std::time::Instant;
 use std::sync::Arc;
 
 use matrix_sdk_common::{
-    events::{
-        key::verification::{
-            accept::AcceptToDeviceEventContent,
-            cancel::CancelCode,
-            mac::MacToDeviceEventContent,
-            start::{StartEventContent, StartToDeviceEventContent},
-        },
-        AnyMessageEvent, AnyMessageEventContent, AnySyncMessageEvent, AnyToDeviceEvent,
-        AnyToDeviceEventContent, MessageEvent, ToDeviceEvent,
-    },
+    events::{key::verification::cancel::CancelCode, AnyMessageEvent, AnyToDeviceEvent},
     identifiers::{EventId, RoomId, UserId},
 };
-use tracing::trace;
 
 use crate::{
     identities::{ReadOnlyDevice, UserIdentities},
@@ -96,13 +86,8 @@ impl InnerSas {
         content: impl Into<StartContent>,
         other_identity: Option<UserIdentities>,
     ) -> Result<InnerSas, CancelContent> {
-        match SasState::<Started>::from_start_event(
-            account,
-            other_device,
-            other_identity,
-            &sender,
-            content,
-        ) {
+        match SasState::<Started>::from_start_event(account, other_device, other_identity, content)
+        {
             Ok(s) => Ok(InnerSas::Started(s)),
             Err(s) => Err(s.as_content()),
         }

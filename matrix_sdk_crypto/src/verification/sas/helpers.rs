@@ -25,14 +25,12 @@ use matrix_sdk_common::{
         key::verification::{
             cancel::CancelCode,
             mac::{MacEventContent, MacToDeviceEventContent},
-            start::StartToDeviceEventContent,
             Relation,
         },
-        AnyToDeviceEventContent, EventType, ToDeviceEvent,
+        AnyToDeviceEventContent, EventType,
     },
     identifiers::{DeviceId, DeviceKeyAlgorithm, DeviceKeyId, UserId},
     uuid::Uuid,
-    CanonicalJsonValue,
 };
 
 use crate::{
