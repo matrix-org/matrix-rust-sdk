@@ -43,12 +43,63 @@ const SUPPORTED_METHODS: &[VerificationMethod] = &[VerificationMethod::MSasV1];
 pub struct VerificationRequest {
     inner: Arc<Mutex<InnerRequest>>,
     account: ReadOnlyAccount,
+    other_user_id: Arc<UserId>,
     private_cross_signing_identity: PrivateCrossSigningIdentity,
     store: Arc<Box<dyn CryptoStore>>,
     room_id: Arc<RoomId>,
 }
 
 impl VerificationRequest {
+    /// TODO
+    pub fn new(
+        account: ReadOnlyAccount,
+        private_cross_signing_identity: PrivateCrossSigningIdentity,
+        store: Arc<Box<dyn CryptoStore>>,
+        room_id: Arc<RoomId>,
+        other_user: &UserId,
+    ) -> Self {
+        let inner = Mutex::new(InnerRequest::Created(RequestState::new(
+            account.user_id(),
+            account.device_id(),
+            other_user,
+        )))
+        .into();
+        Self {
+            inner,
+            account,
+            private_cross_signing_identity,
+            store,
+            other_user_id: other_user.clone().into(),
+            room_id,
+        }
+    }
+
+    /// TODO
+    pub fn request(&self) -> Option<KeyVerificationRequestEventContent> {
+        match &*self.inner.lock().unwrap() {
+            InnerRequest::Created(c) => Some(c.as_content()),
+            _ => None,
+        }
+    }
+
+    /// The id of the other user that is participating in this verification
+    /// request.
+    pub fn other_user(&self) -> &UserId {
+        &self.other_user_id
+    }
+
+    /// Mark the request as sent.
+    pub fn mark_as_sent(&self, response: &RoomMessageResponse) {
+        let mut inner = self.inner.lock().unwrap();
+
+        match &*inner {
+            InnerRequest::Created(c) => {
+                *inner = InnerRequest::Sent(c.clone().into_sent(response));
+            }
+            _ => (),
+        }
+    }
+
     pub(crate) fn from_request_event(
         account: ReadOnlyAccount,
         private_cross_signing_identity: PrivateCrossSigningIdentity,
@@ -69,6 +120,7 @@ impl VerificationRequest {
                 ),
             ))),
             account,
+            other_user_id: sender.clone().into(),
             private_cross_signing_identity,
             store,
             room_id: room_id.clone().into(),
@@ -83,6 +135,28 @@ impl VerificationRequest {
     /// Accept the verification request.
     pub fn accept(&self) -> Option<ReadyEventContent> {
         self.inner.lock().unwrap().accept()
+    }
+
+    pub(crate) fn receive_ready(
+        &self,
+        sender: &UserId,
+        content: &ReadyEventContent,
+    ) -> Result<(), ()> {
+        let mut inner = self.inner.lock().unwrap();
+
+        match &*inner {
+            InnerRequest::Sent(s) => {
+                *inner = InnerRequest::Ready(s.clone().into_ready(sender, content));
+            }
+            _ => (),
+        }
+
+        Ok(())
+    }
+
+    /// Is the verification request ready to start a verification flow.
+    pub fn is_ready(&self) -> bool {
+        matches!(&*self.inner.lock().unwrap(), InnerRequest::Ready(_))
     }
 
     pub(crate) fn into_started_sas(
@@ -171,6 +245,15 @@ struct RequestState<S: Clone> {
 struct Created {}
 
 impl RequestState<Created> {
+    fn new(own_user_id: &UserId, own_device_id: &DeviceId, other_user: &UserId) -> Self {
+        Self {
+            own_user_id: own_user_id.clone(),
+            own_device_id: own_device_id.into(),
+            other_user_id: other_user.clone(),
+            state: Created {},
+        }
+    }
+
     fn as_content(&self) -> KeyVerificationRequestEventContent {
         KeyVerificationRequestEventContent {
             body: format!(
@@ -342,4 +425,82 @@ struct Passive {
     /// The event id of the `m.key.verification.request` event which acts as an
     /// unique id identifying this verification flow.
     pub flow_id: EventId,
+}
+
+#[cfg(test)]
+mod test {
+    use std::convert::TryFrom;
+
+    use matrix_sdk_common::{
+        api::r0::message::send_message_event::Response as RoomMessageResponse,
+        identifiers::{event_id, room_id, DeviceIdBox, UserId},
+    };
+    use matrix_sdk_test::async_test;
+
+    use crate::{
+        olm::{PrivateCrossSigningIdentity, ReadOnlyAccount},
+        store::{CryptoStore, MemoryStore},
+    };
+
+    use super::VerificationRequest;
+
+    fn alice_id() -> UserId {
+        UserId::try_from("@alice:example.org").unwrap()
+    }
+
+    fn alice_device_id() -> DeviceIdBox {
+        "JLAFKJWSCS".into()
+    }
+
+    fn bob_id() -> UserId {
+        UserId::try_from("@bob:example.org").unwrap()
+    }
+
+    fn bob_device_id() -> DeviceIdBox {
+        "BOBDEVCIE".into()
+    }
+
+    #[async_test]
+    async fn test_request_accepting() {
+        let event_id = event_id!("$1234localhost");
+        let room_id = room_id!("!test:localhost");
+
+        let alice = ReadOnlyAccount::new(&alice_id(), &alice_device_id());
+        let alice_store: Box<dyn CryptoStore> = Box::new(MemoryStore::new());
+        let alice_identity = PrivateCrossSigningIdentity::empty(alice_id());
+
+        let bob = ReadOnlyAccount::new(&bob_id(), &bob_device_id());
+        let bob_store: Box<dyn CryptoStore> = Box::new(MemoryStore::new());
+        let bob_identity = PrivateCrossSigningIdentity::empty(alice_id());
+
+        let bob_request = VerificationRequest::new(
+            bob,
+            bob_identity,
+            bob_store.into(),
+            room_id.clone().into(),
+            &alice_id(),
+        );
+
+        let content = bob_request.request().unwrap();
+
+        let alice_request = VerificationRequest::from_request_event(
+            alice,
+            alice_identity,
+            alice_store.into(),
+            &room_id,
+            &bob_id(),
+            &event_id,
+            &content,
+        );
+
+        let content = alice_request.accept().unwrap();
+
+        let response = RoomMessageResponse::new(event_id);
+        bob_request.mark_as_sent(&response);
+
+        bob_request.receive_ready(&alice_id(), &content).unwrap();
+
+        assert!(bob_request.is_ready());
+        assert!(alice_request.is_ready());
+    }
 }

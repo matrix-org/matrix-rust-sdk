@@ -2172,8 +2172,8 @@ impl Client {
 
         let encrypt = move || -> Result<()> {
             let export: String = encrypt_key_export(&keys, &passphrase, 500_000)?;
-            let mut file = std::fs::File::create(path).unwrap();
-            file.write_all(&export.into_bytes()).unwrap();
+            let mut file = std::fs::File::create(path)?;
+            file.write_all(&export.into_bytes())?;
             Ok(())
         };
 
@@ -2237,6 +2237,7 @@ impl Client {
         };
 
         let task = tokio::task::spawn_blocking(decrypt);
+        // TODO remove this unwrap.
         let import = task.await.expect("Task join error").unwrap();
 
         Ok(olm.import_keys(import).await?)

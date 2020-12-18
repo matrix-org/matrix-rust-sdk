@@ -224,6 +224,10 @@ impl VerificationMachine {
             // Since these are room events we will get events that we send out on
             // our own as well.
             if m.sender() == self.account.user_id() {
+                if let AnySyncMessageEvent::KeyVerificationReady(_e) = m {
+                    // TODO if there is a verification request, go into passive
+                    // mode since another device is handling this request.
+                }
                 return Ok(());
             }
 
@@ -247,6 +251,14 @@ impl VerificationMachine {
                             );
 
                             self.requests.insert(m.event_id.clone(), request);
+                        }
+                    }
+                }
+                AnySyncMessageEvent::KeyVerificationReady(e) => {
+                    if let Some(request) = self.requests.get(&e.content.relation.event_id) {
+                        if &e.sender == request.other_user() {
+                            // TODO remove this unwrap.
+                            request.receive_ready(&e.sender, &e.content).unwrap();
                         }
                     }
                 }
