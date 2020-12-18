@@ -22,7 +22,10 @@ pub use sas::{Sas, VerificationResult};
 
 #[cfg(test)]
 pub(crate) mod test {
-    use crate::requests::{OutgoingRequest, OutgoingRequests, ToDeviceRequest};
+    use crate::{
+        requests::{OutgoingRequest, OutgoingRequests},
+        OutgoingVerificationRequest,
+    };
     use serde_json::Value;
 
     use matrix_sdk_common::{
@@ -30,7 +33,12 @@ pub(crate) mod test {
         identifiers::UserId,
     };
 
-    pub(crate) fn request_to_event(sender: &UserId, request: &ToDeviceRequest) -> AnyToDeviceEvent {
+    use super::sas::OutgoingContent;
+
+    pub(crate) fn request_to_event(
+        sender: &UserId,
+        request: &OutgoingVerificationRequest,
+    ) -> AnyToDeviceEvent {
         let content = get_content_from_request(request);
         wrap_any_to_device_content(sender, content)
     }
@@ -40,15 +48,21 @@ pub(crate) mod test {
         request: &OutgoingRequest,
     ) -> AnyToDeviceEvent {
         match request.request() {
-            OutgoingRequests::ToDeviceRequest(r) => request_to_event(sender, r),
+            OutgoingRequests::ToDeviceRequest(r) => request_to_event(sender, &r.clone().into()),
             _ => panic!("Unsupported outgoing request"),
         }
     }
 
     pub(crate) fn wrap_any_to_device_content(
         sender: &UserId,
-        content: AnyToDeviceEventContent,
+        content: OutgoingContent,
     ) -> AnyToDeviceEvent {
+        let content = if let OutgoingContent::ToDevice(c) = content {
+            c
+        } else {
+            unreachable!()
+        };
+
         match content {
             AnyToDeviceEventContent::KeyVerificationKey(c) => {
                 AnyToDeviceEvent::KeyVerificationKey(ToDeviceEvent {
@@ -79,7 +93,15 @@ pub(crate) mod test {
         }
     }
 
-    pub(crate) fn get_content_from_request(request: &ToDeviceRequest) -> AnyToDeviceEventContent {
+    pub(crate) fn get_content_from_request(
+        request: &OutgoingVerificationRequest,
+    ) -> OutgoingContent {
+        let request = if let OutgoingVerificationRequest::ToDevice(r) = request {
+            r
+        } else {
+            unreachable!()
+        };
+
         let json: Value = serde_json::from_str(
             request
                 .messages
@@ -111,5 +133,6 @@ pub(crate) mod test {
             ),
             _ => unreachable!(),
         }
+        .into()
     }
 }

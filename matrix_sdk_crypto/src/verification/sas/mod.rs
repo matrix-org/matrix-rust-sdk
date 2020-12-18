@@ -113,16 +113,15 @@ impl Sas {
 
     fn start_helper(
         inner_sas: InnerSas,
-        content: OutgoingContent,
         account: ReadOnlyAccount,
         private_identity: PrivateCrossSigningIdentity,
         other_device: ReadOnlyDevice,
         store: Arc<Box<dyn CryptoStore>>,
         other_identity: Option<UserIdentities>,
-    ) -> (Sas, OutgoingContent) {
+    ) -> Sas {
         let flow_id = inner_sas.verification_flow_id();
 
-        let sas = Sas {
+        Sas {
             inner: Arc::new(Mutex::new(inner_sas)),
             account,
             private_identity,
@@ -130,9 +129,7 @@ impl Sas {
             other_device,
             flow_id,
             other_identity,
-        };
-
-        (sas, content)
+        }
     }
 
     /// Start a new SAS auth flow with the given device.
@@ -151,21 +148,23 @@ impl Sas {
         other_device: ReadOnlyDevice,
         store: Arc<Box<dyn CryptoStore>>,
         other_identity: Option<UserIdentities>,
-    ) -> (Sas, OutgoingContent) {
+    ) -> (Sas, StartContent) {
         let (inner, content) = InnerSas::start(
             account.clone(),
             other_device.clone(),
             other_identity.clone(),
         );
 
-        Self::start_helper(
-            inner,
+        (
+            Self::start_helper(
+                inner,
+                account,
+                private_identity,
+                other_device,
+                store,
+                other_identity,
+            ),
             content,
-            account,
-            private_identity,
-            other_device,
-            store,
-            other_identity,
         )
     }
 
@@ -188,7 +187,7 @@ impl Sas {
         other_device: ReadOnlyDevice,
         store: Arc<Box<dyn CryptoStore>>,
         other_identity: Option<UserIdentities>,
-    ) -> (Sas, OutgoingContent) {
+    ) -> (Sas, StartContent) {
         let (inner, content) = InnerSas::start_in_room(
             flow_id,
             room_id,
@@ -197,14 +196,16 @@ impl Sas {
             other_identity.clone(),
         );
 
-        Self::start_helper(
-            inner,
+        (
+            Self::start_helper(
+                inner,
+                account,
+                private_identity,
+                other_device,
+                store,
+                other_identity,
+            ),
             content,
-            account,
-            private_identity,
-            other_device,
-            store,
-            other_identity,
         )
     }
 
@@ -656,10 +657,7 @@ impl Sas {
 mod test {
     use std::{convert::TryFrom, sync::Arc};
 
-    use matrix_sdk_common::{
-        events::{EventContent, ToDeviceEvent},
-        identifiers::{DeviceId, UserId},
-    };
+    use matrix_sdk_common::identifiers::{DeviceId, UserId};
 
     use crate::{
         olm::PrivateCrossSigningIdentity,
@@ -668,10 +666,7 @@ mod test {
         ReadOnlyAccount, ReadOnlyDevice,
     };
 
-    use super::{
-        sas_state::{Accepted, Created, SasState, Started},
-        Sas,
-    };
+    use super::Sas;
 
     fn alice_id() -> UserId {
         UserId::try_from("@alice:example.org").unwrap()
@@ -687,97 +682,6 @@ mod test {
 
     fn bob_device_id() -> Box<DeviceId> {
         "BOBDEVCIE".into()
-    }
-
-    fn wrap_to_device_event<C: EventContent>(sender: &UserId, content: C) -> ToDeviceEvent<C> {
-        ToDeviceEvent {
-            sender: sender.clone(),
-            content,
-        }
-    }
-
-    async fn get_sas_pair() -> (SasState<Created>, SasState<Started>) {
-        let alice = ReadOnlyAccount::new(&alice_id(), &alice_device_id());
-        let alice_device = ReadOnlyDevice::from_account(&alice).await;
-
-        let bob = ReadOnlyAccount::new(&bob_id(), &bob_device_id());
-        let bob_device = ReadOnlyDevice::from_account(&bob).await;
-
-        let alice_sas = SasState::<Created>::new(alice.clone(), bob_device, None);
-
-        let start_content = alice_sas.as_content();
-        let event = wrap_to_device_event(alice_sas.user_id(), start_content);
-
-        let bob_sas =
-            SasState::<Started>::from_start_event(bob.clone(), alice_device, &event, None);
-
-        (alice_sas, bob_sas.unwrap())
-    }
-
-    #[tokio::test]
-    async fn create_sas() {
-        let (_, _) = get_sas_pair().await;
-    }
-
-    #[tokio::test]
-    async fn sas_accept() {
-        let (alice, bob) = get_sas_pair().await;
-
-        let event = wrap_to_device_event(bob.user_id(), bob.as_content());
-
-        alice.into_accepted(&event).unwrap();
-    }
-
-    #[tokio::test]
-    async fn sas_key_share() {
-        let (alice, bob) = get_sas_pair().await;
-
-        let event = wrap_to_device_event(bob.user_id(), bob.as_content());
-
-        let alice: SasState<Accepted> = alice.into_accepted(&event).unwrap();
-        let mut event = wrap_to_device_event(alice.user_id(), alice.as_content());
-
-        let bob = bob.into_key_received(&mut event).unwrap();
-
-        let mut event = wrap_to_device_event(bob.user_id(), bob.as_content());
-
-        let alice = alice.into_key_received(&mut event).unwrap();
-
-        assert_eq!(alice.get_decimal(), bob.get_decimal());
-        assert_eq!(alice.get_emoji(), bob.get_emoji());
-    }
-
-    #[tokio::test]
-    async fn sas_full() {
-        let (alice, bob) = get_sas_pair().await;
-
-        let event = wrap_to_device_event(bob.user_id(), bob.as_content());
-
-        let alice: SasState<Accepted> = alice.into_accepted(&event).unwrap();
-        let mut event = wrap_to_device_event(alice.user_id(), alice.as_content());
-
-        let bob = bob.into_key_received(&mut event).unwrap();
-
-        let mut event = wrap_to_device_event(bob.user_id(), bob.as_content());
-
-        let alice = alice.into_key_received(&mut event).unwrap();
-
-        assert_eq!(alice.get_decimal(), bob.get_decimal());
-        assert_eq!(alice.get_emoji(), bob.get_emoji());
-
-        let bob = bob.confirm();
-
-        let event = wrap_to_device_event(bob.user_id(), bob.as_content());
-
-        let alice = alice.into_mac_received(&event).unwrap();
-        assert!(!alice.get_emoji().is_empty());
-        let alice = alice.confirm();
-
-        let event = wrap_to_device_event(alice.user_id(), alice.as_content());
-        let bob = bob.into_done(&event).unwrap();
-
-        assert!(bob.verified_devices().contains(&bob.other_device()));
-        assert!(alice.verified_devices().contains(&alice.other_device()));
     }
 
     #[tokio::test]
@@ -802,14 +706,13 @@ mod test {
             alice_store,
             None,
         );
-        let event = wrap_to_device_event(alice.user_id(), content);
 
         let bob = Sas::from_start_event(
             bob,
             PrivateCrossSigningIdentity::empty(bob_id()),
             alice_device,
             bob_store,
-            &event,
+            content,
             None,
         )
         .unwrap();

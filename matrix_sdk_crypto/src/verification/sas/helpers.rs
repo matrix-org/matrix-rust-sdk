@@ -570,7 +570,7 @@ mod test {
         });
 
         let content: StartToDeviceEventContent = serde_json::from_value(content).unwrap();
-        let calculated_commitment = calculate_commitment(public_key, &content);
+        let calculated_commitment = calculate_commitment(public_key, content);
 
         assert_eq!(commitment, &calculated_commitment);
     }

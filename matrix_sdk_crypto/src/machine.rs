@@ -1826,7 +1826,7 @@ pub(crate) mod test {
 
         let (alice_sas, request) = bob_device.start_verification().await.unwrap();
 
-        let mut event = request_to_event(alice.user_id(), &request);
+        let mut event = request_to_event(alice.user_id(), &request.into());
         bob.handle_verification_event(&mut event).await;
 
         let bob_sas = bob.get_verification(alice_sas.flow_id().as_str()).unwrap();

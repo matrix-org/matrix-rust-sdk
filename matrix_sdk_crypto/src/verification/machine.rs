@@ -85,7 +85,7 @@ impl VerificationMachine {
             identity,
         );
 
-        let request = match content {
+        let request = match content.into() {
             OutgoingContent::Room(r, c) => RoomMessageRequest {
                 room_id: r,
                 txn_id: Uuid::new_v4(),
@@ -459,7 +459,6 @@ mod test {
     };
 
     use matrix_sdk_common::{
-        events::AnyToDeviceEventContent,
         identifiers::{DeviceId, UserId},
         locks::Mutex,
     };
@@ -511,10 +510,11 @@ mod test {
             bob_store,
             None,
         );
+
         machine
             .receive_event(&mut wrap_any_to_device_content(
                 bob_sas.user_id(),
-                AnyToDeviceEventContent::KeyVerificationStart(start_content),
+                start_content.into(),
             ))
             .await
             .unwrap();
@@ -559,12 +559,13 @@ mod test {
         let txn_id = *request.request_id();
 
         let r = if let OutgoingRequests::ToDeviceRequest(r) = request.request() {
-            r
+            r.clone()
         } else {
             panic!("Invalid request type");
         };
 
-        let mut event = wrap_any_to_device_content(alice.user_id(), get_content_from_request(r));
+        let mut event =
+            wrap_any_to_device_content(alice.user_id(), get_content_from_request(&r.into()));
         drop(request);
         alice_machine.mark_request_as_sent(&txn_id);
 

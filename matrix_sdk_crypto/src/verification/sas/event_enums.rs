@@ -19,7 +19,7 @@ use std::{collections::BTreeMap, convert::TryInto};
 use matrix_sdk_common::{
     events::{
         key::verification::{
-            accept::{AcceptEventContent, AcceptToDeviceEventContent},
+            accept::{AcceptEventContent, AcceptMethod, AcceptToDeviceEventContent},
             cancel::{CancelEventContent, CancelToDeviceEventContent},
             done::DoneEventContent,
             key::{KeyEventContent, KeyToDeviceEventContent},
@@ -84,6 +84,22 @@ impl From<StartToDeviceEventContent> for StartContent {
 pub enum AcceptContent {
     ToDevice(AcceptToDeviceEventContent),
     Room(RoomId, AcceptEventContent),
+}
+
+impl AcceptContent {
+    pub fn flow_id(&self) -> FlowId {
+        match self {
+            AcceptContent::ToDevice(c) => FlowId::ToDevice(c.transaction_id.clone()),
+            AcceptContent::Room(r, c) => FlowId::InRoom(r.clone(), c.relation.event_id.clone()),
+        }
+    }
+
+    pub fn method(&self) -> &AcceptMethod {
+        match self {
+            AcceptContent::ToDevice(c) => &c.method,
+            AcceptContent::Room(_, c) => &c.method,
+        }
+    }
 }
 
 impl From<AcceptToDeviceEventContent> for AcceptContent {

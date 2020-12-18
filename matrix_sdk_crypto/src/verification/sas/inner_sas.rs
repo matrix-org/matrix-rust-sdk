@@ -55,7 +55,7 @@ impl InnerSas {
         account: ReadOnlyAccount,
         other_device: ReadOnlyDevice,
         other_identity: Option<UserIdentities>,
-    ) -> (InnerSas, OutgoingContent) {
+    ) -> (InnerSas, StartContent) {
         let sas = SasState::<Created>::new(account, other_device, other_identity);
         let content = sas.as_content();
         (InnerSas::Created(sas), content)
@@ -67,7 +67,7 @@ impl InnerSas {
         account: ReadOnlyAccount,
         other_device: ReadOnlyDevice,
         other_identity: Option<UserIdentities>,
-    ) -> (InnerSas, OutgoingContent) {
+    ) -> (InnerSas, StartContent) {
         let sas = SasState::<Created>::new_in_room(
             room_id,
             event_id,
@@ -245,7 +245,7 @@ impl InnerSas {
         match event {
             AnyToDeviceEvent::KeyVerificationAccept(e) => {
                 if let InnerSas::Created(s) = self {
-                    match s.into_accepted(e) {
+                    match s.into_accepted(&e.sender, e.content.clone()) {
                         Ok(s) => {
                             let content = s.as_content();
                             (InnerSas::Accepted(s), Some(content.into()))

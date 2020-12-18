@@ -22,23 +22,20 @@ use std::{
 use olm_rs::sas::OlmSas;
 
 use matrix_sdk_common::{
-    events::{
-        key::verification::{
-            accept::{
-                AcceptEventContent, AcceptMethod, AcceptToDeviceEventContent,
-                MSasV1Content as AcceptV1Content, MSasV1ContentInit as AcceptV1ContentInit,
-            },
-            cancel::{CancelCode, CancelEventContent, CancelToDeviceEventContent},
-            done::DoneEventContent,
-            key::{KeyEventContent, KeyToDeviceEventContent},
-            start::{
-                MSasV1Content, MSasV1ContentInit, StartEventContent, StartMethod,
-                StartToDeviceEventContent,
-            },
-            HashAlgorithm, KeyAgreementProtocol, MessageAuthenticationCode, Relation,
-            ShortAuthenticationString, VerificationMethod,
+    events::key::verification::{
+        accept::{
+            AcceptEventContent, AcceptMethod, AcceptToDeviceEventContent,
+            MSasV1Content as AcceptV1Content, MSasV1ContentInit as AcceptV1ContentInit,
         },
-        ToDeviceEvent,
+        cancel::{CancelCode, CancelEventContent, CancelToDeviceEventContent},
+        done::DoneEventContent,
+        key::{KeyEventContent, KeyToDeviceEventContent},
+        start::{
+            MSasV1Content, MSasV1ContentInit, StartEventContent, StartMethod,
+            StartToDeviceEventContent,
+        },
+        HashAlgorithm, KeyAgreementProtocol, MessageAuthenticationCode, Relation,
+        ShortAuthenticationString, VerificationMethod,
     },
     identifiers::{DeviceId, EventId, RoomId, UserId},
     uuid::Uuid,
@@ -47,8 +44,7 @@ use tracing::error;
 
 use super::{
     event_enums::{
-        AcceptContent, CancelContent, DoneContent, KeyContent, MacContent, OutgoingContent,
-        StartContent,
+        AcceptContent, CancelContent, DoneContent, KeyContent, MacContent, StartContent,
     },
     helpers::{
         calculate_commitment, get_decimal, get_emoji, get_mac_content, receive_mac_event, SasIds,
@@ -405,7 +401,7 @@ impl SasState<Created> {
         }
     }
 
-    pub fn as_start_content(&self) -> StartContent {
+    pub fn as_content(&self) -> StartContent {
         match self.verification_flow_id.as_ref() {
             FlowId::ToDevice(_) => StartContent::ToDevice(StartToDeviceEventContent {
                 transaction_id: self.verification_flow_id.to_string(),
@@ -431,13 +427,6 @@ impl SasState<Created> {
         }
     }
 
-    /// Get the content for the start event.
-    ///
-    /// The content needs to be sent to the other device.
-    pub fn as_content(&self) -> OutgoingContent {
-        self.as_start_content().into()
-    }
-
     /// Receive a m.key.verification.accept event, changing the state into
     /// an Accepted one.
     ///
@@ -447,16 +436,18 @@ impl SasState<Created> {
     /// the other side.
     pub fn into_accepted(
         self,
-        event: &ToDeviceEvent<AcceptToDeviceEventContent>,
+        sender: &UserId,
+        content: impl Into<AcceptContent>,
     ) -> Result<SasState<Accepted>, SasState<Canceled>> {
-        self.check_event(&event.sender, &event.content.transaction_id)
+        let content = content.into();
+        self.check_event(&sender, content.flow_id().as_str())
             .map_err(|c| self.clone().cancel(c))?;
 
-        if let AcceptMethod::MSasV1(content) = &event.content.method {
+        if let AcceptMethod::MSasV1(content) = content.method() {
             let accepted_protocols =
                 AcceptedProtocols::try_from(content.clone()).map_err(|c| self.clone().cancel(c))?;
 
-            let start_content = self.as_start_content().into();
+            let start_content = self.as_content().into();
 
             Ok(SasState {
                 inner: self.inner,
@@ -713,14 +704,14 @@ impl SasState<Accepted> {
     /// Get the content for the key event.
     ///
     /// The content needs to be automatically sent to the other side.
-    pub fn as_content(&self) -> OutgoingContent {
+    pub fn as_content(&self) -> KeyContent {
         match &*self.verification_flow_id {
-            FlowId::ToDevice(s) => KeyContent::ToDevice(KeyToDeviceEventContent {
+            FlowId::ToDevice(s) => KeyToDeviceEventContent {
                 transaction_id: s.to_string(),
                 key: self.inner.lock().unwrap().public_key(),
-            })
+            }
             .into(),
-            FlowId::InRoom(r, e) => KeyContent::Room(
+            FlowId::InRoom(r, e) => (
                 r.clone(),
                 KeyEventContent {
                     key: self.inner.lock().unwrap().public_key(),
@@ -729,7 +720,7 @@ impl SasState<Accepted> {
                     },
                 },
             )
-            .into(),
+                .into(),
         }
     }
 }
@@ -1169,14 +1160,14 @@ impl SasState<Canceled> {
 mod test {
     use std::convert::TryFrom;
 
-    use crate::{ReadOnlyAccount, ReadOnlyDevice};
+    use crate::{
+        verification::sas::{event_enums::AcceptContent, StartContent},
+        ReadOnlyAccount, ReadOnlyDevice,
+    };
     use matrix_sdk_common::{
-        events::{
-            key::verification::{
-                accept::{AcceptMethod, CustomContent},
-                start::{CustomContent as CustomStartContent, StartMethod},
-            },
-            EventContent, ToDeviceEvent,
+        events::key::verification::{
+            accept::{AcceptMethod, CustomContent},
+            start::{CustomContent as CustomStartContent, StartMethod},
         },
         identifiers::{DeviceId, UserId},
     };
@@ -1199,13 +1190,6 @@ mod test {
         "BOBDEVCIE".into()
     }
 
-    fn wrap_to_device_event<C: EventContent>(sender: &UserId, content: C) -> ToDeviceEvent<C> {
-        ToDeviceEvent {
-            sender: sender.clone(),
-            content,
-        }
-    }
-
     async fn get_sas_pair() -> (SasState<Created>, SasState<Started>) {
         let alice = ReadOnlyAccount::new(&alice_id(), &alice_device_id());
         let alice_device = ReadOnlyDevice::from_account(&alice).await;
@@ -1216,10 +1200,9 @@ mod test {
         let alice_sas = SasState::<Created>::new(alice.clone(), bob_device, None);
 
         let start_content = alice_sas.as_content();
-        let event = wrap_to_device_event(alice_sas.user_id(), start_content);
 
         let bob_sas =
-            SasState::<Started>::from_start_event(bob.clone(), alice_device, &event, None);
+            SasState::<Started>::from_start_event(bob.clone(), alice_device, None, start_content);
 
         (alice_sas, bob_sas.unwrap())
     }
@@ -1233,25 +1216,25 @@ mod test {
     async fn sas_accept() {
         let (alice, bob) = get_sas_pair().await;
 
-        let event = wrap_to_device_event(bob.user_id(), bob.as_content());
+        let event = bob.as_content();
 
-        alice.into_accepted(&event).unwrap();
+        alice.into_accepted(bob.user_id(), event).unwrap();
     }
 
     #[tokio::test]
     async fn sas_key_share() {
         let (alice, bob) = get_sas_pair().await;
 
-        let event = wrap_to_device_event(bob.user_id(), bob.as_content());
+        let content = bob.as_content();
 
-        let alice: SasState<Accepted> = alice.into_accepted(&event).unwrap();
-        let mut event = wrap_to_device_event(alice.user_id(), alice.as_content());
+        let alice: SasState<Accepted> = alice.into_accepted(bob.user_id(), content).unwrap();
+        let content = alice.as_content();
 
-        let bob = bob.into_key_received(&mut event).unwrap();
+        let bob = bob.into_key_received(alice.user_id(), content).unwrap();
 
-        let mut event = wrap_to_device_event(bob.user_id(), bob.as_content());
+        let content = bob.as_content();
 
-        let alice = alice.into_key_received(&mut event).unwrap();
+        let alice = alice.into_key_received(bob.user_id(), content).unwrap();
 
         assert_eq!(alice.get_decimal(), bob.get_decimal());
         assert_eq!(alice.get_emoji(), bob.get_emoji());
@@ -1261,16 +1244,16 @@ mod test {
     async fn sas_full() {
         let (alice, bob) = get_sas_pair().await;
 
-        let event = wrap_to_device_event(bob.user_id(), bob.as_content());
+        let content = bob.as_content();
 
-        let alice: SasState<Accepted> = alice.into_accepted(&event).unwrap();
-        let mut event = wrap_to_device_event(alice.user_id(), alice.as_content());
+        let alice: SasState<Accepted> = alice.into_accepted(bob.user_id(), content).unwrap();
+        let content = alice.as_content();
 
-        let bob = bob.into_key_received(&mut event).unwrap();
+        let bob = bob.into_key_received(alice.user_id(), content).unwrap();
 
-        let mut event = wrap_to_device_event(bob.user_id(), bob.as_content());
+        let content = bob.as_content();
 
-        let alice = alice.into_key_received(&mut event).unwrap();
+        let alice = alice.into_key_received(bob.user_id(), content).unwrap();
 
         assert_eq!(alice.get_decimal(), bob.get_decimal());
         assert_eq!(alice.get_emoji(), bob.get_emoji());
@@ -1279,15 +1262,15 @@ mod test {
 
         let bob = bob.confirm();
 
-        let event = wrap_to_device_event(bob.user_id(), bob.as_content());
+        let content = bob.as_content();
 
-        let alice = alice.into_mac_received(&event).unwrap();
+        let alice = alice.into_mac_received(bob.user_id(), content).unwrap();
         assert!(!alice.get_emoji().is_empty());
         assert_eq!(alice.get_decimal(), bob_decimals);
         let alice = alice.confirm();
 
-        let event = wrap_to_device_event(alice.user_id(), alice.as_content());
-        let bob = bob.into_done(&event).unwrap();
+        let content = alice.as_content();
+        let bob = bob.into_done(alice.user_id(), content).unwrap();
 
         assert!(bob.verified_devices().contains(&bob.other_device()));
         assert!(alice.verified_devices().contains(&alice.other_device()));
@@ -1297,23 +1280,28 @@ mod test {
     async fn sas_invalid_commitment() {
         let (alice, bob) = get_sas_pair().await;
 
-        let mut event = wrap_to_device_event(bob.user_id(), bob.as_content());
+        let mut content = bob.as_content();
 
-        match &mut event.content.method {
+        let mut method = match &mut content {
+            AcceptContent::ToDevice(c) => &mut c.method,
+            AcceptContent::Room(_, c) => &mut c.method,
+        };
+
+        match &mut method {
             AcceptMethod::MSasV1(ref mut c) => {
                 c.commitment = "".to_string();
             }
             _ => panic!("Unknown accept event content"),
         }
 
-        let alice: SasState<Accepted> = alice.into_accepted(&event).unwrap();
+        let alice: SasState<Accepted> = alice.into_accepted(bob.user_id(), content).unwrap();
 
-        let mut event = wrap_to_device_event(alice.user_id(), alice.as_content());
-        let bob = bob.into_key_received(&mut event).unwrap();
-        let mut event = wrap_to_device_event(bob.user_id(), bob.as_content());
+        let content = alice.as_content();
+        let bob = bob.into_key_received(alice.user_id(), content).unwrap();
+        let content = bob.as_content();
 
         alice
-            .into_key_received(&mut event)
+            .into_key_received(bob.user_id(), content)
             .expect_err("Didn't cancel on invalid commitment");
     }
 
@@ -1321,10 +1309,10 @@ mod test {
     async fn sas_invalid_sender() {
         let (alice, bob) = get_sas_pair().await;
 
-        let mut event = wrap_to_device_event(bob.user_id(), bob.as_content());
-        event.sender = UserId::try_from("@malory:example.org").unwrap();
+        let content = bob.as_content();
+        let sender = UserId::try_from("@malory:example.org").unwrap();
         alice
-            .into_accepted(&event)
+            .into_accepted(&sender, content)
             .expect_err("Didn't cancel on a invalid sender");
     }
 
@@ -1332,9 +1320,14 @@ mod test {
     async fn sas_unknown_sas_method() {
         let (alice, bob) = get_sas_pair().await;
 
-        let mut event = wrap_to_device_event(bob.user_id(), bob.as_content());
+        let mut content = bob.as_content();
 
-        match &mut event.content.method {
+        let mut method = match &mut content {
+            AcceptContent::ToDevice(c) => &mut c.method,
+            AcceptContent::Room(_, c) => &mut c.method,
+        };
+
+        match &mut method {
             AcceptMethod::MSasV1(ref mut c) => {
                 c.short_authentication_string = vec![];
             }
@@ -1342,7 +1335,7 @@ mod test {
         }
 
         alice
-            .into_accepted(&event)
+            .into_accepted(bob.user_id(), content)
             .expect_err("Didn't cancel on an invalid SAS method");
     }
 
@@ -1350,15 +1343,20 @@ mod test {
     async fn sas_unknown_method() {
         let (alice, bob) = get_sas_pair().await;
 
-        let mut event = wrap_to_device_event(bob.user_id(), bob.as_content());
+        let mut content = bob.as_content();
 
-        event.content.method = AcceptMethod::Custom(CustomContent {
+        let method = match &mut content {
+            AcceptContent::ToDevice(c) => &mut c.method,
+            AcceptContent::Room(_, c) => &mut c.method,
+        };
+
+        *method = AcceptMethod::Custom(CustomContent {
             method: "m.sas.custom".to_string(),
             fields: vec![].into_iter().collect(),
         });
 
         alice
-            .into_accepted(&event)
+            .into_accepted(bob.user_id(), content)
             .expect_err("Didn't cancel on an unknown SAS method");
     }
 
@@ -1374,26 +1372,39 @@ mod test {
 
         let mut start_content = alice_sas.as_content();
 
-        match start_content.method {
+        let method = match &mut start_content {
+            StartContent::ToDevice(c) => &mut c.method,
+            StartContent::Room(_, c) => &mut c.method,
+        };
+
+        match method {
             StartMethod::MSasV1(ref mut c) => {
                 c.message_authentication_codes = vec![];
             }
             _ => panic!("Unknown SAS start method"),
         }
 
-        let event = wrap_to_device_event(alice_sas.user_id(), start_content);
-        SasState::<Started>::from_start_event(bob.clone(), alice_device.clone(), &event, None)
-            .expect_err("Didn't cancel on invalid MAC method");
+        SasState::<Started>::from_start_event(
+            bob.clone(),
+            alice_device.clone(),
+            None,
+            start_content,
+        )
+        .expect_err("Didn't cancel on invalid MAC method");
 
         let mut start_content = alice_sas.as_content();
 
-        start_content.method = StartMethod::Custom(CustomStartContent {
+        let method = match &mut start_content {
+            StartContent::ToDevice(c) => &mut c.method,
+            StartContent::Room(_, c) => &mut c.method,
+        };
+
+        *method = StartMethod::Custom(CustomStartContent {
             method: "m.sas.custom".to_string(),
             fields: vec![].into_iter().collect(),
         });
 
-        let event = wrap_to_device_event(alice_sas.user_id(), start_content);
-        SasState::<Started>::from_start_event(bob.clone(), alice_device, &event, None)
+        SasState::<Started>::from_start_event(bob.clone(), alice_device, None, start_content)
             .expect_err("Didn't cancel on unknown sas method");
     }
 }
