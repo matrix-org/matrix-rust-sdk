@@ -96,7 +96,7 @@ impl VerificationMachine {
                 let request = content_to_request(device.user_id(), device.device_id(), c);
 
                 self.verifications
-                    .insert(sas.flow_id().to_string(), sas.clone());
+                    .insert(sas.flow_id().as_str().to_owned(), sas.clone());
 
                 request.into()
             }
@@ -152,7 +152,7 @@ impl VerificationMachine {
                     request: Arc::new(
                         RoomMessageRequest {
                             room_id: r,
-                            txn_id: request_id.clone(),
+                            txn_id: request_id,
                             content: c,
                         }
                         .into(),
@@ -512,7 +512,7 @@ mod test {
         );
 
         machine
-            .receive_event(&mut wrap_any_to_device_content(
+            .receive_event(&wrap_any_to_device_content(
                 bob_sas.user_id(),
                 start_content.into(),
             ))
@@ -536,18 +536,18 @@ mod test {
 
         let alice = alice_machine.get_sas(bob.flow_id().as_str()).unwrap();
 
-        let mut event = alice
+        let event = alice
             .accept()
             .map(|c| wrap_any_to_device_content(alice.user_id(), get_content_from_request(&c)))
             .unwrap();
 
-        let mut event = bob
-            .receive_event(&mut event)
+        let event = bob
+            .receive_event(&event)
             .map(|c| wrap_any_to_device_content(bob.user_id(), c))
             .unwrap();
 
         assert!(alice_machine.outgoing_to_device_messages.is_empty());
-        alice_machine.receive_event(&mut event).await.unwrap();
+        alice_machine.receive_event(&event).await.unwrap();
         assert!(!alice_machine.outgoing_to_device_messages.is_empty());
 
         let request = alice_machine
@@ -564,29 +564,29 @@ mod test {
             panic!("Invalid request type");
         };
 
-        let mut event =
+        let event =
             wrap_any_to_device_content(alice.user_id(), get_content_from_request(&r.into()));
         drop(request);
         alice_machine.mark_request_as_sent(&txn_id);
 
-        assert!(bob.receive_event(&mut event).is_none());
+        assert!(bob.receive_event(&event).is_none());
 
         assert!(alice.emoji().is_some());
         assert!(bob.emoji().is_some());
 
         assert_eq!(alice.emoji(), bob.emoji());
 
-        let mut event = wrap_any_to_device_content(
+        let event = wrap_any_to_device_content(
             alice.user_id(),
             get_content_from_request(&alice.confirm().await.unwrap().0.unwrap()),
         );
-        bob.receive_event(&mut event);
+        bob.receive_event(&event);
 
-        let mut event = wrap_any_to_device_content(
+        let event = wrap_any_to_device_content(
             bob.user_id(),
             get_content_from_request(&bob.confirm().await.unwrap().0.unwrap()),
         );
-        alice.receive_event(&mut event);
+        alice.receive_event(&event);
 
         assert!(alice.is_done());
         assert!(bob.is_done());

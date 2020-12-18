@@ -743,8 +743,8 @@ impl OlmMachine {
         }
     }
 
-    async fn handle_verification_event(&self, mut event: &mut AnyToDeviceEvent) {
-        if let Err(e) = self.verification_machine.receive_event(&mut event).await {
+    async fn handle_verification_event(&self, event: &AnyToDeviceEvent) {
+        if let Err(e) = self.verification_machine.receive_event(&event).await {
             error!("Error handling a verification event: {:?}", e);
         }
     }
@@ -879,7 +879,7 @@ impl OlmMachine {
                 | AnyToDeviceEvent::KeyVerificationMac(..)
                 | AnyToDeviceEvent::KeyVerificationRequest(..)
                 | AnyToDeviceEvent::KeyVerificationStart(..) => {
-                    self.handle_verification_event(&mut event).await;
+                    self.handle_verification_event(&event).await;
                 }
                 _ => continue,
             }
@@ -1826,34 +1826,34 @@ pub(crate) mod test {
 
         let (alice_sas, request) = bob_device.start_verification().await.unwrap();
 
-        let mut event = request_to_event(alice.user_id(), &request.into());
-        bob.handle_verification_event(&mut event).await;
+        let event = request_to_event(alice.user_id(), &request.into());
+        bob.handle_verification_event(&event).await;
 
         let bob_sas = bob.get_verification(alice_sas.flow_id().as_str()).unwrap();
 
         assert!(alice_sas.emoji().is_none());
         assert!(bob_sas.emoji().is_none());
 
-        let mut event = bob_sas
+        let event = bob_sas
             .accept()
             .map(|r| request_to_event(bob.user_id(), &r))
             .unwrap();
 
-        alice.handle_verification_event(&mut event).await;
+        alice.handle_verification_event(&event).await;
 
-        let mut event = alice
+        let event = alice
             .outgoing_to_device_requests()
             .first()
             .map(|r| outgoing_request_to_event(alice.user_id(), r))
             .unwrap();
-        bob.handle_verification_event(&mut event).await;
+        bob.handle_verification_event(&event).await;
 
-        let mut event = bob
+        let event = bob
             .outgoing_to_device_requests()
             .first()
             .map(|r| outgoing_request_to_event(bob.user_id(), r))
             .unwrap();
-        alice.handle_verification_event(&mut event).await;
+        alice.handle_verification_event(&event).await;
 
         assert!(alice_sas.emoji().is_some());
         assert!(bob_sas.emoji().is_some());
@@ -1861,19 +1861,19 @@ pub(crate) mod test {
         assert_eq!(alice_sas.emoji(), bob_sas.emoji());
         assert_eq!(alice_sas.decimals(), bob_sas.decimals());
 
-        let mut event = bob_sas
+        let event = bob_sas
             .confirm()
             .await
             .unwrap()
             .0
             .map(|r| request_to_event(bob.user_id(), &r))
             .unwrap();
-        alice.handle_verification_event(&mut event).await;
+        alice.handle_verification_event(&event).await;
 
         assert!(!alice_sas.is_done());
         assert!(!bob_sas.is_done());
 
-        let mut event = alice_sas
+        let event = alice_sas
             .confirm()
             .await
             .unwrap()
@@ -1891,7 +1891,7 @@ pub(crate) mod test {
             .unwrap();
 
         assert!(!alice_device.is_trusted());
-        bob.handle_verification_event(&mut event).await;
+        bob.handle_verification_event(&event).await;
         assert!(bob_sas.is_done());
         assert!(alice_device.is_trusted());
     }

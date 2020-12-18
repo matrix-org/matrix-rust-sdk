@@ -62,7 +62,7 @@ pub struct SasIds {
 /// * `content` - The `m.key.verification.start` event content that started the
 /// interactive verification process.
 pub fn calculate_commitment(public_key: &str, content: impl Into<StartContent>) -> String {
-    let content = content.into().to_canonical_json();
+    let content = content.into().canonical_json();
 
     encode(
         Sha256::new()

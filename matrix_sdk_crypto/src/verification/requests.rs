@@ -86,13 +86,13 @@ impl VerificationRequest {
     }
 
     pub(crate) fn into_started_sas(
-        &self,
+        self,
         event: &SyncMessageEvent<StartEventContent>,
         device: ReadOnlyDevice,
         user_identity: Option<UserIdentities>,
     ) -> Result<Sas, OutgoingContent> {
         match &*self.inner.lock().unwrap() {
-            InnerRequest::Ready(s) => s.into_started_sas(
+            InnerRequest::Ready(s) => s.clone().into_started_sas(
                 &event.clone().into_full_event(self.room_id().clone()),
                 self.store.clone(),
                 self.account.clone(),
@@ -129,7 +129,7 @@ impl InnerRequest {
     }
 
     fn into_started_sas(
-        &mut self,
+        self,
         event: &MessageEvent<StartEventContent>,
         store: Arc<Box<dyn CryptoStore>>,
         account: ReadOnlyAccount,
@@ -193,8 +193,7 @@ impl RequestState<Created> {
             state: Sent {
                 methods: SUPPORTED_METHODS.to_vec(),
                 flow_id: response.event_id.clone(),
-            }
-            .into(),
+            },
         }
     }
 }
@@ -219,9 +218,8 @@ impl RequestState<Sent> {
             state: Ready {
                 methods: content.methods.to_owned(),
                 other_device_id: content.from_device.clone(),
-                flow_id: self.state.flow_id.clone(),
-            }
-            .into(),
+                flow_id: self.state.flow_id,
+            },
         }
     }
 }
@@ -256,8 +254,7 @@ impl RequestState<Requested> {
                 methods: content.methods.clone(),
                 flow_id: event_id.clone(),
                 other_device_id: content.from_device.clone(),
-            }
-            .into(),
+            },
         }
     }
 
@@ -300,7 +297,7 @@ struct Ready {
 
 impl RequestState<Ready> {
     fn into_started_sas(
-        &self,
+        self,
         event: &MessageEvent<StartEventContent>,
         store: Arc<Box<dyn CryptoStore>>,
         account: ReadOnlyAccount,

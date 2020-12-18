@@ -53,6 +53,7 @@ use self::event_enums::CancelContent;
 
 #[derive(Debug)]
 /// A result of a verification flow.
+#[allow(clippy::large_enum_variant)]
 pub enum VerificationResult {
     /// The verification succeeded, nothing needs to be done.
     Ok,

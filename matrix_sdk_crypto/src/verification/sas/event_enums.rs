@@ -55,7 +55,7 @@ impl StartContent {
         }
     }
 
-    pub fn to_canonical_json(self) -> CanonicalJsonValue {
+    pub fn canonical_json(self) -> CanonicalJsonValue {
         let content = match self {
             StartContent::ToDevice(c) => serde_json::to_value(c),
             StartContent::Room(_, c) => serde_json::to_value(c),

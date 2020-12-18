@@ -1165,7 +1165,7 @@ impl Client {
         request: &RoomMessageRequest,
     ) -> Result<send_message_event::Response> {
         let content = request.content.clone();
-        let txn_id = request.txn_id.into();
+        let txn_id = request.txn_id;
         let room_id = &request.room_id;
 
         self.room_send(&room_id, content, Some(txn_id)).await

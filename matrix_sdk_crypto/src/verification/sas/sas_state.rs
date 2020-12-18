@@ -86,13 +86,6 @@ impl FlowId {
         }
     }
 
-    pub fn to_string(&self) -> String {
-        match self {
-            FlowId::InRoom(_, r) => r.to_string(),
-            FlowId::ToDevice(t) => t.to_string(),
-        }
-    }
-
     pub fn as_str(&self) -> &str {
         match self {
             FlowId::InRoom(_, r) => r.as_str(),
@@ -403,8 +396,8 @@ impl SasState<Created> {
 
     pub fn as_content(&self) -> StartContent {
         match self.verification_flow_id.as_ref() {
-            FlowId::ToDevice(_) => StartContent::ToDevice(StartToDeviceEventContent {
-                transaction_id: self.verification_flow_id.to_string(),
+            FlowId::ToDevice(s) => StartContent::ToDevice(StartToDeviceEventContent {
+                transaction_id: s.to_string(),
                 from_device: self.device_id().into(),
                 method: StartMethod::MSasV1(
                     MSasV1Content::new(self.state.protocol_definitions.clone())
@@ -590,8 +583,8 @@ impl SasState<Started> {
         );
 
         match self.verification_flow_id.as_ref() {
-            FlowId::ToDevice(_) => AcceptToDeviceEventContent {
-                transaction_id: self.verification_flow_id.to_string(),
+            FlowId::ToDevice(s) => AcceptToDeviceEventContent {
+                transaction_id: s.to_string(),
                 method,
             }
             .into(),
@@ -732,12 +725,12 @@ impl SasState<KeyReceived> {
     /// if we_started is false.
     pub fn as_content(&self) -> KeyContent {
         match &*self.verification_flow_id {
-            FlowId::ToDevice(s) => KeyContent::ToDevice(KeyToDeviceEventContent {
+            FlowId::ToDevice(s) => KeyToDeviceEventContent {
                 transaction_id: s.to_string(),
                 key: self.inner.lock().unwrap().public_key(),
-            })
+            }
             .into(),
-            FlowId::InRoom(r, e) => KeyContent::Room(
+            FlowId::InRoom(r, e) => (
                 r.clone(),
                 KeyEventContent {
                     key: self.inner.lock().unwrap().public_key(),
@@ -746,7 +739,7 @@ impl SasState<KeyReceived> {
                     },
                 },
             )
-            .into(),
+                .into(),
         }
     }
 
