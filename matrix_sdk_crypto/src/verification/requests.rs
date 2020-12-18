@@ -92,11 +92,8 @@ impl VerificationRequest {
     pub fn mark_as_sent(&self, response: &RoomMessageResponse) {
         let mut inner = self.inner.lock().unwrap();
 
-        match &*inner {
-            InnerRequest::Created(c) => {
-                *inner = InnerRequest::Sent(c.clone().into_sent(response));
-            }
-            _ => (),
+        if let InnerRequest::Created(c) = &*inner {
+            *inner = InnerRequest::Sent(c.clone().into_sent(response));
         }
     }
 
@@ -144,11 +141,8 @@ impl VerificationRequest {
     ) -> Result<(), ()> {
         let mut inner = self.inner.lock().unwrap();
 
-        match &*inner {
-            InnerRequest::Sent(s) => {
-                *inner = InnerRequest::Ready(s.clone().into_ready(sender, content));
-            }
-            _ => (),
+        if let InnerRequest::Sent(s) = &*inner {
+            *inner = InnerRequest::Ready(s.clone().into_ready(sender, content));
         }
 
         Ok(())
