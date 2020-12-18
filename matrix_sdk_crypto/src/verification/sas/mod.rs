@@ -717,39 +717,38 @@ mod test {
             None,
         )
         .unwrap();
-        let mut event = wrap_any_to_device_content(
+        let event = wrap_any_to_device_content(
             bob.user_id(),
             get_content_from_request(&bob.accept().unwrap()),
         );
 
-        let content = alice.receive_event(&mut event);
+        let content = alice.receive_event(&event);
 
         assert!(!alice.can_be_presented());
         assert!(!bob.can_be_presented());
 
-        let mut event = wrap_any_to_device_content(alice.user_id(), content.unwrap());
-        let mut event =
-            wrap_any_to_device_content(bob.user_id(), bob.receive_event(&mut event).unwrap());
+        let event = wrap_any_to_device_content(alice.user_id(), content.unwrap());
+        let event = wrap_any_to_device_content(bob.user_id(), bob.receive_event(&event).unwrap());
 
         assert!(bob.can_be_presented());
 
-        alice.receive_event(&mut event);
+        alice.receive_event(&event);
         assert!(alice.can_be_presented());
 
         assert_eq!(alice.emoji().unwrap(), bob.emoji().unwrap());
         assert_eq!(alice.decimals().unwrap(), bob.decimals().unwrap());
 
-        let mut event = wrap_any_to_device_content(
+        let event = wrap_any_to_device_content(
             alice.user_id(),
             get_content_from_request(&alice.confirm().await.unwrap().0.unwrap()),
         );
-        bob.receive_event(&mut event);
+        bob.receive_event(&event);
 
-        let mut event = wrap_any_to_device_content(
+        let event = wrap_any_to_device_content(
             bob.user_id(),
             get_content_from_request(&bob.confirm().await.unwrap().0.unwrap()),
         );
-        alice.receive_event(&mut event);
+        alice.receive_event(&event);
 
         assert!(alice
             .verified_devices()
