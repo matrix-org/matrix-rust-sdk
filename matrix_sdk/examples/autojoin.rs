@@ -4,7 +4,7 @@ use tokio::time::{delay_for, Duration};
 use matrix_sdk::{
     self,
     events::{room::member::MemberEventContent, StrippedStateEvent},
-    Client, ClientConfig, EventEmitter, SyncRoom, SyncSettings,
+    Client, ClientConfig, EventEmitter, RoomState, SyncSettings,
 };
 use matrix_sdk_common_macros::async_trait;
 use url::Url;
@@ -23,7 +23,7 @@ impl AutoJoinBot {
 impl EventEmitter for AutoJoinBot {
     async fn on_stripped_state_member(
         &self,
-        room: SyncRoom,
+        room: RoomState,
         room_member: &StrippedStateEvent<MemberEventContent>,
         _: Option<MemberEventContent>,
     ) {
@@ -31,29 +31,30 @@ impl EventEmitter for AutoJoinBot {
             return;
         }
 
-        if let SyncRoom::Invited(room) = room {
-            let room = room.read().await;
-            println!("Autojoining room {}", room.room_id);
+        if let RoomState::Invited(room) = room {
+            println!("Autojoining room {}", room.room_id());
             let mut delay = 2;
 
-            while let Err(err) = self.client.join_room_by_id(&room.room_id).await {
+            while let Err(err) = self.client.join_room_by_id(room.room_id()).await {
                 // retry autojoin due to synapse sending invites, before the
                 // invited user can join for more information see
                 // https://github.com/matrix-org/synapse/issues/4345
                 eprintln!(
                     "Failed to join room {} ({:?}), retrying in {}s",
-                    room.room_id, err, delay
+                    room.room_id(),
+                    err,
+                    delay
                 );
 
                 delay_for(Duration::from_secs(delay)).await;
                 delay *= 2;
 
                 if delay > 3600 {
-                    eprintln!("Can't join room {} ({:?})", room.room_id, err);
+                    eprintln!("Can't join room {} ({:?})", room.room_id(), err);
                     break;
                 }
             }
-            println!("Successfully joined room {}", room.room_id);
+            println!("Successfully joined room {}", room.room_id());
         }
     }
 }
@@ -69,7 +70,7 @@ async fn login_and_sync(
     let client_config = ClientConfig::new().store_path(home);
 
     let homeserver_url = Url::parse(&homeserver_url).expect("Couldn't parse the homeserver URL");
-    let mut client = Client::new_with_config(homeserver_url, client_config).unwrap();
+    let client = Client::new_with_config(homeserver_url, client_config).unwrap();
 
     client
         .login(username, password, None, Some("autojoin bot"))

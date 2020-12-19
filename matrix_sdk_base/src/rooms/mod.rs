@@ -64,6 +64,7 @@ pub struct JoinedRoom {
     pub(crate) inner: Room,
 }
 
+// TODO do we wan't to deref here or have separate implementations.
 impl Deref for JoinedRoom {
     type Target = Room;
 

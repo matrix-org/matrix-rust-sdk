@@ -6,7 +6,7 @@ use matrix_sdk::{
         room::message::{MessageEventContent, TextMessageEventContent},
         AnyMessageEventContent, SyncMessageEvent,
     },
-    Client, ClientConfig, EventEmitter, JsonStore, SyncRoom, SyncSettings,
+    Client, ClientConfig, EventEmitter, RoomState, SyncSettings,
 };
 use matrix_sdk_common_macros::async_trait;
 use url::Url;
@@ -25,8 +25,12 @@ impl CommandBot {
 
 #[async_trait]
 impl EventEmitter for CommandBot {
-    async fn on_room_message(&self, room: SyncRoom, event: &SyncMessageEvent<MessageEventContent>) {
-        if let SyncRoom::Joined(room) = room {
+    async fn on_room_message(
+        &self,
+        room: RoomState,
+        event: &SyncMessageEvent<MessageEventContent>,
+    ) {
+        if let RoomState::Joined(room) = room {
             let msg_body = if let SyncMessageEvent {
                 content: MessageEventContent::Text(TextMessageEventContent { body: msg_body, .. }),
                 ..
@@ -41,15 +45,13 @@ impl EventEmitter for CommandBot {
                 let content = AnyMessageEventContent::RoomMessage(MessageEventContent::text_plain(
                     "🎉🎊🥳 let's PARTY!! 🥳🎊🎉",
                 ));
-                // we clone here to hold the lock for as little time as possible.
-                let room_id = room.read().await.room_id.clone();
 
                 println!("sending");
 
                 self.client
                     // send our message to the room we found the "!party" command in
                     // the last parameter is an optional Uuid which we don't care about.
-                    .room_send(&room_id, content, None)
+                    .room_send(room.room_id(), content, None)
                     .await
                     .unwrap();
 
@@ -68,15 +70,14 @@ async fn login_and_sync(
     let mut home = dirs::home_dir().expect("no home directory found");
     home.push("party_bot");
 
-    let store = JsonStore::open(&home)?;
     let client_config = ClientConfig::new()
         .proxy("http://localhost:8080")?
         .disable_ssl_verification()
-        .state_store(Box::new(store));
+        .store_path(home);
 
     let homeserver_url = Url::parse(&homeserver_url).expect("Couldn't parse the homeserver URL");
     // create a new Client with the given homeserver url and config
-    let mut client = Client::new_with_config(homeserver_url, client_config).unwrap();
+    let client = Client::new_with_config(homeserver_url, client_config).unwrap();
 
     client
         .login(&username, &password, None, Some("command bot"))

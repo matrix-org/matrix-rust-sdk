@@ -14,7 +14,7 @@ use matrix_sdk::{
         room::message::{MessageEventContent, TextMessageEventContent},
         SyncMessageEvent,
     },
-    Client, ClientConfig, EventEmitter, SyncRoom, SyncSettings,
+    Client, ClientConfig, EventEmitter, RoomState, SyncSettings,
 };
 use matrix_sdk_common_macros::async_trait;
 use url::Url;
@@ -33,8 +33,12 @@ impl ImageBot {
 
 #[async_trait]
 impl EventEmitter for ImageBot {
-    async fn on_room_message(&self, room: SyncRoom, event: &SyncMessageEvent<MessageEventContent>) {
-        if let SyncRoom::Joined(room) = room {
+    async fn on_room_message(
+        &self,
+        room: RoomState,
+        event: &SyncMessageEvent<MessageEventContent>,
+    ) {
+        if let RoomState::Joined(room) = room {
             let msg_body = if let SyncMessageEvent {
                 content: MessageEventContent::Text(TextMessageEventContent { body: msg_body, .. }),
                 ..
@@ -46,13 +50,17 @@ impl EventEmitter for ImageBot {
             };
 
             if msg_body.contains("!image") {
-                let room_id = room.read().await.room_id.clone();
-
                 println!("sending image");
                 let mut image = self.image.lock().await;
 
                 self.client
-                    .room_send_attachment(&room_id, "cat", &mime::IMAGE_JPEG, &mut *image, None)
+                    .room_send_attachment(
+                        room.room_id(),
+                        "cat",
+                        &mime::IMAGE_JPEG,
+                        &mut *image,
+                        None,
+                    )
                     .await
                     .unwrap();
 
@@ -75,7 +83,7 @@ async fn login_and_sync(
         .disable_ssl_verification();
 
     let homeserver_url = Url::parse(&homeserver_url).expect("Couldn't parse the homeserver URL");
-    let mut client = Client::new_with_config(homeserver_url, client_config).unwrap();
+    let client = Client::new_with_config(homeserver_url, client_config).unwrap();
 
     client
         .login(&username, &password, None, Some("command bot"))

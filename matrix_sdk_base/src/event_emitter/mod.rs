@@ -12,9 +12,9 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
-use std::sync::Arc;
+use std::ops::Deref;
 
-use matrix_sdk_common::locks::RwLock;
+use matrix_sdk_common::{events::AnySyncRoomEvent, identifiers::RoomId};
 use serde_json::value::RawValue as RawJsonValue;
 
 use crate::{
@@ -38,12 +38,202 @@ use crate::{
             tombstone::TombstoneEventContent,
         },
         typing::TypingEventContent,
-        BasicEvent, StrippedStateEvent, SyncEphemeralRoomEvent, SyncMessageEvent, SyncStateEvent,
+        AnyBasicEvent, AnyStrippedStateEvent, AnySyncEphemeralRoomEvent, AnySyncMessageEvent,
+        AnySyncStateEvent, BasicEvent, StrippedStateEvent, SyncEphemeralRoomEvent,
+        SyncMessageEvent, SyncStateEvent,
     },
+    responses::SyncResponse,
     rooms::RoomState,
-    Room,
 };
 use matrix_sdk_common_macros::async_trait;
+
+pub(crate) struct Emitter {
+    pub(crate) inner: Box<dyn EventEmitter>,
+}
+
+impl Deref for Emitter {
+    type Target = dyn EventEmitter;
+
+    fn deref(&self) -> &Self::Target {
+        &*self.inner
+    }
+}
+
+impl Emitter {
+    fn get_room(&self, _room_id: &RoomId) -> Option<RoomState> {
+        todo!()
+    }
+
+    pub(crate) async fn emit_sync(&self, response: &SyncResponse) {
+        for (room_id, room_info) in &response.rooms.join {
+            if let Some(room) = self.get_room(room_id) {
+                for event in &room_info.ephemeral.events {
+                    self.emit_ephemeral_event(room.clone(), event).await;
+                }
+
+                for event in &room_info.account_data.events {
+                    self.emit_account_data_event(room.clone(), event).await;
+                }
+
+                for event in &room_info.state.events {
+                    self.emit_state_event(room.clone(), event).await;
+                }
+
+                for event in &room_info.timeline.events {
+                    self.emit_timeline_event(room.clone(), event).await;
+                }
+            }
+        }
+
+        for (room_id, room_info) in &response.rooms.leave {
+            if let Some(room) = self.get_room(room_id) {
+                for event in &room_info.account_data.events {
+                    self.emit_account_data_event(room.clone(), event).await;
+                }
+
+                for event in &room_info.state.events {
+                    self.emit_state_event(room.clone(), event).await;
+                }
+
+                for event in &room_info.timeline.events {
+                    self.emit_timeline_event(room.clone(), event).await;
+                }
+            }
+        }
+
+        for (room_id, room_info) in &response.rooms.invite {
+            if let Some(room) = self.get_room(room_id) {
+                for event in &room_info.invite_state.events {
+                    self.emit_stripped_state_event(room.clone(), event).await;
+                }
+            }
+        }
+
+        for event in &response.presence.events {
+            self.on_presence_event(event).await;
+        }
+    }
+
+    async fn emit_timeline_event(&self, room: RoomState, event: &AnySyncRoomEvent) {
+        match event {
+            AnySyncRoomEvent::State(event) => match event {
+                AnySyncStateEvent::RoomMember(e) => self.on_room_member(room, e).await,
+                AnySyncStateEvent::RoomName(e) => self.on_room_name(room, e).await,
+                AnySyncStateEvent::RoomCanonicalAlias(e) => {
+                    self.on_room_canonical_alias(room, e).await
+                }
+                AnySyncStateEvent::RoomAliases(e) => self.on_room_aliases(room, e).await,
+                AnySyncStateEvent::RoomAvatar(e) => self.on_room_avatar(room, e).await,
+                AnySyncStateEvent::RoomPowerLevels(e) => self.on_room_power_levels(room, e).await,
+                AnySyncStateEvent::RoomTombstone(e) => self.on_room_tombstone(room, e).await,
+                AnySyncStateEvent::RoomJoinRules(e) => self.on_room_join_rules(room, e).await,
+                AnySyncStateEvent::Custom(e) => {
+                    self.on_custom_event(room, &CustomEvent::State(e)).await
+                }
+                _ => {}
+            },
+            AnySyncRoomEvent::Message(event) => match event {
+                AnySyncMessageEvent::RoomMessage(e) => self.on_room_message(room, e).await,
+                AnySyncMessageEvent::RoomMessageFeedback(e) => {
+                    self.on_room_message_feedback(room, e).await
+                }
+                AnySyncMessageEvent::RoomRedaction(e) => self.on_room_redaction(room, e).await,
+                AnySyncMessageEvent::Custom(e) => {
+                    self.on_custom_event(room, &CustomEvent::Message(e)).await
+                }
+                _ => {}
+            },
+            AnySyncRoomEvent::RedactedState(_event) => {}
+            AnySyncRoomEvent::RedactedMessage(_event) => {}
+        }
+    }
+
+    async fn emit_state_event(&self, room: RoomState, event: &AnySyncStateEvent) {
+        match event {
+            AnySyncStateEvent::RoomMember(member) => self.on_state_member(room, &member).await,
+            AnySyncStateEvent::RoomName(name) => self.on_state_name(room, &name).await,
+            AnySyncStateEvent::RoomCanonicalAlias(canonical) => {
+                self.on_state_canonical_alias(room, &canonical).await
+            }
+            AnySyncStateEvent::RoomAliases(aliases) => self.on_state_aliases(room, &aliases).await,
+            AnySyncStateEvent::RoomAvatar(avatar) => self.on_state_avatar(room, &avatar).await,
+            AnySyncStateEvent::RoomPowerLevels(power) => {
+                self.on_state_power_levels(room, &power).await
+            }
+            AnySyncStateEvent::RoomJoinRules(rules) => self.on_state_join_rules(room, &rules).await,
+            AnySyncStateEvent::RoomTombstone(tomb) => {
+                // TODO make `on_state_tombstone` method
+                self.on_room_tombstone(room, &tomb).await
+            }
+            AnySyncStateEvent::Custom(custom) => {
+                self.on_custom_event(room, &CustomEvent::State(custom))
+                    .await
+            }
+            _ => {}
+        }
+    }
+
+    pub(crate) async fn emit_stripped_state_event(
+        &self,
+        // TODO these events are only emitted in invited rooms.
+        room: RoomState,
+        event: &AnyStrippedStateEvent,
+    ) {
+        match event {
+            AnyStrippedStateEvent::RoomMember(member) => {
+                self.on_stripped_state_member(room, &member, None).await
+            }
+            AnyStrippedStateEvent::RoomName(name) => self.on_stripped_state_name(room, &name).await,
+            AnyStrippedStateEvent::RoomCanonicalAlias(canonical) => {
+                self.on_stripped_state_canonical_alias(room, &canonical)
+                    .await
+            }
+            AnyStrippedStateEvent::RoomAliases(aliases) => {
+                self.on_stripped_state_aliases(room, &aliases).await
+            }
+            AnyStrippedStateEvent::RoomAvatar(avatar) => {
+                self.on_stripped_state_avatar(room, &avatar).await
+            }
+            AnyStrippedStateEvent::RoomPowerLevels(power) => {
+                self.on_stripped_state_power_levels(room, &power).await
+            }
+            AnyStrippedStateEvent::RoomJoinRules(rules) => {
+                self.on_stripped_state_join_rules(room, &rules).await
+            }
+            _ => {}
+        }
+    }
+
+    pub(crate) async fn emit_account_data_event(&self, room: RoomState, event: &AnyBasicEvent) {
+        match event {
+            AnyBasicEvent::Presence(presence) => self.on_non_room_presence(room, &presence).await,
+            AnyBasicEvent::IgnoredUserList(ignored) => {
+                self.on_non_room_ignored_users(room, &ignored).await
+            }
+            AnyBasicEvent::PushRules(rules) => self.on_non_room_push_rules(room, &rules).await,
+            _ => {}
+        }
+    }
+
+    pub(crate) async fn emit_ephemeral_event(
+        &self,
+        room: RoomState,
+        event: &AnySyncEphemeralRoomEvent,
+    ) {
+        match event {
+            AnySyncEphemeralRoomEvent::FullyRead(full_read) => {
+                self.on_non_room_fully_read(room, full_read).await
+            }
+            AnySyncEphemeralRoomEvent::Typing(typing) => {
+                self.on_non_room_typing(room, typing).await
+            }
+            AnySyncEphemeralRoomEvent::Receipt(receipt) => {
+                self.on_non_room_receipt(room, receipt).await
+            }
+            _ => {}
+        }
+    }
+}
 
 /// This represents the various "unrecognized" events.
 #[derive(Clone, Copy, Debug)]
@@ -259,7 +449,7 @@ pub trait EventEmitter: Send + Sync {
 
     // `PresenceEvent` is a struct so there is only the one method
     /// Fires when `Client` receives a `NonRoomEvent::RoomAliases` event.
-    async fn on_presence_event(&self, _: RoomState, _: &PresenceEvent) {}
+    async fn on_presence_event(&self, _: &PresenceEvent) {}
 
     /// Fires when `Client` receives a `Event::Custom` event or if deserialization fails
     /// because the event was unknown to ruma.
@@ -477,7 +667,7 @@ mod test {
         ) {
             self.0.lock().await.push("receipt event".to_string())
         }
-        async fn on_presence_event(&self, _: RoomState, _: &PresenceEvent) {
+        async fn on_presence_event(&self, _: &PresenceEvent) {
             self.0.lock().await.push("presence event".to_string())
         }
         async fn on_unrecognized_event(&self, _: RoomState, _: &RawJsonValue) {

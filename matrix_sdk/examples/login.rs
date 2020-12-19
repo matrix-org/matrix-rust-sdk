@@ -7,7 +7,7 @@ use matrix_sdk::{
         room::message::{MessageEventContent, TextMessageEventContent},
         SyncMessageEvent,
     },
-    Client, ClientConfig, EventEmitter, SyncRoom, SyncSettings,
+    Client, ClientConfig, EventEmitter, RoomState, SyncSettings,
 };
 use matrix_sdk_common_macros::async_trait;
 
@@ -15,21 +15,22 @@ struct EventCallback;
 
 #[async_trait]
 impl EventEmitter for EventCallback {
-    async fn on_room_message(&self, room: SyncRoom, event: &SyncMessageEvent<MessageEventContent>) {
-        if let SyncRoom::Joined(room) = room {
+    async fn on_room_message(
+        &self,
+        room: RoomState,
+        event: &SyncMessageEvent<MessageEventContent>,
+    ) {
+        if let RoomState::Joined(room) = room {
             if let SyncMessageEvent {
                 content: MessageEventContent::Text(TextMessageEventContent { body: msg_body, .. }),
                 sender,
                 ..
             } = event
             {
-                let name = {
-                    // any reads should be held for the shortest time possible to
-                    // avoid dead locks
-                    let room = room.read().await;
-                    let member = room.joined_members.get(&sender).unwrap();
-                    member.name()
-                };
+                let member = room.get_member(&sender).await.unwrap();
+                let name = member
+                    .display_name()
+                    .unwrap_or_else(|| member.user_id().as_str());
                 println!("{}: {}", name, msg_body);
             }
         }
@@ -45,7 +46,7 @@ async fn login(
         .proxy("http://localhost:8080")?
         .disable_ssl_verification();
     let homeserver_url = Url::parse(&homeserver_url).expect("Couldn't parse the homeserver URL");
-    let mut client = Client::new_with_config(homeserver_url, client_config).unwrap();
+    let client = Client::new_with_config(homeserver_url, client_config).unwrap();
 
     client.add_event_emitter(Box::new(EventCallback)).await;
 

@@ -58,6 +58,7 @@ use zeroize::Zeroizing;
 
 use crate::{
     error::Result,
+    event_emitter::Emitter,
     responses::{
         AccountData, Ephemeral, InviteState, InvitedRoom as InvitedRoomResponse,
         JoinedRoom as JoinedRoomResponse, LeftRoom as LeftRoomResponse, MemberEvent, Presence,
@@ -188,7 +189,7 @@ pub struct BaseClient {
     store_passphrase: Arc<Zeroizing<String>>,
     /// Any implementor of EventEmitter will act as the callbacks for various
     /// events.
-    event_emitter: Arc<RwLock<Option<Box<dyn EventEmitter>>>>,
+    event_emitter: Arc<RwLock<Option<Emitter>>>,
 }
 
 #[cfg(not(tarpaulin_include))]
@@ -419,6 +420,7 @@ impl BaseClient {
     ///
     /// The methods of `EventEmitter` are called when the respective `RoomEvents` occur.
     pub async fn add_event_emitter(&self, emitter: Box<dyn EventEmitter>) {
+        let emitter = Emitter { inner: emitter };
         *self.event_emitter.write().await = Some(emitter);
     }
 
@@ -832,7 +834,7 @@ impl BaseClient {
 
         info!("Processed a sync response in {:?}", now.elapsed().unwrap());
 
-        Ok(SyncResponse {
+        let response = SyncResponse {
             next_batch: response.next_batch,
             rooms,
             presence: Presence {
@@ -849,11 +851,16 @@ impl BaseClient {
                 .collect(),
 
             ..Default::default()
-        })
+        };
+
+        if let Some(emitter) = self.event_emitter.read().await.as_ref() {
+            emitter.emit_sync(&response).await;
+        }
+
+        Ok(response)
     }
 
     async fn apply_changes(&self, changes: &StateChanges) {
-        // TODO emit room changes here
         for (room_id, room_info) in &changes.room_infos {
             if let Some(room) = self.get_bare_room(&room_id) {
                 room.update_summary(room_info.clone())
