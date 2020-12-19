@@ -523,7 +523,7 @@ impl BaseClient {
     ) -> (
         InviteState,
         BTreeMap<UserId, StrippedMemberEvent>,
-        BTreeMap<String, AnyStrippedStateEvent>,
+        BTreeMap<String, BTreeMap<String, AnyStrippedStateEvent>>,
     ) {
         events.into_iter().fold(
             (InviteState::default(), BTreeMap::new(), BTreeMap::new()),
@@ -544,7 +544,10 @@ impl BaseClient {
                             }
                         } else {
                             room_info.handle_state_event(&e);
-                            state_events.insert(e.content().event_type().to_owned(), e);
+                            state_events
+                                .entry(e.content().event_type().to_owned())
+                                .or_insert_with(BTreeMap::new)
+                                .insert(e.state_key().to_owned(), e);
                         }
                     }
                     Err(err) => {
@@ -566,7 +569,7 @@ impl BaseClient {
     ) -> (
         State,
         BTreeMap<UserId, MemberEvent>,
-        BTreeMap<String, AnySyncStateEvent>,
+        BTreeMap<String, BTreeMap<String, AnySyncStateEvent>>,
         BTreeSet<UserId>,
     ) {
         let mut state = State::default();
@@ -610,7 +613,10 @@ impl BaseClient {
                     ),
                 }
             } else {
-                state_events.insert(event.content().event_type().to_owned(), event);
+                state_events
+                    .entry(event.content().event_type().to_owned())
+                    .or_insert_with(BTreeMap::new)
+                    .insert(event.state_key().to_owned(), event);
             }
         }
 

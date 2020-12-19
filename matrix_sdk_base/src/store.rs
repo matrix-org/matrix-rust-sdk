@@ -42,11 +42,11 @@ pub struct StateChanges {
     pub presence: BTreeMap<UserId, PresenceEvent>,
 
     pub members: BTreeMap<RoomId, BTreeMap<UserId, MemberEvent>>,
-    pub state: BTreeMap<RoomId, BTreeMap<String, AnySyncStateEvent>>,
+    pub state: BTreeMap<RoomId, BTreeMap<String, BTreeMap<String, AnySyncStateEvent>>>,
     pub room_account_data: BTreeMap<RoomId, BTreeMap<String, AnyBasicEvent>>,
     pub room_infos: BTreeMap<RoomId, RoomInfo>,
 
-    pub stripped_state: BTreeMap<RoomId, BTreeMap<String, AnyStrippedStateEvent>>,
+    pub stripped_state: BTreeMap<RoomId, BTreeMap<String, BTreeMap<String, AnyStrippedStateEvent>>>,
     pub stripped_members: BTreeMap<RoomId, BTreeMap<UserId, StrippedMemberEvent>>,
     pub invited_room_info: BTreeMap<RoomId, RoomInfo>,
 }
@@ -77,6 +77,8 @@ impl StateChanges {
         self.stripped_state
             .entry(room_id.to_owned())
             .or_insert_with(BTreeMap::new)
+            .entry(event.content().event_type().to_string())
+            .or_insert_with(BTreeMap::new)
             .insert(event.state_key().to_string(), event);
     }
 
@@ -92,7 +94,9 @@ impl StateChanges {
         self.state
             .entry(room_id.to_owned())
             .or_insert_with(BTreeMap::new)
-            .insert(event.content().event_type().to_string(), event);
+            .entry(event.content().event_type().to_string())
+            .or_insert_with(BTreeMap::new)
+            .insert(event.state_key().to_string(), event);
     }
 }
 
@@ -242,18 +246,20 @@ impl Store {
                         }
                     }
 
-                    for (room, events) in &changes.state {
-                        for event in events.values() {
-                            state.insert(
-                                format!(
-                                    "{}{}{}",
-                                    room.as_str(),
-                                    event.content().event_type(),
-                                    event.state_key(),
-                                )
-                                .as_bytes(),
-                                serde_json::to_vec(&event).unwrap(),
-                            )?;
+                    for (room, event_types) in &changes.state {
+                        for events in event_types.values() {
+                            for event in events.values() {
+                                state.insert(
+                                    format!(
+                                        "{}{}{}",
+                                        room.as_str(),
+                                        event.content().event_type(),
+                                        event.state_key(),
+                                    )
+                                    .as_bytes(),
+                                    serde_json::to_vec(&event).unwrap(),
+                                )?;
+                            }
                         }
                     }
 
@@ -280,18 +286,20 @@ impl Store {
                         }
                     }
 
-                    for (room, events) in &changes.stripped_state {
-                        for event in events.values() {
-                            stripped_state.insert(
-                                format!(
-                                    "{}{}{}",
-                                    room.as_str(),
-                                    event.content().event_type(),
-                                    event.state_key(),
-                                )
-                                .as_bytes(),
-                                serde_json::to_vec(&event).unwrap(),
-                            )?;
+                    for (room, event_types) in &changes.stripped_state {
+                        for events in event_types.values() {
+                            for event in events.values() {
+                                stripped_state.insert(
+                                    format!(
+                                        "{}{}{}",
+                                        room.as_str(),
+                                        event.content().event_type(),
+                                        event.state_key(),
+                                    )
+                                    .as_bytes(),
+                                    serde_json::to_vec(&event).unwrap(),
+                                )?;
+                            }
                         }
                     }
 
