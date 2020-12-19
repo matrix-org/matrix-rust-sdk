@@ -44,15 +44,17 @@ pub use matrix_sdk_common::*;
 
 mod client;
 mod error;
+mod event_emitter;
 pub mod responses;
 mod rooms;
 mod session;
 mod store;
 
-pub use rooms::{Room, RoomInfo, RoomMember};
+pub use event_emitter::EventEmitter;
+pub use rooms::{InvitedRoom, JoinedRoom, LeftRoom, Room, RoomInfo, RoomMember, RoomState};
 pub use store::Store;
 
-pub use client::{BaseClient, BaseClientConfig, RoomState, RoomStateType};
+pub use client::{BaseClient, BaseClientConfig, RoomStateType};
 
 #[cfg(feature = "encryption")]
 #[cfg_attr(feature = "docs", doc(cfg(encryption)))]

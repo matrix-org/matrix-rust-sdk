@@ -8,7 +8,7 @@ pub use stripped::{StrippedRoom, StrippedRoomInfo};
 pub use members::RoomMember;
 
 use serde::{Deserialize, Serialize};
-use std::cmp::max;
+use std::{cmp::max, ops::Deref};
 
 use matrix_sdk_common::{
     events::{
@@ -17,6 +17,86 @@ use matrix_sdk_common::{
     },
     identifiers::RoomAliasId,
 };
+
+/// An enum that represents the state of the given `Room`.
+///
+/// If the event came from the `join`, `invite` or `leave` rooms map from the server
+/// the variant that holds the corresponding room is used. `RoomState` is generic
+/// so it can be used to represent a `Room` or an `Arc<RwLock<Room>>`
+#[derive(Debug, Clone)]
+pub enum RoomState {
+    /// A room from the `join` section of a sync response.
+    Joined(JoinedRoom),
+    /// A room from the `leave` section of a sync response.
+    Left(LeftRoom),
+    /// A room from the `invite` section of a sync response.
+    Invited(InvitedRoom),
+}
+
+impl RoomState {
+    pub fn joined(self) -> Option<JoinedRoom> {
+        if let RoomState::Joined(r) = self {
+            Some(r)
+        } else {
+            None
+        }
+    }
+
+    pub fn is_encrypted(&self) -> bool {
+        match self {
+            RoomState::Joined(r) => r.inner.is_encrypted(),
+            RoomState::Left(r) => r.inner.is_encrypted(),
+            RoomState::Invited(r) => r.inner.is_encrypted(),
+        }
+    }
+
+    pub fn are_members_synced(&self) -> bool {
+        if let RoomState::Joined(r) = self {
+            r.inner.are_members_synced()
+        } else {
+            true
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct JoinedRoom {
+    pub(crate) inner: Room,
+}
+
+impl Deref for JoinedRoom {
+    type Target = Room;
+
+    fn deref(&self) -> &Self::Target {
+        &self.inner
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct LeftRoom {
+    pub(crate) inner: Room,
+}
+
+impl Deref for LeftRoom {
+    type Target = Room;
+
+    fn deref(&self) -> &Self::Target {
+        &self.inner
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct InvitedRoom {
+    pub(crate) inner: StrippedRoom,
+}
+
+impl Deref for InvitedRoom {
+    type Target = StrippedRoom;
+
+    fn deref(&self) -> &Self::Target {
+        &self.inner
+    }
+}
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct BaseRoomInfo {

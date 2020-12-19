@@ -83,6 +83,10 @@ impl Room {
         self.inner.lock().unwrap().members_synced
     }
 
+    pub fn room_type(&self) -> RoomType {
+        self.inner.lock().unwrap().room_type
+    }
+
     pub async fn get_active_members(&self) -> impl Stream<Item = RoomMember> + '_ {
         let joined = self.store.get_joined_user_ids(self.room_id()).await;
         let invited = self.store.get_invited_user_ids(self.room_id()).await;
