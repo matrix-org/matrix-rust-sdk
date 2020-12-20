@@ -23,8 +23,6 @@ use std::{
     time::SystemTime,
 };
 
-use dashmap::DashMap;
-
 #[cfg(feature = "encryption")]
 use futures::StreamExt;
 use matrix_sdk_common::{
@@ -64,10 +62,10 @@ use crate::{
         JoinedRoom as JoinedRoomResponse, LeftRoom as LeftRoomResponse, MemberEvent, Presence,
         Rooms, State, StrippedMemberEvent, SyncResponse, Timeline,
     },
-    rooms::{Room, RoomInfo, RoomType, StrippedRoom, StrippedRoomInfo},
+    rooms::{RoomInfo, RoomType, StrippedRoomInfo},
     session::Session,
-    store::{StateChanges, Store},
-    EventEmitter, InvitedRoom, JoinedRoom, LeftRoom, RoomState,
+    store::{SledStore, StateChanges, Store},
+    EventEmitter, JoinedRoom, RoomState,
 };
 
 pub type Token = String;
@@ -179,8 +177,6 @@ pub struct BaseClient {
     pub(crate) sync_token: Arc<RwLock<Option<Token>>>,
     /// Database
     store: Store,
-    rooms: Arc<DashMap<RoomId, Room>>,
-    stripped_rooms: Arc<DashMap<RoomId, StrippedRoom>>,
     #[cfg(feature = "encryption")]
     olm: Arc<Mutex<Option<OlmMachine>>>,
     #[cfg(feature = "encryption")]
@@ -288,17 +284,18 @@ impl BaseClient {
     pub fn new_with_config(config: BaseClientConfig) -> Result<Self> {
         let store = if let Some(path) = &config.store_path {
             info!("Opening store in path {}", path.display());
-            Store::open_with_path(path)
+            SledStore::open_with_path(path)
         } else {
-            Store::open()
+            SledStore::open()
         };
 
+        let session = Arc::new(RwLock::new(None));
+        let store = Store::new(session.clone(), store);
+
         Ok(BaseClient {
-            session: RwLock::new(None).into(),
+            session,
             sync_token: RwLock::new(None).into(),
             store,
-            rooms: DashMap::new().into(),
-            stripped_rooms: DashMap::new().into(),
             #[cfg(feature = "encryption")]
             olm: Mutex::new(None).into(),
             #[cfg(feature = "encryption")]
@@ -422,32 +419,6 @@ impl BaseClient {
     pub async fn add_event_emitter(&self, emitter: Box<dyn EventEmitter>) {
         let emitter = Emitter { inner: emitter };
         *self.event_emitter.write().await = Some(emitter);
-    }
-
-    async fn get_or_create_stripped_room(&self, room_id: &RoomId) -> StrippedRoom {
-        let session = self.session.read().await;
-        let user_id = &session
-            .as_ref()
-            .expect("Creating room while not being logged in")
-            .user_id;
-
-        self.stripped_rooms
-            .entry(room_id.clone())
-            .or_insert_with(|| StrippedRoom::new(user_id, self.store.clone(), room_id))
-            .clone()
-    }
-
-    async fn get_or_create_room(&self, room_id: &RoomId, room_type: RoomType) -> Room {
-        let session = self.session.read().await;
-        let user_id = &session
-            .as_ref()
-            .expect("Creating room while not being logged in")
-            .user_id;
-
-        self.rooms
-            .entry(room_id.clone())
-            .or_insert_with(|| Room::new(user_id, self.store.clone(), room_id, room_type))
-            .clone()
     }
 
     async fn handle_timeline(
@@ -673,7 +644,10 @@ impl BaseClient {
         let mut rooms = Rooms::default();
 
         for (room_id, new_info) in response.rooms.join {
-            let room = self.get_or_create_room(&room_id, RoomType::Joined).await;
+            let room = self
+                .store
+                .get_or_create_room(&room_id, RoomType::Joined)
+                .await;
             let mut room_info = room.clone_info();
 
             room_info.update_summary(&new_info.summary);
@@ -750,7 +724,10 @@ impl BaseClient {
         }
 
         for (room_id, new_info) in response.rooms.leave {
-            let room = self.get_or_create_room(&room_id, RoomType::Left).await;
+            let room = self
+                .store
+                .get_or_create_room(&room_id, RoomType::Left)
+                .await;
             let mut room_info = room.clone_info();
             room_info.mark_as_left();
 
@@ -782,13 +759,16 @@ impl BaseClient {
 
         for (room_id, new_info) in response.rooms.invite {
             {
-                let room = self.get_or_create_room(&room_id, RoomType::Invited).await;
+                let room = self
+                    .store
+                    .get_or_create_room(&room_id, RoomType::Invited)
+                    .await;
                 let mut room_info = room.clone_info();
                 room_info.mark_as_invited();
                 changes.add_room(room_info);
             }
 
-            let room = self.get_or_create_stripped_room(&room_id).await;
+            let room = self.store.get_or_create_stripped_room(&room_id).await;
             let mut room_info = room.clone_info();
 
             let (state, members, state_events) =
@@ -862,7 +842,7 @@ impl BaseClient {
 
     async fn apply_changes(&self, changes: &StateChanges) {
         for (room_id, room_info) in &changes.room_infos {
-            if let Some(room) = self.get_bare_room(&room_id) {
+            if let Some(room) = self.store.get_bare_room(&room_id) {
                 room.update_summary(room_info.clone())
             }
         }
@@ -873,7 +853,7 @@ impl BaseClient {
         room_id: &RoomId,
         response: &api::membership::get_member_events::Response,
     ) -> Result<()> {
-        if let Some(room) = self.get_bare_room(room_id) {
+        if let Some(room) = self.store.get_bare_room(room_id) {
             let mut room_info = room.clone_info();
             room_info.mark_members_synced();
 
@@ -1038,30 +1018,12 @@ impl BaseClient {
         }
     }
 
-    fn get_bare_room(&self, room_id: &RoomId) -> Option<Room> {
-        #[allow(clippy::map_clone)]
-        self.rooms.get(room_id).map(|r| r.clone())
-    }
-
     pub fn get_joined_room(&self, room_id: &RoomId) -> Option<JoinedRoom> {
-        self.get_room(room_id).map(|r| r.joined()).flatten()
+        self.store.get_joined_room(room_id)
     }
 
     pub fn get_room(&self, room_id: &RoomId) -> Option<RoomState> {
-        self.get_bare_room(room_id)
-            .map(|r| match r.room_type() {
-                RoomType::Joined => Some(RoomState::Joined(JoinedRoom { inner: r })),
-                RoomType::Left => Some(RoomState::Left(LeftRoom { inner: r })),
-                RoomType::Invited => self
-                    .get_stripped_room(room_id)
-                    .map(|r| RoomState::Invited(InvitedRoom { inner: r })),
-            })
-            .flatten()
-    }
-
-    fn get_stripped_room(&self, room_id: &RoomId) -> Option<StrippedRoom> {
-        #[allow(clippy::map_clone)]
-        self.stripped_rooms.get(room_id).map(|r| r.clone())
+        self.store.get_room(room_id)
     }
 
     /// Encrypt a message event content.

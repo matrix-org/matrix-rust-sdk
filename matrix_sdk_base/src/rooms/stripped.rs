@@ -20,7 +20,7 @@ use matrix_sdk_common::{
 };
 use serde::{Deserialize, Serialize};
 
-use crate::store::Store;
+use crate::store::SledStore;
 
 use super::BaseRoomInfo;
 
@@ -29,11 +29,11 @@ pub struct StrippedRoom {
     room_id: Arc<RoomId>,
     own_user_id: Arc<UserId>,
     inner: Arc<SyncMutex<StrippedRoomInfo>>,
-    store: Store,
+    store: SledStore,
 }
 
 impl StrippedRoom {
-    pub fn new(own_user_id: &UserId, store: Store, room_id: &RoomId) -> Self {
+    pub fn new(own_user_id: &UserId, store: SledStore, room_id: &RoomId) -> Self {
         let room_id = Arc::new(room_id.clone());
 
         Self {

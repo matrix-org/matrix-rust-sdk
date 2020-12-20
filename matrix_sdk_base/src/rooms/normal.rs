@@ -29,7 +29,7 @@ use matrix_sdk_common::{
 use serde::{Deserialize, Serialize};
 use tracing::info;
 
-use crate::{responses::UnreadNotificationsCount, store::Store};
+use crate::{responses::UnreadNotificationsCount, store::SledStore};
 
 use super::{BaseRoomInfo, RoomMember};
 
@@ -38,7 +38,7 @@ pub struct Room {
     room_id: Arc<RoomId>,
     own_user_id: Arc<UserId>,
     inner: Arc<SyncMutex<RoomInfo>>,
-    store: Store,
+    store: SledStore,
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
@@ -60,7 +60,12 @@ pub enum RoomType {
 }
 
 impl Room {
-    pub fn new(own_user_id: &UserId, store: Store, room_id: &RoomId, room_type: RoomType) -> Self {
+    pub fn new(
+        own_user_id: &UserId,
+        store: SledStore,
+        room_id: &RoomId,
+        room_type: RoomType,
+    ) -> Self {
         let room_id = Arc::new(room_id.clone());
 
         Self {

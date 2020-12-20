@@ -30,7 +30,6 @@ getrandom = "0.2.0"
 serde = { version = "1.0.117", features = ["derive", "rc"] }
 serde_json = "1.0.59"
 zeroize = { version = "1.1.1", features = ["zeroize_derive"] }
-url = "2.1.1"
 
 # Misc dependencies
 thiserror = "1.0.21"

@@ -1,5 +1,8 @@
-use std::{collections::BTreeMap, convert::TryFrom, path::Path, time::SystemTime};
+use std::{
+    collections::BTreeMap, convert::TryFrom, ops::Deref, path::Path, sync::Arc, time::SystemTime,
+};
 
+use dashmap::DashMap;
 use futures::stream::{self, Stream};
 use matrix_sdk_common::{
     events::{
@@ -7,6 +10,7 @@ use matrix_sdk_common::{
         AnyStrippedStateEvent, AnySyncStateEvent, EventContent, EventType,
     },
     identifiers::{RoomId, UserId},
+    locks::RwLock,
 };
 
 use sled::{transaction::TransactionResult, Config, Db, Transactional, Tree};
@@ -14,12 +18,91 @@ use tracing::info;
 
 use crate::{
     responses::{MemberEvent, StrippedMemberEvent},
-    rooms::RoomInfo,
-    Session,
+    rooms::{RoomInfo, RoomType, StrippedRoom},
+    InvitedRoom, JoinedRoom, LeftRoom, Room, RoomState, Session,
 };
 
 #[derive(Debug, Clone)]
 pub struct Store {
+    inner: SledStore,
+    session: Arc<RwLock<Option<Session>>>,
+    rooms: Arc<DashMap<RoomId, Room>>,
+    stripped_rooms: Arc<DashMap<RoomId, StrippedRoom>>,
+}
+
+impl Store {
+    pub fn new(session: Arc<RwLock<Option<Session>>>, inner: SledStore) -> Self {
+        Self {
+            inner,
+            session,
+            rooms: DashMap::new().into(),
+            stripped_rooms: DashMap::new().into(),
+        }
+    }
+
+    pub(crate) fn get_bare_room(&self, room_id: &RoomId) -> Option<Room> {
+        #[allow(clippy::map_clone)]
+        self.rooms.get(room_id).map(|r| r.clone())
+    }
+
+    pub(crate) fn get_joined_room(&self, room_id: &RoomId) -> Option<JoinedRoom> {
+        self.get_room(room_id).map(|r| r.joined()).flatten()
+    }
+
+    pub(crate) fn get_room(&self, room_id: &RoomId) -> Option<RoomState> {
+        self.get_bare_room(room_id)
+            .map(|r| match r.room_type() {
+                RoomType::Joined => Some(RoomState::Joined(JoinedRoom { inner: r })),
+                RoomType::Left => Some(RoomState::Left(LeftRoom { inner: r })),
+                RoomType::Invited => self
+                    .get_stripped_room(room_id)
+                    .map(|r| RoomState::Invited(InvitedRoom { inner: r })),
+            })
+            .flatten()
+    }
+
+    fn get_stripped_room(&self, room_id: &RoomId) -> Option<StrippedRoom> {
+        #[allow(clippy::map_clone)]
+        self.stripped_rooms.get(room_id).map(|r| r.clone())
+    }
+
+    pub(crate) async fn get_or_create_stripped_room(&self, room_id: &RoomId) -> StrippedRoom {
+        let session = self.session.read().await;
+        let user_id = &session
+            .as_ref()
+            .expect("Creating room while not being logged in")
+            .user_id;
+
+        self.stripped_rooms
+            .entry(room_id.clone())
+            .or_insert_with(|| StrippedRoom::new(user_id, self.inner.clone(), room_id))
+            .clone()
+    }
+
+    pub(crate) async fn get_or_create_room(&self, room_id: &RoomId, room_type: RoomType) -> Room {
+        let session = self.session.read().await;
+        let user_id = &session
+            .as_ref()
+            .expect("Creating room while not being logged in")
+            .user_id;
+
+        self.rooms
+            .entry(room_id.clone())
+            .or_insert_with(|| Room::new(user_id, self.inner.clone(), room_id, room_type))
+            .clone()
+    }
+}
+
+impl Deref for Store {
+    type Target = SledStore;
+
+    fn deref(&self) -> &Self::Target {
+        &self.inner
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct SledStore {
     inner: Db,
     session: Tree,
     account_data: Tree,
@@ -109,7 +192,7 @@ impl From<Session> for StateChanges {
     }
 }
 
-impl Store {
+impl SledStore {
     fn open_helper(db: Db) -> Self {
         let session = db.open_tree("session").unwrap();
         let account_data = db.open_tree("account_data").unwrap();
@@ -147,14 +230,14 @@ impl Store {
     pub fn open() -> Self {
         let db = Config::new().temporary(true).open().unwrap();
 
-        Store::open_helper(db)
+        SledStore::open_helper(db)
     }
 
     pub fn open_with_path(path: impl AsRef<Path>) -> Self {
         let path = path.as_ref().join("matrix-sdk-state");
         let db = Config::new().temporary(false).path(path).open().unwrap();
 
-        Store::open_helper(db)
+        SledStore::open_helper(db)
     }
 
     pub async fn save_filter(&self, filter_name: &str, filter_id: &str) {
@@ -393,7 +476,7 @@ mod test {
     };
     use matrix_sdk_test::async_test;
 
-    use super::{StateChanges, Store};
+    use super::{SledStore, StateChanges};
     use crate::{responses::MemberEvent, Session};
 
     fn user_id() -> UserId {
@@ -432,7 +515,7 @@ mod test {
             access_token: "TEST_TOKEN".to_owned(),
         };
 
-        let store = Store::open();
+        let store = SledStore::open();
 
         store.save_changes(&session.clone().into()).await;
         let stored_session = store.get_session().unwrap();
@@ -442,7 +525,7 @@ mod test {
 
     #[async_test]
     async fn test_member_saving() {
-        let store = Store::open();
+        let store = SledStore::open();
         let room_id = room_id!("!test:localhost");
         let user_id = user_id();
 
