@@ -1103,3 +1103,123 @@ lazy_static! {
         "next_batch": "s1380317562_757269739_1655566_503953763_334052043_1209862_55290918_65705002_101146"
     });
 }
+
+lazy_static! {
+    pub static ref VOIP_SYNC: JsonValue = json!({
+        "device_one_time_keys_count": {},
+        "next_batch": "s526_47314_0_7_1_1_1_11444_1",
+        "device_lists": {
+            "changed": [
+                "@example:example.org"
+            ],
+            "left": []
+        },
+        "rooms": {
+            "invite": {},
+            "join": {
+                "!SVkFJHzfwvuaIEawgC:localhost": {
+                    "summary": {},
+                    "account_data": {
+                        "events": []
+                    },
+                    "ephemeral": {
+                        "events": [ ]
+                    },
+                    "state": {
+                        "events": []
+                    },
+                    "timeline": {
+                        "events": [
+                            {
+                                "content": {
+                                    "call_id": "12345",
+                                    "lifetime": 60000,
+                                    "offer": {
+                                        "sdp": "v=0\r\no=- 6584580628695956864 2 IN IP4 127.0.0.1[...]",
+                                        "type": "offer"
+                                    },
+                                    "version": 0
+                                },
+                                "event_id": "$143273582443PhrSn:example.org",
+                                "origin_server_ts": 143273582,
+                                "room_id": "!jEsUZKDJdhlrceRyVU:example.org",
+                                "sender": "@example:example.org",
+                                "type": "m.call.invite",
+                                "unsigned": {
+                                    "age": 1234
+                                }
+                            },
+                            {
+                                "content": {
+                                    "answer": {
+                                        "sdp": "v=0\r\no=- 6584580628695956864 2 IN IP4 127.0.0.1[...]",
+                                        "type": "answer"
+                                    },
+                                    "call_id": "12345",
+                                    "lifetime": 60000,
+                                    "version": 0
+                                },
+                                "event_id": "$143273582443PhrSn:example.org",
+                                "origin_server_ts": 143273582,
+                                "room_id": "!jEsUZKDJdhlrceRyVU:example.org",
+                                "sender": "@example:example.org",
+                                "type": "m.call.answer",
+                                "unsigned": {
+                                    "age": 1234
+                                }
+                            },
+                            {
+                                "content": {
+                                    "call_id": "12345",
+                                    "candidates": [
+                                        {
+                                            "candidate": "candidate:863018703 1 udp 2122260223 10.9.64.156 43670 typ host generation 0",
+                                            "sdpMLineIndex": 0,
+                                            "sdpMid": "audio"
+                                        }
+                                    ],
+                                    "version": 0
+                                },
+                                "event_id": "$143273582443PhrSn:example.org",
+                                "origin_server_ts": 143273582,
+                                "room_id": "!jEsUZKDJdhlrceRyVU:example.org",
+                                "sender": "@example:example.org",
+                                "type": "m.call.candidates",
+                                "unsigned": {
+                                    "age": 1234
+                                }
+                            },
+                            {
+                                "content": {
+                                    "call_id": "12345",
+                                    "version": 0
+                                },
+                                "event_id": "$143273582443PhrSn:example.org",
+                                "origin_server_ts": 143273582,
+                                "room_id": "!jEsUZKDJdhlrceRyVU:example.org",
+                                "sender": "@example:example.org",
+                                "type": "m.call.hangup",
+                                "unsigned": {
+                                    "age": 1234
+                                }
+                            }
+                        ],
+                        "limited": true,
+                        "prev_batch": "t392-516_47314_0_7_1_1_1_11444_1"
+                    },
+                    "unread_notifications": {
+                        "highlight_count": 0,
+                        "notification_count": 11
+                    }
+                }
+            },
+            "leave": {}
+        },
+        "to_device": {
+            "events": []
+        },
+        "presence": {
+            "events": []
+        }
+    });
+}

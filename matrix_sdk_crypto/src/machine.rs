@@ -36,7 +36,8 @@ use matrix_sdk_common::{
         ToDeviceEvent,
     },
     identifiers::{
-        DeviceId, DeviceIdBox, DeviceKeyAlgorithm, EventEncryptionAlgorithm, RoomId, UserId,
+        DeviceId, DeviceIdBox, DeviceKeyAlgorithm, EventEncryptionAlgorithm, EventId, RoomId,
+        UserId,
     },
     js_int::UInt,
     locks::Mutex,
@@ -44,8 +45,6 @@ use matrix_sdk_common::{
     Raw,
 };
 
-#[cfg(feature = "sqlite_cryptostore")]
-use crate::store::sqlite::SqliteStore;
 use crate::{
     error::{EventError, MegolmError, MegolmResult, OlmError, OlmResult},
     identities::{Device, IdentityManager, UserDevices},
@@ -64,6 +63,8 @@ use crate::{
     verification::{Sas, VerificationMachine},
     ToDeviceRequest,
 };
+#[cfg(feature = "sqlite_cryptostore")]
+use crate::{store::sqlite::SqliteStore, verification::VerificationRequest};
 
 /// State machine implementation of the Olm/Megolm encryption protocol used for
 /// Matrix end to end encryption.
@@ -321,6 +322,7 @@ impl OlmMachine {
         }
 
         requests.append(&mut self.outgoing_to_device_requests());
+        requests.append(&mut self.verification_machine.outgoing_room_message_requests());
         requests.append(&mut self.key_request_machine.outgoing_to_device_requests());
 
         requests
@@ -357,6 +359,9 @@ impl OlmMachine {
                 self.receive_cross_signing_upload_response().await?;
             }
             IncomingResponse::SignatureUpload(_) => {
+                self.verification_machine.mark_request_as_sent(request_id);
+            }
+            IncomingResponse::RoomMessage(_) => {
                 self.verification_machine.mark_request_as_sent(request_id);
             }
         };
@@ -738,8 +743,8 @@ impl OlmMachine {
         }
     }
 
-    async fn handle_verification_event(&self, mut event: &mut AnyToDeviceEvent) {
-        if let Err(e) = self.verification_machine.receive_event(&mut event).await {
+    async fn handle_verification_event(&self, event: &AnyToDeviceEvent) {
+        if let Err(e) = self.verification_machine.receive_event(&event).await {
             error!("Error handling a verification event: {:?}", e);
         }
     }
@@ -765,6 +770,11 @@ impl OlmMachine {
     /// Get a `Sas` verification object with the given flow id.
     pub fn get_verification(&self, flow_id: &str) -> Option<Sas> {
         self.verification_machine.get_sas(flow_id)
+    }
+
+    /// Get a verification request object with the given flow id.
+    pub fn get_verification_request(&self, flow_id: &EventId) -> Option<VerificationRequest> {
+        self.verification_machine.get_request(flow_id)
     }
 
     async fn update_one_time_key_count(&self, key_count: &BTreeMap<DeviceKeyAlgorithm, UInt>) {
@@ -869,7 +879,7 @@ impl OlmMachine {
                 | AnyToDeviceEvent::KeyVerificationMac(..)
                 | AnyToDeviceEvent::KeyVerificationRequest(..)
                 | AnyToDeviceEvent::KeyVerificationStart(..) => {
-                    self.handle_verification_event(&mut event).await;
+                    self.handle_verification_event(&event).await;
                 }
                 _ => continue,
             }
@@ -923,6 +933,12 @@ impl OlmMachine {
         trace!("Successfully decrypted Megolm event {:?}", decrypted_event);
         // TODO set the encryption info on the event (is it verified, was it
         // decrypted, sender key...)
+
+        if let Ok(e) = decrypted_event.deserialize() {
+            self.verification_machine
+                .receive_room_event(room_id, &e)
+                .await?;
+        }
 
         Ok(decrypted_event)
     }
@@ -1810,34 +1826,34 @@ pub(crate) mod test {
 
         let (alice_sas, request) = bob_device.start_verification().await.unwrap();
 
-        let mut event = request_to_event(alice.user_id(), &request);
-        bob.handle_verification_event(&mut event).await;
+        let event = request_to_event(alice.user_id(), &request.into());
+        bob.handle_verification_event(&event).await;
 
-        let bob_sas = bob.get_verification(alice_sas.flow_id()).unwrap();
+        let bob_sas = bob.get_verification(alice_sas.flow_id().as_str()).unwrap();
 
         assert!(alice_sas.emoji().is_none());
         assert!(bob_sas.emoji().is_none());
 
-        let mut event = bob_sas
+        let event = bob_sas
             .accept()
             .map(|r| request_to_event(bob.user_id(), &r))
             .unwrap();
 
-        alice.handle_verification_event(&mut event).await;
+        alice.handle_verification_event(&event).await;
 
-        let mut event = alice
+        let event = alice
             .outgoing_to_device_requests()
             .first()
             .map(|r| outgoing_request_to_event(alice.user_id(), r))
             .unwrap();
-        bob.handle_verification_event(&mut event).await;
+        bob.handle_verification_event(&event).await;
 
-        let mut event = bob
+        let event = bob
             .outgoing_to_device_requests()
             .first()
             .map(|r| outgoing_request_to_event(bob.user_id(), r))
             .unwrap();
-        alice.handle_verification_event(&mut event).await;
+        alice.handle_verification_event(&event).await;
 
         assert!(alice_sas.emoji().is_some());
         assert!(bob_sas.emoji().is_some());
@@ -1845,19 +1861,19 @@ pub(crate) mod test {
         assert_eq!(alice_sas.emoji(), bob_sas.emoji());
         assert_eq!(alice_sas.decimals(), bob_sas.decimals());
 
-        let mut event = bob_sas
+        let event = bob_sas
             .confirm()
             .await
             .unwrap()
             .0
             .map(|r| request_to_event(bob.user_id(), &r))
             .unwrap();
-        alice.handle_verification_event(&mut event).await;
+        alice.handle_verification_event(&event).await;
 
         assert!(!alice_sas.is_done());
         assert!(!bob_sas.is_done());
 
-        let mut event = alice_sas
+        let event = alice_sas
             .confirm()
             .await
             .unwrap()
@@ -1875,7 +1891,7 @@ pub(crate) mod test {
             .unwrap();
 
         assert!(!alice_device.is_trusted());
-        bob.handle_verification_event(&mut event).await;
+        bob.handle_verification_event(&event).await;
         assert!(bob_sas.is_done());
         assert!(alice_device.is_trusted());
     }

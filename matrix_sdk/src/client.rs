@@ -48,7 +48,7 @@ use matrix_sdk_base::{
 #[cfg(feature = "encryption")]
 use matrix_sdk_base::crypto::{
     decrypt_key_export, encrypt_key_export, olm::InboundGroupSession, store::CryptoStoreError,
-    AttachmentEncryptor, OutgoingRequests, ToDeviceRequest,
+    AttachmentEncryptor, OutgoingRequests, RoomMessageRequest, ToDeviceRequest,
 };
 
 /// Enum controlling if a loop running callbacks should continue or abort.
@@ -122,6 +122,7 @@ use matrix_sdk_common::{
 
 use crate::{
     http_client::{client_with_config, HttpClient, HttpSend},
+    verification_request::VerificationRequest,
     Error, OutgoingRequest, Result,
 };
 
@@ -1168,6 +1169,17 @@ impl Client {
         Ok(())
     }
 
+    pub(crate) async fn room_send_helper(
+        &self,
+        request: &RoomMessageRequest,
+    ) -> Result<send_message_event::Response> {
+        let content = request.content.clone();
+        let txn_id = request.txn_id;
+        let room_id = &request.room_id;
+
+        self.room_send(&room_id, content, Some(txn_id)).await
+    }
+
     /// Send a room message to the homeserver.
     ///
     /// Returns the parsed response from the server.
@@ -1475,7 +1487,10 @@ impl Client {
     }
 
     #[cfg(feature = "encryption")]
-    async fn send_to_device(&self, request: &ToDeviceRequest) -> Result<ToDeviceResponse> {
+    pub(crate) async fn send_to_device(
+        &self,
+        request: &ToDeviceRequest,
+    ) -> Result<ToDeviceResponse> {
         let txn_id_string = request.txn_id_string();
         let request = RumaToDeviceRequest::new(
             request.event_type.clone(),
@@ -1757,6 +1772,14 @@ impl Client {
                                     .unwrap();
                             }
                         }
+                        OutgoingRequests::RoomMessage(request) => {
+                            if let Ok(resp) = self.room_send_helper(request).await {
+                                self.base_client
+                                    .mark_request_as_sent(&r.request_id(), &resp)
+                                    .await
+                                    .unwrap();
+                            }
+                        }
                     }
                 }
             }
@@ -1911,7 +1934,20 @@ impl Client {
             .await
             .map(|sas| Sas {
                 inner: sas,
-                http_client: self.http_client.clone(),
+                client: self.clone(),
+            })
+    }
+
+    /// Get a `VerificationRequest` object with the given flow id.
+    #[cfg(feature = "encryption")]
+    #[cfg_attr(feature = "docs", doc(cfg(encryption)))]
+    pub async fn get_verification_request(&self, flow_id: &EventId) -> Option<VerificationRequest> {
+        let olm = self.base_client.olm_machine().await?;
+
+        olm.get_verification_request(flow_id)
+            .map(|r| VerificationRequest {
+                inner: r,
+                client: self.clone(),
             })
     }
 
@@ -1960,7 +1996,7 @@ impl Client {
 
         Ok(device.map(|d| Device {
             inner: d,
-            http_client: self.http_client.clone(),
+            client: self.clone(),
         }))
     }
 
@@ -2077,7 +2113,7 @@ impl Client {
 
         Ok(UserDevices {
             inner: devices,
-            http_client: self.http_client.clone(),
+            client: self.clone(),
         })
     }
 
@@ -2157,8 +2193,8 @@ impl Client {
 
         let encrypt = move || -> Result<()> {
             let export: String = encrypt_key_export(&keys, &passphrase, 500_000)?;
-            let mut file = std::fs::File::create(path).unwrap();
-            file.write_all(&export.into_bytes()).unwrap();
+            let mut file = std::fs::File::create(path)?;
+            file.write_all(&export.into_bytes())?;
             Ok(())
         };
 
@@ -2222,6 +2258,7 @@ impl Client {
         };
 
         let task = tokio::task::spawn_blocking(decrypt);
+        // TODO remove this unwrap.
         let import = task.await.expect("Task join error").unwrap();
 
         Ok(olm.import_keys(import).await?)

@@ -19,6 +19,10 @@ use serde_json::value::RawValue as RawJsonValue;
 
 use crate::{
     events::{
+        call::{
+            answer::AnswerEventContent, candidates::CandidatesEventContent,
+            hangup::HangupEventContent, invite::InviteEventContent,
+        },
         custom::CustomEventContent,
         fully_read::FullyReadEventContent,
         ignored_user_list::IgnoredUserListEventContent,
@@ -143,6 +147,12 @@ impl Emitter {
                 AnySyncMessageEvent::Custom(e) => {
                     self.on_custom_event(room, &CustomEvent::Message(e)).await
                 }
+                AnySyncMessageEvent::CallInvite(e) => self.on_room_call_invite(room, e).await,
+                AnySyncMessageEvent::CallAnswer(e) => self.on_room_call_answer(room, e).await,
+                AnySyncMessageEvent::CallCandidates(e) => {
+                    self.on_room_call_candidates(room, e).await
+                }
+                AnySyncMessageEvent::CallHangup(e) => self.on_room_call_hangup(room, e).await,
                 _ => {}
             },
             AnySyncRoomEvent::RedactedState(_event) => {}
@@ -320,6 +330,19 @@ pub trait EventEmitter: Send + Sync {
         _: &SyncMessageEvent<FeedbackEventContent>,
     ) {
     }
+    /// Fires when `Client` receives a `RoomEvent::CallInvite` event
+    async fn on_room_call_invite(&self, _: RoomState, _: &SyncMessageEvent<InviteEventContent>) {}
+    /// Fires when `Client` receives a `RoomEvent::CallAnswer` event
+    async fn on_room_call_answer(&self, _: RoomState, _: &SyncMessageEvent<AnswerEventContent>) {}
+    /// Fires when `Client` receives a `RoomEvent::CallCandidates` event
+    async fn on_room_call_candidates(
+        &self,
+        _: RoomState,
+        _: &SyncMessageEvent<CandidatesEventContent>,
+    ) {
+    }
+    /// Fires when `Client` receives a `RoomEvent::CallHangup` event
+    async fn on_room_call_hangup(&self, _: RoomState, _: &SyncMessageEvent<HangupEventContent>) {}
     /// Fires when `Client` receives a `RoomEvent::RoomRedaction` event.
     async fn on_room_redaction(&self, _: RoomState, _: &SyncRedactionEvent) {}
     /// Fires when `Client` receives a `RoomEvent::RoomPowerLevels` event.
@@ -506,6 +529,34 @@ mod test {
             _: &SyncMessageEvent<FeedbackEventContent>,
         ) {
             self.0.lock().await.push("feedback".to_string())
+        }
+        async fn on_room_call_invite(
+            &self,
+            _: RoomState,
+            _: &SyncMessageEvent<InviteEventContent>,
+        ) {
+            self.0.lock().await.push("call invite".to_string())
+        }
+        async fn on_room_call_answer(
+            &self,
+            _: RoomState,
+            _: &SyncMessageEvent<AnswerEventContent>,
+        ) {
+            self.0.lock().await.push("call answer".to_string())
+        }
+        async fn on_room_call_candidates(
+            &self,
+            _: RoomState,
+            _: &SyncMessageEvent<CandidatesEventContent>,
+        ) {
+            self.0.lock().await.push("call candidates".to_string())
+        }
+        async fn on_room_call_hangup(
+            &self,
+            _: RoomState,
+            _: &SyncMessageEvent<HangupEventContent>,
+        ) {
+            self.0.lock().await.push("call hangup".to_string())
         }
         async fn on_room_redaction(&self, _: RoomState, _: &SyncRedactionEvent) {
             self.0.lock().await.push("redaction".to_string())
@@ -794,6 +845,30 @@ mod test {
                 "message",
                 "message", // this is a message edit event
                 "redaction",
+            ],
+        )
+    }
+
+    #[async_test]
+    async fn event_emitter_voip() {
+        let vec = Arc::new(Mutex::new(Vec::new()));
+        let test_vec = Arc::clone(&vec);
+        let emitter = Box::new(EvEmitterTest(vec));
+
+        let client = get_client().await;
+        client.add_event_emitter(emitter).await;
+
+        let response = sync_response(SyncResponseFile::Voip);
+        client.receive_sync_response(response).await.unwrap();
+
+        let v = test_vec.lock().await;
+        assert_eq!(
+            v.as_slice(),
+            [
+                "call invite",
+                "call answer",
+                "call candidates",
+                "call hangup",
             ],
         )
     }

@@ -23,7 +23,7 @@ use matrix_sdk_common::{
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Error as JsonError, Value};
-use std::{collections::BTreeMap, sync::Arc};
+use std::{collections::BTreeMap, convert::TryInto, sync::Arc};
 use thiserror::Error;
 use zeroize::Zeroizing;
 
@@ -36,6 +36,7 @@ use matrix_sdk_common::{
     api::r0::keys::{CrossSigningKey, KeyUsage},
     identifiers::UserId,
     locks::Mutex,
+    CanonicalJsonValue,
 };
 
 use crate::{
@@ -404,8 +405,9 @@ impl Signing {
     pub async fn sign_json(&self, mut json: Value) -> Result<Signature, SignatureError> {
         let json_object = json.as_object_mut().ok_or(SignatureError::NotAnObject)?;
         let _ = json_object.remove("signatures");
-        let canonical_json = serde_json::to_string(json_object)?;
-        Ok(self.sign(&canonical_json).await)
+        let canonical_json: CanonicalJsonValue =
+            json.try_into().expect("Can't canonicalize the json value");
+        Ok(self.sign(&canonical_json.to_string()).await)
     }
 
     pub async fn sign(&self, message: &str) -> Signature {

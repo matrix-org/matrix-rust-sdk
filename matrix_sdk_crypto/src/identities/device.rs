@@ -42,6 +42,7 @@ use tracing::warn;
 use crate::{
     olm::{InboundGroupSession, PrivateCrossSigningIdentity, Session},
     store::{Changes, DeviceChanges},
+    OutgoingVerificationRequest,
 };
 #[cfg(test)]
 use crate::{OlmMachine, ReadOnlyAccount};
@@ -91,9 +92,16 @@ impl Device {
     ///
     /// Returns a `Sas` object and to-device request that needs to be sent out.
     pub async fn start_verification(&self) -> StoreResult<(Sas, ToDeviceRequest)> {
-        self.verification_machine
+        let (sas, request) = self
+            .verification_machine
             .start_sas(self.inner.clone())
-            .await
+            .await?;
+
+        if let OutgoingVerificationRequest::ToDevice(r) = request {
+            Ok((sas, r))
+        } else {
+            panic!("Invalid verification request type");
+        }
     }
 
     /// Get the Olm sessions that belong to this device.

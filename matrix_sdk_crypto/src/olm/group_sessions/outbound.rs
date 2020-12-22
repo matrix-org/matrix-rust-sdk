@@ -13,7 +13,14 @@
 // limitations under the License.
 
 use dashmap::{DashMap, DashSet};
-use matrix_sdk_common::{api::r0::to_device::DeviceIdOrAllDevices, uuid::Uuid};
+use matrix_sdk_common::{
+    api::r0::to_device::DeviceIdOrAllDevices,
+    events::room::{
+        encrypted::{MegolmV1AesSha2Content, MegolmV1AesSha2ContentInit},
+        message::Relation,
+    },
+    uuid::Uuid,
+};
 use std::{
     cmp::min,
     fmt,
@@ -240,19 +247,31 @@ impl OutboundGroupSession {
             "type": content.event_type(),
         });
 
+        let relates_to: Option<Relation> = json_content
+            .get("content")
+            .map(|c| {
+                c.get("m.relates_to")
+                    .cloned()
+                    .map(|r| serde_json::from_value(r).ok())
+            })
+            .flatten()
+            .flatten();
+
         let plaintext = json_content.to_string();
 
         let ciphertext = self.encrypt_helper(plaintext).await;
 
-        EncryptedEventContent::MegolmV1AesSha2(
-            matrix_sdk_common::events::room::encrypted::MegolmV1AesSha2ContentInit {
-                ciphertext,
-                sender_key: self.account_identity_keys.curve25519().to_owned(),
-                session_id: self.session_id().to_owned(),
-                device_id: (&*self.device_id).to_owned(),
-            }
-            .into(),
-        )
+        let mut encrypted_content: MegolmV1AesSha2Content = MegolmV1AesSha2ContentInit {
+            ciphertext,
+            sender_key: self.account_identity_keys.curve25519().to_owned(),
+            session_id: self.session_id().to_owned(),
+            device_id: (&*self.device_id).to_owned(),
+        }
+        .into();
+
+        encrypted_content.relates_to = relates_to;
+
+        EncryptedEventContent::MegolmV1AesSha2(encrypted_content)
     }
 
     /// Check if the session has expired and if it should be rotated.

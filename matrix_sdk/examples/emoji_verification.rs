@@ -1,9 +1,20 @@
-use std::{env, io, process::exit};
+use std::{
+    env, io,
+    process::exit,
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    },
+};
 use url::Url;
 
 use matrix_sdk::{
-    self, events::AnyToDeviceEvent, identifiers::UserId, Client, ClientConfig, LoopCtrl, Sas,
-    SyncSettings,
+    self,
+    events::{
+        room::message::MessageEventContent, AnySyncMessageEvent, AnySyncRoomEvent, AnyToDeviceEvent,
+    },
+    identifiers::UserId,
+    Client, ClientConfig, LoopCtrl, Sas, SyncSettings,
 };
 
 async fn wait_for_confirmation(client: Client, sas: Sas) {
@@ -68,10 +79,13 @@ async fn login(
         .await?;
 
     let client_ref = &client;
+    let initial_sync = Arc::new(AtomicBool::from(true));
+    let initial_ref = &initial_sync;
 
     client
         .sync_with_callback(SyncSettings::new(), |response| async move {
             let client = &client_ref;
+            let initial = &initial_ref;
 
             for event in &response.to_device.events {
                 match event {
@@ -113,6 +127,53 @@ async fn login(
                     _ => (),
                 }
             }
+
+            if !initial.load(Ordering::SeqCst) {
+                for (_room_id, room_info) in response.rooms.join {
+                    for event in room_info.timeline.events {
+                        if let AnySyncRoomEvent::Message(event) = event {
+                            match event {
+                                AnySyncMessageEvent::RoomMessage(m) => {
+                                    if let MessageEventContent::VerificationRequest(_) = &m.content
+                                    {
+                                        let request = client
+                                            .get_verification_request(&m.event_id)
+                                            .await
+                                            .expect("Request object wasn't created");
+
+                                        request
+                                            .accept()
+                                            .await
+                                            .expect("Can't accept verification request");
+                                    }
+                                }
+                                AnySyncMessageEvent::KeyVerificationKey(e) => {
+                                    let sas = client
+                                        .get_verification(&e.content.relation.event_id.as_str())
+                                        .await
+                                        .expect("Sas object wasn't created");
+
+                                    tokio::spawn(wait_for_confirmation((*client).clone(), sas));
+                                }
+                                AnySyncMessageEvent::KeyVerificationMac(e) => {
+                                    let sas = client
+                                        .get_verification(&e.content.relation.event_id.as_str())
+                                        .await
+                                        .expect("Sas object wasn't created");
+
+                                    if sas.is_done() {
+                                        print_result(&sas);
+                                        print_devices(&e.sender, &client).await;
+                                    }
+                                }
+                                _ => (),
+                            }
+                        }
+                    }
+                }
+            }
+
+            initial.store(false, Ordering::SeqCst);
 
             LoopCtrl::Continue
         })

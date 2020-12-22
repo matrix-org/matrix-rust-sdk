@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#![allow(missing_docs)]
+
 use std::{collections::BTreeMap, sync::Arc, time::Duration};
 
 use matrix_sdk_common::{
@@ -26,10 +28,11 @@ use matrix_sdk_common::{
             upload_signing_keys::Response as SigningKeysUploadResponse,
             CrossSigningKey,
         },
+        message::send_message_event::Response as RoomMessageResponse,
         to_device::{send_event_to_device::Response as ToDeviceResponse, DeviceIdOrAllDevices},
     },
-    events::EventType,
-    identifiers::{DeviceIdBox, UserId},
+    events::{AnyMessageEventContent, EventType},
+    identifiers::{DeviceIdBox, RoomId, UserId},
     uuid::Uuid,
 };
 
@@ -120,6 +123,7 @@ pub enum OutgoingRequests {
     /// Signature upload request, this request is used after a successful device
     /// or user verification is done.
     SignatureUpload(SignatureUploadRequest),
+    RoomMessage(RoomMessageRequest),
 }
 
 #[cfg(test)]
@@ -150,9 +154,33 @@ impl From<ToDeviceRequest> for OutgoingRequests {
     }
 }
 
+impl From<RoomMessageRequest> for OutgoingRequests {
+    fn from(request: RoomMessageRequest) -> Self {
+        OutgoingRequests::RoomMessage(request)
+    }
+}
+
 impl From<SignatureUploadRequest> for OutgoingRequests {
     fn from(request: SignatureUploadRequest) -> Self {
         OutgoingRequests::SignatureUpload(request)
+    }
+}
+
+impl From<OutgoingVerificationRequest> for OutgoingRequest {
+    fn from(r: OutgoingVerificationRequest) -> Self {
+        Self {
+            request_id: r.request_id(),
+            request: Arc::new(r.into()),
+        }
+    }
+}
+
+impl From<SignatureUploadRequest> for OutgoingRequest {
+    fn from(r: SignatureUploadRequest) -> Self {
+        Self {
+            request_id: Uuid::new_v4(),
+            request: Arc::new(r.into()),
+        }
     }
 }
 
@@ -176,6 +204,7 @@ pub enum IncomingResponse<'a> {
     /// The cross signing keys upload response, marking our private cross
     /// signing identity as shared.
     SignatureUpload(&'a SignatureUploadResponse),
+    RoomMessage(&'a RoomMessageResponse),
 }
 
 impl<'a> From<&'a KeysUploadResponse> for IncomingResponse<'a> {
@@ -193,6 +222,12 @@ impl<'a> From<&'a KeysQueryResponse> for IncomingResponse<'a> {
 impl<'a> From<&'a ToDeviceResponse> for IncomingResponse<'a> {
     fn from(response: &'a ToDeviceResponse) -> Self {
         IncomingResponse::ToDevice(response)
+    }
+}
+
+impl<'a> From<&'a RoomMessageResponse> for IncomingResponse<'a> {
+    fn from(response: &'a RoomMessageResponse) -> Self {
+        IncomingResponse::RoomMessage(response)
     }
 }
 
@@ -228,5 +263,57 @@ impl OutgoingRequest {
     /// Get the underlying outgoing request.
     pub fn request(&self) -> &OutgoingRequests {
         &self.request
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct RoomMessageRequest {
+    /// The room to send the event to.
+    pub room_id: RoomId,
+
+    /// The transaction ID for this event.
+    ///
+    /// Clients should generate an ID unique across requests with the
+    /// same access token; it will be used by the server to ensure
+    /// idempotency of requests.
+    pub txn_id: Uuid,
+
+    /// The event content to send.
+    pub content: AnyMessageEventContent,
+}
+
+#[derive(Clone, Debug)]
+pub enum OutgoingVerificationRequest {
+    ToDevice(ToDeviceRequest),
+    InRoom(RoomMessageRequest),
+}
+
+impl OutgoingVerificationRequest {
+    pub fn request_id(&self) -> Uuid {
+        match self {
+            OutgoingVerificationRequest::ToDevice(t) => t.txn_id,
+            OutgoingVerificationRequest::InRoom(r) => r.txn_id,
+        }
+    }
+}
+
+impl From<ToDeviceRequest> for OutgoingVerificationRequest {
+    fn from(r: ToDeviceRequest) -> Self {
+        OutgoingVerificationRequest::ToDevice(r)
+    }
+}
+
+impl From<RoomMessageRequest> for OutgoingVerificationRequest {
+    fn from(r: RoomMessageRequest) -> Self {
+        OutgoingVerificationRequest::InRoom(r)
+    }
+}
+
+impl From<OutgoingVerificationRequest> for OutgoingRequests {
+    fn from(request: OutgoingVerificationRequest) -> Self {
+        match request {
+            OutgoingVerificationRequest::ToDevice(r) => OutgoingRequests::ToDeviceRequest(r),
+            OutgoingVerificationRequest::InRoom(r) => OutgoingRequests::RoomMessage(r),
+        }
     }
 }

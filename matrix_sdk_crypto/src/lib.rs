@@ -51,6 +51,7 @@ pub use machine::OlmMachine;
 pub use olm::EncryptionSettings;
 pub(crate) use olm::ReadOnlyAccount;
 pub use requests::{
-    IncomingResponse, KeysQueryRequest, OutgoingRequest, OutgoingRequests, ToDeviceRequest,
+    IncomingResponse, KeysQueryRequest, OutgoingRequest, OutgoingRequests,
+    OutgoingVerificationRequest, RoomMessageRequest, ToDeviceRequest,
 };
-pub use verification::Sas;
+pub use verification::{Sas, VerificationRequest};

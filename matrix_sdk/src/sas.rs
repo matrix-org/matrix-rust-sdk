@@ -12,43 +12,49 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use matrix_sdk_base::crypto::{ReadOnlyDevice, Sas as BaseSas};
-use matrix_sdk_common::api::r0::to_device::send_event_to_device::Request as ToDeviceRequest;
+use matrix_sdk_base::crypto::{OutgoingVerificationRequest, ReadOnlyDevice, Sas as BaseSas};
 
-use crate::{error::Result, http_client::HttpClient};
+use crate::{error::Result, Client};
 
 /// An object controling the interactive verification flow.
 #[derive(Debug, Clone)]
 pub struct Sas {
     pub(crate) inner: BaseSas,
-    pub(crate) http_client: HttpClient,
+    pub(crate) client: Client,
 }
 
 impl Sas {
     /// Accept the interactive verification flow.
     pub async fn accept(&self) -> Result<()> {
         if let Some(req) = self.inner.accept() {
-            let txn_id_string = req.txn_id_string();
-            let request = ToDeviceRequest::new(req.event_type, &txn_id_string, req.messages);
-
-            self.http_client.send(request).await?;
+            match req {
+                OutgoingVerificationRequest::ToDevice(r) => {
+                    self.client.send_to_device(&r).await?;
+                }
+                OutgoingVerificationRequest::InRoom(_) => todo!(),
+            }
         }
         Ok(())
     }
 
     /// Confirm that the short auth strings match on both sides.
     pub async fn confirm(&self) -> Result<()> {
-        let (to_device, signature) = self.inner.confirm().await?;
+        let (request, signature) = self.inner.confirm().await?;
 
-        if let Some(req) = to_device {
-            let txn_id_string = req.txn_id_string();
-            let request = ToDeviceRequest::new(req.event_type, &txn_id_string, req.messages);
+        match request {
+            Some(OutgoingVerificationRequest::InRoom(r)) => {
+                self.client.room_send_helper(&r).await?;
+            }
 
-            self.http_client.send(request).await?;
+            Some(OutgoingVerificationRequest::ToDevice(r)) => {
+                self.client.send_to_device(&r).await?;
+            }
+
+            None => (),
         }
 
         if let Some(s) = signature {
-            self.http_client.send(s).await?;
+            self.client.send(s).await?;
         }
 
         Ok(())
@@ -56,12 +62,17 @@ impl Sas {
 
     /// Cancel the interactive verification flow.
     pub async fn cancel(&self) -> Result<()> {
-        if let Some(req) = self.inner.cancel() {
-            let txn_id_string = req.txn_id_string();
-            let request = ToDeviceRequest::new(req.event_type, &txn_id_string, req.messages);
-
-            self.http_client.send(request).await?;
+        if let Some(request) = self.inner.cancel() {
+            match request {
+                OutgoingVerificationRequest::ToDevice(r) => {
+                    self.client.send_to_device(&r).await?;
+                }
+                OutgoingVerificationRequest::InRoom(r) => {
+                    self.client.room_send_helper(&r).await?;
+                }
+            }
         }
+
         Ok(())
     }
 

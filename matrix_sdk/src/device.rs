@@ -18,18 +18,15 @@ use matrix_sdk_base::crypto::{
     store::CryptoStoreError, Device as BaseDevice, LocalTrust, ReadOnlyDevice,
     UserDevices as BaseUserDevices,
 };
-use matrix_sdk_common::{
-    api::r0::to_device::send_event_to_device::Request as ToDeviceRequest,
-    identifiers::{DeviceId, DeviceIdBox},
-};
+use matrix_sdk_common::identifiers::{DeviceId, DeviceIdBox};
 
-use crate::{error::Result, http_client::HttpClient, Sas};
+use crate::{error::Result, Client, Sas};
 
 #[derive(Clone, Debug)]
 /// A device represents a E2EE capable client of an user.
 pub struct Device {
     pub(crate) inner: BaseDevice,
-    pub(crate) http_client: HttpClient,
+    pub(crate) client: Client,
 }
 
 impl Deref for Device {
@@ -66,14 +63,11 @@ impl Device {
     /// ```
     pub async fn start_verification(&self) -> Result<Sas> {
         let (sas, request) = self.inner.start_verification().await?;
-        let txn_id_string = request.txn_id_string();
-        let request = ToDeviceRequest::new(request.event_type, &txn_id_string, request.messages);
-
-        self.http_client.send(request).await?;
+        self.client.send_to_device(&request).await?;
 
         Ok(Sas {
             inner: sas,
-            http_client: self.http_client.clone(),
+            client: self.client.clone(),
         })
     }
 
@@ -102,7 +96,7 @@ impl Device {
 #[derive(Debug)]
 pub struct UserDevices {
     pub(crate) inner: BaseUserDevices,
-    pub(crate) http_client: HttpClient,
+    pub(crate) client: Client,
 }
 
 impl UserDevices {
@@ -110,7 +104,7 @@ impl UserDevices {
     pub fn get(&self, device_id: &DeviceId) -> Option<Device> {
         self.inner.get(device_id).map(|d| Device {
             inner: d,
-            http_client: self.http_client.clone(),
+            client: self.client.clone(),
         })
     }
 
@@ -121,11 +115,11 @@ impl UserDevices {
 
     /// Iterator over all the devices of the user devices.
     pub fn devices(&self) -> impl Iterator<Item = Device> + '_ {
-        let client = self.http_client.clone();
+        let client = self.client.clone();
 
         self.inner.devices().map(move |d| Device {
             inner: d,
-            http_client: client.clone(),
+            client: client.clone(),
         })
     }
 }

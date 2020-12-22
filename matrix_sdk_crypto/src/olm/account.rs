@@ -43,7 +43,7 @@ use matrix_sdk_common::{
     instant::Instant,
     js_int::UInt,
     locks::Mutex,
-    Raw,
+    CanonicalJsonValue, Raw,
 };
 use olm_rs::{
     account::{IdentityKeys, OlmAccount, OneTimeKeys},
@@ -743,7 +743,7 @@ impl ReadOnlyAccount {
             .or_insert_with(BTreeMap::new)
             .insert(
                 DeviceKeyId::from_parts(DeviceKeyAlgorithm::Ed25519, &self.device_id),
-                self.sign_json(&json_device_keys).await,
+                self.sign_json(json_device_keys).await,
             );
 
         device_keys
@@ -770,8 +770,10 @@ impl ReadOnlyAccount {
     /// # Panic
     ///
     /// Panics if the json value can't be serialized.
-    pub async fn sign_json(&self, json: &Value) -> String {
-        self.sign(&json.to_string()).await
+    pub async fn sign_json(&self, json: Value) -> String {
+        let canonical_json: CanonicalJsonValue =
+            json.try_into().expect("Can't canonicalize the json value");
+        self.sign(&canonical_json.to_string()).await
     }
 
     pub(crate) async fn signed_one_time_keys_helper(
@@ -785,7 +787,7 @@ impl ReadOnlyAccount {
                 "key": key,
             });
 
-            let signature = self.sign_json(&key_json).await;
+            let signature = self.sign_json(key_json).await;
 
             let mut signature_map = BTreeMap::new();
 
