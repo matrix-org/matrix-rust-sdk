@@ -19,6 +19,10 @@ use serde_json::value::RawValue as RawJsonValue;
 
 use crate::{
     events::{
+        call::{
+            answer::AnswerEventContent, candidates::CandidatesEventContent,
+            hangup::HangupEventContent, invite::InviteEventContent,
+        },
         custom::CustomEventContent,
         fully_read::FullyReadEventContent,
         ignored_user_list::IgnoredUserListEventContent,
@@ -135,6 +139,19 @@ pub trait EventEmitter: Send + Sync {
         _: &SyncMessageEvent<FeedbackEventContent>,
     ) {
     }
+    /// Fires when `Client` receives a `RoomEvent::CallInvite` event
+    async fn on_room_call_invite(&self, _: SyncRoom, _: &SyncMessageEvent<InviteEventContent>) {}
+    /// Fires when `Client` receives a `RoomEvent::CallAnswer` event
+    async fn on_room_call_answer(&self, _: SyncRoom, _: &SyncMessageEvent<AnswerEventContent>) {}
+    /// Fires when `Client` receives a `RoomEvent::CallCandidates` event
+    async fn on_room_call_candidates(
+        &self,
+        _: SyncRoom,
+        _: &SyncMessageEvent<CandidatesEventContent>,
+    ) {
+    }
+    /// Fires when `Client` receives a `RoomEvent::CallHangup` event
+    async fn on_room_call_hangup(&self, _: SyncRoom, _: &SyncMessageEvent<HangupEventContent>) {}
     /// Fires when `Client` receives a `RoomEvent::RoomRedaction` event.
     async fn on_room_redaction(&self, _: SyncRoom, _: &SyncRedactionEvent) {}
     /// Fires when `Client` receives a `RoomEvent::RoomPowerLevels` event.
@@ -316,6 +333,22 @@ mod test {
             _: &SyncMessageEvent<FeedbackEventContent>,
         ) {
             self.0.lock().await.push("feedback".to_string())
+        }
+        async fn on_room_call_invite(&self, _: SyncRoom, _: &SyncMessageEvent<InviteEventContent>) {
+            self.0.lock().await.push("call invite".to_string())
+        }
+        async fn on_room_call_answer(&self, _: SyncRoom, _: &SyncMessageEvent<AnswerEventContent>) {
+            self.0.lock().await.push("call answer".to_string())
+        }
+        async fn on_room_call_candidates(
+            &self,
+            _: SyncRoom,
+            _: &SyncMessageEvent<CandidatesEventContent>,
+        ) {
+            self.0.lock().await.push("call candidates".to_string())
+        }
+        async fn on_room_call_hangup(&self, _: SyncRoom, _: &SyncMessageEvent<HangupEventContent>) {
+            self.0.lock().await.push("call hangup".to_string())
         }
         async fn on_room_redaction(&self, _: SyncRoom, _: &SyncRedactionEvent) {
             self.0.lock().await.push("redaction".to_string())
@@ -598,6 +631,30 @@ mod test {
                 // the ephemeral room events are looped over after the room events
                 "receipt event",
                 "typing event"
+            ],
+        )
+    }
+
+    #[async_test]
+    async fn event_emitter_voip() {
+        let vec = Arc::new(Mutex::new(Vec::new()));
+        let test_vec = Arc::clone(&vec);
+        let emitter = Box::new(EvEmitterTest(vec));
+
+        let client = get_client().await;
+        client.add_event_emitter(emitter).await;
+
+        let mut response = sync_response(SyncResponseFile::Voip);
+        client.receive_sync_response(&mut response).await.unwrap();
+
+        let v = test_vec.lock().await;
+        assert_eq!(
+            v.as_slice(),
+            [
+                "call invite",
+                "call answer",
+                "call candidates",
+                "call hangup",
             ],
         )
     }

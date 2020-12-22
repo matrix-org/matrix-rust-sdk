@@ -14,8 +14,12 @@
 
 use olm_rs::utility::OlmUtility;
 use serde_json::Value;
+use std::convert::TryInto;
 
-use matrix_sdk_common::identifiers::{DeviceKeyAlgorithm, DeviceKeyId, UserId};
+use matrix_sdk_common::{
+    identifiers::{DeviceKeyAlgorithm, DeviceKeyId, UserId},
+    CanonicalJsonValue,
+};
 
 use crate::error::SignatureError;
 
@@ -63,11 +67,12 @@ impl Utility {
         let unsigned = json_object.remove("unsigned");
         let signatures = json_object.remove("signatures");
 
-        let canonical_json = serde_json::to_string(json_object)?;
+        let canonical_json: CanonicalJsonValue = json
+            .clone()
+            .try_into()
+            .map_err(|_| SignatureError::NotAnObject)?;
 
-        if let Some(u) = unsigned {
-            json_object.insert("unsigned".to_string(), u);
-        }
+        let canonical_json: String = canonical_json.to_string();
 
         let signatures = signatures.ok_or(SignatureError::NoSignatureFound)?;
         let signature_object = signatures
@@ -81,18 +86,66 @@ impl Utility {
             .ok_or(SignatureError::NoSignatureFound)?;
         let signature = signature.as_str().ok_or(SignatureError::NoSignatureFound)?;
 
-        let ret = if self
+        let ret = match self
             .inner
             .ed25519_verify(signing_key, &canonical_json, signature)
-            .is_ok()
         {
-            Ok(())
-        } else {
-            Err(SignatureError::VerificationError)
+            Ok(_) => Ok(()),
+            Err(_) => Err(SignatureError::VerificationError),
         };
+
+        let json_object = json.as_object_mut().ok_or(SignatureError::NotAnObject)?;
+
+        if let Some(u) = unsigned {
+            json_object.insert("unsigned".to_string(), u);
+        }
 
         json_object.insert("signatures".to_string(), signatures);
 
         ret
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::Utility;
+    use matrix_sdk_common::identifiers::{user_id, DeviceKeyAlgorithm, DeviceKeyId};
+    use serde_json::json;
+
+    #[test]
+    fn signature_test() {
+        let mut device_keys = json!({
+            "device_id": "GBEWHQOYGS",
+            "algorithms": [
+                "m.olm.v1.curve25519-aes-sha2",
+                "m.megolm.v1.aes-sha2"
+            ],
+            "keys": {
+                "curve25519:GBEWHQOYGS": "F8QhZ0Z1rjtWrQOblMDgZtEX5x1UrG7sZ2Kk3xliNAU",
+                "ed25519:GBEWHQOYGS": "n469gw7zm+KW+JsFIJKnFVvCKU14HwQyocggcCIQgZY"
+            },
+            "signatures": {
+                "@example:localhost": {
+                    "ed25519:GBEWHQOYGS": "OlF2REsqjYdAfr04ONx8VS/5cB7KjrWYRlLF4eUm2foAiQL/RAfsjsa2JXZeoOHh6vEualZHbWlod49OewVqBg"
+                }
+            },
+            "unsigned": {
+                "device_display_name": "Weechat-Matrix-rs"
+            },
+            "user_id": "@example:localhost"
+        });
+
+        let signing_key = "n469gw7zm+KW+JsFIJKnFVvCKU14HwQyocggcCIQgZY";
+
+        let utility = Utility::new();
+
+        utility
+            .verify_json(
+                &user_id!("@example:localhost"),
+                &DeviceKeyId::from_parts(DeviceKeyAlgorithm::Ed25519, "GBEWHQOYGS".into()),
+                &signing_key,
+                &mut device_keys,
+            )
+            .expect("Can't verify device keys");
     }
 }

@@ -355,6 +355,7 @@ pub enum SyncResponseFile {
     DefaultWithSummary,
     Invite,
     Leave,
+    Voip,
 }
 
 /// Get specific API responses for testing
@@ -365,6 +366,7 @@ pub fn sync_response(kind: SyncResponseFile) -> SyncResponse {
         SyncResponseFile::DefaultWithSummary => &test_json::DEFAULT_SYNC_SUMMARY,
         SyncResponseFile::Invite => &test_json::INVITE_SYNC,
         SyncResponseFile::Leave => &test_json::LEAVE_SYNC,
+        SyncResponseFile::Voip => &test_json::VOIP_SYNC,
     };
 
     let response = Response::builder()

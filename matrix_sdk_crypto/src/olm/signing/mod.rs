@@ -214,7 +214,7 @@ impl PrivateCrossSigningIdentity {
             master.cross_signing_key(account.user_id().to_owned(), KeyUsage::Master);
         let signature = account
             .sign_json(
-                &serde_json::to_value(&public_key)
+                serde_json::to_value(&public_key)
                     .expect("Can't convert own public master key to json"),
             )
             .await;
