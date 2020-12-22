@@ -42,6 +42,22 @@ impl RoomState {
         }
     }
 
+    pub fn invited(self) -> Option<InvitedRoom> {
+        if let RoomState::Invited(r) = self {
+            Some(r)
+        } else {
+            None
+        }
+    }
+
+    pub fn left(self) -> Option<LeftRoom> {
+        if let RoomState::Left(r) = self {
+            Some(r)
+        } else {
+            None
+        }
+    }
+
     pub fn is_encrypted(&self) -> bool {
         match self {
             RoomState::Joined(r) => r.inner.is_encrypted(),

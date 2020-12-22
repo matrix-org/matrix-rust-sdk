@@ -58,14 +58,13 @@ use crate::{
     error::Result,
     event_emitter::Emitter,
     responses::{
-        AccountData, Ephemeral, InviteState, InvitedRoom as InvitedRoomResponse,
-        JoinedRoom as JoinedRoomResponse, LeftRoom as LeftRoomResponse, MemberEvent, Presence,
-        Rooms, State, StrippedMemberEvent, SyncResponse, Timeline,
+        AccountData, Ephemeral, InviteState, InvitedRoom, JoinedRoom, LeftRoom, MemberEvent,
+        Presence, Rooms, State, StrippedMemberEvent, SyncResponse, Timeline,
     },
     rooms::{RoomInfo, RoomType, StrippedRoomInfo},
     session::Session,
     store::{SledStore, StateChanges, Store},
-    EventEmitter, JoinedRoom, RoomState,
+    EventEmitter, RoomState,
 };
 
 pub type Token = String;
@@ -497,6 +496,7 @@ impl BaseClient {
         timeline
     }
 
+    #[allow(clippy::type_complexity)]
     fn handle_invited_state(
         &self,
         events: Vec<Raw<AnyStrippedStateEvent>>,
@@ -543,6 +543,7 @@ impl BaseClient {
         )
     }
 
+    #[allow(clippy::type_complexity)]
     fn handle_state(
         &self,
         events: Vec<Raw<AnySyncStateEvent>>,
@@ -722,13 +723,7 @@ impl BaseClient {
 
             rooms.join.insert(
                 room_id,
-                JoinedRoomResponse::new(
-                    timeline,
-                    state,
-                    account_data,
-                    ephemeral,
-                    notification_count,
-                ),
+                JoinedRoom::new(timeline, state, account_data, ephemeral, notification_count),
             );
 
             changes.add_room(room_info);
@@ -762,10 +757,9 @@ impl BaseClient {
                 .handle_room_account_data(&room_id, &new_info.account_data.events, &mut changes)
                 .await;
 
-            rooms.leave.insert(
-                room_id,
-                LeftRoomResponse::new(timeline, state, account_data),
-            );
+            rooms
+                .leave
+                .insert(room_id, LeftRoom::new(timeline, state, account_data));
         }
 
         for (room_id, new_info) in response.rooms.invite {
@@ -788,7 +782,7 @@ impl BaseClient {
             changes.stripped_members.insert(room_id.clone(), members);
             changes.stripped_state.insert(room_id.clone(), state_events);
 
-            let room = InvitedRoomResponse {
+            let room = InvitedRoom {
                 invite_state: state,
             };
 
@@ -1027,10 +1021,6 @@ impl BaseClient {
             }
             None => panic!("Olm machine wasn't started"),
         }
-    }
-
-    pub fn get_joined_room(&self, room_id: &RoomId) -> Option<JoinedRoom> {
-        self.store.get_joined_room(room_id)
     }
 
     pub fn get_room(&self, room_id: &RoomId) -> Option<RoomState> {

@@ -45,11 +45,19 @@ impl Store {
         self.rooms.get(room_id).map(|r| r.clone())
     }
 
-    pub(crate) fn get_joined_room(&self, room_id: &RoomId) -> Option<JoinedRoom> {
+    pub fn get_joined_room(&self, room_id: &RoomId) -> Option<JoinedRoom> {
         self.get_room(room_id).map(|r| r.joined()).flatten()
     }
 
-    pub(crate) fn get_room(&self, room_id: &RoomId) -> Option<RoomState> {
+    pub fn get_invited_room(&self, room_id: &RoomId) -> Option<InvitedRoom> {
+        self.get_room(room_id).map(|r| r.invited()).flatten()
+    }
+
+    pub fn get_left_room(&self, room_id: &RoomId) -> Option<LeftRoom> {
+        self.get_room(room_id).map(|r| r.left()).flatten()
+    }
+
+    pub fn get_room(&self, room_id: &RoomId) -> Option<RoomState> {
         self.get_bare_room(room_id)
             .map(|r| match r.room_type() {
                 RoomType::Joined => Some(RoomState::Joined(JoinedRoom { inner: r })),
