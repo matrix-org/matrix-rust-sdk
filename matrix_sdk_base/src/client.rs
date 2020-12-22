@@ -417,7 +417,10 @@ impl BaseClient {
     ///
     /// The methods of `EventEmitter` are called when the respective `RoomEvents` occur.
     pub async fn add_event_emitter(&self, emitter: Box<dyn EventEmitter>) {
-        let emitter = Emitter { inner: emitter };
+        let emitter = Emitter {
+            inner: emitter,
+            store: self.store.clone(),
+        };
         *self.event_emitter.write().await = Some(emitter);
     }
 
@@ -432,54 +435,62 @@ impl BaseClient {
         let mut timeline = Timeline::new(ruma_timeline.limited, ruma_timeline.prev_batch.clone());
 
         for event in ruma_timeline.events {
-            if let Ok(mut e) = hoist_room_event_prev_content(&event) {
-                match &mut e {
-                    AnySyncRoomEvent::State(s) => match s {
-                        AnySyncStateEvent::RoomMember(member) => {
-                            if let Ok(member) = MemberEvent::try_from(member.clone()) {
-                                match member.content.membership {
-                                    MembershipState::Join | MembershipState::Invite => {
-                                        user_ids.insert(member.state_key.clone());
+            match hoist_room_event_prev_content(&event) {
+                Ok(mut e) => {
+                    match &mut e {
+                        AnySyncRoomEvent::State(s) => match s {
+                            AnySyncStateEvent::RoomMember(member) => {
+                                if let Ok(member) = MemberEvent::try_from(member.clone()) {
+                                    match member.content.membership {
+                                        MembershipState::Join | MembershipState::Invite => {
+                                            user_ids.insert(member.state_key.clone());
+                                        }
+                                        _ => {
+                                            user_ids.remove(&member.state_key);
+                                        }
                                     }
-                                    _ => {
-                                        user_ids.remove(&member.state_key);
-                                    }
+
+                                    changes
+                                        .members
+                                        .entry(room_id.clone())
+                                        .or_insert_with(BTreeMap::new)
+                                        .insert(member.state_key.clone(), member);
                                 }
-
-                                changes
-                                    .members
-                                    .entry(room_id.clone())
-                                    .or_insert_with(BTreeMap::new)
-                                    .insert(member.state_key.clone(), member);
                             }
-                        }
-                        _ => {
-                            room_info.handle_state_event(&s);
-                            changes.add_state_event(room_id, s.clone());
-                        }
-                    },
+                            _ => {
+                                room_info.handle_state_event(&s);
+                                changes.add_state_event(room_id, s.clone());
+                            }
+                        },
 
-                    #[cfg(feature = "encryption")]
-                    AnySyncRoomEvent::Message(message) => {
-                        if let AnySyncMessageEvent::RoomEncrypted(encrypted) = message {
-                            if let Some(olm) = self.olm_machine().await {
-                                if let Ok(decrypted) =
-                                    olm.decrypt_room_event(encrypted, room_id).await
-                                {
-                                    match decrypted.deserialize() {
-                                        Ok(decrypted) => e = decrypted,
-                                        Err(e) => {
-                                            warn!("Error deserializing a decrypted event {:?} ", e)
+                        #[cfg(feature = "encryption")]
+                        AnySyncRoomEvent::Message(message) => {
+                            if let AnySyncMessageEvent::RoomEncrypted(encrypted) = message {
+                                if let Some(olm) = self.olm_machine().await {
+                                    if let Ok(decrypted) =
+                                        olm.decrypt_room_event(encrypted, room_id).await
+                                    {
+                                        match decrypted.deserialize() {
+                                            Ok(decrypted) => e = decrypted,
+                                            Err(e) => {
+                                                warn!(
+                                                    "Error deserializing a decrypted event {:?} ",
+                                                    e
+                                                )
+                                            }
                                         }
                                     }
                                 }
                             }
                         }
+                        _ => (),
                     }
-                    _ => (),
-                }
 
-                timeline.events.push(e);
+                    timeline.events.push(e);
+                }
+                Err(e) => {
+                    warn!("Error deserializing event {:?}", e);
+                }
             }
         }
 

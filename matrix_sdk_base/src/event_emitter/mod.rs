@@ -44,11 +44,13 @@ use crate::{
     },
     responses::SyncResponse,
     rooms::RoomState,
+    Store,
 };
 use matrix_sdk_common_macros::async_trait;
 
 pub(crate) struct Emitter {
     pub(crate) inner: Box<dyn EventEmitter>,
+    pub(crate) store: Store,
 }
 
 impl Deref for Emitter {
@@ -60,8 +62,8 @@ impl Deref for Emitter {
 }
 
 impl Emitter {
-    fn get_room(&self, _room_id: &RoomId) -> Option<RoomState> {
-        todo!()
+    fn get_room(&self, room_id: &RoomId) -> Option<RoomState> {
+        self.store.get_room(room_id)
     }
 
     pub(crate) async fn emit_sync(&self, response: &SyncResponse) {
@@ -281,15 +283,10 @@ pub enum CustomEvent<'c> {
 ///                 ..
 ///             } = event
 ///             {
-///                 let name = {
-///                    let room = room.read().await;
-///                    let member = room.joined_members.get(&sender).unwrap();
-///                    member
-///                        .display_name
-///                        .as_ref()
-///                        .map(ToString::to_string)
-///                        .unwrap_or(sender.to_string())
-///                };
+///                 let member = room.get_member(&sender).await.unwrap();
+///                 let name = member
+///                     .display_name()
+///                     .unwrap_or_else(|| member.user_id().as_str());
 ///                 println!("{}: {}", name, msg_body);
 ///             }
 ///         }
@@ -707,6 +704,9 @@ mod test {
         assert_eq!(
             v.as_slice(),
             [
+                "receipt event",
+                "account read",
+                "account ignore",
                 "state rules",
                 "state member",
                 "state aliases",
@@ -715,10 +715,7 @@ mod test {
                 "state member",
                 "state member",
                 "message",
-                "account ignore",
                 "presence event",
-                "receipt event",
-                "account read",
             ],
         )
     }
@@ -738,7 +735,11 @@ mod test {
         let v = test_vec.lock().await;
         assert_eq!(
             v.as_slice(),
-            ["stripped state name", "stripped state member"],
+            [
+                "stripped state name",
+                "stripped state member",
+                "presence event"
+            ],
         )
     }
 
@@ -758,6 +759,7 @@ mod test {
         assert_eq!(
             v.as_slice(),
             [
+                "account ignore",
                 "state rules",
                 "state member",
                 "state aliases",
@@ -765,7 +767,8 @@ mod test {
                 "state canonical",
                 "state member",
                 "state member",
-                "message"
+                "message",
+                "presence event",
             ],
         )
     }
@@ -786,15 +789,11 @@ mod test {
         assert_eq!(
             v.as_slice(),
             [
+                "receipt event",
+                "typing event",
                 "message",
                 "message", // this is a message edit event
                 "redaction",
-                "unrecognized event",
-                // "unrecognized event", this is actually a redacted "m.room.messages" event
-
-                // the ephemeral room events are looped over after the room events
-                "receipt event",
-                "typing event"
             ],
         )
     }

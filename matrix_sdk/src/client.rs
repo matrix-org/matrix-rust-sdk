@@ -176,14 +176,6 @@ impl Debug for Client {
 ///     .unwrap()
 ///     .disable_ssl_verification();
 /// ```
-/// An example of adding a default `JsonStore` to the `Client`.
-/// ```no_run
-///  # use matrix_sdk::{ClientConfig, JsonStore};
-///
-/// let store = JsonStore::open("path/to/json").unwrap();
-/// let client_config = ClientConfig::new()
-///     .state_store(Box::new(store));
-/// ```
 #[derive(Default)]
 pub struct ClientConfig {
     #[cfg(not(target_arch = "wasm32"))]
@@ -1194,7 +1186,6 @@ impl Client {
     ///
     /// # Example
     /// ```no_run
-    /// # use matrix_sdk::Room;
     /// # use std::sync::{Arc, RwLock};
     /// # use matrix_sdk::{Client, SyncSettings};
     /// # use url::Url;

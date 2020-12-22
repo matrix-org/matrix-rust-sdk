@@ -634,7 +634,10 @@ lazy_static! {
                                 "origin_server_ts": 151957878,
                                 "sender": "@example:localhost",
                                 "type": "m.room.redaction",
-                                "redacts": "$151957878228ssqrj:localhost"
+                                "redacts": "$151957878228ssqrj:localhost",
+                                "unsigned": {
+                                    "age": 85
+                                }
                             },
                             {
                                 "content": {},
@@ -661,12 +664,12 @@ lazy_static! {
                             {
                                 "content": {
                                     "m.relates_to": {
-                                        "event_id": "some event id",
+                                        "event_id": "$15275047031IXQRi:localhost",
                                         "key": "👍",
                                         "rel_type": "m.annotation"
                                     }
                                 },
-                                "event_id": "event id",
+                                "event_id": "$15275047031IXQRi:localhost",
                                 "origin_server_ts": 159027581,
                                 "sender": "@alice:matrix.org",
                                 "type": "m.reaction",
