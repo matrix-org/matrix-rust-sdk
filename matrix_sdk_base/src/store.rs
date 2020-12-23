@@ -40,6 +40,17 @@ impl Store {
         }
     }
 
+    pub fn open_default(path: impl AsRef<Path>) -> Self {
+        let inner = SledStore::open_with_path(path);
+
+        Self {
+            inner,
+            session: Arc::new(RwLock::new(None)),
+            rooms: DashMap::new().into(),
+            stripped_rooms: DashMap::new().into(),
+        }
+    }
+
     pub(crate) fn get_bare_room(&self, room_id: &RoomId) -> Option<Room> {
         #[allow(clippy::map_clone)]
         self.rooms.get(room_id).map(|r| r.clone())
