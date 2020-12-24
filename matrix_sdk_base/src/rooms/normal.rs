@@ -96,8 +96,9 @@ impl Room {
         let joined = self.store.get_joined_user_ids(self.room_id()).await;
         let invited = self.store.get_invited_user_ids(self.room_id()).await;
 
-        let x = move |u| async move {
+        let into_member = move |u| async move {
             let presence = self.store.get_presence_event(&u).await;
+            let profile = self.store.get_profile(self.room_id(), &u).await;
             let power = self
                 .store
                 .get_state_event(self.room_id(), EventType::RoomPowerLevels, "")
@@ -116,12 +117,13 @@ impl Room {
                 .await
                 .map(|m| RoomMember {
                     event: m.into(),
+                    profile: profile.into(),
                     presence: presence.into(),
                     power_levles: power.into(),
                 })
         };
 
-        joined.chain(invited).filter_map(x)
+        joined.chain(invited).filter_map(into_member)
     }
 
     /// Calculate the canonical display name of the room, taking into account
@@ -234,6 +236,7 @@ impl Room {
 
     pub async fn get_member(&self, user_id: &UserId) -> Option<RoomMember> {
         let presence = self.store.get_presence_event(user_id).await;
+        let profile = self.store.get_profile(self.room_id(), user_id).await;
         let power = self
             .store
             .get_state_event(self.room_id(), EventType::RoomPowerLevels, "")
@@ -252,6 +255,7 @@ impl Room {
             .await
             .map(|e| RoomMember {
                 event: e.into(),
+                profile: profile.into(),
                 presence: presence.into(),
                 power_levles: power.into(),
             })

@@ -449,6 +449,18 @@ impl BaseClient {
                                         }
                                     }
 
+                                    // Senders can fake the profile easily so we keep track
+                                    // of profiles that the member set themselves to avoid
+                                    // having confusing profile changes when a member gets
+                                    // kicked/banned.
+                                    if member.state_key == member.sender {
+                                        changes
+                                            .profiles
+                                            .entry(room_id.clone())
+                                            .or_insert_with(BTreeMap::new)
+                                            .insert(member.sender.clone(), member.content.clone());
+                                    }
+
                                     changes
                                         .members
                                         .entry(room_id.clone())
@@ -551,6 +563,7 @@ impl BaseClient {
     ) -> (
         State,
         BTreeMap<UserId, MemberEvent>,
+        BTreeMap<UserId, MemberEventContent>,
         BTreeMap<String, BTreeMap<String, AnySyncStateEvent>>,
         BTreeSet<UserId>,
     ) {
@@ -558,6 +571,7 @@ impl BaseClient {
         let mut members = BTreeMap::new();
         let mut state_events = BTreeMap::new();
         let mut user_ids = BTreeSet::new();
+        let mut profiles = BTreeMap::new();
 
         let room_id = room_info.room_id.clone();
 
@@ -587,6 +601,15 @@ impl BaseClient {
                             }
                             _ => (),
                         }
+
+                        // Senders can fake the profile easily so we keep track
+                        // of profiles that the member set themselves to avoid
+                        // having confusing profile changes when a member gets
+                        // kicked/banned.
+                        if m.state_key == m.sender {
+                            profiles.insert(m.sender.clone(), m.content.clone());
+                        }
+
                         members.insert(m.state_key.clone(), m);
                     }
                     Err(e) => warn!(
@@ -602,7 +625,7 @@ impl BaseClient {
             }
         }
 
-        (state, members, state_events, user_ids)
+        (state, members, profiles, state_events, user_ids)
     }
 
     async fn handle_room_account_data(
@@ -665,10 +688,11 @@ impl BaseClient {
             room_info.update_summary(&new_info.summary);
             room_info.set_prev_batch(new_info.timeline.prev_batch.as_deref());
 
-            let (state, members, state_events, mut user_ids) =
+            let (state, members, profiles, state_events, mut user_ids) =
                 self.handle_state(new_info.state.events, &mut room_info);
 
             changes.members.insert(room_id.clone(), members);
+            changes.profiles.insert(room_id.clone(), profiles);
             changes.state.insert(room_id.clone(), state_events);
 
             if new_info.timeline.limited {
@@ -737,10 +761,11 @@ impl BaseClient {
             let mut room_info = room.clone_info();
             room_info.mark_as_left();
 
-            let (state, members, state_events, mut user_ids) =
+            let (state, members, profiles, state_events, mut user_ids) =
                 self.handle_state(new_info.state.events, &mut room_info);
 
             changes.members.insert(room_id.clone(), members);
+            changes.profiles.insert(room_id.clone(), profiles);
             changes.state.insert(room_id.clone(), state_events);
 
             let timeline = self

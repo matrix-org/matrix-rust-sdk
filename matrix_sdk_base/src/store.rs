@@ -6,8 +6,9 @@ use dashmap::DashMap;
 use futures::stream::{self, Stream};
 use matrix_sdk_common::{
     events::{
-        presence::PresenceEvent, room::member::MembershipState, AnyBasicEvent,
-        AnyStrippedStateEvent, AnySyncStateEvent, EventContent, EventType,
+        presence::PresenceEvent,
+        room::member::{MemberEventContent, MembershipState},
+        AnyBasicEvent, AnyStrippedStateEvent, AnySyncStateEvent, EventContent, EventType,
     },
     identifiers::{RoomId, UserId},
     locks::RwLock,
@@ -126,6 +127,7 @@ pub struct SledStore {
     session: Tree,
     account_data: Tree,
     members: Tree,
+    profiles: Tree,
     joined_user_ids: Tree,
     invited_user_ids: Tree,
     room_info: Tree,
@@ -144,6 +146,7 @@ pub struct StateChanges {
     pub presence: BTreeMap<UserId, PresenceEvent>,
 
     pub members: BTreeMap<RoomId, BTreeMap<UserId, MemberEvent>>,
+    pub profiles: BTreeMap<RoomId, BTreeMap<UserId, MemberEventContent>>,
     pub state: BTreeMap<RoomId, BTreeMap<String, BTreeMap<String, AnySyncStateEvent>>>,
     pub room_account_data: BTreeMap<RoomId, BTreeMap<String, AnyBasicEvent>>,
     pub room_infos: BTreeMap<RoomId, RoomInfo>,
@@ -217,6 +220,7 @@ impl SledStore {
         let account_data = db.open_tree("account_data").unwrap();
 
         let members = db.open_tree("members").unwrap();
+        let profiles = db.open_tree("profiles").unwrap();
         let joined_user_ids = db.open_tree("joined_user_ids").unwrap();
         let invited_user_ids = db.open_tree("invited_user_ids").unwrap();
 
@@ -234,6 +238,7 @@ impl SledStore {
             session,
             account_data,
             members,
+            profiles,
             joined_user_ids,
             invited_user_ids,
             room_account_data,
@@ -279,6 +284,7 @@ impl SledStore {
             &self.session,
             &self.account_data,
             &self.members,
+            &self.profiles,
             &self.joined_user_ids,
             &self.invited_user_ids,
             &self.room_info,
@@ -294,6 +300,7 @@ impl SledStore {
                     session,
                     account_data,
                     members,
+                    profiles,
                     joined,
                     invited,
                     summaries,
@@ -330,6 +337,15 @@ impl SledStore {
                             members.insert(
                                 format!("{}{}", room.as_str(), &event.state_key).as_str(),
                                 serde_json::to_vec(&event).unwrap(),
+                            )?;
+                        }
+                    }
+
+                    for (room, users) in &changes.profiles {
+                        for (user_id, profile) in users {
+                            profiles.insert(
+                                format!("{}{}", room.as_str(), user_id.as_str()).as_str(),
+                                serde_json::to_vec(&profile).unwrap(),
                             )?;
                         }
                     }
@@ -433,6 +449,17 @@ impl SledStore {
             .get(format!("{}{}{}", room_id.as_str(), event_type, state_key).as_bytes())
             .unwrap()
             .map(|e| serde_json::from_slice(&e).unwrap())
+    }
+
+    pub async fn get_profile(
+        &self,
+        room_id: &RoomId,
+        user_id: &UserId,
+    ) -> Option<MemberEventContent> {
+        self.profiles
+            .get(format!("{}{}", room_id.as_str(), user_id.as_str()))
+            .unwrap()
+            .map(|p| serde_json::from_slice(&p).unwrap())
     }
 
     pub async fn get_member_event(

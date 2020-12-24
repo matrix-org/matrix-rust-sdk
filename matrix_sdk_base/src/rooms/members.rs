@@ -16,7 +16,9 @@ use std::sync::Arc;
 
 use matrix_sdk_common::{
     events::{
-        presence::PresenceEvent, room::power_levels::PowerLevelsEventContent, SyncStateEvent,
+        presence::PresenceEvent,
+        room::{member::MemberEventContent, power_levels::PowerLevelsEventContent},
+        SyncStateEvent,
     },
     identifiers::UserId,
 };
@@ -26,6 +28,7 @@ use crate::responses::MemberEvent;
 #[derive(Clone, Debug)]
 pub struct RoomMember {
     pub(crate) event: Arc<MemberEvent>,
+    pub(crate) profile: Arc<Option<MemberEventContent>>,
     pub(crate) presence: Arc<Option<PresenceEvent>>,
     pub(crate) power_levles: Arc<Option<SyncStateEvent<PowerLevelsEventContent>>>,
 }
@@ -36,7 +39,11 @@ impl RoomMember {
     }
 
     pub fn display_name(&self) -> Option<&str> {
-        self.event.content.displayname.as_deref()
+        if let Some(p) = self.profile.as_ref() {
+            p.displayname.as_deref()
+        } else {
+            self.event.content.displayname.as_deref()
+        }
     }
 
     pub fn power_level(&self) -> i64 {

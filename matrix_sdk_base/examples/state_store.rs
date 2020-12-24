@@ -114,7 +114,11 @@ impl Completer for InspectorHelper {
         let args: Vec<&str> = line.split_ascii_whitespace().collect();
 
         let commands = vec![
-            ("get-state", "get a state event in the give room"),
+            ("get-state", "get a state event in the given room"),
+            (
+                "get-profiles",
+                "get all the stored profiles in the given room",
+            ),
             ("list-rooms", "list all rooms"),
             (
                 "get-members",
@@ -131,7 +135,9 @@ impl Completer for InspectorHelper {
         if args.is_empty() {
             Ok((pos, commands))
         } else if args.len() == 1 {
-            if (args[0] == "get-state" || args[0] == "get-members") && line.ends_with(' ') {
+            if (args[0] == "get-state" || args[0] == "get-members" || args[0] == "get-profiles")
+                && line.ends_with(' ')
+            {
                 Ok((args[0].len() + 1, self.complete_rooms(args.get(1))))
             } else {
                 Ok((
@@ -152,7 +158,7 @@ impl Completer for InspectorHelper {
                 } else {
                     Ok((args[0].len() + 1, self.complete_rooms(args.get(1))))
                 }
-            } else if args[0] == "get-members" {
+            } else if args[0] == "get-members" || args[0] == "get-profiles" {
                 Ok((args[0].len() + 1, self.complete_rooms(args.get(1))))
             } else {
                 Ok((pos, vec![]))
@@ -222,6 +228,13 @@ impl Inspector {
 
     async fn run(&self, matches: ArgMatches<'_>) {
         match matches.subcommand() {
+            ("get-profiles", args) => {
+                let args = args.expect("No args provided for get-state");
+                let room_id = RoomId::try_from(args.value_of("room-id").unwrap()).unwrap();
+
+                self.get_profiles(room_id).await;
+            }
+
             ("get-members", args) => {
                 let args = args.expect("No args provided for get-state");
                 let room_id = RoomId::try_from(args.value_of("room-id").unwrap()).unwrap();
@@ -242,6 +255,20 @@ impl Inspector {
     async fn list_rooms(&self) {
         let rooms: Vec<RoomInfo> = self.store.get_room_infos().await.collect().await;
         self.printer.pretty_print_struct(&rooms);
+    }
+
+    async fn get_profiles(&self, room_id: RoomId) {
+        let joined: Vec<UserId> = self
+            .store
+            .get_joined_user_ids(&room_id)
+            .await
+            .collect()
+            .await;
+
+        for member in joined {
+            let event = self.store.get_profile(&room_id, &member).await;
+            self.printer.pretty_print_struct(&event);
+        }
     }
 
     async fn get_members(&self, room_id: RoomId) {
@@ -272,6 +299,13 @@ impl Inspector {
             .setting(ArgParseSettings::SubcommandRequiredElseHelp)
             .subcommand(SubCommand::with_name("list-rooms"))
             .subcommand(SubCommand::with_name("get-members").arg(
+                Arg::with_name("room-id").required(true).validator(|r| {
+                    RoomId::try_from(r)
+                        .map(|_| ())
+                        .map_err(|_| "Invalid room id given".to_owned())
+                }),
+            ))
+            .subcommand(SubCommand::with_name("get-profiles").arg(
                 Arg::with_name("room-id").required(true).validator(|r| {
                     RoomId::try_from(r)
                         .map(|_| ())
