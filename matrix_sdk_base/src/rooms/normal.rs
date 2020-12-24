@@ -14,7 +14,7 @@
 
 use std::{
     convert::TryFrom,
-    sync::{Arc, Mutex as SyncMutex},
+    sync::{Arc, RwLock as SyncRwLock},
 };
 
 use futures::{
@@ -37,7 +37,7 @@ use super::{BaseRoomInfo, RoomMember};
 pub struct Room {
     room_id: Arc<RoomId>,
     own_user_id: Arc<UserId>,
-    inner: Arc<SyncMutex<RoomInfo>>,
+    inner: Arc<SyncRwLock<RoomInfo>>,
     store: SledStore,
 }
 
@@ -72,7 +72,7 @@ impl Room {
             own_user_id: Arc::new(own_user_id.clone()),
             room_id: room_id.clone(),
             store,
-            inner: Arc::new(SyncMutex::new(RoomInfo {
+            inner: Arc::new(SyncRwLock::new(RoomInfo {
                 room_id,
                 room_type,
                 notification_counts: Default::default(),
@@ -85,16 +85,22 @@ impl Room {
     }
 
     pub fn are_members_synced(&self) -> bool {
-        self.inner.lock().unwrap().members_synced
+        self.inner.read().unwrap().members_synced
     }
 
     pub fn room_type(&self) -> RoomType {
-        self.inner.lock().unwrap().room_type
+        self.inner.read().unwrap().room_type
+    }
+
+    fn max_power_level(&self) -> i64 {
+        self.inner.read().unwrap().base_info.max_power_level
     }
 
     pub async fn get_active_members(&self) -> impl Stream<Item = RoomMember> + '_ {
         let joined = self.store.get_joined_user_ids(self.room_id()).await;
         let invited = self.store.get_invited_user_ids(self.room_id()).await;
+
+        let max_power_level = self.max_power_level();
 
         let into_member = move |u| async move {
             let presence = self.store.get_presence_event(&u).await;
@@ -120,6 +126,7 @@ impl Room {
                     profile: profile.into(),
                     presence: presence.into(),
                     power_levles: power.into(),
+                    max_power_level,
                 })
         };
 
@@ -134,7 +141,7 @@ impl Room {
     /// [spec]:
     /// <https://matrix.org/docs/spec/client_server/latest#calculating-the-display-name-for-a-room>
     pub async fn calculate_name(&self) -> String {
-        let inner = self.inner.lock().unwrap();
+        let inner = self.inner.read().unwrap();
 
         if let Some(name) = &inner.base_info.name {
             let name = name.trim();
@@ -218,7 +225,7 @@ impl Room {
     }
 
     pub(crate) fn clone_info(&self) -> RoomInfo {
-        (*self.inner.lock().unwrap()).clone()
+        (*self.inner.read().unwrap()).clone()
     }
 
     pub async fn joined_user_ids(&self) -> impl Stream<Item = UserId> {
@@ -226,17 +233,19 @@ impl Room {
     }
 
     pub fn is_encrypted(&self) -> bool {
-        self.inner.lock().unwrap().is_encrypted()
+        self.inner.read().unwrap().is_encrypted()
     }
 
     pub fn update_summary(&self, summary: RoomInfo) {
-        let mut inner = self.inner.lock().unwrap();
+        let mut inner = self.inner.write().unwrap();
         *inner = summary;
     }
 
     pub async fn get_member(&self, user_id: &UserId) -> Option<RoomMember> {
         let presence = self.store.get_presence_event(user_id).await;
         let profile = self.store.get_profile(self.room_id(), user_id).await;
+        let max_power_level = self.max_power_level();
+
         let power = self
             .store
             .get_state_event(self.room_id(), EventType::RoomPowerLevels, "")
@@ -258,6 +267,7 @@ impl Room {
                 profile: profile.into(),
                 presence: presence.into(),
                 power_levles: power.into(),
+                max_power_level,
             })
     }
 
@@ -266,7 +276,7 @@ impl Room {
     }
 
     pub fn last_prev_batch(&self) -> Option<String> {
-        self.inner.lock().unwrap().last_prev_batch.clone()
+        self.inner.read().unwrap().last_prev_batch.clone()
     }
 
     pub async fn display_name(&self) -> String {

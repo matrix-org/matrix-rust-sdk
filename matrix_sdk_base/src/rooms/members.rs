@@ -31,6 +31,7 @@ pub struct RoomMember {
     pub(crate) profile: Arc<Option<MemberEventContent>>,
     pub(crate) presence: Arc<Option<PresenceEvent>>,
     pub(crate) power_levles: Arc<Option<SyncStateEvent<PowerLevelsEventContent>>>,
+    pub(crate) max_power_level: i64,
 }
 
 impl RoomMember {
@@ -43,6 +44,14 @@ impl RoomMember {
             p.displayname.as_deref()
         } else {
             self.event.content.displayname.as_deref()
+        }
+    }
+
+    pub fn normalized_power_level(&self) -> i64 {
+        if self.max_power_level > 0 {
+            (self.power_level() * 100) / self.max_power_level
+        } else {
+            self.power_level()
         }
     }
 
