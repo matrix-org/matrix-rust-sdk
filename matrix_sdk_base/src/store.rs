@@ -27,15 +27,21 @@ use crate::{
 pub struct Store {
     inner: SledStore,
     session: Arc<RwLock<Option<Session>>>,
+    sync_token: Arc<RwLock<Option<String>>>,
     rooms: Arc<DashMap<RoomId, Room>>,
     stripped_rooms: Arc<DashMap<RoomId, StrippedRoom>>,
 }
 
 impl Store {
-    pub fn new(session: Arc<RwLock<Option<Session>>>, inner: SledStore) -> Self {
+    pub fn new(
+        session: Arc<RwLock<Option<Session>>>,
+        sync_token: Arc<RwLock<Option<String>>>,
+        inner: SledStore,
+    ) -> Self {
         Self {
             inner,
             session,
+            sync_token,
             rooms: DashMap::new().into(),
             stripped_rooms: DashMap::new().into(),
         }
@@ -43,13 +49,11 @@ impl Store {
 
     pub fn open_default(path: impl AsRef<Path>) -> Self {
         let inner = SledStore::open_with_path(path);
-
-        Self {
+        Self::new(
+            Arc::new(RwLock::new(None)),
+            Arc::new(RwLock::new(None)),
             inner,
-            session: Arc::new(RwLock::new(None)),
-            rooms: DashMap::new().into(),
-            stripped_rooms: DashMap::new().into(),
-        }
+        )
     }
 
     pub(crate) fn get_bare_room(&self, room_id: &RoomId) -> Option<Room> {
@@ -141,6 +145,7 @@ pub struct SledStore {
 
 #[derive(Debug, Default)]
 pub struct StateChanges {
+    pub sync_token: Option<String>,
     pub session: Option<Session>,
     pub account_data: BTreeMap<String, AnyBasicEvent>,
     pub presence: BTreeMap<UserId, PresenceEvent>,
@@ -157,6 +162,13 @@ pub struct StateChanges {
 }
 
 impl StateChanges {
+    pub fn new(sync_token: String) -> Self {
+        Self {
+            sync_token: Some(sync_token),
+            ..Default::default()
+        }
+    }
+
     pub fn add_presence_event(&mut self, event: PresenceEvent) {
         self.presence.insert(event.sender.clone(), event);
     }
@@ -202,15 +214,6 @@ impl StateChanges {
             .entry(event.content().event_type().to_string())
             .or_insert_with(BTreeMap::new)
             .insert(event.state_key().to_string(), event);
-    }
-}
-
-impl From<Session> for StateChanges {
-    fn from(session: Session) -> Self {
-        Self {
-            session: Some(session),
-            ..Default::default()
-        }
     }
 }
 
@@ -277,6 +280,13 @@ impl SledStore {
             .map(|f| String::from_utf8_lossy(&f).to_string())
     }
 
+    pub async fn get_sync_token(&self) -> Option<String> {
+        self.session
+            .get("sync_token")
+            .unwrap()
+            .map(|t| String::from_utf8_lossy(&t).to_string())
+    }
+
     pub async fn save_changes(&self, changes: &StateChanges) {
         let now = SystemTime::now();
 
@@ -303,7 +313,7 @@ impl SledStore {
                     profiles,
                     joined,
                     invited,
-                    summaries,
+                    rooms,
                     state,
                     room_account_data,
                     presence,
@@ -311,8 +321,8 @@ impl SledStore {
                     stripped_members,
                     stripped_state,
                 )| {
-                    if let Some(s) = &changes.session {
-                        session.insert("session", serde_json::to_vec(s).unwrap())?;
+                    if let Some(s) = &changes.sync_token {
+                        session.insert("sync_token", s.as_str())?;
                     }
 
                     for (room, events) in &changes.members {
@@ -381,9 +391,8 @@ impl SledStore {
                         }
                     }
 
-                    for (room_id, summary) in &changes.room_infos {
-                        summaries
-                            .insert(room_id.as_bytes(), serde_json::to_vec(summary).unwrap())?;
+                    for (room_id, room_info) in &changes.room_infos {
+                        rooms.insert(room_id.as_bytes(), serde_json::to_vec(room_info).unwrap())?;
                     }
 
                     for (sender, event) in &changes.presence {
@@ -500,13 +509,6 @@ impl SledStore {
                 .map(|r| serde_json::from_slice(&r.unwrap().1).unwrap()),
         )
     }
-
-    pub fn get_session(&self) -> Option<Session> {
-        self.session
-            .get("session")
-            .unwrap()
-            .map(|s| serde_json::from_slice(&s).unwrap())
-    }
 }
 
 #[cfg(test)]
@@ -518,19 +520,15 @@ mod test {
             room::member::{MemberEventContent, MembershipState},
             Unsigned,
         },
-        identifiers::{room_id, user_id, DeviceIdBox, EventId, UserId},
+        identifiers::{room_id, user_id, EventId, UserId},
     };
     use matrix_sdk_test::async_test;
 
     use super::{SledStore, StateChanges};
-    use crate::{responses::MemberEvent, Session};
+    use crate::responses::MemberEvent;
 
     fn user_id() -> UserId {
         user_id!("@example:localhost")
-    }
-
-    fn device_id() -> DeviceIdBox {
-        "DEVICEID".into()
     }
 
     fn membership_event() -> MemberEvent {
@@ -551,22 +549,6 @@ mod test {
             prev_content: None,
             unsigned: Unsigned::default(),
         }
-    }
-
-    #[async_test]
-    async fn test_session_saving() {
-        let session = Session {
-            user_id: user_id(),
-            device_id: device_id(),
-            access_token: "TEST_TOKEN".to_owned(),
-        };
-
-        let store = SledStore::open();
-
-        store.save_changes(&session.clone().into()).await;
-        let stored_session = store.get_session().unwrap();
-
-        assert_eq!(session, stored_session);
     }
 
     #[async_test]

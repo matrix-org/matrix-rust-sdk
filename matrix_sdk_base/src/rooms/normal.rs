@@ -68,19 +68,25 @@ impl Room {
     ) -> Self {
         let room_id = Arc::new(room_id.clone());
 
+        let room_info = RoomInfo {
+            room_id,
+            room_type,
+            notification_counts: Default::default(),
+            summary: Default::default(),
+            members_synced: false,
+            last_prev_batch: None,
+            base_info: BaseRoomInfo::new(),
+        };
+
+        Self::restore(own_user_id, store, room_info)
+    }
+
+    pub fn restore(own_user_id: &UserId, store: SledStore, room_info: RoomInfo) -> Self {
         Self {
             own_user_id: Arc::new(own_user_id.clone()),
-            room_id: room_id.clone(),
+            room_id: room_info.room_id.clone(),
             store,
-            inner: Arc::new(SyncRwLock::new(RoomInfo {
-                room_id,
-                room_type,
-                notification_counts: Default::default(),
-                summary: Default::default(),
-                members_synced: false,
-                last_prev_batch: None,
-                base_info: BaseRoomInfo::new(),
-            })),
+            inner: Arc::new(SyncRwLock::new(room_info)),
         }
     }
 

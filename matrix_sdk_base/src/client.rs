@@ -289,11 +289,12 @@ impl BaseClient {
         };
 
         let session = Arc::new(RwLock::new(None));
-        let store = Store::new(session.clone(), store);
+        let sync_token = Arc::new(RwLock::new(None));
+        let store = Store::new(session.clone(), sync_token.clone(), store);
 
         Ok(BaseClient {
             session,
-            sync_token: RwLock::new(None).into(),
+            sync_token,
             store,
             #[cfg(feature = "encryption")]
             olm: Mutex::new(None).into(),
@@ -707,7 +708,7 @@ impl BaseClient {
             }
         }
 
-        let mut changes = StateChanges::default();
+        let mut changes = StateChanges::new(response.next_batch.clone());
         let mut rooms = Rooms::default();
 
         for (room_id, new_info) in response.rooms.join {
