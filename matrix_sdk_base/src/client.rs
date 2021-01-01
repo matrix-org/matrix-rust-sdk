@@ -644,6 +644,38 @@ impl BaseClient {
         AccountData { events }
     }
 
+    async fn handle_account_data(
+        &self,
+        events: Vec<Raw<AnyBasicEvent>>,
+        changes: &mut StateChanges,
+    ) {
+        let events: Vec<AnyBasicEvent> =
+            events.iter().filter_map(|e| e.deserialize().ok()).collect();
+
+        for event in &events {
+            if let AnyBasicEvent::Direct(e) = event {
+                for (user_id, rooms) in e.content.iter() {
+                    for room_id in rooms {
+                        if let Some(room) = changes.room_infos.get_mut(room_id) {
+                            room.base_info.dm_target = Some(user_id.clone());
+                        } else if let Some(room) = self.store.get_bare_room(room_id) {
+                            let mut info = room.clone_info();
+                            info.base_info.dm_target = Some(user_id.clone());
+                            changes.add_room(info);
+                        }
+                    }
+                }
+            }
+        }
+
+        let account_data: BTreeMap<String, AnyBasicEvent> = events
+            .into_iter()
+            .map(|e| (e.content().event_type().to_owned(), e))
+            .collect();
+
+        changes.account_data = account_data;
+    }
+
     /// Receive a response from a sync call.
     ///
     /// # Arguments
@@ -826,17 +858,8 @@ impl BaseClient {
 
         changes.presence = presence;
 
-        let account_data: BTreeMap<String, AnyBasicEvent> = response
-            .account_data
-            .events
-            .into_iter()
-            .filter_map(|e| {
-                let event = e.deserialize().ok()?;
-                Some((event.content().event_type().to_owned(), event))
-            })
-            .collect();
-
-        changes.account_data = account_data;
+        self.handle_account_data(response.account_data.events, &mut changes)
+            .await;
 
         self.store.save_changes(&changes).await;
         *self.sync_token.write().await = Some(response.next_batch.clone());

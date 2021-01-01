@@ -2,6 +2,7 @@ mod members;
 mod normal;
 mod stripped;
 
+use matrix_sdk_common::identifiers::UserId;
 pub use normal::{Room, RoomInfo, RoomType};
 pub use stripped::{StrippedRoom, StrippedRoomInfo};
 
@@ -119,6 +120,7 @@ impl Deref for InvitedRoom {
 pub struct BaseRoomInfo {
     pub name: Option<String>,
     pub canonical_alias: Option<RoomAliasId>,
+    pub dm_target: Option<UserId>,
     pub avatar_url: Option<String>,
     pub topic: Option<String>,
     pub encryption: Option<EncryptionEventContent>,
@@ -171,6 +173,7 @@ impl Default for BaseRoomInfo {
         Self {
             name: None,
             canonical_alias: None,
+            dm_target: None,
             avatar_url: None,
             topic: None,
             encryption: None,

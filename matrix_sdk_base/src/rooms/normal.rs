@@ -92,6 +92,14 @@ impl Room {
         self.inner.read().unwrap().room_type
     }
 
+    pub fn is_direct(&self) -> bool {
+        self.inner.read().unwrap().base_info.dm_target.is_some()
+    }
+
+    pub fn direct_target(&self) -> Option<UserId> {
+        self.inner.read().unwrap().base_info.dm_target.clone()
+    }
+
     fn max_power_level(&self) -> i64 {
         self.inner.read().unwrap().base_info.max_power_level
     }
