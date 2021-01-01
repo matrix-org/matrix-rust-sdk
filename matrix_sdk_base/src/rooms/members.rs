@@ -47,6 +47,14 @@ impl RoomMember {
         }
     }
 
+    pub fn name(&self) -> &str {
+        if let Some(d) = self.display_name() {
+            d
+        } else {
+            self.user_id().localpart()
+        }
+    }
+
     pub fn normalized_power_level(&self) -> i64 {
         if self.max_power_level > 0 {
             (self.power_level() * 100) / self.max_power_level
