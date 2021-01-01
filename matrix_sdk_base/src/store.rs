@@ -76,6 +76,13 @@ impl Store {
         self.rooms.get(room_id).map(|r| r.clone())
     }
 
+    pub fn get_rooms(&self) -> Vec<RoomState> {
+        self.rooms
+            .iter()
+            .filter_map(|r| self.get_room(r.key()))
+            .collect()
+    }
+
     pub fn get_joined_room(&self, room_id: &RoomId) -> Option<JoinedRoom> {
         self.get_room(room_id).map(|r| r.joined()).flatten()
     }

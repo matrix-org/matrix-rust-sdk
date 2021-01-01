@@ -550,20 +550,32 @@ impl Client {
         self.base_client.add_event_emitter(emitter).await;
     }
 
-    // /// Returns the joined rooms this client knows about.
-    // pub fn joined_rooms(&self) -> Arc<RwLock<HashMap<RoomId, Arc<RwLock<Room>>>>> {
-    //     self.base_client.joined_rooms()
-    // }
+    /// Returns the joined rooms this client knows about.
+    pub fn joined_rooms(&self) -> Vec<JoinedRoom> {
+        self.store()
+            .get_rooms()
+            .into_iter()
+            .filter_map(|r| r.joined())
+            .collect()
+    }
 
-    // /// Returns the invited rooms this client knows about.
-    // pub fn invited_rooms(&self) -> Arc<RwLock<HashMap<RoomId, Arc<RwLock<Room>>>>> {
-    //     self.base_client.invited_rooms()
-    // }
+    /// Returns the invited rooms this client knows about.
+    pub fn invited_rooms(&self) -> Vec<InvitedRoom> {
+        self.store()
+            .get_rooms()
+            .into_iter()
+            .filter_map(|r| r.invited())
+            .collect()
+    }
 
-    // /// Returns the left rooms this client knows about.
-    // pub fn left_rooms(&self) -> Arc<RwLock<HashMap<RoomId, Arc<RwLock<Room>>>>> {
-    //     self.base_client.left_rooms()
-    // }
+    /// Returns the left rooms this client knows about.
+    pub fn left_rooms(&self) -> Vec<LeftRoom> {
+        self.store()
+            .get_rooms()
+            .into_iter()
+            .filter_map(|r| r.left())
+            .collect()
+    }
 
     /// Get a joined room with the given room id.
     ///
