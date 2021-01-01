@@ -110,41 +110,23 @@ impl Room {
         self.inner.read().unwrap().base_info.max_power_level
     }
 
+    pub async fn get_joined_user_ids(&self) -> impl Stream<Item = UserId> {
+        self.store.get_joined_user_ids(self.room_id()).await
+    }
+
+    pub async fn get_joined_members(&self) -> impl Stream<Item = RoomMember> + '_ {
+        let joined = self.store.get_joined_user_ids(self.room_id()).await;
+
+        joined.filter_map(move |u| async move { self.get_member(&u).await })
+    }
+
     pub async fn get_active_members(&self) -> impl Stream<Item = RoomMember> + '_ {
         let joined = self.store.get_joined_user_ids(self.room_id()).await;
         let invited = self.store.get_invited_user_ids(self.room_id()).await;
 
-        let max_power_level = self.max_power_level();
-
-        let into_member = move |u| async move {
-            let presence = self.store.get_presence_event(&u).await;
-            let profile = self.store.get_profile(self.room_id(), &u).await;
-            let power = self
-                .store
-                .get_state_event(self.room_id(), EventType::RoomPowerLevels, "")
-                .await
-                .map(|e| {
-                    if let AnySyncStateEvent::RoomPowerLevels(e) = e {
-                        Some(e)
-                    } else {
-                        None
-                    }
-                })
-                .flatten();
-
-            self.store
-                .get_member_event(self.room_id(), &u)
-                .await
-                .map(|m| RoomMember {
-                    event: m.into(),
-                    profile: profile.into(),
-                    presence: presence.into(),
-                    power_levles: power.into(),
-                    max_power_level,
-                })
-        };
-
-        joined.chain(invited).filter_map(into_member)
+        joined
+            .chain(invited)
+            .filter_map(move |u| async move { self.get_member(&u).await })
     }
 
     /// Calculate the canonical display name of the room, taking into account
