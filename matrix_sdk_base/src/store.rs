@@ -3,7 +3,7 @@ use std::{
 };
 
 use dashmap::DashMap;
-use futures::stream::{self, Stream};
+use futures::stream::{self, Stream, StreamExt};
 use matrix_sdk_common::{
     events::{
         presence::PresenceEvent,
@@ -45,6 +45,21 @@ impl Store {
             rooms: DashMap::new().into(),
             stripped_rooms: DashMap::new().into(),
         }
+    }
+
+    pub(crate) async fn restore_session(&self, session: Session) {
+        let mut infos = self.inner.get_room_infos().await;
+
+        // TODO restore stripped rooms.
+        while let Some(info) = infos.next().await {
+            let room = Room::restore(&session.user_id, self.inner.clone(), info);
+            self.rooms.insert(room.room_id().to_owned(), room);
+        }
+
+        let token = self.get_sync_token().await;
+
+        *self.sync_token.write().await = token;
+        *self.session.write().await = Some(session);
     }
 
     pub fn open_default(path: impl AsRef<Path>) -> Self {

@@ -352,17 +352,7 @@ impl BaseClient {
     /// * `session` - An session that the user already has from a
     /// previous login call.
     pub async fn restore_login(&self, session: Session) -> Result<()> {
-        // If there wasn't a state store opened, try to open the default one if
-        // a store path was provided.
-        // if self.state_store.read().await.is_none() {
-        //     #[cfg(not(target_arch = "wasm32"))]
-        //     if let Some(path) = &*self.store_path {
-        //         let store = JsonStore::open(path)?;
-        //         *self.state_store.write().await = Some(Box::new(store));
-        //     }
-        // }
-
-        // self.sync_with_state_store(&session).await?;
+        self.store.restore_session(session.clone()).await;
 
         #[cfg(feature = "encryption")]
         {
