@@ -1,7 +1,10 @@
-use std::{convert::TryFrom, env, io, process::exit, sync::Arc};
+use std::{convert::TryFrom, fmt::Debug, io, sync::Arc};
 
-use clap::{App as Argparse, AppSettings as ArgParseSettings, Arg, ArgMatches, SubCommand};
 use futures::{executor::block_on, StreamExt};
+use serde::Serialize;
+
+use atty::Stream;
+use clap::{App as Argparse, AppSettings as ArgParseSettings, Arg, ArgMatches, SubCommand};
 use rustyline::{
     completion::{Completer, Pair},
     error::ReadlineError,
@@ -13,6 +16,7 @@ use rustyline::{
 use rustyline_derive::Helper;
 
 use syntect::{
+    dumps::from_binary,
     easy::HighlightLines,
     highlighting::{Style, ThemeSet},
     parsing::SyntaxSet,
@@ -190,37 +194,60 @@ impl Validator for InspectorHelper {}
 struct Printer {
     ps: Arc<SyntaxSet>,
     ts: Arc<ThemeSet>,
+    json: bool,
+    color: bool,
 }
 
 impl Printer {
-    fn new() -> Self {
+    fn new(json: bool, color: bool) -> Self {
+        let syntax_set: SyntaxSet = from_binary(include_bytes!("./syntaxes.bin"));
+        let themes: ThemeSet = from_binary(include_bytes!("./themes.bin"));
+
         Self {
-            ps: SyntaxSet::load_defaults_newlines().into(),
-            ts: ThemeSet::load_from_folder("/home/poljar/local/cfg/bat/themes")
-                .expect("Couldn't load themes")
-                .into(),
+            ps: syntax_set.into(),
+            ts: themes.into(),
+            json,
+            color,
         }
     }
 
-    fn pretty_print_struct(&self, data: &impl std::fmt::Debug) {
-        let data = format!("{:#?}", data);
+    fn pretty_print_struct<T: Debug + Serialize>(&self, data: &T) {
+        let data = if self.json {
+            serde_json::to_string_pretty(data).expect("Can't serialize struct")
+        } else {
+            format!("{:#?}", data)
+        };
 
-        let syntax = self.ps.find_syntax_by_extension("rs").unwrap();
-        let mut h = HighlightLines::new(syntax, &self.ts.themes["Forest Night"]);
+        let syntax = if self.json {
+            self.ps
+                .find_syntax_by_extension("rs")
+                .expect("Can't find rust syntax extension")
+        } else {
+            self.ps
+                .find_syntax_by_extension("json")
+                .expect("Can't find json syntax extension")
+        };
 
-        for line in LinesWithEndings::from(&data) {
-            let ranges: Vec<(Style, &str)> = h.highlight(line, &self.ps);
-            let escaped = as_24_bit_terminal_escaped(&ranges[..], false);
-            print!("{}", escaped);
+        if self.color {
+            let mut h = HighlightLines::new(syntax, &self.ts.themes["Forest Night"]);
+
+            for line in LinesWithEndings::from(&data) {
+                let ranges: Vec<(Style, &str)> = h.highlight(line, &self.ps);
+                let escaped = as_24_bit_terminal_escaped(&ranges[..], false);
+                print!("{}", escaped);
+            }
+
+            // Clear the formatting
+            println!("\x1b[0m");
+        } else {
+            println!("{}", data);
         }
-        // Clear the formatting
-        println!("\x1b[0m");
     }
 }
 
 impl Inspector {
-    fn new(database_path: &str) -> Self {
-        let printer = Printer::new();
+    fn new(database_path: &str, json: bool, color: bool) -> Self {
+        let printer = Printer::new(json, color);
         let store = Store::open_default(database_path);
 
         Self { store, printer }
@@ -290,6 +317,37 @@ impl Inspector {
             .pretty_print_struct(&self.store.get_state_event(&room_id, event_type, "").await);
     }
 
+    fn subcommands() -> Vec<Argparse<'static, 'static>> {
+        vec![
+            SubCommand::with_name("list-rooms"),
+            SubCommand::with_name("get-members").arg(
+                Arg::with_name("room-id").required(true).validator(|r| {
+                    RoomId::try_from(r)
+                        .map(|_| ())
+                        .map_err(|_| "Invalid room id given".to_owned())
+                }),
+            ),
+            SubCommand::with_name("get-profiles").arg(
+                Arg::with_name("room-id").required(true).validator(|r| {
+                    RoomId::try_from(r)
+                        .map(|_| ())
+                        .map_err(|_| "Invalid room id given".to_owned())
+                }),
+            ),
+            SubCommand::with_name("get-state")
+                .arg(Arg::with_name("room-id").required(true).validator(|r| {
+                    RoomId::try_from(r)
+                        .map(|_| ())
+                        .map_err(|_| "Invalid room id given".to_owned())
+                }))
+                .arg(Arg::with_name("event-type").required(true).validator(|e| {
+                    EventType::try_from(e)
+                        .map(|_| ())
+                        .map_err(|_| "Invalid event type".to_string())
+                })),
+        ]
+    }
+
     async fn parse_and_run(&self, input: &str) {
         let argparse = Argparse::new("state-inspector")
             .global_setting(ArgParseSettings::DisableHelpFlags)
@@ -297,34 +355,7 @@ impl Inspector {
             .global_setting(ArgParseSettings::VersionlessSubcommands)
             .global_setting(ArgParseSettings::NoBinaryName)
             .setting(ArgParseSettings::SubcommandRequiredElseHelp)
-            .subcommand(SubCommand::with_name("list-rooms"))
-            .subcommand(SubCommand::with_name("get-members").arg(
-                Arg::with_name("room-id").required(true).validator(|r| {
-                    RoomId::try_from(r)
-                        .map(|_| ())
-                        .map_err(|_| "Invalid room id given".to_owned())
-                }),
-            ))
-            .subcommand(SubCommand::with_name("get-profiles").arg(
-                Arg::with_name("room-id").required(true).validator(|r| {
-                    RoomId::try_from(r)
-                        .map(|_| ())
-                        .map_err(|_| "Invalid room id given".to_owned())
-                }),
-            ))
-            .subcommand(
-                SubCommand::with_name("get-state")
-                    .arg(Arg::with_name("room-id").required(true).validator(|r| {
-                        RoomId::try_from(r)
-                            .map(|_| ())
-                            .map_err(|_| "Invalid room id given".to_owned())
-                    }))
-                    .arg(Arg::with_name("event-type").required(true).validator(|e| {
-                        EventType::try_from(e)
-                            .map(|_| ())
-                            .map_err(|_| "Invalid event type".to_string())
-                    })),
-            );
+            .subcommands(Inspector::subcommands());
 
         match argparse.get_matches_from_safe(input.split_ascii_whitespace()) {
             Ok(m) => {
@@ -338,31 +369,51 @@ impl Inspector {
 }
 
 fn main() -> io::Result<()> {
-    let database_path = match env::args().nth(1) {
-        Some(a) => a,
-        _ => {
-            eprintln!("Usage: {} <database_path>", env::args().next().unwrap());
-            exit(1)
-        }
+    let argparse = Argparse::new("state-inspector")
+        .global_setting(ArgParseSettings::DisableVersion)
+        .global_setting(ArgParseSettings::VersionlessSubcommands)
+        .arg(Arg::with_name("database").required(true))
+        .arg(
+            Arg::with_name("json")
+                .long("json")
+                .help("set the output to raw json instead of Rust structs")
+                .global(true)
+                .takes_value(false),
+        )
+        .subcommands(Inspector::subcommands());
+
+    let matches = argparse.get_matches();
+
+    let database_path = matches.args.get("database").expect("No database path");
+    let json = matches.is_present("json");
+
+    let color = if atty::is(Stream::Stdout) {
+        true
+    } else {
+        false
     };
 
-    let inspector = Inspector::new(&database_path);
+    let inspector = Inspector::new(&database_path.vals[0].to_string_lossy(), json, color);
 
-    let config = Config::builder()
-        .history_ignore_space(true)
-        .completion_type(CompletionType::List)
-        .edit_mode(EditMode::Emacs)
-        .output_stream(OutputStreamType::Stdout)
-        .build();
+    if matches.subcommand.is_none() {
+        let config = Config::builder()
+            .history_ignore_space(true)
+            .completion_type(CompletionType::List)
+            .edit_mode(EditMode::Emacs)
+            .output_stream(OutputStreamType::Stdout)
+            .build();
 
-    let helper = InspectorHelper::new(inspector.store.clone());
+        let helper = InspectorHelper::new(inspector.store.clone());
 
-    let mut rl = Editor::<InspectorHelper>::with_config(config);
-    rl.set_helper(Some(helper));
+        let mut rl = Editor::<InspectorHelper>::with_config(config);
+        rl.set_helper(Some(helper));
 
-    while let Ok(input) = rl.readline(">> ") {
-        rl.add_history_entry(input.as_str());
-        block_on(inspector.parse_and_run(input.as_str()));
+        while let Ok(input) = rl.readline(">> ") {
+            rl.add_history_entry(input.as_str());
+            block_on(inspector.parse_and_run(input.as_str()));
+        }
+    } else {
+        block_on(inspector.run(matches));
     }
 
     Ok(())
