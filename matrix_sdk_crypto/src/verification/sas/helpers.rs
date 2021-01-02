@@ -621,9 +621,9 @@ mod test {
         fn proptest_decimals(bytes in prop::array::uniform5(0u8..)) {
             let (first, second, third) = bytes_to_decimal(bytes.to_vec());
 
-            prop_assert!(first <= 9191 && first >= 1000);
-            prop_assert!(second <= 9191 && second >= 1000);
-            prop_assert!(third <= 9191 && third >= 1000);
+            prop_assert!((1000..=9191).contains(&first));
+            prop_assert!((1000..=9191).contains(&second));
+            prop_assert!((1000..=9191).contains(&third));
         }
     }
 }
