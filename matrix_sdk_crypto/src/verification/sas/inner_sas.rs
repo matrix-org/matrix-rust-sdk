@@ -302,11 +302,7 @@ impl InnerSas {
     }
 
     pub fn can_be_presented(&self) -> bool {
-        match self {
-            InnerSas::KeyRecieved(_) => true,
-            InnerSas::MacReceived(_) => true,
-            _ => false,
-        }
+        matches!(self, InnerSas::KeyRecieved(_) | InnerSas::MacReceived(_))
     }
 
     pub fn is_done(&self) -> bool {
