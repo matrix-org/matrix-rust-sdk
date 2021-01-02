@@ -136,6 +136,7 @@ impl Room {
     ///
     /// [spec]:
     /// <https://matrix.org/docs/spec/client_server/latest#calculating-the-display-name-for-a-room>
+    #[allow(clippy::await_holding_lock)]
     pub async fn calculate_name(&self) -> String {
         let inner = self.inner.read().unwrap();
 
@@ -150,8 +151,6 @@ impl Room {
             let invited = inner.summary.invited_member_count;
             let heroes_count = inner.summary.heroes.len() as u64;
             let invited_joined = (invited + joined).saturating_sub(1);
-
-            let members = self.get_active_members().await;
 
             info!(
                 "Calculating name for {}, own user {} hero count {} heroes {:#?}",
@@ -181,6 +180,8 @@ impl Room {
                 names.sort();
                 names.join(", ")
             } else if heroes_count >= invited_joined {
+                let members = self.get_active_members().await;
+
                 let mut names = members
                     .filter(|m| future::ready(is_own_member(m)))
                     .take(3)
@@ -195,6 +196,8 @@ impl Room {
                 names.sort();
                 names.join(", ")
             } else if heroes_count < invited_joined && invited + joined > 1 {
+                let members = self.get_active_members().await;
+
                 let mut names = members
                     .filter(|m| future::ready(is_own_member(m)))
                     .take(3)

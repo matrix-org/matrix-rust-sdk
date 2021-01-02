@@ -386,12 +386,7 @@ fn main() -> io::Result<()> {
 
     let database_path = matches.args.get("database").expect("No database path");
     let json = matches.is_present("json");
-
-    let color = if atty::is(Stream::Stdout) {
-        true
-    } else {
-        false
-    };
+    let color = atty::is(Stream::Stdout);
 
     let inspector = Inspector::new(&database_path.vals[0].to_string_lossy(), json, color);
 
