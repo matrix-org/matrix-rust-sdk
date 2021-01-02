@@ -34,7 +34,7 @@ use crate::{
     ReadOnlyDevice, Sas, UserIdentities,
 };
 
-use super::sas::OutgoingContent;
+use super::sas::{OutgoingContent, StartContent};
 
 const SUPPORTED_METHODS: &[VerificationMethod] = &[VerificationMethod::MSasV1];
 
@@ -171,6 +171,24 @@ impl VerificationRequest {
             // TODO cancel here since we got a missmatched message or do
             // nothing?
             _ => todo!(),
+        }
+    }
+
+    pub(crate) fn start(
+        &self,
+        device: ReadOnlyDevice,
+        user_identity: Option<UserIdentities>,
+    ) -> Option<(Sas, StartContent)> {
+        match &*self.inner.lock().unwrap() {
+            InnerRequest::Ready(s) => Some(s.clone().start_sas(
+                self.room_id(),
+                self.store.clone(),
+                self.account.clone(),
+                self.private_cross_signing_identity.clone(),
+                device,
+                user_identity,
+            )),
+            _ => None,
         }
     }
 }
@@ -394,20 +412,22 @@ impl RequestState<Ready> {
 
     fn start_sas(
         self,
-        _store: Arc<Box<dyn CryptoStore>>,
-        _account: ReadOnlyAccount,
-        _private_identity: PrivateCrossSigningIdentity,
-        _other_device: ReadOnlyDevice,
-        _other_identity: Option<UserIdentities>,
-    ) -> (Sas, OutgoingContent) {
-        todo!()
-        // Sas::start_in_room(
-        //     account,
-        //     private_identity,
-        //     other_device,
-        //     store,
-        //     other_identity,
-        // )
+        room_id: &RoomId,
+        store: Arc<Box<dyn CryptoStore>>,
+        account: ReadOnlyAccount,
+        private_identity: PrivateCrossSigningIdentity,
+        other_device: ReadOnlyDevice,
+        other_identity: Option<UserIdentities>,
+    ) -> (Sas, StartContent) {
+        Sas::start_in_room(
+            self.state.flow_id,
+            room_id.clone(),
+            account,
+            private_identity,
+            other_device,
+            store,
+            other_identity,
+        )
     }
 }
 
@@ -423,10 +443,11 @@ struct Passive {
 
 #[cfg(test)]
 mod test {
-    use std::convert::TryFrom;
+    use std::{convert::TryFrom, time::SystemTime};
 
     use matrix_sdk_common::{
         api::r0::message::send_message_event::Response as RoomMessageResponse,
+        events::{SyncMessageEvent, Unsigned},
         identifiers::{event_id, room_id, DeviceIdBox, UserId},
     };
     use matrix_sdk_test::async_test;
@@ -434,6 +455,8 @@ mod test {
     use crate::{
         olm::{PrivateCrossSigningIdentity, ReadOnlyAccount},
         store::{CryptoStore, MemoryStore},
+        verification::sas::StartContent,
+        ReadOnlyDevice,
     };
 
     use super::VerificationRequest;
@@ -496,5 +519,73 @@ mod test {
 
         assert!(bob_request.is_ready());
         assert!(alice_request.is_ready());
+    }
+
+    #[async_test]
+    async fn test_requesting_until_sas() {
+        let event_id = event_id!("$1234localhost");
+        let room_id = room_id!("!test:localhost");
+
+        let alice = ReadOnlyAccount::new(&alice_id(), &alice_device_id());
+        let alice_device = ReadOnlyDevice::from_account(&alice).await;
+
+        let alice_store: Box<dyn CryptoStore> = Box::new(MemoryStore::new());
+        let alice_identity = PrivateCrossSigningIdentity::empty(alice_id());
+
+        let bob = ReadOnlyAccount::new(&bob_id(), &bob_device_id());
+        let bob_device = ReadOnlyDevice::from_account(&bob).await;
+        let bob_store: Box<dyn CryptoStore> = Box::new(MemoryStore::new());
+        let bob_identity = PrivateCrossSigningIdentity::empty(alice_id());
+
+        let bob_request = VerificationRequest::new(
+            bob,
+            bob_identity,
+            bob_store.into(),
+            room_id.clone().into(),
+            &alice_id(),
+        );
+
+        let content = bob_request.request().unwrap();
+
+        let alice_request = VerificationRequest::from_request_event(
+            alice,
+            alice_identity,
+            alice_store.into(),
+            &room_id,
+            &bob_id(),
+            &event_id,
+            &content,
+        );
+
+        let content = alice_request.accept().unwrap();
+
+        let response = RoomMessageResponse::new(event_id.clone());
+        bob_request.mark_as_sent(&response);
+
+        bob_request.receive_ready(&alice_id(), &content).unwrap();
+
+        assert!(bob_request.is_ready());
+        assert!(alice_request.is_ready());
+
+        let (bob_sas, start_content) = bob_request.start(alice_device, None).unwrap();
+
+        let event = if let StartContent::Room(_, c) = start_content {
+            SyncMessageEvent {
+                content: c,
+                event_id: event_id.clone(),
+                sender: bob_id(),
+                origin_server_ts: SystemTime::now(),
+                unsigned: Unsigned::default(),
+            }
+        } else {
+            panic!("Invalid start event content type");
+        };
+
+        let alice_sas = alice_request
+            .into_started_sas(&event, bob_device, None)
+            .unwrap();
+
+        assert!(!bob_sas.is_canceled());
+        assert!(!alice_sas.is_canceled());
     }
 }
