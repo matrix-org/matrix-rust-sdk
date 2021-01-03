@@ -235,6 +235,10 @@ impl Room {
         self.inner.read().unwrap().is_encrypted()
     }
 
+    pub fn topic(&self) -> Option<String> {
+        self.inner.read().unwrap().base_info.topic.clone()
+    }
+
     pub fn update_summary(&self, summary: RoomInfo) {
         let mut inner = self.inner.write().unwrap();
         *inner = summary;
