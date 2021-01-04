@@ -162,6 +162,10 @@ impl Room {
             .clone()
     }
 
+    pub fn is_public(&self) -> bool {
+        matches!(self.joine_rules(), JoinRule::Public)
+    }
+
     pub fn joine_rules(&self) -> JoinRule {
         self.inner.read().unwrap().base_info.join_rule.clone()
     }
