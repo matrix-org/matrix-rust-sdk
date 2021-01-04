@@ -32,6 +32,7 @@ pub struct RoomMember {
     pub(crate) presence: Arc<Option<PresenceEvent>>,
     pub(crate) power_levles: Arc<Option<SyncStateEvent<PowerLevelsEventContent>>>,
     pub(crate) max_power_level: i64,
+    pub(crate) is_room_creator: bool,
 }
 
 impl RoomMember {
@@ -74,6 +75,6 @@ impl RoomMember {
                     .map(|p| (*p).into())
                     .unwrap_or_else(|| e.content.users_default.into())
             })
-            .unwrap_or(0)
+            .unwrap_or_else(|| if self.is_room_creator { 100 } else { 0 })
     }
 }

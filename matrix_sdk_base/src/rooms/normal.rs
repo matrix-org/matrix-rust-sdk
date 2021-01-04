@@ -287,6 +287,15 @@ impl Room {
         let presence = self.store.get_presence_event(user_id).await;
         let profile = self.store.get_profile(self.room_id(), user_id).await;
         let max_power_level = self.max_power_level();
+        let is_room_creator = self
+            .inner
+            .read()
+            .unwrap()
+            .base_info
+            .create
+            .as_ref()
+            .map(|c| &c.creator == user_id)
+            .unwrap_or(false);
 
         let power = self
             .store
@@ -310,6 +319,7 @@ impl Room {
                 presence: presence.into(),
                 power_levles: power.into(),
                 max_power_level,
+                is_room_creator,
             })
     }
 }

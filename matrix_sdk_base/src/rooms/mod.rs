@@ -2,7 +2,7 @@ mod members;
 mod normal;
 mod stripped;
 
-use matrix_sdk_common::identifiers::UserId;
+use matrix_sdk_common::{events::room::create::CreateEventContent, identifiers::UserId};
 pub use normal::{Room, RoomInfo, RoomType};
 pub use stripped::{StrippedRoom, StrippedRoomInfo};
 
@@ -125,6 +125,7 @@ pub struct BaseRoomInfo {
     pub topic: Option<String>,
     pub encryption: Option<EncryptionEventContent>,
     pub tombstone: Option<TombstoneEventContent>,
+    pub create: Option<CreateEventContent>,
     pub max_power_level: i64,
 }
 
@@ -142,6 +143,14 @@ impl BaseRoomInfo {
             AnyStateEventContent::RoomName(n) => {
                 self.name = n.name().map(|n| n.to_string());
                 true
+            }
+            AnyStateEventContent::RoomCreate(c) => {
+                if self.create.is_none() {
+                    self.create = Some(c.clone());
+                    true
+                } else {
+                    false
+                }
             }
             AnyStateEventContent::RoomCanonicalAlias(a) => {
                 self.canonical_alias = a.alias.clone();
@@ -179,6 +188,7 @@ impl Default for BaseRoomInfo {
             encryption: None,
             tombstone: None,
             max_power_level: 100,
+            create: None,
         }
     }
 }
