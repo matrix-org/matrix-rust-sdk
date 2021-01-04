@@ -18,8 +18,8 @@ use std::convert::TryFrom;
 use matrix_sdk_common::{
     events::{presence::PresenceEvent, room::member::MemberEventContent, SyncStateEvent},
     identifiers::{RoomId, UserId},
-    js_int::{Int, UInt},
     presence::PresenceState,
+    Int, UInt,
 };
 use serde::{Deserialize, Serialize};
 
@@ -164,8 +164,7 @@ mod test {
 
     use crate::{
         identifiers::{room_id, user_id, RoomId},
-        js_int::int,
-        BaseClient, Session,
+        int, BaseClient, Session,
     };
 
     #[cfg(target_arch = "wasm32")]

@@ -14,7 +14,6 @@ version = "0.1.0"
 unstable-synapse-quirks = ["ruma/unstable-synapse-quirks"]
 
 [dependencies]
-assign = "1.1.0"
 instant = { version = "0.1.7", features = ["wasm-bindgen", "now"] }
 
 [dependencies.ruma]

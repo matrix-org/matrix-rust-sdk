@@ -38,10 +38,9 @@ use matrix_sdk_common::{
     identifiers::{
         DeviceId, DeviceIdBox, DeviceKeyAlgorithm, EventEncryptionAlgorithm, RoomId, UserId,
     },
-    js_int::UInt,
     locks::Mutex,
     uuid::Uuid,
-    Raw,
+    Raw, UInt,
 };
 
 #[cfg(feature = "sqlite_cryptostore")]
@@ -1186,7 +1185,7 @@ pub(crate) mod test {
     /// These keys need to be periodically uploaded to the server.
     type OneTimeKeys = BTreeMap<DeviceKeyId, OneTimeKey>;
 
-    use matrix_sdk_common::js_int::uint;
+    use matrix_sdk_common::uint;
 
     fn alice_id() -> UserId {
         user_id!("@alice:example.org")

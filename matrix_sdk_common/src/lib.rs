@@ -1,4 +1,3 @@
-pub use assign::assign;
 pub use instant;
 pub use ruma::{
     api::{
@@ -6,11 +5,9 @@ pub use ruma::{
         error::{FromHttpRequestError, FromHttpResponseError, IntoHttpError, ServerError},
         AuthScheme, EndpointError, OutgoingRequest,
     },
-    directory, encryption, events,
-    events::exports::js_int,
-    identifiers, presence, push,
+    assign, directory, encryption, events, identifiers, int, presence, push,
     serde::{CanonicalJsonValue, Raw},
-    thirdparty, Outgoing,
+    thirdparty, uint, Int, Outgoing, UInt,
 };
 
 pub use uuid;

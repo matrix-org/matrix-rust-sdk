@@ -41,9 +41,8 @@ use matrix_sdk_common::{
         UserId,
     },
     instant::Instant,
-    js_int::UInt,
     locks::Mutex,
-    CanonicalJsonValue, Raw,
+    CanonicalJsonValue, Raw, UInt,
 };
 use olm_rs::{
     account::{IdentityKeys, OlmAccount, OneTimeKeys},

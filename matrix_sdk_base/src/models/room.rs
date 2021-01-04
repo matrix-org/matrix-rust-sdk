@@ -48,7 +48,7 @@ use matrix_sdk_common::{
         SyncStateEvent,
     },
     identifiers::{EventEncryptionAlgorithm, RoomAliasId, RoomId, UserId},
-    js_int::{int, uint, Int, UInt},
+    int, uint, Int, UInt,
 };
 use serde::{Deserialize, Serialize};
 use tracing::{debug, error, trace};
@@ -1140,7 +1140,7 @@ mod test {
         identifiers::{event_id, room_id, user_id, UserId},
         BaseClient, Session,
     };
-    use matrix_sdk_common::js_int;
+    use matrix_sdk_common::{int, Int};
     use matrix_sdk_test::{async_test, sync_response, EventBuilder, EventsJson, SyncResponseFile};
 
     use std::{ops::Deref, time::SystemTime};
@@ -1609,12 +1609,9 @@ mod test {
 
         assert_eq!(room.joined_members.len(), 1);
         assert!(room.power_levels.is_some());
-        assert_eq!(
-            room.power_levels.as_ref().unwrap().kick,
-            crate::js_int::int!(50)
-        );
+        assert_eq!(room.power_levels.as_ref().unwrap().kick, int!(50));
         let admin = room.joined_members.get(&user_id).unwrap();
-        assert_eq!(admin.power_level.unwrap(), crate::js_int::int!(100));
+        assert_eq!(admin.power_level.unwrap(), int!(100));
     }
 
     #[async_test]
@@ -1816,8 +1813,8 @@ mod test {
         *content
             .users
             .entry(user_id.clone())
-            .or_insert_with(|| js_int::Int::new(4503599627370495).unwrap()) =
-            js_int::Int::new(4503599627370495).unwrap();
+            .or_insert_with(|| Int::new(4503599627370495).unwrap()) =
+            Int::new(4503599627370495).unwrap();
         let power = SyncStateEvent {
             event_id: event_id!("$h29iv0s8:example.com"),
             origin_server_ts: SystemTime::now(),
@@ -1831,8 +1828,8 @@ mod test {
         Room::update_member_power(
             &mut room_member,
             &power,
-            js_int::Int::new(4503599627370495).unwrap(),
+            Int::new(4503599627370495).unwrap(),
         );
-        assert_eq!(room_member.power_level_norm, Some(js_int::int!(100)))
+        assert_eq!(room_member.power_level_norm, Some(int!(100)))
     }
 }
