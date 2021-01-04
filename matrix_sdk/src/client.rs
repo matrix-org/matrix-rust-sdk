@@ -2899,7 +2899,7 @@ mod test {
         let room = client
             .get_joined_room(&room_id!("!SVkFJHzfwvuaIEawgC:localhost"))
             .unwrap();
-        let members: Vec<RoomMember> = room.get_active_members().await.collect().await;
+        let members: Vec<RoomMember> = room.active_members().await.collect().await;
 
         assert_eq!(1, members.len());
         // assert!(room.power_levels.is_some())

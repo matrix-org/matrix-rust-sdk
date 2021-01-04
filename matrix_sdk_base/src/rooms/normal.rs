@@ -63,7 +63,7 @@ pub enum RoomType {
 }
 
 impl Room {
-    pub fn new(
+    pub(crate) fn new(
         own_user_id: &UserId,
         store: SledStore,
         room_id: &RoomId,
@@ -84,7 +84,7 @@ impl Room {
         Self::restore(own_user_id, store, room_info)
     }
 
-    pub fn restore(own_user_id: &UserId, store: SledStore, room_info: RoomInfo) -> Self {
+    pub(crate) fn restore(own_user_id: &UserId, store: SledStore, room_info: RoomInfo) -> Self {
         Self {
             own_user_id: Arc::new(own_user_id.clone()),
             room_id: room_info.room_id.clone(),
@@ -165,17 +165,17 @@ impl Room {
         self.calculate_name().await
     }
 
-    pub async fn get_joined_user_ids(&self) -> impl Stream<Item = UserId> {
+    pub async fn joined_user_ids(&self) -> impl Stream<Item = UserId> {
         self.store.get_joined_user_ids(self.room_id()).await
     }
 
-    pub async fn get_joined_members(&self) -> impl Stream<Item = RoomMember> + '_ {
+    pub async fn joined_members(&self) -> impl Stream<Item = RoomMember> + '_ {
         let joined = self.store.get_joined_user_ids(self.room_id()).await;
 
         joined.filter_map(move |u| async move { self.get_member(&u).await })
     }
 
-    pub async fn get_active_members(&self) -> impl Stream<Item = RoomMember> + '_ {
+    pub async fn active_members(&self) -> impl Stream<Item = RoomMember> + '_ {
         let joined = self.store.get_joined_user_ids(self.room_id()).await;
         let invited = self.store.get_invited_user_ids(self.room_id()).await;
 
@@ -235,7 +235,7 @@ impl Room {
                 names.sort();
                 names.join(", ")
             } else if heroes_count >= invited_joined {
-                let members = self.get_active_members().await;
+                let members = self.active_members().await;
 
                 let mut names = members
                     .filter(|m| future::ready(is_own_member(m)))
@@ -251,7 +251,7 @@ impl Room {
                 names.sort();
                 names.join(", ")
             } else if heroes_count < invited_joined && invited + joined > 1 {
-                let members = self.get_active_members().await;
+                let members = self.active_members().await;
 
                 let mut names = members
                     .filter(|m| future::ready(is_own_member(m)))
@@ -276,10 +276,6 @@ impl Room {
 
     pub(crate) fn clone_info(&self) -> RoomInfo {
         (*self.inner.read().unwrap()).clone()
-    }
-
-    pub async fn joined_user_ids(&self) -> impl Stream<Item = UserId> {
-        self.store.get_joined_user_ids(&self.room_id).await
     }
 
     pub fn update_summary(&self, summary: RoomInfo) {
