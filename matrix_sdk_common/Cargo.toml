@@ -19,9 +19,7 @@ instant = { version = "0.1.7", features = ["wasm-bindgen", "now"] }
 js_int = "0.1.9"
 
 [dependencies.ruma]
-version = "0.0.1"
-git = "https://github.com/ruma/ruma"
-rev = "e8882fe8142d7b55ed4c8ccc6150946945f9e237"
+version = "0.0.2"
 features = ["client-api", "unstable-pre-spec"]
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
