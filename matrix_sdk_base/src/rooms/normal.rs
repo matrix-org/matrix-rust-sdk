@@ -23,7 +23,10 @@ use futures::{
 };
 use matrix_sdk_common::{
     api::r0::sync::sync_events::RoomSummary as RumaSummary,
-    events::{room::tombstone::TombstoneEventContent, AnySyncStateEvent, EventType},
+    events::{
+        room::{encryption::EncryptionEventContent, tombstone::TombstoneEventContent},
+        AnySyncStateEvent, EventType,
+    },
     identifiers::{RoomAliasId, RoomId, UserId},
 };
 use serde::{Deserialize, Serialize};
@@ -90,12 +93,36 @@ impl Room {
         }
     }
 
-    pub fn are_members_synced(&self) -> bool {
-        self.inner.read().unwrap().members_synced
+    pub fn room_id(&self) -> &RoomId {
+        &self.room_id
+    }
+
+    pub fn own_user_id(&self) -> &UserId {
+        &self.own_user_id
     }
 
     pub fn room_type(&self) -> RoomType {
         self.inner.read().unwrap().room_type
+    }
+
+    pub fn unread_notification_counts(&self) -> UnreadNotificationsCount {
+        self.inner.read().unwrap().notification_counts
+    }
+
+    pub fn are_members_synced(&self) -> bool {
+        self.inner.read().unwrap().members_synced
+    }
+
+    pub fn last_prev_batch(&self) -> Option<String> {
+        self.inner.read().unwrap().last_prev_batch.clone()
+    }
+
+    pub fn name(&self) -> Option<String> {
+        self.inner.read().unwrap().base_info.name.clone()
+    }
+
+    pub fn canonical_alias(&self) -> Option<RoomAliasId> {
+        self.inner.read().unwrap().base_info.canonical_alias.clone()
     }
 
     pub fn is_direct(&self) -> bool {
@@ -106,8 +133,36 @@ impl Room {
         self.inner.read().unwrap().base_info.dm_target.clone()
     }
 
-    fn max_power_level(&self) -> i64 {
+    pub fn avatar_url(&self) -> Option<String> {
+        self.inner.read().unwrap().base_info.avatar_url.clone()
+    }
+
+    pub fn topic(&self) -> Option<String> {
+        self.inner.read().unwrap().base_info.topic.clone()
+    }
+
+    pub fn is_encrypted(&self) -> bool {
+        self.inner.read().unwrap().is_encrypted()
+    }
+
+    pub fn encryption_settings(&self) -> Option<EncryptionEventContent> {
+        self.inner.read().unwrap().base_info.encryption.clone()
+    }
+
+    pub fn is_tombstoned(&self) -> bool {
+        self.inner.read().unwrap().base_info.tombstone.is_some()
+    }
+
+    pub fn tombstone(&self) -> Option<TombstoneEventContent> {
+        self.inner.read().unwrap().base_info.tombstone.clone()
+    }
+
+    pub fn max_power_level(&self) -> i64 {
         self.inner.read().unwrap().base_info.max_power_level
+    }
+
+    pub async fn display_name(&self) -> String {
+        self.calculate_name().await
     }
 
     pub async fn get_joined_user_ids(&self) -> impl Stream<Item = UserId> {
@@ -219,40 +274,12 @@ impl Room {
         }
     }
 
-    pub fn own_user_id(&self) -> &UserId {
-        &self.own_user_id
-    }
-
     pub(crate) fn clone_info(&self) -> RoomInfo {
         (*self.inner.read().unwrap()).clone()
     }
 
     pub async fn joined_user_ids(&self) -> impl Stream<Item = UserId> {
         self.store.get_joined_user_ids(&self.room_id).await
-    }
-
-    pub fn is_encrypted(&self) -> bool {
-        self.inner.read().unwrap().is_encrypted()
-    }
-
-    pub fn unread_notification_counts(&self) -> UnreadNotificationsCount {
-        self.inner.read().unwrap().notification_counts
-    }
-
-    pub fn is_tombstoned(&self) -> bool {
-        self.inner.read().unwrap().base_info.tombstone.is_some()
-    }
-
-    pub fn tombstone(&self) -> Option<TombstoneEventContent> {
-        self.inner.read().unwrap().base_info.tombstone.clone()
-    }
-
-    pub fn topic(&self) -> Option<String> {
-        self.inner.read().unwrap().base_info.topic.clone()
-    }
-
-    pub fn canonical_alias(&self) -> Option<RoomAliasId> {
-        self.inner.read().unwrap().base_info.canonical_alias.clone()
     }
 
     pub fn update_summary(&self, summary: RoomInfo) {
@@ -288,18 +315,6 @@ impl Room {
                 power_levles: power.into(),
                 max_power_level,
             })
-    }
-
-    pub fn room_id(&self) -> &RoomId {
-        &self.room_id
-    }
-
-    pub fn last_prev_batch(&self) -> Option<String> {
-        self.inner.read().unwrap().last_prev_batch.clone()
-    }
-
-    pub async fn display_name(&self) -> String {
-        self.calculate_name().await
     }
 }
 
