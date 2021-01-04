@@ -2925,112 +2925,53 @@ mod test {
         assert_eq!("example2", room.display_name().await);
     }
 
-    // #[tokio::test]
-    // async fn invited_rooms() {
-    //     let client = logged_in_client().await;
+    #[tokio::test]
+    async fn invited_rooms() {
+        let client = logged_in_client().await;
 
-    //     let _m = mock(
-    //         "GET",
-    //         Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_string()),
-    //     )
-    //     .with_status(200)
-    //     .match_header("authorization", "Bearer 1234")
-    //     .with_body(test_json::INVITE_SYNC.to_string())
-    //     .create();
+        let _m = mock(
+            "GET",
+            Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_string()),
+        )
+        .with_status(200)
+        .match_header("authorization", "Bearer 1234")
+        .with_body(test_json::INVITE_SYNC.to_string())
+        .create();
 
-    //     let _response = client.sync_once(SyncSettings::default()).await.unwrap();
+        let _response = client.sync_once(SyncSettings::default()).await.unwrap();
 
-    //     assert!(client.joined_rooms().read().await.is_empty());
-    //     assert!(client.left_rooms().read().await.is_empty());
-    //     assert!(!client.invited_rooms().read().await.is_empty());
+        assert!(client.joined_rooms().is_empty());
+        assert!(client.left_rooms().is_empty());
+        assert!(!client.invited_rooms().is_empty());
 
-    //     assert!(client
-    //         .get_invited_room(&room_id!("!696r7674:example.com"))
-    //         .await
-    //         .is_some());
-    // }
+        assert!(client
+            .get_invited_room(&room_id!("!696r7674:example.com"))
+            .is_some());
+    }
 
-    // #[tokio::test]
-    // async fn left_rooms() {
-    //     let client = logged_in_client().await;
+    #[tokio::test]
+    async fn left_rooms() {
+        let client = logged_in_client().await;
 
-    //     let _m = mock(
-    //         "GET",
-    //         Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_string()),
-    //     )
-    //     .with_status(200)
-    //     .match_header("authorization", "Bearer 1234")
-    //     .with_body(test_json::LEAVE_SYNC.to_string())
-    //     .create();
+        let _m = mock(
+            "GET",
+            Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_string()),
+        )
+        .with_status(200)
+        .match_header("authorization", "Bearer 1234")
+        .with_body(test_json::LEAVE_SYNC.to_string())
+        .create();
 
-    //     let _response = client.sync_once(SyncSettings::default()).await.unwrap();
+        let _response = client.sync_once(SyncSettings::default()).await.unwrap();
 
-    //     assert!(client.joined_rooms().read().await.is_empty());
-    //     assert!(!client.left_rooms().read().await.is_empty());
-    //     assert!(client.invited_rooms().read().await.is_empty());
+        assert!(client.joined_rooms().is_empty());
+        assert!(!client.left_rooms().is_empty());
+        assert!(client.invited_rooms().is_empty());
 
-    //     assert!(client
-    //         .get_left_room(&room_id!("!SVkFJHzfwvuaIEawgC:localhost"))
-    //         .await
-    //         .is_some())
-    // }
-
-    // #[tokio::test]
-    // async fn test_client_sync_store() {
-    //     let homeserver = url::Url::from_str(&mockito::server_url()).unwrap();
-
-    //     let session = Session {
-    //         access_token: "1234".to_owned(),
-    //         user_id: user_id!("@cheeky_monkey:matrix.org"),
-    //         device_id: "DEVICEID".into(),
-    //     };
-
-    //     let _m = mock(
-    //         "GET",
-    //         Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_string()),
-    //     )
-    //     .with_status(200)
-    //     .with_body(test_json::SYNC.to_string())
-    //     .create();
-
-    //     let _m = mock("POST", "/_matrix/client/r0/login")
-    //         .with_status(200)
-    //         .with_body(test_json::LOGIN.to_string())
-    //         .create();
-
-    //     let dir = tempdir().unwrap();
-    //     // a sync response to populate our JSON store
-    //     let config =
-    //         ClientConfig::default().state_store(Box::new(JsonStore::open(dir.path()).unwrap()));
-    //     let client = Client::new_with_config(homeserver.clone(), config).unwrap();
-    //     client.restore_login(session.clone()).await.unwrap();
-    //     let sync_settings = SyncSettings::new().timeout(std::time::Duration::from_millis(3000));
-
-    //     // gather state to save to the db, the first time through loading will be skipped
-    //     let _ = client.sync_once(sync_settings.clone()).await.unwrap();
-
-    //     // now syncing the client will update from the state store
-    //     let config =
-    //         ClientConfig::default().state_store(Box::new(JsonStore::open(dir.path()).unwrap()));
-    //     let client = Client::new_with_config(homeserver, config).unwrap();
-    //     client.restore_login(session.clone()).await.unwrap();
-    //     client.sync_once(sync_settings).await.unwrap();
-
-    //     let base_client = &client.base_client;
-
-    //     // assert the synced client and the logged in client are equal
-    //     assert_eq!(*base_client.session().read().await, Some(session));
-    //     assert_eq!(
-    //         base_client.sync_token().await,
-    //         Some("s526_47314_0_7_1_1_1_11444_1".to_string())
-    //     );
-
-    //     // This is commented out because this field is private...
-    //     // assert_eq!(
-    //     //     *base_client.ignored_users.read().await,
-    //     //     vec![user_id!("@someone:example.org")]
-    //     // );
-    // }
+        assert!(client
+            .get_left_room(&room_id!("!SVkFJHzfwvuaIEawgC:localhost"))
+            .is_some())
+    }
 
     #[tokio::test]
     async fn sync() {
