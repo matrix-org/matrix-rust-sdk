@@ -163,10 +163,10 @@ impl Room {
     }
 
     pub fn is_public(&self) -> bool {
-        matches!(self.joine_rules(), JoinRule::Public)
+        matches!(self.join_rule(), JoinRule::Public)
     }
 
-    pub fn joine_rules(&self) -> JoinRule {
+    pub fn join_rule(&self) -> JoinRule {
         self.inner.read().unwrap().base_info.join_rule.clone()
     }
 
