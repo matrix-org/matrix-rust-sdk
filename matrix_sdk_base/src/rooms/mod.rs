@@ -2,7 +2,13 @@ mod members;
 mod normal;
 mod stripped;
 
-use matrix_sdk_common::{events::room::create::CreateEventContent, identifiers::UserId};
+use matrix_sdk_common::{
+    events::room::{
+        create::CreateEventContent, guest_access::GuestAccess,
+        history_visibility::HistoryVisibility, join_rules::JoinRule,
+    },
+    identifiers::UserId,
+};
 pub use normal::{Room, RoomInfo, RoomType};
 pub use stripped::{StrippedRoom, StrippedRoomInfo};
 
@@ -118,15 +124,18 @@ impl Deref for InvitedRoom {
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct BaseRoomInfo {
-    pub name: Option<String>,
-    pub canonical_alias: Option<RoomAliasId>,
-    pub dm_target: Option<UserId>,
     pub avatar_url: Option<String>,
-    pub topic: Option<String>,
-    pub encryption: Option<EncryptionEventContent>,
-    pub tombstone: Option<TombstoneEventContent>,
+    pub canonical_alias: Option<RoomAliasId>,
     pub create: Option<CreateEventContent>,
+    pub dm_target: Option<UserId>,
+    pub encryption: Option<EncryptionEventContent>,
+    pub guest_access: GuestAccess,
+    pub history_visibility: HistoryVisibility,
+    pub join_rule: JoinRule,
     pub max_power_level: i64,
+    pub name: Option<String>,
+    pub tombstone: Option<TombstoneEventContent>,
+    pub topic: Option<String>,
 }
 
 impl BaseRoomInfo {
@@ -151,6 +160,18 @@ impl BaseRoomInfo {
                 } else {
                     false
                 }
+            }
+            AnyStateEventContent::RoomHistoryVisibility(h) => {
+                self.history_visibility = h.history_visibility.clone();
+                true
+            }
+            AnyStateEventContent::RoomGuestAccess(g) => {
+                self.guest_access = g.guest_access.clone();
+                true
+            }
+            AnyStateEventContent::RoomJoinRules(c) => {
+                self.join_rule = c.join_rule.clone();
+                true
             }
             AnyStateEventContent::RoomCanonicalAlias(a) => {
                 self.canonical_alias = a.alias.clone();
@@ -180,15 +201,18 @@ impl BaseRoomInfo {
 impl Default for BaseRoomInfo {
     fn default() -> Self {
         Self {
-            name: None,
-            canonical_alias: None,
-            dm_target: None,
             avatar_url: None,
-            topic: None,
-            encryption: None,
-            tombstone: None,
-            max_power_level: 100,
+            canonical_alias: None,
             create: None,
+            dm_target: None,
+            encryption: None,
+            guest_access: GuestAccess::CanJoin,
+            history_visibility: HistoryVisibility::WorldReadable,
+            join_rule: JoinRule::Public,
+            max_power_level: 100,
+            name: None,
+            tombstone: None,
+            topic: None,
         }
     }
 }

@@ -24,7 +24,11 @@ use futures::{
 use matrix_sdk_common::{
     api::r0::sync::sync_events::RoomSummary as RumaSummary,
     events::{
-        room::{encryption::EncryptionEventContent, tombstone::TombstoneEventContent},
+        room::{
+            create::CreateEventContent, encryption::EncryptionEventContent,
+            guest_access::GuestAccess, history_visibility::HistoryVisibility, join_rules::JoinRule,
+            tombstone::TombstoneEventContent,
+        },
         AnySyncStateEvent, EventType,
     },
     identifiers::{RoomAliasId, RoomId, UserId},
@@ -117,12 +121,16 @@ impl Room {
         self.inner.read().unwrap().last_prev_batch.clone()
     }
 
-    pub fn name(&self) -> Option<String> {
-        self.inner.read().unwrap().base_info.name.clone()
+    pub fn avatar_url(&self) -> Option<String> {
+        self.inner.read().unwrap().base_info.avatar_url.clone()
     }
 
     pub fn canonical_alias(&self) -> Option<RoomAliasId> {
         self.inner.read().unwrap().base_info.canonical_alias.clone()
+    }
+
+    pub fn create_content(&self) -> Option<CreateEventContent> {
+        self.inner.read().unwrap().base_info.create.clone()
     }
 
     pub fn is_direct(&self) -> bool {
@@ -133,20 +141,37 @@ impl Room {
         self.inner.read().unwrap().base_info.dm_target.clone()
     }
 
-    pub fn avatar_url(&self) -> Option<String> {
-        self.inner.read().unwrap().base_info.avatar_url.clone()
-    }
-
-    pub fn topic(&self) -> Option<String> {
-        self.inner.read().unwrap().base_info.topic.clone()
-    }
-
     pub fn is_encrypted(&self) -> bool {
         self.inner.read().unwrap().is_encrypted()
     }
 
     pub fn encryption_settings(&self) -> Option<EncryptionEventContent> {
         self.inner.read().unwrap().base_info.encryption.clone()
+    }
+
+    pub fn guest_access(&self) -> GuestAccess {
+        self.inner.read().unwrap().base_info.guest_access.clone()
+    }
+
+    pub fn history_visibility(&self) -> HistoryVisibility {
+        self.inner
+            .read()
+            .unwrap()
+            .base_info
+            .history_visibility
+            .clone()
+    }
+
+    pub fn joine_rules(&self) -> JoinRule {
+        self.inner.read().unwrap().base_info.join_rule.clone()
+    }
+
+    pub fn max_power_level(&self) -> i64 {
+        self.inner.read().unwrap().base_info.max_power_level
+    }
+
+    pub fn name(&self) -> Option<String> {
+        self.inner.read().unwrap().base_info.name.clone()
     }
 
     pub fn is_tombstoned(&self) -> bool {
@@ -157,8 +182,8 @@ impl Room {
         self.inner.read().unwrap().base_info.tombstone.clone()
     }
 
-    pub fn max_power_level(&self) -> i64 {
-        self.inner.read().unwrap().base_info.max_power_level
+    pub fn topic(&self) -> Option<String> {
+        self.inner.read().unwrap().base_info.topic.clone()
     }
 
     pub async fn display_name(&self) -> String {
