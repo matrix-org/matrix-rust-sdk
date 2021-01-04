@@ -707,6 +707,7 @@ impl BaseClient {
                 .get_or_create_room(&room_id, RoomType::Joined)
                 .await;
             let mut room_info = room.clone_info();
+            room_info.mark_as_joined();
 
             room_info.update_summary(&new_info.summary);
             room_info.set_prev_batch(new_info.timeline.prev_batch.as_deref());

@@ -23,8 +23,8 @@ use futures::{
 };
 use matrix_sdk_common::{
     api::r0::sync::sync_events::RoomSummary as RumaSummary,
-    events::{AnySyncStateEvent, EventType},
-    identifiers::{RoomId, UserId},
+    events::{room::tombstone::TombstoneEventContent, AnySyncStateEvent, EventType},
+    identifiers::{RoomAliasId, RoomId, UserId},
 };
 use serde::{Deserialize, Serialize};
 use tracing::info;
@@ -137,7 +137,7 @@ impl Room {
     /// [spec]:
     /// <https://matrix.org/docs/spec/client_server/latest#calculating-the-display-name-for-a-room>
     #[allow(clippy::await_holding_lock)]
-    pub async fn calculate_name(&self) -> String {
+    async fn calculate_name(&self) -> String {
         let inner = self.inner.read().unwrap();
 
         if let Some(name) = &inner.base_info.name {
@@ -235,8 +235,24 @@ impl Room {
         self.inner.read().unwrap().is_encrypted()
     }
 
+    pub fn unread_notification_counts(&self) -> UnreadNotificationsCount {
+        self.inner.read().unwrap().notification_counts
+    }
+
+    pub fn is_tombstoned(&self) -> bool {
+        self.inner.read().unwrap().base_info.tombstone.is_some()
+    }
+
+    pub fn tombstone(&self) -> Option<TombstoneEventContent> {
+        self.inner.read().unwrap().base_info.tombstone.clone()
+    }
+
     pub fn topic(&self) -> Option<String> {
         self.inner.read().unwrap().base_info.topic.clone()
+    }
+
+    pub fn canonical_alias(&self) -> Option<RoomAliasId> {
+        self.inner.read().unwrap().base_info.canonical_alias.clone()
     }
 
     pub fn update_summary(&self, summary: RoomInfo) {
@@ -301,27 +317,27 @@ pub struct RoomInfo {
 }
 
 impl RoomInfo {
-    pub fn mark_as_joined(&mut self) {
+    pub(crate) fn mark_as_joined(&mut self) {
         self.room_type = RoomType::Joined;
     }
 
-    pub fn mark_as_left(&mut self) {
+    pub(crate) fn mark_as_left(&mut self) {
         self.room_type = RoomType::Left;
     }
 
-    pub fn mark_as_invited(&mut self) {
+    pub(crate) fn mark_as_invited(&mut self) {
         self.room_type = RoomType::Invited;
     }
 
-    pub fn mark_members_synced(&mut self) {
+    pub(crate) fn mark_members_synced(&mut self) {
         self.members_synced = true;
     }
 
-    pub fn mark_members_missing(&mut self) {
+    pub(crate) fn mark_members_missing(&mut self) {
         self.members_synced = false;
     }
 
-    pub fn set_prev_batch(&mut self, prev_batch: Option<&str>) -> bool {
+    pub(crate) fn set_prev_batch(&mut self, prev_batch: Option<&str>) -> bool {
         if self.last_prev_batch.as_deref() != prev_batch {
             self.last_prev_batch = prev_batch.map(|p| p.to_string());
             true
@@ -330,15 +346,18 @@ impl RoomInfo {
         }
     }
 
-    pub fn is_encrypted(&self) -> bool {
+    pub(crate) fn is_encrypted(&self) -> bool {
         self.base_info.encryption.is_some()
     }
 
-    pub fn handle_state_event(&mut self, event: &AnySyncStateEvent) -> bool {
+    pub(crate) fn handle_state_event(&mut self, event: &AnySyncStateEvent) -> bool {
         self.base_info.handle_state_event(&event.content())
     }
 
-    pub fn update_notification_count(&mut self, notification_counts: UnreadNotificationsCount) {
+    pub(crate) fn update_notification_count(
+        &mut self,
+        notification_counts: UnreadNotificationsCount,
+    ) {
         self.notification_counts = notification_counts;
     }
 
