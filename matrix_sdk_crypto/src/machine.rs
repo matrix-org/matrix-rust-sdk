@@ -39,10 +39,9 @@ use matrix_sdk_common::{
         DeviceId, DeviceIdBox, DeviceKeyAlgorithm, EventEncryptionAlgorithm, EventId, RoomId,
         UserId,
     },
-    js_int::UInt,
     locks::Mutex,
     uuid::Uuid,
-    Raw,
+    Raw, UInt,
 };
 
 use crate::{
@@ -1202,7 +1201,7 @@ pub(crate) mod test {
     /// These keys need to be periodically uploaded to the server.
     type OneTimeKeys = BTreeMap<DeviceKeyId, OneTimeKey>;
 
-    use matrix_sdk_common::js_int::uint;
+    use matrix_sdk_common::uint;
 
     fn alice_id() -> UserId {
         user_id!("@alice:example.org")

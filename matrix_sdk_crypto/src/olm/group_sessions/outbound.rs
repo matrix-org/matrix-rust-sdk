@@ -418,7 +418,7 @@ mod test {
 
     use matrix_sdk_common::{
         events::room::encryption::EncryptionEventContent, identifiers::EventEncryptionAlgorithm,
-        js_int::uint,
+        uint,
     };
 
     use super::{EncryptionSettings, ROTATION_MESSAGES, ROTATION_PERIOD};

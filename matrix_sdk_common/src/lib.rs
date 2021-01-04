@@ -1,4 +1,4 @@
-pub use assign::assign;
+pub use async_trait::async_trait;
 pub use instant;
 pub use ruma::{
     api::{
@@ -6,13 +6,27 @@ pub use ruma::{
         error::{FromHttpRequestError, FromHttpResponseError, IntoHttpError, ServerError},
         AuthScheme, EndpointError, OutgoingRequest,
     },
-    directory, encryption, events,
-    events::exports::js_int,
-    identifiers, presence, push,
+    assign, directory, encryption, events, identifiers, int, presence, push,
     serde::{CanonicalJsonValue, Raw},
-    thirdparty, Outgoing,
+    thirdparty, uint, Int, Outgoing, UInt,
 };
 
 pub use uuid;
 
 pub mod locks;
+
+/// Super trait that is used for our store traits, this trait will differ if
+/// it's used on WASM. WASM targets will not require `Send` and `Sync` to have
+/// implemented, while other targets will.
+#[cfg(not(target_arch = "wasm32"))]
+pub trait AsyncTraitDeps: std::fmt::Debug + Send + Sync {}
+#[cfg(not(target_arch = "wasm32"))]
+impl<T: std::fmt::Debug + Send + Sync> AsyncTraitDeps for T {}
+
+/// Super trait that is used for our store traits, this trait will differ if
+/// it's used on WASM. WASM targets will not require `Send` and `Sync` to have
+/// implemented, while other targets will.
+#[cfg(target_arch = "wasm32")]
+pub trait AsyncTraitDeps: std::fmt::Debug + Send + Sync {}
+#[cfg(target_arch = "wasm32")]
+impl<T: std::fmt::Debug + Send + Sync> AsyncTraitDeps for T {}

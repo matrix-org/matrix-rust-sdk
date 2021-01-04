@@ -6,5 +6,4 @@ members = [
     "matrix_sdk_test_macros",
     "matrix_sdk_crypto",
     "matrix_sdk_common",
-    "matrix_sdk_common_macros",
 ]

@@ -19,10 +19,10 @@ use std::{
 
 use dashmap::{DashMap, DashSet};
 use matrix_sdk_common::{
+    async_trait,
     identifiers::{DeviceId, DeviceIdBox, RoomId, UserId},
     locks::Mutex,
 };
-use matrix_sdk_common_macros::async_trait;
 
 use super::{
     caches::{DeviceStore, GroupSessionStore, SessionStore},
@@ -92,7 +92,8 @@ impl MemoryStore {
     }
 }
 
-#[async_trait]
+#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
 impl CryptoStore for MemoryStore {
     async fn load_account(&self) -> Result<Option<ReadOnlyAccount>> {
         Ok(None)

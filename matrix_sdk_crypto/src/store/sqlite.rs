@@ -20,10 +20,10 @@ use std::{
     sync::{Arc, Mutex as SyncMutex},
 };
 
-use async_trait::async_trait;
 use dashmap::DashSet;
 use matrix_sdk_common::{
     api::r0::keys::{CrossSigningKey, KeyUsage},
+    async_trait,
     identifiers::{
         DeviceId, DeviceIdBox, DeviceKeyAlgorithm, DeviceKeyId, EventEncryptionAlgorithm, RoomId,
         UserId,

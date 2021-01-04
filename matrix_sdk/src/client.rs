@@ -103,10 +103,9 @@ use matrix_sdk_common::{
     },
     identifiers::{DeviceIdBox, EventId, RoomId, RoomIdOrAliasId, ServerName, UserId},
     instant::{Duration, Instant},
-    js_int::UInt,
     presence::PresenceState,
     uuid::Uuid,
-    FromHttpResponseError,
+    FromHttpResponseError, UInt,
 };
 
 #[cfg(feature = "encryption")]
@@ -1025,7 +1024,6 @@ impl Client {
     /// # use matrix_sdk::api::r0::filter::RoomEventFilter;
     /// # use matrix_sdk::api::r0::message::get_message_events::Request as MessagesRequest;
     /// # use url::Url;
-    /// # use matrix_sdk::js_int::UInt;
     ///
     /// # let homeserver = Url::parse("http://example.com").unwrap();
     /// let room_id = room_id!("!roomid:example.com");
