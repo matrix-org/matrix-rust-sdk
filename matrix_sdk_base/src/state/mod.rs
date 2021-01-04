@@ -16,8 +16,10 @@
 use std::collections::HashMap;
 
 use matrix_sdk_common::{
+    async_trait,
     identifiers::{RoomId, UserId},
     push::Ruleset,
+    AsyncTraitDeps,
 };
 use serde::{Deserialize, Serialize};
 
@@ -30,9 +32,6 @@ use crate::{
     client::{BaseClient, Token},
     Result, Room, RoomState, Session,
 };
-
-#[cfg(not(target_arch = "wasm32"))]
-use matrix_sdk_common_macros::send_sync;
 
 /// `ClientState` holds all the information to restore a `BaseClient`
 /// except the `access_token` as the default store is not secure.
@@ -91,9 +90,9 @@ pub struct AllRooms {
 }
 
 /// Abstraction around the data store to avoid unnecessary request on client initialization.
-#[async_trait::async_trait]
-#[cfg_attr(not(target_arch = "wasm32"), send_sync)]
-pub trait StateStore {
+#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+pub trait StateStore: AsyncTraitDeps {
     /// Loads the state of `BaseClient` through `ClientState` type.
     ///
     /// An `Option::None` should be returned only if the `StateStore` tries to

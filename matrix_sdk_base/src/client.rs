@@ -1975,9 +1975,11 @@ mod test {
     };
     use crate::{BaseClient, Session};
 
-    use matrix_sdk_common::identifiers::{room_id, user_id, RoomId};
+    use matrix_sdk_common::{
+        async_trait,
+        identifiers::{room_id, user_id, RoomId},
+    };
 
-    use matrix_sdk_common_macros::async_trait;
     use matrix_sdk_test::{async_test, test_json, EventBuilder, EventsJson};
     #[cfg(not(target_arch = "wasm32"))]
     use tempfile::tempdir;
@@ -2151,7 +2153,8 @@ mod test {
         };
 
         struct EE(Arc<AtomicBool>);
-        #[async_trait]
+        #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
+        #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
         impl EventEmitter for EE {
             async fn on_room_member(
                 &self,

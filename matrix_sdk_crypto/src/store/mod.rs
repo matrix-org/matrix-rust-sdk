@@ -44,7 +44,6 @@ mod pickle_key;
 #[cfg(feature = "sqlite_cryptostore")]
 pub(crate) mod sqlite;
 
-use matrix_sdk_common::identifiers::DeviceIdBox;
 pub use memorystore::MemoryStore;
 pub use pickle_key::{EncryptedPickleKey, PickleKey};
 #[cfg(not(target_arch = "wasm32"))]
@@ -70,14 +69,14 @@ use thiserror::Error;
 use sqlx::Error as SqlxError;
 
 use matrix_sdk_common::{
+    async_trait,
     identifiers::{
-        DeviceId, DeviceKeyAlgorithm, Error as IdentifierValidationError, RoomId, UserId,
+        DeviceId, DeviceIdBox, DeviceKeyAlgorithm, Error as IdentifierValidationError, RoomId,
+        UserId,
     },
     locks::Mutex,
+    AsyncTraitDeps,
 };
-use matrix_sdk_common_macros::async_trait;
-#[cfg(not(target_arch = "wasm32"))]
-use matrix_sdk_common_macros::send_sync;
 
 use crate::{
     error::SessionUnpicklingError,
@@ -332,10 +331,9 @@ pub enum CryptoStoreError {
 
 /// Trait abstracting a store that the `OlmMachine` uses to store cryptographic
 /// keys.
-#[async_trait]
-#[allow(clippy::type_complexity)]
-#[cfg_attr(not(target_arch = "wasm32"), send_sync)]
-pub trait CryptoStore: Debug {
+#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+pub trait CryptoStore: AsyncTraitDeps {
     /// Load an account that was previously stored.
     async fn load_account(&self) -> Result<Option<ReadOnlyAccount>>;
 

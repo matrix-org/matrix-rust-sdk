@@ -46,7 +46,7 @@ use crate::{
     },
     Room, RoomState,
 };
-use matrix_sdk_common_macros::async_trait;
+use matrix_sdk_common::async_trait;
 
 /// Type alias for `RoomState` enum when passed to `EventEmitter` methods.
 pub type SyncRoom = RoomState<Arc<RwLock<Room>>>;
@@ -82,8 +82,7 @@ pub enum CustomEvent<'c> {
 /// #     },
 /// #     EventEmitter, SyncRoom
 /// # };
-/// # use matrix_sdk_common::locks::RwLock;
-/// # use matrix_sdk_common_macros::async_trait;
+/// # use matrix_sdk_common::{async_trait, locks::RwLock};
 ///
 /// struct EventCallback;
 ///
@@ -112,7 +111,8 @@ pub enum CustomEvent<'c> {
 ///     }
 /// }
 /// ```
-#[async_trait]
+#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
 pub trait EventEmitter: Send + Sync {
     // ROOM EVENTS from `IncomingTimeline`
     /// Fires when `Client` receives a `RoomEvent::RoomMember` event.
@@ -292,8 +292,7 @@ pub trait EventEmitter: Send + Sync {
 #[cfg(test)]
 mod test {
     use super::*;
-    use matrix_sdk_common::locks::Mutex;
-    use matrix_sdk_common_macros::async_trait;
+    use matrix_sdk_common::{async_trait, locks::Mutex};
     use matrix_sdk_test::{async_test, sync_response, SyncResponseFile};
     use std::sync::Arc;
 
@@ -303,7 +302,8 @@ mod test {
     #[derive(Clone)]
     pub struct EvEmitterTest(Arc<Mutex<Vec<String>>>);
 
-    #[async_trait]
+    #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
+    #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
     impl EventEmitter for EvEmitterTest {
         async fn on_room_member(&self, _: SyncRoom, _: &SyncStateEvent<MemberEventContent>) {
             self.0.lock().await.push("member".to_string())

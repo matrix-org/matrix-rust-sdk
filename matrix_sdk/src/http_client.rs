@@ -20,9 +20,8 @@ use tracing::trace;
 use url::Url;
 
 use matrix_sdk_common::{
-    api::r0::media::create_content, locks::RwLock, AuthScheme, FromHttpResponseError,
+    api::r0::media::create_content, async_trait, locks::RwLock, AuthScheme, FromHttpResponseError,
 };
-use matrix_sdk_common_macros::async_trait;
 
 use crate::{ClientConfig, Error, OutgoingRequest, Result, Session};
 
@@ -42,8 +41,7 @@ pub trait HttpSend: Sync + Send + Debug {
     ///
     /// ```
     /// use std::convert::TryFrom;
-    /// use matrix_sdk::{HttpSend, Result};
-    /// use matrix_sdk_common_macros::async_trait;
+    /// use matrix_sdk::{HttpSend, Result, async_trait};
     ///
     /// #[derive(Debug)]
     /// struct Client(reqwest::Client);

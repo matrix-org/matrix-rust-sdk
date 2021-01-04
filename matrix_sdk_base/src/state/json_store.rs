@@ -8,7 +8,7 @@ use std::{
     },
 };
 
-use matrix_sdk_common::{identifiers::RoomId, locks::RwLock};
+use matrix_sdk_common::{async_trait, identifiers::RoomId, locks::RwLock};
 use tokio::{fs as async_fs, io::AsyncWriteExt};
 
 use super::{AllRooms, ClientState, StateStore};
@@ -78,7 +78,7 @@ impl fmt::Debug for JsonStore {
     }
 }
 
-#[async_trait::async_trait]
+#[async_trait]
 impl StateStore for JsonStore {
     async fn load_client_state(&self, sess: &Session) -> Result<Option<ClientState>> {
         if !self.user_path_set.load(Ordering::SeqCst) {

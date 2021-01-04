@@ -9,14 +9,13 @@ use std::{
 use tokio::sync::Mutex;
 
 use matrix_sdk::{
-    self,
+    self, async_trait,
     events::{
         room::message::{MessageEventContent, TextMessageEventContent},
         SyncMessageEvent,
     },
     Client, ClientConfig, EventEmitter, SyncRoom, SyncSettings,
 };
-use matrix_sdk_common_macros::async_trait;
 use url::Url;
 
 struct ImageBot {

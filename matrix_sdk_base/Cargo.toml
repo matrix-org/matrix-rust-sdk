@@ -24,13 +24,11 @@ unstable-synapse-quirks = ["matrix-sdk-common/unstable-synapse-quirks"]
 docs = ["encryption", "sqlite_cryptostore", "messages"]
 
 [dependencies]
-async-trait = "0.1.41"
 serde = "1.0.117"
 serde_json = "1.0.59"
 zeroize = "1.1.1"
 tracing = "0.1.21"
 
-matrix-sdk-common-macros = { version = "0.1.0", path = "../matrix_sdk_common_macros" }
 matrix-sdk-common = { version = "0.1.0", path = "../matrix_sdk_common" }
 matrix-sdk-crypto = { version = "0.1.0", path = "../matrix_sdk_crypto", optional = true }
 
