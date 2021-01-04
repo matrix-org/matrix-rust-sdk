@@ -664,7 +664,7 @@ impl SqliteStore {
         let claimed_keys: BTreeMap<DeviceKeyAlgorithm, String> = key_rows
             .into_iter()
             .filter_map(|row| {
-                let algorithm = row.0.parse::<DeviceKeyAlgorithm>().ok()?;
+                let algorithm = DeviceKeyAlgorithm::try_from(row.0).ok()?;
                 let key = row.1;
 
                 Some((algorithm, key))
@@ -872,7 +872,7 @@ impl SqliteStore {
         let keys: BTreeMap<DeviceKeyId, String> = key_rows
             .into_iter()
             .filter_map(|row| {
-                let algorithm = row.0.parse::<DeviceKeyAlgorithm>().ok()?;
+                let algorithm = DeviceKeyAlgorithm::try_from(row.0).ok()?;
                 let key = row.1;
 
                 Some((DeviceKeyId::from_parts(algorithm, &device_id), key))
@@ -896,7 +896,7 @@ impl SqliteStore {
                 continue;
             };
 
-            let key_algorithm = if let Ok(k) = row.1.parse::<DeviceKeyAlgorithm>() {
+            let key_algorithm = if let Ok(k) = DeviceKeyAlgorithm::try_from(row.1) {
                 k
             } else {
                 continue;
