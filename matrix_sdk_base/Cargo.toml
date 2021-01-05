@@ -8,7 +8,7 @@ license = "Apache-2.0"
 name = "matrix-sdk-base"
 readme = "README.md"
 repository = "https://github.com/matrix-org/matrix-rust-sdk"
-version = "0.1.0"
+version = "0.2.0"
 
 [package.metadata.docs.rs]
 features = ["docs"]
@@ -30,8 +30,8 @@ serde_json = "1.0.61"
 zeroize = "1.2.0"
 tracing = "0.1.22"
 
-matrix-sdk-common = { version = "0.1.0", path = "../matrix_sdk_common" }
-matrix-sdk-crypto = { version = "0.1.0", path = "../matrix_sdk_crypto", optional = true }
+matrix-sdk-common = { version = "0.2.0", path = "../matrix_sdk_common" }
+matrix-sdk-crypto = { version = "0.2.0", path = "../matrix_sdk_crypto", optional = true }
 
 # Misc dependencies
 thiserror = "1.0.23"
@@ -44,7 +44,7 @@ default-features = false
 features = ["sync", "fs"]
 
 [dev-dependencies]
-matrix-sdk-test = { version = "0.1.0", path = "../matrix_sdk_test" }
+matrix-sdk-test = { version = "0.2.0", path = "../matrix_sdk_test" }
 http = "0.2.2"
 tracing-subscriber = "0.2.15"
 tempfile = "3.1.0"
