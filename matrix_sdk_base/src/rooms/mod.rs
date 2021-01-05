@@ -159,7 +159,7 @@ impl BaseRoomInfo {
                 .map(|mem| mem.name())
                 .collect::<Vec<&str>>();
             // stabilize ordering
-            names.sort();
+            names.sort_unstable();
             names.join(", ")
         } else if heroes_count < invited_joined && invited_joined > 1 {
             let mut names = heroes
@@ -167,7 +167,7 @@ impl BaseRoomInfo {
                 .take(3)
                 .map(|mem| mem.name())
                 .collect::<Vec<&str>>();
-            names.sort();
+            names.sort_unstable();
 
             // TODO: What length does the spec want us to use here and in
             // the `else`?
