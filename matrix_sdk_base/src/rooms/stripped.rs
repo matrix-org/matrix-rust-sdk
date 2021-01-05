@@ -47,7 +47,7 @@ impl StrippedRoom {
         }
     }
 
-    pub async fn calculate_name(&self) -> String {
+    async fn calculate_name(&self) -> String {
         let inner = self.inner.lock().unwrap();
 
         if let Some(name) = &inner.base_info.name {
@@ -57,7 +57,7 @@ impl StrippedRoom {
             let alias = alias.alias().trim();
             alias.to_string()
         } else {
-            // TODO
+            // TODO do the dance with room members to calculate the name
             self.room_id.to_string()
         }
     }

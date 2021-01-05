@@ -231,10 +231,32 @@ impl Room {
             let alias = alias.alias().trim();
             alias.to_string()
         } else {
+            // TODO what should we do here? We have correct counts only if lazy
+            // loading is used.
             let joined = inner.summary.joined_member_count;
             let invited = inner.summary.invited_member_count;
             let heroes_count = inner.summary.heroes.len() as u64;
-            let invited_joined = (invited + joined).saturating_sub(1);
+
+            let is_own_member = |m: &RoomMember| m.user_id() == &*self.own_user_id;
+            let is_own_user_id = |u: &str| u == self.own_user_id().as_str();
+
+            let members: Vec<RoomMember> = if inner.summary.heroes.is_empty() {
+                self.active_members()
+                    .await
+                    .filter(|m| future::ready(!is_own_member(m)))
+                    .take(5)
+                    .collect()
+                    .await
+            } else {
+                stream::iter(inner.summary.heroes.iter())
+                    .filter(|u| future::ready(!is_own_user_id(u)))
+                    .filter_map(|u| async move {
+                        let user_id = UserId::try_from(u.as_str()).ok()?;
+                        self.get_member(&user_id).await
+                    })
+                    .collect()
+                    .await
+            };
 
             info!(
                 "Calculating name for {}, own user {} hero count {} heroes {:#?}",
@@ -243,63 +265,10 @@ impl Room {
                 heroes_count,
                 inner.summary.heroes
             );
-            let own_user_id = self.own_user_id.clone();
 
-            let is_own_member = |m: &RoomMember| m.user_id() == &*own_user_id;
-
-            if !inner.summary.heroes.is_empty() {
-                let mut names = stream::iter(inner.summary.heroes.iter())
-                    .take(3)
-                    .filter_map(|u| async move {
-                        let user_id = UserId::try_from(u.as_str()).ok()?;
-                        self.get_member(&user_id).await
-                    })
-                    .map(|mem| {
-                        mem.display_name()
-                            .map(|d| d.to_string())
-                            .unwrap_or_else(|| mem.user_id().localpart().to_string())
-                    })
-                    .collect::<Vec<String>>()
-                    .await;
-                names.sort();
-                names.join(", ")
-            } else if heroes_count >= invited_joined {
-                let members = self.active_members().await;
-
-                let mut names = members
-                    .filter(|m| future::ready(is_own_member(m)))
-                    .take(3)
-                    .map(|mem| {
-                        mem.display_name()
-                            .map(|d| d.to_string())
-                            .unwrap_or_else(|| mem.user_id().localpart().to_string())
-                    })
-                    .collect::<Vec<String>>()
-                    .await;
-                // stabilize ordering
-                names.sort();
-                names.join(", ")
-            } else if heroes_count < invited_joined && invited + joined > 1 {
-                let members = self.active_members().await;
-
-                let mut names = members
-                    .filter(|m| future::ready(is_own_member(m)))
-                    .take(3)
-                    .map(|mem| {
-                        mem.display_name()
-                            .map(|d| d.to_string())
-                            .unwrap_or_else(|| mem.user_id().localpart().to_string())
-                    })
-                    .collect::<Vec<String>>()
-                    .await;
-                names.sort();
-
-                // TODO: What length does the spec want us to use here and in
-                // the `else`?
-                format!("{}, and {} others", names.join(", "), (joined + invited))
-            } else {
-                "Empty room".to_string()
-            }
+            inner
+                .base_info
+                .calculate_room_name(joined, invited, members)
         }
     }
 
