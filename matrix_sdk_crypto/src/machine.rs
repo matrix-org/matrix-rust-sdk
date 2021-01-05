@@ -1756,7 +1756,7 @@ pub(crate) mod test {
         }
     }
 
-    #[tokio::test(threaded_scheduler)]
+    #[tokio::test(flavor = "multi_thread")]
     #[cfg(feature = "sqlite_cryptostore")]
     async fn test_machine_with_default_store() {
         let tmpdir = tempdir().unwrap();
