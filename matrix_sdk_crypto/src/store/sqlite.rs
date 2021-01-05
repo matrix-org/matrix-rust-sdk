@@ -1985,7 +1985,7 @@ mod test {
         (alice, session)
     }
 
-    #[tokio::test(threaded_scheduler)]
+    #[tokio::test(flavor = "multi_thread")]
     async fn create_store() {
         let tmpdir = tempdir().unwrap();
         let tmpdir_path = tmpdir.path().to_str().unwrap();
@@ -1994,7 +1994,7 @@ mod test {
             .expect("Can't create store");
     }
 
-    #[tokio::test(threaded_scheduler)]
+    #[tokio::test(flavor = "multi_thread")]
     async fn save_account() {
         let (store, _dir) = get_store(None).await;
         assert!(store.load_account().await.unwrap().is_none());
@@ -2006,7 +2006,7 @@ mod test {
             .expect("Can't save account");
     }
 
-    #[tokio::test(threaded_scheduler)]
+    #[tokio::test(flavor = "multi_thread")]
     async fn load_account() {
         let (store, _dir) = get_store(None).await;
         let account = get_account();
@@ -2022,7 +2022,7 @@ mod test {
         assert_eq!(account, loaded_account);
     }
 
-    #[tokio::test(threaded_scheduler)]
+    #[tokio::test(flavor = "multi_thread")]
     async fn load_account_with_passphrase() {
         let (store, _dir) = get_store(Some("secret_passphrase")).await;
         let account = get_account();
@@ -2038,7 +2038,7 @@ mod test {
         assert_eq!(account, loaded_account);
     }
 
-    #[tokio::test(threaded_scheduler)]
+    #[tokio::test(flavor = "multi_thread")]
     async fn save_and_share_account() {
         let (store, _dir) = get_store(None).await;
         let account = get_account();
@@ -2066,7 +2066,7 @@ mod test {
         );
     }
 
-    #[tokio::test(threaded_scheduler)]
+    #[tokio::test(flavor = "multi_thread")]
     async fn save_session() {
         let (store, _dir) = get_store(None).await;
         let (account, session) = get_account_and_session().await;
@@ -2081,7 +2081,7 @@ mod test {
         store.save_sessions(&[session]).await.unwrap();
     }
 
-    #[tokio::test(threaded_scheduler)]
+    #[tokio::test(flavor = "multi_thread")]
     async fn load_sessions() {
         let (store, _dir) = get_store(None).await;
         let (account, session) = get_account_and_session().await;
@@ -2100,7 +2100,7 @@ mod test {
         assert_eq!(&session, loaded_session);
     }
 
-    #[tokio::test(threaded_scheduler)]
+    #[tokio::test(flavor = "multi_thread")]
     async fn add_and_save_session() {
         let (store, dir) = get_store(None).await;
         let (account, session) = get_account_and_session().await;
@@ -2135,7 +2135,7 @@ mod test {
         assert_eq!(session_id, session.session_id());
     }
 
-    #[tokio::test(threaded_scheduler)]
+    #[tokio::test(flavor = "multi_thread")]
     async fn save_inbound_group_session() {
         let (account, store, _dir) = get_loaded_store().await;
 
@@ -2155,7 +2155,7 @@ mod test {
             .expect("Can't save group session");
     }
 
-    #[tokio::test(threaded_scheduler)]
+    #[tokio::test(flavor = "multi_thread")]
     async fn load_inbound_group_session() {
         let (account, store, dir) = get_loaded_store().await;
 
@@ -2196,7 +2196,7 @@ mod test {
         assert!(!export.forwarding_curve25519_key_chain.is_empty())
     }
 
-    #[tokio::test(threaded_scheduler)]
+    #[tokio::test(flavor = "multi_thread")]
     async fn test_tracked_users() {
         let (_account, store, dir) = get_loaded_store().await;
         let device = get_device();
@@ -2243,7 +2243,7 @@ mod test {
         assert!(!store.users_for_key_query().contains(device.user_id()));
     }
 
-    #[tokio::test(threaded_scheduler)]
+    #[tokio::test(flavor = "multi_thread")]
     async fn device_saving() {
         let (_account, store, dir) = get_loaded_store().await;
         let device = get_device();
@@ -2285,7 +2285,7 @@ mod test {
         assert_eq!(user_devices.values().next().unwrap(), &device);
     }
 
-    #[tokio::test(threaded_scheduler)]
+    #[tokio::test(flavor = "multi_thread")]
     async fn device_deleting() {
         let (_account, store, dir) = get_loaded_store().await;
         let device = get_device();
@@ -2324,7 +2324,7 @@ mod test {
         assert!(loaded_device.is_none());
     }
 
-    #[tokio::test(threaded_scheduler)]
+    #[tokio::test(flavor = "multi_thread")]
     async fn user_saving() {
         let dir = tempdir().unwrap();
         let tmpdir_path = dir.path().to_str().unwrap();
@@ -2419,7 +2419,7 @@ mod test {
         assert!(loaded_user.own().unwrap().is_verified())
     }
 
-    #[tokio::test(threaded_scheduler)]
+    #[tokio::test(flavor = "multi_thread")]
     async fn private_identity_saving() {
         let (_, store, _dir) = get_loaded_store().await;
         assert!(store.load_identity().await.unwrap().is_none());
@@ -2435,7 +2435,7 @@ mod test {
         assert_eq!(identity.user_id(), loaded_identity.user_id());
     }
 
-    #[tokio::test(threaded_scheduler)]
+    #[tokio::test(flavor = "multi_thread")]
     async fn key_value_saving() {
         let (_, store, _dir) = get_loaded_store().await;
         let key = "test_key".to_string();
@@ -2450,7 +2450,7 @@ mod test {
         assert!(store.get_value(&key).await.unwrap().is_none());
     }
 
-    #[tokio::test(threaded_scheduler)]
+    #[tokio::test(flavor = "multi_thread")]
     async fn olm_hash_saving() {
         let (_, store, _dir) = get_loaded_store().await;
 

@@ -39,7 +39,7 @@ sled = "0.34.6"
 futures = "0.3.8"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies.tokio]
-version = "0.2.24"
+version = "1.0.1"
 default-features = false
 features = ["sync", "fs"]
 
@@ -56,7 +56,7 @@ clap = "2.33.3"
 syntect = "4.4.0"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
-tokio = { version = "0.2.24", default-features = false, features = ["rt-threaded", "macros"] }
+tokio = { version = "1.0.1", default-features = false, features = ["rt-multi-thread", "macros"] }
 
 [target.'cfg(target_arch = "wasm32")'.dev-dependencies]
 wasm-bindgen-test = "0.3.19"

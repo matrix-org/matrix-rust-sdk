@@ -1,5 +1,5 @@
 use std::{env, process::exit};
-use tokio::time::{delay_for, Duration};
+use tokio::time::{sleep, Duration};
 
 use matrix_sdk::{
     self, async_trait,
@@ -45,7 +45,7 @@ impl EventEmitter for AutoJoinBot {
                     delay
                 );
 
-                delay_for(Duration::from_secs(delay)).await;
+                sleep(Duration::from_secs(delay)).await;
                 delay *= 2;
 
                 if delay > 3600 {
