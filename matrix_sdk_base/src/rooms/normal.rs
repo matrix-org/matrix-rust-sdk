@@ -221,19 +221,26 @@ impl Room {
     /// [spec]:
     /// <https://matrix.org/docs/spec/client_server/latest#calculating-the-display-name-for-a-room>
     async fn calculate_name(&self) -> String {
-        let inner = self.inner.read().unwrap();
+        let name;
+        let alias;
 
-        if let Some(name) = &inner.base_info.name {
+        {
+            let inner = self.inner.read().unwrap();
+            name = inner.base_info.name.clone();
+            alias = inner.base_info.canonical_alias.clone();
+        }
+
+        if let Some(name) = name {
             let name = name.trim();
             name.to_string()
-        } else if let Some(alias) = &inner.base_info.canonical_alias {
+        } else if let Some(alias) = alias {
             let alias = alias.alias().trim();
             alias.to_string()
         } else {
             // TODO what should we do here? We have correct counts only if lazy
             // loading is used.
-            let summary = inner.summary.clone();
-            drop(inner);
+            let summary = { self.inner.read().unwrap().summary.clone() };
+
             let joined = summary.joined_member_count;
             let invited = summary.invited_member_count;
             let heroes_count = summary.heroes.len() as u64;
@@ -267,8 +274,9 @@ impl Room {
                 summary.heroes
             );
 
-            let inner = self.inner.read().unwrap();
-            inner
+            self.inner
+                .read()
+                .unwrap()
                 .base_info
                 .calculate_room_name(joined, invited, members)
         }
