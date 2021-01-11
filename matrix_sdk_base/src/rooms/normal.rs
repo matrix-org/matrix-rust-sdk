@@ -221,65 +221,57 @@ impl Room {
     /// [spec]:
     /// <https://matrix.org/docs/spec/client_server/latest#calculating-the-display-name-for-a-room>
     async fn calculate_name(&self) -> String {
-        let name;
-        let alias;
-
-        {
+        let summary = {
             let inner = self.inner.read().unwrap();
-            name = inner.base_info.name.clone();
-            alias = inner.base_info.canonical_alias.clone();
-        }
 
-        if let Some(name) = name {
-            let name = name.trim();
-            name.to_string()
-        } else if let Some(alias) = alias {
-            let alias = alias.alias().trim();
-            alias.to_string()
+            if let Some(name) = &inner.base_info.name {
+                let name = name.trim();
+                return name.to_string();
+            } else if let Some(alias) = &inner.base_info.canonical_alias {
+                let alias = alias.alias().trim();
+                return alias.to_string();
+            }
+            inner.summary.clone()
+        };
+        // TODO what should we do here? We have correct counts only if lazy
+        // loading is used.
+        let joined = summary.joined_member_count;
+        let invited = summary.invited_member_count;
+        let heroes_count = summary.heroes.len() as u64;
+
+        let is_own_member = |m: &RoomMember| m.user_id() == &*self.own_user_id;
+        let is_own_user_id = |u: &str| u == self.own_user_id().as_str();
+
+        let members: Vec<RoomMember> = if summary.heroes.is_empty() {
+            self.active_members()
+                .await
+                .filter(|m| future::ready(!is_own_member(m)))
+                .take(5)
+                .collect()
+                .await
         } else {
-            // TODO what should we do here? We have correct counts only if lazy
-            // loading is used.
-            let summary = { self.inner.read().unwrap().summary.clone() };
+            stream::iter(summary.heroes.iter())
+                .filter(|u| future::ready(!is_own_user_id(u)))
+                .filter_map(|u| async move {
+                    let user_id = UserId::try_from(u.as_str()).ok()?;
+                    self.get_member(&user_id).await
+                })
+                .collect()
+                .await
+        };
 
-            let joined = summary.joined_member_count;
-            let invited = summary.invited_member_count;
-            let heroes_count = summary.heroes.len() as u64;
+        info!(
+            "Calculating name for {}, own user {} hero count {} heroes {:#?}",
+            self.room_id(),
+            self.own_user_id,
+            heroes_count,
+            summary.heroes
+        );
 
-            let is_own_member = |m: &RoomMember| m.user_id() == &*self.own_user_id;
-            let is_own_user_id = |u: &str| u == self.own_user_id().as_str();
-
-            let members: Vec<RoomMember> = if summary.heroes.is_empty() {
-                self.active_members()
-                    .await
-                    .filter(|m| future::ready(!is_own_member(m)))
-                    .take(5)
-                    .collect()
-                    .await
-            } else {
-                stream::iter(summary.heroes.iter())
-                    .filter(|u| future::ready(!is_own_user_id(u)))
-                    .filter_map(|u| async move {
-                        let user_id = UserId::try_from(u.as_str()).ok()?;
-                        self.get_member(&user_id).await
-                    })
-                    .collect()
-                    .await
-            };
-
-            info!(
-                "Calculating name for {}, own user {} hero count {} heroes {:#?}",
-                self.room_id(),
-                self.own_user_id,
-                heroes_count,
-                summary.heroes
-            );
-
-            self.inner
-                .read()
-                .unwrap()
-                .base_info
-                .calculate_room_name(joined, invited, members)
-        }
+        let inner = self.inner.read().unwrap();
+        inner
+            .base_info
+            .calculate_room_name(joined, invited, members)
     }
 
     pub(crate) fn clone_info(&self) -> RoomInfo {
