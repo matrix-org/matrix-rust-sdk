@@ -220,7 +220,6 @@ impl Room {
     ///
     /// [spec]:
     /// <https://matrix.org/docs/spec/client_server/latest#calculating-the-display-name-for-a-room>
-    #[allow(clippy::await_holding_lock)]
     async fn calculate_name(&self) -> String {
         let inner = self.inner.read().unwrap();
 
@@ -233,14 +232,16 @@ impl Room {
         } else {
             // TODO what should we do here? We have correct counts only if lazy
             // loading is used.
-            let joined = inner.summary.joined_member_count;
-            let invited = inner.summary.invited_member_count;
-            let heroes_count = inner.summary.heroes.len() as u64;
+            let summary = inner.summary.clone();
+            drop(inner);
+            let joined = summary.joined_member_count;
+            let invited = summary.invited_member_count;
+            let heroes_count = summary.heroes.len() as u64;
 
             let is_own_member = |m: &RoomMember| m.user_id() == &*self.own_user_id;
             let is_own_user_id = |u: &str| u == self.own_user_id().as_str();
 
-            let members: Vec<RoomMember> = if inner.summary.heroes.is_empty() {
+            let members: Vec<RoomMember> = if summary.heroes.is_empty() {
                 self.active_members()
                     .await
                     .filter(|m| future::ready(!is_own_member(m)))
@@ -248,7 +249,7 @@ impl Room {
                     .collect()
                     .await
             } else {
-                stream::iter(inner.summary.heroes.iter())
+                stream::iter(summary.heroes.iter())
                     .filter(|u| future::ready(!is_own_user_id(u)))
                     .filter_map(|u| async move {
                         let user_id = UserId::try_from(u.as_str()).ok()?;
@@ -263,9 +264,10 @@ impl Room {
                 self.room_id(),
                 self.own_user_id,
                 heroes_count,
-                inner.summary.heroes
+                summary.heroes
             );
 
+            let inner = self.inner.read().unwrap();
             inner
                 .base_info
                 .calculate_room_name(joined, invited, members)
