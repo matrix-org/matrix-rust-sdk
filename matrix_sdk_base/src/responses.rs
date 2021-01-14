@@ -64,6 +64,12 @@ pub struct ToDevice {
     pub events: Vec<AnyToDeviceEvent>,
 }
 
+impl From<Vec<AnyToDeviceEvent>> for ToDevice {
+    fn from(events: Vec<AnyToDeviceEvent>) -> Self {
+        Self { events }
+    }
+}
+
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
 pub struct Rooms {
     /// The rooms that the user has left or been banned from.

@@ -30,8 +30,8 @@ use matrix_sdk_common::{
     events::{
         presence::PresenceEvent,
         room::member::{MemberEventContent, MembershipState},
-        AnyBasicEvent, AnyStrippedStateEvent, AnySyncRoomEvent, AnySyncStateEvent, EventContent,
-        StateEvent,
+        AnyBasicEvent, AnyStrippedStateEvent, AnySyncRoomEvent, AnySyncStateEvent,
+        AnyToDeviceEvent, EventContent, StateEvent,
     },
     identifiers::{RoomId, UserId},
     locks::RwLock,
@@ -868,14 +868,19 @@ impl BaseClient {
             account_data: AccountData {
                 events: changes.account_data.into_iter().map(|(_, e)| e).collect(),
             },
+            to_device: response
+                .to_device
+                .events
+                .into_iter()
+                .filter_map(|e| e.deserialize().ok())
+                .collect::<Vec<AnyToDeviceEvent>>()
+                .into(),
             device_lists: response.device_lists,
             device_one_time_keys_count: response
                 .device_one_time_keys_count
                 .into_iter()
                 .map(|(k, v)| (k, v.into()))
                 .collect(),
-
-            ..Default::default()
         };
 
         if let Some(emitter) = self.event_emitter.read().await.as_ref() {
