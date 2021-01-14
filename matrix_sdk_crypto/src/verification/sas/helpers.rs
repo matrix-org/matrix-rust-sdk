@@ -63,10 +63,12 @@ pub struct SasIds {
 /// interactive verification process.
 pub fn calculate_commitment(public_key: &str, content: impl Into<StartContent>) -> String {
     let content = content.into().canonical_json();
+    let content_string = content.to_string();
 
     encode(
         Sha256::new()
-            .chain(&format!("{}{}", public_key, content))
+            .chain(&public_key)
+            .chain(&content_string)
             .finalize(),
     )
 }
