@@ -40,7 +40,7 @@ use matrix_sdk_common::{
     identifiers::{DeviceId, EventId, RoomId, UserId},
     uuid::Uuid,
 };
-use tracing::error;
+use tracing::info;
 
 use super::{
     event_enums::{
@@ -495,7 +495,7 @@ impl SasState<Started> {
             let pubkey = sas.public_key();
             let commitment = calculate_commitment(&pubkey, content.clone());
 
-            error!(
+            info!(
                 "Calculated commitment for pubkey {} and content {:?} {}",
                 pubkey, content, commitment
             );
