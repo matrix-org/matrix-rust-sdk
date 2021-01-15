@@ -187,6 +187,10 @@ impl BaseRoomInfo {
                 self.encryption = Some(encryption.clone());
                 true
             }
+            AnyStateEventContent::RoomAvatar(a) => {
+                self.avatar_url = a.url.clone();
+                true
+            }
             AnyStateEventContent::RoomName(n) => {
                 self.name = n.name().map(|n| n.to_string());
                 true
