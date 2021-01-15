@@ -969,25 +969,6 @@ impl BaseClient {
         self.store.get_filter(filter_name).await
     }
 
-    /// Should the client share a group session for the given room.
-    ///
-    /// Returns true if a session needs to be shared before room messages can be
-    /// encrypted, false if one is already shared and ready to encrypt room
-    /// messages.
-    ///
-    /// This should be called every time a new room message wants to be sent out
-    /// since group sessions can expire at any time.
-    #[cfg(feature = "encryption")]
-    #[cfg_attr(feature = "docs", doc(cfg(encryption)))]
-    pub async fn should_share_group_session(&self, room_id: &RoomId) -> bool {
-        let olm = self.olm.lock().await;
-
-        match &*olm {
-            Some(o) => o.should_share_group_session(room_id),
-            None => false,
-        }
-    }
-
     /// Get the outgoing requests that need to be sent out.
     ///
     /// This returns a list of `OutGoingRequest`, those requests need to be sent

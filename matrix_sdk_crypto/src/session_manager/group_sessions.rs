@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use std::{
-    collections::{BTreeMap, HashSet},
+    collections::{BTreeMap, HashMap, HashSet},
     sync::Arc,
 };
 
@@ -21,7 +21,7 @@ use dashmap::DashMap;
 use matrix_sdk_common::{
     api::r0::to_device::DeviceIdOrAllDevices,
     events::{room::encrypted::EncryptedEventContent, AnyMessageEventContent, EventType},
-    identifiers::{RoomId, UserId},
+    identifiers::{DeviceId, DeviceIdBox, RoomId, UserId},
     uuid::Uuid,
 };
 use tracing::{debug, info};
@@ -58,31 +58,17 @@ impl GroupSessionManager {
     }
 
     pub fn invalidate_group_session(&self, room_id: &RoomId) -> bool {
-        self.outbound_group_sessions.remove(room_id).is_some()
+        if let Some(s) = self.outbound_group_sessions.get(room_id) {
+            s.invalidate_session();
+            true
+        } else {
+            false
+        }
     }
 
     pub fn mark_request_as_sent(&self, request_id: &Uuid) {
         if let Some((_, s)) = self.outbound_sessions_being_shared.remove(request_id) {
             s.mark_request_as_sent(request_id);
-        }
-    }
-
-    pub fn invalidate_sessions_new_devices(&self, users: &HashSet<&UserId>) {
-        for session in self.outbound_group_sessions.iter() {
-            if users.iter().any(|u| session.contains_recipient(u)) {
-                info!(
-                    "Invalidating outobund session {} for room {}",
-                    session.session_id(),
-                    session.room_id()
-                );
-                session.invalidate_session();
-
-                if !session.shared() {
-                    for request_id in session.clear_requests() {
-                        self.outbound_sessions_being_shared.remove(&request_id);
-                    }
-                }
-            }
         }
     }
 
@@ -115,23 +101,6 @@ impl GroupSessionManager {
         Ok(session.encrypt(content).await)
     }
 
-    /// Should the client share a group session for the given room.
-    ///
-    /// Returns true if a session needs to be shared before room messages can be
-    /// encrypted, false if one is already shared and ready to encrypt room
-    /// messages.
-    ///
-    /// This should be called every time a new room message wants to be sent out
-    /// since group sessions can expire at any time.
-    pub fn should_share_group_session(&self, room_id: &RoomId) -> bool {
-        let session = self.outbound_group_sessions.get(room_id);
-
-        match session {
-            Some(s) => !s.shared() || s.expired() || s.invalidated(),
-            None => true,
-        }
-    }
-
     /// Create a new outbound group session.
     ///
     /// This also creates a matching inbound group session and saves that one in
@@ -153,6 +122,26 @@ impl GroupSessionManager {
         Ok((outbound, inbound))
     }
 
+    pub async fn get_or_create_outbound_session(
+        &self,
+        room_id: &RoomId,
+        settings: EncryptionSettings,
+    ) -> OlmResult<(OutboundGroupSession, Option<InboundGroupSession>)> {
+        if let Some(s) = self.outbound_group_sessions.get(room_id).map(|s| s.clone()) {
+            if s.expired() || s.invalidated() {
+                self.create_outbound_group_session(room_id, settings)
+                    .await
+                    .map(|(o, i)| (o, i.into()))
+            } else {
+                Ok((s, None))
+            }
+        } else {
+            self.create_outbound_group_session(room_id, settings)
+                .await
+                .map(|(o, i)| (o, i.into()))
+        }
+    }
+
     /// Get to-device requests to share a group session with users in a room.
     ///
     /// # Arguments
@@ -167,23 +156,96 @@ impl GroupSessionManager {
         users: impl Iterator<Item = &UserId>,
         encryption_settings: impl Into<EncryptionSettings>,
     ) -> OlmResult<Vec<Arc<ToDeviceRequest>>> {
+        let users: HashSet<&UserId> = users.collect();
+        let encryption_settings = encryption_settings.into();
         let mut changes = Changes::default();
 
-        let (session, inbound_session) = self
-            .create_outbound_group_session(room_id, encryption_settings.into())
+        let (outbound, inbound) = self
+            .get_or_create_outbound_session(room_id, encryption_settings.clone())
             .await?;
-        changes.inbound_group_sessions.push(inbound_session);
 
-        let mut devices: Vec<Device> = Vec::new();
-
-        for user_id in users {
-            session.add_recipient(user_id);
-            let user_devices = self.store.get_user_devices(&user_id).await?;
-            devices.extend(user_devices.devices().filter(|d| !d.is_blacklisted()));
+        if let Some(inbound) = inbound {
+            changes.inbound_group_sessions.push(inbound);
         }
 
+        let mut devices: HashMap<UserId, Vec<Device>> = HashMap::new();
+
+        let users_shared_with: HashSet<UserId> = outbound
+            .shared_with_set
+            .iter()
+            .map(|k| k.key().clone())
+            .collect();
+
+        let users_shared_with: HashSet<&UserId> = users_shared_with.iter().collect();
+
+        let user_left = !users_shared_with
+            .difference(&users)
+            .collect::<HashSet<&&UserId>>()
+            .is_empty();
+
+        let mut device_got_deleted = false;
+
+        for user_id in users {
+            let user_devices = self.store.get_user_devices(&user_id).await?;
+
+            if !device_got_deleted {
+                let device_ids: HashSet<DeviceIdBox> =
+                    user_devices.keys().map(|d| d.clone()).collect();
+
+                device_got_deleted = if let Some(shared) = outbound.shared_with_set.get(user_id) {
+                    let shared: HashSet<DeviceIdBox> = shared.iter().map(|d| d.clone()).collect();
+                    !shared
+                        .difference(&device_ids)
+                        .collect::<HashSet<_>>()
+                        .is_empty()
+                } else {
+                    false
+                };
+            }
+
+            devices
+                .entry(user_id.clone())
+                .or_insert_with(Vec::new)
+                .extend(user_devices.devices().filter(|d| !d.is_blacklisted()));
+        }
+
+        let outbound = if user_left || device_got_deleted {
+            let (outbound, inbound) = self
+                .create_outbound_group_session(room_id, encryption_settings)
+                .await?;
+            changes.inbound_group_sessions.push(inbound);
+
+            debug!(
+                "A user/device has left the group {} since we last sent a message, \
+                   rotating the outbound session.",
+                room_id
+            );
+
+            outbound
+        } else {
+            outbound
+        };
+
+        let devices: Vec<Device> = devices
+            .into_iter()
+            .map(|(_, d)| {
+                d.into_iter()
+                    .filter(|d| !outbound.is_shared_with(d.user_id(), d.device_id()))
+            })
+            .flatten()
+            .collect();
+
+        info!(
+            "Sharing outbound session at index {} with {:?}",
+            outbound.message_index().await,
+            devices
+                .iter()
+                .map(|d| (d.user_id(), d.device_id()))
+                .collect::<Vec<(&UserId, &DeviceId)>>()
+        );
+
         let mut requests = Vec::new();
-        let key_content = session.as_json().await;
+        let key_content = outbound.as_json().await;
 
         for device_map_chunk in devices.chunks(Self::MAX_TO_DEVICE_MESSAGES) {
             let mut messages = BTreeMap::new();
@@ -221,19 +283,19 @@ impl GroupSessionManager {
                 messages,
             });
 
-            session.add_request(id, request.clone());
+            outbound.add_request(id, request.clone());
             self.outbound_sessions_being_shared
-                .insert(id, session.clone());
+                .insert(id, outbound.clone());
             requests.push(request);
         }
 
         if requests.is_empty() {
             debug!(
                 "Session {} for room {} doesn't need to be shared with anyone, marking as shared",
-                session.session_id(),
-                session.room_id()
+                outbound.session_id(),
+                outbound.room_id()
             );
-            session.mark_as_shared();
+            outbound.mark_as_shared();
         }
 
         self.store.save_changes(changes).await?;

@@ -178,12 +178,8 @@ impl OlmMachine {
             store.clone(),
         );
         let group_session_manager = GroupSessionManager::new(account.clone(), store.clone());
-        let identity_manager = IdentityManager::new(
-            user_id.clone(),
-            device_id.clone(),
-            store.clone(),
-            group_session_manager.clone(),
-        );
+        let identity_manager =
+            IdentityManager::new(user_id.clone(), device_id.clone(), store.clone());
 
         OlmMachine {
             user_id,
@@ -660,19 +656,6 @@ impl OlmMachine {
         content: AnyMessageEventContent,
     ) -> MegolmResult<EncryptedEventContent> {
         self.group_session_manager.encrypt(room_id, content).await
-    }
-
-    /// Should the client share a group session for the given room.
-    ///
-    /// Returns true if a session needs to be shared before room messages can be
-    /// encrypted, false if one is already shared and ready to encrypt room
-    /// messages.
-    ///
-    /// This should be called every time a new room message wants to be sent out
-    /// since group sessions can expire at any time.
-    pub fn should_share_group_session(&self, room_id: &RoomId) -> bool {
-        self.group_session_manager
-            .should_share_group_session(room_id)
     }
 
     /// Invalidate the currently active outbound group session for the given
@@ -1447,7 +1430,8 @@ pub(crate) mod test {
         assert!(machine
             .group_session_manager
             .get_outbound_group_session(&room_id)
-            .is_none());
+            .unwrap()
+            .invalidated());
     }
 
     #[tokio::test]

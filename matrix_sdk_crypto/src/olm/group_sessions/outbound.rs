@@ -60,7 +60,7 @@ const ROTATION_MESSAGES: u64 = 100;
 /// Settings for an encrypted room.
 ///
 /// This determines the algorithm and rotation periods of a group session.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct EncryptionSettings {
     /// The encryption algorithm that should be used in the room.
     pub algorithm: EventEncryptionAlgorithm,
@@ -113,7 +113,7 @@ pub struct OutboundGroupSession {
     shared: Arc<AtomicBool>,
     invalidated: Arc<AtomicBool>,
     settings: Arc<EncryptionSettings>,
-    shared_with_set: Arc<DashMap<UserId, DashSet<DeviceIdBox>>>,
+    pub(crate) shared_with_set: Arc<DashMap<UserId, DashSet<DeviceIdBox>>>,
     to_share_with_set: Arc<DashMap<Uuid, Arc<ToDeviceRequest>>>,
 }
 
@@ -162,14 +162,9 @@ impl OutboundGroupSession {
         self.to_share_with_set.insert(request_id, request);
     }
 
-    pub fn add_recipient(&self, user_id: &UserId) {
-        self.shared_with_set
-            .entry(user_id.to_owned())
-            .or_insert_with(DashSet::new);
-    }
-
-    pub fn contains_recipient(&self, user_id: &UserId) -> bool {
-        self.shared_with_set.contains_key(user_id)
+    /// This should be called if an the user wishes to rotate this session.
+    pub fn invalidate_session(&self) {
+        self.invalidated.store(true, Ordering::Relaxed)
     }
 
     /// Mark the request with the given request id as sent.
@@ -344,25 +339,6 @@ impl OutboundGroupSession {
             "session_key": self.session_key().await,
             "chain_index": self.message_index().await,
         })
-    }
-
-    /// Mark the session as invalid.
-    ///
-    /// This should be called if an user/device deletes a device that received
-    /// this session.
-    pub fn invalidate_session(&self) {
-        self.invalidated.store(true, Ordering::Relaxed)
-    }
-
-    /// Clear out the requests returning the request ids.
-    pub fn clear_requests(&self) -> Vec<Uuid> {
-        let request_ids = self
-            .to_share_with_set
-            .iter()
-            .map(|item| *item.key())
-            .collect();
-        self.to_share_with_set.clear();
-        request_ids
     }
 
     /// Has or will the session be shared with the given user/device pair.

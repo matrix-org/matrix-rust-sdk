@@ -1139,40 +1139,38 @@ impl Client {
     async fn preshare_group_session(&self, room_id: &RoomId) -> Result<()> {
         // TODO expose this publicly so people can pre-share a group session if
         // e.g. a user starts to type a message for a room.
-        if self.base_client.should_share_group_session(room_id).await {
-            #[allow(clippy::map_clone)]
-            if let Some(mutex) = self.group_session_locks.get(room_id).map(|m| m.clone()) {
-                // If a group session share request is already going on,
-                // await the release of the lock.
-                mutex.lock().await;
-            } else {
-                // Otherwise create a new lock and share the group
-                // session.
-                let mutex = Arc::new(Mutex::new(()));
-                self.group_session_locks
-                    .insert(room_id.clone(), mutex.clone());
+        #[allow(clippy::map_clone)]
+        if let Some(mutex) = self.group_session_locks.get(room_id).map(|m| m.clone()) {
+            // If a group session share request is already going on,
+            // await the release of the lock.
+            mutex.lock().await;
+        } else {
+            // Otherwise create a new lock and share the group
+            // session.
+            let mutex = Arc::new(Mutex::new(()));
+            self.group_session_locks
+                .insert(room_id.clone(), mutex.clone());
 
-                let _guard = mutex.lock().await;
+            let _guard = mutex.lock().await;
 
-                {
-                    let room = self.get_joined_room(room_id).unwrap();
-                    let members = room.joined_user_ids().await;
-                    // TODO don't collect here.
-                    let members_iter: Vec<UserId> = members.collect().await;
-                    self.claim_one_time_keys(&mut members_iter.iter()).await?;
-                };
+            {
+                let room = self.get_joined_room(room_id).unwrap();
+                let members = room.joined_user_ids().await;
+                // TODO don't collect here.
+                let members_iter: Vec<UserId> = members.collect().await;
+                self.claim_one_time_keys(&mut members_iter.iter()).await?;
+            };
 
-                let response = self.share_group_session(room_id).await;
+            let response = self.share_group_session(room_id).await;
 
-                self.group_session_locks.remove(room_id);
+            self.group_session_locks.remove(room_id);
 
-                // If one of the responses failed invalidate the group
-                // session as using it would end up in undecryptable
-                // messages.
-                if let Err(r) = response {
-                    self.base_client.invalidate_group_session(room_id).await;
-                    return Err(r);
-                }
+            // If one of the responses failed invalidate the group
+            // session as using it would end up in undecryptable
+            // messages.
+            if let Err(r) = response {
+                self.base_client.invalidate_group_session(room_id).await;
+                return Err(r);
             }
         }
 
@@ -1858,11 +1856,7 @@ impl Client {
     #[cfg_attr(feature = "docs", doc(cfg(encryption)))]
     #[instrument]
     async fn share_group_session(&self, room_id: &RoomId) -> Result<()> {
-        let mut requests = self
-            .base_client
-            .share_group_session(room_id)
-            .await
-            .expect("Keys don't need to be uploaded");
+        let mut requests = self.base_client.share_group_session(room_id).await?;
 
         for request in requests.drain(..) {
             let response = self.send_to_device(&request).await?;

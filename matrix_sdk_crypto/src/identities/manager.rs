@@ -32,7 +32,6 @@ use crate::{
         UserIdentity, UserSigningPubkey,
     },
     requests::KeysQueryRequest,
-    session_manager::GroupSessionManager,
     store::{Changes, DeviceChanges, IdentityChanges, Result as StoreResult, Store},
 };
 
@@ -40,22 +39,15 @@ use crate::{
 pub(crate) struct IdentityManager {
     user_id: Arc<UserId>,
     device_id: Arc<DeviceIdBox>,
-    group_manager: GroupSessionManager,
     store: Store,
 }
 
 impl IdentityManager {
-    pub fn new(
-        user_id: Arc<UserId>,
-        device_id: Arc<DeviceIdBox>,
-        store: Store,
-        group_manager: GroupSessionManager,
-    ) -> Self {
+    pub fn new(user_id: Arc<UserId>, device_id: Arc<DeviceIdBox>, store: Store) -> Self {
         IdentityManager {
             user_id,
             device_id,
             store,
-            group_manager,
         }
     }
 
@@ -118,8 +110,6 @@ impl IdentityManager {
         &self,
         device_keys_map: &BTreeMap<UserId, BTreeMap<DeviceIdBox, DeviceKeys>>,
     ) -> StoreResult<DeviceChanges> {
-        let mut users_with_new_or_deleted_devices = HashSet::new();
-
         let mut changes = DeviceChanges::default();
 
         for (user_id, device_map) in device_keys_map {
@@ -165,7 +155,6 @@ impl IdentityManager {
                         }
                     };
                     info!("Adding a new device to the device store {:?}", device);
-                    users_with_new_or_deleted_devices.insert(user_id);
                     changes.new.push(device);
                 }
             }
@@ -177,16 +166,12 @@ impl IdentityManager {
             let deleted_devices_set = stored_devices_set.difference(&current_devices);
 
             for device_id in deleted_devices_set {
-                users_with_new_or_deleted_devices.insert(user_id);
                 if let Some(device) = stored_devices.get(*device_id) {
                     device.mark_as_deleted();
                     changes.deleted.push(device.clone());
                 }
             }
         }
-
-        self.group_manager
-            .invalidate_sessions_new_devices(&users_with_new_or_deleted_devices);
 
         Ok(changes)
     }
@@ -377,7 +362,7 @@ pub(crate) mod test {
 
     use matrix_sdk_common::{
         api::r0::keys::get_keys::Response as KeyQueryResponse,
-        identifiers::{room_id, user_id, DeviceIdBox, RoomId, UserId},
+        identifiers::{user_id, DeviceIdBox, UserId},
         locks::Mutex,
     };
 
@@ -388,8 +373,7 @@ pub(crate) mod test {
     use crate::{
         identities::IdentityManager,
         machine::test::response_from_file,
-        olm::{Account, PrivateCrossSigningIdentity, ReadOnlyAccount},
-        session_manager::GroupSessionManager,
+        olm::{PrivateCrossSigningIdentity, ReadOnlyAccount},
         store::{CryptoStore, MemoryStore, Store},
         verification::VerificationMachine,
     };
@@ -406,10 +390,6 @@ pub(crate) mod test {
         "WSKKLTJZCL".into()
     }
 
-    fn room_id() -> RoomId {
-        room_id!("!test:localhost")
-    }
-
     fn manager() -> IdentityManager {
         let identity = Arc::new(Mutex::new(PrivateCrossSigningIdentity::empty(user_id())));
         let user_id = Arc::new(user_id());
@@ -422,12 +402,7 @@ pub(crate) mod test {
             Arc::new(Box::new(MemoryStore::new())),
             verification,
         );
-        let account = Account {
-            inner: account,
-            store: store.clone(),
-        };
-        let group = GroupSessionManager::new(account, store.clone());
-        IdentityManager::new(user_id, Arc::new(device_id()), store, group)
+        IdentityManager::new(user_id, Arc::new(device_id()), store)
     }
 
     pub(crate) fn other_key_query() -> KeyQueryResponse {
@@ -656,79 +631,5 @@ pub(crate) mod test {
         let identity = identity.other().unwrap();
 
         assert!(identity.is_device_signed(&device).is_ok())
-    }
-
-    #[async_test]
-    async fn test_session_invalidation() {
-        let manager = manager();
-        let room_id = room_id();
-        let user_id = other_user_id();
-        let device_id: DeviceIdBox = "SKISMLNIMH".into();
-
-        manager
-            .group_manager
-            .create_outbound_group_session(&room_id, Default::default())
-            .await
-            .unwrap();
-        let session = manager
-            .group_manager
-            .get_outbound_group_session(&room_id)
-            .unwrap();
-
-        session.add_recipient(&user_id);
-        session.mark_as_shared();
-
-        assert!(!session.invalidated());
-        assert!(!session.expired());
-
-        // Receiving a new device invalidates the session.
-        manager
-            .receive_keys_query_response(&other_key_query())
-            .await
-            .unwrap();
-
-        assert!(session.invalidated());
-
-        manager
-            .group_manager
-            .create_outbound_group_session(&room_id, Default::default())
-            .await
-            .unwrap();
-        let session = manager
-            .group_manager
-            .get_outbound_group_session(&room_id)
-            .unwrap();
-
-        session.add_recipient(&user_id);
-        session.mark_as_shared();
-
-        assert!(!session.invalidated());
-        assert!(!session.expired());
-
-        let device = manager
-            .store
-            .get_device(&user_id, &device_id)
-            .await
-            .unwrap()
-            .unwrap();
-
-        assert!(!device.deleted());
-
-        let response = KeyQueryResponse::try_from(response_from_file(&json!({
-            "device_keys": {
-                user_id: {}
-            },
-            "failures": {},
-        })))
-        .unwrap();
-
-        // Noticing that a device got deleted invalidates the session as well
-        manager
-            .receive_keys_query_response(&response)
-            .await
-            .unwrap();
-
-        assert!(device.deleted());
-        assert!(session.invalidated());
     }
 }
