@@ -56,6 +56,13 @@ impl RoomMember {
         }
     }
 
+    pub fn avatar_url(&self) -> Option<&str> {
+        match self.profile.as_ref() {
+            Some(p) => p.avatar_url.as_deref(),
+            None => self.event.content.avatar_url.as_deref(),
+        }
+    }
+
     pub fn normalized_power_level(&self) -> i64 {
         if self.max_power_level > 0 {
             (self.power_level() * 100) / self.max_power_level
