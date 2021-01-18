@@ -21,7 +21,7 @@ use dashmap::DashMap;
 use matrix_sdk_common::{
     api::r0::to_device::DeviceIdOrAllDevices,
     events::{room::encrypted::EncryptedEventContent, AnyMessageEventContent, EventType},
-    identifiers::{DeviceId, DeviceIdBox, RoomId, UserId},
+    identifiers::{DeviceIdBox, RoomId, UserId},
     uuid::Uuid,
 };
 use tracing::{debug, info};
@@ -236,14 +236,18 @@ impl GroupSessionManager {
             .flatten()
             .collect();
 
-        info!(
-            "Sharing outbound session at index {} with {:?}",
-            outbound.message_index().await,
-            devices
-                .iter()
-                .map(|d| (d.user_id(), d.device_id()))
-                .collect::<Vec<(&UserId, &DeviceId)>>()
-        );
+        if !devices.is_empty() {
+            info!(
+                "Sharing outbound session at index {} with {:?}",
+                outbound.message_index().await,
+                devices.iter().fold(HashMap::new(), |mut acc, d| {
+                    acc.entry(d.user_id())
+                        .or_insert_with(Vec::new)
+                        .push(d.device_id());
+                    acc
+                })
+            );
+        }
 
         let key_content = outbound.as_json().await;
 
