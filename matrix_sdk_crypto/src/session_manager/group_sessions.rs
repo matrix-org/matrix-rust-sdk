@@ -127,6 +127,7 @@ impl GroupSessionManager {
         room_id: &RoomId,
         settings: EncryptionSettings,
     ) -> OlmResult<(OutboundGroupSession, Option<InboundGroupSession>)> {
+        #[allow(clippy::map_clone)]
         if let Some(s) = self.outbound_group_sessions.get(room_id).map(|s| s.clone()) {
             if s.expired() || s.invalidated() {
                 self.create_outbound_group_session(room_id, settings)
@@ -189,10 +190,10 @@ impl GroupSessionManager {
             let user_devices = self.store.get_user_devices(&user_id).await?;
 
             if !device_got_deleted {
-                let device_ids: HashSet<DeviceIdBox> =
-                    user_devices.keys().map(|d| d.clone()).collect();
+                let device_ids: HashSet<DeviceIdBox> = user_devices.keys().cloned().collect();
 
                 device_got_deleted = if let Some(shared) = outbound.shared_with_set.get(user_id) {
+                    #[allow(clippy::map_clone)]
                     let shared: HashSet<DeviceIdBox> = shared.iter().map(|d| d.clone()).collect();
                     !shared
                         .difference(&device_ids)
