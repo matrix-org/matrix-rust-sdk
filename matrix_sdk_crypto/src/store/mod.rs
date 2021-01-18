@@ -40,6 +40,8 @@
 pub mod caches;
 mod memorystore;
 mod pickle_key;
+#[cfg(feature = "sled_cryptostore")]
+pub(crate) mod sled;
 #[cfg(not(target_arch = "wasm32"))]
 #[cfg(feature = "sqlite_cryptostore")]
 pub(crate) mod sqlite;

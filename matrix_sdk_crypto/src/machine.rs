@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#[cfg(feature = "sqlite_cryptostore")]
+#[cfg(feature = "sled_cryptostore")]
 use std::path::Path;
 use std::{collections::BTreeMap, mem, sync::Arc};
 
@@ -44,6 +44,8 @@ use matrix_sdk_common::{
     Raw, UInt,
 };
 
+#[cfg(feature = "sled_cryptostore")]
+use crate::store::sled::SledStore;
 use crate::{
     error::{EventError, MegolmError, MegolmResult, OlmError, OlmResult},
     identities::{Device, IdentityManager, UserDevices},
@@ -59,11 +61,9 @@ use crate::{
         Changes, CryptoStore, DeviceChanges, IdentityChanges, MemoryStore, Result as StoreResult,
         Store,
     },
-    verification::{Sas, VerificationMachine},
+    verification::{Sas, VerificationMachine, VerificationRequest},
     ToDeviceRequest,
 };
-#[cfg(feature = "sqlite_cryptostore")]
-use crate::{store::sqlite::SqliteStore, verification::VerificationRequest};
 
 /// State machine implementation of the Olm/Megolm encryption protocol used for
 /// Matrix end to end encryption.
@@ -258,7 +258,7 @@ impl OlmMachine {
     /// * `user_id` - The unique id of the user that owns this machine.
     ///
     /// * `device_id` - The unique id of the device that owns this machine.
-    #[cfg(feature = "sqlite_cryptostore")]
+    #[cfg(feature = "sled_cryptostore")]
     #[cfg_attr(feature = "docs", doc(cfg(r#sqlite_cryptostore)))]
     pub async fn new_with_default_store(
         user_id: &UserId,
@@ -266,8 +266,7 @@ impl OlmMachine {
         path: impl AsRef<Path>,
         passphrase: &str,
     ) -> StoreResult<Self> {
-        let store =
-            SqliteStore::open_with_passphrase(&user_id, device_id, path, passphrase).await?;
+        let store = SledStore::open_with_passphrase(path, passphrase)?;
 
         OlmMachine::new_with_store(user_id.to_owned(), device_id.into(), Box::new(store)).await
     }
@@ -1756,9 +1755,11 @@ pub(crate) mod test {
         }
     }
 
-    #[tokio::test(flavor = "multi_thread")]
-    #[cfg(feature = "sqlite_cryptostore")]
+    #[tokio::test]
+    #[cfg(feature = "sled_cryptostore")]
     async fn test_machine_with_default_store() {
+        use tempfile::tempdir;
+
         let tmpdir = tempdir().unwrap();
 
         let machine = OlmMachine::new_with_default_store(

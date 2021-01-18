@@ -18,10 +18,10 @@ rustdoc-args = ["--cfg", "feature=\"docs\""]
 default = []
 messages = []
 encryption = ["matrix-sdk-crypto"]
-sqlite_cryptostore = ["matrix-sdk-crypto/sqlite_cryptostore"]
+sled_cryptostore = ["matrix-sdk-crypto/sled_cryptostore"]
 unstable-synapse-quirks = ["matrix-sdk-common/unstable-synapse-quirks"]
 
-docs = ["encryption", "sqlite_cryptostore", "messages"]
+docs = ["encryption", "sled_cryptostore", "messages"]
 
 [dependencies]
 dashmap= "4.0.1"

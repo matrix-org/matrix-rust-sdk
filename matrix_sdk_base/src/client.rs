@@ -370,7 +370,7 @@ impl BaseClient {
                     .map_err(OlmError::from)?,
                 );
             } else if let Some(path) = self.store_path.as_ref() {
-                #[cfg(feature = "sqlite_cryptostore")]
+                #[cfg(feature = "sled_cryptostore")]
                 {
                     *olm = Some(
                         OlmMachine::new_with_default_store(
@@ -383,7 +383,7 @@ impl BaseClient {
                         .map_err(OlmError::from)?,
                     );
                 }
-                #[cfg(not(feature = "sqlite_cryptostore"))]
+                #[cfg(not(feature = "sled_cryptostore"))]
                 {
                     *olm = Some(OlmMachine::new(&session.user_id, &session.device_id));
                 }

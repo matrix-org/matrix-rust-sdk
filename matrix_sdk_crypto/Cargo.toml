@@ -17,6 +17,7 @@ rustdoc-args = ["--cfg", "feature=\"docs\""]
 [features]
 default = []
 sqlite_cryptostore = ["sqlx"]
+sled_cryptostore = ["sled"]
 docs = ["sqlite_cryptostore"]
 
 [dependencies]
@@ -29,6 +30,7 @@ serde_json = "1.0.61"
 zeroize = { version = "1.2.0", features = ["zeroize_derive"] }
 
 # Misc dependencies
+sled = { version = "0.34.6", optional = true }
 thiserror = "1.0.23"
 tracing = "0.1.22"
 atomic = "0.5.0"
