@@ -23,6 +23,19 @@ use crate::{
     InvitedRoom, JoinedRoom, LeftRoom, Room, RoomState, Session,
 };
 
+#[derive(Debug, thiserror::Error)]
+pub enum StoreError {
+    #[error(transparent)]
+    Sled(#[from] sled::Error),
+    #[error(transparent)]
+    Json(#[from] serde_json::Error),
+    #[error(transparent)]
+    Identifier(#[from] matrix_sdk_common::identifiers::Error),
+}
+
+/// A `StateStore` specific result type.
+pub type Result<T> = std::result::Result<T, StoreError>;
+
 #[derive(Debug, Clone)]
 pub struct Store {
     inner: SledStore,
@@ -47,28 +60,30 @@ impl Store {
         }
     }
 
-    pub(crate) async fn restore_session(&self, session: Session) {
+    pub(crate) async fn restore_session(&self, session: Session) -> Result<()> {
         let mut infos = self.inner.get_room_infos().await;
 
         // TODO restore stripped rooms.
         while let Some(info) = infos.next().await {
-            let room = Room::restore(&session.user_id, self.inner.clone(), info);
+            let room = Room::restore(&session.user_id, self.inner.clone(), info?);
             self.rooms.insert(room.room_id().to_owned(), room);
         }
 
-        let token = self.get_sync_token().await;
+        let token = self.get_sync_token().await?;
 
         *self.sync_token.write().await = token;
         *self.session.write().await = Some(session);
+
+        Ok(())
     }
 
-    pub fn open_default(path: impl AsRef<Path>) -> Self {
-        let inner = SledStore::open_with_path(path);
-        Self::new(
+    pub fn open_default(path: impl AsRef<Path>) -> Result<Self> {
+        let inner = SledStore::open_with_path(path)?;
+        Ok(Self::new(
             Arc::new(RwLock::new(None)),
             Arc::new(RwLock::new(None)),
             inner,
-        )
+        ))
     }
 
     pub(crate) fn get_bare_room(&self, room_id: &RoomId) -> Option<Room> {
@@ -222,7 +237,8 @@ impl StateChanges {
     }
 
     pub fn add_stripped_member(&mut self, room_id: &RoomId, event: StrippedMemberEvent) {
-        let user_id = UserId::try_from(event.state_key.as_str()).unwrap();
+        let user_id = event.state_key.clone();
+
         self.stripped_members
             .entry(room_id.to_owned())
             .or_insert_with(BTreeMap::new)
@@ -240,25 +256,25 @@ impl StateChanges {
 }
 
 impl SledStore {
-    fn open_helper(db: Db) -> Self {
-        let session = db.open_tree("session").unwrap();
-        let account_data = db.open_tree("account_data").unwrap();
+    fn open_helper(db: Db) -> Result<Self> {
+        let session = db.open_tree("session")?;
+        let account_data = db.open_tree("account_data")?;
 
-        let members = db.open_tree("members").unwrap();
-        let profiles = db.open_tree("profiles").unwrap();
-        let joined_user_ids = db.open_tree("joined_user_ids").unwrap();
-        let invited_user_ids = db.open_tree("invited_user_ids").unwrap();
+        let members = db.open_tree("members")?;
+        let profiles = db.open_tree("profiles")?;
+        let joined_user_ids = db.open_tree("joined_user_ids")?;
+        let invited_user_ids = db.open_tree("invited_user_ids")?;
 
-        let room_state = db.open_tree("room_state").unwrap();
-        let room_info = db.open_tree("room_infos").unwrap();
-        let presence = db.open_tree("presence").unwrap();
-        let room_account_data = db.open_tree("room_account_data").unwrap();
+        let room_state = db.open_tree("room_state")?;
+        let room_info = db.open_tree("room_infos")?;
+        let presence = db.open_tree("presence")?;
+        let room_account_data = db.open_tree("room_account_data")?;
 
-        let stripped_room_info = db.open_tree("stripped_room_info").unwrap();
-        let stripped_members = db.open_tree("stripped_members").unwrap();
-        let stripped_room_state = db.open_tree("stripped_room_state").unwrap();
+        let stripped_room_info = db.open_tree("stripped_room_info")?;
+        let stripped_members = db.open_tree("stripped_members")?;
+        let stripped_room_state = db.open_tree("stripped_room_state")?;
 
-        Self {
+        Ok(Self {
             inner: db,
             session,
             account_data,
@@ -273,43 +289,44 @@ impl SledStore {
             stripped_room_info,
             stripped_members,
             stripped_room_state,
-        }
+        })
     }
 
-    pub fn open() -> Self {
-        let db = Config::new().temporary(true).open().unwrap();
+    pub fn open() -> Result<Self> {
+        let db = Config::new().temporary(true).open()?;
 
         SledStore::open_helper(db)
     }
 
-    pub fn open_with_path(path: impl AsRef<Path>) -> Self {
+    pub fn open_with_path(path: impl AsRef<Path>) -> Result<Self> {
         let path = path.as_ref().join("matrix-sdk-state");
-        let db = Config::new().temporary(false).path(path).open().unwrap();
+        let db = Config::new().temporary(false).path(path).open()?;
 
         SledStore::open_helper(db)
     }
 
-    pub async fn save_filter(&self, filter_name: &str, filter_id: &str) {
+    pub async fn save_filter(&self, filter_name: &str, filter_id: &str) -> Result<()> {
         self.session
-            .insert(&format!("filter{}", filter_name), filter_id)
-            .unwrap();
+            .insert(&format!("filter{}", filter_name), filter_id)?;
+
+        Ok(())
     }
 
-    pub async fn get_filter(&self, filter_name: &str) -> Option<String> {
-        self.session
-            .get(&format!("filter{}", filter_name))
-            .unwrap()
-            .map(|f| String::from_utf8_lossy(&f).to_string())
+    pub async fn get_filter(&self, filter_name: &str) -> Result<Option<String>> {
+        Ok(self
+            .session
+            .get(&format!("filter{}", filter_name))?
+            .map(|f| String::from_utf8_lossy(&f).to_string()))
     }
 
-    pub async fn get_sync_token(&self) -> Option<String> {
-        self.session
-            .get("sync_token")
-            .unwrap()
-            .map(|t| String::from_utf8_lossy(&t).to_string())
+    pub async fn get_sync_token(&self) -> Result<Option<String>> {
+        Ok(self
+            .session
+            .get("sync_token")?
+            .map(|t| String::from_utf8_lossy(&t).to_string()))
     }
 
-    pub async fn save_changes(&self, changes: &StateChanges) {
+    pub async fn save_changes(&self, changes: &StateChanges) -> Result<()> {
         let now = SystemTime::now();
 
         let ret: TransactionResult<()> = (
@@ -458,16 +475,19 @@ impl SledStore {
 
         ret.unwrap();
 
-        self.inner.flush_async().await.unwrap();
+        self.inner.flush_async().await?;
 
-        info!("Saved changes in {:?}", now.elapsed().unwrap());
+        info!("Saved changes in {:?}", now.elapsed());
+
+        Ok(())
     }
 
-    pub async fn get_presence_event(&self, user_id: &UserId) -> Option<PresenceEvent> {
-        self.presence
-            .get(user_id.as_bytes())
-            .unwrap()
-            .map(|e| serde_json::from_slice(&e).unwrap())
+    pub async fn get_presence_event(&self, user_id: &UserId) -> Result<Option<PresenceEvent>> {
+        Ok(self
+            .presence
+            .get(user_id.as_bytes())?
+            .map(|e| serde_json::from_slice(&e))
+            .transpose()?)
     }
 
     pub async fn get_state_event(
@@ -475,60 +495,71 @@ impl SledStore {
         room_id: &RoomId,
         event_type: EventType,
         state_key: &str,
-    ) -> Option<AnySyncStateEvent> {
-        self.room_state
-            .get(format!("{}{}{}", room_id.as_str(), event_type, state_key).as_bytes())
-            .unwrap()
-            .map(|e| serde_json::from_slice(&e).unwrap())
+    ) -> Result<Option<AnySyncStateEvent>> {
+        Ok(self
+            .room_state
+            .get(format!("{}{}{}", room_id.as_str(), event_type, state_key).as_bytes())?
+            .map(|e| serde_json::from_slice(&e))
+            .transpose()?)
     }
 
     pub async fn get_profile(
         &self,
         room_id: &RoomId,
         user_id: &UserId,
-    ) -> Option<MemberEventContent> {
-        self.profiles
-            .get(format!("{}{}", room_id.as_str(), user_id.as_str()))
-            .unwrap()
-            .map(|p| serde_json::from_slice(&p).unwrap())
+    ) -> Result<Option<MemberEventContent>> {
+        Ok(self
+            .profiles
+            .get(format!("{}{}", room_id.as_str(), user_id.as_str()))?
+            .map(|p| serde_json::from_slice(&p))
+            .transpose()?)
     }
 
     pub async fn get_member_event(
         &self,
         room_id: &RoomId,
         state_key: &UserId,
-    ) -> Option<MemberEvent> {
-        self.members
-            .get(format!("{}{}", room_id.as_str(), state_key.as_str()))
-            .unwrap()
-            .map(|v| serde_json::from_slice(&v).unwrap())
+    ) -> Result<Option<MemberEvent>> {
+        Ok(self
+            .members
+            .get(format!("{}{}", room_id.as_str(), state_key.as_str()))?
+            .map(|v| serde_json::from_slice(&v))
+            .transpose()?)
     }
 
-    pub async fn get_invited_user_ids(&self, room_id: &RoomId) -> impl Stream<Item = UserId> {
+    pub async fn get_invited_user_ids(
+        &self,
+        room_id: &RoomId,
+    ) -> impl Stream<Item = Result<UserId>> {
         stream::iter(
             self.invited_user_ids
                 .scan_prefix(room_id.as_bytes())
                 .map(|u| {
-                    UserId::try_from(String::from_utf8_lossy(&u.unwrap().1).to_string()).unwrap()
+                    UserId::try_from(String::from_utf8_lossy(&u?.1).to_string())
+                        .map_err(StoreError::Identifier)
                 }),
         )
     }
 
-    pub async fn get_joined_user_ids(&self, room_id: &RoomId) -> impl Stream<Item = UserId> {
+    pub async fn get_joined_user_ids(
+        &self,
+        room_id: &RoomId,
+    ) -> impl Stream<Item = Result<UserId>> {
         stream::iter(
             self.joined_user_ids
                 .scan_prefix(room_id.as_bytes())
                 .map(|u| {
-                    UserId::try_from(String::from_utf8_lossy(&u.unwrap().1).to_string()).unwrap()
+                    UserId::try_from(String::from_utf8_lossy(&u?.1).to_string())
+                        .map_err(StoreError::Identifier)
                 }),
         )
     }
 
-    pub async fn get_room_infos(&self) -> impl Stream<Item = RoomInfo> {
+    pub async fn get_room_infos(&self) -> impl Stream<Item = Result<RoomInfo>> {
         stream::iter(
             self.room_info
                 .iter()
-                .map(|r| serde_json::from_slice(&r.unwrap().1).unwrap()),
+                .map(|r| serde_json::from_slice(&r?.1).map_err(StoreError::Json)),
         )
     }
 }
@@ -575,11 +606,15 @@ mod test {
 
     #[async_test]
     async fn test_member_saving() {
-        let store = SledStore::open();
+        let store = SledStore::open().unwrap();
         let room_id = room_id!("!test:localhost");
         let user_id = user_id();
 
-        assert!(store.get_member_event(&room_id, &user_id).await.is_none());
+        assert!(store
+            .get_member_event(&room_id, &user_id)
+            .await
+            .unwrap()
+            .is_none());
         let mut changes = StateChanges::default();
         changes
             .members
@@ -587,7 +622,11 @@ mod test {
             .or_default()
             .insert(user_id.clone(), membership_event());
 
-        store.save_changes(&changes).await;
-        assert!(store.get_member_event(&room_id, &user_id).await.is_some());
+        store.save_changes(&changes).await.unwrap();
+        assert!(store
+            .get_member_event(&room_id, &user_id)
+            .await
+            .unwrap()
+            .is_some());
     }
 }

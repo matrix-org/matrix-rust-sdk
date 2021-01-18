@@ -19,7 +19,7 @@ use std::{
 
 use futures::{
     future,
-    stream::{self, Stream, StreamExt},
+    stream::{self, Stream, StreamExt, TryStreamExt},
 };
 use matrix_sdk_common::{
     api::r0::sync::sync_events::RoomSummary as RumaSummary,
@@ -36,7 +36,10 @@ use matrix_sdk_common::{
 use serde::{Deserialize, Serialize};
 use tracing::info;
 
-use crate::{responses::UnreadNotificationsCount, store::SledStore};
+use crate::{
+    responses::UnreadNotificationsCount,
+    store::{Result as StoreResult, SledStore},
+};
 
 use super::{BaseRoomInfo, RoomMember};
 
@@ -190,27 +193,39 @@ impl Room {
         self.inner.read().unwrap().base_info.topic.clone()
     }
 
-    pub async fn display_name(&self) -> String {
+    pub async fn display_name(&self) -> StoreResult<String> {
         self.calculate_name().await
     }
 
-    pub async fn joined_user_ids(&self) -> impl Stream<Item = UserId> {
+    pub async fn joined_user_ids(&self) -> impl Stream<Item = StoreResult<UserId>> {
         self.store.get_joined_user_ids(self.room_id()).await
     }
 
-    pub async fn joined_members(&self) -> impl Stream<Item = RoomMember> + '_ {
+    pub async fn joined_members(&self) -> impl Stream<Item = StoreResult<RoomMember>> + '_ {
         let joined = self.store.get_joined_user_ids(self.room_id()).await;
 
-        joined.filter_map(move |u| async move { self.get_member(&u).await })
+        joined.filter_map(move |u| async move {
+            let ret = match u {
+                Ok(u) => self.get_member(&u).await,
+                Err(e) => Err(e),
+            };
+
+            ret.transpose()
+        })
     }
 
-    pub async fn active_members(&self) -> impl Stream<Item = RoomMember> + '_ {
+    pub async fn active_members(&self) -> impl Stream<Item = StoreResult<RoomMember>> + '_ {
         let joined = self.store.get_joined_user_ids(self.room_id()).await;
         let invited = self.store.get_invited_user_ids(self.room_id()).await;
 
-        joined
-            .chain(invited)
-            .filter_map(move |u| async move { self.get_member(&u).await })
+        joined.chain(invited).filter_map(move |u| async move {
+            let ret = match u {
+                Ok(u) => self.get_member(&u).await,
+                Err(e) => Err(e),
+            };
+
+            ret.transpose()
+        })
     }
 
     /// Calculate the canonical display name of the room, taking into account
@@ -220,16 +235,16 @@ impl Room {
     ///
     /// [spec]:
     /// <https://matrix.org/docs/spec/client_server/latest#calculating-the-display-name-for-a-room>
-    async fn calculate_name(&self) -> String {
+    async fn calculate_name(&self) -> StoreResult<String> {
         let summary = {
             let inner = self.inner.read().unwrap();
 
             if let Some(name) = &inner.base_info.name {
                 let name = name.trim();
-                return name.to_string();
+                return Ok(name.to_string());
             } else if let Some(alias) = &inner.base_info.canonical_alias {
                 let alias = alias.alias().trim();
-                return alias.to_string();
+                return Ok(alias.to_string());
             }
             inner.summary.clone()
         };
@@ -242,22 +257,24 @@ impl Room {
         let is_own_member = |m: &RoomMember| m.user_id() == &*self.own_user_id;
         let is_own_user_id = |u: &str| u == self.own_user_id().as_str();
 
-        let members: Vec<RoomMember> = if summary.heroes.is_empty() {
+        let members: StoreResult<Vec<RoomMember>> = if summary.heroes.is_empty() {
             self.active_members()
                 .await
-                .filter(|m| future::ready(!is_own_member(m)))
+                .try_filter(|u| future::ready(!is_own_member(&u)))
                 .take(5)
-                .collect()
+                .try_collect()
                 .await
         } else {
-            stream::iter(summary.heroes.iter())
+            let members: Vec<_> = stream::iter(summary.heroes.iter())
                 .filter(|u| future::ready(!is_own_user_id(u)))
                 .filter_map(|u| async move {
                     let user_id = UserId::try_from(u.as_str()).ok()?;
-                    self.get_member(&user_id).await
+                    self.get_member(&user_id).await.transpose()
                 })
                 .collect()
-                .await
+                .await;
+
+            members.into_iter().collect()
         };
 
         info!(
@@ -269,9 +286,9 @@ impl Room {
         );
 
         let inner = self.inner.read().unwrap();
-        inner
+        Ok(inner
             .base_info
-            .calculate_room_name(joined, invited, members)
+            .calculate_room_name(joined, invited, members?))
     }
 
     pub(crate) fn clone_info(&self) -> RoomInfo {
@@ -283,9 +300,9 @@ impl Room {
         *inner = summary;
     }
 
-    pub async fn get_member(&self, user_id: &UserId) -> Option<RoomMember> {
-        let presence = self.store.get_presence_event(user_id).await;
-        let profile = self.store.get_profile(self.room_id(), user_id).await;
+    pub async fn get_member(&self, user_id: &UserId) -> StoreResult<Option<RoomMember>> {
+        let presence = self.store.get_presence_event(user_id).await?;
+        let profile = self.store.get_profile(self.room_id(), user_id).await?;
         let max_power_level = self.max_power_level();
         let is_room_creator = self
             .inner
@@ -300,7 +317,7 @@ impl Room {
         let power = self
             .store
             .get_state_event(self.room_id(), EventType::RoomPowerLevels, "")
-            .await
+            .await?
             .map(|e| {
                 if let AnySyncStateEvent::RoomPowerLevels(e) = e {
                     Some(e)
@@ -310,9 +327,10 @@ impl Room {
             })
             .flatten();
 
-        self.store
+        Ok(self
+            .store
             .get_member_event(&self.room_id, user_id)
-            .await
+            .await?
             .map(|e| RoomMember {
                 event: e.into(),
                 profile: profile.into(),
@@ -320,7 +338,7 @@ impl Room {
                 power_levles: power.into(),
                 max_power_level,
                 is_room_creator,
-            })
+            }))
     }
 }
 

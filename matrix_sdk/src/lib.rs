@@ -68,7 +68,7 @@ compile_error!("only one of 'native-tls' or 'rustls-tls' features can be enabled
 pub use matrix_sdk_base::crypto::LocalTrust;
 pub use matrix_sdk_base::{
     Error as BaseError, EventEmitter, InvitedRoom, JoinedRoom, LeftRoom, RoomInfo, RoomMember,
-    RoomState, Session,
+    RoomState, Session, StoreError,
 };
 
 pub use matrix_sdk_common::*;

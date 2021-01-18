@@ -292,7 +292,7 @@ pub enum CustomEvent<'c> {
 ///                 ..
 ///             } = event
 ///             {
-///                 let member = room.get_member(&sender).await.unwrap();
+///                 let member = room.get_member(&sender).await.unwrap().unwrap();
 ///                 let name = member
 ///                     .display_name()
 ///                     .unwrap_or_else(|| member.user_id().as_str());

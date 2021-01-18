@@ -34,8 +34,8 @@ pub enum Error {
 
     /// A generic error returned when the state store fails not due to
     /// IO or (de)serialization.
-    #[error("state store: {0}")]
-    StateStore(String),
+    #[error(transparent)]
+    StateStore(#[from] crate::store::StoreError),
 
     /// An error when (de)serializing JSON.
     #[error(transparent)]

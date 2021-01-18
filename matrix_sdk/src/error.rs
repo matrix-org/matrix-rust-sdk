@@ -14,7 +14,7 @@
 
 //! Error conditions.
 
-use matrix_sdk_base::Error as MatrixError;
+use matrix_sdk_base::{Error as MatrixError, StoreError};
 use matrix_sdk_common::{
     api::{
         r0::uiaa::{UiaaInfo, UiaaResponse as UiaaError},
@@ -72,6 +72,10 @@ pub enum Error {
     #[cfg(feature = "encryption")]
     #[error(transparent)]
     CryptoStoreError(#[from] CryptoStoreError),
+
+    /// An error occured in the state store.
+    #[error(transparent)]
+    StateStore(#[from] StoreError),
 
     /// An error occurred while authenticating.
     ///

@@ -25,6 +25,7 @@ use std::{
 
 #[cfg(feature = "encryption")]
 use futures::StreamExt;
+use futures::TryStreamExt;
 use matrix_sdk_common::{
     api::r0 as api,
     events::{
@@ -63,7 +64,7 @@ use crate::{
     },
     rooms::{RoomInfo, RoomType, StrippedRoomInfo},
     session::Session,
-    store::{SledStore, StateChanges, Store},
+    store::{Result as StoreResult, SledStore, StateChanges, Store},
     EventEmitter, RoomState,
 };
 
@@ -283,9 +284,9 @@ impl BaseClient {
     pub fn new_with_config(config: BaseClientConfig) -> Result<Self> {
         let store = if let Some(path) = &config.store_path {
             info!("Opening store in path {}", path.display());
-            SledStore::open_with_path(path)
+            SledStore::open_with_path(path)?
         } else {
-            SledStore::open()
+            SledStore::open()?
         };
 
         let session = Arc::new(RwLock::new(None));
@@ -352,7 +353,7 @@ impl BaseClient {
     /// * `session` - An session that the user already has from a
     /// previous login call.
     pub async fn restore_login(&self, session: Session) -> Result<()> {
-        self.store.restore_session(session.clone()).await;
+        self.store.restore_session(session.clone()).await?;
 
         #[cfg(feature = "encryption")]
         {
@@ -747,8 +748,7 @@ impl BaseClient {
                         let joined = self.store.get_joined_user_ids(&room_id).await;
                         let invited = self.store.get_invited_user_ids(&room_id).await;
 
-                        // TODO don't use collect here.
-                        let user_ids: Vec<UserId> = joined.chain(invited).collect().await;
+                        let user_ids: Vec<UserId> = joined.chain(invited).try_collect().await?;
                         o.update_tracked_users(&user_ids).await
                     }
 
@@ -853,7 +853,7 @@ impl BaseClient {
         self.handle_account_data(response.account_data.events, &mut changes)
             .await;
 
-        self.store.save_changes(&changes).await;
+        self.store.save_changes(&changes).await?;
         *self.sync_token.write().await = Some(response.next_batch.clone());
         self.apply_changes(&changes).await;
 
@@ -921,7 +921,7 @@ impl BaseClient {
                 if self
                     .store
                     .get_member_event(&room_id, &member.state_key)
-                    .await
+                    .await?
                     .is_none()
                 {
                     #[cfg(feature = "encryption")]
@@ -948,7 +948,7 @@ impl BaseClient {
 
             changes.add_room(room_info);
 
-            self.store.save_changes(&changes).await;
+            self.store.save_changes(&changes).await?;
             self.apply_changes(&changes).await;
         }
 
@@ -959,13 +959,14 @@ impl BaseClient {
         &self,
         filter_name: &str,
         response: &api::filter::create_filter::Response,
-    ) {
-        self.store
+    ) -> Result<()> {
+        Ok(self
+            .store
             .save_filter(filter_name, &response.filter_id)
-            .await;
+            .await?)
     }
 
-    pub async fn get_filter(&self, filter_name: &str) -> Option<String> {
+    pub async fn get_filter(&self, filter_name: &str) -> StoreResult<Option<String>> {
         self.store.get_filter(filter_name).await
     }
 
@@ -1038,8 +1039,7 @@ impl BaseClient {
             Some(o) => {
                 let joined = self.store.get_joined_user_ids(room_id).await;
                 let invited = self.store.get_invited_user_ids(room_id).await;
-                // TODO don't use collect here.
-                let members: Vec<UserId> = joined.chain(invited).collect().await;
+                let members: Vec<UserId> = joined.chain(invited).try_collect().await?;
                 Ok(
                     o.share_group_session(room_id, members.iter(), EncryptionSettings::default())
                         .await?,

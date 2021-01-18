@@ -1,6 +1,6 @@
 use std::{convert::TryFrom, fmt::Debug, io, sync::Arc};
 
-use futures::{executor::block_on, StreamExt};
+use futures::{executor::block_on, TryStreamExt};
 use serde::Serialize;
 
 use atty::Stream;
@@ -86,8 +86,14 @@ impl InspectorHelper {
     }
 
     fn complete_rooms(&self, arg: Option<&&str>) -> Vec<Pair> {
-        let rooms: Vec<RoomInfo> =
-            block_on(async { self.store.get_room_infos().await.collect().await });
+        let rooms: Vec<RoomInfo> = block_on(async {
+            self.store
+                .get_room_infos()
+                .await
+                .try_collect()
+                .await
+                .unwrap()
+        });
 
         rooms
             .into_iter()
@@ -248,7 +254,7 @@ impl Printer {
 impl Inspector {
     fn new(database_path: &str, json: bool, color: bool) -> Self {
         let printer = Printer::new(json, color);
-        let store = Store::open_default(database_path);
+        let store = Store::open_default(database_path).unwrap();
 
         Self { store, printer }
     }
@@ -280,7 +286,13 @@ impl Inspector {
     }
 
     async fn list_rooms(&self) {
-        let rooms: Vec<RoomInfo> = self.store.get_room_infos().await.collect().await;
+        let rooms: Vec<RoomInfo> = self
+            .store
+            .get_room_infos()
+            .await
+            .try_collect()
+            .await
+            .unwrap();
         self.printer.pretty_print_struct(&rooms);
     }
 
@@ -289,11 +301,12 @@ impl Inspector {
             .store
             .get_joined_user_ids(&room_id)
             .await
-            .collect()
-            .await;
+            .try_collect()
+            .await
+            .unwrap();
 
         for member in joined {
-            let event = self.store.get_profile(&room_id, &member).await;
+            let event = self.store.get_profile(&room_id, &member).await.unwrap();
             self.printer.pretty_print_struct(&event);
         }
     }
@@ -303,18 +316,28 @@ impl Inspector {
             .store
             .get_joined_user_ids(&room_id)
             .await
-            .collect()
-            .await;
+            .try_collect()
+            .await
+            .unwrap();
 
         for member in joined {
-            let event = self.store.get_member_event(&room_id, &member).await;
+            let event = self
+                .store
+                .get_member_event(&room_id, &member)
+                .await
+                .unwrap();
             self.printer.pretty_print_struct(&event);
         }
     }
 
     async fn get_state(&self, room_id: RoomId, event_type: EventType) {
-        self.printer
-            .pretty_print_struct(&self.store.get_state_event(&room_id, event_type, "").await);
+        self.printer.pretty_print_struct(
+            &self
+                .store
+                .get_state_event(&room_id, event_type, "")
+                .await
+                .unwrap(),
+        );
     }
 
     fn subcommands() -> Vec<Argparse<'static, 'static>> {

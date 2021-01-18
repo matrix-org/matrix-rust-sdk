@@ -27,7 +27,7 @@ use std::{
 
 #[cfg(feature = "encryption")]
 use dashmap::DashMap;
-use futures::StreamExt;
+use futures::TryStreamExt;
 use futures_timer::Delay as sleep;
 use http::HeaderValue;
 use mime::{self, Mime};
@@ -738,7 +738,7 @@ impl Client {
         filter_name: &str,
         definition: FilterDefinition<'_>,
     ) -> Result<String> {
-        if let Some(filter) = self.base_client.get_filter(filter_name).await {
+        if let Some(filter) = self.base_client.get_filter(filter_name).await? {
             Ok(filter)
         } else {
             let user_id = self.user_id().await.ok_or(Error::AuthenticationRequired)?;
@@ -747,7 +747,7 @@ impl Client {
 
             self.base_client
                 .receive_filter_upload(filter_name, &response)
-                .await;
+                .await?;
 
             Ok(response.filter_id)
         }
@@ -1156,8 +1156,7 @@ impl Client {
             {
                 let room = self.get_joined_room(room_id).unwrap();
                 let members = room.joined_user_ids().await;
-                // TODO don't collect here.
-                let members_iter: Vec<UserId> = members.collect().await;
+                let members_iter: Vec<UserId> = members.try_collect().await?;
                 self.claim_one_time_keys(&mut members_iter.iter()).await?;
             };
 
@@ -2275,7 +2274,7 @@ mod test {
         get_public_rooms, get_public_rooms_filtered, register::RegistrationKind, Client,
         Invite3pid, Session, SyncSettings, Url,
     };
-    use futures::StreamExt;
+    use futures::TryStreamExt;
     use matrix_sdk_base::RoomMember;
     use matrix_sdk_common::{
         api::r0::{
@@ -2891,7 +2890,7 @@ mod test {
         let room = client
             .get_joined_room(&room_id!("!SVkFJHzfwvuaIEawgC:localhost"))
             .unwrap();
-        let members: Vec<RoomMember> = room.active_members().await.collect().await;
+        let members: Vec<RoomMember> = room.active_members().await.try_collect().await.unwrap();
 
         assert_eq!(1, members.len());
         // assert!(room.power_levels.is_some())
@@ -2916,7 +2915,7 @@ mod test {
             .get_joined_room(&room_id!("!SVkFJHzfwvuaIEawgC:localhost"))
             .unwrap();
 
-        assert_eq!("example2", room.display_name().await);
+        assert_eq!("example2", room.display_name().await.unwrap());
     }
 
     #[tokio::test]
@@ -3010,7 +3009,7 @@ mod test {
             .get_joined_room(&room_id!("!SVkFJHzfwvuaIEawgC:localhost"))
             .unwrap();
 
-        assert_eq!("tutorial".to_string(), room.display_name().await);
+        assert_eq!("tutorial".to_string(), room.display_name().await.unwrap());
     }
 
     #[tokio::test]
