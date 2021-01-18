@@ -77,6 +77,11 @@ impl Session {
         Ok(plaintext)
     }
 
+    /// Get the sender key that was used to establish this Session.
+    pub fn sender_key(&self) -> &str {
+        &self.sender_key
+    }
+
     /// Encrypt the given plaintext as a OlmMessage.
     ///
     /// Returns the encrypted Olm message.

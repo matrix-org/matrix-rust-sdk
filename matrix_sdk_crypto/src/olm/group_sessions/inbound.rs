@@ -188,6 +188,11 @@ impl InboundGroupSession {
             .expect("Can't export at the first known index")
     }
 
+    /// Get the sender key that this session was received from.
+    pub fn sender_key(&self) -> &str {
+        &self.sender_key
+    }
+
     /// Export this session at the given message index.
     pub async fn export_at_index(&self, message_index: u32) -> Option<ExportedRoomKey> {
         let session_key =
