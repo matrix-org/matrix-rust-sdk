@@ -35,7 +35,7 @@ use matrix_sdk_common::{
     },
     locks::Mutex,
 };
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use serde_json::{json, Value};
 use tracing::warn;
 
@@ -57,16 +57,36 @@ use crate::{
 };
 
 /// A read-only version of a `Device`.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ReadOnlyDevice {
     user_id: Arc<UserId>,
-    device_id: Arc<Box<DeviceId>>,
+    device_id: Arc<DeviceIdBox>,
     algorithms: Arc<[EventEncryptionAlgorithm]>,
     keys: Arc<BTreeMap<DeviceKeyId, String>>,
     pub(crate) signatures: Arc<BTreeMap<UserId, BTreeMap<DeviceKeyId, String>>>,
     display_name: Arc<Option<String>>,
     deleted: Arc<AtomicBool>,
+    #[serde(
+        serialize_with = "local_trust_serializer",
+        deserialize_with = "local_trust_deserializer"
+    )]
     trust_state: Arc<Atomic<LocalTrust>>,
+}
+
+fn local_trust_serializer<S>(x: &Atomic<LocalTrust>, s: S) -> Result<S::Ok, S::Error>
+where
+    S: Serializer,
+{
+    let value = x.load(Ordering::SeqCst);
+    s.serialize_some(&value)
+}
+
+fn local_trust_deserializer<'de, D>(deserializer: D) -> Result<Arc<Atomic<LocalTrust>>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let value = LocalTrust::deserialize(deserializer)?;
+    Ok(Arc::new(Atomic::new(value)))
 }
 
 #[derive(Debug, Clone)]
