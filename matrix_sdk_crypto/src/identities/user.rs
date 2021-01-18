@@ -361,7 +361,7 @@ impl<'a> IntoIterator for &'a SelfSigningPubkey {
 }
 
 /// Enum over the different user identity types we can have.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum UserIdentities {
     /// Our own user identity.
     Own(OwnUserIdentity),
@@ -567,7 +567,7 @@ impl UserIdentity {
 ///
 /// This identity can verify other identities as well as devices belonging to
 /// the identity.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OwnUserIdentity {
     user_id: Arc<UserId>,
     master_key: MasterPubkey,

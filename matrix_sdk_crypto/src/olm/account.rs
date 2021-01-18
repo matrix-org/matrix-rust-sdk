@@ -100,7 +100,7 @@ pub struct OlmDecryptionInfo {
 /// A hash of a succesfully decrypted Olm message.
 ///
 /// Can be used to check if a message has been replayed to us.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OlmMessageHash {
     /// The curve25519 key of the sender that sent us the Olm message.
     pub sender_key: String,
