@@ -244,7 +244,6 @@ impl GroupSessionManager {
                 .collect::<Vec<(&UserId, &DeviceId)>>()
         );
 
-        let mut requests = Vec::new();
         let key_content = outbound.as_json().await;
 
         for device_map_chunk in devices.chunks(Self::MAX_TO_DEVICE_MESSAGES) {
@@ -283,11 +282,12 @@ impl GroupSessionManager {
                 messages,
             });
 
-            outbound.add_request(id, request.clone());
+            outbound.add_request(id, request);
             self.outbound_sessions_being_shared
                 .insert(id, outbound.clone());
-            requests.push(request);
         }
+
+        let requests = outbound.pending_requests();
 
         if requests.is_empty() {
             debug!(

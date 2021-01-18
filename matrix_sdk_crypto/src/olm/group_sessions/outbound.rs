@@ -374,6 +374,15 @@ impl OutboundGroupSession {
             .or_insert_with(DashSet::new)
             .insert(device_id.to_owned());
     }
+
+    /// Get the list of requests that need to be sent out for this session to be
+    /// marked as shared.
+    pub(crate) fn pending_requests(&self) -> Vec<Arc<ToDeviceRequest>> {
+        self.to_share_with_set
+            .iter()
+            .map(|i| i.value().clone())
+            .collect()
+    }
 }
 
 #[cfg(not(tarpaulin_include))]
