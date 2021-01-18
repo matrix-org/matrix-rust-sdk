@@ -22,7 +22,7 @@ use matrix_sdk_common::{
     uuid::Uuid,
 };
 use std::{
-    cmp::min,
+    cmp::max,
     fmt,
     sync::{
         atomic::{AtomicBool, AtomicU64, Ordering},
@@ -279,9 +279,9 @@ impl OutboundGroupSession {
         count >= self.settings.rotation_period_msgs
             || self.creation_time.elapsed()
                 // Since the encryption settings are provided by users and not
-                // checked someone could set a really low rotation perdiod so
+                // checked someone could set a really low rotation period so
                 // clamp it at a minute.
-                >= min(self.settings.rotation_period, Duration::from_secs(3600))
+                >= max(self.settings.rotation_period, Duration::from_secs(3600))
     }
 
     /// Has the session been invalidated.
