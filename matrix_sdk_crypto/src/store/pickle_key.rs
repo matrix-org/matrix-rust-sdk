@@ -30,7 +30,7 @@ use serde::{Deserialize, Serialize};
 const KEY_SIZE: usize = 32;
 const NONCE_SIZE: usize = 12;
 const KDF_SALT_SIZE: usize = 32;
-const KDF_ROUNDS: u32 = 10000;
+const KDF_ROUNDS: u32 = 200_000;
 
 /// Version specific info for the key derivation method that is used.
 #[derive(Debug, Serialize, Deserialize, PartialEq)]
