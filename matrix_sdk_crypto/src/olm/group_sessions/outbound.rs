@@ -280,7 +280,7 @@ impl OutboundGroupSession {
             || self.creation_time.elapsed()
                 // Since the encryption settings are provided by users and not
                 // checked someone could set a really low rotation period so
-                // clamp it at a minute.
+                // clamp it to an hour.
                 >= max(self.settings.rotation_period, Duration::from_secs(3600))
     }
 
