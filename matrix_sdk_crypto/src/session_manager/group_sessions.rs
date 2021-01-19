@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use std::{
-    collections::{BTreeMap, HashMap, HashSet},
+    collections::{BTreeMap, BTreeSet, HashMap, HashSet},
     sync::Arc,
 };
 
@@ -313,10 +313,10 @@ impl GroupSessionManager {
             info!(
                 "Sharing outbound session at index {} with {:?}",
                 outbound.message_index().await,
-                devices.iter().fold(HashMap::new(), |mut acc, d| {
+                devices.iter().fold(BTreeMap::new(), |mut acc, d| {
                     acc.entry(d.user_id())
-                        .or_insert_with(Vec::new)
-                        .push(d.device_id());
+                        .or_insert_with(BTreeSet::new)
+                        .insert(d.device_id());
                     acc
                 })
             );
