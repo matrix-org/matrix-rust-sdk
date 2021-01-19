@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use std::{collections::BTreeMap, convert::TryFrom, time::SystemTime};
 
-use matrix_sdk_common::{
+use super::{
     api::r0::sync::sync_events::{
         DeviceLists, UnreadNotificationsCount as RumaUnreadNotificationsCount,
     },
@@ -228,7 +228,7 @@ pub struct MemberEvent {
 }
 
 impl TryFrom<SyncStateEvent<MemberEventContent>> for MemberEvent {
-    type Error = matrix_sdk_common::identifiers::Error;
+    type Error = super::identifiers::Error;
 
     fn try_from(event: SyncStateEvent<MemberEventContent>) -> Result<Self, Self::Error> {
         Ok(MemberEvent {
@@ -244,7 +244,7 @@ impl TryFrom<SyncStateEvent<MemberEventContent>> for MemberEvent {
 }
 
 impl TryFrom<StateEvent<MemberEventContent>> for MemberEvent {
-    type Error = matrix_sdk_common::identifiers::Error;
+    type Error = super::identifiers::Error;
 
     fn try_from(event: StateEvent<MemberEventContent>) -> Result<Self, Self::Error> {
         Ok(MemberEvent {
@@ -285,7 +285,7 @@ pub struct StrippedMemberEvent {
 }
 
 impl TryFrom<StrippedStateEvent<MemberEventContent>> for StrippedMemberEvent {
-    type Error = matrix_sdk_common::identifiers::Error;
+    type Error = super::identifiers::Error;
 
     fn try_from(event: StrippedStateEvent<MemberEventContent>) -> Result<Self, Self::Error> {
         Ok(StrippedMemberEvent {

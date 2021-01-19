@@ -41,6 +41,10 @@ use matrix_sdk_common::{
 #[cfg(feature = "encryption")]
 use matrix_sdk_common::{
     api::r0::keys::claim_keys::Request as KeysClaimRequest,
+    deserialized_responses::{
+        AccountData, Ephemeral, InviteState, InvitedRoom, JoinedRoom, LeftRoom, MemberEvent,
+        Presence, Rooms, State, StrippedMemberEvent, SyncResponse, Timeline,
+    },
     events::{room::encrypted::EncryptedEventContent, AnyMessageEventContent, AnySyncMessageEvent},
     identifiers::DeviceId,
     locks::Mutex,
@@ -58,10 +62,6 @@ use zeroize::Zeroizing;
 use crate::{
     error::Result,
     event_emitter::Emitter,
-    responses::{
-        AccountData, Ephemeral, InviteState, InvitedRoom, JoinedRoom, LeftRoom, MemberEvent,
-        Presence, Rooms, State, StrippedMemberEvent, SyncResponse, Timeline,
-    },
     rooms::{RoomInfo, RoomType, StrippedRoomInfo},
     session::Session,
     store::{Result as StoreResult, SledStore, StateChanges, Store},

@@ -23,7 +23,7 @@ use matrix_sdk_common::{
     identifiers::UserId,
 };
 
-use crate::responses::MemberEvent;
+use crate::deserialized_responses::MemberEvent;
 
 #[derive(Clone, Debug)]
 pub struct RoomMember {

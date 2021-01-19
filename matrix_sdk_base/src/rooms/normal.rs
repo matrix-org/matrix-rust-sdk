@@ -37,7 +37,7 @@ use serde::{Deserialize, Serialize};
 use tracing::info;
 
 use crate::{
-    responses::UnreadNotificationsCount,
+    deserialized_responses::UnreadNotificationsCount,
     store::{Result as StoreResult, SledStore},
 };
 

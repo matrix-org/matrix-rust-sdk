@@ -41,8 +41,8 @@ use tracing::{debug, warn};
 use tracing::{error, info, instrument};
 
 use matrix_sdk_base::{
-    responses::SyncResponse, BaseClient, BaseClientConfig, EventEmitter, InvitedRoom, JoinedRoom,
-    LeftRoom, Session, Store,
+    deserialized_responses::SyncResponse, BaseClient, BaseClientConfig, EventEmitter, InvitedRoom,
+    JoinedRoom, LeftRoom, Session, Store,
 };
 
 #[cfg(feature = "encryption")]

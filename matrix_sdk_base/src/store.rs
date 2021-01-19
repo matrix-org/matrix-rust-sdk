@@ -21,7 +21,7 @@ use sled::{
 use tracing::info;
 
 use crate::{
-    responses::{MemberEvent, StrippedMemberEvent},
+    deserialized_responses::{MemberEvent, StrippedMemberEvent},
     rooms::{RoomInfo, RoomType, StrippedRoom},
     InvitedRoom, JoinedRoom, LeftRoom, Room, RoomState, Session,
 };
@@ -610,7 +610,7 @@ mod test {
     use matrix_sdk_test::async_test;
 
     use super::{SledStore, StateChanges};
-    use crate::responses::MemberEvent;
+    use crate::deserialized_responses::MemberEvent;
 
     fn user_id() -> UserId {
         user_id!("@example:localhost")

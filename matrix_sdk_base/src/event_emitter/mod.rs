@@ -18,6 +18,7 @@ use matrix_sdk_common::{events::AnySyncRoomEvent, identifiers::RoomId};
 use serde_json::value::RawValue as RawJsonValue;
 
 use crate::{
+    deserialized_responses::SyncResponse,
     events::{
         call::{
             answer::AnswerEventContent, candidates::CandidatesEventContent,
@@ -46,7 +47,6 @@ use crate::{
         AnySyncStateEvent, BasicEvent, StrippedStateEvent, SyncEphemeralRoomEvent,
         SyncMessageEvent, SyncStateEvent,
     },
-    responses::SyncResponse,
     rooms::RoomState,
     Store,
 };
