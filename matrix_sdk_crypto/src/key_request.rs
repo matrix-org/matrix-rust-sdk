@@ -36,7 +36,6 @@ use matrix_sdk_common::{
     },
     identifiers::{DeviceId, DeviceIdBox, EventEncryptionAlgorithm, RoomId, UserId},
     uuid::Uuid,
-    Raw,
 };
 
 use crate::{
@@ -623,8 +622,7 @@ impl KeyRequestMachine {
         &self,
         sender_key: &str,
         event: &mut ToDeviceEvent<ForwardedRoomKeyToDeviceEventContent>,
-    ) -> Result<(Option<Raw<AnyToDeviceEvent>>, Option<InboundGroupSession>), CryptoStoreError>
-    {
+    ) -> Result<(Option<AnyToDeviceEvent>, Option<InboundGroupSession>), CryptoStoreError> {
         let key_info = self.get_key_info(&event.content).await?;
 
         if let Some(info) = key_info {
@@ -658,7 +656,7 @@ impl KeyRequestMachine {
             };
 
             Ok((
-                Some(Raw::from(AnyToDeviceEvent::ForwardedRoomKey(event.clone()))),
+                Some(AnyToDeviceEvent::ForwardedRoomKey(event.clone())),
                 session,
             ))
         } else {

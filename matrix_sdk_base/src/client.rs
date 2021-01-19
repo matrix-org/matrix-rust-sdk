@@ -24,10 +24,13 @@ use std::{
 };
 
 #[cfg(feature = "encryption")]
-use futures::StreamExt;
-use futures::TryStreamExt;
+use futures::{StreamExt, TryStreamExt};
 use matrix_sdk_common::{
     api::r0 as api,
+    deserialized_responses::{
+        AccountData, Ephemeral, InviteState, InvitedRoom, JoinedRoom, LeftRoom, MemberEvent,
+        Presence, Rooms, State, StrippedMemberEvent, SyncResponse, Timeline,
+    },
     events::{
         presence::PresenceEvent,
         room::member::{MemberEventContent, MembershipState},
@@ -41,10 +44,6 @@ use matrix_sdk_common::{
 #[cfg(feature = "encryption")]
 use matrix_sdk_common::{
     api::r0::keys::claim_keys::Request as KeysClaimRequest,
-    deserialized_responses::{
-        AccountData, Ephemeral, InviteState, InvitedRoom, JoinedRoom, LeftRoom, MemberEvent,
-        Presence, Rooms, State, StrippedMemberEvent, SyncResponse, Timeline,
-    },
     events::{room::encrypted::EncryptedEventContent, AnyMessageEventContent, AnySyncMessageEvent},
     identifiers::DeviceId,
     locks::Mutex,
@@ -675,7 +674,7 @@ impl BaseClient {
     /// * `response` - The response that we received after a successful sync.
     pub async fn receive_sync_response(
         &self,
-        mut response: api::sync::sync_events::Response,
+        response: api::sync::sync_events::Response,
     ) -> Result<SyncResponse> {
         // The server might respond multiple times with the same sync token, in
         // that case we already received this response and there's nothing to
@@ -687,7 +686,7 @@ impl BaseClient {
         let now = SystemTime::now();
 
         #[cfg(feature = "encryption")]
-        {
+        let to_device = {
             let olm = self.olm.lock().await;
 
             if let Some(o) = &*olm {
@@ -695,9 +694,25 @@ impl BaseClient {
                 // decryptes to-device events, but leaves room events alone.
                 // This makes sure that we have the deryption keys for the room
                 // events at hand.
-                o.receive_sync_response(&mut response).await?;
+                o.receive_sync_response(&response).await?
+            } else {
+                response
+                    .to_device
+                    .events
+                    .into_iter()
+                    .filter_map(|e| e.deserialize().ok())
+                    .collect::<Vec<AnyToDeviceEvent>>()
+                    .into()
             }
-        }
+        };
+        #[cfg(not(feature = "encryption"))]
+        let to_device = response
+            .to_device
+            .events
+            .into_iter()
+            .filter_map(|e| e.deserialize().ok())
+            .collect::<Vec<AnyToDeviceEvent>>()
+            .into();
 
         let mut changes = StateChanges::new(response.next_batch.clone());
         let mut rooms = Rooms::default();
@@ -868,13 +883,7 @@ impl BaseClient {
             account_data: AccountData {
                 events: changes.account_data.into_iter().map(|(_, e)| e).collect(),
             },
-            to_device: response
-                .to_device
-                .events
-                .into_iter()
-                .filter_map(|e| e.deserialize().ok())
-                .collect::<Vec<AnyToDeviceEvent>>()
-                .into(),
+            to_device,
             device_lists: response.device_lists,
             device_one_time_keys_count: response
                 .device_one_time_keys_count

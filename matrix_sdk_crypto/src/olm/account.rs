@@ -91,6 +91,7 @@ impl SessionType {
 pub struct OlmDecryptionInfo {
     pub session: SessionType,
     pub message_hash: OlmMessageHash,
+    pub deserialized_event: Option<AnyToDeviceEvent>,
     pub event: Raw<AnyToDeviceEvent>,
     pub signing_key: String,
     pub sender_key: String,
@@ -179,6 +180,7 @@ impl Account {
                 message_hash,
                 event,
                 signing_key,
+                deserialized_event: None,
                 sender_key: content.sender_key.clone(),
                 inbound_group_session: None,
             })

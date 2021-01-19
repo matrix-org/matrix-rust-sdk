@@ -27,6 +27,7 @@ use std::{
 
 #[cfg(feature = "encryption")]
 use dashmap::DashMap;
+#[cfg(feature = "encryption")]
 use futures::TryStreamExt;
 use futures_timer::Delay as sleep;
 use http::HeaderValue;
@@ -121,7 +122,6 @@ use matrix_sdk_common::{
 
 use crate::{
     http_client::{client_with_config, HttpClient, HttpSend},
-    verification_request::VerificationRequest,
     Error, OutgoingRequest, Result,
 };
 
@@ -130,6 +130,7 @@ use crate::{
     device::{Device, UserDevices},
     identifiers::DeviceId,
     sas::Sas,
+    verification_request::VerificationRequest,
 };
 
 const DEFAULT_SYNC_TIMEOUT: Duration = Duration::from_secs(30);
@@ -1176,6 +1177,7 @@ impl Client {
         Ok(())
     }
 
+    #[cfg(feature = "encryption")]
     pub(crate) async fn room_send_helper(
         &self,
         request: &RoomMessageRequest,
@@ -1270,6 +1272,7 @@ impl Client {
             .unwrap_or(false)
     }
 
+    #[cfg(feature = "encryption")]
     async fn are_members_synced(&self, room_id: &RoomId) -> bool {
         self.base_client
             .get_room(room_id)
