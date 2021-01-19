@@ -14,7 +14,10 @@ use matrix_sdk_common::{
     locks::RwLock,
 };
 
-use sled::{transaction::TransactionResult, Config, Db, Transactional, Tree};
+use sled::{
+    transaction::{ConflictableTransactionError, TransactionError},
+    Config, Db, Transactional, Tree,
+};
 use tracing::info;
 
 use crate::{
@@ -31,6 +34,15 @@ pub enum StoreError {
     Json(#[from] serde_json::Error),
     #[error(transparent)]
     Identifier(#[from] matrix_sdk_common::identifiers::Error),
+}
+
+impl From<TransactionError<serde_json::Error>> for StoreError {
+    fn from(e: TransactionError<serde_json::Error>) -> Self {
+        match e {
+            TransactionError::Abort(e) => Self::Json(e),
+            TransactionError::Storage(e) => Self::Sled(e),
+        }
+    }
 }
 
 /// A `StateStore` specific result type.
@@ -329,7 +341,7 @@ impl SledStore {
     pub async fn save_changes(&self, changes: &StateChanges) -> Result<()> {
         let now = SystemTime::now();
 
-        let ret: TransactionResult<()> = (
+        let ret: std::result::Result<(), TransactionError<serde_json::Error>> = (
             &self.session,
             &self.account_data,
             &self.members,
@@ -385,7 +397,8 @@ impl SledStore {
 
                             members.insert(
                                 format!("{}{}", room.as_str(), &event.state_key).as_str(),
-                                serde_json::to_vec(&event).unwrap(),
+                                serde_json::to_vec(&event)
+                                    .map_err(ConflictableTransactionError::Abort)?,
                             )?;
                         }
                     }
@@ -394,21 +407,26 @@ impl SledStore {
                         for (user_id, profile) in users {
                             profiles.insert(
                                 format!("{}{}", room.as_str(), user_id.as_str()).as_str(),
-                                serde_json::to_vec(&profile).unwrap(),
+                                serde_json::to_vec(&profile)
+                                    .map_err(ConflictableTransactionError::Abort)?,
                             )?;
                         }
                     }
 
                     for (event_type, event) in &changes.account_data {
-                        account_data
-                            .insert(event_type.as_str(), serde_json::to_vec(&event).unwrap())?;
+                        account_data.insert(
+                            event_type.as_str(),
+                            serde_json::to_vec(&event)
+                                .map_err(ConflictableTransactionError::Abort)?,
+                        )?;
                     }
 
                     for (room, events) in &changes.room_account_data {
                         for (event_type, event) in events {
                             room_account_data.insert(
                                 format!("{}{}", room.as_str(), event_type).as_str(),
-                                serde_json::to_vec(&event).unwrap(),
+                                serde_json::to_vec(&event)
+                                    .map_err(ConflictableTransactionError::Abort)?,
                             )?;
                         }
                     }
@@ -424,30 +442,43 @@ impl SledStore {
                                         event.state_key(),
                                     )
                                     .as_bytes(),
-                                    serde_json::to_vec(&event).unwrap(),
+                                    serde_json::to_vec(&event)
+                                        .map_err(ConflictableTransactionError::Abort)?,
                                 )?;
                             }
                         }
                     }
 
                     for (room_id, room_info) in &changes.room_infos {
-                        rooms.insert(room_id.as_bytes(), serde_json::to_vec(room_info).unwrap())?;
+                        rooms.insert(
+                            room_id.as_bytes(),
+                            serde_json::to_vec(room_info)
+                                .map_err(ConflictableTransactionError::Abort)?,
+                        )?;
                     }
 
                     for (sender, event) in &changes.presence {
-                        presence.insert(sender.as_bytes(), serde_json::to_vec(&event).unwrap())?;
+                        presence.insert(
+                            sender.as_bytes(),
+                            serde_json::to_vec(&event)
+                                .map_err(ConflictableTransactionError::Abort)?,
+                        )?;
                     }
 
                     for (room_id, info) in &changes.invited_room_info {
-                        striped_rooms
-                            .insert(room_id.as_str(), serde_json::to_vec(&info).unwrap())?;
+                        striped_rooms.insert(
+                            room_id.as_str(),
+                            serde_json::to_vec(&info)
+                                .map_err(ConflictableTransactionError::Abort)?,
+                        )?;
                     }
 
                     for (room, events) in &changes.stripped_members {
                         for event in events.values() {
                             stripped_members.insert(
                                 format!("{}{}", room.as_str(), &event.state_key).as_str(),
-                                serde_json::to_vec(&event).unwrap(),
+                                serde_json::to_vec(&event)
+                                    .map_err(ConflictableTransactionError::Abort)?,
                             )?;
                         }
                     }
@@ -463,7 +494,8 @@ impl SledStore {
                                         event.state_key(),
                                     )
                                     .as_bytes(),
-                                    serde_json::to_vec(&event).unwrap(),
+                                    serde_json::to_vec(&event)
+                                        .map_err(ConflictableTransactionError::Abort)?,
                                 )?;
                             }
                         }
@@ -473,7 +505,7 @@ impl SledStore {
                 },
             );
 
-        ret.unwrap();
+        ret?;
 
         self.inner.flush_async().await?;
 

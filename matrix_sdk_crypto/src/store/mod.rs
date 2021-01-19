@@ -296,7 +296,12 @@ pub enum CryptoStoreError {
     // implementations.
     #[cfg(feature = "sqlite_cryptostore")]
     #[error(transparent)]
-    DatabaseError(#[from] SqlxError),
+    Database(#[from] SqlxError),
+
+    /// Error in the internal database
+    #[cfg(feature = "sled_cryptostore")]
+    #[error(transparent)]
+    Database(#[from] sled::Error),
 
     /// An IO error occurred.
     #[error(transparent)]
