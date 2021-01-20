@@ -45,6 +45,35 @@ pub enum DatabaseType {
     Encrypted(store_key::EncryptedStoreKey),
 }
 
+#[derive(Debug, thiserror::Error)]
+pub enum SerializationError {
+    #[error(transparent)]
+    Json(#[from] serde_json::Error),
+    #[error(transparent)]
+    Encryption(#[from] store_key::Error),
+}
+
+impl From<TransactionError<SerializationError>> for StoreError {
+    fn from(e: TransactionError<SerializationError>) -> Self {
+        match e {
+            TransactionError::Abort(e) => e.into(),
+            TransactionError::Storage(e) => StoreError::Sled(e),
+        }
+    }
+}
+
+impl From<SerializationError> for StoreError {
+    fn from(e: SerializationError) -> Self {
+        match e {
+            SerializationError::Json(e) => StoreError::Json(e),
+            SerializationError::Encryption(e) => match e {
+                store_key::Error::Serialization(e) => StoreError::Json(e),
+                store_key::Error::Encryption(e) => StoreError::Encryption(e),
+            },
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct SledStore {
     inner: Db,
@@ -119,10 +148,9 @@ impl SledStore {
 
         let store_key = if let Some(key) = store_key {
             if let DatabaseType::Encrypted(k) = key {
-                let key = StoreKey::import(passphrase, k).unwrap();
-                key
+                StoreKey::import(passphrase, k).map_err(|_| StoreError::StoreLocked)?
             } else {
-                panic!("Trying to open an unencrypted store with a passphrase");
+                return Err(StoreError::UnencryptedStore);
             }
         } else {
             let key = StoreKey::new();
@@ -144,24 +172,24 @@ impl SledStore {
     fn serialize_event(
         &self,
         event: &impl Serialize,
-    ) -> std::result::Result<Vec<u8>, serde_json::Error> {
+    ) -> std::result::Result<Vec<u8>, SerializationError> {
         if let Some(key) = &*self.store_key {
-            let encrypted = key.encrypt(event).unwrap();
-            serde_json::to_vec(&encrypted)
+            let encrypted = key.encrypt(event)?;
+            Ok(serde_json::to_vec(&encrypted)?)
         } else {
-            serde_json::to_vec(event)
+            Ok(serde_json::to_vec(event)?)
         }
     }
 
     fn deserialize_event<T: for<'b> Deserialize<'b>>(
         &self,
         event: &[u8],
-    ) -> std::result::Result<T, serde_json::Error> {
+    ) -> std::result::Result<T, SerializationError> {
         if let Some(key) = &*self.store_key {
             let encrypted: EncryptedEvent = serde_json::from_slice(&event)?;
-            Ok(key.decrypt(encrypted).unwrap())
+            Ok(key.decrypt(encrypted)?)
         } else {
-            serde_json::from_slice(event)
+            Ok(serde_json::from_slice(event)?)
         }
     }
 
@@ -189,7 +217,7 @@ impl SledStore {
     pub async fn save_changes(&self, changes: &StateChanges) -> Result<()> {
         let now = SystemTime::now();
 
-        let ret: std::result::Result<(), TransactionError<serde_json::Error>> = (
+        let ret: std::result::Result<(), TransactionError<SerializationError>> = (
             &self.session,
             &self.account_data,
             &self.members,
@@ -440,7 +468,7 @@ impl SledStore {
         stream::iter(
             self.room_info
                 .iter()
-                .map(move |r| db.deserialize_event(&r?.1).map_err(StoreError::Json)),
+                .map(move |r| db.deserialize_event(&r?.1).map_err(|e| e.into())),
         )
     }
 }

@@ -25,8 +25,6 @@ use matrix_sdk_common::{
     locks::RwLock,
 };
 
-use sled::transaction::TransactionError;
-
 use crate::{
     deserialized_responses::{MemberEvent, StrippedMemberEvent},
     rooms::{RoomInfo, RoomType, StrippedRoom},
@@ -44,15 +42,12 @@ pub enum StoreError {
     Json(#[from] serde_json::Error),
     #[error(transparent)]
     Identifier(#[from] matrix_sdk_common::identifiers::Error),
-}
-
-impl From<TransactionError<serde_json::Error>> for StoreError {
-    fn from(e: TransactionError<serde_json::Error>) -> Self {
-        match e {
-            TransactionError::Abort(e) => Self::Json(e),
-            TransactionError::Storage(e) => Self::Sled(e),
-        }
-    }
+    #[error("The store failed to be unlocked")]
+    StoreLocked,
+    #[error("The store is not encrypted but was tried to be opened with a passphrase")]
+    UnencryptedStore,
+    #[error("Error encrypting or decrypting data from the store: {0}")]
+    Encryption(String),
 }
 
 /// A `StateStore` specific result type.

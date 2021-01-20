@@ -44,8 +44,6 @@ pub enum Error {
     Serialization(#[from] serde_json::Error),
     #[error("Error encrypting or decrypting an event {0}")]
     Encryption(String),
-    #[error("Unknown ciphertext version")]
-    InvalidVersion,
 }
 
 impl From<EncryptionError> for Error {
@@ -129,6 +127,7 @@ impl StoreKey {
         Default::default()
     }
 
+    /// Expand the given passphrase into a KEY_SIZE long key.
     fn expand_key(passphrase: &str, salt: &[u8], rounds: u32) -> Zeroizing<Vec<u8>> {
         let mut key = Zeroizing::from(vec![0u8; KEY_SIZE]);
         pbkdf2::<Hmac<Sha256>>(passphrase.as_bytes(), &salt, rounds, &mut *key);
@@ -172,7 +171,7 @@ impl StoreKey {
 
     fn get_nonce() -> Vec<u8> {
         let mut nonce = vec![0u8; XNONCE_SIZE];
-        getrandom(&mut nonce).expect("Can't generate nonce");
+        getrandom(&mut nonce).expect("Can't get random nonce");
         nonce
     }
 
@@ -194,7 +193,9 @@ impl StoreKey {
 
     pub fn decrypt<T: for<'b> Deserialize<'b>>(&self, event: EncryptedEvent) -> Result<T, Error> {
         if event.version != VERSION {
-            return Err(Error::InvalidVersion);
+            return Err(Error::Encryption(
+                "Error decrypting: Unknown ciphertext version".to_string(),
+            ));
         }
 
         let cipher = XChaCha20Poly1305::new(self.key());
