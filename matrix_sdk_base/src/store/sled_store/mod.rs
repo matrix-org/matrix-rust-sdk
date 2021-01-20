@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+mod store_key;
+
 use std::{convert::TryFrom, path::Path, time::SystemTime};
 
 use futures::stream::{self, Stream};

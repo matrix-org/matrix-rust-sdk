@@ -27,7 +27,6 @@ docs = ["encryption", "sled_cryptostore", "messages"]
 dashmap= "4.0.1"
 serde = { version = "1.0.119", features = ["rc"] }
 serde_json = "1.0.61"
-zeroize = "1.2.0"
 tracing = "0.1.22"
 
 matrix-sdk-common = { version = "0.2.0", path = "../matrix_sdk_common" }
@@ -36,6 +35,12 @@ matrix-sdk-crypto = { version = "0.2.0", path = "../matrix_sdk_crypto", optional
 # Misc dependencies
 thiserror = "1.0.23"
 sled = "0.34.6"
+chacha20poly1305 = "0.7.1"
+getrandom = "0.2.1"
+zeroize = { version = "1.2.0", features = ["zeroize_derive"] }
+pbkdf2 = { version = "0.6.0", default-features = false }
+hmac = "0.10.1"
+sha2 = "0.9.2"
 futures = "0.3.8"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies.tokio]
