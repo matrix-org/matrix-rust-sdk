@@ -265,7 +265,7 @@ impl OlmMachine {
         user_id: &UserId,
         device_id: &DeviceId,
         path: impl AsRef<Path>,
-        passphrase: &str,
+        passphrase: Option<&str>,
     ) -> StoreResult<Self> {
         let store = SledStore::open_with_passphrase(path, passphrase)?;
 
@@ -1775,7 +1775,7 @@ pub(crate) mod test {
             &user_id(),
             &alice_device_id(),
             tmpdir.as_ref(),
-            "test",
+            Some("test"),
         )
         .await
         .unwrap();
@@ -1795,7 +1795,7 @@ pub(crate) mod test {
             &user_id,
             &alice_device_id(),
             tmpdir.as_ref(),
-            "test",
+            Some("test"),
         )
         .await
         .unwrap();

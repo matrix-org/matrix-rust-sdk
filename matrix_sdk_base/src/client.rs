@@ -181,7 +181,7 @@ pub struct BaseClient {
     #[cfg(feature = "encryption")]
     cryptostore: Arc<Mutex<Option<Box<dyn CryptoStore>>>>,
     store_path: Arc<Option<PathBuf>>,
-    store_passphrase: Arc<Zeroizing<String>>,
+    store_passphrase: Arc<Option<Zeroizing<String>>>,
     /// Any implementor of EventEmitter will act as the callbacks for various
     /// events.
     event_emitter: Arc<RwLock<Option<Emitter>>>,
@@ -282,8 +282,13 @@ impl BaseClient {
     /// previous login call.
     pub fn new_with_config(config: BaseClientConfig) -> Result<Self> {
         let store = if let Some(path) = &config.store_path {
-            info!("Opening store in path {}", path.display());
-            SledStore::open_with_path(path)?
+            if let Some(passphrase) = &config.passphrase {
+                info!("Opening an encrypted store in path {}", path.display());
+                SledStore::open_with_passphrase(path, passphrase)?
+            } else {
+                info!("Opening store in path {}", path.display());
+                SledStore::open_with_path(path)?
+            }
         } else {
             SledStore::open()?
         };
@@ -301,10 +306,7 @@ impl BaseClient {
             #[cfg(feature = "encryption")]
             cryptostore: Mutex::new(config.crypto_store).into(),
             store_path: config.store_path.into(),
-            store_passphrase: config
-                .passphrase
-                .unwrap_or_else(|| Zeroizing::new("DEFAULT_PASSPHRASE".to_owned()))
-                .into(),
+            store_passphrase: config.passphrase.into(),
             event_emitter: RwLock::new(None).into(),
         })
     }
@@ -377,7 +379,7 @@ impl BaseClient {
                             &session.user_id,
                             &session.device_id,
                             path,
-                            &self.store_passphrase,
+                            self.store_passphrase.as_deref().map(|p| p.as_str()),
                         )
                         .await
                         .map_err(OlmError::from)?,

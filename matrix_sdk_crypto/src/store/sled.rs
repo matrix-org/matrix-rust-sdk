@@ -81,11 +81,11 @@ impl From<TransactionError<serde_json::Error>> for CryptoStoreError {
 }
 
 impl SledStore {
-    pub fn open_with_passphrase(path: impl AsRef<Path>, passphrase: &str) -> Result<Self> {
+    pub fn open_with_passphrase(path: impl AsRef<Path>, passphrase: Option<&str>) -> Result<Self> {
         let path = path.as_ref().join("matrix-sdk-crypto");
         let db = Config::new().temporary(false).path(path).open()?;
 
-        SledStore::open_helper(db, Some(passphrase))
+        SledStore::open_helper(db, passphrase)
     }
 
     fn open_helper(db: Db, passphrase: Option<&str>) -> Result<Self> {

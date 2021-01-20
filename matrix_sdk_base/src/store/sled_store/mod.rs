@@ -14,7 +14,7 @@
 
 mod store_key;
 
-use std::{convert::TryFrom, path::Path, time::SystemTime};
+use std::{convert::TryFrom, path::Path, sync::Arc, time::SystemTime};
 
 use futures::stream::{self, Stream};
 use matrix_sdk_common::{
@@ -25,6 +25,7 @@ use matrix_sdk_common::{
     },
     identifiers::{RoomId, UserId},
 };
+use serde::{Deserialize, Serialize};
 
 use sled::{
     transaction::{ConflictableTransactionError, TransactionError},
@@ -34,11 +35,20 @@ use tracing::info;
 
 use crate::deserialized_responses::MemberEvent;
 
+use self::store_key::{EncryptedEvent, StoreKey};
+
 use super::{Result, RoomInfo, StateChanges, StoreError};
+
+#[derive(Debug, Serialize, Deserialize)]
+pub enum DatabaseType {
+    Unencrypted,
+    Encrypted(store_key::EncryptedStoreKey),
+}
 
 #[derive(Debug, Clone)]
 pub struct SledStore {
     inner: Db,
+    store_key: Arc<Option<StoreKey>>,
     session: Tree,
     account_data: Tree,
     members: Tree,
@@ -55,7 +65,7 @@ pub struct SledStore {
 }
 
 impl SledStore {
-    fn open_helper(db: Db) -> Result<Self> {
+    fn open_helper(db: Db, store_key: Option<StoreKey>) -> Result<Self> {
         let session = db.open_tree("session")?;
         let account_data = db.open_tree("account_data")?;
 
@@ -75,6 +85,7 @@ impl SledStore {
 
         Ok(Self {
             inner: db,
+            store_key: store_key.into(),
             session,
             account_data,
             members,
@@ -94,14 +105,64 @@ impl SledStore {
     pub fn open() -> Result<Self> {
         let db = Config::new().temporary(true).open()?;
 
-        SledStore::open_helper(db)
+        SledStore::open_helper(db, None)
+    }
+
+    pub fn open_with_passphrase(path: impl AsRef<Path>, passphrase: &str) -> Result<Self> {
+        let path = path.as_ref().join("matrix-sdk-state");
+        let db = Config::new().temporary(false).path(path).open()?;
+
+        let store_key: Option<DatabaseType> = db
+            .get("store_key")?
+            .map(|k| serde_json::from_slice(&k).map_err(StoreError::Json))
+            .transpose()?;
+
+        let store_key = if let Some(key) = store_key {
+            if let DatabaseType::Encrypted(k) = key {
+                let key = StoreKey::import(passphrase, k).unwrap();
+                key
+            } else {
+                panic!("Trying to open an unencrypted store with a passphrase");
+            }
+        } else {
+            let key = StoreKey::new();
+            let encrypted_key = DatabaseType::Encrypted(key.export(passphrase));
+            db.insert("store_key", serde_json::to_vec(&encrypted_key)?)?;
+            key
+        };
+
+        SledStore::open_helper(db, Some(store_key))
     }
 
     pub fn open_with_path(path: impl AsRef<Path>) -> Result<Self> {
         let path = path.as_ref().join("matrix-sdk-state");
         let db = Config::new().temporary(false).path(path).open()?;
 
-        SledStore::open_helper(db)
+        SledStore::open_helper(db, None)
+    }
+
+    fn serialize_event(
+        &self,
+        event: &impl Serialize,
+    ) -> std::result::Result<Vec<u8>, serde_json::Error> {
+        if let Some(key) = &*self.store_key {
+            let encrypted = key.encrypt(event).unwrap();
+            serde_json::to_vec(&encrypted)
+        } else {
+            serde_json::to_vec(event)
+        }
+    }
+
+    fn deserialize_event<T: for<'b> Deserialize<'b>>(
+        &self,
+        event: &[u8],
+    ) -> std::result::Result<T, serde_json::Error> {
+        if let Some(key) = &*self.store_key {
+            let encrypted: EncryptedEvent = serde_json::from_slice(&event)?;
+            Ok(key.decrypt(encrypted).unwrap())
+        } else {
+            serde_json::from_slice(event)
+        }
     }
 
     pub async fn save_filter(&self, filter_name: &str, filter_id: &str) -> Result<()> {
@@ -184,7 +245,7 @@ impl SledStore {
 
                             members.insert(
                                 format!("{}{}", room.as_str(), &event.state_key).as_str(),
-                                serde_json::to_vec(&event)
+                                self.serialize_event(&event)
                                     .map_err(ConflictableTransactionError::Abort)?,
                             )?;
                         }
@@ -194,7 +255,7 @@ impl SledStore {
                         for (user_id, profile) in users {
                             profiles.insert(
                                 format!("{}{}", room.as_str(), user_id.as_str()).as_str(),
-                                serde_json::to_vec(&profile)
+                                self.serialize_event(&profile)
                                     .map_err(ConflictableTransactionError::Abort)?,
                             )?;
                         }
@@ -203,7 +264,7 @@ impl SledStore {
                     for (event_type, event) in &changes.account_data {
                         account_data.insert(
                             event_type.as_str(),
-                            serde_json::to_vec(&event)
+                            self.serialize_event(&event)
                                 .map_err(ConflictableTransactionError::Abort)?,
                         )?;
                     }
@@ -212,7 +273,7 @@ impl SledStore {
                         for (event_type, event) in events {
                             room_account_data.insert(
                                 format!("{}{}", room.as_str(), event_type).as_str(),
-                                serde_json::to_vec(&event)
+                                self.serialize_event(&event)
                                     .map_err(ConflictableTransactionError::Abort)?,
                             )?;
                         }
@@ -229,7 +290,7 @@ impl SledStore {
                                         event.state_key(),
                                     )
                                     .as_bytes(),
-                                    serde_json::to_vec(&event)
+                                    self.serialize_event(&event)
                                         .map_err(ConflictableTransactionError::Abort)?,
                                 )?;
                             }
@@ -239,7 +300,7 @@ impl SledStore {
                     for (room_id, room_info) in &changes.room_infos {
                         rooms.insert(
                             room_id.as_bytes(),
-                            serde_json::to_vec(room_info)
+                            self.serialize_event(room_info)
                                 .map_err(ConflictableTransactionError::Abort)?,
                         )?;
                     }
@@ -247,7 +308,7 @@ impl SledStore {
                     for (sender, event) in &changes.presence {
                         presence.insert(
                             sender.as_bytes(),
-                            serde_json::to_vec(&event)
+                            self.serialize_event(&event)
                                 .map_err(ConflictableTransactionError::Abort)?,
                         )?;
                     }
@@ -255,7 +316,7 @@ impl SledStore {
                     for (room_id, info) in &changes.invited_room_info {
                         striped_rooms.insert(
                             room_id.as_str(),
-                            serde_json::to_vec(&info)
+                            self.serialize_event(&info)
                                 .map_err(ConflictableTransactionError::Abort)?,
                         )?;
                     }
@@ -264,7 +325,7 @@ impl SledStore {
                         for event in events.values() {
                             stripped_members.insert(
                                 format!("{}{}", room.as_str(), &event.state_key).as_str(),
-                                serde_json::to_vec(&event)
+                                self.serialize_event(&event)
                                     .map_err(ConflictableTransactionError::Abort)?,
                             )?;
                         }
@@ -281,7 +342,7 @@ impl SledStore {
                                         event.state_key(),
                                     )
                                     .as_bytes(),
-                                    serde_json::to_vec(&event)
+                                    self.serialize_event(&event)
                                         .map_err(ConflictableTransactionError::Abort)?,
                                 )?;
                             }
@@ -305,7 +366,7 @@ impl SledStore {
         Ok(self
             .presence
             .get(user_id.as_bytes())?
-            .map(|e| serde_json::from_slice(&e))
+            .map(|e| self.deserialize_event(&e))
             .transpose()?)
     }
 
@@ -318,7 +379,7 @@ impl SledStore {
         Ok(self
             .room_state
             .get(format!("{}{}{}", room_id.as_str(), event_type, state_key).as_bytes())?
-            .map(|e| serde_json::from_slice(&e))
+            .map(|e| self.deserialize_event(&e))
             .transpose()?)
     }
 
@@ -330,7 +391,7 @@ impl SledStore {
         Ok(self
             .profiles
             .get(format!("{}{}", room_id.as_str(), user_id.as_str()))?
-            .map(|p| serde_json::from_slice(&p))
+            .map(|p| self.deserialize_event(&p))
             .transpose()?)
     }
 
@@ -342,7 +403,7 @@ impl SledStore {
         Ok(self
             .members
             .get(format!("{}{}", room_id.as_str(), state_key.as_str()))?
-            .map(|v| serde_json::from_slice(&v))
+            .map(|v| self.deserialize_event(&v))
             .transpose()?)
     }
 
@@ -375,10 +436,11 @@ impl SledStore {
     }
 
     pub async fn get_room_infos(&self) -> impl Stream<Item = Result<RoomInfo>> {
+        let db = self.clone();
         stream::iter(
             self.room_info
                 .iter()
-                .map(|r| serde_json::from_slice(&r?.1).map_err(StoreError::Json)),
+                .map(move |r| db.deserialize_event(&r?.1).map_err(StoreError::Json)),
         )
     }
 }
