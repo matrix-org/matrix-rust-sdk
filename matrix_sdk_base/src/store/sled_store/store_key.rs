@@ -20,13 +20,15 @@ use chacha20poly1305::{
     aead::{Aead, Error as EncryptionError, NewAead},
     ChaCha20Poly1305, Key, Nonce, XChaCha20Poly1305, XNonce,
 };
-use getrandom::getrandom;
 use hmac::Hmac;
 use pbkdf2::pbkdf2;
+use rand::{thread_rng, Error as RngError, Fill};
 use sha2::Sha256;
 use zeroize::{Zeroize, Zeroizing};
 
 use serde::{Deserialize, Serialize};
+
+use crate::StoreError;
 
 const VERSION: u8 = 1;
 const KEY_SIZE: usize = 32;
@@ -44,6 +46,18 @@ pub enum Error {
     Serialization(#[from] serde_json::Error),
     #[error("Error encrypting or decrypting an event {0}")]
     Encryption(String),
+    #[error("Error generating enough random data for a cryptographic operation")]
+    Random(#[from] RngError),
+}
+
+impl Into<StoreError> for Error {
+    fn into(self) -> StoreError {
+        match self {
+            Error::Serialization(e) => StoreError::Json(e),
+            Error::Encryption(e) => StoreError::Encryption(e),
+            Error::Random(_) => StoreError::Encryption(self.to_string()),
+        }
+    }
 }
 
 impl From<EncryptionError> for Error {
@@ -100,15 +114,6 @@ pub struct StoreKey {
     inner: Vec<u8>,
 }
 
-impl Default for StoreKey {
-    fn default() -> Self {
-        let mut key = vec![0u8; KEY_SIZE];
-        getrandom(&mut key).expect("Can't generate new store key");
-
-        Self { inner: key }
-    }
-}
-
 impl TryFrom<Vec<u8>> for StoreKey {
     type Error = ();
 
@@ -123,8 +128,12 @@ impl TryFrom<Vec<u8>> for StoreKey {
 
 impl StoreKey {
     /// Generate a new random store key.
-    pub fn new() -> Self {
-        Default::default()
+    pub fn new() -> Result<Self, Error> {
+        let mut key = vec![0u8; KEY_SIZE];
+        let mut rng = thread_rng();
+        key.try_fill(&mut rng)?;
+
+        Ok(Self { inner: key })
     }
 
     /// Expand the given passphrase into a KEY_SIZE long key.
@@ -145,40 +154,44 @@ impl StoreKey {
     ///
     /// * `passphrase` - The passphrase that should be used to encrypt the
     /// store key.
-    pub fn export(&self, passphrase: &str) -> EncryptedStoreKey {
+    pub fn export(&self, passphrase: &str) -> Result<EncryptedStoreKey, Error> {
+        let mut rng = thread_rng();
+
         let mut salt = vec![0u8; KDF_SALT_SIZE];
-        getrandom(&mut salt).expect("Can't generate new random store key");
+        salt.try_fill(&mut rng)?;
 
         let key = StoreKey::expand_key(passphrase, &salt, KDF_ROUNDS);
         let key = Key::from_slice(key.as_ref());
         let cipher = ChaCha20Poly1305::new(&key);
 
         let mut nonce = vec![0u8; NONCE_SIZE];
-        getrandom(&mut nonce).expect("Can't generate new random nonce for the store key");
+        nonce.try_fill(&mut rng)?;
 
-        let ciphertext = cipher
-            .encrypt(Nonce::from_slice(nonce.as_ref()), self.inner.as_slice())
-            .expect("Can't encrypt store key");
+        let ciphertext =
+            cipher.encrypt(Nonce::from_slice(nonce.as_ref()), self.inner.as_slice())?;
 
-        EncryptedStoreKey {
+        Ok(EncryptedStoreKey {
             kdf_info: KdfInfo::Pbkdf2ToChaCha20Poly1305 {
                 rounds: KDF_ROUNDS,
                 kdf_salt: salt,
             },
             ciphertext_info: CipherTextInfo::ChaCha20Poly1305 { nonce, ciphertext },
-        }
+        })
     }
 
-    fn get_nonce() -> Vec<u8> {
+    fn get_nonce() -> Result<Vec<u8>, RngError> {
         let mut nonce = vec![0u8; XNONCE_SIZE];
-        getrandom(&mut nonce).expect("Can't get random nonce");
-        nonce
+        let mut rng = thread_rng();
+
+        nonce.try_fill(&mut rng)?;
+
+        Ok(nonce)
     }
 
     pub fn encrypt(&self, event: &impl Serialize) -> Result<EncryptedEvent, Error> {
         let event = serde_json::to_vec(event)?;
 
-        let nonce = StoreKey::get_nonce();
+        let nonce = StoreKey::get_nonce()?;
         let cipher = XChaCha20Poly1305::new(self.key());
         let xnonce = XNonce::from_slice(&nonce);
 
@@ -241,15 +254,15 @@ mod test {
 
     #[test]
     fn generating() {
-        StoreKey::new();
+        StoreKey::new().unwrap();
     }
 
     #[test]
     fn encrypting() {
         let passphrase = "it's a secret to everybody";
-        let store_key = StoreKey::new();
+        let store_key = StoreKey::new().unwrap();
 
-        let encrypted = store_key.export(passphrase);
+        let encrypted = store_key.export(passphrase).unwrap();
         let decrypted = StoreKey::import(passphrase, encrypted).unwrap();
 
         assert_eq!(store_key, decrypted);
@@ -270,7 +283,7 @@ mod test {
             },
         });
 
-        let store_key = StoreKey::new();
+        let store_key = StoreKey::new().unwrap();
 
         let encrypted = store_key.encrypt(&event).unwrap();
         let decrypted: Value = store_key.decrypt(encrypted).unwrap();

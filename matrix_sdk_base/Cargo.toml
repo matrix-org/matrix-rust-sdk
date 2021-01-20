@@ -36,7 +36,7 @@ matrix-sdk-crypto = { version = "0.2.0", path = "../matrix_sdk_crypto", optional
 thiserror = "1.0.23"
 sled = "0.34.6"
 chacha20poly1305 = "0.7.1"
-getrandom = "0.2.1"
+rand = "0.8.2"
 zeroize = { version = "1.2.0", features = ["zeroize_derive"] }
 pbkdf2 = { version = "0.6.0", default-features = false }
 hmac = "0.10.1"

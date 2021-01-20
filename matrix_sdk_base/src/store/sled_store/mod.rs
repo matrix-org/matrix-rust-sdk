@@ -67,6 +67,7 @@ impl From<SerializationError> for StoreError {
         match e {
             SerializationError::Json(e) => StoreError::Json(e),
             SerializationError::Encryption(e) => match e {
+                store_key::Error::Random(e) => StoreError::Encryption(e.to_string()),
                 store_key::Error::Serialization(e) => StoreError::Json(e),
                 store_key::Error::Encryption(e) => StoreError::Encryption(e),
             },
@@ -153,8 +154,11 @@ impl SledStore {
                 return Err(StoreError::UnencryptedStore);
             }
         } else {
-            let key = StoreKey::new();
-            let encrypted_key = DatabaseType::Encrypted(key.export(passphrase));
+            let key = StoreKey::new().map_err::<StoreError, _>(|e| e.into())?;
+            let encrypted_key = DatabaseType::Encrypted(
+                key.export(passphrase)
+                    .map_err::<StoreError, _>(|e| e.into())?,
+            );
             db.insert("store_key", serde_json::to_vec(&encrypted_key)?)?;
             key
         };
