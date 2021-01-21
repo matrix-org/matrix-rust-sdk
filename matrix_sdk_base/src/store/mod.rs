@@ -28,7 +28,7 @@ use matrix_sdk_common::{
 
 use crate::{
     deserialized_responses::{MemberEvent, StrippedMemberEvent},
-    rooms::{RoomInfo, RoomType, StrippedRoom},
+    rooms::{RoomInfo, RoomType, StrippedRoom, StrippedRoomInfo},
     InvitedRoom, JoinedRoom, LeftRoom, Room, RoomState, Session,
 };
 
@@ -231,7 +231,7 @@ pub struct StateChanges {
 
     pub stripped_state: BTreeMap<RoomId, BTreeMap<String, BTreeMap<String, AnyStrippedStateEvent>>>,
     pub stripped_members: BTreeMap<RoomId, BTreeMap<UserId, StrippedMemberEvent>>,
-    pub invited_room_info: BTreeMap<RoomId, RoomInfo>,
+    pub invited_room_info: BTreeMap<RoomId, StrippedRoomInfo>,
 }
 
 impl StateChanges {
@@ -248,6 +248,11 @@ impl StateChanges {
 
     pub fn add_room(&mut self, room: RoomInfo) {
         self.room_infos
+            .insert(room.room_id.as_ref().to_owned(), room);
+    }
+
+    pub fn add_stripped_room(&mut self, room: StrippedRoomInfo) {
+        self.invited_room_info
             .insert(room.room_id.as_ref().to_owned(), room);
     }
 

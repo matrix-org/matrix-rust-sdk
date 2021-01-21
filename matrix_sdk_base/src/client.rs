@@ -821,6 +821,7 @@ impl BaseClient {
                 .handle_room_account_data(&room_id, &new_info.account_data.events, &mut changes)
                 .await;
 
+            changes.add_room(room_info);
             rooms
                 .leave
                 .insert(room_id, LeftRoom::new(timeline, state, account_data));
@@ -845,6 +846,7 @@ impl BaseClient {
 
             changes.stripped_members.insert(room_id.clone(), members);
             changes.stripped_state.insert(room_id.clone(), state_events);
+            changes.add_stripped_room(room_info);
 
             let room = InvitedRoom {
                 invite_state: state,
