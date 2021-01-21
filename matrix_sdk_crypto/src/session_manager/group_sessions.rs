@@ -218,21 +218,37 @@ impl GroupSessionManager {
             .collect::<HashSet<_>>()
             .is_empty();
 
-        let mut device_got_deleted = false;
+        let mut device_got_deleted_or_blacklisted = false;
 
         for user_id in users {
             let user_devices = self.store.get_user_devices(&user_id).await?;
 
-            // If no device got deleted until now and no user left check if one
-            // got deleted for this user.
-            if !device_got_deleted && !user_left {
-                let device_ids: HashSet<&DeviceId> =
-                    user_devices.keys().map(|d| d.as_ref()).collect();
+            // If no device got deleted or blacklisted until now and no user
+            // left check if one got deleted or blacklisted for this user.
+            if !device_got_deleted_or_blacklisted && !user_left {
+                // Devices that should receive this session
+                let device_ids: HashSet<&DeviceId> = user_devices
+                    .keys()
+                    .filter(|d| {
+                        !user_devices
+                            .get(d)
+                            .map(|d| d.is_blacklisted())
+                            .unwrap_or(false)
+                    })
+                    .map(|d| d.as_ref())
+                    .collect();
 
-                device_got_deleted = if let Some(shared) = outbound.shared_with_set.get(user_id) {
+                device_got_deleted_or_blacklisted = if let Some(shared) =
+                    outbound.shared_with_set.get(user_id)
+                {
                     #[allow(clippy::map_clone)]
+                    // Devices that received this session
                     let shared: HashSet<DeviceIdBox> = shared.iter().map(|d| d.clone()).collect();
                     let shared: HashSet<&DeviceId> = shared.iter().map(|d| d.as_ref()).collect();
+
+                    // The difference between the devices that received the
+                    // session and devices that should receive the session are
+                    // our deleted or newly blacklisted devices
                     !shared
                         .difference(&device_ids)
                         .collect::<HashSet<_>>()
@@ -249,9 +265,9 @@ impl GroupSessionManager {
         }
 
         // To protect the room history we need to rotate the session if a user
-        // left or if a device got deleted, put differently if someone leaves
-        // the encrypted group.
-        let should_rotate = user_left || device_got_deleted;
+        // left or if a device got deleted/blacklisted, put differently if
+        // someone leaves or gets removed from the encrypted group.
+        let should_rotate = user_left || device_got_deleted_or_blacklisted;
 
         Ok((should_rotate, devices))
     }
