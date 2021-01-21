@@ -12,6 +12,7 @@ version = "0.2.0"
 
 [features]
 unstable-synapse-quirks = ["ruma/unstable-synapse-quirks"]
+markdown = ["ruma/markdown"]
 
 [dependencies]
 instant = { version = "0.1.9", features = ["wasm-bindgen", "now"] }

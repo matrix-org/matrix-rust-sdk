@@ -43,6 +43,7 @@
 //! destroyed.
 //! * `unstable-synapse-quirks`: Enables support to deal with inconsistencies
 //! of Synapse in compliance with the Matrix API specification.
+//! * `markdown`: Support for sending markdown formatted messages.
 //! * `socks`: Enables SOCKS support in reqwest, the default HTTP client.
 
 #![deny(
