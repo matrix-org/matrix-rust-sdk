@@ -26,6 +26,7 @@
 //! destroyed.
 //! * `unstable-synapse-quirks`: Enables support to deal with inconsistencies
 //! of Synapse in compliance with the Matrix API specification.
+//! * `markdown`: Support for sending markdown formatted messages.
 #![deny(
     missing_debug_implementations,
     trivial_casts,

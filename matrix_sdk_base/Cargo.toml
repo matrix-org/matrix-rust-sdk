@@ -20,6 +20,7 @@ messages = []
 encryption = ["matrix-sdk-crypto"]
 sled_cryptostore = ["matrix-sdk-crypto/sled_cryptostore"]
 unstable-synapse-quirks = ["matrix-sdk-common/unstable-synapse-quirks"]
+markdown = ["matrix-sdk-common/markdown"]
 
 docs = ["encryption", "sled_cryptostore", "messages"]
 
