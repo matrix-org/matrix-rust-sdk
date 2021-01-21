@@ -1743,7 +1743,9 @@ impl Client {
 
             #[cfg(feature = "encryption")]
             {
-                if let Err(e) = self.claim_one_time_keys(&mut [].iter()).await {
+                // This is needed because sometimes we need to automatically
+                // claim some one-time keys to unwedge an exisitng Olm session.
+                if let Err(e) = self.claim_one_time_keys([].iter()).await {
                     warn!("Error while claiming one-time keys {:?}", e);
                 }
 
