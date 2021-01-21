@@ -758,12 +758,12 @@ impl BaseClient {
                 if let Some(o) = self.olm_machine().await {
                     if !room.is_encrypted() {
                         // The room turned on encryption in this sync, we need
-                        // to get also all the existing users and mark them for
+                        // to also get all the existing users and mark them for
                         // tracking.
                         let joined = self.store.get_joined_user_ids(&room_id).await?;
                         let invited = self.store.get_invited_user_ids(&room_id).await?;
 
-                        let user_ids = joined.iter().chain(&invited);
+                        let user_ids: Vec<&UserId> = joined.iter().chain(&invited).collect();
                         o.update_tracked_users(user_ids).await
                     }
 
