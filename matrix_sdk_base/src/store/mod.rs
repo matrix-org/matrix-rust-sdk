@@ -32,8 +32,10 @@ use crate::{
     InvitedRoom, JoinedRoom, LeftRoom, Room, RoomState, Session,
 };
 
+mod memory_store;
 mod sled_store;
-pub use sled_store::SledStore;
+
+use self::{memory_store::MemoryStore, sled_store::SledStore};
 
 #[derive(Debug, thiserror::Error)]
 pub enum StoreError {
@@ -96,20 +98,19 @@ pub trait StateStore: AsyncTraitDeps {
 #[derive(Debug, Clone)]
 pub struct Store {
     inner: Arc<Box<dyn StateStore>>,
-    session: Arc<RwLock<Option<Session>>>,
-    sync_token: Arc<RwLock<Option<String>>>,
+    pub(crate) session: Arc<RwLock<Option<Session>>>,
+    pub(crate) sync_token: Arc<RwLock<Option<String>>>,
     rooms: Arc<DashMap<RoomId, Room>>,
     stripped_rooms: Arc<DashMap<RoomId, StrippedRoom>>,
 }
 
 impl Store {
-    pub fn new(
-        session: Arc<RwLock<Option<Session>>>,
-        sync_token: Arc<RwLock<Option<String>>>,
-        inner: SledStore,
-    ) -> Self {
+    fn new(inner: Box<dyn StateStore>) -> Self {
+        let session = Arc::new(RwLock::new(None));
+        let sync_token = Arc::new(RwLock::new(None));
+
         Self {
-            inner: Arc::new(Box::new(inner)),
+            inner: inner.into(),
             session,
             sync_token,
             rooms: DashMap::new().into(),
@@ -131,13 +132,26 @@ impl Store {
         Ok(())
     }
 
-    pub fn open_default(path: impl AsRef<Path>) -> Result<Self> {
-        let inner = SledStore::open_with_path(path)?;
-        Ok(Self::new(
-            Arc::new(RwLock::new(None)),
-            Arc::new(RwLock::new(None)),
-            inner,
-        ))
+    pub fn open_memory_store() -> Self {
+        let inner = Box::new(MemoryStore::new());
+
+        Self::new(inner)
+    }
+
+    pub fn open_default(path: impl AsRef<Path>, passphrase: Option<&str>) -> Result<Self> {
+        let inner = if let Some(passphrase) = passphrase {
+            Box::new(SledStore::open_with_passphrase(path, passphrase)?)
+        } else {
+            Box::new(SledStore::open_with_path(path)?)
+        };
+
+        Ok(Self::new(inner))
+    }
+
+    pub fn open_temporrary() -> Result<Self> {
+        let inner = Box::new(SledStore::open()?);
+
+        Ok(Self::new(inner))
     }
 
     pub(crate) fn get_bare_room(&self, room_id: &RoomId) -> Option<Room> {

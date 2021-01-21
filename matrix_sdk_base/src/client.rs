@@ -61,7 +61,7 @@ use crate::{
     event_emitter::Emitter,
     rooms::{RoomInfo, RoomType, StrippedRoomInfo},
     session::Session,
-    store::{Result as StoreResult, SledStore, StateChanges, Store},
+    store::{Result as StoreResult, StateChanges, Store},
     EventEmitter, RoomState,
 };
 
@@ -280,24 +280,19 @@ impl BaseClient {
     /// previous login call.
     pub fn new_with_config(config: BaseClientConfig) -> Result<Self> {
         let store = if let Some(path) = &config.store_path {
-            if let Some(passphrase) = &config.passphrase {
+            if config.passphrase.is_some() {
                 info!("Opening an encrypted store in path {}", path.display());
-                SledStore::open_with_passphrase(path, passphrase)?
             } else {
                 info!("Opening store in path {}", path.display());
-                SledStore::open_with_path(path)?
             }
+            Store::open_default(path, config.passphrase.as_deref().map(|p| p.as_str()))?
         } else {
-            SledStore::open()?
+            Store::open_temporrary()?
         };
 
-        let session = Arc::new(RwLock::new(None));
-        let sync_token = Arc::new(RwLock::new(None));
-        let store = Store::new(session.clone(), sync_token.clone(), store);
-
         Ok(BaseClient {
-            session,
-            sync_token,
+            session: store.session.clone(),
+            sync_token: store.sync_token.clone(),
             store,
             #[cfg(feature = "encryption")]
             olm: Mutex::new(None).into(),
