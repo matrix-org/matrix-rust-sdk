@@ -16,8 +16,12 @@ mod store_key;
 
 use std::{convert::TryFrom, path::Path, sync::Arc, time::SystemTime};
 
-use futures::stream::{self, Stream};
+use futures::{
+    stream::{self, Stream},
+    TryStreamExt,
+};
 use matrix_sdk_common::{
+    async_trait,
     events::{
         presence::PresenceEvent,
         room::member::{MemberEventContent, MembershipState},
@@ -37,7 +41,7 @@ use crate::deserialized_responses::MemberEvent;
 
 use self::store_key::{EncryptedEvent, StoreKey};
 
-use super::{Result, RoomInfo, StateChanges, StoreError};
+use super::{Result, RoomInfo, StateChanges, StateStore, StoreError};
 
 #[derive(Debug, Serialize, Deserialize)]
 pub enum DatabaseType {
@@ -474,6 +478,66 @@ impl SledStore {
                 .iter()
                 .map(move |r| db.deserialize_event(&r?.1).map_err(|e| e.into())),
         )
+    }
+}
+
+#[async_trait]
+impl StateStore for SledStore {
+    async fn save_filter(&self, filter_name: &str, filter_id: &str) -> Result<()> {
+        self.save_filter(filter_name, filter_id).await
+    }
+
+    async fn save_changes(&self, changes: &StateChanges) -> Result<()> {
+        self.save_changes(changes).await
+    }
+
+    async fn get_filter(&self, filter_id: &str) -> Result<Option<String>> {
+        self.get_filter(filter_id).await
+    }
+
+    async fn get_sync_token(&self) -> Result<Option<String>> {
+        self.get_sync_token().await
+    }
+
+    async fn get_presence_event(&self, user_id: &UserId) -> Result<Option<PresenceEvent>> {
+        self.get_presence_event(user_id).await
+    }
+
+    async fn get_state_event(
+        &self,
+        room_id: &RoomId,
+        event_type: EventType,
+        state_key: &str,
+    ) -> Result<Option<AnySyncStateEvent>> {
+        self.get_state_event(room_id, event_type, state_key).await
+    }
+
+    async fn get_profile(
+        &self,
+        room_id: &RoomId,
+        user_id: &UserId,
+    ) -> Result<Option<MemberEventContent>> {
+        self.get_profile(room_id, user_id).await
+    }
+
+    async fn get_member_event(
+        &self,
+        room_id: &RoomId,
+        state_key: &UserId,
+    ) -> Result<Option<MemberEvent>> {
+        self.get_member_event(room_id, state_key).await
+    }
+
+    async fn get_invited_user_ids(&self, room_id: &RoomId) -> Result<Vec<UserId>> {
+        self.get_invited_user_ids(room_id).await.try_collect().await
+    }
+
+    async fn get_joined_user_ids(&self, room_id: &RoomId) -> Result<Vec<UserId>> {
+        self.get_joined_user_ids(room_id).await.try_collect().await
+    }
+
+    async fn get_room_infos(&self) -> Result<Vec<RoomInfo>> {
+        self.get_room_infos().await.try_collect().await
     }
 }
 

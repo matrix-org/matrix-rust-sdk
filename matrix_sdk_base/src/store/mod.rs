@@ -15,14 +15,15 @@
 use std::{collections::BTreeMap, ops::Deref, path::Path, sync::Arc};
 
 use dashmap::DashMap;
-use futures::stream::StreamExt;
 use matrix_sdk_common::{
+    async_trait,
     events::{
         presence::PresenceEvent, room::member::MemberEventContent, AnyBasicEvent,
-        AnyStrippedStateEvent, AnySyncStateEvent, EventContent,
+        AnyStrippedStateEvent, AnySyncStateEvent, EventContent, EventType,
     },
     identifiers::{RoomId, UserId},
     locks::RwLock,
+    AsyncTraitDeps,
 };
 
 use crate::{
@@ -53,9 +54,48 @@ pub enum StoreError {
 /// A `StateStore` specific result type.
 pub type Result<T> = std::result::Result<T, StoreError>;
 
+#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+pub trait StateStore: AsyncTraitDeps {
+    async fn save_filter(&self, filter_name: &str, filter_id: &str) -> Result<()>;
+
+    async fn save_changes(&self, changes: &StateChanges) -> Result<()>;
+
+    async fn get_filter(&self, filter_id: &str) -> Result<Option<String>>;
+
+    async fn get_sync_token(&self) -> Result<Option<String>>;
+
+    async fn get_presence_event(&self, user_id: &UserId) -> Result<Option<PresenceEvent>>;
+
+    async fn get_state_event(
+        &self,
+        room_id: &RoomId,
+        event_type: EventType,
+        state_key: &str,
+    ) -> Result<Option<AnySyncStateEvent>>;
+
+    async fn get_profile(
+        &self,
+        room_id: &RoomId,
+        user_id: &UserId,
+    ) -> Result<Option<MemberEventContent>>;
+
+    async fn get_member_event(
+        &self,
+        room_id: &RoomId,
+        state_key: &UserId,
+    ) -> Result<Option<MemberEvent>>;
+
+    async fn get_invited_user_ids(&self, room_id: &RoomId) -> Result<Vec<UserId>>;
+
+    async fn get_joined_user_ids(&self, room_id: &RoomId) -> Result<Vec<UserId>>;
+
+    async fn get_room_infos(&self) -> Result<Vec<RoomInfo>>;
+}
+
 #[derive(Debug, Clone)]
 pub struct Store {
-    inner: SledStore,
+    inner: Arc<Box<dyn StateStore>>,
     session: Arc<RwLock<Option<Session>>>,
     sync_token: Arc<RwLock<Option<String>>>,
     rooms: Arc<DashMap<RoomId, Room>>,
@@ -69,7 +109,7 @@ impl Store {
         inner: SledStore,
     ) -> Self {
         Self {
-            inner,
+            inner: Arc::new(Box::new(inner)),
             session,
             sync_token,
             rooms: DashMap::new().into(),
@@ -78,11 +118,8 @@ impl Store {
     }
 
     pub(crate) async fn restore_session(&self, session: Session) -> Result<()> {
-        let mut infos = self.inner.get_room_infos().await;
-
-        // TODO restore stripped rooms.
-        while let Some(info) = infos.next().await {
-            let room = Room::restore(&session.user_id, self.inner.clone(), info?);
+        for info in self.inner.get_room_infos().await?.into_iter() {
+            let room = Room::restore(&session.user_id, self.inner.clone(), info);
             self.rooms.insert(room.room_id().to_owned(), room);
         }
 
@@ -172,7 +209,7 @@ impl Store {
 }
 
 impl Deref for Store {
-    type Target = SledStore;
+    type Target = Box<dyn StateStore>;
 
     fn deref(&self) -> &Self::Target {
         &self.inner

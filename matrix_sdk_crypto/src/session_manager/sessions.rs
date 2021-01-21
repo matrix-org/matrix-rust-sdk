@@ -188,7 +188,7 @@ impl SessionManager {
     /// [`receive_keys_claim_response`]: #method.receive_keys_claim_response
     pub async fn get_missing_sessions(
         &self,
-        users: &mut impl Iterator<Item = &UserId>,
+        users: impl Iterator<Item = &UserId>,
     ) -> OlmResult<Option<(Uuid, KeysClaimRequest)>> {
         let mut missing = BTreeMap::new();
 

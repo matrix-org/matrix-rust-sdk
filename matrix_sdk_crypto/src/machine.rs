@@ -502,7 +502,7 @@ impl OlmMachine {
     /// [`mark_request_as_sent`]: #method.mark_request_as_sent
     pub async fn get_missing_sessions(
         &self,
-        users: &mut impl Iterator<Item = &UserId>,
+        users: impl Iterator<Item = &UserId>,
     ) -> OlmResult<Option<(Uuid, KeysClaimRequest)>> {
         self.session_manager.get_missing_sessions(users).await
     }

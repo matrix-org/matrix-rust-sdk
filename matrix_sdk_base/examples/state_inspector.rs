@@ -1,6 +1,6 @@
 use std::{convert::TryFrom, fmt::Debug, io, sync::Arc};
 
-use futures::{executor::block_on, TryStreamExt};
+use futures::executor::block_on;
 use serde::Serialize;
 
 use atty::Stream;
@@ -86,14 +86,7 @@ impl InspectorHelper {
     }
 
     fn complete_rooms(&self, arg: Option<&&str>) -> Vec<Pair> {
-        let rooms: Vec<RoomInfo> = block_on(async {
-            self.store
-                .get_room_infos()
-                .await
-                .try_collect()
-                .await
-                .unwrap()
-        });
+        let rooms: Vec<RoomInfo> = block_on(async { self.store.get_room_infos().await.unwrap() });
 
         rooms
             .into_iter()
@@ -286,24 +279,12 @@ impl Inspector {
     }
 
     async fn list_rooms(&self) {
-        let rooms: Vec<RoomInfo> = self
-            .store
-            .get_room_infos()
-            .await
-            .try_collect()
-            .await
-            .unwrap();
+        let rooms: Vec<RoomInfo> = self.store.get_room_infos().await.unwrap();
         self.printer.pretty_print_struct(&rooms);
     }
 
     async fn get_profiles(&self, room_id: RoomId) {
-        let joined: Vec<UserId> = self
-            .store
-            .get_joined_user_ids(&room_id)
-            .await
-            .try_collect()
-            .await
-            .unwrap();
+        let joined: Vec<UserId> = self.store.get_joined_user_ids(&room_id).await.unwrap();
 
         for member in joined {
             let event = self.store.get_profile(&room_id, &member).await.unwrap();
@@ -312,13 +293,7 @@ impl Inspector {
     }
 
     async fn get_members(&self, room_id: RoomId) {
-        let joined: Vec<UserId> = self
-            .store
-            .get_joined_user_ids(&room_id)
-            .await
-            .try_collect()
-            .await
-            .unwrap();
+        let joined: Vec<UserId> = self.store.get_joined_user_ids(&room_id).await.unwrap();
 
         for member in joined {
             let event = self

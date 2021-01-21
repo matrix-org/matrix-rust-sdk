@@ -19,7 +19,7 @@ use std::{
 
 use futures::{
     future,
-    stream::{self, Stream, StreamExt, TryStreamExt},
+    stream::{self, StreamExt},
 };
 use matrix_sdk_common::{
     api::r0::sync::sync_events::RoomSummary as RumaSummary,
@@ -38,7 +38,7 @@ use tracing::info;
 
 use crate::{
     deserialized_responses::UnreadNotificationsCount,
-    store::{Result as StoreResult, SledStore},
+    store::{Result as StoreResult, StateStore},
 };
 
 use super::{BaseRoomInfo, RoomMember};
@@ -48,7 +48,7 @@ pub struct Room {
     room_id: Arc<RoomId>,
     own_user_id: Arc<UserId>,
     inner: Arc<SyncRwLock<RoomInfo>>,
-    store: SledStore,
+    store: Arc<Box<dyn StateStore>>,
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
@@ -72,7 +72,7 @@ pub enum RoomType {
 impl Room {
     pub(crate) fn new(
         own_user_id: &UserId,
-        store: SledStore,
+        store: Arc<Box<dyn StateStore>>,
         room_id: &RoomId,
         room_type: RoomType,
     ) -> Self {
@@ -91,7 +91,11 @@ impl Room {
         Self::restore(own_user_id, store, room_info)
     }
 
-    pub(crate) fn restore(own_user_id: &UserId, store: SledStore, room_info: RoomInfo) -> Self {
+    pub(crate) fn restore(
+        own_user_id: &UserId,
+        store: Arc<Box<dyn StateStore>>,
+        room_info: RoomInfo,
+    ) -> Self {
         Self {
             own_user_id: Arc::new(own_user_id.clone()),
             room_id: room_info.room_id.clone(),
@@ -197,35 +201,40 @@ impl Room {
         self.calculate_name().await
     }
 
-    pub async fn joined_user_ids(&self) -> impl Stream<Item = StoreResult<UserId>> {
+    pub async fn joined_user_ids(&self) -> StoreResult<Vec<UserId>> {
         self.store.get_joined_user_ids(self.room_id()).await
     }
 
-    pub async fn joined_members(&self) -> impl Stream<Item = StoreResult<RoomMember>> + '_ {
-        let joined = self.store.get_joined_user_ids(self.room_id()).await;
+    pub async fn joined_members(&self) -> StoreResult<Vec<RoomMember>> {
+        let joined = self.store.get_joined_user_ids(self.room_id()).await?;
+        let mut members = Vec::new();
 
-        joined.filter_map(move |u| async move {
-            let ret = match u {
-                Ok(u) => self.get_member(&u).await,
-                Err(e) => Err(e),
-            };
+        for u in joined {
+            let m = self.get_member(&u).await?;
 
-            ret.transpose()
-        })
+            if let Some(member) = m {
+                members.push(member);
+            }
+        }
+
+        Ok(members)
     }
 
-    pub async fn active_members(&self) -> impl Stream<Item = StoreResult<RoomMember>> + '_ {
-        let joined = self.store.get_joined_user_ids(self.room_id()).await;
-        let invited = self.store.get_invited_user_ids(self.room_id()).await;
+    pub async fn active_members(&self) -> StoreResult<Vec<RoomMember>> {
+        let joined = self.store.get_joined_user_ids(self.room_id()).await?;
+        let invited = self.store.get_invited_user_ids(self.room_id()).await?;
 
-        joined.chain(invited).filter_map(move |u| async move {
-            let ret = match u {
-                Ok(u) => self.get_member(&u).await,
-                Err(e) => Err(e),
-            };
+        let mut members = Vec::new();
 
-            ret.transpose()
-        })
+        for u in joined.iter().chain(&invited) {
+            let m = self.get_member(u).await?;
+
+            if let Some(member) = m {
+                members.push(member);
+            }
+        }
+
+        Ok(members)
     }
 
     /// Calculate the canonical display name of the room, taking into account
@@ -257,13 +266,13 @@ impl Room {
         let is_own_member = |m: &RoomMember| m.user_id() == &*self.own_user_id;
         let is_own_user_id = |u: &str| u == self.own_user_id().as_str();
 
-        let members: StoreResult<Vec<RoomMember>> = if summary.heroes.is_empty() {
+        let members: Vec<RoomMember> = if summary.heroes.is_empty() {
             self.active_members()
-                .await
-                .try_filter(|u| future::ready(!is_own_member(&u)))
+                .await?
+                .into_iter()
+                .filter(|u| !is_own_member(&u))
                 .take(5)
-                .try_collect()
-                .await
+                .collect()
         } else {
             let members: Vec<_> = stream::iter(summary.heroes.iter())
                 .filter(|u| future::ready(!is_own_user_id(u)))
@@ -274,7 +283,9 @@ impl Room {
                 .collect()
                 .await;
 
-            members.into_iter().collect()
+            let members: StoreResult<Vec<_>> = members.into_iter().collect();
+
+            members?
         };
 
         info!(
@@ -288,7 +299,7 @@ impl Room {
         let inner = self.inner.read().unwrap();
         Ok(inner
             .base_info
-            .calculate_room_name(joined, invited, members?))
+            .calculate_room_name(joined, invited, members))
     }
 
     pub(crate) fn clone_info(&self) -> RoomInfo {

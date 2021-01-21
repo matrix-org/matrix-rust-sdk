@@ -23,8 +23,6 @@ use std::{
     time::SystemTime,
 };
 
-#[cfg(feature = "encryption")]
-use futures::{StreamExt, TryStreamExt};
 use matrix_sdk_common::{
     api::r0 as api,
     deserialized_responses::{
@@ -762,11 +760,11 @@ impl BaseClient {
                         // The room turned on encryption in this sync, we need
                         // to get also all the existing users and mark them for
                         // tracking.
-                        let joined = self.store.get_joined_user_ids(&room_id).await;
-                        let invited = self.store.get_invited_user_ids(&room_id).await;
+                        let joined = self.store.get_joined_user_ids(&room_id).await?;
+                        let invited = self.store.get_invited_user_ids(&room_id).await?;
 
-                        let user_ids: Vec<UserId> = joined.chain(invited).try_collect().await?;
-                        o.update_tracked_users(&user_ids).await
+                        let user_ids = joined.iter().chain(&invited);
+                        o.update_tracked_users(user_ids).await
                     }
 
                     o.update_tracked_users(&user_ids).await
@@ -1030,7 +1028,7 @@ impl BaseClient {
     #[cfg_attr(feature = "docs", doc(cfg(encryption)))]
     pub async fn get_missing_sessions(
         &self,
-        users: &mut impl Iterator<Item = &UserId>,
+        users: impl Iterator<Item = &UserId>,
     ) -> Result<Option<(Uuid, KeysClaimRequest)>> {
         let olm = self.olm.lock().await;
 
@@ -1048,11 +1046,11 @@ impl BaseClient {
 
         match &*olm {
             Some(o) => {
-                let joined = self.store.get_joined_user_ids(room_id).await;
-                let invited = self.store.get_invited_user_ids(room_id).await;
-                let members: Vec<UserId> = joined.chain(invited).try_collect().await?;
+                let joined = self.store.get_joined_user_ids(room_id).await?;
+                let invited = self.store.get_invited_user_ids(room_id).await?;
+                let members = joined.iter().chain(&invited);
                 Ok(
-                    o.share_group_session(room_id, members.iter(), EncryptionSettings::default())
+                    o.share_group_session(room_id, members, EncryptionSettings::default())
                         .await?,
                 )
             }

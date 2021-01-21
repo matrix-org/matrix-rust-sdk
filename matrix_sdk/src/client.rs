@@ -27,8 +27,6 @@ use std::{
 
 #[cfg(feature = "encryption")]
 use dashmap::DashMap;
-#[cfg(feature = "encryption")]
-use futures::TryStreamExt;
 use futures_timer::Delay as sleep;
 use http::HeaderValue;
 use mime::{self, Mime};
@@ -1155,10 +1153,10 @@ impl Client {
             let _guard = mutex.lock().await;
 
             {
-                let room = self.get_joined_room(room_id).unwrap();
-                let members = room.joined_user_ids().await;
-                let members_iter: Vec<UserId> = members.try_collect().await?;
-                self.claim_one_time_keys(&mut members_iter.iter()).await?;
+                let joined = self.store().get_joined_user_ids(room_id).await?;
+                let invited = self.store().get_invited_user_ids(room_id).await?;
+                let members = joined.iter().chain(&invited);
+                self.claim_one_time_keys(members).await?;
             };
 
             let response = self.share_group_session(room_id).await;
@@ -1831,7 +1829,7 @@ impl Client {
     #[cfg(feature = "encryption")]
     #[cfg_attr(feature = "docs", doc(cfg(encryption)))]
     #[instrument(skip(users))]
-    async fn claim_one_time_keys(&self, users: &mut impl Iterator<Item = &UserId>) -> Result<()> {
+    async fn claim_one_time_keys(&self, users: impl Iterator<Item = &UserId>) -> Result<()> {
         let _lock = self.key_claim_lock.lock().await;
 
         if let Some((request_id, request)) = self.base_client.get_missing_sessions(users).await? {
@@ -2277,7 +2275,6 @@ mod test {
         get_public_rooms, get_public_rooms_filtered, register::RegistrationKind, Client,
         Invite3pid, Session, SyncSettings, Url,
     };
-    use futures::TryStreamExt;
     use matrix_sdk_base::RoomMember;
     use matrix_sdk_common::{
         api::r0::{
@@ -2893,7 +2890,7 @@ mod test {
         let room = client
             .get_joined_room(&room_id!("!SVkFJHzfwvuaIEawgC:localhost"))
             .unwrap();
-        let members: Vec<RoomMember> = room.active_members().await.try_collect().await.unwrap();
+        let members: Vec<RoomMember> = room.active_members().await.unwrap();
 
         assert_eq!(1, members.len());
         // assert!(room.power_levels.is_some())
