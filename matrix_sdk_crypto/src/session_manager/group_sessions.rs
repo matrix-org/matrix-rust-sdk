@@ -345,10 +345,13 @@ impl GroupSessionManager {
                 .encrypt_session_for(key_content.clone(), device_map_chunk)
                 .await?;
 
-            outbound.add_request(id, request.into());
+            if !request.messages.is_empty() {
+                outbound.add_request(id, request.into());
+                self.outbound_sessions_being_shared
+                    .insert(id, outbound.clone());
+            }
+
             changes.sessions.extend(used_sessions);
-            self.outbound_sessions_being_shared
-                .insert(id, outbound.clone());
         }
 
         let requests = outbound.pending_requests();
