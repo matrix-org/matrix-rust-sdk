@@ -152,7 +152,7 @@ impl Store {
         Ok((Self::new(Box::new(inner.clone())), inner.inner))
     }
 
-    pub fn open_temporrary() -> Result<(Self, Db)> {
+    pub fn opent_temporary() -> Result<(Self, Db)> {
         let inner = SledStore::open()?;
 
         Ok((Self::new(Box::new(inner.clone())), inner.inner))
