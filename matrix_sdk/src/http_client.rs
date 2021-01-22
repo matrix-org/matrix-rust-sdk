@@ -20,15 +20,17 @@ use tracing::trace;
 use url::Url;
 
 use matrix_sdk_common::{
-    api::r0::media::create_content, async_trait, locks::RwLock, AuthScheme, FromHttpResponseError,
+    api::r0::media::create_content, async_trait, locks::RwLock, AsyncTraitDeps, AuthScheme,
+    FromHttpResponseError,
 };
 
 use crate::{ClientConfig, Error, OutgoingRequest, Result, Session};
 
 /// Abstraction around the http layer. The allows implementors to use different
 /// http libraries.
-#[async_trait]
-pub trait HttpSend: Sync + Send + Debug {
+#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+pub trait HttpSend: AsyncTraitDeps {
     /// The method abstracting sending request types and receiving response types.
     ///
     /// This is called by the client every time it wants to send anything to a homeserver.
@@ -203,7 +205,8 @@ async fn response_to_http_response(mut response: Response) -> Result<http::Respo
     Ok(http_builder.body(body).unwrap())
 }
 
-#[async_trait]
+#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
 impl HttpSend for Client {
     async fn send_request(
         &self,
