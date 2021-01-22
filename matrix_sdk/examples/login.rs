@@ -7,7 +7,7 @@ use matrix_sdk::{
         room::message::{MessageEventContent, TextMessageEventContent},
         SyncMessageEvent,
     },
-    Client, ClientConfig, EventEmitter, RoomState, SyncSettings,
+    Client, EventEmitter, RoomState, SyncSettings,
 };
 
 struct EventCallback;
@@ -41,11 +41,8 @@ async fn login(
     username: &str,
     password: &str,
 ) -> Result<(), matrix_sdk::Error> {
-    let client_config = ClientConfig::new()
-        .proxy("http://localhost:8080")?
-        .disable_ssl_verification();
     let homeserver_url = Url::parse(&homeserver_url).expect("Couldn't parse the homeserver URL");
-    let client = Client::new_with_config(homeserver_url, client_config).unwrap();
+    let client = Client::new(homeserver_url).unwrap();
 
     client.add_event_emitter(Box::new(EventCallback)).await;
 

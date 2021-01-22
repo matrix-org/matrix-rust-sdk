@@ -9,8 +9,7 @@ use serde_json::json;
 use url::Url;
 
 use matrix_sdk::{
-    self, api::r0::uiaa::AuthData, identifiers::UserId, Client, ClientConfig, LoopCtrl,
-    SyncSettings,
+    self, api::r0::uiaa::AuthData, identifiers::UserId, Client, LoopCtrl, SyncSettings,
 };
 
 fn auth_data<'a>(user: &UserId, password: &str, session: Option<&'a str>) -> AuthData<'a> {
@@ -64,12 +63,8 @@ async fn login(
     username: &str,
     password: &str,
 ) -> Result<(), matrix_sdk::Error> {
-    let client_config = ClientConfig::new()
-        .disable_ssl_verification()
-        .proxy("http://localhost:8080")
-        .unwrap();
     let homeserver_url = Url::parse(&homeserver_url).expect("Couldn't parse the homeserver URL");
-    let client = Client::new_with_config(homeserver_url, client_config).unwrap();
+    let client = Client::new(homeserver_url).unwrap();
 
     let response = client
         .login(username, password, None, Some("rust-sdk"))

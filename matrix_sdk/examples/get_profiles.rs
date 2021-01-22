@@ -2,9 +2,7 @@ use std::{convert::TryFrom, env, process::exit};
 
 use url::Url;
 
-use matrix_sdk::{
-    self, api::r0::profile, identifiers::UserId, Client, ClientConfig, Result as MatrixResult,
-};
+use matrix_sdk::{self, api::r0::profile, identifiers::UserId, Client, Result as MatrixResult};
 
 #[derive(Debug)]
 struct UserProfile {
@@ -38,11 +36,8 @@ async fn login(
     username: &str,
     password: &str,
 ) -> Result<Client, matrix_sdk::Error> {
-    let client_config = ClientConfig::new()
-        .proxy("http://localhost:8080")?
-        .disable_ssl_verification();
     let homeserver_url = Url::parse(&homeserver_url).expect("Couldn't parse the homeserver URL");
-    let client = Client::new_with_config(homeserver_url, client_config).unwrap();
+    let client = Client::new(homeserver_url).unwrap();
 
     client
         .login(username, password, None, Some("rust-sdk"))

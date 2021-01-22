@@ -69,10 +69,7 @@ async fn login_and_sync(
     let mut home = dirs::home_dir().expect("no home directory found");
     home.push("party_bot");
 
-    let client_config = ClientConfig::new()
-        .proxy("http://localhost:8080")?
-        .disable_ssl_verification()
-        .store_path(home);
+    let client_config = ClientConfig::new().store_path(home);
 
     let homeserver_url = Url::parse(&homeserver_url).expect("Couldn't parse the homeserver URL");
     // create a new Client with the given homeserver url and config
