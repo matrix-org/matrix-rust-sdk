@@ -12,10 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{
-    sync::{Arc, RwLock},
-    time::SystemTime,
-};
+use std::sync::{Arc, RwLock};
 
 use dashmap::{DashMap, DashSet};
 use matrix_sdk_common::{
@@ -26,6 +23,7 @@ use matrix_sdk_common::{
         AnyBasicEvent, AnyStrippedStateEvent, AnySyncStateEvent, EventContent, EventType,
     },
     identifiers::{RoomId, UserId},
+    instant::Instant,
 };
 
 use tracing::info;
@@ -91,7 +89,7 @@ impl MemoryStore {
     }
 
     pub async fn save_changes(&self, changes: &StateChanges) -> Result<()> {
-        let now = SystemTime::now();
+        let now = Instant::now();
 
         if let Some(s) = &changes.sync_token {
             *self.sync_token.write().unwrap() = Some(s.to_owned());

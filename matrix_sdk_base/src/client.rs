@@ -20,7 +20,6 @@ use std::{
     path::{Path, PathBuf},
     result::Result as StdResult,
     sync::Arc,
-    time::SystemTime,
 };
 
 use matrix_sdk_common::{
@@ -36,6 +35,7 @@ use matrix_sdk_common::{
         AnyToDeviceEvent, EventContent, StateEvent,
     },
     identifiers::{RoomId, UserId},
+    instant::Instant,
     locks::RwLock,
     Raw,
 };
@@ -701,7 +701,7 @@ impl BaseClient {
             return Ok(SyncResponse::new(response.next_batch));
         }
 
-        let now = SystemTime::now();
+        let now = Instant::now();
 
         #[cfg(feature = "encryption")]
         let to_device = {
@@ -892,7 +892,7 @@ impl BaseClient {
         *self.sync_token.write().await = Some(response.next_batch.clone());
         self.apply_changes(&changes).await;
 
-        info!("Processed a sync response in {:?}", now.elapsed().unwrap());
+        info!("Processed a sync response in {:?}", now.elapsed());
 
         let response = SyncResponse {
             next_batch: response.next_batch,
