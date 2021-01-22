@@ -15,10 +15,10 @@ features = ["docs"]
 rustdoc-args = ["--cfg", "feature=\"docs\""]
 
 [features]
-default = ["encryption", "sled_cryptostore", "messages", "native-tls"]
+default = ["encryption", "sled_cryptostore", "sled_state_store", "native-tls"]
 
-messages = ["matrix-sdk-base/messages"]
 encryption = ["matrix-sdk-base/encryption", "dashmap"]
+sled_state_store = ["matrix-sdk-base/sled_state_store"]
 sled_cryptostore = ["matrix-sdk-base/sled_cryptostore"]
 unstable-synapse-quirks = ["matrix-sdk-base/unstable-synapse-quirks"]
 markdown = ["matrix-sdk-base/markdown"]
@@ -26,7 +26,7 @@ native-tls = ["reqwest/native-tls"]
 rustls-tls = ["reqwest/rustls-tls"]
 socks = ["reqwest/socks"]
 
-docs = ["encryption", "sled_cryptostore", "messages"]
+docs = ["encryption", "sled_cryptostore", "sled_state_store"]
 
 [dependencies]
 dashmap = { version = "4.0.1", optional = true }

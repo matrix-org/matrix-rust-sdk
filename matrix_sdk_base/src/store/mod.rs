@@ -25,6 +25,7 @@ use matrix_sdk_common::{
     locks::RwLock,
     AsyncTraitDeps,
 };
+#[cfg(feature = "sled_state_store")]
 use sled::Db;
 
 use crate::{
@@ -34,15 +35,16 @@ use crate::{
 };
 
 mod memory_store;
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(feature = "sled_state_store")]
 mod sled_store;
 
 use self::memory_store::MemoryStore;
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(feature = "sled_state_store")]
 use self::sled_store::SledStore;
 
 #[derive(Debug, thiserror::Error)]
 pub enum StoreError {
+    #[cfg(feature = "sled_state_store")]
     #[error(transparent)]
     Sled(#[from] sled::Error),
     #[error(transparent)]
@@ -142,6 +144,7 @@ impl Store {
         Self::new(inner)
     }
 
+    #[cfg(feature = "sled_state_store")]
     pub fn open_default(path: impl AsRef<Path>, passphrase: Option<&str>) -> Result<(Self, Db)> {
         let inner = if let Some(passphrase) = passphrase {
             SledStore::open_with_passphrase(path, passphrase)?
@@ -152,6 +155,7 @@ impl Store {
         Ok((Self::new(Box::new(inner.clone())), inner.inner))
     }
 
+    #[cfg(feature = "sled_state_store")]
     pub fn open_temporary() -> Result<(Self, Db)> {
         let inner = SledStore::open()?;
 

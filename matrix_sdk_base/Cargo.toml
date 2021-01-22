@@ -16,13 +16,13 @@ rustdoc-args = ["--cfg", "feature=\"docs\""]
 
 [features]
 default = []
-messages = []
 encryption = ["matrix-sdk-crypto"]
+sled_state_store = ["sled", "pbkdf2", "hmac", "sha2", "rand", "chacha20poly1305"]
 sled_cryptostore = ["matrix-sdk-crypto/sled_cryptostore"]
 unstable-synapse-quirks = ["matrix-sdk-common/unstable-synapse-quirks"]
 markdown = ["matrix-sdk-common/markdown"]
 
-docs = ["encryption", "sled_cryptostore", "messages"]
+docs = ["encryption", "sled_cryptostore"]
 
 [dependencies]
 dashmap= "4.0.1"
@@ -35,14 +35,16 @@ matrix-sdk-crypto = { version = "0.2.0", path = "../matrix_sdk_crypto", optional
 
 # Misc dependencies
 thiserror = "1.0.23"
-sled = "0.34.6"
-chacha20poly1305 = "0.7.1"
-rand = "0.8.2"
-zeroize = { version = "1.2.0", features = ["zeroize_derive"] }
-pbkdf2 = { version = "0.6.0", default-features = false }
-hmac = "0.10.1"
-sha2 = "0.9.2"
 futures = "0.3.8"
+zeroize = { version = "1.2.0", features = ["zeroize_derive"] }
+
+# Deps for the sled state store
+sled = { version = "0.34.6", optional = true }
+chacha20poly1305 = { version = "0.7.1", optional = true }
+pbkdf2 = { version = "0.6.0", default-features = false, optional = true }
+hmac = { version = "0.10.1", optional = true }
+sha2 = { version = "0.9.2", optional = true }
+rand = { version = "0.8.2", optional = true }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies.tokio]
 version = "1.0.1"

@@ -279,8 +279,8 @@ impl BaseClient {
     /// * `config` - An optional session if the user already has one from a
     /// previous login call.
     pub fn new_with_config(config: BaseClientConfig) -> Result<Self> {
-        #[cfg(not(target_arch = "wasm32"))]
-        let (store, sled_store) = if let Some(path) = &config.store_path {
+        #[cfg(feature = "sled_state_store")]
+        let stores = if let Some(path) = &config.store_path {
             if config.passphrase.is_some() {
                 info!("Opening an encrypted store in path {}", path.display());
             } else {
@@ -290,15 +290,15 @@ impl BaseClient {
         } else {
             Store::open_temporary()?
         };
-        #[cfg(target_arch = "wasm32")]
-        let store = Store::open_memory_store();
+        #[cfg(not(feature = "sled_state_store"))]
+        let stores = Store::open_memory_store();
 
-        #[cfg(not(target_arch = "wasm32"))]
+        #[cfg(all(feature = "encryption", feature = "sled_state_store"))]
         let crypto_store = if config.crypto_store.is_none() {
             #[cfg(feature = "sled_cryptostore")]
             let store: Option<Box<dyn CryptoStore>> = Some(Box::new(
                 matrix_sdk_crypto::store::SledStore::open_with_database(
-                    sled_store,
+                    stores.1,
                     config.passphrase.as_deref().map(|p| p.as_str()),
                 )
                 .map_err(OlmError::Store)?,
@@ -310,8 +310,13 @@ impl BaseClient {
         } else {
             config.crypto_store
         };
-        #[cfg(target_arch = "wasm32")]
+        #[cfg(all(not(feature = "sled_state_store"), feature = "encryption"))]
         let crypto_store = config.crypto_store;
+
+        #[cfg(feature = "sled_state_store")]
+        let store = stores.0;
+        #[cfg(not(feature = "sled_state_store"))]
+        let store = stores;
 
         Ok(BaseClient {
             session: store.session.clone(),
@@ -403,6 +408,7 @@ impl BaseClient {
                 }
                 #[cfg(not(feature = "sled_cryptostore"))]
                 {
+                    let _ = path;
                     *olm = Some(OlmMachine::new(&session.user_id, &session.device_id));
                 }
             } else {
