@@ -50,3 +50,27 @@ pub use user::{
     MasterPubkey, OwnUserIdentity, SelfSigningPubkey, UserIdentities, UserIdentity,
     UserSigningPubkey,
 };
+
+use serde::{Deserialize, Deserializer, Serializer};
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Arc,
+};
+
+// These methods are only here because Serialize and Deserialize don't seem to
+// be implemented for WASM.
+fn atomic_bool_serializer<S>(x: &AtomicBool, s: S) -> Result<S::Ok, S::Error>
+where
+    S: Serializer,
+{
+    let value = x.load(Ordering::SeqCst);
+    s.serialize_some(&value)
+}
+
+fn atomic_bool_deserializer<'de, D>(deserializer: D) -> Result<Arc<AtomicBool>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let value = bool::deserialize(deserializer)?;
+    Ok(Arc::new(AtomicBool::new(value)))
+}

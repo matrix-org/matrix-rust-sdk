@@ -33,6 +33,8 @@ use matrix_sdk_common::{
 use crate::olm::PrivateCrossSigningIdentity;
 use crate::{error::SignatureError, olm::Utility, ReadOnlyDevice};
 
+use super::{atomic_bool_deserializer, atomic_bool_serializer};
+
 /// Wrapper for a cross signing key marking it as the master key.
 ///
 /// Master keys are used to sign other cross signing keys, the self signing and
@@ -573,6 +575,10 @@ pub struct OwnUserIdentity {
     master_key: MasterPubkey,
     self_signing_key: SelfSigningPubkey,
     user_signing_key: UserSigningPubkey,
+    #[serde(
+        serialize_with = "atomic_bool_serializer",
+        deserialize_with = "atomic_bool_deserializer"
+    )]
     verified: Arc<AtomicBool>,
 }
 

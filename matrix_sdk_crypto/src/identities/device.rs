@@ -56,6 +56,8 @@ use crate::{
     Sas, ToDeviceRequest,
 };
 
+use super::{atomic_bool_deserializer, atomic_bool_serializer};
+
 /// A read-only version of a `Device`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ReadOnlyDevice {
@@ -65,6 +67,10 @@ pub struct ReadOnlyDevice {
     keys: Arc<BTreeMap<DeviceKeyId, String>>,
     pub(crate) signatures: Arc<BTreeMap<UserId, BTreeMap<DeviceKeyId, String>>>,
     display_name: Arc<Option<String>>,
+    #[serde(
+        serialize_with = "atomic_bool_serializer",
+        deserialize_with = "atomic_bool_deserializer"
+    )]
     deleted: Arc<AtomicBool>,
     #[serde(
         serialize_with = "local_trust_serializer",
