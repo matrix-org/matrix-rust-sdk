@@ -288,7 +288,7 @@ impl BaseClient {
             }
             Store::open_default(path, config.passphrase.as_deref().map(|p| p.as_str()))?
         } else {
-            Store::opent_temporary()?
+            Store::open_temporary()?
         };
         #[cfg(target_arch = "wasm32")]
         let store = Store::open_memory_store();
