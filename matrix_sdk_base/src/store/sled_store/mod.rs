@@ -81,7 +81,7 @@ impl From<SerializationError> for StoreError {
 
 #[derive(Debug, Clone)]
 pub struct SledStore {
-    inner: Db,
+    pub(crate) inner: Db,
     store_key: Arc<Option<StoreKey>>,
     session: Tree,
     account_data: Tree,

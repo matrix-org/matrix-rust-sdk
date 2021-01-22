@@ -279,7 +279,8 @@ impl BaseClient {
     /// * `config` - An optional session if the user already has one from a
     /// previous login call.
     pub fn new_with_config(config: BaseClientConfig) -> Result<Self> {
-        let store = if let Some(path) = &config.store_path {
+        #[cfg(not(target_arch = "wasm32"))]
+        let (store, sled_store) = if let Some(path) = &config.store_path {
             if config.passphrase.is_some() {
                 info!("Opening an encrypted store in path {}", path.display());
             } else {
@@ -289,6 +290,28 @@ impl BaseClient {
         } else {
             Store::open_temporrary()?
         };
+        #[cfg(target_arch = "wasm32")]
+        let store = Store::open_memory_store();
+
+        #[cfg(not(target_arch = "wasm32"))]
+        let crypto_store = if config.crypto_store.is_none() {
+            #[cfg(feature = "sled_cryptostore")]
+            let store: Option<Box<dyn CryptoStore>> = Some(Box::new(
+                matrix_sdk_crypto::store::SledStore::open_with_database(
+                    sled_store,
+                    config.passphrase.as_deref().map(|p| p.as_str()),
+                )
+                .map_err(OlmError::Store)?,
+            ));
+            #[cfg(not(feature = "sled_cryptostore"))]
+            let store = config.crypto_store;
+
+            store
+        } else {
+            config.crypto_store
+        };
+        #[cfg(target_arch = "wasm32")]
+        let crypto_store = config.crypto_store;
 
         Ok(BaseClient {
             session: store.session.clone(),
@@ -297,7 +320,7 @@ impl BaseClient {
             #[cfg(feature = "encryption")]
             olm: Mutex::new(None).into(),
             #[cfg(feature = "encryption")]
-            cryptostore: Mutex::new(config.crypto_store).into(),
+            cryptostore: Mutex::new(crypto_store).into(),
             store_path: config.store_path.into(),
             store_passphrase: config.passphrase.into(),
             event_emitter: RwLock::new(None).into(),

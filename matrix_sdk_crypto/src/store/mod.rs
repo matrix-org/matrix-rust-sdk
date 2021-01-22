@@ -46,6 +46,8 @@ pub(crate) mod sled;
 #[cfg(feature = "sqlite_cryptostore")]
 pub(crate) mod sqlite;
 
+#[cfg(feature = "sled_cryptostore")]
+pub use self::sled::SledStore;
 pub use memorystore::MemoryStore;
 pub use pickle_key::{EncryptedPickleKey, PickleKey};
 #[cfg(not(target_arch = "wasm32"))]

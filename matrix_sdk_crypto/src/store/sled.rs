@@ -81,10 +81,18 @@ impl From<TransactionError<serde_json::Error>> for CryptoStoreError {
 }
 
 impl SledStore {
+    /// Open the sled based cryptostore at the given path using the given
+    /// passphrase to encrypt private data.
     pub fn open_with_passphrase(path: impl AsRef<Path>, passphrase: Option<&str>) -> Result<Self> {
         let path = path.as_ref().join("matrix-sdk-crypto");
         let db = Config::new().temporary(false).path(path).open()?;
 
+        SledStore::open_helper(db, passphrase)
+    }
+
+    /// Create a sled based cryptostore using the given sled database.
+    /// The given passphrase will be used to encrypt private data.
+    pub fn open_with_database(db: Db, passphrase: Option<&str>) -> Result<Self> {
         SledStore::open_helper(db, passphrase)
     }
 
@@ -171,7 +179,7 @@ impl SledStore {
         Ok(())
     }
 
-    pub async fn save_changes(&self, changes: Changes) -> Result<()> {
+    async fn save_changes(&self, changes: Changes) -> Result<()> {
         let account_pickle = if let Some(a) = changes.account {
             Some(a.pickle(self.get_pickle_mode()).await)
         } else {

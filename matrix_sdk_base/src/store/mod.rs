@@ -25,6 +25,7 @@ use matrix_sdk_common::{
     locks::RwLock,
     AsyncTraitDeps,
 };
+use sled::Db;
 
 use crate::{
     deserialized_responses::{MemberEvent, StrippedMemberEvent},
@@ -33,9 +34,12 @@ use crate::{
 };
 
 mod memory_store;
+#[cfg(not(target_arch = "wasm32"))]
 mod sled_store;
 
-use self::{memory_store::MemoryStore, sled_store::SledStore};
+use self::memory_store::MemoryStore;
+#[cfg(not(target_arch = "wasm32"))]
+use self::sled_store::SledStore;
 
 #[derive(Debug, thiserror::Error)]
 pub enum StoreError {
@@ -138,20 +142,20 @@ impl Store {
         Self::new(inner)
     }
 
-    pub fn open_default(path: impl AsRef<Path>, passphrase: Option<&str>) -> Result<Self> {
+    pub fn open_default(path: impl AsRef<Path>, passphrase: Option<&str>) -> Result<(Self, Db)> {
         let inner = if let Some(passphrase) = passphrase {
-            Box::new(SledStore::open_with_passphrase(path, passphrase)?)
+            SledStore::open_with_passphrase(path, passphrase)?
         } else {
-            Box::new(SledStore::open_with_path(path)?)
+            SledStore::open_with_path(path)?
         };
 
-        Ok(Self::new(inner))
+        Ok((Self::new(Box::new(inner.clone())), inner.inner))
     }
 
-    pub fn open_temporrary() -> Result<Self> {
-        let inner = Box::new(SledStore::open()?);
+    pub fn open_temporrary() -> Result<(Self, Db)> {
+        let inner = SledStore::open()?;
 
-        Ok(Self::new(inner))
+        Ok((Self::new(Box::new(inner.clone())), inner.inner))
     }
 
     pub(crate) fn get_bare_room(&self, room_id: &RoomId) -> Option<Room> {
