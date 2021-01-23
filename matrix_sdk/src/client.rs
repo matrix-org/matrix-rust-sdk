@@ -425,6 +425,12 @@ impl Client {
         session.as_ref().cloned().map(|s| s.user_id)
     }
 
+    /// Get the device id that identifies the current session.
+    pub async fn device_id(&self) -> Option<DeviceIdBox> {
+        let session = self.base_client.session().read().await;
+        session.as_ref().map(|s| s.device_id.clone())
+    }
+
     /// Fetches the display name of the owner of the client.
     ///
     /// # Example
