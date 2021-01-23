@@ -36,14 +36,24 @@ impl StrippedRoom {
     pub fn new(own_user_id: &UserId, store: Arc<Box<dyn StateStore>>, room_id: &RoomId) -> Self {
         let room_id = Arc::new(room_id.clone());
 
+        let info = StrippedRoomInfo {
+            room_id,
+            base_info: BaseRoomInfo::new(),
+        };
+
+        Self::restore(own_user_id, store, info)
+    }
+
+    pub fn restore(
+        own_user_id: &UserId,
+        store: Arc<Box<dyn StateStore>>,
+        room_info: StrippedRoomInfo,
+    ) -> Self {
         Self {
             own_user_id: Arc::new(own_user_id.clone()),
-            room_id: room_id.clone(),
+            room_id: room_info.room_id.clone(),
             store,
-            inner: Arc::new(SyncMutex::new(StrippedRoomInfo {
-                room_id,
-                base_info: BaseRoomInfo::new(),
-            })),
+            inner: Arc::new(SyncMutex::new(room_info)),
         }
     }
 

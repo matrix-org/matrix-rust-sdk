@@ -275,6 +275,11 @@ impl MemoryStore {
         #[allow(clippy::map_clone)]
         self.room_info.iter().map(|r| r.clone()).collect()
     }
+
+    fn get_stripped_room_infos(&self) -> Vec<StrippedRoomInfo> {
+        #[allow(clippy::map_clone)]
+        self.stripped_room_info.iter().map(|r| r.clone()).collect()
+    }
 }
 
 #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
@@ -335,5 +340,9 @@ impl StateStore for MemoryStore {
 
     async fn get_room_infos(&self) -> Result<Vec<RoomInfo>> {
         Ok(self.get_room_infos())
+    }
+
+    async fn get_stripped_room_infos(&self) -> Result<Vec<StrippedRoomInfo>> {
+        Ok(self.get_stripped_room_infos())
     }
 }

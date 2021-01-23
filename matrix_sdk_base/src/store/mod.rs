@@ -99,6 +99,8 @@ pub trait StateStore: AsyncTraitDeps {
     async fn get_joined_user_ids(&self, room_id: &RoomId) -> Result<Vec<UserId>>;
 
     async fn get_room_infos(&self) -> Result<Vec<RoomInfo>>;
+
+    async fn get_stripped_room_infos(&self) -> Result<Vec<StrippedRoomInfo>>;
 }
 
 #[derive(Debug, Clone)]
@@ -125,9 +127,14 @@ impl Store {
     }
 
     pub(crate) async fn restore_session(&self, session: Session) -> Result<()> {
-        for info in self.inner.get_room_infos().await?.into_iter() {
+        for info in self.inner.get_room_infos().await? {
             let room = Room::restore(&session.user_id, self.inner.clone(), info);
             self.rooms.insert(room.room_id().to_owned(), room);
+        }
+
+        for info in self.inner.get_stripped_room_infos().await? {
+            let room = StrippedRoom::restore(&session.user_id, self.inner.clone(), info);
+            self.stripped_rooms.insert(room.room_id().to_owned(), room);
         }
 
         let token = self.get_sync_token().await?;

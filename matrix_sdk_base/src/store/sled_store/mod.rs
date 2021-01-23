@@ -37,7 +37,7 @@ use sled::{
 };
 use tracing::info;
 
-use crate::deserialized_responses::MemberEvent;
+use crate::{deserialized_responses::MemberEvent, rooms::StrippedRoomInfo};
 
 use self::store_key::{EncryptedEvent, StoreKey};
 
@@ -479,6 +479,15 @@ impl SledStore {
                 .map(move |r| db.deserialize_event(&r?.1).map_err(|e| e.into())),
         )
     }
+
+    pub async fn get_stripped_room_infos(&self) -> impl Stream<Item = Result<StrippedRoomInfo>> {
+        let db = self.clone();
+        stream::iter(
+            self.stripped_room_info
+                .iter()
+                .map(move |r| db.deserialize_event(&r?.1).map_err(|e| e.into())),
+        )
+    }
 }
 
 #[async_trait]
@@ -538,6 +547,10 @@ impl StateStore for SledStore {
 
     async fn get_room_infos(&self) -> Result<Vec<RoomInfo>> {
         self.get_room_infos().await.try_collect().await
+    }
+
+    async fn get_stripped_room_infos(&self) -> Result<Vec<StrippedRoomInfo>> {
+        self.get_stripped_room_infos().await.try_collect().await
     }
 }
 
