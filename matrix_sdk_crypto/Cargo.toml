@@ -58,3 +58,8 @@ tempfile = "3.1.0"
 http = "0.2.2"
 matrix-sdk-test = { version = "0.2.0", path = "../matrix_sdk_test" }
 indoc = "1.0.3"
+criterion = "0.3.3"
+
+[[bench]]
+name = "crypto_bench"
+harness = false

@@ -374,3 +374,10 @@ pub fn sync_response(kind: SyncResponseFile) -> SyncResponse {
         .unwrap();
     SyncResponse::try_from(response).unwrap()
 }
+
+pub fn response_from_file(json: &serde_json::Value) -> Response<Vec<u8>> {
+    Response::builder()
+        .status(200)
+        .body(json.to_string().as_bytes().to_vec())
+        .unwrap()
+}
