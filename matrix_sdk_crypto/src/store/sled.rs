@@ -39,7 +39,7 @@ use super::{
 };
 use crate::{
     identities::{ReadOnlyDevice, UserIdentities},
-    olm::{PickledInboundGroupSession, PrivateCrossSigningIdentity},
+    olm::{OutboundGroupSession, PickledInboundGroupSession, PrivateCrossSigningIdentity},
 };
 
 /// This needs to be 32 bytes long since AES-GCM requires it, otherwise we will
@@ -62,6 +62,7 @@ pub struct SledStore {
     olm_hashes: Tree,
     sessions: Tree,
     inbound_group_sessions: Tree,
+    outbound_group_sessions: Tree,
 
     devices: Tree,
     identities: Tree,
@@ -102,6 +103,7 @@ impl SledStore {
 
         let sessions = db.open_tree("session")?;
         let inbound_group_sessions = db.open_tree("inbound_group_sessions")?;
+        let outbound_group_sessions = db.open_tree("outbound_group_sessions")?;
         let tracked_users = db.open_tree("tracked_users")?;
         let users_for_key_query = db.open_tree("users_for_key_query")?;
         let olm_hashes = db.open_tree("olm_hashes")?;
@@ -129,6 +131,7 @@ impl SledStore {
             tracked_users_cache: DashSet::new().into(),
             users_for_key_query_cache: DashSet::new().into(),
             inbound_group_sessions,
+            outbound_group_sessions,
             devices,
             tracked_users,
             users_for_key_query,
@@ -179,6 +182,34 @@ impl SledStore {
         Ok(())
     }
 
+    async fn load_outbound_group_session(
+        &self,
+        room_id: &RoomId,
+    ) -> Result<Option<OutboundGroupSession>> {
+        let account = self
+            .load_account()
+            .await?
+            .ok_or(CryptoStoreError::AccountUnset)?;
+
+        let device_id: Arc<DeviceIdBox> = account.device_id().to_owned().into();
+        let identity_keys = account.identity_keys;
+
+        self.outbound_group_sessions
+            .get(room_id.as_str())?
+            .map(|p| serde_json::from_slice(&p).map_err(CryptoStoreError::Serialization))
+            .transpose()?
+            .map(|p| {
+                OutboundGroupSession::from_pickle(
+                    device_id,
+                    identity_keys,
+                    p,
+                    self.get_pickle_mode(),
+                )
+                .map_err(CryptoStoreError::OlmGroupSession)
+            })
+            .transpose()
+    }
+
     async fn save_changes(&self, changes: Changes) -> Result<()> {
         let account_pickle = if let Some(a) = changes.account {
             Some(a.pickle(self.get_pickle_mode()).await)
@@ -218,6 +249,15 @@ impl SledStore {
             inbound_session_changes.insert(key, pickle);
         }
 
+        let mut outbound_session_changes = HashMap::new();
+
+        for session in changes.outbound_group_sessions {
+            let room_id = session.room_id();
+            let pickle = session.pickle(self.get_pickle_mode()).await;
+
+            outbound_session_changes.insert(room_id.clone(), pickle);
+        }
+
         let identity_changes = changes.identities;
         let olm_hashes = changes.message_hashes;
 
@@ -228,6 +268,7 @@ impl SledStore {
             &self.identities,
             &self.sessions,
             &self.inbound_group_sessions,
+            &self.outbound_group_sessions,
             &self.olm_hashes,
         )
             .transaction(
@@ -238,6 +279,7 @@ impl SledStore {
                     identities,
                     sessions,
                     inbound_sessions,
+                    outbound_sessions,
                     hashes,
                 )| {
                     if let Some(a) = &account_pickle {
@@ -284,6 +326,14 @@ impl SledStore {
 
                     for (key, session) in &inbound_session_changes {
                         inbound_sessions.insert(
+                            key.as_str(),
+                            serde_json::to_vec(&session)
+                                .map_err(ConflictableTransactionError::Abort)?,
+                        )?;
+                    }
+
+                    for (key, session) in &outbound_session_changes {
+                        outbound_sessions.insert(
                             key.as_str(),
                             serde_json::to_vec(&session)
                                 .map_err(ConflictableTransactionError::Abort)?,
@@ -502,6 +552,13 @@ impl CryptoStore for SledStore {
         Ok(self
             .olm_hashes
             .contains_key(serde_json::to_vec(message_hash)?)?)
+    }
+
+    async fn get_outbound_group_sessions(
+        &self,
+        room_id: &RoomId,
+    ) -> Result<Option<OutboundGroupSession>> {
+        self.load_outbound_group_session(room_id).await
     }
 }
 

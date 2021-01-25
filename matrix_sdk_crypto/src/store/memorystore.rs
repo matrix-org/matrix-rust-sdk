@@ -30,7 +30,7 @@ use super::{
 };
 use crate::{
     identities::{ReadOnlyDevice, UserIdentities},
-    olm::PrivateCrossSigningIdentity,
+    olm::{OutboundGroupSession, PrivateCrossSigningIdentity},
 };
 
 /// An in-memory only store that will forget all the E2EE key once it's dropped.
@@ -231,6 +231,13 @@ impl CryptoStore for MemoryStore {
             .entry(message_hash.sender_key.to_owned())
             .or_insert_with(DashSet::new)
             .contains(&message_hash.hash))
+    }
+
+    async fn get_outbound_group_sessions(
+        &self,
+        _: &RoomId,
+    ) -> Result<Option<OutboundGroupSession>> {
+        Ok(None)
     }
 }
 

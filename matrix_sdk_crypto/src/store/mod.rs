@@ -86,7 +86,8 @@ use crate::{
     error::SessionUnpicklingError,
     identities::{Device, ReadOnlyDevice, UserDevices, UserIdentities},
     olm::{
-        InboundGroupSession, OlmMessageHash, PrivateCrossSigningIdentity, ReadOnlyAccount, Session,
+        InboundGroupSession, OlmMessageHash, OutboundGroupSession, PrivateCrossSigningIdentity,
+        ReadOnlyAccount, Session,
     },
     verification::VerificationMachine,
 };
@@ -116,6 +117,7 @@ pub struct Changes {
     pub sessions: Vec<Session>,
     pub message_hashes: Vec<OlmMessageHash>,
     pub inbound_group_sessions: Vec<InboundGroupSession>,
+    pub outbound_group_sessions: Vec<OutboundGroupSession>,
     pub identities: IdentityChanges,
     pub devices: DeviceChanges,
 }
@@ -387,6 +389,12 @@ pub trait CryptoStore: AsyncTraitDeps {
 
     /// Get all the inbound group sessions we have stored.
     async fn get_inbound_group_sessions(&self) -> Result<Vec<InboundGroupSession>>;
+
+    /// Get the outobund group sessions we have stored that is used for the given room.
+    async fn get_outbound_group_sessions(
+        &self,
+        room_id: &RoomId,
+    ) -> Result<Option<OutboundGroupSession>>;
 
     /// Is the given user already tracked.
     fn is_user_tracked(&self, user_id: &UserId) -> bool;

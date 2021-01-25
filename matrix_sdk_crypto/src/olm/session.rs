@@ -20,14 +20,13 @@ use matrix_sdk_common::{
         EventType,
     },
     identifiers::{DeviceId, DeviceKeyAlgorithm, UserId},
-    instant::{Duration, Instant},
+    instant::Instant,
     locks::Mutex,
 };
 use olm_rs::{errors::OlmSessionError, session::OlmSession, PicklingMode};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
-use super::IdentityKeys;
 use crate::{
     error::{EventError, OlmResult, SessionUnpicklingError},
     ReadOnlyDevice,
@@ -37,6 +36,8 @@ pub use olm_rs::{
     session::{OlmMessage, PreKeyMessage},
     utility::OlmUtility,
 };
+
+use super::{deserialize_instant, serialize_instant, IdentityKeys};
 
 /// Cryptographic session that enables secure communication between two
 /// `Account`s
@@ -187,9 +188,8 @@ impl Session {
         PickledSession {
             pickle: SessionPickle::from(pickle),
             sender_key: self.sender_key.to_string(),
-            // FIXME this should use the duration from the unix epoch.
-            creation_time: self.creation_time.elapsed(),
-            last_use_time: self.last_use_time.elapsed(),
+            creation_time: *self.creation_time,
+            last_use_time: *self.last_use_time,
         }
     }
 
@@ -220,16 +220,6 @@ impl Session {
         let session = OlmSession::unpickle(pickle.pickle.0, pickle_mode)?;
         let session_id = session.session_id();
 
-        // FIXME this should use the UNIX epoch.
-        let now = Instant::now();
-
-        let creation_time = now
-            .checked_sub(pickle.creation_time)
-            .ok_or(SessionUnpicklingError::SessionTimestampError)?;
-        let last_use_time = now
-            .checked_sub(pickle.last_use_time)
-            .ok_or(SessionUnpicklingError::SessionTimestampError)?;
-
         Ok(Session {
             user_id,
             device_id,
@@ -237,8 +227,8 @@ impl Session {
             inner: Arc::new(Mutex::new(session)),
             session_id: session_id.into(),
             sender_key: pickle.sender_key.into(),
-            creation_time: Arc::new(creation_time),
-            last_use_time: Arc::new(last_use_time),
+            creation_time: Arc::new(pickle.creation_time),
+            last_use_time: Arc::new(pickle.last_use_time),
         })
     }
 }
@@ -260,9 +250,17 @@ pub struct PickledSession {
     /// The curve25519 key of the other user that we share this session with.
     pub sender_key: String,
     /// The relative time elapsed since the session was created.
-    pub creation_time: Duration,
+    #[serde(
+        deserialize_with = "deserialize_instant",
+        serialize_with = "serialize_instant"
+    )]
+    pub creation_time: Instant,
     /// The relative time elapsed since the session was last used.
-    pub last_use_time: Duration,
+    #[serde(
+        deserialize_with = "deserialize_instant",
+        serialize_with = "serialize_instant"
+    )]
+    pub last_use_time: Instant,
 }
 
 /// The typed representation of a base64 encoded string of the Olm Session pickle.

@@ -101,7 +101,13 @@ impl GroupSessionManager {
             panic!("Session expired");
         }
 
-        Ok(session.encrypt(content).await)
+        let content = session.encrypt(content).await;
+
+        let mut changes = Changes::default();
+        changes.outbound_group_sessions.push(session);
+        self.store.save_changes(changes).await?;
+
+        Ok(content)
     }
 
     /// Create a new outbound group session.
@@ -130,8 +136,22 @@ impl GroupSessionManager {
         room_id: &RoomId,
         settings: EncryptionSettings,
     ) -> OlmResult<(OutboundGroupSession, Option<InboundGroupSession>)> {
-        #[allow(clippy::map_clone)]
-        if let Some(s) = self.outbound_group_sessions.get(room_id).map(|s| s.clone()) {
+        // Get the cached session, if there isn't one load one from the store
+        // and put it in the cache.
+        let outbound_session = if let Some(s) = self.outbound_group_sessions.get(room_id) {
+            Some(s.clone())
+        } else if let Some(s) = self.store.get_outbound_group_sessions(room_id).await? {
+            self.outbound_group_sessions
+                .insert(room_id.clone(), s.clone());
+
+            Some(s)
+        } else {
+            None
+        };
+
+        // If there is no session or the session has expired or is invalid,
+        // create a new one.
+        if let Some(s) = outbound_session {
             if s.expired() || s.invalidated() {
                 self.create_outbound_group_session(room_id, settings)
                     .await
@@ -294,6 +314,7 @@ impl GroupSessionManager {
             .await?;
 
         if let Some(inbound) = inbound {
+            changes.outbound_group_sessions.push(outbound.clone());
             changes.inbound_group_sessions.push(inbound);
         }
 
@@ -303,6 +324,7 @@ impl GroupSessionManager {
             let (outbound, inbound) = self
                 .create_outbound_group_session(room_id, encryption_settings)
                 .await?;
+            changes.outbound_group_sessions.push(outbound.clone());
             changes.inbound_group_sessions.push(inbound);
 
             debug!(

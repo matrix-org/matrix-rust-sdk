@@ -36,11 +36,12 @@ use matrix_sdk_common::{
     uuid::Uuid,
 };
 
+use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue as RawJsonValue;
 
 /// Customized version of `ruma_client_api::r0::to_device::send_event_to_device::Request`, using a
 /// UUID for the transaction ID.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct ToDeviceRequest {
     /// Type of event being sent to each device.
     pub event_type: EventType,
