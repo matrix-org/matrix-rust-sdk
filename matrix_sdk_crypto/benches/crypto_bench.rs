@@ -1,8 +1,10 @@
 use std::convert::TryFrom;
 
-use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
+use criterion::{
+    async_executor::FuturesExecutor, criterion_group, criterion_main, BenchmarkId, Criterion,
+    Throughput,
+};
 
-use futures::executor::block_on;
 use matrix_sdk_common::{
     api::r0::keys::get_keys,
     identifiers::{user_id, DeviceIdBox, UserId},
@@ -46,7 +48,10 @@ pub fn receive_keys_query(c: &mut Criterion) {
     group.bench_with_input(
         BenchmarkId::new("key_query", "150 devices key query response parsing"),
         &response,
-        |b, response| b.iter(|| block_on(machine.mark_request_as_sent(&uuid, response)).unwrap()),
+        |b, response| {
+            b.to_async(FuturesExecutor)
+                .iter(|| async { machine.mark_request_as_sent(&uuid, response).await.unwrap() })
+        },
     );
     group.finish()
 }

@@ -16,7 +16,7 @@ markdown = ["ruma/markdown"]
 
 [dependencies]
 instant = { version = "0.1.9", features = ["wasm-bindgen", "now"] }
-serde = "1.0.119"
+serde = "1.0.122"
 async-trait = "0.1.42"
 
 [dependencies.ruma]
@@ -26,13 +26,13 @@ rev = "8c109d3c0a7ec66b352dc82677d30db7cb0723eb"
 features = ["client-api", "unstable-pre-spec"]
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-uuid = { version = "0.8.1", default-features = false, features = ["v4", "serde"] }
+uuid = { version = "0.8.2", default-features = false, features = ["v4", "serde"] }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies.tokio]
-version = "1.0.1"
+version = "1.1.0"
 default-features = false
 features = ["sync"]
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 futures-locks = { version = "0.6.0", default-features = false }
-uuid = { version = "0.8.1", default-features = false, features = ["v4", "wasm-bindgen"] }
+uuid = { version = "0.8.2", default-features = false, features = ["v4", "wasm-bindgen"] }
