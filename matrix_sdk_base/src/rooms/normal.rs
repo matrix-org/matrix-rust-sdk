@@ -312,6 +312,13 @@ impl Room {
     }
 
     pub async fn get_member(&self, user_id: &UserId) -> StoreResult<Option<RoomMember>> {
+        let member_event =
+            if let Some(m) = self.store.get_member_event(self.room_id(), user_id).await? {
+                m
+            } else {
+                return Ok(None);
+            };
+
         let presence = self.store.get_presence_event(user_id).await?;
         let profile = self.store.get_profile(self.room_id(), user_id).await?;
         let max_power_level = self.max_power_level();
@@ -338,18 +345,29 @@ impl Room {
             })
             .flatten();
 
-        Ok(self
+        let ambiguous = self
             .store
-            .get_member_event(&self.room_id, user_id)
+            .get_users_with_display_name(
+                self.room_id(),
+                member_event
+                    .content
+                    .displayname
+                    .as_deref()
+                    .unwrap_or_else(|| user_id.localpart()),
+            )
             .await?
-            .map(|e| RoomMember {
-                event: e.into(),
-                profile: profile.into(),
-                presence: presence.into(),
-                power_levles: power.into(),
-                max_power_level,
-                is_room_creator,
-            }))
+            .len()
+            > 1;
+
+        Ok(Some(RoomMember {
+            event: member_event.into(),
+            profile: profile.into(),
+            presence: presence.into(),
+            power_levles: power.into(),
+            max_power_level,
+            is_room_creator,
+            display_name_ambiguous: ambiguous,
+        }))
     }
 }
 

@@ -12,7 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::sync::{Arc, RwLock};
+use std::{
+    collections::BTreeSet,
+    sync::{Arc, RwLock},
+};
 
 use dashmap::{DashMap, DashSet};
 use matrix_sdk_common::{
@@ -344,5 +347,9 @@ impl StateStore for MemoryStore {
 
     async fn get_stripped_room_infos(&self) -> Result<Vec<StrippedRoomInfo>> {
         Ok(self.get_stripped_room_infos())
+    }
+
+    async fn get_users_with_display_name(&self, _: &RoomId, _: &str) -> Result<BTreeSet<UserId>> {
+        Ok(BTreeSet::new())
     }
 }

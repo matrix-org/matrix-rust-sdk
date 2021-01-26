@@ -12,7 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{collections::BTreeMap, ops::Deref, path::Path, sync::Arc};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    ops::Deref,
+    path::Path,
+    sync::Arc,
+};
 
 use dashmap::DashMap;
 use matrix_sdk_common::{
@@ -101,6 +106,12 @@ pub trait StateStore: AsyncTraitDeps {
     async fn get_room_infos(&self) -> Result<Vec<RoomInfo>>;
 
     async fn get_stripped_room_infos(&self) -> Result<Vec<StrippedRoomInfo>>;
+
+    async fn get_users_with_display_name(
+        &self,
+        room_id: &RoomId,
+        display_name: &str,
+    ) -> Result<BTreeSet<UserId>>;
 }
 
 #[derive(Debug, Clone)]

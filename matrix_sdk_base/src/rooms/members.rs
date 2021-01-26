@@ -33,6 +33,7 @@ pub struct RoomMember {
     pub(crate) power_levles: Arc<Option<SyncStateEvent<PowerLevelsEventContent>>>,
     pub(crate) max_power_level: i64,
     pub(crate) is_room_creator: bool,
+    pub(crate) display_name_ambiguous: bool,
 }
 
 impl RoomMember {
