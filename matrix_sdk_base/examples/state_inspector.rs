@@ -268,6 +268,12 @@ impl Inspector {
                 self.get_members(room_id).await;
             }
             ("list-rooms", _) => self.list_rooms().await,
+            ("get-display-names", args) => {
+                let args = args.expect("No args provided for get-state");
+                let room_id = RoomId::try_from(args.value_of("room-id").unwrap()).unwrap();
+                let display_name = args.value_of("display-name").unwrap().to_string();
+                self.get_display_name_owners(room_id, display_name).await;
+            }
             ("get-state", args) => {
                 let args = args.expect("No args provided for get-state");
                 let room_id = RoomId::try_from(args.value_of("room-id").unwrap()).unwrap();
@@ -281,6 +287,15 @@ impl Inspector {
     async fn list_rooms(&self) {
         let rooms: Vec<RoomInfo> = self.store.get_room_infos().await.unwrap();
         self.printer.pretty_print_struct(&rooms);
+    }
+
+    async fn get_display_name_owners(&self, room_id: RoomId, display_name: String) {
+        let users = self
+            .store
+            .get_users_with_display_name(&room_id, &display_name)
+            .await
+            .unwrap();
+        self.printer.pretty_print_struct(&users);
     }
 
     async fn get_profiles(&self, room_id: RoomId) {
@@ -332,6 +347,13 @@ impl Inspector {
                         .map_err(|_| "Invalid room id given".to_owned())
                 }),
             ),
+            SubCommand::with_name("get-display-names")
+                .arg(Arg::with_name("room-id").required(true).validator(|r| {
+                    RoomId::try_from(r)
+                        .map(|_| ())
+                        .map_err(|_| "Invalid room id given".to_owned())
+                }))
+                .arg(Arg::with_name("display-name").required(true)),
             SubCommand::with_name("get-state")
                 .arg(Arg::with_name("room-id").required(true).validator(|r| {
                     RoomId::try_from(r)
