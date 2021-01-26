@@ -351,8 +351,7 @@ impl SledStore {
                                 .encode();
 
                             let display_name = profile_changes
-                                .map(|p| p.get(&event.state_key))
-                                .flatten()
+                                .and_then(|p| p.get(&event.state_key))
                                 .as_ref()
                                 .map(|m| m.displayname.as_deref())
                                 .unwrap_or_else(|| Some(event.state_key.localpart()))
@@ -390,7 +389,7 @@ impl SledStore {
                             )?;
 
                             if let Some(profile) =
-                                profile_changes.map(|p| p.get(&event.state_key)).flatten()
+                                profile_changes.and_then(|p| p.get(&event.state_key))
                             {
                                 profiles.insert(
                                     key.as_slice(),

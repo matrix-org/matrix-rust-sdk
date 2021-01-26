@@ -193,27 +193,26 @@ impl Store {
     }
 
     pub fn get_joined_room(&self, room_id: &RoomId) -> Option<JoinedRoom> {
-        self.get_room(room_id).map(|r| r.joined()).flatten()
+        self.get_room(room_id).and_then(|r| r.joined())
     }
 
     pub fn get_invited_room(&self, room_id: &RoomId) -> Option<InvitedRoom> {
-        self.get_room(room_id).map(|r| r.invited()).flatten()
+        self.get_room(room_id).and_then(|r| r.invited())
     }
 
     pub fn get_left_room(&self, room_id: &RoomId) -> Option<LeftRoom> {
-        self.get_room(room_id).map(|r| r.left()).flatten()
+        self.get_room(room_id).and_then(|r| r.left())
     }
 
     pub fn get_room(&self, room_id: &RoomId) -> Option<RoomState> {
         self.get_bare_room(room_id)
-            .map(|r| match r.room_type() {
+            .and_then(|r| match r.room_type() {
                 RoomType::Joined => Some(RoomState::Joined(JoinedRoom { inner: r })),
                 RoomType::Left => Some(RoomState::Left(LeftRoom { inner: r })),
                 RoomType::Invited => self
                     .get_stripped_room(room_id)
                     .map(|r| RoomState::Invited(InvitedRoom { inner: r })),
             })
-            .flatten()
     }
 
     fn get_stripped_room(&self, room_id: &RoomId) -> Option<StrippedRoom> {

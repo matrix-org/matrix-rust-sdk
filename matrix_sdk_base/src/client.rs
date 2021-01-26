@@ -104,7 +104,7 @@ pub fn hoist_and_deserialize_state_event(
 
     if let AnySyncStateEvent::RoomMember(ref mut member) = ev {
         if member.prev_content.is_none() {
-            member.prev_content = prev_content.map(|e| e.deserialize().ok()).flatten();
+            member.prev_content = prev_content.and_then(|e| e.deserialize().ok());
         }
     }
 
@@ -121,7 +121,7 @@ fn hoist_member_event(
     let mut e = event.deserialize()?;
 
     if e.prev_content.is_none() {
-        e.prev_content = prev_content.map(|e| e.deserialize().ok()).flatten();
+        e.prev_content = prev_content.and_then(|e| e.deserialize().ok());
     }
 
     Ok(e)
@@ -133,8 +133,7 @@ fn hoist_room_event_prev_content(
     let prev_content = serde_json::from_str::<AdditionalEventData>(event.json().get())
         .map(|more_unsigned| more_unsigned.unsigned)
         .map(|additional| additional.prev_content)?
-        .map(|p| p.deserialize().ok())
-        .flatten();
+        .and_then(|p| p.deserialize().ok());
 
     let mut ev = event.deserialize()?;
 
@@ -950,8 +949,7 @@ impl BaseClient {
             for member in response.chunk.iter().filter_map(|e| {
                 hoist_member_event(e)
                     .ok()
-                    .map(|e| MemberEvent::try_from(e).ok())
-                    .flatten()
+                    .and_then(|e| MemberEvent::try_from(e).ok())
             }) {
                 if self
                     .store

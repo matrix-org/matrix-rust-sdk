@@ -336,14 +336,13 @@ impl Room {
             .store
             .get_state_event(self.room_id(), EventType::RoomPowerLevels, "")
             .await?
-            .map(|e| {
+            .and_then(|e| {
                 if let AnySyncStateEvent::RoomPowerLevels(e) = e {
                     Some(e)
                 } else {
                     None
                 }
-            })
-            .flatten();
+            });
 
         let ambiguous = self
             .store
