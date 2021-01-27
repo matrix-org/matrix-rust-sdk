@@ -2276,6 +2276,8 @@ impl Client {
 
 #[cfg(test)]
 mod test {
+    use crate::ClientConfig;
+
     use super::{
         get_public_rooms, get_public_rooms_filtered, register::RegistrationKind, Client,
         Invite3pid, Session, SyncSettings, Url,
@@ -2378,38 +2380,38 @@ mod test {
         let room = client.get_joined_room(&room_id);
         assert!(room.is_some());
 
-        // test store reloads with correct room state from JsonStore
-        // let store = Box::new(JsonStore::open(path).unwrap());
-        // let config = ClientConfig::default().state_store(store);
-        // let joined_client = Client::new_with_config(homeserver, config).unwrap();
-        // joined_client.restore_login(session).await.unwrap();
+        // test store reloads with correct room state from the sled store
+        let path = tempfile::tempdir().unwrap();
+        let config = ClientConfig::default().store_path(path);
+        let joined_client = Client::new_with_config(homeserver, config).unwrap();
+        joined_client.restore_login(session).await.unwrap();
 
-        // // joined room reloaded from state store
-        // joined_client
-        //     .sync_once(SyncSettings::default())
-        //     .await
-        //     .unwrap();
-        // let room = joined_client.get_joined_room(&room_id).await;
-        // assert!(room.is_some());
+        // joined room reloaded from state store
+        joined_client
+            .sync_once(SyncSettings::default())
+            .await
+            .unwrap();
+        let room = joined_client.get_joined_room(&room_id);
+        assert!(room.is_some());
 
-        // let _m = mock(
-        //     "GET",
-        //     Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_string()),
-        // )
-        // .with_status(200)
-        // .with_body(test_json::LEAVE_SYNC_EVENT.to_string())
-        // .create();
+        let _m = mock(
+            "GET",
+            Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_string()),
+        )
+        .with_status(200)
+        .with_body(test_json::LEAVE_SYNC_EVENT.to_string())
+        .create();
 
-        // joined_client
-        //     .sync_once(SyncSettings::default())
-        //     .await
-        //     .unwrap();
+        joined_client
+            .sync_once(SyncSettings::default())
+            .await
+            .unwrap();
 
-        // let room = joined_client.get_joined_room(&room_id).await;
-        // assert!(room.is_none());
+        let room = joined_client.get_joined_room(&room_id);
+        assert!(room.is_none());
 
-        // let room = joined_client.get_left_room(&room_id).await;
-        // assert!(room.is_some());
+        let room = joined_client.get_left_room(&room_id);
+        assert!(room.is_some());
     }
 
     #[tokio::test]
