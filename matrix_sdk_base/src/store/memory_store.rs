@@ -42,6 +42,7 @@ pub struct MemoryStore {
     account_data: Arc<DashMap<String, AnyBasicEvent>>,
     members: Arc<DashMap<RoomId, DashMap<UserId, MemberEvent>>>,
     profiles: Arc<DashMap<RoomId, DashMap<UserId, MemberEventContent>>>,
+    display_names: Arc<DashMap<RoomId, DashMap<String, BTreeSet<UserId>>>>,
     joined_user_ids: Arc<DashMap<RoomId, DashSet<UserId>>>,
     invited_user_ids: Arc<DashMap<RoomId, DashSet<UserId>>>,
     room_info: Arc<DashMap<RoomId, RoomInfo>>,
@@ -64,6 +65,7 @@ impl MemoryStore {
             account_data: DashMap::new().into(),
             members: DashMap::new().into(),
             profiles: DashMap::new().into(),
+            display_names: DashMap::new().into(),
             joined_user_ids: DashMap::new().into(),
             invited_user_ids: DashMap::new().into(),
             room_info: DashMap::new().into(),
@@ -146,6 +148,15 @@ impl MemoryStore {
                     .entry(room.clone())
                     .or_insert_with(DashMap::new)
                     .insert(user_id.clone(), profile.clone());
+            }
+        }
+
+        for (room, map) in &changes.ambiguity_maps {
+            for (display_name, display_names) in map {
+                self.display_names
+                    .entry(room.clone())
+                    .or_insert_with(DashMap::new)
+                    .insert(display_name.clone(), display_names.clone());
             }
         }
 
@@ -349,7 +360,16 @@ impl StateStore for MemoryStore {
         Ok(self.get_stripped_room_infos())
     }
 
-    async fn get_users_with_display_name(&self, _: &RoomId, _: &str) -> Result<BTreeSet<UserId>> {
-        Ok(BTreeSet::new())
+    async fn get_users_with_display_name(
+        &self,
+        room_id: &RoomId,
+        display_name: &str,
+    ) -> Result<BTreeSet<UserId>> {
+        #[allow(clippy::map_clone)]
+        Ok(self
+            .display_names
+            .get(room_id)
+            .and_then(|d| d.get(display_name).map(|d| d.clone()))
+            .unwrap_or_default())
     }
 }
