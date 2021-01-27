@@ -40,8 +40,8 @@ use tracing::{debug, warn};
 use tracing::{error, info, instrument};
 
 use matrix_sdk_base::{
-    deserialized_responses::SyncResponse, BaseClient, BaseClientConfig, EventEmitter, InvitedRoom,
-    JoinedRoom, LeftRoom, Session, Store,
+    deserialized_responses::{MembersResponse, SyncResponse},
+    BaseClient, BaseClientConfig, EventEmitter, InvitedRoom, JoinedRoom, LeftRoom, Session, Store,
 };
 
 #[cfg(feature = "encryption")]
@@ -72,8 +72,7 @@ use matrix_sdk_common::{
         filter::{create_filter::Request as FilterUploadRequest, FilterDefinition},
         media::create_content,
         membership::{
-            ban_user, forget_room,
-            get_member_events::{self, Response as MembersResponse},
+            ban_user, forget_room, get_member_events,
             invite_user::{self, InvitationRecipient},
             join_room_by_id, join_room_by_id_or_alias, kick_user, leave_room, Invite3pid,
         },
@@ -1614,9 +1613,7 @@ impl Client {
         let request = get_member_events::Request::new(room_id);
         let response = self.send(request).await?;
 
-        self.base_client.receive_members(room_id, &response).await?;
-
-        Ok(response)
+        Ok(self.base_client.receive_members(room_id, &response).await?)
     }
 
     /// Synchronize the client's state with the latest state on the server.

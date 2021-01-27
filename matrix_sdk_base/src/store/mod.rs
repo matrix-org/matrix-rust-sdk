@@ -39,6 +39,7 @@ use crate::{
     InvitedRoom, JoinedRoom, LeftRoom, Room, RoomState, Session,
 };
 
+pub(crate) mod ambiguity_map;
 mod memory_store;
 #[cfg(feature = "sled_state_store")]
 mod sled_store;
@@ -264,6 +265,7 @@ pub struct StateChanges {
 
     pub members: BTreeMap<RoomId, BTreeMap<UserId, MemberEvent>>,
     pub profiles: BTreeMap<RoomId, BTreeMap<UserId, MemberEventContent>>,
+    pub ambiguity_maps: BTreeMap<RoomId, BTreeMap<String, BTreeSet<UserId>>>,
     pub state: BTreeMap<RoomId, BTreeMap<String, BTreeMap<String, AnySyncStateEvent>>>,
     pub room_account_data: BTreeMap<RoomId, BTreeMap<String, AnyBasicEvent>>,
     pub room_infos: BTreeMap<RoomId, RoomInfo>,

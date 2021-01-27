@@ -14,6 +14,18 @@ use super::{
 };
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
+pub struct AmbiguityChange {
+    pub member_ambiguous: bool,
+    pub disambiguated_member: Option<UserId>,
+    pub ambiguated_member: Option<UserId>,
+}
+
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+pub struct AmbiguityChanges {
+    pub changes: BTreeMap<RoomId, BTreeMap<EventId, AmbiguityChange>>,
+}
+
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
 pub struct SyncResponse {
     /// The batch token to supply in the `since` param of the next `/sync` request.
     pub next_batch: String,
@@ -32,6 +44,8 @@ pub struct SyncResponse {
     /// For each key algorithm, the number of unclaimed one-time keys
     /// currently held on the server for a device.
     pub device_one_time_keys_count: BTreeMap<DeviceKeyAlgorithm, u64>,
+    /// Collection of ambiguioty changes that room member events trigger.
+    pub ambiguity_changes: AmbiguityChanges,
 }
 
 impl SyncResponse {
@@ -304,4 +318,11 @@ impl Into<StrippedStateEvent<MemberEventContent>> for StrippedMemberEvent {
             state_key: self.state_key.to_string(),
         }
     }
+}
+
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+pub struct MembersResponse {
+    pub chunk: Vec<MemberEvent>,
+    /// Collection of ambiguioty changes that room member events trigger.
+    pub ambiguity_changes: AmbiguityChanges,
 }

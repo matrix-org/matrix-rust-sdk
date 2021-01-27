@@ -320,63 +320,16 @@ impl SledStore {
                         for event in events.values() {
                             let key = (room.as_str(), event.state_key.as_str()).encode();
 
-                            let old_profile: Option<MemberEventContent> = if let Some(p) = profiles
-                                .get(key.as_slice())?
-                                .map(|p| self.deserialize_event(&p))
-                                .transpose()
-                                .map_err(ConflictableTransactionError::Abort)?
-                            {
-                                p
-                            } else {
-                                members
-                                    .get(key.as_slice())?
-                                    .map(|m| self.deserialize_event::<MemberEvent>(&m))
-                                    .transpose()
-                                    .map_err(ConflictableTransactionError::Abort)?
-                                    .map(|m| m.content)
-                            };
-
-                            let old_display_name = old_profile
-                                .map(|m| {
-                                    m.displayname
-                                        .unwrap_or_else(|| event.state_key.localpart().to_string())
-                                })
-                                .unwrap_or_else(|| event.state_key.localpart().to_string());
-
-                            let old_display_name_key = (
-                                room.as_str(),
-                                old_display_name.as_str(),
-                                event.state_key.as_str(),
-                            )
-                                .encode();
-
-                            let display_name = profile_changes
-                                .and_then(|p| p.get(&event.state_key))
-                                .as_ref()
-                                .map(|m| m.displayname.as_deref())
-                                .unwrap_or_else(|| Some(event.state_key.localpart()))
-                                .unwrap_or_else(|| event.state_key.localpart());
-
-                            let display_name_key =
-                                (room.as_str(), display_name, event.state_key.as_str()).encode();
-
                             match event.content.membership {
                                 MembershipState::Join => {
                                     joined.insert(key.as_slice(), event.state_key.as_str())?;
                                     invited.remove(key.as_slice())?;
-                                    display_names.remove(old_display_name_key)?;
-                                    display_names
-                                        .insert(display_name_key, event.state_key.as_str())?;
                                 }
                                 MembershipState::Invite => {
                                     invited.insert(key.as_slice(), event.state_key.as_str())?;
                                     joined.remove(key.as_slice())?;
-                                    display_names.remove(old_display_name_key)?;
-                                    display_names
-                                        .insert(display_name_key, event.state_key.as_str())?;
                                 }
                                 _ => {
-                                    display_names.remove(old_display_name_key)?;
                                     joined.remove(key.as_slice())?;
                                     invited.remove(key.as_slice())?;
                                 }
@@ -397,6 +350,16 @@ impl SledStore {
                                         .map_err(ConflictableTransactionError::Abort)?,
                                 )?;
                             }
+                        }
+                    }
+
+                    for (room_id, ambiguity_maps) in &changes.ambiguity_maps {
+                        for (display_name, map) in ambiguity_maps {
+                            display_names.insert(
+                                (room_id.as_str(), display_name.as_str()).encode(),
+                                self.serialize_event(&map)
+                                    .map_err(ConflictableTransactionError::Abort)?,
+                            )?;
                         }
                     }
 
@@ -593,13 +556,12 @@ impl SledStore {
     ) -> Result<BTreeSet<UserId>> {
         let key = (room_id.as_str(), display_name).encode();
 
-        self.display_names
-            .scan_prefix(key)
-            .map(|u| {
-                UserId::try_from(String::from_utf8_lossy(&u?.1).to_string())
-                    .map_err(StoreError::Identifier)
-            })
-            .collect()
+        Ok(self
+            .display_names
+            .get(key)?
+            .map(|m| self.deserialize_event(&m))
+            .transpose()?
+            .unwrap_or_default())
     }
 }
 
