@@ -573,7 +573,7 @@ impl CryptoStore for SledStore {
     }
 
     async fn remove_value(&self, key: &str) -> Result<()> {
-        self.values.remove(key)?;
+        self.values.remove(key.encode())?;
         Ok(())
     }
 
