@@ -17,7 +17,7 @@
 //! The storage layer for the [`OlmMachine`] can be customized using a trait.
 //! Implementing your own [`CryptoStore`]
 //!
-//! An in-memory only store is provided as well as a SQLite based one, depending
+//! An in-memory only store is provided as well as a Sled based one, depending
 //! on your needs and targets a custom store may be implemented, e.g. for
 //! `wasm-unknown-unknown` an indexeddb store would be needed
 //!
@@ -42,17 +42,11 @@ mod memorystore;
 mod pickle_key;
 #[cfg(feature = "sled_cryptostore")]
 pub(crate) mod sled;
-#[cfg(not(target_arch = "wasm32"))]
-#[cfg(feature = "sqlite_cryptostore")]
-pub(crate) mod sqlite;
 
 #[cfg(feature = "sled_cryptostore")]
 pub use self::sled::SledStore;
 pub use memorystore::MemoryStore;
 pub use pickle_key::{EncryptedPickleKey, PickleKey};
-#[cfg(not(target_arch = "wasm32"))]
-#[cfg(feature = "sqlite_cryptostore")]
-pub use sqlite::SqliteStore;
 
 use std::{
     collections::{HashMap, HashSet},
@@ -66,11 +60,6 @@ use olm_rs::errors::{OlmAccountError, OlmGroupSessionError, OlmSessionError};
 use serde::{Deserialize, Serialize};
 use serde_json::Error as SerdeError;
 use thiserror::Error;
-
-#[cfg_attr(feature = "docs", doc(cfg(r#sqlite_cryptostore)))]
-#[cfg(not(target_arch = "wasm32"))]
-#[cfg(feature = "sqlite_cryptostore")]
-use sqlx::Error as SqlxError;
 
 use matrix_sdk_common::{
     async_trait,
@@ -294,13 +283,6 @@ pub enum CryptoStoreError {
     /// found.
     #[error("can't save/load sessions or group sessions in the store before an account is stored")]
     AccountUnset,
-
-    /// SQL error occurred.
-    // TODO flatten the SqlxError to make it easier for other store
-    // implementations.
-    #[cfg(feature = "sqlite_cryptostore")]
-    #[error(transparent)]
-    Database(#[from] SqlxError),
 
     /// Error in the internal database
     #[cfg(feature = "sled_cryptostore")]

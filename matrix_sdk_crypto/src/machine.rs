@@ -252,7 +252,7 @@ impl OlmMachine {
 
     /// Create a new machine with the default crypto store.
     ///
-    /// The default store uses a SQLite database to store the encryption keys.
+    /// The default store uses a Sled database to store the encryption keys.
     ///
     /// # Arguments
     ///
@@ -260,7 +260,7 @@ impl OlmMachine {
     ///
     /// * `device_id` - The unique id of the device that owns this machine.
     #[cfg(feature = "sled_cryptostore")]
-    #[cfg_attr(feature = "docs", doc(cfg(r#sqlite_cryptostore)))]
+    #[cfg_attr(feature = "docs", doc(cfg(sled_cryptostore)))]
     pub async fn new_with_default_store(
         user_id: &UserId,
         device_id: &DeviceId,
@@ -1162,8 +1162,6 @@ pub(crate) mod test {
 
     use http::Response;
     use serde_json::json;
-    #[cfg(feature = "sqlite_cryptostore")]
-    use tempfile::tempdir;
 
     use crate::{
         machine::OlmMachine,

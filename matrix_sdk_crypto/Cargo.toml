@@ -16,9 +16,8 @@ rustdoc-args = ["--cfg", "feature=\"docs\""]
 
 [features]
 default = []
-sqlite_cryptostore = ["sqlx"]
 sled_cryptostore = ["sled"]
-docs = ["sqlite_cryptostore"]
+docs = ["sled_cryptostore"]
 
 [dependencies]
 matrix-sdk-common = { version = "0.2.0", path = "../matrix_sdk_common" }
@@ -42,12 +41,6 @@ pbkdf2 = { version = "0.6.0", default-features = false }
 hmac = "0.10.1"
 base64 = "0.13.0"
 byteorder = "1.4.2"
-
-[target.'cfg(not(target_arch = "wasm32"))'.dependencies.sqlx]
-version = "0.4.2"
-optional = true
-default-features = false
-features = ["runtime-tokio-native-tls", "sqlite", "macros"]
 
 [dev-dependencies]
 tokio = { version = "1.1.0", default-features = false, features = ["rt-multi-thread", "macros"] }
