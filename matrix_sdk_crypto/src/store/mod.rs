@@ -109,7 +109,7 @@ pub(crate) struct Store {
     verification_machine: VerificationMachine,
 }
 
-#[derive(Debug, Default)]
+#[derive(Clone, Debug, Default)]
 #[allow(missing_docs)]
 pub struct Changes {
     pub account: Option<ReadOnlyAccount>,
