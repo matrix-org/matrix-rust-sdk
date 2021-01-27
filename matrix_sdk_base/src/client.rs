@@ -514,6 +514,10 @@ impl BaseClient {
                                 }
                             }
                         }
+                        // TODO if there is redacted state save the room id,
+                        // event type and state key, add a method to get the
+                        // requests that are needed to be called to heal this
+                        // redacted state.
                         _ => (),
                     }
 
