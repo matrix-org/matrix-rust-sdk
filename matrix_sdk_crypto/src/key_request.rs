@@ -40,7 +40,7 @@ use matrix_sdk_common::{
 
 use crate::{
     error::{OlmError, OlmResult},
-    olm::{InboundGroupSession, OutboundGroupSession, Session},
+    olm::{InboundGroupSession, OutboundGroupSession, Session, ShareState},
     requests::{OutgoingRequest, ToDeviceRequest},
     store::{CryptoStoreError, Store},
     Device,
@@ -347,42 +347,46 @@ impl KeyRequestMachine {
             .await?;
 
         if let Some(device) = device {
-            if let Err(e) = self.should_share_session(
+            match self.should_share_session(
                 &device,
                 self.outbound_group_sessions
                     .get(&key_info.room_id)
                     .as_deref(),
             ) {
-                info!(
-                    "Received a key request from {} {} that we won't serve: {}",
-                    device.user_id(),
-                    device.device_id(),
-                    e
-                );
+                Err(e) => {
+                    info!(
+                        "Received a key request from {} {} that we won't serve: {}",
+                        device.user_id(),
+                        device.device_id(),
+                        e
+                    );
 
-                Ok(None)
-            } else {
-                info!(
-                    "Serving a key request for {} from {} {}.",
-                    key_info.session_id,
-                    device.user_id(),
-                    device.device_id()
-                );
+                    Ok(None)
+                }
+                Ok(message_index) => {
+                    info!(
+                        "Serving a key request for {} from {} {} with message_index {:?}.",
+                        key_info.session_id,
+                        device.user_id(),
+                        device.device_id(),
+                        message_index,
+                    );
 
-                match self.share_session(&session, &device).await {
-                    Ok(s) => Ok(Some(s)),
-                    Err(OlmError::MissingSession) => {
-                        info!(
-                            "Key request from {} {} is missing an Olm session, \
+                    match self.share_session(&session, &device, message_index).await {
+                        Ok(s) => Ok(Some(s)),
+                        Err(OlmError::MissingSession) => {
+                            info!(
+                                "Key request from {} {} is missing an Olm session, \
                              putting the request in the wait queue",
-                            device.user_id(),
-                            device.device_id()
-                        );
-                        self.handle_key_share_without_session(device, event);
+                                device.user_id(),
+                                device.device_id()
+                            );
+                            self.handle_key_share_without_session(device, event);
 
-                        Ok(None)
+                            Ok(None)
+                        }
+                        Err(e) => Err(e),
                     }
-                    Err(e) => Err(e),
                 }
             }
         } else {
@@ -400,8 +404,11 @@ impl KeyRequestMachine {
         &self,
         session: &InboundGroupSession,
         device: &Device,
+        message_index: Option<u32>,
     ) -> OlmResult<Session> {
-        let (used_session, content) = device.encrypt_session(session.clone()).await?;
+        let (used_session, content) = device
+            .encrypt_session(session.clone(), message_index)
+            .await?;
 
         let id = Uuid::new_v4();
         let mut messages = BTreeMap::new();
@@ -453,16 +460,18 @@ impl KeyRequestMachine {
         &self,
         device: &Device,
         outbound_session: Option<&OutboundGroupSession>,
-    ) -> Result<(), KeyshareDecision> {
+    ) -> Result<Option<u32>, KeyshareDecision> {
         if device.user_id() == self.user_id() {
             if device.trust_state() {
-                Ok(())
+                Ok(None)
             } else {
                 Err(KeyshareDecision::UntrustedDevice)
             }
         } else if let Some(outbound) = outbound_session {
-            if outbound.is_shared_with(device.user_id(), device.device_id()) {
-                Ok(())
+            if let ShareState::Shared(message_index) =
+                outbound.is_shared_with(device.user_id(), device.device_id())
+            {
+                Ok(Some(message_index))
             } else {
                 Err(KeyshareDecision::OutboundSessionNotShared)
             }
@@ -830,7 +839,7 @@ mod test {
 
         machine.mark_outgoing_request_as_sent(&id).await.unwrap();
 
-        let export = session.export_at_index(10).await.unwrap();
+        let export = session.export_at_index(10).await;
 
         let content: ForwardedRoomKeyToDeviceEventContent = export.try_into().unwrap();
 
@@ -887,7 +896,7 @@ mod test {
 
         machine.mark_outgoing_request_as_sent(&id).await.unwrap();
 
-        let export = session.export_at_index(15).await.unwrap();
+        let export = session.export_at_index(15).await;
 
         let content: ForwardedRoomKeyToDeviceEventContent = export.try_into().unwrap();
 
@@ -903,7 +912,7 @@ mod test {
 
         assert!(second_session.is_none());
 
-        let export = session.export_at_index(0).await.unwrap();
+        let export = session.export_at_index(0).await;
 
         let content: ForwardedRoomKeyToDeviceEventContent = export.try_into().unwrap();
 

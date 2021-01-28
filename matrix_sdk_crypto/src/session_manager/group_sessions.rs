@@ -29,7 +29,7 @@ use tracing::{debug, info};
 
 use crate::{
     error::{EventError, MegolmResult, OlmResult},
-    olm::{Account, InboundGroupSession, OutboundGroupSession, Session},
+    olm::{Account, InboundGroupSession, OutboundGroupSession, Session, ShareState},
     store::{Changes, Store},
     Device, EncryptionSettings, OlmError, ToDeviceRequest,
 };
@@ -263,7 +263,8 @@ impl GroupSessionManager {
                 {
                     #[allow(clippy::map_clone)]
                     // Devices that received this session
-                    let shared: HashSet<DeviceIdBox> = shared.iter().map(|d| d.clone()).collect();
+                    let shared: HashSet<DeviceIdBox> =
+                        shared.iter().map(|d| d.key().clone()).collect();
                     let shared: HashSet<&DeviceId> = shared.iter().map(|d| d.as_ref()).collect();
 
                     // The difference between the devices that received the
@@ -341,16 +342,23 @@ impl GroupSessionManager {
         let devices: Vec<Device> = devices
             .into_iter()
             .map(|(_, d)| {
-                d.into_iter()
-                    .filter(|d| !outbound.is_shared_with(d.user_id(), d.device_id()))
+                d.into_iter().filter(|d| {
+                    matches!(
+                        outbound.is_shared_with(d.user_id(), d.device_id()),
+                        ShareState::NotShared
+                    )
+                })
             })
             .flatten()
             .collect();
 
+        let key_content = outbound.as_json().await;
+        let message_index = outbound.message_index().await;
+
         if !devices.is_empty() {
             info!(
                 "Sharing outbound session at index {} with {:?}",
-                outbound.message_index().await,
+                message_index,
                 devices.iter().fold(BTreeMap::new(), |mut acc, d| {
                     acc.entry(d.user_id())
                         .or_insert_with(BTreeSet::new)
@@ -360,15 +368,13 @@ impl GroupSessionManager {
             );
         }
 
-        let key_content = outbound.as_json().await;
-
         for device_map_chunk in devices.chunks(Self::MAX_TO_DEVICE_MESSAGES) {
             let (id, request, used_sessions) = self
                 .encrypt_session_for(key_content.clone(), device_map_chunk)
                 .await?;
 
             if !request.messages.is_empty() {
-                outbound.add_request(id, request.into());
+                outbound.add_request(id, request.into(), message_index);
                 self.outbound_sessions_being_shared
                     .insert(id, outbound.clone());
             }

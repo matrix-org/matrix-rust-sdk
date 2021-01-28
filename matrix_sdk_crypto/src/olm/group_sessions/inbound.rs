@@ -183,9 +183,7 @@ impl InboundGroupSession {
     /// If only a limited part of this session should be exported use
     /// [`export_at_index()`](#method.export_at_index).
     pub async fn export(&self) -> ExportedRoomKey {
-        self.export_at_index(self.first_known_index())
-            .await
-            .expect("Can't export at the first known index")
+        self.export_at_index(self.first_known_index()).await
     }
 
     /// Get the sender key that this session was received from.
@@ -194,11 +192,18 @@ impl InboundGroupSession {
     }
 
     /// Export this session at the given message index.
-    pub async fn export_at_index(&self, message_index: u32) -> Option<ExportedRoomKey> {
-        let session_key =
-            ExportedGroupSessionKey(self.inner.lock().await.export(message_index).ok()?);
+    pub async fn export_at_index(&self, message_index: u32) -> ExportedRoomKey {
+        let message_index = std::cmp::max(self.first_known_index(), message_index);
 
-        Some(ExportedRoomKey {
+        let session_key = ExportedGroupSessionKey(
+            self.inner
+                .lock()
+                .await
+                .export(message_index)
+                .expect("Can't export session"),
+        );
+
+        ExportedRoomKey {
             algorithm: EventEncryptionAlgorithm::MegolmV1AesSha2,
             room_id: (&*self.room_id).clone(),
             sender_key: (&*self.sender_key).to_owned(),
@@ -212,7 +217,7 @@ impl InboundGroupSession {
                 .unwrap_or_default(),
             sender_claimed_keys: (&*self.signing_key).clone(),
             session_key,
-        })
+        }
     }
 
     /// Restore a Session from a previously pickled string.

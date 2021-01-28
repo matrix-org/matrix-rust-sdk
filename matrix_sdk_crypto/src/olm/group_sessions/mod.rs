@@ -24,7 +24,9 @@ mod inbound;
 mod outbound;
 
 pub use inbound::{InboundGroupSession, InboundGroupSessionPickle, PickledInboundGroupSession};
-pub use outbound::{EncryptionSettings, OutboundGroupSession, PickledOutboundGroupSession};
+pub use outbound::{
+    EncryptionSettings, OutboundGroupSession, PickledOutboundGroupSession, ShareState,
+};
 
 /// The private session key of a group session.
 /// Can be used to create a new inbound group session.

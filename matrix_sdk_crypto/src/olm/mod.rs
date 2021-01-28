@@ -25,11 +25,11 @@ mod utility;
 
 pub(crate) use account::{Account, OlmDecryptionInfo, SessionType};
 pub use account::{AccountPickle, OlmMessageHash, PickledAccount, ReadOnlyAccount};
-pub(crate) use group_sessions::GroupSessionKey;
 pub use group_sessions::{
     EncryptionSettings, ExportedRoomKey, InboundGroupSession, InboundGroupSessionPickle,
     OutboundGroupSession, PickledInboundGroupSession, PickledOutboundGroupSession,
 };
+pub(crate) use group_sessions::{GroupSessionKey, ShareState};
 pub use olm_rs::{account::IdentityKeys, PicklingMode};
 pub use session::{PickledSession, Session, SessionPickle};
 pub use signing::{PickledCrossSigningIdentity, PrivateCrossSigningIdentity};

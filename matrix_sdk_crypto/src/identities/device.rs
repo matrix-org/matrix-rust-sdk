@@ -189,8 +189,13 @@ impl Device {
     pub async fn encrypt_session(
         &self,
         session: InboundGroupSession,
+        message_index: Option<u32>,
     ) -> OlmResult<(Session, EncryptedEventContent)> {
-        let export = session.export().await;
+        let export = if let Some(index) = message_index {
+            session.export_at_index(index).await
+        } else {
+            session.export().await
+        };
 
         let content: ForwardedRoomKeyToDeviceEventContent = if let Ok(c) = export.try_into() {
             c
