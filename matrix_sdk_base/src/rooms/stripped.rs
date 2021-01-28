@@ -24,6 +24,7 @@ use crate::store::StateStore;
 
 use super::BaseRoomInfo;
 
+/// The underlying room data structure collecting state for invited rooms.
 #[derive(Debug, Clone)]
 pub struct StrippedRoom {
     room_id: Arc<RoomId>,
@@ -33,7 +34,11 @@ pub struct StrippedRoom {
 }
 
 impl StrippedRoom {
-    pub fn new(own_user_id: &UserId, store: Arc<Box<dyn StateStore>>, room_id: &RoomId) -> Self {
+    pub(crate) fn new(
+        own_user_id: &UserId,
+        store: Arc<Box<dyn StateStore>>,
+        room_id: &RoomId,
+    ) -> Self {
         let room_id = Arc::new(room_id.clone());
 
         let info = StrippedRoomInfo {
@@ -44,7 +49,7 @@ impl StrippedRoom {
         Self::restore(own_user_id, store, info)
     }
 
-    pub fn restore(
+    pub(crate) fn restore(
         own_user_id: &UserId,
         store: Arc<Box<dyn StateStore>>,
         room_info: StrippedRoomInfo,
@@ -72,6 +77,12 @@ impl StrippedRoom {
         }
     }
 
+    /// Get the unique room id of the room.
+    pub fn room_id(&self) -> &RoomId {
+        &self.room_id
+    }
+
+    /// Get our own user id.
     pub fn own_user_id(&self) -> &UserId {
         &self.own_user_id
     }
@@ -80,22 +91,31 @@ impl StrippedRoom {
         (*self.inner.lock().unwrap()).clone()
     }
 
+    /// Is the room encrypted.
     pub fn is_encrypted(&self) -> bool {
         self.inner.lock().unwrap().base_info.encryption.is_some()
     }
 
-    pub fn room_id(&self) -> &RoomId {
-        &self.room_id
-    }
-
+    /// Calculate the canonical display name of the room, taking into account
+    /// its name, aliases and members.
+    ///
+    /// The display name is calculated according to [this algorithm][spec].
+    ///
+    /// [spec]: <https://matrix.org/docs/spec/client_server/latest#calculating-the-display-name-for-a-room>
     pub async fn display_name(&self) -> String {
         self.calculate_name().await
     }
 }
 
+/// The underlying pure data structure for invited rooms.
+///
+/// Holds all the info needed to persist a room into the state store.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct StrippedRoomInfo {
+    /// The unique room id of the room.
     pub room_id: Arc<RoomId>,
+    /// Base room info which holds some basic event contents important for the
+    /// room state.
     pub base_info: BaseRoomInfo,
 }
 
