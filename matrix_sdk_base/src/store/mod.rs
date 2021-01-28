@@ -78,19 +78,48 @@ pub enum StoreError {
 /// A `StateStore` specific result type.
 pub type Result<T> = std::result::Result<T, StoreError>;
 
+/// An abstract state store trait that can be used to implement different stores
+/// for the SDK.
 #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
 #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
 pub trait StateStore: AsyncTraitDeps {
+    /// Save the given filter id under the given name.
+    ///
+    /// # Arguments
+    ///
+    /// * `filter_name` - The name that should be used to store the filter id.
+    ///
+    /// * `filter_id` - The filter id that should be stored in the state store.
     async fn save_filter(&self, filter_name: &str, filter_id: &str) -> Result<()>;
 
+    /// Save the set of state changes in the store.
     async fn save_changes(&self, changes: &StateChanges) -> Result<()>;
 
-    async fn get_filter(&self, filter_id: &str) -> Result<Option<String>>;
+    /// Get the filter id that was stored under the given filter name.
+    ///
+    /// # Arguments
+    ///
+    /// * `filter_name` - The name that was used to store the filter id.
+    async fn get_filter(&self, filter_name: &str) -> Result<Option<String>>;
 
+    /// Get the last stored sync token.
     async fn get_sync_token(&self) -> Result<Option<String>>;
 
+    /// Get the stored presence event for the given user.
+    ///
+    /// # Arguments
+    ///
+    /// * `user_id` - The id of the user for which we wish to fetch the presence
+    /// event for.
     async fn get_presence_event(&self, user_id: &UserId) -> Result<Option<PresenceEvent>>;
 
+    /// Get a state event out of the state store.
+    ///
+    /// # Arguments
+    ///
+    /// * `room_id` - The id of the room the state event was received for.
+    ///
+    /// * `event_type` - The event type of the state event.
     async fn get_state_event(
         &self,
         room_id: &RoomId,
@@ -98,26 +127,54 @@ pub trait StateStore: AsyncTraitDeps {
         state_key: &str,
     ) -> Result<Option<AnySyncStateEvent>>;
 
+    /// Get the current profile for the given user in the given room.
+    ///
+    /// # Arguments
+    ///
+    /// * `room_id` - The room id the profile is used in.
+    ///
+    /// * `user_id` - The id of the user the profile belongs to.
     async fn get_profile(
         &self,
         room_id: &RoomId,
         user_id: &UserId,
     ) -> Result<Option<MemberEventContent>>;
 
+    /// Get a raw `MemberEvent` for the given state key in the given room id.
+    ///
+    /// # Arguments
+    ///
+    /// * `room_id` - The room id the member event belongs to.
+    ///
+    /// * `state_key` - The user id that the member event defines the state for.
     async fn get_member_event(
         &self,
         room_id: &RoomId,
         state_key: &UserId,
     ) -> Result<Option<MemberEvent>>;
 
+    /// Get all the user ids of members that are in the invited state for a
+    /// given room.
     async fn get_invited_user_ids(&self, room_id: &RoomId) -> Result<Vec<UserId>>;
 
+    /// Get all the user ids of members that are in the joined state for a
+    /// given room.
     async fn get_joined_user_ids(&self, room_id: &RoomId) -> Result<Vec<UserId>>;
 
+    /// Get all the pure `RoomInfo`s the store knows about.
     async fn get_room_infos(&self) -> Result<Vec<RoomInfo>>;
 
+    /// Get all the pure `StrippedRoomInfo`s the store knows about.
     async fn get_stripped_room_infos(&self) -> Result<Vec<StrippedRoomInfo>>;
 
+    /// Get all the users that use the given display name in the given room.
+    ///
+    /// # Arguments
+    ///
+    /// * `room_id` - The id of the room for which the display name users should
+    /// be fetched for.
+    ///
+    /// * `display_name` - The display name that the users use.
     async fn get_users_with_display_name(
         &self,
         room_id: &RoomId,
@@ -125,6 +182,10 @@ pub trait StateStore: AsyncTraitDeps {
     ) -> Result<BTreeSet<UserId>>;
 }
 
+/// A state store wrapper for the SDK.
+///
+/// This adds additional higher level store functionality on top of a
+/// `StateStore` implementation.
 #[derive(Debug, Clone)]
 pub struct Store {
     inner: Arc<Box<dyn StateStore>>,
@@ -174,6 +235,14 @@ impl Store {
         Self::new(inner)
     }
 
+    /// Open the default Sled store.
+    ///
+    /// # Arguments
+    ///
+    /// * `path` - The path where the store should reside in.
+    ///
+    /// * `passphrase` - A passphrase that should be used to encrypt the state
+    /// store.
     #[cfg(feature = "sled_state_store")]
     pub fn open_default(path: impl AsRef<Path>, passphrase: Option<&str>) -> Result<(Self, Db)> {
         let inner = if let Some(passphrase) = passphrase {
@@ -197,6 +266,7 @@ impl Store {
         self.rooms.get(room_id).map(|r| r.clone())
     }
 
+    /// Get all the rooms this store knows about.
     pub fn get_rooms(&self) -> Vec<RoomState> {
         self.rooms
             .iter()
@@ -204,18 +274,36 @@ impl Store {
             .collect()
     }
 
+    /// Get the joined room with the given room id.
+    ///
+    /// *Note*: A room with the given id might exist in a different state, this
+    /// will only return the room if it's in the joined state.
     pub fn get_joined_room(&self, room_id: &RoomId) -> Option<JoinedRoom> {
         self.get_room(room_id).and_then(|r| r.joined())
     }
 
+    /// Get the joined room with the given room id.
+    ///
+    /// *Note*: A room with the given id might exist in a different state, this
+    /// will only return the room if it's in the invited state.
     pub fn get_invited_room(&self, room_id: &RoomId) -> Option<InvitedRoom> {
         self.get_room(room_id).and_then(|r| r.invited())
     }
 
+    /// Get the joined room with the given room id.
+    ///
+    /// *Note*: A room with the given id might exist in a different state, this
+    /// will only return the room if it's in the left state.
     pub fn get_left_room(&self, room_id: &RoomId) -> Option<LeftRoom> {
         self.get_room(room_id).and_then(|r| r.left())
     }
 
+    /// Get the room with the given room id.
+    ///
+    /// *Note*: This will return the room in the `RoomState` enum, a room might
+    /// turn from an invited room to a joined one between sync requests, this
+    /// room struct might have stale info in that case and a new one should be
+    /// pulled out of the store.
     pub fn get_room(&self, room_id: &RoomId) -> Option<RoomState> {
         self.get_bare_room(room_id)
             .and_then(|r| match r.room_type() {
