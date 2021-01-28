@@ -955,6 +955,15 @@ impl BaseClient {
         }
     }
 
+    /// Receive a get member events response and convert it to a deserialized
+    /// `MembersResponse`
+    ///
+    ///
+    /// # Arguments
+    ///
+    /// * `room_id` - The room id this response belongs to.
+    ///
+    /// * `response` - The raw response that was received from the server.
     pub async fn receive_members(
         &self,
         room_id: &RoomId,
@@ -1037,6 +1046,21 @@ impl BaseClient {
         })
     }
 
+    /// Receive a successful filter upload response, the filter id will be
+    /// stored under the given name in the store.
+    ///
+    /// The filter id can later be retrieved with the [`get_filter`] method.
+    ///
+    ///
+    /// # Arguments
+    ///
+    /// * `filter_name` - The name that should be used to persist the filter id in
+    /// the store.
+    ///
+    /// * `response` - The successful filter upload response containing the
+    /// filter id.
+    ///
+    /// [`get_filter`]: #method.get_filter
     pub async fn receive_filter_upload(
         &self,
         filter_name: &str,
@@ -1048,6 +1072,17 @@ impl BaseClient {
             .await?)
     }
 
+    /// Get the filter id of a previously uploaded filter.
+    ///
+    /// *Note*: A filter will first need to be uploaded and persisted using
+    /// [`receive_filter_upload`].
+    ///
+    /// # Arguments
+    ///
+    /// * `filter_name` - The name of the filter that was previously used to
+    /// persist the filter.
+    ///
+    /// [`receive_filter_upload`]: #method.receive_filter_upload
     pub async fn get_filter(&self, filter_name: &str) -> StoreResult<Option<String>> {
         self.store.get_filter(filter_name).await
     }
@@ -1131,6 +1166,11 @@ impl BaseClient {
         }
     }
 
+    /// Get the room with the given room id.
+    ///
+    /// # Arguments
+    ///
+    /// * `room_id` - The id of the room that should be fetched.
     pub fn get_room(&self, room_id: &RoomId) -> Option<RoomState> {
         self.store.get_room(room_id)
     }

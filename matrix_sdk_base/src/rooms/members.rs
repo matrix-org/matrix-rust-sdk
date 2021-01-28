@@ -25,6 +25,7 @@ use matrix_sdk_common::{
 
 use crate::deserialized_responses::MemberEvent;
 
+/// A member of a room.
 #[derive(Clone, Debug)]
 pub struct RoomMember {
     pub(crate) event: Arc<MemberEvent>,
@@ -37,10 +38,12 @@ pub struct RoomMember {
 }
 
 impl RoomMember {
+    /// Get the unique user id of this member.
     pub fn user_id(&self) -> &UserId {
         &self.event.state_key
     }
 
+    /// Get the display name of the member if ther is one.
     pub fn display_name(&self) -> Option<&str> {
         if let Some(p) = self.profile.as_ref() {
             p.displayname.as_deref()
@@ -49,6 +52,10 @@ impl RoomMember {
         }
     }
 
+    /// Get the name of the member.
+    ///
+    /// This returns either the display name or the local part of the user id if
+    /// the member didn't set a display name.
     pub fn name(&self) -> &str {
         if let Some(d) = self.display_name() {
             d
@@ -57,6 +64,7 @@ impl RoomMember {
         }
     }
 
+    /// Get the avatar url of the member, if ther is one.
     pub fn avatar_url(&self) -> Option<&str> {
         match self.profile.as_ref() {
             Some(p) => p.avatar_url.as_deref(),
@@ -64,6 +72,10 @@ impl RoomMember {
         }
     }
 
+    /// Get the normalized power level of this member.
+    ///
+    /// The normalized power level depends on the maximum power level that can
+    /// be found in a certain room, it's always in the range of 0-100.
     pub fn normalized_power_level(&self) -> i64 {
         if self.max_power_level > 0 {
             (self.power_level() * 100) / self.max_power_level
@@ -72,6 +84,7 @@ impl RoomMember {
         }
     }
 
+    /// Get the power level of this member.
     pub fn power_level(&self) -> i64 {
         self.power_levles
             .as_ref()
@@ -84,5 +97,13 @@ impl RoomMember {
                     .unwrap_or_else(|| e.content.users_default.into())
             })
             .unwrap_or_else(|| if self.is_room_creator { 100 } else { 0 })
+    }
+
+    /// Is the name that the member uses ambiguous in the room.
+    ///
+    /// A name is considered to be ambiguous if at least one other member shares
+    /// the same name.
+    pub fn name_ambiguous(&self) -> bool {
+        self.display_name_ambiguous
     }
 }

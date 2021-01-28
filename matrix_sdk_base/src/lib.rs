@@ -52,7 +52,7 @@ mod store;
 
 pub use event_emitter::EventEmitter;
 pub use rooms::{InvitedRoom, JoinedRoom, LeftRoom, Room, RoomInfo, RoomMember, RoomState};
-pub use store::{Store, StoreError};
+pub use store::{StateStore, Store, StoreError};
 
 pub use client::{BaseClient, BaseClientConfig, RoomStateType};
 

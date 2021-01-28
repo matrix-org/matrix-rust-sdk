@@ -44,23 +44,33 @@ mod memory_store;
 #[cfg(feature = "sled_state_store")]
 mod sled_store;
 
+#[cfg(not(feature = "sled_state_store"))]
 use self::memory_store::MemoryStore;
 #[cfg(feature = "sled_state_store")]
 use self::sled_store::SledStore;
 
+/// State store specific error type.
 #[derive(Debug, thiserror::Error)]
 pub enum StoreError {
+    /// An error happened in the underlying sled database.
     #[cfg(feature = "sled_state_store")]
     #[error(transparent)]
     Sled(#[from] sled::Error),
+    /// An error happened while serializing or deserializing some data.
     #[error(transparent)]
     Json(#[from] serde_json::Error),
+    /// An error happened while deserializing a Matrix identifier, e.g. an user
+    /// id.
     #[error(transparent)]
     Identifier(#[from] matrix_sdk_common::identifiers::Error),
+    /// The store is locked with a passphrase and an incorrect passphrase was
+    /// given.
     #[error("The store failed to be unlocked")]
     StoreLocked,
+    /// An unencrypted store was tried to be unlocked with a passphrase.
     #[error("The store is not encrypted but was tried to be opened with a passphrase")]
     UnencryptedStore,
+    /// The store failed to encrypt or decrypt some data.
     #[error("Error encrypting or decrypting data from the store: {0}")]
     Encryption(String),
 }
@@ -157,7 +167,8 @@ impl Store {
         Ok(())
     }
 
-    pub fn open_memory_store() -> Self {
+    #[cfg(not(feature = "sled_state_store"))]
+    pub(crate) fn open_memory_store() -> Self {
         let inner = Box::new(MemoryStore::new());
 
         Self::new(inner)
@@ -175,7 +186,7 @@ impl Store {
     }
 
     #[cfg(feature = "sled_state_store")]
-    pub fn open_temporary() -> Result<(Self, Db)> {
+    pub(crate) fn open_temporary() -> Result<(Self, Db)> {
         let inner = SledStore::open()?;
 
         Ok((Self::new(Box::new(inner.clone())), inner.inner))

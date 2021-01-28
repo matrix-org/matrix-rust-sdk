@@ -41,6 +41,8 @@ pub enum RoomState {
 }
 
 impl RoomState {
+    /// Destructure the room into a `JoinedRoom` if the room is in the joined
+    /// state.
     pub fn joined(self) -> Option<JoinedRoom> {
         if let RoomState::Joined(r) = self {
             Some(r)
@@ -49,6 +51,8 @@ impl RoomState {
         }
     }
 
+    /// Destructure the room into an `InvitedRoom` if the room is in the invited
+    /// state.
     pub fn invited(self) -> Option<InvitedRoom> {
         if let RoomState::Invited(r) = self {
             Some(r)
@@ -57,6 +61,8 @@ impl RoomState {
         }
     }
 
+    /// Destructure the room into a `LeftRoom` if the room is in the left
+    /// state.
     pub fn left(self) -> Option<LeftRoom> {
         if let RoomState::Left(r) = self {
             Some(r)
@@ -65,6 +71,7 @@ impl RoomState {
         }
     }
 
+    /// Is the room encrypted.
     pub fn is_encrypted(&self) -> bool {
         match self {
             RoomState::Joined(r) => r.inner.is_encrypted(),
@@ -73,6 +80,7 @@ impl RoomState {
         }
     }
 
+    /// Are the members for this room synced.
     pub fn are_members_synced(&self) -> bool {
         if let RoomState::Joined(r) = self {
             r.inner.are_members_synced()
@@ -82,12 +90,12 @@ impl RoomState {
     }
 }
 
+/// A room in a joined state.
 #[derive(Debug, Clone)]
 pub struct JoinedRoom {
     pub(crate) inner: Room,
 }
 
-// TODO do we wan't to deref here or have separate implementations.
 impl Deref for JoinedRoom {
     type Target = Room;
 
@@ -96,6 +104,7 @@ impl Deref for JoinedRoom {
     }
 }
 
+/// A room in a left state.
 #[derive(Debug, Clone)]
 pub struct LeftRoom {
     pub(crate) inner: Room,
@@ -109,6 +118,7 @@ impl Deref for LeftRoom {
     }
 }
 
+/// A room in an invited state.
 #[derive(Debug, Clone)]
 pub struct InvitedRoom {
     pub(crate) inner: StrippedRoom,
@@ -122,23 +132,40 @@ impl Deref for InvitedRoom {
     }
 }
 
+/// A base room info struct that is the backbone of normal as well as stripped
+/// rooms. Holds all the state events that are important to present a room to
+/// users.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct BaseRoomInfo {
+    /// The avatar URL of this room.
     pub avatar_url: Option<String>,
+    /// The canonical alias of this room.
     pub canonical_alias: Option<RoomAliasId>,
+    /// The `m.room.create` event content of this room.
     pub create: Option<CreateEventContent>,
+    /// The user id this room is sharing the direct message with, if the room is
+    /// a direct message.
     pub dm_target: Option<UserId>,
+    /// The `m.room.encryption` event content that enabled E2EE in this room.
     pub encryption: Option<EncryptionEventContent>,
+    /// The guest access policy of this room.
     pub guest_access: GuestAccess,
+    /// The history visiblity policy of this room.
     pub history_visibility: HistoryVisibility,
+    /// The join rule policy of this room.
     pub join_rule: JoinRule,
+    /// The maximal power level that can be found in this room.
     pub max_power_level: i64,
+    /// The `m.room.name` of this room.
     pub name: Option<String>,
+    /// The `m.room.tombstone` event content of this room.
     pub tombstone: Option<TombstoneEventContent>,
+    /// The topic of this room.
     pub topic: Option<String>,
 }
 
 impl BaseRoomInfo {
+    /// Create a new, empty base room info.
     pub fn new() -> Self {
         Self::default()
     }
@@ -181,6 +208,9 @@ impl BaseRoomInfo {
         }
     }
 
+    /// Handle a state event for this room and update our info accordingly.
+    ///
+    /// Returns true if the event modified the info, false otherwise.
     pub fn handle_state_event(&mut self, content: &AnyStateEventContent) -> bool {
         match content {
             AnyStateEventContent::RoomEncryption(encryption) => {

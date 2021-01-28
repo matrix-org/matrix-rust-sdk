@@ -43,6 +43,7 @@ use crate::{
 
 use super::{BaseRoomInfo, RoomMember};
 
+/// The underlying room data structure collecting state for joined and left rooms.
 #[derive(Debug, Clone)]
 pub struct Room {
     room_id: Arc<RoomId>,
@@ -51,21 +52,28 @@ pub struct Room {
     store: Arc<Box<dyn StateStore>>,
 }
 
+/// The room summary containing member counts and members that should be used to
+/// calculate the room display name.
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct RoomSummary {
+    /// The heroes of the room, members that should be used for the room display
+    /// name.
     heroes: Vec<String>,
+    /// The number of members that are considered to be joined to the room.
     joined_member_count: u64,
+    /// The number of members that are considered to be invited to the room.
     invited_member_count: u64,
 }
 
-/// Signals to the `BaseClient` which `RoomState` to send to `EventEmitter`.
+/// Enum keeping track in which state the room is, e.g. if our own user is
+/// joined, invited, or has left the room.
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]
 pub enum RoomType {
-    /// Represents a joined room, the `joined_rooms` HashMap will be used.
+    /// The room is in a joined state.
     Joined,
-    /// Represents a left room, the `left_rooms` HashMap will be used.
+    /// The room is in a left state.
     Left,
-    /// Represents an invited room, the `invited_rooms` HashMap will be used.
+    /// The room is in a invited state.
     Invited,
 }
 
@@ -104,62 +112,92 @@ impl Room {
         }
     }
 
+    /// Get the unique room id of the room.
     pub fn room_id(&self) -> &RoomId {
         &self.room_id
     }
 
+    /// Get our own user id.
     pub fn own_user_id(&self) -> &UserId {
         &self.own_user_id
     }
 
+    /// Get the type of the room.
     pub fn room_type(&self) -> RoomType {
         self.inner.read().unwrap().room_type
     }
 
+    /// Get the unread notification counts.
     pub fn unread_notification_counts(&self) -> UnreadNotificationsCount {
         self.inner.read().unwrap().notification_counts
     }
 
+    /// Check if the room has it's members fully synced.
+    ///
+    /// Members might be missing if lazy member loading was enabled for the sync.
+    ///
+    /// Returns true if no members are missing, false otherwise.
     pub fn are_members_synced(&self) -> bool {
         self.inner.read().unwrap().members_synced
     }
 
+    /// Get the `prev_batch` token that was received from the last sync. May be
+    /// `None` if the last sync contained the full room history.
     pub fn last_prev_batch(&self) -> Option<String> {
         self.inner.read().unwrap().last_prev_batch.clone()
     }
 
+    /// Get the avatar url of this room.
     pub fn avatar_url(&self) -> Option<String> {
         self.inner.read().unwrap().base_info.avatar_url.clone()
     }
 
+    /// Get the canonical alias of this room.
     pub fn canonical_alias(&self) -> Option<RoomAliasId> {
         self.inner.read().unwrap().base_info.canonical_alias.clone()
     }
 
+    /// Get the `m.room.create` content of this room.
+    ///
+    /// This usually isn't optional but some servers might not send an
+    /// `m.room.create` event as the first event for a given room, thus this can
+    /// be optional.
     pub fn create_content(&self) -> Option<CreateEventContent> {
         self.inner.read().unwrap().base_info.create.clone()
     }
 
+    /// Is this room considered a direct message.
     pub fn is_direct(&self) -> bool {
         self.inner.read().unwrap().base_info.dm_target.is_some()
     }
 
+    /// If this room is a direct message, get the member that we're sharing the
+    /// room with.
+    ///
+    /// *Note*: The member list might have been moddified in the meantime and
+    /// the target might not even be in the room anymore. This setting should
+    /// only be considered as guidance.
     pub fn direct_target(&self) -> Option<UserId> {
         self.inner.read().unwrap().base_info.dm_target.clone()
     }
 
+    /// Is the room encrypted.
     pub fn is_encrypted(&self) -> bool {
         self.inner.read().unwrap().is_encrypted()
     }
 
+    /// Get the `m.room.encryption` content that enabled end to end encryption
+    /// in the room.
     pub fn encryption_settings(&self) -> Option<EncryptionEventContent> {
         self.inner.read().unwrap().base_info.encryption.clone()
     }
 
+    /// Get the guest access policy of this room.
     pub fn guest_access(&self) -> GuestAccess {
         self.inner.read().unwrap().base_info.guest_access.clone()
     }
 
+    /// Get the history visiblity policy of this room.
     pub fn history_visibility(&self) -> HistoryVisibility {
         self.inner
             .read()
@@ -169,42 +207,62 @@ impl Room {
             .clone()
     }
 
+    /// Is the room considered to be public.
     pub fn is_public(&self) -> bool {
         matches!(self.join_rule(), JoinRule::Public)
     }
 
+    /// Get the join rule policy of this room.
     pub fn join_rule(&self) -> JoinRule {
         self.inner.read().unwrap().base_info.join_rule.clone()
     }
 
+    /// Get the maximum power level that this room contains.
+    ///
+    /// This is useful if one wishes to normalize the power levels, e.g. from
+    /// 0-100 where 100 would be the max power level.
     pub fn max_power_level(&self) -> i64 {
         self.inner.read().unwrap().base_info.max_power_level
     }
 
+    /// Get the `m.room.name` of this room.
     pub fn name(&self) -> Option<String> {
         self.inner.read().unwrap().base_info.name.clone()
     }
 
+    /// Has the room been tombstoned.
     pub fn is_tombstoned(&self) -> bool {
         self.inner.read().unwrap().base_info.tombstone.is_some()
     }
 
+    /// Get the `m.room.tombstone` content of this room if there is one.
     pub fn tombstone(&self) -> Option<TombstoneEventContent> {
         self.inner.read().unwrap().base_info.tombstone.clone()
     }
 
+    /// Get the topic of the room.
     pub fn topic(&self) -> Option<String> {
         self.inner.read().unwrap().base_info.topic.clone()
     }
 
+    /// Calculate the canonical display name of the room, taking into account
+    /// its name, aliases and members.
+    ///
+    /// The display name is calculated according to [this algorithm][spec].
+    ///
+    /// [spec]: <https://matrix.org/docs/spec/client_server/latest#calculating-the-display-name-for-a-room>
     pub async fn display_name(&self) -> StoreResult<String> {
         self.calculate_name().await
     }
 
+    /// Get the list of users ids that are considered to be joined members of
+    /// this room.
     pub async fn joined_user_ids(&self) -> StoreResult<Vec<UserId>> {
         self.store.get_joined_user_ids(self.room_id()).await
     }
 
+    /// Get the list of `RoomMember`s that are considered to be joined members
+    /// of this room.
     pub async fn joined_members(&self) -> StoreResult<Vec<RoomMember>> {
         let joined = self.store.get_joined_user_ids(self.room_id()).await?;
         let mut members = Vec::new();
@@ -220,6 +278,8 @@ impl Room {
         Ok(members)
     }
 
+    /// Get the list of `RoomMember`s that are considered to be joined or
+    /// invited members of this room.
     pub async fn active_members(&self) -> StoreResult<Vec<RoomMember>> {
         let joined = self.store.get_joined_user_ids(self.room_id()).await?;
         let invited = self.store.get_invited_user_ids(self.room_id()).await?;
@@ -237,13 +297,6 @@ impl Room {
         Ok(members)
     }
 
-    /// Calculate the canonical display name of the room, taking into account
-    /// its name, aliases and members.
-    ///
-    /// The display name is calculated according to [this algorithm][spec].
-    ///
-    /// [spec]:
-    /// <https://matrix.org/docs/spec/client_server/latest#calculating-the-display-name-for-a-room>
     async fn calculate_name(&self) -> StoreResult<String> {
         let summary = {
             let inner = self.inner.read().unwrap();
@@ -306,11 +359,16 @@ impl Room {
         (*self.inner.read().unwrap()).clone()
     }
 
-    pub fn update_summary(&self, summary: RoomInfo) {
+    pub(crate) fn update_summary(&self, summary: RoomInfo) {
         let mut inner = self.inner.write().unwrap();
         *inner = summary;
     }
 
+    /// Get the `RoomMember` with the given `user_id`.
+    ///
+    /// Returns `None` if the member was never part of this room, otherwise
+    /// return a `RoomMember` that can be in a joined, invited, left, banned
+    /// state.
     pub async fn get_member(&self, user_id: &UserId) -> StoreResult<Option<RoomMember>> {
         let member_event =
             if let Some(m) = self.store.get_member_event(self.room_id(), user_id).await? {
@@ -370,16 +428,25 @@ impl Room {
     }
 }
 
+/// The underlying pure data structure for joined and left rooms.
+///
+/// Holds all the info needed to persist a room into the state store.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct RoomInfo {
+    /// The unique room id of the room.
     pub room_id: Arc<RoomId>,
+    /// The type of the room.
     pub room_type: RoomType,
-
+    /// The unread notifications counts.
     pub notification_counts: UnreadNotificationsCount,
+    /// The summary of this room.
     pub summary: RoomSummary,
+    /// Flag remembering if the room members are synced.
     pub members_synced: bool,
+    /// The prev batch of this room we received durring the last sync.
     pub last_prev_batch: Option<String>,
-
+    /// Base room info which holds some basic event contents important for the
+    /// room state.
     pub base_info: BaseRoomInfo,
 }
 

@@ -58,6 +58,7 @@ pub struct MemoryStore {
 }
 
 impl MemoryStore {
+    #[cfg(not(feature = "sled_state_store"))]
     pub fn new() -> Self {
         Self {
             sync_token: Arc::new(RwLock::new(None)),
@@ -78,22 +79,22 @@ impl MemoryStore {
         }
     }
 
-    pub async fn save_filter(&self, filter_name: &str, filter_id: &str) -> Result<()> {
+    async fn save_filter(&self, filter_name: &str, filter_id: &str) -> Result<()> {
         self.filters
             .insert(filter_name.to_string(), filter_id.to_string());
 
         Ok(())
     }
 
-    pub async fn get_filter(&self, filter_name: &str) -> Result<Option<String>> {
+    async fn get_filter(&self, filter_name: &str) -> Result<Option<String>> {
         Ok(self.filters.get(filter_name).map(|f| f.to_string()))
     }
 
-    pub async fn get_sync_token(&self) -> Result<Option<String>> {
+    async fn get_sync_token(&self) -> Result<Option<String>> {
         Ok(self.sync_token.read().unwrap().clone())
     }
 
-    pub async fn save_changes(&self, changes: &StateChanges) -> Result<()> {
+    async fn save_changes(&self, changes: &StateChanges) -> Result<()> {
         let now = Instant::now();
 
         if let Some(s) = &changes.sync_token {
@@ -227,12 +228,12 @@ impl MemoryStore {
         Ok(())
     }
 
-    pub async fn get_presence_event(&self, user_id: &UserId) -> Result<Option<PresenceEvent>> {
+    async fn get_presence_event(&self, user_id: &UserId) -> Result<Option<PresenceEvent>> {
         #[allow(clippy::map_clone)]
         Ok(self.presence.get(user_id).map(|p| p.clone()))
     }
 
-    pub async fn get_state_event(
+    async fn get_state_event(
         &self,
         room_id: &RoomId,
         event_type: EventType,
@@ -245,7 +246,7 @@ impl MemoryStore {
         }))
     }
 
-    pub async fn get_profile(
+    async fn get_profile(
         &self,
         room_id: &RoomId,
         user_id: &UserId,
@@ -257,7 +258,7 @@ impl MemoryStore {
             .and_then(|p| p.get(user_id).map(|p| p.clone())))
     }
 
-    pub async fn get_member_event(
+    async fn get_member_event(
         &self,
         room_id: &RoomId,
         state_key: &UserId,
