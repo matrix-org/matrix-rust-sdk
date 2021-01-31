@@ -24,7 +24,7 @@ use matrix_sdk_common::{
     FromHttpResponseError,
 };
 
-use crate::{ClientConfig, Error, OutgoingRequest, Result, Session};
+use crate::{error::HttpError, ClientConfig, OutgoingRequest, Session};
 
 /// Abstraction around the http layer. The allows implementors to use different
 /// http libraries.
@@ -74,7 +74,7 @@ pub trait HttpSend: AsyncTraitDeps {
     async fn send_request(
         &self,
         request: http::Request<Vec<u8>>,
-    ) -> Result<http::Response<Vec<u8>>>;
+    ) -> Result<http::Response<Vec<u8>>, HttpError>;
 }
 
 #[derive(Clone, Debug)]
@@ -90,7 +90,7 @@ impl HttpClient {
         request: Request,
         session: Arc<RwLock<Option<Session>>>,
         content_type: Option<HeaderValue>,
-    ) -> Result<http::Response<Vec<u8>>> {
+    ) -> Result<http::Response<Vec<u8>>, HttpError> {
         let mut request = {
             let read_guard;
             let access_token = match Request::METADATA.authentication {
@@ -100,11 +100,11 @@ impl HttpClient {
                     if let Some(session) = read_guard.as_ref() {
                         Some(session.access_token.as_str())
                     } else {
-                        return Err(Error::AuthenticationRequired);
+                        return Err(HttpError::AuthenticationRequired);
                     }
                 }
                 AuthScheme::None => None,
-                _ => return Err(Error::NotClientRequest),
+                _ => return Err(HttpError::NotClientRequest),
             };
 
             request.try_into_http_request(&self.homeserver.to_string(), access_token)?
@@ -124,17 +124,20 @@ impl HttpClient {
     pub async fn upload(
         &self,
         request: create_content::Request<'_>,
-    ) -> Result<create_content::Response> {
+    ) -> Result<create_content::Response, HttpError> {
         let response = self
             .send_request(request, self.session.clone(), None)
             .await?;
         Ok(create_content::Response::try_from(response)?)
     }
 
-    pub async fn send<Request>(&self, request: Request) -> Result<Request::IncomingResponse>
+    pub async fn send<Request>(
+        &self,
+        request: Request,
+    ) -> Result<Request::IncomingResponse, HttpError>
     where
-        Request: OutgoingRequest,
-        Error: From<FromHttpResponseError<Request::EndpointError>>,
+        Request: OutgoingRequest + Debug,
+        HttpError: From<FromHttpResponseError<Request::EndpointError>>,
     {
         let content_type = HeaderValue::from_static("application/json");
         let response = self
@@ -143,12 +146,14 @@ impl HttpClient {
 
         trace!("Got response: {:?}", response);
 
-        Ok(Request::IncomingResponse::try_from(response)?)
+        let response = Request::IncomingResponse::try_from(response)?;
+
+        Ok(response)
     }
 }
 
 /// Build a client with the specified configuration.
-pub(crate) fn client_with_config(config: &ClientConfig) -> Result<Client> {
+pub(crate) fn client_with_config(config: &ClientConfig) -> Result<Client, HttpError> {
     let http_client = reqwest::Client::builder();
 
     #[cfg(not(target_arch = "wasm32"))]
@@ -188,7 +193,9 @@ pub(crate) fn client_with_config(config: &ClientConfig) -> Result<Client> {
     Ok(http_client.build()?)
 }
 
-async fn response_to_http_response(mut response: Response) -> Result<http::Response<Vec<u8>>> {
+async fn response_to_http_response(
+    mut response: Response,
+) -> Result<http::Response<Vec<u8>>, reqwest::Error> {
     let status = response.status();
 
     let mut http_builder = HttpResponse::builder().status(status);
@@ -211,7 +218,7 @@ impl HttpSend for Client {
     async fn send_request(
         &self,
         request: http::Request<Vec<u8>>,
-    ) -> Result<http::Response<Vec<u8>>> {
+    ) -> Result<http::Response<Vec<u8>>, HttpError> {
         Ok(
             response_to_http_response(self.execute(reqwest::Request::try_from(request)?).await?)
                 .await?,

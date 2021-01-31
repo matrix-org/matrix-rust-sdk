@@ -118,6 +118,7 @@ use matrix_sdk_common::{
 };
 
 use crate::{
+    error::HttpError,
     http_client::{client_with_config, HttpClient, HttpSend},
     Error, OutgoingRequest, Result,
 };
@@ -1451,7 +1452,7 @@ impl Client {
             content_type: Some(content_type.essence_str()),
         });
 
-        self.http_client.upload(request).await
+        Ok(self.http_client.upload(request).await?)
     }
 
     /// Send an arbitrary request to the server, without updating client state.
@@ -1494,9 +1495,9 @@ impl Client {
     pub async fn send<Request>(&self, request: Request) -> Result<Request::IncomingResponse>
     where
         Request: OutgoingRequest + Debug,
-        Error: From<FromHttpResponseError<Request::EndpointError>>,
+        HttpError: From<FromHttpResponseError<Request::EndpointError>>,
     {
-        self.http_client.send(request).await
+        Ok(self.http_client.send(request).await?)
     }
 
     #[cfg(feature = "encryption")]
@@ -2276,7 +2277,7 @@ impl Client {
 
 #[cfg(test)]
 mod test {
-    use crate::ClientConfig;
+    use crate::{ClientConfig, HttpError};
 
     use super::{
         get_public_rooms, get_public_rooms_filtered, register::RegistrationKind, Client,
@@ -2471,12 +2472,12 @@ mod test {
             .create();
 
         if let Err(err) = client.login("example", "wordpass", None, None).await {
-            if let crate::Error::RumaResponse(crate::FromHttpResponseError::Http(
-                crate::ServerError::Known(crate::api::Error {
+            if let crate::Error::Http(HttpError::FromHttpResponse(
+                crate::FromHttpResponseError::Http(crate::ServerError::Known(crate::api::Error {
                     kind,
                     message,
                     status_code,
-                }),
+                })),
             )) = err
             {
                 if let crate::api::error::ErrorKind::Forbidden = kind {
@@ -2517,10 +2518,10 @@ mod test {
         });
 
         if let Err(err) = client.register(user).await {
-            if let crate::Error::UiaaError(crate::FromHttpResponseError::Http(
+            if let crate::Error::Http(HttpError::UiaaError(crate::FromHttpResponseError::Http(
                 // TODO this should be a UiaaError need to investigate
                 crate::ServerError::Unknown(e),
-            )) = err
+            ))) = err
             {
                 assert!(e.to_string().starts_with("EOF while parsing"))
             } else {
