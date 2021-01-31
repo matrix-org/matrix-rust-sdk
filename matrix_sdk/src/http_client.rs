@@ -182,7 +182,8 @@ pub(crate) fn client_with_config(config: &ClientConfig) -> Result<Client, HttpEr
 
         let user_agent = match &config.user_agent {
             Some(a) => a.clone(),
-            None => HeaderValue::from_str(&format!("matrix-rust-sdk {}", crate::VERSION)).unwrap(),
+            None => HeaderValue::from_str(&format!("matrix-rust-sdk {}", crate::VERSION))
+                .expect("Can't construct the version header"),
         };
 
         headers.insert(reqwest::header::USER_AGENT, user_agent);
@@ -203,7 +204,9 @@ async fn response_to_http_response(
     let status = response.status();
 
     let mut http_builder = HttpResponse::builder().status(status);
-    let headers = http_builder.headers_mut().unwrap();
+    let headers = http_builder
+        .headers_mut()
+        .expect("Can't get the response builder headers");
 
     for (k, v) in response.headers_mut().drain() {
         if let Some(key) = k {
@@ -213,7 +216,9 @@ async fn response_to_http_response(
 
     let body = response.bytes().await?.as_ref().to_owned();
 
-    Ok(http_builder.body(body).unwrap())
+    Ok(http_builder
+        .body(body)
+        .expect("Can't construct a response using the given body"))
 }
 
 #[cfg(test)]
