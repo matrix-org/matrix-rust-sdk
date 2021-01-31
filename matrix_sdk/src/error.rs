@@ -14,6 +14,7 @@
 
 //! Error conditions.
 
+use http::StatusCode;
 use matrix_sdk_base::{Error as MatrixError, StoreError};
 use matrix_sdk_common::{
     api::{
@@ -64,6 +65,14 @@ pub enum HttpError {
     /// represents an error with information about how to authenticate the user.
     #[error(transparent)]
     UiaaError(#[from] FromHttpResponseError<UiaaError>),
+
+    /// The server returned a status code that should be retried.
+    #[error("Server returned an error {0}")]
+    Server(StatusCode),
+
+    /// The given request can't be cloned and thus can't be retried.
+    #[error("The request cannot be cloned")]
+    UnableToCloneRequest,
 }
 
 /// Internal representation of errors.
