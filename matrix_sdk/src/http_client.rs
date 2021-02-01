@@ -51,6 +51,7 @@ pub trait HttpSend: AsyncTraitDeps {
     /// ```
     /// use std::convert::TryFrom;
     /// use matrix_sdk::{HttpSend, async_trait, HttpError};
+    /// # use std::time::Duration;
     ///
     /// #[derive(Debug)]
     /// struct Client(reqwest::Client);
@@ -67,7 +68,11 @@ pub trait HttpSend: AsyncTraitDeps {
     ///
     /// #[async_trait]
     /// impl HttpSend for Client {
-    ///     async fn send_request(&self, request: http::Request<Vec<u8>>) -> Result<http::Response<Vec<u8>>, HttpError> {
+    ///     async fn send_request(
+    ///         &self,
+    ///         request: http::Request<Vec<u8>>,
+    ///         timeout: Option<Duration>,
+    ///     ) -> Result<http::Response<Vec<u8>>, HttpError> {
     ///         Ok(self
     ///             .response_to_http_response(
     ///                 self.0
