@@ -136,6 +136,8 @@ const DEFAULT_SYNC_TIMEOUT: Duration = Duration::from_secs(30);
 const SYNC_REQUEST_TIMEOUT: Duration = Duration::from_secs(15);
 /// A conservative upload speed of 1Mbps
 const DEFAULT_UPLOAD_SPEED: u64 = 125_000;
+/// 5 min minimal upload request timeout, used to clamp the request timeout.
+const MIN_UPLOAD_REQUEST_TIMEOUT: Duration = Duration::from_secs(60 * 5);
 
 /// An async/await enabled Matrix client.
 ///
@@ -1452,7 +1454,10 @@ impl Client {
         let mut data = Vec::new();
         reader.read_to_end(&mut data)?;
 
-        let timeout = Duration::from_secs(data.len() as u64 / DEFAULT_UPLOAD_SPEED);
+        let timeout = std::cmp::max(
+            Duration::from_secs(data.len() as u64 / DEFAULT_UPLOAD_SPEED),
+            MIN_UPLOAD_REQUEST_TIMEOUT,
+        );
 
         let request = assign!(create_content::Request::new(data), {
             content_type: Some(content_type.essence_str()),
