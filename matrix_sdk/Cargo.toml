@@ -53,6 +53,7 @@ default_features = false
 [dependencies.backoff]
 git = "https://github.com/ihrwein/backoff"
 features = ["tokio"]
+rev = "fa3fb91431729ce871d29c62b93425b8aec740f4"
 
 [dependencies.tracing-futures]
 version = "0.2.4"

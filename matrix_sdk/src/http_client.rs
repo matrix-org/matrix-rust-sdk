@@ -15,7 +15,7 @@
 use std::{convert::TryFrom, fmt::Debug, sync::Arc};
 
 #[cfg(not(test))]
-use backoff::{tokio::retry, Error as RetryError, ExponentialBackoff};
+use backoff::{future::retry, Error as RetryError, ExponentialBackoff};
 #[cfg(not(test))]
 use http::StatusCode;
 use http::{HeaderValue, Method as HttpMethod, Response as HttpResponse};
