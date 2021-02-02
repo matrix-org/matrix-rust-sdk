@@ -157,9 +157,9 @@ pub struct InviteState {
 #[derive(Copy, Clone, Debug, Default, Deserialize, Serialize)]
 pub struct UnreadNotificationsCount {
     /// The number of unread notifications for this room with the highlight flag set.
-    highlight_count: u64,
+    pub highlight_count: u64,
     /// The total number of unread notifications for this room.
-    notification_count: u64,
+    pub notification_count: u64,
 }
 
 impl From<RumaUnreadNotificationsCount> for UnreadNotificationsCount {
