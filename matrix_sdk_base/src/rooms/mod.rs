@@ -80,6 +80,15 @@ impl RoomState {
         }
     }
 
+    /// Get the history visiblity policy of this room.
+    pub fn history_visiblity(&self) -> HistoryVisibility {
+        match self {
+            RoomState::Joined(r) => r.inner.history_visibility(),
+            RoomState::Left(r) => r.inner.history_visibility(),
+            RoomState::Invited(r) => r.inner.history_visibility(),
+        }
+    }
+
     /// Are the members for this room synced.
     pub fn are_members_synced(&self) -> bool {
         if let RoomState::Joined(r) = self {

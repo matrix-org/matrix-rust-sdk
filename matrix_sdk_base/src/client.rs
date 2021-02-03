@@ -31,7 +31,10 @@ use matrix_sdk_common::{
     },
     events::{
         presence::PresenceEvent,
-        room::member::{MemberEventContent, MembershipState},
+        room::{
+            history_visibility::HistoryVisibility,
+            member::{MemberEventContent, MembershipState},
+        },
         AnyBasicEvent, AnyStrippedStateEvent, AnySyncRoomEvent, AnySyncStateEvent,
         AnyToDeviceEvent, EventContent, StateEvent,
     },
@@ -1154,9 +1157,21 @@ impl BaseClient {
 
         match &*olm {
             Some(o) => {
+                let history_visiblity = self
+                    .get_room(room_id)
+                    .map(|r| r.history_visiblity())
+                    .unwrap_or(HistoryVisibility::Joined);
                 let joined = self.store.get_joined_user_ids(room_id).await?;
                 let invited = self.store.get_invited_user_ids(room_id).await?;
-                let members = joined.iter().chain(&invited);
+
+                // Don't share the group session with members that are invited
+                // if the history visiblity is set to `Joined`
+                let members = if history_visiblity == HistoryVisibility::Joined {
+                    joined.iter().chain(&[])
+                } else {
+                    joined.iter().chain(&invited)
+                };
+
                 Ok(
                     o.share_group_session(room_id, members, EncryptionSettings::default())
                         .await?,
