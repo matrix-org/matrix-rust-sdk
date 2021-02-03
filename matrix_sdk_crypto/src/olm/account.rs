@@ -991,6 +991,8 @@ impl ReadOnlyAccount {
             return Err(());
         }
 
+        let visiblity = settings.history_visibility.clone();
+
         let outbound = OutboundGroupSession::new(
             self.device_id.clone(),
             self.identity_keys.clone(),
@@ -1007,6 +1009,7 @@ impl ReadOnlyAccount {
             signing_key,
             &room_id,
             outbound.session_key().await,
+            Some(visiblity),
         )
         .expect("Can't create inbound group session from a newly created outbound group session");
 

@@ -597,6 +597,7 @@ impl OlmMachine {
                     signing_key,
                     &event.content.room_id,
                     session_key,
+                    None,
                 )?;
                 let event = AnyToDeviceEvent::RoomKey(event.clone());
                 Ok((Some(event), Some(session)))
