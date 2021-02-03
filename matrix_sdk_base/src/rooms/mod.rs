@@ -89,6 +89,16 @@ impl RoomState {
         }
     }
 
+    /// Get the `m.room.encryption` content that enabled end to end encryption
+    /// in the room.
+    pub fn encryption_settings(&self) -> Option<EncryptionEventContent> {
+        match self {
+            RoomState::Joined(r) => r.inner.encryption_settings(),
+            RoomState::Left(r) => r.inner.encryption_settings(),
+            RoomState::Invited(r) => r.inner.encryption_settings(),
+        }
+    }
+
     /// Are the members for this room synced.
     pub fn are_members_synced(&self) -> bool {
         if let RoomState::Joined(r) = self {

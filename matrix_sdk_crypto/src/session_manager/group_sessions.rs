@@ -20,7 +20,10 @@ use std::{
 use dashmap::DashMap;
 use matrix_sdk_common::{
     api::r0::to_device::DeviceIdOrAllDevices,
-    events::{room::encrypted::EncryptedEventContent, AnyMessageEventContent, EventType},
+    events::{
+        room::{encrypted::EncryptedEventContent, history_visibility::HistoryVisibility},
+        AnyMessageEventContent, EventType,
+    },
     identifiers::{DeviceId, DeviceIdBox, RoomId, UserId},
     uuid::Uuid,
 };
@@ -218,6 +221,7 @@ impl GroupSessionManager {
     pub async fn collect_session_recipients(
         &self,
         users: impl Iterator<Item = &UserId>,
+        history_visibility: HistoryVisibility,
         outbound: &OutboundGroupSession,
     ) -> OlmResult<(bool, HashMap<UserId, Vec<Device>>)> {
         let users: HashSet<&UserId> = users.collect();
@@ -238,6 +242,8 @@ impl GroupSessionManager {
             .collect::<HashSet<_>>()
             .is_empty();
 
+        let visiblity_changed = outbound.settings().history_visibility != history_visibility;
+
         let mut device_got_deleted_or_blacklisted = false;
 
         for user_id in users {
@@ -245,7 +251,7 @@ impl GroupSessionManager {
 
             // If no device got deleted or blacklisted until now and no user
             // left check if one got deleted or blacklisted for this user.
-            if !device_got_deleted_or_blacklisted && !user_left {
+            if !(device_got_deleted_or_blacklisted || user_left || visiblity_changed) {
                 // Devices that should receive this session
                 let device_ids: HashSet<&DeviceId> = user_devices
                     .keys()
@@ -287,8 +293,9 @@ impl GroupSessionManager {
 
         // To protect the room history we need to rotate the session if a user
         // left or if a device got deleted/blacklisted, put differently if
-        // someone leaves or gets removed from the encrypted group.
-        let should_rotate = user_left || device_got_deleted_or_blacklisted;
+        // someone leaves or gets removed from the encrypted group or if the
+        // history visiblity changed.
+        let should_rotate = user_left || device_got_deleted_or_blacklisted || visiblity_changed;
 
         Ok((should_rotate, devices))
     }
@@ -308,6 +315,7 @@ impl GroupSessionManager {
         encryption_settings: impl Into<EncryptionSettings>,
     ) -> OlmResult<Vec<Arc<ToDeviceRequest>>> {
         let encryption_settings = encryption_settings.into();
+        let history_visibility = encryption_settings.history_visibility.clone();
         let mut changes = Changes::default();
 
         let (outbound, inbound) = self
@@ -319,7 +327,9 @@ impl GroupSessionManager {
             changes.inbound_group_sessions.push(inbound);
         }
 
-        let (should_rotate, devices) = self.collect_session_recipients(users, &outbound).await?;
+        let (should_rotate, devices) = self
+            .collect_session_recipients(users, history_visibility, &outbound)
+            .await?;
 
         let outbound = if should_rotate {
             let (outbound, inbound) = self

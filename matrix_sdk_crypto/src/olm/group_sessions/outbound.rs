@@ -17,6 +17,7 @@ use matrix_sdk_common::{
     api::r0::to_device::DeviceIdOrAllDevices,
     events::room::{
         encrypted::{MegolmV1AesSha2Content, MegolmV1AesSha2ContentInit},
+        history_visibility::HistoryVisibility,
         message::Relation,
     },
     uuid::Uuid,
@@ -80,6 +81,8 @@ pub struct EncryptionSettings {
     pub rotation_period: Duration,
     /// How many messages should be sent before changing the session.
     pub rotation_period_msgs: u64,
+    /// The history visibilty of the room when the session was created.
+    pub history_visibility: HistoryVisibility,
 }
 
 impl Default for EncryptionSettings {
@@ -88,12 +91,15 @@ impl Default for EncryptionSettings {
             algorithm: EventEncryptionAlgorithm::MegolmV1AesSha2,
             rotation_period: ROTATION_PERIOD,
             rotation_period_msgs: ROTATION_MESSAGES,
+            history_visibility: HistoryVisibility::Shared,
         }
     }
 }
 
-impl From<&EncryptionEventContent> for EncryptionSettings {
-    fn from(content: &EncryptionEventContent) -> Self {
+impl EncryptionSettings {
+    /// Create new encryption settings using an `EncryptionEventContent` and a
+    /// history visiblity.
+    pub fn new(content: EncryptionEventContent, history_visibility: HistoryVisibility) -> Self {
         let rotation_period: Duration = content
             .rotation_period_ms
             .map_or(ROTATION_PERIOD, |r| Duration::from_millis(r.into()));
@@ -102,12 +108,14 @@ impl From<&EncryptionEventContent> for EncryptionSettings {
             .map_or(ROTATION_MESSAGES, Into::into);
 
         Self {
-            algorithm: content.algorithm.clone(),
+            algorithm: content.algorithm,
             rotation_period,
             rotation_period_msgs,
+            history_visibility,
         }
     }
 }
+
 /// Outbound group session.
 ///
 /// Outbound group sessions are used to exchange room messages between a group
@@ -183,6 +191,11 @@ impl OutboundGroupSession {
     /// This should be called if an the user wishes to rotate this session.
     pub fn invalidate_session(&self) {
         self.invalidated.store(true, Ordering::Relaxed)
+    }
+
+    /// Get the encryption settings of this outbound session.
+    pub fn settings(&self) -> &EncryptionSettings {
+        &self.settings
     }
 
     /// Mark the request with the given request id as sent.
@@ -560,7 +573,8 @@ mod test {
     use std::time::Duration;
 
     use matrix_sdk_common::{
-        events::room::encryption::EncryptionEventContent, identifiers::EventEncryptionAlgorithm,
+        events::room::{encryption::EncryptionEventContent, history_visibility::HistoryVisibility},
+        identifiers::EventEncryptionAlgorithm,
         uint,
     };
 
@@ -569,7 +583,7 @@ mod test {
     #[test]
     fn encryption_settings_conversion() {
         let mut content = EncryptionEventContent::new(EventEncryptionAlgorithm::MegolmV1AesSha2);
-        let settings = EncryptionSettings::from(&content);
+        let settings = EncryptionSettings::new(content.clone(), HistoryVisibility::Joined);
 
         assert_eq!(settings.rotation_period, ROTATION_PERIOD);
         assert_eq!(settings.rotation_period_msgs, ROTATION_MESSAGES);
@@ -577,7 +591,7 @@ mod test {
         content.rotation_period_ms = Some(uint!(3600));
         content.rotation_period_msgs = Some(uint!(500));
 
-        let settings = EncryptionSettings::from(&content);
+        let settings = EncryptionSettings::new(content, HistoryVisibility::Shared);
 
         assert_eq!(settings.rotation_period, Duration::from_millis(3600));
         assert_eq!(settings.rotation_period_msgs, 500);

@@ -54,8 +54,8 @@ use matrix_sdk_common::{
 #[cfg(feature = "encryption")]
 use matrix_sdk_crypto::{
     store::{CryptoStore, CryptoStoreError},
-    Device, EncryptionSettings, IncomingResponse, OlmError, OlmMachine, OutgoingRequest, Sas,
-    ToDeviceRequest, UserDevices,
+    Device, EncryptionSettings, IncomingResponse, MegolmError, OlmError, OlmMachine,
+    OutgoingRequest, Sas, ToDeviceRequest, UserDevices,
 };
 use tracing::{info, warn};
 use zeroize::Zeroizing;
@@ -1157,10 +1157,11 @@ impl BaseClient {
 
         match &*olm {
             Some(o) => {
-                let history_visiblity = self
+                let (history_visiblity, settings) = self
                     .get_room(room_id)
-                    .map(|r| r.history_visiblity())
-                    .unwrap_or(HistoryVisibility::Joined);
+                    .map(|r| (r.history_visiblity(), r.encryption_settings()))
+                    .unwrap_or((HistoryVisibility::Joined, None));
+
                 let joined = self.store.get_joined_user_ids(room_id).await?;
                 let invited = self.store.get_invited_user_ids(room_id).await?;
 
@@ -1172,10 +1173,10 @@ impl BaseClient {
                     joined.iter().chain(&invited)
                 };
 
-                Ok(
-                    o.share_group_session(room_id, members, EncryptionSettings::default())
-                        .await?,
-                )
+                let settings = settings.ok_or(MegolmError::EncryptionNotEnabled)?;
+                let settings = EncryptionSettings::new(settings, history_visiblity);
+
+                Ok(o.share_group_session(room_id, members, settings).await?)
             }
             None => panic!("Olm machine wasn't started"),
         }
