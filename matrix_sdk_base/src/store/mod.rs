@@ -355,26 +355,41 @@ impl Deref for Store {
     }
 }
 
+/// Store state changes and pass them to the StateStore.
 #[derive(Debug, Default)]
 pub struct StateChanges {
+    /// The sync token that relates to this update.
     pub sync_token: Option<String>,
+    /// A user session, containing an access token and information about the associated user account.
     pub session: Option<Session>,
+    /// A mapping of event type string to `AnyBasicEvent`.
     pub account_data: BTreeMap<String, AnyBasicEvent>,
+    /// A mapping of `UserId` to `PresenceEvent`.
     pub presence: BTreeMap<UserId, PresenceEvent>,
 
+    /// A mapping of `RoomId` to a map of users and their `MemberEvent`.
     pub members: BTreeMap<RoomId, BTreeMap<UserId, MemberEvent>>,
+    /// A mapping of `RoomId` to a map of users and their `MemberEventContent`.
     pub profiles: BTreeMap<RoomId, BTreeMap<UserId, MemberEventContent>>,
-    pub ambiguity_maps: BTreeMap<RoomId, BTreeMap<String, BTreeSet<UserId>>>,
+
+    pub(crate) ambiguity_maps: BTreeMap<RoomId, BTreeMap<String, BTreeSet<UserId>>>,
+    /// A mapping of `RoomId` to a map of event type string to a state key and `AnySyncStateEvent`.
     pub state: BTreeMap<RoomId, BTreeMap<String, BTreeMap<String, AnySyncStateEvent>>>,
+    /// A mapping of `RoomId` to a map of event type string to `AnyBasicEvent`.
     pub room_account_data: BTreeMap<RoomId, BTreeMap<String, AnyBasicEvent>>,
+    /// A map of `RoomId` to `RoomInfo`.
     pub room_infos: BTreeMap<RoomId, RoomInfo>,
 
+    /// A mapping of `RoomId` to a map of event type to a map of state key to `AnyStrippedStateEvent`.
     pub stripped_state: BTreeMap<RoomId, BTreeMap<String, BTreeMap<String, AnyStrippedStateEvent>>>,
+    /// A mapping of `RoomId` to a map of users and their `StrippedMemberEvent`.
     pub stripped_members: BTreeMap<RoomId, BTreeMap<UserId, StrippedMemberEvent>>,
+    /// A map of `RoomId` to `StrippedRoomInfo`.
     pub invited_room_info: BTreeMap<RoomId, StrippedRoomInfo>,
 }
 
 impl StateChanges {
+    /// Create a new `StateChanges` struct with the given sync_token.
     pub fn new(sync_token: String) -> Self {
         Self {
             sync_token: Some(sync_token),
@@ -382,25 +397,30 @@ impl StateChanges {
         }
     }
 
+    /// Update the `StateChanges` struct with the given `PresenceEvent`.
     pub fn add_presence_event(&mut self, event: PresenceEvent) {
         self.presence.insert(event.sender.clone(), event);
     }
 
+    /// Update the `StateChanges` struct with the given `RoomInfo`.
     pub fn add_room(&mut self, room: RoomInfo) {
         self.room_infos
             .insert(room.room_id.as_ref().to_owned(), room);
     }
 
+    /// Update the `StateChanges` struct with the given `StrippedRoomInfo`.
     pub fn add_stripped_room(&mut self, room: StrippedRoomInfo) {
         self.invited_room_info
             .insert(room.room_id.as_ref().to_owned(), room);
     }
 
+    /// Update the `StateChanges` struct with the given `AnyBasicEvent`.
     pub fn add_account_data(&mut self, event: AnyBasicEvent) {
         self.account_data
             .insert(event.content().event_type().to_owned(), event);
     }
 
+    /// Update the `StateChanges` struct with the given room with a new `AnyBasicEvent`.
     pub fn add_room_account_data(&mut self, room_id: &RoomId, event: AnyBasicEvent) {
         self.room_account_data
             .entry(room_id.to_owned())
@@ -408,6 +428,7 @@ impl StateChanges {
             .insert(event.content().event_type().to_owned(), event);
     }
 
+    /// Update the `StateChanges` struct with the given room with a new `AnyStrippedStateEvent`.
     pub fn add_stripped_state_event(&mut self, room_id: &RoomId, event: AnyStrippedStateEvent) {
         self.stripped_state
             .entry(room_id.to_owned())
@@ -417,6 +438,7 @@ impl StateChanges {
             .insert(event.state_key().to_string(), event);
     }
 
+    /// Update the `StateChanges` struct with the given room with a new `StrippedMemberEvent`.
     pub fn add_stripped_member(&mut self, room_id: &RoomId, event: StrippedMemberEvent) {
         let user_id = event.state_key.clone();
 
@@ -426,6 +448,7 @@ impl StateChanges {
             .insert(user_id, event);
     }
 
+    /// Update the `StateChanges` struct with the given room with a new `AnySyncStateEvent`.
     pub fn add_state_event(&mut self, room_id: &RoomId, event: AnySyncStateEvent) {
         self.state
             .entry(room_id.to_owned())

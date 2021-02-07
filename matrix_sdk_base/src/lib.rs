@@ -51,12 +51,12 @@ mod rooms;
 mod session;
 mod store;
 
-pub use event_emitter::EventEmitter;
+pub use event_emitter::{CustomEvent, EventEmitter};
 pub use rooms::{
     InvitedRoom, JoinedRoom, LeftRoom, Room, RoomInfo, RoomMember, RoomState, StrippedRoom,
     StrippedRoomInfo,
 };
-pub use store::{StateStore, Store, StoreError};
+pub use store::{StateChanges, StateStore, Store, StoreError};
 
 pub use client::{BaseClient, BaseClientConfig, RoomStateType};
 
