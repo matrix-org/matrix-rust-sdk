@@ -14,9 +14,9 @@
 
 use std::{convert::TryFrom, fmt::Debug, sync::Arc};
 
-#[cfg(not(test))]
+#[cfg(all(not(test), not(target_arch = "wasm32")))]
 use backoff::{future::retry, Error as RetryError, ExponentialBackoff};
-#[cfg(not(test))]
+#[cfg(all(not(test), not(target_arch = "wasm32")))]
 use http::StatusCode;
 use http::{HeaderValue, Method as HttpMethod, Response as HttpResponse};
 use reqwest::{Client, Response};
@@ -30,7 +30,9 @@ use matrix_sdk_common::{
 
 use crate::{error::HttpError, ClientConfig, OutgoingRequest, Session};
 
+#[cfg(not(target_arch = "wasm32"))]
 const DEFAULT_CONNECTION_TIMEOUT: Duration = Duration::from_secs(5);
+#[cfg(not(target_arch = "wasm32"))]
 const DEFAULT_REQUEST_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// Abstraction around the http layer. The allows implementors to use different
@@ -235,7 +237,7 @@ async fn response_to_http_response(
         .expect("Can't construct a response using the given body"))
 }
 
-#[cfg(test)]
+#[cfg(any(test, target_arch = "wasm32"))]
 async fn send_request(
     client: &Client,
     request: http::Request<Vec<u8>>,
@@ -247,7 +249,7 @@ async fn send_request(
     Ok(response_to_http_response(response).await?)
 }
 
-#[cfg(not(test))]
+#[cfg(all(not(test), not(target_arch = "wasm32")))]
 async fn send_request(
     client: &Client,
     request: http::Request<Vec<u8>>,
