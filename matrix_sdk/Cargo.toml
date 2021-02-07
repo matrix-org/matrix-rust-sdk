@@ -51,9 +51,8 @@ version = "0.11.0"
 default_features = false
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies.backoff]
-git = "https://github.com/ihrwein/backoff"
+version = "0.3.0"
 features = ["tokio"]
-rev = "fa3fb91431729ce871d29c62b93425b8aec740f4"
 
 [dependencies.tracing-futures]
 version = "0.2.4"
