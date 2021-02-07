@@ -14,17 +14,26 @@
 
 use std::{convert::TryFrom, fmt::Debug, sync::Arc};
 
+#[cfg(all(not(test), not(target_arch = "wasm32")))]
+use backoff::{future::retry, Error as RetryError, ExponentialBackoff};
+#[cfg(all(not(test), not(target_arch = "wasm32")))]
+use http::StatusCode;
 use http::{HeaderValue, Method as HttpMethod, Response as HttpResponse};
 use reqwest::{Client, Response};
 use tracing::trace;
 use url::Url;
 
 use matrix_sdk_common::{
-    api::r0::media::create_content, async_trait, locks::RwLock, AsyncTraitDeps, AuthScheme,
-    FromHttpResponseError,
+    api::r0::media::create_content, async_trait, instant::Duration, locks::RwLock, AsyncTraitDeps,
+    AuthScheme, FromHttpResponseError,
 };
 
-use crate::{ClientConfig, Error, OutgoingRequest, Result, Session};
+use crate::{error::HttpError, ClientConfig, OutgoingRequest, Session};
+
+#[cfg(not(target_arch = "wasm32"))]
+const DEFAULT_CONNECTION_TIMEOUT: Duration = Duration::from_secs(5);
+#[cfg(not(target_arch = "wasm32"))]
+const DEFAULT_REQUEST_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// Abstraction around the http layer. The allows implementors to use different
 /// http libraries.
@@ -43,7 +52,8 @@ pub trait HttpSend: AsyncTraitDeps {
     ///
     /// ```
     /// use std::convert::TryFrom;
-    /// use matrix_sdk::{HttpSend, Result, async_trait};
+    /// use matrix_sdk::{HttpSend, async_trait, HttpError};
+    /// # use std::time::Duration;
     ///
     /// #[derive(Debug)]
     /// struct Client(reqwest::Client);
@@ -52,7 +62,7 @@ pub trait HttpSend: AsyncTraitDeps {
     ///     async fn response_to_http_response(
     ///         &self,
     ///         mut response: reqwest::Response,
-    ///     ) -> Result<http::Response<Vec<u8>>> {
+    ///     ) -> Result<http::Response<Vec<u8>>, HttpError> {
     ///         // Convert the reqwest response to a http one.
     ///         todo!()
     ///     }
@@ -60,7 +70,11 @@ pub trait HttpSend: AsyncTraitDeps {
     ///
     /// #[async_trait]
     /// impl HttpSend for Client {
-    ///     async fn send_request(&self, request: http::Request<Vec<u8>>) -> Result<http::Response<Vec<u8>>> {
+    ///     async fn send_request(
+    ///         &self,
+    ///         request: http::Request<Vec<u8>>,
+    ///         timeout: Option<Duration>,
+    ///     ) -> Result<http::Response<Vec<u8>>, HttpError> {
     ///         Ok(self
     ///             .response_to_http_response(
     ///                 self.0
@@ -74,7 +88,8 @@ pub trait HttpSend: AsyncTraitDeps {
     async fn send_request(
         &self,
         request: http::Request<Vec<u8>>,
-    ) -> Result<http::Response<Vec<u8>>>;
+        timeout: Option<Duration>,
+    ) -> Result<http::Response<Vec<u8>>, HttpError>;
 }
 
 #[derive(Clone, Debug)]
@@ -90,7 +105,8 @@ impl HttpClient {
         request: Request,
         session: Arc<RwLock<Option<Session>>>,
         content_type: Option<HeaderValue>,
-    ) -> Result<http::Response<Vec<u8>>> {
+        timeout: Option<Duration>,
+    ) -> Result<http::Response<Vec<u8>>, HttpError> {
         let mut request = {
             let read_guard;
             let access_token = match Request::METADATA.authentication {
@@ -100,11 +116,11 @@ impl HttpClient {
                     if let Some(session) = read_guard.as_ref() {
                         Some(session.access_token.as_str())
                     } else {
-                        return Err(Error::AuthenticationRequired);
+                        return Err(HttpError::AuthenticationRequired);
                     }
                 }
                 AuthScheme::None => None,
-                _ => return Err(Error::NotClientRequest),
+                _ => return Err(HttpError::NotClientRequest),
             };
 
             request.try_into_http_request(&self.homeserver.to_string(), access_token)?
@@ -118,44 +134,51 @@ impl HttpClient {
             }
         }
 
-        self.inner.send_request(request).await
+        self.inner.send_request(request, timeout).await
     }
 
     pub async fn upload(
         &self,
         request: create_content::Request<'_>,
-    ) -> Result<create_content::Response> {
+        timeout: Option<Duration>,
+    ) -> Result<create_content::Response, HttpError> {
         let response = self
-            .send_request(request, self.session.clone(), None)
+            .send_request(request, self.session.clone(), None, timeout)
             .await?;
         Ok(create_content::Response::try_from(response)?)
     }
 
-    pub async fn send<Request>(&self, request: Request) -> Result<Request::IncomingResponse>
+    pub async fn send<Request>(
+        &self,
+        request: Request,
+        timeout: Option<Duration>,
+    ) -> Result<Request::IncomingResponse, HttpError>
     where
-        Request: OutgoingRequest,
-        Error: From<FromHttpResponseError<Request::EndpointError>>,
+        Request: OutgoingRequest + Debug,
+        HttpError: From<FromHttpResponseError<Request::EndpointError>>,
     {
         let content_type = HeaderValue::from_static("application/json");
         let response = self
-            .send_request(request, self.session.clone(), Some(content_type))
+            .send_request(request, self.session.clone(), Some(content_type), timeout)
             .await?;
 
         trace!("Got response: {:?}", response);
 
-        Ok(Request::IncomingResponse::try_from(response)?)
+        let response = Request::IncomingResponse::try_from(response)?;
+
+        Ok(response)
     }
 }
 
 /// Build a client with the specified configuration.
-pub(crate) fn client_with_config(config: &ClientConfig) -> Result<Client> {
+pub(crate) fn client_with_config(config: &ClientConfig) -> Result<Client, HttpError> {
     let http_client = reqwest::Client::builder();
 
     #[cfg(not(target_arch = "wasm32"))]
     let http_client = {
         let http_client = match config.timeout {
             Some(x) => http_client.timeout(x),
-            None => http_client,
+            None => http_client.timeout(DEFAULT_REQUEST_TIMEOUT),
         };
 
         let http_client = if config.disable_ssl_verification {
@@ -173,12 +196,15 @@ pub(crate) fn client_with_config(config: &ClientConfig) -> Result<Client> {
 
         let user_agent = match &config.user_agent {
             Some(a) => a.clone(),
-            None => HeaderValue::from_str(&format!("matrix-rust-sdk {}", crate::VERSION)).unwrap(),
+            None => HeaderValue::from_str(&format!("matrix-rust-sdk {}", crate::VERSION))
+                .expect("Can't construct the version header"),
         };
 
         headers.insert(reqwest::header::USER_AGENT, user_agent);
 
-        http_client.default_headers(headers)
+        http_client
+            .default_headers(headers)
+            .connect_timeout(DEFAULT_CONNECTION_TIMEOUT)
     };
 
     #[cfg(target_arch = "wasm32")]
@@ -188,11 +214,15 @@ pub(crate) fn client_with_config(config: &ClientConfig) -> Result<Client> {
     Ok(http_client.build()?)
 }
 
-async fn response_to_http_response(mut response: Response) -> Result<http::Response<Vec<u8>>> {
+async fn response_to_http_response(
+    mut response: Response,
+) -> Result<http::Response<Vec<u8>>, reqwest::Error> {
     let status = response.status();
 
     let mut http_builder = HttpResponse::builder().status(status);
-    let headers = http_builder.headers_mut().unwrap();
+    let headers = http_builder
+        .headers_mut()
+        .expect("Can't get the response builder headers");
 
     for (k, v) in response.headers_mut().drain() {
         if let Some(key) = k {
@@ -202,7 +232,63 @@ async fn response_to_http_response(mut response: Response) -> Result<http::Respo
 
     let body = response.bytes().await?.as_ref().to_owned();
 
-    Ok(http_builder.body(body).unwrap())
+    Ok(http_builder
+        .body(body)
+        .expect("Can't construct a response using the given body"))
+}
+
+#[cfg(any(test, target_arch = "wasm32"))]
+async fn send_request(
+    client: &Client,
+    request: http::Request<Vec<u8>>,
+    _: Option<Duration>,
+) -> Result<http::Response<Vec<u8>>, HttpError> {
+    let request = reqwest::Request::try_from(request)?;
+    let response = client.execute(request).await?;
+
+    Ok(response_to_http_response(response).await?)
+}
+
+#[cfg(all(not(test), not(target_arch = "wasm32")))]
+async fn send_request(
+    client: &Client,
+    request: http::Request<Vec<u8>>,
+    timeout: Option<Duration>,
+) -> Result<http::Response<Vec<u8>>, HttpError> {
+    let backoff = ExponentialBackoff::default();
+    let mut request = reqwest::Request::try_from(request)?;
+
+    if let Some(timeout) = timeout {
+        *request.timeout_mut() = Some(timeout);
+    }
+
+    let request = &request;
+
+    let request = || async move {
+        let request = request.try_clone().ok_or(HttpError::UnableToCloneRequest)?;
+
+        let response = client
+            .execute(request)
+            .await
+            .map_err(|e| RetryError::Transient(HttpError::Reqwest(e)))?;
+
+        let status_code = response.status();
+        // TODO TOO_MANY_REQUESTS will have a retry timeout which we should
+        // use.
+        if status_code.is_server_error() || response.status() == StatusCode::TOO_MANY_REQUESTS {
+            return Err(RetryError::Transient(HttpError::Server(status_code)));
+        }
+
+        let response = response_to_http_response(response)
+            .await
+            .map_err(|e| RetryError::Permanent(HttpError::Reqwest(e)))?;
+
+        Ok(response)
+    };
+
+    let response = retry(backoff, request).await?;
+
+    Ok(response)
 }
 
 #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
@@ -211,10 +297,8 @@ impl HttpSend for Client {
     async fn send_request(
         &self,
         request: http::Request<Vec<u8>>,
-    ) -> Result<http::Response<Vec<u8>>> {
-        Ok(
-            response_to_http_response(self.execute(reqwest::Request::try_from(request)?).await?)
-                .await?,
-        )
+        timeout: Option<Duration>,
+    ) -> Result<http::Response<Vec<u8>>, HttpError> {
+        send_request(&self, request, timeout).await
     }
 }

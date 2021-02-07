@@ -54,7 +54,7 @@ impl Sas {
         }
 
         if let Some(s) = signature {
-            self.client.send(s).await?;
+            self.client.send(s, None).await?;
         }
 
         Ok(())

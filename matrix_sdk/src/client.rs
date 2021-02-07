@@ -118,6 +118,7 @@ use matrix_sdk_common::{
 };
 
 use crate::{
+    error::HttpError,
     http_client::{client_with_config, HttpClient, HttpSend},
     Error, OutgoingRequest, Result,
 };
@@ -131,6 +132,12 @@ use crate::{
 };
 
 const DEFAULT_SYNC_TIMEOUT: Duration = Duration::from_secs(30);
+/// Give the sync a bit more time than the default request timeout does.
+const SYNC_REQUEST_TIMEOUT: Duration = Duration::from_secs(15);
+/// A conservative upload speed of 1Mbps
+const DEFAULT_UPLOAD_SPEED: u64 = 125_000;
+/// 5 min minimal upload request timeout, used to clamp the request timeout.
+const MIN_UPLOAD_REQUEST_TIMEOUT: Duration = Duration::from_secs(60 * 5);
 
 /// An async/await enabled Matrix client.
 ///
@@ -451,7 +458,7 @@ impl Client {
     pub async fn display_name(&self) -> Result<Option<String>> {
         let user_id = self.user_id().await.ok_or(Error::AuthenticationRequired)?;
         let request = get_display_name::Request::new(&user_id);
-        let response = self.send(request).await?;
+        let response = self.send(request, None).await?;
         Ok(response.displayname)
     }
 
@@ -474,7 +481,7 @@ impl Client {
     pub async fn set_display_name(&self, name: Option<&str>) -> Result<()> {
         let user_id = self.user_id().await.ok_or(Error::AuthenticationRequired)?;
         let request = set_display_name::Request::new(&user_id, name);
-        self.send(request).await?;
+        self.send(request, None).await?;
         Ok(())
     }
 
@@ -499,7 +506,7 @@ impl Client {
     pub async fn avatar_url(&self) -> Result<Option<String>> {
         let user_id = self.user_id().await.ok_or(Error::AuthenticationRequired)?;
         let request = get_avatar_url::Request::new(&user_id);
-        let response = self.send(request).await?;
+        let response = self.send(request, None).await?;
         Ok(response.avatar_url)
     }
 
@@ -512,7 +519,7 @@ impl Client {
     pub async fn set_avatar_url(&self, url: Option<&str>) -> Result<()> {
         let user_id = self.user_id().await.ok_or(Error::AuthenticationRequired)?;
         let request = set_avatar_url::Request::new(&user_id, url);
-        self.send(request).await?;
+        self.send(request, None).await?;
         Ok(())
     }
 
@@ -671,7 +678,7 @@ impl Client {
             }
         );
 
-        let response = self.send(request).await?;
+        let response = self.send(request, None).await?;
         self.base_client.receive_login_response(&response).await?;
 
         Ok(response)
@@ -733,7 +740,7 @@ impl Client {
         info!("Registering to {}", self.homeserver);
 
         let request = registration.into();
-        self.send(request).await
+        self.send(request, None).await
     }
 
     /// Get or upload a sync filter.
@@ -747,7 +754,7 @@ impl Client {
         } else {
             let user_id = self.user_id().await.ok_or(Error::AuthenticationRequired)?;
             let request = FilterUploadRequest::new(&user_id, definition);
-            let response = self.send(request).await?;
+            let response = self.send(request, None).await?;
 
             self.base_client
                 .receive_filter_upload(filter_name, &response)
@@ -767,7 +774,7 @@ impl Client {
     /// * `room_id` - The `RoomId` of the room to be joined.
     pub async fn join_room_by_id(&self, room_id: &RoomId) -> Result<join_room_by_id::Response> {
         let request = join_room_by_id::Request::new(room_id);
-        self.send(request).await
+        self.send(request, None).await
     }
 
     /// Join a room by `RoomId`.
@@ -787,7 +794,7 @@ impl Client {
         let request = assign!(join_room_by_id_or_alias::Request::new(alias), {
             server_name: server_names,
         });
-        self.send(request).await
+        self.send(request, None).await
     }
 
     /// Forget a room by `RoomId`.
@@ -799,7 +806,7 @@ impl Client {
     /// * `room_id` - The `RoomId` of the room to be forget.
     pub async fn forget_room_by_id(&self, room_id: &RoomId) -> Result<forget_room::Response> {
         let request = forget_room::Request::new(room_id);
-        self.send(request).await
+        self.send(request, None).await
     }
 
     /// Ban a user from a room by `RoomId` and `UserId`.
@@ -820,7 +827,7 @@ impl Client {
         reason: Option<&str>,
     ) -> Result<ban_user::Response> {
         let request = assign!(ban_user::Request::new(room_id, user_id), { reason });
-        self.send(request).await
+        self.send(request, None).await
     }
 
     /// Kick a user out of the specified room.
@@ -841,7 +848,7 @@ impl Client {
         reason: Option<&str>,
     ) -> Result<kick_user::Response> {
         let request = assign!(kick_user::Request::new(room_id, user_id), { reason });
-        self.send(request).await
+        self.send(request, None).await
     }
 
     /// Leave the specified room.
@@ -853,7 +860,7 @@ impl Client {
     /// * `room_id` - The `RoomId` of the room to leave.
     pub async fn leave_room(&self, room_id: &RoomId) -> Result<leave_room::Response> {
         let request = leave_room::Request::new(room_id);
-        self.send(request).await
+        self.send(request, None).await
     }
 
     /// Invite the specified user by `UserId` to the given room.
@@ -873,7 +880,7 @@ impl Client {
         let recipient = InvitationRecipient::UserId { user_id };
 
         let request = invite_user::Request::new(room_id, recipient);
-        self.send(request).await
+        self.send(request, None).await
     }
 
     /// Invite the specified user by third party id to the given room.
@@ -892,7 +899,7 @@ impl Client {
     ) -> Result<invite_user::Response> {
         let recipient = InvitationRecipient::ThirdPartyId(invite_id);
         let request = invite_user::Request::new(room_id, recipient);
-        self.send(request).await
+        self.send(request, None).await
     }
 
     /// Search the homeserver's directory of public rooms.
@@ -938,7 +945,7 @@ impl Client {
             since,
             server,
         });
-        self.send(request).await
+        self.send(request, None).await
     }
 
     /// Search the homeserver's directory of public rooms with a filter.
@@ -976,7 +983,7 @@ impl Client {
         room_search: impl Into<get_public_rooms_filtered::Request<'_>>,
     ) -> Result<get_public_rooms_filtered::Response> {
         let request = room_search.into();
-        self.send(request).await
+        self.send(request, None).await
     }
 
     /// Create a room using the `RoomBuilder` and send the request.
@@ -1008,7 +1015,7 @@ impl Client {
         room: impl Into<create_room::Request<'_>>,
     ) -> Result<create_room::Response> {
         let request = room.into();
-        self.send(request).await
+        self.send(request, None).await
     }
 
     /// Sends a request to `/_matrix/client/r0/rooms/{room_id}/messages` and returns
@@ -1043,8 +1050,8 @@ impl Client {
         &self,
         request: impl Into<get_message_events::Request<'_>>,
     ) -> Result<get_message_events::Response> {
-        let req = request.into();
-        self.send(req).await
+        let request = request.into();
+        self.send(request, None).await
     }
 
     /// Send a request to notify the room of a user typing.
@@ -1087,7 +1094,7 @@ impl Client {
         let user_id = self.user_id().await.ok_or(Error::AuthenticationRequired)?;
         let request = TypingRequest::new(&user_id, room_id, typing.into());
 
-        self.send(request).await
+        self.send(request, None).await
     }
 
     /// Send a request to notify the room the user has read specific event.
@@ -1106,7 +1113,7 @@ impl Client {
     ) -> Result<create_receipt::Response> {
         let request =
             create_receipt::Request::new(room_id, create_receipt::ReceiptType::Read, event_id);
-        self.send(request).await
+        self.send(request, None).await
     }
 
     /// Send a request to notify the room user has read up to specific event.
@@ -1129,7 +1136,7 @@ impl Client {
         let request = assign!(set_read_marker::Request::new(room_id, fully_read), {
             read_receipt
         });
-        self.send(request).await
+        self.send(request, None).await
     }
 
     /// Share a group session for the given room.
@@ -1260,7 +1267,7 @@ impl Client {
         let txn_id = txn_id.unwrap_or_else(Uuid::new_v4).to_string();
         let request = send_message_event::Request::new(&room_id, &txn_id, &content);
 
-        let response = self.send(request).await?;
+        let response = self.send(request, None).await?;
         Ok(response)
     }
 
@@ -1447,11 +1454,16 @@ impl Client {
         let mut data = Vec::new();
         reader.read_to_end(&mut data)?;
 
+        let timeout = std::cmp::max(
+            Duration::from_secs(data.len() as u64 / DEFAULT_UPLOAD_SPEED),
+            MIN_UPLOAD_REQUEST_TIMEOUT,
+        );
+
         let request = assign!(create_content::Request::new(data), {
             content_type: Some(content_type.essence_str()),
         });
 
-        self.http_client.upload(request).await
+        Ok(self.http_client.upload(request, Some(timeout)).await?)
     }
 
     /// Send an arbitrary request to the server, without updating client state.
@@ -1464,6 +1476,9 @@ impl Client {
     /// # Arguments
     ///
     /// * `request` - A filled out and valid request for the endpoint to be hit
+    ///
+    /// * `timeout` - An optional request timeout setting, this overrides the
+    /// default request setting if one was set.
     ///
     /// # Example
     ///
@@ -1485,18 +1500,22 @@ impl Client {
     /// let request = profile::get_profile::Request::new(&user_id);
     ///
     /// // Start the request using Client::send()
-    /// let response = client.send(request).await.unwrap();
+    /// let response = client.send(request, None).await.unwrap();
     ///
     /// // Check the corresponding Response struct to find out what types are
     /// // returned
     /// # })
     /// ```
-    pub async fn send<Request>(&self, request: Request) -> Result<Request::IncomingResponse>
+    pub async fn send<Request>(
+        &self,
+        request: Request,
+        timeout: Option<Duration>,
+    ) -> Result<Request::IncomingResponse>
     where
         Request: OutgoingRequest + Debug,
-        Error: From<FromHttpResponseError<Request::EndpointError>>,
+        HttpError: From<FromHttpResponseError<Request::EndpointError>>,
     {
-        self.http_client.send(request).await
+        Ok(self.http_client.send(request, timeout).await?)
     }
 
     #[cfg(feature = "encryption")]
@@ -1511,7 +1530,7 @@ impl Client {
             request.messages.clone(),
         );
 
-        self.send(request).await
+        self.send(request, None).await
     }
 
     /// Get information of all our own devices.
@@ -1540,7 +1559,7 @@ impl Client {
     pub async fn devices(&self) -> Result<get_devices::Response> {
         let request = get_devices::Request::new();
 
-        self.send(request).await
+        self.send(request, None).await
     }
 
     /// Delete the given devices from the server.
@@ -1605,13 +1624,13 @@ impl Client {
         let mut request = delete_devices::Request::new(devices);
         request.auth = auth_data;
 
-        self.send(request).await
+        self.send(request, None).await
     }
 
     /// Get the room members for the given room.
     pub async fn room_members(&self, room_id: &RoomId) -> Result<MembersResponse> {
         let request = get_member_events::Request::new(room_id);
-        let response = self.send(request).await?;
+        let response = self.send(request, None).await?;
 
         Ok(self.base_client.receive_members(room_id, &response).await?)
     }
@@ -1637,7 +1656,12 @@ impl Client {
             timeout: sync_settings.timeout,
         });
 
-        let response = self.send(request).await?;
+        let timeout = sync_settings
+            .timeout
+            .unwrap_or_else(|| Duration::from_secs(0))
+            + SYNC_REQUEST_TIMEOUT;
+
+        let response = self.send(request, Some(timeout)).await?;
 
         Ok(self.base_client.receive_sync_response(response).await?)
     }
@@ -1778,7 +1802,7 @@ impl Client {
                         }
                         OutgoingRequests::SignatureUpload(request) => {
                             // TODO remove this unwrap.
-                            if let Ok(resp) = self.send(request.clone()).await {
+                            if let Ok(resp) = self.send(request.clone(), None).await {
                                 self.base_client
                                     .mark_request_as_sent(&r.request_id(), &resp)
                                     .await
@@ -1838,7 +1862,7 @@ impl Client {
         let _lock = self.key_claim_lock.lock().await;
 
         if let Some((request_id, request)) = self.base_client.get_missing_sessions(users).await? {
-            let response = self.send(request).await?;
+            let response = self.send(request, None).await?;
             self.base_client
                 .mark_request_as_sent(&request_id, &response)
                 .await?;
@@ -1897,7 +1921,7 @@ impl Client {
             request.one_time_keys.as_ref().map_or(0, |k| k.len())
         );
 
-        let response = self.send(request.clone()).await?;
+        let response = self.send(request.clone(), None).await?;
         self.base_client
             .mark_request_as_sent(request_id, &response)
             .await?;
@@ -1926,7 +1950,7 @@ impl Client {
     ) -> Result<get_keys::Response> {
         let request = assign!(get_keys::Request::new(), { device_keys });
 
-        let response = self.send(request).await?;
+        let response = self.send(request, None).await?;
         self.base_client
             .mark_request_as_sent(request_id, &response)
             .await?;
@@ -2079,8 +2103,8 @@ impl Client {
             user_signing_key: request.user_signing_key,
         });
 
-        self.send(request).await?;
-        self.send(signature_request).await?;
+        self.send(request, None).await?;
+        self.send(signature_request, None).await?;
 
         Ok(())
     }
@@ -2276,7 +2300,7 @@ impl Client {
 
 #[cfg(test)]
 mod test {
-    use crate::ClientConfig;
+    use crate::{ClientConfig, HttpError};
 
     use super::{
         get_public_rooms, get_public_rooms_filtered, register::RegistrationKind, Client,
@@ -2471,12 +2495,12 @@ mod test {
             .create();
 
         if let Err(err) = client.login("example", "wordpass", None, None).await {
-            if let crate::Error::RumaResponse(crate::FromHttpResponseError::Http(
-                crate::ServerError::Known(crate::api::Error {
+            if let crate::Error::Http(HttpError::FromHttpResponse(
+                crate::FromHttpResponseError::Http(crate::ServerError::Known(crate::api::Error {
                     kind,
                     message,
                     status_code,
-                }),
+                })),
             )) = err
             {
                 if let crate::api::error::ErrorKind::Forbidden = kind {
@@ -2517,10 +2541,10 @@ mod test {
         });
 
         if let Err(err) = client.register(user).await {
-            if let crate::Error::UiaaError(crate::FromHttpResponseError::Http(
+            if let crate::Error::Http(HttpError::UiaaError(crate::FromHttpResponseError::Http(
                 // TODO this should be a UiaaError need to investigate
                 crate::ServerError::Unknown(e),
-            )) = err
+            ))) = err
             {
                 assert!(e.to_string().starts_with("EOF while parsing"))
             } else {

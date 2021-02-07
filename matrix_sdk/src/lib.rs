@@ -90,7 +90,7 @@ pub use client::{Client, ClientConfig, LoopCtrl, SyncSettings};
 #[cfg(feature = "encryption")]
 #[cfg_attr(feature = "docs", doc(cfg(encryption)))]
 pub use device::Device;
-pub use error::{Error, Result};
+pub use error::{Error, HttpError, Result};
 pub use http_client::HttpSend;
 #[cfg(feature = "encryption")]
 #[cfg_attr(feature = "docs", doc(cfg(encryption)))]
