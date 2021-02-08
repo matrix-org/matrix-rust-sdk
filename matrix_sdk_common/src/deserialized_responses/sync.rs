@@ -7,12 +7,12 @@ use crate::{
     },
     events::{
         presence::PresenceEvent, AnyBasicEvent, AnyStrippedStateEvent, AnySyncEphemeralRoomEvent,
-        AnySyncRoomEvent, AnySyncStateEvent, AnyToDeviceEvent,
+        AnySyncStateEvent, AnyToDeviceEvent,
     },
     identifiers::{DeviceKeyAlgorithm, RoomId},
 };
 
-use super::AmbiguityChanges;
+use super::{events::AnySyncRoomEvent, AmbiguityChanges};
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
 pub struct SyncResponse {

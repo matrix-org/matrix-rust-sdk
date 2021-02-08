@@ -33,9 +33,10 @@ pub use olm_rs::{
 };
 
 use matrix_sdk_common::{
+    deserialized_responses::events::SyncMessageEvent,
     events::{
         forwarded_room_key::ForwardedRoomKeyToDeviceEventContent,
-        room::encrypted::EncryptedEventContent, AnySyncRoomEvent, SyncMessageEvent,
+        room::encrypted::EncryptedEventContent, AnySyncMessageEvent,
     },
     identifiers::{DeviceKeyAlgorithm, EventEncryptionAlgorithm, RoomId},
     locks::Mutex,
@@ -289,7 +290,7 @@ impl InboundGroupSession {
     pub(crate) async fn decrypt(
         &self,
         event: &SyncMessageEvent<EncryptedEventContent>,
-    ) -> MegolmResult<(Raw<AnySyncRoomEvent>, u32)> {
+    ) -> MegolmResult<(Raw<AnySyncMessageEvent>, u32)> {
         let content = match &event.content {
             EncryptedEventContent::MegolmV1AesSha2(c) => c,
             _ => return Err(EventError::UnsupportedAlgorithm.into()),
@@ -335,7 +336,7 @@ impl InboundGroupSession {
         }
 
         Ok((
-            serde_json::from_value::<Raw<AnySyncRoomEvent>>(decrypted_value)?,
+            serde_json::from_value::<Raw<AnySyncMessageEvent>>(decrypted_value)?,
             message_index,
         ))
     }

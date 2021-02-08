@@ -20,8 +20,7 @@ use tracing::{info, trace, warn};
 
 use matrix_sdk_common::{
     events::{
-        room::message::MessageEventContent, AnyMessageEvent, AnySyncMessageEvent, AnySyncRoomEvent,
-        AnyToDeviceEvent,
+        room::message::MessageEventContent, AnyMessageEvent, AnySyncMessageEvent, AnyToDeviceEvent,
     },
     identifiers::{DeviceId, EventId, RoomId, UserId},
     locks::Mutex,
@@ -218,150 +217,148 @@ impl VerificationMachine {
     pub async fn receive_room_event(
         &self,
         room_id: &RoomId,
-        event: &AnySyncRoomEvent,
+        event: &AnySyncMessageEvent,
     ) -> Result<(), CryptoStoreError> {
-        if let AnySyncRoomEvent::Message(m) = event {
-            // Since these are room events we will get events that we send out on
-            // our own as well.
-            if m.sender() == self.account.user_id() {
-                if let AnySyncMessageEvent::KeyVerificationReady(_e) = m {
-                    // TODO if there is a verification request, go into passive
-                    // mode since another device is handling this request.
-                }
-                return Ok(());
+        // Since these are room events we will get events that we send out on
+        // our own as well.
+        if event.sender() == self.account.user_id() {
+            if let AnySyncMessageEvent::KeyVerificationReady(_e) = event {
+                // TODO if there is a verification request, go into passive
+                // mode since another device is handling this request.
             }
+            return Ok(());
+        }
 
-            match m {
-                AnySyncMessageEvent::RoomMessage(m) => {
-                    if let MessageEventContent::VerificationRequest(r) = &m.content {
-                        if self.account.user_id() == &r.to {
-                            info!(
-                                "Received a new verification request from {} {}",
-                                m.sender, r.from_device
-                            );
-
-                            let request = VerificationRequest::from_request_event(
-                                self.account.clone(),
-                                self.private_identity.lock().await.clone(),
-                                self.store.clone(),
-                                room_id,
-                                &m.sender,
-                                &m.event_id,
-                                r,
-                            );
-
-                            self.requests.insert(m.event_id.clone(), request);
-                        }
-                    }
-                }
-                AnySyncMessageEvent::KeyVerificationReady(e) => {
-                    if let Some(request) = self.requests.get(&e.content.relation.event_id) {
-                        if &e.sender == request.other_user() {
-                            // TODO remove this unwrap.
-                            request.receive_ready(&e.sender, &e.content).unwrap();
-                        }
-                    }
-                }
-                AnySyncMessageEvent::KeyVerificationStart(e) => {
-                    info!(
-                        "Received a new verification start event from {} {}",
-                        e.sender, e.content.from_device
-                    );
-
-                    if let Some((_, request)) = self.requests.remove(&e.content.relation.event_id) {
-                        if let Some(d) = self
-                            .store
-                            .get_device(&e.sender, &e.content.from_device)
-                            .await?
-                        {
-                            match request.into_started_sas(
-                                e,
-                                d,
-                                self.store.get_user_identity(&e.sender).await?,
-                            ) {
-                                Ok(s) => {
-                                    info!(
-                                        "Started a new SAS verification, \
-                                          automatically accepting because of in-room"
-                                    );
-
-                                    // TODO remove this unwrap
-                                    let accept_request = s.accept().unwrap();
-
-                                    self.room_verifications
-                                        .insert(e.content.relation.event_id.clone(), s);
-
-                                    self.outgoing_room_messages
-                                        .insert(accept_request.request_id(), accept_request.into());
-                                }
-                                Err(c) => {
-                                    warn!(
-                                        "Can't start key verification with {} {}, canceling: {:?}",
-                                        e.sender, e.content.from_device, c
-                                    );
-                                    // self.queue_up_content(&e.sender, &e.content.from_device, c)
-                                }
-                            }
-                        }
-                    }
-                }
-                AnySyncMessageEvent::KeyVerificationKey(e) => {
-                    if let Some(s) = self.room_verifications.get(&e.content.relation.event_id) {
-                        self.receive_room_event_helper(
-                            &s,
-                            &m.clone().into_full_event(room_id.clone()),
-                        )
-                    };
-                }
-                AnySyncMessageEvent::KeyVerificationMac(e) => {
-                    if let Some(s) = self.room_verifications.get(&e.content.relation.event_id) {
-                        self.receive_room_event_helper(
-                            &s,
-                            &m.clone().into_full_event(room_id.clone()),
+        match event {
+            AnySyncMessageEvent::RoomMessage(m) => {
+                if let MessageEventContent::VerificationRequest(r) = &m.content {
+                    if self.account.user_id() == &r.to {
+                        info!(
+                            "Received a new verification request from {} {}",
+                            m.sender, r.from_device
                         );
+
+                        let request = VerificationRequest::from_request_event(
+                            self.account.clone(),
+                            self.private_identity.lock().await.clone(),
+                            self.store.clone(),
+                            room_id,
+                            &m.sender,
+                            &m.event_id,
+                            r,
+                        );
+
+                        self.requests.insert(m.event_id.clone(), request);
                     }
                 }
+            }
+            AnySyncMessageEvent::KeyVerificationReady(e) => {
+                if let Some(request) = self.requests.get(&e.content.relation.event_id) {
+                    if &e.sender == request.other_user() {
+                        // TODO remove this unwrap.
+                        request.receive_ready(&e.sender, &e.content).unwrap();
+                    }
+                }
+            }
+            AnySyncMessageEvent::KeyVerificationStart(e) => {
+                info!(
+                    "Received a new verification start event from {} {}",
+                    e.sender, e.content.from_device
+                );
 
-                AnySyncMessageEvent::KeyVerificationDone(e) => {
-                    if let Some(s) = self.room_verifications.get(&e.content.relation.event_id) {
-                        let content =
-                            s.receive_room_event(&m.clone().into_full_event(room_id.clone()));
+                if let Some((_, request)) = self.requests.remove(&e.content.relation.event_id) {
+                    if let Some(d) = self
+                        .store
+                        .get_device(&e.sender, &e.content.from_device)
+                        .await?
+                    {
+                        match request.into_started_sas(
+                            e,
+                            d,
+                            self.store.get_user_identity(&e.sender).await?,
+                        ) {
+                            Ok(s) => {
+                                info!(
+                                    "Started a new SAS verification, \
+                                      automatically accepting because of in-room"
+                                );
 
-                        if s.is_done() {
-                            match s.mark_as_done().await? {
-                                VerificationResult::Ok => {
-                                    if let Some(c) = content {
-                                        self.queue_up_content(
-                                            s.other_user_id(),
-                                            s.other_device_id(),
-                                            c,
-                                        );
-                                    }
+                                // TODO remove this unwrap
+                                let accept_request = s.accept().unwrap();
+
+                                self.room_verifications
+                                    .insert(e.content.relation.event_id.clone(), s);
+
+                                self.outgoing_room_messages
+                                    .insert(accept_request.request_id(), accept_request.into());
+                            }
+                            Err(c) => {
+                                warn!(
+                                    "Can't start key verification with {} {}, canceling: {:?}",
+                                    e.sender, e.content.from_device, c
+                                );
+                                // self.queue_up_content(&e.sender, &e.content.from_device, c)
+                            }
+                        }
+                    }
+                }
+            }
+            AnySyncMessageEvent::KeyVerificationKey(e) => {
+                if let Some(s) = self.room_verifications.get(&e.content.relation.event_id) {
+                    self.receive_room_event_helper(
+                        &s,
+                        &event.clone().into_full_event(room_id.clone()),
+                    )
+                };
+            }
+            AnySyncMessageEvent::KeyVerificationMac(e) => {
+                if let Some(s) = self.room_verifications.get(&e.content.relation.event_id) {
+                    self.receive_room_event_helper(
+                        &s,
+                        &event.clone().into_full_event(room_id.clone()),
+                    );
+                }
+            }
+
+            AnySyncMessageEvent::KeyVerificationDone(e) => {
+                if let Some(s) = self.room_verifications.get(&e.content.relation.event_id) {
+                    let content =
+                        s.receive_room_event(&event.clone().into_full_event(room_id.clone()));
+
+                    if s.is_done() {
+                        match s.mark_as_done().await? {
+                            VerificationResult::Ok => {
+                                if let Some(c) = content {
+                                    self.queue_up_content(
+                                        s.other_user_id(),
+                                        s.other_device_id(),
+                                        c,
+                                    );
                                 }
-                                VerificationResult::Cancel(r) => {
-                                    self.outgoing_to_device_messages
-                                        .insert(r.request_id(), r.into());
-                                }
-                                VerificationResult::SignatureUpload(r) => {
-                                    let request: OutgoingRequest = r.into();
+                            }
+                            VerificationResult::Cancel(r) => {
+                                self.outgoing_to_device_messages
+                                    .insert(r.request_id(), r.into());
+                            }
+                            VerificationResult::SignatureUpload(r) => {
+                                let request: OutgoingRequest = r.into();
 
-                                    self.outgoing_to_device_messages
-                                        .insert(request.request_id, request);
+                                self.outgoing_to_device_messages
+                                    .insert(request.request_id, request);
 
-                                    if let Some(c) = content {
-                                        self.queue_up_content(
-                                            s.other_user_id(),
-                                            s.other_device_id(),
-                                            c,
-                                        );
-                                    }
+                                if let Some(c) = content {
+                                    self.queue_up_content(
+                                        s.other_user_id(),
+                                        s.other_device_id(),
+                                        c,
+                                    );
                                 }
                             }
                         }
-                    };
-                }
-                _ => (),
+                    }
+                };
             }
+            _ => (),
         }
 
         Ok(())

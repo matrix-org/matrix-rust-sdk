@@ -14,17 +14,20 @@
 // limitations under the License.
 use std::ops::Deref;
 
-use matrix_sdk_common::{events::AnySyncRoomEvent, identifiers::RoomId};
+use matrix_sdk_common::{events::room::redaction::RedactionEventContent, identifiers::RoomId};
 use serde_json::value::RawValue as RawJsonValue;
 
 use crate::{
-    deserialized_responses::SyncResponse,
+    deserialized_responses::{
+        events::{AnySyncMessageEvent, AnySyncRoomEvent, CustomEventContent, SyncMessageEvent},
+        SyncResponse,
+    },
     events::{
         call::{
             answer::AnswerEventContent, candidates::CandidatesEventContent,
             hangup::HangupEventContent, invite::InviteEventContent,
         },
-        custom::CustomEventContent,
+        custom::CustomEventContent as RumaCustomEventContent,
         fully_read::FullyReadEventContent,
         ignored_user_list::IgnoredUserListEventContent,
         presence::PresenceEvent,
@@ -39,13 +42,11 @@ use crate::{
             message::{feedback::FeedbackEventContent, MessageEventContent as MsgEventContent},
             name::NameEventContent,
             power_levels::PowerLevelsEventContent,
-            redaction::SyncRedactionEvent,
             tombstone::TombstoneEventContent,
         },
         typing::TypingEventContent,
-        AnyBasicEvent, AnyStrippedStateEvent, AnySyncEphemeralRoomEvent, AnySyncMessageEvent,
-        AnySyncStateEvent, BasicEvent, StrippedStateEvent, SyncEphemeralRoomEvent,
-        SyncMessageEvent, SyncStateEvent,
+        AnyBasicEvent, AnyStrippedStateEvent, AnySyncEphemeralRoomEvent, AnySyncStateEvent,
+        BasicEvent, StrippedStateEvent, SyncEphemeralRoomEvent, SyncStateEvent,
     },
     rooms::RoomState,
     Store,
@@ -251,15 +252,15 @@ impl Emitter {
 #[derive(Clone, Copy, Debug)]
 pub enum CustomEvent<'c> {
     /// A custom basic event.
-    Basic(&'c BasicEvent<CustomEventContent>),
+    Basic(&'c BasicEvent<RumaCustomEventContent>),
     /// A custom basic event.
-    EphemeralRoom(&'c SyncEphemeralRoomEvent<CustomEventContent>),
+    EphemeralRoom(&'c SyncEphemeralRoomEvent<RumaCustomEventContent>),
     /// A custom room event.
     Message(&'c SyncMessageEvent<CustomEventContent>),
     /// A custom state event.
-    State(&'c SyncStateEvent<CustomEventContent>),
+    State(&'c SyncStateEvent<RumaCustomEventContent>),
     /// A custom stripped state event.
-    StrippedState(&'c StrippedStateEvent<CustomEventContent>),
+    StrippedState(&'c StrippedStateEvent<RumaCustomEventContent>),
 }
 
 /// This trait allows any type implementing `EventEmitter` to specify event callbacks for each event.
@@ -344,7 +345,7 @@ pub trait EventEmitter: Send + Sync {
     /// Fires when `Client` receives a `RoomEvent::CallHangup` event
     async fn on_room_call_hangup(&self, _: RoomState, _: &SyncMessageEvent<HangupEventContent>) {}
     /// Fires when `Client` receives a `RoomEvent::RoomRedaction` event.
-    async fn on_room_redaction(&self, _: RoomState, _: &SyncRedactionEvent) {}
+    async fn on_room_redaction(&self, _: RoomState, _: &SyncMessageEvent<RedactionEventContent>) {}
     /// Fires when `Client` receives a `RoomEvent::RoomPowerLevels` event.
     async fn on_room_power_levels(
         &self,
@@ -488,7 +489,9 @@ pub trait EventEmitter: Send + Sync {
 #[cfg(test)]
 mod test {
     use super::*;
-    use matrix_sdk_common::{async_trait, locks::Mutex};
+    use matrix_sdk_common::{
+        async_trait, events::room::redaction::RedactionEventContent, locks::Mutex,
+    };
     use matrix_sdk_test::{async_test, sync_response, SyncResponseFile};
     use std::sync::Arc;
 
@@ -558,7 +561,11 @@ mod test {
         ) {
             self.0.lock().await.push("call hangup".to_string())
         }
-        async fn on_room_redaction(&self, _: RoomState, _: &SyncRedactionEvent) {
+        async fn on_room_redaction(
+            &self,
+            _: RoomState,
+            _: &SyncMessageEvent<RedactionEventContent>,
+        ) {
             self.0.lock().await.push("redaction".to_string())
         }
         async fn on_room_power_levels(

@@ -25,6 +25,7 @@ use std::{
 use matrix_sdk_common::{
     api::r0 as api,
     deserialized_responses::{
+        events::{AnySyncMessageEvent, AnySyncRoomEvent},
         AccountData, AmbiguityChanges, Ephemeral, InviteState, InvitedRoom, JoinedRoom, LeftRoom,
         MemberEvent, MembersResponse, Presence, Rooms, State, StrippedMemberEvent, SyncResponse,
         Timeline,
@@ -32,8 +33,8 @@ use matrix_sdk_common::{
     events::{
         presence::PresenceEvent,
         room::member::{MemberEventContent, MembershipState},
-        AnyBasicEvent, AnyStrippedStateEvent, AnySyncRoomEvent, AnySyncStateEvent,
-        AnyToDeviceEvent, EventContent, StateEvent,
+        AnyBasicEvent, AnyStrippedStateEvent, AnySyncRoomEvent as RumaAnySyncRoomEvent,
+        AnySyncStateEvent, AnyToDeviceEvent, EventContent, StateEvent,
     },
     identifiers::{RoomId, UserId},
     instant::Instant,
@@ -43,7 +44,7 @@ use matrix_sdk_common::{
 #[cfg(feature = "encryption")]
 use matrix_sdk_common::{
     api::r0::keys::claim_keys::Request as KeysClaimRequest,
-    events::{room::encrypted::EncryptedEventContent, AnyMessageEventContent, AnySyncMessageEvent},
+    events::{room::encrypted::EncryptedEventContent, AnyMessageEventContent},
     identifiers::DeviceId,
     locks::Mutex,
     uuid::Uuid,
@@ -129,14 +130,14 @@ fn hoist_member_event(
 }
 
 fn hoist_room_event_prev_content(
-    event: &Raw<AnySyncRoomEvent>,
+    event: &Raw<RumaAnySyncRoomEvent>,
 ) -> StdResult<AnySyncRoomEvent, serde_json::Error> {
     let prev_content = serde_json::from_str::<AdditionalEventData>(event.json().get())
         .map(|more_unsigned| more_unsigned.unsigned)
         .map(|additional| additional.prev_content)?
         .and_then(|p| p.deserialize().ok());
 
-    let mut ev = event.deserialize()?;
+    let mut ev = event.deserialize()?.into();
 
     match &mut ev {
         AnySyncRoomEvent::State(AnySyncStateEvent::RoomMember(ref mut member))
@@ -501,15 +502,7 @@ impl BaseClient {
                                     if let Ok(decrypted) =
                                         olm.decrypt_room_event(encrypted, room_id).await
                                     {
-                                        match decrypted.deserialize() {
-                                            Ok(decrypted) => e = decrypted,
-                                            Err(e) => {
-                                                warn!(
-                                                    "Error deserializing a decrypted event {:?} ",
-                                                    e
-                                                )
-                                            }
-                                        }
+                                        e = decrypted.into();
                                     }
                                 }
                             }

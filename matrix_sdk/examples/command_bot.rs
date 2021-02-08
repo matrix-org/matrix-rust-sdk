@@ -2,9 +2,10 @@ use std::{env, process::exit};
 
 use matrix_sdk::{
     self, async_trait,
+    deserialized_responses::events::SyncMessageEvent,
     events::{
         room::message::{MessageEventContent, TextMessageEventContent},
-        AnyMessageEventContent, SyncMessageEvent,
+        AnyMessageEventContent,
     },
     Client, ClientConfig, EventEmitter, RoomState, SyncSettings,
 };

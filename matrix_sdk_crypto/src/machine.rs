@@ -30,11 +30,13 @@ use matrix_sdk_common::{
         sync::sync_events::Response as SyncResponse,
     },
     assign,
-    deserialized_responses::ToDevice,
+    deserialized_responses::{
+        events::{AnySyncMessageEvent, SyncMessageEvent},
+        ToDevice,
+    },
     events::{
         room::encrypted::EncryptedEventContent, room_key::RoomKeyEventContent,
-        AnyMessageEventContent, AnySyncRoomEvent, AnyToDeviceEvent, SyncMessageEvent,
-        ToDeviceEvent,
+        AnyMessageEventContent, AnyToDeviceEvent, ToDeviceEvent,
     },
     identifiers::{
         DeviceId, DeviceIdBox, DeviceKeyAlgorithm, EventEncryptionAlgorithm, EventId, RoomId,
@@ -42,7 +44,7 @@ use matrix_sdk_common::{
     },
     locks::Mutex,
     uuid::Uuid,
-    Raw, UInt,
+    UInt,
 };
 
 #[cfg(feature = "sled_cryptostore")]
@@ -896,7 +898,7 @@ impl OlmMachine {
         &self,
         event: &SyncMessageEvent<EncryptedEventContent>,
         room_id: &RoomId,
-    ) -> MegolmResult<Raw<AnySyncRoomEvent>> {
+    ) -> MegolmResult<AnySyncMessageEvent> {
         let content = match &event.content {
             EncryptedEventContent::MegolmV1AesSha2(c) => c,
             _ => return Err(EventError::UnsupportedAlgorithm.into()),
@@ -924,13 +926,20 @@ impl OlmMachine {
         // TODO set the encryption info on the event (is it verified, was it
         // decrypted, sender key...)
 
-        if let Ok(e) = decrypted_event.deserialize() {
-            self.verification_machine
-                .receive_room_event(room_id, &e)
-                .await?;
-        }
+        match decrypted_event.deserialize() {
+            Ok(e) => {
+                self.verification_machine
+                    .receive_room_event(room_id, &e)
+                    .await?;
 
-        Ok(decrypted_event)
+                let event = AnySyncMessageEvent::from_ruma(e, None);
+
+                Ok(event)
+            }
+            // TODO replace the panic with an `InvalidEvent` containing the raw
+            // json and the serde error.
+            Err(_) => panic!("Invalid event"),
+        }
     }
 
     /// Update the tracked users.
@@ -1172,13 +1181,13 @@ pub(crate) mod test {
 
     use matrix_sdk_common::{
         api::r0::keys::{claim_keys, get_keys, upload_keys, OneTimeKey},
+        deserialized_responses::events::{AnySyncMessageEvent, SyncMessageEvent},
         events::{
             room::{
                 encrypted::EncryptedEventContent,
                 message::{MessageEventContent, TextMessageEventContent},
             },
-            AnyMessageEventContent, AnySyncMessageEvent, AnySyncRoomEvent, AnyToDeviceEvent,
-            EventType, SyncMessageEvent, ToDeviceEvent, Unsigned,
+            AnyMessageEventContent, AnyToDeviceEvent, EventType, ToDeviceEvent, Unsigned,
         },
         identifiers::{
             event_id, room_id, user_id, DeviceId, DeviceKeyAlgorithm, DeviceKeyId, UserId,
@@ -1736,21 +1745,15 @@ pub(crate) mod test {
             sender: alice.user_id().clone(),
             content: encrypted_content,
             unsigned: Unsigned::default(),
+            encryption_info: None,
         };
 
-        let decrypted_event = bob
-            .decrypt_room_event(&event, &room_id)
-            .await
-            .unwrap()
-            .deserialize()
-            .unwrap();
+        let decrypted_event = bob.decrypt_room_event(&event, &room_id).await.unwrap();
 
         match decrypted_event {
-            AnySyncRoomEvent::Message(AnySyncMessageEvent::RoomMessage(SyncMessageEvent {
-                sender,
-                content,
-                ..
-            })) => {
+            AnySyncMessageEvent::RoomMessage(SyncMessageEvent {
+                sender, content, ..
+            }) => {
                 assert_eq!(&sender, alice.user_id());
                 if let MessageEventContent::Text(c) = &content {
                     assert_eq!(&c.body, plaintext);

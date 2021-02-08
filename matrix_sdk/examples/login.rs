@@ -3,10 +3,8 @@ use url::Url;
 
 use matrix_sdk::{
     self, async_trait,
-    events::{
-        room::message::{MessageEventContent, TextMessageEventContent},
-        SyncMessageEvent,
-    },
+    deserialized_responses::events::SyncMessageEvent,
+    events::room::message::{MessageEventContent, TextMessageEventContent},
     Client, EventEmitter, RoomState, SyncSettings,
 };
 

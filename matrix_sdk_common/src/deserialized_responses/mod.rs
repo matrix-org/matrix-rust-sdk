@@ -3,6 +3,7 @@ use std::collections::BTreeMap;
 
 use super::identifiers::{EventId, RoomId, UserId};
 
+pub mod events;
 mod members;
 mod sync;
 

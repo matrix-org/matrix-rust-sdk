@@ -10,10 +10,8 @@ use tokio::sync::Mutex;
 
 use matrix_sdk::{
     self, async_trait,
-    events::{
-        room::message::{MessageEventContent, TextMessageEventContent},
-        SyncMessageEvent,
-    },
+    deserialized_responses::events::SyncMessageEvent,
+    events::room::message::{MessageEventContent, TextMessageEventContent},
     Client, EventEmitter, RoomState, SyncSettings,
 };
 use url::Url;
