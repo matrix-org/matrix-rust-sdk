@@ -78,6 +78,15 @@ impl EventContent for CustomEventContent {
     }
 }
 
+impl Into<RumaCustomEventContent> for CustomEventContent {
+    fn into(self) -> RumaCustomEventContent {
+        RumaCustomEventContent {
+            event_type: self.event_type,
+            json: self.json,
+        }
+    }
+}
+
 impl RoomEventContent for CustomEventContent {}
 impl MessageEventContentTrait for CustomEventContent {}
 
@@ -315,6 +324,178 @@ impl AnySyncMessageEvent {
                 let event: SyncMessageEvent<CustomEventContent> = e.into();
                 AnySyncMessageEvent::Custom(event)
             }
+        }
+    }
+}
+
+impl AnySyncMessageEvent {
+    pub fn sender(&self) -> &UserId {
+        match self {
+            AnySyncMessageEvent::RoomMessage(e) => &e.sender,
+            AnySyncMessageEvent::CallAnswer(e) => &e.sender,
+            AnySyncMessageEvent::CallInvite(e) => &e.sender,
+            AnySyncMessageEvent::CallHangup(e) => &e.sender,
+            AnySyncMessageEvent::CallCandidates(e) => &e.sender,
+            AnySyncMessageEvent::KeyVerificationReady(e) => &e.sender,
+            AnySyncMessageEvent::KeyVerificationStart(e) => &e.sender,
+            AnySyncMessageEvent::KeyVerificationCancel(e) => &e.sender,
+            AnySyncMessageEvent::KeyVerificationAccept(e) => &e.sender,
+            AnySyncMessageEvent::KeyVerificationKey(e) => &e.sender,
+            AnySyncMessageEvent::KeyVerificationMac(e) => &e.sender,
+            AnySyncMessageEvent::KeyVerificationDone(e) => &e.sender,
+            AnySyncMessageEvent::Reaction(e) => &e.sender,
+            AnySyncMessageEvent::RoomEncrypted(e) => &e.sender,
+            AnySyncMessageEvent::RoomMessageFeedback(e) => &e.sender,
+            AnySyncMessageEvent::RoomRedaction(e) => &e.sender,
+            AnySyncMessageEvent::Sticker(e) => &e.sender,
+            AnySyncMessageEvent::Custom(e) => &e.sender,
+        }
+    }
+
+    pub fn content(&self) -> AnyMessageEventContent {
+        match self {
+            AnySyncMessageEvent::RoomMessage(e) => {
+                AnyMessageEventContent::RoomMessage(e.content.clone())
+            }
+            AnySyncMessageEvent::CallAnswer(e) => {
+                AnyMessageEventContent::CallAnswer(e.content.clone())
+            }
+            AnySyncMessageEvent::CallInvite(e) => {
+                AnyMessageEventContent::CallInvite(e.content.clone())
+            }
+            AnySyncMessageEvent::CallHangup(e) => {
+                AnyMessageEventContent::CallHangup(e.content.clone())
+            }
+            AnySyncMessageEvent::CallCandidates(e) => {
+                AnyMessageEventContent::CallCandidates(e.content.clone())
+            }
+            AnySyncMessageEvent::KeyVerificationReady(e) => {
+                AnyMessageEventContent::KeyVerificationReady(e.content.clone())
+            }
+            AnySyncMessageEvent::KeyVerificationStart(e) => {
+                AnyMessageEventContent::KeyVerificationStart(e.content.clone())
+            }
+            AnySyncMessageEvent::KeyVerificationCancel(e) => {
+                AnyMessageEventContent::KeyVerificationCancel(e.content.clone())
+            }
+            AnySyncMessageEvent::KeyVerificationAccept(e) => {
+                AnyMessageEventContent::KeyVerificationAccept(e.content.clone())
+            }
+            AnySyncMessageEvent::KeyVerificationKey(e) => {
+                AnyMessageEventContent::KeyVerificationKey(e.content.clone())
+            }
+            AnySyncMessageEvent::KeyVerificationMac(e) => {
+                AnyMessageEventContent::KeyVerificationMac(e.content.clone())
+            }
+            AnySyncMessageEvent::KeyVerificationDone(e) => {
+                AnyMessageEventContent::KeyVerificationDone(e.content.clone())
+            }
+            AnySyncMessageEvent::Reaction(e) => AnyMessageEventContent::Reaction(e.content.clone()),
+            AnySyncMessageEvent::RoomEncrypted(e) => {
+                AnyMessageEventContent::RoomEncrypted(e.content.clone())
+            }
+            AnySyncMessageEvent::RoomMessageFeedback(e) => {
+                AnyMessageEventContent::RoomMessageFeedback(e.content.clone())
+            }
+            AnySyncMessageEvent::RoomRedaction(e) => {
+                AnyMessageEventContent::RoomRedaction(e.content.clone())
+            }
+            AnySyncMessageEvent::Sticker(e) => AnyMessageEventContent::Sticker(e.content.clone()),
+            AnySyncMessageEvent::Custom(e) => {
+                AnyMessageEventContent::Custom(e.content.clone().into())
+            }
+        }
+    }
+
+    pub fn origin_server_ts(&self) -> &SystemTime {
+        match self {
+            AnySyncMessageEvent::RoomMessage(e) => &e.origin_server_ts,
+            AnySyncMessageEvent::CallAnswer(e) => &e.origin_server_ts,
+            AnySyncMessageEvent::CallInvite(e) => &e.origin_server_ts,
+            AnySyncMessageEvent::CallHangup(e) => &e.origin_server_ts,
+            AnySyncMessageEvent::CallCandidates(e) => &e.origin_server_ts,
+            AnySyncMessageEvent::KeyVerificationReady(e) => &e.origin_server_ts,
+            AnySyncMessageEvent::KeyVerificationStart(e) => &e.origin_server_ts,
+            AnySyncMessageEvent::KeyVerificationCancel(e) => &e.origin_server_ts,
+            AnySyncMessageEvent::KeyVerificationAccept(e) => &e.origin_server_ts,
+            AnySyncMessageEvent::KeyVerificationKey(e) => &e.origin_server_ts,
+            AnySyncMessageEvent::KeyVerificationMac(e) => &e.origin_server_ts,
+            AnySyncMessageEvent::KeyVerificationDone(e) => &e.origin_server_ts,
+            AnySyncMessageEvent::Reaction(e) => &e.origin_server_ts,
+            AnySyncMessageEvent::RoomEncrypted(e) => &e.origin_server_ts,
+            AnySyncMessageEvent::RoomMessageFeedback(e) => &e.origin_server_ts,
+            AnySyncMessageEvent::RoomRedaction(e) => &e.origin_server_ts,
+            AnySyncMessageEvent::Sticker(e) => &e.origin_server_ts,
+            AnySyncMessageEvent::Custom(e) => &e.origin_server_ts,
+        }
+    }
+
+    pub fn unsigned(&self) -> &Unsigned {
+        match self {
+            AnySyncMessageEvent::RoomMessage(e) => &e.unsigned,
+            AnySyncMessageEvent::CallAnswer(e) => &e.unsigned,
+            AnySyncMessageEvent::CallInvite(e) => &e.unsigned,
+            AnySyncMessageEvent::CallHangup(e) => &e.unsigned,
+            AnySyncMessageEvent::CallCandidates(e) => &e.unsigned,
+            AnySyncMessageEvent::KeyVerificationReady(e) => &e.unsigned,
+            AnySyncMessageEvent::KeyVerificationStart(e) => &e.unsigned,
+            AnySyncMessageEvent::KeyVerificationCancel(e) => &e.unsigned,
+            AnySyncMessageEvent::KeyVerificationAccept(e) => &e.unsigned,
+            AnySyncMessageEvent::KeyVerificationKey(e) => &e.unsigned,
+            AnySyncMessageEvent::KeyVerificationMac(e) => &e.unsigned,
+            AnySyncMessageEvent::KeyVerificationDone(e) => &e.unsigned,
+            AnySyncMessageEvent::Reaction(e) => &e.unsigned,
+            AnySyncMessageEvent::RoomEncrypted(e) => &e.unsigned,
+            AnySyncMessageEvent::RoomMessageFeedback(e) => &e.unsigned,
+            AnySyncMessageEvent::RoomRedaction(e) => &e.unsigned,
+            AnySyncMessageEvent::Sticker(e) => &e.unsigned,
+            AnySyncMessageEvent::Custom(e) => &e.unsigned,
+        }
+    }
+
+    pub fn event_id(&self) -> &EventId {
+        match self {
+            AnySyncMessageEvent::RoomMessage(e) => &e.event_id,
+            AnySyncMessageEvent::CallAnswer(e) => &e.event_id,
+            AnySyncMessageEvent::CallInvite(e) => &e.event_id,
+            AnySyncMessageEvent::CallHangup(e) => &e.event_id,
+            AnySyncMessageEvent::CallCandidates(e) => &e.event_id,
+            AnySyncMessageEvent::KeyVerificationReady(e) => &e.event_id,
+            AnySyncMessageEvent::KeyVerificationStart(e) => &e.event_id,
+            AnySyncMessageEvent::KeyVerificationCancel(e) => &e.event_id,
+            AnySyncMessageEvent::KeyVerificationAccept(e) => &e.event_id,
+            AnySyncMessageEvent::KeyVerificationKey(e) => &e.event_id,
+            AnySyncMessageEvent::KeyVerificationMac(e) => &e.event_id,
+            AnySyncMessageEvent::KeyVerificationDone(e) => &e.event_id,
+            AnySyncMessageEvent::Reaction(e) => &e.event_id,
+            AnySyncMessageEvent::RoomEncrypted(e) => &e.event_id,
+            AnySyncMessageEvent::RoomMessageFeedback(e) => &e.event_id,
+            AnySyncMessageEvent::RoomRedaction(e) => &e.event_id,
+            AnySyncMessageEvent::Sticker(e) => &e.event_id,
+            AnySyncMessageEvent::Custom(e) => &e.event_id,
+        }
+    }
+
+    pub fn encryption_info(&self) -> Option<&EncryptionInfo> {
+        match self {
+            AnySyncMessageEvent::RoomMessage(e) => e.encryption_info.as_ref(),
+            AnySyncMessageEvent::CallAnswer(e) => e.encryption_info.as_ref(),
+            AnySyncMessageEvent::CallInvite(e) => e.encryption_info.as_ref(),
+            AnySyncMessageEvent::CallHangup(e) => e.encryption_info.as_ref(),
+            AnySyncMessageEvent::CallCandidates(e) => e.encryption_info.as_ref(),
+            AnySyncMessageEvent::KeyVerificationReady(e) => e.encryption_info.as_ref(),
+            AnySyncMessageEvent::KeyVerificationStart(e) => e.encryption_info.as_ref(),
+            AnySyncMessageEvent::KeyVerificationCancel(e) => e.encryption_info.as_ref(),
+            AnySyncMessageEvent::KeyVerificationAccept(e) => e.encryption_info.as_ref(),
+            AnySyncMessageEvent::KeyVerificationKey(e) => e.encryption_info.as_ref(),
+            AnySyncMessageEvent::KeyVerificationMac(e) => e.encryption_info.as_ref(),
+            AnySyncMessageEvent::KeyVerificationDone(e) => e.encryption_info.as_ref(),
+            AnySyncMessageEvent::Reaction(e) => e.encryption_info.as_ref(),
+            AnySyncMessageEvent::RoomEncrypted(e) => e.encryption_info.as_ref(),
+            AnySyncMessageEvent::RoomMessageFeedback(e) => e.encryption_info.as_ref(),
+            AnySyncMessageEvent::RoomRedaction(e) => e.encryption_info.as_ref(),
+            AnySyncMessageEvent::Sticker(e) => e.encryption_info.as_ref(),
+            AnySyncMessageEvent::Custom(e) => e.encryption_info.as_ref(),
         }
     }
 }
