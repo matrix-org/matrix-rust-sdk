@@ -278,8 +278,8 @@ pub enum CustomEvent<'c> {
 /// #     self,
 /// #     events::{
 /// #         room::message::{MessageEventContent, TextMessageEventContent},
-/// #         SyncMessageEvent
 /// #     },
+/// #     deserialized_responses::events::SyncMessageEvent,
 /// #     EventEmitter, RoomState
 /// # };
 /// # use matrix_sdk_common::{async_trait, locks::RwLock};
@@ -492,9 +492,7 @@ pub trait EventEmitter: Send + Sync {
 #[cfg(test)]
 mod test {
     use super::*;
-    use matrix_sdk_common::{
-        async_trait, events::room::redaction::RedactionEventContent, locks::Mutex,
-    };
+    use matrix_sdk_common::{async_trait, locks::Mutex};
     use matrix_sdk_test::{async_test, sync_response, SyncResponseFile};
     use std::sync::Arc;
 
