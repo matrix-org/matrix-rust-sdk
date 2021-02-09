@@ -35,6 +35,7 @@ use serde::{Deserialize, Serialize};
 pub enum VerificationState {
     Trusted,
     Untrusted,
+    UnknownDevice,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]

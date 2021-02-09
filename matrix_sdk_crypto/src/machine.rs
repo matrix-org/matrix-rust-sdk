@@ -919,18 +919,19 @@ impl OlmMachine {
         };
 
         // TODO check the message index.
-        // TODO check if this is from a verified device.
         let (decrypted_event, _) = session.decrypt(event).await?;
 
         let device = self.get_device(&event.sender, &content.device_id).await?;
 
-        // TODO we'll want more info here, e.g. is the device known at all or
-        // has it been deleted.
-        let verification_state = if device.map(|d| d.is_trusted()).unwrap_or(false) {
-            VerificationState::Trusted
-        } else {
-            VerificationState::Untrusted
-        };
+        let verification_state = device
+            .map(|d| {
+                if d.is_trusted() {
+                    VerificationState::Trusted
+                } else {
+                    VerificationState::Untrusted
+                }
+            })
+            .unwrap_or(VerificationState::UnknownDevice);
 
         trace!("Successfully decrypted Megolm event {:?}", decrypted_event);
 
