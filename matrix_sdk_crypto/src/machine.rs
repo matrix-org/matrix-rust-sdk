@@ -921,17 +921,24 @@ impl OlmMachine {
         // TODO check the message index.
         let (decrypted_event, _) = session.decrypt(event).await?;
 
-        let device = self.get_device(&event.sender, &content.device_id).await?;
+        // TODO check the sender key of the session instead of trusting the
+        // user/device id of the event which is sent in the plain.
+        let verification_state =
+            if self.user_id() == &event.sender && self.device_id() == &*content.device_id {
+                VerificationState::Trusted
+            } else {
+                let device = self.get_device(&event.sender, &content.device_id).await?;
 
-        let verification_state = device
-            .map(|d| {
-                if d.is_trusted() {
-                    VerificationState::Trusted
-                } else {
-                    VerificationState::Untrusted
-                }
-            })
-            .unwrap_or(VerificationState::UnknownDevice);
+                device
+                    .map(|d| {
+                        if d.is_trusted() {
+                            VerificationState::Trusted
+                        } else {
+                            VerificationState::Untrusted
+                        }
+                    })
+                    .unwrap_or(VerificationState::UnknownDevice)
+            };
 
         trace!("Successfully decrypted Megolm event {:?}", decrypted_event);
 
