@@ -16,7 +16,7 @@ use crate::{
         room::{
             encrypted::EncryptedEventContent,
             message::{feedback::FeedbackEventContent, MessageEventContent},
-            redaction::{RedactionEventContent, SyncRedactionEvent},
+            redaction::{RedactionEventContent, SyncRedactionEvent as RumaSyncRedationEvent},
         },
         sticker::StickerEventContent,
         AnyRedactedSyncMessageEvent, AnyRedactedSyncStateEvent,
@@ -26,7 +26,7 @@ use crate::{
     },
     identifiers::{DeviceIdBox, EventId, UserId},
 };
-use ruma::events::{EventContent, RoomEventContent};
+use ruma::events::{AnyMessageEventContent, EventContent, RoomEventContent};
 use serde_json::{value::RawValue as RawJsonValue, Value as JsonValue};
 
 use serde::{Deserialize, Serialize};
@@ -126,6 +126,33 @@ pub struct SyncMessageEvent<C: MessageEventContentTrait> {
     pub encryption_info: Option<EncryptionInfo>,
 }
 
+/// Redaction event without a `room_id`.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct SyncRedactionEvent {
+    /// Data specific to the event type.
+    pub content: RedactionEventContent,
+
+    /// The ID of the event that was redacted.
+    pub redacts: EventId,
+
+    /// The globally unique event identifier for the user who sent the event.
+    pub event_id: EventId,
+
+    /// The fully-qualified ID of the user who sent this event.
+    pub sender: UserId,
+
+    /// Timestamp in milliseconds on originating homeserver when this event was sent.
+    pub origin_server_ts: SystemTime,
+
+    /// Additional key-value pairs not signed by the homeserver.
+    pub unsigned: Unsigned,
+
+    /// Information about the encryption state of the event.
+    ///
+    /// Will be `None` if the event wasn't encrypted.
+    pub encryption_info: Option<EncryptionInfo>,
+}
+
 impl<C: MessageEventContentTrait> SyncMessageEvent<C> {
     pub fn from_ruma(
         event: RumaSyncMessageEvent<C>,
@@ -142,11 +169,11 @@ impl<C: MessageEventContentTrait> SyncMessageEvent<C> {
     }
 }
 
-impl SyncMessageEvent<RedactionEventContent> {
+impl SyncRedactionEvent {
     pub fn from_ruma_redaction(
-        event: SyncRedactionEvent,
+        event: RumaSyncRedationEvent,
         encryption_info: Option<EncryptionInfo>,
-    ) -> SyncMessageEvent<RedactionEventContent> {
+    ) -> SyncRedactionEvent {
         Self {
             content: event.content,
             event_id: event.event_id,
@@ -154,6 +181,7 @@ impl SyncMessageEvent<RedactionEventContent> {
             origin_server_ts: event.origin_server_ts,
             unsigned: event.unsigned,
             encryption_info,
+            redacts: event.redacts,
         }
     }
 }
@@ -189,7 +217,7 @@ pub enum AnySyncMessageEvent {
     Reaction(SyncMessageEvent<ReactionEventContent>),
     RoomEncrypted(SyncMessageEvent<EncryptedEventContent>),
     RoomMessageFeedback(SyncMessageEvent<FeedbackEventContent>),
-    RoomRedaction(SyncMessageEvent<RedactionEventContent>),
+    RoomRedaction(SyncRedactionEvent),
     Sticker(SyncMessageEvent<StickerEventContent>),
     Custom(SyncMessageEvent<CustomEventContent>),
 }
@@ -219,7 +247,6 @@ fromEvent!(KeyVerificationDone, DoneEventContent);
 fromEvent!(Reaction, ReactionEventContent);
 fromEvent!(RoomEncrypted, EncryptedEventContent);
 fromEvent!(RoomMessageFeedback, FeedbackEventContent);
-fromEvent!(RoomRedaction, RedactionEventContent);
 fromEvent!(Sticker, StickerEventContent);
 fromEvent!(Custom, CustomEventContent);
 
@@ -233,6 +260,12 @@ impl<C: MessageEventContentTrait> From<RumaSyncMessageEvent<C>> for SyncMessageE
             unsigned: e.unsigned,
             encryption_info: None,
         }
+    }
+}
+
+impl From<SyncRedactionEvent> for AnySyncMessageEvent {
+    fn from(e: SyncRedactionEvent) -> Self {
+        Self::RoomRedaction(e)
     }
 }
 
@@ -275,7 +308,7 @@ impl AnySyncMessageEvent {
                 SyncMessageEvent::from_ruma(e, info).into()
             }
             RumaAnySyncMessageEvent::RoomRedaction(e) => {
-                SyncMessageEvent::from_ruma_redaction(e, info).into()
+                SyncRedactionEvent::from_ruma_redaction(e, info).into()
             }
             RumaAnySyncMessageEvent::Sticker(e) => SyncMessageEvent::from_ruma(e, info).into(),
             RumaAnySyncMessageEvent::Custom(e) => {

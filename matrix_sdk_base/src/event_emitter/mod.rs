@@ -14,12 +14,15 @@
 // limitations under the License.
 use std::ops::Deref;
 
-use matrix_sdk_common::{events::room::redaction::RedactionEventContent, identifiers::RoomId};
+use matrix_sdk_common::identifiers::RoomId;
 use serde_json::value::RawValue as RawJsonValue;
 
 use crate::{
     deserialized_responses::{
-        events::{AnySyncMessageEvent, AnySyncRoomEvent, CustomEventContent, SyncMessageEvent},
+        events::{
+            AnySyncMessageEvent, AnySyncRoomEvent, CustomEventContent, SyncMessageEvent,
+            SyncRedactionEvent,
+        },
         SyncResponse,
     },
     events::{
@@ -345,7 +348,7 @@ pub trait EventEmitter: Send + Sync {
     /// Fires when `Client` receives a `RoomEvent::CallHangup` event
     async fn on_room_call_hangup(&self, _: RoomState, _: &SyncMessageEvent<HangupEventContent>) {}
     /// Fires when `Client` receives a `RoomEvent::RoomRedaction` event.
-    async fn on_room_redaction(&self, _: RoomState, _: &SyncMessageEvent<RedactionEventContent>) {}
+    async fn on_room_redaction(&self, _: RoomState, _: &SyncRedactionEvent) {}
     /// Fires when `Client` receives a `RoomEvent::RoomPowerLevels` event.
     async fn on_room_power_levels(
         &self,
@@ -561,11 +564,7 @@ mod test {
         ) {
             self.0.lock().await.push("call hangup".to_string())
         }
-        async fn on_room_redaction(
-            &self,
-            _: RoomState,
-            _: &SyncMessageEvent<RedactionEventContent>,
-        ) {
+        async fn on_room_redaction(&self, _: RoomState, _: &SyncRedactionEvent) {
             self.0.lock().await.push("redaction".to_string())
         }
         async fn on_room_power_levels(
