@@ -31,7 +31,7 @@ use matrix_sdk_common::{
     },
     assign,
     deserialized_responses::{
-        events::{AnySyncMessageEvent, SyncMessageEvent},
+        events::{AnySyncMessageEvent, EncryptionInfo, SyncMessageEvent, VerificationState},
         ToDevice,
     },
     events::{
@@ -922,9 +922,23 @@ impl OlmMachine {
         // TODO check if this is from a verified device.
         let (decrypted_event, _) = session.decrypt(event).await?;
 
+        let device = self.get_device(&event.sender, &content.device_id).await?;
+
+        // TODO we'll want more info here, e.g. is the device known at all or
+        // has it been deleted.
+        let verification_state = if device.map(|d| d.is_trusted()).unwrap_or(false) {
+            VerificationState::Trusted
+        } else {
+            VerificationState::Untrusted
+        };
+
         trace!("Successfully decrypted Megolm event {:?}", decrypted_event);
-        // TODO set the encryption info on the event (is it verified, was it
-        // decrypted, sender key...)
+
+        let encryption_info = EncryptionInfo {
+            sender: event.sender.clone(),
+            sender_device: content.device_id.clone(),
+            verification_state,
+        };
 
         match decrypted_event.deserialize() {
             Ok(e) => {
@@ -932,7 +946,7 @@ impl OlmMachine {
                     .receive_room_event(room_id, &e)
                     .await?;
 
-                let event = AnySyncMessageEvent::from_ruma(e, None);
+                let event = AnySyncMessageEvent::from_ruma(e, Some(encryption_info));
 
                 Ok(event)
             }

@@ -39,8 +39,9 @@ pub enum VerificationState {
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct EncryptionInfo {
-    sender: UserId,
-    sender_device: DeviceIdBox,
+    pub sender: UserId,
+    pub sender_device: DeviceIdBox,
+    pub verification_state: VerificationState,
 }
 
 /// A custom event's type and `content` JSON object.
