@@ -43,7 +43,7 @@ impl RoomMember {
         &self.event.state_key
     }
 
-    /// Get the display name of the member if ther is one.
+    /// Get the display name of the member if there is one.
     pub fn display_name(&self) -> Option<&str> {
         if let Some(p) = self.profile.as_ref() {
             p.displayname.as_deref()
@@ -64,7 +64,7 @@ impl RoomMember {
         }
     }
 
-    /// Get the avatar url of the member, if ther is one.
+    /// Get the avatar url of the member, if there is one.
     pub fn avatar_url(&self) -> Option<&str> {
         match self.profile.as_ref() {
             Some(p) => p.avatar_url.as_deref(),
