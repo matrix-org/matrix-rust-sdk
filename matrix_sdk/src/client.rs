@@ -1702,11 +1702,10 @@ impl Client {
     /// the interesting events through a mpsc channel to another thread e.g. a
     /// UI thread.
     ///
-    /// ```compile_fail,E0658
+    /// ```no_run
     /// # use matrix_sdk::events::{
     /// #     room::message::{MessageEvent, MessageEventContent, TextMessageEventContent},
     /// # };
-    /// # use matrix_sdk::Room;
     /// # use std::sync::{Arc, RwLock};
     /// # use std::time::Duration;
     /// # use matrix_sdk::{Client, SyncSettings, LoopCtrl};
@@ -1716,7 +1715,7 @@ impl Client {
     /// # let homeserver = Url::parse("http://localhost:8080").unwrap();
     /// # let mut client = Client::new(homeserver).unwrap();
     ///
-    /// use async_std::sync::channel;
+    /// use tokio::sync::mpsc::channel;
     ///
     /// let (tx, rx) = channel(100);
     ///
@@ -1725,14 +1724,12 @@ impl Client {
     ///     .timeout(Duration::from_secs(30));
     ///
     /// client
-    ///     .sync_with_callback(sync_settings, async move |response| {
+    ///     .sync_with_callback(sync_settings, |response| async move {
     ///         let channel = sync_channel;
     ///
     ///         for (room_id, room) in response.rooms.join {
     ///             for event in room.timeline.events {
-    ///                 if let Ok(e) = event.deserialize() {
-    ///                     channel.send(e).await;
-    ///                 }
+    ///                 channel.send(event).await.unwrap();
     ///             }
     ///         }
     ///
