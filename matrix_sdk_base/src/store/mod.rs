@@ -24,7 +24,8 @@ use matrix_sdk_common::{
     async_trait,
     events::{
         presence::PresenceEvent, room::member::MemberEventContent, AnyBasicEvent,
-        AnyStrippedStateEvent, AnySyncStateEvent, EventContent, EventType,
+        AnyStrippedStateEvent, AnySyncMessageEvent, AnySyncRoomEvent, AnySyncStateEvent,
+        EventContent, EventType,
     },
     identifiers::{RoomId, UserId},
     locks::RwLock,
@@ -180,6 +181,25 @@ pub trait StateStore: AsyncTraitDeps {
         room_id: &RoomId,
         display_name: &str,
     ) -> Result<BTreeSet<UserId>>;
+
+    /// Get all timeline events that came with this `prev_batch` token.
+    async fn get_messages(
+        &self,
+        room_id: &RoomId,
+        prev_batch: &str,
+    ) -> Result<Vec<AnySyncMessageEvent>>;
+
+    /// Checks if the message events in this chunk are already contained in the store.
+    ///
+    /// # Arguments
+    ///
+    /// * `room_id` - The id of the room we are checking.
+    async fn unknown_timeline_events<'a>(
+        &'a self,
+        room_id: &RoomId,
+        prev_batch: &str,
+        events: &'a [AnySyncRoomEvent],
+    ) -> Result<&'a [AnySyncRoomEvent]>;
 }
 
 /// A state store wrapper for the SDK.
@@ -386,6 +406,9 @@ pub struct StateChanges {
     pub stripped_members: BTreeMap<RoomId, BTreeMap<UserId, StrippedMemberEvent>>,
     /// A map of `RoomId` to `StrippedRoomInfo`.
     pub invited_room_info: BTreeMap<RoomId, StrippedRoomInfo>,
+
+    /// A mapping of `RoomId` to message events ordered based on when they were received.
+    pub joined_message_events: BTreeMap<RoomId, BTreeMap<(String, u64), AnySyncMessageEvent>>,
 }
 
 impl StateChanges {
@@ -456,5 +479,40 @@ impl StateChanges {
             .entry(event.content().event_type().to_string())
             .or_insert_with(BTreeMap::new)
             .insert(event.state_key().to_string(), event);
+    }
+
+    ///
+    pub fn handle_message_event(
+        &mut self,
+        room_id: &RoomId,
+        prev_batch: &str,
+        content: &[AnySyncRoomEvent],
+    ) {
+        use std::ops::Bound::*;
+
+        let last = self
+            .joined_message_events
+            .get(room_id)
+            .map(|map| {
+                map.range((Included((prev_batch.to_string(), 0)), Unbounded))
+                    .last()
+                    .map_or(0, |(k, _)| k.1)
+            })
+            .unwrap_or_default();
+
+        for (idx, msg) in content.iter().enumerate().filter_map(|(idx, ev)| {
+            if let AnySyncRoomEvent::Message(msg) = ev {
+                Some((idx, msg))
+            } else {
+                None
+            }
+        }) {
+            let room = self
+                .joined_message_events
+                .entry(room_id.to_owned())
+                .or_default();
+
+            room.insert((prev_batch.to_string(), idx as u64 + last), msg.clone());
+        }
     }
 }

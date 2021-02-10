@@ -495,20 +495,17 @@ impl BaseClient {
                         },
 
                         #[cfg(feature = "encryption")]
-                        AnySyncRoomEvent::Message(message) => {
-                            if let AnySyncMessageEvent::RoomEncrypted(encrypted) = message {
-                                if let Some(olm) = self.olm_machine().await {
-                                    if let Ok(decrypted) =
-                                        olm.decrypt_room_event(encrypted, room_id).await
-                                    {
-                                        match decrypted.deserialize() {
-                                            Ok(decrypted) => e = decrypted,
-                                            Err(e) => {
-                                                warn!(
-                                                    "Error deserializing a decrypted event {:?} ",
-                                                    e
-                                                )
-                                            }
+                        AnySyncRoomEvent::Message(AnySyncMessageEvent::RoomEncrypted(
+                            encrypted,
+                        )) => {
+                            if let Some(olm) = self.olm_machine().await {
+                                if let Ok(decrypted) =
+                                    olm.decrypt_room_event(encrypted, room_id).await
+                                {
+                                    match decrypted.deserialize() {
+                                        Ok(decrypted) => e = decrypted,
+                                        Err(e) => {
+                                            warn!("Error deserializing a decrypted event {:?} ", e)
                                         }
                                     }
                                 }
@@ -526,6 +523,19 @@ impl BaseClient {
                 Err(e) => {
                     warn!("Error deserializing event {:?}", e);
                 }
+            }
+        }
+
+        // TODO:
+        // We wait until after the event has been decrypted?
+        if let Some(prev) = timeline.prev_batch.as_deref() {
+            let needed = self
+                .store
+                .unknown_timeline_events(room_id, prev, &timeline.events)
+                .await?;
+
+            if !needed.is_empty() {
+                changes.handle_message_event(room_id, prev, needed);
             }
         }
 

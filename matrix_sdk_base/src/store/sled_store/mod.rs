@@ -25,7 +25,7 @@ use matrix_sdk_common::{
     events::{
         presence::PresenceEvent,
         room::member::{MemberEventContent, MembershipState},
-        AnySyncStateEvent, EventContent, EventType,
+        AnySyncMessageEvent, AnySyncRoomEvent, AnySyncStateEvent, EventContent, EventType,
     },
     identifiers::{RoomId, UserId},
 };
@@ -146,6 +146,13 @@ pub struct SledStore {
     stripped_room_state: Tree,
     stripped_members: Tree,
     presence: Tree,
+
+    /// This `Tree` consists of keys = `prev_batch_token + count` and values of EventId bytes.
+    ///
+    /// `count` is the index of the MessageEvent in the original chunk or sync response.
+    chunk_tokens: Tree,
+    /// This `Tree` is `RoomId + EventId -> Event bytes`
+    timeline: Tree,
 }
 
 impl SledStore {
@@ -168,6 +175,9 @@ impl SledStore {
         let stripped_members = db.open_tree("stripped_members")?;
         let stripped_room_state = db.open_tree("stripped_room_state")?;
 
+        let chunk_tokens = db.open_tree("chunk_tokens")?;
+        let timeline = db.open_tree("stripped_room_state")?;
+
         Ok(Self {
             inner: db,
             store_key: store_key.into(),
@@ -185,6 +195,8 @@ impl SledStore {
             stripped_room_info,
             stripped_members,
             stripped_room_state,
+            chunk_tokens,
+            timeline,
         })
     }
 
@@ -452,7 +464,27 @@ impl SledStore {
                     Ok(())
                 },
             );
+        ret?;
 
+        let ret: std::result::Result<(), TransactionError<SerializationError>> =
+            (&self.chunk_tokens, &self.timeline).transaction(|(chunk, timeline)| {
+                for (rid, room) in &changes.joined_message_events {
+                    for ((prev, idx), msg) in room {
+                        let mut key = prev.as_bytes().to_vec();
+                        key.push(0xff);
+                        key.extend_from_slice(&idx.to_be_bytes());
+
+                        chunk.insert(key, msg.event_id().as_bytes())?;
+                        timeline.insert(
+                            (rid.as_str(), msg.event_id().as_str()).encode(),
+                            self.serialize_event(msg)
+                                .map_err(ConflictableTransactionError::Abort)?,
+                        )?;
+                    }
+                }
+
+                Ok(())
+            });
         ret?;
 
         self.inner.flush_async().await?;
@@ -549,6 +581,35 @@ impl SledStore {
         )
     }
 
+    pub async fn get_messages(
+        &self,
+        room_id: &RoomId,
+        prev_batch: &str,
+    ) -> impl Stream<Item = Result<AnySyncMessageEvent>> {
+        let timeline = self.timeline.clone();
+        let room_id = room_id.clone();
+        stream::iter(
+            self.chunk_tokens
+                .scan_prefix(prev_batch.encode())
+                .values()
+                .map(move |id| {
+                    let mut key = room_id.as_bytes().to_vec();
+                    key.push(0xff);
+                    key.extend_from_slice(&id?);
+                    key.push(0xff);
+
+                    timeline.get(key)
+                })
+                .flat_map(|bytes| {
+                    if let Ok(Some(bytes)) = bytes {
+                        Some(serde_json::from_slice(&bytes).map_err(StoreError::Json))
+                    } else {
+                        None
+                    }
+                }),
+        )
+    }
+
     pub async fn get_users_with_display_name(
         &self,
         room_id: &RoomId,
@@ -563,6 +624,30 @@ impl SledStore {
             .transpose()?
             .unwrap_or_default())
     }
+
+    pub async fn unknown_timeline_events<'a>(
+        &'a self,
+        _: &RoomId,
+        prev_batch: &str,
+        events: &'a [AnySyncRoomEvent],
+    ) -> Result<&'a [AnySyncRoomEvent]> {
+        // TODO: may want to default to all events instead of only if we have a known token
+        if let Some(found) = self.chunk_tokens.scan_prefix(prev_batch.encode()).last() {
+            let (k, _) = found?;
+            let start =
+                u64_from_bytes(k.splitn(2, |b| *b == 0xff).last().unwrap()).unwrap() as usize;
+
+            return Ok(&events[start..]);
+        }
+        dbg!(Ok(&events[..]))
+    }
+}
+
+/// Parses the bytes into an u64.
+pub fn u64_from_bytes(bytes: &[u8]) -> std::result::Result<u64, std::array::TryFromSliceError> {
+    use std::convert::TryInto;
+    let array: [u8; 8] = bytes.try_into()?;
+    Ok(u64::from_be_bytes(array))
 }
 
 #[async_trait]
@@ -634,6 +719,27 @@ impl StateStore for SledStore {
         display_name: &str,
     ) -> Result<BTreeSet<UserId>> {
         self.get_users_with_display_name(room_id, display_name)
+            .await
+    }
+
+    async fn get_messages(
+        &self,
+        room_id: &RoomId,
+        prev_batch: &str,
+    ) -> Result<Vec<AnySyncMessageEvent>> {
+        self.get_messages(room_id, prev_batch)
+            .await
+            .try_collect()
+            .await
+    }
+
+    async fn unknown_timeline_events<'a>(
+        &'a self,
+        room_id: &RoomId,
+        prev_batch: &str,
+        events: &'a [AnySyncRoomEvent],
+    ) -> Result<&'a [AnySyncRoomEvent]> {
+        self.unknown_timeline_events(room_id, prev_batch, events)
             .await
     }
 }

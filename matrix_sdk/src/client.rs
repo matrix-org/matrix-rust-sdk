@@ -3099,4 +3099,32 @@ mod test {
             }
         }
     }
+
+    #[tokio::test]
+    async fn messages() {
+        let client = logged_in_client().await;
+
+        let _m = mock(
+            "GET",
+            Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_string()),
+        )
+        .with_status(200)
+        .with_body(test_json::SYNC.to_string())
+        .match_header("authorization", "Bearer 1234")
+        .create();
+
+        let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
+
+        let _response = client.sync_once(sync_settings).await.unwrap();
+
+        assert!(!client
+            .store()
+            .get_messages(
+                &room_id!("!SVkFJHzfwvuaIEawgC:localhost"),
+                "t392-516_47314_0_7_1_1_1_11444_1"
+            )
+            .await
+            .unwrap()
+            .is_empty())
+    }
 }
