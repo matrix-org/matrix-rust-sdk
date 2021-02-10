@@ -728,7 +728,12 @@ impl BaseClient {
                 // decryptes to-device events, but leaves room events alone.
                 // This makes sure that we have the deryption keys for the room
                 // events at hand.
-                o.receive_sync_response(&response).await?
+                o.receive_sync_changes(
+                    &response.to_device,
+                    &response.device_lists,
+                    &response.device_one_time_keys_count,
+                )
+                .await?
             } else {
                 response
                     .to_device
