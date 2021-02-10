@@ -195,7 +195,7 @@ impl AmbiguityCache {
 
         let old_display_name = if let Some(event) = old_event {
             if matches!(event.content.membership, Join | Invite) {
-                let dispaly_name = if let Some(d) = changes
+                let display_name = if let Some(d) = changes
                     .profiles
                     .get(room_id)
                     .and_then(|p| p.get(&member_event.state_key))
@@ -213,7 +213,7 @@ impl AmbiguityCache {
                     event.content.displayname.clone()
                 };
 
-                Some(dispaly_name.unwrap_or_else(|| event.state_key.localpart().to_string()))
+                Some(display_name.unwrap_or_else(|| event.state_key.localpart().to_string()))
             } else {
                 None
             }
