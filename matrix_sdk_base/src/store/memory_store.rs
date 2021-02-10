@@ -19,12 +19,12 @@ use std::{
 
 use dashmap::{DashMap, DashSet};
 use matrix_sdk_common::{
-    async_trait,
+    api, async_trait,
     events::{
         presence::PresenceEvent,
         room::member::{MemberEventContent, MembershipState},
-        AnyBasicEvent, AnyStrippedStateEvent, AnySyncMessageEvent, AnySyncRoomEvent,
-        AnySyncStateEvent, EventContent, EventType,
+        AnyBasicEvent, AnyMessageEvent, AnyStrippedStateEvent, AnySyncMessageEvent,
+        AnySyncRoomEvent, AnySyncStateEvent, EventContent, EventType,
     },
     identifiers::{RoomId, UserId},
     instant::Instant,
@@ -396,5 +396,13 @@ impl StateStore for MemoryStore {
     ) -> Result<&'a [AnySyncRoomEvent]> {
         self.unknown_timeline_events(room_id, prev_batch, events)
             .await
+    }
+
+    async fn receive_messages_response(
+        &self,
+        room_id: &RoomId,
+        response: &api::r0::message::get_message_events::Response,
+    ) -> Result<Vec<AnyMessageEvent>> {
+        todo!()
     }
 }

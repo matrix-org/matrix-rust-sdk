@@ -535,7 +535,7 @@ impl BaseClient {
                 .await?;
 
             if !needed.is_empty() {
-                changes.handle_message_event(room_id, prev, needed);
+                changes.handle_sync_timeline(room_id, prev, needed);
             }
         }
 

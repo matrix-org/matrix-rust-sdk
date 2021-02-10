@@ -21,11 +21,12 @@ use futures::{
     TryStreamExt,
 };
 use matrix_sdk_common::{
-    async_trait,
+    api, async_trait,
     events::{
         presence::PresenceEvent,
         room::member::{MemberEventContent, MembershipState},
-        AnySyncMessageEvent, AnySyncRoomEvent, AnySyncStateEvent, EventContent, EventType,
+        AnyMessageEvent, AnySyncMessageEvent, AnySyncRoomEvent, AnySyncStateEvent, EventContent,
+        EventType,
     },
     identifiers::{RoomId, UserId},
 };
@@ -147,10 +148,20 @@ pub struct SledStore {
     stripped_members: Tree,
     presence: Tree,
 
-    /// This `Tree` consists of keys = `prev_batch_token + count` and values of EventId bytes.
+    /// Order the chunks by their `prev_batch`.
+    ///
+    /// We now have slices of the timeline ordered by position in the timeline. Since the events
+    /// come in a predictable order if we find the prevbatchid location we know the location.
+    id_prevbatch: Tree,
+    /// Since the `prev_batch` token can get long and we want an orderable key use a `i64`.
+    /// This is also known as prev_batch ID.
+    prevbatch_id: Tree,
+    /// This `Tree` consists of keys of `prev_batch ID + count` and values of `EventId` bytes.
     ///
     /// `count` is the index of the MessageEvent in the original chunk or sync response.
-    chunk_tokens: Tree,
+    prevbatchid_eventid: Tree,
+    eventid_prevbatchid: Tree,
+
     /// This `Tree` is `RoomId + EventId -> Event bytes`
     timeline: Tree,
 }
@@ -175,8 +186,11 @@ impl SledStore {
         let stripped_members = db.open_tree("stripped_members")?;
         let stripped_room_state = db.open_tree("stripped_room_state")?;
 
-        let chunk_tokens = db.open_tree("chunk_tokens")?;
-        let timeline = db.open_tree("stripped_room_state")?;
+        let id_prevbatch = db.open_tree("id_prevbatch")?;
+        let prevbatch_id = db.open_tree("prevbatch_id")?;
+        let prevbatchid_eventid = db.open_tree("prevbatchid_eventid")?;
+        let eventid_prevbatchid = db.open_tree("eventid_prevbatchid")?;
+        let timeline = db.open_tree("timeline")?;
 
         Ok(Self {
             inner: db,
@@ -195,7 +209,10 @@ impl SledStore {
             stripped_room_info,
             stripped_members,
             stripped_room_state,
-            chunk_tokens,
+            id_prevbatch,
+            prevbatch_id,
+            prevbatchid_eventid,
+            eventid_prevbatchid,
             timeline,
         })
     }
@@ -466,15 +483,22 @@ impl SledStore {
             );
         ret?;
 
-        let ret: std::result::Result<(), TransactionError<SerializationError>> =
-            (&self.chunk_tokens, &self.timeline).transaction(|(chunk, timeline)| {
+        let key = self
+            .id_prevbatch
+            .last()?
+            .map(|(bytes, _)| i64_from_bytes(&bytes).expect("saved invalid numeric key"))
+            .unwrap_or_default();
+
+        let ret: std::result::Result<(), TransactionError<SerializationError>> = (
+            &self.id_prevbatch,
+            &self.prevbatch_id,
+            &self.prevbatchid_eventid,
+            &self.eventid_prevbatchid,
+            &self.timeline,
+        )
+            .transaction(|(id_prev, prev_id, prev_eventid, eventid_prev, timeline)| {
                 for (rid, room) in &changes.joined_message_events {
                     for ((prev, idx), msg) in room {
-                        let mut key = prev.as_bytes().to_vec();
-                        key.push(0xff);
-                        key.extend_from_slice(&idx.to_be_bytes());
-
-                        chunk.insert(key, msg.event_id().as_bytes())?;
                         timeline.insert(
                             (rid.as_str(), msg.event_id().as_str()).encode(),
                             self.serialize_event(msg)
@@ -639,6 +663,7 @@ impl SledStore {
 
             return Ok(&events[start..]);
         }
+
         dbg!(Ok(&events[..]))
     }
 }
@@ -648,6 +673,12 @@ pub fn u64_from_bytes(bytes: &[u8]) -> std::result::Result<u64, std::array::TryF
     use std::convert::TryInto;
     let array: [u8; 8] = bytes.try_into()?;
     Ok(u64::from_be_bytes(array))
+}
+
+pub fn i64_from_bytes(bytes: &[u8]) -> std::result::Result<i64, std::array::TryFromSliceError> {
+    use std::convert::TryInto;
+    let array: [u8; 8] = bytes.try_into()?;
+    Ok(i64::from_be_bytes(array))
 }
 
 #[async_trait]
@@ -742,6 +773,14 @@ impl StateStore for SledStore {
         self.unknown_timeline_events(room_id, prev_batch, events)
             .await
     }
+
+    async fn receive_messages_response(
+        &self,
+        room_id: &RoomId,
+        response: &api::r0::message::get_message_events::Response,
+    ) -> Result<Vec<AnyMessageEvent>> {
+        todo!()
+    }
 }
 
 #[cfg(test)]
@@ -757,7 +796,7 @@ mod test {
     };
     use matrix_sdk_test::async_test;
 
-    use super::{SledStore, StateChanges};
+    use super::{u64_from_bytes, SledStore, StateChanges};
     use crate::deserialized_responses::MemberEvent;
 
     fn user_id() -> UserId {
@@ -808,5 +847,37 @@ mod test {
             .await
             .unwrap()
             .is_some());
+    }
+
+    #[test]
+    fn bytes() {
+        use super::u64_from_bytes;
+
+        let mut list = vec![
+            10_u64.to_be_bytes().to_vec(),
+            10134_u64.to_be_bytes().to_vec(),
+            5_u64.to_be_bytes().to_vec(),
+            6_u64.to_be_bytes().to_vec(),
+        ];
+
+        let mut val = 6_u64.to_be_bytes().to_vec();
+        val.push(1);
+        list.push(val);
+        let mut val = 6_u64.to_be_bytes().to_vec();
+        val.push(1);
+        val.push(1);
+        list.push(val);
+
+        println!("{:?}", list);
+        list.sort();
+
+        println!("{:?}", list);
+
+        println!(
+            "{:?}",
+            list.iter()
+                .map(|b| u64_from_bytes(b).unwrap())
+                .collect::<Vec<u64>>()
+        );
     }
 }

@@ -3102,6 +3102,7 @@ mod test {
 
     #[tokio::test]
     async fn messages() {
+        let room_id = room_id!("!SVkFJHzfwvuaIEawgC:localhost");
         let client = logged_in_client().await;
 
         let _m = mock(
@@ -3113,18 +3114,53 @@ mod test {
         .match_header("authorization", "Bearer 1234")
         .create();
 
+        let _m = mock(
+            "GET",
+            Matcher::Regex(r"^/_matrix/client/r0/rooms/.*/messages".to_string()),
+        )
+        .with_status(200)
+        .with_body(test_json::ROOM_MESSAGES.to_string())
+        .match_header("authorization", "Bearer 1234")
+        .create();
+
         let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
 
         let _response = client.sync_once(sync_settings).await.unwrap();
 
         assert!(!client
             .store()
-            .get_messages(
-                &room_id!("!SVkFJHzfwvuaIEawgC:localhost"),
-                "t392-516_47314_0_7_1_1_1_11444_1"
-            )
+            .get_messages(&room_id, "t392-516_47314_0_7_1_1_1_11444_1")
             .await
             .unwrap()
-            .is_empty())
+            .is_empty());
+
+        let room_id = room_id!("!roomid:example.com");
+        let request = matrix_sdk_common::api::r0::message::get_message_events::Request::backward(
+            &room_id,
+            "t47429-4392820_219380_26003_2265",
+        );
+
+        let resp = dbg!(client.room_messages(request).await).unwrap();
+
+        client
+            .store()
+            .receive_messages_response(&room_id, &resp)
+            .await
+            .unwrap();
+
+        assert_eq!(
+            !client
+                .store()
+                .get_messages(&room_id, "t392-516_47314_0_7_1_1_1_11444_1")
+                .await
+                .unwrap()
+                .len(),
+            3
+        );
+        // end:   t3336-1714379051_757284961_10998365_725145800_588037087_1999191_200821144_689020759_166049
+        // start: t3356-1714663804_757284961_10998365_725145800_588037087_1999191_200821144_689020759_166049
+
+        // end:   t3316-1714212736_757284961_10998365_725145800_588037087_1999191_200821144_689020759_166049
+        // start: t3336-1714379051_757284961_10998365_725145800_588037087_1999191_200821144_689020759_166049
     }
 }

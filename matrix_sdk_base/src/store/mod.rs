@@ -19,11 +19,12 @@ use std::{
     sync::Arc,
 };
 
+use api::r0::message::get_message_events::Direction;
 use dashmap::DashMap;
 use matrix_sdk_common::{
-    async_trait,
+    api, async_trait,
     events::{
-        presence::PresenceEvent, room::member::MemberEventContent, AnyBasicEvent,
+        presence::PresenceEvent, room::member::MemberEventContent, AnyBasicEvent, AnyMessageEvent,
         AnyStrippedStateEvent, AnySyncMessageEvent, AnySyncRoomEvent, AnySyncStateEvent,
         EventContent, EventType,
     },
@@ -188,6 +189,13 @@ pub trait StateStore: AsyncTraitDeps {
         room_id: &RoomId,
         prev_batch: &str,
     ) -> Result<Vec<AnySyncMessageEvent>>;
+
+    /// Get all timeline events that came with this `prev_batch` token.
+    async fn receive_messages_response(
+        &self,
+        room_id: &RoomId,
+        response: &api::r0::message::get_message_events::Response,
+    ) -> Result<Vec<AnyMessageEvent>>;
 
     /// Checks if the message events in this chunk are already contained in the store.
     ///
@@ -482,24 +490,12 @@ impl StateChanges {
     }
 
     ///
-    pub fn handle_message_event(
+    pub fn handle_sync_timeline(
         &mut self,
         room_id: &RoomId,
         prev_batch: &str,
         content: &[AnySyncRoomEvent],
     ) {
-        use std::ops::Bound::*;
-
-        let last = self
-            .joined_message_events
-            .get(room_id)
-            .map(|map| {
-                map.range((Included((prev_batch.to_string(), 0)), Unbounded))
-                    .last()
-                    .map_or(0, |(k, _)| k.1)
-            })
-            .unwrap_or_default();
-
         for (idx, msg) in content.iter().enumerate().filter_map(|(idx, ev)| {
             if let AnySyncRoomEvent::Message(msg) = ev {
                 Some((idx, msg))
@@ -512,7 +508,28 @@ impl StateChanges {
                 .entry(room_id.to_owned())
                 .or_default();
 
-            room.insert((prev_batch.to_string(), idx as u64 + last), msg.clone());
+            room.insert((prev_batch.to_string(), idx as u64), msg.clone());
+        }
+    }
+
+    ///
+    pub fn handle_messages_response(
+        &mut self,
+        room_id: &RoomId,
+        resp: &api::r0::message::get_message_events::Response,
+        dir: Direction,
+    ) {
+        match dir {
+            // the end token is how to request older events
+            // events are in reverse-chronological order
+            Direction::Backward => {
+                if let Some(room) = self.room_infos.get_mut(room_id) {
+                    room.set_prev_batch(resp.end.as_deref());
+                }
+            }
+            // the start token is the oldest events
+            // events are in chronological order
+            Direction::Forward => {}
         }
     }
 }
