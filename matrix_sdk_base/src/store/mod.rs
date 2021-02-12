@@ -19,14 +19,16 @@ use std::{
     sync::Arc,
 };
 
-use api::r0::message::get_message_events::Direction;
 use dashmap::DashMap;
 use matrix_sdk_common::{
-    api, async_trait,
+    api::r0::message::get_message_events::{
+        Direction, Request as MessagesRequest, Response as MessagesResponse,
+    },
+    async_trait,
     events::{
         presence::PresenceEvent, room::member::MemberEventContent, AnyBasicEvent, AnyMessageEvent,
-        AnyStrippedStateEvent, AnySyncMessageEvent, AnySyncRoomEvent, AnySyncStateEvent,
-        EventContent, EventType,
+        AnyRoomEvent, AnyStrippedStateEvent, AnySyncMessageEvent, AnySyncRoomEvent,
+        AnySyncStateEvent, EventContent, EventType,
     },
     identifiers::{RoomId, UserId},
     locks::RwLock,
@@ -190,12 +192,12 @@ pub trait StateStore: AsyncTraitDeps {
         prev_batch: &str,
     ) -> Result<Vec<AnySyncMessageEvent>>;
 
-    /// Get all timeline events that came with this `prev_batch` token.
-    async fn receive_messages_response(
+    /// Checks if we have the events requested from /messages in the DB.
+    async fn contains_timeline_events(
         &self,
         room_id: &RoomId,
-        response: &api::r0::message::get_message_events::Response,
-    ) -> Result<Vec<AnyMessageEvent>>;
+        req: &MessagesRequest<'_>,
+    ) -> Result<Option<(String, Vec<AnyRoomEvent>)>>;
 
     /// Checks if the message events in this chunk are already contained in the store.
     ///
@@ -415,8 +417,12 @@ pub struct StateChanges {
     /// A map of `RoomId` to `StrippedRoomInfo`.
     pub invited_room_info: BTreeMap<RoomId, StrippedRoomInfo>,
 
-    /// A mapping of `RoomId` to message events ordered based on when they were received.
-    pub joined_message_events: BTreeMap<RoomId, BTreeMap<(String, u64), AnySyncMessageEvent>>,
+    /// A mapping of `RoomId` to sync timeline events ordered based on their `prev_batch` token from the /sync
+    /// response.
+    pub sync_timeline: BTreeMap<RoomId, BTreeMap<(String, u64), AnySyncRoomEvent>>,
+    /// A mapping of `RoomId` to timeline events ordered based on their `end` token from the /messages
+    /// response.
+    pub messages_timeline: BTreeMap<RoomId, BTreeMap<(String, u64), AnyRoomEvent>>,
 }
 
 impl StateChanges {
@@ -496,17 +502,8 @@ impl StateChanges {
         prev_batch: &str,
         content: &[AnySyncRoomEvent],
     ) {
-        for (idx, msg) in content.iter().enumerate().filter_map(|(idx, ev)| {
-            if let AnySyncRoomEvent::Message(msg) = ev {
-                Some((idx, msg))
-            } else {
-                None
-            }
-        }) {
-            let room = self
-                .joined_message_events
-                .entry(room_id.to_owned())
-                .or_default();
+        for (idx, msg) in content.iter().enumerate() {
+            let room = self.sync_timeline.entry(room_id.to_owned()).or_default();
 
             room.insert((prev_batch.to_string(), idx as u64), msg.clone());
         }
@@ -516,7 +513,7 @@ impl StateChanges {
     pub fn handle_messages_response(
         &mut self,
         room_id: &RoomId,
-        resp: &api::r0::message::get_message_events::Response,
+        resp: &MessagesResponse,
         dir: Direction,
     ) {
         match dir {
@@ -526,10 +523,26 @@ impl StateChanges {
                 if let Some(room) = self.room_infos.get_mut(room_id) {
                     room.set_prev_batch(resp.end.as_deref());
                 }
+
+                if let Some(prev_batch) = &resp.end {
+                    // We reverse so our slice is oldest -> most recent
+                    for (idx, msg) in resp.chunk.iter().rev().enumerate() {
+                        if let Ok(msg) = msg.deserialize() {
+                            let room = self
+                                .messages_timeline
+                                .entry(room_id.to_owned())
+                                .or_default();
+
+                            room.insert((prev_batch.to_string(), idx as u64), msg.clone());
+                        }
+                    }
+                }
             }
             // the start token is the oldest events
             // events are in chronological order
-            Direction::Forward => {}
+            Direction::Forward => {
+                todo!()
+            }
         }
     }
 }

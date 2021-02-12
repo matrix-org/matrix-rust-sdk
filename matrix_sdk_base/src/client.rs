@@ -22,6 +22,7 @@ use std::{
     sync::Arc,
 };
 
+use api::message::get_message_events::Direction;
 use matrix_sdk_common::{
     api::r0 as api,
     deserialized_responses::{
@@ -1054,6 +1055,22 @@ impl BaseClient {
                 changes: ambiguity_cache.changes,
             },
         })
+    }
+
+    /// Receive a successful /messages response.
+    ///
+    /// * `response` - The successful response from /messages.
+    pub async fn receive_messages_response(
+        &self,
+        room_id: &RoomId,
+        dir: Direction,
+        resp: &api::message::get_message_events::Response,
+    ) -> Result<()> {
+        let mut changes = StateChanges::default();
+        changes.handle_messages_response(room_id, resp, dir);
+        self.store().save_changes(&changes).await?;
+
+        Ok(())
     }
 
     /// Receive a successful filter upload response, the filter id will be
