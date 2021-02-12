@@ -495,20 +495,17 @@ impl BaseClient {
                         },
 
                         #[cfg(feature = "encryption")]
-                        AnySyncRoomEvent::Message(message) => {
-                            if let AnySyncMessageEvent::RoomEncrypted(encrypted) = message {
-                                if let Some(olm) = self.olm_machine().await {
-                                    if let Ok(decrypted) =
-                                        olm.decrypt_room_event(encrypted, room_id).await
-                                    {
-                                        match decrypted.deserialize() {
-                                            Ok(decrypted) => e = decrypted,
-                                            Err(e) => {
-                                                warn!(
-                                                    "Error deserializing a decrypted event {:?} ",
-                                                    e
-                                                )
-                                            }
+                        AnySyncRoomEvent::Message(AnySyncMessageEvent::RoomEncrypted(
+                            encrypted,
+                        )) => {
+                            if let Some(olm) = self.olm_machine().await {
+                                if let Ok(decrypted) =
+                                    olm.decrypt_room_event(encrypted, room_id).await
+                                {
+                                    match decrypted.deserialize() {
+                                        Ok(decrypted) => e = decrypted,
+                                        Err(e) => {
+                                            warn!("Error deserializing a decrypted event {:?} ", e)
                                         }
                                     }
                                 }
