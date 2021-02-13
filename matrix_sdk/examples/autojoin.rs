@@ -78,7 +78,7 @@ async fn login_and_sync(
     println!("logged in as {}", username);
 
     client
-        .add_event_emitter(Box::new(AutoJoinBot::new(client.clone())))
+        .set_event_emitter(Box::new(AutoJoinBot::new(client.clone())))
         .await;
 
     client.sync(SyncSettings::default()).await;

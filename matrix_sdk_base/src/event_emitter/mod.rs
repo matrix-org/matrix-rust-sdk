@@ -746,7 +746,7 @@ mod test {
         let emitter = Box::new(EvEmitterTest(vec));
 
         let client = get_client().await;
-        client.add_event_emitter(emitter).await;
+        client.set_event_emitter(emitter).await;
 
         let response = sync_response(SyncResponseFile::Default);
         client.receive_sync_response(response).await.unwrap();
@@ -778,7 +778,7 @@ mod test {
         let emitter = Box::new(EvEmitterTest(vec));
 
         let client = get_client().await;
-        client.add_event_emitter(emitter).await;
+        client.set_event_emitter(emitter).await;
 
         let response = sync_response(SyncResponseFile::Invite);
         client.receive_sync_response(response).await.unwrap();
@@ -801,7 +801,7 @@ mod test {
         let emitter = Box::new(EvEmitterTest(vec));
 
         let client = get_client().await;
-        client.add_event_emitter(emitter).await;
+        client.set_event_emitter(emitter).await;
 
         let response = sync_response(SyncResponseFile::Leave);
         client.receive_sync_response(response).await.unwrap();
@@ -831,7 +831,7 @@ mod test {
         let emitter = Box::new(EvEmitterTest(vec));
 
         let client = get_client().await;
-        client.add_event_emitter(emitter).await;
+        client.set_event_emitter(emitter).await;
 
         let response = sync_response(SyncResponseFile::All);
         client.receive_sync_response(response).await.unwrap();
@@ -856,7 +856,7 @@ mod test {
         let emitter = Box::new(EvEmitterTest(vec));
 
         let client = get_client().await;
-        client.add_event_emitter(emitter).await;
+        client.set_event_emitter(emitter).await;
 
         let response = sync_response(SyncResponseFile::Voip);
         client.receive_sync_response(response).await.unwrap();

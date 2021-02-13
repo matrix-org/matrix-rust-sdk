@@ -88,7 +88,7 @@ async fn login_and_sync(
     // add our CommandBot to be notified of incoming messages, we do this after the initial
     // sync to avoid responding to messages before the bot was running.
     client
-        .add_event_emitter(Box::new(CommandBot::new(client.clone())))
+        .set_event_emitter(Box::new(CommandBot::new(client.clone())))
         .await;
 
     // since we called `sync_once` before we entered our sync loop we must pass

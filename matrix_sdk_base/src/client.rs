@@ -430,7 +430,7 @@ impl BaseClient {
     /// Add `EventEmitter` to `Client`.
     ///
     /// The methods of `EventEmitter` are called when the respective `RoomEvents` occur.
-    pub async fn add_event_emitter(&self, emitter: Box<dyn EventEmitter>) {
+    pub async fn set_event_emitter(&self, emitter: Box<dyn EventEmitter>) {
         let emitter = Emitter {
             inner: emitter,
             store: self.store.clone(),

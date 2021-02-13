@@ -86,7 +86,7 @@ async fn login_and_sync(
 
     client.sync_once(SyncSettings::default()).await.unwrap();
     client
-        .add_event_emitter(Box::new(ImageBot::new(client.clone(), image)))
+        .set_event_emitter(Box::new(ImageBot::new(client.clone(), image)))
         .await;
 
     let settings = SyncSettings::default().token(client.sync_token().await.unwrap());

@@ -556,8 +556,8 @@ impl Client {
     /// Add `EventEmitter` to `Client`.
     ///
     /// The methods of `EventEmitter` are called when the respective `RoomEvents` occur.
-    pub async fn add_event_emitter(&self, emitter: Box<dyn EventEmitter>) {
-        self.base_client.add_event_emitter(emitter).await;
+    pub async fn set_event_emitter(&self, emitter: Box<dyn EventEmitter>) {
+        self.base_client.set_event_emitter(emitter).await;
     }
 
     /// Returns the joined rooms this client knows about.

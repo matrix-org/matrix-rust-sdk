@@ -44,7 +44,7 @@ async fn login(
     let homeserver_url = Url::parse(&homeserver_url).expect("Couldn't parse the homeserver URL");
     let client = Client::new(homeserver_url).unwrap();
 
-    client.add_event_emitter(Box::new(EventCallback)).await;
+    client.set_event_emitter(Box::new(EventCallback)).await;
 
     client
         .login(username, password, None, Some("rust-sdk"))
