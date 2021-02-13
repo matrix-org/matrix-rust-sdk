@@ -59,11 +59,11 @@ use zeroize::Zeroizing;
 
 use crate::{
     error::Result,
-    event_emitter::Emitter,
+    event_handler::Handler,
     rooms::{RoomInfo, RoomType, StrippedRoomInfo},
     session::Session,
     store::{ambiguity_map::AmbiguityCache, Result as StoreResult, StateChanges, Store},
-    EventEmitter, RoomState,
+    EventHandler, RoomState,
 };
 
 pub type Token = String;
@@ -150,7 +150,7 @@ fn hoist_room_event_prev_content(
     Ok(ev)
 }
 
-/// Signals to the `BaseClient` which `RoomState` to send to `EventEmitter`.
+/// Signals to the `BaseClient` which `RoomState` to send to `EventHandler`.
 #[derive(Debug)]
 pub enum RoomStateType {
     /// Represents a joined room, the `joined_rooms` HashMap will be used.
@@ -180,9 +180,9 @@ pub struct BaseClient {
     cryptostore: Arc<Mutex<Option<Box<dyn CryptoStore>>>>,
     store_path: Arc<Option<PathBuf>>,
     store_passphrase: Arc<Option<Zeroizing<String>>>,
-    /// Any implementor of EventEmitter will act as the callbacks for various
+    /// Any implementor of EventHandler will act as the callbacks for various
     /// events.
-    event_emitter: Arc<RwLock<Option<Emitter>>>,
+    event_handler: Arc<RwLock<Option<Handler>>>,
 }
 
 #[cfg(not(tarpaulin_include))]
@@ -328,7 +328,7 @@ impl BaseClient {
             cryptostore: Mutex::new(crypto_store).into(),
             store_path: config.store_path.into(),
             store_passphrase: config.passphrase.into(),
-            event_emitter: RwLock::new(None).into(),
+            event_handler: RwLock::new(None).into(),
         })
     }
 
@@ -427,15 +427,15 @@ impl BaseClient {
         self.sync_token.read().await.clone()
     }
 
-    /// Add `EventEmitter` to `Client`.
+    /// Add `EventHandler` to `Client`.
     ///
-    /// The methods of `EventEmitter` are called when the respective `RoomEvents` occur.
-    pub async fn set_event_emitter(&self, emitter: Box<dyn EventEmitter>) {
-        let emitter = Emitter {
-            inner: emitter,
+    /// The methods of `EventHandler` are called when the respective `RoomEvents` occur.
+    pub async fn set_event_handler(&self, handler: Box<dyn EventHandler>) {
+        let handler = Handler {
+            inner: handler,
             store: self.store.clone(),
         };
-        *self.event_emitter.write().await = Some(emitter);
+        *self.event_handler.write().await = Some(handler);
     }
 
     async fn handle_timeline(
@@ -942,8 +942,8 @@ impl BaseClient {
             },
         };
 
-        if let Some(emitter) = self.event_emitter.read().await.as_ref() {
-            emitter.emit_sync(&response).await;
+        if let Some(handler) = self.event_handler.read().await.as_ref() {
+            handler.handle_sync(&response).await;
         }
 
         Ok(response)

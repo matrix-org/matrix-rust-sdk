@@ -22,7 +22,7 @@ In addition to Http, the `AsyncClient` passes along methods from the `BaseClient
 Given a Matrix response the crypto machine will update its own internal state, along with encryption information. `BaseClient` and the crypto machine together keep track of when to encrypt. It knows when encryption needs to happen based on signals from the `BaseClient`. The crypto state machine is given responses that relate to encryption and can create encrypted request bodies for encryption-related requests. Basically it tells the `BaseClient` to send to-device messages out, and the `BaseClient` is responsible for notifying the crypto state machine when it sent the message so crypto can update state.
 
 #### Client State/Room and RoomMember
-The `BaseClient` is responsible for keeping state in sync through the `IncomingResponse`s of `AsyncClient` or querying the `StateStore`. By processing and then delegating incoming `RoomEvent`s, `StateEvent`s, `PresenceEvent`, `IncomingAccountData` and `EphemeralEvent`s to the correct `Room` in the base clients `HashMap<RoomId, Room>` or further to `Room`'s `RoomMember` via the members `HashMap<UserId, RoomMember>`. The `BaseClient` is also responsible for emitting the incoming events to the `EventEmitter` trait.
+The `BaseClient` is responsible for keeping state in sync through the `IncomingResponse`s of `AsyncClient` or querying the `StateStore`. By processing and then delegating incoming `RoomEvent`s, `StateEvent`s, `PresenceEvent`, `IncomingAccountData` and `EphemeralEvent`s to the correct `Room` in the base clients `HashMap<RoomId, Room>` or further to `Room`'s `RoomMember` via the members `HashMap<UserId, RoomMember>`. The `BaseClient` is also responsible for forwarding the incoming events to the `EventHandler` trait.
 
 ```rust
 /// A Matrix room.
@@ -95,6 +95,6 @@ The `BaseClient` also has access to a `dyn StateStore` this is an abstraction ar
 
 The state store will restore our client state in the `BaseClient` and client authors can just get the latest state that they want to present from the client object. No need to ask the state store for it, this may change if custom setups request this. `StateStore`'s main purpose is to provide load/store functionality and, internally to the crate, update the `BaseClient`.
 
-#### Event Emitter
-The consumer of this crate can implement the `EventEmitter` trait for full control over how incoming events are handled by their client. If that isn't enough, it is possible to receive every incoming response with the `AsyncClient::sync_forever` callback.
-  - list the methods for `EventEmitter`?
+#### Event Handler
+The consumer of this crate can implement the `EventHandler` trait for full control over how incoming events are handled by their client. If that isn't enough, it is possible to receive every incoming response with the `AsyncClient::sync_forever` callback.
+  - list the methods for `EventHandler`?

@@ -52,41 +52,41 @@ use crate::{
 };
 use matrix_sdk_common::async_trait;
 
-pub(crate) struct Emitter {
-    pub(crate) inner: Box<dyn EventEmitter>,
+pub(crate) struct Handler {
+    pub(crate) inner: Box<dyn EventHandler>,
     pub(crate) store: Store,
 }
 
-impl Deref for Emitter {
-    type Target = dyn EventEmitter;
+impl Deref for Handler {
+    type Target = dyn EventHandler;
 
     fn deref(&self) -> &Self::Target {
         &*self.inner
     }
 }
 
-impl Emitter {
+impl Handler {
     fn get_room(&self, room_id: &RoomId) -> Option<RoomState> {
         self.store.get_room(room_id)
     }
 
-    pub(crate) async fn emit_sync(&self, response: &SyncResponse) {
+    pub(crate) async fn handle_sync(&self, response: &SyncResponse) {
         for (room_id, room_info) in &response.rooms.join {
             if let Some(room) = self.get_room(room_id) {
                 for event in &room_info.ephemeral.events {
-                    self.emit_ephemeral_event(room.clone(), event).await;
+                    self.handle_ephemeral_event(room.clone(), event).await;
                 }
 
                 for event in &room_info.account_data.events {
-                    self.emit_account_data_event(room.clone(), event).await;
+                    self.handle_account_data_event(room.clone(), event).await;
                 }
 
                 for event in &room_info.state.events {
-                    self.emit_state_event(room.clone(), event).await;
+                    self.handle_state_event(room.clone(), event).await;
                 }
 
                 for event in &room_info.timeline.events {
-                    self.emit_timeline_event(room.clone(), event).await;
+                    self.handle_timeline_event(room.clone(), event).await;
                 }
             }
         }
@@ -94,15 +94,15 @@ impl Emitter {
         for (room_id, room_info) in &response.rooms.leave {
             if let Some(room) = self.get_room(room_id) {
                 for event in &room_info.account_data.events {
-                    self.emit_account_data_event(room.clone(), event).await;
+                    self.handle_account_data_event(room.clone(), event).await;
                 }
 
                 for event in &room_info.state.events {
-                    self.emit_state_event(room.clone(), event).await;
+                    self.handle_state_event(room.clone(), event).await;
                 }
 
                 for event in &room_info.timeline.events {
-                    self.emit_timeline_event(room.clone(), event).await;
+                    self.handle_timeline_event(room.clone(), event).await;
                 }
             }
         }
@@ -110,7 +110,7 @@ impl Emitter {
         for (room_id, room_info) in &response.rooms.invite {
             if let Some(room) = self.get_room(room_id) {
                 for event in &room_info.invite_state.events {
-                    self.emit_stripped_state_event(room.clone(), event).await;
+                    self.handle_stripped_state_event(room.clone(), event).await;
                 }
             }
         }
@@ -120,7 +120,7 @@ impl Emitter {
         }
     }
 
-    async fn emit_timeline_event(&self, room: RoomState, event: &AnySyncRoomEvent) {
+    async fn handle_timeline_event(&self, room: RoomState, event: &AnySyncRoomEvent) {
         match event {
             AnySyncRoomEvent::State(event) => match event {
                 AnySyncStateEvent::RoomMember(e) => self.on_room_member(room, e).await,
@@ -160,7 +160,7 @@ impl Emitter {
         }
     }
 
-    async fn emit_state_event(&self, room: RoomState, event: &AnySyncStateEvent) {
+    async fn handle_state_event(&self, room: RoomState, event: &AnySyncStateEvent) {
         match event {
             AnySyncStateEvent::RoomMember(member) => self.on_state_member(room, &member).await,
             AnySyncStateEvent::RoomName(name) => self.on_state_name(room, &name).await,
@@ -185,9 +185,9 @@ impl Emitter {
         }
     }
 
-    pub(crate) async fn emit_stripped_state_event(
+    pub(crate) async fn handle_stripped_state_event(
         &self,
-        // TODO these events are only emitted in invited rooms.
+        // TODO these events are only handleted in invited rooms.
         room: RoomState,
         event: &AnyStrippedStateEvent,
     ) {
@@ -216,7 +216,7 @@ impl Emitter {
         }
     }
 
-    pub(crate) async fn emit_account_data_event(&self, room: RoomState, event: &AnyBasicEvent) {
+    pub(crate) async fn handle_account_data_event(&self, room: RoomState, event: &AnyBasicEvent) {
         match event {
             AnyBasicEvent::Presence(presence) => self.on_non_room_presence(room, &presence).await,
             AnyBasicEvent::IgnoredUserList(ignored) => {
@@ -227,7 +227,7 @@ impl Emitter {
         }
     }
 
-    pub(crate) async fn emit_ephemeral_event(
+    pub(crate) async fn handle_ephemeral_event(
         &self,
         room: RoomState,
         event: &AnySyncEphemeralRoomEvent,
@@ -262,7 +262,7 @@ pub enum CustomEvent<'c> {
     StrippedState(&'c StrippedStateEvent<CustomEventContent>),
 }
 
-/// This trait allows any type implementing `EventEmitter` to specify event callbacks for each event.
+/// This trait allows any type implementing `EventHandler` to specify event callbacks for each event.
 /// The `Client` calls each method when the corresponding event is received.
 ///
 /// # Examples
@@ -276,14 +276,14 @@ pub enum CustomEvent<'c> {
 /// #         room::message::{MessageEventContent, TextMessageEventContent},
 /// #         SyncMessageEvent
 /// #     },
-/// #     EventEmitter, RoomState
+/// #     EventHandler, RoomState
 /// # };
 /// # use matrix_sdk_common::{async_trait, locks::RwLock};
 ///
 /// struct EventCallback;
 ///
 /// #[async_trait]
-/// impl EventEmitter for EventCallback {
+/// impl EventHandler for EventCallback {
 ///     async fn on_room_message(&self, room: RoomState, event: &SyncMessageEvent<MessageEventContent>) {
 ///         if let RoomState::Joined(room) = room {
 ///             if let SyncMessageEvent {
@@ -304,7 +304,7 @@ pub enum CustomEvent<'c> {
 /// ```
 #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
 #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
-pub trait EventEmitter: Send + Sync {
+pub trait EventHandler: Send + Sync {
     // ROOM EVENTS from `IncomingTimeline`
     /// Fires when `Client` receives a `RoomEvent::RoomMember` event.
     async fn on_room_member(&self, _: RoomState, _: &SyncStateEvent<MemberEventContent>) {}
@@ -496,11 +496,11 @@ mod test {
     pub use wasm_bindgen_test::*;
 
     #[derive(Clone)]
-    pub struct EvEmitterTest(Arc<Mutex<Vec<String>>>);
+    pub struct EvHandlerTest(Arc<Mutex<Vec<String>>>);
 
     #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
     #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
-    impl EventEmitter for EvEmitterTest {
+    impl EventHandler for EvHandlerTest {
         async fn on_room_member(&self, _: RoomState, _: &SyncStateEvent<MemberEventContent>) {
             self.0.lock().await.push("member".to_string())
         }
@@ -740,13 +740,13 @@ mod test {
     }
 
     #[async_test]
-    async fn event_emitter_joined() {
+    async fn event_handler_joined() {
         let vec = Arc::new(Mutex::new(Vec::new()));
         let test_vec = Arc::clone(&vec);
-        let emitter = Box::new(EvEmitterTest(vec));
+        let handler = Box::new(EvHandlerTest(vec));
 
         let client = get_client().await;
-        client.set_event_emitter(emitter).await;
+        client.set_event_handler(handler).await;
 
         let response = sync_response(SyncResponseFile::Default);
         client.receive_sync_response(response).await.unwrap();
@@ -772,13 +772,13 @@ mod test {
     }
 
     #[async_test]
-    async fn event_emitter_invite() {
+    async fn event_handler_invite() {
         let vec = Arc::new(Mutex::new(Vec::new()));
         let test_vec = Arc::clone(&vec);
-        let emitter = Box::new(EvEmitterTest(vec));
+        let handler = Box::new(EvHandlerTest(vec));
 
         let client = get_client().await;
-        client.set_event_emitter(emitter).await;
+        client.set_event_handler(handler).await;
 
         let response = sync_response(SyncResponseFile::Invite);
         client.receive_sync_response(response).await.unwrap();
@@ -795,13 +795,13 @@ mod test {
     }
 
     #[async_test]
-    async fn event_emitter_leave() {
+    async fn event_handler_leave() {
         let vec = Arc::new(Mutex::new(Vec::new()));
         let test_vec = Arc::clone(&vec);
-        let emitter = Box::new(EvEmitterTest(vec));
+        let handler = Box::new(EvHandlerTest(vec));
 
         let client = get_client().await;
-        client.set_event_emitter(emitter).await;
+        client.set_event_handler(handler).await;
 
         let response = sync_response(SyncResponseFile::Leave);
         client.receive_sync_response(response).await.unwrap();
@@ -825,13 +825,13 @@ mod test {
     }
 
     #[async_test]
-    async fn event_emitter_more_events() {
+    async fn event_handler_more_events() {
         let vec = Arc::new(Mutex::new(Vec::new()));
         let test_vec = Arc::clone(&vec);
-        let emitter = Box::new(EvEmitterTest(vec));
+        let handler = Box::new(EvHandlerTest(vec));
 
         let client = get_client().await;
-        client.set_event_emitter(emitter).await;
+        client.set_event_handler(handler).await;
 
         let response = sync_response(SyncResponseFile::All);
         client.receive_sync_response(response).await.unwrap();
@@ -850,13 +850,13 @@ mod test {
     }
 
     #[async_test]
-    async fn event_emitter_voip() {
+    async fn event_handler_voip() {
         let vec = Arc::new(Mutex::new(Vec::new()));
         let test_vec = Arc::clone(&vec);
-        let emitter = Box::new(EvEmitterTest(vec));
+        let handler = Box::new(EvHandlerTest(vec));
 
         let client = get_client().await;
-        client.set_event_emitter(emitter).await;
+        client.set_event_handler(handler).await;
 
         let response = sync_response(SyncResponseFile::Voip);
         client.receive_sync_response(response).await.unwrap();

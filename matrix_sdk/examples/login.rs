@@ -7,13 +7,13 @@ use matrix_sdk::{
         room::message::{MessageEventContent, TextMessageEventContent},
         SyncMessageEvent,
     },
-    Client, EventEmitter, RoomState, SyncSettings,
+    Client, EventHandler, RoomState, SyncSettings,
 };
 
 struct EventCallback;
 
 #[async_trait]
-impl EventEmitter for EventCallback {
+impl EventHandler for EventCallback {
     async fn on_room_message(
         &self,
         room: RoomState,
@@ -44,7 +44,7 @@ async fn login(
     let homeserver_url = Url::parse(&homeserver_url).expect("Couldn't parse the homeserver URL");
     let client = Client::new(homeserver_url).unwrap();
 
-    client.set_event_emitter(Box::new(EventCallback)).await;
+    client.set_event_handler(Box::new(EventCallback)).await;
 
     client
         .login(username, password, None, Some("rust-sdk"))
