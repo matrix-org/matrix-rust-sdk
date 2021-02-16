@@ -426,8 +426,11 @@ impl CryptoStore for SledStore {
     }
 
     async fn save_account(&self, account: ReadOnlyAccount) -> Result<()> {
-        let mut changes = Changes::default();
-        changes.account = Some(account);
+        let changes = Changes {
+            account: Some(account),
+            ..Default::default()
+        };
+
         self.save_changes(changes).await
     }
 
