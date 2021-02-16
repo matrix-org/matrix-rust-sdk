@@ -42,7 +42,7 @@ mod verification;
 pub use error::{MegolmError, OlmError};
 pub use file_encryption::{
     decrypt_key_export, encrypt_key_export, AttachmentDecryptor, AttachmentEncryptor,
-    DecryptorError,
+    DecryptorError, EncryptionInfo,
 };
 pub use identities::{
     Device, LocalTrust, OwnUserIdentity, ReadOnlyDevice, UserDevices, UserIdentities, UserIdentity,
