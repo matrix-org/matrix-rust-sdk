@@ -191,10 +191,10 @@ impl Account {
     }
 
     pub async fn update_uploaded_key_count(&self, key_count: &BTreeMap<DeviceKeyAlgorithm, UInt>) {
-        let one_time_key_count = key_count.get(&DeviceKeyAlgorithm::SignedCurve25519);
-
-        let count: u64 = one_time_key_count.map_or(0, |c| (*c).into());
-        self.inner.update_uploaded_key_count(count);
+        if let Some(count) = key_count.get(&DeviceKeyAlgorithm::SignedCurve25519) {
+            let count: u64 = (*count).into();
+            self.inner.update_uploaded_key_count(count);
+        }
     }
 
     pub async fn receive_keys_upload_response(
