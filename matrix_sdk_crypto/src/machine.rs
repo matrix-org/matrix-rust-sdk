@@ -27,7 +27,7 @@ use matrix_sdk_common::{
             upload_keys,
             upload_signatures::Request as UploadSignaturesRequest,
         },
-        sync::sync_events::Response as SyncResponse,
+        sync::sync_events::{DeviceLists, ToDevice as RumaToDevice},
     },
     assign,
     deserialized_responses::{
@@ -600,6 +600,13 @@ impl OlmMachine {
                     &event.content.room_id,
                     session_key,
                 )?;
+
+                info!(
+                    "Received a new room key from {} for room {} with session id {}",
+                    event.sender,
+                    event.content.room_id,
+                    session.session_id()
+                );
                 let event = AnyToDeviceEvent::RoomKey(event.clone());
                 Ok((Some(event), Some(session)))
             }
@@ -765,19 +772,31 @@ impl OlmMachine {
         self.account.update_uploaded_key_count(key_count).await;
     }
 
-    /// Handle a sync response and update the internal state of the Olm machine.
+    /// Handle a to-device and one-time key counts from a sync response.
     ///
-    /// This will decrypt to-device events but will not touch events in the room
-    /// timeline.
+    /// This will decrypt and handle to-device events returning the decrypted
+    /// versions of them.
     ///
     /// To decrypt an event from the room timeline call [`decrypt_room_event`].
     ///
     /// # Arguments
     ///
-    /// * `response` - The sync latest sync response.
+    /// * `to_device_events` - The to-device events of the current sync
+    /// response.
+    ///
+    /// * `changed_devices` - The list of devices that changed in this sync
+    /// resopnse.
+    ///
+    /// * `one_time_keys_count` - The current one-time keys counts that the sync
+    /// response returned.
     ///
     /// [`decrypt_room_event`]: #method.decrypt_room_event
-    pub async fn receive_sync_response(&self, response: &SyncResponse) -> OlmResult<ToDevice> {
+    pub async fn receive_sync_changes(
+        &self,
+        to_device_events: &RumaToDevice,
+        changed_devices: &DeviceLists,
+        one_time_keys_counts: &BTreeMap<DeviceKeyAlgorithm, UInt>,
+    ) -> OlmResult<ToDevice> {
         // Remove verification objects that have expired or are done.
         self.verification_machine.garbage_collect();
 
@@ -788,10 +807,9 @@ impl OlmMachine {
             ..Default::default()
         };
 
-        self.update_one_time_key_count(&response.device_one_time_keys_count)
-            .await;
+        self.update_one_time_key_count(one_time_keys_counts).await;
 
-        for user_id in &response.device_lists.changed {
+        for user_id in &changed_devices.changed {
             if let Err(e) = self.identity_manager.mark_user_as_changed(&user_id).await {
                 error!("Error marking a tracked user as changed {:?}", e);
             }
@@ -799,13 +817,17 @@ impl OlmMachine {
 
         let mut events = Vec::new();
 
-        for event_result in &response.to_device.events {
-            let mut event = if let Ok(e) = event_result.deserialize() {
-                e
-            } else {
-                // Skip invalid events.
-                warn!("Received an invalid to-device event {:?}", event_result);
-                continue;
+        for event_result in &to_device_events.events {
+            let mut event = match event_result.deserialize() {
+                Ok(e) => e,
+                Err(e) => {
+                    // Skip invalid events.
+                    warn!(
+                        "Received an invalid to-device event {:?} {:?}",
+                        e, event_result
+                    );
+                    continue;
+                }
             };
 
             info!("Received a to-device event {:?}", event);
@@ -940,7 +962,10 @@ impl OlmMachine {
                     .unwrap_or(VerificationState::UnknownDevice)
             };
 
-        trace!("Successfully decrypted Megolm event {:?}", decrypted_event);
+        trace!(
+            "Successfully decrypted a Megolm event {:?}",
+            decrypted_event
+        );
 
         let encryption_info = EncryptionInfo {
             sender: event.sender.clone(),

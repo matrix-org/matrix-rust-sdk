@@ -66,9 +66,9 @@ compile_error!("only one of 'native-tls' or 'rustls-tls' features can be enabled
 
 #[cfg(feature = "encryption")]
 #[cfg_attr(feature = "docs", doc(cfg(encryption)))]
-pub use matrix_sdk_base::crypto::LocalTrust;
+pub use matrix_sdk_base::crypto::{EncryptionInfo, LocalTrust};
 pub use matrix_sdk_base::{
-    CustomEvent, Error as BaseError, EventEmitter, InvitedRoom, JoinedRoom, LeftRoom, RoomInfo,
+    CustomEvent, Error as BaseError, EventHandler, InvitedRoom, JoinedRoom, LeftRoom, RoomInfo,
     RoomMember, RoomState, Session, StateChanges, StoreError,
 };
 

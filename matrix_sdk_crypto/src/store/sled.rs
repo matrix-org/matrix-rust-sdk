@@ -426,11 +426,12 @@ impl CryptoStore for SledStore {
     }
 
     async fn save_account(&self, account: ReadOnlyAccount) -> Result<()> {
-        let pickle = account.pickle(self.get_pickle_mode()).await;
-        self.account
-            .insert("account".encode(), serde_json::to_vec(&pickle)?)?;
+        let changes = Changes {
+            account: Some(account),
+            ..Default::default()
+        };
 
-        Ok(())
+        self.save_changes(changes).await
     }
 
     async fn save_changes(&self, changes: Changes) -> Result<()> {
@@ -569,6 +570,7 @@ impl CryptoStore for SledStore {
 
     async fn save_value(&self, key: String, value: String) -> Result<()> {
         self.values.insert(key.as_str().encode(), value.as_str())?;
+        self.inner.flush_async().await?;
         Ok(())
     }
 

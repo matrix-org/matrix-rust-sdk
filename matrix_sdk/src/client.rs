@@ -41,7 +41,7 @@ use tracing::{error, info, instrument};
 
 use matrix_sdk_base::{
     deserialized_responses::{MembersResponse, SyncResponse},
-    BaseClient, BaseClientConfig, EventEmitter, InvitedRoom, JoinedRoom, LeftRoom, Session, Store,
+    BaseClient, BaseClientConfig, EventHandler, InvitedRoom, JoinedRoom, LeftRoom, Session, Store,
 };
 
 #[cfg(feature = "encryption")]
@@ -553,11 +553,11 @@ impl Client {
         Ok(())
     }
 
-    /// Add `EventEmitter` to `Client`.
+    /// Add `EventHandler` to `Client`.
     ///
-    /// The methods of `EventEmitter` are called when the respective `RoomEvents` occur.
-    pub async fn add_event_emitter(&self, emitter: Box<dyn EventEmitter>) {
-        self.base_client.add_event_emitter(emitter).await;
+    /// The methods of `EventHandler` are called when the respective `RoomEvents` occur.
+    pub async fn set_event_handler(&self, handler: Box<dyn EventHandler>) {
+        self.base_client.set_event_handler(handler).await;
     }
 
     /// Returns the joined rooms this client knows about.

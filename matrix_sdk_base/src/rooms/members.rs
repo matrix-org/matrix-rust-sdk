@@ -31,7 +31,7 @@ pub struct RoomMember {
     pub(crate) event: Arc<MemberEvent>,
     pub(crate) profile: Arc<Option<MemberEventContent>>,
     pub(crate) presence: Arc<Option<PresenceEvent>>,
-    pub(crate) power_levles: Arc<Option<SyncStateEvent<PowerLevelsEventContent>>>,
+    pub(crate) power_levels: Arc<Option<SyncStateEvent<PowerLevelsEventContent>>>,
     pub(crate) max_power_level: i64,
     pub(crate) is_room_creator: bool,
     pub(crate) display_name_ambiguous: bool,
@@ -43,7 +43,7 @@ impl RoomMember {
         &self.event.state_key
     }
 
-    /// Get the display name of the member if ther is one.
+    /// Get the display name of the member if there is one.
     pub fn display_name(&self) -> Option<&str> {
         if let Some(p) = self.profile.as_ref() {
             p.displayname.as_deref()
@@ -64,7 +64,7 @@ impl RoomMember {
         }
     }
 
-    /// Get the avatar url of the member, if ther is one.
+    /// Get the avatar url of the member, if there is one.
     pub fn avatar_url(&self) -> Option<&str> {
         match self.profile.as_ref() {
             Some(p) => p.avatar_url.as_deref(),
@@ -86,7 +86,7 @@ impl RoomMember {
 
     /// Get the power level of this member.
     pub fn power_level(&self) -> i64 {
-        self.power_levles
+        self.power_levels
             .as_ref()
             .as_ref()
             .map(|e| {

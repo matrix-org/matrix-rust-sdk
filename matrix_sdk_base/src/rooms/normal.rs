@@ -420,7 +420,7 @@ impl Room {
             event: member_event.into(),
             profile: profile.into(),
             presence: presence.into(),
-            power_levles: power.into(),
+            power_levels: power.into(),
             max_power_level,
             is_room_creator,
             display_name_ambiguous: ambiguous,
