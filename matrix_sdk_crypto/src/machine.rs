@@ -809,12 +809,16 @@ impl OlmMachine {
         let mut events = Vec::new();
 
         for event_result in &to_device_events.events {
-            let mut event = if let Ok(e) = event_result.deserialize() {
-                e
-            } else {
-                // Skip invalid events.
-                warn!("Received an invalid to-device event {:?}", event_result);
-                continue;
+            let mut event = match event_result.deserialize() {
+                Ok(e) => e,
+                Err(e) => {
+                    // Skip invalid events.
+                    warn!(
+                        "Received an invalid to-device event {:?} {:?}",
+                        e, event_result
+                    );
+                    continue;
+                }
             };
 
             info!("Received a to-device event {:?}", event);
@@ -931,7 +935,10 @@ impl OlmMachine {
         // TODO check if this is from a verified device.
         let (decrypted_event, _) = session.decrypt(event).await?;
 
-        trace!("Successfully decrypted Megolm event {:?}", decrypted_event);
+        trace!(
+            "Successfully decrypted a Megolm event {:?}",
+            decrypted_event
+        );
         // TODO set the encryption info on the event (is it verified, was it
         // decrypted, sender key...)
 

@@ -349,7 +349,7 @@ impl Account {
             (SessionType::New(session), plaintext)
         };
 
-        trace!("Successfully decrypted a Olm message: {}", plaintext);
+        trace!("Successfully decrypted an Olm message: {}", plaintext);
 
         let (event, signing_key) = match self.parse_decrypted_to_device_event(sender, &plaintext) {
             Ok(r) => r,
