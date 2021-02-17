@@ -598,6 +598,13 @@ impl OlmMachine {
                     &event.content.room_id,
                     session_key,
                 )?;
+
+                info!(
+                    "Received a new room key from {} for room {} with session id {}",
+                    event.sender,
+                    event.content.room_id,
+                    session.session_id()
+                );
                 let event = AnyToDeviceEvent::RoomKey(event.clone());
                 Ok((Some(event), Some(session)))
             }

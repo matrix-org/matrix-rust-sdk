@@ -664,6 +664,15 @@ impl KeyRequestMachine {
                 Some(session)
             };
 
+            if let Some(s) = &session {
+                info!(
+                    "Received a forwarded room key from {} for room {} with session id {}",
+                    event.sender,
+                    s.room_id(),
+                    s.session_id()
+                );
+            }
+
             Ok((
                 Some(AnyToDeviceEvent::ForwardedRoomKey(event.clone())),
                 session,
