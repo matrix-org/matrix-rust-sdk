@@ -1,4 +1,4 @@
-use std::time::SystemTime;
+use std::{sync::Arc, time::SystemTime};
 
 use crate::{
     events::{
@@ -44,6 +44,32 @@ pub struct EncryptionInfo {
     pub sender_device: DeviceIdBox,
     pub verification_state: VerificationState,
 }
+
+/// An invalid event content containing the deserialization error and the raw
+/// JSON
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct InvalidEventContent {
+    /// The event type string.
+    #[serde(skip)]
+    pub deserialization_error: Arc<Option<serde_json::Error>>,
+
+    /// The actual raw `content` JSON object.
+    #[serde(flatten)]
+    pub json: JsonValue,
+}
+
+impl EventContent for InvalidEventContent {
+    fn event_type(&self) -> &str {
+        "m.bad.event"
+    }
+
+    fn from_parts(_: &str, _: Box<RawJsonValue>) -> Result<Self, serde_json::Error> {
+        unreachable!()
+    }
+}
+
+impl RoomEventContent for InvalidEventContent {}
+impl MessageEventContentTrait for InvalidEventContent {}
 
 /// A custom event's type and `content` JSON object.
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -231,6 +257,7 @@ pub enum AnySyncMessageEvent {
     RoomRedaction(SyncRedactionEvent),
     Sticker(SyncMessageEvent<StickerEventContent>),
     Custom(SyncMessageEvent<CustomEventContent>),
+    Invalid(SyncMessageEvent<InvalidEventContent>),
 }
 
 macro_rules! fromEvent {
@@ -260,6 +287,7 @@ fromEvent!(RoomEncrypted, EncryptedEventContent);
 fromEvent!(RoomMessageFeedback, FeedbackEventContent);
 fromEvent!(Sticker, StickerEventContent);
 fromEvent!(Custom, CustomEventContent);
+fromEvent!(Invalid, InvalidEventContent);
 
 impl<C: MessageEventContentTrait> From<RumaSyncMessageEvent<C>> for SyncMessageEvent<C> {
     fn from(e: RumaSyncMessageEvent<C>) -> Self {
@@ -351,6 +379,7 @@ impl AnySyncMessageEvent {
             AnySyncMessageEvent::RoomRedaction(e) => &e.sender,
             AnySyncMessageEvent::Sticker(e) => &e.sender,
             AnySyncMessageEvent::Custom(e) => &e.sender,
+            AnySyncMessageEvent::Invalid(e) => &e.sender,
         }
     }
 
@@ -406,6 +435,9 @@ impl AnySyncMessageEvent {
             AnySyncMessageEvent::Custom(e) => {
                 AnyMessageEventContent::Custom(e.content.clone().into())
             }
+            AnySyncMessageEvent::Invalid(e) => {
+                todo!()
+            }
         }
     }
 
@@ -429,6 +461,7 @@ impl AnySyncMessageEvent {
             AnySyncMessageEvent::RoomRedaction(e) => &e.origin_server_ts,
             AnySyncMessageEvent::Sticker(e) => &e.origin_server_ts,
             AnySyncMessageEvent::Custom(e) => &e.origin_server_ts,
+            AnySyncMessageEvent::Invalid(e) => &e.origin_server_ts,
         }
     }
 
@@ -452,6 +485,7 @@ impl AnySyncMessageEvent {
             AnySyncMessageEvent::RoomRedaction(e) => &e.unsigned,
             AnySyncMessageEvent::Sticker(e) => &e.unsigned,
             AnySyncMessageEvent::Custom(e) => &e.unsigned,
+            AnySyncMessageEvent::Invalid(e) => &e.unsigned,
         }
     }
 
@@ -475,6 +509,7 @@ impl AnySyncMessageEvent {
             AnySyncMessageEvent::RoomRedaction(e) => &e.event_id,
             AnySyncMessageEvent::Sticker(e) => &e.event_id,
             AnySyncMessageEvent::Custom(e) => &e.event_id,
+            AnySyncMessageEvent::Invalid(e) => &e.event_id,
         }
     }
 
@@ -498,6 +533,7 @@ impl AnySyncMessageEvent {
             AnySyncMessageEvent::RoomRedaction(e) => e.encryption_info.as_ref(),
             AnySyncMessageEvent::Sticker(e) => e.encryption_info.as_ref(),
             AnySyncMessageEvent::Custom(e) => e.encryption_info.as_ref(),
+            AnySyncMessageEvent::Invalid(e) => e.encryption_info.as_ref(),
         }
     }
 }
