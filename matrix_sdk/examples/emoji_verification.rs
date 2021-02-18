@@ -10,7 +10,7 @@ use url::Url;
 
 use matrix_sdk::{
     self,
-    deserialized_responses::events::{AnySyncMessageEvent, AnySyncRoomEvent},
+    deserialized_responses::{AnySyncMessageEvent, AnySyncRoomEvent},
     events::{room::message::MessageEventContent, AnyToDeviceEvent},
     identifiers::UserId,
     Client, LoopCtrl, Sas, SyncSettings,

@@ -12,7 +12,7 @@ use crate::{
     identifiers::{DeviceKeyAlgorithm, RoomId},
 };
 
-use super::{events::AnySyncRoomEvent, AmbiguityChanges};
+use super::{AmbiguityChanges, AnySyncRoomEvent};
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
 pub struct SyncResponse {

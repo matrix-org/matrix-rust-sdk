@@ -25,10 +25,9 @@ use std::{
 use matrix_sdk_common::{
     api::r0 as api,
     deserialized_responses::{
-        events::{AnySyncMessageEvent, AnySyncRoomEvent},
-        AccountData, AmbiguityChanges, Ephemeral, InviteState, InvitedRoom, JoinedRoom, LeftRoom,
-        MemberEvent, MembersResponse, Presence, Rooms, State, StrippedMemberEvent, SyncResponse,
-        Timeline,
+        AccountData, AmbiguityChanges, AnySyncMessageEvent, AnySyncRoomEvent, Ephemeral,
+        InviteState, InvitedRoom, JoinedRoom, LeftRoom, MemberEvent, MembersResponse, Presence,
+        Rooms, State, StrippedMemberEvent, SyncResponse, Timeline,
     },
     events::{
         presence::PresenceEvent,

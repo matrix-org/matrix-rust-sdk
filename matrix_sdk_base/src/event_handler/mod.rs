@@ -19,11 +19,8 @@ use serde_json::value::RawValue as RawJsonValue;
 
 use crate::{
     deserialized_responses::{
-        events::{
-            AnySyncMessageEvent, AnySyncRoomEvent, CustomEventContent, SyncMessageEvent,
-            SyncRedactionEvent,
-        },
-        SyncResponse,
+        events::{CustomEventContent, SyncMessageEvent, SyncRedactionEvent},
+        AnySyncMessageEvent, AnySyncRoomEvent, SyncResponse,
     },
     events::{
         call::{

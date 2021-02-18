@@ -3,10 +3,12 @@ use std::collections::BTreeMap;
 
 use super::identifiers::{EventId, RoomId, UserId};
 
+mod enums;
 pub mod events;
 mod members;
 mod sync;
 
+pub use enums::*;
 pub use members::*;
 pub use sync::*;
 

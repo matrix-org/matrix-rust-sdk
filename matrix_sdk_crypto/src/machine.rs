@@ -31,8 +31,8 @@ use matrix_sdk_common::{
     },
     assign,
     deserialized_responses::{
-        events::{AnySyncMessageEvent, EncryptionInfo, SyncMessageEvent, VerificationState},
-        ToDevice,
+        events::{EncryptionInfo, SyncMessageEvent, VerificationState},
+        AnySyncMessageEvent, ToDevice,
     },
     events::{
         room::encrypted::EncryptedEventContent, room_key::RoomKeyEventContent,
@@ -1228,7 +1228,7 @@ pub(crate) mod test {
 
     use matrix_sdk_common::{
         api::r0::keys::{claim_keys, get_keys, upload_keys, OneTimeKey},
-        deserialized_responses::events::{AnySyncMessageEvent, SyncMessageEvent},
+        deserialized_responses::{events::SyncMessageEvent, AnySyncMessageEvent},
         events::{
             room::{
                 encrypted::EncryptedEventContent,
