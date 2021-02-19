@@ -60,9 +60,9 @@ pub struct InboundGroupSession {
     session_id: Arc<str>,
     first_known_index: u32,
     pub(crate) sender_key: Arc<str>,
-    pub(crate) signing_key: Arc<BTreeMap<DeviceKeyAlgorithm, String>>,
+    pub(crate) signing_keys: Arc<BTreeMap<DeviceKeyAlgorithm, String>>,
     pub(crate) room_id: Arc<RoomId>,
-    forwarding_chains: Arc<Mutex<Option<Vec<String>>>>,
+    forwarding_chains: Arc<Vec<String>>,
     imported: Arc<bool>,
 }
 
@@ -76,7 +76,7 @@ impl InboundGroupSession {
     /// * `sender_key` - The public curve25519 key of the account that
     /// sent us the session
     ///
-    /// * `signing_key` - The public ed25519 key of the account that
+    /// * `signing_keys` - The public ed25519 key of the account that
     /// sent us the session.
     ///
     /// * `room_id` - The id of the room that the session is used in.
@@ -101,10 +101,10 @@ impl InboundGroupSession {
             session_id: session_id.into(),
             sender_key: sender_key.to_owned().into(),
             first_known_index,
-            signing_key: Arc::new(keys),
-            room_id: Arc::new(room_id.clone()),
-            forwarding_chains: Arc::new(Mutex::new(None)),
-            imported: Arc::new(false),
+            signing_keys: keys.into(),
+            room_id: room_id.clone().into(),
+            forwarding_chains: Vec::new().into(),
+            imported: false.into(),
         })
     }
 
@@ -153,10 +153,10 @@ impl InboundGroupSession {
             session_id: content.session_id.as_str().into(),
             sender_key: content.sender_key.as_str().into(),
             first_known_index,
-            signing_key: Arc::new(sender_claimed_key),
-            room_id: Arc::new(content.room_id.clone()),
-            forwarding_chains: Arc::new(Mutex::new(Some(forwarding_chains))),
-            imported: Arc::new(true),
+            signing_keys: sender_claimed_key.into(),
+            room_id: content.room_id.clone().into(),
+            forwarding_chains: forwarding_chains.into(),
+            imported: true.into(),
         })
     }
 
@@ -172,9 +172,9 @@ impl InboundGroupSession {
         PickledInboundGroupSession {
             pickle: InboundGroupSessionPickle::from(pickle),
             sender_key: self.sender_key.to_string(),
-            signing_key: (&*self.signing_key).clone(),
+            signing_key: (&*self.signing_keys).clone(),
             room_id: (&*self.room_id).clone(),
-            forwarding_chains: self.forwarding_chains.lock().await.clone(),
+            forwarding_chains: self.forwarding_chains.to_vec(),
             imported: *self.imported,
         }
     }
@@ -190,6 +190,20 @@ impl InboundGroupSession {
     /// Get the sender key that this session was received from.
     pub fn sender_key(&self) -> &str {
         &self.sender_key
+    }
+
+    /// Get the map of signing keys this session was received from.
+    pub fn signing_keys(&self) -> &BTreeMap<DeviceKeyAlgorithm, String> {
+        &self.signing_keys
+    }
+
+    /// Get the list of ed25519 keys that this session was forwarded through.
+    ///
+    /// Each ed25519 key represents a single device. If device A forwards the
+    /// session to device B and device B to C this list will contain the ed25519
+    /// keys of A and B.
+    pub fn forwading_key_chain(&self) -> &[String] {
+        &self.forwarding_chains
     }
 
     /// Export this session at the given message index.
@@ -209,14 +223,8 @@ impl InboundGroupSession {
             room_id: (&*self.room_id).clone(),
             sender_key: (&*self.sender_key).to_owned(),
             session_id: self.session_id().to_owned(),
-            forwarding_curve25519_key_chain: self
-                .forwarding_chains
-                .lock()
-                .await
-                .as_ref()
-                .cloned()
-                .unwrap_or_default(),
-            sender_claimed_keys: (&*self.signing_key).clone(),
+            forwarding_curve25519_key_chain: self.forwarding_chains.to_vec(),
+            sender_claimed_keys: (&*self.signing_keys).clone(),
             session_key,
         }
     }
@@ -245,10 +253,10 @@ impl InboundGroupSession {
             session_id: session_id.into(),
             sender_key: pickle.sender_key.into(),
             first_known_index,
-            signing_key: Arc::new(pickle.signing_key),
-            room_id: Arc::new(pickle.room_id),
-            forwarding_chains: Arc::new(Mutex::new(pickle.forwarding_chains)),
-            imported: Arc::new(pickle.imported),
+            signing_keys: pickle.signing_key.into(),
+            room_id: pickle.room_id.into(),
+            forwarding_chains: pickle.forwarding_chains.into(),
+            imported: pickle.imported.into(),
         })
     }
 
@@ -373,7 +381,8 @@ pub struct PickledInboundGroupSession {
     pub room_id: RoomId,
     /// The list of claimed ed25519 that forwarded us this key. Will be None if
     /// we dirrectly received this session.
-    pub forwarding_chains: Option<Vec<String>>,
+    #[serde(default)]
+    pub forwarding_chains: Vec<String>,
     /// Flag remembering if the session was dirrectly sent to us by the sender
     /// or if it was imported.
     pub imported: bool,
@@ -403,21 +412,15 @@ impl TryFrom<ExportedRoomKey> for InboundGroupSession {
         let session = OlmInboundGroupSession::import(&key.session_key.0)?;
         let first_known_index = session.first_known_index();
 
-        let forwarding_chains = if key.forwarding_curve25519_key_chain.is_empty() {
-            None
-        } else {
-            Some(key.forwarding_curve25519_key_chain)
-        };
-
         Ok(InboundGroupSession {
             inner: Arc::new(Mutex::new(session)),
             session_id: key.session_id.into(),
             sender_key: key.sender_key.into(),
             first_known_index,
-            signing_key: Arc::new(key.sender_claimed_keys),
-            room_id: Arc::new(key.room_id),
-            forwarding_chains: Arc::new(Mutex::new(forwarding_chains)),
-            imported: Arc::new(true),
+            signing_keys: key.sender_claimed_keys.into(),
+            room_id: key.room_id.into(),
+            forwarding_chains: key.forwarding_curve25519_key_chain.into(),
+            imported: true.into(),
         })
     }
 }
