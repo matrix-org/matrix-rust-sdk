@@ -31,11 +31,15 @@ pub struct EncryptionInfo {
 
 /// An invalid event content containing the deserialization error and the raw
 /// JSON
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize)]
 pub struct InvalidEventContent {
     /// The event type string.
     #[serde(skip)]
     pub deserialization_error: Arc<Option<serde_json::Error>>,
+
+    /// The underlying type of the event.
+    #[serde(skip)]
+    pub event_type: String,
 
     /// The actual raw `content` JSON object.
     #[serde(flatten)]
@@ -44,7 +48,7 @@ pub struct InvalidEventContent {
 
 impl EventContent for InvalidEventContent {
     fn event_type(&self) -> &str {
-        "m.bad.event"
+        &self.event_type
     }
 
     fn from_parts(_: &str, _: Box<RawJsonValue>) -> Result<Self, serde_json::Error> {
@@ -119,6 +123,7 @@ pub struct SyncMessageEvent<C: MessageEventContentTrait> {
     pub sender: UserId,
 
     /// Timestamp in milliseconds on originating homeserver when this event was sent.
+    #[serde(with = "ruma::serde::time::ms_since_unix_epoch")]
     pub origin_server_ts: SystemTime,
 
     /// Additional key-value pairs not signed by the homeserver.
@@ -146,6 +151,7 @@ pub struct SyncRedactionEvent {
     pub sender: UserId,
 
     /// Timestamp in milliseconds on originating homeserver when this event was sent.
+    #[serde(with = "ruma::serde::time::ms_since_unix_epoch")]
     pub origin_server_ts: SystemTime,
 
     /// Additional key-value pairs not signed by the homeserver.

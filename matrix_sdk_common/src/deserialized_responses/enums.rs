@@ -1,4 +1,4 @@
-use std::time::SystemTime;
+use std::{convert::TryInto, sync::Arc, time::SystemTime};
 
 use crate::{
     events::{
@@ -6,6 +6,7 @@ use crate::{
             answer::AnswerEventContent, candidates::CandidatesEventContent,
             hangup::HangupEventContent, invite::InviteEventContent,
         },
+        custom::CustomEventContent as RumaCustomEventContent,
         key::verification::{
             accept::AcceptEventContent, cancel::CancelEventContent, done::DoneEventContent,
             key::KeyEventContent, mac::MacEventContent, ready::ReadyEventContent,
@@ -15,16 +16,19 @@ use crate::{
         room::{
             encrypted::EncryptedEventContent,
             message::{feedback::FeedbackEventContent, MessageEventContent},
+            redaction::SyncRedactionEvent as RumaSyncRedactionEvent,
         },
         sticker::StickerEventContent,
         AnyRedactedSyncMessageEvent, AnyRedactedSyncStateEvent,
         AnySyncMessageEvent as RumaAnySyncMessageEvent, AnySyncRoomEvent as RumaSyncRoomEvent,
-        AnySyncStateEvent, Unsigned,
+        AnySyncStateEvent, MessageEventContent as MessageEventContentT,
+        SyncMessageEvent as RumaSyncMessageEvent, Unsigned,
     },
     identifiers::{EventId, UserId},
 };
-use ruma::events::AnyMessageEventContent;
-use serde::{Deserialize, Serialize};
+use ruma::{events::AnyMessageEventContent, serde::Raw};
+use serde::{Deserialize, Deserializer, Serialize};
+use serde_json::Value;
 
 use super::events::{
     CustomEventContent, EncryptionInfo, InvalidEventContent, SyncMessageEvent, SyncRedactionEvent,
@@ -33,6 +37,7 @@ use super::events::{
 /// Any sync room event (room event without a `room_id`, as returned in `/sync` responses)
 #[allow(clippy::large_enum_variant)]
 #[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(untagged)]
 pub enum AnySyncRoomEvent {
     /// Any sync message event
     Message(AnySyncMessageEvent),
@@ -48,7 +53,7 @@ pub enum AnySyncRoomEvent {
 }
 
 /// Enum holding the different event types a sync timeline can hold.
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug)]
 pub enum AnySyncMessageEvent {
     RoomMessage(SyncMessageEvent<MessageEventContent>),
     CallAnswer(SyncMessageEvent<AnswerEventContent>),
@@ -69,6 +74,128 @@ pub enum AnySyncMessageEvent {
     Sticker(SyncMessageEvent<StickerEventContent>),
     Custom(SyncMessageEvent<CustomEventContent>),
     Invalid(SyncMessageEvent<InvalidEventContent>),
+}
+
+fn from_json<T, E>(json: Value) -> Result<T, E>
+where
+    T: serde::de::DeserializeOwned,
+    E: serde::de::Error,
+{
+    serde_json::from_value(json).map_err(serde::de::Error::custom)
+}
+
+fn to_json<T, E>(object: T) -> Result<Value, E>
+where
+    T: Serialize,
+    E: serde::ser::Error,
+{
+    serde_json::to_value(object).map_err(serde::ser::Error::custom)
+}
+
+impl<'de> Deserialize<'de> for AnySyncMessageEvent {
+    fn deserialize<D>(deseriazlier: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        #[derive(Clone, Debug, Deserialize)]
+        struct UntypedEvent {
+            pub content: Value,
+            #[serde(rename = "type")]
+            pub event_type: String,
+            pub event_id: EventId,
+            pub sender: UserId,
+            #[serde(with = "ruma::serde::time::ms_since_unix_epoch")]
+            pub origin_server_ts: SystemTime,
+            pub unsigned: Unsigned,
+            pub encryption_info: Option<EncryptionInfo>,
+        };
+
+        let json = <Value>::deserialize(deseriazlier)?;
+        let encryption_info: Option<EncryptionInfo> = json
+            .get("encryption_info")
+            .cloned()
+            .map(from_json)
+            .transpose()?;
+
+        let event: Raw<RumaAnySyncMessageEvent> = from_json(json)?;
+
+        let event = match event.deserialize() {
+            Ok(e) => AnySyncMessageEvent::from_ruma(e, encryption_info),
+            Err(e) => {
+                // The event is invalid, yet it might just be that the content
+                // is invalid, try to deserialize the main event fields leaving
+                // the content untyped.
+                let event: UntypedEvent =
+                    serde_json::from_str(event.json().get()).map_err(serde::de::Error::custom)?;
+
+                let content = InvalidEventContent {
+                    deserialization_error: Arc::new(Some(e)),
+                    event_type: event.event_type,
+                    json: event.content,
+                };
+
+                let event = SyncMessageEvent {
+                    content,
+                    event_id: event.event_id,
+                    sender: event.sender,
+                    origin_server_ts: event.origin_server_ts,
+                    unsigned: event.unsigned,
+                    encryption_info,
+                };
+
+                AnySyncMessageEvent::from(event)
+            }
+        };
+
+        Ok(event)
+    }
+}
+
+impl Serialize for AnySyncMessageEvent {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        #[derive(Clone, Debug, Serialize)]
+        struct UntypedEvent<'a> {
+            pub content: &'a Value,
+            #[serde(rename = "type")]
+            pub event_type: &'a str,
+            pub event_id: &'a EventId,
+            pub sender: &'a UserId,
+            #[serde(with = "ruma::serde::time::ms_since_unix_epoch")]
+            pub origin_server_ts: &'a SystemTime,
+            pub unsigned: &'a Unsigned,
+        };
+
+        let encryption_info = self.encryption_info().map(to_json).transpose()?;
+
+        let mut event = if let AnySyncMessageEvent::Invalid(e) = self {
+            let event = UntypedEvent {
+                content: &e.content.json,
+                event_id: &e.event_id,
+                event_type: &e.content.event_type,
+                origin_server_ts: &e.origin_server_ts,
+                sender: &e.sender,
+                unsigned: &e.unsigned,
+            };
+
+            to_json(event)?
+        } else {
+            // TODO get rid of this clone.
+            let event: RumaAnySyncMessageEvent = self.clone().try_into().unwrap();
+            to_json(event)?
+        };
+
+        if let Some(info) = encryption_info {
+            event
+                .as_object_mut()
+                .expect("Didn't serialize event into an object")
+                .insert("encryption_info".to_string(), info);
+        }
+
+        event.serialize(serializer)
+    }
 }
 
 macro_rules! fromEvent {
@@ -103,6 +230,86 @@ fromEvent!(Invalid, InvalidEventContent);
 impl From<SyncRedactionEvent> for AnySyncMessageEvent {
     fn from(e: SyncRedactionEvent) -> Self {
         Self::RoomRedaction(e)
+    }
+}
+
+impl<C: MessageEventContentT> Into<RumaSyncMessageEvent<C>> for SyncMessageEvent<C> {
+    fn into(self) -> RumaSyncMessageEvent<C> {
+        RumaSyncMessageEvent {
+            content: self.content,
+            event_id: self.event_id,
+            sender: self.sender,
+            origin_server_ts: self.origin_server_ts,
+            unsigned: self.unsigned,
+        }
+    }
+}
+
+impl TryInto<RumaAnySyncMessageEvent> for AnySyncMessageEvent {
+    type Error = &'static str;
+
+    fn try_into(self) -> Result<RumaAnySyncMessageEvent, Self::Error> {
+        Ok(match self {
+            AnySyncMessageEvent::RoomMessage(e) => RumaAnySyncMessageEvent::RoomMessage(e.into()),
+            AnySyncMessageEvent::CallAnswer(e) => RumaAnySyncMessageEvent::CallAnswer(e.into()),
+            AnySyncMessageEvent::CallInvite(e) => RumaAnySyncMessageEvent::CallInvite(e.into()),
+            AnySyncMessageEvent::CallHangup(e) => RumaAnySyncMessageEvent::CallHangup(e.into()),
+            AnySyncMessageEvent::CallCandidates(e) => {
+                RumaAnySyncMessageEvent::CallCandidates(e.into())
+            }
+            AnySyncMessageEvent::KeyVerificationReady(e) => {
+                RumaAnySyncMessageEvent::KeyVerificationReady(e.into())
+            }
+            AnySyncMessageEvent::KeyVerificationStart(e) => {
+                RumaAnySyncMessageEvent::KeyVerificationStart(e.into())
+            }
+            AnySyncMessageEvent::KeyVerificationCancel(e) => {
+                RumaAnySyncMessageEvent::KeyVerificationCancel(e.into())
+            }
+            AnySyncMessageEvent::KeyVerificationAccept(e) => {
+                RumaAnySyncMessageEvent::KeyVerificationAccept(e.into())
+            }
+            AnySyncMessageEvent::KeyVerificationKey(e) => {
+                RumaAnySyncMessageEvent::KeyVerificationKey(e.into())
+            }
+            AnySyncMessageEvent::KeyVerificationMac(e) => {
+                RumaAnySyncMessageEvent::KeyVerificationMac(e.into())
+            }
+            AnySyncMessageEvent::KeyVerificationDone(e) => {
+                RumaAnySyncMessageEvent::KeyVerificationDone(e.into())
+            }
+            AnySyncMessageEvent::Reaction(e) => RumaAnySyncMessageEvent::Reaction(e.into()),
+            AnySyncMessageEvent::RoomEncrypted(e) => {
+                RumaAnySyncMessageEvent::RoomEncrypted(e.into())
+            }
+            AnySyncMessageEvent::RoomMessageFeedback(e) => {
+                RumaAnySyncMessageEvent::RoomMessageFeedback(e.into())
+            }
+            AnySyncMessageEvent::RoomRedaction(e) => {
+                RumaAnySyncMessageEvent::RoomRedaction(RumaSyncRedactionEvent {
+                    content: e.content,
+                    event_id: e.event_id,
+                    sender: e.sender,
+                    origin_server_ts: e.origin_server_ts,
+                    unsigned: e.unsigned,
+                    redacts: e.redacts,
+                })
+            }
+            AnySyncMessageEvent::Sticker(e) => RumaAnySyncMessageEvent::Sticker(e.into()),
+            AnySyncMessageEvent::Custom(e) => {
+                RumaAnySyncMessageEvent::Custom(RumaSyncMessageEvent {
+                    content: RumaCustomEventContent {
+                        event_type: e.content.event_type,
+                        json: e.content.json,
+                    },
+                    event_id: e.event_id,
+                    sender: e.sender,
+                    origin_server_ts: e.origin_server_ts,
+                    unsigned: e.unsigned,
+                })
+            }
+            AnySyncMessageEvent::Invalid(_) => return Err("Unsupported Ruma event: invalid event"),
+        })
     }
 }
 
@@ -233,7 +440,7 @@ impl AnySyncMessageEvent {
             AnySyncMessageEvent::Custom(e) => {
                 AnyMessageEventContent::Custom(e.content.clone().into())
             }
-            AnySyncMessageEvent::Invalid(e) => {
+            AnySyncMessageEvent::Invalid(_) => {
                 todo!()
             }
         }
@@ -352,5 +559,68 @@ impl From<RumaSyncRoomEvent> for AnySyncRoomEvent {
             RumaSyncRoomEvent::RedactedMessage(e) => AnySyncRoomEvent::RedactedMessage(e),
             RumaSyncRoomEvent::RedactedState(e) => AnySyncRoomEvent::RedactedState(e),
         }
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::AnySyncMessageEvent;
+    use serde_json::json;
+
+    #[test]
+    fn serialize_deserialize_message() {
+        let event = json!({
+            "content": {
+                "body": "Hello world",
+                "msgtype": "m.text"
+            },
+            "event_id": "$iQvG0pdxqYpsXkm6KhCC7J6DomnPgqtszLOVKbyeN48",
+            "origin_server_ts": 1613726073560i64,
+            "sender": "@example:localhost",
+            "type": "m.room.message",
+            "unsigned": {
+                "age": 59,
+                "transaction_id": "4c5d3403-d4ae-4e23-af21-ebcc2cb7b093"
+            }
+        });
+
+        let deserialized: AnySyncMessageEvent = serde_json::from_value(event.clone()).unwrap();
+
+        if let AnySyncMessageEvent::RoomMessage(_) = &deserialized {
+        } else {
+            panic!("Invalid event type");
+        }
+
+        let serialized = serde_json::to_value(deserialized).unwrap();
+
+        assert_eq!(event, serialized);
+    }
+
+    #[test]
+    fn serialize_deserialize_invalid_content() {
+        let event = json!({
+            "content": {
+                "msgtype": "m.text"
+            },
+            "event_id": "$iQvG0pdxqYpsXkm6KhCC7J6DomnPgqtszLOVKbyeN48",
+            "origin_server_ts": 1613726073560i64,
+            "sender": "@example:localhost",
+            "type": "m.room.message",
+            "unsigned": {
+                "age": 59,
+                "transaction_id": "4c5d3403-d4ae-4e23-af21-ebcc2cb7b093"
+            }
+        });
+
+        let deserialized: AnySyncMessageEvent = serde_json::from_value(event.clone()).unwrap();
+
+        if let AnySyncMessageEvent::Invalid(_) = &deserialized {
+        } else {
+            panic!("Invalid event type");
+        }
+
+        let serialized = serde_json::to_value(deserialized).unwrap();
+
+        assert_eq!(event, serialized);
     }
 }
