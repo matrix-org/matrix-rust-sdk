@@ -31,7 +31,7 @@ use matrix_sdk_common::{
     },
     assign,
     deserialized_responses::{
-        events::{EncryptionInfo, SyncMessageEvent, VerificationState},
+        events::{AlgorithmInfo, EncryptionInfo, SyncMessageEvent, VerificationState},
         AnySyncMessageEvent, ToDevice,
     },
     events::{
@@ -967,9 +967,16 @@ impl OlmMachine {
             decrypted_event
         );
 
+        let algorithm_info = AlgorithmInfo::MegolmV1AesSha2 {
+            curve25519_key: session.sender_key().to_string(),
+            sender_claimed_keys: session.signing_keys().to_owned(),
+            forwarding_curve25519_key_chain: session.forwading_key_chain().to_vec(),
+        };
+
         let encryption_info = EncryptionInfo {
             sender: event.sender.clone(),
             sender_device: content.device_id.clone(),
+            algorithm_info,
             verification_state,
         };
 

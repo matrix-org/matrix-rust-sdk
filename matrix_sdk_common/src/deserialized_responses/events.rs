@@ -1,4 +1,4 @@
-use std::{sync::Arc, time::SystemTime};
+use std::{collections::BTreeMap, sync::Arc, time::SystemTime};
 
 use crate::{
     events::{
@@ -10,7 +10,10 @@ use crate::{
     identifiers::{DeviceIdBox, EventId, UserId},
 };
 
-use ruma::events::{EventContent, RoomEventContent};
+use ruma::{
+    events::{EventContent, RoomEventContent},
+    DeviceKeyAlgorithm,
+};
 use serde_json::{value::RawValue as RawJsonValue, Value as JsonValue};
 
 use serde::{Deserialize, Serialize};
@@ -23,9 +26,19 @@ pub enum VerificationState {
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
+pub enum AlgorithmInfo {
+    MegolmV1AesSha2 {
+        curve25519_key: String,
+        sender_claimed_keys: BTreeMap<DeviceKeyAlgorithm, String>,
+        forwarding_curve25519_key_chain: Vec<String>,
+    },
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct EncryptionInfo {
     pub sender: UserId,
     pub sender_device: DeviceIdBox,
+    pub algorithm_info: AlgorithmInfo,
     pub verification_state: VerificationState,
 }
 
