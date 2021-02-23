@@ -26,7 +26,13 @@ use crate::{
     },
     identifiers::{EventId, UserId},
 };
-use ruma::{events::AnyMessageEventContent, serde::Raw};
+use ruma::{
+    events::{
+        room::redaction::RedactionEventContent,
+        AnyMessageEventContent as RumaAnyMessageEventContent,
+    },
+    serde::Raw,
+};
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::Value;
 
@@ -440,8 +446,8 @@ impl AnySyncMessageEvent {
             AnySyncMessageEvent::Custom(e) => {
                 AnyMessageEventContent::Custom(e.content.clone().into())
             }
-            AnySyncMessageEvent::Invalid(_) => {
-                todo!()
+            AnySyncMessageEvent::Invalid(e) => {
+                AnyMessageEventContent::Invalid(e.content.clone().into())
             }
         }
     }
@@ -559,6 +565,91 @@ impl From<RumaSyncRoomEvent> for AnySyncRoomEvent {
             RumaSyncRoomEvent::RedactedMessage(e) => AnySyncRoomEvent::RedactedMessage(e),
             RumaSyncRoomEvent::RedactedState(e) => AnySyncRoomEvent::RedactedState(e),
         }
+    }
+}
+
+/// Enum over the different contents a Matrix event can contain.
+///
+/// This differs from the Ruma provided one in that it can contain invalid
+/// content variant.
+///
+/// `TryInto` and `From` are implemented for this enum to ease the conversion
+/// from the Ruma variant.
+#[derive(Clone, Debug)]
+pub enum AnyMessageEventContent {
+    RoomMessage(MessageEventContent),
+    CallAnswer(AnswerEventContent),
+    CallInvite(InviteEventContent),
+    CallHangup(HangupEventContent),
+    CallCandidates(CandidatesEventContent),
+    KeyVerificationReady(ReadyEventContent),
+    KeyVerificationStart(StartEventContent),
+    KeyVerificationCancel(CancelEventContent),
+    KeyVerificationAccept(AcceptEventContent),
+    KeyVerificationKey(KeyEventContent),
+    KeyVerificationMac(MacEventContent),
+    KeyVerificationDone(DoneEventContent),
+    Reaction(ReactionEventContent),
+    RoomEncrypted(EncryptedEventContent),
+    RoomMessageFeedback(FeedbackEventContent),
+    RoomRedaction(RedactionEventContent),
+    Sticker(StickerEventContent),
+    Custom(CustomEventContent),
+    Invalid(InvalidEventContent),
+}
+
+impl From<RumaAnyMessageEventContent> for AnyMessageEventContent {
+    fn from(content: RumaAnyMessageEventContent) -> Self {
+        match content {
+            RumaAnyMessageEventContent::CallAnswer(e) => Self::CallAnswer(e),
+            RumaAnyMessageEventContent::CallInvite(e) => Self::CallInvite(e),
+            RumaAnyMessageEventContent::CallHangup(e) => Self::CallHangup(e),
+            RumaAnyMessageEventContent::CallCandidates(e) => Self::CallCandidates(e),
+            RumaAnyMessageEventContent::KeyVerificationReady(e) => Self::KeyVerificationReady(e),
+            RumaAnyMessageEventContent::KeyVerificationStart(e) => Self::KeyVerificationStart(e),
+            RumaAnyMessageEventContent::KeyVerificationCancel(e) => Self::KeyVerificationCancel(e),
+            RumaAnyMessageEventContent::KeyVerificationAccept(e) => Self::KeyVerificationAccept(e),
+            RumaAnyMessageEventContent::KeyVerificationKey(e) => Self::KeyVerificationKey(e),
+            RumaAnyMessageEventContent::KeyVerificationMac(e) => Self::KeyVerificationMac(e),
+            RumaAnyMessageEventContent::KeyVerificationDone(e) => Self::KeyVerificationDone(e),
+            RumaAnyMessageEventContent::Reaction(e) => Self::Reaction(e),
+            RumaAnyMessageEventContent::RoomEncrypted(e) => Self::RoomEncrypted(e),
+            RumaAnyMessageEventContent::RoomMessage(e) => Self::RoomMessage(e),
+            RumaAnyMessageEventContent::RoomMessageFeedback(e) => Self::RoomMessageFeedback(e),
+            RumaAnyMessageEventContent::RoomRedaction(e) => Self::RoomRedaction(e),
+            RumaAnyMessageEventContent::Sticker(e) => Self::Sticker(e),
+            RumaAnyMessageEventContent::Custom(e) => Self::Custom(e.into()),
+        }
+    }
+}
+
+impl TryInto<RumaAnyMessageEventContent> for AnyMessageEventContent {
+    type Error = &'static str;
+
+    fn try_into(self) -> Result<RumaAnyMessageEventContent, Self::Error> {
+        Ok(match self {
+            Self::RoomMessage(e) => RumaAnyMessageEventContent::RoomMessage(e),
+            Self::CallAnswer(e) => RumaAnyMessageEventContent::CallAnswer(e),
+            Self::CallInvite(e) => RumaAnyMessageEventContent::CallInvite(e),
+            Self::CallHangup(e) => RumaAnyMessageEventContent::CallHangup(e),
+            Self::CallCandidates(e) => RumaAnyMessageEventContent::CallCandidates(e),
+            Self::KeyVerificationReady(e) => RumaAnyMessageEventContent::KeyVerificationReady(e),
+            Self::KeyVerificationStart(e) => RumaAnyMessageEventContent::KeyVerificationStart(e),
+            Self::KeyVerificationCancel(e) => RumaAnyMessageEventContent::KeyVerificationCancel(e),
+            Self::KeyVerificationAccept(e) => RumaAnyMessageEventContent::KeyVerificationAccept(e),
+            Self::KeyVerificationKey(e) => RumaAnyMessageEventContent::KeyVerificationKey(e),
+            Self::KeyVerificationMac(e) => RumaAnyMessageEventContent::KeyVerificationMac(e),
+            Self::KeyVerificationDone(e) => RumaAnyMessageEventContent::KeyVerificationDone(e),
+            Self::Reaction(e) => RumaAnyMessageEventContent::Reaction(e),
+            Self::RoomEncrypted(e) => RumaAnyMessageEventContent::RoomEncrypted(e),
+            Self::RoomMessageFeedback(e) => RumaAnyMessageEventContent::RoomMessageFeedback(e),
+            Self::RoomRedaction(e) => RumaAnyMessageEventContent::RoomRedaction(e),
+            Self::Sticker(e) => RumaAnyMessageEventContent::Sticker(e),
+            Self::Custom(e) => RumaAnyMessageEventContent::Custom(e.into()),
+            Self::Invalid(_) => {
+                return Err("Invalid events cannot be converted into the Ruma variant of this enum")
+            }
+        })
     }
 }
 
