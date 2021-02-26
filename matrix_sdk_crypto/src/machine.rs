@@ -304,16 +304,17 @@ impl OlmMachine {
             requests.push(r);
         }
 
-        if let Some(r) =
-            self.identity_manager
-                .users_for_key_query()
-                .await
-                .map(|r| OutgoingRequest {
-                    request_id: Uuid::new_v4(),
-                    request: Arc::new(r.into()),
-                })
+        for request in self
+            .identity_manager
+            .users_for_key_query()
+            .await
+            .into_iter()
+            .map(|r| OutgoingRequest {
+                request_id: Uuid::new_v4(),
+                request: Arc::new(r.into()),
+            })
         {
-            requests.push(r);
+            requests.push(request);
         }
 
         requests.append(&mut self.outgoing_to_device_requests());
