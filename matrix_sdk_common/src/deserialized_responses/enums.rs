@@ -443,12 +443,8 @@ impl AnySyncMessageEvent {
                 AnyMessageEventContent::RoomRedaction(e.content.clone())
             }
             AnySyncMessageEvent::Sticker(e) => AnyMessageEventContent::Sticker(e.content.clone()),
-            AnySyncMessageEvent::Custom(e) => {
-                AnyMessageEventContent::Custom(e.content.clone().into())
-            }
-            AnySyncMessageEvent::Invalid(e) => {
-                AnyMessageEventContent::Invalid(e.content.clone().into())
-            }
+            AnySyncMessageEvent::Custom(e) => AnyMessageEventContent::Custom(e.content.clone()),
+            AnySyncMessageEvent::Invalid(e) => AnyMessageEventContent::Invalid(e.content.clone()),
         }
     }
 
