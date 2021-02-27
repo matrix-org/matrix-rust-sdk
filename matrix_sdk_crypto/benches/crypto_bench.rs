@@ -1,9 +1,8 @@
+mod perf;
+
 use std::convert::TryFrom;
 
-use criterion::{
-    async_executor::FuturesExecutor, criterion_group, criterion_main, BatchSize, BenchmarkId,
-    Criterion, Throughput,
-};
+use criterion::{async_executor::FuturesExecutor, *};
 
 use futures::executor::block_on;
 use matrix_sdk_common::{
@@ -101,5 +100,13 @@ pub fn keys_claiming(c: &mut Criterion) {
     group.finish()
 }
 
-criterion_group!(benches, keys_query, keys_claiming);
+fn criterion() -> Criterion {
+    Criterion::default().with_profiler(perf::FlamegraphProfiler::new(100))
+}
+
+criterion_group! {
+    name = benches;
+    config = criterion();
+    targets = keys_query, keys_claiming
+}
 criterion_main!(benches);
