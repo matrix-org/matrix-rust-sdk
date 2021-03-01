@@ -1,4 +1,4 @@
-use std::{convert::TryFrom, fmt::Debug, io, sync::Arc};
+use std::{convert::TryFrom, fmt::Debug, sync::Arc};
 
 use futures::executor::block_on;
 use serde::Serialize;
@@ -388,7 +388,7 @@ impl Inspector {
     }
 }
 
-fn main() -> io::Result<()> {
+fn main() {
     let argparse = Argparse::new("state-inspector")
         .global_setting(ArgParseSettings::DisableVersion)
         .global_setting(ArgParseSettings::VersionlessSubcommands)
@@ -430,6 +430,4 @@ fn main() -> io::Result<()> {
     } else {
         block_on(inspector.run(matches));
     }
-
-    Ok(())
 }

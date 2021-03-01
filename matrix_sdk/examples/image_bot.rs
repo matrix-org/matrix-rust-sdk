@@ -11,10 +11,10 @@ use tokio::sync::Mutex;
 use matrix_sdk::{
     self, async_trait,
     events::{
-        room::message::{MessageEventContent, TextMessageEventContent},
+        room::message::{MessageEventContent, MessageType, TextMessageEventContent},
         SyncMessageEvent,
     },
-    Client, EventEmitter, RoomState, SyncSettings,
+    Client, EventHandler, RoomState, SyncSettings,
 };
 use url::Url;
 
@@ -31,7 +31,7 @@ impl ImageBot {
 }
 
 #[async_trait]
-impl EventEmitter for ImageBot {
+impl EventHandler for ImageBot {
     async fn on_room_message(
         &self,
         room: RoomState,
@@ -39,7 +39,11 @@ impl EventEmitter for ImageBot {
     ) {
         if let RoomState::Joined(room) = room {
             let msg_body = if let SyncMessageEvent {
-                content: MessageEventContent::Text(TextMessageEventContent { body: msg_body, .. }),
+                content:
+                    MessageEventContent {
+                        msgtype: MessageType::Text(TextMessageEventContent { body: msg_body, .. }),
+                        ..
+                    },
                 ..
             } = event
             {
@@ -86,7 +90,7 @@ async fn login_and_sync(
 
     client.sync_once(SyncSettings::default()).await.unwrap();
     client
-        .add_event_emitter(Box::new(ImageBot::new(client.clone(), image)))
+        .set_event_handler(Box::new(ImageBot::new(client.clone(), image)))
         .await;
 
     let settings = SyncSettings::default().token(client.sync_token().await.unwrap());

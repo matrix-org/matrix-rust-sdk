@@ -19,7 +19,7 @@ async fn get_profile(client: Client, mxid: &UserId) -> MatrixResult<UserProfile>
     let request = profile::get_profile::Request::new(mxid);
 
     // Start the request using matrix_sdk::Client::send
-    let resp = client.send(request).await?;
+    let resp = client.send(request, None).await?;
 
     // Use the response and construct a UserProfile struct.
     // See https://docs.rs/ruma-client-api/0.9.0/ruma_client_api/r0/profile/get_profile/struct.Response.html

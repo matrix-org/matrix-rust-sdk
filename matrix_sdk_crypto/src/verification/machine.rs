@@ -20,7 +20,7 @@ use tracing::{info, trace, warn};
 
 use matrix_sdk_common::{
     events::{
-        room::message::MessageEventContent, AnyMessageEvent, AnySyncMessageEvent, AnySyncRoomEvent,
+        room::message::MessageType, AnyMessageEvent, AnySyncMessageEvent, AnySyncRoomEvent,
         AnyToDeviceEvent,
     },
     identifiers::{DeviceId, EventId, RoomId, UserId},
@@ -233,7 +233,7 @@ impl VerificationMachine {
 
             match m {
                 AnySyncMessageEvent::RoomMessage(m) => {
-                    if let MessageEventContent::VerificationRequest(r) = &m.content {
+                    if let MessageType::VerificationRequest(r) = &m.content.msgtype {
                         if self.account.user_id() == &r.to {
                             info!(
                                 "Received a new verification request from {} {}",

@@ -257,12 +257,18 @@ impl<'a, R: Read + 'a> AttachmentEncryptor<'a, R> {
     }
 }
 
+/// Struct holding all the information that is needed to decrypt an encrypted
+/// file.
 #[derive(Debug, Serialize, Deserialize)]
 pub struct EncryptionInfo {
     #[serde(rename = "v")]
+    /// The version of the encryption scheme.
     pub version: String,
+    /// The web key that was used to encrypt the file.
     pub web_key: JsonWebKey,
+    /// The initialization vector that was used to encrypt the file.
     pub iv: String,
+    /// The hashes that can be used to check the validity of the file.
     pub hashes: BTreeMap<String, String>,
 }
 

@@ -10,9 +10,7 @@ use url::Url;
 
 use matrix_sdk::{
     self,
-    events::{
-        room::message::MessageEventContent, AnySyncMessageEvent, AnySyncRoomEvent, AnyToDeviceEvent,
-    },
+    events::{room::message::MessageType, AnySyncMessageEvent, AnySyncRoomEvent, AnyToDeviceEvent},
     identifiers::UserId,
     Client, LoopCtrl, Sas, SyncSettings,
 };
@@ -130,7 +128,7 @@ async fn login(
                         if let AnySyncRoomEvent::Message(event) = event {
                             match event {
                                 AnySyncMessageEvent::RoomMessage(m) => {
-                                    if let MessageEventContent::VerificationRequest(_) = &m.content
+                                    if let MessageType::VerificationRequest(_) = &m.content.msgtype
                                     {
                                         let request = client
                                             .get_verification_request(&m.event_id)

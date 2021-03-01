@@ -46,17 +46,17 @@ pub use matrix_sdk_common::*;
 
 mod client;
 mod error;
-mod event_emitter;
+mod event_handler;
 mod rooms;
 mod session;
 mod store;
 
-pub use event_emitter::EventEmitter;
+pub use event_handler::{CustomEvent, EventHandler};
 pub use rooms::{
     InvitedRoom, JoinedRoom, LeftRoom, Room, RoomInfo, RoomMember, RoomState, StrippedRoom,
     StrippedRoomInfo,
 };
-pub use store::{StateStore, Store, StoreError};
+pub use store::{StateChanges, StateStore, Store, StoreError};
 
 pub use client::{BaseClient, BaseClientConfig, RoomStateType};
 

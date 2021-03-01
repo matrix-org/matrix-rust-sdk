@@ -134,6 +134,7 @@ impl VerificationRequest {
         self.inner.lock().unwrap().accept()
     }
 
+    #[allow(clippy::unnecessary_wraps)]
     pub(crate) fn receive_ready(
         &self,
         sender: &UserId,

@@ -14,13 +14,14 @@
 
 //! Error conditions.
 
+use http::StatusCode;
 use matrix_sdk_base::{Error as MatrixError, StoreError};
 use matrix_sdk_common::{
     api::{
         r0::uiaa::{UiaaInfo, UiaaResponse as UiaaError},
         Error as RumaClientError,
     },
-    FromHttpResponseError as RumaResponseError, IntoHttpError as RumaIntoHttpError, ServerError,
+    FromHttpResponseError, IntoHttpError, ServerError,
 };
 use reqwest::Error as ReqwestError;
 use serde_json::Error as JsonError;
@@ -33,9 +34,14 @@ use matrix_sdk_base::crypto::store::CryptoStoreError;
 /// Result type of the rust-sdk.
 pub type Result<T> = std::result::Result<T, Error>;
 
-/// Internal representation of errors.
+/// An HTTP error, representing either a connection error or an error while
+/// converting the raw HTTP response into a Matrix response.
 #[derive(Error, Debug)]
-pub enum Error {
+pub enum HttpError {
+    /// An error at the HTTP layer.
+    #[error(transparent)]
+    Reqwest(#[from] ReqwestError),
+
     /// Queried endpoint requires authentication but was called on an anonymous client.
     #[error("the queried endpoint requires authentication but was called before logging in")]
     AuthenticationRequired,
@@ -44,9 +50,41 @@ pub enum Error {
     #[error("the queried endpoint is not meant for clients")]
     NotClientRequest,
 
-    /// An error at the HTTP layer.
+    /// An error converting between ruma_client_api types and Hyper types.
     #[error(transparent)]
-    Reqwest(#[from] ReqwestError),
+    FromHttpResponse(#[from] FromHttpResponseError<RumaClientError>),
+
+    /// An error converting between ruma_client_api types and Hyper types.
+    #[error(transparent)]
+    IntoHttp(#[from] IntoHttpError),
+
+    /// An error occurred while authenticating.
+    ///
+    /// When registering or authenticating the Matrix server can send a `UiaaResponse`
+    /// as the error type, this is a User-Interactive Authentication API response. This
+    /// represents an error with information about how to authenticate the user.
+    #[error(transparent)]
+    UiaaError(#[from] FromHttpResponseError<UiaaError>),
+
+    /// The server returned a status code that should be retried.
+    #[error("Server returned an error {0}")]
+    Server(StatusCode),
+
+    /// The given request can't be cloned and thus can't be retried.
+    #[error("The request cannot be cloned")]
+    UnableToCloneRequest,
+}
+
+/// Internal representation of errors.
+#[derive(Error, Debug)]
+pub enum Error {
+    /// Error doing an HTTP request.
+    #[error(transparent)]
+    Http(#[from] HttpError),
+
+    /// Queried endpoint requires authentication but was called on an anonymous client.
+    #[error("the queried endpoint requires authentication but was called before logging in")]
+    AuthenticationRequired,
 
     /// An error de/serializing type for the `StateStore`
     #[error(transparent)]
@@ -55,14 +93,6 @@ pub enum Error {
     /// An IO error happened.
     #[error(transparent)]
     IO(#[from] IoError),
-
-    /// An error converting between ruma_client_api types and Hyper types.
-    #[error("can't parse the JSON response as a Matrix response")]
-    RumaResponse(RumaResponseError<RumaClientError>),
-
-    /// An error converting between ruma_client_api types and Hyper types.
-    #[error("can't convert between ruma_client_api and hyper types.")]
-    IntoHttp(RumaIntoHttpError),
 
     /// An error occurred in the Matrix client library.
     #[error(transparent)]
@@ -76,14 +106,6 @@ pub enum Error {
     /// An error occured in the state store.
     #[error(transparent)]
     StateStore(#[from] StoreError),
-
-    /// An error occurred while authenticating.
-    ///
-    /// When registering or authenticating the Matrix server can send a `UiaaResponse`
-    /// as the error type, this is a User-Interactive Authentication API response. This
-    /// represents an error with information about how to authenticate the user.
-    #[error("User-Interactive Authentication required.")]
-    UiaaError(RumaResponseError<UiaaError>),
 }
 
 impl Error {
@@ -99,9 +121,9 @@ impl Error {
     /// This method is an convenience method to get to the info the server
     /// returned on the first, failed request.
     pub fn uiaa_response(&self) -> Option<&UiaaInfo> {
-        if let Error::UiaaError(RumaResponseError::Http(ServerError::Known(
+        if let Error::Http(HttpError::UiaaError(FromHttpResponseError::Http(ServerError::Known(
             UiaaError::AuthResponse(i),
-        ))) = self
+        )))) = self
         {
             Some(i)
         } else {
@@ -110,20 +132,8 @@ impl Error {
     }
 }
 
-impl From<RumaResponseError<UiaaError>> for Error {
-    fn from(error: RumaResponseError<UiaaError>) -> Self {
-        Self::UiaaError(error)
-    }
-}
-
-impl From<RumaResponseError<RumaClientError>> for Error {
-    fn from(error: RumaResponseError<RumaClientError>) -> Self {
-        Self::RumaResponse(error)
-    }
-}
-
-impl From<RumaIntoHttpError> for Error {
-    fn from(error: RumaIntoHttpError) -> Self {
-        Self::IntoHttp(error)
+impl From<ReqwestError> for Error {
+    fn from(e: ReqwestError) -> Self {
+        Error::Http(HttpError::Reqwest(e))
     }
 }
