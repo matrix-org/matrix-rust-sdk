@@ -43,6 +43,8 @@ pub(crate) struct IdentityManager {
 }
 
 impl IdentityManager {
+    const MAX_KEY_QUERY_USERS: usize = 250;
+
     pub fn new(user_id: Arc<UserId>, device_id: Arc<DeviceIdBox>, store: Store) -> Self {
         IdentityManager {
             user_id,
@@ -298,19 +300,19 @@ impl IdentityManager {
     ///
     /// [`OlmMachine`]: struct.OlmMachine.html
     /// [`receive_keys_query_response`]: #method.receive_keys_query_response
-    pub async fn users_for_key_query(&self) -> Option<KeysQueryRequest> {
-        let mut users = self.store.users_for_key_query();
+    pub async fn users_for_key_query(&self) -> Vec<KeysQueryRequest> {
+        let users = self.store.users_for_key_query();
 
         if users.is_empty() {
-            None
+            Vec::new()
         } else {
-            let mut device_keys: BTreeMap<UserId, Vec<Box<DeviceId>>> = BTreeMap::new();
+            let users: Vec<UserId> = users.into_iter().collect();
 
-            for user in users.drain() {
-                device_keys.insert(user, Vec::new());
-            }
-
-            Some(KeysQueryRequest::new(device_keys))
+            users
+                .chunks(Self::MAX_KEY_QUERY_USERS)
+                .map(|u| u.iter().map(|u| (u.clone(), Vec::new())).collect())
+                .map(KeysQueryRequest::new)
+                .collect()
         }
     }
 
@@ -566,7 +568,7 @@ pub(crate) mod test {
     #[async_test]
     async fn test_manager_creation() {
         let manager = manager();
-        assert!(manager.users_for_key_query().await.is_none())
+        assert!(manager.users_for_key_query().await.is_empty())
     }
 
     #[async_test]

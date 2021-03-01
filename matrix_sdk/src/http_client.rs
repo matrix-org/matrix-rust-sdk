@@ -130,7 +130,7 @@ impl HttpClient {
             if let Some(content_type) = content_type {
                 request
                     .headers_mut()
-                    .append(http::header::CONTENT_TYPE, content_type);
+                    .insert(http::header::CONTENT_TYPE, content_type);
             }
         }
 
