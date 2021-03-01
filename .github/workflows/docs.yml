@@ -1,0 +1,37 @@
+name: docs
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+jobs:
+  docs:
+    name: docs
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v2
+
+      - name: Install stable toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: nightly
+          override: true
+
+      - name: Build docs
+        uses: actions-rs/cargo@v1
+        env:
+          RUSTDOCFLAGS: "--enable-index-page -Zunstable-options"
+        with:
+          command: doc
+          args: --no-deps --workspace --features docs
+
+      - name: Deploy docs
+        if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/master' }}
+        uses: peaceiris/actions-gh-pages@v3
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./target/doc/
