@@ -213,10 +213,10 @@ impl GroupSessionManager {
         Ok((id, request, changed_sessions))
     }
 
-    /// Given a list of user and an outbound session get the list of users and
-    /// devices that this session should be shared with.
+    /// Given a list of user and an outbound session, return the list of users and
+    /// their devices that this session should be shared with.
     ///
-    /// Returns a boolean indicating that the session needs to be rotated and
+    /// Returns a boolean indicating whether the session needs to be rotated and
     /// the list of users/devices that should receive the session.
     pub async fn collect_session_recipients(
         &self,
