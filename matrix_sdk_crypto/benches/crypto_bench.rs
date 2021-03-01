@@ -1,3 +1,4 @@
+#[cfg(target_os = "linux")]
 mod perf;
 
 use std::convert::TryFrom;
@@ -101,7 +102,12 @@ pub fn keys_claiming(c: &mut Criterion) {
 }
 
 fn criterion() -> Criterion {
-    Criterion::default().with_profiler(perf::FlamegraphProfiler::new(100))
+    #[cfg(target_os = "linux")]
+    let criterion = Criterion::default().with_profiler(perf::FlamegraphProfiler::new(100));
+    #[cfg(not(target_os = "linux"))]
+    let criterion = Criterion::default();
+
+    criterion
 }
 
 criterion_group! {
