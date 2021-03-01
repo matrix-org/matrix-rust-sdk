@@ -93,7 +93,7 @@ use matrix_sdk_common::{
         room::{
             message::{
                 AudioMessageEventContent, FileMessageEventContent, ImageMessageEventContent,
-                MessageEventContent, VideoMessageEventContent,
+                MessageEventContent, MessageType, VideoMessageEventContent,
             },
             EncryptedFile,
         },
@@ -1378,26 +1378,26 @@ impl Client {
         let content = match content_type.type_() {
             mime::IMAGE => {
                 // TODO create a thumbnail using the image crate?.
-                MessageEventContent::Image(ImageMessageEventContent {
+                MessageType::Image(ImageMessageEventContent {
                     body: body.to_owned(),
                     info: None,
                     url: Some(url),
                     file: encrypted_file,
                 })
             }
-            mime::AUDIO => MessageEventContent::Audio(AudioMessageEventContent {
+            mime::AUDIO => MessageType::Audio(AudioMessageEventContent {
                 body: body.to_owned(),
                 info: None,
                 url: Some(url),
                 file: encrypted_file,
             }),
-            mime::VIDEO => MessageEventContent::Video(VideoMessageEventContent {
+            mime::VIDEO => MessageType::Video(VideoMessageEventContent {
                 body: body.to_owned(),
                 info: None,
                 url: Some(url),
                 file: encrypted_file,
             }),
-            _ => MessageEventContent::File(FileMessageEventContent {
+            _ => MessageType::File(FileMessageEventContent {
                 filename: None,
                 body: body.to_owned(),
                 info: None,
@@ -1408,7 +1408,7 @@ impl Client {
 
         self.room_send(
             room_id,
-            AnyMessageEventContent::RoomMessage(content),
+            AnyMessageEventContent::RoomMessage(MessageEventContent::new(content)),
             txn_id,
         )
         .await

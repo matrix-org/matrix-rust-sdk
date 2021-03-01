@@ -11,7 +11,7 @@ use tokio::sync::Mutex;
 use matrix_sdk::{
     self, async_trait,
     events::{
-        room::message::{MessageEventContent, TextMessageEventContent},
+        room::message::{MessageEventContent, MessageType, TextMessageEventContent},
         SyncMessageEvent,
     },
     Client, EventHandler, RoomState, SyncSettings,
@@ -39,7 +39,11 @@ impl EventHandler for ImageBot {
     ) {
         if let RoomState::Joined(room) = room {
             let msg_body = if let SyncMessageEvent {
-                content: MessageEventContent::Text(TextMessageEventContent { body: msg_body, .. }),
+                content:
+                    MessageEventContent {
+                        msgtype: MessageType::Text(TextMessageEventContent { body: msg_body, .. }),
+                        ..
+                    },
                 ..
             } = event
             {
