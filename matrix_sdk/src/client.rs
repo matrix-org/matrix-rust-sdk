@@ -1235,7 +1235,7 @@ impl Client {
     /// use matrix_sdk_common::uuid::Uuid;
     ///
     /// let content = AnyMessageEventContent::RoomMessage(
-    ///     MessageEventContent::Text(TextMessageEventContent::plain("Hello world"))
+    ///     MessageEventContent::text_plain("Hello world")
     /// );
     ///
     /// let txn_id = Uuid::new_v4();

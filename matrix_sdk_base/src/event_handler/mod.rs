@@ -273,7 +273,7 @@ pub enum CustomEvent<'c> {
 /// # use matrix_sdk_base::{
 /// #     self,
 /// #     events::{
-/// #         room::message::{MessageEventContent, TextMessageEventContent},
+/// #         room::message::{MessageEventContent, MessageType, TextMessageEventContent},
 /// #         SyncMessageEvent
 /// #     },
 /// #     EventHandler, RoomState
@@ -287,7 +287,11 @@ pub enum CustomEvent<'c> {
 ///     async fn on_room_message(&self, room: RoomState, event: &SyncMessageEvent<MessageEventContent>) {
 ///         if let RoomState::Joined(room) = room {
 ///             if let SyncMessageEvent {
-///                 content: MessageEventContent::Text(TextMessageEventContent { body: msg_body, .. }),
+///                 content:
+///                     MessageEventContent {
+///                         msgtype: MessageType::Text(TextMessageEventContent { body: msg_body, .. }),
+///                         ..
+///                     },
 ///                 sender,
 ///                 ..
 ///             } = event
