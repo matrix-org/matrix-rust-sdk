@@ -250,7 +250,7 @@ impl GroupSessionManager {
             let user_devices = self.store.get_user_devices(&user_id).await?;
 
             // If no device got deleted or blacklisted until now and no user
-            // left check if one got deleted or blacklisted for this user.
+            // left, check if one got deleted or blacklisted for this user.
             if !(device_got_deleted_or_blacklisted || user_left || visiblity_changed) {
                 // Devices that should receive this session
                 let device_ids: HashSet<&DeviceId> = user_devices
@@ -264,9 +264,7 @@ impl GroupSessionManager {
                     .map(|d| d.as_ref())
                     .collect();
 
-                device_got_deleted_or_blacklisted = if let Some(shared) =
-                    outbound.shared_with_set.get(user_id)
-                {
+                if let Some(shared) = outbound.shared_with_set.get(user_id) {
                     #[allow(clippy::map_clone)]
                     // Devices that received this session
                     let shared: HashSet<DeviceIdBox> =
@@ -276,12 +274,16 @@ impl GroupSessionManager {
                     // The difference between the devices that received the
                     // session and devices that should receive the session are
                     // our deleted or newly blacklisted devices
-                    !shared
+                    //
+                    // If the set isn't empty, a device got blacklisted or
+                    // deleted, so remember it.
+                    if !shared
                         .difference(&device_ids)
                         .collect::<HashSet<_>>()
                         .is_empty()
-                } else {
-                    false
+                    {
+                        device_got_deleted_or_blacklisted = true;
+                    }
                 };
             }
 
