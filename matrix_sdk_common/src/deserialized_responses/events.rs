@@ -56,7 +56,7 @@ pub struct InvalidEventContent {
 
     /// The actual raw `content` JSON object.
     #[serde(flatten)]
-    pub json: JsonValue,
+    pub data: JsonValue,
 }
 
 impl EventContent for InvalidEventContent {
@@ -81,14 +81,14 @@ pub struct CustomEventContent {
 
     /// The actual `content` JSON object.
     #[serde(flatten)]
-    pub json: JsonValue,
+    pub data: BTreeMap<String, JsonValue>,
 }
 
 impl From<RumaCustomEventContent> for CustomEventContent {
     fn from(e: RumaCustomEventContent) -> Self {
         Self {
             event_type: e.event_type,
-            json: e.json,
+            data: e.data,
         }
     }
 }
@@ -99,10 +99,10 @@ impl EventContent for CustomEventContent {
     }
 
     fn from_parts(event_type: &str, content: Box<RawJsonValue>) -> Result<Self, serde_json::Error> {
-        let json = serde_json::from_str(content.get())?;
+        let data = serde_json::from_str(content.get())?;
         Ok(Self {
             event_type: event_type.to_string(),
-            json,
+            data,
         })
     }
 }
@@ -111,7 +111,7 @@ impl Into<RumaCustomEventContent> for CustomEventContent {
     fn into(self) -> RumaCustomEventContent {
         RumaCustomEventContent {
             event_type: self.event_type,
-            json: self.json,
+            data: self.data,
         }
     }
 }

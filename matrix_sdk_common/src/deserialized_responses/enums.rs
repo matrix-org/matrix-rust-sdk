@@ -137,7 +137,7 @@ impl<'de> Deserialize<'de> for AnySyncMessageEvent {
                 let content = InvalidEventContent {
                     deserialization_error: Arc::new(Some(e)),
                     event_type: event.event_type,
-                    json: event.content,
+                    data: event.content,
                 };
 
                 let event = SyncMessageEvent {
@@ -178,7 +178,7 @@ impl Serialize for AnySyncMessageEvent {
 
         let mut event = if let AnySyncMessageEvent::Invalid(e) = self {
             let event = UntypedEvent {
-                content: &e.content.json,
+                content: &e.content.data,
                 event_id: &e.event_id,
                 event_type: &e.content.event_type,
                 origin_server_ts: &e.origin_server_ts,
@@ -306,7 +306,7 @@ impl TryInto<RumaAnySyncMessageEvent> for AnySyncMessageEvent {
                 RumaAnySyncMessageEvent::Custom(RumaSyncMessageEvent {
                     content: RumaCustomEventContent {
                         event_type: e.content.event_type,
-                        json: e.content.json,
+                        data: e.content.data,
                     },
                     event_id: e.event_id,
                     sender: e.sender,
