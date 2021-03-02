@@ -213,8 +213,8 @@ impl GroupSessionManager {
         Ok((id, request, changed_sessions))
     }
 
-    /// Given a list of user and an outbound session, return the list of users and
-    /// their devices that this session should be shared with.
+    /// Given a list of user and an outbound session, return the list of users
+    /// and their devices that this session should be shared with.
     ///
     /// Returns a boolean indicating whether the session needs to be rotated and
     /// the list of users/devices that should receive the session.
@@ -236,7 +236,7 @@ impl GroupSessionManager {
         let users_shared_with: HashSet<&UserId> = users_shared_with.iter().collect();
 
         // A user left if a user is missing from the set of users that should
-        // get the session but is in the set of users that received the sessoin.
+        // get the session but is in the set of users that received the session.
         let user_left = !users_shared_with
             .difference(&users)
             .collect::<HashSet<_>>()
@@ -260,9 +260,10 @@ impl GroupSessionManager {
                 .filter(|d| !d.is_blacklisted())
                 .collect();
 
-            // If we haven't already concluded that the session should be rotated for other
-            // reasons, we also need to check whether any of the devices in the session got deleted
-            // or blacklisted in the meantime. If so, we should also rotate the session.
+            // If we haven't already concluded that the session should be
+            // rotated for other reasons, we also need to check whether any
+            // of the devices in the session got deleted or blacklisted in the
+            // meantime. If so, we should also rotate the session.
             if !should_rotate {
                 // Device IDs that should receive this session
                 let non_blacklisted_device_ids: HashSet<&DeviceId> = non_blacklisted_devices
@@ -282,8 +283,8 @@ impl GroupSessionManager {
                     // 1. Devices that had previously received the session, and
                     // 2. Devices that would now receive the session
                     //
-                    // represents newly deleted or blacklisted devices. If this set is non-empty,
-                    // we must rotate.
+                    // represents newly deleted or blacklisted devices. If this
+                    // set is non-empty, we must rotate.
                     let newly_deleted_or_blacklisted = shared
                         .difference(&non_blacklisted_device_ids)
                         .collect::<HashSet<_>>();
@@ -342,6 +343,7 @@ impl GroupSessionManager {
             changes.inbound_group_sessions.push(inbound);
 
             debug!(
+                room_id = room_id.as_str(),
                 "A user/device has left the group {} since we last sent a message, \
                    rotating the outbound session.",
                 room_id
@@ -369,15 +371,19 @@ impl GroupSessionManager {
         let message_index = outbound.message_index().await;
 
         if !devices.is_empty() {
+            let users = devices.iter().fold(BTreeMap::new(), |mut acc, d| {
+                acc.entry(d.user_id())
+                    .or_insert_with(BTreeSet::new)
+                    .insert(d.device_id());
+                acc
+            });
+
             info!(
-                "Sharing outbound session at index {} with {:?}",
+                index = message_index,
+                users = ?users,
+                "Sharing an outbound session at index {} with {:?}",
                 message_index,
-                devices.iter().fold(BTreeMap::new(), |mut acc, d| {
-                    acc.entry(d.user_id())
-                        .or_insert_with(BTreeSet::new)
-                        .insert(d.device_id());
-                    acc
-                })
+                users
             );
         }
 
@@ -399,6 +405,8 @@ impl GroupSessionManager {
 
         if requests.is_empty() {
             debug!(
+                room_id = room_id.as_str(),
+                session_id = outbound.session_id(),
                 "Session {} for room {} doesn't need to be shared with anyone, marking as shared",
                 outbound.session_id(),
                 outbound.room_id()
