@@ -184,6 +184,7 @@ impl GroupSessionManager {
 
             let (used_session, encrypted) = match encrypted {
                 Ok(c) => c,
+                // TODO we'll want to create m.room_key.withheld here.
                 Err(OlmError::MissingSession)
                 | Err(OlmError::EventError(EventError::MissingSenderKey)) => {
                     continue;
