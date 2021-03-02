@@ -427,6 +427,13 @@ impl GroupSessionManager {
 
         let requests = outbound.pending_requests();
 
+        debug!(
+            room_id = room_id.as_str(),
+            session_id = outbound.session_id(),
+            request_count = requests.len(),
+            "Done generating to-device requests for a room key share"
+        );
+
         if requests.is_empty() {
             debug!(
                 room_id = room_id.as_str(),
@@ -437,7 +444,16 @@ impl GroupSessionManager {
             outbound.mark_as_shared();
         }
 
+        let session_count = changes.sessions.len();
+
         self.store.save_changes(changes).await?;
+
+        debug!(
+            room_id = room_id.as_str(),
+            session_id = outbound.session_id(),
+            session_count = session_count,
+            "Stored the changed sessions after encrypting an room key"
+        );
 
         Ok(requests)
     }
