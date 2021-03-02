@@ -242,7 +242,7 @@ impl GroupSessionManager {
             .collect::<HashSet<_>>()
             .is_empty();
 
-        let visiblity_changed = outbound.settings().history_visibility != history_visibility;
+        let visibility_changed = outbound.settings().history_visibility != history_visibility;
 
         // To protect the room history we need to rotate the session if either:
         //
@@ -251,7 +251,7 @@ impl GroupSessionManager {
         // 3. The history visibility changed.
         //
         // This is calculated in the following code and stored in this variable.
-        let mut should_rotate = user_left || visiblity_changed;
+        let mut should_rotate = user_left || visibility_changed;
 
         for user_id in users {
             let user_devices = self.store.get_user_devices(&user_id).await?;

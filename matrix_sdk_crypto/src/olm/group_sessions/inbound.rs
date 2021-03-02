@@ -383,7 +383,7 @@ pub struct PickledInboundGroupSession {
     /// Flag remembering if the session was dirrectly sent to us by the sender
     /// or if it was imported.
     pub imported: bool,
-    /// History visiblity of the room when the session was created.
+    /// History visibility of the room when the session was created.
     pub history_visibility: Option<HistoryVisibility>,
 }
 

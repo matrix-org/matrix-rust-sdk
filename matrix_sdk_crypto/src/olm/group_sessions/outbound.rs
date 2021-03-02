@@ -98,7 +98,7 @@ impl Default for EncryptionSettings {
 
 impl EncryptionSettings {
     /// Create new encryption settings using an `EncryptionEventContent` and a
-    /// history visiblity.
+    /// history visibility.
     pub fn new(content: EncryptionEventContent, history_visibility: HistoryVisibility) -> Self {
         let rotation_period: Duration = content
             .rotation_period_ms
