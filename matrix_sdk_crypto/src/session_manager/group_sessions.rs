@@ -256,9 +256,9 @@ impl GroupSessionManager {
         for user_id in users {
             let user_devices = self.store.get_user_devices(&user_id).await?;
             let non_blacklisted_devices: Vec<Device> = user_devices
-                    .devices()
-                    .filter(|d| !d.is_blacklisted())
-                    .collect();
+                .devices()
+                .filter(|d| !d.is_blacklisted())
+                .collect();
 
             // If we haven't already concluded that the session should be rotated for other
             // reasons, we also need to check whether any of the devices in the session got deleted
@@ -288,8 +288,7 @@ impl GroupSessionManager {
                         .difference(&non_blacklisted_device_ids)
                         .collect::<HashSet<_>>();
 
-                    if !newly_deleted_or_blacklisted.is_empty()
-                    {
+                    if !newly_deleted_or_blacklisted.is_empty() {
                         should_rotate = true;
                     }
                 };
