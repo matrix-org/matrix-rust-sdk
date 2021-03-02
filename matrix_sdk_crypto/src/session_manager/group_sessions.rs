@@ -255,20 +255,19 @@ impl GroupSessionManager {
 
         for user_id in users {
             let user_devices = self.store.get_user_devices(&user_id).await?;
+            let non_blacklisted_devices: Vec<Device> = user_devices
+                    .devices()
+                    .filter(|d| !d.is_blacklisted())
+                    .collect();
 
-            // If we haven't already concluded that the session should be rotated, check whether
-            // any of the devices in the session got deleted or blacklisted in the meantime. If so,
-            // we should also rotate the session.
+            // If we haven't already concluded that the session should be rotated for other
+            // reasons, we also need to check whether any of the devices in the session got deleted
+            // or blacklisted in the meantime. If so, we should also rotate the session.
             if !should_rotate {
-                // Devices that should receive this session
-                let device_ids: HashSet<&DeviceId> = user_devices
-                    .keys()
-                    .filter(|d| {
-                        !user_devices
-                            .get(d)
-                            .map_or(false, |d| d.is_blacklisted())
-                    })
-                    .map(|d| d.as_ref())
+                // Device IDs that should receive this session
+                let non_blacklisted_device_ids: HashSet<&DeviceId> = non_blacklisted_devices
+                    .iter()
+                    .map(|d| d.device_id())
                     .collect();
 
                 if let Some(shared) = outbound.shared_with_set.get(user_id) {
@@ -278,16 +277,18 @@ impl GroupSessionManager {
                         shared.iter().map(|d| d.key().clone()).collect();
                     let shared: HashSet<&DeviceId> = shared.iter().map(|d| d.as_ref()).collect();
 
-                    // The difference between the devices that received the
-                    // session and devices that should receive the session are
-                    // our deleted or newly blacklisted devices
+                    // The set difference between
                     //
-                    // If the set isn't empty, a device got blacklisted or
-                    // deleted, so remember it.
-                    if !shared
-                        .difference(&device_ids)
-                        .collect::<HashSet<_>>()
-                        .is_empty()
+                    // 1. Devices that had previously received the session, and
+                    // 2. Devices that would now receive the session
+                    //
+                    // represents newly deleted or blacklisted devices. If this set is non-empty,
+                    // we must rotate.
+                    let newly_deleted_or_blacklisted = shared
+                        .difference(&non_blacklisted_device_ids)
+                        .collect::<HashSet<_>>();
+
+                    if !newly_deleted_or_blacklisted.is_empty()
                     {
                         should_rotate = true;
                     }
@@ -297,7 +298,7 @@ impl GroupSessionManager {
             devices
                 .entry(user_id.clone())
                 .or_insert_with(Vec::new)
-                .extend(user_devices.devices().filter(|d| !d.is_blacklisted()));
+                .extend(non_blacklisted_devices);
         }
 
         Ok((should_rotate, devices))
