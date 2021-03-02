@@ -226,9 +226,10 @@ impl OutboundGroupSession {
 
             if self.to_share_with_set.is_empty() {
                 debug!(
-                    "Marking session {} for room {} as shared.",
-                    self.session_id(),
-                    self.room_id
+                    session_id = self.session_id(),
+                    room_id = self.room_id.as_str(),
+                    "All m.room_key to-device requests were sent out, marking \
+                        session as shared.",
                 );
                 self.mark_as_shared();
             }
