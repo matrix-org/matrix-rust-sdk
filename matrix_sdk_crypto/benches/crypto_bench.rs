@@ -56,17 +56,35 @@ pub fn keys_query(c: &mut Criterion) {
     let mut group = c.benchmark_group("Keys querying");
     group.throughput(Throughput::Elements(count as u64));
 
+    let name = format!("{} device and cross signing keys", count);
+
     group.bench_with_input(
-        BenchmarkId::new(
-            "Keys querying",
-            "150 device keys parsing and signature checking",
-        ),
+        BenchmarkId::new("memory store", &name),
         &response,
         |b, response| {
             b.to_async(FuturesExecutor)
                 .iter(|| async { machine.mark_request_as_sent(&uuid, response).await.unwrap() })
         },
     );
+
+    let dir = tempfile::tempdir().unwrap();
+    let machine = block_on(OlmMachine::new_with_default_store(
+        &alice_id(),
+        &alice_device_id(),
+        dir.path(),
+        None,
+    ))
+    .unwrap();
+
+    group.bench_with_input(
+        BenchmarkId::new("sled store", &name),
+        &response,
+        |b, response| {
+            b.to_async(FuturesExecutor)
+                .iter(|| async { machine.mark_request_as_sent(&uuid, response).await.unwrap() })
+        },
+    );
+
     group.finish()
 }
 
@@ -81,13 +99,13 @@ pub fn keys_claiming(c: &mut Criterion) {
         .values()
         .fold(0, |acc, d| acc + d.len());
 
-    let mut group = c.benchmark_group("Keys claiming throughput");
+    let mut group = c.benchmark_group("Olm session creation");
     group.throughput(Throughput::Elements(count as u64));
 
-    let name = format!("{} one-time keys claiming and session creation", count);
+    let name = format!("{} one-time keys", count);
 
     group.bench_with_input(
-        BenchmarkId::new("One-time keys claiming", &name),
+        BenchmarkId::new("memory store", &name),
         &response,
         |b, response| {
             b.iter_batched(
@@ -101,6 +119,30 @@ pub fn keys_claiming(c: &mut Criterion) {
             )
         },
     );
+
+    group.bench_with_input(
+        BenchmarkId::new("sled store", &name),
+        &response,
+        |b, response| {
+            b.iter_batched(
+                || {
+                    let dir = tempfile::tempdir().unwrap();
+                    let machine = block_on(OlmMachine::new_with_default_store(
+                        &alice_id(),
+                        &alice_device_id(),
+                        dir.path(),
+                        None,
+                    ))
+                    .unwrap();
+                    block_on(machine.mark_request_as_sent(&uuid, &keys_query_response)).unwrap();
+                    machine
+                },
+                move |machine| block_on(machine.mark_request_as_sent(&uuid, response)).unwrap(),
+                BatchSize::SmallInput,
+            )
+        },
+    );
+
     group.finish()
 }
 
