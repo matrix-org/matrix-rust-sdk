@@ -227,6 +227,13 @@ impl GroupSessionManager {
         let users: HashSet<&UserId> = users.collect();
         let mut devices: HashMap<UserId, Vec<Device>> = HashMap::new();
 
+        debug!(
+            users = ?users,
+            history_visibility = ?history_visibility,
+            session_id = outbound.session_id(),
+            "Calculating group session recipients"
+        );
+
         let users_shared_with: HashSet<UserId> = outbound
             .shared_with_set
             .iter()
@@ -301,6 +308,13 @@ impl GroupSessionManager {
                 .extend(non_blacklisted_devices);
         }
 
+        debug!(
+            should_rotate = should_rotate,
+            recipients = ?devices,
+            session_id = outbound.session_id(),
+            "Done calculating group session recipients"
+        );
+
         Ok((should_rotate, devices))
     }
 
@@ -312,12 +326,20 @@ impl GroupSessionManager {
     /// used.
     ///
     /// `users` - The list of users that should receive the group session.
+    ///
+    /// `encryption_settings` - The settings that should be used for the group
+    /// session.
     pub async fn share_group_session(
         &self,
         room_id: &RoomId,
         users: impl Iterator<Item = &UserId>,
         encryption_settings: impl Into<EncryptionSettings>,
     ) -> OlmResult<Vec<Arc<ToDeviceRequest>>> {
+        debug!(
+            room_id = room_id.as_str(),
+            "Checking if a group session needs to be shared for room {}", room_id
+        );
+
         let encryption_settings = encryption_settings.into();
         let history_visibility = encryption_settings.history_visibility.clone();
         let mut changes = Changes::default();
@@ -336,6 +358,8 @@ impl GroupSessionManager {
             .await?;
 
         let outbound = if should_rotate {
+            let old_session_id = outbound.session_id();
+
             let (outbound, inbound) = self
                 .create_outbound_group_session(room_id, encryption_settings)
                 .await?;
@@ -344,9 +368,10 @@ impl GroupSessionManager {
 
             debug!(
                 room_id = room_id.as_str(),
-                "A user/device has left the group {} since we last sent a message, \
+                old_session_id = old_session_id,
+                session_id = outbound.session_id(),
+                "A user/device has left the group since we last sent a message, \
                    rotating the outbound session.",
-                room_id
             );
 
             outbound
@@ -381,9 +406,8 @@ impl GroupSessionManager {
             info!(
                 index = message_index,
                 users = ?users,
-                "Sharing an outbound session at index {} with {:?}",
-                message_index,
-                users
+                room_id = room_id.as_str(),
+                "Sharing an outbound group session",
             );
         }
 
@@ -407,9 +431,8 @@ impl GroupSessionManager {
             debug!(
                 room_id = room_id.as_str(),
                 session_id = outbound.session_id(),
-                "Session {} for room {} doesn't need to be shared with anyone, marking as shared",
-                outbound.session_id(),
-                outbound.room_id()
+                "The outbound group session doesn't need to be shared with \
+                    anyone, marking as shared",
             );
             outbound.mark_as_shared();
         }

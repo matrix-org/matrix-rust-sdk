@@ -41,7 +41,8 @@ use tracing::{error, info, instrument};
 
 use matrix_sdk_base::{
     deserialized_responses::{MembersResponse, SyncResponse},
-    BaseClient, BaseClientConfig, EventHandler, InvitedRoom, JoinedRoom, LeftRoom, Session, Store,
+    BaseClient, BaseClientConfig, EventHandler, InvitedRoom, JoinedRoom, LeftRoom, RoomState,
+    Session, Store,
 };
 
 #[cfg(feature = "encryption")]
@@ -558,6 +559,13 @@ impl Client {
     /// The methods of `EventHandler` are called when the respective `RoomEvents` occur.
     pub async fn set_event_handler(&self, handler: Box<dyn EventHandler>) {
         self.base_client.set_event_handler(handler).await;
+    }
+
+    /// Get all the rooms the client knows about.
+    ///
+    /// This will return the list of joined, invited, and left rooms.
+    pub fn rooms(&self) -> Vec<RoomState> {
+        self.store().get_rooms()
     }
 
     /// Returns the joined rooms this client knows about.
