@@ -15,7 +15,10 @@
 use std::sync::{Arc, Mutex as SyncMutex};
 
 use matrix_sdk_common::{
-    events::AnyStrippedStateEvent,
+    events::{
+        room::{encryption::EncryptionEventContent, history_visibility::HistoryVisibility},
+        AnyStrippedStateEvent,
+    },
     identifiers::{RoomId, UserId},
 };
 use serde::{Deserialize, Serialize};
@@ -94,6 +97,22 @@ impl StrippedRoom {
     /// Is the room encrypted.
     pub fn is_encrypted(&self) -> bool {
         self.inner.lock().unwrap().base_info.encryption.is_some()
+    }
+
+    /// Get the `m.room.encryption` content that enabled end to end encryption
+    /// in the room.
+    pub fn encryption_settings(&self) -> Option<EncryptionEventContent> {
+        self.inner.lock().unwrap().base_info.encryption.clone()
+    }
+
+    /// Get the history visibility policy of this room.
+    pub fn history_visibility(&self) -> HistoryVisibility {
+        self.inner
+            .lock()
+            .unwrap()
+            .base_info
+            .history_visibility
+            .clone()
     }
 
     /// Calculate the canonical display name of the room, taking into account

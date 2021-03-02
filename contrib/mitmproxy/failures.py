@@ -11,6 +11,7 @@ To run execute it with mitmproxy:
 """
 import time
 import json
+import random
 
 from mitmproxy import http
 from mitmproxy.script import concurrent
@@ -18,30 +19,43 @@ from mitmproxy.script import concurrent
 REQUEST_COUNT = 0
 
 
+def timeout(flow):
+    timeout = 60 if "sync" in flow.request.pretty_url else 30
+    time.sleep(timeout)
+    return None
+
+
+# A map holding our failure modes.
+# The keys are just descriptive names for the failure mode while the values
+# hold a tuple containing a function that may or may not create a failure and
+# the probability weight at which rate this failure should be triggered.
+#
+# The method should return an http.HTTPResponse if it should modify the
+# response or None if the response should be passed as is.
+FAILURES = {
+    "Success": (lambda x: None, 50),
+    "Gateway error":
+    (lambda _: http.HTTPResponse.make(500, b"Gateway error"), 20),
+    "Limit exeeded": (lambda _: http.HTTPResponse.make(
+        429,
+        json.dumps({
+            "errcode": "M_LIMIT_EXCEEDED",
+            "error": "Too many requests",
+            "retry_after_ms": 2000
+        })), 20),
+    "Timeout error": (timeout, 10)
+}
+
+
 @concurrent
 def request(flow):
-    global REQUEST_COUNT
+    global FAILURES
 
-    REQUEST_COUNT += 1
+    weights = [weight for (_, weight) in FAILURES.values()]
+    failure = random.choices(list(FAILURES), weights=weights)[0]
+    failure_func, _ = FAILURES[failure]
 
-    if REQUEST_COUNT % 2 == 0:
-        return
-    elif REQUEST_COUNT % 3 == 0:
-        flow.response = http.HTTPResponse.make(
-            500,
-            b"Gateway error",
-        )
-    elif REQUEST_COUNT % 7 == 0:
-        if "sync" in flow.request.pretty_url:
-            time.sleep(60)
-        else:
-            time.sleep(30)
-    else:
-        flow.response = http.HTTPResponse.make(
-            429,
-            json.dumps({
-                "errcode": "M_LIMIT_EXCEEDED",
-                "error": "Too many requests",
-                "retry_after_ms": 2000
-            })
-        )
+    response = failure_func(flow)
+
+    if response:
+        flow.response = response

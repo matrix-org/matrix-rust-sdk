@@ -86,6 +86,10 @@ pub enum MegolmError {
     #[error("can't finish Olm group session operation {0}")]
     OlmGroupSession(#[from] OlmGroupSessionError),
 
+    /// The room where a group session should be shared is not encrypted.
+    #[error("The room where a group session should be shared is not encrypted")]
+    EncryptionNotEnabled,
+
     /// The storage layer returned an error.
     #[error(transparent)]
     Store(#[from] CryptoStoreError),

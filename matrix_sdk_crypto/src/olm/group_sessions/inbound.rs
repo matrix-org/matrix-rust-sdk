@@ -36,7 +36,8 @@ use matrix_sdk_common::{
     deserialized_responses::events::SyncMessageEvent,
     events::{
         forwarded_room_key::ForwardedRoomKeyToDeviceEventContent,
-        room::encrypted::EncryptedEventContent, AnySyncMessageEvent,
+        room::{encrypted::EncryptedEventContent, history_visibility::HistoryVisibility},
+        AnySyncMessageEvent,
     },
     identifiers::{DeviceKeyAlgorithm, EventEncryptionAlgorithm, RoomId},
     locks::Mutex,
@@ -57,6 +58,7 @@ use crate::error::{EventError, MegolmResult};
 #[derive(Clone)]
 pub struct InboundGroupSession {
     inner: Arc<Mutex<OlmInboundGroupSession>>,
+    history_visibility: Arc<Option<HistoryVisibility>>,
     session_id: Arc<str>,
     first_known_index: u32,
     pub(crate) sender_key: Arc<str>,
@@ -88,6 +90,7 @@ impl InboundGroupSession {
         signing_key: &str,
         room_id: &RoomId,
         session_key: GroupSessionKey,
+        history_visibility: Option<HistoryVisibility>,
     ) -> Result<Self, OlmGroupSessionError> {
         let session = OlmInboundGroupSession::new(&session_key.0)?;
         let session_id = session.session_id();
@@ -99,6 +102,7 @@ impl InboundGroupSession {
         Ok(InboundGroupSession {
             inner: Arc::new(Mutex::new(session)),
             session_id: session_id.into(),
+            history_visibility: history_visibility.into(),
             sender_key: sender_key.to_owned().into(),
             first_known_index,
             signing_keys: keys.into(),
@@ -153,10 +157,11 @@ impl InboundGroupSession {
             session_id: content.session_id.as_str().into(),
             sender_key: content.sender_key.as_str().into(),
             first_known_index,
+            history_visibility: None.into(),
             signing_keys: sender_claimed_key.into(),
             room_id: content.room_id.clone().into(),
             forwarding_chains: forwarding_chains.into(),
-            imported: true.into(),
+            imported: Arc::new(true),
         })
     }
 
@@ -176,6 +181,7 @@ impl InboundGroupSession {
             room_id: (&*self.room_id).clone(),
             forwarding_chains: self.forwarding_chains.to_vec(),
             imported: *self.imported,
+            history_visibility: self.history_visibility.as_ref().clone(),
         }
     }
 
@@ -252,6 +258,7 @@ impl InboundGroupSession {
             inner: Arc::new(Mutex::new(session)),
             session_id: session_id.into(),
             sender_key: pickle.sender_key.into(),
+            history_visibility: pickle.history_visibility.into(),
             first_known_index,
             signing_keys: pickle.signing_key.into(),
             room_id: pickle.room_id.into(),
@@ -386,6 +393,8 @@ pub struct PickledInboundGroupSession {
     /// Flag remembering if the session was dirrectly sent to us by the sender
     /// or if it was imported.
     pub imported: bool,
+    /// History visibility of the room when the session was created.
+    pub history_visibility: Option<HistoryVisibility>,
 }
 
 /// The typed representation of a base64 encoded string of the GroupSession pickle.
@@ -416,6 +425,7 @@ impl TryFrom<ExportedRoomKey> for InboundGroupSession {
             inner: Arc::new(Mutex::new(session)),
             session_id: key.session_id.into(),
             sender_key: key.sender_key.into(),
+            history_visibility: None.into(),
             first_known_index,
             signing_keys: key.sender_claimed_keys.into(),
             room_id: key.room_id.into(),

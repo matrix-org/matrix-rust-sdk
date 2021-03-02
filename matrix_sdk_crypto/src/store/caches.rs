@@ -254,6 +254,7 @@ mod test {
             "test_key",
             &room_id,
             outbound.session_key().await,
+            None,
         )
         .unwrap();
 

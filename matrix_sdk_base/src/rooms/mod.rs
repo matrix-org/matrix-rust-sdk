@@ -80,6 +80,25 @@ impl RoomState {
         }
     }
 
+    /// Get the history visibility policy of this room.
+    pub fn history_visibility(&self) -> HistoryVisibility {
+        match self {
+            RoomState::Joined(r) => r.inner.history_visibility(),
+            RoomState::Left(r) => r.inner.history_visibility(),
+            RoomState::Invited(r) => r.inner.history_visibility(),
+        }
+    }
+
+    /// Get the `m.room.encryption` content that enabled end to end encryption
+    /// in the room.
+    pub fn encryption_settings(&self) -> Option<EncryptionEventContent> {
+        match self {
+            RoomState::Joined(r) => r.inner.encryption_settings(),
+            RoomState::Left(r) => r.inner.encryption_settings(),
+            RoomState::Invited(r) => r.inner.encryption_settings(),
+        }
+    }
+
     /// Are the members for this room synced.
     pub fn are_members_synced(&self) -> bool {
         if let RoomState::Joined(r) = self {
@@ -150,7 +169,7 @@ pub struct BaseRoomInfo {
     pub encryption: Option<EncryptionEventContent>,
     /// The guest access policy of this room.
     pub guest_access: GuestAccess,
-    /// The history visiblity policy of this room.
+    /// The history visibility policy of this room.
     pub history_visibility: HistoryVisibility,
     /// The join rule policy of this room.
     pub join_rule: JoinRule,

@@ -197,7 +197,7 @@ impl Room {
         self.inner.read().unwrap().base_info.guest_access.clone()
     }
 
-    /// Get the history visiblity policy of this room.
+    /// Get the history visibility policy of this room.
     pub fn history_visibility(&self) -> HistoryVisibility {
         self.inner
             .read()

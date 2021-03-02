@@ -20,7 +20,10 @@ use std::{
 use dashmap::DashMap;
 use matrix_sdk_common::{
     api::r0::to_device::DeviceIdOrAllDevices,
-    events::{room::encrypted::EncryptedEventContent, AnyMessageEventContent, EventType},
+    events::{
+        room::{encrypted::EncryptedEventContent, history_visibility::HistoryVisibility},
+        AnyMessageEventContent, EventType,
+    },
     identifiers::{DeviceId, DeviceIdBox, RoomId, UserId},
     uuid::Uuid,
 };
@@ -210,14 +213,15 @@ impl GroupSessionManager {
         Ok((id, request, changed_sessions))
     }
 
-    /// Given a list of user and an outbound session get the list of users and
-    /// devices that this session should be shared with.
+    /// Given a list of user and an outbound session, return the list of users
+    /// and their devices that this session should be shared with.
     ///
-    /// Returns a boolean indicating that the session needs to be rotated and
+    /// Returns a boolean indicating whether the session needs to be rotated and
     /// the list of users/devices that should receive the session.
     pub async fn collect_session_recipients(
         &self,
         users: impl Iterator<Item = &UserId>,
+        history_visibility: HistoryVisibility,
         outbound: &OutboundGroupSession,
     ) -> OlmResult<(bool, HashMap<UserId, Vec<Device>>)> {
         let users: HashSet<&UserId> = users.collect();
@@ -232,63 +236,70 @@ impl GroupSessionManager {
         let users_shared_with: HashSet<&UserId> = users_shared_with.iter().collect();
 
         // A user left if a user is missing from the set of users that should
-        // get the session but is in the set of users that received the sessoin.
+        // get the session but is in the set of users that received the session.
         let user_left = !users_shared_with
             .difference(&users)
             .collect::<HashSet<_>>()
             .is_empty();
 
-        let mut device_got_deleted_or_blacklisted = false;
+        let visibility_changed = outbound.settings().history_visibility != history_visibility;
+
+        // To protect the room history we need to rotate the session if either:
+        //
+        // 1. Any user left the room.
+        // 2. Any of the users' devices got deleted or blacklisted.
+        // 3. The history visibility changed.
+        //
+        // This is calculated in the following code and stored in this variable.
+        let mut should_rotate = user_left || visibility_changed;
 
         for user_id in users {
             let user_devices = self.store.get_user_devices(&user_id).await?;
+            let non_blacklisted_devices: Vec<Device> = user_devices
+                .devices()
+                .filter(|d| !d.is_blacklisted())
+                .collect();
 
-            // If no device got deleted or blacklisted until now and no user
-            // left check if one got deleted or blacklisted for this user.
-            if !device_got_deleted_or_blacklisted && !user_left {
-                // Devices that should receive this session
-                let device_ids: HashSet<&DeviceId> = user_devices
-                    .keys()
-                    .filter(|d| {
-                        !user_devices
-                            .get(d)
-                            .map(|d| d.is_blacklisted())
-                            .unwrap_or(false)
-                    })
-                    .map(|d| d.as_ref())
+            // If we haven't already concluded that the session should be
+            // rotated for other reasons, we also need to check whether any
+            // of the devices in the session got deleted or blacklisted in the
+            // meantime. If so, we should also rotate the session.
+            if !should_rotate {
+                // Device IDs that should receive this session
+                let non_blacklisted_device_ids: HashSet<&DeviceId> = non_blacklisted_devices
+                    .iter()
+                    .map(|d| d.device_id())
                     .collect();
 
-                device_got_deleted_or_blacklisted = if let Some(shared) =
-                    outbound.shared_with_set.get(user_id)
-                {
+                if let Some(shared) = outbound.shared_with_set.get(user_id) {
                     #[allow(clippy::map_clone)]
                     // Devices that received this session
                     let shared: HashSet<DeviceIdBox> =
                         shared.iter().map(|d| d.key().clone()).collect();
                     let shared: HashSet<&DeviceId> = shared.iter().map(|d| d.as_ref()).collect();
 
-                    // The difference between the devices that received the
-                    // session and devices that should receive the session are
-                    // our deleted or newly blacklisted devices
-                    !shared
-                        .difference(&device_ids)
-                        .collect::<HashSet<_>>()
-                        .is_empty()
-                } else {
-                    false
+                    // The set difference between
+                    //
+                    // 1. Devices that had previously received the session, and
+                    // 2. Devices that would now receive the session
+                    //
+                    // represents newly deleted or blacklisted devices. If this
+                    // set is non-empty, we must rotate.
+                    let newly_deleted_or_blacklisted = shared
+                        .difference(&non_blacklisted_device_ids)
+                        .collect::<HashSet<_>>();
+
+                    if !newly_deleted_or_blacklisted.is_empty() {
+                        should_rotate = true;
+                    }
                 };
             }
 
             devices
                 .entry(user_id.clone())
                 .or_insert_with(Vec::new)
-                .extend(user_devices.devices().filter(|d| !d.is_blacklisted()));
+                .extend(non_blacklisted_devices);
         }
-
-        // To protect the room history we need to rotate the session if a user
-        // left or if a device got deleted/blacklisted, put differently if
-        // someone leaves or gets removed from the encrypted group.
-        let should_rotate = user_left || device_got_deleted_or_blacklisted;
 
         Ok((should_rotate, devices))
     }
@@ -308,6 +319,7 @@ impl GroupSessionManager {
         encryption_settings: impl Into<EncryptionSettings>,
     ) -> OlmResult<Vec<Arc<ToDeviceRequest>>> {
         let encryption_settings = encryption_settings.into();
+        let history_visibility = encryption_settings.history_visibility.clone();
         let mut changes = Changes::default();
 
         let (outbound, inbound) = self
@@ -319,7 +331,9 @@ impl GroupSessionManager {
             changes.inbound_group_sessions.push(inbound);
         }
 
-        let (should_rotate, devices) = self.collect_session_recipients(users, &outbound).await?;
+        let (should_rotate, devices) = self
+            .collect_session_recipients(users, history_visibility, &outbound)
+            .await?;
 
         let outbound = if should_rotate {
             let (outbound, inbound) = self
@@ -329,6 +343,7 @@ impl GroupSessionManager {
             changes.inbound_group_sessions.push(inbound);
 
             debug!(
+                room_id = room_id.as_str(),
                 "A user/device has left the group {} since we last sent a message, \
                    rotating the outbound session.",
                 room_id
@@ -356,15 +371,19 @@ impl GroupSessionManager {
         let message_index = outbound.message_index().await;
 
         if !devices.is_empty() {
+            let users = devices.iter().fold(BTreeMap::new(), |mut acc, d| {
+                acc.entry(d.user_id())
+                    .or_insert_with(BTreeSet::new)
+                    .insert(d.device_id());
+                acc
+            });
+
             info!(
-                "Sharing outbound session at index {} with {:?}",
+                index = message_index,
+                users = ?users,
+                "Sharing an outbound session at index {} with {:?}",
                 message_index,
-                devices.iter().fold(BTreeMap::new(), |mut acc, d| {
-                    acc.entry(d.user_id())
-                        .or_insert_with(BTreeSet::new)
-                        .insert(d.device_id());
-                    acc
-                })
+                users
             );
         }
 
@@ -386,6 +405,8 @@ impl GroupSessionManager {
 
         if requests.is_empty() {
             debug!(
+                room_id = room_id.as_str(),
+                session_id = outbound.session_id(),
                 "Session {} for room {} doesn't need to be shared with anyone, marking as shared",
                 outbound.session_id(),
                 outbound.room_id()

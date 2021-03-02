@@ -275,6 +275,7 @@ pub enum CustomEvent<'c> {
 /// #     self,
 /// #     events::{
 /// #         room::message::{MessageEventContent, TextMessageEventContent},
+/// #         room::message::{MessageEventContent, MessageType, TextMessageEventContent},
 /// #     },
 /// #     deserialized_responses::events::SyncMessageEvent,
 /// #     EventHandler, RoomState
@@ -288,7 +289,11 @@ pub enum CustomEvent<'c> {
 ///     async fn on_room_message(&self, room: RoomState, event: &SyncMessageEvent<MessageEventContent>) {
 ///         if let RoomState::Joined(room) = room {
 ///             if let SyncMessageEvent {
-///                 content: MessageEventContent::Text(TextMessageEventContent { body: msg_body, .. }),
+///                 content:
+///                     MessageEventContent {
+///                         msgtype: MessageType::Text(TextMessageEventContent { body: msg_body, .. }),
+///                         ..
+///                     },
 ///                 sender,
 ///                 ..
 ///             } = event

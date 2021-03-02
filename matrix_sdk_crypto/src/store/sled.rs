@@ -859,6 +859,7 @@ mod test {
             identity_keys.ed25519(),
             &room_id!("!test:localhost"),
             GroupSessionKey(outbound_session.session_key()),
+            None,
         )
         .expect("Can't create session");
 
@@ -884,6 +885,7 @@ mod test {
             identity_keys.ed25519(),
             &room_id!("!test:localhost"),
             GroupSessionKey(outbound_session.session_key()),
+            None,
         )
         .expect("Can't create session");
 

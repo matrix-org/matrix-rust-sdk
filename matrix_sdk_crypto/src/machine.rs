@@ -600,6 +600,7 @@ impl OlmMachine {
                     signing_key,
                     &event.content.room_id,
                     session_key,
+                    None,
                 )?;
 
                 info!(
@@ -1240,7 +1241,7 @@ pub(crate) mod test {
         events::{
             room::{
                 encrypted::EncryptedEventContent,
-                message::{MessageEventContent, TextMessageEventContent},
+                message::{MessageEventContent, MessageType},
             },
             AnyMessageEventContent, AnyToDeviceEvent, EventType, ToDeviceEvent, Unsigned,
         },
@@ -1784,7 +1785,7 @@ pub(crate) mod test {
 
         let plaintext = "It is a secret to everybody";
 
-        let content = MessageEventContent::Text(TextMessageEventContent::plain(plaintext));
+        let content = MessageEventContent::text_plain(plaintext);
 
         let encrypted_content = alice
             .encrypt(
@@ -1810,7 +1811,7 @@ pub(crate) mod test {
                 sender, content, ..
             }) => {
                 assert_eq!(&sender, alice.user_id());
-                if let MessageEventContent::Text(c) = &content {
+                if let MessageType::Text(c) = &content.msgtype {
                     assert_eq!(&c.body, plaintext);
                 } else {
                     panic!("Decrypted event has a missmatched content");

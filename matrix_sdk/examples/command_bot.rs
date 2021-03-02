@@ -4,7 +4,7 @@ use matrix_sdk::{
     self, async_trait,
     deserialized_responses::events::SyncMessageEvent,
     events::{
-        room::message::{MessageEventContent, TextMessageEventContent},
+        room::message::{MessageEventContent, MessageType, TextMessageEventContent},
         AnyMessageEventContent,
     },
     Client, ClientConfig, EventHandler, RoomState, SyncSettings,
@@ -32,13 +32,17 @@ impl EventHandler for CommandBot {
     ) {
         if let RoomState::Joined(room) = room {
             let msg_body = if let SyncMessageEvent {
-                content: MessageEventContent::Text(TextMessageEventContent { body: msg_body, .. }),
+                content:
+                    MessageEventContent {
+                        msgtype: MessageType::Text(TextMessageEventContent { body: msg_body, .. }),
+                        ..
+                    },
                 ..
             } = event
             {
-                msg_body.clone()
+                msg_body
             } else {
-                String::new()
+                return;
             };
 
             if msg_body.contains("!party") {

@@ -1345,7 +1345,7 @@ mod test {
 
         *method = AcceptMethod::Custom(CustomContent {
             method: "m.sas.custom".to_string(),
-            fields: vec![].into_iter().collect(),
+            data: Default::default(),
         });
 
         alice
@@ -1394,7 +1394,7 @@ mod test {
 
         *method = StartMethod::Custom(CustomStartContent {
             method: "m.sas.custom".to_string(),
-            fields: vec![].into_iter().collect(),
+            data: Default::default(),
         });
 
         SasState::<Started>::from_start_event(bob.clone(), alice_device, None, start_content)

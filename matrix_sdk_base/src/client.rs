@@ -31,7 +31,10 @@ use matrix_sdk_common::{
     },
     events::{
         presence::PresenceEvent,
-        room::member::{MemberEventContent, MembershipState},
+        room::{
+            history_visibility::HistoryVisibility,
+            member::{MemberEventContent, MembershipState},
+        },
         AnyBasicEvent, AnyStrippedStateEvent, AnySyncRoomEvent as RumaAnySyncRoomEvent,
         AnySyncStateEvent, AnyToDeviceEvent, EventContent, StateEvent,
     },
@@ -51,8 +54,8 @@ use matrix_sdk_common::{
 #[cfg(feature = "encryption")]
 use matrix_sdk_crypto::{
     store::{CryptoStore, CryptoStoreError},
-    Device, EncryptionSettings, IncomingResponse, OlmError, OlmMachine, OutgoingRequest, Sas,
-    ToDeviceRequest, UserDevices,
+    Device, EncryptionSettings, IncomingResponse, MegolmError, OlmError, OlmMachine,
+    OutgoingRequest, Sas, ToDeviceRequest, UserDevices,
 };
 use tracing::{info, warn};
 use zeroize::Zeroizing;
@@ -1151,13 +1154,26 @@ impl BaseClient {
 
         match &*olm {
             Some(o) => {
+                let (history_visibility, settings) = self
+                    .get_room(room_id)
+                    .map(|r| (r.history_visibility(), r.encryption_settings()))
+                    .unwrap_or((HistoryVisibility::Joined, None));
+
                 let joined = self.store.get_joined_user_ids(room_id).await?;
                 let invited = self.store.get_invited_user_ids(room_id).await?;
-                let members = joined.iter().chain(&invited);
-                Ok(
-                    o.share_group_session(room_id, members, EncryptionSettings::default())
-                        .await?,
-                )
+
+                // Don't share the group session with members that are invited
+                // if the history visibility is set to `Joined`
+                let members = if history_visibility == HistoryVisibility::Joined {
+                    joined.iter().chain(&[])
+                } else {
+                    joined.iter().chain(&invited)
+                };
+
+                let settings = settings.ok_or(MegolmError::EncryptionNotEnabled)?;
+                let settings = EncryptionSettings::new(settings, history_visibility);
+
+                Ok(o.share_group_session(room_id, members, settings).await?)
             }
             None => panic!("Olm machine wasn't started"),
         }

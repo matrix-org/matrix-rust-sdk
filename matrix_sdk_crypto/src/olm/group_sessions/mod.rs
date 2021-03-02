@@ -129,10 +129,7 @@ mod test {
     };
 
     use matrix_sdk_common::{
-        events::{
-            room::message::{MessageEventContent, TextMessageEventContent},
-            AnyMessageEventContent,
-        },
+        events::{room::message::MessageEventContent, AnyMessageEventContent},
         identifiers::{room_id, user_id},
     };
 
@@ -156,7 +153,7 @@ mod test {
         assert!(!session.expired());
         let _ = session
             .encrypt(AnyMessageEventContent::RoomMessage(
-                MessageEventContent::Text(TextMessageEventContent::plain("Test message")),
+                MessageEventContent::text_plain("Test message"),
             ))
             .await;
         assert!(session.expired());

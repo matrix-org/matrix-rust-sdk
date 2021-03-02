@@ -19,10 +19,7 @@ use dashmap::DashMap;
 use tracing::{info, trace, warn};
 
 use matrix_sdk_common::{
-    events::{
-        room::message::MessageType,
-        AnyMessageEvent, AnySyncMessageEvent, AnyToDeviceEvent,
-    },
+    events::{room::message::MessageType, AnyMessageEvent, AnySyncMessageEvent, AnyToDeviceEvent},
     identifiers::{DeviceId, EventId, RoomId, UserId},
     locks::Mutex,
     uuid::Uuid,

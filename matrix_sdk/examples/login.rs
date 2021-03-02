@@ -4,7 +4,7 @@ use url::Url;
 use matrix_sdk::{
     self, async_trait,
     deserialized_responses::events::SyncMessageEvent,
-    events::room::message::{MessageEventContent, TextMessageEventContent},
+    events::room::message::{MessageEventContent, MessageType, TextMessageEventContent},
     Client, EventHandler, RoomState, SyncSettings,
 };
 
@@ -19,7 +19,11 @@ impl EventHandler for EventCallback {
     ) {
         if let RoomState::Joined(room) = room {
             if let SyncMessageEvent {
-                content: MessageEventContent::Text(TextMessageEventContent { body: msg_body, .. }),
+                content:
+                    MessageEventContent {
+                        msgtype: MessageType::Text(TextMessageEventContent { body: msg_body, .. }),
+                        ..
+                    },
                 sender,
                 ..
             } = event
