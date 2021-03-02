@@ -15,7 +15,7 @@
 use std::{
     collections::{HashMap, HashSet},
     convert::TryFrom,
-    path::Path,
+    path::{Path, PathBuf},
     sync::Arc,
 };
 
@@ -96,8 +96,9 @@ impl EncodeKey for (&str, &str, &str) {
 }
 
 /// An in-memory only store that will forget all the E2EE key once it's dropped.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct SledStore {
+    path: Option<PathBuf>,
     inner: Db,
     pickle_key: Arc<PickleKey>,
 
@@ -121,6 +122,18 @@ pub struct SledStore {
     values: Tree,
 }
 
+impl std::fmt::Debug for SledStore {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if let Some(path) = &self.path {
+            f.debug_struct("SledStore").field("path", &path).finish()
+        } else {
+            f.debug_struct("SledStore")
+                .field("path", &"memory store")
+                .finish()
+        }
+    }
+}
+
 impl From<TransactionError<serde_json::Error>> for CryptoStoreError {
     fn from(e: TransactionError<serde_json::Error>) -> Self {
         match e {
@@ -135,18 +148,18 @@ impl SledStore {
     /// passphrase to encrypt private data.
     pub fn open_with_passphrase(path: impl AsRef<Path>, passphrase: Option<&str>) -> Result<Self> {
         let path = path.as_ref().join("matrix-sdk-crypto");
-        let db = Config::new().temporary(false).path(path).open()?;
+        let db = Config::new().temporary(false).path(&path).open()?;
 
-        SledStore::open_helper(db, passphrase)
+        SledStore::open_helper(db, Some(path), passphrase)
     }
 
     /// Create a sled based cryptostore using the given sled database.
     /// The given passphrase will be used to encrypt private data.
     pub fn open_with_database(db: Db, passphrase: Option<&str>) -> Result<Self> {
-        SledStore::open_helper(db, passphrase)
+        SledStore::open_helper(db, None, passphrase)
     }
 
-    fn open_helper(db: Db, passphrase: Option<&str>) -> Result<Self> {
+    fn open_helper(db: Db, path: Option<PathBuf>, passphrase: Option<&str>) -> Result<Self> {
         let account = db.open_tree("account")?;
         let private_identity = db.open_tree("private_identity")?;
 
@@ -171,6 +184,7 @@ impl SledStore {
         };
 
         Ok(Self {
+            path,
             inner: db,
             pickle_key: pickle_key.into(),
             account,

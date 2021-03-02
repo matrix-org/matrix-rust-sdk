@@ -59,7 +59,7 @@ use crate::{
 use super::{atomic_bool_deserializer, atomic_bool_serializer};
 
 /// A read-only version of a `Device`.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct ReadOnlyDevice {
     user_id: Arc<UserId>,
     device_id: Arc<DeviceIdBox>,
@@ -79,6 +79,19 @@ pub struct ReadOnlyDevice {
     trust_state: Arc<Atomic<LocalTrust>>,
 }
 
+impl std::fmt::Debug for ReadOnlyDevice {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ReadOnlyDevice")
+            .field("user_id", self.user_id())
+            .field("device_id", &self.device_id())
+            .field("display_name", self.display_name())
+            .field("keys", self.keys())
+            .field("deleted", &self.deleted.load(Ordering::SeqCst))
+            .field("trust_state", &self.trust_state)
+            .finish()
+    }
+}
+
 fn local_trust_serializer<S>(x: &Atomic<LocalTrust>, s: S) -> Result<S::Ok, S::Error>
 where
     S: Serializer,
@@ -95,7 +108,7 @@ where
     Ok(Arc::new(Atomic::new(value)))
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 /// A device represents a E2EE capable client of an user.
 pub struct Device {
     pub(crate) inner: ReadOnlyDevice,
@@ -103,6 +116,14 @@ pub struct Device {
     pub(crate) verification_machine: VerificationMachine,
     pub(crate) own_identity: Option<OwnUserIdentity>,
     pub(crate) device_owner_identity: Option<UserIdentities>,
+}
+
+impl std::fmt::Debug for Device {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Device")
+            .field("device", &self.inner)
+            .finish()
+    }
 }
 
 impl Deref for Device {

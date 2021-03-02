@@ -14,7 +14,13 @@
 
 mod store_key;
 
-use std::{collections::BTreeSet, convert::TryFrom, path::Path, sync::Arc, time::SystemTime};
+use std::{
+    collections::BTreeSet,
+    convert::TryFrom,
+    path::{Path, PathBuf},
+    sync::Arc,
+    time::SystemTime,
+};
 
 use futures::{
     stream::{self, Stream},
@@ -128,8 +134,9 @@ impl EncodeKey for (&str, &str, &str) {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct SledStore {
+    path: Option<PathBuf>,
     pub(crate) inner: Db,
     store_key: Arc<Option<StoreKey>>,
     session: Tree,
@@ -148,8 +155,20 @@ pub struct SledStore {
     presence: Tree,
 }
 
+impl std::fmt::Debug for SledStore {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if let Some(path) = &self.path {
+            f.debug_struct("SledStore").field("path", &path).finish()
+        } else {
+            f.debug_struct("SledStore")
+                .field("path", &"memory store")
+                .finish()
+        }
+    }
+}
+
 impl SledStore {
-    fn open_helper(db: Db, store_key: Option<StoreKey>) -> Result<Self> {
+    fn open_helper(db: Db, path: Option<PathBuf>, store_key: Option<StoreKey>) -> Result<Self> {
         let session = db.open_tree("session")?;
         let account_data = db.open_tree("account_data")?;
 
@@ -169,6 +188,7 @@ impl SledStore {
         let stripped_room_state = db.open_tree("stripped_room_state")?;
 
         Ok(Self {
+            path,
             inner: db,
             store_key: store_key.into(),
             session,
@@ -191,12 +211,12 @@ impl SledStore {
     pub fn open() -> Result<Self> {
         let db = Config::new().temporary(true).open()?;
 
-        SledStore::open_helper(db, None)
+        SledStore::open_helper(db, None, None)
     }
 
     pub fn open_with_passphrase(path: impl AsRef<Path>, passphrase: &str) -> Result<Self> {
         let path = path.as_ref().join("matrix-sdk-state");
-        let db = Config::new().temporary(false).path(path).open()?;
+        let db = Config::new().temporary(false).path(&path).open()?;
 
         let store_key: Option<DatabaseType> = db
             .get("store_key".encode())?
@@ -219,14 +239,14 @@ impl SledStore {
             key
         };
 
-        SledStore::open_helper(db, Some(store_key))
+        SledStore::open_helper(db, Some(path), Some(store_key))
     }
 
     pub fn open_with_path(path: impl AsRef<Path>) -> Result<Self> {
         let path = path.as_ref().join("matrix-sdk-state");
-        let db = Config::new().temporary(false).path(path).open()?;
+        let db = Config::new().temporary(false).path(&path).open()?;
 
-        SledStore::open_helper(db, None)
+        SledStore::open_helper(db, Some(path), None)
     }
 
     fn serialize_event(
