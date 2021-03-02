@@ -274,7 +274,6 @@ pub enum CustomEvent<'c> {
 /// # use matrix_sdk_base::{
 /// #     self,
 /// #     events::{
-/// #         room::message::{MessageEventContent, TextMessageEventContent},
 /// #         room::message::{MessageEventContent, MessageType, TextMessageEventContent},
 /// #     },
 /// #     deserialized_responses::events::SyncMessageEvent,
