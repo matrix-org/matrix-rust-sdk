@@ -184,6 +184,7 @@ impl GroupSessionManager {
 
             let (used_session, encrypted) = match encrypted {
                 Ok(c) => c,
+                // TODO we'll want to create m.room_key.withheld here.
                 Err(OlmError::MissingSession)
                 | Err(OlmError::EventError(EventError::MissingSenderKey)) => {
                     continue;
@@ -310,7 +311,6 @@ impl GroupSessionManager {
 
         debug!(
             should_rotate = should_rotate,
-            recipients = ?devices,
             session_id = outbound.session_id(),
             "Done calculating group session recipients"
         );
