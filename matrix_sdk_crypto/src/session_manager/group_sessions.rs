@@ -244,22 +244,29 @@ impl GroupSessionManager {
 
         let visiblity_changed = outbound.settings().history_visibility != history_visibility;
 
-        let mut device_got_deleted_or_blacklisted = false;
+        // To protect the room history we need to rotate the session if either:
+        //
+        // 1. Any user left the room.
+        // 2. Any of the users' devices got deleted or blacklisted.
+        // 3. The history visibility changed.
+        //
+        // This is calculated in the following code and stored in this variable.
+        let mut should_rotate = user_left || visiblity_changed;
 
         for user_id in users {
             let user_devices = self.store.get_user_devices(&user_id).await?;
 
-            // If no device got deleted or blacklisted until now and no user
-            // left, check if one got deleted or blacklisted for this user.
-            if !(device_got_deleted_or_blacklisted || user_left || visiblity_changed) {
+            // If we haven't already concluded that the session should be rotated, check whether
+            // any of the devices in the session got deleted or blacklisted in the meantime. If so,
+            // we should also rotate the session.
+            if !should_rotate {
                 // Devices that should receive this session
                 let device_ids: HashSet<&DeviceId> = user_devices
                     .keys()
                     .filter(|d| {
                         !user_devices
                             .get(d)
-                            .map(|d| d.is_blacklisted())
-                            .unwrap_or(false)
+                            .map_or(false, |d| d.is_blacklisted())
                     })
                     .map(|d| d.as_ref())
                     .collect();
@@ -282,7 +289,7 @@ impl GroupSessionManager {
                         .collect::<HashSet<_>>()
                         .is_empty()
                     {
-                        device_got_deleted_or_blacklisted = true;
+                        should_rotate = true;
                     }
                 };
             }
@@ -292,12 +299,6 @@ impl GroupSessionManager {
                 .or_insert_with(Vec::new)
                 .extend(user_devices.devices().filter(|d| !d.is_blacklisted()));
         }
-
-        // To protect the room history we need to rotate the session if a user
-        // left or if a device got deleted/blacklisted, put differently if
-        // someone leaves or gets removed from the encrypted group or if the
-        // history visiblity changed.
-        let should_rotate = user_left || device_got_deleted_or_blacklisted || visiblity_changed;
 
         Ok((should_rotate, devices))
     }
