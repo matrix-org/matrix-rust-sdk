@@ -105,7 +105,7 @@ impl StrippedRoom {
         self.inner.lock().unwrap().base_info.encryption.clone()
     }
 
-    /// Get the history visiblity policy of this room.
+    /// Get the history visibility policy of this room.
     pub fn history_visibility(&self) -> HistoryVisibility {
         self.inner
             .lock()

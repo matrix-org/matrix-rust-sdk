@@ -80,8 +80,8 @@ impl RoomState {
         }
     }
 
-    /// Get the history visiblity policy of this room.
-    pub fn history_visiblity(&self) -> HistoryVisibility {
+    /// Get the history visibility policy of this room.
+    pub fn history_visibility(&self) -> HistoryVisibility {
         match self {
             RoomState::Joined(r) => r.inner.history_visibility(),
             RoomState::Left(r) => r.inner.history_visibility(),
@@ -169,7 +169,7 @@ pub struct BaseRoomInfo {
     pub encryption: Option<EncryptionEventContent>,
     /// The guest access policy of this room.
     pub guest_access: GuestAccess,
-    /// The history visiblity policy of this room.
+    /// The history visibility policy of this room.
     pub history_visibility: HistoryVisibility,
     /// The join rule policy of this room.
     pub join_rule: JoinRule,

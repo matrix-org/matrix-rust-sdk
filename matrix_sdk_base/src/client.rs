@@ -1159,24 +1159,24 @@ impl BaseClient {
 
         match &*olm {
             Some(o) => {
-                let (history_visiblity, settings) = self
+                let (history_visibility, settings) = self
                     .get_room(room_id)
-                    .map(|r| (r.history_visiblity(), r.encryption_settings()))
+                    .map(|r| (r.history_visibility(), r.encryption_settings()))
                     .unwrap_or((HistoryVisibility::Joined, None));
 
                 let joined = self.store.get_joined_user_ids(room_id).await?;
                 let invited = self.store.get_invited_user_ids(room_id).await?;
 
                 // Don't share the group session with members that are invited
-                // if the history visiblity is set to `Joined`
-                let members = if history_visiblity == HistoryVisibility::Joined {
+                // if the history visibility is set to `Joined`
+                let members = if history_visibility == HistoryVisibility::Joined {
                     joined.iter().chain(&[])
                 } else {
                     joined.iter().chain(&invited)
                 };
 
                 let settings = settings.ok_or(MegolmError::EncryptionNotEnabled)?;
-                let settings = EncryptionSettings::new(settings, history_visiblity);
+                let settings = EncryptionSettings::new(settings, history_visibility);
 
                 Ok(o.share_group_session(room_id, members, settings).await?)
             }
