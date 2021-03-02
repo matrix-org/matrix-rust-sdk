@@ -310,7 +310,6 @@ impl GroupSessionManager {
 
         debug!(
             should_rotate = should_rotate,
-            recipients = ?devices,
             session_id = outbound.session_id(),
             "Done calculating group session recipients"
         );
