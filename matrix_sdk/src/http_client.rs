@@ -18,7 +18,7 @@ use std::{convert::TryFrom, fmt::Debug, sync::Arc};
 use backoff::{future::retry, Error as RetryError, ExponentialBackoff};
 #[cfg(all(not(test), not(target_arch = "wasm32")))]
 use http::StatusCode;
-use http::{HeaderValue, Method as HttpMethod, Response as HttpResponse};
+use http::{HeaderValue, Response as HttpResponse};
 use reqwest::{Client, Response};
 use tracing::trace;
 use url::Url;
@@ -104,10 +104,9 @@ impl HttpClient {
         &self,
         request: Request,
         session: Arc<RwLock<Option<Session>>>,
-        content_type: Option<HeaderValue>,
         timeout: Option<Duration>,
     ) -> Result<http::Response<Vec<u8>>, HttpError> {
-        let mut request = {
+        let request = {
             let read_guard;
             let access_token = match Request::METADATA.authentication {
                 AuthScheme::AccessToken => {
@@ -126,14 +125,6 @@ impl HttpClient {
             request.try_into_http_request(&self.homeserver.to_string(), access_token)?
         };
 
-        if let HttpMethod::POST | HttpMethod::PUT | HttpMethod::DELETE = *request.method() {
-            if let Some(content_type) = content_type {
-                request
-                    .headers_mut()
-                    .append(http::header::CONTENT_TYPE, content_type);
-            }
-        }
-
         self.inner.send_request(request, timeout).await
     }
 
@@ -143,7 +134,7 @@ impl HttpClient {
         timeout: Option<Duration>,
     ) -> Result<create_content::Response, HttpError> {
         let response = self
-            .send_request(request, self.session.clone(), None, timeout)
+            .send_request(request, self.session.clone(), timeout)
             .await?;
         Ok(create_content::Response::try_from(response)?)
     }
@@ -157,9 +148,8 @@ impl HttpClient {
         Request: OutgoingRequest + Debug,
         HttpError: From<FromHttpResponseError<Request::EndpointError>>,
     {
-        let content_type = HeaderValue::from_static("application/json");
         let response = self
-            .send_request(request, self.session.clone(), Some(content_type), timeout)
+            .send_request(request, self.session.clone(), timeout)
             .await?;
 
         trace!("Got response: {:?}", response);
