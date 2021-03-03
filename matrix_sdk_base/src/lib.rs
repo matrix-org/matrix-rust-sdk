@@ -58,7 +58,7 @@ pub use rooms::{
 };
 pub use store::{StateChanges, StateStore, Store, StoreError};
 
-pub use client::{BaseClient, BaseClientConfig, RoomStateType};
+pub use client::{BaseClient, BaseClientConfig};
 
 #[cfg(feature = "encryption")]
 #[cfg_attr(feature = "docs", doc(cfg(encryption)))]

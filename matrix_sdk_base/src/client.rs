@@ -153,17 +153,6 @@ fn hoist_room_event_prev_content(
     Ok(ev)
 }
 
-/// Signals to the `BaseClient` which `RoomState` to send to `EventHandler`.
-#[derive(Debug)]
-pub enum RoomStateType {
-    /// Represents a joined room, the `joined_rooms` HashMap will be used.
-    Joined,
-    /// Represents a left room, the `left_rooms` HashMap will be used.
-    Left,
-    /// Represents an invited room, the `invited_rooms` HashMap will be used.
-    Invited,
-}
-
 /// A no IO Client implementation.
 ///
 /// This Client is a state machine that receives responses and events and
