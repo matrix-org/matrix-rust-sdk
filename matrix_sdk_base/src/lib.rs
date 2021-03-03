@@ -53,8 +53,8 @@ mod store;
 
 pub use event_handler::{CustomEvent, EventHandler};
 pub use rooms::{
-    InvitedRoom, JoinedRoom, LeftRoom, Room, RoomInfo, RoomMember, RoomState, StrippedRoom,
-    StrippedRoomInfo,
+    InvitedRoom, JoinedRoom, LeftRoom, Room, RoomInfo, RoomMember, RoomState, RoomType,
+    StrippedRoom, StrippedRoomInfo,
 };
 pub use store::{StateChanges, StateStore, Store, StoreError};
 
