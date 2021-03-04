@@ -1,6 +1,5 @@
 mod members;
 mod normal;
-mod stripped;
 
 use matrix_sdk_common::{
     events::room::{
@@ -10,7 +9,6 @@ use matrix_sdk_common::{
     identifiers::UserId,
 };
 pub use normal::{Room, RoomInfo, RoomType};
-pub use stripped::{StrippedRoom, StrippedRoomInfo};
 
 pub use members::RoomMember;
 
@@ -140,11 +138,11 @@ impl Deref for LeftRoom {
 /// A room in an invited state.
 #[derive(Debug, Clone)]
 pub struct InvitedRoom {
-    pub(crate) inner: StrippedRoom,
+    pub(crate) inner: Room,
 }
 
 impl Deref for InvitedRoom {
-    type Target = StrippedRoom;
+    type Target = Room;
 
     fn deref(&self) -> &Self::Target {
         &self.inner

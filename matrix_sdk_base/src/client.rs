@@ -63,7 +63,7 @@ use zeroize::Zeroizing;
 use crate::{
     error::Result,
     event_handler::Handler,
-    rooms::{RoomInfo, RoomType, StrippedRoomInfo},
+    rooms::{RoomInfo, RoomType},
     session::Session,
     store::{ambiguity_map::AmbiguityCache, Result as StoreResult, StateChanges, Store},
     EventHandler, RoomState,
@@ -481,7 +481,7 @@ impl BaseClient {
                                 }
                             }
                             _ => {
-                                room_info.handle_state_event(&s);
+                                room_info.handle_state_event(&s.content());
                                 changes.add_state_event(room_id, s.clone());
                             }
                         },
@@ -525,7 +525,7 @@ impl BaseClient {
     fn handle_invited_state(
         &self,
         events: Vec<Raw<AnyStrippedStateEvent>>,
-        room_info: &mut StrippedRoomInfo,
+        room_info: &mut RoomInfo,
     ) -> (
         InviteState,
         BTreeMap<UserId, StrippedMemberEvent>,
@@ -549,7 +549,7 @@ impl BaseClient {
                                 ),
                             }
                         } else {
-                            room_info.handle_state_event(&e);
+                            room_info.handle_state_event(&e.content());
                             state_events
                                 .entry(e.content().event_type().to_owned())
                                 .or_insert_with(BTreeMap::new)
@@ -598,7 +598,7 @@ impl BaseClient {
                 })
         {
             state.events.push(event.clone());
-            room_info.handle_state_event(&event);
+            room_info.handle_state_event(&event.content());
 
             if let AnySyncStateEvent::RoomMember(member) = event {
                 match MemberEvent::try_from(member) {

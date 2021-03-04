@@ -35,7 +35,7 @@ use sled::Db;
 
 use crate::{
     deserialized_responses::{MemberEvent, StrippedMemberEvent},
-    rooms::{RoomInfo, RoomType, StrippedRoom, StrippedRoomInfo},
+    rooms::{RoomInfo, RoomType},
     InvitedRoom, JoinedRoom, LeftRoom, Room, RoomState, Session,
 };
 
@@ -164,8 +164,8 @@ pub trait StateStore: AsyncTraitDeps {
     /// Get all the pure `RoomInfo`s the store knows about.
     async fn get_room_infos(&self) -> Result<Vec<RoomInfo>>;
 
-    /// Get all the pure `StrippedRoomInfo`s the store knows about.
-    async fn get_stripped_room_infos(&self) -> Result<Vec<StrippedRoomInfo>>;
+    /// Get all the pure `RoomInfo`s the store knows about.
+    async fn get_stripped_room_infos(&self) -> Result<Vec<RoomInfo>>;
 
     /// Get all the users that use the given display name in the given room.
     ///
@@ -192,7 +192,7 @@ pub struct Store {
     pub(crate) session: Arc<RwLock<Option<Session>>>,
     pub(crate) sync_token: Arc<RwLock<Option<String>>>,
     rooms: Arc<DashMap<RoomId, Room>>,
-    stripped_rooms: Arc<DashMap<RoomId, StrippedRoom>>,
+    stripped_rooms: Arc<DashMap<RoomId, Room>>,
 }
 
 impl Store {
@@ -216,7 +216,7 @@ impl Store {
         }
 
         for info in self.inner.get_stripped_room_infos().await? {
-            let room = StrippedRoom::restore(&session.user_id, self.inner.clone(), info);
+            let room = Room::restore(&session.user_id, self.inner.clone(), info);
             self.stripped_rooms.insert(room.room_id().to_owned(), room);
         }
 
@@ -315,12 +315,12 @@ impl Store {
             })
     }
 
-    fn get_stripped_room(&self, room_id: &RoomId) -> Option<StrippedRoom> {
+    fn get_stripped_room(&self, room_id: &RoomId) -> Option<Room> {
         #[allow(clippy::map_clone)]
         self.stripped_rooms.get(room_id).map(|r| r.clone())
     }
 
-    pub(crate) async fn get_or_create_stripped_room(&self, room_id: &RoomId) -> StrippedRoom {
+    pub(crate) async fn get_or_create_stripped_room(&self, room_id: &RoomId) -> Room {
         let session = self.session.read().await;
         let user_id = &session
             .as_ref()
@@ -329,7 +329,7 @@ impl Store {
 
         self.stripped_rooms
             .entry(room_id.clone())
-            .or_insert_with(|| StrippedRoom::new(user_id, self.inner.clone(), room_id))
+            .or_insert_with(|| Room::new(user_id, self.inner.clone(), room_id, RoomType::Invited))
             .clone()
     }
 
@@ -384,8 +384,8 @@ pub struct StateChanges {
     pub stripped_state: BTreeMap<RoomId, BTreeMap<String, BTreeMap<String, AnyStrippedStateEvent>>>,
     /// A mapping of `RoomId` to a map of users and their `StrippedMemberEvent`.
     pub stripped_members: BTreeMap<RoomId, BTreeMap<UserId, StrippedMemberEvent>>,
-    /// A map of `RoomId` to `StrippedRoomInfo`.
-    pub invited_room_info: BTreeMap<RoomId, StrippedRoomInfo>,
+    /// A map of `RoomId` to `RoomInfo`.
+    pub invited_room_info: BTreeMap<RoomId, RoomInfo>,
 }
 
 impl StateChanges {
@@ -408,8 +408,8 @@ impl StateChanges {
             .insert(room.room_id.as_ref().to_owned(), room);
     }
 
-    /// Update the `StateChanges` struct with the given `StrippedRoomInfo`.
-    pub fn add_stripped_room(&mut self, room: StrippedRoomInfo) {
+    /// Update the `StateChanges` struct with the given `RoomInfo`.
+    pub fn add_stripped_room(&mut self, room: RoomInfo) {
         self.invited_room_info
             .insert(room.room_id.as_ref().to_owned(), room);
     }
