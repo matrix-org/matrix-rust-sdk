@@ -189,7 +189,7 @@ impl SessionManager {
     pub async fn get_missing_sessions(
         &self,
         users: impl Iterator<Item = &UserId>,
-    ) -> OlmResult<Option<(Uuid, KeysClaimRequest)>> {
+    ) -> StoreResult<Option<(Uuid, KeysClaimRequest)>> {
         let mut missing = BTreeMap::new();
 
         // Add the list of devices that the user wishes to establish sessions

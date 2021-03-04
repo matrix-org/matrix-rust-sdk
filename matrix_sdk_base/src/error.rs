@@ -20,7 +20,7 @@ use std::io::Error as IoError;
 use thiserror::Error;
 
 #[cfg(feature = "encryption")]
-use matrix_sdk_crypto::{MegolmError, OlmError};
+use matrix_sdk_crypto::{CryptoStoreError, MegolmError, OlmError};
 
 /// Result type of the rust-sdk.
 pub type Result<T> = std::result::Result<T, Error>;
@@ -44,6 +44,12 @@ pub enum Error {
     /// An error representing IO errors.
     #[error(transparent)]
     IoError(#[from] IoError),
+
+    /// An error occurred in the crypto store.
+    #[cfg(feature = "encryption")]
+    #[cfg_attr(feature = "docs", doc(cfg(encryption)))]
+    #[error(transparent)]
+    CryptoStore(#[from] CryptoStoreError),
 
     /// An error occurred during a E2EE operation.
     #[cfg(feature = "encryption")]

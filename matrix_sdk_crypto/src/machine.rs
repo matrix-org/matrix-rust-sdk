@@ -504,7 +504,7 @@ impl OlmMachine {
     pub async fn get_missing_sessions(
         &self,
         users: impl Iterator<Item = &UserId>,
-    ) -> OlmResult<Option<(Uuid, KeysClaimRequest)>> {
+    ) -> StoreResult<Option<(Uuid, KeysClaimRequest)>> {
         self.session_manager.get_missing_sessions(users).await
     }
 
