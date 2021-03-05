@@ -78,6 +78,8 @@ pub use reqwest;
 mod client;
 mod error;
 mod http_client;
+/// High-level room API
+pub mod room;
 
 #[cfg(feature = "encryption")]
 mod device;
