@@ -36,7 +36,7 @@ use sled::Db;
 use crate::{
     deserialized_responses::{MemberEvent, StrippedMemberEvent},
     rooms::{RoomInfo, RoomType},
-    InvitedRoom, JoinedRoom, LeftRoom, Room, RoomState, Session,
+    Room, Session,
 };
 
 pub(crate) mod ambiguity_map;
@@ -267,51 +267,20 @@ impl Store {
     }
 
     /// Get all the rooms this store knows about.
-    pub fn get_rooms(&self) -> Vec<RoomState> {
+    pub fn get_rooms(&self) -> Vec<Room> {
         self.rooms
             .iter()
             .filter_map(|r| self.get_room(r.key()))
             .collect()
     }
 
-    /// Get the joined room with the given room id.
-    ///
-    /// *Note*: A room with the given id might exist in a different state, this
-    /// will only return the room if it's in the joined state.
-    pub fn get_joined_room(&self, room_id: &RoomId) -> Option<JoinedRoom> {
-        self.get_room(room_id).and_then(|r| r.joined())
-    }
-
-    /// Get the joined room with the given room id.
-    ///
-    /// *Note*: A room with the given id might exist in a different state, this
-    /// will only return the room if it's in the invited state.
-    pub fn get_invited_room(&self, room_id: &RoomId) -> Option<InvitedRoom> {
-        self.get_room(room_id).and_then(|r| r.invited())
-    }
-
-    /// Get the joined room with the given room id.
-    ///
-    /// *Note*: A room with the given id might exist in a different state, this
-    /// will only return the room if it's in the left state.
-    pub fn get_left_room(&self, room_id: &RoomId) -> Option<LeftRoom> {
-        self.get_room(room_id).and_then(|r| r.left())
-    }
-
     /// Get the room with the given room id.
-    ///
-    /// *Note*: This will return the room in the `RoomState` enum, a room might
-    /// turn from an invited room to a joined one between sync requests, this
-    /// room struct might have stale info in that case and a new one should be
-    /// pulled out of the store.
-    pub fn get_room(&self, room_id: &RoomId) -> Option<RoomState> {
+    pub fn get_room(&self, room_id: &RoomId) -> Option<Room> {
         self.get_bare_room(room_id)
             .and_then(|r| match r.room_type() {
-                RoomType::Joined => Some(RoomState::Joined(JoinedRoom { inner: r })),
-                RoomType::Left => Some(RoomState::Left(LeftRoom { inner: r })),
-                RoomType::Invited => self
-                    .get_stripped_room(room_id)
-                    .map(|r| RoomState::Invited(InvitedRoom { inner: r })),
+                RoomType::Joined => Some(r),
+                RoomType::Left => Some(r),
+                RoomType::Invited => self.get_stripped_room(room_id),
             })
     }
 

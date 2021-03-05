@@ -63,10 +63,10 @@ use zeroize::Zeroizing;
 use crate::{
     error::Result,
     event_handler::Handler,
-    rooms::{RoomInfo, RoomType},
+    rooms::{Room, RoomInfo, RoomType},
     session::Session,
     store::{ambiguity_map::AmbiguityCache, Result as StoreResult, StateChanges, Store},
-    EventHandler, RoomState,
+    EventHandler,
 };
 
 pub type Token = String;
@@ -1178,7 +1178,7 @@ impl BaseClient {
     /// # Arguments
     ///
     /// * `room_id` - The id of the room that should be fetched.
-    pub fn get_room(&self, room_id: &RoomId) -> Option<RoomState> {
+    pub fn get_room(&self, room_id: &RoomId) -> Option<Room> {
         self.store.get_room(room_id)
     }
 

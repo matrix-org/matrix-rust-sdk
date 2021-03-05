@@ -29,7 +29,7 @@ use matrix_sdk_common::{
             guest_access::GuestAccess, history_visibility::HistoryVisibility, join_rules::JoinRule,
             tombstone::TombstoneEventContent,
         },
-        AnySyncStateEvent, AnyStateEventContent, EventType,
+        AnyStateEventContent, AnySyncStateEvent, EventType,
     },
     identifiers::{RoomAliasId, RoomId, UserId},
 };
@@ -67,7 +67,7 @@ pub struct RoomSummary {
 
 /// Enum keeping track in which state the room is, e.g. if our own user is
 /// joined, invited, or has left the room.
-#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub enum RoomType {
     /// The room is in a joined state.
     Joined,
