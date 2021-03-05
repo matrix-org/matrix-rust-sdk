@@ -751,7 +751,9 @@ impl OlmMachine {
         self.key_request_machine
             .mark_outgoing_request_as_sent(request_id)
             .await?;
-        self.group_session_manager.mark_request_as_sent(request_id);
+        self.group_session_manager
+            .mark_request_as_sent(request_id)
+            .await?;
         self.session_manager
             .mark_outgoing_request_as_sent(request_id);
 
