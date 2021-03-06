@@ -19,11 +19,15 @@ use std::{
 
 use dashmap::{DashMap, DashSet};
 use matrix_sdk_common::{
+    api::r0::message::get_message_events::{
+        Request as MessagesRequest, Response as MessagesResponse,
+    },
     async_trait,
     events::{
         presence::PresenceEvent,
         room::member::{MemberEventContent, MembershipState},
-        AnyBasicEvent, AnyStrippedStateEvent, AnySyncStateEvent, EventContent, EventType,
+        AnyBasicEvent, AnyMessageEvent, AnyRoomEvent, AnyStrippedStateEvent, AnySyncMessageEvent,
+        AnySyncRoomEvent, AnySyncStateEvent, EventContent, EventType,
     },
     identifiers::{RoomId, UserId},
     instant::Instant,
@@ -295,6 +299,15 @@ impl MemoryStore {
         #[allow(clippy::map_clone)]
         self.stripped_room_info.iter().map(|r| r.clone()).collect()
     }
+
+    pub async fn unknown_timeline_events<'a>(
+        &'a self,
+        _: &RoomId,
+        _: &str,
+        _: &'a [AnySyncRoomEvent],
+    ) -> Result<&'a [AnySyncRoomEvent]> {
+        todo!()
+    }
 }
 
 #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
@@ -372,5 +385,27 @@ impl StateStore for MemoryStore {
             .get(room_id)
             .and_then(|d| d.get(display_name).map(|d| d.clone()))
             .unwrap_or_default())
+    }
+
+    async fn get_messages(&self, _: &RoomId, _: &str) -> Result<Vec<AnySyncMessageEvent>> {
+        todo!()
+    }
+
+    async fn contains_timeline_events(
+        &self,
+        room_id: &RoomId,
+        req: &MessagesRequest<'_>,
+    ) -> Result<Option<(String, Vec<AnyRoomEvent>)>> {
+        todo!()
+    }
+
+    async fn unknown_timeline_events<'a>(
+        &'a self,
+        room_id: &RoomId,
+        prev_batch: &str,
+        events: &'a [AnySyncRoomEvent],
+    ) -> Result<&'a [AnySyncRoomEvent]> {
+        self.unknown_timeline_events(room_id, prev_batch, events)
+            .await
     }
 }

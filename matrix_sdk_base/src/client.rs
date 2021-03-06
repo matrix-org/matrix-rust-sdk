@@ -22,6 +22,7 @@ use std::{
     sync::Arc,
 };
 
+use api::message::get_message_events::Direction;
 use matrix_sdk_common::{
     api::r0 as api,
     deserialized_responses::{
@@ -515,6 +516,19 @@ impl BaseClient {
                 Err(e) => {
                     warn!("Error deserializing event {:?}", e);
                 }
+            }
+        }
+
+        // TODO:
+        // We wait until after the event has been decrypted?
+        if let Some(prev) = timeline.prev_batch.as_deref() {
+            let needed = self
+                .store
+                .unknown_timeline_events(room_id, prev, &timeline.events)
+                .await?;
+
+            if !needed.is_empty() {
+                changes.handle_sync_timeline(room_id, prev, needed);
             }
         }
 
@@ -1038,6 +1052,22 @@ impl BaseClient {
                 changes: ambiguity_cache.changes,
             },
         })
+    }
+
+    /// Receive a successful /messages response.
+    ///
+    /// * `response` - The successful response from /messages.
+    pub async fn receive_messages_response(
+        &self,
+        room_id: &RoomId,
+        dir: Direction,
+        resp: &api::message::get_message_events::Response,
+    ) -> Result<()> {
+        let mut changes = StateChanges::default();
+        changes.handle_messages_response(room_id, resp, dir);
+        self.store().save_changes(&changes).await?;
+
+        Ok(())
     }
 
     /// Receive a successful filter upload response, the filter id will be

@@ -104,7 +104,7 @@ use matrix_sdk_common::{
     instant::{Duration, Instant},
     presence::PresenceState,
     uuid::Uuid,
-    FromHttpResponseError, UInt,
+    FromHttpResponseError, Raw, UInt,
 };
 
 #[cfg(feature = "encryption")]
@@ -1059,7 +1059,29 @@ impl Client {
         request: impl Into<get_message_events::Request<'_>>,
     ) -> Result<get_message_events::Response> {
         let request = request.into();
-        self.send(request, None).await
+        let room_id = request.room_id.clone();
+
+        if let Some((to_tkn, requested_events)) = self
+            .store()
+            .contains_timeline_events(&room_id, &request)
+            .await?
+        {
+            return Ok(assign!(get_message_events::Response::new(), {
+                start: Some(request.from.to_string()),
+                end: Some(to_tkn),
+                chunk: requested_events.iter().map(|e| Raw::from(e)).collect(),
+                // TODO: State changes this seems difficult?
+                state: vec![],
+            }));
+        }
+
+        let dir = request.dir.clone();
+
+        let resp = self.send(request, None).await?;
+        self.base_client
+            .receive_messages_response(&room_id, dir, &resp)
+            .await?;
+        Ok(resp)
     }
 
     /// Send a request to notify the room of a user typing.
@@ -3103,5 +3125,63 @@ mod test {
                     .unwrap();
             }
         }
+    }
+
+    #[tokio::test]
+    async fn messages() {
+        let room_id = room_id!("!SVkFJHzfwvuaIEawgC:localhost");
+        let client = logged_in_client().await;
+
+        let _m = mock(
+            "GET",
+            Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_string()),
+        )
+        .with_status(200)
+        .with_body(test_json::SYNC.to_string())
+        .match_header("authorization", "Bearer 1234")
+        .create();
+
+        let _m = mock(
+            "GET",
+            Matcher::Regex(r"^/_matrix/client/r0/rooms/.*/messages".to_string()),
+        )
+        .with_status(200)
+        .with_body(test_json::ROOM_MESSAGES.to_string())
+        .match_header("authorization", "Bearer 1234")
+        .create();
+
+        let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
+
+        let _response = client.sync_once(sync_settings).await.unwrap();
+
+        assert!(!client
+            .store()
+            .get_messages(&room_id, "t392-516_47314_0_7_1_1_1_11444_1")
+            .await
+            .unwrap()
+            .is_empty());
+
+        let room_id = room_id!("!roomid:example.com");
+        let request = matrix_sdk_common::api::r0::message::get_message_events::Request::backward(
+            &room_id,
+            "t47429-4392820_219380_26003_2265",
+        );
+
+        let _resp = client.room_messages(request).await.unwrap();
+
+        assert_eq!(
+            client
+                .store()
+                .get_messages(&room_id, "t47409-4357353_219380_26003_2265")
+                .await
+                .unwrap()
+                .len(),
+            3
+        );
+        // end:   t3336-1714379051_757284961_10998365_725145800_588037087_1999191_200821144_689020759_166049
+        // start: t3356-1714663804_757284961_10998365_725145800_588037087_1999191_200821144_689020759_166049
+
+        // end:   t3316-1714212736_757284961_10998365_725145800_588037087_1999191_200821144_689020759_166049
+        // start: t3336-1714379051_757284961_10998365_725145800_588037087_1999191_200821144_689020759_166049
     }
 }

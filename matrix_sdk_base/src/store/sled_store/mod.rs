@@ -27,13 +27,17 @@ use futures::{
     TryStreamExt,
 };
 use matrix_sdk_common::{
+    api::r0::message::get_message_events::{
+        Direction, Request as MessagesRequest, Response as MessagesResponse,
+    },
     async_trait,
     events::{
         presence::PresenceEvent,
         room::member::{MemberEventContent, MembershipState},
-        AnySyncStateEvent, EventContent, EventType,
+        AnyMessageEvent, AnyRoomEvent, AnySyncMessageEvent, AnySyncRoomEvent, AnySyncStateEvent,
+        EventContent, EventType,
     },
-    identifiers::{RoomId, UserId},
+    identifiers::{EventId, RoomId, UserId},
 };
 use serde::{Deserialize, Serialize};
 
@@ -153,6 +157,22 @@ pub struct SledStore {
     stripped_room_state: Tree,
     stripped_members: Tree,
     presence: Tree,
+
+    /// `RoomId` + count/index -> prev_batch token.
+    ///
+    /// We now have slices of the timeline ordered by position in the timeline. Since the events
+    /// come in a predictable order if we find the prevbatchid location we know the location.
+    roomcount_prevbatch: Tree,
+    /// Since the `prev_batch` token can get long and we want an orderable key use a `u64`.
+    /// This is also known as roomcount since the ID is `RoomId` + count.
+    prevbatch_roomcount: Tree,
+    /// This `Tree` consists of keys of `RoomId` + `prev_batch ID + count` and values of `EventId` bytes.
+    ///
+    /// `count` is the index of the MessageEvent in the original chunk or sync response.
+    prevbatchid_eventid: Tree,
+    eventid_prevbatchid: Tree,
+    /// This `Tree` is `RoomId + EventId -> Event bytes`
+    timeline: Tree,
 }
 
 impl std::fmt::Debug for SledStore {
@@ -187,6 +207,12 @@ impl SledStore {
         let stripped_members = db.open_tree("stripped_members")?;
         let stripped_room_state = db.open_tree("stripped_room_state")?;
 
+        let roomcount_prevbatch = db.open_tree("roomcount_prevbatch")?;
+        let prevbatch_roomcount = db.open_tree("prevbatch_roomcount")?;
+        let prevbatchid_eventid = db.open_tree("prevbatchid_eventid")?;
+        let eventid_prevbatchid = db.open_tree("eventid_prevbatchid")?;
+        let timeline = db.open_tree("timeline")?;
+
         Ok(Self {
             path,
             inner: db,
@@ -205,6 +231,11 @@ impl SledStore {
             stripped_room_info,
             stripped_members,
             stripped_room_state,
+            roomcount_prevbatch,
+            prevbatch_roomcount,
+            prevbatchid_eventid,
+            eventid_prevbatchid,
+            timeline,
         })
     }
 
@@ -472,8 +503,104 @@ impl SledStore {
                     Ok(())
                 },
             );
-
         ret?;
+
+        for (rid, room) in &changes.sync_timeline {
+            let mut tkn = None;
+
+            // A key consists of `RoomId`
+            let mut key = rid.as_bytes().to_vec();
+            key.push(0xff);
+
+            // plus index of prev_batch
+            let count = self
+                .roomcount_prevbatch
+                .scan_prefix(rid.as_bytes())
+                .last()
+                .map(|pair| {
+                    let bytes = pair.unwrap().0;
+                    u64_from_bytes(&bytes).expect("saved invalid numeric key")
+                })
+                .unwrap_or_else(|| u64::MAX / 2)
+                + 1;
+
+            key.extend_from_slice(&count.to_be_bytes());
+
+            for ((prev, idx), msg) in room {
+                if tkn.is_none() {
+                    tkn = Some(prev);
+                }
+
+                let mut k = key.to_vec();
+                k.push(0xff);
+                k.extend_from_slice(&idx.to_be_bytes());
+
+                self.prevbatchid_eventid
+                    .insert(k.as_slice(), msg.event_id().as_bytes())?;
+                self.eventid_prevbatchid
+                    .insert(msg.event_id().as_bytes(), k.as_slice())?;
+                self.timeline.insert(
+                    (rid.as_str(), msg.event_id().as_str()).encode(),
+                    self.serialize_event(msg)?,
+                )?;
+            }
+
+            if let Some(tkn) = tkn {
+                self.roomcount_prevbatch
+                    .insert(key.as_slice(), tkn.as_bytes())?;
+                self.prevbatch_roomcount
+                    .insert(tkn.as_bytes(), key.as_slice())?;
+            }
+        }
+
+        for (rid, room) in &changes.messages_timeline {
+            let mut tkn = None;
+
+            // A key starts with `RoomId
+            let mut key = rid.as_bytes().to_vec();
+            key.push(0xff);
+
+            // plus the bytes of the index of the prev_batch token
+            let count = self
+                        .roomcount_prevbatch
+                        .scan_prefix(rid.as_bytes())
+                        .next()
+                        .map(|pair| {
+                            let bytes = pair.unwrap().0;
+                            u64_from_bytes(&bytes).expect("saved invalid numeric key")
+                        })
+                        .unwrap_or_else(|| u64::MAX / 2)
+                        // So we know this is one less than the last prev_batch token in the stream
+                        - 1;
+            key.extend_from_slice(&count.to_be_bytes());
+
+            for ((prev, idx), msg) in room {
+                if tkn.is_none() {
+                    tkn = Some(prev);
+                }
+
+                let mut k = key.to_vec();
+                k.push(0xff);
+                k.extend_from_slice(&idx.to_be_bytes());
+
+                self.prevbatchid_eventid
+                    .insert(k.as_slice(), msg.event_id().as_bytes())?;
+                self.eventid_prevbatchid
+                    .insert(msg.event_id().as_bytes(), k.as_slice())?;
+
+                self.timeline.insert(
+                    (rid.as_str(), msg.event_id().as_str()).encode(),
+                    self.serialize_event(msg)?,
+                )?;
+            }
+
+            if let Some(tkn) = tkn {
+                self.roomcount_prevbatch
+                    .insert(key.as_slice(), tkn.as_bytes())?;
+                self.prevbatch_roomcount
+                    .insert(tkn.as_bytes(), key.as_slice())?;
+            }
+        }
 
         self.inner.flush_async().await?;
 
@@ -569,6 +696,40 @@ impl SledStore {
         )
     }
 
+    pub async fn get_messages(
+        &self,
+        room_id: &RoomId,
+        prev_batch: &str,
+    ) -> impl Stream<Item = Result<AnySyncMessageEvent>> {
+        let timeline = self.timeline.clone();
+        let room_id = room_id.clone();
+        let key = self
+            .prevbatch_roomcount
+            .get(prev_batch.as_bytes())
+            .unwrap()
+            .unwrap();
+        stream::iter(
+            self.prevbatchid_eventid
+                .scan_prefix(key)
+                .values()
+                .map(move |id| {
+                    let mut key = room_id.as_bytes().to_vec();
+                    key.push(0xff);
+                    key.extend_from_slice(&id?);
+                    key.push(0xff);
+
+                    timeline.get(key)
+                })
+                .flat_map(|bytes| {
+                    if let Ok(bytes) = bytes {
+                        Some(serde_json::from_slice(&bytes?).map_err(StoreError::Json))
+                    } else {
+                        None
+                    }
+                }), // timeline.iter().values(),
+        )
+    }
+
     pub async fn get_users_with_display_name(
         &self,
         room_id: &RoomId,
@@ -583,6 +744,36 @@ impl SledStore {
             .transpose()?
             .unwrap_or_default())
     }
+
+    pub async fn unknown_timeline_events<'a>(
+        &'a self,
+        _: &RoomId,
+        prev_batch: &str,
+        events: &'a [AnySyncRoomEvent],
+    ) -> Result<&'a [AnySyncRoomEvent]> {
+        // On the off chance that we get half way through a chunk
+        if let Some(found) = self
+            .prevbatch_roomcount
+            .get(prev_batch.as_bytes())?
+            .map(|id| self.prevbatchid_eventid.scan_prefix(id).last())
+            .flatten()
+        {
+            let (k, _) = found?;
+            let start =
+                u64_from_bytes(k.splitn(2, |b| *b == 0xff).last().unwrap()).unwrap() as usize;
+
+            return Ok(&events[start..]);
+        }
+
+        Ok(&events[..])
+    }
+}
+
+/// Parses the bytes into an u64.
+pub fn u64_from_bytes(bytes: &[u8]) -> std::result::Result<u64, std::array::TryFromSliceError> {
+    use std::convert::TryInto;
+    let array: [u8; 8] = bytes.try_into()?;
+    Ok(u64::from_be_bytes(array))
 }
 
 #[async_trait]
@@ -656,8 +847,139 @@ impl StateStore for SledStore {
         self.get_users_with_display_name(room_id, display_name)
             .await
     }
+
+    async fn get_messages(
+        &self,
+        room_id: &RoomId,
+        prev_batch: &str,
+    ) -> Result<Vec<AnySyncMessageEvent>> {
+        self.get_messages(room_id, prev_batch)
+            .await
+            .try_collect()
+            .await
+    }
+
+    async fn unknown_timeline_events<'a>(
+        &'a self,
+        room_id: &RoomId,
+        prev_batch: &str,
+        events: &'a [AnySyncRoomEvent],
+    ) -> Result<&'a [AnySyncRoomEvent]> {
+        self.unknown_timeline_events(room_id, prev_batch, events)
+            .await
+    }
+
+    async fn contains_timeline_events(
+        &self,
+        room_id: &RoomId,
+        request: &MessagesRequest<'_>,
+    ) -> Result<Option<(String, Vec<AnyRoomEvent>)>> {
+        match request.dir {
+            // The end token is how to request older events
+            // events are in reverse-chronological order
+            Direction::Backward => {
+                // We always save according to the oldest event prev_batch token
+                if let Some(bytes) = self.prevbatch_roomcount.get(request.from.as_bytes())? {
+                    if let Some(count) = bytes
+                        .splitn(2, |b| *b == 0xff)
+                        .next()
+                        .map(|b| u64_from_bytes(b).expect("bad bytes in DB"))
+                    {
+                        let mut prefix = room_id.as_bytes().to_vec();
+                        prefix.push(0xff);
+                        prefix.extend_from_slice(&(count - 1).to_be_bytes());
+
+                        let token = if let Some(tkn) = self.roomcount_prevbatch.get(&prefix)? {
+                            String::from_utf8_lossy(&tkn).to_string()
+                        } else {
+                            return Ok(None);
+                        };
+
+                        let events_from_db = self
+                            .prevbatchid_eventid
+                            .scan_prefix(prefix)
+                            .values()
+                            .flat_map(|id| self.timeline.get(id.ok()?).transpose())
+                            .map(|bytes| {
+                                self.deserialize_event(&bytes.unwrap()).map_err(Into::into)
+                            })
+                            .collect::<Result<Vec<_>>>()?;
+
+                        if events_from_db.is_empty() {
+                            return Ok(None);
+                        }
+
+                        return Ok(Some((token, events_from_db)));
+                    }
+                }
+                Ok(None)
+            }
+            Direction::Forward => {
+                if let Some(bytes) = self.prevbatch_roomcount.get(request.from.as_bytes())? {
+                    if let Some(count) = bytes
+                        .splitn(2, |b| *b == 0xff)
+                        .next()
+                        .map(|b| u64_from_bytes(b).expect("bad bytes in DB"))
+                    {
+                        let mut prefix = room_id.as_bytes().to_vec();
+                        prefix.push(0xff);
+                        prefix.extend_from_slice(&(count + 1).to_be_bytes());
+
+                        let token = if let Some(tkn) = self.roomcount_prevbatch.get(&prefix)? {
+                            String::from_utf8_lossy(&tkn).to_string()
+                        } else {
+                            return Ok(None);
+                        };
+
+                        let events_from_db = self
+                            .prevbatchid_eventid
+                            .scan_prefix(prefix)
+                            .values()
+                            .flat_map(|id| self.timeline.get(id.ok()?).transpose())
+                            .map(|bytes| {
+                                self.deserialize_event(&bytes.unwrap()).map_err(Into::into)
+                            })
+                            .collect::<Result<Vec<_>>>()?;
+
+                        if events_from_db.is_empty() {
+                            return Ok(None);
+                        }
+
+                        return Ok(Some((token, events_from_db)));
+                    }
+                }
+                Ok(None)
+            }
+        }
+    }
 }
 
+// TODO: do this in ruma?
+trait EventIdExt {
+    fn event_id(&self) -> &EventId;
+}
+
+impl EventIdExt for AnySyncRoomEvent {
+    fn event_id(&self) -> &EventId {
+        match self {
+            AnySyncRoomEvent::Message(ev) => ev.event_id(),
+            AnySyncRoomEvent::State(ev) => ev.event_id(),
+            AnySyncRoomEvent::RedactedMessage(ev) => ev.event_id(),
+            AnySyncRoomEvent::RedactedState(ev) => ev.event_id(),
+        }
+    }
+}
+
+impl EventIdExt for AnyRoomEvent {
+    fn event_id(&self) -> &EventId {
+        match self {
+            AnyRoomEvent::Message(ev) => ev.event_id(),
+            AnyRoomEvent::State(ev) => ev.event_id(),
+            AnyRoomEvent::RedactedMessage(ev) => ev.event_id(),
+            AnyRoomEvent::RedactedState(ev) => ev.event_id(),
+        }
+    }
+}
 #[cfg(test)]
 mod test {
     use std::{convert::TryFrom, time::SystemTime};
@@ -671,7 +993,7 @@ mod test {
     };
     use matrix_sdk_test::async_test;
 
-    use super::{SledStore, StateChanges};
+    use super::{u64_from_bytes, SledStore, StateChanges};
     use crate::deserialized_responses::MemberEvent;
 
     fn user_id() -> UserId {
@@ -722,5 +1044,69 @@ mod test {
             .await
             .unwrap()
             .is_some());
+    }
+
+    #[test]
+    fn bytes_neg() {
+        use super::u64_from_bytes;
+
+        let mut list = vec![];
+
+        let mut mid = 0_u64.to_be_bytes().to_vec();
+        mid.insert(0, b'z');
+        list.push(mid);
+
+        let mut end = 5_u64.to_be_bytes().to_vec();
+        end.insert(0, b'z');
+        list.push(end);
+
+        let mut start = 5_u64.to_be_bytes().to_vec();
+        start.insert(0, 0xff);
+        start.insert(0, b'a');
+        list.push(start);
+
+        println!("{:?}", list);
+        list.sort();
+
+        println!("{:?}", list);
+
+        panic!(
+            "{:?}",
+            list.iter()
+                .map(|b| u64_from_bytes(b).unwrap())
+                .collect::<Vec<u64>>()
+        );
+    }
+
+    #[test]
+    fn bytes() {
+        use super::u64_from_bytes;
+
+        let mut list = vec![
+            10_u64.to_be_bytes().to_vec(),
+            10134_u64.to_be_bytes().to_vec(),
+            5_u64.to_be_bytes().to_vec(),
+            6_u64.to_be_bytes().to_vec(),
+        ];
+
+        let mut val = 6_u64.to_be_bytes().to_vec();
+        val.push(1);
+        list.push(val);
+        let mut val = 6_u64.to_be_bytes().to_vec();
+        val.push(1);
+        val.push(1);
+        list.push(val);
+
+        println!("{:?}", list);
+        list.sort();
+
+        println!("{:?}", list);
+
+        println!(
+            "{:?}",
+            list.iter()
+                .map(|b| u64_from_bytes(b).unwrap())
+                .collect::<Vec<u64>>()
+        );
     }
 }
