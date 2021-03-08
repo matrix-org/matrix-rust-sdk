@@ -599,6 +599,17 @@ impl Client {
             .collect()
     }
 
+    /// Get a room with the given room id.
+    ///
+    /// # Arguments
+    ///
+    /// `room_id` - The unique id of the room that should be fetched.
+    pub fn get_room(&self, room_id: &RoomId) -> Option<room::Common> {
+        self.store()
+            .get_room(room_id)
+            .map(|room| room::Common::new(self.clone(), room))
+    }
+
     /// Get a joined room with the given room id.
     ///
     /// # Arguments
