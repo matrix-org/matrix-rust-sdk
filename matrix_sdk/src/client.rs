@@ -40,14 +40,14 @@ use tracing::{debug, warn};
 use tracing::{error, info, instrument};
 
 use matrix_sdk_base::{
-    deserialized_responses::{MembersResponse, SyncResponse},
-    BaseClient, BaseClientConfig, EventHandler, Session, Store,
+    deserialized_responses::SyncResponse, BaseClient, BaseClientConfig, EventHandler, Session,
+    Store,
 };
 
 #[cfg(feature = "encryption")]
 use matrix_sdk_base::crypto::{
     decrypt_key_export, encrypt_key_export, olm::InboundGroupSession, store::CryptoStoreError,
-    AttachmentEncryptor, OutgoingRequests, RoomMessageRequest, ToDeviceRequest,
+    OutgoingRequests, RoomMessageRequest, ToDeviceRequest,
 };
 
 /// Enum controlling if a loop running callbacks should continue or abort.
@@ -71,35 +71,15 @@ use matrix_sdk_common::{
         directory::{get_public_rooms, get_public_rooms_filtered},
         filter::{create_filter::Request as FilterUploadRequest, FilterDefinition},
         media::create_content,
-        membership::{
-            ban_user, forget_room, get_member_events,
-            invite_user::{self, InvitationRecipient},
-            join_room_by_id, join_room_by_id_or_alias, kick_user, leave_room, Invite3pid,
-        },
-        message::{get_message_events, send_message_event},
+        membership::{join_room_by_id, join_room_by_id_or_alias},
+        message::send_message_event,
         profile::{get_avatar_url, get_display_name, set_avatar_url, set_display_name},
-        read_marker::set_read_marker,
-        receipt::create_receipt,
         room::create_room,
         session::login,
-        state::send_state_event_for_key,
         sync::sync_events,
-        typing::create_typing_event::{
-            Request as TypingRequest, Response as TypingResponse, Typing,
-        },
         uiaa::AuthData,
     },
     assign,
-    events::{
-        room::{
-            message::{
-                AudioMessageEventContent, FileMessageEventContent, ImageMessageEventContent,
-                MessageEventContent, MessageType, VideoMessageEventContent,
-            },
-            EncryptedFile,
-        },
-        AnyMessageEventContent, AnyStateEventContent,
-    },
     identifiers::{DeviceIdBox, EventId, RoomId, RoomIdOrAliasId, ServerName, UserId},
     instant::{Duration, Instant},
     presence::PresenceState,
@@ -154,7 +134,7 @@ pub struct Client {
     /// Locks making sure we only have one group session sharing request in
     /// flight per room.
     #[cfg(feature = "encryption")]
-    group_session_locks: DashMap<RoomId, Arc<Mutex<()>>>,
+    pub(crate) group_session_locks: DashMap<RoomId, Arc<Mutex<()>>>,
     #[cfg(feature = "encryption")]
     /// Lock making sure we're only doing one key claim request at a time.
     key_claim_lock: Arc<Mutex<()>>,
@@ -826,111 +806,6 @@ impl Client {
         self.send(request, None).await
     }
 
-    /// Forget a room by `RoomId`.
-    ///
-    /// Returns a `forget_room::Response`, an empty response.
-    ///
-    /// # Arguments
-    ///
-    /// * `room_id` - The `RoomId` of the room to be forget.
-    pub async fn forget_room_by_id(&self, room_id: &RoomId) -> Result<forget_room::Response> {
-        let request = forget_room::Request::new(room_id);
-        self.send(request, None).await
-    }
-
-    /// Ban a user from a room by `RoomId` and `UserId`.
-    ///
-    /// Returns a `ban_user::Response`, an empty response.
-    ///
-    /// # Arguments
-    ///
-    /// * `room_id` - The `RoomId` of the room to ban the user from.
-    ///
-    /// * `user_id` - The user to ban by `UserId`.
-    ///
-    /// * `reason` - The reason for banning this user.
-    pub async fn ban_user(
-        &self,
-        room_id: &RoomId,
-        user_id: &UserId,
-        reason: Option<&str>,
-    ) -> Result<ban_user::Response> {
-        let request = assign!(ban_user::Request::new(room_id, user_id), { reason });
-        self.send(request, None).await
-    }
-
-    /// Kick a user out of the specified room.
-    ///
-    /// Returns a `kick_user::Response`, an empty response.
-    ///
-    /// # Arguments
-    ///
-    /// * `room_id` - The `RoomId` of the room the user should be kicked out of.
-    ///
-    /// * `user_id` - The `UserId` of the user that should be kicked out of the room.
-    ///
-    /// * `reason` - Optional reason why the room member is being kicked out.
-    pub async fn kick_user(
-        &self,
-        room_id: &RoomId,
-        user_id: &UserId,
-        reason: Option<&str>,
-    ) -> Result<kick_user::Response> {
-        let request = assign!(kick_user::Request::new(room_id, user_id), { reason });
-        self.send(request, None).await
-    }
-
-    /// Leave the specified room.
-    ///
-    /// Returns a `leave_room::Response`, an empty response.
-    ///
-    /// # Arguments
-    ///
-    /// * `room_id` - The `RoomId` of the room to leave.
-    pub async fn leave_room(&self, room_id: &RoomId) -> Result<leave_room::Response> {
-        let request = leave_room::Request::new(room_id);
-        self.send(request, None).await
-    }
-
-    /// Invite the specified user by `UserId` to the given room.
-    ///
-    /// Returns a `invite_user::Response`, an empty response.
-    ///
-    /// # Arguments
-    ///
-    /// * `room_id` - The `RoomId` of the room to invite the specified user to.
-    ///
-    /// * `user_id` - The `UserId` of the user to invite to the room.
-    pub async fn invite_user_by_id(
-        &self,
-        room_id: &RoomId,
-        user_id: &UserId,
-    ) -> Result<invite_user::Response> {
-        let recipient = InvitationRecipient::UserId { user_id };
-
-        let request = invite_user::Request::new(room_id, recipient);
-        self.send(request, None).await
-    }
-
-    /// Invite the specified user by third party id to the given room.
-    ///
-    /// Returns a `invite_user::Response`, an empty response.
-    ///
-    /// # Arguments
-    ///
-    /// * `room_id` - The `RoomId` of the room to invite the specified user to.
-    ///
-    /// * `invite_id` - A third party id of a user to invite to the room.
-    pub async fn invite_user_by_3pid(
-        &self,
-        room_id: &RoomId,
-        invite_id: Invite3pid<'_>,
-    ) -> Result<invite_user::Response> {
-        let recipient = InvitationRecipient::ThirdPartyId(invite_id);
-        let request = invite_user::Request::new(room_id, recipient);
-        self.send(request, None).await
-    }
-
     /// Search the homeserver's directory of public rooms.
     ///
     /// Sends a request to "_matrix/client/r0/publicRooms", returns
@@ -977,6 +852,38 @@ impl Client {
         self.send(request, None).await
     }
 
+    /// Create a room using the `RoomBuilder` and send the request.
+    ///
+    /// Sends a request to `/_matrix/client/r0/createRoom`, returns a `create_room::Response`,
+    /// this is an empty response.
+    ///
+    /// # Arguments
+    ///
+    /// * `room` - The easiest way to create this request is using the
+    /// `create_room::Request` itself.
+    ///
+    /// # Examples
+    /// ```no_run
+    /// use matrix_sdk::Client;
+    /// # use matrix_sdk::api::r0::room::{create_room::Request as CreateRoomRequest, Visibility};
+    /// # use url::Url;
+    ///
+    /// # let homeserver = Url::parse("http://example.com").unwrap();
+    /// let request = CreateRoomRequest::new();
+    /// let client = Client::new(homeserver).unwrap();
+    /// # use futures::executor::block_on;
+    /// # block_on(async {
+    /// assert!(client.create_room(request).await.is_ok());
+    /// # });
+    /// ```
+    pub async fn create_room(
+        &self,
+        room: impl Into<create_room::Request<'_>>,
+    ) -> Result<create_room::Response> {
+        let request = room.into();
+        self.send(request, None).await
+    }
+
     /// Search the homeserver's directory of public rooms with a filter.
     ///
     /// Sends a request to "_matrix/client/r0/publicRooms", returns
@@ -1015,257 +922,6 @@ impl Client {
         self.send(request, None).await
     }
 
-    /// Create a room using the `RoomBuilder` and send the request.
-    ///
-    /// Sends a request to `/_matrix/client/r0/createRoom`, returns a `create_room::Response`,
-    /// this is an empty response.
-    ///
-    /// # Arguments
-    ///
-    /// * `room` - The easiest way to create this request is using the
-    /// `create_room::Request` itself.
-    ///
-    /// # Examples
-    /// ```no_run
-    /// use matrix_sdk::Client;
-    /// # use matrix_sdk::api::r0::room::{create_room::Request as CreateRoomRequest, Visibility};
-    /// # use url::Url;
-    ///
-    /// # let homeserver = Url::parse("http://example.com").unwrap();
-    /// let request = CreateRoomRequest::new();
-    /// let client = Client::new(homeserver).unwrap();
-    /// # use futures::executor::block_on;
-    /// # block_on(async {
-    /// assert!(client.create_room(request).await.is_ok());
-    /// # });
-    /// ```
-    pub async fn create_room(
-        &self,
-        room: impl Into<create_room::Request<'_>>,
-    ) -> Result<create_room::Response> {
-        let request = room.into();
-        self.send(request, None).await
-    }
-
-    /// Sends a request to `/_matrix/client/r0/rooms/{room_id}/messages` and returns
-    /// a `get_message_events::Response` that contains a chunk of room and state events
-    /// (`AnyRoomEvent` and `AnyStateEvent`).
-    ///
-    /// # Arguments
-    ///
-    /// * `request` - The easiest way to create this request is using the
-    /// `get_message_events::Request` itself.
-    ///
-    /// # Examples
-    /// ```no_run
-    /// # use std::convert::TryFrom;
-    /// use matrix_sdk::Client;
-    /// # use matrix_sdk::identifiers::room_id;
-    /// # use matrix_sdk::api::r0::filter::RoomEventFilter;
-    /// # use matrix_sdk::api::r0::message::get_message_events::Request as MessagesRequest;
-    /// # use url::Url;
-    ///
-    /// # let homeserver = Url::parse("http://example.com").unwrap();
-    /// let room_id = room_id!("!roomid:example.com");
-    /// let request = MessagesRequest::backward(&room_id, "t47429-4392820_219380_26003_2265");
-    ///
-    /// let mut client = Client::new(homeserver).unwrap();
-    /// # use futures::executor::block_on;
-    /// # block_on(async {
-    /// assert!(client.room_messages(request).await.is_ok());
-    /// # });
-    /// ```
-    pub async fn room_messages(
-        &self,
-        request: impl Into<get_message_events::Request<'_>>,
-    ) -> Result<get_message_events::Response> {
-        let request = request.into();
-        self.send(request, None).await
-    }
-
-    /// Send a request to notify the room of a user typing.
-    ///
-    /// Returns a `create_typing_event::Response`, an empty response.
-    ///
-    /// # Arguments
-    ///
-    /// * `room_id` - The `RoomId` the user is typing in.
-    ///
-    /// * `typing` - Whether the user is typing, and how long.
-    ///
-    /// # Examples
-    ///
-    /// ```no_run
-    /// # use std::time::Duration;
-    /// # use matrix_sdk::{
-    /// #     Client, SyncSettings,
-    /// #     api::r0::typing::create_typing_event::Typing,
-    /// #     identifiers::room_id,
-    /// # };
-    /// # use futures::executor::block_on;
-    /// # use url::Url;
-    /// # block_on(async {
-    /// # let homeserver = Url::parse("http://localhost:8080").unwrap();
-    /// # let mut client = Client::new(homeserver).unwrap();
-    /// # let room_id = room_id!("!test:localhost");
-    /// let response = client
-    ///     .typing_notice(&room_id, Typing::Yes(Duration::from_secs(4)))
-    ///     .await
-    ///     .expect("Can't get devices from server");
-    /// # });
-    ///
-    /// ```
-    pub async fn typing_notice(
-        &self,
-        room_id: &RoomId,
-        typing: impl Into<Typing>,
-    ) -> Result<TypingResponse> {
-        let user_id = self.user_id().await.ok_or(Error::AuthenticationRequired)?;
-        let request = TypingRequest::new(&user_id, room_id, typing.into());
-
-        self.send(request, None).await
-    }
-
-    /// Send a request to notify the room the user has read specific event.
-    ///
-    /// Returns a `create_receipt::Response`, an empty response.
-    ///
-    /// # Arguments
-    ///
-    /// * `room_id` - The `RoomId` the user is currently in.
-    ///
-    /// * `event_id` - The `EventId` specifies the event to set the read receipt on.
-    pub async fn read_receipt(
-        &self,
-        room_id: &RoomId,
-        event_id: &EventId,
-    ) -> Result<create_receipt::Response> {
-        let request =
-            create_receipt::Request::new(room_id, create_receipt::ReceiptType::Read, event_id);
-        self.send(request, None).await
-    }
-
-    /// Send a request to notify the room user has read up to specific event.
-    ///
-    /// Returns a `set_read_marker::Response`, an empty response.
-    ///
-    /// # Arguments
-    ///
-    /// * room_id - The `RoomId` the user is currently in.
-    ///
-    /// * fully_read - The `EventId` of the event the user has read to.
-    ///
-    /// * read_receipt - An `EventId` to specify the event to set the read receipt on.
-    pub async fn read_marker(
-        &self,
-        room_id: &RoomId,
-        fully_read: &EventId,
-        read_receipt: Option<&EventId>,
-    ) -> Result<set_read_marker::Response> {
-        let request = assign!(set_read_marker::Request::new(room_id, fully_read), {
-            read_receipt
-        });
-        self.send(request, None).await
-    }
-
-    /// Share a group session for the given room.
-    ///
-    /// This will create Olm sessions with all the users/device pairs in the
-    /// room if necessary and share a group session with them.
-    ///
-    /// Does nothing if no group session needs to be shared.
-    #[cfg(feature = "encryption")]
-    #[cfg_attr(feature = "docs", doc(cfg(encryption)))]
-    async fn preshare_group_session(&self, room_id: &RoomId) -> Result<()> {
-        // TODO expose this publicly so people can pre-share a group session if
-        // e.g. a user starts to type a message for a room.
-        #[allow(clippy::map_clone)]
-        if let Some(mutex) = self.group_session_locks.get(room_id).map(|m| m.clone()) {
-            // If a group session share request is already going on,
-            // await the release of the lock.
-            mutex.lock().await;
-        } else {
-            // Otherwise create a new lock and share the group
-            // session.
-            let mutex = Arc::new(Mutex::new(()));
-            self.group_session_locks
-                .insert(room_id.clone(), mutex.clone());
-
-            let _guard = mutex.lock().await;
-
-            {
-                let joined = self.store().get_joined_user_ids(room_id).await?;
-                let invited = self.store().get_invited_user_ids(room_id).await?;
-                let members = joined.iter().chain(&invited);
-                self.claim_one_time_keys(members).await?;
-            };
-
-            let response = self.share_group_session(room_id).await;
-
-            self.group_session_locks.remove(room_id);
-
-            // If one of the responses failed invalidate the group
-            // session as using it would end up in undecryptable
-            // messages.
-            if let Err(r) = response {
-                self.base_client.invalidate_group_session(room_id).await;
-                return Err(r);
-            }
-        }
-
-        Ok(())
-    }
-
-    /// Send a room state event to the homeserver.
-    ///
-    /// Returns the parsed response from the server.
-    ///
-    /// # Arguments
-    ///
-    /// * `room_id` -  The id of the room that should receive the message.
-    ///
-    /// * `content` - The content of the state event.
-    ///
-    /// * `state_key` - A unique key which defines the overwriting semantics for
-    /// this piece of room state. This value is often a zero-length string.
-    ///
-    /// # Example
-    ///
-    /// ```no_run
-    /// use matrix_sdk::events::{
-    ///     AnyStateEventContent,
-    ///     room::member::{MemberEventContent, MembershipState},
-    /// };
-    /// # futures::executor::block_on(async {
-    /// # let homeserver = url::Url::parse("http://localhost:8080").unwrap();
-    /// # let mut client = matrix_sdk::Client::new(homeserver).unwrap();
-    /// # let room_id = matrix_sdk::identifiers::room_id!("!test:localhost");
-    ///
-    /// let avatar_url = "https://example.org/avatar";
-    /// let member_event = MemberEventContent {
-    ///    avatar_url: Some(avatar_url.to_string()),
-    ///    membership: MembershipState::Join,
-    ///    is_direct: None,
-    ///    displayname: None,
-    ///    third_party_invite: None,
-    /// };
-    ///
-    /// let content = AnyStateEventContent::RoomMember(member_event);
-    /// client.room_send_state_event(&room_id, content, "").await.unwrap();
-    /// # })
-    /// ```
-    pub async fn room_send_state_event(
-        &self,
-        room_id: &RoomId,
-        content: impl Into<AnyStateEventContent>,
-        state_key: &str,
-    ) -> Result<send_state_event_for_key::Response> {
-        let content = content.into();
-        let request = send_state_event_for_key::Request::new(room_id, state_key, &content);
-
-        self.send(request, None).await
-    }
-
     #[cfg(feature = "encryption")]
     pub(crate) async fn room_send_helper(
         &self,
@@ -1275,222 +931,10 @@ impl Client {
         let txn_id = request.txn_id;
         let room_id = &request.room_id;
 
-        self.room_send(&room_id, content, Some(txn_id)).await
-    }
-
-    /// Send a room message to the homeserver.
-    ///
-    /// Returns the parsed response from the server.
-    ///
-    /// If the encryption feature is enabled this method will transparently
-    /// encrypt the room message if the given room is encrypted.
-    ///
-    /// # Arguments
-    ///
-    /// * `room_id` -  The id of the room that should receive the message.
-    ///
-    /// * `content` - The content of the message event.
-    ///
-    /// * `txn_id` - A unique `Uuid` that can be attached to a `MessageEvent`
-    /// held in its unsigned field as `transaction_id`. If not given one is
-    /// created for the message.
-    ///
-    /// # Example
-    /// ```no_run
-    /// # use std::sync::{Arc, RwLock};
-    /// # use matrix_sdk::{Client, SyncSettings};
-    /// # use url::Url;
-    /// # use futures::executor::block_on;
-    /// # use matrix_sdk::identifiers::room_id;
-    /// # use std::convert::TryFrom;
-    /// use matrix_sdk::events::{
-    ///     AnyMessageEventContent,
-    ///     room::message::{MessageEventContent, TextMessageEventContent},
-    /// };
-    /// # block_on(async {
-    /// # let homeserver = Url::parse("http://localhost:8080").unwrap();
-    /// # let mut client = Client::new(homeserver).unwrap();
-    /// # let room_id = room_id!("!test:localhost");
-    /// use matrix_sdk_common::uuid::Uuid;
-    ///
-    /// let content = AnyMessageEventContent::RoomMessage(
-    ///     MessageEventContent::text_plain("Hello world")
-    /// );
-    ///
-    /// let txn_id = Uuid::new_v4();
-    /// client.room_send(&room_id, content, Some(txn_id)).await.unwrap();
-    /// # })
-    /// ```
-    pub async fn room_send(
-        &self,
-        room_id: &RoomId,
-        content: impl Into<AnyMessageEventContent>,
-        txn_id: Option<Uuid>,
-    ) -> Result<send_message_event::Response> {
-        #[cfg(not(feature = "encryption"))]
-        let content: AnyMessageEventContent = content.into();
-
-        #[cfg(feature = "encryption")]
-        let content = if self.is_room_encrypted(room_id).await {
-            if !self.are_members_synced(room_id).await {
-                self.room_members(room_id).await?;
-                // TODO query keys here?
-            }
-
-            self.preshare_group_session(room_id).await?;
-            AnyMessageEventContent::RoomEncrypted(self.base_client.encrypt(room_id, content).await?)
-        } else {
-            content.into()
-        };
-
-        let txn_id = txn_id.unwrap_or_else(Uuid::new_v4).to_string();
-        let request = send_message_event::Request::new(&room_id, &txn_id, &content);
-
-        let response = self.send(request, None).await?;
-        Ok(response)
-    }
-
-    /// Check if the given room is encrypted.
-    ///
-    /// Returns true if a room with the given id was found and the room is
-    /// encrypted, false if the room wasn't found or isn't encrypted.
-    async fn is_room_encrypted(&self, room_id: &RoomId) -> bool {
-        self.base_client
-            .get_room(room_id)
-            .map(|r| r.is_encrypted())
-            .unwrap_or(false)
-    }
-
-    #[cfg(feature = "encryption")]
-    async fn are_members_synced(&self, room_id: &RoomId) -> bool {
-        self.base_client
-            .get_room(room_id)
-            .map(|r| r.are_members_synced())
-            .unwrap_or(true)
-    }
-
-    /// Send an attachment to a room.
-    ///
-    /// This will upload the given data that the reader produces using the
-    /// [`upload()`](#method.upload) method and post an event to the given room.
-    /// If the room is encrypted and the encryption feature is enabled the
-    /// upload will be encrypted.
-    ///
-    /// This is a convenience method that calls the [`upload()`](#method.upload)
-    /// and afterwards the [`room_send()`](#method.room_send).
-    ///
-    /// # Arguments
-    /// * `room_id` -  The id of the room that should receive the media event.
-    ///
-    /// * `body` - A textual representation of the media that is going to be
-    /// uploaded. Usually the file name.
-    ///
-    /// * `content_type` - The type of the media, this will be used as the
-    /// content-type header.
-    ///
-    /// * `reader` - A `Reader` that will be used to fetch the raw bytes of the
-    /// media.
-    ///
-    /// * `txn_id` - A unique `Uuid` that can be attached to a `MessageEvent`
-    /// held in its unsigned field as `transaction_id`. If not given one is
-    /// created for the message.
-    ///
-    /// # Examples
-    ///
-    /// ```no_run
-    /// # use std::{path::PathBuf, fs::File, io::Read};
-    /// # use matrix_sdk::{Client, identifiers::room_id};
-    /// # use url::Url;
-    /// # use mime;
-    /// # use futures::executor::block_on;
-    /// # block_on(async {
-    /// # let homeserver = Url::parse("http://localhost:8080").unwrap();
-    /// # let mut client = Client::new(homeserver).unwrap();
-    /// # let room_id = room_id!("!test:localhost");
-    /// let path = PathBuf::from("/home/example/my-cat.jpg");
-    /// let mut image = File::open(path).unwrap();
-    ///
-    /// let response = client
-    ///     .room_send_attachment(&room_id, "My favorite cat", &mime::IMAGE_JPEG, &mut image, None)
-    ///     .await
-    ///     .expect("Can't upload my cat.");
-    /// # });
-    /// ```
-    pub async fn room_send_attachment<R: Read>(
-        &self,
-        room_id: &RoomId,
-        body: &str,
-        content_type: &Mime,
-        mut reader: &mut R,
-        txn_id: Option<Uuid>,
-    ) -> Result<send_message_event::Response> {
-        let (response, encrypted_file) = if self.is_room_encrypted(room_id).await {
-            #[cfg(feature = "encryption")]
-            let mut reader = AttachmentEncryptor::new(reader);
-            #[cfg(feature = "encryption")]
-            let content_type = mime::APPLICATION_OCTET_STREAM;
-
-            let response = self.upload(&content_type, &mut reader).await?;
-
-            #[cfg(feature = "encryption")]
-            let keys = {
-                let keys = reader.finish();
-                Some(Box::new(EncryptedFile {
-                    url: response.content_uri.clone(),
-                    key: keys.web_key,
-                    iv: keys.iv,
-                    hashes: keys.hashes,
-                    v: keys.version,
-                }))
-            };
-            #[cfg(not(feature = "encryption"))]
-            let keys: Option<Box<EncryptedFile>> = None;
-
-            (response, keys)
-        } else {
-            let response = self.upload(&content_type, &mut reader).await?;
-            (response, None)
-        };
-
-        let url = response.content_uri;
-
-        let content = match content_type.type_() {
-            mime::IMAGE => {
-                // TODO create a thumbnail using the image crate?.
-                MessageType::Image(ImageMessageEventContent {
-                    body: body.to_owned(),
-                    info: None,
-                    url: Some(url),
-                    file: encrypted_file,
-                })
-            }
-            mime::AUDIO => MessageType::Audio(AudioMessageEventContent {
-                body: body.to_owned(),
-                info: None,
-                url: Some(url),
-                file: encrypted_file,
-            }),
-            mime::VIDEO => MessageType::Video(VideoMessageEventContent {
-                body: body.to_owned(),
-                info: None,
-                url: Some(url),
-                file: encrypted_file,
-            }),
-            _ => MessageType::File(FileMessageEventContent {
-                filename: None,
-                body: body.to_owned(),
-                info: None,
-                url: Some(url),
-                file: encrypted_file,
-            }),
-        };
-
-        self.room_send(
-            room_id,
-            AnyMessageEventContent::RoomMessage(MessageEventContent::new(content)),
-            txn_id,
-        )
-        .await
+        self.get_joined_room(room_id)
+            .expect("Can't send a message to a room that isn't known to the store")
+            .send(content, Some(txn_id))
+            .await
     }
 
     /// Upload some media to the server.
@@ -1704,14 +1148,6 @@ impl Client {
         request.auth = auth_data;
 
         self.send(request, None).await
-    }
-
-    /// Get the room members for the given room.
-    pub async fn room_members(&self, room_id: &RoomId) -> Result<MembersResponse> {
-        let request = get_member_events::Request::new(room_id);
-        let response = self.send(request, None).await?;
-
-        Ok(self.base_client.receive_members(room_id, &response).await?)
     }
 
     /// Synchronize the client's state with the latest state on the server.
@@ -1934,40 +1370,16 @@ impl Client {
     #[cfg(feature = "encryption")]
     #[cfg_attr(feature = "docs", doc(cfg(encryption)))]
     #[instrument(skip(users))]
-    async fn claim_one_time_keys(&self, users: impl Iterator<Item = &UserId>) -> Result<()> {
+    pub(crate) async fn claim_one_time_keys(
+        &self,
+        users: impl Iterator<Item = &UserId>,
+    ) -> Result<()> {
         let _lock = self.key_claim_lock.lock().await;
 
         if let Some((request_id, request)) = self.base_client.get_missing_sessions(users).await? {
             let response = self.send(request, None).await?;
             self.base_client
                 .mark_request_as_sent(&request_id, &response)
-                .await?;
-        }
-
-        Ok(())
-    }
-
-    /// Share a group session for a room.
-    ///
-    /// # Arguments
-    ///
-    /// * `room_id` - The ID of the room for which we want to share a group
-    /// session.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the client isn't logged in.
-    #[cfg(feature = "encryption")]
-    #[cfg_attr(feature = "docs", doc(cfg(encryption)))]
-    #[instrument]
-    async fn share_group_session(&self, room_id: &RoomId) -> Result<()> {
-        let mut requests = self.base_client.share_group_session(room_id).await?;
-
-        for request in requests.drain(..) {
-            let response = self.send_to_device(&request).await?;
-
-            self.base_client
-                .mark_request_as_sent(&request.txn_id, &response)
                 .await?;
         }
 
@@ -2053,11 +1465,13 @@ impl Client {
     pub async fn get_verification_request(&self, flow_id: &EventId) -> Option<VerificationRequest> {
         let olm = self.base_client.olm_machine().await?;
 
-        olm.get_verification_request(flow_id)
-            .map(|r| VerificationRequest {
-                inner: r,
-                client: self.clone(),
-            })
+        olm.get_verification_request(flow_id).and_then(|r| {
+            if let Some(room) = self.get_joined_room(r.room_id()) {
+                Some(VerificationRequest { inner: r, room })
+            } else {
+                None
+            }
+        })
     }
 
     /// Get a specific device of a user.
@@ -2379,15 +1793,15 @@ mod test {
     use crate::{ClientConfig, HttpError};
 
     use super::{
-        get_public_rooms, get_public_rooms_filtered, register::RegistrationKind, Client,
-        Invite3pid, Session, SyncSettings, Url,
+        get_public_rooms, get_public_rooms_filtered, register::RegistrationKind, Client, Session,
+        SyncSettings, Url,
     };
     use matrix_sdk_base::RoomMember;
     use matrix_sdk_common::{
         api::r0::{
             account::register::Request as RegistrationRequest,
             directory::get_public_rooms_filtered::Request as PublicRoomsFilterRequest,
-            typing::create_typing_event::Typing, uiaa::AuthData,
+            membership::Invite3pid, typing::create_typing_event::Typing, uiaa::AuthData,
         },
         assign,
         directory::Filter,
@@ -2695,10 +2109,25 @@ mod test {
         .match_header("authorization", "Bearer 1234")
         .create();
 
-        let user = user_id!("@example:localhost");
-        let room_id = room_id!("!testroom:example.org");
+        let _m = mock(
+            "GET",
+            Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_string()),
+        )
+        .with_status(200)
+        .match_header("authorization", "Bearer 1234")
+        .with_body(test_json::SYNC.to_string())
+        .create();
 
-        client.invite_user_by_id(&room_id, &user).await.unwrap();
+        let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
+
+        let _response = client.sync_once(sync_settings).await.unwrap();
+
+        let user = user_id!("@example:localhost");
+        let room = client
+            .get_joined_room(&room_id!("!SVkFJHzfwvuaIEawgC:localhost"))
+            .unwrap();
+
+        room.invite_user_by_id(&user).await.unwrap();
     }
 
     #[tokio::test]
@@ -2715,20 +2144,31 @@ mod test {
         .match_header("authorization", "Bearer 1234")
         .create();
 
-        let room_id = room_id!("!testroom:example.org");
+        let _m = mock(
+            "GET",
+            Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_string()),
+        )
+        .with_status(200)
+        .match_header("authorization", "Bearer 1234")
+        .with_body(test_json::SYNC.to_string())
+        .create();
 
-        client
-            .invite_user_by_3pid(
-                &room_id,
-                Invite3pid {
-                    id_server: "example.org",
-                    id_access_token: "IdToken",
-                    medium: thirdparty::Medium::Email,
-                    address: "address",
-                },
-            )
-            .await
+        let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
+
+        let _response = client.sync_once(sync_settings).await.unwrap();
+
+        let room = client
+            .get_joined_room(&room_id!("!SVkFJHzfwvuaIEawgC:localhost"))
             .unwrap();
+
+        room.invite_user_by_3pid(Invite3pid {
+            id_server: "example.org",
+            id_access_token: "IdToken",
+            medium: thirdparty::Medium::Email,
+            address: "address",
+        })
+        .await
+        .unwrap();
     }
 
     #[tokio::test]
@@ -2785,9 +2225,24 @@ mod test {
         .match_header("authorization", "Bearer 1234")
         .create();
 
-        let room_id = room_id!("!testroom:example.org");
+        let _m = mock(
+            "GET",
+            Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_string()),
+        )
+        .with_status(200)
+        .match_header("authorization", "Bearer 1234")
+        .with_body(test_json::SYNC.to_string())
+        .create();
 
-        client.leave_room(&room_id).await.unwrap();
+        let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
+
+        let _response = client.sync_once(sync_settings).await.unwrap();
+
+        let room = client
+            .get_joined_room(&room_id!("!SVkFJHzfwvuaIEawgC:localhost"))
+            .unwrap();
+
+        room.leave().await.unwrap();
     }
 
     #[tokio::test]
@@ -2804,9 +2259,25 @@ mod test {
         .match_header("authorization", "Bearer 1234")
         .create();
 
+        let _m = mock(
+            "GET",
+            Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_string()),
+        )
+        .with_status(200)
+        .match_header("authorization", "Bearer 1234")
+        .with_body(test_json::SYNC.to_string())
+        .create();
+
+        let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
+
+        let _response = client.sync_once(sync_settings).await.unwrap();
+
         let user = user_id!("@example:localhost");
-        let room_id = room_id!("!testroom:example.org");
-        client.ban_user(&room_id, &user, None).await.unwrap();
+        let room = client
+            .get_joined_room(&room_id!("!SVkFJHzfwvuaIEawgC:localhost"))
+            .unwrap();
+
+        room.ban_user(&user, None).await.unwrap();
     }
 
     #[tokio::test]
@@ -2823,10 +2294,25 @@ mod test {
         .match_header("authorization", "Bearer 1234")
         .create();
 
-        let user = user_id!("@example:localhost");
-        let room_id = room_id!("!testroom:example.org");
+        let _m = mock(
+            "GET",
+            Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_string()),
+        )
+        .with_status(200)
+        .match_header("authorization", "Bearer 1234")
+        .with_body(test_json::SYNC.to_string())
+        .create();
 
-        client.kick_user(&room_id, &user, None).await.unwrap();
+        let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
+
+        let _response = client.sync_once(sync_settings).await.unwrap();
+
+        let user = user_id!("@example:localhost");
+        let room = client
+            .get_joined_room(&room_id!("!SVkFJHzfwvuaIEawgC:localhost"))
+            .unwrap();
+
+        room.kick_user(&user, None).await.unwrap();
     }
 
     #[tokio::test]
@@ -2843,9 +2329,24 @@ mod test {
         .match_header("authorization", "Bearer 1234")
         .create();
 
-        let room_id = room_id!("!testroom:example.org");
+        let _m = mock(
+            "GET",
+            Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_string()),
+        )
+        .with_status(200)
+        .match_header("authorization", "Bearer 1234")
+        .with_body(test_json::LEAVE_SYNC.to_string())
+        .create();
 
-        client.forget_room_by_id(&room_id).await.unwrap();
+        let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
+
+        let _response = client.sync_once(sync_settings).await.unwrap();
+
+        let room = client
+            .get_left_room(&room_id!("!SVkFJHzfwvuaIEawgC:localhost"))
+            .unwrap();
+
+        room.forget().await.unwrap();
     }
 
     #[tokio::test]
@@ -2862,10 +2363,25 @@ mod test {
         .match_header("authorization", "Bearer 1234")
         .create();
 
-        let room_id = room_id!("!testroom:example.org");
-        let event_id = event_id!("$xxxxxx:example.org");
+        let _m = mock(
+            "GET",
+            Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_string()),
+        )
+        .with_status(200)
+        .match_header("authorization", "Bearer 1234")
+        .with_body(test_json::SYNC.to_string())
+        .create();
 
-        client.read_receipt(&room_id, &event_id).await.unwrap();
+        let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
+
+        let _response = client.sync_once(sync_settings).await.unwrap();
+
+        let event_id = event_id!("$xxxxxx:example.org");
+        let room = client
+            .get_joined_room(&room_id!("!SVkFJHzfwvuaIEawgC:localhost"))
+            .unwrap();
+
+        room.read_receipt(&event_id).await.unwrap();
     }
 
     #[tokio::test]
@@ -2882,10 +2398,25 @@ mod test {
         .match_header("authorization", "Bearer 1234")
         .create();
 
-        let room_id = room_id!("!testroom:example.org");
-        let event_id = event_id!("$xxxxxx:example.org");
+        let _m = mock(
+            "GET",
+            Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_string()),
+        )
+        .with_status(200)
+        .match_header("authorization", "Bearer 1234")
+        .with_body(test_json::SYNC.to_string())
+        .create();
 
-        client.read_marker(&room_id, &event_id, None).await.unwrap();
+        let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
+
+        let _response = client.sync_once(sync_settings).await.unwrap();
+
+        let event_id = event_id!("$xxxxxx:example.org");
+        let room = client
+            .get_joined_room(&room_id!("!SVkFJHzfwvuaIEawgC:localhost"))
+            .unwrap();
+
+        room.read_marker(&event_id, None).await.unwrap();
     }
 
     #[tokio::test]
@@ -2902,10 +2433,24 @@ mod test {
         .match_header("authorization", "Bearer 1234")
         .create();
 
-        let room_id = room_id!("!testroom:example.org");
+        let _m = mock(
+            "GET",
+            Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_string()),
+        )
+        .with_status(200)
+        .match_header("authorization", "Bearer 1234")
+        .with_body(test_json::SYNC.to_string())
+        .create();
 
-        client
-            .typing_notice(&room_id, Typing::Yes(std::time::Duration::from_secs(1)))
+        let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
+
+        let _response = client.sync_once(sync_settings).await.unwrap();
+
+        let room = client
+            .get_joined_room(&room_id!("!SVkFJHzfwvuaIEawgC:localhost"))
+            .unwrap();
+
+        room.typing_notice(Typing::Yes(std::time::Duration::from_secs(1)))
             .await
             .unwrap();
     }
@@ -2928,7 +2473,22 @@ mod test {
         .with_body(test_json::EVENT_ID.to_string())
         .create();
 
-        let room_id = room_id!("!testroom:example.org");
+        let _m = mock(
+            "GET",
+            Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_string()),
+        )
+        .with_status(200)
+        .match_header("authorization", "Bearer 1234")
+        .with_body(test_json::SYNC.to_string())
+        .create();
+
+        let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
+
+        let _response = client.sync_once(sync_settings).await.unwrap();
+
+        let room_id = room_id!("!SVkFJHzfwvuaIEawgC:localhost");
+
+        let room = client.get_joined_room(&room_id).unwrap();
 
         let avatar_url = "https://example.org/avatar";
         let member_event = MemberEventContent {
@@ -2939,10 +2499,7 @@ mod test {
             third_party_invite: None,
         };
         let content = AnyStateEventContent::RoomMember(member_event);
-        let response = client
-            .room_send_state_event(&room_id, content, "")
-            .await
-            .unwrap();
+        let response = room.send_state_event(content, "").await.unwrap();
         assert_eq!(event_id!("$h29iv0s8:example.com"), response.event_id);
     }
 
@@ -2961,15 +2518,27 @@ mod test {
         .with_body(test_json::EVENT_ID.to_string())
         .create();
 
-        let room_id = room_id!("!testroom:example.org");
+        let _m = mock(
+            "GET",
+            Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_string()),
+        )
+        .with_status(200)
+        .match_header("authorization", "Bearer 1234")
+        .with_body(test_json::SYNC.to_string())
+        .create();
+
+        let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
+
+        let _response = client.sync_once(sync_settings).await.unwrap();
+
+        let room = client
+            .get_joined_room(&room_id!("!SVkFJHzfwvuaIEawgC:localhost"))
+            .unwrap();
 
         let content =
             AnyMessageEventContent::RoomMessage(MessageEventContent::text_plain("Hello world"));
         let txn_id = Uuid::new_v4();
-        let response = client
-            .room_send(&room_id, content, Some(txn_id))
-            .await
-            .unwrap();
+        let response = room.send(content, Some(txn_id)).await.unwrap();
 
         assert_eq!(event_id!("$h29iv0s8:example.com"), response.event_id)
     }
@@ -3001,12 +2570,27 @@ mod test {
         )
         .create();
 
-        let room_id = room_id!("!testroom:example.org");
+        let _m = mock(
+            "GET",
+            Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_string()),
+        )
+        .with_status(200)
+        .match_header("authorization", "Bearer 1234")
+        .with_body(test_json::SYNC.to_string())
+        .create();
+
+        let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
+
+        let _response = client.sync_once(sync_settings).await.unwrap();
+
+        let room = client
+            .get_joined_room(&room_id!("!SVkFJHzfwvuaIEawgC:localhost"))
+            .unwrap();
 
         let mut media = Cursor::new("Hello world");
 
-        let response = client
-            .room_send_attachment(&room_id, "image", &mime::IMAGE_JPEG, &mut media, None)
+        let response = room
+            .send_attachment("image", &mime::IMAGE_JPEG, &mut media, None)
             .await
             .unwrap();
 
@@ -3024,6 +2608,15 @@ mod test {
         .with_status(200)
         .match_header("authorization", "Bearer 1234")
         .with_body(test_json::SYNC.to_string())
+        .create();
+
+        let _m = mock(
+            "GET",
+            Matcher::Regex(r"^/_matrix/client/r0/rooms/.*/members".to_string()),
+        )
+        .with_status(200)
+        .match_header("authorization", "Bearer 1234")
+        .with_body(test_json::MEMBERS.to_string())
         .create();
 
         let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));

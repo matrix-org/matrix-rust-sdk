@@ -1,4 +1,4 @@
-use crate::{room::Common, Client, Room, RoomType};
+use crate::{room::Common, Client, Result, Room, RoomType};
 use std::ops::Deref;
 
 /// A room in the invited state.
@@ -18,6 +18,7 @@ impl Invited {
     ///
     /// * `room` - The underlaying room.
     pub fn new(client: Client, room: Room) -> Option<Self> {
+        // TODO: Make this private
         if room.room_type() == RoomType::Invited {
             Some(Self {
                 inner: Common::new(client, room),
@@ -25,6 +26,16 @@ impl Invited {
         } else {
             None
         }
+    }
+
+    /// Reject the invitation.
+    pub async fn reject_invitation(&self) -> Result<()> {
+        self.inner.leave().await
+    }
+
+    /// Accept the invitation.
+    pub async fn accept_invitation(&self) -> Result<()> {
+        self.inner.join().await
     }
 }
 

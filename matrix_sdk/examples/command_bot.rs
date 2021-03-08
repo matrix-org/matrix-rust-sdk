@@ -6,7 +6,8 @@ use matrix_sdk::{
         room::message::{MessageEventContent, MessageType, TextMessageEventContent},
         AnyMessageEventContent, SyncMessageEvent,
     },
-    Client, ClientConfig, EventHandler, Room, RoomType, SyncSettings,
+    room::Joined,
+    Client, ClientConfig, EventHandler, Room, SyncSettings,
 };
 use url::Url;
 
@@ -25,7 +26,7 @@ impl CommandBot {
 #[async_trait]
 impl EventHandler for CommandBot {
     async fn on_room_message(&self, room: Room, event: &SyncMessageEvent<MessageEventContent>) {
-        if room.room_type() == RoomType::Joined {
+        if let Some(room) = Joined::new(self.client.clone(), room) {
             let msg_body = if let SyncMessageEvent {
                 content:
                     MessageEventContent {
@@ -47,12 +48,9 @@ impl EventHandler for CommandBot {
 
                 println!("sending");
 
-                self.client
-                    // send our message to the room we found the "!party" command in
-                    // the last parameter is an optional Uuid which we don't care about.
-                    .room_send(room.room_id(), content, None)
-                    .await
-                    .unwrap();
+                // send our message to the room we found the "!party" command in
+                // the last parameter is an optional Uuid which we don't care about.
+                room.send(content, None).await.unwrap();
 
                 println!("message sent");
             }

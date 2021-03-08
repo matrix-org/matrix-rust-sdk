@@ -4,7 +4,7 @@ use tokio::time::{sleep, Duration};
 use matrix_sdk::{
     self, async_trait,
     events::{room::member::MemberEventContent, StrippedStateEvent},
-    Client, ClientConfig, EventHandler, Room, RoomType, SyncSettings,
+    room, Client, ClientConfig, EventHandler, Room, SyncSettings,
 };
 use url::Url;
 
@@ -30,11 +30,11 @@ impl EventHandler for AutoJoinBot {
             return;
         }
 
-        if room.room_type() == RoomType::Invited {
+        if let Some(room) = room::Invited::new(self.client.clone(), room) {
             println!("Autojoining room {}", room.room_id());
             let mut delay = 2;
 
-            while let Err(err) = self.client.join_room_by_id(room.room_id()).await {
+            while let Err(err) = room.accept_invitation().await {
                 // retry autojoin due to synapse sending invites, before the
                 // invited user can join for more information see
                 // https://github.com/matrix-org/synapse/issues/4345

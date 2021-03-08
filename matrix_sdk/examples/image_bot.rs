@@ -14,7 +14,8 @@ use matrix_sdk::{
         room::message::{MessageEventContent, MessageType, TextMessageEventContent},
         SyncMessageEvent,
     },
-    Client, EventHandler, Room, RoomType, SyncSettings,
+    room::Joined,
+    Client, EventHandler, Room, SyncSettings,
 };
 use url::Url;
 
@@ -33,7 +34,7 @@ impl ImageBot {
 #[async_trait]
 impl EventHandler for ImageBot {
     async fn on_room_message(&self, room: Room, event: &SyncMessageEvent<MessageEventContent>) {
-        if room.room_type() == RoomType::Joined {
+        if let Some(room) = Joined::new(self.client.clone(), room) {
             let msg_body = if let SyncMessageEvent {
                 content:
                     MessageEventContent {
@@ -52,14 +53,7 @@ impl EventHandler for ImageBot {
                 println!("sending image");
                 let mut image = self.image.lock().await;
 
-                self.client
-                    .room_send_attachment(
-                        room.room_id(),
-                        "cat",
-                        &mime::IMAGE_JPEG,
-                        &mut *image,
-                        None,
-                    )
+                room.send_attachment("cat", &mime::IMAGE_JPEG, &mut *image, None)
                     .await
                     .unwrap();
 
