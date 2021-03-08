@@ -33,7 +33,7 @@ use tracing::info;
 
 use crate::deserialized_responses::{MemberEvent, StrippedMemberEvent};
 
-use super::{Result, RoomInfo, StateChanges, StateStore, StrippedRoomInfo};
+use super::{Result, RoomInfo, StateChanges, StateStore};
 
 #[derive(Debug, Clone)]
 pub struct MemoryStore {
@@ -49,7 +49,7 @@ pub struct MemoryStore {
     #[allow(clippy::type_complexity)]
     room_state: Arc<DashMap<RoomId, DashMap<String, DashMap<String, AnySyncStateEvent>>>>,
     room_account_data: Arc<DashMap<RoomId, DashMap<String, AnyBasicEvent>>>,
-    stripped_room_info: Arc<DashMap<RoomId, StrippedRoomInfo>>,
+    stripped_room_info: Arc<DashMap<RoomId, RoomInfo>>,
     #[allow(clippy::type_complexity)]
     stripped_room_state:
         Arc<DashMap<RoomId, DashMap<String, DashMap<String, AnyStrippedStateEvent>>>>,
@@ -291,7 +291,7 @@ impl MemoryStore {
         self.room_info.iter().map(|r| r.clone()).collect()
     }
 
-    fn get_stripped_room_infos(&self) -> Vec<StrippedRoomInfo> {
+    fn get_stripped_room_infos(&self) -> Vec<RoomInfo> {
         #[allow(clippy::map_clone)]
         self.stripped_room_info.iter().map(|r| r.clone()).collect()
     }
@@ -357,7 +357,7 @@ impl StateStore for MemoryStore {
         Ok(self.get_room_infos())
     }
 
-    async fn get_stripped_room_infos(&self) -> Result<Vec<StrippedRoomInfo>> {
+    async fn get_stripped_room_infos(&self) -> Result<Vec<RoomInfo>> {
         Ok(self.get_stripped_room_infos())
     }
 

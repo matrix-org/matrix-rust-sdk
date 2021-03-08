@@ -4,7 +4,7 @@ use tokio::time::{sleep, Duration};
 use matrix_sdk::{
     self, async_trait,
     events::{room::member::MemberEventContent, StrippedStateEvent},
-    Client, ClientConfig, EventHandler, RoomState, SyncSettings,
+    Client, ClientConfig, EventHandler, Room, RoomType, SyncSettings,
 };
 use url::Url;
 
@@ -22,7 +22,7 @@ impl AutoJoinBot {
 impl EventHandler for AutoJoinBot {
     async fn on_stripped_state_member(
         &self,
-        room: RoomState,
+        room: Room,
         room_member: &StrippedStateEvent<MemberEventContent>,
         _: Option<MemberEventContent>,
     ) {
@@ -30,7 +30,7 @@ impl EventHandler for AutoJoinBot {
             return;
         }
 
-        if let RoomState::Invited(room) = room {
+        if room.room_type() == RoomType::Invited {
             println!("Autojoining room {}", room.room_id());
             let mut delay = 2;
 

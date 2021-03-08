@@ -29,7 +29,7 @@ use matrix_sdk_common::{
             guest_access::GuestAccess, history_visibility::HistoryVisibility, join_rules::JoinRule,
             tombstone::TombstoneEventContent,
         },
-        AnySyncStateEvent, EventType,
+        AnyStateEventContent, AnySyncStateEvent, EventType,
     },
     identifiers::{RoomAliasId, RoomId, UserId},
 };
@@ -43,7 +43,7 @@ use crate::{
 
 use super::{BaseRoomInfo, RoomMember};
 
-/// The underlying room data structure collecting state for joined and left rooms.
+/// The underlying room data structure collecting state for joined, left and invtied rooms.
 #[derive(Debug, Clone)]
 pub struct Room {
     room_id: Arc<RoomId>,
@@ -67,7 +67,7 @@ pub struct RoomSummary {
 
 /// Enum keeping track in which state the room is, e.g. if our own user is
 /// joined, invited, or has left the room.
-#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub enum RoomType {
     /// The room is in a joined state.
     Joined,
@@ -484,8 +484,8 @@ impl RoomInfo {
         self.base_info.encryption.is_some()
     }
 
-    pub(crate) fn handle_state_event(&mut self, event: &AnySyncStateEvent) -> bool {
-        self.base_info.handle_state_event(&event.content())
+    pub(crate) fn handle_state_event(&mut self, event: &AnyStateEventContent) -> bool {
+        self.base_info.handle_state_event(&event)
     }
 
     pub(crate) fn update_notification_count(

@@ -1,6 +1,5 @@
 mod members;
 mod normal;
-mod stripped;
 
 use matrix_sdk_common::{
     events::room::{
@@ -10,12 +9,11 @@ use matrix_sdk_common::{
     identifiers::UserId,
 };
 pub use normal::{Room, RoomInfo, RoomType};
-pub use stripped::{StrippedRoom, StrippedRoomInfo};
 
 pub use members::RoomMember;
 
 use serde::{Deserialize, Serialize};
-use std::{cmp::max, ops::Deref};
+use std::cmp::max;
 
 use matrix_sdk_common::{
     events::{
@@ -24,132 +22,6 @@ use matrix_sdk_common::{
     },
     identifiers::RoomAliasId,
 };
-
-/// An enum that represents the state of the given `Room`.
-///
-/// If the event came from the `join`, `invite` or `leave` rooms map from the server
-/// the variant that holds the corresponding room is used. `RoomState` is generic
-/// so it can be used to represent a `Room` or an `Arc<RwLock<Room>>`
-#[derive(Debug, Clone)]
-pub enum RoomState {
-    /// A room from the `join` section of a sync response.
-    Joined(JoinedRoom),
-    /// A room from the `leave` section of a sync response.
-    Left(LeftRoom),
-    /// A room from the `invite` section of a sync response.
-    Invited(InvitedRoom),
-}
-
-impl RoomState {
-    /// Destructure the room into a `JoinedRoom` if the room is in the joined
-    /// state.
-    pub fn joined(self) -> Option<JoinedRoom> {
-        if let RoomState::Joined(r) = self {
-            Some(r)
-        } else {
-            None
-        }
-    }
-
-    /// Destructure the room into an `InvitedRoom` if the room is in the invited
-    /// state.
-    pub fn invited(self) -> Option<InvitedRoom> {
-        if let RoomState::Invited(r) = self {
-            Some(r)
-        } else {
-            None
-        }
-    }
-
-    /// Destructure the room into a `LeftRoom` if the room is in the left
-    /// state.
-    pub fn left(self) -> Option<LeftRoom> {
-        if let RoomState::Left(r) = self {
-            Some(r)
-        } else {
-            None
-        }
-    }
-
-    /// Is the room encrypted.
-    pub fn is_encrypted(&self) -> bool {
-        match self {
-            RoomState::Joined(r) => r.inner.is_encrypted(),
-            RoomState::Left(r) => r.inner.is_encrypted(),
-            RoomState::Invited(r) => r.inner.is_encrypted(),
-        }
-    }
-
-    /// Get the history visibility policy of this room.
-    pub fn history_visibility(&self) -> HistoryVisibility {
-        match self {
-            RoomState::Joined(r) => r.inner.history_visibility(),
-            RoomState::Left(r) => r.inner.history_visibility(),
-            RoomState::Invited(r) => r.inner.history_visibility(),
-        }
-    }
-
-    /// Get the `m.room.encryption` content that enabled end to end encryption
-    /// in the room.
-    pub fn encryption_settings(&self) -> Option<EncryptionEventContent> {
-        match self {
-            RoomState::Joined(r) => r.inner.encryption_settings(),
-            RoomState::Left(r) => r.inner.encryption_settings(),
-            RoomState::Invited(r) => r.inner.encryption_settings(),
-        }
-    }
-
-    /// Are the members for this room synced.
-    pub fn are_members_synced(&self) -> bool {
-        if let RoomState::Joined(r) = self {
-            r.inner.are_members_synced()
-        } else {
-            true
-        }
-    }
-}
-
-/// A room in a joined state.
-#[derive(Debug, Clone)]
-pub struct JoinedRoom {
-    pub(crate) inner: Room,
-}
-
-impl Deref for JoinedRoom {
-    type Target = Room;
-
-    fn deref(&self) -> &Self::Target {
-        &self.inner
-    }
-}
-
-/// A room in a left state.
-#[derive(Debug, Clone)]
-pub struct LeftRoom {
-    pub(crate) inner: Room,
-}
-
-impl Deref for LeftRoom {
-    type Target = Room;
-
-    fn deref(&self) -> &Self::Target {
-        &self.inner
-    }
-}
-
-/// A room in an invited state.
-#[derive(Debug, Clone)]
-pub struct InvitedRoom {
-    pub(crate) inner: StrippedRoom,
-}
-
-impl Deref for InvitedRoom {
-    type Target = StrippedRoom;
-
-    fn deref(&self) -> &Self::Target {
-        &self.inner
-    }
-}
 
 /// A base room info struct that is the backbone of normal as well as stripped
 /// rooms. Holds all the state events that are important to present a room to
