@@ -51,7 +51,7 @@ tempfile = "3.2.0"
 http = "0.2.3"
 matrix-sdk-test = { version = "0.2.0", path = "../matrix_sdk_test" }
 indoc = "1.0.3"
-criterion = { version = "0.3.4", features = ["async", "async_futures", "html_reports"] }
+criterion = { version = "0.3.4", features = ["async", "async_tokio", "html_reports"] }
 
 [target.'cfg(target_os = "linux")'.dev-dependencies]
 pprof = { version = "0.4.2", features = ["flamegraph"] }

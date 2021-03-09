@@ -3,7 +3,7 @@ mod perf;
 
 use std::convert::TryFrom;
 
-use criterion::{async_executor::FuturesExecutor, *};
+use criterion::*;
 
 use futures::executor::block_on;
 use matrix_sdk_common::{
@@ -17,6 +17,7 @@ use matrix_sdk_common::{
 use matrix_sdk_crypto::{EncryptionSettings, OlmMachine};
 use matrix_sdk_test::response_from_file;
 use serde_json::Value;
+use tokio::runtime::Builder;
 
 fn alice_id() -> UserId {
     user_id!("@alice:example.org")
@@ -41,6 +42,9 @@ fn keys_claim_response() -> claim_keys::Response {
 }
 
 pub fn keys_query(c: &mut Criterion) {
+    let runtime = Builder::new_multi_thread()
+        .build()
+        .expect("Can't create runtime");
     let machine = OlmMachine::new(&alice_id(), &alice_device_id());
     let response = keys_query_response();
     let uuid = Uuid::new_v4();
@@ -62,7 +66,7 @@ pub fn keys_query(c: &mut Criterion) {
         BenchmarkId::new("memory store", &name),
         &response,
         |b, response| {
-            b.to_async(FuturesExecutor)
+            b.to_async(&runtime)
                 .iter(|| async { machine.mark_request_as_sent(&uuid, response).await.unwrap() })
         },
     );
@@ -80,7 +84,7 @@ pub fn keys_query(c: &mut Criterion) {
         BenchmarkId::new("sled store", &name),
         &response,
         |b, response| {
-            b.to_async(FuturesExecutor)
+            b.to_async(&runtime)
                 .iter(|| async { machine.mark_request_as_sent(&uuid, response).await.unwrap() })
         },
     );
@@ -147,6 +151,10 @@ pub fn keys_claiming(c: &mut Criterion) {
 }
 
 pub fn room_key_sharing(c: &mut Criterion) {
+    let runtime = Builder::new_multi_thread()
+        .build()
+        .expect("Can't create runtime");
+
     let keys_query_response = keys_query_response();
     let uuid = Uuid::new_v4();
     let response = keys_claim_response();
@@ -169,7 +177,7 @@ pub fn room_key_sharing(c: &mut Criterion) {
     let name = format!("{} devices", count);
 
     group.bench_function(BenchmarkId::new("memory store", &name), |b| {
-        b.to_async(FuturesExecutor).iter(|| async {
+        b.to_async(&runtime).iter(|| async {
             let requests = machine
                 .share_group_session(&room_id, users.iter(), EncryptionSettings::default())
                 .await
@@ -200,7 +208,7 @@ pub fn room_key_sharing(c: &mut Criterion) {
     block_on(machine.mark_request_as_sent(&uuid, &response)).unwrap();
 
     group.bench_function(BenchmarkId::new("sled store", &name), |b| {
-        b.to_async(FuturesExecutor).iter(|| async {
+        b.to_async(&runtime).iter(|| async {
             let requests = machine
                 .share_group_session(&room_id, users.iter(), EncryptionSettings::default())
                 .await
