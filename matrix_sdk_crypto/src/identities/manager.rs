@@ -92,7 +92,13 @@ impl IdentityManager {
             ..Default::default()
         };
 
+        // TODO turn this into a single transaction.
         self.store.save_changes(changes).await?;
+        let updated_users: Vec<&UserId> = response.device_keys.keys().collect();
+
+        for user_id in updated_users {
+            self.store.update_tracked_user(user_id, false).await?;
+        }
 
         Ok((changed_devices, changed_identities))
     }
@@ -150,11 +156,6 @@ impl IdentityManager {
         let mut changes = DeviceChanges::default();
 
         for (user_id, device_map) in device_keys_map {
-            // TODO move this out into the handle keys query response method
-            // since we might fail to handle the new device at any point here or
-            // when updating the user identities.
-            self.store.update_tracked_user(user_id, false).await?;
-
             let tasks = device_map.iter().filter_map(|(device_id, device_keys)| {
                 // We don't need our own device in the device store.
                 if user_id == self.user_id() && &**device_id == self.device_id() {
