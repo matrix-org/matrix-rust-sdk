@@ -19,8 +19,6 @@ use std::{
 
 use futures::future::join_all;
 
-use tokio;
-
 use dashmap::DashMap;
 use matrix_sdk_common::{
     api::r0::to_device::DeviceIdOrAllDevices,
