@@ -231,7 +231,7 @@ impl GroupSessionManager {
         let results = join_all(tasks).await;
 
         for result in results {
-            let (used_session, message) = result.expect("Encryption task paniced")?;
+            let (used_session, message) = result.expect("Encryption task panicked")?;
 
             if let Some(session) = used_session {
                 changed_sessions.push(session);
