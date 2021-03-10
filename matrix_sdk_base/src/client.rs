@@ -63,10 +63,10 @@ use zeroize::Zeroizing;
 use crate::{
     error::Result,
     event_handler::Handler,
-    rooms::{RoomInfo, RoomType, StrippedRoomInfo},
+    rooms::{Room, RoomInfo, RoomType},
     session::Session,
     store::{ambiguity_map::AmbiguityCache, Result as StoreResult, StateChanges, Store},
-    EventHandler, RoomState,
+    EventHandler,
 };
 
 pub type Token = String;
@@ -151,17 +151,6 @@ fn hoist_room_event_prev_content(
     }
 
     Ok(ev)
-}
-
-/// Signals to the `BaseClient` which `RoomState` to send to `EventHandler`.
-#[derive(Debug)]
-pub enum RoomStateType {
-    /// Represents a joined room, the `joined_rooms` HashMap will be used.
-    Joined,
-    /// Represents a left room, the `left_rooms` HashMap will be used.
-    Left,
-    /// Represents an invited room, the `invited_rooms` HashMap will be used.
-    Invited,
 }
 
 /// A no IO Client implementation.
@@ -492,7 +481,7 @@ impl BaseClient {
                                 }
                             }
                             _ => {
-                                room_info.handle_state_event(&s);
+                                room_info.handle_state_event(&s.content());
                                 changes.add_state_event(room_id, s.clone());
                             }
                         },
@@ -531,7 +520,7 @@ impl BaseClient {
     fn handle_invited_state(
         &self,
         events: Vec<Raw<AnyStrippedStateEvent>>,
-        room_info: &mut StrippedRoomInfo,
+        room_info: &mut RoomInfo,
     ) -> (
         InviteState,
         BTreeMap<UserId, StrippedMemberEvent>,
@@ -555,7 +544,7 @@ impl BaseClient {
                                 ),
                             }
                         } else {
-                            room_info.handle_state_event(&e);
+                            room_info.handle_state_event(&e.content());
                             state_events
                                 .entry(e.content().event_type().to_owned())
                                 .or_insert_with(BTreeMap::new)
@@ -604,7 +593,7 @@ impl BaseClient {
                 })
         {
             state.events.push(event.clone());
-            room_info.handle_state_event(&event);
+            room_info.handle_state_event(&event.content());
 
             if let AnySyncStateEvent::RoomMember(member) = event {
                 match MemberEvent::try_from(member) {
@@ -1184,7 +1173,7 @@ impl BaseClient {
     /// # Arguments
     ///
     /// * `room_id` - The id of the room that should be fetched.
-    pub fn get_room(&self, room_id: &RoomId) -> Option<RoomState> {
+    pub fn get_room(&self, room_id: &RoomId) -> Option<Room> {
         self.store.get_room(room_id)
     }
 

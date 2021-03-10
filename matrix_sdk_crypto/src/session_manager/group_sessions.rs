@@ -28,12 +28,12 @@ use matrix_sdk_common::{
     uuid::Uuid,
 };
 use serde_json::Value;
-use tracing::{debug, info};
+use tracing::{debug, info, trace};
 
 use crate::{
     error::{EventError, MegolmResult, OlmResult},
     olm::{Account, InboundGroupSession, OutboundGroupSession, Session, ShareState},
-    store::{Changes, Store},
+    store::{Changes, Result as StoreResult, Store},
     Device, EncryptionSettings, OlmError, ToDeviceRequest,
 };
 
@@ -72,10 +72,21 @@ impl GroupSessionManager {
         }
     }
 
-    pub fn mark_request_as_sent(&self, request_id: &Uuid) {
+    pub async fn mark_request_as_sent(&self, request_id: &Uuid) -> StoreResult<()> {
         if let Some((_, s)) = self.outbound_sessions_being_shared.remove(request_id) {
             s.mark_request_as_sent(request_id);
+
+            let mut changes = Changes::default();
+            changes.outbound_group_sessions.push(s.clone());
+            self.store.save_changes(changes).await?;
+        } else {
+            trace!(
+                request_id = request_id.to_string().as_str(),
+                "Marking room key share request as sent but session found that owns the given id"
+            )
         }
+
+        Ok(())
     }
 
     /// Get an outbound group session for a room, if one exists.
@@ -144,6 +155,11 @@ impl GroupSessionManager {
         let outbound_session = if let Some(s) = self.outbound_group_sessions.get(room_id) {
             Some(s.clone())
         } else if let Some(s) = self.store.get_outbound_group_sessions(room_id).await? {
+            for request_id in s.pending_request_ids() {
+                self.outbound_sessions_being_shared
+                    .insert(request_id, s.clone());
+            }
+
             self.outbound_group_sessions
                 .insert(room_id.clone(), s.clone());
 

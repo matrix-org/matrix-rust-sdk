@@ -506,7 +506,7 @@ impl OlmMachine {
     pub async fn get_missing_sessions(
         &self,
         users: impl Iterator<Item = &UserId>,
-    ) -> OlmResult<Option<(Uuid, KeysClaimRequest)>> {
+    ) -> StoreResult<Option<(Uuid, KeysClaimRequest)>> {
         self.session_manager.get_missing_sessions(users).await
     }
 
@@ -753,7 +753,9 @@ impl OlmMachine {
         self.key_request_machine
             .mark_outgoing_request_as_sent(request_id)
             .await?;
-        self.group_session_manager.mark_request_as_sent(request_id);
+        self.group_session_manager
+            .mark_request_as_sent(request_id)
+            .await?;
         self.session_manager
             .mark_outgoing_request_as_sent(request_id);
 

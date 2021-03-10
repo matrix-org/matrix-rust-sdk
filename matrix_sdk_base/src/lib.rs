@@ -52,13 +52,10 @@ mod session;
 mod store;
 
 pub use event_handler::{CustomEvent, EventHandler};
-pub use rooms::{
-    InvitedRoom, JoinedRoom, LeftRoom, Room, RoomInfo, RoomMember, RoomState, StrippedRoom,
-    StrippedRoomInfo,
-};
+pub use rooms::{Room, RoomInfo, RoomMember, RoomType};
 pub use store::{StateChanges, StateStore, Store, StoreError};
 
-pub use client::{BaseClient, BaseClientConfig, RoomStateType};
+pub use client::{BaseClient, BaseClientConfig};
 
 #[cfg(feature = "encryption")]
 #[cfg_attr(feature = "docs", doc(cfg(encryption)))]

@@ -32,7 +32,7 @@ use std::{
     },
     time::Duration,
 };
-use tracing::debug;
+use tracing::{debug, error, trace};
 
 use matrix_sdk_common::{
     events::{
@@ -204,6 +204,11 @@ impl OutboundGroupSession {
     /// users/devices that received the session.
     pub fn mark_request_as_sent(&self, request_id: &Uuid) {
         if let Some((_, r)) = self.to_share_with_set.remove(request_id) {
+            trace!(
+                request_id = request_id.to_string().as_str(),
+                "Marking to-device request carrying a room key as sent"
+            );
+
             let user_pairs = r.0.messages.iter().map(|(u, v)| {
                 (
                     u.clone(),
@@ -233,6 +238,19 @@ impl OutboundGroupSession {
                 );
                 self.mark_as_shared();
             }
+        } else {
+            let request_ids: Vec<String> = self
+                .to_share_with_set
+                .iter()
+                .map(|e| e.key().to_string())
+                .collect();
+
+            error!(
+                all_request_ids = ?request_ids,
+                request_id = request_id.to_string().as_str(),
+                "Marking to-device request carrying a room key as sent but no \
+                    request found with the given id"
+            );
         }
     }
 
@@ -426,6 +444,11 @@ impl OutboundGroupSession {
             .iter()
             .map(|i| i.value().0.clone())
             .collect()
+    }
+
+    /// Get the list of request ids this session is waiting for to be sent out.
+    pub(crate) fn pending_request_ids(&self) -> Vec<Uuid> {
+        self.to_share_with_set.iter().map(|e| *e.key()).collect()
     }
 
     /// Restore a Session from a previously pickled string.

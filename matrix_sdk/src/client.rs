@@ -41,8 +41,7 @@ use tracing::{error, info, instrument};
 
 use matrix_sdk_base::{
     deserialized_responses::{MembersResponse, SyncResponse},
-    BaseClient, BaseClientConfig, EventHandler, InvitedRoom, JoinedRoom, LeftRoom, RoomState,
-    Session, Store,
+    BaseClient, BaseClientConfig, EventHandler, Room, RoomType, Session, Store,
 };
 
 #[cfg(feature = "encryption")]
@@ -564,34 +563,34 @@ impl Client {
     /// Get all the rooms the client knows about.
     ///
     /// This will return the list of joined, invited, and left rooms.
-    pub fn rooms(&self) -> Vec<RoomState> {
+    pub fn rooms(&self) -> Vec<Room> {
         self.store().get_rooms()
     }
 
     /// Returns the joined rooms this client knows about.
-    pub fn joined_rooms(&self) -> Vec<JoinedRoom> {
+    pub fn joined_rooms(&self) -> Vec<Room> {
         self.store()
             .get_rooms()
             .into_iter()
-            .filter_map(|r| r.joined())
+            .filter(|room| room.room_type() == RoomType::Joined)
             .collect()
     }
 
     /// Returns the invited rooms this client knows about.
-    pub fn invited_rooms(&self) -> Vec<InvitedRoom> {
+    pub fn invited_rooms(&self) -> Vec<Room> {
         self.store()
             .get_rooms()
             .into_iter()
-            .filter_map(|r| r.invited())
+            .filter(|room| room.room_type() == RoomType::Invited)
             .collect()
     }
 
     /// Returns the left rooms this client knows about.
-    pub fn left_rooms(&self) -> Vec<LeftRoom> {
+    pub fn left_rooms(&self) -> Vec<Room> {
         self.store()
             .get_rooms()
             .into_iter()
-            .filter_map(|r| r.left())
+            .filter(|room| room.room_type() == RoomType::Left)
             .collect()
     }
 
@@ -600,8 +599,10 @@ impl Client {
     /// # Arguments
     ///
     /// `room_id` - The unique id of the room that should be fetched.
-    pub fn get_joined_room(&self, room_id: &RoomId) -> Option<JoinedRoom> {
-        self.store().get_joined_room(room_id)
+    pub fn get_joined_room(&self, room_id: &RoomId) -> Option<Room> {
+        self.store()
+            .get_room(room_id)
+            .filter(|room| room.room_type() == RoomType::Joined)
     }
 
     /// Get an invited room with the given room id.
@@ -609,8 +610,10 @@ impl Client {
     /// # Arguments
     ///
     /// `room_id` - The unique id of the room that should be fetched.
-    pub fn get_invited_room(&self, room_id: &RoomId) -> Option<InvitedRoom> {
-        self.store().get_invited_room(room_id)
+    pub fn get_invited_room(&self, room_id: &RoomId) -> Option<Room> {
+        self.store()
+            .get_room(room_id)
+            .filter(|room| room.room_type() == RoomType::Invited)
     }
 
     /// Get a left room with the given room id.
@@ -618,8 +621,10 @@ impl Client {
     /// # Arguments
     ///
     /// `room_id` - The unique id of the room that should be fetched.
-    pub fn get_left_room(&self, room_id: &RoomId) -> Option<LeftRoom> {
-        self.store().get_left_room(room_id)
+    pub fn get_left_room(&self, room_id: &RoomId) -> Option<Room> {
+        self.store()
+            .get_room(room_id)
+            .filter(|room| room.room_type() == RoomType::Left)
     }
 
     /// Login to the server.
