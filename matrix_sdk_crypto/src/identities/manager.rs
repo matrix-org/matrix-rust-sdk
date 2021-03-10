@@ -74,15 +74,6 @@ impl IdentityManager {
         &self,
         response: &KeysQueryResponse,
     ) -> OlmResult<(DeviceChanges, IdentityChanges)> {
-        // TODO create a enum that tells us how the device/identity changed,
-        // e.g. new/deleted/display name change.
-        //
-        // TODO create a struct that will hold the device/identity and the
-        // change enum and return the struct.
-        //
-        // TODO once outbound group sessions hold on to the set of users that
-        // received the session, invalidate the session if a user device
-        // got added/deleted.
         let changed_devices = self
             .handle_devices_from_key_query(&response.device_keys)
             .await?;
