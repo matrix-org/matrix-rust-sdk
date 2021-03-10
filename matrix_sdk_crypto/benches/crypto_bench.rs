@@ -72,13 +72,14 @@ pub fn keys_query(c: &mut Criterion) {
     );
 
     let dir = tempfile::tempdir().unwrap();
-    let machine = block_on(OlmMachine::new_with_default_store(
-        &alice_id(),
-        &alice_device_id(),
-        dir.path(),
-        None,
-    ))
-    .unwrap();
+    let machine = runtime
+        .block_on(OlmMachine::new_with_default_store(
+            &alice_id(),
+            &alice_device_id(),
+            dir.path(),
+            None,
+        ))
+        .unwrap();
 
     group.bench_with_input(
         BenchmarkId::new("sled store", &name),
@@ -169,8 +170,12 @@ pub fn room_key_sharing(c: &mut Criterion) {
         .fold(0, |acc, d| acc + d.len());
 
     let machine = OlmMachine::new(&alice_id(), &alice_device_id());
-    block_on(machine.mark_request_as_sent(&uuid, &keys_query_response)).unwrap();
-    block_on(machine.mark_request_as_sent(&uuid, &response)).unwrap();
+    runtime
+        .block_on(machine.mark_request_as_sent(&uuid, &keys_query_response))
+        .unwrap();
+    runtime
+        .block_on(machine.mark_request_as_sent(&uuid, &response))
+        .unwrap();
 
     let mut group = c.benchmark_group("Room key sharing");
     group.throughput(Throughput::Elements(count as u64));
@@ -204,8 +209,12 @@ pub fn room_key_sharing(c: &mut Criterion) {
         None,
     ))
     .unwrap();
-    block_on(machine.mark_request_as_sent(&uuid, &keys_query_response)).unwrap();
-    block_on(machine.mark_request_as_sent(&uuid, &response)).unwrap();
+    runtime
+        .block_on(machine.mark_request_as_sent(&uuid, &keys_query_response))
+        .unwrap();
+    runtime
+        .block_on(machine.mark_request_as_sent(&uuid, &response))
+        .unwrap();
 
     group.bench_function(BenchmarkId::new("sled store", &name), |b| {
         b.to_async(&runtime).iter(|| async {
