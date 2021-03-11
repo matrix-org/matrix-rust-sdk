@@ -1,11 +1,10 @@
 #[cfg(target_os = "linux")]
 mod perf;
 
-use std::convert::TryFrom;
+use std::{convert::TryFrom, sync::Arc};
 
 use criterion::*;
 
-use futures::executor::block_on;
 use matrix_sdk_common::{
     api::r0::{
         keys::{claim_keys, get_keys},
@@ -94,6 +93,12 @@ pub fn keys_query(c: &mut Criterion) {
 }
 
 pub fn keys_claiming(c: &mut Criterion) {
+    let runtime = Arc::new(
+        Builder::new_multi_thread()
+            .build()
+            .expect("Can't create runtime"),
+    );
+
     let keys_query_response = keys_query_response();
     let uuid = Uuid::new_v4();
 
@@ -116,10 +121,16 @@ pub fn keys_claiming(c: &mut Criterion) {
             b.iter_batched(
                 || {
                     let machine = OlmMachine::new(&alice_id(), &alice_device_id());
-                    block_on(machine.mark_request_as_sent(&uuid, &keys_query_response)).unwrap();
-                    machine
+                    runtime
+                        .block_on(machine.mark_request_as_sent(&uuid, &keys_query_response))
+                        .unwrap();
+                    (machine, runtime.clone())
                 },
-                move |machine| block_on(machine.mark_request_as_sent(&uuid, response)).unwrap(),
+                move |(machine, runtime)| {
+                    runtime
+                        .block_on(machine.mark_request_as_sent(&uuid, response))
+                        .unwrap()
+                },
                 BatchSize::SmallInput,
             )
         },
@@ -132,17 +143,24 @@ pub fn keys_claiming(c: &mut Criterion) {
             b.iter_batched(
                 || {
                     let dir = tempfile::tempdir().unwrap();
-                    let machine = block_on(OlmMachine::new_with_default_store(
-                        &alice_id(),
-                        &alice_device_id(),
-                        dir.path(),
-                        None,
-                    ))
-                    .unwrap();
-                    block_on(machine.mark_request_as_sent(&uuid, &keys_query_response)).unwrap();
-                    machine
+                    let machine = runtime
+                        .block_on(OlmMachine::new_with_default_store(
+                            &alice_id(),
+                            &alice_device_id(),
+                            dir.path(),
+                            None,
+                        ))
+                        .unwrap();
+                    runtime
+                        .block_on(machine.mark_request_as_sent(&uuid, &keys_query_response))
+                        .unwrap();
+                    (machine, runtime.clone())
                 },
-                move |machine| block_on(machine.mark_request_as_sent(&uuid, response)).unwrap(),
+                move |(machine, runtime)| {
+                    runtime
+                        .block_on(machine.mark_request_as_sent(&uuid, response))
+                        .unwrap()
+                },
                 BatchSize::SmallInput,
             )
         },
@@ -202,13 +220,14 @@ pub fn room_key_sharing(c: &mut Criterion) {
     });
 
     let dir = tempfile::tempdir().unwrap();
-    let machine = block_on(OlmMachine::new_with_default_store(
-        &alice_id(),
-        &alice_device_id(),
-        dir.path(),
-        None,
-    ))
-    .unwrap();
+    let machine = runtime
+        .block_on(OlmMachine::new_with_default_store(
+            &alice_id(),
+            &alice_device_id(),
+            dir.path(),
+            None,
+        ))
+        .unwrap();
     runtime
         .block_on(machine.mark_request_as_sent(&uuid, &keys_query_response))
         .unwrap();
