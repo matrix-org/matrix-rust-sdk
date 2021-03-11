@@ -16,11 +16,11 @@ use std::{
     collections::{HashMap, HashSet},
     convert::TryFrom,
     path::{Path, PathBuf},
-    sync::Arc,
+    sync::{Arc, RwLock},
 };
 
 use dashmap::DashSet;
-use olm_rs::PicklingMode;
+use olm_rs::{account::IdentityKeys, PicklingMode};
 pub use sled::Error;
 use sled::{
     transaction::{ConflictableTransactionError, TransactionError},
@@ -95,9 +95,17 @@ impl EncodeKey for (&str, &str, &str) {
     }
 }
 
+#[derive(Clone, Debug)]
+pub struct AccountInfo {
+    user_id: Arc<UserId>,
+    device_id: Arc<DeviceIdBox>,
+    identity_keys: Arc<IdentityKeys>,
+}
+
 /// An in-memory only store that will forget all the E2EE key once it's dropped.
 #[derive(Clone)]
 pub struct SledStore {
+    account_info: Arc<RwLock<Option<AccountInfo>>>,
     path: Option<PathBuf>,
     inner: Db,
     pickle_key: Arc<PickleKey>,
@@ -159,6 +167,10 @@ impl SledStore {
         SledStore::open_helper(db, None, passphrase)
     }
 
+    fn get_account_info(&self) -> Option<AccountInfo> {
+        self.account_info.read().unwrap().clone()
+    }
+
     fn open_helper(db: Db, path: Option<PathBuf>, passphrase: Option<&str>) -> Result<Self> {
         let account = db.open_tree("account")?;
         let private_identity = db.open_tree("private_identity")?;
@@ -184,6 +196,7 @@ impl SledStore {
         };
 
         Ok(Self {
+            account_info: RwLock::new(None).into(),
             path,
             inner: db,
             pickle_key: pickle_key.into(),
@@ -249,13 +262,12 @@ impl SledStore {
         &self,
         room_id: &RoomId,
     ) -> Result<Option<OutboundGroupSession>> {
-        let account = self
-            .load_account()
-            .await?
+        let account_info = self
+            .get_account_info()
             .ok_or(CryptoStoreError::AccountUnset)?;
 
-        let device_id: Arc<DeviceIdBox> = account.device_id().to_owned().into();
-        let identity_keys = account.identity_keys;
+        let device_id: Arc<DeviceIdBox> = account_info.device_id.clone();
+        let identity_keys = account_info.identity_keys.clone();
 
         self.outbound_group_sessions
             .get(room_id.encode())?
@@ -430,16 +442,31 @@ impl CryptoStore for SledStore {
 
             self.load_tracked_users().await?;
 
-            Ok(Some(ReadOnlyAccount::from_pickle(
-                pickle,
-                self.get_pickle_mode(),
-            )?))
+            let account = ReadOnlyAccount::from_pickle(pickle, self.get_pickle_mode())?;
+
+            let account_info = AccountInfo {
+                user_id: account.user_id.clone(),
+                device_id: account.device_id.clone(),
+                identity_keys: account.identity_keys.clone(),
+            };
+
+            *self.account_info.write().unwrap() = Some(account_info);
+
+            Ok(Some(account))
         } else {
             Ok(None)
         }
     }
 
     async fn save_account(&self, account: ReadOnlyAccount) -> Result<()> {
+        let account_info = AccountInfo {
+            user_id: account.user_id.clone(),
+            device_id: account.device_id.clone(),
+            identity_keys: account.identity_keys.clone(),
+        };
+
+        *self.account_info.write().unwrap() = Some(account_info);
+
         let changes = Changes {
             account: Some(account),
             ..Default::default()
@@ -453,10 +480,13 @@ impl CryptoStore for SledStore {
     }
 
     async fn get_sessions(&self, sender_key: &str) -> Result<Option<Arc<Mutex<Vec<Session>>>>> {
-        let account = self
-            .load_account()
-            .await?
+        let account_info = self
+            .get_account_info()
             .ok_or(CryptoStoreError::AccountUnset)?;
+
+        let user_id: Arc<UserId> = account_info.user_id.clone();
+        let device_id: Arc<DeviceIdBox> = account_info.device_id.clone();
+        let identity_keys = account_info.identity_keys.clone();
 
         if self.session_cache.get(sender_key).is_none() {
             let sessions: Result<Vec<Session>> = self
@@ -465,9 +495,9 @@ impl CryptoStore for SledStore {
                 .map(|s| serde_json::from_slice(&s?.1).map_err(CryptoStoreError::Serialization))
                 .map(|p| {
                     Session::from_pickle(
-                        account.user_id.clone(),
-                        account.device_id.clone(),
-                        account.identity_keys.clone(),
+                        user_id.clone(),
+                        device_id.clone(),
+                        identity_keys.clone(),
                         p?,
                         self.get_pickle_mode(),
                     )
