@@ -1,4 +1,4 @@
-use crate::{room::Common, Client, Result, Room, RoomType};
+use crate::{room::{Common, Joined}, Client, Result, Room, RoomType};
 use std::ops::Deref;
 
 /// A room in the invited state.
@@ -30,11 +30,12 @@ impl Invited {
 
     /// Reject the invitation.
     pub async fn reject_invitation(&self) -> Result<()> {
-        self.inner.leave().await
+        self.inner.leave().await?;
+        Ok(())
     }
 
     /// Accept the invitation.
-    pub async fn accept_invitation(&self) -> Result<()> {
+    pub async fn accept_invitation(&self) -> Result<Joined> {
         self.inner.join().await
     }
 }

@@ -4,7 +4,7 @@ use matrix_sdk_common::api::r0::{
 };
 use std::ops::Deref;
 
-use crate::{Client, Result, Room, RoomMember};
+use crate::{room, Client, Result, Room, RoomMember, RoomType};
 
 /// A struct containing methodes that are common for Joined, Invited and Left Rooms
 #[derive(Debug, Clone)]
@@ -39,21 +39,37 @@ impl Common {
     /// Leave this room.
     ///
     /// Only invited and joined rooms can be left
-    pub(crate) async fn leave(&self) -> Result<()> {
+    pub(crate) async fn leave(&self) -> Result<room::Left> {
         let request = leave_room::Request::new(self.inner.room_id());
         let _response = self.client.send(request, None).await?;
 
-        Ok(())
+        self.client
+            .base_client
+            .receive_room_state_change(self.inner.room_id(), RoomType::Left)
+            .await?;
+
+        Ok(self
+            .client
+            .get_left_room(self.inner.room_id())
+            .expect("The left room couldn't be found in the store"))
     }
 
     /// Join this room.
     ///
     /// Only invited and left rooms can be joined via this method
-    pub(crate) async fn join(&self) -> Result<()> {
+    pub(crate) async fn join(&self) -> Result<room::Joined> {
         let request = join_room_by_id::Request::new(self.inner.room_id());
         let _resposne = self.client.send(request, None).await?;
 
-        Ok(())
+        self.client
+            .base_client
+            .receive_room_state_change(self.inner.room_id(), RoomType::Joined)
+            .await?;
+
+        Ok(self
+            .client
+            .get_joined_room(self.inner.room_id())
+            .expect("The joined room couldn't be found in the store"))
     }
 
     /// Sends a request to `/_matrix/client/r0/rooms/{room_id}/messages` and returns

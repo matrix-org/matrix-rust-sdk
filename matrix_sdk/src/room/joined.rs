@@ -1,4 +1,4 @@
-use crate::{room::Common, Client, Result, Room, RoomType};
+use crate::{room::{Common, Left}, Client, Result, Room, RoomType};
 use std::{io::Read, ops::Deref, sync::Arc};
 
 use matrix_sdk_common::{
@@ -76,7 +76,7 @@ impl Joined {
     }
 
     /// Leave this room.
-    pub async fn leave(&self) -> Result<()> {
+    pub async fn leave(&self) -> Result<Left> {
         self.inner.leave().await
     }
 

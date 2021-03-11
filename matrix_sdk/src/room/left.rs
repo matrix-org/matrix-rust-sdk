@@ -1,4 +1,4 @@
-use crate::{room::Common, Client, Result, Room, RoomType};
+use crate::{room, room::Common, Client, Result, Room, RoomType};
 use std::ops::Deref;
 
 use matrix_sdk_common::api::r0::membership::forget_room;
@@ -31,7 +31,7 @@ impl Left {
     }
 
     /// Join this room.
-    pub async fn join(&self) -> Result<()> {
+    pub async fn join(&self) -> Result<room::Joined> {
         self.inner.join().await
     }
 
