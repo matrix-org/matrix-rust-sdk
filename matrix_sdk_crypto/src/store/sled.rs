@@ -266,17 +266,14 @@ impl SledStore {
             .get_account_info()
             .ok_or(CryptoStoreError::AccountUnset)?;
 
-        let device_id: Arc<DeviceIdBox> = account_info.device_id.clone();
-        let identity_keys = account_info.identity_keys.clone();
-
         self.outbound_group_sessions
             .get(room_id.encode())?
             .map(|p| serde_json::from_slice(&p).map_err(CryptoStoreError::Serialization))
             .transpose()?
             .map(|p| {
                 OutboundGroupSession::from_pickle(
-                    device_id,
-                    identity_keys,
+                    account_info.device_id,
+                    account_info.identity_keys,
                     p,
                     self.get_pickle_mode(),
                 )
@@ -484,10 +481,6 @@ impl CryptoStore for SledStore {
             .get_account_info()
             .ok_or(CryptoStoreError::AccountUnset)?;
 
-        let user_id: Arc<UserId> = account_info.user_id.clone();
-        let device_id: Arc<DeviceIdBox> = account_info.device_id.clone();
-        let identity_keys = account_info.identity_keys.clone();
-
         if self.session_cache.get(sender_key).is_none() {
             let sessions: Result<Vec<Session>> = self
                 .sessions
@@ -495,9 +488,9 @@ impl CryptoStore for SledStore {
                 .map(|s| serde_json::from_slice(&s?.1).map_err(CryptoStoreError::Serialization))
                 .map(|p| {
                     Session::from_pickle(
-                        user_id.clone(),
-                        device_id.clone(),
-                        identity_keys.clone(),
+                        account_info.user_id.clone(),
+                        account_info.device_id.clone(),
+                        account_info.identity_keys.clone(),
                         p?,
                         self.get_pickle_mode(),
                     )
