@@ -682,6 +682,7 @@ pub struct AcceptSettings {
 }
 
 impl Default for AcceptSettings {
+    /// All methods are allowed
     fn default() -> Self {
         Self {
             allowed_methods: vec![
@@ -693,7 +694,11 @@ impl Default for AcceptSettings {
 }
 
 impl AcceptSettings {
-    /// Create settings with exactly the specified SAS methods
+    /// Create settings restricting the allowed SAS methods
+    ///
+    /// # Arguments
+    ///
+    /// * `methods` - The methods this client allows at most
     pub fn with_allowed_methods(methods: Vec<ShortAuthenticationString>) -> Self {
         Self {
             allowed_methods: methods,

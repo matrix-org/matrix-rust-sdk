@@ -33,7 +33,22 @@ impl Sas {
 
     /// Accept the interactive verification flow with specific settings.
     ///
-    /// Pass `settings` to customizes the accept-request before sending it.
+    /// # Arguments
+    ///
+    /// * `settings` - specific customizations to the verification flow.
+    ///
+    /// # Examples
+    ///
+    /// ```ignore
+    /// use matrix_sdk::Sas;
+    /// use matrix_sdk_base::crypto::AcceptSettings;
+    /// use matrix_sdk::events::key::verification::ShortAuthenticationString;
+    ///
+    /// let only_decimal = AcceptSettings::with_allowed_methods(
+    ///     vec![ShortAuthenticationString::Decimal]
+    /// );
+    /// sas.accept_with_settings(only_decimal);
+    /// ```
     pub async fn accept_with_settings(&self, settings: AcceptSettings) -> Result<()> {
         if let Some(req) = self.inner.accept_with_settings(settings) {
             match req {
