@@ -261,6 +261,22 @@ impl Room {
         self.store.get_joined_user_ids(self.room_id()).await
     }
 
+    /// Get the all `RoomMember`s of this room that are known to the store.
+    pub async fn members(&self) -> StoreResult<Vec<RoomMember>> {
+        let user_ids = self.store.get_user_ids(self.room_id()).await?;
+        let mut members = Vec::new();
+
+        for u in user_ids {
+            let m = self.get_member(&u).await?;
+
+            if let Some(member) = m {
+                members.push(member);
+            }
+        }
+
+        Ok(members)
+    }
+
     /// Get the list of `RoomMember`s that are considered to be joined members
     /// of this room.
     pub async fn joined_members(&self) -> StoreResult<Vec<RoomMember>> {
