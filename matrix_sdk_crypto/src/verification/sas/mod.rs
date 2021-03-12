@@ -705,18 +705,16 @@ impl AcceptSettings {
             AcceptContent::ToDevice(AcceptToDeviceEventContent {
                 method: AcceptMethod::MSasV1(c),
                 ..
-            }) => {
-                c.short_authentication_string = self.allowed_methods;
-                content
-            }
-            AcceptContent::Room(
+            })
+            | AcceptContent::Room(
                 _,
                 AcceptEventContent {
                     method: AcceptMethod::MSasV1(c),
                     ..
                 },
             ) => {
-                c.short_authentication_string = self.allowed_methods;
+                c.short_authentication_string
+                    .retain(|sas| self.allowed_methods.contains(sas));
                 content
             }
             _ => content,
