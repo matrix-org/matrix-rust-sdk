@@ -54,7 +54,7 @@ pub struct GroupSessionManager {
 }
 
 impl GroupSessionManager {
-    const MAX_TO_DEVICE_MESSAGES: usize = 20;
+    const MAX_TO_DEVICE_MESSAGES: usize = 250;
 
     pub(crate) fn new(account: Account, store: Store) -> Self {
         Self {
