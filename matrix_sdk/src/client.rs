@@ -138,6 +138,7 @@ pub struct Client {
     /// Lock making sure we're only doing one key claim request at a time.
     key_claim_lock: Arc<Mutex<()>>,
     pub(crate) members_request_locks: DashMap<RoomId, Arc<Mutex<()>>>,
+    pub(crate) typing_notice_times: DashMap<RoomId, Instant>,
 }
 
 #[cfg(not(tarpaulin_include))]
@@ -394,6 +395,7 @@ impl Client {
             #[cfg(feature = "encryption")]
             key_claim_lock: Arc::new(Mutex::new(())),
             members_request_locks: DashMap::new(),
+            typing_notice_times: DashMap::new(),
         })
     }
 
@@ -1669,7 +1671,6 @@ impl Client {
     /// # use std::{path::PathBuf, time::Duration};
     /// # use matrix_sdk::{
     /// #     Client, SyncSettings,
-    /// #     api::r0::typing::create_typing_event::Typing,
     /// #     identifiers::room_id,
     /// # };
     /// # use futures::executor::block_on;
@@ -1747,7 +1748,6 @@ impl Client {
     /// # use std::{path::PathBuf, time::Duration};
     /// # use matrix_sdk::{
     /// #     Client, SyncSettings,
-    /// #     api::r0::typing::create_typing_event::Typing,
     /// #     identifiers::room_id,
     /// # };
     /// # use futures::executor::block_on;
@@ -1802,7 +1802,7 @@ mod test {
         api::r0::{
             account::register::Request as RegistrationRequest,
             directory::get_public_rooms_filtered::Request as PublicRoomsFilterRequest,
-            membership::Invite3pid, typing::create_typing_event::Typing, uiaa::AuthData,
+            membership::Invite3pid, uiaa::AuthData,
         },
         assign,
         directory::Filter,
@@ -2451,9 +2451,7 @@ mod test {
             .get_joined_room(&room_id!("!SVkFJHzfwvuaIEawgC:localhost"))
             .unwrap();
 
-        room.typing_notice(Typing::Yes(std::time::Duration::from_secs(1)))
-            .await
-            .unwrap();
+        room.typing_notice(true).await.unwrap();
     }
 
     #[tokio::test]

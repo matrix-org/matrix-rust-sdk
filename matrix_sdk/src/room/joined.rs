@@ -26,6 +26,7 @@ use matrix_sdk_common::{
         AnyMessageEventContent, AnyStateEventContent,
     },
     identifiers::{EventId, UserId},
+    instant::{Duration, Instant},
     uuid::Uuid,
 };
 
@@ -39,6 +40,9 @@ use matrix_sdk_base::crypto::AttachmentEncryptor;
 
 #[cfg(feature = "encryption")]
 use tracing::instrument;
+
+const TYPING_NOTICE_TIMEOUT: Duration = Duration::from_secs(4);
+const TYPING_NOTICE_RESEND_TIMEOUT: Duration = Duration::from_secs(3);
 
 /// A room in the joined state.
 ///
@@ -137,11 +141,16 @@ impl Joined {
         Ok(())
     }
 
-    /// Send a request to notify this room of a user typing.
+    /// Activate typing notice for this room.
+    ///
+    /// The typing notice remains active for 4s. It can be deactivate at any point by setting
+    /// typing to `false`. If this method is called while the typing notice is active nothing will happen.
+    /// This method can be called on every key stroke, since it will do nothing while typing is
+    /// active.
     ///
     /// # Arguments
     ///
-    /// * `typing` - Whether the user is typing, and how long.
+    /// * `typing` - Whether the user is typing or has stopped typing.
     ///
     /// # Examples
     ///
@@ -149,7 +158,6 @@ impl Joined {
     /// # use std::time::Duration;
     /// # use matrix_sdk::{
     /// #     Client, SyncSettings,
-    /// #     api::r0::typing::create_typing_event::Typing,
     /// #     identifiers::room_id,
     /// # };
     /// # use futures::executor::block_on;
@@ -162,21 +170,47 @@ impl Joined {
     /// #    .get_joined_room(&room_id!("!SVkFJHzfwvuaIEawgC:localhost"))
     /// #    .unwrap();
     /// # room
-    ///     .typing_notice(Typing::Yes(Duration::from_secs(4)))
+    ///     .typing_notice(true)
     ///     .await
     ///     .expect("Can't get devices from server");
     /// # });
     ///
     /// ```
-    pub async fn typing_notice(&self, typing: impl Into<Typing>) -> Result<()> {
-        // TODO: don't send a request if a typing notice is being sent or is already active
-        let request = TypingRequest::new(
-            self.inner.own_user_id(),
-            self.inner.room_id(),
-            typing.into(),
-        );
+    pub async fn typing_notice(&self, typing: bool) -> Result<()> {
+        // Only send a request to the homeserver if the old timeout has elapsed or the typing
+        // notice changed state within the TYPING_NOTICE_TIMEOUT
+        let send =
+            if let Some(typing_time) = self.client.typing_notice_times.get(self.inner.room_id()) {
+                if typing_time.elapsed() > TYPING_NOTICE_RESEND_TIMEOUT {
+                    // We always reactivate the typing notice if typing is true or we may need to
+                    // deactivate it if it's currently active if typing is false
+                    typing || typing_time.elapsed() <= TYPING_NOTICE_TIMEOUT
+                } else {
+                    // Only send a request when we need to deactivate typing
+                    !typing
+                }
+            } else {
+                // Typing notice is currently deactivated, therefore, send a request only when it's
+                // about to be activated
+                typing
+            };
 
-        self.client.send(request, None).await?;
+        if send {
+            let typing = if typing {
+                self.client
+                    .typing_notice_times
+                    .insert(self.inner.room_id().clone(), Instant::now());
+                Typing::Yes(TYPING_NOTICE_TIMEOUT)
+            } else {
+                self.client.typing_notice_times.remove(self.inner.room_id());
+                Typing::No
+            };
+
+            let request =
+                TypingRequest::new(self.inner.own_user_id(), self.inner.room_id(), typing);
+            self.client.send(request, None).await?;
+        }
+
         Ok(())
     }
 
