@@ -8,6 +8,7 @@ use lazy_static::lazy_static;
 use serde_json::{json, Value as JsonValue};
 
 pub mod events;
+pub mod members;
 pub mod sync;
 
 pub use events::{
@@ -19,6 +20,8 @@ pub use events::{
 pub use sync::{
     DEFAULT_SYNC_SUMMARY, INVITE_SYNC, LEAVE_SYNC, LEAVE_SYNC_EVENT, MORE_SYNC, SYNC, VOIP_SYNC,
 };
+
+pub use members::MEMBERS;
 
 lazy_static! {
     pub static ref DEVICES: JsonValue = json!({
