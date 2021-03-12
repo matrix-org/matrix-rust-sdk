@@ -88,15 +88,14 @@ use matrix_sdk_common::{
 };
 
 #[cfg(feature = "encryption")]
-use matrix_sdk_common::{
-    api::r0::{
-        keys::{get_keys, upload_keys, upload_signing_keys::Request as UploadSigningKeysRequest},
-        to_device::send_event_to_device::{
-            Request as RumaToDeviceRequest, Response as ToDeviceResponse,
-        },
+use matrix_sdk_common::api::r0::{
+    keys::{get_keys, upload_keys, upload_signing_keys::Request as UploadSigningKeysRequest},
+    to_device::send_event_to_device::{
+        Request as RumaToDeviceRequest, Response as ToDeviceResponse,
     },
-    locks::Mutex,
 };
+
+use matrix_sdk_common::locks::Mutex;
 
 use crate::{
     error::HttpError,
@@ -138,6 +137,7 @@ pub struct Client {
     #[cfg(feature = "encryption")]
     /// Lock making sure we're only doing one key claim request at a time.
     key_claim_lock: Arc<Mutex<()>>,
+    pub(crate) members_request_locks: DashMap<RoomId, Arc<Mutex<()>>>,
 }
 
 #[cfg(not(tarpaulin_include))]
@@ -393,6 +393,7 @@ impl Client {
             group_session_locks: DashMap::new(),
             #[cfg(feature = "encryption")]
             key_claim_lock: Arc::new(Mutex::new(())),
+            members_request_locks: DashMap::new(),
         })
     }
 
