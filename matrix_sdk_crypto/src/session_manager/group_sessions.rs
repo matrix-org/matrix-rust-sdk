@@ -251,6 +251,12 @@ impl GroupSessionManager {
             messages,
         };
 
+        trace!(
+            recipient_count = request.message_count(),
+            transaction_id = ?id,
+            "Created a to-device request carrying a room_key"
+        );
+
         Ok((id, request, changed_sessions))
     }
 
@@ -593,9 +599,7 @@ mod test {
             .await
             .unwrap();
 
-        let event_count = requests.iter().fold(0, |acc, r| {
-            acc + r.messages.values().fold(0, |acc, v| acc + v.len())
-        });
+        let event_count: usize = requests.iter().map(|r| r.message_count()).sum();
 
         // The keys claim response has a couple of one-time keys with invalid
         // signatures, thus only 148 sessions are actually created, we check

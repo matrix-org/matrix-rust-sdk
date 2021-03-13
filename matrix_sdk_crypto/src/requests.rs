@@ -63,6 +63,14 @@ impl ToDeviceRequest {
     pub fn txn_id_string(&self) -> String {
         self.txn_id.to_string()
     }
+
+    /// Get the number of unique messages this request contains.
+    ///
+    /// *Note*: A single message may be sent to multiple devices, so this may or
+    /// may not be the number of devices that will receive the messages as well.
+    pub fn message_count(&self) -> usize {
+        self.messages.values().map(|d| d.len()).sum()
+    }
 }
 
 /// Request that will publish a cross signing identity.
