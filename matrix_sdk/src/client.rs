@@ -82,6 +82,7 @@ use matrix_sdk_common::{
         receipt::create_receipt,
         room::create_room,
         session::login,
+        state::send_state_event_for_key,
         sync::sync_events,
         typing::create_typing_event::{
             Request as TypingRequest, Response as TypingResponse, Typing,
@@ -97,7 +98,7 @@ use matrix_sdk_common::{
             },
             EncryptedFile,
         },
-        AnyMessageEventContent,
+        AnyMessageEventContent, AnyStateEventContent,
     },
     identifiers::{DeviceIdBox, EventId, RoomId, RoomIdOrAliasId, ServerName, UserId},
     instant::{Duration, Instant},
@@ -1198,6 +1199,56 @@ impl Client {
         }
 
         Ok(())
+    }
+
+    /// Send a room state event to the homeserver.
+    ///
+    /// Returns the parsed response from the server.
+    ///
+    /// # Arguments
+    ///
+    /// * `room_id` -  The id of the room that should receive the message.
+    ///
+    /// * `content` - The content of the state event.
+    ///
+    /// * `state_key` - A unique key which defines the overwriting semantics for
+    /// this piece of room state. This value is often a zero-length string.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use matrix_sdk::events::{
+    ///     AnyStateEventContent,
+    ///     room::member::{MemberEventContent, MembershipState},
+    /// };
+    /// # futures::executor::block_on(async {
+    /// # let homeserver = url::Url::parse("http://localhost:8080").unwrap();
+    /// # let mut client = matrix_sdk::Client::new(homeserver).unwrap();
+    /// # let room_id = matrix_sdk::identifiers::room_id!("!test:localhost");
+    ///
+    /// let avatar_url = "https://example.org/avatar";
+    /// let member_event = MemberEventContent {
+    ///    avatar_url: Some(avatar_url.to_string()),
+    ///    membership: MembershipState::Join,
+    ///    is_direct: None,
+    ///    displayname: None,
+    ///    third_party_invite: None,
+    /// };
+    ///
+    /// let content = AnyStateEventContent::RoomMember(member_event);
+    /// client.room_send_state_event(&room_id, content, "").await.unwrap();
+    /// # })
+    /// ```
+    pub async fn room_send_state_event(
+        &self,
+        room_id: &RoomId,
+        content: impl Into<AnyStateEventContent>,
+        state_key: &str,
+    ) -> Result<send_state_event_for_key::Response> {
+        let content = content.into();
+        let request = send_state_event_for_key::Request::new(room_id, state_key, &content);
+
+        self.send(request, None).await
     }
 
     #[cfg(feature = "encryption")]
@@ -2842,6 +2893,42 @@ mod test {
             .typing_notice(&room_id, Typing::Yes(std::time::Duration::from_secs(1)))
             .await
             .unwrap();
+    }
+
+    #[tokio::test]
+    async fn room_state_event_send() {
+        use crate::events::{
+            room::member::{MemberEventContent, MembershipState},
+            AnyStateEventContent,
+        };
+
+        let client = logged_in_client().await;
+
+        let _m = mock(
+            "PUT",
+            Matcher::Regex(r"^/_matrix/client/r0/rooms/.*/state/.*".to_string()),
+        )
+        .with_status(200)
+        .match_header("authorization", "Bearer 1234")
+        .with_body(test_json::EVENT_ID.to_string())
+        .create();
+
+        let room_id = room_id!("!testroom:example.org");
+
+        let avatar_url = "https://example.org/avatar";
+        let member_event = MemberEventContent {
+            avatar_url: Some(avatar_url.to_string()),
+            membership: MembershipState::Join,
+            is_direct: None,
+            displayname: None,
+            third_party_invite: None,
+        };
+        let content = AnyStateEventContent::RoomMember(member_event);
+        let response = client
+            .room_send_state_event(&room_id, content, "")
+            .await
+            .unwrap();
+        assert_eq!(event_id!("$h29iv0s8:example.com"), response.event_id);
     }
 
     #[tokio::test]
