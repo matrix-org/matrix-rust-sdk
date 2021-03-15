@@ -571,7 +571,8 @@ impl From<RumaSyncRoomEvent> for AnySyncRoomEvent {
 ///
 /// `TryInto` and `From` are implemented for this enum to ease the conversion
 /// from the Ruma variant.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize)]
+#[serde(untagged)]
 pub enum AnyMessageEventContent {
     RoomMessage(MessageEventContent),
     CallAnswer(AnswerEventContent),
@@ -592,6 +593,32 @@ pub enum AnyMessageEventContent {
     Sticker(StickerEventContent),
     Custom(CustomEventContent),
     Invalid(InvalidEventContent),
+}
+
+impl AnyMessageEventContent {
+    pub fn event_type(&self) -> &str {
+        match self {
+            AnyMessageEventContent::RoomMessage(_) => "m.room.message",
+            AnyMessageEventContent::CallAnswer(_) => "m.call.answer",
+            AnyMessageEventContent::CallInvite(_) => "m.call.invite",
+            AnyMessageEventContent::CallHangup(_) => "m.call.hangup",
+            AnyMessageEventContent::CallCandidates(_) => "m.call.candidates",
+            AnyMessageEventContent::KeyVerificationReady(_) => "m.key.verification.ready",
+            AnyMessageEventContent::KeyVerificationStart(_) => "m.key.verification.start",
+            AnyMessageEventContent::KeyVerificationCancel(_) => "m.key.verification.cancel",
+            AnyMessageEventContent::KeyVerificationAccept(_) => "m.key.verification.accept",
+            AnyMessageEventContent::KeyVerificationKey(_) => "m.key.verification.key",
+            AnyMessageEventContent::KeyVerificationMac(_) => "m.key.verification.mac",
+            AnyMessageEventContent::KeyVerificationDone(_) => "m.key.verification.done",
+            AnyMessageEventContent::Reaction(_) => "m.reaction",
+            AnyMessageEventContent::RoomEncrypted(_) => "m.room.encrypted",
+            AnyMessageEventContent::RoomMessageFeedback(_) => "m.room.message.feedback",
+            AnyMessageEventContent::RoomRedaction(_) => "m.room.redaction",
+            AnyMessageEventContent::Sticker(_) => "m.sticker",
+            AnyMessageEventContent::Custom(e) => &e.event_type,
+            AnyMessageEventContent::Invalid(e) => &e.event_type,
+        }
+    }
 }
 
 impl From<RumaAnyMessageEventContent> for AnyMessageEventContent {
