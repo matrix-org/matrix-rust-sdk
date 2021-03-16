@@ -955,6 +955,34 @@ impl BaseClient {
     ///
     /// # Arguments
     ///
+    /// * `room_id` - The room id this state change belongs to.
+    ///
+    /// * `room_type` - The new state of the given room.
+    pub async fn receive_room_state_change(
+        &self,
+        room_id: &RoomId,
+        room_type: RoomType,
+    ) -> Result<()> {
+        let room = self
+            .store
+            .get_or_create_room(room_id, room_type.clone())
+            .await;
+        let mut changes = StateChanges::default();
+        let mut room_info = room.clone_info();
+        room_info.room_type = room_type;
+        changes.add_room(room_info);
+        self.store.save_changes(&changes).await?;
+        self.apply_changes(&changes).await;
+
+        Ok(())
+    }
+
+    /// Receive a get member events response and convert it to a deserialized
+    /// `MembersResponse`
+    ///
+    ///
+    /// # Arguments
+    ///
     /// * `room_id` - The room id this response belongs to.
     ///
     /// * `response` - The raw response that was received from the server.
