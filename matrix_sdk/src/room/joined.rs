@@ -11,6 +11,7 @@ use matrix_sdk_common::{
         message::send_message_event,
         read_marker::set_read_marker,
         receipt::create_receipt,
+        redact::redact_event,
         state::send_state_event_for_key,
         typing::create_typing_event::{Request as TypingRequest, Typing},
     },
@@ -558,6 +559,53 @@ impl Joined {
         let content = content.into();
         let request =
             send_state_event_for_key::Request::new(self.inner.room_id(), state_key, &content);
+
+        self.client.send(request, None).await
+    }
+
+    /// Strips all information out of an event of the room.
+    ///
+    /// Returns the [`redact_event::Response`] from the server.
+    ///
+    /// This cannot be undone. Users may redact their own events, and any user
+    /// with a power level greater than or equal to the redact power level of
+    /// the room may redact events there.
+    ///
+    /// # Arguments
+    ///
+    /// * `event_id` - The ID of the event to redact
+    ///
+    /// * `reason` - The reason for the event being redacted.
+    ///
+    /// * `txn_id` - A unique [`Uuid`] that can be attached to this event as
+    /// its transaction ID. If not given one is created for the message.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// # futures::executor::block_on(async {
+    /// # let homeserver = url::Url::parse("http://localhost:8080").unwrap();
+    /// # let mut client = matrix_sdk::Client::new(homeserver).unwrap();
+    /// # let room_id = matrix_sdk::identifiers::room_id!("!test:localhost");
+    /// let room = client
+    ///    .get_joined_room(&room_id)
+    ///    .unwrap();
+    /// let event_id = matrix_sdk::identifiers::event_id!("$xxxxxx:example.org");
+    /// let reason = Some("Indecent material");
+    /// room.redact(&event_id, reason, None).await.unwrap();
+    /// # })
+    /// ```
+    pub async fn redact(
+        &self,
+        event_id: &EventId,
+        reason: Option<&str>,
+        txn_id: Option<Uuid>,
+    ) -> Result<redact_event::Response> {
+        let txn_id = txn_id.unwrap_or_else(Uuid::new_v4).to_string();
+        let request = assign!(
+            redact_event::Request::new(self.inner.room_id(), event_id, &txn_id),
+            { reason }
+        );
 
         self.client.send(request, None).await
     }
