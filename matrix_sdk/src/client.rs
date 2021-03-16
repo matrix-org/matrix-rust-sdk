@@ -133,12 +133,12 @@ pub struct Client {
     /// Locks making sure we only have one group session sharing request in
     /// flight per room.
     #[cfg(feature = "encryption")]
-    pub(crate) group_session_locks: DashMap<RoomId, Arc<Mutex<()>>>,
+    pub(crate) group_session_locks: Arc<DashMap<RoomId, Arc<Mutex<()>>>>,
     #[cfg(feature = "encryption")]
     /// Lock making sure we're only doing one key claim request at a time.
     key_claim_lock: Arc<Mutex<()>>,
-    pub(crate) members_request_locks: DashMap<RoomId, Arc<Mutex<()>>>,
-    pub(crate) typing_notice_times: DashMap<RoomId, Instant>,
+    pub(crate) members_request_locks: Arc<DashMap<RoomId, Arc<Mutex<()>>>>,
+    pub(crate) typing_notice_times: Arc<DashMap<RoomId, Instant>>,
 }
 
 #[cfg(not(tarpaulin_include))]
@@ -391,11 +391,11 @@ impl Client {
             http_client,
             base_client,
             #[cfg(feature = "encryption")]
-            group_session_locks: DashMap::new(),
+            group_session_locks: Arc::new(DashMap::new()),
             #[cfg(feature = "encryption")]
             key_claim_lock: Arc::new(Mutex::new(())),
-            members_request_locks: DashMap::new(),
-            typing_notice_times: DashMap::new(),
+            members_request_locks: Arc::new(DashMap::new()),
+            typing_notice_times: Arc::new(DashMap::new()),
         })
     }
 
