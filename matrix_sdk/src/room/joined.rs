@@ -587,9 +587,9 @@ impl Joined {
     /// # let homeserver = url::Url::parse("http://localhost:8080").unwrap();
     /// # let mut client = matrix_sdk::Client::new(homeserver).unwrap();
     /// # let room_id = matrix_sdk::identifiers::room_id!("!test:localhost");
-    /// let room = client
-    ///    .get_joined_room(&room_id)
-    ///    .unwrap();
+    /// # let room = client
+    /// #   .get_joined_room(&room_id)
+    /// #   .unwrap();
     /// let event_id = matrix_sdk::identifiers::event_id!("$xxxxxx:example.org");
     /// let reason = Some("Indecent material");
     /// room.redact(&event_id, reason, None).await.unwrap();
