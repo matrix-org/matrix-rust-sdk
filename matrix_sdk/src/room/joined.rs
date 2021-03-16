@@ -146,10 +146,10 @@ impl Joined {
     /// # Examples
     ///
     /// ```no_run
-    /// # use std::time::Duration;
+    /// use std::time::Duration;
+    /// use matrix_sdk::api::r0::typing::create_typing_event::Typing;
     /// # use matrix_sdk::{
     /// #     Client, SyncSettings,
-    /// #     api::r0::typing::create_typing_event::Typing,
     /// #     identifiers::room_id,
     /// # };
     /// # use futures::executor::block_on;
@@ -161,12 +161,12 @@ impl Joined {
     /// # let room = client
     /// #    .get_joined_room(&room_id!("!SVkFJHzfwvuaIEawgC:localhost"))
     /// #    .unwrap();
-    /// # room
+    ///
+    /// room
     ///     .typing_notice(Typing::Yes(Duration::from_secs(4)))
     ///     .await
     ///     .expect("Can't get devices from server");
     /// # });
-    ///
     /// ```
     pub async fn typing_notice(&self, typing: impl Into<Typing>) -> Result<()> {
         // TODO: don't send a request if a typing notice is being sent or is already active
@@ -350,7 +350,7 @@ impl Joined {
     /// # let room = client
     /// #    .get_joined_room(&room_id)
     /// #    .unwrap();
-    /// # room.send(content, Some(txn_id)).await.unwrap();
+    /// room.send(content, Some(txn_id)).await.unwrap();
     /// # })
     /// ```
     pub async fn send(
@@ -428,7 +428,7 @@ impl Joined {
     /// # let room = client
     /// #    .get_joined_room(&room_id)
     /// #    .unwrap();
-    /// # room.send_attachment("My favorite cat", &mime::IMAGE_JPEG, &mut image, None)
+    /// room.send_attachment("My favorite cat", &mime::IMAGE_JPEG, &mut image, None)
     ///     .await
     ///     .expect("Can't upload my cat.");
     /// # });
@@ -541,7 +541,6 @@ impl Joined {
     ///    displayname: None,    
     ///    third_party_invite: None,
     /// };
-    ///
     /// # let room = client
     /// #    .get_joined_room(&room_id)
     /// #    .unwrap();
