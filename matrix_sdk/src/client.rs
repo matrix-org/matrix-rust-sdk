@@ -88,15 +88,14 @@ use matrix_sdk_common::{
 };
 
 #[cfg(feature = "encryption")]
-use matrix_sdk_common::{
-    api::r0::{
-        keys::{get_keys, upload_keys, upload_signing_keys::Request as UploadSigningKeysRequest},
-        to_device::send_event_to_device::{
-            Request as RumaToDeviceRequest, Response as ToDeviceResponse,
-        },
+use matrix_sdk_common::api::r0::{
+    keys::{get_keys, upload_keys, upload_signing_keys::Request as UploadSigningKeysRequest},
+    to_device::send_event_to_device::{
+        Request as RumaToDeviceRequest, Response as ToDeviceResponse,
     },
-    locks::Mutex,
 };
+
+use matrix_sdk_common::locks::Mutex;
 
 use crate::{
     error::HttpError,
@@ -134,10 +133,12 @@ pub struct Client {
     /// Locks making sure we only have one group session sharing request in
     /// flight per room.
     #[cfg(feature = "encryption")]
-    pub(crate) group_session_locks: DashMap<RoomId, Arc<Mutex<()>>>,
+    pub(crate) group_session_locks: Arc<DashMap<RoomId, Arc<Mutex<()>>>>,
     #[cfg(feature = "encryption")]
     /// Lock making sure we're only doing one key claim request at a time.
     key_claim_lock: Arc<Mutex<()>>,
+    pub(crate) members_request_locks: Arc<DashMap<RoomId, Arc<Mutex<()>>>>,
+    pub(crate) typing_notice_times: Arc<DashMap<RoomId, Instant>>,
 }
 
 #[cfg(not(tarpaulin_include))]
@@ -390,9 +391,11 @@ impl Client {
             http_client,
             base_client,
             #[cfg(feature = "encryption")]
-            group_session_locks: DashMap::new(),
+            group_session_locks: Arc::new(DashMap::new()),
             #[cfg(feature = "encryption")]
             key_claim_lock: Arc::new(Mutex::new(())),
+            members_request_locks: Arc::new(DashMap::new()),
+            typing_notice_times: Arc::new(DashMap::new()),
         })
     }
 
@@ -1668,7 +1671,6 @@ impl Client {
     /// # use std::{path::PathBuf, time::Duration};
     /// # use matrix_sdk::{
     /// #     Client, SyncSettings,
-    /// #     api::r0::typing::create_typing_event::Typing,
     /// #     identifiers::room_id,
     /// # };
     /// # use futures::executor::block_on;
@@ -1746,7 +1748,6 @@ impl Client {
     /// # use std::{path::PathBuf, time::Duration};
     /// # use matrix_sdk::{
     /// #     Client, SyncSettings,
-    /// #     api::r0::typing::create_typing_event::Typing,
     /// #     identifiers::room_id,
     /// # };
     /// # use futures::executor::block_on;
@@ -1801,7 +1802,7 @@ mod test {
         api::r0::{
             account::register::Request as RegistrationRequest,
             directory::get_public_rooms_filtered::Request as PublicRoomsFilterRequest,
-            membership::Invite3pid, typing::create_typing_event::Typing, uiaa::AuthData,
+            membership::Invite3pid, uiaa::AuthData,
         },
         assign,
         directory::Filter,
@@ -2450,9 +2451,7 @@ mod test {
             .get_joined_room(&room_id!("!SVkFJHzfwvuaIEawgC:localhost"))
             .unwrap();
 
-        room.typing_notice(Typing::Yes(std::time::Duration::from_secs(1)))
-            .await
-            .unwrap();
+        room.typing_notice(true).await.unwrap();
     }
 
     #[tokio::test]
