@@ -46,7 +46,7 @@ use tracing::instrument;
 /// Operations may fail once the underlaying `Room` changes `RoomType`.
 #[derive(Debug, Clone)]
 pub struct Joined {
-    inner: Common,
+    pub(crate) inner: Common,
 }
 
 impl Deref for Joined {

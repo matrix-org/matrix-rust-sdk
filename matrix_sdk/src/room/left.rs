@@ -9,7 +9,7 @@ use matrix_sdk_common::api::r0::membership::forget_room;
 /// Operations may fail once the underlaying `Room` changes `RoomType`.
 #[derive(Debug, Clone)]
 pub struct Left {
-    inner: Common,
+    pub(crate) inner: Common,
 }
 
 impl Left {

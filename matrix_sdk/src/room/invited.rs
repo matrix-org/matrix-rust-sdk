@@ -7,7 +7,7 @@ use std::ops::Deref;
 /// Operations may fail once the underlaying `Room` changes `RoomType`.
 #[derive(Debug, Clone)]
 pub struct Invited {
-    inner: Common,
+    pub(crate) inner: Common,
 }
 
 impl Invited {
