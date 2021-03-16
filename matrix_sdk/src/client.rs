@@ -2598,6 +2598,47 @@ mod test {
     }
 
     #[tokio::test]
+    async fn room_redact() {
+        use matrix_sdk_common::uuid::Uuid;
+
+        let client = logged_in_client().await;
+
+        let _m = mock(
+            "PUT",
+            Matcher::Regex(r"^/_matrix/client/r0/rooms/.*/redact/.*?/.*?".to_string()),
+        )
+        .with_status(200)
+        .match_header("authorization", "Bearer 1234")
+        .with_body(test_json::EVENT_ID.to_string())
+        .create();
+
+        let _m = mock(
+            "GET",
+            Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_string()),
+        )
+        .with_status(200)
+        .match_header("authorization", "Bearer 1234")
+        .with_body(test_json::SYNC.to_string())
+        .create();
+
+        let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
+
+        let _response = client.sync_once(sync_settings).await.unwrap();
+
+        let room = client
+            .get_joined_room(&room_id!("!SVkFJHzfwvuaIEawgC:localhost"))
+            .unwrap();
+
+        let event_id = event_id!("$xxxxxxxx:example.com");
+
+        let txn_id = Uuid::new_v4();
+        let reason = Some("Indecent material");
+        let response = room.redact(&event_id, reason, Some(txn_id)).await.unwrap();
+
+        assert_eq!(event_id!("$h29iv0s8:example.com"), response.event_id)
+    }
+
+    #[tokio::test]
     async fn user_presence() {
         let client = logged_in_client().await;
 
