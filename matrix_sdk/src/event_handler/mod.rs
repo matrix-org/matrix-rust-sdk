@@ -47,14 +47,14 @@ use crate::{
         AnySyncStateEvent, BasicEvent, StrippedStateEvent, SyncEphemeralRoomEvent,
         SyncMessageEvent, SyncStateEvent,
     },
-    rooms::Room,
-    Store,
+    room::Room,
+    Client,
 };
 use matrix_sdk_common::async_trait;
 
 pub(crate) struct Handler {
     pub(crate) inner: Box<dyn EventHandler>,
-    pub(crate) store: Store,
+    pub(crate) client: Client,
 }
 
 impl Deref for Handler {
@@ -67,7 +67,7 @@ impl Deref for Handler {
 
 impl Handler {
     fn get_room(&self, room_id: &RoomId) -> Option<Room> {
-        self.store.get_room(room_id)
+        self.client.get_room(room_id)
     }
 
     pub(crate) async fn handle_sync(&self, response: &SyncResponse) {
@@ -270,22 +270,23 @@ pub enum CustomEvent<'c> {
 /// # use std::ops::Deref;
 /// # use std::sync::Arc;
 /// # use std::{env, process::exit};
-/// # use matrix_sdk_base::{
-/// #     self,
+/// # use matrix_sdk::{
+/// #     async_trait,
+/// #     EventHandler,
 /// #     events::{
 /// #         room::message::{MessageEventContent, MessageType, TextMessageEventContent},
 /// #         SyncMessageEvent
 /// #     },
-/// #     EventHandler, Room, RoomType,
+/// #     locks::RwLock,
+/// #     room::Room,
 /// # };
-/// # use matrix_sdk_common::{async_trait, locks::RwLock};
 ///
 /// struct EventCallback;
 ///
 /// #[async_trait]
 /// impl EventHandler for EventCallback {
 ///     async fn on_room_message(&self, room: Room, event: &SyncMessageEvent<MessageEventContent>) {
-///         if room.room_type() == RoomType::Joined {
+///         if let Room::Joined(room) = room {
 ///             if let SyncMessageEvent {
 ///                 content:
 ///                     MessageEventContent {
@@ -458,8 +459,9 @@ pub trait EventHandler: Send + Sync {
 mod test {
     use super::*;
     use matrix_sdk_common::{async_trait, locks::Mutex};
-    use matrix_sdk_test::{async_test, sync_response, SyncResponseFile};
-    use std::sync::Arc;
+    use matrix_sdk_test::{async_test, test_json};
+    use mockito::{mock, Matcher};
+    use std::{sync::Arc, time::Duration};
 
     #[cfg(target_arch = "wasm32")]
     pub use wasm_bindgen_test::*;
@@ -667,17 +669,32 @@ mod test {
         }
     }
 
-    use crate::{identifiers::user_id, BaseClient, Session};
+    use crate::{identifiers::user_id, Client, Session, SyncSettings};
 
-    async fn get_client() -> BaseClient {
+    async fn get_client() -> Client {
         let session = Session {
             access_token: "1234".to_owned(),
             user_id: user_id!("@example:example.com"),
             device_id: "DEVICEID".into(),
         };
-        let client = BaseClient::new().unwrap();
+        let homeserver = url::Url::parse(&mockito::server_url()).unwrap();
+        let client = Client::new(homeserver).unwrap();
         client.restore_login(session).await.unwrap();
         client
+    }
+
+    async fn mock_sync(client: Client, response: String) {
+        let _m = mock(
+            "GET",
+            Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_string()),
+        )
+        .with_status(200)
+        .match_header("authorization", "Bearer 1234")
+        .with_body(response)
+        .create();
+
+        let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
+        let _response = client.sync_once(sync_settings).await.unwrap();
     }
 
     #[async_test]
@@ -688,9 +705,7 @@ mod test {
 
         let client = get_client().await;
         client.set_event_handler(handler).await;
-
-        let response = sync_response(SyncResponseFile::Default);
-        client.receive_sync_response(response).await.unwrap();
+        mock_sync(client, test_json::SYNC.to_string()).await;
 
         let v = test_vec.lock().await;
         assert_eq!(
@@ -720,9 +735,7 @@ mod test {
 
         let client = get_client().await;
         client.set_event_handler(handler).await;
-
-        let response = sync_response(SyncResponseFile::Invite);
-        client.receive_sync_response(response).await.unwrap();
+        mock_sync(client, test_json::INVITE_SYNC.to_string()).await;
 
         let v = test_vec.lock().await;
         assert_eq!(
@@ -743,9 +756,7 @@ mod test {
 
         let client = get_client().await;
         client.set_event_handler(handler).await;
-
-        let response = sync_response(SyncResponseFile::Leave);
-        client.receive_sync_response(response).await.unwrap();
+        mock_sync(client, test_json::LEAVE_SYNC.to_string()).await;
 
         let v = test_vec.lock().await;
         assert_eq!(
@@ -773,9 +784,7 @@ mod test {
 
         let client = get_client().await;
         client.set_event_handler(handler).await;
-
-        let response = sync_response(SyncResponseFile::All);
-        client.receive_sync_response(response).await.unwrap();
+        mock_sync(client, test_json::MORE_SYNC.to_string()).await;
 
         let v = test_vec.lock().await;
         assert_eq!(
@@ -798,9 +807,7 @@ mod test {
 
         let client = get_client().await;
         client.set_event_handler(handler).await;
-
-        let response = sync_response(SyncResponseFile::Voip);
-        client.receive_sync_response(response).await.unwrap();
+        mock_sync(client, test_json::VOIP_SYNC.to_string()).await;
 
         let v = test_vec.lock().await;
         assert_eq!(

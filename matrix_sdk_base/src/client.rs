@@ -62,11 +62,9 @@ use zeroize::Zeroizing;
 
 use crate::{
     error::Result,
-    event_handler::Handler,
     rooms::{Room, RoomInfo, RoomType},
     session::Session,
     store::{ambiguity_map::AmbiguityCache, Result as StoreResult, StateChanges, Store},
-    EventHandler,
 };
 
 pub type Token = String;
@@ -172,9 +170,6 @@ pub struct BaseClient {
     cryptostore: Arc<Mutex<Option<Box<dyn CryptoStore>>>>,
     store_path: Arc<Option<PathBuf>>,
     store_passphrase: Arc<Option<Zeroizing<String>>>,
-    /// Any implementor of EventHandler will act as the callbacks for various
-    /// events.
-    event_handler: Arc<RwLock<Option<Handler>>>,
 }
 
 #[cfg(not(tarpaulin_include))]
@@ -320,7 +315,6 @@ impl BaseClient {
             cryptostore: Mutex::new(crypto_store).into(),
             store_path: config.store_path.into(),
             store_passphrase: config.passphrase.into(),
-            event_handler: RwLock::new(None).into(),
         })
     }
 
@@ -417,17 +411,6 @@ impl BaseClient {
     /// This will be None if the client didn't sync at least once.
     pub async fn sync_token(&self) -> Option<String> {
         self.sync_token.read().await.clone()
-    }
-
-    /// Add `EventHandler` to `Client`.
-    ///
-    /// The methods of `EventHandler` are called when the respective `RoomEvents` occur.
-    pub async fn set_event_handler(&self, handler: Box<dyn EventHandler>) {
-        let handler = Handler {
-            inner: handler,
-            store: self.store.clone(),
-        };
-        *self.event_handler.write().await = Some(handler);
     }
 
     async fn handle_timeline(
@@ -933,10 +916,6 @@ impl BaseClient {
                 changes: ambiguity_cache.changes,
             },
         };
-
-        if let Some(handler) = self.event_handler.read().await.as_ref() {
-            handler.handle_sync(&response).await;
-        }
 
         Ok(response)
     }

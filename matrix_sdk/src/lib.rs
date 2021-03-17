@@ -68,8 +68,8 @@ compile_error!("only one of 'native-tls' or 'rustls-tls' features can be enabled
 #[cfg_attr(feature = "docs", doc(cfg(encryption)))]
 pub use matrix_sdk_base::crypto::{EncryptionInfo, LocalTrust};
 pub use matrix_sdk_base::{
-    CustomEvent, Error as BaseError, EventHandler, Room as BaseRoom, RoomInfo, RoomMember,
-    RoomType, Session, StateChanges, StoreError,
+    Error as BaseError, Room as BaseRoom, RoomInfo, RoomMember, RoomType, Session, StateChanges,
+    StoreError,
 };
 
 pub use matrix_sdk_common::*;
@@ -77,6 +77,7 @@ pub use reqwest;
 
 mod client;
 mod error;
+mod event_handler;
 mod http_client;
 /// High-level room API
 pub mod room;
@@ -93,6 +94,7 @@ pub use client::{Client, ClientConfig, LoopCtrl, SyncSettings};
 #[cfg_attr(feature = "docs", doc(cfg(encryption)))]
 pub use device::Device;
 pub use error::{Error, HttpError, Result};
+pub use event_handler::{CustomEvent, EventHandler};
 pub use http_client::HttpSend;
 #[cfg(feature = "encryption")]
 #[cfg_attr(feature = "docs", doc(cfg(encryption)))]

@@ -40,8 +40,7 @@ use tracing::{debug, warn};
 use tracing::{error, info, instrument};
 
 use matrix_sdk_base::{
-    deserialized_responses::SyncResponse, BaseClient, BaseClientConfig, EventHandler, Session,
-    Store,
+    deserialized_responses::SyncResponse, BaseClient, BaseClientConfig, Session, Store,
 };
 
 #[cfg(feature = "encryption")]
@@ -82,6 +81,7 @@ use matrix_sdk_common::{
     assign,
     identifiers::{DeviceIdBox, EventId, RoomId, RoomIdOrAliasId, ServerName, UserId},
     instant::{Duration, Instant},
+    locks::RwLock,
     presence::PresenceState,
     uuid::Uuid,
     FromHttpResponseError, UInt,
@@ -106,9 +106,11 @@ use crate::{
 #[cfg(feature = "encryption")]
 use crate::{
     device::{Device, UserDevices},
+    event_handler::Handler,
     identifiers::DeviceId,
     sas::Sas,
     verification_request::VerificationRequest,
+    EventHandler,
 };
 
 const DEFAULT_SYNC_TIMEOUT: Duration = Duration::from_secs(30);
@@ -139,6 +141,9 @@ pub struct Client {
     key_claim_lock: Arc<Mutex<()>>,
     pub(crate) members_request_locks: Arc<DashMap<RoomId, Arc<Mutex<()>>>>,
     pub(crate) typing_notice_times: Arc<DashMap<RoomId, Instant>>,
+    /// Any implementor of EventHandler will act as the callbacks for various
+    /// events.
+    event_handler: Arc<RwLock<Option<Handler>>>,
 }
 
 #[cfg(not(tarpaulin_include))]
@@ -396,6 +401,7 @@ impl Client {
             key_claim_lock: Arc::new(Mutex::new(())),
             members_request_locks: Arc::new(DashMap::new()),
             typing_notice_times: Arc::new(DashMap::new()),
+            event_handler: Arc::new(RwLock::new(None)),
         })
     }
 
@@ -541,7 +547,11 @@ impl Client {
     ///
     /// The methods of `EventHandler` are called when the respective `RoomEvents` occur.
     pub async fn set_event_handler(&self, handler: Box<dyn EventHandler>) {
-        self.base_client.set_event_handler(handler).await;
+        let handler = Handler {
+            inner: handler,
+            client: self.clone(),
+        };
+        *self.event_handler.write().await = Some(handler);
     }
 
     /// Get all the rooms the client knows about.
@@ -1180,8 +1190,13 @@ impl Client {
             + SYNC_REQUEST_TIMEOUT;
 
         let response = self.send(request, Some(timeout)).await?;
+        let sync_response = self.base_client.receive_sync_response(response).await?;
 
-        Ok(self.base_client.receive_sync_response(response).await?)
+        if let Some(handler) = self.event_handler.read().await.as_ref() {
+            handler.handle_sync(&sync_response).await;
+        }
+
+        Ok(sync_response)
     }
 
     /// Repeatedly call sync to synchronize the client state with the server.
