@@ -7,7 +7,7 @@ use matrix_sdk::{
         AnyMessageEventContent, SyncMessageEvent,
     },
     room::Joined,
-    Client, ClientConfig, EventHandler, Room, SyncSettings,
+    BaseRoom, Client, ClientConfig, EventHandler, SyncSettings,
 };
 use url::Url;
 
@@ -25,7 +25,7 @@ impl CommandBot {
 
 #[async_trait]
 impl EventHandler for CommandBot {
-    async fn on_room_message(&self, room: Room, event: &SyncMessageEvent<MessageEventContent>) {
+    async fn on_room_message(&self, room: BaseRoom, event: &SyncMessageEvent<MessageEventContent>) {
         if let Some(room) = Joined::new(self.client.clone(), room) {
             let msg_body = if let SyncMessageEvent {
                 content:

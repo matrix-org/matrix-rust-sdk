@@ -1,4 +1,4 @@
-use crate::{room::Common, Client, Result, Room, RoomType};
+use crate::{room::Common, BaseRoom, Client, Result, RoomType};
 use std::{io::Read, ops::Deref, sync::Arc};
 
 use matrix_sdk_common::{
@@ -58,13 +58,13 @@ impl Deref for Joined {
 }
 
 impl Joined {
-    /// Create a new `room::Joined` if the underlaying `Room` has type `RoomType::Joined`.
+    /// Create a new `room::Joined` if the underlaying `BaseRoom` has type `RoomType::Joined`.
     ///
     /// # Arguments
     /// * `client` - The client used to make requests.
     ///
     /// * `room` - The underlaying room.
-    pub fn new(client: Client, room: Room) -> Option<Self> {
+    pub fn new(client: Client, room: BaseRoom) -> Option<Self> {
         // TODO: Make this private
         if room.room_type() == RoomType::Joined {
             Some(Self {
