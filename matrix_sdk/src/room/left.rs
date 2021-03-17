@@ -1,4 +1,4 @@
-use crate::{room::Common, Client, Result, Room, RoomType};
+use crate::{room::Common, BaseRoom, Client, Result, RoomType};
 use std::ops::Deref;
 
 use matrix_sdk_common::api::r0::membership::forget_room;
@@ -9,7 +9,7 @@ use matrix_sdk_common::api::r0::membership::forget_room;
 /// Operations may fail once the underlaying `Room` changes `RoomType`.
 #[derive(Debug, Clone)]
 pub struct Left {
-    inner: Common,
+    pub(crate) inner: Common,
 }
 
 impl Left {
@@ -19,7 +19,7 @@ impl Left {
     /// * `client` - The client used to make requests.
     ///
     /// * `room` - The underlaying room.
-    pub fn new(client: Client, room: Room) -> Option<Self> {
+    pub fn new(client: Client, room: BaseRoom) -> Option<Self> {
         // TODO: Make this private
         if room.room_type() == RoomType::Left {
             Some(Self {

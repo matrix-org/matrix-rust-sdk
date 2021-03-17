@@ -6,17 +6,17 @@ use matrix_sdk_common::locks::Mutex;
 
 use std::{ops::Deref, sync::Arc};
 
-use crate::{Client, Result, Room, RoomMember};
+use crate::{BaseRoom, Client, Result, RoomMember};
 
 /// A struct containing methodes that are common for Joined, Invited and Left Rooms
 #[derive(Debug, Clone)]
 pub struct Common {
-    inner: Room,
+    inner: BaseRoom,
     pub(crate) client: Client,
 }
 
 impl Deref for Common {
-    type Target = Room;
+    type Target = BaseRoom;
 
     fn deref(&self) -> &Self::Target {
         &self.inner
@@ -30,7 +30,7 @@ impl Common {
     /// * `client` - The client used to make requests.
     ///
     /// * `room` - The underlaying room.
-    pub fn new(client: Client, room: Room) -> Self {
+    pub fn new(client: Client, room: BaseRoom) -> Self {
         // TODO: Make this private
         Self {
             inner: room,

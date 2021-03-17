@@ -547,11 +547,11 @@ impl Client {
     /// Get all the rooms the client knows about.
     ///
     /// This will return the list of joined, invited, and left rooms.
-    pub fn rooms(&self) -> Vec<room::Common> {
+    pub fn rooms(&self) -> Vec<room::Room> {
         self.store()
             .get_rooms()
             .into_iter()
-            .map(|room| room::Common::new(self.clone(), room))
+            .map(|room| room::Common::new(self.clone(), room).into())
             .collect()
     }
 
@@ -587,10 +587,10 @@ impl Client {
     /// # Arguments
     ///
     /// `room_id` - The unique id of the room that should be fetched.
-    pub fn get_room(&self, room_id: &RoomId) -> Option<room::Common> {
+    pub fn get_room(&self, room_id: &RoomId) -> Option<room::Room> {
         self.store()
             .get_room(room_id)
-            .map(|room| room::Common::new(self.clone(), room))
+            .map(|room| room::Common::new(self.clone(), room).into())
     }
 
     /// Get a joined room with the given room id.
