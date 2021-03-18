@@ -692,8 +692,7 @@ impl Client {
 
         let request = assign!(
             login::Request::new(
-                login::UserInfo::MatrixId(user),
-                login::LoginInfo::Password { password },
+                login::LoginInfo::Password { identifier: login::UserIdentifier::MatrixId(user), password },
             ), {
                 device_id: device_id.map(|d| d.into()),
                 initial_device_display_name,
