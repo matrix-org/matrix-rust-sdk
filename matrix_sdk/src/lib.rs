@@ -106,3 +106,20 @@ pub use sas::Sas;
 
 #[cfg(not(target_arch = "wasm32"))]
 pub(crate) const VERSION: &str = env!("CARGO_PKG_VERSION");
+
+// TODO: remove this function once we can use the Mxc type: https://github.com/ruma/ruma/pull/439
+pub(crate) fn parse_mxc(url: &str) -> Option<(identifiers::ServerNameBox, String)> {
+    use std::convert::TryFrom;
+    if let Ok(url) = url::Url::parse(&url) {
+        if url.scheme() == "mxc" {
+            if let Some(server_name) = url
+                .host_str()
+                .and_then(|host| <identifiers::ServerNameBox>::try_from(host).ok())
+            {
+                let media_id = url.path().to_owned();
+                return Some((server_name, media_id));
+            }
+        }
+    }
+    None
+}

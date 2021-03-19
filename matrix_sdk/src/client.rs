@@ -86,7 +86,7 @@ use matrix_sdk_common::{
         device::{delete_devices, get_devices},
         directory::{get_public_rooms, get_public_rooms_filtered},
         filter::{create_filter::Request as FilterUploadRequest, FilterDefinition},
-        media::create_content,
+        media::{create_content, get_content, get_content_thumbnail},
         membership::{join_room_by_id, join_room_by_id_or_alias},
         message::send_message_event,
         profile::{get_avatar_url, get_display_name, set_avatar_url, set_display_name},
@@ -521,6 +521,60 @@ impl Client {
         let request = get_avatar_url::Request::new(&user_id);
         let response = self.send(request, None).await?;
         Ok(response.avatar_url)
+    }
+
+    /// Gets the avatar of the owner of the client, if set.
+    ///
+    /// Returns the avatar. No guarantee on the size of the image is given.
+    /// If no size is given the full-sized avatar will be returned.
+    ///
+    /// # Arguments
+    ///
+    /// * `width` - The desired width of the avatar.
+    ///
+    /// * `height` - The desired height of the avatar.
+    ///
+    /// # Example
+    /// ```no_run
+    /// # use futures::executor::block_on;
+    /// # use matrix_sdk::Client;
+    /// # use matrix_sdk::identifiers::room_id;
+    /// # use url::Url;
+    /// # let homeserver = Url::parse("http://example.com").unwrap();
+    /// # block_on(async {
+    /// # let user = "example";
+    /// let client = Client::new(homeserver).unwrap();
+    /// client.login(user, "password", None, None).await.unwrap();
+    ///
+    /// if let Some(avatar) = client.avatar(Some(96), Some(96)).await.unwrap() {
+    ///     std::fs::write("avatar.png", avatar);
+    /// }
+    /// # })
+    /// ```
+    pub async fn avatar(&self, width: Option<u32>, height: Option<u32>) -> Result<Option<Vec<u8>>> {
+        // TODO: try to offer the avatar from cache, requires avatar cache
+        if let Some((server_name, media_id)) = self
+            .avatar_url()
+            .await?
+            .and_then(|url| crate::parse_mxc(&url))
+        {
+            if let (Some(width), Some(height)) = (width, height) {
+                let request = get_content_thumbnail::Request::new(
+                    &media_id,
+                    &server_name,
+                    width.into(),
+                    height.into(),
+                );
+                let response = self.send(request, None).await?;
+                Ok(Some(response.file))
+            } else {
+                let request = get_content::Request::new(&media_id, &server_name);
+                let response = self.send(request, None).await?;
+                Ok(Some(response.file))
+            }
+        } else {
+            Ok(None)
+        }
     }
 
     /// Get a reference to the store.
