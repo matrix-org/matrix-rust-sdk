@@ -1,5 +1,6 @@
 use matrix_sdk_common::{
     api::r0::{
+        media::{get_content, get_content_thumbnail},
         membership::{get_member_events, join_room_by_id, leave_room},
         message::get_message_events,
     },
@@ -58,6 +59,61 @@ impl Common {
         let _resposne = self.client.send(request, None).await?;
 
         Ok(())
+    }
+
+    /// Gets the avatar of this room, if set.
+    ///
+    /// Returns the avatar. No guarantee on the size of the image is given.
+    /// If no size is given the full-sized avatar will be returned.
+    ///
+    /// # Arguments
+    ///
+    /// * `width` - The desired width of the avatar.
+    ///
+    /// * `height` - The desired height of the avatar.
+    ///
+    /// # Example
+    /// ```no_run
+    /// # use futures::executor::block_on;
+    /// # use matrix_sdk::Client;
+    /// # use matrix_sdk::identifiers::room_id;
+    /// # use url::Url;
+    /// # let homeserver = Url::parse("http://example.com").unwrap();
+    /// # block_on(async {
+    /// # let user = "example";
+    /// let client = Client::new(homeserver).unwrap();
+    /// client.login(user, "password", None, None).await.unwrap();
+    /// let room_id = room_id!("!roomid:example.com");
+    /// let room = client
+    ///     .get_joined_room(&room_id)
+    ///     .unwrap();
+    /// if let Some(avatar) = room.avatar(Some(96), Some(96)).await.unwrap() {
+    ///     std::fs::write("avatar.png", avatar);
+    /// }
+    /// # })
+    /// ```
+    pub async fn avatar(&self, width: Option<u32>, height: Option<u32>) -> Result<Option<Vec<u8>>> {
+        // TODO: try to offer the avatar from cache, requires avatar cache
+        if let Some((server_name, media_id)) =
+            self.avatar_url().and_then(|url| crate::parse_mxc(&url))
+        {
+            if let (Some(width), Some(height)) = (width, height) {
+                let request = get_content_thumbnail::Request::new(
+                    &media_id,
+                    &server_name,
+                    width.into(),
+                    height.into(),
+                );
+                let response = self.client.send(request, None).await?;
+                Ok(Some(response.file))
+            } else {
+                let request = get_content::Request::new(&media_id, &server_name);
+                let response = self.client.send(request, None).await?;
+                Ok(Some(response.file))
+            }
+        } else {
+            Ok(None)
+        }
     }
 
     /// Sends a request to `/_matrix/client/r0/rooms/{room_id}/messages` and returns
