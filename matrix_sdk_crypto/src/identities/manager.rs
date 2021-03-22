@@ -23,6 +23,7 @@ use tracing::{trace, warn};
 use matrix_sdk_common::{
     api::r0::keys::get_keys::Response as KeysQueryResponse,
     encryption::DeviceKeys,
+    executor::spawn,
     identifiers::{DeviceIdBox, UserId},
 };
 
@@ -160,7 +161,7 @@ impl IdentityManager {
                     );
                     None
                 } else {
-                    Some(tokio::spawn(Self::update_or_create_device(
+                    Some(spawn(Self::update_or_create_device(
                         store.clone(),
                         device_keys,
                     )))
@@ -170,7 +171,9 @@ impl IdentityManager {
         let results = join_all(tasks).await;
 
         for device in results {
-            match device.expect("Creating or updating a device panicked")? {
+            let device = device.expect("Creating or updating a device panicked")?;
+
+            match device {
                 DeviceChange::New(d) => changes.new.push(d),
                 DeviceChange::Updated(d) => changes.changed.push(d),
                 DeviceChange::None => (),
@@ -211,7 +214,7 @@ impl IdentityManager {
         let tasks = device_keys_map
             .into_iter()
             .map(|(user_id, device_keys_map)| {
-                tokio::spawn(Self::update_user_devices(
+                spawn(Self::update_user_devices(
                     self.store.clone(),
                     self.user_id.clone(),
                     self.device_id.clone(),
@@ -224,6 +227,7 @@ impl IdentityManager {
 
         for result in results {
             let change_fragment = result.expect("Panic while updating user devices")?;
+
             changes.extend(change_fragment);
         }
 

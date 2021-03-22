@@ -26,6 +26,7 @@ use matrix_sdk_common::{
         room::{encrypted::EncryptedEventContent, history_visibility::HistoryVisibility},
         AnyMessageEventContent, EventType,
     },
+    executor::spawn,
     identifiers::{DeviceId, DeviceIdBox, RoomId, UserId},
     uuid::Uuid,
 };
@@ -223,7 +224,7 @@ impl GroupSessionManager {
 
         let tasks: Vec<_> = devices
             .iter()
-            .map(|d| tokio::spawn(encrypt(d.clone(), content.clone())))
+            .map(|d| spawn(encrypt(d.clone(), content.clone())))
             .collect();
 
         let results = join_all(tasks).await;
@@ -478,7 +479,7 @@ impl GroupSessionManager {
         let tasks: Vec<_> = devices
             .chunks(Self::MAX_TO_DEVICE_MESSAGES)
             .map(|chunk| {
-                tokio::spawn(Self::encrypt_request(
+                spawn(Self::encrypt_request(
                     chunk.to_vec(),
                     key_content.clone(),
                     outbound.clone(),
@@ -490,6 +491,7 @@ impl GroupSessionManager {
 
         for result in join_all(tasks).await {
             let used_sessions: OlmResult<Vec<Session>> = result.expect("Encryption task paniced");
+
             changes.sessions.extend(used_sessions?);
         }
 
