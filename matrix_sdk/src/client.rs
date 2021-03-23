@@ -650,10 +650,15 @@ impl Client {
     /// Returns a URL that should be opened in a web browser to let the user
     /// login.
     ///
+    /// After a successful login, the loginToken received at the redirect URL should
+    /// be used to login with [`login_with_token`].
+    ///
     /// # Arguments
     ///
     /// * `redirect_url` - The URL that will receive a `loginToken` after a
     ///     successful SSO login.
+    ///
+    /// [`login_with_token`]: #method.login_with_token
     pub fn get_sso_login_url(&self, redirect_url: &str) -> Result<String> {
         let homeserver = self.homeserver();
         let request =
@@ -721,6 +726,86 @@ impl Client {
         let request = assign!(
             login::Request::new(
                 login::LoginInfo::Password { identifier: login::UserIdentifier::MatrixId(user), password },
+            ), {
+                device_id: device_id.map(|d| d.into()),
+                initial_device_display_name,
+            }
+        );
+
+        let response = self.send(request, None).await?;
+        self.base_client.receive_login_response(&response).await?;
+
+        Ok(response)
+    }
+
+    /// Login to the server with a token.
+    ///
+    /// This token is usually received in the SSO flow after following the URL
+    /// provided by [`get_sso_login_url`], note that this is not the access token
+    /// of a session.
+    ///
+    /// This should only be used for the first login.
+    ///
+    /// The [`restore_login`] method should be used to restore a
+    /// logged in client after the first login.
+    ///
+    /// A device id should be provided to restore the correct stores, if the
+    /// device id isn't provided a new device will be created.
+    ///
+    /// # Arguments
+    ///
+    /// * `token` - A login token.
+    ///
+    /// * `device_id` - A unique id that will be associated with this session. If
+    ///     not given the homeserver will create one. Can be an existing device_id
+    ///     from a previous login call. Note that this should be provided only
+    ///     if the client also holds the encryption keys for this device.
+    ///
+    /// * `initial_device_display_name` - A public display name that will be
+    ///     associated with the device_id. Only necessary the first time you
+    ///     login with this device_id. It can be changed later.
+    ///
+    /// # Example
+    /// ```no_run
+    /// # use std::convert::TryFrom;
+    /// # use matrix_sdk::Client;
+    /// # use matrix_sdk::identifiers::DeviceId;
+    /// # use matrix_sdk_common::assign;
+    /// # use futures::executor::block_on;
+    /// # use url::Url;
+    /// # let homeserver = Url::parse("https://example.com").unwrap();
+    /// # let redirect_url = "http://localhost:1234";
+    /// # let login_token = "token";
+    /// # block_on(async {
+    /// let client = Client::new(homeserver).unwrap();
+    /// let sso_url = client.get_sso_login_url(redirect_url);
+    ///
+    /// // Let the user authenticate at the SSO URL
+    /// // Receive the loginToken param at redirect_url
+    ///
+    /// let response = client
+    ///     .login_with_token(login_token, None, Some("My app")).await
+    ///     .unwrap();
+    ///
+    /// println!("Logged in as {}, got device_id {} and access_token {}",
+    ///          response.user_id, response.device_id, response.access_token);
+    /// # })
+    /// ```
+    ///
+    /// [`get_sso_login_url`]: #method.get_sso_login_url
+    /// [`restore_login`]: #method.restore_login
+    #[instrument(skip(token))]
+    pub async fn login_with_token(
+        &self,
+        token: &str,
+        device_id: Option<&str>,
+        initial_device_display_name: Option<&str>,
+    ) -> Result<login::Response> {
+        info!("Logging in to {}", self.homeserver);
+
+        let request = assign!(
+            login::Request::new(
+                login::LoginInfo::Token { token },
             ), {
                 device_id: device_id.map(|d| d.into()),
                 initial_device_display_name,
@@ -1927,6 +2012,19 @@ mod test {
 
         let sso_url = client.get_sso_login_url("http://127.0.0.1:3030");
         assert!(sso_url.is_ok());
+
+        let _m = mock("POST", "/_matrix/client/r0/login")
+            .with_status(200)
+            .with_body(test_json::LOGIN.to_string())
+            .create();
+
+        client
+            .login_with_token("averysmalltoken", None, None)
+            .await
+            .unwrap();
+
+        let logged_in = client.logged_in().await;
+        assert!(logged_in, "Client should be logged in");
     }
 
     #[tokio::test]
