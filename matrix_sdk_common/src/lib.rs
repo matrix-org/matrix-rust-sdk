@@ -14,6 +14,7 @@ pub use ruma::{
 pub use uuid;
 
 pub mod deserialized_responses;
+pub mod executor;
 pub mod locks;
 
 /// Super trait that is used for our store traits, this trait will differ if

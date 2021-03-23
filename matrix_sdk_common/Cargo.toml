@@ -34,5 +34,7 @@ default-features = false
 features = ["sync"]
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
+futures = "0.3.12"
 futures-locks = { version = "0.6.0", default-features = false }
+wasm-bindgen-futures = "0.4"
 uuid = { version = "0.8.2", default-features = false, features = ["v4", "wasm-bindgen"] }
