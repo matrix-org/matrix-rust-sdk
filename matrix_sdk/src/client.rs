@@ -74,7 +74,7 @@ use matrix_sdk_common::{
         message::send_message_event,
         profile::{get_avatar_url, get_display_name, set_avatar_url, set_display_name},
         room::create_room,
-        session::login,
+        session::{get_login_types, login},
         sync::sync_events,
         uiaa::AuthData,
     },
@@ -634,6 +634,15 @@ impl Client {
         self.store()
             .get_room(room_id)
             .and_then(|room| room::Left::new(self.clone(), room))
+    }
+
+    /// Gets the homeserver’s supported login types.
+    ///
+    /// This should be the first step when trying to login so you can call the
+    /// appropriate method for the next step.
+    pub async fn get_login_types(&self) -> Result<get_login_types::Response> {
+        let request = get_login_types::Request::new();
+        self.send(request, None).await
     }
 
     /// Login to the server.
@@ -1816,7 +1825,7 @@ mod test {
         api::r0::{
             account::register::Request as RegistrationRequest,
             directory::get_public_rooms_filtered::Request as PublicRoomsFilterRequest,
-            membership::Invite3pid, uiaa::AuthData,
+            membership::Invite3pid, session::get_login_types::LoginType, uiaa::AuthData,
         },
         assign,
         directory::Filter,
@@ -1847,12 +1856,26 @@ mod test {
     async fn login() {
         let homeserver = Url::from_str(&mockito::server_url()).unwrap();
 
-        let _m = mock("POST", "/_matrix/client/r0/login")
+        let client = Client::new(homeserver).unwrap();
+
+        let _m_types = mock("GET", "/_matrix/client/r0/login")
+            .with_status(200)
+            .with_body(test_json::LOGIN_TYPES.to_string())
+            .create();
+
+        let can_password = client
+            .get_login_types()
+            .await
+            .unwrap()
+            .flows
+            .iter()
+            .any(|flow| flow == &LoginType::Password);
+        assert!(can_password);
+
+        let _m_login = mock("POST", "/_matrix/client/r0/login")
             .with_status(200)
             .with_body(test_json::LOGIN.to_string())
             .create();
-
-        let client = Client::new(homeserver).unwrap();
 
         client
             .login("example", "wordpass", None, None)
