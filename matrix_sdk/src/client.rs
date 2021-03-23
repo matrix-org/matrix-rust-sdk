@@ -74,7 +74,7 @@ use matrix_sdk_common::{
         message::send_message_event,
         profile::{get_avatar_url, get_display_name, set_avatar_url, set_display_name},
         room::create_room,
-        session::{get_login_types, login},
+        session::{get_login_types, login, sso_login},
         sync::sync_events,
         uiaa::AuthData,
     },
@@ -643,6 +643,25 @@ impl Client {
     pub async fn get_login_types(&self) -> Result<get_login_types::Response> {
         let request = get_login_types::Request::new();
         self.send(request, None).await
+    }
+
+    /// Get the URL to use to login via Single Sign-On.
+    ///
+    /// Returns a URL that should be opened in a web browser to let the user
+    /// login.
+    ///
+    /// # Arguments
+    ///
+    /// * `redirect_url` - The URL that will receive a `loginToken` after a
+    ///     successful SSO login.
+    pub fn get_sso_login_url(&self, redirect_url: &str) -> Result<String> {
+        let homeserver = self.homeserver();
+        let request =
+            sso_login::Request::new(redirect_url).try_into_http_request(homeserver.as_str(), None);
+        match request {
+            Ok(req) => Ok(req.uri().to_string()),
+            Err(err) => Err(Error::from(HttpError::from(err))),
+        }
     }
 
     /// Login to the server.
@@ -1884,6 +1903,30 @@ mod test {
 
         let logged_in = client.logged_in().await;
         assert!(logged_in, "Client should be logged in");
+    }
+
+    #[tokio::test]
+    async fn login_with_sso_token() {
+        let homeserver = Url::from_str(&mockito::server_url()).unwrap();
+
+        let client = Client::new(homeserver).unwrap();
+
+        let _m = mock("GET", "/_matrix/client/r0/login")
+            .with_status(200)
+            .with_body(test_json::LOGIN_TYPES.to_string())
+            .create();
+
+        let can_sso = client
+            .get_login_types()
+            .await
+            .unwrap()
+            .flows
+            .iter()
+            .any(|flow| flow == &LoginType::Sso);
+        assert!(can_sso);
+
+        let sso_url = client.get_sso_login_url("http://127.0.0.1:3030");
+        assert!(sso_url.is_ok());
     }
 
     #[tokio::test]
