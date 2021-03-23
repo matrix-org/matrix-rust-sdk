@@ -71,6 +71,9 @@ jobs:
         profile: minimal
         override: true
 
+    - name: Install emscripten
+      uses: mymindstorm/setup-emsdk@v7
+
     - name: Check
       run: |
         cd matrix_sdk/examples/wasm_command_bot
