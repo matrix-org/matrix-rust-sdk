@@ -71,12 +71,10 @@ jobs:
         profile: minimal
         override: true
 
-    - name: Change the directory
-      run: |
-        cd matrix_sdk/examples/wasm_command_bot
-
     - name: Check
       uses: actions-rs/cargo@v1
+      run: |
+        cd matrix_sdk/examples/wasm_command_bot
       with:
         command: check
         args: --target wasm32-unknown-unknown
