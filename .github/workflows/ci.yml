@@ -57,6 +57,7 @@ jobs:
   check-wasm:
     name: Check if WASM support compiles
     needs: [clippy]
+    runs-on: ubuntu-latest
 
     steps:
     - name: Checkout the repo
