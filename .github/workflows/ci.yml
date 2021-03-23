@@ -67,6 +67,7 @@ jobs:
       uses: actions-rs/toolchain@v1
       with:
         toolchain: stable
+        target: wasm32-unknown-unknown
         profile: minimal
         override: true
 
