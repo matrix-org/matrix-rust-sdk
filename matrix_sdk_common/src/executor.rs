@@ -1,3 +1,5 @@
+//! Abstraction over an executor so we can spawn tasks under WASM the same way
+//! we do usually.
 #[cfg(target_arch = "wasm32")]
 use std::{
     pin::Pin,
