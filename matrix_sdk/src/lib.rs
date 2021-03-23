@@ -45,6 +45,7 @@
 //! of Synapse in compliance with the Matrix API specification.
 //! * `markdown`: Support for sending markdown formatted messages.
 //! * `socks`: Enables SOCKS support in reqwest, the default HTTP client.
+//! * `sso_login`: Enables SSO login with a local http server.
 
 #![deny(
     missing_debug_implementations,
@@ -63,6 +64,9 @@ compile_error!("one of 'native-tls' or 'rustls-tls' features must be enabled");
 
 #[cfg(all(feature = "native-tls", feature = "rustls-tls",))]
 compile_error!("only one of 'native-tls' or 'rustls-tls' features can be enabled");
+
+#[cfg(all(feature = "sso_login", target_arch = "wasm32"))]
+compile_error!("'sso_login' cannot be enabled on 'wasm32' arch");
 
 #[cfg(feature = "encryption")]
 #[cfg_attr(feature = "docs", doc(cfg(encryption)))]
