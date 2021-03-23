@@ -54,6 +54,31 @@ jobs:
         command: clippy
         args: --all-targets -- -D warnings
 
+  check-wasm:
+    name: Check if WASM support compiles
+    needs: [clippy]
+
+    steps:
+    - name: Checkout the repo
+      uses: actions/checkout@v2
+
+    - name: Install rust
+      uses: actions-rs/toolchain@v1
+      with:
+        toolchain: stable
+        profile: minimal
+        override: true
+
+    - name: Change the directory
+      run: |
+        cd matrix_sdk/examples/wasm_command_bot
+
+    - name: Check
+      uses: actions-rs/cargo@v1
+      with:
+        command: check
+        args: --target wasm32-unknown-unknown
+
   test:
     name: ${{ matrix.name }}
     needs: [clippy]
