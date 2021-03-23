@@ -39,15 +39,24 @@ impl Sas {
     ///
     /// # Examples
     ///
-    /// ```ignore
+    /// ```no_run
+    /// # use matrix_sdk::Client;
+    /// # use futures::executor::block_on;
+    /// # use url::Url;
     /// use matrix_sdk::Sas;
     /// use matrix_sdk_base::crypto::AcceptSettings;
     /// use matrix_sdk::events::key::verification::ShortAuthenticationString;
+    /// # let homeserver = Url::parse("http://example.com").unwrap();
+    /// # let client = Client::new(homeserver).unwrap();
+    /// # let flow_id = "someID";
+    /// # block_on(async {
+    /// let sas = client.get_verification(flow_id).await.unwrap();
     ///
     /// let only_decimal = AcceptSettings::with_allowed_methods(
     ///     vec![ShortAuthenticationString::Decimal]
     /// );
-    /// sas.accept_with_settings(only_decimal);
+    /// sas.accept_with_settings(only_decimal).await.unwrap();
+    /// # });
     /// ```
     pub async fn accept_with_settings(&self, settings: AcceptSettings) -> Result<()> {
         if let Some(req) = self.inner.accept_with_settings(settings) {
