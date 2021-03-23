@@ -1048,7 +1048,7 @@ impl Client {
     /// );
     ///
     /// let txn_id = Uuid::new_v4();
-    /// client.send(room_id, content, Some(txn_id)).await.unwrap();
+    /// client.room_send(&room_id, content, Some(txn_id)).await.unwrap();
     /// # })
     /// ```
     pub async fn room_send(
