@@ -1,8 +1,10 @@
-use matrix_sdk_common::api::r0::{
-    membership::{get_member_events, join_room_by_id, leave_room},
-    message::get_message_events,
+use matrix_sdk_common::{
+    api::r0::{
+        membership::{get_member_events, join_room_by_id, leave_room},
+        message::get_message_events,
+    },
+    locks::Mutex,
 };
-use matrix_sdk_common::locks::Mutex;
 
 use std::{ops::Deref, sync::Arc};
 

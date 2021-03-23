@@ -40,7 +40,8 @@ use tracing::{debug, warn};
 use tracing::{error, info, instrument};
 
 use matrix_sdk_base::{
-    deserialized_responses::SyncResponse, BaseClient, BaseClientConfig, Session, Store,
+    deserialized_responses::SyncResponse, events::AnyMessageEventContent, BaseClient,
+    BaseClientConfig, Session, Store,
 };
 
 #[cfg(feature = "encryption")]
@@ -1000,6 +1001,72 @@ impl Client {
         });
 
         Ok(self.http_client.upload(request, Some(timeout)).await?)
+    }
+
+    /// Send a room message to a room.
+    ///
+    /// Returns the parsed response from the server.
+    ///
+    /// If the encryption feature is enabled this method will transparently
+    /// encrypt the room message if this room is encrypted.
+    ///
+    /// **Note**: This method will send an unencrypted message if the room cannot
+    /// be found in the store, prefer the higher level
+    /// [send()](room::Joined::send()) method that can be found for the
+    /// [Joined](room::Joined) room struct to avoid this.
+    ///
+    /// # Arguments
+    ///
+    /// * `room_id` - The unique id of the room.
+    ///
+    /// * `content` - The content of the message event.
+    ///
+    /// * `txn_id` - A unique `Uuid` that can be attached to a `MessageEvent`
+    /// held in its unsigned field as `transaction_id`. If not given one is
+    /// created for the message.
+    ///
+    /// # Example
+    /// ```no_run
+    /// # use std::sync::{Arc, RwLock};
+    /// # use matrix_sdk::{Client, SyncSettings};
+    /// # use url::Url;
+    /// # use futures::executor::block_on;
+    /// # use matrix_sdk::identifiers::room_id;
+    /// # use std::convert::TryFrom;
+    /// use matrix_sdk::events::{
+    ///     AnyMessageEventContent,
+    ///     room::message::{MessageEventContent, TextMessageEventContent},
+    /// };
+    /// # block_on(async {
+    /// # let homeserver = Url::parse("http://localhost:8080").unwrap();
+    /// # let mut client = Client::new(homeserver).unwrap();
+    /// # let room_id = room_id!("!test:localhost");
+    /// use matrix_sdk_common::uuid::Uuid;
+    ///
+    /// let content = AnyMessageEventContent::RoomMessage(
+    ///     MessageEventContent::text_plain("Hello world")
+    /// );
+    ///
+    /// let txn_id = Uuid::new_v4();
+    /// client.send(room_id, content, Some(txn_id)).await.unwrap();
+    /// # })
+    /// ```
+    pub async fn room_send(
+        &self,
+        room_id: &RoomId,
+        content: impl Into<AnyMessageEventContent>,
+        txn_id: Option<Uuid>,
+    ) -> Result<send_message_event::Response> {
+        #[cfg(feature = "encryption")]
+        if let Some(room) = self.get_joined_room(room_id) {
+            room.send(content, txn_id).await
+        } else {
+            let content = content.into();
+            let txn_id = txn_id.unwrap_or_else(Uuid::new_v4).to_string();
+            let request = send_message_event::Request::new(room_id, &txn_id, &content);
+
+            self.send(request, None).await
+        }
     }
 
     /// Send an arbitrary request to the server, without updating client state.
