@@ -17,6 +17,8 @@ use std::{
     sync::Arc,
 };
 
+use futures::future::join_all;
+
 use dashmap::DashMap;
 use matrix_sdk_common::{
     api::r0::to_device::DeviceIdOrAllDevices,
@@ -24,6 +26,7 @@ use matrix_sdk_common::{
         room::{encrypted::EncryptedEventContent, history_visibility::HistoryVisibility},
         AnyMessageEventContent, EventType,
     },
+    executor::spawn,
     identifiers::{DeviceId, DeviceIdBox, RoomId, UserId},
     uuid::Uuid,
 };
@@ -52,7 +55,7 @@ pub struct GroupSessionManager {
 }
 
 impl GroupSessionManager {
-    const MAX_TO_DEVICE_MESSAGES: usize = 20;
+    const MAX_TO_DEVICE_MESSAGES: usize = 250;
 
     pub(crate) fn new(account: Account, store: Store) -> Self {
         Self {
@@ -188,35 +191,57 @@ impl GroupSessionManager {
     /// Encrypt the given content for the given devices and create a to-device
     /// requests that sends the encrypted content to them.
     async fn encrypt_session_for(
-        &self,
         content: Value,
-        devices: &[Device],
+        devices: Vec<Device>,
     ) -> OlmResult<(Uuid, ToDeviceRequest, Vec<Session>)> {
         let mut messages = BTreeMap::new();
         let mut changed_sessions = Vec::new();
 
-        for device in devices {
+        let encrypt = |device: Device, content: Value| async move {
+            let mut message = BTreeMap::new();
+
             let encrypted = device.encrypt(EventType::RoomKey, content.clone()).await;
 
-            let (used_session, encrypted) = match encrypted {
-                Ok(c) => c,
+            let used_session = match encrypted {
+                Ok((session, encrypted)) => {
+                    message
+                        .entry(device.user_id().clone())
+                        .or_insert_with(BTreeMap::new)
+                        .insert(
+                            DeviceIdOrAllDevices::DeviceId(device.device_id().into()),
+                            serde_json::value::to_raw_value(&encrypted)?,
+                        );
+                    Some(session)
+                }
                 // TODO we'll want to create m.room_key.withheld here.
                 Err(OlmError::MissingSession)
-                | Err(OlmError::EventError(EventError::MissingSenderKey)) => {
-                    continue;
-                }
+                | Err(OlmError::EventError(EventError::MissingSenderKey)) => None,
                 Err(e) => return Err(e),
             };
 
-            changed_sessions.push(used_session);
+            Ok((used_session, message))
+        };
 
-            messages
-                .entry(device.user_id().clone())
-                .or_insert_with(BTreeMap::new)
-                .insert(
-                    DeviceIdOrAllDevices::DeviceId(device.device_id().into()),
-                    serde_json::value::to_raw_value(&encrypted)?,
-                );
+        let tasks: Vec<_> = devices
+            .iter()
+            .map(|d| spawn(encrypt(d.clone(), content.clone())))
+            .collect();
+
+        let results = join_all(tasks).await;
+
+        for result in results {
+            let (used_session, message) = result.expect("Encryption task panicked")?;
+
+            if let Some(session) = used_session {
+                changed_sessions.push(session);
+            }
+
+            for (user, device_messages) in message.into_iter() {
+                messages
+                    .entry(user)
+                    .or_insert_with(BTreeMap::new)
+                    .extend(device_messages);
+            }
         }
 
         let id = Uuid::new_v4();
@@ -226,6 +251,12 @@ impl GroupSessionManager {
             txn_id: id,
             messages,
         };
+
+        trace!(
+            recipient_count = request.message_count(),
+            transaction_id = ?id,
+            "Created a to-device request carrying a room_key"
+        );
 
         Ok((id, request, changed_sessions))
     }
@@ -334,6 +365,24 @@ impl GroupSessionManager {
         Ok((should_rotate, devices))
     }
 
+    pub async fn encrypt_request(
+        chunk: Vec<Device>,
+        content: Value,
+        outbound: OutboundGroupSession,
+        message_index: u32,
+        being_shared: Arc<DashMap<Uuid, OutboundGroupSession>>,
+    ) -> OlmResult<Vec<Session>> {
+        let (id, request, used_sessions) =
+            Self::encrypt_session_for(content.clone(), chunk).await?;
+
+        if !request.messages.is_empty() {
+            outbound.add_request(id, request.into(), message_index);
+            being_shared.insert(id, outbound.clone());
+        }
+
+        Ok(used_sessions)
+    }
+
     /// Get to-device requests to share a group session with users in a room.
     ///
     /// # Arguments
@@ -427,18 +476,23 @@ impl GroupSessionManager {
             );
         }
 
-        for device_map_chunk in devices.chunks(Self::MAX_TO_DEVICE_MESSAGES) {
-            let (id, request, used_sessions) = self
-                .encrypt_session_for(key_content.clone(), device_map_chunk)
-                .await?;
+        let tasks: Vec<_> = devices
+            .chunks(Self::MAX_TO_DEVICE_MESSAGES)
+            .map(|chunk| {
+                spawn(Self::encrypt_request(
+                    chunk.to_vec(),
+                    key_content.clone(),
+                    outbound.clone(),
+                    message_index,
+                    self.outbound_sessions_being_shared.clone(),
+                ))
+            })
+            .collect();
 
-            if !request.messages.is_empty() {
-                outbound.add_request(id, request.into(), message_index);
-                self.outbound_sessions_being_shared
-                    .insert(id, outbound.clone());
-            }
+        for result in join_all(tasks).await {
+            let used_sessions: OlmResult<Vec<Session>> = result.expect("Encryption task paniced");
 
-            changes.sessions.extend(used_sessions);
+            changes.sessions.extend(used_sessions?);
         }
 
         let requests = outbound.pending_requests();
@@ -472,5 +526,86 @@ impl GroupSessionManager {
         );
 
         Ok(requests)
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use std::convert::TryFrom;
+
+    use matrix_sdk_common::{
+        api::r0::keys::{claim_keys, get_keys},
+        identifiers::{room_id, user_id, DeviceIdBox, UserId},
+        uuid::Uuid,
+    };
+    use matrix_sdk_test::response_from_file;
+    use serde_json::Value;
+
+    use crate::{EncryptionSettings, OlmMachine};
+
+    fn alice_id() -> UserId {
+        user_id!("@alice:example.org")
+    }
+
+    fn alice_device_id() -> DeviceIdBox {
+        "JLAFKJWSCS".into()
+    }
+
+    fn keys_query_response() -> get_keys::Response {
+        let data = include_bytes!("../../benches/keys_query.json");
+        let data: Value = serde_json::from_slice(data).unwrap();
+        let data = response_from_file(&data);
+        get_keys::Response::try_from(data).expect("Can't parse the keys upload response")
+    }
+
+    fn keys_claim_response() -> claim_keys::Response {
+        let data = include_bytes!("../../benches/keys_claim.json");
+        let data: Value = serde_json::from_slice(data).unwrap();
+        let data = response_from_file(&data);
+        claim_keys::Response::try_from(data).expect("Can't parse the keys upload response")
+    }
+
+    async fn machine() -> OlmMachine {
+        let keys_query = keys_query_response();
+        let keys_claim = keys_claim_response();
+        let uuid = Uuid::new_v4();
+
+        let machine = OlmMachine::new(&alice_id(), &alice_device_id());
+
+        machine
+            .mark_request_as_sent(&uuid, &keys_query)
+            .await
+            .unwrap();
+        machine
+            .mark_request_as_sent(&uuid, &keys_claim)
+            .await
+            .unwrap();
+
+        machine
+    }
+
+    #[tokio::test]
+    async fn test_sharing() {
+        let machine = machine().await;
+        let room_id = room_id!("!test:localhost");
+        let keys_claim = keys_claim_response();
+
+        let users: Vec<_> = keys_claim.one_time_keys.keys().collect();
+
+        let requests = machine
+            .share_group_session(
+                &room_id,
+                users.clone().into_iter(),
+                EncryptionSettings::default(),
+            )
+            .await
+            .unwrap();
+
+        let event_count: usize = requests.iter().map(|r| r.message_count()).sum();
+
+        // The keys claim response has a couple of one-time keys with invalid
+        // signatures, thus only 148 sessions are actually created, we check
+        // that all 148 valid sessions get an room key.
+        assert_eq!(event_count, 148);
     }
 }

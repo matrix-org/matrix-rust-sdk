@@ -90,18 +90,21 @@ impl From<CrossSigningKey> for UserSigningPubkey {
     }
 }
 
+#[allow(clippy::from_over_into)]
 impl Into<CrossSigningKey> for MasterPubkey {
     fn into(self) -> CrossSigningKey {
         self.0.as_ref().clone()
     }
 }
 
+#[allow(clippy::from_over_into)]
 impl Into<CrossSigningKey> for UserSigningPubkey {
     fn into(self) -> CrossSigningKey {
         self.0.as_ref().clone()
     }
 }
 
+#[allow(clippy::from_over_into)]
 impl Into<CrossSigningKey> for SelfSigningPubkey {
     fn into(self) -> CrossSigningKey {
         self.0.as_ref().clone()

@@ -16,13 +16,13 @@ use matrix_sdk_base::{
     crypto::VerificationRequest as BaseVerificationRequest, events::AnyMessageEventContent,
 };
 
-use crate::{Client, Result};
+use crate::{room::Joined, Result};
 
 /// An object controling the interactive verification flow.
 #[derive(Debug, Clone)]
 pub struct VerificationRequest {
     pub(crate) inner: BaseVerificationRequest,
-    pub(crate) client: Client,
+    pub(crate) room: Joined,
 }
 
 impl VerificationRequest {
@@ -30,10 +30,7 @@ impl VerificationRequest {
     pub async fn accept(&self) -> Result<()> {
         if let Some(content) = self.inner.accept() {
             let content = AnyMessageEventContent::KeyVerificationReady(content);
-
-            self.client
-                .room_send(self.inner.room_id(), content, None)
-                .await?;
+            self.room.send(content, None).await?;
         }
 
         Ok(())

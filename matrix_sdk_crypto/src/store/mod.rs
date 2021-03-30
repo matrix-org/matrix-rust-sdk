@@ -126,6 +126,15 @@ pub struct DeviceChanges {
     pub deleted: Vec<ReadOnlyDevice>,
 }
 
+impl DeviceChanges {
+    /// Merge the given `DeviceChanges` into this instance of `DeviceChanges`.
+    pub fn extend(&mut self, other: DeviceChanges) {
+        self.new.extend(other.new);
+        self.changed.extend(other.changed);
+        self.deleted.extend(other.deleted);
+    }
+}
+
 impl Store {
     pub fn new(
         user_id: Arc<UserId>,

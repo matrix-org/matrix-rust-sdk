@@ -12,17 +12,19 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use futures::future::join_all;
 use std::{
     collections::{BTreeMap, HashSet},
     convert::TryFrom,
     sync::Arc,
 };
-use tracing::{info, trace, warn};
+use tracing::{trace, warn};
 
 use matrix_sdk_common::{
     api::r0::keys::get_keys::Response as KeysQueryResponse,
     encryption::DeviceKeys,
-    identifiers::{DeviceId, DeviceIdBox, UserId},
+    executor::spawn,
+    identifiers::{DeviceIdBox, UserId},
 };
 
 use crate::{
@@ -34,6 +36,12 @@ use crate::{
     requests::KeysQueryRequest,
     store::{Changes, DeviceChanges, IdentityChanges, Result as StoreResult, Store},
 };
+
+enum DeviceChange {
+    New(ReadOnlyDevice),
+    Updated(ReadOnlyDevice),
+    None,
+}
 
 #[derive(Debug, Clone)]
 pub(crate) struct IdentityManager {
@@ -57,10 +65,6 @@ impl IdentityManager {
         &self.user_id
     }
 
-    fn device_id(&self) -> &DeviceId {
-        &self.device_id
-    }
-
     /// Receive a successful keys query response.
     ///
     /// Returns a list of devices newly discovered devices and devices that
@@ -74,17 +78,8 @@ impl IdentityManager {
         &self,
         response: &KeysQueryResponse,
     ) -> OlmResult<(DeviceChanges, IdentityChanges)> {
-        // TODO create a enum that tells us how the device/identity changed,
-        // e.g. new/deleted/display name change.
-        //
-        // TODO create a struct that will hold the device/identity and the
-        // change enum and return the struct.
-        //
-        // TODO once outbound group sessions hold on to the set of users that
-        // received the session, invalidate the session if a user device
-        // got added/deleted.
         let changed_devices = self
-            .handle_devices_from_key_query(&response.device_keys)
+            .handle_devices_from_key_query(response.device_keys.clone())
             .await?;
         let changed_identities = self.handle_cross_singing_keys(response).await?;
 
@@ -94,9 +89,111 @@ impl IdentityManager {
             ..Default::default()
         };
 
+        // TODO turn this into a single transaction.
         self.store.save_changes(changes).await?;
+        let updated_users: Vec<&UserId> = response.device_keys.keys().collect();
+
+        for user_id in updated_users {
+            self.store.update_tracked_user(user_id, false).await?;
+        }
 
         Ok((changed_devices, changed_identities))
+    }
+
+    async fn update_or_create_device(
+        store: Store,
+        device_keys: DeviceKeys,
+    ) -> StoreResult<DeviceChange> {
+        let old_device = store
+            .get_readonly_device(&device_keys.user_id, &device_keys.device_id)
+            .await?;
+
+        if let Some(mut device) = old_device {
+            if let Err(e) = device.update_device(&device_keys) {
+                warn!(
+                    "Failed to update the device keys for {} {}: {:?}",
+                    device.user_id(),
+                    device.device_id(),
+                    e
+                );
+                Ok(DeviceChange::None)
+            } else {
+                Ok(DeviceChange::Updated(device))
+            }
+        } else {
+            match ReadOnlyDevice::try_from(&device_keys) {
+                Ok(d) => {
+                    trace!("Adding a new device to the device store {:?}", d);
+                    Ok(DeviceChange::New(d))
+                }
+                Err(e) => {
+                    warn!(
+                        "Failed to create a new device for {} {}: {:?}",
+                        device_keys.user_id, device_keys.device_id, e
+                    );
+                    Ok(DeviceChange::None)
+                }
+            }
+        }
+    }
+
+    async fn update_user_devices(
+        store: Store,
+        own_user_id: Arc<UserId>,
+        own_device_id: Arc<DeviceIdBox>,
+        user_id: UserId,
+        device_map: BTreeMap<DeviceIdBox, DeviceKeys>,
+    ) -> StoreResult<DeviceChanges> {
+        let mut changes = DeviceChanges::default();
+
+        let current_devices: HashSet<DeviceIdBox> = device_map.keys().cloned().collect();
+
+        let tasks = device_map
+            .into_iter()
+            .filter_map(|(device_id, device_keys)| {
+                // We don't need our own device in the device store.
+                if user_id == *own_user_id && device_id == *own_device_id {
+                    None
+                } else if user_id != device_keys.user_id || device_id != device_keys.device_id {
+                    warn!(
+                        "Mismatch in device keys payload of device {}|{} from user {}|{}",
+                        device_id, device_keys.device_id, user_id, device_keys.user_id
+                    );
+                    None
+                } else {
+                    Some(spawn(Self::update_or_create_device(
+                        store.clone(),
+                        device_keys,
+                    )))
+                }
+            });
+
+        let results = join_all(tasks).await;
+
+        for device in results {
+            let device = device.expect("Creating or updating a device panicked")?;
+
+            match device {
+                DeviceChange::New(d) => changes.new.push(d),
+                DeviceChange::Updated(d) => changes.changed.push(d),
+                DeviceChange::None => (),
+            }
+        }
+
+        let current_devices: HashSet<&DeviceIdBox> = current_devices.iter().collect();
+        let stored_devices = store.get_readonly_devices(&user_id).await?;
+        let stored_devices_set: HashSet<&DeviceIdBox> = stored_devices.keys().collect();
+
+        let deleted_devices_set = stored_devices_set.difference(&current_devices);
+
+        for device_id in deleted_devices_set {
+            if let Some(device) = stored_devices.get(*device_id) {
+                device.mark_as_deleted();
+                changes.deleted.push(device.clone());
+            }
+        }
+
+        Ok(changes)
     }
 
     /// Handle the device keys part of a key query response.
@@ -110,69 +207,28 @@ impl IdentityManager {
     /// they are new, one of their properties has changed or they got deleted.
     async fn handle_devices_from_key_query(
         &self,
-        device_keys_map: &BTreeMap<UserId, BTreeMap<DeviceIdBox, DeviceKeys>>,
+        device_keys_map: BTreeMap<UserId, BTreeMap<DeviceIdBox, DeviceKeys>>,
     ) -> StoreResult<DeviceChanges> {
         let mut changes = DeviceChanges::default();
 
-        for (user_id, device_map) in device_keys_map {
-            // TODO move this out into the handle keys query response method
-            // since we might fail handle the new device at any point here or
-            // when updating the user identities.
-            self.store.update_tracked_user(user_id, false).await?;
+        let tasks = device_keys_map
+            .into_iter()
+            .map(|(user_id, device_keys_map)| {
+                spawn(Self::update_user_devices(
+                    self.store.clone(),
+                    self.user_id.clone(),
+                    self.device_id.clone(),
+                    user_id,
+                    device_keys_map,
+                ))
+            });
 
-            for (device_id, device_keys) in device_map.iter() {
-                // We don't need our own device in the device store.
-                if user_id == self.user_id() && &**device_id == self.device_id() {
-                    continue;
-                }
+        let results = join_all(tasks).await;
 
-                if user_id != &device_keys.user_id || device_id != &device_keys.device_id {
-                    warn!(
-                        "Mismatch in device keys payload of device {}|{} from user {}|{}",
-                        device_id, device_keys.device_id, user_id, device_keys.user_id
-                    );
-                    continue;
-                }
+        for result in results {
+            let change_fragment = result.expect("Panic while updating user devices")?;
 
-                let device = self.store.get_readonly_device(&user_id, device_id).await?;
-
-                if let Some(mut device) = device {
-                    if let Err(e) = device.update_device(device_keys) {
-                        warn!(
-                            "Failed to update the device keys for {} {}: {:?}",
-                            user_id, device_id, e
-                        );
-                        continue;
-                    }
-                    changes.changed.push(device);
-                } else {
-                    let device = match ReadOnlyDevice::try_from(device_keys) {
-                        Ok(d) => d,
-                        Err(e) => {
-                            warn!(
-                                "Failed to create a new device for {} {}: {:?}",
-                                user_id, device_id, e
-                            );
-                            continue;
-                        }
-                    };
-                    info!("Adding a new device to the device store {:?}", device);
-                    changes.new.push(device);
-                }
-            }
-
-            let current_devices: HashSet<&DeviceIdBox> = device_map.keys().collect();
-            let stored_devices = self.store.get_readonly_devices(&user_id).await?;
-            let stored_devices_set: HashSet<&DeviceIdBox> = stored_devices.keys().collect();
-
-            let deleted_devices_set = stored_devices_set.difference(&current_devices);
-
-            for device_id in deleted_devices_set {
-                if let Some(device) = stored_devices.get(*device_id) {
-                    device.mark_as_deleted();
-                    changes.deleted.push(device.clone());
-                }
-            }
+            changes.extend(change_fragment);
         }
 
         Ok(changes)

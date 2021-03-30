@@ -27,8 +27,12 @@ use tracing::{error, info, trace, warn};
 use matrix_sdk_common::{
     api::r0::keys::upload_signatures::Request as SignatureUploadRequest,
     events::{
-        key::verification::cancel::CancelCode, AnyMessageEvent, AnyMessageEventContent,
-        AnyToDeviceEvent, AnyToDeviceEventContent,
+        key::verification::{
+            accept::{AcceptEventContent, AcceptMethod, AcceptToDeviceEventContent},
+            cancel::CancelCode,
+            ShortAuthenticationString,
+        },
+        AnyMessageEvent, AnyMessageEventContent, AnyToDeviceEvent, AnyToDeviceEventContent,
     },
     identifiers::{DeviceId, EventId, RoomId, UserId},
     uuid::Uuid,
@@ -253,18 +257,35 @@ impl Sas {
     /// This does nothing if the verification was already accepted, otherwise it
     /// returns an `AcceptEventContent` that needs to be sent out.
     pub fn accept(&self) -> Option<OutgoingVerificationRequest> {
-        self.inner.lock().unwrap().accept().map(|c| match c {
-            AcceptContent::ToDevice(c) => {
-                let content = AnyToDeviceEventContent::KeyVerificationAccept(c);
-                self.content_to_request(content).into()
-            }
-            AcceptContent::Room(room_id, content) => RoomMessageRequest {
-                room_id,
-                txn_id: Uuid::new_v4(),
-                content: AnyMessageEventContent::KeyVerificationAccept(content),
-            }
-            .into(),
-        })
+        self.accept_with_settings(Default::default())
+    }
+
+    /// Accept the SAS verification customizing the accept method.
+    ///
+    /// This does nothing if the verification was already accepted, otherwise it
+    /// returns an `AcceptEventContent` that needs to be sent out.
+    ///
+    /// Specify a function modifying the attributes of the accept request.
+    pub fn accept_with_settings(
+        &self,
+        settings: AcceptSettings,
+    ) -> Option<OutgoingVerificationRequest> {
+        self.inner
+            .lock()
+            .unwrap()
+            .accept()
+            .map(|c| match settings.apply(c) {
+                AcceptContent::ToDevice(c) => {
+                    let content = AnyToDeviceEventContent::KeyVerificationAccept(c);
+                    self.content_to_request(content).into()
+                }
+                AcceptContent::Room(room_id, content) => RoomMessageRequest {
+                    room_id,
+                    txn_id: Uuid::new_v4(),
+                    content: AnyMessageEventContent::KeyVerificationAccept(content),
+                }
+                .into(),
+            })
     }
 
     /// Confirm the Sas verification.
@@ -651,6 +672,58 @@ impl Sas {
 
     pub(crate) fn content_to_request(&self, content: AnyToDeviceEventContent) -> ToDeviceRequest {
         content_to_request(self.other_user_id(), self.other_device_id(), content)
+    }
+}
+
+/// Customize the accept-reply for a verification process
+#[derive(Debug)]
+pub struct AcceptSettings {
+    allowed_methods: Vec<ShortAuthenticationString>,
+}
+
+impl Default for AcceptSettings {
+    /// All methods are allowed
+    fn default() -> Self {
+        Self {
+            allowed_methods: vec![
+                ShortAuthenticationString::Decimal,
+                ShortAuthenticationString::Emoji,
+            ],
+        }
+    }
+}
+
+impl AcceptSettings {
+    /// Create settings restricting the allowed SAS methods
+    ///
+    /// # Arguments
+    ///
+    /// * `methods` - The methods this client allows at most
+    pub fn with_allowed_methods(methods: Vec<ShortAuthenticationString>) -> Self {
+        Self {
+            allowed_methods: methods,
+        }
+    }
+
+    fn apply(self, mut content: AcceptContent) -> AcceptContent {
+        match &mut content {
+            AcceptContent::ToDevice(AcceptToDeviceEventContent {
+                method: AcceptMethod::MSasV1(c),
+                ..
+            })
+            | AcceptContent::Room(
+                _,
+                AcceptEventContent {
+                    method: AcceptMethod::MSasV1(c),
+                    ..
+                },
+            ) => {
+                c.short_authentication_string
+                    .retain(|sas| self.allowed_methods.contains(sas));
+                content
+            }
+            _ => content,
+        }
     }
 }
 

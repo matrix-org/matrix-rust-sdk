@@ -15,6 +15,12 @@
 
 #[cfg(feature = "encryption")]
 use std::{collections::BTreeMap, io::Write, path::PathBuf};
+#[cfg(feature = "sso_login")]
+use std::{
+    collections::HashMap,
+    io::{Error as IoError, ErrorKind as IoErrorKind},
+    ops::Range,
+};
 use std::{
     convert::TryInto,
     fmt::{self, Debug},
@@ -29,9 +35,19 @@ use std::{
 use dashmap::DashMap;
 use futures_timer::Delay as sleep;
 use http::HeaderValue;
+#[cfg(feature = "sso_login")]
+use http::Response;
 use mime::{self, Mime};
+#[cfg(feature = "sso_login")]
+use rand::{thread_rng, Rng};
 use reqwest::header::InvalidHeaderValue;
+#[cfg(feature = "sso_login")]
+use tokio::{net::TcpListener, sync::oneshot};
+#[cfg(feature = "sso_login")]
+use tokio_stream::wrappers::TcpListenerStream;
 use url::Url;
+#[cfg(feature = "sso_login")]
+use warp::Filter;
 #[cfg(feature = "encryption")]
 use zeroize::Zeroizing;
 
@@ -40,14 +56,14 @@ use tracing::{debug, warn};
 use tracing::{error, info, instrument};
 
 use matrix_sdk_base::{
-    deserialized_responses::{MembersResponse, SyncResponse},
-    BaseClient, BaseClientConfig, EventHandler, Room, RoomType, Session, Store,
+    deserialized_responses::SyncResponse, events::AnyMessageEventContent, BaseClient,
+    BaseClientConfig, Session, Store,
 };
 
 #[cfg(feature = "encryption")]
 use matrix_sdk_base::crypto::{
     decrypt_key_export, encrypt_key_export, olm::InboundGroupSession, store::CryptoStoreError,
-    AttachmentEncryptor, OutgoingRequests, RoomMessageRequest, ToDeviceRequest,
+    OutgoingRequests, RoomMessageRequest, ToDeviceRequest,
 };
 
 /// Enum controlling if a loop running callbacks should continue or abort.
@@ -70,65 +86,48 @@ use matrix_sdk_common::{
         device::{delete_devices, get_devices},
         directory::{get_public_rooms, get_public_rooms_filtered},
         filter::{create_filter::Request as FilterUploadRequest, FilterDefinition},
-        media::create_content,
-        membership::{
-            ban_user, forget_room, get_member_events,
-            invite_user::{self, InvitationRecipient},
-            join_room_by_id, join_room_by_id_or_alias, kick_user, leave_room, Invite3pid,
-        },
-        message::{get_message_events, send_message_event},
+        media::{create_content, get_content, get_content_thumbnail},
+        membership::{join_room_by_id, join_room_by_id_or_alias},
+        message::send_message_event,
         profile::{get_avatar_url, get_display_name, set_avatar_url, set_display_name},
-        read_marker::set_read_marker,
-        receipt::create_receipt,
         room::create_room,
-        session::login,
+        session::{get_login_types, login, sso_login},
         sync::sync_events,
-        typing::create_typing_event::{
-            Request as TypingRequest, Response as TypingResponse, Typing,
-        },
         uiaa::AuthData,
     },
     assign,
-    events::{
-        room::{
-            message::{
-                AudioMessageEventContent, FileMessageEventContent, ImageMessageEventContent,
-                MessageEventContent, MessageType, VideoMessageEventContent,
-            },
-            EncryptedFile,
-        },
-        AnyMessageEventContent,
-    },
     identifiers::{DeviceIdBox, EventId, RoomId, RoomIdOrAliasId, ServerName, UserId},
     instant::{Duration, Instant},
+    locks::RwLock,
     presence::PresenceState,
     uuid::Uuid,
     FromHttpResponseError, UInt,
 };
 
 #[cfg(feature = "encryption")]
-use matrix_sdk_common::{
-    api::r0::{
-        keys::{get_keys, upload_keys, upload_signing_keys::Request as UploadSigningKeysRequest},
-        to_device::send_event_to_device::{
-            Request as RumaToDeviceRequest, Response as ToDeviceResponse,
-        },
+use matrix_sdk_common::api::r0::{
+    keys::{get_keys, upload_keys, upload_signing_keys::Request as UploadSigningKeysRequest},
+    to_device::send_event_to_device::{
+        Request as RumaToDeviceRequest, Response as ToDeviceResponse,
     },
-    locks::Mutex,
 };
+
+use matrix_sdk_common::locks::Mutex;
 
 use crate::{
     error::HttpError,
     http_client::{client_with_config, HttpClient, HttpSend},
-    Error, OutgoingRequest, Result,
+    room, Error, OutgoingRequest, Result,
 };
 
 #[cfg(feature = "encryption")]
 use crate::{
     device::{Device, UserDevices},
+    event_handler::Handler,
     identifiers::DeviceId,
     sas::Sas,
     verification_request::VerificationRequest,
+    EventHandler,
 };
 
 const DEFAULT_SYNC_TIMEOUT: Duration = Duration::from_secs(30);
@@ -138,6 +137,12 @@ const SYNC_REQUEST_TIMEOUT: Duration = Duration::from_secs(15);
 const DEFAULT_UPLOAD_SPEED: u64 = 125_000;
 /// 5 min minimal upload request timeout, used to clamp the request timeout.
 const MIN_UPLOAD_REQUEST_TIMEOUT: Duration = Duration::from_secs(60 * 5);
+/// The range of ports the SSO server will try to bind to randomly
+#[cfg(feature = "sso_login")]
+const SSO_SERVER_BIND_RANGE: Range<u16> = 20000..30000;
+/// The number of timesthe SSO server will try to bind to a random port
+#[cfg(feature = "sso_login")]
+const SSO_SERVER_BIND_TRIES: u8 = 10;
 
 /// An async/await enabled Matrix client.
 ///
@@ -153,10 +158,15 @@ pub struct Client {
     /// Locks making sure we only have one group session sharing request in
     /// flight per room.
     #[cfg(feature = "encryption")]
-    group_session_locks: DashMap<RoomId, Arc<Mutex<()>>>,
+    pub(crate) group_session_locks: Arc<DashMap<RoomId, Arc<Mutex<()>>>>,
     #[cfg(feature = "encryption")]
     /// Lock making sure we're only doing one key claim request at a time.
     key_claim_lock: Arc<Mutex<()>>,
+    pub(crate) members_request_locks: Arc<DashMap<RoomId, Arc<Mutex<()>>>>,
+    pub(crate) typing_notice_times: Arc<DashMap<RoomId, Instant>>,
+    /// Any implementor of EventHandler will act as the callbacks for various
+    /// events.
+    event_handler: Arc<RwLock<Option<Handler>>>,
 }
 
 #[cfg(not(tarpaulin_include))]
@@ -409,9 +419,12 @@ impl Client {
             http_client,
             base_client,
             #[cfg(feature = "encryption")]
-            group_session_locks: DashMap::new(),
+            group_session_locks: Arc::new(DashMap::new()),
             #[cfg(feature = "encryption")]
             key_claim_lock: Arc::new(Mutex::new(())),
+            members_request_locks: Arc::new(DashMap::new()),
+            typing_notice_times: Arc::new(DashMap::new()),
+            event_handler: Arc::new(RwLock::new(None)),
         })
     }
 
@@ -510,6 +523,60 @@ impl Client {
         Ok(response.avatar_url)
     }
 
+    /// Gets the avatar of the owner of the client, if set.
+    ///
+    /// Returns the avatar. No guarantee on the size of the image is given.
+    /// If no size is given the full-sized avatar will be returned.
+    ///
+    /// # Arguments
+    ///
+    /// * `width` - The desired width of the avatar.
+    ///
+    /// * `height` - The desired height of the avatar.
+    ///
+    /// # Example
+    /// ```no_run
+    /// # use futures::executor::block_on;
+    /// # use matrix_sdk::Client;
+    /// # use matrix_sdk::identifiers::room_id;
+    /// # use url::Url;
+    /// # let homeserver = Url::parse("http://example.com").unwrap();
+    /// # block_on(async {
+    /// # let user = "example";
+    /// let client = Client::new(homeserver).unwrap();
+    /// client.login(user, "password", None, None).await.unwrap();
+    ///
+    /// if let Some(avatar) = client.avatar(Some(96), Some(96)).await.unwrap() {
+    ///     std::fs::write("avatar.png", avatar);
+    /// }
+    /// # })
+    /// ```
+    pub async fn avatar(&self, width: Option<u32>, height: Option<u32>) -> Result<Option<Vec<u8>>> {
+        // TODO: try to offer the avatar from cache, requires avatar cache
+        if let Some((server_name, media_id)) = self
+            .avatar_url()
+            .await?
+            .and_then(|url| crate::parse_mxc(&url))
+        {
+            if let (Some(width), Some(height)) = (width, height) {
+                let request = get_content_thumbnail::Request::new(
+                    &media_id,
+                    &server_name,
+                    width.into(),
+                    height.into(),
+                );
+                let response = self.send(request, None).await?;
+                Ok(Some(response.file))
+            } else {
+                let request = get_content::Request::new(&media_id, &server_name);
+                let response = self.send(request, None).await?;
+                Ok(Some(response.file))
+            }
+        } else {
+            Ok(None)
+        }
+    }
+
     /// Get a reference to the store.
     pub fn store(&self) -> &Store {
         self.base_client.store()
@@ -557,41 +624,60 @@ impl Client {
     ///
     /// The methods of `EventHandler` are called when the respective `RoomEvents` occur.
     pub async fn set_event_handler(&self, handler: Box<dyn EventHandler>) {
-        self.base_client.set_event_handler(handler).await;
+        let handler = Handler {
+            inner: handler,
+            client: self.clone(),
+        };
+        *self.event_handler.write().await = Some(handler);
     }
 
     /// Get all the rooms the client knows about.
     ///
     /// This will return the list of joined, invited, and left rooms.
-    pub fn rooms(&self) -> Vec<Room> {
-        self.store().get_rooms()
-    }
-
-    /// Returns the joined rooms this client knows about.
-    pub fn joined_rooms(&self) -> Vec<Room> {
+    pub fn rooms(&self) -> Vec<room::Room> {
         self.store()
             .get_rooms()
             .into_iter()
-            .filter(|room| room.room_type() == RoomType::Joined)
+            .map(|room| room::Common::new(self.clone(), room).into())
+            .collect()
+    }
+
+    /// Returns the joined rooms this client knows about.
+    pub fn joined_rooms(&self) -> Vec<room::Joined> {
+        self.store()
+            .get_rooms()
+            .into_iter()
+            .filter_map(|room| room::Joined::new(self.clone(), room))
             .collect()
     }
 
     /// Returns the invited rooms this client knows about.
-    pub fn invited_rooms(&self) -> Vec<Room> {
+    pub fn invited_rooms(&self) -> Vec<room::Invited> {
         self.store()
             .get_rooms()
             .into_iter()
-            .filter(|room| room.room_type() == RoomType::Invited)
+            .filter_map(|room| room::Invited::new(self.clone(), room))
             .collect()
     }
 
     /// Returns the left rooms this client knows about.
-    pub fn left_rooms(&self) -> Vec<Room> {
+    pub fn left_rooms(&self) -> Vec<room::Left> {
         self.store()
             .get_rooms()
             .into_iter()
-            .filter(|room| room.room_type() == RoomType::Left)
+            .filter_map(|room| room::Left::new(self.clone(), room))
             .collect()
+    }
+
+    /// Get a room with the given room id.
+    ///
+    /// # Arguments
+    ///
+    /// `room_id` - The unique id of the room that should be fetched.
+    pub fn get_room(&self, room_id: &RoomId) -> Option<room::Room> {
+        self.store()
+            .get_room(room_id)
+            .map(|room| room::Common::new(self.clone(), room).into())
     }
 
     /// Get a joined room with the given room id.
@@ -599,10 +685,10 @@ impl Client {
     /// # Arguments
     ///
     /// `room_id` - The unique id of the room that should be fetched.
-    pub fn get_joined_room(&self, room_id: &RoomId) -> Option<Room> {
+    pub fn get_joined_room(&self, room_id: &RoomId) -> Option<room::Joined> {
         self.store()
             .get_room(room_id)
-            .filter(|room| room.room_type() == RoomType::Joined)
+            .and_then(|room| room::Joined::new(self.clone(), room))
     }
 
     /// Get an invited room with the given room id.
@@ -610,10 +696,10 @@ impl Client {
     /// # Arguments
     ///
     /// `room_id` - The unique id of the room that should be fetched.
-    pub fn get_invited_room(&self, room_id: &RoomId) -> Option<Room> {
+    pub fn get_invited_room(&self, room_id: &RoomId) -> Option<room::Invited> {
         self.store()
             .get_room(room_id)
-            .filter(|room| room.room_type() == RoomType::Invited)
+            .and_then(|room| room::Invited::new(self.clone(), room))
     }
 
     /// Get a left room with the given room id.
@@ -621,10 +707,43 @@ impl Client {
     /// # Arguments
     ///
     /// `room_id` - The unique id of the room that should be fetched.
-    pub fn get_left_room(&self, room_id: &RoomId) -> Option<Room> {
+    pub fn get_left_room(&self, room_id: &RoomId) -> Option<room::Left> {
         self.store()
             .get_room(room_id)
-            .filter(|room| room.room_type() == RoomType::Left)
+            .and_then(|room| room::Left::new(self.clone(), room))
+    }
+
+    /// Gets the homeserver’s supported login types.
+    ///
+    /// This should be the first step when trying to login so you can call the
+    /// appropriate method for the next step.
+    pub async fn get_login_types(&self) -> Result<get_login_types::Response> {
+        let request = get_login_types::Request::new();
+        self.send(request, None).await
+    }
+
+    /// Get the URL to use to login via Single Sign-On.
+    ///
+    /// Returns a URL that should be opened in a web browser to let the user
+    /// login.
+    ///
+    /// After a successful login, the loginToken received at the redirect URL should
+    /// be used to login with [`login_with_token`].
+    ///
+    /// # Arguments
+    ///
+    /// * `redirect_url` - The URL that will receive a `loginToken` after a
+    ///     successful SSO login.
+    ///
+    /// [`login_with_token`]: #method.login_with_token
+    pub fn get_sso_login_url(&self, redirect_url: &str) -> Result<String> {
+        let homeserver = self.homeserver();
+        let request =
+            sso_login::Request::new(redirect_url).try_into_http_request(homeserver.as_str(), None);
+        match request {
+            Ok(req) => Ok(req.uri().to_string()),
+            Err(err) => Err(Error::from(HttpError::from(err))),
+        }
     }
 
     /// Login to the server.
@@ -683,8 +802,281 @@ impl Client {
 
         let request = assign!(
             login::Request::new(
-                login::UserInfo::MatrixId(user),
-                login::LoginInfo::Password { password },
+                login::LoginInfo::Password { identifier: login::UserIdentifier::MatrixId(user), password },
+            ), {
+                device_id: device_id.map(|d| d.into()),
+                initial_device_display_name,
+            }
+        );
+
+        let response = self.send(request, None).await?;
+        self.base_client.receive_login_response(&response).await?;
+
+        Ok(response)
+    }
+
+    /// Login to the server via Single Sign-On.
+    ///
+    /// This takes care of the whole SSO flow:
+    ///   * Spawn a local http server
+    ///   * Provide a callback to open the SSO login URL in a web browser
+    ///   * Wait for the local http server to get the loginToken
+    ///   * Call [`login_with_token`]
+    ///
+    /// If cancellation is needed the method should be wrapped in a cancellable
+    /// task. **Note** that users with root access to the system have the ability
+    /// to snoop in on the data/token that is passed to the local HTTP server
+    /// that will be spawned.
+    ///
+    /// If you need more control over the SSO login process, you should use
+    /// [`get_sso_login_url`] and [`login_with_token`] directly.
+    ///
+    /// This should only be used for the first login.
+    ///
+    /// The [`restore_login`] method should be used to restore a
+    /// logged in client after the first login.
+    ///
+    /// A device id should be provided to restore the correct stores, if the
+    /// device id isn't provided a new device will be created.
+    ///
+    /// # Arguments
+    ///
+    /// * `use_sso_login_url` - A callback that will receive the SSO Login URL. It
+    ///     should usually be used to open the SSO URL in a browser and must return
+    ///     `Ok(())` if the URL was successfully opened. If it returns `Err`, the
+    ///     error will be forwarded.
+    ///
+    /// * `server_url` - The local URL the server is going to try to bind to, e.g.
+    ///     `http://localhost:3030`. If `None`, the server will try to open a random
+    ///     port on localhost.
+    ///
+    /// * `server_response` - The text that will be shown on the webpage at the end
+    ///     of the login process. This can be an HTML page. If `None`, a default
+    ///     text will be displayed.
+    ///
+    /// * `device_id` - A unique id that will be associated with this session. If
+    ///     not given the homeserver will create one. Can be an existing device_id
+    ///     from a previous login call. Note that this should be provided only
+    ///     if the client also holds the encryption keys for this device.
+    ///
+    /// * `initial_device_display_name` - A public display name that will be
+    ///     associated with the device_id. Only necessary the first time you
+    ///     login with this device_id. It can be changed later.
+    ///
+    /// # Example
+    /// ```no_run
+    /// # use matrix_sdk::Client;
+    /// # use futures::executor::block_on;
+    /// # use url::Url;
+    /// # let homeserver = Url::parse("https://example.com").unwrap();
+    /// # block_on(async {
+    /// let client = Client::new(homeserver).unwrap();
+    ///
+    /// let response = client
+    ///     .login_with_sso(
+    ///         |sso_url| async move {
+    ///             // Open sso_url
+    ///             Ok(())
+    ///         },
+    ///         None,
+    ///         None,
+    ///         None,
+    ///         Some("My app")
+    ///     )
+    ///     .await
+    ///     .unwrap();
+    ///
+    /// println!("Logged in as {}, got device_id {} and access_token {}",
+    ///          response.user_id, response.device_id, response.access_token);
+    /// # })
+    /// ```
+    ///
+    /// [`get_sso_login_url`]: #method.get_sso_login_url
+    /// [`login_with_token`]: #method.login_with_token
+    /// [`restore_login`]: #method.restore_login
+    #[cfg(all(feature = "sso_login", not(target_arch = "wasm32")))]
+    #[cfg_attr(
+        feature = "docs",
+        doc(cfg(all(sso_login, not(target_arch = "wasm32"))))
+    )]
+    pub async fn login_with_sso<C>(
+        &self,
+        use_sso_login_url: impl Fn(String) -> C,
+        server_url: Option<&str>,
+        server_response: Option<&str>,
+        device_id: Option<&str>,
+        initial_device_display_name: Option<&str>,
+    ) -> Result<login::Response>
+    where
+        C: Future<Output = Result<()>>,
+    {
+        info!("Logging in to {}", self.homeserver);
+        let (signal_tx, signal_rx) = oneshot::channel();
+        let (data_tx, data_rx) = oneshot::channel();
+        let data_tx_mutex = Arc::new(std::sync::Mutex::new(Some(data_tx)));
+
+        let mut redirect_url = match server_url {
+            Some(s) => match Url::parse(s) {
+                Ok(url) => url,
+                Err(err) => return Err(IoError::new(IoErrorKind::InvalidData, err).into()),
+            },
+            None => Url::parse("http://localhost:0/").unwrap(),
+        };
+
+        let response = match server_response {
+            Some(s) => s.to_string(),
+            None => String::from(
+                "The Single Sign-On login process is complete. You can close this page now.",
+            ),
+        };
+
+        let route = warp::get()
+            .and(warp::query::<HashMap<String, String>>())
+            .map(move |p: HashMap<String, String>| {
+                if let Some(data_tx) = data_tx_mutex.lock().unwrap().take() {
+                    if let Some(token) = p.get("loginToken") {
+                        data_tx.send(Some(token.to_owned())).unwrap();
+                    } else {
+                        data_tx.send(None).unwrap();
+                    }
+                }
+                Response::builder().body(response.clone())
+            });
+
+        let listener = {
+            if redirect_url
+                .port()
+                .expect("The redirect URL doesn't include a port")
+                == 0
+            {
+                let host = redirect_url
+                    .host_str()
+                    .expect("The redirect URL doesn't have a host");
+                let mut n = 0u8;
+                let mut port = 0u16;
+                let mut res = Err(IoError::new(IoErrorKind::Other, ""));
+                let mut rng = thread_rng();
+
+                while res.is_err() && n < SSO_SERVER_BIND_TRIES {
+                    port = rng.gen_range(SSO_SERVER_BIND_RANGE);
+                    res = TcpListener::bind((host, port)).await;
+                    n += 1;
+                }
+                match res {
+                    Ok(s) => {
+                        redirect_url
+                            .set_port(Some(port))
+                            .expect("Could not set new port on redirect URL");
+                        s
+                    }
+                    Err(err) => return Err(err.into()),
+                }
+            } else {
+                match TcpListener::bind(redirect_url.as_str()).await {
+                    Ok(s) => s,
+                    Err(err) => return Err(err.into()),
+                }
+            }
+        };
+
+        let server = warp::serve(route).serve_incoming_with_graceful_shutdown(
+            TcpListenerStream::new(listener),
+            async {
+                signal_rx.await.ok();
+            },
+        );
+
+        tokio::spawn(server);
+
+        let sso_url = self.get_sso_login_url(redirect_url.as_str()).unwrap();
+
+        match use_sso_login_url(sso_url).await {
+            Ok(t) => t,
+            Err(err) => return Err(err),
+        };
+
+        let token = match data_rx.await {
+            Ok(Some(t)) => t,
+            Ok(None) => {
+                return Err(IoError::new(IoErrorKind::Other, "Could not get the loginToken").into())
+            }
+            Err(err) => return Err(IoError::new(IoErrorKind::Other, format!("{}", err)).into()),
+        };
+
+        let _ = signal_tx.send(());
+
+        self.login_with_token(token.as_str(), device_id, initial_device_display_name)
+            .await
+    }
+
+    /// Login to the server with a token.
+    ///
+    /// This token is usually received in the SSO flow after following the URL
+    /// provided by [`get_sso_login_url`], note that this is not the access token
+    /// of a session.
+    ///
+    /// This should only be used for the first login.
+    ///
+    /// The [`restore_login`] method should be used to restore a
+    /// logged in client after the first login.
+    ///
+    /// A device id should be provided to restore the correct stores, if the
+    /// device id isn't provided a new device will be created.
+    ///
+    /// # Arguments
+    ///
+    /// * `token` - A login token.
+    ///
+    /// * `device_id` - A unique id that will be associated with this session. If
+    ///     not given the homeserver will create one. Can be an existing device_id
+    ///     from a previous login call. Note that this should be provided only
+    ///     if the client also holds the encryption keys for this device.
+    ///
+    /// * `initial_device_display_name` - A public display name that will be
+    ///     associated with the device_id. Only necessary the first time you
+    ///     login with this device_id. It can be changed later.
+    ///
+    /// # Example
+    /// ```no_run
+    /// # use std::convert::TryFrom;
+    /// # use matrix_sdk::Client;
+    /// # use matrix_sdk::identifiers::DeviceId;
+    /// # use matrix_sdk_common::assign;
+    /// # use futures::executor::block_on;
+    /// # use url::Url;
+    /// # let homeserver = Url::parse("https://example.com").unwrap();
+    /// # let redirect_url = "http://localhost:1234";
+    /// # let login_token = "token";
+    /// # block_on(async {
+    /// let client = Client::new(homeserver).unwrap();
+    /// let sso_url = client.get_sso_login_url(redirect_url);
+    ///
+    /// // Let the user authenticate at the SSO URL
+    /// // Receive the loginToken param at redirect_url
+    ///
+    /// let response = client
+    ///     .login_with_token(login_token, None, Some("My app")).await
+    ///     .unwrap();
+    ///
+    /// println!("Logged in as {}, got device_id {} and access_token {}",
+    ///          response.user_id, response.device_id, response.access_token);
+    /// # })
+    /// ```
+    ///
+    /// [`get_sso_login_url`]: #method.get_sso_login_url
+    /// [`restore_login`]: #method.restore_login
+    #[instrument(skip(token))]
+    pub async fn login_with_token(
+        &self,
+        token: &str,
+        device_id: Option<&str>,
+        initial_device_display_name: Option<&str>,
+    ) -> Result<login::Response> {
+        info!("Logging in to {}", self.homeserver);
+
+        let request = assign!(
+            login::Request::new(
+                login::LoginInfo::Token { token },
             ), {
                 device_id: device_id.map(|d| d.into()),
                 initial_device_display_name,
@@ -810,111 +1202,6 @@ impl Client {
         self.send(request, None).await
     }
 
-    /// Forget a room by `RoomId`.
-    ///
-    /// Returns a `forget_room::Response`, an empty response.
-    ///
-    /// # Arguments
-    ///
-    /// * `room_id` - The `RoomId` of the room to be forget.
-    pub async fn forget_room_by_id(&self, room_id: &RoomId) -> Result<forget_room::Response> {
-        let request = forget_room::Request::new(room_id);
-        self.send(request, None).await
-    }
-
-    /// Ban a user from a room by `RoomId` and `UserId`.
-    ///
-    /// Returns a `ban_user::Response`, an empty response.
-    ///
-    /// # Arguments
-    ///
-    /// * `room_id` - The `RoomId` of the room to ban the user from.
-    ///
-    /// * `user_id` - The user to ban by `UserId`.
-    ///
-    /// * `reason` - The reason for banning this user.
-    pub async fn ban_user(
-        &self,
-        room_id: &RoomId,
-        user_id: &UserId,
-        reason: Option<&str>,
-    ) -> Result<ban_user::Response> {
-        let request = assign!(ban_user::Request::new(room_id, user_id), { reason });
-        self.send(request, None).await
-    }
-
-    /// Kick a user out of the specified room.
-    ///
-    /// Returns a `kick_user::Response`, an empty response.
-    ///
-    /// # Arguments
-    ///
-    /// * `room_id` - The `RoomId` of the room the user should be kicked out of.
-    ///
-    /// * `user_id` - The `UserId` of the user that should be kicked out of the room.
-    ///
-    /// * `reason` - Optional reason why the room member is being kicked out.
-    pub async fn kick_user(
-        &self,
-        room_id: &RoomId,
-        user_id: &UserId,
-        reason: Option<&str>,
-    ) -> Result<kick_user::Response> {
-        let request = assign!(kick_user::Request::new(room_id, user_id), { reason });
-        self.send(request, None).await
-    }
-
-    /// Leave the specified room.
-    ///
-    /// Returns a `leave_room::Response`, an empty response.
-    ///
-    /// # Arguments
-    ///
-    /// * `room_id` - The `RoomId` of the room to leave.
-    pub async fn leave_room(&self, room_id: &RoomId) -> Result<leave_room::Response> {
-        let request = leave_room::Request::new(room_id);
-        self.send(request, None).await
-    }
-
-    /// Invite the specified user by `UserId` to the given room.
-    ///
-    /// Returns a `invite_user::Response`, an empty response.
-    ///
-    /// # Arguments
-    ///
-    /// * `room_id` - The `RoomId` of the room to invite the specified user to.
-    ///
-    /// * `user_id` - The `UserId` of the user to invite to the room.
-    pub async fn invite_user_by_id(
-        &self,
-        room_id: &RoomId,
-        user_id: &UserId,
-    ) -> Result<invite_user::Response> {
-        let recipient = InvitationRecipient::UserId { user_id };
-
-        let request = invite_user::Request::new(room_id, recipient);
-        self.send(request, None).await
-    }
-
-    /// Invite the specified user by third party id to the given room.
-    ///
-    /// Returns a `invite_user::Response`, an empty response.
-    ///
-    /// # Arguments
-    ///
-    /// * `room_id` - The `RoomId` of the room to invite the specified user to.
-    ///
-    /// * `invite_id` - A third party id of a user to invite to the room.
-    pub async fn invite_user_by_3pid(
-        &self,
-        room_id: &RoomId,
-        invite_id: Invite3pid<'_>,
-    ) -> Result<invite_user::Response> {
-        let recipient = InvitationRecipient::ThirdPartyId(invite_id);
-        let request = invite_user::Request::new(room_id, recipient);
-        self.send(request, None).await
-    }
-
     /// Search the homeserver's directory of public rooms.
     ///
     /// Sends a request to "_matrix/client/r0/publicRooms", returns
@@ -961,6 +1248,38 @@ impl Client {
         self.send(request, None).await
     }
 
+    /// Create a room using the `RoomBuilder` and send the request.
+    ///
+    /// Sends a request to `/_matrix/client/r0/createRoom`, returns a `create_room::Response`,
+    /// this is an empty response.
+    ///
+    /// # Arguments
+    ///
+    /// * `room` - The easiest way to create this request is using the
+    /// `create_room::Request` itself.
+    ///
+    /// # Examples
+    /// ```no_run
+    /// use matrix_sdk::Client;
+    /// # use matrix_sdk::api::r0::room::{create_room::Request as CreateRoomRequest, Visibility};
+    /// # use url::Url;
+    ///
+    /// # let homeserver = Url::parse("http://example.com").unwrap();
+    /// let request = CreateRoomRequest::new();
+    /// let client = Client::new(homeserver).unwrap();
+    /// # use futures::executor::block_on;
+    /// # block_on(async {
+    /// assert!(client.create_room(request).await.is_ok());
+    /// # });
+    /// ```
+    pub async fn create_room(
+        &self,
+        room: impl Into<create_room::Request<'_>>,
+    ) -> Result<create_room::Response> {
+        let request = room.into();
+        self.send(request, None).await
+    }
+
     /// Search the homeserver's directory of public rooms with a filter.
     ///
     /// Sends a request to "_matrix/client/r0/publicRooms", returns
@@ -999,207 +1318,6 @@ impl Client {
         self.send(request, None).await
     }
 
-    /// Create a room using the `RoomBuilder` and send the request.
-    ///
-    /// Sends a request to `/_matrix/client/r0/createRoom`, returns a `create_room::Response`,
-    /// this is an empty response.
-    ///
-    /// # Arguments
-    ///
-    /// * `room` - The easiest way to create this request is using the
-    /// `create_room::Request` itself.
-    ///
-    /// # Examples
-    /// ```no_run
-    /// use matrix_sdk::Client;
-    /// # use matrix_sdk::api::r0::room::{create_room::Request as CreateRoomRequest, Visibility};
-    /// # use url::Url;
-    ///
-    /// # let homeserver = Url::parse("http://example.com").unwrap();
-    /// let request = CreateRoomRequest::new();
-    /// let client = Client::new(homeserver).unwrap();
-    /// # use futures::executor::block_on;
-    /// # block_on(async {
-    /// assert!(client.create_room(request).await.is_ok());
-    /// # });
-    /// ```
-    pub async fn create_room(
-        &self,
-        room: impl Into<create_room::Request<'_>>,
-    ) -> Result<create_room::Response> {
-        let request = room.into();
-        self.send(request, None).await
-    }
-
-    /// Sends a request to `/_matrix/client/r0/rooms/{room_id}/messages` and returns
-    /// a `get_message_events::Response` that contains a chunk of room and state events
-    /// (`AnyRoomEvent` and `AnyStateEvent`).
-    ///
-    /// # Arguments
-    ///
-    /// * `request` - The easiest way to create this request is using the
-    /// `get_message_events::Request` itself.
-    ///
-    /// # Examples
-    /// ```no_run
-    /// # use std::convert::TryFrom;
-    /// use matrix_sdk::Client;
-    /// # use matrix_sdk::identifiers::room_id;
-    /// # use matrix_sdk::api::r0::filter::RoomEventFilter;
-    /// # use matrix_sdk::api::r0::message::get_message_events::Request as MessagesRequest;
-    /// # use url::Url;
-    ///
-    /// # let homeserver = Url::parse("http://example.com").unwrap();
-    /// let room_id = room_id!("!roomid:example.com");
-    /// let request = MessagesRequest::backward(&room_id, "t47429-4392820_219380_26003_2265");
-    ///
-    /// let mut client = Client::new(homeserver).unwrap();
-    /// # use futures::executor::block_on;
-    /// # block_on(async {
-    /// assert!(client.room_messages(request).await.is_ok());
-    /// # });
-    /// ```
-    pub async fn room_messages(
-        &self,
-        request: impl Into<get_message_events::Request<'_>>,
-    ) -> Result<get_message_events::Response> {
-        let request = request.into();
-        self.send(request, None).await
-    }
-
-    /// Send a request to notify the room of a user typing.
-    ///
-    /// Returns a `create_typing_event::Response`, an empty response.
-    ///
-    /// # Arguments
-    ///
-    /// * `room_id` - The `RoomId` the user is typing in.
-    ///
-    /// * `typing` - Whether the user is typing, and how long.
-    ///
-    /// # Examples
-    ///
-    /// ```no_run
-    /// # use std::time::Duration;
-    /// # use matrix_sdk::{
-    /// #     Client, SyncSettings,
-    /// #     api::r0::typing::create_typing_event::Typing,
-    /// #     identifiers::room_id,
-    /// # };
-    /// # use futures::executor::block_on;
-    /// # use url::Url;
-    /// # block_on(async {
-    /// # let homeserver = Url::parse("http://localhost:8080").unwrap();
-    /// # let mut client = Client::new(homeserver).unwrap();
-    /// # let room_id = room_id!("!test:localhost");
-    /// let response = client
-    ///     .typing_notice(&room_id, Typing::Yes(Duration::from_secs(4)))
-    ///     .await
-    ///     .expect("Can't get devices from server");
-    /// # });
-    ///
-    /// ```
-    pub async fn typing_notice(
-        &self,
-        room_id: &RoomId,
-        typing: impl Into<Typing>,
-    ) -> Result<TypingResponse> {
-        let user_id = self.user_id().await.ok_or(Error::AuthenticationRequired)?;
-        let request = TypingRequest::new(&user_id, room_id, typing.into());
-
-        self.send(request, None).await
-    }
-
-    /// Send a request to notify the room the user has read specific event.
-    ///
-    /// Returns a `create_receipt::Response`, an empty response.
-    ///
-    /// # Arguments
-    ///
-    /// * `room_id` - The `RoomId` the user is currently in.
-    ///
-    /// * `event_id` - The `EventId` specifies the event to set the read receipt on.
-    pub async fn read_receipt(
-        &self,
-        room_id: &RoomId,
-        event_id: &EventId,
-    ) -> Result<create_receipt::Response> {
-        let request =
-            create_receipt::Request::new(room_id, create_receipt::ReceiptType::Read, event_id);
-        self.send(request, None).await
-    }
-
-    /// Send a request to notify the room user has read up to specific event.
-    ///
-    /// Returns a `set_read_marker::Response`, an empty response.
-    ///
-    /// # Arguments
-    ///
-    /// * room_id - The `RoomId` the user is currently in.
-    ///
-    /// * fully_read - The `EventId` of the event the user has read to.
-    ///
-    /// * read_receipt - An `EventId` to specify the event to set the read receipt on.
-    pub async fn read_marker(
-        &self,
-        room_id: &RoomId,
-        fully_read: &EventId,
-        read_receipt: Option<&EventId>,
-    ) -> Result<set_read_marker::Response> {
-        let request = assign!(set_read_marker::Request::new(room_id, fully_read), {
-            read_receipt
-        });
-        self.send(request, None).await
-    }
-
-    /// Share a group session for the given room.
-    ///
-    /// This will create Olm sessions with all the users/device pairs in the
-    /// room if necessary and share a group session with them.
-    ///
-    /// Does nothing if no group session needs to be shared.
-    #[cfg(feature = "encryption")]
-    #[cfg_attr(feature = "docs", doc(cfg(encryption)))]
-    async fn preshare_group_session(&self, room_id: &RoomId) -> Result<()> {
-        // TODO expose this publicly so people can pre-share a group session if
-        // e.g. a user starts to type a message for a room.
-        #[allow(clippy::map_clone)]
-        if let Some(mutex) = self.group_session_locks.get(room_id).map(|m| m.clone()) {
-            // If a group session share request is already going on,
-            // await the release of the lock.
-            mutex.lock().await;
-        } else {
-            // Otherwise create a new lock and share the group
-            // session.
-            let mutex = Arc::new(Mutex::new(()));
-            self.group_session_locks
-                .insert(room_id.clone(), mutex.clone());
-
-            let _guard = mutex.lock().await;
-
-            {
-                let joined = self.store().get_joined_user_ids(room_id).await?;
-                let invited = self.store().get_invited_user_ids(room_id).await?;
-                let members = joined.iter().chain(&invited);
-                self.claim_one_time_keys(members).await?;
-            };
-
-            let response = self.share_group_session(room_id).await;
-
-            self.group_session_locks.remove(room_id);
-
-            // If one of the responses failed invalidate the group
-            // session as using it would end up in undecryptable
-            // messages.
-            if let Err(r) = response {
-                self.base_client.invalidate_group_session(room_id).await;
-                return Err(r);
-            }
-        }
-
-        Ok(())
-    }
-
     #[cfg(feature = "encryption")]
     pub(crate) async fn room_send_helper(
         &self,
@@ -1209,222 +1327,10 @@ impl Client {
         let txn_id = request.txn_id;
         let room_id = &request.room_id;
 
-        self.room_send(&room_id, content, Some(txn_id)).await
-    }
-
-    /// Send a room message to the homeserver.
-    ///
-    /// Returns the parsed response from the server.
-    ///
-    /// If the encryption feature is enabled this method will transparently
-    /// encrypt the room message if the given room is encrypted.
-    ///
-    /// # Arguments
-    ///
-    /// * `room_id` -  The id of the room that should receive the message.
-    ///
-    /// * `content` - The content of the message event.
-    ///
-    /// * `txn_id` - A unique `Uuid` that can be attached to a `MessageEvent`
-    /// held in its unsigned field as `transaction_id`. If not given one is
-    /// created for the message.
-    ///
-    /// # Example
-    /// ```no_run
-    /// # use std::sync::{Arc, RwLock};
-    /// # use matrix_sdk::{Client, SyncSettings};
-    /// # use url::Url;
-    /// # use futures::executor::block_on;
-    /// # use matrix_sdk::identifiers::room_id;
-    /// # use std::convert::TryFrom;
-    /// use matrix_sdk::events::{
-    ///     AnyMessageEventContent,
-    ///     room::message::{MessageEventContent, TextMessageEventContent},
-    /// };
-    /// # block_on(async {
-    /// # let homeserver = Url::parse("http://localhost:8080").unwrap();
-    /// # let mut client = Client::new(homeserver).unwrap();
-    /// # let room_id = room_id!("!test:localhost");
-    /// use matrix_sdk_common::uuid::Uuid;
-    ///
-    /// let content = AnyMessageEventContent::RoomMessage(
-    ///     MessageEventContent::text_plain("Hello world")
-    /// );
-    ///
-    /// let txn_id = Uuid::new_v4();
-    /// client.room_send(&room_id, content, Some(txn_id)).await.unwrap();
-    /// # })
-    /// ```
-    pub async fn room_send(
-        &self,
-        room_id: &RoomId,
-        content: impl Into<AnyMessageEventContent>,
-        txn_id: Option<Uuid>,
-    ) -> Result<send_message_event::Response> {
-        #[cfg(not(feature = "encryption"))]
-        let content: AnyMessageEventContent = content.into();
-
-        #[cfg(feature = "encryption")]
-        let content = if self.is_room_encrypted(room_id).await {
-            if !self.are_members_synced(room_id).await {
-                self.room_members(room_id).await?;
-                // TODO query keys here?
-            }
-
-            self.preshare_group_session(room_id).await?;
-            AnyMessageEventContent::RoomEncrypted(self.base_client.encrypt(room_id, content).await?)
-        } else {
-            content.into()
-        };
-
-        let txn_id = txn_id.unwrap_or_else(Uuid::new_v4).to_string();
-        let request = send_message_event::Request::new(&room_id, &txn_id, &content);
-
-        let response = self.send(request, None).await?;
-        Ok(response)
-    }
-
-    /// Check if the given room is encrypted.
-    ///
-    /// Returns true if a room with the given id was found and the room is
-    /// encrypted, false if the room wasn't found or isn't encrypted.
-    async fn is_room_encrypted(&self, room_id: &RoomId) -> bool {
-        self.base_client
-            .get_room(room_id)
-            .map(|r| r.is_encrypted())
-            .unwrap_or(false)
-    }
-
-    #[cfg(feature = "encryption")]
-    async fn are_members_synced(&self, room_id: &RoomId) -> bool {
-        self.base_client
-            .get_room(room_id)
-            .map(|r| r.are_members_synced())
-            .unwrap_or(true)
-    }
-
-    /// Send an attachment to a room.
-    ///
-    /// This will upload the given data that the reader produces using the
-    /// [`upload()`](#method.upload) method and post an event to the given room.
-    /// If the room is encrypted and the encryption feature is enabled the
-    /// upload will be encrypted.
-    ///
-    /// This is a convenience method that calls the [`upload()`](#method.upload)
-    /// and afterwards the [`room_send()`](#method.room_send).
-    ///
-    /// # Arguments
-    /// * `room_id` -  The id of the room that should receive the media event.
-    ///
-    /// * `body` - A textual representation of the media that is going to be
-    /// uploaded. Usually the file name.
-    ///
-    /// * `content_type` - The type of the media, this will be used as the
-    /// content-type header.
-    ///
-    /// * `reader` - A `Reader` that will be used to fetch the raw bytes of the
-    /// media.
-    ///
-    /// * `txn_id` - A unique `Uuid` that can be attached to a `MessageEvent`
-    /// held in its unsigned field as `transaction_id`. If not given one is
-    /// created for the message.
-    ///
-    /// # Examples
-    ///
-    /// ```no_run
-    /// # use std::{path::PathBuf, fs::File, io::Read};
-    /// # use matrix_sdk::{Client, identifiers::room_id};
-    /// # use url::Url;
-    /// # use mime;
-    /// # use futures::executor::block_on;
-    /// # block_on(async {
-    /// # let homeserver = Url::parse("http://localhost:8080").unwrap();
-    /// # let mut client = Client::new(homeserver).unwrap();
-    /// # let room_id = room_id!("!test:localhost");
-    /// let path = PathBuf::from("/home/example/my-cat.jpg");
-    /// let mut image = File::open(path).unwrap();
-    ///
-    /// let response = client
-    ///     .room_send_attachment(&room_id, "My favorite cat", &mime::IMAGE_JPEG, &mut image, None)
-    ///     .await
-    ///     .expect("Can't upload my cat.");
-    /// # });
-    /// ```
-    pub async fn room_send_attachment<R: Read>(
-        &self,
-        room_id: &RoomId,
-        body: &str,
-        content_type: &Mime,
-        mut reader: &mut R,
-        txn_id: Option<Uuid>,
-    ) -> Result<send_message_event::Response> {
-        let (response, encrypted_file) = if self.is_room_encrypted(room_id).await {
-            #[cfg(feature = "encryption")]
-            let mut reader = AttachmentEncryptor::new(reader);
-            #[cfg(feature = "encryption")]
-            let content_type = mime::APPLICATION_OCTET_STREAM;
-
-            let response = self.upload(&content_type, &mut reader).await?;
-
-            #[cfg(feature = "encryption")]
-            let keys = {
-                let keys = reader.finish();
-                Some(Box::new(EncryptedFile {
-                    url: response.content_uri.clone(),
-                    key: keys.web_key,
-                    iv: keys.iv,
-                    hashes: keys.hashes,
-                    v: keys.version,
-                }))
-            };
-            #[cfg(not(feature = "encryption"))]
-            let keys: Option<Box<EncryptedFile>> = None;
-
-            (response, keys)
-        } else {
-            let response = self.upload(&content_type, &mut reader).await?;
-            (response, None)
-        };
-
-        let url = response.content_uri;
-
-        let content = match content_type.type_() {
-            mime::IMAGE => {
-                // TODO create a thumbnail using the image crate?.
-                MessageType::Image(ImageMessageEventContent {
-                    body: body.to_owned(),
-                    info: None,
-                    url: Some(url),
-                    file: encrypted_file,
-                })
-            }
-            mime::AUDIO => MessageType::Audio(AudioMessageEventContent {
-                body: body.to_owned(),
-                info: None,
-                url: Some(url),
-                file: encrypted_file,
-            }),
-            mime::VIDEO => MessageType::Video(VideoMessageEventContent {
-                body: body.to_owned(),
-                info: None,
-                url: Some(url),
-                file: encrypted_file,
-            }),
-            _ => MessageType::File(FileMessageEventContent {
-                filename: None,
-                body: body.to_owned(),
-                info: None,
-                url: Some(url),
-                file: encrypted_file,
-            }),
-        };
-
-        self.room_send(
-            room_id,
-            AnyMessageEventContent::RoomMessage(MessageEventContent::new(content)),
-            txn_id,
-        )
-        .await
+        self.get_joined_room(room_id)
+            .expect("Can't send a message to a room that isn't known to the store")
+            .send(content, Some(txn_id))
+            .await
     }
 
     /// Upload some media to the server.
@@ -1477,6 +1383,72 @@ impl Client {
         });
 
         Ok(self.http_client.upload(request, Some(timeout)).await?)
+    }
+
+    /// Send a room message to a room.
+    ///
+    /// Returns the parsed response from the server.
+    ///
+    /// If the encryption feature is enabled this method will transparently
+    /// encrypt the room message if this room is encrypted.
+    ///
+    /// **Note**: This method will send an unencrypted message if the room cannot
+    /// be found in the store, prefer the higher level
+    /// [send()](room::Joined::send()) method that can be found for the
+    /// [Joined](room::Joined) room struct to avoid this.
+    ///
+    /// # Arguments
+    ///
+    /// * `room_id` - The unique id of the room.
+    ///
+    /// * `content` - The content of the message event.
+    ///
+    /// * `txn_id` - A unique `Uuid` that can be attached to a `MessageEvent`
+    /// held in its unsigned field as `transaction_id`. If not given one is
+    /// created for the message.
+    ///
+    /// # Example
+    /// ```no_run
+    /// # use std::sync::{Arc, RwLock};
+    /// # use matrix_sdk::{Client, SyncSettings};
+    /// # use url::Url;
+    /// # use futures::executor::block_on;
+    /// # use matrix_sdk::identifiers::room_id;
+    /// # use std::convert::TryFrom;
+    /// use matrix_sdk::events::{
+    ///     AnyMessageEventContent,
+    ///     room::message::{MessageEventContent, TextMessageEventContent},
+    /// };
+    /// # block_on(async {
+    /// # let homeserver = Url::parse("http://localhost:8080").unwrap();
+    /// # let mut client = Client::new(homeserver).unwrap();
+    /// # let room_id = room_id!("!test:localhost");
+    /// use matrix_sdk_common::uuid::Uuid;
+    ///
+    /// let content = AnyMessageEventContent::RoomMessage(
+    ///     MessageEventContent::text_plain("Hello world")
+    /// );
+    ///
+    /// let txn_id = Uuid::new_v4();
+    /// client.room_send(&room_id, content, Some(txn_id)).await.unwrap();
+    /// # })
+    /// ```
+    pub async fn room_send(
+        &self,
+        room_id: &RoomId,
+        content: impl Into<AnyMessageEventContent>,
+        txn_id: Option<Uuid>,
+    ) -> Result<send_message_event::Response> {
+        #[cfg(feature = "encryption")]
+        if let Some(room) = self.get_joined_room(room_id) {
+            room.send(content, txn_id).await
+        } else {
+            let content = content.into();
+            let txn_id = txn_id.unwrap_or_else(Uuid::new_v4).to_string();
+            let request = send_message_event::Request::new(room_id, &txn_id, &content);
+
+            self.send(request, None).await
+        }
     }
 
     /// Send an arbitrary request to the server, without updating client state.
@@ -1640,14 +1612,6 @@ impl Client {
         self.send(request, None).await
     }
 
-    /// Get the room members for the given room.
-    pub async fn room_members(&self, room_id: &RoomId) -> Result<MembersResponse> {
-        let request = get_member_events::Request::new(room_id);
-        let response = self.send(request, None).await?;
-
-        Ok(self.base_client.receive_members(room_id, &response).await?)
-    }
-
     /// Synchronize the client's state with the latest state on the server.
     ///
     /// **Note**: You should not use this method to repeatedly sync if encryption
@@ -1675,8 +1639,13 @@ impl Client {
             + SYNC_REQUEST_TIMEOUT;
 
         let response = self.send(request, Some(timeout)).await?;
+        let sync_response = self.base_client.receive_sync_response(response).await?;
 
-        Ok(self.base_client.receive_sync_response(response).await?)
+        if let Some(handler) = self.event_handler.read().await.as_ref() {
+            handler.handle_sync(&sync_response).await;
+        }
+
+        Ok(sync_response)
     }
 
     /// Repeatedly call sync to synchronize the client state with the server.
@@ -1868,40 +1837,16 @@ impl Client {
     #[cfg(feature = "encryption")]
     #[cfg_attr(feature = "docs", doc(cfg(encryption)))]
     #[instrument(skip(users))]
-    async fn claim_one_time_keys(&self, users: impl Iterator<Item = &UserId>) -> Result<()> {
+    pub(crate) async fn claim_one_time_keys(
+        &self,
+        users: impl Iterator<Item = &UserId>,
+    ) -> Result<()> {
         let _lock = self.key_claim_lock.lock().await;
 
         if let Some((request_id, request)) = self.base_client.get_missing_sessions(users).await? {
             let response = self.send(request, None).await?;
             self.base_client
                 .mark_request_as_sent(&request_id, &response)
-                .await?;
-        }
-
-        Ok(())
-    }
-
-    /// Share a group session for a room.
-    ///
-    /// # Arguments
-    ///
-    /// * `room_id` - The ID of the room for which we want to share a group
-    /// session.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the client isn't logged in.
-    #[cfg(feature = "encryption")]
-    #[cfg_attr(feature = "docs", doc(cfg(encryption)))]
-    #[instrument]
-    async fn share_group_session(&self, room_id: &RoomId) -> Result<()> {
-        let mut requests = self.base_client.share_group_session(room_id).await?;
-
-        for request in requests.drain(..) {
-            let response = self.send_to_device(&request).await?;
-
-            self.base_client
-                .mark_request_as_sent(&request.txn_id, &response)
                 .await?;
         }
 
@@ -1987,11 +1932,13 @@ impl Client {
     pub async fn get_verification_request(&self, flow_id: &EventId) -> Option<VerificationRequest> {
         let olm = self.base_client.olm_machine().await?;
 
-        olm.get_verification_request(flow_id)
-            .map(|r| VerificationRequest {
-                inner: r,
-                client: self.clone(),
-            })
+        olm.get_verification_request(flow_id).and_then(|r| {
+            if let Some(room) = self.get_joined_room(r.room_id()) {
+                Some(VerificationRequest { inner: r, room })
+            } else {
+                None
+            }
+        })
     }
 
     /// Get a specific device of a user.
@@ -2188,7 +2135,6 @@ impl Client {
     /// # use std::{path::PathBuf, time::Duration};
     /// # use matrix_sdk::{
     /// #     Client, SyncSettings,
-    /// #     api::r0::typing::create_typing_event::Typing,
     /// #     identifiers::room_id,
     /// # };
     /// # use futures::executor::block_on;
@@ -2266,7 +2212,6 @@ impl Client {
     /// # use std::{path::PathBuf, time::Duration};
     /// # use matrix_sdk::{
     /// #     Client, SyncSettings,
-    /// #     api::r0::typing::create_typing_event::Typing,
     /// #     identifiers::room_id,
     /// # };
     /// # use futures::executor::block_on;
@@ -2313,15 +2258,15 @@ mod test {
     use crate::{ClientConfig, HttpError};
 
     use super::{
-        get_public_rooms, get_public_rooms_filtered, register::RegistrationKind, Client,
-        Invite3pid, Session, SyncSettings, Url,
+        get_public_rooms, get_public_rooms_filtered, register::RegistrationKind, Client, Session,
+        SyncSettings, Url,
     };
     use matrix_sdk_base::RoomMember;
     use matrix_sdk_common::{
         api::r0::{
             account::register::Request as RegistrationRequest,
             directory::get_public_rooms_filtered::Request as PublicRoomsFilterRequest,
-            typing::create_typing_event::Typing, uiaa::AuthData,
+            membership::Invite3pid, session::get_login_types::LoginType, uiaa::AuthData,
         },
         assign,
         directory::Filter,
@@ -2352,15 +2297,106 @@ mod test {
     async fn login() {
         let homeserver = Url::from_str(&mockito::server_url()).unwrap();
 
+        let client = Client::new(homeserver).unwrap();
+
+        let _m_types = mock("GET", "/_matrix/client/r0/login")
+            .with_status(200)
+            .with_body(test_json::LOGIN_TYPES.to_string())
+            .create();
+
+        let can_password = client
+            .get_login_types()
+            .await
+            .unwrap()
+            .flows
+            .iter()
+            .any(|flow| flow == &LoginType::Password);
+        assert!(can_password);
+
+        let _m_login = mock("POST", "/_matrix/client/r0/login")
+            .with_status(200)
+            .with_body(test_json::LOGIN.to_string())
+            .create();
+
+        client
+            .login("example", "wordpass", None, None)
+            .await
+            .unwrap();
+
+        let logged_in = client.logged_in().await;
+        assert!(logged_in, "Client should be logged in");
+    }
+
+    #[cfg(feature = "sso_login")]
+    #[tokio::test]
+    async fn login_with_sso() {
+        let _m_login = mock("POST", "/_matrix/client/r0/login")
+            .with_status(200)
+            .with_body(test_json::LOGIN.to_string())
+            .create();
+
+        let homeserver = Url::from_str(&mockito::server_url()).unwrap();
+        let client = Client::new(homeserver).unwrap();
+
+        client
+            .login_with_sso(
+                |sso_url| async move {
+                    let sso_url = Url::parse(sso_url.as_str()).unwrap();
+
+                    let (_, redirect) = sso_url
+                        .query_pairs()
+                        .find(|(key, _)| key == "redirectUrl")
+                        .unwrap();
+
+                    let mut redirect_url = Url::parse(redirect.into_owned().as_str()).unwrap();
+                    redirect_url.set_query(Some("loginToken=tinytoken"));
+
+                    reqwest::get(redirect_url.to_string()).await.unwrap();
+
+                    Ok(())
+                },
+                None,
+                None,
+                None,
+                None,
+            )
+            .await
+            .unwrap();
+
+        let logged_in = client.logged_in().await;
+        assert!(logged_in, "Client should be logged in");
+    }
+
+    #[tokio::test]
+    async fn login_with_sso_token() {
+        let homeserver = Url::from_str(&mockito::server_url()).unwrap();
+
+        let client = Client::new(homeserver).unwrap();
+
+        let _m = mock("GET", "/_matrix/client/r0/login")
+            .with_status(200)
+            .with_body(test_json::LOGIN_TYPES.to_string())
+            .create();
+
+        let can_sso = client
+            .get_login_types()
+            .await
+            .unwrap()
+            .flows
+            .iter()
+            .any(|flow| flow == &LoginType::Sso);
+        assert!(can_sso);
+
+        let sso_url = client.get_sso_login_url("http://127.0.0.1:3030");
+        assert!(sso_url.is_ok());
+
         let _m = mock("POST", "/_matrix/client/r0/login")
             .with_status(200)
             .with_body(test_json::LOGIN.to_string())
             .create();
 
-        let client = Client::new(homeserver).unwrap();
-
         client
-            .login("example", "wordpass", None, None)
+            .login_with_token("averysmalltoken", None, None)
             .await
             .unwrap();
 
@@ -2629,10 +2665,25 @@ mod test {
         .match_header("authorization", "Bearer 1234")
         .create();
 
-        let user = user_id!("@example:localhost");
-        let room_id = room_id!("!testroom:example.org");
+        let _m = mock(
+            "GET",
+            Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_string()),
+        )
+        .with_status(200)
+        .match_header("authorization", "Bearer 1234")
+        .with_body(test_json::SYNC.to_string())
+        .create();
 
-        client.invite_user_by_id(&room_id, &user).await.unwrap();
+        let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
+
+        let _response = client.sync_once(sync_settings).await.unwrap();
+
+        let user = user_id!("@example:localhost");
+        let room = client
+            .get_joined_room(&room_id!("!SVkFJHzfwvuaIEawgC:localhost"))
+            .unwrap();
+
+        room.invite_user_by_id(&user).await.unwrap();
     }
 
     #[tokio::test]
@@ -2649,20 +2700,31 @@ mod test {
         .match_header("authorization", "Bearer 1234")
         .create();
 
-        let room_id = room_id!("!testroom:example.org");
+        let _m = mock(
+            "GET",
+            Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_string()),
+        )
+        .with_status(200)
+        .match_header("authorization", "Bearer 1234")
+        .with_body(test_json::SYNC.to_string())
+        .create();
 
-        client
-            .invite_user_by_3pid(
-                &room_id,
-                Invite3pid {
-                    id_server: "example.org",
-                    id_access_token: "IdToken",
-                    medium: thirdparty::Medium::Email,
-                    address: "address",
-                },
-            )
-            .await
+        let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
+
+        let _response = client.sync_once(sync_settings).await.unwrap();
+
+        let room = client
+            .get_joined_room(&room_id!("!SVkFJHzfwvuaIEawgC:localhost"))
             .unwrap();
+
+        room.invite_user_by_3pid(Invite3pid {
+            id_server: "example.org",
+            id_access_token: "IdToken",
+            medium: thirdparty::Medium::Email,
+            address: "address",
+        })
+        .await
+        .unwrap();
     }
 
     #[tokio::test]
@@ -2719,9 +2781,24 @@ mod test {
         .match_header("authorization", "Bearer 1234")
         .create();
 
-        let room_id = room_id!("!testroom:example.org");
+        let _m = mock(
+            "GET",
+            Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_string()),
+        )
+        .with_status(200)
+        .match_header("authorization", "Bearer 1234")
+        .with_body(test_json::SYNC.to_string())
+        .create();
 
-        client.leave_room(&room_id).await.unwrap();
+        let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
+
+        let _response = client.sync_once(sync_settings).await.unwrap();
+
+        let room = client
+            .get_joined_room(&room_id!("!SVkFJHzfwvuaIEawgC:localhost"))
+            .unwrap();
+
+        room.leave().await.unwrap();
     }
 
     #[tokio::test]
@@ -2738,9 +2815,25 @@ mod test {
         .match_header("authorization", "Bearer 1234")
         .create();
 
+        let _m = mock(
+            "GET",
+            Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_string()),
+        )
+        .with_status(200)
+        .match_header("authorization", "Bearer 1234")
+        .with_body(test_json::SYNC.to_string())
+        .create();
+
+        let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
+
+        let _response = client.sync_once(sync_settings).await.unwrap();
+
         let user = user_id!("@example:localhost");
-        let room_id = room_id!("!testroom:example.org");
-        client.ban_user(&room_id, &user, None).await.unwrap();
+        let room = client
+            .get_joined_room(&room_id!("!SVkFJHzfwvuaIEawgC:localhost"))
+            .unwrap();
+
+        room.ban_user(&user, None).await.unwrap();
     }
 
     #[tokio::test]
@@ -2757,10 +2850,25 @@ mod test {
         .match_header("authorization", "Bearer 1234")
         .create();
 
-        let user = user_id!("@example:localhost");
-        let room_id = room_id!("!testroom:example.org");
+        let _m = mock(
+            "GET",
+            Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_string()),
+        )
+        .with_status(200)
+        .match_header("authorization", "Bearer 1234")
+        .with_body(test_json::SYNC.to_string())
+        .create();
 
-        client.kick_user(&room_id, &user, None).await.unwrap();
+        let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
+
+        let _response = client.sync_once(sync_settings).await.unwrap();
+
+        let user = user_id!("@example:localhost");
+        let room = client
+            .get_joined_room(&room_id!("!SVkFJHzfwvuaIEawgC:localhost"))
+            .unwrap();
+
+        room.kick_user(&user, None).await.unwrap();
     }
 
     #[tokio::test]
@@ -2777,9 +2885,24 @@ mod test {
         .match_header("authorization", "Bearer 1234")
         .create();
 
-        let room_id = room_id!("!testroom:example.org");
+        let _m = mock(
+            "GET",
+            Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_string()),
+        )
+        .with_status(200)
+        .match_header("authorization", "Bearer 1234")
+        .with_body(test_json::LEAVE_SYNC.to_string())
+        .create();
 
-        client.forget_room_by_id(&room_id).await.unwrap();
+        let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
+
+        let _response = client.sync_once(sync_settings).await.unwrap();
+
+        let room = client
+            .get_left_room(&room_id!("!SVkFJHzfwvuaIEawgC:localhost"))
+            .unwrap();
+
+        room.forget().await.unwrap();
     }
 
     #[tokio::test]
@@ -2796,10 +2919,25 @@ mod test {
         .match_header("authorization", "Bearer 1234")
         .create();
 
-        let room_id = room_id!("!testroom:example.org");
-        let event_id = event_id!("$xxxxxx:example.org");
+        let _m = mock(
+            "GET",
+            Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_string()),
+        )
+        .with_status(200)
+        .match_header("authorization", "Bearer 1234")
+        .with_body(test_json::SYNC.to_string())
+        .create();
 
-        client.read_receipt(&room_id, &event_id).await.unwrap();
+        let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
+
+        let _response = client.sync_once(sync_settings).await.unwrap();
+
+        let event_id = event_id!("$xxxxxx:example.org");
+        let room = client
+            .get_joined_room(&room_id!("!SVkFJHzfwvuaIEawgC:localhost"))
+            .unwrap();
+
+        room.read_receipt(&event_id).await.unwrap();
     }
 
     #[tokio::test]
@@ -2816,10 +2954,25 @@ mod test {
         .match_header("authorization", "Bearer 1234")
         .create();
 
-        let room_id = room_id!("!testroom:example.org");
-        let event_id = event_id!("$xxxxxx:example.org");
+        let _m = mock(
+            "GET",
+            Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_string()),
+        )
+        .with_status(200)
+        .match_header("authorization", "Bearer 1234")
+        .with_body(test_json::SYNC.to_string())
+        .create();
 
-        client.read_marker(&room_id, &event_id, None).await.unwrap();
+        let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
+
+        let _response = client.sync_once(sync_settings).await.unwrap();
+
+        let event_id = event_id!("$xxxxxx:example.org");
+        let room = client
+            .get_joined_room(&room_id!("!SVkFJHzfwvuaIEawgC:localhost"))
+            .unwrap();
+
+        room.read_marker(&event_id, None).await.unwrap();
     }
 
     #[tokio::test]
@@ -2836,12 +2989,72 @@ mod test {
         .match_header("authorization", "Bearer 1234")
         .create();
 
-        let room_id = room_id!("!testroom:example.org");
+        let _m = mock(
+            "GET",
+            Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_string()),
+        )
+        .with_status(200)
+        .match_header("authorization", "Bearer 1234")
+        .with_body(test_json::SYNC.to_string())
+        .create();
 
-        client
-            .typing_notice(&room_id, Typing::Yes(std::time::Duration::from_secs(1)))
-            .await
+        let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
+
+        let _response = client.sync_once(sync_settings).await.unwrap();
+
+        let room = client
+            .get_joined_room(&room_id!("!SVkFJHzfwvuaIEawgC:localhost"))
             .unwrap();
+
+        room.typing_notice(true).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn room_state_event_send() {
+        use crate::events::{
+            room::member::{MemberEventContent, MembershipState},
+            AnyStateEventContent,
+        };
+
+        let client = logged_in_client().await;
+
+        let _m = mock(
+            "PUT",
+            Matcher::Regex(r"^/_matrix/client/r0/rooms/.*/state/.*".to_string()),
+        )
+        .with_status(200)
+        .match_header("authorization", "Bearer 1234")
+        .with_body(test_json::EVENT_ID.to_string())
+        .create();
+
+        let _m = mock(
+            "GET",
+            Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_string()),
+        )
+        .with_status(200)
+        .match_header("authorization", "Bearer 1234")
+        .with_body(test_json::SYNC.to_string())
+        .create();
+
+        let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
+
+        let _response = client.sync_once(sync_settings).await.unwrap();
+
+        let room_id = room_id!("!SVkFJHzfwvuaIEawgC:localhost");
+
+        let room = client.get_joined_room(&room_id).unwrap();
+
+        let avatar_url = "https://example.org/avatar";
+        let member_event = MemberEventContent {
+            avatar_url: Some(avatar_url.to_string()),
+            membership: MembershipState::Join,
+            is_direct: None,
+            displayname: None,
+            third_party_invite: None,
+        };
+        let content = AnyStateEventContent::RoomMember(member_event);
+        let response = room.send_state_event(content, "").await.unwrap();
+        assert_eq!(event_id!("$h29iv0s8:example.com"), response.event_id);
     }
 
     #[tokio::test]
@@ -2859,15 +3072,27 @@ mod test {
         .with_body(test_json::EVENT_ID.to_string())
         .create();
 
-        let room_id = room_id!("!testroom:example.org");
+        let _m = mock(
+            "GET",
+            Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_string()),
+        )
+        .with_status(200)
+        .match_header("authorization", "Bearer 1234")
+        .with_body(test_json::SYNC.to_string())
+        .create();
+
+        let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
+
+        let _response = client.sync_once(sync_settings).await.unwrap();
+
+        let room = client
+            .get_joined_room(&room_id!("!SVkFJHzfwvuaIEawgC:localhost"))
+            .unwrap();
 
         let content =
             AnyMessageEventContent::RoomMessage(MessageEventContent::text_plain("Hello world"));
         let txn_id = Uuid::new_v4();
-        let response = client
-            .room_send(&room_id, content, Some(txn_id))
-            .await
-            .unwrap();
+        let response = room.send(content, Some(txn_id)).await.unwrap();
 
         assert_eq!(event_id!("$h29iv0s8:example.com"), response.event_id)
     }
@@ -2899,14 +3124,70 @@ mod test {
         )
         .create();
 
-        let room_id = room_id!("!testroom:example.org");
+        let _m = mock(
+            "GET",
+            Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_string()),
+        )
+        .with_status(200)
+        .match_header("authorization", "Bearer 1234")
+        .with_body(test_json::SYNC.to_string())
+        .create();
+
+        let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
+
+        let _response = client.sync_once(sync_settings).await.unwrap();
+
+        let room = client
+            .get_joined_room(&room_id!("!SVkFJHzfwvuaIEawgC:localhost"))
+            .unwrap();
 
         let mut media = Cursor::new("Hello world");
 
-        let response = client
-            .room_send_attachment(&room_id, "image", &mime::IMAGE_JPEG, &mut media, None)
+        let response = room
+            .send_attachment("image", &mime::IMAGE_JPEG, &mut media, None)
             .await
             .unwrap();
+
+        assert_eq!(event_id!("$h29iv0s8:example.com"), response.event_id)
+    }
+
+    #[tokio::test]
+    async fn room_redact() {
+        use matrix_sdk_common::uuid::Uuid;
+
+        let client = logged_in_client().await;
+
+        let _m = mock(
+            "PUT",
+            Matcher::Regex(r"^/_matrix/client/r0/rooms/.*/redact/.*?/.*?".to_string()),
+        )
+        .with_status(200)
+        .match_header("authorization", "Bearer 1234")
+        .with_body(test_json::EVENT_ID.to_string())
+        .create();
+
+        let _m = mock(
+            "GET",
+            Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_string()),
+        )
+        .with_status(200)
+        .match_header("authorization", "Bearer 1234")
+        .with_body(test_json::SYNC.to_string())
+        .create();
+
+        let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
+
+        let _response = client.sync_once(sync_settings).await.unwrap();
+
+        let room = client
+            .get_joined_room(&room_id!("!SVkFJHzfwvuaIEawgC:localhost"))
+            .unwrap();
+
+        let event_id = event_id!("$xxxxxxxx:example.com");
+
+        let txn_id = Uuid::new_v4();
+        let reason = Some("Indecent material");
+        let response = room.redact(&event_id, reason, Some(txn_id)).await.unwrap();
 
         assert_eq!(event_id!("$h29iv0s8:example.com"), response.event_id)
     }
@@ -2922,6 +3203,15 @@ mod test {
         .with_status(200)
         .match_header("authorization", "Bearer 1234")
         .with_body(test_json::SYNC.to_string())
+        .create();
+
+        let _m = mock(
+            "GET",
+            Matcher::Regex(r"^/_matrix/client/r0/rooms/.*/members".to_string()),
+        )
+        .with_status(200)
+        .match_header("authorization", "Bearer 1234")
+        .with_body(test_json::MEMBERS.to_string())
         .create();
 
         let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));

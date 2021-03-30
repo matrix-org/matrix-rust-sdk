@@ -114,7 +114,7 @@ impl<'de> Deserialize<'de> for AnySyncMessageEvent {
             pub origin_server_ts: SystemTime,
             pub unsigned: Unsigned,
             pub encryption_info: Option<EncryptionInfo>,
-        };
+        }
 
         let json = <Value>::deserialize(deseriazlier)?;
         let encryption_info: Option<EncryptionInfo> = json
@@ -172,7 +172,7 @@ impl Serialize for AnySyncMessageEvent {
             #[serde(with = "ruma::serde::time::ms_since_unix_epoch")]
             pub origin_server_ts: &'a SystemTime,
             pub unsigned: &'a Unsigned,
-        };
+        }
 
         let encryption_info = self.encryption_info().map(to_json).transpose()?;
 

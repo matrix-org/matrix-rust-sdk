@@ -527,6 +527,13 @@ impl SledStore {
             .transpose()?)
     }
 
+    pub async fn get_user_ids(&self, room_id: &RoomId) -> impl Stream<Item = Result<UserId>> {
+        stream::iter(self.members.scan_prefix(room_id.encode()).map(|u| {
+            UserId::try_from(String::from_utf8_lossy(&u?.1).to_string())
+                .map_err(StoreError::Identifier)
+        }))
+    }
+
     pub async fn get_invited_user_ids(
         &self,
         room_id: &RoomId,
@@ -630,6 +637,10 @@ impl StateStore for SledStore {
         state_key: &UserId,
     ) -> Result<Option<MemberEvent>> {
         self.get_member_event(room_id, state_key).await
+    }
+
+    async fn get_user_ids(&self, room_id: &RoomId) -> Result<Vec<UserId>> {
+        self.get_user_ids(room_id).await.try_collect().await
     }
 
     async fn get_invited_user_ids(&self, room_id: &RoomId) -> Result<Vec<UserId>> {

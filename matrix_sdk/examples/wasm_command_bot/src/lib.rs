@@ -1,7 +1,7 @@
 use matrix_sdk::{
     deserialized_responses::SyncResponse,
     events::{
-        room::message::{MessageEventContent, TextMessageEventContent},
+        room::message::{MessageEventContent, MessageType, TextMessageEventContent},
         AnyMessageEventContent, AnySyncMessageEvent, AnySyncRoomEvent, SyncMessageEvent,
     },
     identifiers::RoomId,
@@ -17,35 +17,49 @@ impl WasmBot {
     async fn on_room_message(
         &self,
         room_id: &RoomId,
-        event: SyncMessageEvent<MessageEventContent>,
+        event: &SyncMessageEvent<MessageEventContent>,
     ) {
         let msg_body = if let SyncMessageEvent {
-            content: MessageEventContent::Text(TextMessageEventContent { body: msg_body, .. }),
+            content:
+                MessageEventContent {
+                    msgtype: MessageType::Text(TextMessageEventContent { body: msg_body, .. }),
+                    ..
+                },
             ..
         } = event
         {
-            msg_body.clone()
+            msg_body
         } else {
             return;
         };
 
         console::log_1(&format!("Received message event {:?}", &msg_body).into());
 
-        if msg_body.starts_with("!party") {
-            let content = AnyMessageEventContent::RoomMessage(MessageEventContent::Text(
-                TextMessageEventContent::plain("🎉🎊🥳 let's PARTY with wasm!! 🥳🎊🎉".to_string()),
+        if msg_body.contains("!party") {
+            let content = AnyMessageEventContent::RoomMessage(MessageEventContent::text_plain(
+                "🎉🎊🥳 let's PARTY!! 🥳🎊🎉",
             ));
 
-            self.0.room_send(&room_id, content, None).await.unwrap();
+            println!("sending");
+
+            self.0
+                // send our message to the room we found the "!party" command in
+                // the last parameter is an optional Uuid which we don't care about.
+                .room_send(room_id, content, None)
+                .await
+                .unwrap();
+
+            println!("message sent");
         }
     }
+
     async fn on_sync_response(&self, response: SyncResponse) -> LoopCtrl {
         console::log_1(&"Synced".to_string().into());
 
         for (room_id, room) in response.rooms.join {
             for event in room.timeline.events {
                 if let AnySyncRoomEvent::Message(AnySyncMessageEvent::RoomMessage(ev)) = event {
-                    self.on_room_message(&room_id, ev).await
+                    self.on_room_message(&room_id, &ev).await
                 }
             }
         }

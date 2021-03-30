@@ -270,6 +270,14 @@ impl MemoryStore {
             .and_then(|m| m.get(state_key).map(|m| m.clone())))
     }
 
+    fn get_user_ids(&self, room_id: &RoomId) -> Vec<UserId> {
+        #[allow(clippy::map_clone)]
+        self.members
+            .get(room_id)
+            .map(|u| u.iter().map(|u| u.key().clone()).collect())
+            .unwrap_or_default()
+    }
+
     fn get_invited_user_ids(&self, room_id: &RoomId) -> Vec<UserId> {
         #[allow(clippy::map_clone)]
         self.invited_user_ids
@@ -343,6 +351,10 @@ impl StateStore for MemoryStore {
         state_key: &UserId,
     ) -> Result<Option<MemberEvent>> {
         self.get_member_event(room_id, state_key).await
+    }
+
+    async fn get_user_ids(&self, room_id: &RoomId) -> Result<Vec<UserId>> {
+        Ok(self.get_user_ids(room_id))
     }
 
     async fn get_invited_user_ids(&self, room_id: &RoomId) -> Result<Vec<UserId>> {

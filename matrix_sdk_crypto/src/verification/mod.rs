@@ -18,7 +18,7 @@ mod sas;
 
 pub use machine::VerificationMachine;
 pub use requests::VerificationRequest;
-pub use sas::{Sas, VerificationResult};
+pub use sas::{AcceptSettings, Sas, VerificationResult};
 
 #[cfg(test)]
 pub(crate) mod test {

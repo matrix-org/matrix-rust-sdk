@@ -153,6 +153,9 @@ pub trait StateStore: AsyncTraitDeps {
         state_key: &UserId,
     ) -> Result<Option<MemberEvent>>;
 
+    /// Get all the user ids of members for a given room.
+    async fn get_user_ids(&self, room_id: &RoomId) -> Result<Vec<UserId>>;
+
     /// Get all the user ids of members that are in the invited state for a
     /// given room.
     async fn get_invited_user_ids(&self, room_id: &RoomId) -> Result<Vec<UserId>>;

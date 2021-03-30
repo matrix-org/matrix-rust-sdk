@@ -42,7 +42,7 @@ mod verification;
 pub use error::{MegolmError, OlmError};
 pub use file_encryption::{
     decrypt_key_export, encrypt_key_export, AttachmentDecryptor, AttachmentEncryptor,
-    DecryptorError, EncryptionInfo,
+    DecryptorError, EncryptionInfo, KeyExportError,
 };
 pub use identities::{
     Device, LocalTrust, OwnUserIdentity, ReadOnlyDevice, UserDevices, UserIdentities, UserIdentity,
@@ -55,4 +55,4 @@ pub use requests::{
     OutgoingVerificationRequest, RoomMessageRequest, ToDeviceRequest,
 };
 pub use store::CryptoStoreError;
-pub use verification::{Sas, VerificationRequest};
+pub use verification::{AcceptSettings, Sas, VerificationRequest};

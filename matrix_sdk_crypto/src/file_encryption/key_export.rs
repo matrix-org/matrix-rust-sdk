@@ -52,7 +52,7 @@ pub enum KeyExportError {
     UnsupportedVersion,
     /// The MAC of the encrypted payload is invalid.
     #[error("The MAC of the encrypted payload is invalid.")]
-    InvalidMAC,
+    InvalidMac,
     /// The decrypted key export isn't valid UTF-8.
     #[error(transparent)]
     InvalidUtf8(#[from] std::string::FromUtf8Error),
@@ -64,7 +64,7 @@ pub enum KeyExportError {
     Decode(#[from] DecodeError),
     /// The key export doesn't all the required fields.
     #[error(transparent)]
-    IO(#[from] std::io::Error),
+    Io(#[from] std::io::Error),
 }
 
 /// Try to decrypt a reader into a list of exported room keys.
@@ -220,7 +220,7 @@ fn decrypt_helper(ciphertext: &str, passphrase: &str) -> Result<String, KeyExpor
 
     let mut hmac = Hmac::<Sha256>::new_varkey(hmac_key).expect("Can't create an HMAC object");
     hmac.update(&decoded[0..ciphertext_end]);
-    hmac.verify(&mac).map_err(|_| KeyExportError::InvalidMAC)?;
+    hmac.verify(&mac).map_err(|_| KeyExportError::InvalidMac)?;
 
     let mut ciphertext = &mut decoded[ciphertext_start..ciphertext_end];
     let mut aes = Aes256Ctr::new_var(&key, &iv).expect("Can't create an AES object");

@@ -29,6 +29,7 @@ serde_json = "1.0.61"
 zeroize = { version = "1.2.0", features = ["zeroize_derive"] }
 
 # Misc dependencies
+futures = "0.3.12"
 sled = { version = "0.34.6", optional = true }
 thiserror = "1.0.23"
 tracing = "0.1.22"
@@ -44,14 +45,13 @@ byteorder = "1.4.2"
 
 [dev-dependencies]
 tokio = { version = "1.1.0", default-features = false, features = ["rt-multi-thread", "macros"] }
-futures = "0.3.12"
 proptest = "0.10.1"
 serde_json = "1.0.61"
 tempfile = "3.2.0"
 http = "0.2.3"
 matrix-sdk-test = { version = "0.2.0", path = "../matrix_sdk_test" }
 indoc = "1.0.3"
-criterion = { version = "0.3.4", features = ["async", "async_futures", "html_reports"] }
+criterion = { version = "0.3.4", features = ["async", "async_tokio", "html_reports"] }
 
 [target.'cfg(target_os = "linux")'.dev-dependencies]
 pprof = { version = "0.4.2", features = ["flamegraph"] }

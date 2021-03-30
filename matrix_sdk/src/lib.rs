@@ -45,6 +45,7 @@
 //! of Synapse in compliance with the Matrix API specification.
 //! * `markdown`: Support for sending markdown formatted messages.
 //! * `socks`: Enables SOCKS support in reqwest, the default HTTP client.
+//! * `sso_login`: Enables SSO login with a local http server.
 
 #![deny(
     missing_debug_implementations,
@@ -64,12 +65,15 @@ compile_error!("one of 'native-tls' or 'rustls-tls' features must be enabled");
 #[cfg(all(feature = "native-tls", feature = "rustls-tls",))]
 compile_error!("only one of 'native-tls' or 'rustls-tls' features can be enabled");
 
+#[cfg(all(feature = "sso_login", target_arch = "wasm32"))]
+compile_error!("'sso_login' cannot be enabled on 'wasm32' arch");
+
 #[cfg(feature = "encryption")]
 #[cfg_attr(feature = "docs", doc(cfg(encryption)))]
 pub use matrix_sdk_base::crypto::{EncryptionInfo, LocalTrust};
 pub use matrix_sdk_base::{
-    CustomEvent, Error as BaseError, EventHandler, Room, RoomInfo, RoomMember, RoomType, Session,
-    StateChanges, StoreError,
+    Error as BaseError, Room as BaseRoom, RoomInfo, RoomMember, RoomType, Session, StateChanges,
+    StoreError,
 };
 
 pub use matrix_sdk_common::*;
@@ -77,7 +81,10 @@ pub use reqwest;
 
 mod client;
 mod error;
+mod event_handler;
 mod http_client;
+/// High-level room API
+pub mod room;
 
 #[cfg(feature = "encryption")]
 mod device;
@@ -91,6 +98,7 @@ pub use client::{Client, ClientConfig, LoopCtrl, SyncSettings};
 #[cfg_attr(feature = "docs", doc(cfg(encryption)))]
 pub use device::Device;
 pub use error::{Error, HttpError, Result};
+pub use event_handler::{CustomEvent, EventHandler};
 pub use http_client::HttpSend;
 #[cfg(feature = "encryption")]
 #[cfg_attr(feature = "docs", doc(cfg(encryption)))]
@@ -98,3 +106,20 @@ pub use sas::Sas;
 
 #[cfg(not(target_arch = "wasm32"))]
 pub(crate) const VERSION: &str = env!("CARGO_PKG_VERSION");
+
+// TODO: remove this function once we can use the Mxc type: https://github.com/ruma/ruma/pull/439
+pub(crate) fn parse_mxc(url: &str) -> Option<(identifiers::ServerNameBox, String)> {
+    use std::convert::TryFrom;
+    if let Ok(url) = url::Url::parse(&url) {
+        if url.scheme() == "mxc" {
+            if let Some(server_name) = url
+                .host_str()
+                .and_then(|host| <identifiers::ServerNameBox>::try_from(host).ok())
+            {
+                let media_id = url.path().to_owned();
+                return Some((server_name, media_id));
+            }
+        }
+    }
+    None
+}

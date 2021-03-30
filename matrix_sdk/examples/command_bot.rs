@@ -7,26 +7,23 @@ use matrix_sdk::{
         room::message::{MessageEventContent, MessageType, TextMessageEventContent},
         AnyMessageEventContent,
     },
-    Client, ClientConfig, EventHandler, Room, RoomType, SyncSettings,
+    room::Room,
+    Client, ClientConfig, EventHandler, SyncSettings,
 };
 use url::Url;
 
-struct CommandBot {
-    /// This clone of the `Client` will send requests to the server,
-    /// while the other keeps us in sync with the server using `sync`.
-    client: Client,
-}
+struct CommandBot;
 
 impl CommandBot {
-    pub fn new(client: Client) -> Self {
-        Self { client }
+    pub fn new() -> Self {
+        Self {}
     }
 }
 
 #[async_trait]
 impl EventHandler for CommandBot {
     async fn on_room_message(&self, room: Room, event: &SyncMessageEvent<MessageEventContent>) {
-        if room.room_type() == RoomType::Joined {
+        if let Room::Joined(room) = room {
             let msg_body = if let SyncMessageEvent {
                 content:
                     MessageEventContent {
@@ -48,12 +45,9 @@ impl EventHandler for CommandBot {
 
                 println!("sending");
 
-                self.client
-                    // send our message to the room we found the "!party" command in
-                    // the last parameter is an optional Uuid which we don't care about.
-                    .room_send(room.room_id(), content, None)
-                    .await
-                    .unwrap();
+                // send our message to the room we found the "!party" command in
+                // the last parameter is an optional Uuid which we don't care about.
+                room.send(content, None).await.unwrap();
 
                 println!("message sent");
             }
@@ -88,9 +82,7 @@ async fn login_and_sync(
     client.sync_once(SyncSettings::default()).await.unwrap();
     // add our CommandBot to be notified of incoming messages, we do this after the initial
     // sync to avoid responding to messages before the bot was running.
-    client
-        .set_event_handler(Box::new(CommandBot::new(client.clone())))
-        .await;
+    client.set_event_handler(Box::new(CommandBot::new())).await;
 
     // since we called `sync_once` before we entered our sync loop we must pass
     // that sync token to `sync`

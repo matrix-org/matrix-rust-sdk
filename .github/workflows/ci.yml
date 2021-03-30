@@ -54,6 +54,31 @@ jobs:
         command: clippy
         args: --all-targets -- -D warnings
 
+  check-wasm:
+    name: Check if WASM support compiles
+    needs: [clippy]
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout the repo
+      uses: actions/checkout@v2
+
+    - name: Install rust
+      uses: actions-rs/toolchain@v1
+      with:
+        toolchain: stable
+        target: wasm32-unknown-unknown
+        profile: minimal
+        override: true
+
+    - name: Install emscripten
+      uses: mymindstorm/setup-emsdk@v7
+
+    - name: Check
+      run: |
+        cd matrix_sdk/examples/wasm_command_bot
+        cargo check --target wasm32-unknown-unknown
+
   test:
     name: ${{ matrix.name }}
     needs: [clippy]

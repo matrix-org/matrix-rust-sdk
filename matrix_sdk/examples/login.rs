@@ -5,7 +5,8 @@ use matrix_sdk::{
     self, async_trait,
     deserialized_responses::events::SyncMessageEvent,
     events::room::message::{MessageEventContent, MessageType, TextMessageEventContent},
-    Client, EventHandler, Room, RoomType, SyncSettings,
+    room::Room,
+    Client, EventHandler, SyncSettings,
 };
 
 struct EventCallback;
@@ -13,7 +14,7 @@ struct EventCallback;
 #[async_trait]
 impl EventHandler for EventCallback {
     async fn on_room_message(&self, room: Room, event: &SyncMessageEvent<MessageEventContent>) {
-        if room.room_type() == RoomType::Joined {
+        if let Room::Joined(room) = room {
             if let SyncMessageEvent {
                 content:
                     MessageEventContent {

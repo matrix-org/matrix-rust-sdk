@@ -92,7 +92,7 @@ pub enum Error {
 
     /// An IO error happened.
     #[error(transparent)]
-    IO(#[from] IoError),
+    Io(#[from] IoError),
 
     /// An error occurred in the Matrix client library.
     #[error(transparent)]

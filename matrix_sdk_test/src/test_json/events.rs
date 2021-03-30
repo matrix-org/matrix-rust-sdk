@@ -199,6 +199,22 @@ lazy_static! {
 }
 
 lazy_static! {
+    pub static ref LOGIN_TYPES: JsonValue = json!({
+        "flows": [
+            {
+                "type": "m.login.password"
+            },
+            {
+                "type": "m.login.sso"
+            },
+            {
+                "type": "m.login.token"
+            }
+        ]
+    });
+}
+
+lazy_static! {
     pub static ref LOGOUT: JsonValue = json!({});
 }
 
