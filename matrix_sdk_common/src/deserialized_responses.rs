@@ -282,16 +282,16 @@ impl TryFrom<StateEvent<MemberEventContent>> for MemberEvent {
     }
 }
 
-impl Into<SyncStateEvent<MemberEventContent>> for MemberEvent {
-    fn into(self) -> SyncStateEvent<MemberEventContent> {
+impl From<MemberEvent> for SyncStateEvent<MemberEventContent> {
+    fn from(other: MemberEvent) -> SyncStateEvent<MemberEventContent> {
         SyncStateEvent {
-            content: self.content,
-            event_id: self.event_id,
-            sender: self.sender,
-            origin_server_ts: self.origin_server_ts,
-            state_key: self.state_key.to_string(),
-            prev_content: self.prev_content,
-            unsigned: self.unsigned,
+            content: other.content,
+            event_id: other.event_id,
+            sender: other.sender,
+            origin_server_ts: other.origin_server_ts,
+            state_key: other.state_key.to_string(),
+            prev_content: other.prev_content,
+            unsigned: other.unsigned,
         }
     }
 }
@@ -319,12 +319,12 @@ impl TryFrom<StrippedStateEvent<MemberEventContent>> for StrippedMemberEvent {
     }
 }
 
-impl Into<StrippedStateEvent<MemberEventContent>> for StrippedMemberEvent {
-    fn into(self) -> StrippedStateEvent<MemberEventContent> {
-        StrippedStateEvent {
-            content: self.content,
-            sender: self.sender,
-            state_key: self.state_key.to_string(),
+impl From<StrippedMemberEvent> for StrippedStateEvent<MemberEventContent> {
+    fn from(other: StrippedMemberEvent) -> Self {
+        Self {
+            content: other.content,
+            sender: other.sender,
+            state_key: other.state_key.to_string(),
         }
     }
 }

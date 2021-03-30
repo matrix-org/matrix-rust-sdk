@@ -48,6 +48,7 @@ pub enum Error {
     Random(#[from] RngError),
 }
 
+#[allow(clippy::from_over_into)]
 impl Into<StoreError> for Error {
     fn into(self) -> StoreError {
         match self {
