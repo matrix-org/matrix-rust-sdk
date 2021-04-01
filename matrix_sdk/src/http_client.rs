@@ -14,26 +14,23 @@
 
 use std::{convert::TryFrom, fmt::Debug, sync::Arc};
 
-#[cfg(all(not(test), not(target_arch = "wasm32")))]
+#[cfg(all(not(target_arch = "wasm32")))]
 use backoff::{future::retry, Error as RetryError, ExponentialBackoff};
-#[cfg(all(not(test), not(target_arch = "wasm32")))]
+#[cfg(all(not(target_arch = "wasm32")))]
 use http::StatusCode;
 use http::{HeaderValue, Response as HttpResponse};
 use reqwest::{Client, Response};
+#[cfg(all(not(target_arch = "wasm32")))]
+use std::sync::atomic::{AtomicU64, Ordering};
 use tracing::trace;
 use url::Url;
 
 use matrix_sdk_common::{
-    api::r0::media::create_content, async_trait, instant::Duration, locks::RwLock, AsyncTraitDeps,
-    AuthScheme, FromHttpResponseError,
+    api::r0::media::create_content, async_trait, locks::RwLock, AsyncTraitDeps, AuthScheme,
+    FromHttpResponseError,
 };
 
-use crate::{error::HttpError, ClientConfig, OutgoingRequest, Session};
-
-#[cfg(not(target_arch = "wasm32"))]
-const DEFAULT_CONNECTION_TIMEOUT: Duration = Duration::from_secs(5);
-#[cfg(not(target_arch = "wasm32"))]
-const DEFAULT_REQUEST_TIMEOUT: Duration = Duration::from_secs(10);
+use crate::{error::HttpError, ClientConfig, OutgoingRequest, RequestConfig, Session};
 
 /// Abstraction around the http layer. The allows implementors to use different
 /// http libraries.
@@ -48,12 +45,13 @@ pub trait HttpSend: AsyncTraitDeps {
     ///
     /// * `request` - The http request that has been converted from a ruma `Request`.
     ///
+    /// * `request_config` - The config used for this request.
+    ///
     /// # Examples
     ///
     /// ```
     /// use std::convert::TryFrom;
-    /// use matrix_sdk::{HttpSend, async_trait, HttpError};
-    /// # use std::time::Duration;
+    /// use matrix_sdk::{HttpSend, async_trait, HttpError, RequestConfig};
     ///
     /// #[derive(Debug)]
     /// struct Client(reqwest::Client);
@@ -73,7 +71,7 @@ pub trait HttpSend: AsyncTraitDeps {
     ///     async fn send_request(
     ///         &self,
     ///         request: http::Request<Vec<u8>>,
-    ///         timeout: Option<Duration>,
+    ///         config: RequestConfig,
     ///     ) -> Result<http::Response<Vec<u8>>, HttpError> {
     ///         Ok(self
     ///             .response_to_http_response(
@@ -88,7 +86,7 @@ pub trait HttpSend: AsyncTraitDeps {
     async fn send_request(
         &self,
         request: http::Request<Vec<u8>>,
-        timeout: Option<Duration>,
+        config: RequestConfig,
     ) -> Result<http::Response<Vec<u8>>, HttpError>;
 }
 
@@ -97,6 +95,7 @@ pub(crate) struct HttpClient {
     pub(crate) inner: Arc<dyn HttpSend>,
     pub(crate) homeserver: Arc<Url>,
     pub(crate) session: Arc<RwLock<Option<Session>>>,
+    pub(crate) request_config: RequestConfig,
 }
 
 impl HttpClient {
@@ -104,7 +103,7 @@ impl HttpClient {
         &self,
         request: Request,
         session: Arc<RwLock<Option<Session>>>,
-        timeout: Option<Duration>,
+        config: Option<RequestConfig>,
     ) -> Result<http::Response<Vec<u8>>, HttpError> {
         let request = {
             let read_guard;
@@ -125,16 +124,21 @@ impl HttpClient {
             request.try_into_http_request(&self.homeserver.to_string(), access_token)?
         };
 
-        self.inner.send_request(request, timeout).await
+        let config = match config {
+            Some(config) => config,
+            None => self.request_config,
+        };
+
+        self.inner.send_request(request, config).await
     }
 
     pub async fn upload(
         &self,
         request: create_content::Request<'_>,
-        timeout: Option<Duration>,
+        config: Option<RequestConfig>,
     ) -> Result<create_content::Response, HttpError> {
         let response = self
-            .send_request(request, self.session.clone(), timeout)
+            .send_request(request, self.session.clone(), config)
             .await?;
         Ok(create_content::Response::try_from(response)?)
     }
@@ -142,14 +146,14 @@ impl HttpClient {
     pub async fn send<Request>(
         &self,
         request: Request,
-        timeout: Option<Duration>,
+        config: Option<RequestConfig>,
     ) -> Result<Request::IncomingResponse, HttpError>
     where
         Request: OutgoingRequest + Debug,
         HttpError: From<FromHttpResponseError<Request::EndpointError>>,
     {
         let response = self
-            .send_request(request, self.session.clone(), timeout)
+            .send_request(request, self.session.clone(), config)
             .await?;
 
         trace!("Got response: {:?}", response);
@@ -166,11 +170,6 @@ pub(crate) fn client_with_config(config: &ClientConfig) -> Result<Client, HttpEr
 
     #[cfg(not(target_arch = "wasm32"))]
     let http_client = {
-        let http_client = match config.timeout {
-            Some(x) => http_client.timeout(x),
-            None => http_client.timeout(DEFAULT_REQUEST_TIMEOUT),
-        };
-
         let http_client = if config.disable_ssl_verification {
             http_client.danger_accept_invalid_certs(true)
         } else {
@@ -194,7 +193,7 @@ pub(crate) fn client_with_config(config: &ClientConfig) -> Result<Client, HttpEr
 
         http_client
             .default_headers(headers)
-            .connect_timeout(DEFAULT_CONNECTION_TIMEOUT)
+            .timeout(config.request_config.timeout)
     };
 
     #[cfg(target_arch = "wasm32")]
@@ -227,11 +226,11 @@ async fn response_to_http_response(
         .expect("Can't construct a response using the given body"))
 }
 
-#[cfg(any(test, target_arch = "wasm32"))]
+#[cfg(any(target_arch = "wasm32"))]
 async fn send_request(
     client: &Client,
     request: http::Request<Vec<u8>>,
-    _: Option<Duration>,
+    _: RequestConfig,
 ) -> Result<http::Response<Vec<u8>>, HttpError> {
     let request = reqwest::Request::try_from(request)?;
     let response = client.execute(request).await?;
@@ -239,34 +238,52 @@ async fn send_request(
     Ok(response_to_http_response(response).await?)
 }
 
-#[cfg(all(not(test), not(target_arch = "wasm32")))]
+#[cfg(all(not(target_arch = "wasm32")))]
 async fn send_request(
     client: &Client,
     request: http::Request<Vec<u8>>,
-    timeout: Option<Duration>,
+    config: RequestConfig,
 ) -> Result<http::Response<Vec<u8>>, HttpError> {
-    let backoff = ExponentialBackoff::default();
+    let mut backoff = ExponentialBackoff::default();
     let mut request = reqwest::Request::try_from(request)?;
+    let retry_limit = config.retry_limit;
+    let retry_count = AtomicU64::new(1);
 
-    if let Some(timeout) = timeout {
-        *request.timeout_mut() = Some(timeout);
-    }
+    *request.timeout_mut() = Some(config.timeout);
+
+    backoff.max_elapsed_time = config.retry_timeout;
 
     let request = &request;
+    let retry_count = &retry_count;
 
     let request = || async move {
+        let stop = if let Some(retry_limit) = retry_limit {
+            retry_count.fetch_add(1, Ordering::Relaxed) >= retry_limit
+        } else {
+            false
+        };
+
+        // Turn errors into permanent errors when the retry limit is reached
+        let error_type = if stop {
+            RetryError::Permanent
+        } else {
+            RetryError::Transient
+        };
+
         let request = request.try_clone().ok_or(HttpError::UnableToCloneRequest)?;
 
         let response = client
             .execute(request)
             .await
-            .map_err(|e| RetryError::Transient(HttpError::Reqwest(e)))?;
+            .map_err(|e| error_type(HttpError::Reqwest(e)))?;
 
         let status_code = response.status();
         // TODO TOO_MANY_REQUESTS will have a retry timeout which we should
         // use.
-        if status_code.is_server_error() || response.status() == StatusCode::TOO_MANY_REQUESTS {
-            return Err(RetryError::Transient(HttpError::Server(status_code)));
+        if !stop
+            && (status_code.is_server_error() || response.status() == StatusCode::TOO_MANY_REQUESTS)
+        {
+            return Err(error_type(HttpError::Server(status_code)));
         }
 
         let response = response_to_http_response(response)
@@ -287,8 +304,8 @@ impl HttpSend for Client {
     async fn send_request(
         &self,
         request: http::Request<Vec<u8>>,
-        timeout: Option<Duration>,
+        config: RequestConfig,
     ) -> Result<http::Response<Vec<u8>>, HttpError> {
-        send_request(&self, request, timeout).await
+        send_request(&self, request, config).await
     }
 }

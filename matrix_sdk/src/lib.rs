@@ -95,7 +95,7 @@ mod sas;
 #[cfg(feature = "encryption")]
 mod verification_request;
 
-pub use client::{Client, ClientConfig, LoopCtrl, SyncSettings};
+pub use client::{Client, ClientConfig, LoopCtrl, RequestConfig, SyncSettings};
 #[cfg(feature = "encryption")]
 #[cfg_attr(feature = "docs", doc(cfg(encryption)))]
 pub use device::Device;
