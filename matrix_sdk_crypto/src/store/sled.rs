@@ -333,7 +333,7 @@ impl SledStore {
         let identity_changes = changes.identities;
         let olm_hashes = changes.message_hashes;
 
-        let ret: std::result::Result<(), TransactionError<serde_json::Error>> = (
+        let ret: Result<(), TransactionError<serde_json::Error>> = (
             &self.account,
             &self.private_identity,
             &self.devices,

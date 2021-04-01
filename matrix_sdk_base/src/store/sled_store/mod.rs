@@ -249,10 +249,7 @@ impl SledStore {
         SledStore::open_helper(db, Some(path), None)
     }
 
-    fn serialize_event(
-        &self,
-        event: &impl Serialize,
-    ) -> std::result::Result<Vec<u8>, SerializationError> {
+    fn serialize_event(&self, event: &impl Serialize) -> Result<Vec<u8>, SerializationError> {
         if let Some(key) = &*self.store_key {
             let encrypted = key.encrypt(event)?;
             Ok(serde_json::to_vec(&encrypted)?)
@@ -264,7 +261,7 @@ impl SledStore {
     fn deserialize_event<T: for<'b> Deserialize<'b>>(
         &self,
         event: &[u8],
-    ) -> std::result::Result<T, SerializationError> {
+    ) -> Result<T, SerializationError> {
         if let Some(key) = &*self.store_key {
             let encrypted: EncryptedEvent = serde_json::from_slice(&event)?;
             Ok(key.decrypt(encrypted)?)
@@ -297,7 +294,7 @@ impl SledStore {
     pub async fn save_changes(&self, changes: &StateChanges) -> Result<()> {
         let now = SystemTime::now();
 
-        let ret: std::result::Result<(), TransactionError<SerializationError>> = (
+        let ret: Result<(), TransactionError<SerializationError>> = (
             &self.session,
             &self.account_data,
             &self.members,
