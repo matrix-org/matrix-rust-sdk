@@ -193,7 +193,13 @@ impl Common {
         if !self.are_members_synced() {
             self.request_members().await?;
         }
-        Ok(self.inner.active_members().await?)
+        Ok(self
+            .inner
+            .active_members()
+            .await?
+            .into_iter()
+            .map(|member| RoomMember::new(self.client.clone(), member))
+            .collect())
     }
 
     /// Get all members for this room, includes invited, joined and left members.
@@ -201,6 +207,12 @@ impl Common {
         if !self.are_members_synced() {
             self.request_members().await?;
         }
-        Ok(self.inner.members().await?)
+        Ok(self
+            .inner
+            .members()
+            .await?
+            .into_iter()
+            .map(|member| RoomMember::new(self.client.clone(), member))
+            .collect())
     }
 }
