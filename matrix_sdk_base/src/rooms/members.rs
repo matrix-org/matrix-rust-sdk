@@ -20,7 +20,7 @@ use matrix_sdk_common::{
         room::{member::MemberEventContent, power_levels::PowerLevelsEventContent},
         SyncStateEvent,
     },
-    identifiers::UserId,
+    identifiers::{MxcUri, UserId},
 };
 
 use crate::deserialized_responses::MemberEvent;
@@ -65,10 +65,10 @@ impl RoomMember {
     }
 
     /// Get the avatar url of the member, if there is one.
-    pub fn avatar_url(&self) -> Option<&str> {
+    pub fn avatar_url(&self) -> Option<&MxcUri> {
         match self.profile.as_ref() {
-            Some(p) => p.avatar_url.as_deref(),
-            None => self.event.content.avatar_url.as_deref(),
+            Some(p) => p.avatar_url.as_ref(),
+            None => self.event.content.avatar_url.as_ref(),
         }
     }
 

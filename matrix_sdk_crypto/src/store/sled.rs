@@ -729,10 +729,7 @@ mod test {
             .unwrap()
             .1
             .to_owned();
-        let one_time_key = SignedKey {
-            key: one_time_key,
-            signatures: BTreeMap::new(),
-        };
+        let one_time_key = SignedKey::new(one_time_key, BTreeMap::new());
         let sender_key = bob.identity_keys().curve25519().to_owned();
         let session = alice
             .create_outbound_session_helper(&sender_key, &one_time_key)

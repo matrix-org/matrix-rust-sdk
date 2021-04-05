@@ -407,7 +407,7 @@ lazy_static! {
 lazy_static! {
     pub static ref PRESENCE: JsonValue = json!({
         "content": {
-            "avatar_url": "mxc://localhost:wefuiwegh8742w",
+            "avatar_url": "mxc://localhost/wefuiwegh8742w",
             "currently_active": false,
             "last_active_ago": 1,
             "presence": "online",

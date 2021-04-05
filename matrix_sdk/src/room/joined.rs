@@ -12,7 +12,7 @@ use matrix_sdk_common::{
         read_marker::set_read_marker,
         receipt::create_receipt,
         redact::redact_event,
-        state::send_state_event_for_key,
+        state::send_state_event,
         typing::create_typing_event::{Request as TypingRequest, Typing},
     },
     assign,
@@ -560,18 +560,21 @@ impl Joined {
     /// # Example
     ///
     /// ```no_run
-    /// use matrix_sdk::events::{
-    ///     AnyStateEventContent,
-    ///     room::member::{MemberEventContent, MembershipState},
+    /// use matrix_sdk::{
+    ///     events::{
+    ///         AnyStateEventContent,
+    ///         room::member::{MemberEventContent, MembershipState},
+    ///     },
+    ///     identifiers::mxc_uri,
     /// };
     /// # futures::executor::block_on(async {
     /// # let homeserver = url::Url::parse("http://localhost:8080").unwrap();
     /// # let mut client = matrix_sdk::Client::new(homeserver).unwrap();
     /// # let room_id = matrix_sdk::identifiers::room_id!("!test:localhost");
     ///
-    /// let avatar_url = "https://example.org/avatar";
+    /// let avatar_url = mxc_uri!("mxc://example.org/avatar");
     /// let member_event = MemberEventContent {
-    ///    avatar_url: Some(avatar_url.to_string()),
+    ///    avatar_url: Some(avatar_url),
     ///    membership: MembershipState::Join,
     ///    is_direct: None,
     ///    displayname: None,
@@ -589,10 +592,9 @@ impl Joined {
         &self,
         content: impl Into<AnyStateEventContent>,
         state_key: &str,
-    ) -> Result<send_state_event_for_key::Response> {
+    ) -> Result<send_state_event::Response> {
         let content = content.into();
-        let request =
-            send_state_event_for_key::Request::new(self.inner.room_id(), state_key, &content);
+        let request = send_state_event::Request::new(self.inner.room_id(), state_key, &content);
 
         self.client.send(request, None).await
     }

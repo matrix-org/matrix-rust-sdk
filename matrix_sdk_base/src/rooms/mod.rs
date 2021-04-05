@@ -6,7 +6,7 @@ use matrix_sdk_common::{
         create::CreateEventContent, guest_access::GuestAccess,
         history_visibility::HistoryVisibility, join_rules::JoinRule,
     },
-    identifiers::UserId,
+    identifiers::{MxcUri, UserId},
 };
 pub use normal::{Room, RoomInfo, RoomType};
 
@@ -29,7 +29,7 @@ use matrix_sdk_common::{
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct BaseRoomInfo {
     /// The avatar URL of this room.
-    pub avatar_url: Option<String>,
+    pub avatar_url: Option<MxcUri>,
     /// The canonical alias of this room.
     pub canonical_alias: Option<RoomAliasId>,
     /// The `m.room.create` event content of this room.

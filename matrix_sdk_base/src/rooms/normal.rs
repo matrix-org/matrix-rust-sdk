@@ -31,7 +31,7 @@ use matrix_sdk_common::{
         },
         AnyStateEventContent, AnySyncStateEvent, EventType,
     },
-    identifiers::{RoomAliasId, RoomId, UserId},
+    identifiers::{MxcUri, RoomAliasId, RoomId, UserId},
 };
 use serde::{Deserialize, Serialize};
 use tracing::info;
@@ -148,7 +148,7 @@ impl Room {
     }
 
     /// Get the avatar url of this room.
-    pub fn avatar_url(&self) -> Option<String> {
+    pub fn avatar_url(&self) -> Option<MxcUri> {
         self.inner.read().unwrap().base_info.avatar_url.clone()
     }
 

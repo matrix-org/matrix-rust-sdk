@@ -800,10 +800,7 @@ impl ReadOnlyAccount {
             let mut signatures = BTreeMap::new();
             signatures.insert((*self.user_id).clone(), signature_map);
 
-            let signed_key = SignedKey {
-                key: key.to_owned(),
-                signatures,
-            };
+            let signed_key = SignedKey::new(key.to_owned(), signatures);
 
             one_time_key_map.insert(
                 DeviceKeyId::from_parts(
@@ -890,6 +887,12 @@ impl ReadOnlyAccount {
             OneTimeKey::SignedKey(k) => k,
             OneTimeKey::Key(_) => {
                 return Err(SessionCreationError::OneTimeKeyNotSigned(
+                    device.user_id().to_owned(),
+                    device.device_id().into(),
+                ));
+            }
+            _ => {
+                return Err(SessionCreationError::OneTimeKeyUnknown(
                     device.user_id().to_owned(),
                     device.device_id().into(),
                 ));
