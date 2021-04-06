@@ -174,6 +174,11 @@ pub(crate) enum SessionCreationError {
         one-time key is missing"
     )]
     OneTimeKeyMissing(UserId, Box<DeviceId>),
+    #[error(
+        "Tried to create a new Olm session for {0} {1}, but the one-time \
+        key algorithm is unsupported"
+    )]
+    OneTimeKeyUnknown(UserId, Box<DeviceId>),
     #[error("Failed to verify the one-time key signatures for {0} {1}: {2:?}")]
     InvalidSignature(UserId, Box<DeviceId>, SignatureError),
     #[error(

@@ -63,20 +63,14 @@ impl RoomMember {
     /// ```
     pub async fn avatar(&self, width: Option<u32>, height: Option<u32>) -> Result<Option<Vec<u8>>> {
         // TODO: try to offer the avatar from cache, requires avatar cache
-        if let Some((server_name, media_id)) =
-            self.avatar_url().and_then(|url| crate::parse_mxc(&url))
-        {
+        if let Some(url) = self.avatar_url() {
             if let (Some(width), Some(height)) = (width, height) {
-                let request = get_content_thumbnail::Request::new(
-                    &media_id,
-                    &server_name,
-                    width.into(),
-                    height.into(),
-                );
+                let request =
+                    get_content_thumbnail::Request::from_url(&url, width.into(), height.into());
                 let response = self.client.send(request, None).await?;
                 Ok(Some(response.file))
             } else {
-                let request = get_content::Request::new(&media_id, &server_name);
+                let request = get_content::Request::from_url(url);
                 let response = self.client.send(request, None).await?;
                 Ok(Some(response.file))
             }

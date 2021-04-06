@@ -56,8 +56,8 @@ use tracing::{debug, warn};
 use tracing::{error, info, instrument};
 
 use matrix_sdk_base::{
-    deserialized_responses::SyncResponse, events::AnyMessageEventContent, BaseClient,
-    BaseClientConfig, Session, Store,
+    deserialized_responses::SyncResponse, events::AnyMessageEventContent, identifiers::MxcUri,
+    BaseClient, BaseClientConfig, Session, Store,
 };
 
 #[cfg(feature = "encryption")]
@@ -516,7 +516,7 @@ impl Client {
     /// }
     /// # })
     /// ```
-    pub async fn avatar_url(&self) -> Result<Option<String>> {
+    pub async fn avatar_url(&self) -> Result<Option<MxcUri>> {
         let user_id = self.user_id().await.ok_or(Error::AuthenticationRequired)?;
         let request = get_avatar_url::Request::new(&user_id);
         let response = self.send(request, None).await?;
@@ -553,22 +553,14 @@ impl Client {
     /// ```
     pub async fn avatar(&self, width: Option<u32>, height: Option<u32>) -> Result<Option<Vec<u8>>> {
         // TODO: try to offer the avatar from cache, requires avatar cache
-        if let Some((server_name, media_id)) = self
-            .avatar_url()
-            .await?
-            .and_then(|url| crate::parse_mxc(&url))
-        {
+        if let Some(url) = self.avatar_url().await? {
             if let (Some(width), Some(height)) = (width, height) {
-                let request = get_content_thumbnail::Request::new(
-                    &media_id,
-                    &server_name,
-                    width.into(),
-                    height.into(),
-                );
+                let request =
+                    get_content_thumbnail::Request::from_url(&url, width.into(), height.into());
                 let response = self.send(request, None).await?;
                 Ok(Some(response.file))
             } else {
-                let request = get_content::Request::new(&media_id, &server_name);
+                let request = get_content::Request::from_url(&url);
                 let response = self.send(request, None).await?;
                 Ok(Some(response.file))
             }
@@ -583,7 +575,7 @@ impl Client {
     }
 
     /// Sets the mxc avatar url of the client's owner. The avatar gets unset if `url` is `None`.
-    pub async fn set_avatar_url(&self, url: Option<&str>) -> Result<()> {
+    pub async fn set_avatar_url(&self, url: Option<&MxcUri>) -> Result<()> {
         let user_id = self.user_id().await.ok_or(Error::AuthenticationRequired)?;
         let request = set_avatar_url::Request::new(&user_id, url);
         self.send(request, None).await?;
@@ -2261,6 +2253,7 @@ mod test {
         get_public_rooms, get_public_rooms_filtered, register::RegistrationKind, Client, Session,
         SyncSettings, Url,
     };
+    use matrix_sdk_base::identifiers::mxc_uri;
     use matrix_sdk_common::{
         api::r0::{
             account::register::Request as RegistrationRequest,
@@ -3043,9 +3036,9 @@ mod test {
 
         let room = client.get_joined_room(&room_id).unwrap();
 
-        let avatar_url = "https://example.org/avatar";
+        let avatar_url = mxc_uri!("mxc://example.org/avA7ar");
         let member_event = MemberEventContent {
-            avatar_url: Some(avatar_url.to_string()),
+            avatar_url: Some(avatar_url),
             membership: MembershipState::Join,
             is_direct: None,
             displayname: None,
