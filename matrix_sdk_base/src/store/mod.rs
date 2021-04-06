@@ -76,7 +76,7 @@ pub enum StoreError {
 }
 
 /// A `StateStore` specific result type.
-pub type Result<T> = std::result::Result<T, StoreError>;
+pub type Result<T, E = StoreError> = std::result::Result<T, E>;
 
 /// An abstract state store trait that can be used to implement different stores
 /// for the SDK.

@@ -333,7 +333,7 @@ impl SledStore {
         let identity_changes = changes.identities;
         let olm_hashes = changes.message_hashes;
 
-        let ret: std::result::Result<(), TransactionError<serde_json::Error>> = (
+        let ret: Result<(), TransactionError<serde_json::Error>> = (
             &self.account,
             &self.private_identity,
             &self.devices,
@@ -729,10 +729,7 @@ mod test {
             .unwrap()
             .1
             .to_owned();
-        let one_time_key = SignedKey {
-            key: one_time_key,
-            signatures: BTreeMap::new(),
-        };
+        let one_time_key = SignedKey::new(one_time_key, BTreeMap::new());
         let sender_key = bob.identity_keys().curve25519().to_owned();
         let session = alice
             .create_outbound_session_helper(&sender_key, &one_time_key)

@@ -82,7 +82,7 @@ use crate::{
 };
 
 /// A `CryptoStore` specific result type.
-pub type Result<T> = std::result::Result<T, CryptoStoreError>;
+pub type Result<T, E = CryptoStoreError> = std::result::Result<T, E>;
 
 /// A wrapper for our CryptoStore trait object.
 ///

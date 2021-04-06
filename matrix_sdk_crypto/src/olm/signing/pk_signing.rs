@@ -384,12 +384,7 @@ impl Signing {
             self.public_key().to_string(),
         );
 
-        CrossSigningKey {
-            user_id,
-            usage: vec![usage],
-            keys,
-            signatures: BTreeMap::new(),
-        }
+        CrossSigningKey::new(user_id, vec![usage], keys, BTreeMap::new())
     }
 
     #[cfg(test)]

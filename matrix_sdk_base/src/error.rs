@@ -23,7 +23,7 @@ use thiserror::Error;
 use matrix_sdk_crypto::{CryptoStoreError, MegolmError, OlmError};
 
 /// Result type of the rust-sdk.
-pub type Result<T> = std::result::Result<T, Error>;
+pub type Result<T, E = Error> = std::result::Result<T, E>;
 
 /// Internal representation of errors.
 #[derive(Error, Debug)]

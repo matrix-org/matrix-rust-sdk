@@ -210,7 +210,7 @@ lazy_static! {
                                 "content": {
                                 "membership": "leave",
                                 "reason": "offline",
-                                "avatar_url": "avatar.com",
+                                "avatar_url": "mxc://avatar.com/d0dV9jLpe",
                                 "displayname": "example"
                                 },
                                 "event_id": "$1585345508297748AIUBh:matrix.org",
@@ -221,7 +221,7 @@ lazy_static! {
                                 "unsigned": {
                                 "replaces_state": "$1585345354296486IGZfp:localhost",
                                 "prev_content": {
-                                    "avatar_url": "avatar.com",
+                                    "avatar_url": "mxc://avatar.com/d0dV9jLpe",
                                     "displayname": "example",
                                     "membership": "join"
                                 },
@@ -268,7 +268,7 @@ lazy_static! {
             "events": [
                 {
                     "content": {
-                        "avatar_url": "mxc://localhost:wefuiwegh8742w",
+                        "avatar_url": "mxc://localhost/wefuiwegh8742w",
                         "currently_active": false,
                         "last_active_ago": 1,
                         "presence": "online",
@@ -526,7 +526,7 @@ lazy_static! {
             "events": [
                 {
                     "content": {
-                        "avatar_url": "mxc://localhost:wefuiwegh8742w",
+                        "avatar_url": "mxc://localhost/wefuiwegh8742w",
                         "currently_active": false,
                         "last_active_ago": 1,
                         "presence": "online",
@@ -743,7 +743,7 @@ lazy_static! {
             "events": [
                 {
                     "content": {
-                        "avatar_url": "mxc://localhost:wefuiwegh8742w",
+                        "avatar_url": "mxc://localhost/wefuiwegh8742w",
                         "currently_active": false,
                         "last_active_ago": 1,
                         "presence": "online",
@@ -966,7 +966,7 @@ lazy_static! {
                                 "content": {
                                   "membership": "leave",
                                   "reason": "offline",
-                                  "avatar_url": "avatar.com",
+                                  "avatar_url": "mxc://avatar.com/ursn982srs2S",
                                   "displayname": "example"
                                 },
                                 "event_id": "$1585345508297748AIUBh:matrix.org",
@@ -977,7 +977,7 @@ lazy_static! {
                                 "unsigned": {
                                   "replaces_state": "$1585345354296486IGZfp:localhost",
                                   "prev_content": {
-                                    "avatar_url": "avatar.com",
+                                    "avatar_url": "mxc://avatar.com/ursn982srs2S",
                                     "displayname": "example",
                                     "membership": "join"
                                   },
@@ -1023,7 +1023,7 @@ lazy_static! {
             "events": [
                 {
                     "content": {
-                        "avatar_url": "mxc://localhost:wefuiwegh8742w",
+                        "avatar_url": "mxc://localhost/wefuiwegh8742w",
                         "currently_active": false,
                         "last_active_ago": 1,
                         "presence": "online",
