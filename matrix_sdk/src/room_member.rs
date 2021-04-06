@@ -62,17 +62,31 @@ impl RoomMember {
     /// # })
     /// ```
     pub async fn avatar(&self, width: Option<u32>, height: Option<u32>) -> Result<Option<Vec<u8>>> {
-        // TODO: try to offer the avatar from cache, requires avatar cache
         if let Some(url) = self.avatar_url() {
-            if let (Some(width), Some(height)) = (width, height) {
-                let request =
-                    get_content_thumbnail::Request::from_url(&url, width.into(), height.into());
-                let response = self.client.send(request, None).await?;
-                Ok(Some(response.file))
+            // FIXME: this will break other image sizes, since we arn't re-downloading the avatar
+            if let Some(avatar) = self
+                .client
+                .store()
+                .get_data(self.user_id().as_str())
+                .await?
+            {
+                Ok(Some(avatar))
             } else {
-                let request = get_content::Request::from_url(url);
-                let response = self.client.send(request, None).await?;
-                Ok(Some(response.file))
+                let image = if let (Some(width), Some(height)) = (width, height) {
+                    let request =
+                        get_content_thumbnail::Request::from_url(&url, width.into(), height.into());
+                    let response = self.client.send(request, None).await?;
+                    response.file
+                } else {
+                    let request = get_content::Request::from_url(url);
+                    let response = self.client.send(request, None).await?;
+                    response.file
+                };
+                self.client
+                    .store()
+                    .store_data(self.user_id().as_str(), Some(&image))
+                    .await?;
+                Ok(Some(image))
             }
         } else {
             Ok(None)
