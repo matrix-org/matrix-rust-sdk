@@ -2255,13 +2255,12 @@ impl Client {
 
 #[cfg(test)]
 mod test {
-    use crate::{ClientConfig, HttpError};
+    use crate::{ClientConfig, HttpError, RoomMember};
 
     use super::{
         get_public_rooms, get_public_rooms_filtered, register::RegistrationKind, Client, Session,
         SyncSettings, Url,
     };
-    use matrix_sdk_base::RoomMember;
     use matrix_sdk_common::{
         api::r0::{
             account::register::Request as RegistrationRequest,

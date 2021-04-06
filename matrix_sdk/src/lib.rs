@@ -72,8 +72,8 @@ compile_error!("'sso_login' cannot be enabled on 'wasm32' arch");
 #[cfg_attr(feature = "docs", doc(cfg(encryption)))]
 pub use matrix_sdk_base::crypto::{EncryptionInfo, LocalTrust};
 pub use matrix_sdk_base::{
-    Error as BaseError, Room as BaseRoom, RoomInfo, RoomMember, RoomType, Session, StateChanges,
-    StoreError,
+    Error as BaseError, Room as BaseRoom, RoomInfo, RoomMember as BaseRoomMember, RoomType,
+    Session, StateChanges, StoreError,
 };
 
 pub use matrix_sdk_common::*;
@@ -85,6 +85,8 @@ mod event_handler;
 mod http_client;
 /// High-level room API
 pub mod room;
+/// High-level room API
+mod room_member;
 
 #[cfg(feature = "encryption")]
 mod device;
@@ -100,6 +102,7 @@ pub use device::Device;
 pub use error::{Error, HttpError, Result};
 pub use event_handler::{CustomEvent, EventHandler};
 pub use http_client::HttpSend;
+pub use room_member::RoomMember;
 #[cfg(feature = "encryption")]
 #[cfg_attr(feature = "docs", doc(cfg(encryption)))]
 pub use sas::Sas;
