@@ -40,6 +40,7 @@ pub struct MemoryStore {
     sync_token: Arc<RwLock<Option<String>>>,
     filters: Arc<DashMap<String, String>>,
     account_data: Arc<DashMap<String, AnyBasicEvent>>,
+    arbitrary_data: Arc<DashMap<String, Vec<u8>>>,
     members: Arc<DashMap<RoomId, DashMap<UserId, MemberEvent>>>,
     profiles: Arc<DashMap<RoomId, DashMap<UserId, MemberEventContent>>>,
     display_names: Arc<DashMap<RoomId, DashMap<String, BTreeSet<UserId>>>>,
@@ -64,6 +65,7 @@ impl MemoryStore {
             sync_token: Arc::new(RwLock::new(None)),
             filters: DashMap::new().into(),
             account_data: DashMap::new().into(),
+            arbitrary_data: DashMap::new().into(),
             members: DashMap::new().into(),
             profiles: DashMap::new().into(),
             display_names: DashMap::new().into(),
@@ -303,6 +305,23 @@ impl MemoryStore {
         #[allow(clippy::map_clone)]
         self.stripped_room_info.iter().map(|r| r.clone()).collect()
     }
+
+    fn store_data(&self, key: &str, data: Option<&[u8]>) -> Result<()> {
+        if let Some(data) = data {
+            self.arbitrary_data.insert(key.to_string(), data.to_vec());
+        } else {
+            self.arbitrary_data.remove(key);
+        }
+
+        Ok(())
+    }
+
+    fn get_data(&self, key: &str) -> Result<Option<Vec<u8>>> {
+        Ok(self
+            .arbitrary_data
+            .get(key)
+            .map(|data| data.iter().copied().collect()))
+    }
 }
 
 #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
@@ -384,5 +403,13 @@ impl StateStore for MemoryStore {
             .get(room_id)
             .and_then(|d| d.get(display_name).map(|d| d.clone()))
             .unwrap_or_default())
+    }
+
+    async fn store_data(&self, key: &str, data: Option<&[u8]>) -> Result<()> {
+        self.store_data(key, data)
+    }
+
+    async fn get_data(&self, key: &str) -> Result<Option<Vec<u8>>> {
+        self.get_data(key)
     }
 }

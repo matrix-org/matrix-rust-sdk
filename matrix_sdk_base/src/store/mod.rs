@@ -183,6 +183,24 @@ pub trait StateStore: AsyncTraitDeps {
         room_id: &RoomId,
         display_name: &str,
     ) -> Result<BTreeSet<UserId>>;
+
+    /// Store arbitrary data to the `Store`
+    ///
+    /// Remove the data by passing `None` as data
+    ///
+    /// # Arguments
+    ///
+    /// * `key` - The key identifying the data.
+    ///
+    /// * `data` - The data to be stored.
+    async fn store_data(&self, key: &str, data: Option<&[u8]>) -> Result<()>;
+
+    /// Get the data stored at the given `key`
+    ///
+    /// # Arguments
+    ///
+    /// * `key` - The key identifying the data.
+    async fn get_data(&self, key: &str) -> Result<Option<Vec<u8>>>;
 }
 
 /// A state store wrapper for the SDK.

@@ -141,6 +141,7 @@ pub struct SledStore {
     store_key: Arc<Option<StoreKey>>,
     session: Tree,
     account_data: Tree,
+    arbitrary_data: Tree,
     members: Tree,
     profiles: Tree,
     display_names: Tree,
@@ -171,6 +172,7 @@ impl SledStore {
     fn open_helper(db: Db, path: Option<PathBuf>, store_key: Option<StoreKey>) -> Result<Self> {
         let session = db.open_tree("session")?;
         let account_data = db.open_tree("account_data")?;
+        let arbitrary_data = db.open_tree("arbitrary_data")?;
 
         let members = db.open_tree("members")?;
         let profiles = db.open_tree("profiles")?;
@@ -193,6 +195,7 @@ impl SledStore {
             store_key: store_key.into(),
             session,
             account_data,
+            arbitrary_data,
             members,
             profiles,
             display_names,
@@ -587,6 +590,34 @@ impl SledStore {
             .transpose()?
             .unwrap_or_default())
     }
+
+    pub async fn store_data<K, V>(&self, key: K, data: Option<V>) -> Result<()>
+    where
+        K: AsRef<[u8]>,
+        V: Into<sled::IVec>,
+    {
+        if let Some(data) = data {
+            self.arbitrary_data
+                .insert(key, data)
+                .map(|_| ())
+                .map_err(|e| e.into())
+        } else {
+            self.arbitrary_data
+                .remove(key)
+                .map(|_| ())
+                .map_err(|e| e.into())
+        }
+    }
+
+    pub async fn get_data<K>(&self, key: K) -> Result<Option<Vec<u8>>>
+    where
+        K: AsRef<[u8]>,
+    {
+        self.arbitrary_data
+            .get(key)
+            .map_err(|e| e.into())
+            .map(|data| data.map(|data| data.to_vec()))
+    }
 }
 
 #[async_trait]
@@ -663,6 +694,14 @@ impl StateStore for SledStore {
     ) -> Result<BTreeSet<UserId>> {
         self.get_users_with_display_name(room_id, display_name)
             .await
+    }
+
+    async fn store_data(&self, key: &str, data: Option<&[u8]>) -> Result<()> {
+        self.store_data(key, data).await
+    }
+
+    async fn get_data(&self, key: &str) -> Result<Option<Vec<u8>>> {
+        self.get_data(key).await
     }
 }
 
