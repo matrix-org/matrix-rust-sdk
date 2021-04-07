@@ -2566,10 +2566,13 @@ mod test {
         let homeserver = Url::from_str(&mockito::server_url()).unwrap();
         let client = Client::new(homeserver).unwrap();
 
-        let _m = mock("POST", "/_matrix/client/r0/register")
-            .with_status(403)
-            .with_body(test_json::REGISTRATION_RESPONSE_ERR.to_string())
-            .create();
+        let _m = mock(
+            "POST",
+            Matcher::Regex(r"^/_matrix/client/r0/register\?.*$".to_string()),
+        )
+        .with_status(403)
+        .with_body(test_json::REGISTRATION_RESPONSE_ERR.to_string())
+        .create();
 
         let user = assign!(RegistrationRequest::new(), {
             username: Some("user"),
@@ -2580,14 +2583,27 @@ mod test {
 
         if let Err(err) = client.register(user).await {
             if let crate::Error::Http(HttpError::UiaaError(crate::FromHttpResponseError::Http(
-                // TODO this should be a UiaaError need to investigate
-                crate::ServerError::Unknown(e),
+                crate::ServerError::Known(crate::api::r0::uiaa::UiaaResponse::MatrixError(
+                    crate::api::Error {
+                        kind,
+                        message,
+                        status_code,
+                    },
+                )),
             ))) = err
             {
-                assert!(e.to_string().starts_with("EOF while parsing"))
+                if let crate::api::error::ErrorKind::Forbidden = kind {
+                } else {
+                    panic!(
+                        "found the wrong `ErrorKind` {:?}, expected `Forbidden",
+                        kind
+                    );
+                }
+                assert_eq!(message, "Invalid password".to_string());
+                assert_eq!(status_code, http::StatusCode::from_u16(403).unwrap());
             } else {
                 panic!(
-                    "found the wrong `Error` type {:#?}, expected `ServerError::Unknown",
+                    "found the wrong `Error` type {:#?}, expected `UiaaResponse`",
                     err
                 );
             }
