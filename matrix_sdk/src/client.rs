@@ -130,9 +130,8 @@ use crate::{
     EventHandler,
 };
 
+const DEFAULT_REQUEST_TIMEOUT: Duration = Duration::from_secs(10);
 const DEFAULT_SYNC_TIMEOUT: Duration = Duration::from_secs(30);
-/// Give the sync a bit more time than the default request timeout does.
-const SYNC_REQUEST_TIMEOUT: Duration = Duration::from_secs(15);
 /// A conservative upload speed of 1Mbps
 const DEFAULT_UPLOAD_SPEED: u64 = 125_000;
 /// 5 min minimal upload request timeout, used to clamp the request timeout.
@@ -199,7 +198,7 @@ pub struct ClientConfig {
     pub(crate) user_agent: Option<HeaderValue>,
     pub(crate) disable_ssl_verification: bool,
     pub(crate) base_config: BaseClientConfig,
-    pub(crate) timeout: Option<Duration>,
+    pub(crate) request_config: RequestConfig,
     pub(crate) client: Option<Arc<dyn HttpSend>>,
 }
 
@@ -213,6 +212,7 @@ impl Debug for ClientConfig {
 
         res.field("user_agent", &self.user_agent)
             .field("disable_ssl_verification", &self.disable_ssl_verification)
+            .field("request_config", &self.request_config)
             .finish()
     }
 }
@@ -295,9 +295,9 @@ impl ClientConfig {
         self
     }
 
-    /// Set a timeout duration for all HTTP requests. The default is no timeout.
-    pub fn timeout(mut self, timeout: Duration) -> Self {
-        self.timeout = Some(timeout);
+    /// Set the default timeout, fail and retry behavior for all HTTP requests.
+    pub fn request_config(mut self, request_config: RequestConfig) -> Self {
+        self.request_config = request_config;
         self
     }
 
@@ -311,13 +311,24 @@ impl ClientConfig {
     }
 }
 
-#[derive(Debug, Default, Clone)]
+#[derive(Debug, Clone)]
 /// Settings for a sync call.
 pub struct SyncSettings<'a> {
     pub(crate) filter: Option<sync_events::Filter<'a>>,
     pub(crate) timeout: Option<Duration>,
     pub(crate) token: Option<String>,
     pub(crate) full_state: bool,
+}
+
+impl<'a> Default for SyncSettings<'a> {
+    fn default() -> Self {
+        Self {
+            filter: Default::default(),
+            timeout: Some(DEFAULT_SYNC_TIMEOUT),
+            token: Default::default(),
+            full_state: Default::default(),
+        }
+    }
 }
 
 impl<'a> SyncSettings<'a> {
@@ -371,6 +382,84 @@ impl<'a> SyncSettings<'a> {
     }
 }
 
+/// Configuration for requests the `Client` makes.
+///
+/// This sets how often and for how long a request should be repeated. As well as how long a
+/// successful request is allowed to take.
+///
+/// By default requests are retried indefinitely and use no timeout.
+///
+/// # Example
+///
+/// ```
+/// # use matrix_sdk::RequestConfig;
+/// # use std::time::Duration;
+/// // This sets makes requests fail after a single send request and sets the timeout to 30s
+/// let request_config = RequestConfig::new()
+///     .disable_retry()
+///     .timeout(Duration::from_secs(30));
+/// ```
+#[derive(Copy, Clone)]
+pub struct RequestConfig {
+    pub(crate) timeout: Duration,
+    pub(crate) retry_limit: Option<u64>,
+    pub(crate) retry_timeout: Option<Duration>,
+}
+
+#[cfg(not(tarpaulin_include))]
+impl Debug for RequestConfig {
+    fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let mut res = fmt.debug_struct("RequestConfig");
+
+        res.field("timeout", &self.timeout)
+            .field("retry_limit", &self.retry_limit)
+            .field("retry_timeout", &self.retry_timeout)
+            .finish()
+    }
+}
+
+impl Default for RequestConfig {
+    fn default() -> Self {
+        Self {
+            timeout: DEFAULT_REQUEST_TIMEOUT,
+            retry_limit: Default::default(),
+            retry_timeout: Default::default(),
+        }
+    }
+}
+
+impl RequestConfig {
+    /// Create a new default `RequestConfig`.
+    pub fn new() -> Self {
+        Default::default()
+    }
+
+    /// This is a convince method to disable the retries of a request. Setting the `retry_limit` to `0`
+    /// has the same effect.
+    pub fn disable_retry(mut self) -> Self {
+        self.retry_limit = Some(0);
+        self
+    }
+
+    /// The number of times a request should be retried. The default is no limit
+    pub fn retry_limit(mut self, retry_limit: u64) -> Self {
+        self.retry_limit = Some(retry_limit);
+        self
+    }
+
+    /// Set the timeout duration for all HTTP requests.
+    pub fn timeout(mut self, timeout: Duration) -> Self {
+        self.timeout = timeout;
+        self
+    }
+
+    /// Set a timeout for how long a request should be retried. The default is no timeout, meaning requests are retried forever.
+    pub fn retry_timeout(mut self, retry_timeout: Duration) -> Self {
+        self.retry_timeout = Some(retry_timeout);
+        self
+    }
+}
+
 impl Client {
     /// Creates a new client for making HTTP requests to the given homeserver.
     ///
@@ -412,6 +501,7 @@ impl Client {
             homeserver: homeserver.clone(),
             inner: client,
             session,
+            request_config: config.request_config,
         };
 
         Ok(Self {
@@ -1374,7 +1464,11 @@ impl Client {
             content_type: Some(content_type.essence_str()),
         });
 
-        Ok(self.http_client.upload(request, Some(timeout)).await?)
+        let request_config = self.http_client.request_config.timeout(timeout);
+        Ok(self
+            .http_client
+            .upload(request, Some(request_config))
+            .await?)
     }
 
     /// Send a room message to a room.
@@ -1486,13 +1580,13 @@ impl Client {
     pub async fn send<Request>(
         &self,
         request: Request,
-        timeout: Option<Duration>,
+        config: Option<RequestConfig>,
     ) -> Result<Request::IncomingResponse>
     where
         Request: OutgoingRequest + Debug,
         HttpError: From<FromHttpResponseError<Request::EndpointError>>,
     {
-        Ok(self.http_client.send(request, timeout).await?)
+        Ok(self.http_client.send(request, config).await?)
     }
 
     #[cfg(feature = "encryption")]
@@ -1625,12 +1719,14 @@ impl Client {
             timeout: sync_settings.timeout,
         });
 
-        let timeout = sync_settings
-            .timeout
-            .unwrap_or_else(|| Duration::from_secs(0))
-            + SYNC_REQUEST_TIMEOUT;
+        let request_config = self.http_client.request_config.timeout(
+            sync_settings
+                .timeout
+                .unwrap_or_else(|| Duration::from_secs(0))
+                + self.http_client.request_config.timeout,
+        );
 
-        let response = self.send(request, Some(timeout)).await?;
+        let response = self.send(request, Some(request_config)).await?;
         let sync_response = self.base_client.receive_sync_response(response).await?;
 
         if let Some(handler) = self.event_handler.read().await.as_ref() {
@@ -1727,7 +1823,6 @@ impl Client {
         }
 
         loop {
-            let filter = sync_settings.filter.clone();
             let response = self.sync_once(sync_settings.clone()).await;
 
             let response = match response {
@@ -1809,14 +1904,11 @@ impl Client {
 
             last_sync_time = Some(now);
 
-            sync_settings = SyncSettings::new().timeout(DEFAULT_SYNC_TIMEOUT).token(
+            sync_settings.token = Some(
                 self.sync_token()
                     .await
                     .expect("No sync token found after initial sync"),
             );
-            if let Some(f) = filter {
-                sync_settings = sync_settings.filter(f);
-            }
         }
     }
 
@@ -2247,7 +2339,7 @@ impl Client {
 
 #[cfg(test)]
 mod test {
-    use crate::{ClientConfig, HttpError, RoomMember};
+    use crate::{ClientConfig, HttpError, RequestConfig, RoomMember};
 
     use super::{
         get_public_rooms, get_public_rooms_filtered, register::RegistrationKind, Client, Session,
@@ -2566,10 +2658,13 @@ mod test {
         let homeserver = Url::from_str(&mockito::server_url()).unwrap();
         let client = Client::new(homeserver).unwrap();
 
-        let _m = mock("POST", "/_matrix/client/r0/register")
-            .with_status(403)
-            .with_body(test_json::REGISTRATION_RESPONSE_ERR.to_string())
-            .create();
+        let _m = mock(
+            "POST",
+            Matcher::Regex(r"^/_matrix/client/r0/register\?.*$".to_string()),
+        )
+        .with_status(403)
+        .with_body(test_json::REGISTRATION_RESPONSE_ERR.to_string())
+        .create();
 
         let user = assign!(RegistrationRequest::new(), {
             username: Some("user"),
@@ -2580,14 +2675,27 @@ mod test {
 
         if let Err(err) = client.register(user).await {
             if let crate::Error::Http(HttpError::UiaaError(crate::FromHttpResponseError::Http(
-                // TODO this should be a UiaaError need to investigate
-                crate::ServerError::Unknown(e),
+                crate::ServerError::Known(crate::api::r0::uiaa::UiaaResponse::MatrixError(
+                    crate::api::Error {
+                        kind,
+                        message,
+                        status_code,
+                    },
+                )),
             ))) = err
             {
-                assert!(e.to_string().starts_with("EOF while parsing"))
+                if let crate::api::error::ErrorKind::Forbidden = kind {
+                } else {
+                    panic!(
+                        "found the wrong `ErrorKind` {:?}, expected `Forbidden",
+                        kind
+                    );
+                }
+                assert_eq!(message, "Invalid password".to_string());
+                assert_eq!(status_code, http::StatusCode::from_u16(403).unwrap());
             } else {
                 panic!(
-                    "found the wrong `Error` type {:#?}, expected `ServerError::Unknown",
+                    "found the wrong `Error` type {:#?}, expected `UiaaResponse`",
                     err
                 );
             }
@@ -3389,6 +3497,77 @@ mod test {
                     .await
                     .unwrap();
             }
+        }
+    }
+
+    #[tokio::test]
+    async fn retry_limit_http_requests() {
+        let homeserver = Url::from_str(&mockito::server_url()).unwrap();
+        let config = ClientConfig::default().request_config(RequestConfig::new().retry_limit(3));
+        assert!(config.request_config.retry_limit.unwrap() == 3);
+        let client = Client::new_with_config(homeserver, config).unwrap();
+
+        let m = mock("POST", "/_matrix/client/r0/login")
+            .with_status(501)
+            .expect(3)
+            .create();
+
+        if client
+            .login("example", "wordpass", None, None)
+            .await
+            .is_err()
+        {
+            m.assert();
+        } else {
+            panic!("this request should return an `Err` variant")
+        }
+    }
+
+    #[tokio::test]
+    async fn retry_timeout_http_requests() {
+        let homeserver = Url::from_str(&mockito::server_url()).unwrap();
+        // Keep this timeout small so that the test doesn't take long
+        let retry_timeout = Duration::from_secs(5);
+        let config = ClientConfig::default()
+            .request_config(RequestConfig::new().retry_timeout(retry_timeout));
+        assert!(config.request_config.retry_timeout.unwrap() == retry_timeout);
+        let client = Client::new_with_config(homeserver, config).unwrap();
+
+        let m = mock("POST", "/_matrix/client/r0/login")
+            .with_status(501)
+            .expect_at_least(2)
+            .create();
+
+        if client
+            .login("example", "wordpass", None, None)
+            .await
+            .is_err()
+        {
+            m.assert();
+        } else {
+            panic!("this request should return an `Err` variant")
+        }
+    }
+
+    #[tokio::test]
+    async fn no_retry_http_requests() {
+        let homeserver = Url::from_str(&mockito::server_url()).unwrap();
+        let config = ClientConfig::default().request_config(RequestConfig::new().disable_retry());
+        assert!(config.request_config.retry_limit.unwrap() == 0);
+        let client = Client::new_with_config(homeserver, config).unwrap();
+
+        let m = mock("POST", "/_matrix/client/r0/login")
+            .with_status(501)
+            .create();
+
+        if client
+            .login("example", "wordpass", None, None)
+            .await
+            .is_err()
+        {
+            m.assert();
+        } else {
+            panic!("this request should return an `Err` variant")
         }
     }
 }
