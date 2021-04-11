@@ -66,11 +66,11 @@ impl RoomMember {
         if let Some(url) = self.avatar_url() {
             if let (Some(width), Some(height)) = (width, height) {
                 let request =
-                    get_content_thumbnail::Request::from_url(&url, width.into(), height.into());
+                    get_content_thumbnail::Request::from_url(&url, width.into(), height.into())?;
                 let response = self.client.send(request, None).await?;
                 Ok(Some(response.file))
             } else {
-                let request = get_content::Request::from_url(url);
+                let request = get_content::Request::from_url(url)?;
                 let response = self.client.send(request, None).await?;
                 Ok(Some(response.file))
             }
