@@ -108,7 +108,7 @@ pub enum Error {
     #[error(transparent)]
     StateStore(#[from] StoreError),
 
-    /// An error encountered when trying to parse an invalid identifier string.
+    /// An error encountered when trying to parse an identifier.
     #[error(transparent)]
     Identifier(#[from] IdentifierError),
 }
