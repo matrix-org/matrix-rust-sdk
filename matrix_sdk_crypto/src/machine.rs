@@ -1500,7 +1500,7 @@ pub(crate) mod test {
             .get_outbound_group_session(&room_id)
             .is_some());
 
-        machine.invalidate_group_session(&room_id);
+        machine.invalidate_group_session(&room_id).await.unwrap();
 
         assert!(machine
             .group_session_manager
