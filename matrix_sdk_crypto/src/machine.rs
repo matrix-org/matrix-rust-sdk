@@ -672,8 +672,10 @@ impl OlmMachine {
     ///
     /// Returns true if a session was invalidated, false if there was no session
     /// to invalidate.
-    pub fn invalidate_group_session(&self, room_id: &RoomId) -> bool {
-        self.group_session_manager.invalidate_group_session(room_id)
+    pub async fn invalidate_group_session(&self, room_id: &RoomId) -> StoreResult<bool> {
+        self.group_session_manager
+            .invalidate_group_session(room_id)
+            .await
     }
 
     /// Get to-device requests to share a group session with users in a room.

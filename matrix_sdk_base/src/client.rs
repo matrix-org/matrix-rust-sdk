@@ -1184,12 +1184,15 @@ impl BaseClient {
     /// to invalidate.
     #[cfg(feature = "encryption")]
     #[cfg_attr(feature = "docs", doc(cfg(encryption)))]
-    pub async fn invalidate_group_session(&self, room_id: &RoomId) -> bool {
+    pub async fn invalidate_group_session(
+        &self,
+        room_id: &RoomId,
+    ) -> Result<bool, CryptoStoreError> {
         let olm = self.olm.lock().await;
 
         match &*olm {
-            Some(o) => o.invalidate_group_session(room_id),
-            None => false,
+            Some(o) => o.invalidate_group_session(room_id).await,
+            None => Ok(false),
         }
     }
 
