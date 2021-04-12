@@ -31,7 +31,6 @@ use std::{
     sync::Arc,
 };
 
-#[cfg(feature = "encryption")]
 use dashmap::DashMap;
 use futures_timer::Delay as sleep;
 use http::HeaderValue;
@@ -116,18 +115,17 @@ use matrix_sdk_common::locks::Mutex;
 
 use crate::{
     error::HttpError,
+    event_handler::Handler,
     http_client::{client_with_config, HttpClient, HttpSend},
-    room, Error, OutgoingRequest, Result,
+    room, Error, EventHandler, OutgoingRequest, Result,
 };
 
 #[cfg(feature = "encryption")]
 use crate::{
     device::{Device, UserDevices},
-    event_handler::Handler,
     identifiers::DeviceId,
     sas::Sas,
     verification_request::VerificationRequest,
-    EventHandler,
 };
 
 const DEFAULT_REQUEST_TIMEOUT: Duration = Duration::from_secs(10);
@@ -1525,7 +1523,6 @@ impl Client {
         content: impl Into<AnyMessageEventContent>,
         txn_id: Option<Uuid>,
     ) -> Result<send_message_event::Response> {
-        #[cfg(feature = "encryption")]
         if let Some(room) = self.get_joined_room(room_id) {
             room.send(content, txn_id).await
         } else {
