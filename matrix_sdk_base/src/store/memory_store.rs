@@ -303,6 +303,13 @@ impl MemoryStore {
         #[allow(clippy::map_clone)]
         self.stripped_room_info.iter().map(|r| r.clone()).collect()
     }
+
+    async fn get_account_data_event(&self, event_type: EventType) -> Result<Option<AnyBasicEvent>> {
+        Ok(self
+            .account_data
+            .get(event_type.as_ref())
+            .map(|e| e.clone()))
+    }
 }
 
 #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
@@ -384,5 +391,9 @@ impl StateStore for MemoryStore {
             .get(room_id)
             .and_then(|d| d.get(display_name).map(|d| d.clone()))
             .unwrap_or_default())
+    }
+
+    async fn get_account_data_event(&self, event_type: EventType) -> Result<Option<AnyBasicEvent>> {
+        self.get_account_data_event(event_type).await
     }
 }

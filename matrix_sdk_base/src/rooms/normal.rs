@@ -533,4 +533,9 @@ impl RoomInfo {
 
         changed
     }
+
+    /// The number of active members (invited + joined) in the room.
+    pub fn active_members_count(&self) -> u64 {
+        self.summary.joined_member_count + self.summary.invited_member_count
+    }
 }

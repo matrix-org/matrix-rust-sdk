@@ -543,7 +543,7 @@ lazy_static! {
 lazy_static! {
     pub static ref MORE_SYNC: JsonValue = json!({
         "device_one_time_keys_count": {},
-        "next_batch": "s526_47314_0_7_1_1_1_11444_1",
+        "next_batch": "s526_47314_0_7_1_1_1_11444_2",
         "device_lists": {
             "changed": [
                 "@example:example.org"
@@ -676,7 +676,22 @@ lazy_static! {
                                 "unsigned": {
                                     "age": 85
                                 }
-                            }
+                            },
+                            {
+                                "content": {
+                                    "body": "This is a notice",
+                                    "format": "org.matrix.custom.html",
+                                    "formatted_body": "<em>This is a notice</em>",
+                                    "msgtype": "m.notice"
+                                },
+                                "event_id": "$098237280074GZeOm:localhost",
+                                "origin_server_ts": 162037280,
+                                "sender": "@bot:localhost",
+                                "type": "m.room.message",
+                                "unsigned": {
+                                    "age": 25
+                                }
+                            },
                         ],
                         "limited": true,
                         "prev_batch": "t392-516_47314_0_7_1_1_1_11444_1"

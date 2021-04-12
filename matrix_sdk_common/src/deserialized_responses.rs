@@ -2,8 +2,11 @@ use serde::{Deserialize, Serialize};
 use std::{collections::BTreeMap, convert::TryFrom, time::SystemTime};
 
 use super::{
-    api::r0::sync::sync_events::{
-        DeviceLists, UnreadNotificationsCount as RumaUnreadNotificationsCount,
+    api::r0::{
+        push::get_notifications::Notification,
+        sync::sync_events::{
+            DeviceLists, UnreadNotificationsCount as RumaUnreadNotificationsCount,
+        },
     },
     events::{
         presence::PresenceEvent, room::member::MemberEventContent, AnyBasicEvent,
@@ -55,6 +58,8 @@ pub struct SyncResponse {
     pub device_one_time_keys_count: BTreeMap<DeviceKeyAlgorithm, u64>,
     /// Collection of ambiguioty changes that room member events trigger.
     pub ambiguity_changes: AmbiguityChanges,
+    /// New notifications per room.
+    pub notifications: BTreeMap<RoomId, Vec<Notification>>,
 }
 
 impl SyncResponse {

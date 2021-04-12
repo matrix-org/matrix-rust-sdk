@@ -14,7 +14,9 @@
 // limitations under the License.
 use std::ops::Deref;
 
-use matrix_sdk_common::{events::AnySyncRoomEvent, identifiers::RoomId};
+use matrix_sdk_common::{
+    api::r0::push::get_notifications::Notification, events::AnySyncRoomEvent, identifiers::RoomId,
+};
 use serde_json::value::RawValue as RawJsonValue;
 
 use crate::{
@@ -117,6 +119,15 @@ impl Handler {
 
         for event in &response.presence.events {
             self.on_presence_event(event).await;
+        }
+
+        for (room_id, notifications) in &response.notifications {
+            if let Some(room) = self.get_room(&room_id) {
+                for notification in notifications {
+                    self.on_room_notification(room.clone(), notification.clone())
+                        .await;
+                }
+            }
         }
     }
 
@@ -347,6 +358,10 @@ pub trait EventHandler: Send + Sync {
     async fn on_room_join_rules(&self, _: Room, _: &SyncStateEvent<JoinRulesEventContent>) {}
     /// Fires when `Client` receives a `RoomEvent::Tombstone` event.
     async fn on_room_tombstone(&self, _: Room, _: &SyncStateEvent<TombstoneEventContent>) {}
+
+    /// Fires when `Client` receives room events that trigger notifications according to
+    /// the push rules of the user.
+    async fn on_room_notification(&self, _: Room, _: Notification) {}
 
     // `RoomEvent`s from `IncomingState`
     /// Fires when `Client` receives a `StateEvent::RoomMember` event.
@@ -667,6 +682,9 @@ mod test {
         async fn on_custom_event(&self, _: Room, _: &CustomEvent<'_>) {
             self.0.lock().await.push("custom event".to_string())
         }
+        async fn on_room_notification(&self, _: Room, _: Notification) {
+            self.0.lock().await.push("notification".to_string())
+        }
     }
 
     use crate::{identifiers::user_id, Client, Session, SyncSettings};
@@ -674,7 +692,7 @@ mod test {
     async fn get_client() -> Client {
         let session = Session {
             access_token: "1234".to_owned(),
-            user_id: user_id!("@example:example.com"),
+            user_id: user_id!("@example:localhost"),
             device_id: "DEVICEID".into(),
         };
         let homeserver = url::Url::parse(&mockito::server_url()).unwrap();
@@ -683,7 +701,7 @@ mod test {
         client
     }
 
-    async fn mock_sync(client: Client, response: String) {
+    async fn mock_sync(client: &Client, response: String) {
         let _m = mock(
             "GET",
             Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_string()),
@@ -705,7 +723,7 @@ mod test {
 
         let client = get_client().await;
         client.set_event_handler(handler).await;
-        mock_sync(client, test_json::SYNC.to_string()).await;
+        mock_sync(&client, test_json::SYNC.to_string()).await;
 
         let v = test_vec.lock().await;
         assert_eq!(
@@ -723,6 +741,7 @@ mod test {
                 "state member",
                 "message",
                 "presence event",
+                "notification",
             ],
         )
     }
@@ -735,7 +754,7 @@ mod test {
 
         let client = get_client().await;
         client.set_event_handler(handler).await;
-        mock_sync(client, test_json::INVITE_SYNC.to_string()).await;
+        mock_sync(&client, test_json::INVITE_SYNC.to_string()).await;
 
         let v = test_vec.lock().await;
         assert_eq!(
@@ -756,7 +775,7 @@ mod test {
 
         let client = get_client().await;
         client.set_event_handler(handler).await;
-        mock_sync(client, test_json::LEAVE_SYNC.to_string()).await;
+        mock_sync(&client, test_json::LEAVE_SYNC.to_string()).await;
 
         let v = test_vec.lock().await;
         assert_eq!(
@@ -772,6 +791,7 @@ mod test {
                 "state member",
                 "message",
                 "presence event",
+                "notification",
             ],
         )
     }
@@ -784,7 +804,7 @@ mod test {
 
         let client = get_client().await;
         client.set_event_handler(handler).await;
-        mock_sync(client, test_json::MORE_SYNC.to_string()).await;
+        mock_sync(&client, test_json::MORE_SYNC.to_string()).await;
 
         let v = test_vec.lock().await;
         assert_eq!(
@@ -795,6 +815,7 @@ mod test {
                 "message",
                 "message", // this is a message edit event
                 "redaction",
+                "message", // this is a notice event
             ],
         )
     }
@@ -807,7 +828,7 @@ mod test {
 
         let client = get_client().await;
         client.set_event_handler(handler).await;
-        mock_sync(client, test_json::VOIP_SYNC.to_string()).await;
+        mock_sync(&client, test_json::VOIP_SYNC.to_string()).await;
 
         let v = test_vec.lock().await;
         assert_eq!(
@@ -817,6 +838,47 @@ mod test {
                 "call answer",
                 "call candidates",
                 "call hangup",
+            ],
+        )
+    }
+
+    #[async_test]
+    async fn event_handler_two_syncs() {
+        let vec = Arc::new(Mutex::new(Vec::new()));
+        let test_vec = Arc::clone(&vec);
+        let handler = Box::new(EvHandlerTest(vec));
+
+        let client = get_client().await;
+        client.set_event_handler(handler).await;
+        mock_sync(&client, test_json::SYNC.to_string()).await;
+        mock_sync(&client, test_json::MORE_SYNC.to_string()).await;
+
+        let v = test_vec.lock().await;
+        assert_eq!(
+            v.as_slice(),
+            [
+                "receipt event",
+                "account read",
+                "account ignore",
+                "state rules",
+                "state member",
+                "state aliases",
+                "state power",
+                "state canonical",
+                "state member",
+                "state member",
+                "message",
+                "presence event",
+                "notification",
+                "receipt event",
+                "typing event",
+                "message",
+                "message", // this is a message edit event
+                "redaction",
+                "message", // this is a notice event
+                "notification",
+                "notification",
+                "notification",
             ],
         )
     }
