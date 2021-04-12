@@ -222,7 +222,7 @@ pub fn room_key_sharing(c: &mut Criterion) {
                     .unwrap();
             }
 
-            machine.invalidate_group_session(&room_id);
+            machine.invalidate_group_session(&room_id).await.unwrap();
         })
     });
 
@@ -258,7 +258,7 @@ pub fn room_key_sharing(c: &mut Criterion) {
                     .unwrap();
             }
 
-            machine.invalidate_group_session(&room_id);
+            machine.invalidate_group_session(&room_id).await.unwrap();
         })
     });
 
