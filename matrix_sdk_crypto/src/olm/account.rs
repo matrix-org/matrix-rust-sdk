@@ -594,7 +594,7 @@ impl ReadOnlyAccount {
             return Err(());
         }
 
-        let key_count = (max_on_server) - count;
+        let key_count = max_on_server - count;
         let key_count: usize = key_count.try_into().unwrap_or(max_keys);
 
         self.generate_one_time_keys_helper(key_count).await;
