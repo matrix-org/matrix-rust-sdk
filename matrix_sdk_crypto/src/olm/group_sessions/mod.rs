@@ -13,7 +13,9 @@
 // limitations under the License.
 
 use matrix_sdk_common::{
-    events::forwarded_room_key::ForwardedRoomKeyToDeviceEventContent,
+    events::forwarded_room_key::{
+        ForwardedRoomKeyToDeviceEventContent, ForwardedRoomKeyToDeviceEventContentInit,
+    },
     identifiers::{DeviceKeyAlgorithm, EventEncryptionAlgorithm, RoomId},
 };
 use serde::{Deserialize, Serialize};
@@ -87,7 +89,7 @@ impl TryInto<ForwardedRoomKeyToDeviceEventContent> for ExportedRoomKey {
                 return Err(());
             }
 
-            Ok(ForwardedRoomKeyToDeviceEventContent {
+            Ok(ForwardedRoomKeyToDeviceEventContentInit {
                 algorithm: self.algorithm,
                 room_id: self.room_id,
                 sender_key: self.sender_key,
@@ -95,7 +97,8 @@ impl TryInto<ForwardedRoomKeyToDeviceEventContent> for ExportedRoomKey {
                 session_key: self.session_key.0.clone(),
                 sender_claimed_ed25519_key: claimed_key.to_owned(),
                 forwarding_curve25519_key_chain: self.forwarding_curve25519_key_chain,
-            })
+            }
+            .into())
         }
     }
 }

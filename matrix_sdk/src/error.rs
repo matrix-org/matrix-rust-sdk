@@ -21,6 +21,7 @@ use matrix_sdk_common::{
         r0::uiaa::{UiaaInfo, UiaaResponse as UiaaError},
         Error as RumaClientError,
     },
+    identifiers::Error as IdentifierError,
     FromHttpResponseError, IntoHttpError, ServerError,
 };
 use reqwest::Error as ReqwestError;
@@ -106,6 +107,10 @@ pub enum Error {
     /// An error occured in the state store.
     #[error(transparent)]
     StateStore(#[from] StoreError),
+
+    /// An error encountered when trying to parse an identifier.
+    #[error(transparent)]
+    Identifier(#[from] IdentifierError),
 }
 
 impl Error {
