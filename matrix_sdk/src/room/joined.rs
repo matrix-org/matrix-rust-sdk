@@ -310,7 +310,7 @@ impl Joined {
                 self.client
                     .base_client
                     .invalidate_group_session(self.inner.room_id())
-                    .await;
+                    .await?;
                 return Err(r);
             }
         }

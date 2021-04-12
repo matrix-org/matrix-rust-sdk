@@ -66,12 +66,17 @@ impl GroupSessionManager {
         }
     }
 
-    pub fn invalidate_group_session(&self, room_id: &RoomId) -> bool {
+    pub async fn invalidate_group_session(&self, room_id: &RoomId) -> StoreResult<bool> {
         if let Some(s) = self.outbound_group_sessions.get(room_id) {
             s.invalidate_session();
-            true
+
+            let mut changes = Changes::default();
+            changes.outbound_group_sessions.push(s.clone());
+            self.store.save_changes(changes).await?;
+
+            Ok(true)
         } else {
-            false
+            Ok(false)
         }
     }
 
