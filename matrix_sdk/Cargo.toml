@@ -17,7 +17,7 @@ rustdoc-args = ["--cfg", "feature=\"docs\""]
 [features]
 default = ["encryption", "sled_cryptostore", "sled_state_store", "native-tls"]
 
-encryption = ["matrix-sdk-base/encryption", "dashmap"]
+encryption = ["matrix-sdk-base/encryption"]
 sled_state_store = ["matrix-sdk-base/sled_state_store"]
 sled_cryptostore = ["matrix-sdk-base/sled_cryptostore"]
 unstable-synapse-quirks = ["matrix-sdk-base/unstable-synapse-quirks"]
@@ -30,7 +30,7 @@ sso_login = ["warp", "rand", "tokio-stream"]
 docs = ["encryption", "sled_cryptostore", "sled_state_store", "sso_login"]
 
 [dependencies]
-dashmap = { version = "4.0.2", optional = true }
+dashmap = "4.0.2"
 futures = "0.3.12"
 http = "0.2.3"
 serde_json = "1.0.61"
