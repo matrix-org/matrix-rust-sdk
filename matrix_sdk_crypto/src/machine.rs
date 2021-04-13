@@ -1064,12 +1064,13 @@ impl OlmMachine {
     /// # block_on(async {
     /// # let export = Cursor::new("".to_owned());
     /// let exported_keys = decrypt_key_export(export, "1234").unwrap();
-    /// machine.import_keys(exported_keys).await.unwrap();
+    /// machine.import_keys(exported_keys, |_, _| {}).await.unwrap();
     /// # });
     /// ```
     pub async fn import_keys(
         &self,
         exported_keys: Vec<ExportedRoomKey>,
+        progress_listener: impl Fn(usize, usize),
     ) -> StoreResult<(usize, usize)> {
         struct ShallowSessions {
             inner: BTreeMap<Arc<RoomId>, u32>,
@@ -1101,7 +1102,7 @@ impl OlmMachine {
 
         let total_sessions = exported_keys.len();
 
-        for key in exported_keys.into_iter() {
+        for (i, key) in exported_keys.into_iter().enumerate() {
             let session = InboundGroupSession::from_export(key)?;
 
             // Only import the session if we didn't have this session or if it's
@@ -1110,6 +1111,8 @@ impl OlmMachine {
             if !existing_sessions.has_better_session(&session) {
                 sessions.push(session)
             }
+
+            progress_listener(i, total_sessions)
         }
 
         let num_sessions = sessions.len();

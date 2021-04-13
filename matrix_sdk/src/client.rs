@@ -2330,7 +2330,7 @@ impl Client {
         // TODO remove this unwrap.
         let import = task.await.expect("Task join error").unwrap();
 
-        Ok(olm.import_keys(import).await?)
+        Ok(olm.import_keys(import, |_, _| {}).await?)
     }
 }
 

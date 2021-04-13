@@ -84,7 +84,7 @@ pub enum KeyExportError {
 /// # block_on(async {
 /// # let export = Cursor::new("".to_owned());
 /// let exported_keys = decrypt_key_export(export, "1234").unwrap();
-/// machine.import_keys(exported_keys).await.unwrap();
+/// machine.import_keys(exported_keys, |_, _| {}).await.unwrap();
 /// # });
 /// ```
 pub fn decrypt_key_export(
@@ -316,7 +316,10 @@ mod test {
         let decrypted = decrypt_key_export(Cursor::new(encrypted), "1234").unwrap();
 
         assert_eq!(export, decrypted);
-        assert_eq!(machine.import_keys(decrypted).await.unwrap(), (0, 1));
+        assert_eq!(
+            machine.import_keys(decrypted, |_, _| {}).await.unwrap(),
+            (0, 1)
+        );
     }
 
     #[test]
