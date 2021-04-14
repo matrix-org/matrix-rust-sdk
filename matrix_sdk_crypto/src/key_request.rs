@@ -216,6 +216,11 @@ impl KeyRequestMachine {
         &self.user_id
     }
 
+    /// Our own device id.
+    pub fn device_id(&self) -> &DeviceId {
+        &self.device_id
+    }
+
     pub fn outgoing_to_device_requests(&self) -> Vec<OutgoingRequest> {
         #[allow(clippy::map_clone)]
         self.outgoing_to_device_requests
@@ -301,6 +306,17 @@ impl KeyRequestMachine {
         &self,
         event: &ToDeviceEvent<RoomKeyRequestToDeviceEventContent>,
     ) -> OlmResult<Option<Session>> {
+        // Some servers might send to-device events to ourselves if we send one
+        // out using a wildcard instead of a specific device as a recipient.
+        //
+        // Check if we're the sender of this key request event and ignore it if
+        // so.
+        if &event.sender == self.user_id()
+            && &*event.content.requesting_device_id == self.device_id()
+        {
+            return Ok(None);
+        }
+
         let key_info = match &event.content.action {
             Action::Request => {
                 if let Some(info) = &event.content.body {

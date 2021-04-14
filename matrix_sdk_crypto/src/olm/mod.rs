@@ -112,19 +112,19 @@ pub(crate) mod test {
     #[test]
     fn account_creation() {
         let account = ReadOnlyAccount::new(&alice_id(), &alice_device_id());
-        let identyty_keys = account.identity_keys();
+        let identity_keys = account.identity_keys();
 
         assert!(!account.shared());
-        assert!(!identyty_keys.ed25519().is_empty());
-        assert_ne!(identyty_keys.values().len(), 0);
-        assert_ne!(identyty_keys.keys().len(), 0);
-        assert_ne!(identyty_keys.iter().len(), 0);
-        assert!(identyty_keys.contains_key("ed25519"));
+        assert!(!identity_keys.ed25519().is_empty());
+        assert_ne!(identity_keys.values().len(), 0);
+        assert_ne!(identity_keys.keys().len(), 0);
+        assert_ne!(identity_keys.iter().len(), 0);
+        assert!(identity_keys.contains_key("ed25519"));
         assert_eq!(
-            identyty_keys.ed25519(),
-            identyty_keys.get("ed25519").unwrap()
+            identity_keys.ed25519(),
+            identity_keys.get("ed25519").unwrap()
         );
-        assert!(!identyty_keys.curve25519().is_empty());
+        assert!(!identity_keys.curve25519().is_empty());
 
         account.mark_as_shared();
         assert!(account.shared());
