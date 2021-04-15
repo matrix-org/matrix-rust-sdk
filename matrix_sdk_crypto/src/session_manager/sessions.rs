@@ -322,6 +322,7 @@ mod test {
         identities::ReadOnlyDevice,
         key_request::KeyRequestMachine,
         olm::{Account, PrivateCrossSigningIdentity, ReadOnlyAccount},
+        session_manager::GroupSessionCache,
         store::{CryptoStore, MemoryStore, Store},
         verification::VerificationMachine,
     };
@@ -342,7 +343,6 @@ mod test {
         let user_id = user_id();
         let device_id = device_id();
 
-        let outbound_sessions = Arc::new(DashMap::new());
         let users_for_key_claim = Arc::new(DashMap::new());
         let account = ReadOnlyAccount::new(&user_id, &device_id);
         let store: Arc<Box<dyn CryptoStore>> = Arc::new(Box::new(MemoryStore::new()));
@@ -363,11 +363,13 @@ mod test {
             store: store.clone(),
         };
 
+        let session_cache = GroupSessionCache::new(store.clone());
+
         let key_request = KeyRequestMachine::new(
             user_id,
             device_id,
             store.clone(),
-            outbound_sessions,
+            session_cache,
             users_for_key_claim.clone(),
         );
 

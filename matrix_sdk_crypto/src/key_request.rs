@@ -40,8 +40,9 @@ use matrix_sdk_common::{
 
 use crate::{
     error::{OlmError, OlmResult},
-    olm::{InboundGroupSession, OutboundGroupSession, Session, ShareState},
+    olm::{InboundGroupSession, Session, ShareState},
     requests::{OutgoingRequest, ToDeviceRequest},
+    session_manager::GroupSessionCache,
     store::{Changes, CryptoStoreError, Store},
     Device,
 };
@@ -128,7 +129,7 @@ pub(crate) struct KeyRequestMachine {
     user_id: Arc<UserId>,
     device_id: Arc<DeviceIdBox>,
     store: Store,
-    outbound_group_sessions: Arc<DashMap<RoomId, OutboundGroupSession>>,
+    outbound_group_sessions: GroupSessionCache,
     outgoing_to_device_requests: Arc<DashMap<Uuid, OutgoingRequest>>,
     incoming_key_requests: Arc<
         DashMap<(UserId, DeviceIdBox, String), ToDeviceEvent<RoomKeyRequestToDeviceEventContent>>,
@@ -188,7 +189,7 @@ impl KeyRequestMachine {
         user_id: Arc<UserId>,
         device_id: Arc<DeviceIdBox>,
         store: Store,
-        outbound_group_sessions: Arc<DashMap<RoomId, OutboundGroupSession>>,
+        outbound_group_sessions: GroupSessionCache,
         users_for_key_claim: Arc<DashMap<UserId, DashSet<DeviceIdBox>>>,
     ) -> Self {
         Self {
@@ -356,7 +357,7 @@ impl KeyRequestMachine {
             .await?;
 
         if let Some(device) = device {
-            match self.should_share_session(&device, &session) {
+            match self.should_share_session(&device, &session).await {
                 Err(e) => {
                     info!(
                         "Received a key request from {} {} that we won't serve: {}",
@@ -458,14 +459,17 @@ impl KeyRequestMachine {
     /// * `device` - The device that is requesting a session from us.
     ///
     /// * `session` - The session that was requested to be shared.
-    fn should_share_session(
+    async fn should_share_session(
         &self,
         device: &Device,
         session: &InboundGroupSession,
     ) -> Result<Option<u32>, KeyshareDecision> {
         let outbound_session = self
             .outbound_group_sessions
-            .get(session.room_id())
+            .get_or_load(session.room_id())
+            .await
+            .ok()
+            .flatten()
             .filter(|o| session.session_id() == o.session_id());
 
         let own_device_check = || {
@@ -720,6 +724,7 @@ mod test {
     use crate::{
         identities::{LocalTrust, ReadOnlyDevice},
         olm::{Account, PrivateCrossSigningIdentity, ReadOnlyAccount},
+        session_manager::GroupSessionCache,
         store::{Changes, CryptoStore, MemoryStore, Store},
         verification::VerificationMachine,
     };
@@ -761,12 +766,13 @@ mod test {
         let identity = Arc::new(Mutex::new(PrivateCrossSigningIdentity::empty(bob_id())));
         let verification = VerificationMachine::new(account, identity.clone(), store.clone());
         let store = Store::new(user_id.clone(), identity, store, verification);
+        let session_cache = GroupSessionCache::new(store.clone());
 
         KeyRequestMachine::new(
             user_id,
             Arc::new(bob_device_id()),
             store,
-            Arc::new(DashMap::new()),
+            session_cache,
             Arc::new(DashMap::new()),
         )
     }
@@ -780,12 +786,13 @@ mod test {
         let verification = VerificationMachine::new(account, identity.clone(), store.clone());
         let store = Store::new(user_id.clone(), identity, store, verification);
         store.save_devices(&[device]).await.unwrap();
+        let session_cache = GroupSessionCache::new(store.clone());
 
         KeyRequestMachine::new(
             user_id,
             Arc::new(alice_device_id()),
             store,
-            Arc::new(DashMap::new()),
+            session_cache,
             Arc::new(DashMap::new()),
         )
     }
@@ -973,12 +980,16 @@ mod test {
         assert_eq!(
             machine
                 .should_share_session(&own_device, &inbound)
+                .await
                 .expect_err("Should not share with untrusted"),
             KeyshareDecision::UntrustedDevice
         );
         own_device.set_trust_state(LocalTrust::Verified);
         // Now we do want to share the keys.
-        assert!(machine.should_share_session(&own_device, &inbound).is_ok());
+        assert!(machine
+            .should_share_session(&own_device, &inbound)
+            .await
+            .is_ok());
 
         let bob_device = ReadOnlyDevice::from_account(&bob_account()).await;
         machine.store.save_devices(&[bob_device]).await.unwrap();
@@ -995,6 +1006,7 @@ mod test {
         assert_eq!(
             machine
                 .should_share_session(&bob_device, &inbound)
+                .await
                 .expect_err("Should not share with other."),
             KeyshareDecision::MissingOutboundSession
         );
@@ -1004,15 +1016,14 @@ mod test {
         changes.outbound_group_sessions.push(outbound.clone());
         changes.inbound_group_sessions.push(inbound.clone());
         machine.store.save_changes(changes).await.unwrap();
-        machine
-            .outbound_group_sessions
-            .insert(inbound.room_id().to_owned(), outbound.clone());
+        machine.outbound_group_sessions.insert(outbound.clone());
 
         // We don't share sessions with other user's devices if the session
         // wasn't shared in the first place.
         assert_eq!(
             machine
                 .should_share_session(&bob_device, &inbound)
+                .await
                 .expect_err("Should not share with other unless shared."),
             KeyshareDecision::OutboundSessionNotShared
         );
@@ -1024,13 +1035,17 @@ mod test {
         assert_eq!(
             machine
                 .should_share_session(&bob_device, &inbound)
+                .await
                 .expect_err("Should not share with other unless shared."),
             KeyshareDecision::OutboundSessionNotShared
         );
 
         // We now share the session, since it was shared before.
         outbound.mark_shared_with(bob_device.user_id(), bob_device.device_id());
-        assert!(machine.should_share_session(&bob_device, &inbound).is_ok());
+        assert!(machine
+            .should_share_session(&bob_device, &inbound)
+            .await
+            .is_ok());
 
         // But we don't share some other session that doesn't match our outbound
         // session
@@ -1042,6 +1057,7 @@ mod test {
         assert_eq!(
             machine
                 .should_share_session(&bob_device, &other_inbound)
+                .await
                 .expect_err("Should not share with other unless shared."),
             KeyshareDecision::MissingOutboundSession
         );
@@ -1112,7 +1128,7 @@ mod test {
         // Put the outbound session into bobs store.
         bob_machine
             .outbound_group_sessions
-            .insert(room_id(), group_session.clone());
+            .insert(group_session.clone());
 
         // Get the request and convert it into a event.
         let request = alice_machine
@@ -1278,7 +1294,7 @@ mod test {
         // Put the outbound session into bobs store.
         bob_machine
             .outbound_group_sessions
-            .insert(room_id(), group_session.clone());
+            .insert(group_session.clone());
 
         // Get the request and convert it into a event.
         let request = alice_machine

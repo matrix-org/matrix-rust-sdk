@@ -156,21 +156,22 @@ impl OlmMachine {
             verification_machine.clone(),
         );
         let device_id: Arc<DeviceIdBox> = Arc::new(device_id);
-        let outbound_group_sessions = Arc::new(DashMap::new());
         let users_for_key_claim = Arc::new(DashMap::new());
-
-        let key_request_machine = KeyRequestMachine::new(
-            user_id.clone(),
-            device_id.clone(),
-            store.clone(),
-            outbound_group_sessions,
-            users_for_key_claim.clone(),
-        );
 
         let account = Account {
             inner: account,
             store: store.clone(),
         };
+
+        let group_session_manager = GroupSessionManager::new(account.clone(), store.clone());
+
+        let key_request_machine = KeyRequestMachine::new(
+            user_id.clone(),
+            device_id.clone(),
+            store.clone(),
+            group_session_manager.session_cache(),
+            users_for_key_claim.clone(),
+        );
 
         let session_manager = SessionManager::new(
             account.clone(),
@@ -178,7 +179,6 @@ impl OlmMachine {
             key_request_machine.clone(),
             store.clone(),
         );
-        let group_session_manager = GroupSessionManager::new(account.clone(), store.clone());
         let identity_manager =
             IdentityManager::new(user_id.clone(), device_id.clone(), store.clone());
 

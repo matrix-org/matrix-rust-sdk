@@ -15,5 +15,5 @@
 mod group_sessions;
 mod sessions;
 
-pub(crate) use group_sessions::GroupSessionManager;
+pub(crate) use group_sessions::{GroupSessionCache, GroupSessionManager};
 pub(crate) use sessions::SessionManager;
