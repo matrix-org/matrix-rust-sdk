@@ -149,6 +149,23 @@ pub struct OutgoingKeyRequest {
     pub sent_out: bool,
 }
 
+impl OutgoingKeyRequest {
+    fn into_request(
+        &self,
+        recipient: &UserId,
+        own_device_id: &DeviceId,
+    ) -> Result<OutgoingRequest, serde_json::Error> {
+        let content = RoomKeyRequestToDeviceEventContent {
+            action: Action::Request,
+            request_id: self.request_id.to_string(),
+            requesting_device_id: own_device_id.to_owned(),
+            body: Some(self.info.clone()),
+        };
+
+        wrap_key_request_content(recipient.to_owned(), self.request_id, &content)
+    }
+}
+
 impl PartialEq for OutgoingKeyRequest {
     fn eq(&self, other: &Self) -> bool {
         self.request_id == other.request_id
@@ -202,6 +219,25 @@ impl KeyRequestMachine {
             wait_queue: WaitQueue::new(),
             users_for_key_claim,
         }
+    }
+
+    /// Load stored non-sent out outgoing requests
+    pub async fn load_outgoing_requests(&mut self) -> Result<(), CryptoStoreError> {
+        let infos: Vec<OutgoingKeyRequest> = vec![];
+        let requests: DashMap<Uuid, OutgoingRequest> = infos
+            .iter()
+            .filter(|i| !i.sent_out)
+            .filter_map(|info| {
+                Some((
+                    info.request_id,
+                    info.into_request(self.user_id(), self.device_id()).ok()?,
+                ))
+            })
+            .collect();
+
+        self.outgoing_to_device_requests = requests.into();
+
+        Ok(())
     }
 
     /// Our own user id.
@@ -542,20 +578,13 @@ impl KeyRequestMachine {
 
         let id = Uuid::new_v4();
 
-        let content = RoomKeyRequestToDeviceEventContent {
-            action: Action::Request,
-            request_id: id.to_string(),
-            requesting_device_id: (&*self.device_id).clone(),
-            body: Some(key_info),
-        };
-
-        let request = wrap_key_request_content(self.user_id().clone(), id, &content)?;
-
         let info = OutgoingKeyRequest {
             request_id: id,
-            info: content.body.unwrap(),
+            info: key_info,
             sent_out: false,
         };
+
+        let request = info.into_request(self.user_id(), self.device_id())?;
 
         self.save_outgoing_key_info(info).await?;
         self.outgoing_to_device_requests.insert(id, request);

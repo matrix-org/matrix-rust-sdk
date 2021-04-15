@@ -709,6 +709,16 @@ impl CryptoStore for SledStore {
         }
     }
 
+    async fn get_outgoing_key_requests(&self) -> Result<Vec<OutgoingKeyRequest>> {
+        let requests: Result<Vec<OutgoingKeyRequest>> = self
+            .outgoing_key_requests
+            .iter()
+            .map(|i| serde_json::from_slice(&i?.1).map_err(CryptoStoreError::from))
+            .collect();
+
+        requests
+    }
+
     async fn delete_outgoing_key_request(&self, request_id: Uuid) -> Result<()> {
         let ret: Result<(), TransactionError<serde_json::Error>> =
             (&self.outgoing_key_requests, &self.key_requests_by_info).transaction(
@@ -1318,6 +1328,7 @@ mod test {
 
         let stored_request = store.get_key_request_by_info(&info).await.unwrap();
         assert_eq!(request, stored_request);
+        assert!(!store.get_outgoing_key_requests().await.unwrap().is_empty());
 
         store.delete_outgoing_key_request(id).await.unwrap();
 
@@ -1326,5 +1337,6 @@ mod test {
 
         let stored_request = store.get_key_request_by_info(&info).await.unwrap();
         assert_eq!(None, stored_request);
+        assert!(store.get_outgoing_key_requests().await.unwrap().is_empty());
     }
 }

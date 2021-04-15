@@ -245,9 +245,10 @@ impl OlmMachine {
             }
         };
 
-        Ok(OlmMachine::new_helper(
-            &user_id, device_id, store, account, identity,
-        ))
+        let mut machine = OlmMachine::new_helper(&user_id, device_id, store, account, identity);
+        machine.key_request_machine.load_outgoing_requests().await?;
+
+        Ok(machine)
     }
 
     /// Create a new machine with the default crypto store.

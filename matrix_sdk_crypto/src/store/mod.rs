@@ -449,6 +449,9 @@ pub trait CryptoStore: AsyncTraitDeps {
         key_info: &RequestedKeyInfo,
     ) -> Result<Option<OutgoingKeyRequest>>;
 
+    /// Get all outgoing key requests that we have in the store.
+    async fn get_outgoing_key_requests(&self) -> Result<Vec<OutgoingKeyRequest>>;
+
     /// Delete an outoing key request that we created that matches the given
     /// request id.
     ///
