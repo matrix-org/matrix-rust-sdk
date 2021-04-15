@@ -363,7 +363,7 @@ impl KeyRequestMachine {
             .await?;
 
         if let Some(device) = device {
-            match self.should_share_session(&device, session.session_id(), session.room_id()) {
+            match self.should_share_session(&device, &session) {
                 Err(e) => {
                     info!(
                         "Received a key request from {} {} that we won't serve: {}",
@@ -464,19 +464,16 @@ impl KeyRequestMachine {
     ///
     /// * `device` - The device that is requesting a session from us.
     ///
-    /// * `session_id` - The unique ID of the session that should be shared
-    ///
-    /// * `room_id` - The unique ID of the room where the session is being used.
+    /// * `session` - The session that was requested to be shared.
     fn should_share_session(
         &self,
         device: &Device,
-        session_id: &str,
-        room_id: &RoomId,
+        session: &InboundGroupSession,
     ) -> Result<Option<u32>, KeyshareDecision> {
         let outbound_session = self
             .outbound_group_sessions
-            .get(room_id)
-            .filter(|o| session_id == o.session_id());
+            .get(session.room_id())
+            .filter(|o| session.session_id() == o.session_id());
 
         let own_device_check = || {
             if device.trust_state() {
@@ -988,15 +985,13 @@ mod test {
         // We don't share keys with untrusted devices.
         assert_eq!(
             machine
-                .should_share_session(&own_device, inbound.session_id(), inbound.room_id())
+                .should_share_session(&own_device, &inbound)
                 .expect_err("Should not share with untrusted"),
             KeyshareDecision::UntrustedDevice
         );
         own_device.set_trust_state(LocalTrust::Verified);
         // Now we do want to share the keys.
-        assert!(machine
-            .should_share_session(&own_device, inbound.session_id(), inbound.room_id())
-            .is_ok());
+        assert!(machine.should_share_session(&own_device, &inbound).is_ok());
 
         let bob_device = ReadOnlyDevice::from_account(&bob_account()).await;
         machine.store.save_devices(&[bob_device]).await.unwrap();
@@ -1012,7 +1007,7 @@ mod test {
         // session was provided.
         assert_eq!(
             machine
-                .should_share_session(&bob_device, inbound.session_id(), inbound.room_id())
+                .should_share_session(&bob_device, &inbound)
                 .expect_err("Should not share with other."),
             KeyshareDecision::MissingOutboundSession
         );
@@ -1030,7 +1025,7 @@ mod test {
         // wasn't shared in the first place.
         assert_eq!(
             machine
-                .should_share_session(&bob_device, inbound.session_id(), inbound.room_id())
+                .should_share_session(&bob_device, &inbound)
                 .expect_err("Should not share with other unless shared."),
             KeyshareDecision::OutboundSessionNotShared
         );
@@ -1041,15 +1036,28 @@ mod test {
         // wasn't shared in the first place even if the device is trusted.
         assert_eq!(
             machine
-                .should_share_session(&bob_device, inbound.session_id(), inbound.room_id())
+                .should_share_session(&bob_device, &inbound)
                 .expect_err("Should not share with other unless shared."),
             KeyshareDecision::OutboundSessionNotShared
         );
 
+        // We now share the session, since it was shared before.
         outbound.mark_shared_with(bob_device.user_id(), bob_device.device_id());
-        assert!(machine
-            .should_share_session(&bob_device, inbound.session_id(), inbound.room_id())
-            .is_ok());
+        assert!(machine.should_share_session(&bob_device, &inbound).is_ok());
+
+        // But we don't share some other session that doesn't match our outbound
+        // session
+        let (_, other_inbound) = account
+            .create_group_session_pair_with_defaults(&room_id())
+            .await
+            .unwrap();
+
+        assert_eq!(
+            machine
+                .should_share_session(&bob_device, &other_inbound)
+                .expect_err("Should not share with other unless shared."),
+            KeyshareDecision::MissingOutboundSession
+        );
     }
 
     #[async_test]
