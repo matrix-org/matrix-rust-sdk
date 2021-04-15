@@ -149,6 +149,7 @@ pub struct SledStore {
     outbound_group_sessions: Tree,
 
     outgoing_key_requests: Tree,
+    unsent_key_requests: Tree,
     key_requests_by_info: Tree,
 
     devices: Tree,
@@ -215,6 +216,7 @@ impl SledStore {
         let identities = db.open_tree("identities")?;
 
         let outgoing_key_requests = db.open_tree("outgoing_key_requests")?;
+        let unsent_key_requests = db.open_tree("unsent_key_requests")?;
         let key_requests_by_info = db.open_tree("key_requests_by_info")?;
 
         let session_cache = SessionStore::new();
@@ -240,6 +242,7 @@ impl SledStore {
             inbound_group_sessions,
             outbound_group_sessions,
             outgoing_key_requests,
+            unsent_key_requests,
             key_requests_by_info,
             devices,
             tracked_users,
@@ -376,6 +379,7 @@ impl SledStore {
             &self.outbound_group_sessions,
             &self.olm_hashes,
             &self.outgoing_key_requests,
+            &self.unsent_key_requests,
             &self.key_requests_by_info,
         )
             .transaction(
@@ -389,6 +393,7 @@ impl SledStore {
                     outbound_sessions,
                     hashes,
                     outgoing_key_requests,
+                    unsent_key_requests,
                     key_requests_by_info,
                 )| {
                     if let Some(a) = &account_pickle {
@@ -463,11 +468,23 @@ impl SledStore {
                             key_request.request_id.encode(),
                         )?;
 
-                        outgoing_key_requests.insert(
-                            key_request.request_id.encode(),
-                            serde_json::to_vec(&key_request)
-                                .map_err(ConflictableTransactionError::Abort)?,
-                        )?;
+                        let key_request_id = key_request.request_id.encode();
+
+                        if key_request.sent_out {
+                            unsent_key_requests.remove(key_request_id.clone())?;
+                            outgoing_key_requests.insert(
+                                key_request_id,
+                                serde_json::to_vec(&key_request)
+                                    .map_err(ConflictableTransactionError::Abort)?,
+                            )?;
+                        } else {
+                            outgoing_key_requests.remove(key_request_id.clone())?;
+                            unsent_key_requests.insert(
+                                key_request_id,
+                                serde_json::to_vec(&key_request)
+                                    .map_err(ConflictableTransactionError::Abort)?,
+                            )?;
+                        }
                     }
 
                     Ok(())
@@ -478,6 +495,28 @@ impl SledStore {
         self.inner.flush_async().await?;
 
         Ok(())
+    }
+
+    async fn get_outgoing_key_request_helper(
+        &self,
+        id: &[u8],
+    ) -> Result<Option<OutgoingKeyRequest>> {
+        let request = self
+            .outgoing_key_requests
+            .get(id)?
+            .map(|r| serde_json::from_slice(&r))
+            .transpose()?;
+
+        let request = if request.is_none() {
+            self.unsent_key_requests
+                .get(id)?
+                .map(|r| serde_json::from_slice(&r))
+                .transpose()?
+        } else {
+            request
+        };
+
+        Ok(request)
     }
 }
 
@@ -685,11 +724,9 @@ impl CryptoStore for SledStore {
         &self,
         request_id: Uuid,
     ) -> Result<Option<OutgoingKeyRequest>> {
-        Ok(self
-            .outgoing_key_requests
-            .get(request_id.encode())?
-            .map(|r| serde_json::from_slice(&r))
-            .transpose()?)
+        let request_id = request_id.encode();
+
+        self.get_outgoing_key_request_helper(&request_id).await
     }
 
     async fn get_key_request_by_info(
@@ -699,19 +736,15 @@ impl CryptoStore for SledStore {
         let id = self.key_requests_by_info.get(key_info.encode())?;
 
         if let Some(id) = id {
-            Ok(self
-                .outgoing_key_requests
-                .get(id)?
-                .map(|r| serde_json::from_slice(&r))
-                .transpose()?)
+            self.get_outgoing_key_request_helper(&id).await
         } else {
             Ok(None)
         }
     }
 
-    async fn get_outgoing_key_requests(&self) -> Result<Vec<OutgoingKeyRequest>> {
+    async fn get_unsent_key_requests(&self) -> Result<Vec<OutgoingKeyRequest>> {
         let requests: Result<Vec<OutgoingKeyRequest>> = self
-            .outgoing_key_requests
+            .unsent_key_requests
             .iter()
             .map(|i| serde_json::from_slice(&i?.1).map_err(CryptoStoreError::from))
             .collect();
@@ -720,16 +753,30 @@ impl CryptoStore for SledStore {
     }
 
     async fn delete_outgoing_key_request(&self, request_id: Uuid) -> Result<()> {
-        let ret: Result<(), TransactionError<serde_json::Error>> =
-            (&self.outgoing_key_requests, &self.key_requests_by_info).transaction(
-                |(outgoing_key_requests, key_requests_by_info)| {
-                    let request: Option<OutgoingKeyRequest> = outgoing_key_requests
+        let ret: Result<(), TransactionError<serde_json::Error>> = (
+            &self.outgoing_key_requests,
+            &self.unsent_key_requests,
+            &self.key_requests_by_info,
+        )
+            .transaction(
+                |(outgoing_key_requests, unsent_key_requests, key_requests_by_info)| {
+                    let sent_request: Option<OutgoingKeyRequest> = outgoing_key_requests
                         .remove(request_id.encode())?
                         .map(|r| serde_json::from_slice(&r))
                         .transpose()
                         .map_err(ConflictableTransactionError::Abort)?;
 
-                    if let Some(request) = request {
+                    let unsent_request: Option<OutgoingKeyRequest> = unsent_key_requests
+                        .remove(request_id.encode())?
+                        .map(|r| serde_json::from_slice(&r))
+                        .transpose()
+                        .map_err(ConflictableTransactionError::Abort)?;
+
+                    if let Some(request) = sent_request {
+                        key_requests_by_info.remove((&request.info).encode())?;
+                    }
+
+                    if let Some(request) = unsent_request {
                         key_requests_by_info.remove((&request.info).encode())?;
                     }
 
@@ -1328,7 +1375,21 @@ mod test {
 
         let stored_request = store.get_key_request_by_info(&info).await.unwrap();
         assert_eq!(request, stored_request);
-        assert!(!store.get_outgoing_key_requests().await.unwrap().is_empty());
+        assert!(!store.get_unsent_key_requests().await.unwrap().is_empty());
+
+        let request = OutgoingKeyRequest {
+            request_id: id,
+            info: info.clone(),
+            sent_out: true,
+        };
+
+        let mut changes = Changes::default();
+        changes.key_requests.push(request.clone());
+        store.save_changes(changes).await.unwrap();
+
+        assert!(store.get_unsent_key_requests().await.unwrap().is_empty());
+        let stored_request = store.get_outgoing_key_request(id).await.unwrap();
+        assert_eq!(Some(request), stored_request);
 
         store.delete_outgoing_key_request(id).await.unwrap();
 
@@ -1337,6 +1398,6 @@ mod test {
 
         let stored_request = store.get_key_request_by_info(&info).await.unwrap();
         assert_eq!(None, stored_request);
-        assert!(store.get_outgoing_key_requests().await.unwrap().is_empty());
+        assert!(store.get_unsent_key_requests().await.unwrap().is_empty());
     }
 }

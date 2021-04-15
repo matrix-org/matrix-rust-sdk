@@ -150,7 +150,7 @@ pub struct OutgoingKeyRequest {
 }
 
 impl OutgoingKeyRequest {
-    fn into_request(
+    fn to_request(
         &self,
         recipient: &UserId,
         own_device_id: &DeviceId,
@@ -214,30 +214,25 @@ impl KeyRequestMachine {
             device_id,
             store,
             outbound_group_sessions,
-            outgoing_to_device_requests: Arc::new(DashMap::new()),
-            incoming_key_requests: Arc::new(DashMap::new()),
+            outgoing_to_device_requests: DashMap::new().into(),
+            incoming_key_requests: DashMap::new().into(),
             wait_queue: WaitQueue::new(),
             users_for_key_claim,
         }
     }
 
-    /// Load stored non-sent out outgoing requests
-    pub async fn load_outgoing_requests(&mut self) -> Result<(), CryptoStoreError> {
-        let infos: Vec<OutgoingKeyRequest> = vec![];
-        let requests: DashMap<Uuid, OutgoingRequest> = infos
-            .iter()
+    /// Load stored outgoing requests that were not yet sent out.
+    async fn load_outgoing_requests(&self) -> Result<Vec<OutgoingRequest>, CryptoStoreError> {
+        self.store
+            .get_unsent_key_requests()
+            .await?
+            .into_iter()
             .filter(|i| !i.sent_out)
-            .filter_map(|info| {
-                Some((
-                    info.request_id,
-                    info.into_request(self.user_id(), self.device_id()).ok()?,
-                ))
+            .map(|info| {
+                info.to_request(self.user_id(), self.device_id())
+                    .map_err(CryptoStoreError::from)
             })
-            .collect();
-
-        self.outgoing_to_device_requests = requests.into();
-
-        Ok(())
+            .collect()
     }
 
     /// Our own user id.
@@ -250,12 +245,18 @@ impl KeyRequestMachine {
         &self.device_id
     }
 
-    pub fn outgoing_to_device_requests(&self) -> Vec<OutgoingRequest> {
-        #[allow(clippy::map_clone)]
-        self.outgoing_to_device_requests
+    pub async fn outgoing_to_device_requests(
+        &self,
+    ) -> Result<Vec<OutgoingRequest>, CryptoStoreError> {
+        let mut key_requests = self.load_outgoing_requests().await?;
+        let key_forwards: Vec<OutgoingRequest> = self
+            .outgoing_to_device_requests
             .iter()
-            .map(|r| (*r).clone())
-            .collect()
+            .map(|i| i.value().clone())
+            .collect();
+        key_requests.extend(key_forwards);
+
+        Ok(key_requests)
     }
 
     /// Receive a room key request event.
@@ -584,10 +585,7 @@ impl KeyRequestMachine {
             sent_out: false,
         };
 
-        let request = info.into_request(self.user_id(), self.device_id())?;
-
         self.save_outgoing_key_info(info).await?;
-        self.outgoing_to_device_requests.insert(id, request);
 
         Ok(())
     }
@@ -830,7 +828,11 @@ mod test {
     async fn create_machine() {
         let machine = get_machine().await;
 
-        assert!(machine.outgoing_to_device_requests().is_empty());
+        assert!(machine
+            .outgoing_to_device_requests()
+            .await
+            .unwrap()
+            .is_empty());
     }
 
     #[async_test]
@@ -843,7 +845,11 @@ mod test {
             .await
             .unwrap();
 
-        assert!(machine.outgoing_to_device_requests().is_empty());
+        assert!(machine
+            .outgoing_to_device_requests()
+            .await
+            .unwrap()
+            .is_empty());
         machine
             .create_outgoing_key_request(
                 session.room_id(),
@@ -852,8 +858,15 @@ mod test {
             )
             .await
             .unwrap();
-        assert!(!machine.outgoing_to_device_requests().is_empty());
-        assert_eq!(machine.outgoing_to_device_requests().len(), 1);
+        assert!(!machine
+            .outgoing_to_device_requests()
+            .await
+            .unwrap()
+            .is_empty());
+        assert_eq!(
+            machine.outgoing_to_device_requests().await.unwrap().len(),
+            1
+        );
 
         machine
             .create_outgoing_key_request(
@@ -863,15 +876,21 @@ mod test {
             )
             .await
             .unwrap();
-        assert_eq!(machine.outgoing_to_device_requests.len(), 1);
 
-        let request = machine.outgoing_to_device_requests.iter().next().unwrap();
+        let requests = machine.outgoing_to_device_requests().await.unwrap();
+        assert_eq!(requests.len(), 1);
 
-        let id = request.request_id;
-        drop(request);
+        let request = requests.get(0).unwrap();
 
-        machine.mark_outgoing_request_as_sent(id).await.unwrap();
-        assert!(machine.outgoing_to_device_requests.is_empty());
+        machine
+            .mark_outgoing_request_as_sent(request.request_id)
+            .await
+            .unwrap();
+        assert!(machine
+            .outgoing_to_device_requests()
+            .await
+            .unwrap()
+            .is_empty());
     }
 
     #[async_test]
@@ -892,9 +911,9 @@ mod test {
             .await
             .unwrap();
 
-        let request = machine.outgoing_to_device_requests.iter().next().unwrap();
+        let requests = machine.outgoing_to_device_requests().await.unwrap();
+        let request = requests.get(0).unwrap();
         let id = request.request_id;
-        drop(request);
 
         machine.mark_outgoing_request_as_sent(id).await.unwrap();
 
@@ -949,11 +968,13 @@ mod test {
             .await
             .unwrap();
 
-        let request = machine.outgoing_to_device_requests.iter().next().unwrap();
-        let id = request.request_id;
-        drop(request);
+        let requests = machine.outgoing_to_device_requests().await.unwrap();
+        let request = &requests[0];
 
-        machine.mark_outgoing_request_as_sent(id).await.unwrap();
+        machine
+            .mark_outgoing_request_as_sent(request.request_id)
+            .await
+            .unwrap();
 
         let export = session.export_at_index(15).await;
 
@@ -1160,11 +1181,8 @@ mod test {
             .insert(group_session.clone());
 
         // Get the request and convert it into a event.
-        let request = alice_machine
-            .outgoing_to_device_requests
-            .iter()
-            .next()
-            .unwrap();
+        let requests = alice_machine.outgoing_to_device_requests().await.unwrap();
+        let request = &requests[0];
         let id = request.request_id;
         let content = request
             .request
@@ -1178,7 +1196,6 @@ mod test {
         let content: RoomKeyRequestToDeviceEventContent =
             serde_json::from_str(content.get()).unwrap();
 
-        drop(request);
         alice_machine
             .mark_outgoing_request_as_sent(id)
             .await
@@ -1199,11 +1216,8 @@ mod test {
         assert!(!bob_machine.outgoing_to_device_requests.is_empty());
 
         // Get the request and convert it to a encrypted to-device event.
-        let request = bob_machine
-            .outgoing_to_device_requests
-            .iter()
-            .next()
-            .unwrap();
+        let requests = bob_machine.outgoing_to_device_requests().await.unwrap();
+        let request = &requests[0];
 
         let id = request.request_id;
         let content = request
@@ -1217,7 +1231,6 @@ mod test {
             .unwrap();
         let content: EncryptedEventContent = serde_json::from_str(content.get()).unwrap();
 
-        drop(request);
         bob_machine.mark_outgoing_request_as_sent(id).await.unwrap();
 
         let event = ToDeviceEvent {
@@ -1326,11 +1339,8 @@ mod test {
             .insert(group_session.clone());
 
         // Get the request and convert it into a event.
-        let request = alice_machine
-            .outgoing_to_device_requests
-            .iter()
-            .next()
-            .unwrap();
+        let requests = alice_machine.outgoing_to_device_requests().await.unwrap();
+        let request = &requests[0];
         let id = request.request_id;
         let content = request
             .request
@@ -1344,7 +1354,6 @@ mod test {
         let content: RoomKeyRequestToDeviceEventContent =
             serde_json::from_str(content.get()).unwrap();
 
-        drop(request);
         alice_machine
             .mark_outgoing_request_as_sent(id)
             .await
@@ -1356,7 +1365,11 @@ mod test {
         };
 
         // Bob doesn't have any outgoing requests.
-        assert!(bob_machine.outgoing_to_device_requests.is_empty());
+        assert!(bob_machine
+            .outgoing_to_device_requests()
+            .await
+            .unwrap()
+            .is_empty());
         assert!(bob_machine.users_for_key_claim.is_empty());
         assert!(bob_machine.wait_queue.is_empty());
 
@@ -1364,7 +1377,11 @@ mod test {
         bob_machine.receive_incoming_key_request(&event);
         bob_machine.collect_incoming_key_requests().await.unwrap();
         // Bob doens't have an outgoing requests since we're lacking a session.
-        assert!(bob_machine.outgoing_to_device_requests.is_empty());
+        assert!(bob_machine
+            .outgoing_to_device_requests()
+            .await
+            .unwrap()
+            .is_empty());
         assert!(!bob_machine.users_for_key_claim.is_empty());
         assert!(!bob_machine.wait_queue.is_empty());
 
@@ -1384,15 +1401,17 @@ mod test {
         assert!(bob_machine.users_for_key_claim.is_empty());
         bob_machine.collect_incoming_key_requests().await.unwrap();
         // Bob now has an outgoing requests.
-        assert!(!bob_machine.outgoing_to_device_requests.is_empty());
+        assert!(!bob_machine
+            .outgoing_to_device_requests()
+            .await
+            .unwrap()
+            .is_empty());
         assert!(bob_machine.wait_queue.is_empty());
 
         // Get the request and convert it to a encrypted to-device event.
-        let request = bob_machine
-            .outgoing_to_device_requests
-            .iter()
-            .next()
-            .unwrap();
+        let requests = bob_machine.outgoing_to_device_requests().await.unwrap();
+
+        let request = &requests[0];
 
         let id = request.request_id;
         let content = request
@@ -1406,7 +1425,6 @@ mod test {
             .unwrap();
         let content: EncryptedEventContent = serde_json::from_str(content.get()).unwrap();
 
-        drop(request);
         bob_machine.mark_outgoing_request_as_sent(id).await.unwrap();
 
         let event = ToDeviceEvent {

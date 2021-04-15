@@ -245,10 +245,9 @@ impl OlmMachine {
             }
         };
 
-        let mut machine = OlmMachine::new_helper(&user_id, device_id, store, account, identity);
-        machine.key_request_machine.load_outgoing_requests().await?;
-
-        Ok(machine)
+        Ok(OlmMachine::new_helper(
+            &user_id, device_id, store, account, identity,
+        ))
     }
 
     /// Create a new machine with the default crypto store.
@@ -295,7 +294,7 @@ impl OlmMachine {
     /// machine using [`mark_request_as_sent`].
     ///
     /// [`mark_request_as_sent`]: #method.mark_request_as_sent
-    pub async fn outgoing_requests(&self) -> Vec<OutgoingRequest> {
+    pub async fn outgoing_requests(&self) -> StoreResult<Vec<OutgoingRequest>> {
         let mut requests = Vec::new();
 
         if let Some(r) = self.keys_for_upload().await.map(|r| OutgoingRequest {
@@ -320,9 +319,14 @@ impl OlmMachine {
 
         requests.append(&mut self.outgoing_to_device_requests());
         requests.append(&mut self.verification_machine.outgoing_room_message_requests());
-        requests.append(&mut self.key_request_machine.outgoing_to_device_requests());
+        requests.append(
+            &mut self
+                .key_request_machine
+                .outgoing_to_device_requests()
+                .await?,
+        );
 
-        requests
+        Ok(requests)
     }
 
     /// Mark the request with the given request id as sent.

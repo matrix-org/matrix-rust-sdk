@@ -268,10 +268,11 @@ impl CryptoStore for MemoryStore {
             .and_then(|i| self.outgoing_key_requests.get(&i).map(|r| r.clone())))
     }
 
-    async fn get_outgoing_key_requests(&self) -> Result<Vec<OutgoingKeyRequest>> {
+    async fn get_unsent_key_requests(&self) -> Result<Vec<OutgoingKeyRequest>> {
         Ok(self
             .outgoing_key_requests
             .iter()
+            .filter(|i| !i.value().sent_out)
             .map(|i| i.value().clone())
             .collect())
     }
