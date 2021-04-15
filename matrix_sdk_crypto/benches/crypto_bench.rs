@@ -213,7 +213,7 @@ pub fn room_key_sharing(c: &mut Criterion) {
                 .await
                 .unwrap();
 
-            assert!(requests.len() >= 8);
+            assert!(!requests.is_empty());
 
             for request in requests {
                 machine
@@ -249,7 +249,7 @@ pub fn room_key_sharing(c: &mut Criterion) {
                 .await
                 .unwrap();
 
-            assert!(requests.len() >= 8);
+            assert!(!requests.is_empty());
 
             for request in requests {
                 machine
