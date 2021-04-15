@@ -42,7 +42,7 @@ use crate::{
     error::{OlmError, OlmResult},
     olm::{InboundGroupSession, OutboundGroupSession, Session, ShareState},
     requests::{OutgoingRequest, ToDeviceRequest},
-    store::{CryptoStoreError, Store},
+    store::{Changes, CryptoStoreError, Store},
     Device,
 };
 
@@ -137,32 +137,24 @@ pub(crate) struct KeyRequestMachine {
     users_for_key_claim: Arc<DashMap<UserId, DashSet<DeviceIdBox>>>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
-struct OugoingKeyInfo {
-    request_id: Uuid,
-    info: RequestedKeyInfo,
-    sent_out: bool,
+/// A struct describing an outgoing key request.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OutgoingKeyRequest {
+    /// The unique id of the key request.
+    pub request_id: Uuid,
+    /// The info of the requested key.
+    pub info: RequestedKeyInfo,
+    /// Has the request been sent out.
+    pub sent_out: bool,
 }
 
-trait Encode {
-    fn encode(&self) -> String;
-}
-
-impl Encode for RequestedKeyInfo {
-    fn encode(&self) -> String {
-        format!(
-            "{}|{}|{}|{}",
-            self.sender_key, self.room_id, self.session_id, self.algorithm
-        )
-    }
-}
-
-impl Encode for ForwardedRoomKeyToDeviceEventContent {
-    fn encode(&self) -> String {
-        format!(
-            "{}|{}|{}|{}",
-            self.sender_key, self.room_id, self.session_id, self.algorithm
-        )
+impl PartialEq for OutgoingKeyRequest {
+    fn eq(&self, other: &Self) -> bool {
+        self.request_id == other.request_id
+            && self.info.algorithm == other.info.algorithm
+            && self.info.room_id == other.info.room_id
+            && self.info.session_id == other.info.session_id
+            && self.info.sender_key == other.info.sender_key
     }
 }
 
@@ -246,6 +238,7 @@ impl KeyRequestMachine {
     /// key request queue.
     pub async fn collect_incoming_key_requests(&self) -> OlmResult<Vec<Session>> {
         let mut changed_sessions = Vec::new();
+
         for item in self.incoming_key_requests.iter() {
             let event = item.value();
             if let Some(s) = self.handle_key_request(event).await? {
@@ -534,9 +527,9 @@ impl KeyRequestMachine {
             session_id: session_id.to_owned(),
         };
 
-        let id: Option<String> = self.store.get_object(&key_info.encode()).await?;
+        let request = self.store.get_key_request_by_info(&key_info).await?;
 
-        if id.is_some() {
+        if request.is_some() {
             // We already sent out a request for this key, nothing to do.
             return Ok(());
         }
@@ -554,13 +547,13 @@ impl KeyRequestMachine {
 
         let request = wrap_key_request_content(self.user_id().clone(), id, &content)?;
 
-        let info = OugoingKeyInfo {
+        let info = OutgoingKeyRequest {
             request_id: id,
             info: content.body.unwrap(),
             sent_out: false,
         };
 
-        self.save_outgoing_key_info(id, info).await?;
+        self.save_outgoing_key_info(info).await?;
         self.outgoing_to_device_requests.insert(id, request);
 
         Ok(())
@@ -569,16 +562,11 @@ impl KeyRequestMachine {
     /// Save an outgoing key info.
     async fn save_outgoing_key_info(
         &self,
-        id: Uuid,
-        info: OugoingKeyInfo,
+        info: OutgoingKeyRequest,
     ) -> Result<(), CryptoStoreError> {
-        // TODO we'll want to use a transaction to store those atomically.
-        // To allow this we'll need to rework our cryptostore trait to return
-        // a transaction trait and the transaction trait will have the save_X
-        // methods.
-        let id_string = id.to_string();
-        self.store.save_object(&id_string, &info).await?;
-        self.store.save_object(&info.info.encode(), &id).await?;
+        let mut changes = Changes::default();
+        changes.key_requests.push(info);
+        self.store.save_changes(changes).await?;
 
         Ok(())
     }
@@ -587,36 +575,35 @@ impl KeyRequestMachine {
     async fn get_key_info(
         &self,
         content: &ForwardedRoomKeyToDeviceEventContent,
-    ) -> Result<Option<OugoingKeyInfo>, CryptoStoreError> {
-        let id: Option<Uuid> = self.store.get_object(&content.encode()).await?;
+    ) -> Result<Option<OutgoingKeyRequest>, CryptoStoreError> {
+        let info = RequestedKeyInfo {
+            algorithm: content.algorithm.clone(),
+            room_id: content.room_id.clone(),
+            sender_key: content.sender_key.clone(),
+            session_id: content.session_id.clone(),
+        };
 
-        if let Some(id) = id {
-            self.store.get_object(&id.to_string()).await
-        } else {
-            Ok(None)
-        }
+        self.store.get_key_request_by_info(&info).await
     }
 
     /// Delete the given outgoing key info.
-    async fn delete_key_info(&self, info: &OugoingKeyInfo) -> Result<(), CryptoStoreError> {
+    async fn delete_key_info(&self, info: &OutgoingKeyRequest) -> Result<(), CryptoStoreError> {
         self.store
-            .delete_object(&info.request_id.to_string())
-            .await?;
-        self.store.delete_object(&info.info.encode()).await?;
-
-        Ok(())
+            .delete_outgoing_key_request(info.request_id)
+            .await
     }
 
     /// Mark the outgoing request as sent.
-    pub async fn mark_outgoing_request_as_sent(&self, id: &Uuid) -> Result<(), CryptoStoreError> {
-        self.outgoing_to_device_requests.remove(id);
-        let info: Option<OugoingKeyInfo> = self.store.get_object(&id.to_string()).await?;
+    pub async fn mark_outgoing_request_as_sent(&self, id: Uuid) -> Result<(), CryptoStoreError> {
+        let info = self.store.get_outgoing_key_request(id).await?;
 
         if let Some(mut info) = info {
             trace!("Marking outgoing key request as sent {:#?}", info);
             info.sent_out = true;
-            self.save_outgoing_key_info(*id, info).await?;
+            self.save_outgoing_key_info(info).await?;
         }
+
+        self.outgoing_to_device_requests.remove(&id);
 
         Ok(())
     }
@@ -624,7 +611,7 @@ impl KeyRequestMachine {
     /// Mark the given outgoing key info as done.
     ///
     /// This will queue up a request cancelation.
-    async fn mark_as_done(&self, key_info: OugoingKeyInfo) -> Result<(), CryptoStoreError> {
+    async fn mark_as_done(&self, key_info: OutgoingKeyRequest) -> Result<(), CryptoStoreError> {
         // TODO perhaps only remove the key info if the first known index is 0.
         trace!(
             "Successfully received a forwarded room key for {:#?}",
@@ -847,7 +834,7 @@ mod test {
         let id = request.request_id;
         drop(request);
 
-        machine.mark_outgoing_request_as_sent(&id).await.unwrap();
+        machine.mark_outgoing_request_as_sent(id).await.unwrap();
         assert!(machine.outgoing_to_device_requests.is_empty());
     }
 
@@ -873,7 +860,7 @@ mod test {
         let id = request.request_id;
         drop(request);
 
-        machine.mark_outgoing_request_as_sent(&id).await.unwrap();
+        machine.mark_outgoing_request_as_sent(id).await.unwrap();
 
         let export = session.export_at_index(10).await;
 
@@ -915,7 +902,7 @@ mod test {
         let request = machine.outgoing_to_device_requests.iter().next().unwrap();
         let id = request.request_id;
         drop(request);
-        machine.mark_outgoing_request_as_sent(&id).await.unwrap();
+        machine.mark_outgoing_request_as_sent(id).await.unwrap();
 
         machine
             .create_outgoing_key_request(
@@ -930,7 +917,7 @@ mod test {
         let id = request.request_id;
         drop(request);
 
-        machine.mark_outgoing_request_as_sent(&id).await.unwrap();
+        machine.mark_outgoing_request_as_sent(id).await.unwrap();
 
         let export = session.export_at_index(15).await;
 
@@ -1148,7 +1135,7 @@ mod test {
 
         drop(request);
         alice_machine
-            .mark_outgoing_request_as_sent(&id)
+            .mark_outgoing_request_as_sent(id)
             .await
             .unwrap();
 
@@ -1186,10 +1173,7 @@ mod test {
         let content: EncryptedEventContent = serde_json::from_str(content.get()).unwrap();
 
         drop(request);
-        bob_machine
-            .mark_outgoing_request_as_sent(&id)
-            .await
-            .unwrap();
+        bob_machine.mark_outgoing_request_as_sent(id).await.unwrap();
 
         let event = ToDeviceEvent {
             sender: bob_id(),
@@ -1317,7 +1301,7 @@ mod test {
 
         drop(request);
         alice_machine
-            .mark_outgoing_request_as_sent(&id)
+            .mark_outgoing_request_as_sent(id)
             .await
             .unwrap();
 
@@ -1378,10 +1362,7 @@ mod test {
         let content: EncryptedEventContent = serde_json::from_str(content.get()).unwrap();
 
         drop(request);
-        bob_machine
-            .mark_outgoing_request_as_sent(&id)
-            .await
-            .unwrap();
+        bob_machine.mark_outgoing_request_as_sent(id).await.unwrap();
 
         let event = ToDeviceEvent {
             sender: bob_id(),

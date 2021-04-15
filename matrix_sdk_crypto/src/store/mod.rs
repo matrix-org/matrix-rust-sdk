@@ -57,23 +57,25 @@ use std::{
 };
 
 use olm_rs::errors::{OlmAccountError, OlmGroupSessionError, OlmSessionError};
-use serde::{Deserialize, Serialize};
 use serde_json::Error as SerdeError;
 use thiserror::Error;
 
 use matrix_sdk_common::{
     async_trait,
+    events::room_key_request::RequestedKeyInfo,
     identifiers::{
         DeviceId, DeviceIdBox, DeviceKeyAlgorithm, Error as IdentifierValidationError, RoomId,
         UserId,
     },
     locks::Mutex,
+    uuid::Uuid,
     AsyncTraitDeps,
 };
 
 use crate::{
     error::SessionUnpicklingError,
     identities::{Device, ReadOnlyDevice, UserDevices, UserIdentities},
+    key_request::OutgoingKeyRequest,
     olm::{
         InboundGroupSession, OlmMessageHash, OutboundGroupSession, PrivateCrossSigningIdentity,
         ReadOnlyAccount, Session,
@@ -108,6 +110,7 @@ pub struct Changes {
     pub inbound_group_sessions: Vec<InboundGroupSession>,
     pub outbound_group_sessions: Vec<OutboundGroupSession>,
     pub identities: IdentityChanges,
+    pub key_requests: Vec<OutgoingKeyRequest>,
     pub devices: DeviceChanges,
 }
 
@@ -256,24 +259,6 @@ impl Store {
                 own_identity,
                 device_owner_identity,
             }))
-    }
-
-    pub async fn get_object<V: for<'b> Deserialize<'b>>(&self, key: &str) -> Result<Option<V>> {
-        if let Some(value) = self.get_value(key).await? {
-            Ok(Some(serde_json::from_str(&value)?))
-        } else {
-            Ok(None)
-        }
-    }
-
-    pub async fn save_object(&self, key: &str, value: &impl Serialize) -> Result<()> {
-        let value = serde_json::to_string(value)?;
-        self.save_value(key.to_owned(), value).await
-    }
-
-    pub async fn delete_object(&self, key: &str) -> Result<()> {
-        self.inner.remove_value(key).await?;
-        Ok(())
     }
 }
 
@@ -438,15 +423,38 @@ pub trait CryptoStore: AsyncTraitDeps {
     /// * `user_id` - The user for which we should get the identity.
     async fn get_user_identity(&self, user_id: &UserId) -> Result<Option<UserIdentities>>;
 
-    /// Save a serializeable object in the store.
-    async fn save_value(&self, key: String, value: String) -> Result<()>;
-
-    /// Remove a value from the store.
-    async fn remove_value(&self, key: &str) -> Result<()>;
-
-    /// Load a serializeable object from the store.
-    async fn get_value(&self, key: &str) -> Result<Option<String>>;
-
     /// Check if a hash for an Olm message stored in the database.
     async fn is_message_known(&self, message_hash: &OlmMessageHash) -> Result<bool>;
+
+    /// Get an outoing key request that we created that matches the given
+    /// request id.
+    ///
+    /// # Arguments
+    ///
+    /// * `request_id` - The unique request id that identifies this outgoing key
+    /// request.
+    async fn get_outgoing_key_request(
+        &self,
+        request_id: Uuid,
+    ) -> Result<Option<OutgoingKeyRequest>>;
+
+    /// Get an outoing key request that we created that matches the given
+    /// requested key info.
+    ///
+    /// # Arguments
+    ///
+    /// * `key_info` - The key info of an outgoing key request.
+    async fn get_key_request_by_info(
+        &self,
+        key_info: &RequestedKeyInfo,
+    ) -> Result<Option<OutgoingKeyRequest>>;
+
+    /// Delete an outoing key request that we created that matches the given
+    /// request id.
+    ///
+    /// # Arguments
+    ///
+    /// * `request_id` - The unique request id that identifies this outgoing key
+    /// request.
+    async fn delete_outgoing_key_request(&self, request_id: Uuid) -> Result<()>;
 }

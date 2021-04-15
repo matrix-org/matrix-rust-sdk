@@ -751,7 +751,7 @@ impl OlmMachine {
     async fn mark_to_device_request_as_sent(&self, request_id: &Uuid) -> StoreResult<()> {
         self.verification_machine.mark_request_as_sent(request_id);
         self.key_request_machine
-            .mark_outgoing_request_as_sent(request_id)
+            .mark_outgoing_request_as_sent(*request_id)
             .await?;
         self.group_session_manager
             .mark_request_as_sent(request_id)
