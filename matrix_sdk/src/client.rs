@@ -2391,7 +2391,7 @@ mod test {
             .unwrap()
             .flows
             .iter()
-            .any(|flow| flow == &LoginType::Password);
+            .any(|flow| matches!(flow, LoginType::Password(_)));
         assert!(can_password);
 
         let _m_login = mock("POST", "/_matrix/client/r0/login")
@@ -2465,7 +2465,7 @@ mod test {
             .unwrap()
             .flows
             .iter()
-            .any(|flow| flow == &LoginType::Sso);
+            .any(|flow| matches!(flow, LoginType::Sso(_)));
         assert!(can_sso);
 
         let sso_url = client.get_sso_login_url("http://127.0.0.1:3030");

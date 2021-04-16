@@ -1,4 +1,4 @@
-use std::{collections::HashMap, convert::TryFrom, panic};
+use std::{collections::HashMap, panic};
 
 use http::Response;
 
@@ -9,6 +9,7 @@ use matrix_sdk_common::{
         AnySyncStateEvent,
     },
     identifiers::{room_id, RoomId},
+    IncomingResponse,
 };
 use serde_json::Value as JsonValue;
 
@@ -330,7 +331,7 @@ impl EventBuilder {
         // Clear state so that the next sync response will be empty if nothing was added.
         self.clear();
 
-        SyncResponse::try_from(response).unwrap()
+        SyncResponse::try_from_http_response(response).unwrap()
     }
 
     fn generate_sync_token(&self) -> String {
@@ -372,7 +373,7 @@ pub fn sync_response(kind: SyncResponseFile) -> SyncResponse {
     let response = Response::builder()
         .body(data.to_string().as_bytes().to_vec())
         .unwrap();
-    SyncResponse::try_from(response).unwrap()
+    SyncResponse::try_from_http_response(response).unwrap()
 }
 
 pub fn response_from_file(json: &serde_json::Value) -> Response<Vec<u8>> {

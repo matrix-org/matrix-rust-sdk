@@ -536,12 +536,11 @@ impl GroupSessionManager {
 
 #[cfg(test)]
 mod test {
-    use std::convert::TryFrom;
-
     use matrix_sdk_common::{
         api::r0::keys::{claim_keys, get_keys},
         identifiers::{room_id, user_id, DeviceIdBox, UserId},
         uuid::Uuid,
+        IncomingResponse,
     };
     use matrix_sdk_test::response_from_file;
     use serde_json::Value;
@@ -560,14 +559,16 @@ mod test {
         let data = include_bytes!("../../benches/keys_query.json");
         let data: Value = serde_json::from_slice(data).unwrap();
         let data = response_from_file(&data);
-        get_keys::Response::try_from(data).expect("Can't parse the keys upload response")
+        get_keys::Response::try_from_http_response(data)
+            .expect("Can't parse the keys upload response")
     }
 
     fn keys_claim_response() -> claim_keys::Response {
         let data = include_bytes!("../../benches/keys_claim.json");
         let data: Value = serde_json::from_slice(data).unwrap();
         let data = response_from_file(&data);
-        claim_keys::Response::try_from(data).expect("Can't parse the keys upload response")
+        claim_keys::Response::try_from_http_response(data)
+            .expect("Can't parse the keys upload response")
     }
 
     async fn machine() -> OlmMachine {

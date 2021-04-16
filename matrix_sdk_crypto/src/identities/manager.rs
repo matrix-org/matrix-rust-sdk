@@ -416,12 +416,13 @@ impl IdentityManager {
 
 #[cfg(test)]
 pub(crate) mod test {
-    use std::{convert::TryFrom, sync::Arc};
+    use std::sync::Arc;
 
     use matrix_sdk_common::{
         api::r0::keys::get_keys::Response as KeyQueryResponse,
         identifiers::{user_id, DeviceIdBox, UserId},
         locks::Mutex,
+        IncomingResponse,
     };
 
     use matrix_sdk_test::async_test;
@@ -518,7 +519,8 @@ pub(crate) mod test {
             },
             "user_signing_keys": {}
         }));
-        KeyQueryResponse::try_from(data).expect("Can't parse the keys upload response")
+        KeyQueryResponse::try_from_http_response(data)
+            .expect("Can't parse the keys upload response")
     }
 
     pub(crate) fn own_key_query() -> KeyQueryResponse {
@@ -618,7 +620,8 @@ pub(crate) mod test {
             }
           }
         }));
-        KeyQueryResponse::try_from(data).expect("Can't parse the keys upload response")
+        KeyQueryResponse::try_from_http_response(data)
+            .expect("Can't parse the keys upload response")
     }
 
     #[async_test]

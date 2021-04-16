@@ -27,7 +27,7 @@ use url::Url;
 
 use matrix_sdk_common::{
     api::r0::media::create_content, async_trait, locks::RwLock, AsyncTraitDeps, AuthScheme,
-    FromHttpResponseError,
+    FromHttpResponseError, IncomingResponse,
 };
 
 use crate::{error::HttpError, ClientConfig, OutgoingRequest, RequestConfig, Session};
@@ -140,7 +140,7 @@ impl HttpClient {
         let response = self
             .send_request(request, self.session.clone(), config)
             .await?;
-        Ok(create_content::Response::try_from(response)?)
+        Ok(create_content::Response::try_from_http_response(response)?)
     }
 
     pub async fn send<Request>(
@@ -158,7 +158,7 @@ impl HttpClient {
 
         trace!("Got response: {:?}", response);
 
-        let response = Request::IncomingResponse::try_from(response)?;
+        let response = Request::IncomingResponse::try_from_http_response(response)?;
 
         Ok(response)
     }

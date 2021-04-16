@@ -1,7 +1,7 @@
 #[cfg(target_os = "linux")]
 mod perf;
 
-use std::{convert::TryFrom, sync::Arc};
+use std::sync::Arc;
 
 use criterion::*;
 
@@ -12,6 +12,7 @@ use matrix_sdk_common::{
     },
     identifiers::{room_id, user_id, DeviceIdBox, UserId},
     uuid::Uuid,
+    IncomingResponse,
 };
 use matrix_sdk_crypto::{EncryptionSettings, OlmMachine};
 use matrix_sdk_test::response_from_file;
@@ -30,21 +31,22 @@ fn keys_query_response() -> get_keys::Response {
     let data = include_bytes!("./keys_query.json");
     let data: Value = serde_json::from_slice(data).unwrap();
     let data = response_from_file(&data);
-    get_keys::Response::try_from(data).expect("Can't parse the keys upload response")
+    get_keys::Response::try_from_http_response(data).expect("Can't parse the keys upload response")
 }
 
 fn keys_claim_response() -> claim_keys::Response {
     let data = include_bytes!("./keys_claim.json");
     let data: Value = serde_json::from_slice(data).unwrap();
     let data = response_from_file(&data);
-    claim_keys::Response::try_from(data).expect("Can't parse the keys upload response")
+    claim_keys::Response::try_from_http_response(data)
+        .expect("Can't parse the keys upload response")
 }
 
 fn huge_keys_query_resopnse() -> get_keys::Response {
     let data = include_bytes!("./keys_query_2000_members.json");
     let data: Value = serde_json::from_slice(data).unwrap();
     let data = response_from_file(&data);
-    get_keys::Response::try_from(data).expect("Can't parse the keys query response")
+    get_keys::Response::try_from_http_response(data).expect("Can't parse the keys query response")
 }
 
 pub fn keys_query(c: &mut Criterion) {

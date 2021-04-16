@@ -1217,7 +1217,7 @@ pub(crate) mod test {
         identifiers::{
             event_id, room_id, user_id, DeviceId, DeviceKeyAlgorithm, DeviceKeyId, UserId,
         },
-        Raw,
+        IncomingResponse, Raw,
     };
     use matrix_sdk_test::test_json;
 
@@ -1247,12 +1247,14 @@ pub(crate) mod test {
 
     fn keys_upload_response() -> upload_keys::Response {
         let data = response_from_file(&test_json::KEYS_UPLOAD);
-        upload_keys::Response::try_from(data).expect("Can't parse the keys upload response")
+        upload_keys::Response::try_from_http_response(data)
+            .expect("Can't parse the keys upload response")
     }
 
     fn keys_query_response() -> get_keys::Response {
         let data = response_from_file(&test_json::KEYS_QUERY);
-        get_keys::Response::try_from(data).expect("Can't parse the keys upload response")
+        get_keys::Response::try_from_http_response(data)
+            .expect("Can't parse the keys upload response")
     }
 
     fn to_device_requests_to_content(requests: Vec<Arc<ToDeviceRequest>>) -> EncryptedEventContent {
