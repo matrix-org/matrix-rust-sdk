@@ -23,7 +23,7 @@ async-trait = "0.1.42"
 version = "0.0.3"
 git = "https://github.com/ruma/ruma"
 rev = "c816630058ab625d93ebab294e9e6c02dd9d866c"
-features = ["client-api", "compat", "unstable-pre-spec"]
+features = ["client-api-c", "compat", "unstable-pre-spec"]
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 uuid = { version = "0.8.2", default-features = false, features = ["v4", "serde"] }
