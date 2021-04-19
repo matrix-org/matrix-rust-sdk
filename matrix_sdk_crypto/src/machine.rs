@@ -918,6 +918,38 @@ impl OlmMachine {
         Ok(ToDevice { events })
     }
 
+    /// Request a room key from our devices.
+    ///
+    /// This method will return a request cancelation and a new key request if
+    /// the key was already requested, otherwise it will return just the key
+    /// request.
+    ///
+    /// The request cancelation *must* be sent out before the request is sent
+    /// out, otherwise devices will ignore the key request.
+    ///
+    /// # Arguments
+    ///
+    /// * `room_id` - The id of the room where the key is used in.
+    ///
+    /// * `sender_key` - The curve25519 key of the sender that owns the key.
+    ///
+    /// * `session_id` - The id that uniquely identifies the session.
+    pub async fn request_room_key(
+        &self,
+        event: &SyncMessageEvent<EncryptedEventContent>,
+        room_id: &RoomId,
+    ) -> MegolmResult<(Option<OutgoingRequest>, OutgoingRequest)> {
+        let content = match &event.content {
+            EncryptedEventContent::MegolmV1AesSha2(c) => c,
+            _ => return Err(EventError::UnsupportedAlgorithm.into()),
+        };
+
+        Ok(self
+            .key_request_machine
+            .request_key(room_id, &content.sender_key, &content.session_id)
+            .await?)
+    }
+
     /// Decrypt an event from a room timeline.
     ///
     /// # Arguments

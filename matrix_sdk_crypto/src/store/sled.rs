@@ -1346,7 +1346,7 @@ mod test {
 
     #[async_test]
     async fn key_request_saving() {
-        let (_, store, _dir) = get_loaded_store().await;
+        let (account, store, _dir) = get_loaded_store().await;
 
         let id = Uuid::new_v4();
         let info = RequestedKeyInfo {
@@ -1357,6 +1357,7 @@ mod test {
         };
 
         let request = OutgoingKeyRequest {
+            request_recipient: account.user_id().to_owned(),
             request_id: id,
             info: info.clone(),
             sent_out: false,
@@ -1378,6 +1379,7 @@ mod test {
         assert!(!store.get_unsent_key_requests().await.unwrap().is_empty());
 
         let request = OutgoingKeyRequest {
+            request_recipient: account.user_id().to_owned(),
             request_id: id,
             info: info.clone(),
             sent_out: true,

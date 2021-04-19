@@ -141,6 +141,8 @@ pub(crate) struct KeyRequestMachine {
 /// A struct describing an outgoing key request.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OutgoingKeyRequest {
+    /// The user we requested the key from
+    pub request_recipient: UserId,
     /// The unique id of the key request.
     pub request_id: Uuid,
     /// The info of the requested key.
@@ -150,11 +152,7 @@ pub struct OutgoingKeyRequest {
 }
 
 impl OutgoingKeyRequest {
-    fn to_request(
-        &self,
-        recipient: &UserId,
-        own_device_id: &DeviceId,
-    ) -> Result<OutgoingRequest, serde_json::Error> {
+    fn to_request(&self, own_device_id: &DeviceId) -> Result<OutgoingRequest, serde_json::Error> {
         let content = RoomKeyRequestToDeviceEventContent {
             action: Action::Request,
             request_id: self.request_id.to_string(),
@@ -162,7 +160,22 @@ impl OutgoingKeyRequest {
             body: Some(self.info.clone()),
         };
 
-        wrap_key_request_content(recipient.to_owned(), self.request_id, &content)
+        wrap_key_request_content(self.request_recipient.clone(), self.request_id, &content)
+    }
+
+    fn to_cancelation(
+        &self,
+        own_device_id: &DeviceId,
+    ) -> Result<OutgoingRequest, serde_json::Error> {
+        let content = RoomKeyRequestToDeviceEventContent {
+            action: Action::CancelRequest,
+            request_id: self.request_id.to_string(),
+            requesting_device_id: own_device_id.to_owned(),
+            body: None,
+        };
+
+        let id = Uuid::new_v4();
+        wrap_key_request_content(self.request_recipient.clone(), id, &content)
     }
 }
 
@@ -229,7 +242,7 @@ impl KeyRequestMachine {
             .into_iter()
             .filter(|i| !i.sent_out)
             .map(|info| {
-                info.to_request(self.user_id(), self.device_id())
+                info.to_request(self.device_id())
                     .map_err(CryptoStoreError::from)
             })
             .collect()
@@ -547,6 +560,69 @@ impl KeyRequestMachine {
     /// once we receive a forwarded room key we can check that it matches the
     /// key we requested.
     ///
+    /// This method will return a cancel request and a new key request if the
+    /// key was already requested, otherwise it will return just the key
+    /// request.
+    ///
+    /// # Arguments
+    ///
+    /// * `room_id` - The id of the room where the key is used in.
+    ///
+    /// * `sender_key` - The curve25519 key of the sender that owns the key.
+    ///
+    /// * `session_id` - The id that uniquely identifies the session.
+    pub async fn request_key(
+        &self,
+        room_id: &RoomId,
+        sender_key: &str,
+        session_id: &str,
+    ) -> Result<(Option<OutgoingRequest>, OutgoingRequest), CryptoStoreError> {
+        let key_info = RequestedKeyInfo {
+            algorithm: EventEncryptionAlgorithm::MegolmV1AesSha2,
+            room_id: room_id.to_owned(),
+            sender_key: sender_key.to_owned(),
+            session_id: session_id.to_owned(),
+        };
+
+        let request = self.store.get_key_request_by_info(&key_info).await?;
+
+        if let Some(request) = request {
+            let cancel = request.to_cancelation(self.device_id())?;
+            let request = request.to_request(self.device_id())?;
+
+            Ok((Some(cancel), request))
+        } else {
+            let request = self.request_key_helper(key_info).await?;
+
+            Ok((None, request))
+        }
+    }
+
+    async fn request_key_helper(
+        &self,
+        key_info: RequestedKeyInfo,
+    ) -> Result<OutgoingRequest, CryptoStoreError> {
+        info!("Creating new outgoing room key request {:#?}", key_info);
+
+        let request = OutgoingKeyRequest {
+            request_recipient: self.user_id().to_owned(),
+            request_id: Uuid::new_v4(),
+            info: key_info,
+            sent_out: false,
+        };
+
+        let outgoing_request = request.to_request(self.device_id())?;
+        self.save_outgoing_key_info(request).await?;
+
+        Ok(outgoing_request)
+    }
+
+    /// Create a new outgoing key request for the key with the given session id.
+    ///
+    /// This will queue up a new to-device request and store the key info so
+    /// once we receive a forwarded room key we can check that it matches the
+    /// key we requested.
+    ///
     /// This does nothing if a request for this key has already been sent out.
     ///
     /// # Arguments
@@ -570,22 +646,9 @@ impl KeyRequestMachine {
 
         let request = self.store.get_key_request_by_info(&key_info).await?;
 
-        if request.is_some() {
-            // We already sent out a request for this key, nothing to do.
-            return Ok(());
+        if request.is_none() {
+            self.request_key_helper(key_info).await?;
         }
-
-        info!("Creating new outgoing room key request {:#?}", key_info);
-
-        let id = Uuid::new_v4();
-
-        let info = OutgoingKeyRequest {
-            request_id: id,
-            info: key_info,
-            sent_out: false,
-        };
-
-        self.save_outgoing_key_info(info).await?;
 
         Ok(())
     }
@@ -655,18 +718,9 @@ impl KeyRequestMachine {
         // can delete it in one transaction.
         self.delete_key_info(&key_info).await?;
 
-        let content = RoomKeyRequestToDeviceEventContent {
-            action: Action::CancelRequest,
-            request_id: key_info.request_id.to_string(),
-            requesting_device_id: (&*self.device_id).clone(),
-            body: None,
-        };
-
-        let id = Uuid::new_v4();
-
-        let request = wrap_key_request_content(self.user_id().clone(), id, &content)?;
-
-        self.outgoing_to_device_requests.insert(id, request);
+        let request = key_info.to_cancelation(self.device_id())?;
+        self.outgoing_to_device_requests
+            .insert(request.request_id, request);
 
         Ok(())
     }
@@ -837,6 +891,41 @@ mod test {
 
     #[async_test]
     async fn create_key_request() {
+        let machine = get_machine().await;
+        let account = account();
+
+        let (_, session) = account
+            .create_group_session_pair_with_defaults(&room_id())
+            .await
+            .unwrap();
+
+        assert!(machine
+            .outgoing_to_device_requests()
+            .await
+            .unwrap()
+            .is_empty());
+        let (cancel, request) = machine
+            .request_key(session.room_id(), &session.sender_key, session.session_id())
+            .await
+            .unwrap();
+
+        assert!(cancel.is_none());
+
+        machine
+            .mark_outgoing_request_as_sent(request.request_id)
+            .await
+            .unwrap();
+
+        let (cancel, _) = machine
+            .request_key(session.room_id(), &session.sender_key, session.session_id())
+            .await
+            .unwrap();
+
+        assert!(cancel.is_some());
+    }
+
+    #[async_test]
+    async fn re_request_keys() {
         let machine = get_machine().await;
         let account = account();
 
