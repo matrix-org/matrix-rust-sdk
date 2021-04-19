@@ -30,7 +30,7 @@ use matrix_sdk_common::{
     FromHttpResponseError, IncomingResponse,
 };
 
-use crate::{error::HttpError, ClientConfig, OutgoingRequest, RequestConfig, Session};
+use crate::{error::HttpError, Bytes, ClientConfig, OutgoingRequest, RequestConfig, Session};
 
 /// Abstraction around the http layer. The allows implementors to use different
 /// http libraries.
@@ -51,7 +51,7 @@ pub trait HttpSend: AsyncTraitDeps {
     ///
     /// ```
     /// use std::convert::TryFrom;
-    /// use matrix_sdk::{HttpSend, async_trait, HttpError, RequestConfig};
+    /// use matrix_sdk::{HttpSend, async_trait, HttpError, RequestConfig, Bytes};
     ///
     /// #[derive(Debug)]
     /// struct Client(reqwest::Client);
@@ -60,7 +60,7 @@ pub trait HttpSend: AsyncTraitDeps {
     ///     async fn response_to_http_response(
     ///         &self,
     ///         mut response: reqwest::Response,
-    ///     ) -> Result<http::Response<Vec<u8>>, HttpError> {
+    ///     ) -> Result<http::Response<Bytes>, HttpError> {
     ///         // Convert the reqwest response to a http one.
     ///         todo!()
     ///     }
@@ -72,7 +72,7 @@ pub trait HttpSend: AsyncTraitDeps {
     ///         &self,
     ///         request: http::Request<Vec<u8>>,
     ///         config: RequestConfig,
-    ///     ) -> Result<http::Response<Vec<u8>>, HttpError> {
+    ///     ) -> Result<http::Response<Bytes>, HttpError> {
     ///         Ok(self
     ///             .response_to_http_response(
     ///                 self.0
@@ -87,7 +87,7 @@ pub trait HttpSend: AsyncTraitDeps {
         &self,
         request: http::Request<Vec<u8>>,
         config: RequestConfig,
-    ) -> Result<http::Response<Vec<u8>>, HttpError>;
+    ) -> Result<http::Response<Bytes>, HttpError>;
 }
 
 #[derive(Clone, Debug)]
@@ -104,7 +104,7 @@ impl HttpClient {
         request: Request,
         session: Arc<RwLock<Option<Session>>>,
         config: Option<RequestConfig>,
-    ) -> Result<http::Response<Vec<u8>>, HttpError> {
+    ) -> Result<http::Response<Bytes>, HttpError> {
         let request = {
             let read_guard;
             let access_token = match Request::METADATA.authentication {
@@ -205,7 +205,7 @@ pub(crate) fn client_with_config(config: &ClientConfig) -> Result<Client, HttpEr
 
 async fn response_to_http_response(
     mut response: Response,
-) -> Result<http::Response<Vec<u8>>, reqwest::Error> {
+) -> Result<http::Response<Bytes>, reqwest::Error> {
     let status = response.status();
 
     let mut http_builder = HttpResponse::builder().status(status);
@@ -219,7 +219,7 @@ async fn response_to_http_response(
         }
     }
 
-    let body = response.bytes().await?.as_ref().to_owned();
+    let body = response.bytes().await?;
 
     Ok(http_builder
         .body(body)
@@ -231,7 +231,7 @@ async fn send_request(
     client: &Client,
     request: http::Request<Vec<u8>>,
     _: RequestConfig,
-) -> Result<http::Response<Vec<u8>>, HttpError> {
+) -> Result<http::Response<Bytes>, HttpError> {
     let request = reqwest::Request::try_from(request)?;
     let response = client.execute(request).await?;
 
@@ -243,7 +243,7 @@ async fn send_request(
     client: &Client,
     request: http::Request<Vec<u8>>,
     config: RequestConfig,
-) -> Result<http::Response<Vec<u8>>, HttpError> {
+) -> Result<http::Response<Bytes>, HttpError> {
     let mut backoff = ExponentialBackoff::default();
     let mut request = reqwest::Request::try_from(request)?;
     let retry_limit = config.retry_limit;
@@ -305,7 +305,7 @@ impl HttpSend for Client {
         &self,
         request: http::Request<Vec<u8>>,
         config: RequestConfig,
-    ) -> Result<http::Response<Vec<u8>>, HttpError> {
+    ) -> Result<http::Response<Bytes>, HttpError> {
         send_request(&self, request, config).await
     }
 }
