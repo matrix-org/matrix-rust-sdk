@@ -258,6 +258,14 @@ impl UserDevices {
         })
     }
 
+    /// Returns true if there is at least one devices of this user that is
+    /// considered to be verified, false otherwise.
+    pub fn is_any_verified(&self) -> bool {
+        self.inner
+            .values()
+            .any(|d| d.trust_state(&self.own_identity, &self.device_owner_identity))
+    }
+
     /// Iterator over all the device ids of the user devices.
     pub fn keys(&self) -> impl Iterator<Item = &DeviceIdBox> {
         self.inner.keys()

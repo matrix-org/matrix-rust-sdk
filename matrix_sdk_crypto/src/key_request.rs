@@ -407,7 +407,7 @@ impl KeyRequestMachine {
             .await?;
 
         if let Some(device) = device {
-            match self.should_share_session(&device, &session).await {
+            match self.should_share_key(&device, &session).await {
                 Err(e) => {
                     info!(
                         "Received a key request from {} {} that we won't serve: {}",
@@ -509,7 +509,7 @@ impl KeyRequestMachine {
     /// * `device` - The device that is requesting a session from us.
     ///
     /// * `session` - The session that was requested to be shared.
-    async fn should_share_session(
+    async fn should_share_key(
         &self,
         device: &Device,
         session: &InboundGroupSession,
@@ -551,6 +551,38 @@ impl KeyRequestMachine {
         // the session.
         } else {
             Err(KeyshareDecision::MissingOutboundSession)
+        }
+    }
+
+    /// Check if it's ok, or rather if it makes sense to automatically request
+    /// a key from our other devices.
+    ///
+    /// # Arguments
+    ///
+    /// * `key_info` - The info of our key request containing information about
+    /// the key we wish to request.
+    async fn should_request_key(
+        &self,
+        key_info: &RequestedKeyInfo,
+    ) -> Result<bool, CryptoStoreError> {
+        let request = self.store.get_key_request_by_info(&key_info).await?;
+
+        // Don't send out duplicate requests, users can re-request them if they
+        // think a second request might succeed.
+        if request.is_none() {
+            let devices = self.store.get_user_devices(self.user_id()).await?;
+
+            // Devices will only respond to key requests if the devices are
+            // verified, if the device isn't verified by us it's unlikely that
+            // we're verified by them either. Don't request keys if there isn't
+            // at least one verified device.
+            if devices.is_any_verified() {
+                Ok(true)
+            } else {
+                Ok(false)
+            }
+        } else {
+            Ok(false)
         }
     }
 
@@ -644,9 +676,7 @@ impl KeyRequestMachine {
             session_id: session_id.to_owned(),
         };
 
-        let request = self.store.get_key_request_by_info(&key_info).await?;
-
-        if request.is_none() {
+        if self.should_request_key(&key_info).await? {
             self.request_key_helper(key_info).await?;
         }
 
@@ -828,6 +858,10 @@ mod test {
         "ILMLKASTES".into()
     }
 
+    fn alice2_device_id() -> DeviceIdBox {
+        "ILMLKASTES".into()
+    }
+
     fn room_id() -> RoomId {
         room_id!("!test:example.org")
     }
@@ -838,6 +872,10 @@ mod test {
 
     fn bob_account() -> ReadOnlyAccount {
         ReadOnlyAccount::new(&bob_id(), &bob_device_id())
+    }
+
+    fn alice_2_account() -> ReadOnlyAccount {
+        ReadOnlyAccount::new(&alice_id(), &alice2_device_id())
     }
 
     fn bob_machine() -> KeyRequestMachine {
@@ -890,7 +928,7 @@ mod test {
     }
 
     #[async_test]
-    async fn create_key_request() {
+    async fn re_request_keys() {
         let machine = get_machine().await;
         let account = account();
 
@@ -925,9 +963,15 @@ mod test {
     }
 
     #[async_test]
-    async fn re_request_keys() {
+    async fn create_key_request() {
         let machine = get_machine().await;
         let account = account();
+        let second_account = alice_2_account();
+        let alice_device = ReadOnlyDevice::from_account(&second_account).await;
+
+        // We need a trusted device, otherwise we won't request keys
+        alice_device.set_trust_state(LocalTrust::Verified);
+        machine.store.save_devices(&[alice_device]).await.unwrap();
 
         let (_, session) = account
             .create_group_session_pair_with_defaults(&room_id())
@@ -986,6 +1030,13 @@ mod test {
     async fn receive_forwarded_key() {
         let machine = get_machine().await;
         let account = account();
+
+        let second_account = alice_2_account();
+        let alice_device = ReadOnlyDevice::from_account(&second_account).await;
+
+        // We need a trusted device, otherwise we won't request keys
+        alice_device.set_trust_state(LocalTrust::Verified);
+        machine.store.save_devices(&[alice_device]).await.unwrap();
 
         let (_, session) = account
             .create_group_session_pair_with_defaults(&room_id())
@@ -1118,7 +1169,7 @@ mod test {
         // We don't share keys with untrusted devices.
         assert_eq!(
             machine
-                .should_share_session(&own_device, &inbound)
+                .should_share_key(&own_device, &inbound)
                 .await
                 .expect_err("Should not share with untrusted"),
             KeyshareDecision::UntrustedDevice
@@ -1126,7 +1177,7 @@ mod test {
         own_device.set_trust_state(LocalTrust::Verified);
         // Now we do want to share the keys.
         assert!(machine
-            .should_share_session(&own_device, &inbound)
+            .should_share_key(&own_device, &inbound)
             .await
             .is_ok());
 
@@ -1144,7 +1195,7 @@ mod test {
         // session was provided.
         assert_eq!(
             machine
-                .should_share_session(&bob_device, &inbound)
+                .should_share_key(&bob_device, &inbound)
                 .await
                 .expect_err("Should not share with other."),
             KeyshareDecision::MissingOutboundSession
@@ -1161,7 +1212,7 @@ mod test {
         // wasn't shared in the first place.
         assert_eq!(
             machine
-                .should_share_session(&bob_device, &inbound)
+                .should_share_key(&bob_device, &inbound)
                 .await
                 .expect_err("Should not share with other unless shared."),
             KeyshareDecision::OutboundSessionNotShared
@@ -1173,7 +1224,7 @@ mod test {
         // wasn't shared in the first place even if the device is trusted.
         assert_eq!(
             machine
-                .should_share_session(&bob_device, &inbound)
+                .should_share_key(&bob_device, &inbound)
                 .await
                 .expect_err("Should not share with other unless shared."),
             KeyshareDecision::OutboundSessionNotShared
@@ -1182,7 +1233,7 @@ mod test {
         // We now share the session, since it was shared before.
         outbound.mark_shared_with(bob_device.user_id(), bob_device.device_id());
         assert!(machine
-            .should_share_session(&bob_device, &inbound)
+            .should_share_key(&bob_device, &inbound)
             .await
             .is_ok());
 
@@ -1195,7 +1246,7 @@ mod test {
 
         assert_eq!(
             machine
-                .should_share_session(&bob_device, &other_inbound)
+                .should_share_key(&bob_device, &other_inbound)
                 .await
                 .expect_err("Should not share with other unless shared."),
             KeyshareDecision::MissingOutboundSession
@@ -1212,6 +1263,17 @@ mod test {
 
         let bob_machine = bob_machine();
         let bob_account = bob_account();
+
+        let second_account = alice_2_account();
+        let alice_device = ReadOnlyDevice::from_account(&second_account).await;
+
+        // We need a trusted device, otherwise we won't request keys
+        alice_device.set_trust_state(LocalTrust::Verified);
+        alice_machine
+            .store
+            .save_devices(&[alice_device])
+            .await
+            .unwrap();
 
         // Create Olm sessions for our two accounts.
         let (alice_session, bob_session) = alice_account.create_session_for(&bob_account).await;
@@ -1380,6 +1442,17 @@ mod test {
 
         let bob_machine = bob_machine();
         let bob_account = bob_account();
+
+        let second_account = alice_2_account();
+        let alice_device = ReadOnlyDevice::from_account(&second_account).await;
+
+        // We need a trusted device, otherwise we won't request keys
+        alice_device.set_trust_state(LocalTrust::Verified);
+        alice_machine
+            .store
+            .save_devices(&[alice_device])
+            .await
+            .unwrap();
 
         // Create Olm sessions for our two accounts.
         let (alice_session, bob_session) = alice_account.create_session_for(&bob_account).await;
