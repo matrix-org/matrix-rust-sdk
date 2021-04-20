@@ -516,11 +516,10 @@ impl KeyRequestMachine {
     ) -> Result<Option<u32>, KeyshareDecision> {
         let outbound_session = self
             .outbound_group_sessions
-            .get_or_load(session.room_id())
+            .get_with_id(session.room_id(), session.session_id())
             .await
             .ok()
-            .flatten()
-            .filter(|o| session.session_id() == o.session_id());
+            .flatten();
 
         let own_device_check = || {
             if device.trust_state() {

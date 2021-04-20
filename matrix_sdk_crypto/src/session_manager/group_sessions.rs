@@ -62,6 +62,12 @@ impl GroupSessionCache {
         self.sessions.insert(session.room_id().to_owned(), session);
     }
 
+    /// Either get a session for the given room from the cache or load it from
+    /// the store.
+    ///
+    /// # Arguments
+    ///
+    /// * `room_id` - The id of the room this session is used for.
     pub async fn get_or_load(&self, room_id: &RoomId) -> StoreResult<Option<OutboundGroupSession>> {
         // Get the cached session, if there isn't one load one from the store
         // and put it in the cache.
@@ -88,6 +94,21 @@ impl GroupSessionCache {
     /// group session.
     fn get(&self, room_id: &RoomId) -> Option<OutboundGroupSession> {
         self.sessions.get(room_id).map(|s| s.clone())
+    }
+
+    /// Get or load the session for the given room with the given session id.
+    ///
+    /// This is the same as [get_or_load()](#method.get_or_load) but it will
+    /// filter out the session if it doesn't match the given session id.
+    pub async fn get_with_id(
+        &self,
+        room_id: &RoomId,
+        session_id: &str,
+    ) -> StoreResult<Option<OutboundGroupSession>> {
+        Ok(self
+            .get_or_load(room_id)
+            .await?
+            .filter(|o| session_id == o.session_id()))
     }
 }
 
