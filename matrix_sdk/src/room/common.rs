@@ -182,11 +182,21 @@ impl Common {
         Ok(())
     }
 
-    /// Get active members for this room, includes invited, joined members.
-    pub async fn active_members(&self) -> Result<Vec<RoomMember>> {
+    async fn ensure_members(&self) -> Result<()> {
         if !self.are_members_synced() {
             self.request_members().await?;
         }
+
+        Ok(())
+    }
+
+    /// Get active members for this room, includes invited, joined members.
+    ///
+    /// *Note*: This method will fetch the members from the homeserver if the
+    /// member list isn't synchronized due to member lazy loading.
+    pub async fn active_members(&self) -> Result<Vec<RoomMember>> {
+        self.ensure_members().await?;
+
         Ok(self
             .inner
             .active_members()
@@ -196,11 +206,29 @@ impl Common {
             .collect())
     }
 
+    /// Get all the joined members of this room.
+    ///
+    /// *Note*: This method will fetch the members from the homeserver if the
+    /// member list isn't synchronized due to member lazy loading.
+    pub async fn joined_members(&self) -> Result<Vec<RoomMember>> {
+        self.ensure_members().await?;
+
+        Ok(self
+            .inner
+            .members()
+            .await?
+            .into_iter()
+            .map(|member| RoomMember::new(self.client.clone(), member))
+            .collect())
+    }
+
     /// Get all members for this room, includes invited, joined and left members.
+    ///
+    /// *Note*: This method will fetch the members from the homeserver if the
+    /// member list isn't synchronized due to member lazy loading.
     pub async fn members(&self) -> Result<Vec<RoomMember>> {
-        if !self.are_members_synced() {
-            self.request_members().await?;
-        }
+        self.ensure_members().await?;
+
         Ok(self
             .inner
             .members()
