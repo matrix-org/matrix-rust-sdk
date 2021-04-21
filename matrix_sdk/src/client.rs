@@ -1229,6 +1229,56 @@ impl Client {
     }
 
     /// Get or upload a sync filter.
+    ///
+    /// This method will either get a filter ID from the store or upload the
+    /// filter definition to the homeserver and return the new filter ID.
+    ///
+    /// # Arguments
+    ///
+    /// * `filter_name` - The unique name of the filter, this name will be used
+    /// locally to store and identify the filter ID returned by the server.
+    ///
+    /// * `definition` - The filter definition that should be uploaded to the
+    /// server if no filter ID can be found in the store.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// # use matrix_sdk::{
+    /// #    Client, SyncSettings,
+    /// #    api::r0::{
+    /// #        filter::{
+    /// #           FilterDefinition, LazyLoadOptions, RoomEventFilter, RoomFilter,
+    /// #        },
+    /// #        sync::sync_events::Filter,
+    /// #    }
+    /// # };
+    /// # use futures::executor::block_on;
+    /// # use url::Url;
+    /// # let homeserver = Url::parse("http://example.com").unwrap();
+    /// # let client = Client::new(homeserver).unwrap();
+    /// # block_on(async {
+    /// let mut filter = FilterDefinition::default();
+    /// let mut room_filter = RoomFilter::default();
+    /// let mut event_filter = RoomEventFilter::default();
+    ///
+    /// // Let's enable member lazy loading.
+    /// event_filter.lazy_load_options = LazyLoadOptions::Enabled {
+    ///     include_redundant_members: false,
+    /// };
+    /// room_filter.state = event_filter;
+    /// filter.room = room_filter;
+    ///
+    /// let filter_id = client
+    ///     .get_or_upload_filter("sync", filter)
+    ///     .await
+    ///     .unwrap();
+    ///
+    /// let sync_settings = SyncSettings::new()
+    ///     .filter(Filter::FilterId(&filter_id));
+    ///
+    /// let response = client.sync_once(sync_settings).await.unwrap();
+    /// # });
     pub async fn get_or_upload_filter(
         &self,
         filter_name: &str,
