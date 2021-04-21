@@ -1,5 +1,8 @@
 use crate::{room::Common, BaseRoom, Client, Result, RoomType};
-use std::{io::Read, ops::Deref, sync::Arc};
+use std::{io::Read, ops::Deref};
+
+#[cfg(feature = "encryption")]
+use std::sync::Arc;
 
 use matrix_sdk_common::{
     api::r0::{

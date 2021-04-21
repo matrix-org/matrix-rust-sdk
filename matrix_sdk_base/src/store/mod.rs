@@ -15,9 +15,11 @@
 use std::{
     collections::{BTreeMap, BTreeSet},
     ops::Deref,
-    path::Path,
     sync::Arc,
 };
+
+#[cfg(feature = "sled_state_store")]
+use std::path::Path;
 
 use dashmap::DashMap;
 use matrix_sdk_common::{

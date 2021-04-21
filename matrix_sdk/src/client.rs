@@ -95,7 +95,7 @@ use matrix_sdk_common::{
         uiaa::AuthData,
     },
     assign,
-    identifiers::{DeviceIdBox, EventId, RoomId, RoomIdOrAliasId, ServerName, UserId},
+    identifiers::{DeviceIdBox, RoomId, RoomIdOrAliasId, ServerName, UserId},
     instant::{Duration, Instant},
     locks::RwLock,
     presence::PresenceState,
@@ -104,11 +104,14 @@ use matrix_sdk_common::{
 };
 
 #[cfg(feature = "encryption")]
-use matrix_sdk_common::api::r0::{
-    keys::{get_keys, upload_keys, upload_signing_keys::Request as UploadSigningKeysRequest},
-    to_device::send_event_to_device::{
-        Request as RumaToDeviceRequest, Response as ToDeviceResponse,
+use matrix_sdk_common::{
+    api::r0::{
+        keys::{get_keys, upload_keys, upload_signing_keys::Request as UploadSigningKeysRequest},
+        to_device::send_event_to_device::{
+            Request as RumaToDeviceRequest, Response as ToDeviceResponse,
+        },
     },
+    identifiers::EventId,
 };
 
 use matrix_sdk_common::locks::Mutex;

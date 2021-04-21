@@ -31,10 +31,7 @@ use matrix_sdk_common::{
     },
     events::{
         presence::PresenceEvent,
-        room::{
-            history_visibility::HistoryVisibility,
-            member::{MemberEventContent, MembershipState},
-        },
+        room::member::{MemberEventContent, MembershipState},
         AnyBasicEvent, AnyStrippedStateEvent, AnySyncRoomEvent, AnySyncStateEvent,
         AnyToDeviceEvent, EventContent, StateEvent,
     },
@@ -46,7 +43,10 @@ use matrix_sdk_common::{
 #[cfg(feature = "encryption")]
 use matrix_sdk_common::{
     api::r0::keys::claim_keys::Request as KeysClaimRequest,
-    events::{room::encrypted::EncryptedEventContent, AnyMessageEventContent, AnySyncMessageEvent},
+    events::{
+        room::{encrypted::EncryptedEventContent, history_visibility::HistoryVisibility},
+        AnyMessageEventContent, AnySyncMessageEvent,
+    },
     identifiers::DeviceId,
     locks::Mutex,
     uuid::Uuid,
@@ -427,6 +427,7 @@ impl BaseClient {
         for event in ruma_timeline.events {
             match hoist_room_event_prev_content(&event) {
                 Ok(mut e) => {
+                    #[allow(clippy::single_match)]
                     match &mut e {
                         AnySyncRoomEvent::State(s) => match s {
                             AnySyncStateEvent::RoomMember(member) => {
