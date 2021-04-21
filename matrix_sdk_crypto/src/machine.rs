@@ -156,21 +156,22 @@ impl OlmMachine {
             verification_machine.clone(),
         );
         let device_id: Arc<DeviceIdBox> = Arc::new(device_id);
-        let outbound_group_sessions = Arc::new(DashMap::new());
         let users_for_key_claim = Arc::new(DashMap::new());
-
-        let key_request_machine = KeyRequestMachine::new(
-            user_id.clone(),
-            device_id.clone(),
-            store.clone(),
-            outbound_group_sessions,
-            users_for_key_claim.clone(),
-        );
 
         let account = Account {
             inner: account,
             store: store.clone(),
         };
+
+        let group_session_manager = GroupSessionManager::new(account.clone(), store.clone());
+
+        let key_request_machine = KeyRequestMachine::new(
+            user_id.clone(),
+            device_id.clone(),
+            store.clone(),
+            group_session_manager.session_cache(),
+            users_for_key_claim.clone(),
+        );
 
         let session_manager = SessionManager::new(
             account.clone(),
@@ -178,7 +179,6 @@ impl OlmMachine {
             key_request_machine.clone(),
             store.clone(),
         );
-        let group_session_manager = GroupSessionManager::new(account.clone(), store.clone());
         let identity_manager =
             IdentityManager::new(user_id.clone(), device_id.clone(), store.clone());
 
@@ -294,7 +294,7 @@ impl OlmMachine {
     /// machine using [`mark_request_as_sent`].
     ///
     /// [`mark_request_as_sent`]: #method.mark_request_as_sent
-    pub async fn outgoing_requests(&self) -> Vec<OutgoingRequest> {
+    pub async fn outgoing_requests(&self) -> StoreResult<Vec<OutgoingRequest>> {
         let mut requests = Vec::new();
 
         if let Some(r) = self.keys_for_upload().await.map(|r| OutgoingRequest {
@@ -319,9 +319,14 @@ impl OlmMachine {
 
         requests.append(&mut self.outgoing_to_device_requests());
         requests.append(&mut self.verification_machine.outgoing_room_message_requests());
-        requests.append(&mut self.key_request_machine.outgoing_to_device_requests());
+        requests.append(
+            &mut self
+                .key_request_machine
+                .outgoing_to_device_requests()
+                .await?,
+        );
 
-        requests
+        Ok(requests)
     }
 
     /// Mark the request with the given request id as sent.
@@ -751,7 +756,7 @@ impl OlmMachine {
     async fn mark_to_device_request_as_sent(&self, request_id: &Uuid) -> StoreResult<()> {
         self.verification_machine.mark_request_as_sent(request_id);
         self.key_request_machine
-            .mark_outgoing_request_as_sent(request_id)
+            .mark_outgoing_request_as_sent(*request_id)
             .await?;
         self.group_session_manager
             .mark_request_as_sent(request_id)
@@ -911,6 +916,38 @@ impl OlmMachine {
         self.store.save_changes(changes).await?;
 
         Ok(ToDevice { events })
+    }
+
+    /// Request a room key from our devices.
+    ///
+    /// This method will return a request cancelation and a new key request if
+    /// the key was already requested, otherwise it will return just the key
+    /// request.
+    ///
+    /// The request cancelation *must* be sent out before the request is sent
+    /// out, otherwise devices will ignore the key request.
+    ///
+    /// # Arguments
+    ///
+    /// * `room_id` - The id of the room where the key is used in.
+    ///
+    /// * `sender_key` - The curve25519 key of the sender that owns the key.
+    ///
+    /// * `session_id` - The id that uniquely identifies the session.
+    pub async fn request_room_key(
+        &self,
+        event: &SyncMessageEvent<EncryptedEventContent>,
+        room_id: &RoomId,
+    ) -> MegolmResult<(Option<OutgoingRequest>, OutgoingRequest)> {
+        let content = match &event.content {
+            EncryptedEventContent::MegolmV1AesSha2(c) => c,
+            _ => return Err(EventError::UnsupportedAlgorithm.into()),
+        };
+
+        Ok(self
+            .key_request_machine
+            .request_key(room_id, &content.sender_key, &content.session_id)
+            .await?)
     }
 
     /// Decrypt an event from a room timeline.

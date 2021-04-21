@@ -29,9 +29,12 @@ use sled::{
 
 use matrix_sdk_common::{
     async_trait,
+    events::room_key_request::RequestedKeyInfo,
     identifiers::{DeviceId, DeviceIdBox, RoomId, UserId},
     locks::Mutex,
+    uuid,
 };
+use uuid::Uuid;
 
 use super::{
     caches::SessionStore, Changes, CryptoStore, CryptoStoreError, InboundGroupSession, PickleKey,
@@ -39,6 +42,7 @@ use super::{
 };
 use crate::{
     identities::{ReadOnlyDevice, UserIdentities},
+    key_request::OutgoingKeyRequest,
     olm::{OutboundGroupSession, PickledInboundGroupSession, PrivateCrossSigningIdentity},
 };
 
@@ -49,6 +53,28 @@ const DEFAULT_PICKLE: &str = "DEFAULT_PICKLE_PASSPHRASE_123456";
 trait EncodeKey {
     const SEPARATOR: u8 = 0xff;
     fn encode(&self) -> Vec<u8>;
+}
+
+impl EncodeKey for Uuid {
+    fn encode(&self) -> Vec<u8> {
+        self.as_u128().to_be_bytes().to_vec()
+    }
+}
+
+impl EncodeKey for &RequestedKeyInfo {
+    fn encode(&self) -> Vec<u8> {
+        [
+            self.room_id.as_bytes(),
+            &[Self::SEPARATOR],
+            self.sender_key.as_bytes(),
+            &[Self::SEPARATOR],
+            self.algorithm.as_ref().as_bytes(),
+            &[Self::SEPARATOR],
+            self.session_id.as_bytes(),
+            &[Self::SEPARATOR],
+        ]
+        .concat()
+    }
 }
 
 impl EncodeKey for &UserId {
@@ -122,12 +148,15 @@ pub struct SledStore {
     inbound_group_sessions: Tree,
     outbound_group_sessions: Tree,
 
+    outgoing_key_requests: Tree,
+    unsent_key_requests: Tree,
+    key_requests_by_info: Tree,
+
     devices: Tree,
     identities: Tree,
 
     tracked_users: Tree,
     users_for_key_query: Tree,
-    values: Tree,
 }
 
 impl std::fmt::Debug for SledStore {
@@ -178,13 +207,17 @@ impl SledStore {
         let sessions = db.open_tree("session")?;
         let inbound_group_sessions = db.open_tree("inbound_group_sessions")?;
         let outbound_group_sessions = db.open_tree("outbound_group_sessions")?;
+
         let tracked_users = db.open_tree("tracked_users")?;
         let users_for_key_query = db.open_tree("users_for_key_query")?;
         let olm_hashes = db.open_tree("olm_hashes")?;
 
         let devices = db.open_tree("devices")?;
         let identities = db.open_tree("identities")?;
-        let values = db.open_tree("values")?;
+
+        let outgoing_key_requests = db.open_tree("outgoing_key_requests")?;
+        let unsent_key_requests = db.open_tree("unsent_key_requests")?;
+        let key_requests_by_info = db.open_tree("key_requests_by_info")?;
 
         let session_cache = SessionStore::new();
 
@@ -208,12 +241,14 @@ impl SledStore {
             users_for_key_query_cache: DashSet::new().into(),
             inbound_group_sessions,
             outbound_group_sessions,
+            outgoing_key_requests,
+            unsent_key_requests,
+            key_requests_by_info,
             devices,
             tracked_users,
             users_for_key_query,
             olm_hashes,
             identities,
-            values,
         })
     }
 
@@ -332,6 +367,7 @@ impl SledStore {
 
         let identity_changes = changes.identities;
         let olm_hashes = changes.message_hashes;
+        let key_requests = changes.key_requests;
 
         let ret: Result<(), TransactionError<serde_json::Error>> = (
             &self.account,
@@ -342,6 +378,9 @@ impl SledStore {
             &self.inbound_group_sessions,
             &self.outbound_group_sessions,
             &self.olm_hashes,
+            &self.outgoing_key_requests,
+            &self.unsent_key_requests,
+            &self.key_requests_by_info,
         )
             .transaction(
                 |(
@@ -353,6 +392,9 @@ impl SledStore {
                     inbound_sessions,
                     outbound_sessions,
                     hashes,
+                    outgoing_key_requests,
+                    unsent_key_requests,
+                    key_requests_by_info,
                 )| {
                     if let Some(a) = &account_pickle {
                         account.insert(
@@ -420,6 +462,31 @@ impl SledStore {
                         )?;
                     }
 
+                    for key_request in &key_requests {
+                        key_requests_by_info.insert(
+                            (&key_request.info).encode(),
+                            key_request.request_id.encode(),
+                        )?;
+
+                        let key_request_id = key_request.request_id.encode();
+
+                        if key_request.sent_out {
+                            unsent_key_requests.remove(key_request_id.clone())?;
+                            outgoing_key_requests.insert(
+                                key_request_id,
+                                serde_json::to_vec(&key_request)
+                                    .map_err(ConflictableTransactionError::Abort)?,
+                            )?;
+                        } else {
+                            outgoing_key_requests.remove(key_request_id.clone())?;
+                            unsent_key_requests.insert(
+                                key_request_id,
+                                serde_json::to_vec(&key_request)
+                                    .map_err(ConflictableTransactionError::Abort)?,
+                            )?;
+                        }
+                    }
+
                     Ok(())
                 },
             );
@@ -428,6 +495,28 @@ impl SledStore {
         self.inner.flush_async().await?;
 
         Ok(())
+    }
+
+    async fn get_outgoing_key_request_helper(
+        &self,
+        id: &[u8],
+    ) -> Result<Option<OutgoingKeyRequest>> {
+        let request = self
+            .outgoing_key_requests
+            .get(id)?
+            .map(|r| serde_json::from_slice(&r))
+            .transpose()?;
+
+        let request = if request.is_none() {
+            self.unsent_key_requests
+                .get(id)?
+                .map(|r| serde_json::from_slice(&r))
+                .transpose()?
+        } else {
+            request
+        };
+
+        Ok(request)
     }
 }
 
@@ -470,6 +559,19 @@ impl CryptoStore for SledStore {
         };
 
         self.save_changes(changes).await
+    }
+
+    async fn load_identity(&self) -> Result<Option<PrivateCrossSigningIdentity>> {
+        if let Some(i) = self.private_identity.get("identity".encode())? {
+            let pickle = serde_json::from_slice(&i)?;
+            Ok(Some(
+                PrivateCrossSigningIdentity::from_pickle(pickle, self.get_pickle_key())
+                    .await
+                    .map_err(|_| CryptoStoreError::UnpicklingError)?,
+            ))
+        } else {
+            Ok(None)
+        }
     }
 
     async fn save_changes(&self, changes: Changes) -> Result<()> {
@@ -539,12 +641,11 @@ impl CryptoStore for SledStore {
             .collect())
     }
 
-    fn users_for_key_query(&self) -> HashSet<UserId> {
-        #[allow(clippy::map_clone)]
-        self.users_for_key_query_cache
-            .iter()
-            .map(|u| u.clone())
-            .collect()
+    async fn get_outbound_group_sessions(
+        &self,
+        room_id: &RoomId,
+    ) -> Result<Option<OutboundGroupSession>> {
+        self.load_outbound_group_session(room_id).await
     }
 
     fn is_user_tracked(&self, user_id: &UserId) -> bool {
@@ -553,6 +654,14 @@ impl CryptoStore for SledStore {
 
     fn has_users_for_key_query(&self) -> bool {
         !self.users_for_key_query_cache.is_empty()
+    }
+
+    fn users_for_key_query(&self) -> HashSet<UserId> {
+        #[allow(clippy::map_clone)]
+        self.users_for_key_query_cache
+            .iter()
+            .map(|u| u.clone())
+            .collect()
     }
 
     async fn update_tracked_user(&self, user: &UserId, dirty: bool) -> Result<bool> {
@@ -605,48 +714,80 @@ impl CryptoStore for SledStore {
             .transpose()?)
     }
 
-    async fn save_value(&self, key: String, value: String) -> Result<()> {
-        self.values.insert(key.as_str().encode(), value.as_str())?;
-        self.inner.flush_async().await?;
-        Ok(())
-    }
-
-    async fn remove_value(&self, key: &str) -> Result<()> {
-        self.values.remove(key.encode())?;
-        Ok(())
-    }
-
-    async fn get_value(&self, key: &str) -> Result<Option<String>> {
-        Ok(self
-            .values
-            .get(key.encode())?
-            .map(|v| String::from_utf8_lossy(&v).to_string()))
-    }
-
-    async fn load_identity(&self) -> Result<Option<PrivateCrossSigningIdentity>> {
-        if let Some(i) = self.private_identity.get("identity".encode())? {
-            let pickle = serde_json::from_slice(&i)?;
-            Ok(Some(
-                PrivateCrossSigningIdentity::from_pickle(pickle, self.get_pickle_key())
-                    .await
-                    .map_err(|_| CryptoStoreError::UnpicklingError)?,
-            ))
-        } else {
-            Ok(None)
-        }
-    }
-
     async fn is_message_known(&self, message_hash: &crate::olm::OlmMessageHash) -> Result<bool> {
         Ok(self
             .olm_hashes
             .contains_key(serde_json::to_vec(message_hash)?)?)
     }
 
-    async fn get_outbound_group_sessions(
+    async fn get_outgoing_key_request(
         &self,
-        room_id: &RoomId,
-    ) -> Result<Option<OutboundGroupSession>> {
-        self.load_outbound_group_session(room_id).await
+        request_id: Uuid,
+    ) -> Result<Option<OutgoingKeyRequest>> {
+        let request_id = request_id.encode();
+
+        self.get_outgoing_key_request_helper(&request_id).await
+    }
+
+    async fn get_key_request_by_info(
+        &self,
+        key_info: &RequestedKeyInfo,
+    ) -> Result<Option<OutgoingKeyRequest>> {
+        let id = self.key_requests_by_info.get(key_info.encode())?;
+
+        if let Some(id) = id {
+            self.get_outgoing_key_request_helper(&id).await
+        } else {
+            Ok(None)
+        }
+    }
+
+    async fn get_unsent_key_requests(&self) -> Result<Vec<OutgoingKeyRequest>> {
+        let requests: Result<Vec<OutgoingKeyRequest>> = self
+            .unsent_key_requests
+            .iter()
+            .map(|i| serde_json::from_slice(&i?.1).map_err(CryptoStoreError::from))
+            .collect();
+
+        requests
+    }
+
+    async fn delete_outgoing_key_request(&self, request_id: Uuid) -> Result<()> {
+        let ret: Result<(), TransactionError<serde_json::Error>> = (
+            &self.outgoing_key_requests,
+            &self.unsent_key_requests,
+            &self.key_requests_by_info,
+        )
+            .transaction(
+                |(outgoing_key_requests, unsent_key_requests, key_requests_by_info)| {
+                    let sent_request: Option<OutgoingKeyRequest> = outgoing_key_requests
+                        .remove(request_id.encode())?
+                        .map(|r| serde_json::from_slice(&r))
+                        .transpose()
+                        .map_err(ConflictableTransactionError::Abort)?;
+
+                    let unsent_request: Option<OutgoingKeyRequest> = unsent_key_requests
+                        .remove(request_id.encode())?
+                        .map(|r| serde_json::from_slice(&r))
+                        .transpose()
+                        .map_err(ConflictableTransactionError::Abort)?;
+
+                    if let Some(request) = sent_request {
+                        key_requests_by_info.remove((&request.info).encode())?;
+                    }
+
+                    if let Some(request) = unsent_request {
+                        key_requests_by_info.remove((&request.info).encode())?;
+                    }
+
+                    Ok(())
+                },
+            );
+
+        ret?;
+        self.inner.flush_async().await?;
+
+        Ok(())
     }
 }
 
@@ -665,14 +806,16 @@ mod test {
     };
     use matrix_sdk_common::{
         api::r0::keys::SignedKey,
-        identifiers::{room_id, user_id, DeviceId, UserId},
+        events::room_key_request::RequestedKeyInfo,
+        identifiers::{room_id, user_id, DeviceId, EventEncryptionAlgorithm, UserId},
+        uuid::Uuid,
     };
     use matrix_sdk_test::async_test;
     use olm_rs::outbound_group_session::OlmOutboundGroupSession;
     use std::collections::BTreeMap;
     use tempfile::tempdir;
 
-    use super::{CryptoStore, SledStore};
+    use super::{CryptoStore, OutgoingKeyRequest, SledStore};
 
     fn alice_id() -> UserId {
         user_id!("@alice:example.org")
@@ -1185,21 +1328,6 @@ mod test {
     }
 
     #[async_test]
-    async fn key_value_saving() {
-        let (_, store, _dir) = get_loaded_store().await;
-        let key = "test_key".to_string();
-        let value = "secret value".to_string();
-
-        store.save_value(key.clone(), value.clone()).await.unwrap();
-        let stored_value = store.get_value(&key).await.unwrap().unwrap();
-
-        assert_eq!(value, stored_value);
-
-        store.remove_value(&key).await.unwrap();
-        assert!(store.get_value(&key).await.unwrap().is_none());
-    }
-
-    #[async_test]
     async fn olm_hash_saving() {
         let (_, store, _dir) = get_loaded_store().await;
 
@@ -1214,5 +1342,64 @@ mod test {
         assert!(!store.is_message_known(&hash).await.unwrap());
         store.save_changes(changes).await.unwrap();
         assert!(store.is_message_known(&hash).await.unwrap());
+    }
+
+    #[async_test]
+    async fn key_request_saving() {
+        let (account, store, _dir) = get_loaded_store().await;
+
+        let id = Uuid::new_v4();
+        let info = RequestedKeyInfo {
+            algorithm: EventEncryptionAlgorithm::MegolmV1AesSha2,
+            room_id: room_id!("!test:localhost"),
+            sender_key: "test_sender_key".to_string(),
+            session_id: "test_session_id".to_string(),
+        };
+
+        let request = OutgoingKeyRequest {
+            request_recipient: account.user_id().to_owned(),
+            request_id: id,
+            info: info.clone(),
+            sent_out: false,
+        };
+
+        assert!(store.get_outgoing_key_request(id).await.unwrap().is_none());
+
+        let mut changes = Changes::default();
+        changes.key_requests.push(request.clone());
+        store.save_changes(changes).await.unwrap();
+
+        let request = Some(request);
+
+        let stored_request = store.get_outgoing_key_request(id).await.unwrap();
+        assert_eq!(request, stored_request);
+
+        let stored_request = store.get_key_request_by_info(&info).await.unwrap();
+        assert_eq!(request, stored_request);
+        assert!(!store.get_unsent_key_requests().await.unwrap().is_empty());
+
+        let request = OutgoingKeyRequest {
+            request_recipient: account.user_id().to_owned(),
+            request_id: id,
+            info: info.clone(),
+            sent_out: true,
+        };
+
+        let mut changes = Changes::default();
+        changes.key_requests.push(request.clone());
+        store.save_changes(changes).await.unwrap();
+
+        assert!(store.get_unsent_key_requests().await.unwrap().is_empty());
+        let stored_request = store.get_outgoing_key_request(id).await.unwrap();
+        assert_eq!(Some(request), stored_request);
+
+        store.delete_outgoing_key_request(id).await.unwrap();
+
+        let stored_request = store.get_outgoing_key_request(id).await.unwrap();
+        assert_eq!(None, stored_request);
+
+        let stored_request = store.get_key_request_by_info(&info).await.unwrap();
+        assert_eq!(None, stored_request);
+        assert!(store.get_unsent_key_requests().await.unwrap().is_empty());
     }
 }

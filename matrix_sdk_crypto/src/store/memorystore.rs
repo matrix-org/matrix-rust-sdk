@@ -20,8 +20,10 @@ use std::{
 use dashmap::{DashMap, DashSet};
 use matrix_sdk_common::{
     async_trait,
+    events::room_key_request::RequestedKeyInfo,
     identifiers::{DeviceId, DeviceIdBox, RoomId, UserId},
     locks::Mutex,
+    uuid::Uuid,
 };
 
 use super::{
@@ -30,8 +32,16 @@ use super::{
 };
 use crate::{
     identities::{ReadOnlyDevice, UserIdentities},
+    key_request::OutgoingKeyRequest,
     olm::{OutboundGroupSession, PrivateCrossSigningIdentity},
 };
+
+fn encode_key_info(info: &RequestedKeyInfo) -> String {
+    format!(
+        "{}{}{}{}",
+        info.room_id, info.sender_key, info.algorithm, info.session_id
+    )
+}
 
 /// An in-memory only store that will forget all the E2EE key once it's dropped.
 #[derive(Debug, Clone)]
@@ -43,7 +53,8 @@ pub struct MemoryStore {
     olm_hashes: Arc<DashMap<String, DashSet<String>>>,
     devices: DeviceStore,
     identities: Arc<DashMap<UserId, UserIdentities>>,
-    values: Arc<DashMap<String, String>>,
+    outgoing_key_requests: Arc<DashMap<Uuid, OutgoingKeyRequest>>,
+    key_requests_by_info: Arc<DashMap<String, Uuid>>,
 }
 
 impl Default for MemoryStore {
@@ -56,7 +67,8 @@ impl Default for MemoryStore {
             olm_hashes: Arc::new(DashMap::new()),
             devices: DeviceStore::new(),
             identities: Arc::new(DashMap::new()),
-            values: Arc::new(DashMap::new()),
+            outgoing_key_requests: Arc::new(DashMap::new()),
+            key_requests_by_info: Arc::new(DashMap::new()),
         }
     }
 }
@@ -103,6 +115,10 @@ impl CryptoStore for MemoryStore {
         Ok(())
     }
 
+    async fn load_identity(&self) -> Result<Option<PrivateCrossSigningIdentity>> {
+        Ok(None)
+    }
+
     async fn save_changes(&self, mut changes: Changes) -> Result<()> {
         self.save_sessions(changes.sessions).await;
         self.save_inbound_group_sessions(changes.inbound_group_sessions)
@@ -130,6 +146,14 @@ impl CryptoStore for MemoryStore {
                 .insert(hash.hash.clone());
         }
 
+        for key_request in changes.key_requests {
+            let id = key_request.request_id;
+            let info_string = encode_key_info(&key_request.info);
+
+            self.outgoing_key_requests.insert(id, key_request);
+            self.key_requests_by_info.insert(info_string, id);
+        }
+
         Ok(())
     }
 
@@ -152,9 +176,11 @@ impl CryptoStore for MemoryStore {
         Ok(self.inbound_group_sessions.get_all())
     }
 
-    fn users_for_key_query(&self) -> HashSet<UserId> {
-        #[allow(clippy::map_clone)]
-        self.users_for_key_query.iter().map(|u| u.clone()).collect()
+    async fn get_outbound_group_sessions(
+        &self,
+        _: &RoomId,
+    ) -> Result<Option<OutboundGroupSession>> {
+        Ok(None)
     }
 
     fn is_user_tracked(&self, user_id: &UserId) -> bool {
@@ -163,6 +189,11 @@ impl CryptoStore for MemoryStore {
 
     fn has_users_for_key_query(&self) -> bool {
         !self.users_for_key_query.is_empty()
+    }
+
+    fn users_for_key_query(&self) -> HashSet<UserId> {
+        #[allow(clippy::map_clone)]
+        self.users_for_key_query.iter().map(|u| u.clone()).collect()
     }
 
     async fn update_tracked_user(&self, user: &UserId, dirty: bool) -> Result<bool> {
@@ -207,24 +238,6 @@ impl CryptoStore for MemoryStore {
         Ok(self.identities.get(user_id).map(|i| i.clone()))
     }
 
-    async fn save_value(&self, key: String, value: String) -> Result<()> {
-        self.values.insert(key, value);
-        Ok(())
-    }
-
-    async fn remove_value(&self, key: &str) -> Result<()> {
-        self.values.remove(key);
-        Ok(())
-    }
-
-    async fn get_value(&self, key: &str) -> Result<Option<String>> {
-        Ok(self.values.get(key).map(|v| v.to_owned()))
-    }
-
-    async fn load_identity(&self) -> Result<Option<PrivateCrossSigningIdentity>> {
-        Ok(None)
-    }
-
     async fn is_message_known(&self, message_hash: &crate::olm::OlmMessageHash) -> Result<bool> {
         Ok(self
             .olm_hashes
@@ -233,11 +246,46 @@ impl CryptoStore for MemoryStore {
             .contains(&message_hash.hash))
     }
 
-    async fn get_outbound_group_sessions(
+    async fn get_outgoing_key_request(
         &self,
-        _: &RoomId,
-    ) -> Result<Option<OutboundGroupSession>> {
-        Ok(None)
+        request_id: Uuid,
+    ) -> Result<Option<OutgoingKeyRequest>> {
+        Ok(self
+            .outgoing_key_requests
+            .get(&request_id)
+            .map(|r| r.clone()))
+    }
+
+    async fn get_key_request_by_info(
+        &self,
+        key_info: &RequestedKeyInfo,
+    ) -> Result<Option<OutgoingKeyRequest>> {
+        let key_info_string = encode_key_info(key_info);
+
+        Ok(self
+            .key_requests_by_info
+            .get(&key_info_string)
+            .and_then(|i| self.outgoing_key_requests.get(&i).map(|r| r.clone())))
+    }
+
+    async fn get_unsent_key_requests(&self) -> Result<Vec<OutgoingKeyRequest>> {
+        Ok(self
+            .outgoing_key_requests
+            .iter()
+            .filter(|i| !i.value().sent_out)
+            .map(|i| i.value().clone())
+            .collect())
+    }
+
+    async fn delete_outgoing_key_request(&self, request_id: Uuid) -> Result<()> {
+        self.outgoing_key_requests
+            .remove(&request_id)
+            .and_then(|(_, i)| {
+                let key_info_string = encode_key_info(&i.info);
+                self.key_requests_by_info.remove(&key_info_string)
+            });
+
+        Ok(())
     }
 }
 

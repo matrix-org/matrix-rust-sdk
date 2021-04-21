@@ -40,6 +40,78 @@ use crate::{
     Device, EncryptionSettings, OlmError, ToDeviceRequest,
 };
 
+#[derive(Clone, Debug)]
+pub(crate) struct GroupSessionCache {
+    store: Store,
+    sessions: Arc<DashMap<RoomId, OutboundGroupSession>>,
+    /// A map from the request id to the group session that the request belongs
+    /// to. Used to mark requests belonging to the session as shared.
+    sessions_being_shared: Arc<DashMap<Uuid, OutboundGroupSession>>,
+}
+
+impl GroupSessionCache {
+    pub(crate) fn new(store: Store) -> Self {
+        Self {
+            store,
+            sessions: DashMap::new().into(),
+            sessions_being_shared: Arc::new(DashMap::new()),
+        }
+    }
+
+    pub(crate) fn insert(&self, session: OutboundGroupSession) {
+        self.sessions.insert(session.room_id().to_owned(), session);
+    }
+
+    /// Either get a session for the given room from the cache or load it from
+    /// the store.
+    ///
+    /// # Arguments
+    ///
+    /// * `room_id` - The id of the room this session is used for.
+    pub async fn get_or_load(&self, room_id: &RoomId) -> StoreResult<Option<OutboundGroupSession>> {
+        // Get the cached session, if there isn't one load one from the store
+        // and put it in the cache.
+        if let Some(s) = self.sessions.get(room_id) {
+            Ok(Some(s.clone()))
+        } else if let Some(s) = self.store.get_outbound_group_sessions(room_id).await? {
+            for request_id in s.pending_request_ids() {
+                self.sessions_being_shared.insert(request_id, s.clone());
+            }
+
+            self.sessions.insert(room_id.clone(), s.clone());
+
+            Ok(Some(s))
+        } else {
+            Ok(None)
+        }
+    }
+
+    /// Get an outbound group session for a room, if one exists.
+    ///
+    /// # Arguments
+    ///
+    /// * `room_id` - The id of the room for which we should get the outbound
+    /// group session.
+    fn get(&self, room_id: &RoomId) -> Option<OutboundGroupSession> {
+        self.sessions.get(room_id).map(|s| s.clone())
+    }
+
+    /// Get or load the session for the given room with the given session id.
+    ///
+    /// This is the same as [get_or_load()](#method.get_or_load) but it will
+    /// filter out the session if it doesn't match the given session id.
+    pub async fn get_with_id(
+        &self,
+        room_id: &RoomId,
+        session_id: &str,
+    ) -> StoreResult<Option<OutboundGroupSession>> {
+        Ok(self
+            .get_or_load(room_id)
+            .await?
+            .filter(|o| session_id == o.session_id()))
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct GroupSessionManager {
     account: Account,
@@ -48,10 +120,7 @@ pub struct GroupSessionManager {
     /// without the need to create new keys.
     store: Store,
     /// The currently active outbound group sessions.
-    outbound_group_sessions: Arc<DashMap<RoomId, OutboundGroupSession>>,
-    /// A map from the request id to the group session that the request belongs
-    /// to. Used to mark requests belonging to the session as shared.
-    outbound_sessions_being_shared: Arc<DashMap<Uuid, OutboundGroupSession>>,
+    sessions: GroupSessionCache,
 }
 
 impl GroupSessionManager {
@@ -60,14 +129,13 @@ impl GroupSessionManager {
     pub(crate) fn new(account: Account, store: Store) -> Self {
         Self {
             account,
-            store,
-            outbound_group_sessions: Arc::new(DashMap::new()),
-            outbound_sessions_being_shared: Arc::new(DashMap::new()),
+            store: store.clone(),
+            sessions: GroupSessionCache::new(store),
         }
     }
 
     pub async fn invalidate_group_session(&self, room_id: &RoomId) -> StoreResult<bool> {
-        if let Some(s) = self.outbound_group_sessions.get(room_id) {
+        if let Some(s) = self.sessions.get(room_id) {
             s.invalidate_session();
 
             let mut changes = Changes::default();
@@ -81,7 +149,7 @@ impl GroupSessionManager {
     }
 
     pub async fn mark_request_as_sent(&self, request_id: &Uuid) -> StoreResult<()> {
-        if let Some((_, s)) = self.outbound_sessions_being_shared.remove(request_id) {
+        if let Some((_, s)) = self.sessions.sessions_being_shared.remove(request_id) {
             s.mark_request_as_sent(request_id);
 
             let mut changes = Changes::default();
@@ -97,15 +165,9 @@ impl GroupSessionManager {
         Ok(())
     }
 
-    /// Get an outbound group session for a room, if one exists.
-    ///
-    /// # Arguments
-    ///
-    /// * `room_id` - The id of the room for which we should get the outbound
-    /// group session.
+    #[cfg(test)]
     pub fn get_outbound_group_session(&self, room_id: &RoomId) -> Option<OutboundGroupSession> {
-        #[allow(clippy::map_clone)]
-        self.outbound_group_sessions.get(room_id).map(|s| s.clone())
+        self.sessions.get(room_id)
     }
 
     pub async fn encrypt(
@@ -113,7 +175,7 @@ impl GroupSessionManager {
         room_id: &RoomId,
         content: AnyMessageEventContent,
     ) -> MegolmResult<EncryptedEventContent> {
-        let session = if let Some(s) = self.get_outbound_group_session(room_id) {
+        let session = if let Some(s) = self.sessions.get(room_id) {
             s
         } else {
             panic!("Session wasn't created nor shared");
@@ -147,9 +209,7 @@ impl GroupSessionManager {
             .await
             .map_err(|_| EventError::UnsupportedAlgorithm)?;
 
-        let _ = self
-            .outbound_group_sessions
-            .insert(room_id.to_owned(), outbound.clone());
+        self.sessions.insert(outbound.clone());
         Ok((outbound, inbound))
     }
 
@@ -158,23 +218,7 @@ impl GroupSessionManager {
         room_id: &RoomId,
         settings: EncryptionSettings,
     ) -> OlmResult<(OutboundGroupSession, Option<InboundGroupSession>)> {
-        // Get the cached session, if there isn't one load one from the store
-        // and put it in the cache.
-        let outbound_session = if let Some(s) = self.outbound_group_sessions.get(room_id) {
-            Some(s.clone())
-        } else if let Some(s) = self.store.get_outbound_group_sessions(room_id).await? {
-            for request_id in s.pending_request_ids() {
-                self.outbound_sessions_being_shared
-                    .insert(request_id, s.clone());
-            }
-
-            self.outbound_group_sessions
-                .insert(room_id.clone(), s.clone());
-
-            Some(s)
-        } else {
-            None
-        };
+        let outbound_session = self.sessions.get_or_load(&room_id).await?;
 
         // If there is no session or the session has expired or is invalid,
         // create a new one.
@@ -388,6 +432,10 @@ impl GroupSessionManager {
         Ok(used_sessions)
     }
 
+    pub(crate) fn session_cache(&self) -> GroupSessionCache {
+        self.sessions.clone()
+    }
+
     /// Get to-device requests to share a group session with users in a room.
     ///
     /// # Arguments
@@ -489,7 +537,7 @@ impl GroupSessionManager {
                     key_content.clone(),
                     outbound.clone(),
                     message_index,
-                    self.outbound_sessions_being_shared.clone(),
+                    self.sessions.sessions_being_shared.clone(),
                 ))
             })
             .collect();

@@ -1085,12 +1085,12 @@ impl BaseClient {
     /// [`mark_request_as_sent`]: #method.mark_request_as_sent
     #[cfg(feature = "encryption")]
     #[cfg_attr(feature = "docs", doc(cfg(encryption)))]
-    pub async fn outgoing_requests(&self) -> Vec<OutgoingRequest> {
+    pub async fn outgoing_requests(&self) -> Result<Vec<OutgoingRequest>, CryptoStoreError> {
         let olm = self.olm.lock().await;
 
         match &*olm {
             Some(o) => o.outgoing_requests().await,
-            None => vec![],
+            None => Ok(vec![]),
         }
     }
 

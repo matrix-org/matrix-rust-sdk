@@ -1839,7 +1839,16 @@ impl Client {
                     warn!("Error while claiming one-time keys {:?}", e);
                 }
 
-                for r in self.base_client.outgoing_requests().await {
+                // TODO we should probably abort if we get an cryptostore error here
+                let outgoing_requests = match self.base_client.outgoing_requests().await {
+                    Ok(r) => r,
+                    Err(e) => {
+                        warn!("Could not fetch the outgoing requests {:?}", e);
+                        vec![]
+                    }
+                };
+
+                for r in outgoing_requests {
                     match r.request() {
                         OutgoingRequests::KeysQuery(request) => {
                             if let Err(e) = self
