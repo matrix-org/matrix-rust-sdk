@@ -214,9 +214,17 @@ impl EventBuilder {
         self
     }
 
-    /// Builds a `SyncResponse` containing the events we queued so far. The next response returned
-    /// by `build_sync_response` will then be empty if no further events were queued.
-    pub fn build_sync_response(&mut self) -> SyncResponse {
+    /// Builds a sync response as a JSON Value containing the events we queued
+    /// so far.
+    ///
+    /// The next response returned by `build_sync_response` will then be empty
+    /// if no further events were queued.
+    ///
+    /// This method is raw JSON equivalent to
+    /// [build_sync_response()](#method.build_sync_response), use
+    /// [build_sync_response()](#method.build_sync_response) if you need a typed
+    /// response.
+    pub fn build_json_sync_response(&mut self) -> JsonValue {
         let main_room_id = room_id!("!SVkFJHzfwvuaIEawgC:localhost");
 
         // First time building a sync response, so initialize the `prev_batch` to a default one.
@@ -324,12 +332,29 @@ impl EventBuilder {
                 }
             }
         };
+
+        // Clear state so that the next sync response will be empty if nothing
+        // was added.
+        self.clear();
+
+        body
+    }
+
+    /// Builds a `SyncResponse` containing the events we queued so far.
+    ///
+    /// The next response returned by `build_sync_response` will then be empty
+    /// if no further events were queued.
+    ///
+    /// This method is high level and typed equivalent to
+    /// [build_json_sync_response()](#method.build_json_sync_response), use
+    /// [build_json_sync_response()](#method.build_json_sync_response) if you
+    /// need an untyped response.
+    pub fn build_sync_response(&mut self) -> SyncResponse {
+        let body = self.build_json_sync_response();
+
         let response = Response::builder()
             .body(serde_json::to_vec(&body).unwrap())
             .unwrap();
-
-        // Clear state so that the next sync response will be empty if nothing was added.
-        self.clear();
 
         SyncResponse::try_from_http_response(response).unwrap()
     }
