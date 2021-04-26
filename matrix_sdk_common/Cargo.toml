@@ -11,7 +11,6 @@ repository = "https://github.com/matrix-org/matrix-rust-sdk"
 version = "0.2.0"
 
 [features]
-unstable-synapse-quirks = ["ruma/unstable-synapse-quirks"]
 markdown = ["ruma/markdown"]
 
 [dependencies]
@@ -22,7 +21,7 @@ async-trait = "0.1.42"
 [dependencies.ruma]
 version = "0.0.3"
 git = "https://github.com/ruma/ruma"
-rev = "c816630058ab625d93ebab294e9e6c02dd9d866c"
+rev = "1e005f576e4640ee5ce6e357bcf33293819502d1"
 features = ["client-api-c", "compat", "unstable-pre-spec"]
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]

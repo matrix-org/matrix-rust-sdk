@@ -56,7 +56,7 @@ use tracing::{error, info, instrument};
 
 use matrix_sdk_base::{
     deserialized_responses::SyncResponse, events::AnyMessageEventContent, identifiers::MxcUri,
-    BaseClient, BaseClientConfig, Session, Store,
+    BaseClient, BaseClientConfig, SendAccessToken, Session, Store,
 };
 
 #[cfg(feature = "encryption")]
@@ -821,8 +821,8 @@ impl Client {
     /// [`login_with_token`]: #method.login_with_token
     pub fn get_sso_login_url(&self, redirect_url: &str) -> Result<String> {
         let homeserver = self.homeserver();
-        let request =
-            sso_login::Request::new(redirect_url).try_into_http_request(homeserver.as_str(), None);
+        let request = sso_login::Request::new(redirect_url)
+            .try_into_http_request::<Vec<u8>>(homeserver.as_str(), SendAccessToken::None);
         match request {
             Ok(req) => Ok(req.uri().to_string()),
             Err(err) => Err(Error::from(HttpError::from(err))),

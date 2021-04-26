@@ -19,7 +19,6 @@ default = []
 encryption = ["matrix-sdk-crypto"]
 sled_state_store = ["sled", "pbkdf2", "hmac", "sha2", "rand", "chacha20poly1305"]
 sled_cryptostore = ["matrix-sdk-crypto/sled_cryptostore"]
-unstable-synapse-quirks = ["matrix-sdk-common/unstable-synapse-quirks"]
 markdown = ["matrix-sdk-common/markdown"]
 
 docs = ["encryption", "sled_cryptostore"]

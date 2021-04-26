@@ -4,7 +4,7 @@ pub use ruma::{
     api::{
         client as api,
         error::{FromHttpRequestError, FromHttpResponseError, IntoHttpError, ServerError},
-        AuthScheme, EndpointError, IncomingResponse, OutgoingRequest,
+        AuthScheme, EndpointError, IncomingResponse, OutgoingRequest, SendAccessToken,
     },
     assign, directory, encryption, events, identifiers, int, presence, push,
     serde::{CanonicalJsonValue, Raw},

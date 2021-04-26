@@ -24,8 +24,6 @@
 //! keys. If this is disabled and `encryption` support is enabled the keys will
 //! by default be stored only in memory and thus lost after the client is
 //! destroyed.
-//! * `unstable-synapse-quirks`: Enables support to deal with inconsistencies
-//! of Synapse in compliance with the Matrix API specification.
 //! * `markdown`: Support for sending markdown formatted messages.
 #![deny(
     missing_debug_implementations,

@@ -27,7 +27,7 @@ use url::Url;
 
 use matrix_sdk_common::{
     api::r0::media::create_content, async_trait, locks::RwLock, AsyncTraitDeps, AuthScheme,
-    FromHttpResponseError, IncomingResponse,
+    FromHttpResponseError, IncomingResponse, SendAccessToken,
 };
 
 use crate::{error::HttpError, Bytes, ClientConfig, OutgoingRequest, RequestConfig, Session};
@@ -112,12 +112,12 @@ impl HttpClient {
                     read_guard = session.read().await;
 
                     if let Some(session) = read_guard.as_ref() {
-                        Some(session.access_token.as_str())
+                            SendAccessToken::IfRequired(session.access_token.as_str())
                     } else {
                         return Err(HttpError::AuthenticationRequired);
                     }
                 }
-                AuthScheme::None => None,
+                    AuthScheme::None => SendAccessToken::None,
                 _ => return Err(HttpError::NotClientRequest),
             };
 

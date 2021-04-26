@@ -99,7 +99,6 @@ jobs:
           - linux / features-no-encryption-and-sled
           - linux / features-sled_cryptostore
           - linux / features-rustls-tls
-          - linux / features-unstable-synapse-quirks
           - linux / features-markdown
           - linux / features-socks
           - linux / features-sso_login
@@ -119,9 +118,6 @@ jobs:
 
           - name: linux / features-rustls-tls
             cargo_args: --no-default-features --features rustls-tls
-
-          - name: linux / features-unstable-synapse-quirks
-            cargo_args: --features unstable-synapse-quirks
 
           - name: linux / features-markdown
             cargo_args: --features markdown
