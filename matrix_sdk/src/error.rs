@@ -47,6 +47,10 @@ pub enum HttpError {
     #[error("the queried endpoint requires authentication but was called before logging in")]
     AuthenticationRequired,
 
+    /// Client tried to force authentication but did not provide an access token.
+    #[error("tried to force authentication but no access token was provided")]
+    ForcedAuthenticationWithoutAccessToken,
+
     /// Queried endpoint is not meant for clients.
     #[error("the queried endpoint is not meant for clients")]
     NotClientRequest,

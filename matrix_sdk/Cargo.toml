@@ -15,7 +15,7 @@ features = ["docs"]
 rustdoc-args = ["--cfg", "feature=\"docs\""]
 
 [features]
-default = ["encryption", "sled_cryptostore", "sled_state_store", "native-tls"]
+default = ["encryption", "sled_cryptostore", "sled_state_store", "require_auth_for_profile_requests", "native-tls"]
 
 encryption = ["matrix-sdk-base/encryption"]
 sled_state_store = ["matrix-sdk-base/sled_state_store"]
@@ -25,6 +25,7 @@ native-tls = ["reqwest/native-tls"]
 rustls-tls = ["reqwest/rustls-tls"]
 socks = ["reqwest/socks"]
 sso_login = ["warp", "rand", "tokio-stream"]
+require_auth_for_profile_requests = []
 
 docs = ["encryption", "sled_cryptostore", "sled_state_store", "sso_login"]
 

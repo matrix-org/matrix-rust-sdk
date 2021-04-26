@@ -105,28 +105,37 @@ impl HttpClient {
         session: Arc<RwLock<Option<Session>>>,
         config: Option<RequestConfig>,
     ) -> Result<http::Response<Bytes>, HttpError> {
-        let request = {
-            let read_guard;
-            let access_token = match Request::METADATA.authentication {
-                AuthScheme::AccessToken => {
-                    read_guard = session.read().await;
-
-                    if let Some(session) = read_guard.as_ref() {
-                            SendAccessToken::IfRequired(session.access_token.as_str())
-                    } else {
-                        return Err(HttpError::AuthenticationRequired);
-                    }
-                }
-                    AuthScheme::None => SendAccessToken::None,
-                _ => return Err(HttpError::NotClientRequest),
-            };
-
-            request.try_into_http_request(&self.homeserver.to_string(), access_token)?
-        };
-
         let config = match config {
             Some(config) => config,
             None => self.request_config,
+        };
+
+        let request = {
+            let read_guard;
+            let access_token = if config.force_auth {
+                read_guard = session.read().await;
+                if let Some(session) = read_guard.as_ref() {
+                    SendAccessToken::Always(session.access_token.as_str())
+                } else {
+                    return Err(HttpError::ForcedAuthenticationWithoutAccessToken);
+                }
+            } else {
+                match Request::METADATA.authentication {
+                    AuthScheme::AccessToken => {
+                        read_guard = session.read().await;
+
+                        if let Some(session) = read_guard.as_ref() {
+                            SendAccessToken::IfRequired(session.access_token.as_str())
+                        } else {
+                            return Err(HttpError::AuthenticationRequired);
+                        }
+                    }
+                    AuthScheme::None => SendAccessToken::None,
+                    _ => return Err(HttpError::NotClientRequest),
+                }
+            };
+
+            request.try_into_http_request(&self.homeserver.to_string(), access_token)?
         };
 
         self.inner.send_request(request, config).await

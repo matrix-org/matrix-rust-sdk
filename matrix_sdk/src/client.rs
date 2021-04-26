@@ -405,6 +405,7 @@ pub struct RequestConfig {
     pub(crate) timeout: Duration,
     pub(crate) retry_limit: Option<u64>,
     pub(crate) retry_timeout: Option<Duration>,
+    pub(crate) force_auth: bool,
 }
 
 #[cfg(not(tarpaulin_include))]
@@ -425,6 +426,7 @@ impl Default for RequestConfig {
             timeout: DEFAULT_REQUEST_TIMEOUT,
             retry_limit: Default::default(),
             retry_timeout: Default::default(),
+            force_auth: false,
         }
     }
 }
@@ -457,6 +459,14 @@ impl RequestConfig {
     /// Set a timeout for how long a request should be retried. The default is no timeout, meaning requests are retried forever.
     pub fn retry_timeout(mut self, retry_timeout: Duration) -> Self {
         self.retry_timeout = Some(retry_timeout);
+        self
+    }
+
+    /// Force sending authorization even if the endpoint does not require it. Default is only
+    /// sending authorization if it is required
+    #[cfg(feature = "require_auth_for_profile_requests")]
+    pub(crate) fn force_auth(mut self) -> Self {
+        self.force_auth = true;
         self
     }
 }
@@ -610,7 +620,14 @@ impl Client {
     pub async fn avatar_url(&self) -> Result<Option<MxcUri>> {
         let user_id = self.user_id().await.ok_or(Error::AuthenticationRequired)?;
         let request = get_avatar_url::Request::new(&user_id);
-        let response = self.send(request, None).await?;
+
+        #[cfg(not(feature = "require_auth_for_profile_requests"))]
+        let config = None;
+
+        #[cfg(feature = "require_auth_for_profile_requests")]
+        let config = Some(RequestConfig::new().force_auth());
+
+        let response = self.send(request, config).await?;
         Ok(response.avatar_url)
     }
 

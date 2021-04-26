@@ -44,6 +44,9 @@
 //! * `markdown`: Support for sending markdown formatted messages.
 //! * `socks`: Enables SOCKS support in reqwest, the default HTTP client.
 //! * `sso_login`: Enables SSO login with a local http server.
+//! * `require_auth_for_profile_requests`: Whether to send the access token in the authentication
+//! header when calling endpoints that retrieve profile data. This matches the synapse
+//! configuration `require_auth_for_profile_requests`. Enabled by default.
 
 #![deny(
     missing_debug_implementations,
