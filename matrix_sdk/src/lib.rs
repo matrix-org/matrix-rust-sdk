@@ -77,7 +77,7 @@ pub use matrix_sdk_base::{
     Session, StateChanges, StoreError,
 };
 
-pub use bytes::Bytes;
+pub use bytes::{Bytes, BytesMut};
 pub use matrix_sdk_common::*;
 pub use reqwest;
 

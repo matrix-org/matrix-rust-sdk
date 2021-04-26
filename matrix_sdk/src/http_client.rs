@@ -30,7 +30,9 @@ use matrix_sdk_common::{
     FromHttpResponseError, IncomingResponse, SendAccessToken,
 };
 
-use crate::{error::HttpError, Bytes, ClientConfig, OutgoingRequest, RequestConfig, Session};
+use crate::{
+    error::HttpError, Bytes, BytesMut, ClientConfig, OutgoingRequest, RequestConfig, Session,
+};
 
 /// Abstraction around the http layer. The allows implementors to use different
 /// http libraries.
@@ -70,7 +72,7 @@ pub trait HttpSend: AsyncTraitDeps {
     /// impl HttpSend for Client {
     ///     async fn send_request(
     ///         &self,
-    ///         request: http::Request<Vec<u8>>,
+    ///         request: http::Request<Bytes>,
     ///         config: RequestConfig,
     ///     ) -> Result<http::Response<Bytes>, HttpError> {
     ///         Ok(self
@@ -85,7 +87,7 @@ pub trait HttpSend: AsyncTraitDeps {
     /// ```
     async fn send_request(
         &self,
-        request: http::Request<Vec<u8>>,
+        request: http::Request<Bytes>,
         config: RequestConfig,
     ) -> Result<http::Response<Bytes>, HttpError>;
 }
@@ -135,7 +137,9 @@ impl HttpClient {
                 }
             };
 
-            request.try_into_http_request(&self.homeserver.to_string(), access_token)?
+            request
+                .try_into_http_request::<BytesMut>(&self.homeserver.to_string(), access_token)?
+                .map(|body| body.freeze())
         };
 
         self.inner.send_request(request, config).await
@@ -238,7 +242,7 @@ async fn response_to_http_response(
 #[cfg(any(target_arch = "wasm32"))]
 async fn send_request(
     client: &Client,
-    request: http::Request<Vec<u8>>,
+    request: http::Request<Bytes>,
     _: RequestConfig,
 ) -> Result<http::Response<Bytes>, HttpError> {
     let request = reqwest::Request::try_from(request)?;
@@ -250,7 +254,7 @@ async fn send_request(
 #[cfg(all(not(target_arch = "wasm32")))]
 async fn send_request(
     client: &Client,
-    request: http::Request<Vec<u8>>,
+    request: http::Request<Bytes>,
     config: RequestConfig,
 ) -> Result<http::Response<Bytes>, HttpError> {
     let mut backoff = ExponentialBackoff::default();
@@ -312,7 +316,7 @@ async fn send_request(
 impl HttpSend for Client {
     async fn send_request(
         &self,
-        request: http::Request<Vec<u8>>,
+        request: http::Request<Bytes>,
         config: RequestConfig,
     ) -> Result<http::Response<Bytes>, HttpError> {
         send_request(&self, request, config).await
