@@ -535,7 +535,11 @@ impl RoomInfo {
     }
 
     /// The number of active members (invited + joined) in the room.
+    ///
+    /// The return value is saturated at `u64::MAX`.
     pub fn active_members_count(&self) -> u64 {
-        self.summary.joined_member_count + self.summary.invited_member_count
+        self.summary
+            .joined_member_count
+            .saturating_add(self.summary.invited_member_count)
     }
 }
