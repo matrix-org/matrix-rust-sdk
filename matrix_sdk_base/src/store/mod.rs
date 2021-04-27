@@ -442,4 +442,12 @@ impl StateChanges {
             .or_insert_with(BTreeMap::new)
             .insert(event.state_key().to_string(), event);
     }
+
+    /// Update the `StateChanges` struct with the given room with a new `Notification`.
+    pub fn add_notification(&mut self, room_id: &RoomId, notification: Notification) {
+        self.notifications
+            .entry(room_id.to_owned())
+            .or_insert_with(Vec::new)
+            .push(notification);
+    }
 }

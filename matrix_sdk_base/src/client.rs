@@ -517,24 +517,16 @@ impl BaseClient {
                         let actions = push_rules.get_actions(&raw_event, &context).to_vec();
 
                         if actions.iter().any(|a| matches!(a, Action::Notify)) {
-                            let notification = Notification::new(
-                                actions,
-                                raw_event,
-                                false,
-                                room_id.clone(),
-                                SystemTime::now(),
+                            changes.add_notification(
+                                room_id,
+                                Notification::new(
+                                    actions,
+                                    raw_event,
+                                    false,
+                                    room_id.clone(),
+                                    SystemTime::now(),
+                                ),
                             );
-
-                            match changes.notifications.get_mut(room_id) {
-                                Some(room) => {
-                                    room.push(notification);
-                                }
-                                None => {
-                                    changes
-                                        .notifications
-                                        .insert(room_id.clone(), vec![notification]);
-                                }
-                            }
                         }
                         // TODO send and store the highlight tweak value with the event.
                         // Needs to associate custom data with events and to store them.
