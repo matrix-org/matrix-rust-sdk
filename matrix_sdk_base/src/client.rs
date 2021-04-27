@@ -528,8 +528,11 @@ impl BaseClient {
                                 ),
                             );
                         }
-                        // TODO send and store the highlight tweak value with the event.
-                        // Needs to associate custom data with events and to store them.
+                        // TODO if there is an Action::SetTweak(Tweak::Highlight) we need to store
+                        // its value with the event so a client can show if the event is highlighted
+                        // in the UI.
+                        // Requires the possibility to associate custom data with events and to
+                        // store them.
                     }
 
                     timeline.events.push(e);
@@ -1429,10 +1432,10 @@ impl BaseClient {
             .get(room_id)
             .and_then(|members| members.get(user_id))
         {
-            let member = member.clone();
             member
                 .content
                 .displayname
+                .clone()
                 .unwrap_or_else(|| user_id.localpart().to_owned())
         } else if let Some(member) = room.get_member(user_id).await? {
             member.name().to_owned()
@@ -1443,7 +1446,7 @@ impl BaseClient {
         let room_power_levels = if let Some(AnySyncStateEvent::RoomPowerLevels(event)) = changes
             .state
             .get(room_id)
-            .and_then(|types| types.get(&EventType::RoomPowerLevels.to_string()))
+            .and_then(|types| types.get(EventType::RoomPowerLevels.as_str()))
             .and_then(|events| events.get(""))
         {
             event.content.clone()
@@ -1459,7 +1462,7 @@ impl BaseClient {
 
         Ok(Some(PushConditionRoomCtx {
             room_id: room_id.clone(),
-            member_count: UInt::new(member_count).unwrap(),
+            member_count: UInt::new(member_count).unwrap_or(UInt::MAX),
             user_display_name,
             users_power_levels: room_power_levels.users,
             default_power_level: room_power_levels.users_default,
@@ -1479,24 +1482,24 @@ impl BaseClient {
     ) {
         let room_id = &room_info.room_id;
 
-        push_rules.member_count = UInt::new(room_info.active_members_count()).unwrap();
+        push_rules.member_count = UInt::new(room_info.active_members_count()).unwrap_or(UInt::MAX);
 
         if let Some(member) = changes
             .members
             .get(room_id)
             .and_then(|members| members.get(user_id))
         {
-            let member = member.clone();
             push_rules.user_display_name = member
                 .content
                 .displayname
+                .clone()
                 .unwrap_or_else(|| user_id.localpart().to_owned())
         }
 
         if let Some(AnySyncStateEvent::RoomPowerLevels(event)) = changes
             .state
             .get(room_id)
-            .and_then(|types| types.get(&EventType::RoomPowerLevels.to_string()))
+            .and_then(|types| types.get(EventType::RoomPowerLevels.as_str()))
             .and_then(|events| events.get(""))
         {
             let room_power_levels = event.content.clone();
