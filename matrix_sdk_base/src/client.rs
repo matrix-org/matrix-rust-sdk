@@ -434,6 +434,9 @@ impl BaseClient {
         for event in ruma_timeline.events {
             match hoist_room_event_prev_content(&event) {
                 Ok(mut e) => {
+                    #[cfg(not(feature = "encryption"))]
+                    let raw_event = event;
+                    #[cfg(feature = "encryption")]
                     let mut raw_event = event;
 
                     #[allow(clippy::single_match)]
