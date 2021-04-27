@@ -788,7 +788,7 @@ impl BaseClient {
         self.handle_account_data(account_data.events, &mut changes)
             .await;
 
-        let push_rules = self.get_push_rules(&changes).await;
+        let push_rules = self.get_push_rules(&changes).await?;
 
         let mut new_rooms = Rooms::default();
 
@@ -1387,23 +1387,22 @@ impl BaseClient {
     /// Get the push rules.
     ///
     /// Gets the push rules from `changes` if they have been updated, otherwise get them from the
-    /// store. As a fallback, uses `Ruleset::server_default`.
-    pub async fn get_push_rules(&self, changes: &StateChanges) -> Ruleset {
+    /// store. As a fallback, uses `Ruleset::server_default` if the user is logged in.
+    pub async fn get_push_rules(&self, changes: &StateChanges) -> Result<Ruleset> {
         if let Some(AnyBasicEvent::PushRules(event)) =
             changes.account_data.get(&EventType::PushRules.to_string())
         {
-            event.content.global.clone()
+            Ok(event.content.global.clone())
         } else if let Some(AnyBasicEvent::PushRules(event)) = self
             .store
             .get_account_data_event(EventType::PushRules)
-            .await
-            .unwrap()
+            .await?
         {
-            event.content.global
+            Ok(event.content.global)
+        } else if let Some(session) = self.get_session().await {
+            Ok(Ruleset::server_default(&session.user_id))
         } else {
-            // FIXME don't panic if the user is not logged in?
-            let session = self.get_session().await.unwrap();
-            Ruleset::server_default(&session.user_id)
+            Ok(Ruleset::new())
         }
     }
 
