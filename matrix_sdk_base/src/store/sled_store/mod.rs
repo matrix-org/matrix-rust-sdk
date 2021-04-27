@@ -134,6 +134,12 @@ impl EncodeKey for (&str, &str, &str) {
     }
 }
 
+impl EncodeKey for EventType {
+    fn encode(&self) -> Vec<u8> {
+        self.as_str().encode()
+    }
+}
+
 #[derive(Clone)]
 pub struct SledStore {
     path: Option<PathBuf>,
@@ -495,7 +501,7 @@ impl SledStore {
     ) -> Result<Option<AnySyncStateEvent>> {
         Ok(self
             .room_state
-            .get((room_id.as_str(), event_type.to_string().as_str(), state_key).encode())?
+            .get((room_id.as_str(), event_type.as_str(), state_key).encode())?
             .map(|e| self.deserialize_event(&e))
             .transpose()?)
     }
@@ -594,7 +600,7 @@ impl SledStore {
     ) -> Result<Option<AnyBasicEvent>> {
         Ok(self
             .account_data
-            .get(event_type.to_string().as_str().encode())?
+            .get(event_type.encode())?
             .map(|m| self.deserialize_event(&m))
             .transpose()?)
     }
