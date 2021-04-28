@@ -473,7 +473,9 @@ impl BaseClient {
                             }
                             _ => {
                                 room_info.handle_state_event(&s.content());
-                                changes.add_state_event(room_id, s.clone());
+                                let raw_event: Raw<AnySyncStateEvent> =
+                                    Raw::from_json(event.event.clone().into_json());
+                                changes.add_state_event(room_id, s.clone(), raw_event);
                             }
                         },
 
@@ -543,12 +545,12 @@ impl BaseClient {
         room_info: &mut RoomInfo,
     ) -> (
         BTreeMap<UserId, StrippedMemberEvent>,
-        BTreeMap<String, BTreeMap<String, AnyStrippedStateEvent>>,
+        BTreeMap<String, BTreeMap<String, Raw<AnyStrippedStateEvent>>>,
     ) {
         events.iter().fold(
             (BTreeMap::new(), BTreeMap::new()),
-            |(mut members, mut state_events), e| {
-                match e.deserialize() {
+            |(mut members, mut state_events), raw_event| {
+                match raw_event.deserialize() {
                     Ok(e) => {
 
                         if let AnyStrippedStateEvent::RoomMember(member) = e {
@@ -566,7 +568,7 @@ impl BaseClient {
                             state_events
                                 .entry(e.content().event_type().to_owned())
                                 .or_insert_with(BTreeMap::new)
-                                .insert(e.state_key().to_owned(), e);
+                                .insert(e.state_key().to_owned(), raw_event.clone());
                         }
                     }
                     Err(err) => {
@@ -595,19 +597,18 @@ impl BaseClient {
 
         let room_id = room_info.room_id.clone();
 
-        for event in events
-            .iter()
-            .filter_map(|e| match hoist_and_deserialize_state_event(&e) {
-                Ok(e) => Some(e),
-                Err(err) => {
+        for raw_event in events {
+            let event = match hoist_and_deserialize_state_event(raw_event) {
+                Ok(e) => e,
+                Err(e) => {
                     warn!(
                         "Couldn't deserialize state event for room {}: {:?} {:#?}",
-                        room_id, err, e
+                        room_id, e, raw_event
                     );
-                    None
+                    continue;
                 }
-            })
-        {
+            };
+
             room_info.handle_state_event(&event.content());
 
             if let AnySyncStateEvent::RoomMember(member) = event {
@@ -641,7 +642,7 @@ impl BaseClient {
                 state_events
                     .entry(event.content().event_type().to_owned())
                     .or_insert_with(BTreeMap::new)
-                    .insert(event.state_key().to_owned(), event);
+                    .insert(event.state_key().to_owned(), raw_event.clone());
             }
         }
 
@@ -658,20 +659,24 @@ impl BaseClient {
         events: &[Raw<AnyBasicEvent>],
         changes: &mut StateChanges,
     ) {
-        let events: Vec<AnyBasicEvent> =
-            events.iter().filter_map(|e| e.deserialize().ok()).collect();
-
-        for event in &events {
-            changes.add_room_account_data(room_id, event.clone());
+        for raw_event in events {
+            if let Ok(event) = raw_event.deserialize() {
+                changes.add_room_account_data(room_id, event, raw_event.clone());
+            }
         }
     }
 
     async fn handle_account_data(&self, events: &[Raw<AnyBasicEvent>], changes: &mut StateChanges) {
-        let events: Vec<AnyBasicEvent> =
-            events.iter().filter_map(|e| e.deserialize().ok()).collect();
+        let mut account_data = BTreeMap::new();
 
-        for event in &events {
-            if let AnyBasicEvent::Direct(e) = event {
+        for raw_event in events {
+            let event = if let Ok(e) = raw_event.deserialize() {
+                e
+            } else {
+                continue;
+            };
+
+            if let AnyBasicEvent::Direct(e) = &event {
                 for (user_id, rooms) in e.content.iter() {
                     for room_id in rooms {
                         if let Some(room) = changes.room_infos.get_mut(room_id) {
@@ -684,12 +689,9 @@ impl BaseClient {
                     }
                 }
             }
-        }
 
-        let account_data: BTreeMap<String, AnyBasicEvent> = events
-            .into_iter()
-            .map(|e| (e.content().event_type().to_owned(), e))
-            .collect();
+            account_data.insert(event.content().event_type().to_owned(), raw_event.clone());
+        }
 
         changes.account_data = account_data;
     }
@@ -904,7 +906,7 @@ impl BaseClient {
             .iter()
             .filter_map(|e| {
                 let event = e.deserialize().ok()?;
-                Some((event.sender.clone(), event))
+                Some((event.sender, e.clone()))
             })
             .collect();
 
@@ -1345,14 +1347,17 @@ impl BaseClient {
     /// Gets the push rules from `changes` if they have been updated, otherwise get them from the
     /// store. As a fallback, uses `Ruleset::server_default` if the user is logged in.
     pub async fn get_push_rules(&self, changes: &StateChanges) -> Result<Ruleset> {
-        if let Some(AnyBasicEvent::PushRules(event)) =
-            changes.account_data.get(&EventType::PushRules.to_string())
+        if let Some(AnyBasicEvent::PushRules(event)) = changes
+            .account_data
+            .get(&EventType::PushRules.to_string())
+            .and_then(|e| e.deserialize().ok())
         {
-            Ok(event.content.global.clone())
+            Ok(event.content.global)
         } else if let Some(AnyBasicEvent::PushRules(event)) = self
             .store
             .get_account_data_event(EventType::PushRules)
             .await?
+            .and_then(|e| e.deserialize().ok())
         {
             Ok(event.content.global)
         } else if let Some(session) = self.get_session().await {
@@ -1401,12 +1406,14 @@ impl BaseClient {
             .get(room_id)
             .and_then(|types| types.get(EventType::RoomPowerLevels.as_str()))
             .and_then(|events| events.get(""))
+            .and_then(|e| e.deserialize().ok())
         {
-            event.content.clone()
+            event.content
         } else if let Some(AnySyncStateEvent::RoomPowerLevels(event)) = self
             .store
             .get_state_event(room_id, EventType::RoomPowerLevels, "")
             .await?
+            .and_then(|e| e.deserialize().ok())
         {
             event.content
         } else {
@@ -1454,8 +1461,9 @@ impl BaseClient {
             .get(room_id)
             .and_then(|types| types.get(EventType::RoomPowerLevels.as_str()))
             .and_then(|events| events.get(""))
+            .and_then(|e| e.deserialize().ok())
         {
-            let room_power_levels = event.content.clone();
+            let room_power_levels = event.content;
 
             push_rules.users_power_levels = room_power_levels.users;
             push_rules.default_power_level = room_power_levels.users_default;
