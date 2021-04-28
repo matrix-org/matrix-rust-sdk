@@ -20,26 +20,9 @@ use std::{
     path::{Path, PathBuf},
     result::Result as StdResult,
     sync::Arc,
+    time::SystemTime,
 };
 
-use matrix_sdk_common::{
-    api::r0 as api,
-    deserialized_responses::{
-        AccountData, AmbiguityChanges, Ephemeral, InviteState, InvitedRoom, JoinedRoom, LeftRoom,
-        MemberEvent, MembersResponse, Presence, Rooms, State, StrippedMemberEvent, SyncResponse,
-        Timeline,
-    },
-    events::{
-        presence::PresenceEvent,
-        room::member::{MemberEventContent, MembershipState},
-        AnyBasicEvent, AnyStrippedStateEvent, AnySyncRoomEvent, AnySyncStateEvent,
-        AnyToDeviceEvent, EventContent, StateEvent,
-    },
-    identifiers::{RoomId, UserId},
-    instant::Instant,
-    locks::RwLock,
-    Raw,
-};
 #[cfg(feature = "encryption")]
 use matrix_sdk_common::{
     api::r0::keys::claim_keys::Request as KeysClaimRequest,
@@ -50,6 +33,25 @@ use matrix_sdk_common::{
     identifiers::DeviceId,
     locks::Mutex,
     uuid::Uuid,
+};
+use matrix_sdk_common::{
+    api::r0::{self as api, push::get_notifications::Notification},
+    deserialized_responses::{
+        AccountData, AmbiguityChanges, Ephemeral, InviteState, InvitedRoom, JoinedRoom, LeftRoom,
+        MemberEvent, MembersResponse, Presence, Rooms, State, StrippedMemberEvent, SyncResponse,
+        Timeline,
+    },
+    events::{
+        presence::PresenceEvent,
+        room::member::{MemberEventContent, MembershipState},
+        AnyBasicEvent, AnyStrippedStateEvent, AnySyncRoomEvent, AnySyncStateEvent,
+        AnyToDeviceEvent, EventContent, EventType, StateEvent,
+    },
+    identifiers::{RoomId, UserId},
+    instant::Instant,
+    locks::RwLock,
+    push::{Action, PushConditionRoomCtx, Ruleset},
+    Raw, UInt,
 };
 #[cfg(feature = "encryption")]
 use matrix_sdk_crypto::{
@@ -413,20 +415,30 @@ impl BaseClient {
         self.sync_token.read().await.clone()
     }
 
+    #[allow(clippy::too_many_arguments)]
     async fn handle_timeline(
         &self,
-        room_id: &RoomId,
+        room: &Room,
         ruma_timeline: api::sync::sync_events::Timeline,
+        push_rules: &Ruleset,
         room_info: &mut RoomInfo,
         changes: &mut StateChanges,
         ambiguity_cache: &mut AmbiguityCache,
         user_ids: &mut BTreeSet<UserId>,
-    ) -> StoreResult<Timeline> {
+    ) -> Result<Timeline> {
+        let room_id = room.room_id();
+        let user_id = room.own_user_id();
         let mut timeline = Timeline::new(ruma_timeline.limited, ruma_timeline.prev_batch.clone());
+        let mut push_context = self.get_push_room_context(room, room_info, changes).await?;
 
         for event in ruma_timeline.events {
             match hoist_room_event_prev_content(&event) {
                 Ok(mut e) => {
+                    #[cfg(not(feature = "encryption"))]
+                    let raw_event = event;
+                    #[cfg(feature = "encryption")]
+                    let mut raw_event = event;
+
                     #[allow(clippy::single_match)]
                     match &mut e {
                         AnySyncRoomEvent::State(s) => match s {
@@ -475,11 +487,14 @@ impl BaseClient {
                             encrypted,
                         )) => {
                             if let Some(olm) = self.olm_machine().await {
-                                if let Ok(decrypted) =
+                                if let Ok(raw_decrypted) =
                                     olm.decrypt_room_event(encrypted, room_id).await
                                 {
-                                    match decrypted.deserialize() {
-                                        Ok(decrypted) => e = decrypted,
+                                    match raw_decrypted.deserialize() {
+                                        Ok(decrypted) => {
+                                            e = decrypted;
+                                            raw_event = raw_decrypted;
+                                        }
                                         Err(e) => {
                                             warn!("Error deserializing a decrypted event {:?} ", e)
                                         }
@@ -492,6 +507,35 @@ impl BaseClient {
                         // requests that are needed to be called to heal this
                         // redacted state.
                         _ => (),
+                    }
+
+                    if let Some(context) = &mut push_context {
+                        self.update_push_room_context(context, user_id, room_info, changes)
+                            .await;
+                    } else {
+                        push_context = self.get_push_room_context(room, room_info, changes).await?;
+                    }
+
+                    if let Some(context) = &push_context {
+                        let actions = push_rules.get_actions(&raw_event, &context).to_vec();
+
+                        if actions.iter().any(|a| matches!(a, Action::Notify)) {
+                            changes.add_notification(
+                                room_id,
+                                Notification::new(
+                                    actions,
+                                    raw_event,
+                                    false,
+                                    room_id.clone(),
+                                    SystemTime::now(),
+                                ),
+                            );
+                        }
+                        // TODO if there is an Action::SetTweak(Tweak::Highlight) we need to store
+                        // its value with the event so a client can show if the event is highlighted
+                        // in the UI.
+                        // Requires the possibility to associate custom data with events and to
+                        // store them.
                     }
 
                     timeline.events.push(e);
@@ -747,6 +791,11 @@ impl BaseClient {
         let mut changes = StateChanges::new(next_batch.clone());
         let mut ambiguity_cache = AmbiguityCache::new(self.store.clone());
 
+        self.handle_account_data(account_data.events, &mut changes)
+            .await;
+
+        let push_rules = self.get_push_rules(&changes).await?;
+
         let mut new_rooms = Rooms::default();
 
         for (room_id, new_info) in rooms.join {
@@ -775,8 +824,9 @@ impl BaseClient {
 
             let timeline = self
                 .handle_timeline(
-                    &room_id,
+                    &room,
                     new_info.timeline,
+                    &push_rules,
                     &mut room_info,
                     &mut changes,
                     &mut ambiguity_cache,
@@ -845,8 +895,9 @@ impl BaseClient {
 
             let timeline = self
                 .handle_timeline(
-                    &room_id,
+                    &room,
                     new_info.timeline,
+                    &push_rules,
                     &mut room_info,
                     &mut changes,
                     &mut ambiguity_cache,
@@ -903,9 +954,6 @@ impl BaseClient {
 
         changes.presence = presence;
 
-        self.handle_account_data(account_data.events, &mut changes)
-            .await;
-
         changes.ambiguity_maps = ambiguity_cache.cache;
 
         self.store.save_changes(&changes).await?;
@@ -932,6 +980,7 @@ impl BaseClient {
             ambiguity_changes: AmbiguityChanges {
                 changes: ambiguity_cache.changes,
             },
+            notifications: changes.notifications,
         };
 
         Ok(response)
@@ -1339,6 +1388,129 @@ impl BaseClient {
     pub async fn olm_machine(&self) -> Option<OlmMachine> {
         let olm = self.olm.lock().await;
         olm.as_ref().cloned()
+    }
+
+    /// Get the push rules.
+    ///
+    /// Gets the push rules from `changes` if they have been updated, otherwise get them from the
+    /// store. As a fallback, uses `Ruleset::server_default` if the user is logged in.
+    pub async fn get_push_rules(&self, changes: &StateChanges) -> Result<Ruleset> {
+        if let Some(AnyBasicEvent::PushRules(event)) =
+            changes.account_data.get(&EventType::PushRules.to_string())
+        {
+            Ok(event.content.global.clone())
+        } else if let Some(AnyBasicEvent::PushRules(event)) = self
+            .store
+            .get_account_data_event(EventType::PushRules)
+            .await?
+        {
+            Ok(event.content.global)
+        } else if let Some(session) = self.get_session().await {
+            Ok(Ruleset::server_default(&session.user_id))
+        } else {
+            Ok(Ruleset::new())
+        }
+    }
+
+    /// Get the push context for the given room.
+    ///
+    /// Tries to get the data from `changes` or the up to date `room_info`. Loads the data from the
+    /// store otherwise.
+    ///
+    /// Returns `None` if some data couldn't be found. This should only happen in brand new rooms,
+    /// while we process its state.
+    pub async fn get_push_room_context(
+        &self,
+        room: &Room,
+        room_info: &RoomInfo,
+        changes: &StateChanges,
+    ) -> Result<Option<PushConditionRoomCtx>> {
+        let room_id = room.room_id();
+        let user_id = room.own_user_id();
+
+        let member_count = room_info.active_members_count();
+
+        let user_display_name = if let Some(member) = changes
+            .members
+            .get(room_id)
+            .and_then(|members| members.get(user_id))
+        {
+            member
+                .content
+                .displayname
+                .clone()
+                .unwrap_or_else(|| user_id.localpart().to_owned())
+        } else if let Some(member) = room.get_member(user_id).await? {
+            member.name().to_owned()
+        } else {
+            return Ok(None);
+        };
+
+        let room_power_levels = if let Some(AnySyncStateEvent::RoomPowerLevels(event)) = changes
+            .state
+            .get(room_id)
+            .and_then(|types| types.get(EventType::RoomPowerLevels.as_str()))
+            .and_then(|events| events.get(""))
+        {
+            event.content.clone()
+        } else if let Some(AnySyncStateEvent::RoomPowerLevels(event)) = self
+            .store
+            .get_state_event(room_id, EventType::RoomPowerLevels, "")
+            .await?
+        {
+            event.content
+        } else {
+            return Ok(None);
+        };
+
+        Ok(Some(PushConditionRoomCtx {
+            room_id: room_id.clone(),
+            member_count: UInt::new(member_count).unwrap_or(UInt::MAX),
+            user_display_name,
+            users_power_levels: room_power_levels.users,
+            default_power_level: room_power_levels.users_default,
+            notification_power_levels: room_power_levels.notifications,
+        }))
+    }
+
+    /// Update the push context for the given room.
+    ///
+    /// Updates the context data from `changes` or `room_info`.
+    pub async fn update_push_room_context(
+        &self,
+        push_rules: &mut PushConditionRoomCtx,
+        user_id: &UserId,
+        room_info: &RoomInfo,
+        changes: &StateChanges,
+    ) {
+        let room_id = &room_info.room_id;
+
+        push_rules.member_count = UInt::new(room_info.active_members_count()).unwrap_or(UInt::MAX);
+
+        if let Some(member) = changes
+            .members
+            .get(room_id)
+            .and_then(|members| members.get(user_id))
+        {
+            push_rules.user_display_name = member
+                .content
+                .displayname
+                .clone()
+                .unwrap_or_else(|| user_id.localpart().to_owned())
+        }
+
+        if let Some(AnySyncStateEvent::RoomPowerLevels(event)) = changes
+            .state
+            .get(room_id)
+            .and_then(|types| types.get(EventType::RoomPowerLevels.as_str()))
+            .and_then(|events| events.get(""))
+        {
+            let room_power_levels = event.content.clone();
+
+            push_rules.users_power_levels = room_power_levels.users;
+            push_rules.default_power_level = room_power_levels.users_default;
+            push_rules.notification_power_levels = room_power_levels.notifications;
+        }
     }
 }
 

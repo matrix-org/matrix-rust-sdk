@@ -31,7 +31,7 @@ use matrix_sdk_common::{
     events::{
         presence::PresenceEvent,
         room::member::{MemberEventContent, MembershipState},
-        AnySyncStateEvent, EventContent, EventType,
+        AnyBasicEvent, AnySyncStateEvent, EventContent, EventType,
     },
     identifiers::{RoomId, UserId},
 };
@@ -131,6 +131,12 @@ impl EncodeKey for (&str, &str, &str) {
             &[Self::SEPARATOR],
         ]
         .concat()
+    }
+}
+
+impl EncodeKey for EventType {
+    fn encode(&self) -> Vec<u8> {
+        self.as_str().encode()
     }
 }
 
@@ -495,7 +501,7 @@ impl SledStore {
     ) -> Result<Option<AnySyncStateEvent>> {
         Ok(self
             .room_state
-            .get((room_id.as_str(), event_type.to_string().as_str(), state_key).encode())?
+            .get((room_id.as_str(), event_type.as_str(), state_key).encode())?
             .map(|e| self.deserialize_event(&e))
             .transpose()?)
     }
@@ -587,6 +593,17 @@ impl SledStore {
             .transpose()?
             .unwrap_or_default())
     }
+
+    pub async fn get_account_data_event(
+        &self,
+        event_type: EventType,
+    ) -> Result<Option<AnyBasicEvent>> {
+        Ok(self
+            .account_data
+            .get(event_type.encode())?
+            .map(|m| self.deserialize_event(&m))
+            .transpose()?)
+    }
 }
 
 #[async_trait]
@@ -663,6 +680,10 @@ impl StateStore for SledStore {
     ) -> Result<BTreeSet<UserId>> {
         self.get_users_with_display_name(room_id, display_name)
             .await
+    }
+
+    async fn get_account_data_event(&self, event_type: EventType) -> Result<Option<AnyBasicEvent>> {
+        self.get_account_data_event(event_type).await
     }
 }
 

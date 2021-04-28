@@ -23,6 +23,7 @@ use std::path::Path;
 
 use dashmap::DashMap;
 use matrix_sdk_common::{
+    api::r0::push::get_notifications::Notification,
     async_trait,
     events::{
         presence::PresenceEvent, room::member::MemberEventContent, AnyBasicEvent,
@@ -185,6 +186,13 @@ pub trait StateStore: AsyncTraitDeps {
         room_id: &RoomId,
         display_name: &str,
     ) -> Result<BTreeSet<UserId>>;
+
+    /// Get an event out of the account data store.
+    ///
+    /// # Arguments
+    ///
+    /// * `event_type` - The event type of the account data event.
+    async fn get_account_data_event(&self, event_type: EventType) -> Result<Option<AnyBasicEvent>>;
 }
 
 /// A state store wrapper for the SDK.
@@ -360,6 +368,9 @@ pub struct StateChanges {
     pub stripped_members: BTreeMap<RoomId, BTreeMap<UserId, StrippedMemberEvent>>,
     /// A map of `RoomId` to `RoomInfo`.
     pub invited_room_info: BTreeMap<RoomId, RoomInfo>,
+
+    /// A map of `RoomId` to a vector of `Notification`s
+    pub notifications: BTreeMap<RoomId, Vec<Notification>>,
 }
 
 impl StateChanges {
@@ -430,5 +441,13 @@ impl StateChanges {
             .entry(event.content().event_type().to_string())
             .or_insert_with(BTreeMap::new)
             .insert(event.state_key().to_string(), event);
+    }
+
+    /// Update the `StateChanges` struct with the given room with a new `Notification`.
+    pub fn add_notification(&mut self, room_id: &RoomId, notification: Notification) {
+        self.notifications
+            .entry(room_id.to_owned())
+            .or_insert_with(Vec::new)
+            .push(notification);
     }
 }
