@@ -81,7 +81,12 @@ async fn login(
             let client = &client_ref;
             let initial = &initial_ref;
 
-            for event in &response.to_device.events {
+            for event in response
+                .to_device
+                .events
+                .iter()
+                .filter_map(|e| e.deserialize().ok())
+            {
                 match event {
                     AnyToDeviceEvent::KeyVerificationStart(e) => {
                         let sas = client
@@ -124,7 +129,12 @@ async fn login(
 
             if !initial.load(Ordering::SeqCst) {
                 for (_room_id, room_info) in response.rooms.join {
-                    for event in room_info.timeline.events {
+                    for event in room_info
+                        .timeline
+                        .events
+                        .iter()
+                        .filter_map(|e| e.event.deserialize().ok())
+                    {
                         if let AnySyncRoomEvent::Message(event) = event {
                             match event {
                                 AnySyncMessageEvent::RoomMessage(m) => {

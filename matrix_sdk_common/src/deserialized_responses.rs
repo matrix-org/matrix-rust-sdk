@@ -1,3 +1,10 @@
+use ruma::{
+    api::client::r0::sync::sync_events::{
+        AccountData, Ephemeral, InvitedRoom, Presence, State, ToDevice,
+    },
+    serde::Raw,
+    DeviceIdBox,
+};
 use serde::{Deserialize, Serialize};
 use std::{collections::BTreeMap, convert::TryFrom, time::SystemTime};
 
@@ -9,9 +16,8 @@ use super::{
         },
     },
     events::{
-        presence::PresenceEvent, room::member::MemberEventContent, AnyBasicEvent,
-        AnyStrippedStateEvent, AnySyncEphemeralRoomEvent, AnySyncRoomEvent, AnySyncStateEvent,
-        AnyToDeviceEvent, StateEvent, StrippedStateEvent, SyncStateEvent, Unsigned,
+        room::member::MemberEventContent, AnySyncRoomEvent, StateEvent, StrippedStateEvent,
+        SyncStateEvent, Unsigned,
     },
     identifiers::{DeviceKeyAlgorithm, EventId, RoomId, UserId},
 };
@@ -35,6 +41,72 @@ pub struct AmbiguityChanges {
     /// A map from room id to a map of an event id to the `AmbiguityChange` that
     /// the event with the given id caused.
     pub changes: BTreeMap<RoomId, BTreeMap<EventId, AmbiguityChange>>,
+}
+
+/// The verification state of the device that sent an event to us.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub enum VerificationState {
+    /// The device is trusted.
+    Trusted,
+    /// The device is not trusted.
+    Untrusted,
+    /// The device is not known to us.
+    UnknownDevice,
+}
+
+/// The algorithm specific information of a decrypted event.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub enum AlgorithmInfo {
+    /// The info if the event was encrypted using m.megolm.v1.aes-sha2
+    MegolmV1AesSha2 {
+        /// The curve25519 key of the device that created the megolm decryption
+        /// key originally.
+        curve25519_key: String,
+        /// The signing keys that have created the megolm key that was used to
+        /// decrypt this session. This map will usually contain a signle ed25519
+        /// key.
+        sender_claimed_keys: BTreeMap<DeviceKeyAlgorithm, String>,
+        /// Chain of curve25519 keys through which this session was forwarded,
+        /// via m.forwarded_room_key events.
+        forwarding_curve25519_key_chain: Vec<String>,
+    },
+}
+
+/// Struct containing information on how an event was decrypted.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct EncryptionInfo {
+    /// The user ID of the event sender, note this is untrusted data unless the
+    /// `verification_state` is as well trusted.
+    pub sender: UserId,
+    /// The device ID of the device that sent us the event, note this is
+    /// untrusted data unless `verification_state` is as well trusted.
+    pub sender_device: DeviceIdBox,
+    /// Information about the algorithm that was used to encrypt the event.
+    pub algorithm_info: AlgorithmInfo,
+    /// The verification state of the device that sent us the event, note this
+    /// is the state of the device at the time of decryption. It may change in
+    /// the future if a device gets verified or deleted.
+    pub verification_state: VerificationState,
+}
+
+/// A customized version of a room event comming from a sync that holds optional
+/// decryption info.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct SyncRoomEvent {
+    /// The actual event.
+    pub event: Raw<AnySyncRoomEvent>,
+    /// The encryption info about the event. Will be `None` if the event was not
+    /// encrypted.
+    pub encryption_info: Option<EncryptionInfo>,
+}
+
+impl From<Raw<AnySyncRoomEvent>> for SyncRoomEvent {
+    fn from(inner: Raw<AnySyncRoomEvent>) -> Self {
+        Self {
+            encryption_info: None,
+            event: inner,
+        }
+    }
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
@@ -68,33 +140,6 @@ impl SyncResponse {
             next_batch,
             ..Default::default()
         }
-    }
-}
-
-/// Updates to the presence status of other users.
-#[derive(Clone, Debug, Default, Deserialize, Serialize)]
-pub struct Presence {
-    /// A list of events.
-    pub events: Vec<PresenceEvent>,
-}
-
-/// Data that the user has attached to either the account or a specific room.
-#[derive(Clone, Debug, Default, Deserialize, Serialize)]
-pub struct AccountData {
-    /// The list of account data events.
-    pub events: Vec<AnyBasicEvent>,
-}
-
-/// Messages sent dirrectly between devices.
-#[derive(Clone, Debug, Default, Deserialize, Serialize)]
-pub struct ToDevice {
-    /// A list of events.
-    pub events: Vec<AnyToDeviceEvent>,
-}
-
-impl From<Vec<AnyToDeviceEvent>> for ToDevice {
-    fn from(events: Vec<AnyToDeviceEvent>) -> Self {
-        Self { events }
     }
 }
 
@@ -144,20 +189,6 @@ impl JoinedRoom {
     }
 }
 
-/// Updates to the rooms that the user has been invited to.
-#[derive(Clone, Debug, Default, Deserialize, Serialize)]
-pub struct InvitedRoom {
-    /// The state of a room that the user has been invited to.
-    pub invite_state: InviteState,
-}
-
-/// The state of a room that the user has been invited to.
-#[derive(Clone, Debug, Default, Deserialize, Serialize)]
-pub struct InviteState {
-    /// A list of state events.
-    pub events: Vec<AnyStrippedStateEvent>,
-}
-
 /// Counts of unread notifications for a room.
 #[derive(Copy, Clone, Debug, Default, Deserialize, Serialize)]
 pub struct UnreadNotificationsCount {
@@ -177,13 +208,6 @@ impl From<RumaUnreadNotificationsCount> for UnreadNotificationsCount {
                 .unwrap_or(0),
         }
     }
-}
-
-/// The ephemeral events in the room that aren't recorded in the timeline or
-/// state of the room. e.g. typing.
-#[derive(Clone, Debug, Deserialize, Serialize)]
-pub struct Ephemeral {
-    pub events: Vec<AnySyncEphemeralRoomEvent>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -220,7 +244,7 @@ pub struct Timeline {
     pub prev_batch: Option<String>,
 
     /// A list of events.
-    pub events: Vec<AnySyncRoomEvent>,
+    pub events: Vec<SyncRoomEvent>,
 }
 
 impl Timeline {
@@ -231,13 +255,6 @@ impl Timeline {
             ..Default::default()
         }
     }
-}
-
-/// State events in the room.
-#[derive(Clone, Debug, Default, Deserialize, Serialize)]
-pub struct State {
-    /// A list of state events.
-    pub events: Vec<AnySyncStateEvent>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
