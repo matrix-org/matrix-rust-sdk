@@ -1872,7 +1872,7 @@ pub(crate) mod test {
             if let MessageType::Text(c) = &content.msgtype {
                 assert_eq!(&c.body, plaintext);
             } else {
-                panic!("Decrypted event has a missmatched content");
+                panic!("Decrypted event has a mismatched content");
             }
         } else {
             panic!("Decrypted room event has the wrong type")
