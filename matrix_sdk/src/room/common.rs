@@ -1,3 +1,4 @@
+use matrix_sdk_base::{deserialized_responses::MembersResponse, identifiers::UserId};
 use matrix_sdk_common::{
     api::r0::{
         media::{get_content, get_content_thumbnail},
@@ -149,7 +150,7 @@ impl Common {
         self.client.send(request, None).await
     }
 
-    pub(crate) async fn request_members(&self) -> Result<()> {
+    pub(crate) async fn request_members(&self) -> Result<Option<MembersResponse>> {
         #[allow(clippy::map_clone)]
         if let Some(mutex) = self
             .client
@@ -158,6 +159,8 @@ impl Common {
             .map(|m| m.clone())
         {
             mutex.lock().await;
+
+            Ok(None)
         } else {
             let mutex = Arc::new(Mutex::new(()));
             self.client
@@ -169,7 +172,8 @@ impl Common {
             let request = get_member_events::Request::new(self.inner.room_id());
             let response = self.client.send(request, None).await?;
 
-            self.client
+            let response = self
+                .client
                 .base_client
                 .receive_members(self.inner.room_id(), &response)
                 .await?;
@@ -177,9 +181,9 @@ impl Common {
             self.client
                 .members_request_locks
                 .remove(self.inner.room_id());
-        }
 
-        Ok(())
+            Ok(Some(response))
+        }
     }
 
     async fn ensure_members(&self) -> Result<()> {
@@ -188,6 +192,14 @@ impl Common {
         }
 
         Ok(())
+    }
+
+    /// Sync the member list with the server.
+    ///
+    /// This method will deduplicate requests if it is called multiple times in
+    /// quick succession, in that case the return value will be `None`.
+    pub async fn sync_members(&self) -> Result<Option<MembersResponse>> {
+        self.request_members().await
     }
 
     /// Get active members for this room, includes invited, joined members.
@@ -220,6 +232,25 @@ impl Common {
             .into_iter()
             .map(|member| RoomMember::new(self.client.clone(), member))
             .collect())
+    }
+
+    /// Get a specific member of this room.
+    ///
+    /// # Arguments
+    ///
+    /// * `user_id` - The ID of the user that should be fetched out of the
+    /// store.
+    ///
+    /// *Note*: This method will fetch the members from the homeserver if the
+    /// member list isn't synchronized due to member lazy loading.
+    pub async fn get_member(&self, user_id: &UserId) -> Result<Option<RoomMember>> {
+        self.ensure_members().await?;
+
+        Ok(self
+            .inner
+            .get_member(user_id)
+            .await?
+            .map(|member| RoomMember::new(self.client.clone(), member)))
     }
 
     /// Get all members for this room, includes invited, joined and left members.
