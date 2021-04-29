@@ -1350,7 +1350,7 @@ impl BaseClient {
     pub async fn get_push_rules(&self, changes: &StateChanges) -> Result<Ruleset> {
         if let Some(AnyBasicEvent::PushRules(event)) = changes
             .account_data
-            .get(&EventType::PushRules.to_string())
+            .get(EventType::PushRules.as_str())
             .and_then(|e| e.deserialize().ok())
         {
             Ok(event.content.global)
