@@ -430,6 +430,7 @@ impl BaseClient {
         let mut push_context = self.get_push_room_context(room, room_info, changes).await?;
 
         for event in ruma_timeline.events {
+            #[allow(unused_mut)]
             let mut event: SyncRoomEvent = event.into();
 
             match hoist_room_event_prev_content(&event.event) {
