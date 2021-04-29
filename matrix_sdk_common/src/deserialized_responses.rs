@@ -89,7 +89,7 @@ pub struct EncryptionInfo {
     pub verification_state: VerificationState,
 }
 
-/// A customized version of a room event comming from a sync that holds optional
+/// A customized version of a room event coming from a sync that holds optional
 /// decryption info.
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct SyncRoomEvent {
