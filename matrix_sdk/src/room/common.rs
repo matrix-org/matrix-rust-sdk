@@ -196,7 +196,7 @@ impl Common {
 
     /// Sync the member list with the server.
     ///
-    /// This method will deduplicate requests if it is called multiple times in
+    /// This method will de-duplicate requests if it is called multiple times in
     /// quick succession, in that case the return value will be `None`.
     pub async fn sync_members(&self) -> Result<Option<MembersResponse>> {
         self.request_members().await
@@ -205,10 +205,25 @@ impl Common {
     /// Get active members for this room, includes invited, joined members.
     ///
     /// *Note*: This method will fetch the members from the homeserver if the
-    /// member list isn't synchronized due to member lazy loading.
+    /// member list isn't synchronized due to member lazy loading. Because of
+    /// that, it might panic if it isn't run on a tokio thread.
+    ///
+    /// Use [active_members_no_sync()](#method.active_members_no_sync) if you
+    /// want a method that doesn't do any requests.
     pub async fn active_members(&self) -> Result<Vec<RoomMember>> {
         self.ensure_members().await?;
+        self.active_members_no_sync().await
+    }
 
+    /// Get active members for this room, includes invited, joined members.
+    ///
+    /// *Note*: This method will fetch the members from the homeserver if the
+    /// member list isn't synchronized due to member lazy loading. Because of
+    /// that, it might panic if it isn't run on a tokio thread.
+    ///
+    /// Use [active_members()](#method.active_members) if you want to ensure to
+    /// always get the full member list.
+    pub async fn active_members_no_sync(&self) -> Result<Vec<RoomMember>> {
         Ok(self
             .inner
             .active_members()
@@ -221,10 +236,25 @@ impl Common {
     /// Get all the joined members of this room.
     ///
     /// *Note*: This method will fetch the members from the homeserver if the
-    /// member list isn't synchronized due to member lazy loading.
+    /// member list isn't synchronized due to member lazy loading. Because of
+    /// that it might panic if it isn't run on a tokio thread.
+    ///
+    /// Use [joined_members_no_sync()](#method.joined_members_no_sync) if you
+    /// want a method that doesn't do any requests.
     pub async fn joined_members(&self) -> Result<Vec<RoomMember>> {
         self.ensure_members().await?;
+        self.joined_members_no_sync().await
+    }
 
+    /// Get all the joined members of this room.
+    ///
+    /// *Note*: This method will not fetch the members from the homeserver if the
+    /// member list isn't synchronized due to member lazy loading. Thus, members
+    /// could be missing from the list.
+    ///
+    /// Use [joined_members()](#method.joined_members) if you want to ensure to
+    /// always get the full member list.
+    pub async fn joined_members_no_sync(&self) -> Result<Vec<RoomMember>> {
         Ok(self
             .inner
             .members()
@@ -236,16 +266,37 @@ impl Common {
 
     /// Get a specific member of this room.
     ///
+    /// *Note*: This method will fetch the members from the homeserver if the
+    /// member list isn't synchronized due to member lazy loading. Because of
+    /// that it might panic if it isn't run on a tokio thread.
+    ///
+    /// Use [get_member_no_sync()](#method.get_member_no_sync) if you want a
+    /// method that doesn't do any requests.
+    ///
+    /// # Arguments
+    ///
+    /// * `user_id` - The ID of the user that should be fetched out of the
+    /// store.
+    pub async fn get_member(&self, user_id: &UserId) -> Result<Option<RoomMember>> {
+        self.ensure_members().await?;
+        self.get_member_no_sync(user_id).await
+    }
+
+    /// Get a specific member of this room.
+    ///
+    /// *Note*: This method will not fetch the members from the homeserver if the
+    /// member list isn't synchronized due to member lazy loading. Thus, members
+    /// could be missing.
+    ///
+    /// Use [get_member()](#method.get_member) if you want to ensure to always
+    /// have the full member list to chose from.
+    ///
     /// # Arguments
     ///
     /// * `user_id` - The ID of the user that should be fetched out of the
     /// store.
     ///
-    /// *Note*: This method will fetch the members from the homeserver if the
-    /// member list isn't synchronized due to member lazy loading.
-    pub async fn get_member(&self, user_id: &UserId) -> Result<Option<RoomMember>> {
-        self.ensure_members().await?;
-
+    pub async fn get_member_no_sync(&self, user_id: &UserId) -> Result<Option<RoomMember>> {
         Ok(self
             .inner
             .get_member(user_id)
@@ -256,10 +307,25 @@ impl Common {
     /// Get all members for this room, includes invited, joined and left members.
     ///
     /// *Note*: This method will fetch the members from the homeserver if the
-    /// member list isn't synchronized due to member lazy loading.
+    /// member list isn't synchronized due to member lazy loading. Because of
+    /// that it might panic if it isn't run on a tokio thread.
+    ///
+    /// Use [members_no_sync()](#method.members_no_sync) if you want a
+    /// method that doesn't do any requests.
     pub async fn members(&self) -> Result<Vec<RoomMember>> {
         self.ensure_members().await?;
+        self.members_no_sync().await
+    }
 
+    /// Get all members for this room, includes invited, joined and left members.
+    ///
+    /// *Note*: This method will not fetch the members from the homeserver if the
+    /// member list isn't synchronized due to member lazy loading. Thus, members
+    /// could be missing.
+    ///
+    /// Use [members()](#method.members) if you want to ensure to always get
+    /// the full member list.
+    pub async fn members_no_sync(&self) -> Result<Vec<RoomMember>> {
         Ok(self
             .inner
             .members()
