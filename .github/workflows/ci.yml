@@ -103,6 +103,7 @@ jobs:
           - linux / features-socks
           - linux / features-sso_login
           - linux / features-require_auth_for_profile_requests
+          - linux / features-appservice
 
         include:
           - name: linux / features-no-encryption
@@ -131,6 +132,9 @@ jobs:
 
           - name: linux / features-sso_login
             cargo_args: --features sso_login
+
+          - name: linux / features-appservice
+            cargo_args: --no-default-features --features "appservice, native-tls"
 
     steps:
       - name: Checkout

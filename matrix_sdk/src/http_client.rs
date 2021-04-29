@@ -100,6 +100,9 @@ pub(crate) struct HttpClient {
     pub(crate) request_config: RequestConfig,
 }
 
+#[cfg(feature = "appservice")]
+use crate::OutgoingRequestAppserviceExt;
+
 impl HttpClient {
     async fn send_request<Request: OutgoingRequest>(
         &self,
@@ -112,7 +115,7 @@ impl HttpClient {
             None => self.request_config,
         };
 
-        let request = {
+        let request = if !self.request_config.assert_identity {
             let read_guard;
             let access_token = if config.force_auth {
                 read_guard = session.read().await;
@@ -140,6 +143,35 @@ impl HttpClient {
             request
                 .try_into_http_request::<BytesMut>(&self.homeserver.to_string(), access_token)?
                 .map(|body| body.freeze())
+        } else {
+            // this should be unreachable since assert_identity on request_config can only be set
+            // with the appservice feature active
+            #[cfg(not(feature = "appservice"))]
+            return Err(HttpError::NeedsAppserviceFeature);
+
+            #[cfg(feature = "appservice")]
+            {
+                let read_guard = session.read().await;
+                let access_token = if let Some(session) = read_guard.as_ref() {
+                    SendAccessToken::Always(session.access_token.as_str())
+                } else {
+                    return Err(HttpError::AuthenticationRequired);
+                };
+
+                let user_id = if let Some(session) = read_guard.as_ref() {
+                    session.user_id.clone()
+                } else {
+                    return Err(HttpError::UserIdRequired);
+                };
+
+                request
+                    .try_into_http_request_with_user_id::<BytesMut>(
+                        &self.homeserver.to_string(),
+                        access_token,
+                        user_id,
+                    )?
+                    .map(|body| body.freeze())
+            }
         };
 
         self.inner.send_request(request, config).await

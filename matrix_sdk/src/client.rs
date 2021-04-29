@@ -405,6 +405,7 @@ pub struct RequestConfig {
     pub(crate) retry_limit: Option<u64>,
     pub(crate) retry_timeout: Option<Duration>,
     pub(crate) force_auth: bool,
+    pub(crate) assert_identity: bool,
 }
 
 #[cfg(not(tarpaulin_include))]
@@ -426,6 +427,7 @@ impl Default for RequestConfig {
             retry_limit: Default::default(),
             retry_timeout: Default::default(),
             force_auth: false,
+            assert_identity: false,
         }
     }
 }
@@ -464,8 +466,19 @@ impl RequestConfig {
     /// Force sending authorization even if the endpoint does not require it. Default is only
     /// sending authorization if it is required
     #[cfg(feature = "require_auth_for_profile_requests")]
+    #[cfg_attr(feature = "docs", doc(cfg(require_auth_for_profile_requests)))]
     pub(crate) fn force_auth(mut self) -> Self {
         self.force_auth = true;
+        self
+    }
+
+    /// [Assert the identity][identity-assertion] of requests to the `user_id` in the `Session`
+    ///
+    /// [identity-assertion]: https://spec.matrix.org/unstable/application-service-api/#identity-assertion
+    #[cfg(feature = "appservice")]
+    #[cfg_attr(feature = "docs", doc(cfg(appservice)))]
+    pub fn assert_identity(mut self) -> Self {
+        self.assert_identity = true;
         self
     }
 }
@@ -519,6 +532,31 @@ impl Client {
             typing_notice_times: Arc::new(DashMap::new()),
             event_handler: Arc::new(RwLock::new(None)),
         })
+    }
+
+    /// Process a [transaction] received from the homeserver
+    ///
+    /// # Arguments
+    ///
+    /// * `incoming_transaction` - The incoming transaction received from the homeserver.
+    ///
+    /// [transaction]: https://matrix.org/docs/spec/application_service/r0.1.2#put-matrix-app-v1-transactions-txnid
+    #[cfg(feature = "appservice")]
+    #[cfg_attr(feature = "docs", doc(cfg(appservice)))]
+    pub async fn receive_transaction(
+        &self,
+        incoming_transaction: crate::api_appservice::event::push_events::v1::IncomingRequest,
+    ) -> Result<()> {
+        let txn_id = incoming_transaction.txn_id.clone();
+        let response = incoming_transaction.try_into_sync_response(txn_id)?;
+        let base_client = self.base_client.clone();
+        let sync_response = base_client.receive_sync_response(response).await?;
+
+        if let Some(handler) = self.event_handler.read().await.as_ref() {
+            handler.handle_sync(&sync_response).await;
+        }
+
+        Ok(())
     }
 
     /// Is the client logged in.

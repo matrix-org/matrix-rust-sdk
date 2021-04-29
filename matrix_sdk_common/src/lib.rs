@@ -1,5 +1,10 @@
 pub use async_trait::async_trait;
 pub use instant;
+#[cfg(feature = "appservice")]
+pub use ruma::{
+    api::{appservice as api_appservice, IncomingRequest, OutgoingRequestAppserviceExt},
+    serde::{exports::serde::de::value::Error as SerdeError, urlencoded},
+};
 pub use ruma::{
     api::{
         client as api,
