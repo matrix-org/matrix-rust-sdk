@@ -90,7 +90,7 @@ pub struct EncryptionInfo {
 }
 
 /// A customized version of a room event coming from a sync that holds optional
-/// decryption info.
+/// encryption info.
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct SyncRoomEvent {
     /// The actual event.
