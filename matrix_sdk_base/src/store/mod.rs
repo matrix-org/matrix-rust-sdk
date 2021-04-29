@@ -31,7 +31,7 @@ use matrix_sdk_common::{
     },
     identifiers::{RoomId, UserId},
     locks::RwLock,
-    AsyncTraitDeps,
+    AsyncTraitDeps, Raw,
 };
 #[cfg(feature = "sled_state_store")]
 use sled::Db;
@@ -114,7 +114,7 @@ pub trait StateStore: AsyncTraitDeps {
     ///
     /// * `user_id` - The id of the user for which we wish to fetch the presence
     /// event for.
-    async fn get_presence_event(&self, user_id: &UserId) -> Result<Option<PresenceEvent>>;
+    async fn get_presence_event(&self, user_id: &UserId) -> Result<Option<Raw<PresenceEvent>>>;
 
     /// Get a state event out of the state store.
     ///
@@ -128,7 +128,7 @@ pub trait StateStore: AsyncTraitDeps {
         room_id: &RoomId,
         event_type: EventType,
         state_key: &str,
-    ) -> Result<Option<AnySyncStateEvent>>;
+    ) -> Result<Option<Raw<AnySyncStateEvent>>>;
 
     /// Get the current profile for the given user in the given room.
     ///
@@ -192,7 +192,10 @@ pub trait StateStore: AsyncTraitDeps {
     /// # Arguments
     ///
     /// * `event_type` - The event type of the account data event.
-    async fn get_account_data_event(&self, event_type: EventType) -> Result<Option<AnyBasicEvent>>;
+    async fn get_account_data_event(
+        &self,
+        event_type: EventType,
+    ) -> Result<Option<Raw<AnyBasicEvent>>>;
 }
 
 /// A state store wrapper for the SDK.
@@ -345,30 +348,33 @@ pub struct StateChanges {
     /// A user session, containing an access token and information about the associated user account.
     pub session: Option<Session>,
     /// A mapping of event type string to `AnyBasicEvent`.
-    pub account_data: BTreeMap<String, AnyBasicEvent>,
+    pub account_data: BTreeMap<String, Raw<AnyBasicEvent>>,
     /// A mapping of `UserId` to `PresenceEvent`.
-    pub presence: BTreeMap<UserId, PresenceEvent>,
+    pub presence: BTreeMap<UserId, Raw<PresenceEvent>>,
 
     /// A mapping of `RoomId` to a map of users and their `MemberEvent`.
     pub members: BTreeMap<RoomId, BTreeMap<UserId, MemberEvent>>,
     /// A mapping of `RoomId` to a map of users and their `MemberEventContent`.
     pub profiles: BTreeMap<RoomId, BTreeMap<UserId, MemberEventContent>>,
 
-    pub(crate) ambiguity_maps: BTreeMap<RoomId, BTreeMap<String, BTreeSet<UserId>>>,
     /// A mapping of `RoomId` to a map of event type string to a state key and `AnySyncStateEvent`.
-    pub state: BTreeMap<RoomId, BTreeMap<String, BTreeMap<String, AnySyncStateEvent>>>,
+    pub state: BTreeMap<RoomId, BTreeMap<String, BTreeMap<String, Raw<AnySyncStateEvent>>>>,
     /// A mapping of `RoomId` to a map of event type string to `AnyBasicEvent`.
-    pub room_account_data: BTreeMap<RoomId, BTreeMap<String, AnyBasicEvent>>,
+    pub room_account_data: BTreeMap<RoomId, BTreeMap<String, Raw<AnyBasicEvent>>>,
     /// A map of `RoomId` to `RoomInfo`.
     pub room_infos: BTreeMap<RoomId, RoomInfo>,
 
     /// A mapping of `RoomId` to a map of event type to a map of state key to `AnyStrippedStateEvent`.
-    pub stripped_state: BTreeMap<RoomId, BTreeMap<String, BTreeMap<String, AnyStrippedStateEvent>>>,
+    pub stripped_state:
+        BTreeMap<RoomId, BTreeMap<String, BTreeMap<String, Raw<AnyStrippedStateEvent>>>>,
     /// A mapping of `RoomId` to a map of users and their `StrippedMemberEvent`.
     pub stripped_members: BTreeMap<RoomId, BTreeMap<UserId, StrippedMemberEvent>>,
     /// A map of `RoomId` to `RoomInfo`.
     pub invited_room_info: BTreeMap<RoomId, RoomInfo>,
 
+    /// A map from room id to a map of a display name and a set of user ids that
+    /// share that display name in the given room.
+    pub ambiguity_maps: BTreeMap<RoomId, BTreeMap<String, BTreeSet<UserId>>>,
     /// A map of `RoomId` to a vector of `Notification`s
     pub notifications: BTreeMap<RoomId, Vec<Notification>>,
 }
@@ -383,8 +389,8 @@ impl StateChanges {
     }
 
     /// Update the `StateChanges` struct with the given `PresenceEvent`.
-    pub fn add_presence_event(&mut self, event: PresenceEvent) {
-        self.presence.insert(event.sender.clone(), event);
+    pub fn add_presence_event(&mut self, event: PresenceEvent, raw_event: Raw<PresenceEvent>) {
+        self.presence.insert(event.sender, raw_event);
     }
 
     /// Update the `StateChanges` struct with the given `RoomInfo`.
@@ -400,27 +406,22 @@ impl StateChanges {
     }
 
     /// Update the `StateChanges` struct with the given `AnyBasicEvent`.
-    pub fn add_account_data(&mut self, event: AnyBasicEvent) {
+    pub fn add_account_data(&mut self, event: AnyBasicEvent, raw_event: Raw<AnyBasicEvent>) {
         self.account_data
-            .insert(event.content().event_type().to_owned(), event);
+            .insert(event.content().event_type().to_owned(), raw_event);
     }
 
     /// Update the `StateChanges` struct with the given room with a new `AnyBasicEvent`.
-    pub fn add_room_account_data(&mut self, room_id: &RoomId, event: AnyBasicEvent) {
+    pub fn add_room_account_data(
+        &mut self,
+        room_id: &RoomId,
+        event: AnyBasicEvent,
+        raw_event: Raw<AnyBasicEvent>,
+    ) {
         self.room_account_data
             .entry(room_id.to_owned())
             .or_insert_with(BTreeMap::new)
-            .insert(event.content().event_type().to_owned(), event);
-    }
-
-    /// Update the `StateChanges` struct with the given room with a new `AnyStrippedStateEvent`.
-    pub fn add_stripped_state_event(&mut self, room_id: &RoomId, event: AnyStrippedStateEvent) {
-        self.stripped_state
-            .entry(room_id.to_owned())
-            .or_insert_with(BTreeMap::new)
-            .entry(event.content().event_type().to_string())
-            .or_insert_with(BTreeMap::new)
-            .insert(event.state_key().to_string(), event);
+            .insert(event.content().event_type().to_owned(), raw_event);
     }
 
     /// Update the `StateChanges` struct with the given room with a new `StrippedMemberEvent`.
@@ -434,13 +435,18 @@ impl StateChanges {
     }
 
     /// Update the `StateChanges` struct with the given room with a new `AnySyncStateEvent`.
-    pub fn add_state_event(&mut self, room_id: &RoomId, event: AnySyncStateEvent) {
+    pub fn add_state_event(
+        &mut self,
+        room_id: &RoomId,
+        event: AnySyncStateEvent,
+        raw_event: Raw<AnySyncStateEvent>,
+    ) {
         self.state
             .entry(room_id.to_owned())
             .or_insert_with(BTreeMap::new)
             .entry(event.content().event_type().to_string())
             .or_insert_with(BTreeMap::new)
-            .insert(event.state_key().to_string(), event);
+            .insert(event.state_key().to_string(), raw_event);
     }
 
     /// Update the `StateChanges` struct with the given room with a new `Notification`.

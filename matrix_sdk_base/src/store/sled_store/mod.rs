@@ -31,9 +31,10 @@ use matrix_sdk_common::{
     events::{
         presence::PresenceEvent,
         room::member::{MemberEventContent, MembershipState},
-        AnyBasicEvent, AnySyncStateEvent, EventContent, EventType,
+        AnyBasicEvent, AnySyncStateEvent, EventType,
     },
     identifiers::{RoomId, UserId},
+    Raw,
 };
 use serde::{Deserialize, Serialize};
 
@@ -405,14 +406,10 @@ impl SledStore {
                     }
 
                     for (room, event_types) in &changes.state {
-                        for events in event_types.values() {
-                            for event in events.values() {
+                        for (event_type, events) in event_types {
+                            for (state_key, event) in events {
                                 state.insert(
-                                    (
-                                        room.as_str(),
-                                        event.content().event_type(),
-                                        event.state_key(),
-                                    )
+                                    (room.as_str(), event_type.as_str(), state_key.as_str())
                                         .encode(),
                                     self.serialize_event(&event)
                                         .map_err(ConflictableTransactionError::Abort)?,
@@ -456,14 +453,10 @@ impl SledStore {
                     }
 
                     for (room, event_types) in &changes.stripped_state {
-                        for events in event_types.values() {
-                            for event in events.values() {
+                        for (event_type, events) in event_types {
+                            for (state_key, event) in events {
                                 stripped_state.insert(
-                                    (
-                                        room.as_str(),
-                                        event.content().event_type(),
-                                        event.state_key(),
-                                    )
+                                    (room.as_str(), event_type.as_str(), state_key.as_str())
                                         .encode(),
                                     self.serialize_event(&event)
                                         .map_err(ConflictableTransactionError::Abort)?,
@@ -485,7 +478,7 @@ impl SledStore {
         Ok(())
     }
 
-    pub async fn get_presence_event(&self, user_id: &UserId) -> Result<Option<PresenceEvent>> {
+    pub async fn get_presence_event(&self, user_id: &UserId) -> Result<Option<Raw<PresenceEvent>>> {
         Ok(self
             .presence
             .get(user_id.encode())?
@@ -498,7 +491,7 @@ impl SledStore {
         room_id: &RoomId,
         event_type: EventType,
         state_key: &str,
-    ) -> Result<Option<AnySyncStateEvent>> {
+    ) -> Result<Option<Raw<AnySyncStateEvent>>> {
         Ok(self
             .room_state
             .get((room_id.as_str(), event_type.as_str(), state_key).encode())?
@@ -597,7 +590,7 @@ impl SledStore {
     pub async fn get_account_data_event(
         &self,
         event_type: EventType,
-    ) -> Result<Option<AnyBasicEvent>> {
+    ) -> Result<Option<Raw<AnyBasicEvent>>> {
         Ok(self
             .account_data
             .get(event_type.encode())?
@@ -624,7 +617,7 @@ impl StateStore for SledStore {
         self.get_sync_token().await
     }
 
-    async fn get_presence_event(&self, user_id: &UserId) -> Result<Option<PresenceEvent>> {
+    async fn get_presence_event(&self, user_id: &UserId) -> Result<Option<Raw<PresenceEvent>>> {
         self.get_presence_event(user_id).await
     }
 
@@ -633,7 +626,7 @@ impl StateStore for SledStore {
         room_id: &RoomId,
         event_type: EventType,
         state_key: &str,
-    ) -> Result<Option<AnySyncStateEvent>> {
+    ) -> Result<Option<Raw<AnySyncStateEvent>>> {
         self.get_state_event(room_id, event_type, state_key).await
     }
 
@@ -682,7 +675,10 @@ impl StateStore for SledStore {
             .await
     }
 
-    async fn get_account_data_event(&self, event_type: EventType) -> Result<Option<AnyBasicEvent>> {
+    async fn get_account_data_event(
+        &self,
+        event_type: EventType,
+    ) -> Result<Option<Raw<AnyBasicEvent>>> {
         self.get_account_data_event(event_type).await
     }
 }
@@ -693,18 +689,39 @@ mod test {
 
     use matrix_sdk_common::{
         events::{
-            room::member::{MemberEventContent, MembershipState},
-            Unsigned,
+            room::{
+                member::{MemberEventContent, MembershipState},
+                power_levels::PowerLevelsEventContent,
+            },
+            AnySyncStateEvent, EventType, Unsigned,
         },
         identifiers::{room_id, user_id, EventId, UserId},
+        Raw,
     };
     use matrix_sdk_test::async_test;
+    use serde_json::json;
 
     use super::{SledStore, StateChanges};
     use crate::deserialized_responses::MemberEvent;
 
     fn user_id() -> UserId {
         user_id!("@example:localhost")
+    }
+
+    fn power_level_event() -> Raw<AnySyncStateEvent> {
+        let content = PowerLevelsEventContent::default();
+
+        let event = json!({
+            "event_id": EventId::try_from("$h29iv0s8:example.com").unwrap(),
+            "content": content,
+            "sender": user_id(),
+            "type": "m.room.power_levels",
+            "origin_server_ts": 0u64,
+            "state_key": "",
+            "unsigned": Unsigned::default(),
+        });
+
+        serde_json::from_value(event).unwrap()
     }
 
     fn membership_event() -> MemberEvent {
@@ -748,6 +765,30 @@ mod test {
         store.save_changes(&changes).await.unwrap();
         assert!(store
             .get_member_event(&room_id, &user_id)
+            .await
+            .unwrap()
+            .is_some());
+    }
+
+    #[async_test]
+    async fn test_power_level_saving() {
+        let store = SledStore::open().unwrap();
+        let room_id = room_id!("!test:localhost");
+
+        let raw_event = power_level_event();
+        let event = raw_event.deserialize().unwrap();
+
+        assert!(store
+            .get_state_event(&room_id, EventType::RoomPowerLevels, "")
+            .await
+            .unwrap()
+            .is_none());
+        let mut changes = StateChanges::default();
+        changes.add_state_event(&room_id, event, raw_event);
+
+        store.save_changes(&changes).await.unwrap();
+        assert!(store
+            .get_state_event(&room_id, EventType::RoomPowerLevels, "")
             .await
             .unwrap()
             .is_some());

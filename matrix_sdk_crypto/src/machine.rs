@@ -27,14 +27,13 @@ use matrix_sdk_common::{
             upload_keys,
             upload_signatures::Request as UploadSignaturesRequest,
         },
-        sync::sync_events::{DeviceLists, ToDevice as RumaToDevice},
+        sync::sync_events::{DeviceLists, ToDevice},
     },
     assign,
-    deserialized_responses::ToDevice,
+    deserialized_responses::{AlgorithmInfo, EncryptionInfo, SyncRoomEvent, VerificationState},
     events::{
         room::encrypted::EncryptedEventContent, room_key::RoomKeyEventContent,
-        AnyMessageEventContent, AnySyncRoomEvent, AnyToDeviceEvent, SyncMessageEvent,
-        ToDeviceEvent,
+        AnyMessageEventContent, AnyToDeviceEvent, SyncMessageEvent, ToDeviceEvent,
     },
     identifiers::{
         DeviceId, DeviceIdBox, DeviceKeyAlgorithm, EventEncryptionAlgorithm, EventId, RoomId,
@@ -42,7 +41,7 @@ use matrix_sdk_common::{
     },
     locks::Mutex,
     uuid::Uuid,
-    Raw, UInt,
+    UInt,
 };
 
 #[cfg(feature = "sled_cryptostore")]
@@ -802,7 +801,7 @@ impl OlmMachine {
     /// [`decrypt_room_event`]: #method.decrypt_room_event
     pub async fn receive_sync_changes(
         &self,
-        to_device_events: &RumaToDevice,
+        to_device_events: ToDevice,
         changed_devices: &DeviceLists,
         one_time_keys_counts: &BTreeMap<DeviceKeyAlgorithm, UInt>,
     ) -> OlmResult<ToDevice> {
@@ -826,14 +825,14 @@ impl OlmMachine {
 
         let mut events = Vec::new();
 
-        for event_result in &to_device_events.events {
-            let mut event = match event_result.deserialize() {
+        for mut raw_event in to_device_events.events {
+            let event = match raw_event.deserialize() {
                 Ok(e) => e,
                 Err(e) => {
                     // Skip invalid events.
                     warn!(
                         "Received an invalid to-device event {:?} {:?}",
-                        e, event_result
+                        e, raw_event
                     );
                     continue;
                 }
@@ -841,9 +840,9 @@ impl OlmMachine {
 
             info!("Received a to-device event {:?}", event);
 
-            match &mut event {
+            match event {
                 AnyToDeviceEvent::RoomEncrypted(e) => {
-                    let decrypted = match self.decrypt_to_device_event(e).await {
+                    let decrypted = match self.decrypt_to_device_event(&e).await {
                         Ok(e) => e,
                         Err(err) => {
                             warn!(
@@ -885,12 +884,10 @@ impl OlmMachine {
                         changes.inbound_group_sessions.push(group_session);
                     }
 
-                    if let Some(e) = decrypted.deserialized_event {
-                        event = e;
-                    }
+                    raw_event = decrypted.event;
                 }
                 AnyToDeviceEvent::RoomKeyRequest(e) => {
-                    self.key_request_machine.receive_incoming_key_request(e)
+                    self.key_request_machine.receive_incoming_key_request(&e)
                 }
                 AnyToDeviceEvent::KeyVerificationAccept(..)
                 | AnyToDeviceEvent::KeyVerificationCancel(..)
@@ -903,7 +900,7 @@ impl OlmMachine {
                 _ => continue,
             }
 
-            events.push(event);
+            events.push(raw_event);
         }
 
         let changed_sessions = self
@@ -915,7 +912,10 @@ impl OlmMachine {
 
         self.store.save_changes(changes).await?;
 
-        Ok(ToDevice { events })
+        let mut to_device = ToDevice::new();
+        to_device.events = events;
+
+        Ok(to_device)
     }
 
     /// Request a room key from our devices.
@@ -950,6 +950,44 @@ impl OlmMachine {
             .await?)
     }
 
+    async fn get_encryption_info(
+        &self,
+        session: &InboundGroupSession,
+        sender: &UserId,
+        device_id: &DeviceId,
+    ) -> StoreResult<EncryptionInfo> {
+        let verification_state = if let Some(device) =
+            self.get_device(sender, device_id).await?.filter(|d| {
+                d.get_key(DeviceKeyAlgorithm::Curve25519)
+                    .map(|k| k == session.sender_key())
+                    .unwrap_or(false)
+            }) {
+            if (self.user_id() == device.user_id() && self.device_id() == device.device_id())
+                || device.is_trusted()
+            {
+                VerificationState::Trusted
+            } else {
+                VerificationState::Untrusted
+            }
+        } else {
+            VerificationState::UnknownDevice
+        };
+
+        let sender = sender.clone();
+        let device_id = device_id.to_owned();
+
+        Ok(EncryptionInfo {
+            sender,
+            sender_device: device_id,
+            algorithm_info: AlgorithmInfo::MegolmV1AesSha2 {
+                curve25519_key: session.sender_key().to_owned(),
+                sender_claimed_keys: session.signing_keys().to_owned(),
+                forwarding_curve25519_key_chain: session.forwading_key_chain().to_vec(),
+            },
+            verification_state,
+        })
+    }
+
     /// Decrypt an event from a room timeline.
     ///
     /// # Arguments
@@ -961,7 +999,7 @@ impl OlmMachine {
         &self,
         event: &SyncMessageEvent<EncryptedEventContent>,
         room_id: &RoomId,
-    ) -> MegolmResult<Raw<AnySyncRoomEvent>> {
+    ) -> MegolmResult<SyncRoomEvent> {
         let content = match &event.content {
             EncryptedEventContent::MegolmV1AesSha2(c) => c,
             _ => return Err(EventError::UnsupportedAlgorithm.into()),
@@ -989,8 +1027,6 @@ impl OlmMachine {
             "Successfully decrypted a Megolm event {:?}",
             decrypted_event
         );
-        // TODO set the encryption info on the event (is it verified, was it
-        // decrypted, sender key...)
 
         if let Ok(e) = decrypted_event.deserialize() {
             self.verification_machine
@@ -998,7 +1034,14 @@ impl OlmMachine {
                 .await?;
         }
 
-        Ok(decrypted_event)
+        let encryption_info = self
+            .get_encryption_info(&session, &event.sender, &content.device_id)
+            .await?;
+
+        Ok(SyncRoomEvent {
+            encryption_info: Some(encryption_info),
+            event: decrypted_event,
+        })
     }
 
     /// Update the tracked users.
@@ -1815,23 +1858,24 @@ pub(crate) mod test {
             .decrypt_room_event(&event, &room_id)
             .await
             .unwrap()
+            .event
             .deserialize()
             .unwrap();
 
-        match decrypted_event {
-            AnySyncRoomEvent::Message(AnySyncMessageEvent::RoomMessage(SyncMessageEvent {
-                sender,
-                content,
-                ..
-            })) => {
-                assert_eq!(&sender, alice.user_id());
-                if let MessageType::Text(c) = &content.msgtype {
-                    assert_eq!(&c.body, plaintext);
-                } else {
-                    panic!("Decrypted event has a missmatched content");
-                }
+        if let AnySyncRoomEvent::Message(AnySyncMessageEvent::RoomMessage(SyncMessageEvent {
+            sender,
+            content,
+            ..
+        })) = decrypted_event
+        {
+            assert_eq!(&sender, alice.user_id());
+            if let MessageType::Text(c) = &content.msgtype {
+                assert_eq!(&c.body, plaintext);
+            } else {
+                panic!("Decrypted event has a mismatched content");
             }
-            _ => panic!("Decrypted room event has the wrong type"),
+        } else {
+            panic!("Decrypted room event has the wrong type")
         }
     }
 

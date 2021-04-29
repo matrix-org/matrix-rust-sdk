@@ -58,7 +58,7 @@ impl WasmBot {
 
         for (room_id, room) in response.rooms.join {
             for event in room.timeline.events {
-                if let AnySyncRoomEvent::Message(AnySyncMessageEvent::RoomMessage(ev)) = event {
+                if let Ok(AnySyncRoomEvent::Message(AnySyncMessageEvent::RoomMessage(ev))) = event.event.deserialize() {
                     self.on_room_message(&room_id, &ev).await
                 }
             }

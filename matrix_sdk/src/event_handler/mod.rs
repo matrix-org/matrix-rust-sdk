@@ -75,50 +75,95 @@ impl Handler {
     pub(crate) async fn handle_sync(&self, response: &SyncResponse) {
         for (room_id, room_info) in &response.rooms.join {
             if let Some(room) = self.get_room(room_id) {
-                for event in &room_info.ephemeral.events {
-                    self.handle_ephemeral_event(room.clone(), event).await;
+                for event in room_info
+                    .ephemeral
+                    .events
+                    .iter()
+                    .filter_map(|e| e.deserialize().ok())
+                {
+                    self.handle_ephemeral_event(room.clone(), &event).await;
                 }
 
-                for event in &room_info.account_data.events {
-                    self.handle_account_data_event(room.clone(), event).await;
+                for event in room_info
+                    .account_data
+                    .events
+                    .iter()
+                    .filter_map(|e| e.deserialize().ok())
+                {
+                    self.handle_account_data_event(room.clone(), &event).await;
                 }
 
-                for event in &room_info.state.events {
-                    self.handle_state_event(room.clone(), event).await;
+                for event in room_info
+                    .state
+                    .events
+                    .iter()
+                    .filter_map(|e| e.deserialize().ok())
+                {
+                    self.handle_state_event(room.clone(), &event).await;
                 }
 
-                for event in &room_info.timeline.events {
-                    self.handle_timeline_event(room.clone(), event).await;
+                for event in room_info
+                    .timeline
+                    .events
+                    .iter()
+                    .filter_map(|e| e.event.deserialize().ok())
+                {
+                    self.handle_timeline_event(room.clone(), &event).await;
                 }
             }
         }
 
         for (room_id, room_info) in &response.rooms.leave {
             if let Some(room) = self.get_room(room_id) {
-                for event in &room_info.account_data.events {
-                    self.handle_account_data_event(room.clone(), event).await;
+                for event in room_info
+                    .account_data
+                    .events
+                    .iter()
+                    .filter_map(|e| e.deserialize().ok())
+                {
+                    self.handle_account_data_event(room.clone(), &event).await;
                 }
 
-                for event in &room_info.state.events {
-                    self.handle_state_event(room.clone(), event).await;
+                for event in room_info
+                    .state
+                    .events
+                    .iter()
+                    .filter_map(|e| e.deserialize().ok())
+                {
+                    self.handle_state_event(room.clone(), &event).await;
                 }
 
-                for event in &room_info.timeline.events {
-                    self.handle_timeline_event(room.clone(), event).await;
+                for event in room_info
+                    .timeline
+                    .events
+                    .iter()
+                    .filter_map(|e| e.event.deserialize().ok())
+                {
+                    self.handle_timeline_event(room.clone(), &event).await;
                 }
             }
         }
 
         for (room_id, room_info) in &response.rooms.invite {
             if let Some(room) = self.get_room(room_id) {
-                for event in &room_info.invite_state.events {
-                    self.handle_stripped_state_event(room.clone(), event).await;
+                for event in room_info
+                    .invite_state
+                    .events
+                    .iter()
+                    .filter_map(|e| e.deserialize().ok())
+                {
+                    self.handle_stripped_state_event(room.clone(), &event).await;
                 }
             }
         }
 
-        for event in &response.presence.events {
-            self.on_presence_event(event).await;
+        for event in response
+            .presence
+            .events
+            .iter()
+            .filter_map(|e| e.deserialize().ok())
+        {
+            self.on_presence_event(&event).await;
         }
 
         for (room_id, notifications) in &response.notifications {

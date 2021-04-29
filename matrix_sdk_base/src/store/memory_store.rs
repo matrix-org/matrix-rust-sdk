@@ -23,10 +23,11 @@ use matrix_sdk_common::{
     events::{
         presence::PresenceEvent,
         room::member::{MemberEventContent, MembershipState},
-        AnyBasicEvent, AnyStrippedStateEvent, AnySyncStateEvent, EventContent, EventType,
+        AnyBasicEvent, AnyStrippedStateEvent, AnySyncStateEvent, EventType,
     },
     identifiers::{RoomId, UserId},
     instant::Instant,
+    Raw,
 };
 
 use tracing::info;
@@ -39,7 +40,7 @@ use super::{Result, RoomInfo, StateChanges, StateStore};
 pub struct MemoryStore {
     sync_token: Arc<RwLock<Option<String>>>,
     filters: Arc<DashMap<String, String>>,
-    account_data: Arc<DashMap<String, AnyBasicEvent>>,
+    account_data: Arc<DashMap<String, Raw<AnyBasicEvent>>>,
     members: Arc<DashMap<RoomId, DashMap<UserId, MemberEvent>>>,
     profiles: Arc<DashMap<RoomId, DashMap<UserId, MemberEventContent>>>,
     display_names: Arc<DashMap<RoomId, DashMap<String, BTreeSet<UserId>>>>,
@@ -47,14 +48,14 @@ pub struct MemoryStore {
     invited_user_ids: Arc<DashMap<RoomId, DashSet<UserId>>>,
     room_info: Arc<DashMap<RoomId, RoomInfo>>,
     #[allow(clippy::type_complexity)]
-    room_state: Arc<DashMap<RoomId, DashMap<String, DashMap<String, AnySyncStateEvent>>>>,
-    room_account_data: Arc<DashMap<RoomId, DashMap<String, AnyBasicEvent>>>,
+    room_state: Arc<DashMap<RoomId, DashMap<String, DashMap<String, Raw<AnySyncStateEvent>>>>>,
+    room_account_data: Arc<DashMap<RoomId, DashMap<String, Raw<AnyBasicEvent>>>>,
     stripped_room_info: Arc<DashMap<RoomId, RoomInfo>>,
     #[allow(clippy::type_complexity)]
     stripped_room_state:
-        Arc<DashMap<RoomId, DashMap<String, DashMap<String, AnyStrippedStateEvent>>>>,
+        Arc<DashMap<RoomId, DashMap<String, DashMap<String, Raw<AnyStrippedStateEvent>>>>>,
     stripped_members: Arc<DashMap<RoomId, DashMap<UserId, StrippedMemberEvent>>>,
-    presence: Arc<DashMap<UserId, PresenceEvent>>,
+    presence: Arc<DashMap<UserId, Raw<PresenceEvent>>>,
 }
 
 impl MemoryStore {
@@ -176,14 +177,14 @@ impl MemoryStore {
         }
 
         for (room, event_types) in &changes.state {
-            for events in event_types.values() {
-                for event in events.values() {
+            for (event_type, events) in event_types {
+                for (state_key, event) in events {
                     self.room_state
                         .entry(room.clone())
                         .or_insert_with(DashMap::new)
-                        .entry(event.content().event_type().to_string())
+                        .entry(event_type.to_owned())
                         .or_insert_with(DashMap::new)
-                        .insert(event.state_key().to_string(), event.clone());
+                        .insert(state_key.to_owned(), event.clone());
                 }
             }
         }
@@ -211,14 +212,14 @@ impl MemoryStore {
         }
 
         for (room, event_types) in &changes.stripped_state {
-            for events in event_types.values() {
-                for event in events.values() {
+            for (event_type, events) in event_types {
+                for (state_key, event) in events {
                     self.stripped_room_state
                         .entry(room.clone())
                         .or_insert_with(DashMap::new)
-                        .entry(event.content().event_type().to_string())
+                        .entry(event_type.to_owned())
                         .or_insert_with(DashMap::new)
-                        .insert(event.state_key().to_string(), event.clone());
+                        .insert(state_key.to_owned(), event.clone());
                 }
             }
         }
@@ -228,7 +229,7 @@ impl MemoryStore {
         Ok(())
     }
 
-    async fn get_presence_event(&self, user_id: &UserId) -> Result<Option<PresenceEvent>> {
+    async fn get_presence_event(&self, user_id: &UserId) -> Result<Option<Raw<PresenceEvent>>> {
         #[allow(clippy::map_clone)]
         Ok(self.presence.get(user_id).map(|p| p.clone()))
     }
@@ -238,7 +239,7 @@ impl MemoryStore {
         room_id: &RoomId,
         event_type: EventType,
         state_key: &str,
-    ) -> Result<Option<AnySyncStateEvent>> {
+    ) -> Result<Option<Raw<AnySyncStateEvent>>> {
         #[allow(clippy::map_clone)]
         Ok(self.room_state.get(room_id).and_then(|e| {
             e.get(event_type.as_ref())
@@ -304,7 +305,10 @@ impl MemoryStore {
         self.stripped_room_info.iter().map(|r| r.clone()).collect()
     }
 
-    async fn get_account_data_event(&self, event_type: EventType) -> Result<Option<AnyBasicEvent>> {
+    async fn get_account_data_event(
+        &self,
+        event_type: EventType,
+    ) -> Result<Option<Raw<AnyBasicEvent>>> {
         Ok(self
             .account_data
             .get(event_type.as_ref())
@@ -331,7 +335,7 @@ impl StateStore for MemoryStore {
         self.get_sync_token().await
     }
 
-    async fn get_presence_event(&self, user_id: &UserId) -> Result<Option<PresenceEvent>> {
+    async fn get_presence_event(&self, user_id: &UserId) -> Result<Option<Raw<PresenceEvent>>> {
         self.get_presence_event(user_id).await
     }
 
@@ -340,7 +344,7 @@ impl StateStore for MemoryStore {
         room_id: &RoomId,
         event_type: EventType,
         state_key: &str,
-    ) -> Result<Option<AnySyncStateEvent>> {
+    ) -> Result<Option<Raw<AnySyncStateEvent>>> {
         self.get_state_event(room_id, event_type, state_key).await
     }
 
@@ -393,7 +397,10 @@ impl StateStore for MemoryStore {
             .unwrap_or_default())
     }
 
-    async fn get_account_data_event(&self, event_type: EventType) -> Result<Option<AnyBasicEvent>> {
+    async fn get_account_data_event(
+        &self,
+        event_type: EventType,
+    ) -> Result<Option<Raw<AnyBasicEvent>>> {
         self.get_account_data_event(event_type).await
     }
 }

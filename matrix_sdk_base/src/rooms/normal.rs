@@ -393,7 +393,11 @@ impl Room {
                 return Ok(None);
             };
 
-        let presence = self.store.get_presence_event(user_id).await?;
+        let presence = self
+            .store
+            .get_presence_event(user_id)
+            .await?
+            .and_then(|e| e.deserialize().ok());
         let profile = self.store.get_profile(self.room_id(), user_id).await?;
         let max_power_level = self.max_power_level();
         let is_room_creator = self
@@ -410,6 +414,7 @@ impl Room {
             .store
             .get_state_event(self.room_id(), EventType::RoomPowerLevels, "")
             .await?
+            .and_then(|e| e.deserialize().ok())
             .and_then(|e| {
                 if let AnySyncStateEvent::RoomPowerLevels(e) = e {
                     Some(e)
