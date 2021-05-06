@@ -422,10 +422,8 @@ impl Sas {
                 } else {
                     Some(r)
                 }
-            } else if let Some(r) = identity_signature_request {
-                Some(r)
             } else {
-                None
+                identity_signature_request
             };
 
             // TODO store the request as well.

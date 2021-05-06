@@ -183,14 +183,10 @@ impl AmbiguityCache {
             .and_then(|m| m.get(&member_event.state_key))
         {
             Some(m.clone())
-        } else if let Some(m) = self
-            .store
-            .get_member_event(room_id, &member_event.state_key)
-            .await?
-        {
-            Some(m)
         } else {
-            None
+            self.store
+                .get_member_event(room_id, &member_event.state_key)
+                .await?
         };
 
         let old_display_name = if let Some(event) = old_event {

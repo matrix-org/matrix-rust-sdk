@@ -2082,11 +2082,8 @@ impl Client {
         let olm = self.base_client.olm_machine().await?;
 
         olm.get_verification_request(flow_id).and_then(|r| {
-            if let Some(room) = self.get_joined_room(r.room_id()) {
-                Some(VerificationRequest { inner: r, room })
-            } else {
-                None
-            }
+            self.get_joined_room(r.room_id())
+                .map(|room| VerificationRequest { inner: r, room })
         })
     }
 

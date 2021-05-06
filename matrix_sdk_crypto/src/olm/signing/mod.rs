@@ -416,8 +416,8 @@ impl PrivateCrossSigningIdentity {
 
         UploadSigningKeysRequest {
             master_key,
-            user_signing_key,
             self_signing_key,
+            user_signing_key,
         }
     }
 }

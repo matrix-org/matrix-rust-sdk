@@ -180,11 +180,11 @@ impl JoinedRoom {
         unread_notifications: UnreadNotificationsCount,
     ) -> Self {
         Self {
+            unread_notifications,
             timeline,
             state,
             account_data,
             ephemeral,
-            unread_notifications,
         }
     }
 }
