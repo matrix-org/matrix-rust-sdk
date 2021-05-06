@@ -22,9 +22,6 @@ fn auth_data<'a>(user: &UserId, password: &str, session: Option<&'a str>) -> Aut
     auth_parameters.insert("identifier".to_owned(), identifier);
     auth_parameters.insert("password".to_owned(), password.to_owned().into());
 
-    // This is needed because of https://github.com/matrix-org/synapse/issues/5665
-    auth_parameters.insert("user".to_owned(), user.as_str().into());
-
     AuthData::DirectRequest {
         kind: "m.login.password",
         auth_parameters,
