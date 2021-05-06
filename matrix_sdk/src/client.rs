@@ -22,7 +22,6 @@ use std::{
     ops::Range,
 };
 use std::{
-    convert::TryInto,
     fmt::{self, Debug},
     future::Future,
     io::Read,
@@ -477,7 +476,7 @@ impl Client {
     /// # Arguments
     ///
     /// * `homeserver_url` - The homeserver that the client should connect to.
-    pub fn new(homeserver_url: impl TryInto<Url>) -> Result<Self> {
+    pub fn new(homeserver_url: Url) -> Result<Self> {
         let config = ClientConfig::new();
         Client::new_with_config(homeserver_url, config)
     }
@@ -489,15 +488,8 @@ impl Client {
     /// * `homeserver_url` - The homeserver that the client should connect to.
     ///
     /// * `config` - Configuration for the client.
-    pub fn new_with_config(
-        homeserver_url: impl TryInto<Url>,
-        config: ClientConfig,
-    ) -> Result<Self> {
-        let homeserver = if let Ok(u) = homeserver_url.try_into() {
-            Arc::new(u)
-        } else {
-            panic!("Error parsing homeserver url")
-        };
+    pub fn new_with_config(homeserver_url: Url, config: ClientConfig) -> Result<Self> {
+        let homeserver = Arc::new(homeserver_url);
 
         let client = if let Some(client) = config.client {
             client
