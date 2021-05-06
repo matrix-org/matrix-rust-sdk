@@ -543,6 +543,17 @@ impl Client {
         session.as_ref().map(|s| s.device_id.clone())
     }
 
+    /// Get the public ed25519 key of our own device. This is usually what is
+    /// called the fingerprint of the device.
+    #[cfg(feature = "encryption")]
+    #[cfg_attr(feature = "docs", doc(cfg(encryption)))]
+    pub async fn ed25519_key(&self) -> Option<String> {
+        self.base_client
+            .olm_machine()
+            .await
+            .map(|o| o.identity_keys().ed25519().to_owned())
+    }
+
     /// Fetches the display name of the owner of the client.
     ///
     /// # Example
