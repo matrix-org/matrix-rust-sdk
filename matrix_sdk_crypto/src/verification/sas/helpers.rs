@@ -436,6 +436,43 @@ pub fn get_emoji(
     bytes_to_emoji(bytes)
 }
 
+/// Get the index of the emoji of the short authentication string.
+///
+/// Returns seven u8 numbers in the range from 0 to 63 inclusive, those numbers
+/// can be converted to a unique emoji defined by the spec using the
+/// [emoji_from_index](#method.emoji_from_index) method.
+///
+/// # Arguments
+///
+/// * `sas` - The Olm SAS object that can be used to generate bytes using the
+/// shared secret.
+///
+/// * `ids` - The ids that are used for this SAS authentication flow.
+///
+/// * `flow_id` - The unique id that identifies this SAS verification process.
+///
+/// * `we_started` - Flag signaling if the SAS process was started on our side.
+///
+/// # Panics
+///
+/// This will panic if the public key of the other side wasn't set.
+pub fn get_emoji_index(
+    sas: &OlmSas,
+    ids: &SasIds,
+    their_pubkey: &str,
+    flow_id: &str,
+    we_started: bool,
+) -> [u8; 7] {
+    let bytes = sas
+        .generate_bytes(
+            &extra_info_sas(&ids, &sas.public_key(), their_pubkey, &flow_id, we_started),
+            6,
+        )
+        .expect("Can't generate bytes");
+
+    bytes_to_emoji_index(bytes)
+}
+
 fn bytes_to_emoji_index(bytes: Vec<u8>) -> [u8; 7] {
     let bytes: Vec<u64> = bytes.iter().map(|b| *b as u64).collect();
     // Join the 6 bytes into one 64 bit unsigned int. This u64 will contain 48

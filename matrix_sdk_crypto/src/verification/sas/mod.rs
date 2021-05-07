@@ -633,6 +633,16 @@ impl Sas {
         self.inner.lock().unwrap().emoji()
     }
 
+    /// Get the index of the emoji representing the short auth string
+    ///
+    /// Returns None if we can't yet present the short auth string, otherwise
+    /// seven u8 numbers in the range from 0 to 63 inclusive which can be
+    /// converted to an emoji using the
+    /// [relevant spec entry](https://spec.matrix.org/unstable/client-server-api/#sas-method-emoji).
+    pub fn emoji_index(&self) -> Option<[u8; 7]> {
+        self.inner.lock().unwrap().emoji_index()
+    }
+
     /// Get the decimal version of the short auth string.
     ///
     /// Returns None if we can't yet present the short auth string, otherwise a

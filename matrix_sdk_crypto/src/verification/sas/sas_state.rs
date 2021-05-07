@@ -47,7 +47,8 @@ use super::{
         AcceptContent, CancelContent, DoneContent, KeyContent, MacContent, StartContent,
     },
     helpers::{
-        calculate_commitment, get_decimal, get_emoji, get_mac_content, receive_mac_event, SasIds,
+        calculate_commitment, get_decimal, get_emoji, get_emoji_index, get_mac_content,
+        receive_mac_event, SasIds,
     },
 };
 
@@ -757,6 +758,20 @@ impl SasState<KeyReceived> {
         )
     }
 
+    /// Get the index of the emoji of the short authentication string.
+    ///
+    /// Returns seven u8 numbers in the range from 0 to 63 inclusive, those numbers
+    /// can be converted to a unique emoji defined by the spec.
+    pub fn get_emoji_index(&self) -> [u8; 7] {
+        get_emoji_index(
+            &self.inner.lock().unwrap(),
+            &self.ids,
+            &self.state.their_pubkey,
+            self.verification_flow_id.as_str(),
+            self.state.we_started,
+        )
+    }
+
     /// Get the decimal version of the short authentication string.
     ///
     /// Returns a tuple containing three 4 digit integer numbers that represent
@@ -974,6 +989,20 @@ impl SasState<MacReceived> {
             &self.ids,
             &self.state.their_pubkey,
             &self.verification_flow_id.as_str(),
+            self.state.we_started,
+        )
+    }
+
+    /// Get the index of the emoji of the short authentication string.
+    ///
+    /// Returns seven u8 numbers in the range from 0 to 63 inclusive, those numbers
+    /// can be converted to a unique emoji defined by the spec.
+    pub fn get_emoji_index(&self) -> [u8; 7] {
+        get_emoji_index(
+            &self.inner.lock().unwrap(),
+            &self.ids,
+            &self.state.their_pubkey,
+            self.verification_flow_id.as_str(),
             self.state.we_started,
         )
     }

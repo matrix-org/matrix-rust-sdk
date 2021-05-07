@@ -351,6 +351,14 @@ impl InnerSas {
         }
     }
 
+    pub fn emoji_index(&self) -> Option<[u8; 7]> {
+        match self {
+            InnerSas::KeyRecieved(s) => Some(s.get_emoji_index()),
+            InnerSas::MacReceived(s) => Some(s.get_emoji_index()),
+            _ => None,
+        }
+    }
+
     pub fn decimals(&self) -> Option<(u16, u16, u16)> {
         match self {
             InnerSas::KeyRecieved(s) => Some(s.get_decimal()),
