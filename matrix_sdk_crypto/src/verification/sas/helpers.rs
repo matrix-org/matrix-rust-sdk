@@ -402,7 +402,7 @@ fn extra_info_sas(
 
 /// Get the emoji version of the short authentication string.
 ///
-/// Returns a vector of tuples where the first element is the emoji and the
+/// Returns seven tuples where the first element is the emoji and the
 /// second element the English description of the emoji.
 ///
 /// # Arguments
@@ -425,7 +425,7 @@ pub fn get_emoji(
     their_pubkey: &str,
     flow_id: &str,
     we_started: bool,
-) -> Vec<(&'static str, &'static str)> {
+) -> [(&'static str, &'static str); 7] {
     let bytes = sas
         .generate_bytes(
             &extra_info_sas(&ids, &sas.public_key(), their_pubkey, &flow_id, we_started),
@@ -436,7 +436,7 @@ pub fn get_emoji(
     bytes_to_emoji(bytes)
 }
 
-fn bytes_to_emoji_index(bytes: Vec<u8>) -> Vec<u8> {
+fn bytes_to_emoji_index(bytes: Vec<u8>) -> [u8; 7] {
     let bytes: Vec<u64> = bytes.iter().map(|b| *b as u64).collect();
     // Join the 6 bytes into one 64 bit unsigned int. This u64 will contain 48
     // bits from our 6 bytes.
@@ -449,7 +449,7 @@ fn bytes_to_emoji_index(bytes: Vec<u8>) -> Vec<u8> {
 
     // Take the top 42 bits of our 48 bits from the u64 and convert each 6 bits
     // into a 6 bit number.
-    vec![
+    [
         ((num >> 42) & 63) as u8,
         ((num >> 36) & 63) as u8,
         ((num >> 30) & 63) as u8,
@@ -460,11 +460,19 @@ fn bytes_to_emoji_index(bytes: Vec<u8>) -> Vec<u8> {
     ]
 }
 
-fn bytes_to_emoji(bytes: Vec<u8>) -> Vec<(&'static str, &'static str)> {
+fn bytes_to_emoji(bytes: Vec<u8>) -> [(&'static str, &'static str); 7] {
     let numbers = bytes_to_emoji_index(bytes);
 
     // Convert the 6 bit number into a emoji/description tuple.
-    numbers.into_iter().map(emoji_from_index).collect()
+    [
+        emoji_from_index(numbers[0]),
+        emoji_from_index(numbers[1]),
+        emoji_from_index(numbers[2]),
+        emoji_from_index(numbers[3]),
+        emoji_from_index(numbers[4]),
+        emoji_from_index(numbers[5]),
+        emoji_from_index(numbers[6]),
+    ]
 }
 
 /// Get the decimal version of the short authentication string.
@@ -584,7 +592,7 @@ mod test {
             .into_iter()
             .map(emoji_from_index)
             .collect();
-        assert_eq!(bytes_to_emoji(bytes), index);
+        assert_eq!(bytes_to_emoji(bytes), index.as_ref());
 
         let bytes = vec![0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF];
 
@@ -592,7 +600,7 @@ mod test {
             .into_iter()
             .map(emoji_from_index)
             .collect();
-        assert_eq!(bytes_to_emoji(bytes), index);
+        assert_eq!(bytes_to_emoji(bytes), index.as_ref());
     }
 
     #[test]
@@ -612,8 +620,8 @@ mod test {
         fn proptest_emoji(bytes in prop::array::uniform6(0u8..)) {
             let numbers = bytes_to_emoji_index(bytes.to_vec());
 
-            for number in numbers {
-                prop_assert!(number < 64);
+            for number in numbers.iter() {
+                prop_assert!(*number < 64);
             }
         }
     }

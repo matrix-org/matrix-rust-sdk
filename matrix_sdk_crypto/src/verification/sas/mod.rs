@@ -627,9 +627,9 @@ impl Sas {
 
     /// Get the emoji version of the short auth string.
     ///
-    /// Returns None if we can't yet present the short auth string, otherwise a
-    /// Vec of tuples with the emoji and description.
-    pub fn emoji(&self) -> Option<Vec<(&'static str, &'static str)>> {
+    /// Returns None if we can't yet present the short auth string, otherwise
+    /// seven tuples containing the emoji and description.
+    pub fn emoji(&self) -> Option<[(&'static str, &'static str); 7]> {
         self.inner.lock().unwrap().emoji()
     }
 

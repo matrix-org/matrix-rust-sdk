@@ -112,7 +112,7 @@ impl Sas {
     }
 
     /// Get the emoji version of the short auth string.
-    pub fn emoji(&self) -> Option<Vec<(&'static str, &'static str)>> {
+    pub fn emoji(&self) -> Option<[(&'static str, &'static str); 7]> {
         self.inner.emoji()
     }
 

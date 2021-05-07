@@ -745,9 +745,9 @@ impl SasState<KeyReceived> {
 
     /// Get the emoji version of the short authentication string.
     ///
-    /// Returns a vector of tuples where the first element is the emoji and the
+    /// Returns a seven tuples where the first element is the emoji and the
     /// second element the English description of the emoji.
-    pub fn get_emoji(&self) -> Vec<(&'static str, &'static str)> {
+    pub fn get_emoji(&self) -> [(&'static str, &'static str); 7] {
         get_emoji(
             &self.inner.lock().unwrap(),
             &self.ids,
@@ -968,7 +968,7 @@ impl SasState<MacReceived> {
     ///
     /// Returns a vector of tuples where the first element is the emoji and the
     /// second element the English description of the emoji.
-    pub fn get_emoji(&self) -> Vec<(&'static str, &'static str)> {
+    pub fn get_emoji(&self) -> [(&'static str, &'static str); 7] {
         get_emoji(
             &self.inner.lock().unwrap(),
             &self.ids,

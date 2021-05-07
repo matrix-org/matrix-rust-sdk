@@ -343,7 +343,7 @@ impl InnerSas {
         }
     }
 
-    pub fn emoji(&self) -> Option<Vec<(&'static str, &'static str)>> {
+    pub fn emoji(&self) -> Option<[(&'static str, &'static str); 7]> {
         match self {
             InnerSas::KeyRecieved(s) => Some(s.get_emoji()),
             InnerSas::MacReceived(s) => Some(s.get_emoji()),
