@@ -32,7 +32,8 @@ use matrix_sdk_common::{
     assign,
     deserialized_responses::{AlgorithmInfo, EncryptionInfo, SyncRoomEvent, VerificationState},
     events::{
-        room::encrypted::EncryptedEventContent, room_key::RoomKeyEventContent,
+        room::encrypted::{EncryptedEventContent, EncryptedEventScheme},
+        room_key::RoomKeyEventContent,
         AnyMessageEventContent, AnyToDeviceEvent, SyncMessageEvent, ToDeviceEvent,
     },
     identifiers::{
@@ -939,8 +940,8 @@ impl OlmMachine {
         event: &SyncMessageEvent<EncryptedEventContent>,
         room_id: &RoomId,
     ) -> MegolmResult<(Option<OutgoingRequest>, OutgoingRequest)> {
-        let content = match &event.content {
-            EncryptedEventContent::MegolmV1AesSha2(c) => c,
+        let content = match &event.content.scheme {
+            EncryptedEventScheme::MegolmV1AesSha2(c) => c,
             _ => return Err(EventError::UnsupportedAlgorithm.into()),
         };
 
@@ -1000,8 +1001,8 @@ impl OlmMachine {
         event: &SyncMessageEvent<EncryptedEventContent>,
         room_id: &RoomId,
     ) -> MegolmResult<SyncRoomEvent> {
-        let content = match &event.content {
-            EncryptedEventContent::MegolmV1AesSha2(c) => c,
+        let content = match &event.content.scheme {
+            EncryptedEventScheme::MegolmV1AesSha2(c) => c,
             _ => return Err(EventError::UnsupportedAlgorithm.into()),
         };
 

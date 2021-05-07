@@ -16,8 +16,7 @@ use dashmap::DashMap;
 use matrix_sdk_common::{
     api::r0::to_device::DeviceIdOrAllDevices,
     events::room::{
-        encrypted::{MegolmV1AesSha2Content, MegolmV1AesSha2ContentInit},
-        history_visibility::HistoryVisibility,
+        encrypted::MegolmV1AesSha2ContentInit, history_visibility::HistoryVisibility,
         message::Relation,
     },
     uuid::Uuid,
@@ -36,7 +35,10 @@ use tracing::{debug, error, trace};
 
 use matrix_sdk_common::{
     events::{
-        room::{encrypted::EncryptedEventContent, encryption::EncryptionEventContent},
+        room::{
+            encrypted::{EncryptedEventContent, EncryptedEventScheme},
+            encryption::EncryptionEventContent,
+        },
         AnyMessageEventContent, EventContent,
     },
     identifiers::{DeviceId, DeviceIdBox, EventEncryptionAlgorithm, RoomId, UserId},
@@ -306,7 +308,7 @@ impl OutboundGroupSession {
 
         let ciphertext = self.encrypt_helper(plaintext).await;
 
-        let mut encrypted_content: MegolmV1AesSha2Content = MegolmV1AesSha2ContentInit {
+        let encrypted_content = MegolmV1AesSha2ContentInit {
             ciphertext,
             sender_key: self.account_identity_keys.curve25519().to_owned(),
             session_id: self.session_id().to_owned(),
@@ -314,9 +316,10 @@ impl OutboundGroupSession {
         }
         .into();
 
-        encrypted_content.relates_to = relates_to;
-
-        EncryptedEventContent::MegolmV1AesSha2(encrypted_content)
+        EncryptedEventContent::new(
+            EncryptedEventScheme::MegolmV1AesSha2(encrypted_content),
+            relates_to,
+        )
     }
 
     /// Check if the session has expired and if it should be rotated.

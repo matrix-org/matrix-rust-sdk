@@ -21,7 +21,7 @@ async-trait = "0.1.42"
 [dependencies.ruma]
 version = "0.0.3"
 git = "https://github.com/ruma/ruma"
-rev = "1e005f576e4640ee5ce6e357bcf33293819502d1"
+rev = "24154195a00390a33542603b968e94022487587c"
 features = ["client-api-c", "compat", "unstable-pre-spec"]
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]

@@ -16,7 +16,10 @@ use std::{collections::BTreeMap, fmt, sync::Arc};
 
 use matrix_sdk_common::{
     events::{
-        room::encrypted::{CiphertextInfo, EncryptedEventContent, OlmV1Curve25519AesSha2Content},
+        room::encrypted::{
+            CiphertextInfo, EncryptedEventContent, EncryptedEventScheme,
+            OlmV1Curve25519AesSha2Content,
+        },
         EventType,
     },
     identifiers::{DeviceId, DeviceKeyAlgorithm, UserId},
@@ -118,6 +121,11 @@ impl Session {
             .get_key(DeviceKeyAlgorithm::Ed25519)
             .ok_or(EventError::MissingSigningKey)?;
 
+        let relates_to = content
+            .get("m.relates_to")
+            .cloned()
+            .and_then(|v| serde_json::from_value(v).ok());
+
         let payload = json!({
             "sender": self.user_id.as_str(),
             "sender_device": self.device_id.as_ref(),
@@ -141,11 +149,12 @@ impl Session {
         let mut content = BTreeMap::new();
         content.insert((&*self.sender_key).to_owned(), ciphertext);
 
-        Ok(EncryptedEventContent::OlmV1Curve25519AesSha2(
-            OlmV1Curve25519AesSha2Content::new(
+        Ok(EncryptedEventContent::new(
+            EncryptedEventScheme::OlmV1Curve25519AesSha2(OlmV1Curve25519AesSha2Content::new(
                 content,
                 self.our_identity_keys.curve25519().to_string(),
-            ),
+            )),
+            relates_to,
         ))
     }
 

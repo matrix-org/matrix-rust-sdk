@@ -35,7 +35,10 @@ use matrix_sdk_common::{
         upload_keys, upload_signatures::Request as SignatureUploadRequest, OneTimeKey, SignedKey,
     },
     encryption::DeviceKeys,
-    events::{room::encrypted::EncryptedEventContent, AnyToDeviceEvent},
+    events::{
+        room::encrypted::{EncryptedEventContent, EncryptedEventScheme},
+        AnyToDeviceEvent,
+    },
     identifiers::{
         DeviceId, DeviceIdBox, DeviceKeyAlgorithm, DeviceKeyId, EventEncryptionAlgorithm, RoomId,
         UserId,
@@ -124,7 +127,8 @@ impl Account {
     ) -> OlmResult<OlmDecryptionInfo> {
         debug!("Decrypting to-device event");
 
-        let content = if let EncryptedEventContent::OlmV1Curve25519AesSha2(c) = &event.content {
+        let content = if let EncryptedEventScheme::OlmV1Curve25519AesSha2(c) = &event.content.scheme
+        {
             c
         } else {
             warn!("Error, unsupported encryption algorithm");
@@ -1046,7 +1050,7 @@ impl ReadOnlyAccount {
             .encrypt(&device, EventType::Dummy, json!({}))
             .await
             .unwrap();
-        let content = if let EncryptedEventContent::OlmV1Curve25519AesSha2(c) = message {
+        let content = if let EncryptedEventScheme::OlmV1Curve25519AesSha2(c) = message.scheme {
             c
         } else {
             panic!("Invalid encrypted event algorithm");

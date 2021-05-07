@@ -35,7 +35,10 @@ pub use olm_rs::{
 use matrix_sdk_common::{
     events::{
         forwarded_room_key::ForwardedRoomKeyToDeviceEventContent,
-        room::{encrypted::EncryptedEventContent, history_visibility::HistoryVisibility},
+        room::{
+            encrypted::{EncryptedEventContent, EncryptedEventScheme},
+            history_visibility::HistoryVisibility,
+        },
         AnySyncRoomEvent, SyncMessageEvent,
     },
     identifiers::{DeviceKeyAlgorithm, EventEncryptionAlgorithm, RoomId},
@@ -305,8 +308,8 @@ impl InboundGroupSession {
         &self,
         event: &SyncMessageEvent<EncryptedEventContent>,
     ) -> MegolmResult<(Raw<AnySyncRoomEvent>, u32)> {
-        let content = match &event.content {
-            EncryptedEventContent::MegolmV1AesSha2(c) => c,
+        let content = match &event.content.scheme {
+            EncryptedEventScheme::MegolmV1AesSha2(c) => c,
             _ => return Err(EventError::UnsupportedAlgorithm.into()),
         };
 
@@ -340,7 +343,7 @@ impl InboundGroupSession {
             .flatten()
         {
             if !decrypted_content.contains_key("m.relates_to") {
-                if let Some(relation) = &content.relates_to {
+                if let Some(relation) = &event.content.relates_to {
                     decrypted_content.insert(
                         "m.relates_to".to_owned(),
                         serde_json::to_value(relation).unwrap_or_default(),
