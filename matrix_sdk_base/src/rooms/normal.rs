@@ -29,7 +29,8 @@ use matrix_sdk_common::{
             guest_access::GuestAccess, history_visibility::HistoryVisibility, join_rules::JoinRule,
             tombstone::TombstoneEventContent,
         },
-        AnyStateEventContent, AnySyncStateEvent, EventType,
+        tag::Tags,
+        AnyBasicEvent, AnyStateEventContent, AnySyncStateEvent, EventType,
     },
     identifiers::{MxcUri, RoomAliasId, RoomId, UserId},
 };
@@ -446,6 +447,20 @@ impl Room {
             is_room_creator,
             display_name_ambiguous: ambiguous,
         }))
+    }
+
+    /// Get the `Tags` for this room.
+    pub async fn tags(&self) -> StoreResult<Option<Tags>> {
+        if let Some(AnyBasicEvent::Tag(event)) = self
+            .store
+            .get_room_account_data_event(self.room_id(), EventType::Tag)
+            .await?
+            .and_then(|r| r.deserialize().ok())
+        {
+            Ok(Some(event.content.tags))
+        } else {
+            Ok(None)
+        }
     }
 }
 

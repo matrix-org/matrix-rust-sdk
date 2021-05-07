@@ -597,6 +597,18 @@ impl SledStore {
             .map(|m| self.deserialize_event(&m))
             .transpose()?)
     }
+
+    pub async fn get_room_account_data_event(
+        &self,
+        room_id: &RoomId,
+        event_type: EventType,
+    ) -> Result<Option<Raw<AnyBasicEvent>>> {
+        Ok(self
+            .room_account_data
+            .get((room_id.as_str(), event_type.as_str()).encode())?
+            .map(|m| self.deserialize_event(&m))
+            .transpose()?)
+    }
 }
 
 #[async_trait]
@@ -680,6 +692,14 @@ impl StateStore for SledStore {
         event_type: EventType,
     ) -> Result<Option<Raw<AnyBasicEvent>>> {
         self.get_account_data_event(event_type).await
+    }
+
+    async fn get_room_account_data_event(
+        &self,
+        room_id: &RoomId,
+        event_type: EventType,
+    ) -> Result<Option<Raw<AnyBasicEvent>>> {
+        self.get_room_account_data_event(room_id, event_type).await
     }
 }
 
