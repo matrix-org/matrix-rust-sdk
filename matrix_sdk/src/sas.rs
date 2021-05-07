@@ -64,7 +64,9 @@ impl Sas {
                 OutgoingVerificationRequest::ToDevice(r) => {
                     self.client.send_to_device(&r).await?;
                 }
-                OutgoingVerificationRequest::InRoom(_) => todo!(),
+                OutgoingVerificationRequest::InRoom(r) => {
+                    self.client.room_send_helper(&r).await?;
+                }
             }
         }
         Ok(())
