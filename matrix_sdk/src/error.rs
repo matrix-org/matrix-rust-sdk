@@ -19,10 +19,10 @@ use matrix_sdk_base::{Error as MatrixError, StoreError};
 use matrix_sdk_common::{
     api::{
         r0::uiaa::{UiaaInfo, UiaaResponse as UiaaError},
-        Error as RumaClientError,
+        Error as RumaClientApiError,
     },
     identifiers::Error as IdentifierError,
-    FromHttpResponseError, IntoHttpError, ServerError,
+    FromHttpResponseError, IntoHttpError, MatrixError as RumaApiError, ServerError,
 };
 use reqwest::Error as ReqwestError;
 use serde_json::Error as JsonError;
@@ -55,9 +55,13 @@ pub enum HttpError {
     #[error("the queried endpoint is not meant for clients")]
     NotClientRequest,
 
+    /// An error converting between ruma_*_api types and Hyper types.
+    #[error(transparent)]
+    Api(#[from] FromHttpResponseError<RumaApiError>),
+
     /// An error converting between ruma_client_api types and Hyper types.
     #[error(transparent)]
-    ClientApi(#[from] FromHttpResponseError<RumaClientError>),
+    ClientApi(#[from] FromHttpResponseError<RumaClientApiError>),
 
     /// An error converting between ruma_client_api types and Hyper types.
     #[error(transparent)]

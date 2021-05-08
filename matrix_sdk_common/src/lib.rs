@@ -3,7 +3,9 @@ pub use instant;
 pub use ruma::{
     api::{
         client as api,
-        error::{FromHttpRequestError, FromHttpResponseError, IntoHttpError, ServerError},
+        error::{
+            FromHttpRequestError, FromHttpResponseError, IntoHttpError, MatrixError, ServerError,
+        },
         AuthScheme, EndpointError, IncomingResponse, OutgoingRequest, SendAccessToken,
     },
     assign, directory, encryption, events, identifiers, int, presence, push,
