@@ -57,7 +57,7 @@ pub enum HttpError {
 
     /// An error converting between ruma_client_api types and Hyper types.
     #[error(transparent)]
-    FromHttpResponse(#[from] FromHttpResponseError<RumaClientError>),
+    ClientApi(#[from] FromHttpResponseError<RumaClientError>),
 
     /// An error converting between ruma_client_api types and Hyper types.
     #[error(transparent)]

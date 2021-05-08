@@ -2697,13 +2697,13 @@ mod test {
             .create();
 
         if let Err(err) = client.login("example", "wordpass", None, None).await {
-            if let crate::Error::Http(HttpError::FromHttpResponse(
-                crate::FromHttpResponseError::Http(crate::ServerError::Known(crate::api::Error {
+            if let crate::Error::Http(HttpError::ClientApi(crate::FromHttpResponseError::Http(
+                crate::ServerError::Known(crate::api::Error {
                     kind,
                     message,
                     status_code,
-                })),
-            )) = err
+                }),
+            ))) = err
             {
                 if let crate::api::error::ErrorKind::Forbidden = kind {
                 } else {
