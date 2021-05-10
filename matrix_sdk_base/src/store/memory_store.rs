@@ -314,6 +314,17 @@ impl MemoryStore {
             .get(event_type.as_ref())
             .map(|e| e.clone()))
     }
+
+    async fn get_room_account_data_event(
+        &self,
+        room_id: &RoomId,
+        event_type: EventType,
+    ) -> Result<Option<Raw<AnyBasicEvent>>> {
+        Ok(self
+            .room_account_data
+            .get(room_id)
+            .and_then(|m| m.get(event_type.as_ref()).map(|e| e.clone())))
+    }
 }
 
 #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
@@ -402,5 +413,13 @@ impl StateStore for MemoryStore {
         event_type: EventType,
     ) -> Result<Option<Raw<AnyBasicEvent>>> {
         self.get_account_data_event(event_type).await
+    }
+
+    async fn get_room_account_data_event(
+        &self,
+        room_id: &RoomId,
+        event_type: EventType,
+    ) -> Result<Option<Raw<AnyBasicEvent>>> {
+        self.get_room_account_data_event(room_id, event_type).await
     }
 }

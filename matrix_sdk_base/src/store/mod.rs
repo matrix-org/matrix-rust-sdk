@@ -196,6 +196,20 @@ pub trait StateStore: AsyncTraitDeps {
         &self,
         event_type: EventType,
     ) -> Result<Option<Raw<AnyBasicEvent>>>;
+
+    /// Get an event out of the room account data store.
+    ///
+    /// # Arguments
+    ///
+    /// * `room_id` - The id of the room for which the room account data event should
+    /// be fetched.
+    ///
+    /// * `event_type` - The event type of the room account data event.
+    async fn get_room_account_data_event(
+        &self,
+        room_id: &RoomId,
+        event_type: EventType,
+    ) -> Result<Option<Raw<AnyBasicEvent>>>;
 }
 
 /// A state store wrapper for the SDK.
