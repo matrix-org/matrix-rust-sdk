@@ -119,7 +119,7 @@ async fn test_verify_hs_token() -> Result<()> {
 
     let registration = appservice.registration();
 
-    assert!(appservice.verify_hs_token(&registration.hs_token));
+    assert!(appservice.hs_token_matches(&registration.hs_token));
 
     Ok(())
 }

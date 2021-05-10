@@ -272,7 +272,7 @@ impl Appservice {
     /// Compare the given `hs_token` against `registration.hs_token`
     ///
     /// Returns `true` if the tokens match, `false` otherwise.
-    pub fn verify_hs_token(&self, hs_token: impl AsRef<str>) -> bool {
+    pub fn hs_token_matches(&self, hs_token: impl AsRef<str>) -> bool {
         self.registration.hs_token == hs_token.as_ref()
     }
 
