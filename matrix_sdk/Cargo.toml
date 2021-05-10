@@ -26,6 +26,7 @@ rustls-tls = ["reqwest/rustls-tls"]
 socks = ["reqwest/socks"]
 sso_login = ["warp", "rand", "tokio-stream"]
 require_auth_for_profile_requests = []
+full = ["markdown", "socks", "sso_login"]
 
 docs = ["encryption", "sled_cryptostore", "sled_state_store", "sso_login"]
 

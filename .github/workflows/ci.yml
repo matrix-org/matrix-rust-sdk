@@ -97,12 +97,8 @@ jobs:
           - linux / features-no-encryption
           - linux / features-no-sled
           - linux / features-no-encryption-and-sled
-          - linux / features-sled_cryptostore
           - linux / features-rustls-tls
-          - linux / features-markdown
-          - linux / features-socks
-          - linux / features-sso_login
-          - linux / features-require_auth_for_profile_requests
+          - linux / features-full
 
         include:
           - name: linux / features-no-encryption
@@ -114,23 +110,11 @@ jobs:
           - name: linux / features-no-encryption-and-sled
             cargo_args: --no-default-features --features "native-tls"
 
-          - name: linux / features-sled_cryptostore
-            cargo_args: --no-default-features --features "encryption, sled_cryptostore, native-tls"
-
           - name: linux / features-rustls-tls
             cargo_args: --no-default-features --features rustls-tls
 
-          - name: linux / features-require_auth_for_profile_requests
-            cargo_args: --no-default-features --features "require_auth_for_profile_requests, native-tls"
-
-          - name: linux / features-markdown
-            cargo_args: --features markdown
-
-          - name: linux / features-socks
-            cargo_args: --features socks
-
-          - name: linux / features-sso_login
-            cargo_args: --features sso_login
+          - name: linux / features-full
+            cargo_args: --features full
 
     steps:
       - name: Checkout
