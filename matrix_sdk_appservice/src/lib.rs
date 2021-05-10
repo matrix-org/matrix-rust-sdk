@@ -51,6 +51,9 @@
 //!
 //! [Application Service]: https://matrix.org/docs/spec/application_service/r0.1.2
 
+#[cfg(not(any(feature = "actix",)))]
+compile_error!("one webserver feature must be enabled. available ones: `actix`");
+
 use std::{
     convert::{TryFrom, TryInto},
     fs::File,
@@ -322,14 +325,7 @@ impl Appservice {
             Ok(())
         }
 
-        #[cfg(not(feature = "actix"))]
-        {
-            error!(
-                "tried to bind {}:{} but no server feature activated",
-                host.as_ref(),
-                port.into()
-            );
-            unimplemented!();
-        }
+        #[cfg(not(any(feature = "actix",)))]
+        unreachable!()
     }
 }
