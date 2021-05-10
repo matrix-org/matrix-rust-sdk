@@ -83,10 +83,6 @@ pub enum HttpError {
     #[error("missing user_id in session")]
     #[cfg(feature = "appservice")]
     UserIdRequired,
-
-    /// Tried to assert identity without appservice feature enabled
-    #[error("appservice feature not enabled")]
-    NeedsAppserviceFeature,
 }
 
 /// Internal representation of errors.
