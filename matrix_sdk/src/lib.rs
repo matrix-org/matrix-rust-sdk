@@ -47,6 +47,8 @@
 //! * `require_auth_for_profile_requests`: Whether to send the access token in the authentication
 //! header when calling endpoints that retrieve profile data. This matches the synapse
 //! configuration `require_auth_for_profile_requests`. Enabled by default.
+//! * `appservice`: Enables low-level appservice functionality. For an high-level API there's the
+//! `matrix-sdk-appservice` crate
 
 #![deny(
     missing_debug_implementations,

@@ -474,9 +474,11 @@ impl RequestConfig {
         self
     }
 
-    /// [Assert the identity][identity-assertion] of requests to the `user_id` in the `Session`
+    /// All outgoing http requests will have a GET query key-value appended with `user_id` being
+    /// the key and the `user_id` from the `Session` being the value. Will error if there's no
+    /// `Session`. This is called [identity assertion] in the Matrix Appservice Spec
     ///
-    /// [identity-assertion]: https://spec.matrix.org/unstable/application-service-api/#identity-assertion
+    /// [identity assertion]: https://spec.matrix.org/unstable/application-service-api/#identity-assertion
     #[cfg(feature = "appservice")]
     #[cfg_attr(feature = "docs", doc(cfg(appservice)))]
     pub fn assert_identity(mut self) -> Self {
