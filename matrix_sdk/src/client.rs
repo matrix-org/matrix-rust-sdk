@@ -405,6 +405,7 @@ pub struct RequestConfig {
     pub(crate) retry_limit: Option<u64>,
     pub(crate) retry_timeout: Option<Duration>,
     pub(crate) force_auth: bool,
+    #[cfg(feature = "appservice")]
     pub(crate) assert_identity: bool,
 }
 
@@ -427,6 +428,7 @@ impl Default for RequestConfig {
             retry_limit: Default::default(),
             retry_timeout: Default::default(),
             force_auth: false,
+            #[cfg(feature = "appservice")]
             assert_identity: false,
         }
     }

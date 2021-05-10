@@ -115,66 +115,86 @@ impl HttpClient {
             None => self.request_config,
         };
 
+        #[cfg(not(feature = "appservice"))]
+        let request = self.try_into_http_request(request, session, config).await?;
+
+        #[cfg(feature = "appservice")]
         let request = if !self.request_config.assert_identity {
-            let read_guard;
-            let access_token = if config.force_auth {
-                read_guard = session.read().await;
-                if let Some(session) = read_guard.as_ref() {
-                    SendAccessToken::Always(session.access_token.as_str())
-                } else {
-                    return Err(HttpError::ForcedAuthenticationWithoutAccessToken);
-                }
-            } else {
-                match Request::METADATA.authentication {
-                    AuthScheme::AccessToken => {
-                        read_guard = session.read().await;
-
-                        if let Some(session) = read_guard.as_ref() {
-                            SendAccessToken::IfRequired(session.access_token.as_str())
-                        } else {
-                            return Err(HttpError::AuthenticationRequired);
-                        }
-                    }
-                    AuthScheme::None => SendAccessToken::None,
-                    _ => return Err(HttpError::NotClientRequest),
-                }
-            };
-
-            request
-                .try_into_http_request::<BytesMut>(&self.homeserver.to_string(), access_token)?
-                .map(|body| body.freeze())
+            self.try_into_http_request(request, session, config).await?
         } else {
-            // this should be unreachable since assert_identity on request_config can only be set
-            // with the appservice feature active
-            #[cfg(not(feature = "appservice"))]
-            return Err(HttpError::NeedsAppserviceFeature);
-
-            #[cfg(feature = "appservice")]
-            {
-                let read_guard = session.read().await;
-                let access_token = if let Some(session) = read_guard.as_ref() {
-                    SendAccessToken::Always(session.access_token.as_str())
-                } else {
-                    return Err(HttpError::AuthenticationRequired);
-                };
-
-                let user_id = if let Some(session) = read_guard.as_ref() {
-                    session.user_id.clone()
-                } else {
-                    return Err(HttpError::UserIdRequired);
-                };
-
-                request
-                    .try_into_http_request_with_user_id::<BytesMut>(
-                        &self.homeserver.to_string(),
-                        access_token,
-                        user_id,
-                    )?
-                    .map(|body| body.freeze())
-            }
+            self.try_into_http_request_with_identy_assertion(request, session, config)
+                .await?
         };
 
         self.inner.send_request(request, config).await
+    }
+
+    async fn try_into_http_request<Request: OutgoingRequest>(
+        &self,
+        request: Request,
+        session: Arc<RwLock<Option<Session>>>,
+        config: RequestConfig,
+    ) -> Result<http::Request<Bytes>, HttpError> {
+        let read_guard;
+        let access_token = if config.force_auth {
+            read_guard = session.read().await;
+            if let Some(session) = read_guard.as_ref() {
+                SendAccessToken::Always(session.access_token.as_str())
+            } else {
+                return Err(HttpError::ForcedAuthenticationWithoutAccessToken);
+            }
+        } else {
+            match Request::METADATA.authentication {
+                AuthScheme::AccessToken => {
+                    read_guard = session.read().await;
+
+                    if let Some(session) = read_guard.as_ref() {
+                        SendAccessToken::IfRequired(session.access_token.as_str())
+                    } else {
+                        return Err(HttpError::AuthenticationRequired);
+                    }
+                }
+                AuthScheme::None => SendAccessToken::None,
+                _ => return Err(HttpError::NotClientRequest),
+            }
+        };
+
+        let http_request = request
+            .try_into_http_request::<BytesMut>(&self.homeserver.to_string(), access_token)?
+            .map(|body| body.freeze());
+
+        Ok(http_request)
+    }
+
+    #[cfg(feature = "appservice")]
+    async fn try_into_http_request_with_identy_assertion<Request: OutgoingRequest>(
+        &self,
+        request: Request,
+        session: Arc<RwLock<Option<Session>>>,
+        _: RequestConfig,
+    ) -> Result<http::Request<Bytes>, HttpError> {
+        let read_guard = session.read().await;
+        let access_token = if let Some(session) = read_guard.as_ref() {
+            SendAccessToken::Always(session.access_token.as_str())
+        } else {
+            return Err(HttpError::AuthenticationRequired);
+        };
+
+        let user_id = if let Some(session) = read_guard.as_ref() {
+            session.user_id.clone()
+        } else {
+            return Err(HttpError::UserIdRequired);
+        };
+
+        let http_request = request
+            .try_into_http_request_with_user_id::<BytesMut>(
+                &self.homeserver.to_string(),
+                access_token,
+                user_id,
+            )?
+            .map(|body| body.freeze());
+
+        Ok(http_request)
     }
 
     pub async fn upload(
