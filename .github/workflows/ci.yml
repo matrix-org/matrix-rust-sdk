@@ -52,17 +52,17 @@ jobs:
       uses: actions-rs/cargo@v1
       with:
         command: clippy
-        args: --all-targets -- -D warnings
+        args: --workspace --exclude matrix-sdk-appservice --all-targets -- -D warnings
 
     - name: Clippy without default features
       uses: actions-rs/cargo@v1
       with:
         command: clippy
         # TODO: add `--all-targets` once all warnings in examples are resolved
-        args: --no-default-features --features native-tls -- -D warnings
+        args: --workspace --exclude matrix-sdk-appservice --no-default-features --features native-tls -- -D warnings
 
   check-wasm:
-    name: Check if WASM support compiles
+    name: linux / WASM
     needs: [clippy]
     runs-on: ubuntu-latest
 
@@ -85,6 +85,58 @@ jobs:
       run: |
         cd matrix_sdk/examples/wasm_command_bot
         cargo check --target wasm32-unknown-unknown
+
+  test-appservice:
+    name: ${{ matrix.name }}
+    needs: [clippy]
+
+    runs-on: ${{ matrix.os || 'ubuntu-latest' }}
+    strategy:
+      matrix:
+        name:
+          - linux / appservice / stable
+          - macOS / appservice / stable
+          - windows / appservice / stable-x86_64-msvc
+
+        include:
+          - name: linux / appservice / stable
+
+          - name: macOS / appservice / stable
+            os: macOS-latest
+
+          - name: windows / appservice / stable-x86_64-msvc
+            os: windows-latest
+            target: x86_64-pc-windows-msvc
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v1
+
+      - name: Install rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: ${{ matrix.rust || 'stable' }}
+          target: ${{ matrix.target }}
+          profile: minimal
+          override: true
+
+      - name: Clippy
+        uses: actions-rs/cargo@v1
+        with:
+          command: clippy
+          args: --manifest-path matrix_sdk_appservice/Cargo.toml -- -D warnings
+
+      - name: Build
+        uses: actions-rs/cargo@v1
+        with:
+          command: build
+          args: --manifest-path matrix_sdk_appservice/Cargo.toml
+
+      - name: Test
+        uses: actions-rs/cargo@v1
+        with:
+          command: test
+          args: --manifest-path matrix_sdk_appservice/Cargo.toml
 
   test-features:
     name: ${{ matrix.name }}
@@ -198,8 +250,10 @@ jobs:
         uses: actions-rs/cargo@v1
         with:
           command: build
+          args: --workspace --exclude matrix-sdk-appservice
 
       - name: Test
         uses: actions-rs/cargo@v1
         with:
           command: test
+          args: --workspace --exclude matrix-sdk-appservice

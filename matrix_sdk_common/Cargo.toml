@@ -12,6 +12,7 @@ version = "0.2.0"
 
 [features]
 markdown = ["ruma/markdown"]
+appservice = ["ruma/appservice-api", "ruma/appservice-api-helper", "ruma/rand"]
 
 [dependencies]
 instant = { version = "0.1.9", features = ["wasm-bindgen", "now"] }

@@ -82,6 +82,11 @@ pub enum HttpError {
     /// The given request can't be cloned and thus can't be retried.
     #[error("The request cannot be cloned")]
     UnableToCloneRequest,
+
+    /// Tried to send a request without `user_id` in the `Session`
+    #[error("missing user_id in session")]
+    #[cfg(feature = "appservice")]
+    UserIdRequired,
 }
 
 /// Internal representation of errors.
