@@ -1,9 +1,11 @@
-use crate::{room::Common, BaseRoom, Client, Result, RoomType};
+#[cfg(feature = "encryption")]
+use std::sync::Arc;
 use std::{io::Read, ops::Deref};
 
 #[cfg(feature = "encryption")]
-use std::sync::Arc;
-
+use matrix_sdk_base::crypto::AttachmentEncryptor;
+#[cfg(feature = "encryption")]
+use matrix_sdk_common::locks::Mutex;
 use matrix_sdk_common::{
     api::r0::{
         membership::{
@@ -34,17 +36,11 @@ use matrix_sdk_common::{
     receipt::ReceiptType,
     uuid::Uuid,
 };
-
 use mime::{self, Mime};
-
-#[cfg(feature = "encryption")]
-use matrix_sdk_common::locks::Mutex;
-
-#[cfg(feature = "encryption")]
-use matrix_sdk_base::crypto::AttachmentEncryptor;
-
 #[cfg(feature = "encryption")]
 use tracing::instrument;
+
+use crate::{room::Common, BaseRoom, Client, Result, RoomType};
 
 const TYPING_NOTICE_TIMEOUT: Duration = Duration::from_secs(4);
 const TYPING_NOTICE_RESEND_TIMEOUT: Duration = Duration::from_secs(3);
@@ -149,9 +145,9 @@ impl Joined {
     /// Activate typing notice for this room.
     ///
     /// The typing notice remains active for 4s. It can be deactivate at any point by setting
-    /// typing to `false`. If this method is called while the typing notice is active nothing will happen.
-    /// This method can be called on every key stroke, since it will do nothing while typing is
-    /// active.
+    /// typing to `false`. If this method is called while the typing notice is active nothing will
+    /// happen. This method can be called on every key stroke, since it will do nothing while
+    /// typing is active.
     ///
     /// # Arguments
     ///

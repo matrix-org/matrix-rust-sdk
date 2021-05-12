@@ -1,5 +1,6 @@
-use crate::{room::Common, BaseRoom, Client, Result, RoomType};
 use std::ops::Deref;
+
+use crate::{room::Common, BaseRoom, Client, Result, RoomType};
 
 /// A room in the invited state.
 ///

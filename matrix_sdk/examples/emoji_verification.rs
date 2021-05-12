@@ -6,7 +6,6 @@ use std::{
         Arc,
     },
 };
-use url::Url;
 
 use matrix_sdk::{
     self,
@@ -14,6 +13,7 @@ use matrix_sdk::{
     identifiers::UserId,
     Client, LoopCtrl, Sas, SyncSettings,
 };
+use url::Url;
 
 async fn wait_for_confirmation(client: Client, sas: Sas) {
     println!("Does the emoji match: {:?}", sas.emoji());

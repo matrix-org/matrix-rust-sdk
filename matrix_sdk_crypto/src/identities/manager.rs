@@ -12,20 +12,20 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use futures::future::join_all;
 use std::{
     collections::{BTreeMap, HashSet},
     convert::TryFrom,
     sync::Arc,
 };
-use tracing::{trace, warn};
 
+use futures::future::join_all;
 use matrix_sdk_common::{
     api::r0::keys::get_keys::Response as KeysQueryResponse,
     encryption::DeviceKeys,
     executor::spawn,
     identifiers::{DeviceIdBox, UserId},
 };
+use tracing::{trace, warn};
 
 use crate::{
     error::OlmResult,
@@ -424,9 +424,7 @@ pub(crate) mod test {
         locks::Mutex,
         IncomingResponse,
     };
-
     use matrix_sdk_test::async_test;
-
     use serde_json::json;
 
     use crate::{

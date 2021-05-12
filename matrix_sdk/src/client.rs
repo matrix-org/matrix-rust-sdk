@@ -35,6 +35,15 @@ use futures_timer::Delay as sleep;
 use http::HeaderValue;
 #[cfg(feature = "sso_login")]
 use http::Response;
+#[cfg(feature = "encryption")]
+use matrix_sdk_base::crypto::{
+    decrypt_key_export, encrypt_key_export, olm::InboundGroupSession, store::CryptoStoreError,
+    OutgoingRequests, RoomMessageRequest, ToDeviceRequest,
+};
+use matrix_sdk_base::{
+    deserialized_responses::SyncResponse, events::AnyMessageEventContent, identifiers::MxcUri,
+    BaseClient, BaseClientConfig, SendAccessToken, Session, Store,
+};
 use mime::{self, Mime};
 #[cfg(feature = "sso_login")]
 use rand::{thread_rng, Rng};
@@ -43,26 +52,14 @@ use reqwest::header::InvalidHeaderValue;
 use tokio::{net::TcpListener, sync::oneshot};
 #[cfg(feature = "sso_login")]
 use tokio_stream::wrappers::TcpListenerStream;
+#[cfg(feature = "encryption")]
+use tracing::{debug, warn};
+use tracing::{error, info, instrument};
 use url::Url;
 #[cfg(feature = "sso_login")]
 use warp::Filter;
 #[cfg(feature = "encryption")]
 use zeroize::Zeroizing;
-
-#[cfg(feature = "encryption")]
-use tracing::{debug, warn};
-use tracing::{error, info, instrument};
-
-use matrix_sdk_base::{
-    deserialized_responses::SyncResponse, events::AnyMessageEventContent, identifiers::MxcUri,
-    BaseClient, BaseClientConfig, SendAccessToken, Session, Store,
-};
-
-#[cfg(feature = "encryption")]
-use matrix_sdk_base::crypto::{
-    decrypt_key_export, encrypt_key_export, olm::InboundGroupSession, store::CryptoStoreError,
-    OutgoingRequests, RoomMessageRequest, ToDeviceRequest,
-};
 
 /// Enum controlling if a loop running callbacks should continue or abort.
 ///
@@ -96,12 +93,11 @@ use matrix_sdk_common::{
     assign,
     identifiers::{DeviceIdBox, RoomId, RoomIdOrAliasId, ServerName, UserId},
     instant::{Duration, Instant},
-    locks::RwLock,
+    locks::{Mutex, RwLock},
     presence::PresenceState,
     uuid::Uuid,
     FromHttpResponseError, UInt,
 };
-
 #[cfg(feature = "encryption")]
 use matrix_sdk_common::{
     api::r0::{
@@ -113,21 +109,18 @@ use matrix_sdk_common::{
     identifiers::EventId,
 };
 
-use matrix_sdk_common::locks::Mutex;
-
-use crate::{
-    error::HttpError,
-    event_handler::Handler,
-    http_client::{client_with_config, HttpClient, HttpSend},
-    room, Error, EventHandler, OutgoingRequest, Result,
-};
-
 #[cfg(feature = "encryption")]
 use crate::{
     device::{Device, UserDevices},
     identifiers::DeviceId,
     sas::Sas,
     verification_request::VerificationRequest,
+};
+use crate::{
+    error::HttpError,
+    event_handler::Handler,
+    http_client::{client_with_config, HttpClient, HttpSend},
+    room, Error, EventHandler, OutgoingRequest, Result,
 };
 
 const DEFAULT_REQUEST_TIMEOUT: Duration = Duration::from_secs(10);
@@ -374,8 +367,7 @@ impl<'a> SyncSettings<'a> {
     /// This does nothing if no sync token is set.
     ///
     /// # Arguments
-    /// * `full_state` - A boolean deciding if the server should return the full
-    ///     state or not.
+    /// * `full_state` - A boolean deciding if the server should return the full state or not.
     pub fn full_state(mut self, full_state: bool) -> Self {
         self.full_state = full_state;
         self
@@ -440,8 +432,8 @@ impl RequestConfig {
         Default::default()
     }
 
-    /// This is a convince method to disable the retries of a request. Setting the `retry_limit` to `0`
-    /// has the same effect.
+    /// This is a convince method to disable the retries of a request. Setting the `retry_limit` to
+    /// `0` has the same effect.
     pub fn disable_retry(mut self) -> Self {
         self.retry_limit = Some(0);
         self
@@ -459,7 +451,8 @@ impl RequestConfig {
         self
     }
 
-    /// Set a timeout for how long a request should be retried. The default is no timeout, meaning requests are retried forever.
+    /// Set a timeout for how long a request should be retried. The default is no timeout, meaning
+    /// requests are retried forever.
     pub fn retry_timeout(mut self, retry_timeout: Duration) -> Self {
         self.retry_timeout = Some(retry_timeout);
         self
@@ -877,8 +870,7 @@ impl Client {
     ///
     /// # Arguments
     ///
-    /// * `redirect_url` - The URL that will receive a `loginToken` after a
-    ///     successful SSO login.
+    /// * `redirect_url` - The URL that will receive a `loginToken` after a successful SSO login.
     ///
     /// [`login_with_token`]: #method.login_with_token
     pub fn get_sso_login_url(&self, redirect_url: &str) -> Result<String> {
@@ -908,10 +900,10 @@ impl Client {
     ///
     /// * `password` - The password of the user.
     ///
-    /// * `device_id` - A unique id that will be associated with this session. If
-    ///     not given the homeserver will create one. Can be an existing
-    ///     device_id from a previous login call. Note that this should be done
-    ///     only if the client also holds the encryption keys for this device.
+    /// * `device_id` - A unique id that will be associated with this session. If not given the
+    ///   homeserver will create one. Can be an existing device_id from a previous login call. Note
+    ///   that this should be done only if the client also holds the encryption keys for this
+    ///   device.
     ///
     /// # Example
     /// ```no_run
@@ -986,27 +978,24 @@ impl Client {
     ///
     /// # Arguments
     ///
-    /// * `use_sso_login_url` - A callback that will receive the SSO Login URL. It
-    ///     should usually be used to open the SSO URL in a browser and must return
-    ///     `Ok(())` if the URL was successfully opened. If it returns `Err`, the
-    ///     error will be forwarded.
+    /// * `use_sso_login_url` - A callback that will receive the SSO Login URL. It should usually be
+    ///   used to open the SSO URL in a browser and must return `Ok(())` if the URL was successfully
+    ///   opened. If it returns `Err`, the error will be forwarded.
     ///
-    /// * `server_url` - The local URL the server is going to try to bind to, e.g.
-    ///     `http://localhost:3030`. If `None`, the server will try to open a random
-    ///     port on localhost.
+    /// * `server_url` - The local URL the server is going to try to bind to, e.g. `http://localhost:3030`.
+    ///   If `None`, the server will try to open a random port on localhost.
     ///
-    /// * `server_response` - The text that will be shown on the webpage at the end
-    ///     of the login process. This can be an HTML page. If `None`, a default
-    ///     text will be displayed.
+    /// * `server_response` - The text that will be shown on the webpage at the end of the login
+    ///   process. This can be an HTML page. If `None`, a default text will be displayed.
     ///
-    /// * `device_id` - A unique id that will be associated with this session. If
-    ///     not given the homeserver will create one. Can be an existing device_id
-    ///     from a previous login call. Note that this should be provided only
-    ///     if the client also holds the encryption keys for this device.
+    /// * `device_id` - A unique id that will be associated with this session. If not given the
+    ///   homeserver will create one. Can be an existing device_id from a previous login call. Note
+    ///   that this should be provided only if the client also holds the encryption keys for this
+    ///   device.
     ///
-    /// * `initial_device_display_name` - A public display name that will be
-    ///     associated with the device_id. Only necessary the first time you
-    ///     login with this device_id. It can be changed later.
+    /// * `initial_device_display_name` - A public display name that will be associated with the
+    ///   device_id. Only necessary the first time you login with this device_id. It can be changed
+    ///   later.
     ///
     /// # Example
     /// ```no_run
@@ -1172,14 +1161,14 @@ impl Client {
     ///
     /// * `token` - A login token.
     ///
-    /// * `device_id` - A unique id that will be associated with this session. If
-    ///     not given the homeserver will create one. Can be an existing device_id
-    ///     from a previous login call. Note that this should be provided only
-    ///     if the client also holds the encryption keys for this device.
+    /// * `device_id` - A unique id that will be associated with this session. If not given the
+    ///   homeserver will create one. Can be an existing device_id from a previous login call. Note
+    ///   that this should be provided only if the client also holds the encryption keys for this
+    ///   device.
     ///
-    /// * `initial_device_display_name` - A public display name that will be
-    ///     associated with the device_id. Only necessary the first time you
-    ///     login with this device_id. It can be changed later.
+    /// * `initial_device_display_name` - A public display name that will be associated with the
+    ///   device_id. Only necessary the first time you login with this device_id. It can be changed
+    ///   later.
     ///
     /// # Example
     /// ```no_run
@@ -1853,8 +1842,8 @@ impl Client {
     ///
     /// # Arguments
     ///
-    /// * `sync_settings` - Settings for the sync call. Note that those settings
-    ///     will be only used for the first sync call.
+    /// * `sync_settings` - Settings for the sync call. Note that those settings will be only used
+    ///   for the first sync call.
     ///
     /// [`sync_with_callback`]: #method.sync_with_callback
     pub async fn sync(&self, sync_settings: SyncSettings<'_>) {
@@ -1866,14 +1855,13 @@ impl Client {
     ///
     /// # Arguments
     ///
-    /// * `sync_settings` - Settings for the sync call. Note that those settings
-    ///     will be only used for the first sync call.
+    /// * `sync_settings` - Settings for the sync call. Note that those settings will be only used
+    ///   for the first sync call.
     ///
-    /// * `callback` - A callback that will be called every time a successful
-    ///     response has been fetched from the server. The callback must return
-    ///     a boolean which signalizes if the method should stop syncing. If the
-    ///     callback returns `LoopCtrl::Continue` the sync will continue, if the
-    ///     callback returns `LoopCtrl::Break` the sync will be stopped.
+    /// * `callback` - A callback that will be called every time a successful response has been
+    ///   fetched from the server. The callback must return a boolean which signalizes if the method
+    ///   should stop syncing. If the callback returns `LoopCtrl::Continue` the sync will continue,
+    ///   if the callback returns `LoopCtrl::Break` the sync will be stopped.
     ///
     /// # Examples
     ///
@@ -2035,7 +2023,6 @@ impl Client {
     /// # Arguments
     ///
     /// * `users` - The list of user/device pairs that we should claim keys for.
-    ///
     #[cfg(feature = "encryption")]
     #[cfg_attr(feature = "docs", doc(cfg(encryption)))]
     #[instrument(skip(users))]
@@ -2453,12 +2440,8 @@ impl Client {
 
 #[cfg(test)]
 mod test {
-    use crate::{ClientConfig, HttpError, RequestConfig, RoomMember};
+    use std::{collections::BTreeMap, convert::TryInto, io::Cursor, str::FromStr, time::Duration};
 
-    use super::{
-        get_public_rooms, get_public_rooms_filtered, register::RegistrationKind, Client, Session,
-        SyncSettings, Url,
-    };
     use matrix_sdk_base::identifiers::mxc_uri;
     use matrix_sdk_common::{
         api::r0::{
@@ -2476,7 +2459,11 @@ mod test {
     use mockito::{mock, Matcher};
     use serde_json::json;
 
-    use std::{collections::BTreeMap, convert::TryInto, io::Cursor, str::FromStr, time::Duration};
+    use super::{
+        get_public_rooms, get_public_rooms_filtered, register::RegistrationKind, Client, Session,
+        SyncSettings, Url,
+    };
+    use crate::{ClientConfig, HttpError, RequestConfig, RoomMember};
 
     async fn logged_in_client() -> Client {
         let session = Session {
@@ -2834,7 +2821,8 @@ mod test {
         let room_id = room_id!("!testroom:example.org");
 
         assert_eq!(
-            // this is the `join_by_room_id::Response` but since no PartialEq we check the RoomId field
+            // this is the `join_by_room_id::Response` but since no PartialEq we check the RoomId
+            // field
             client.join_room_by_id(&room_id).await.unwrap().room_id,
             room_id
         );
@@ -2856,7 +2844,8 @@ mod test {
         let room_id = room_id!("!testroom:example.org").into();
 
         assert_eq!(
-            // this is the `join_by_room_id::Response` but since no PartialEq we check the RoomId field
+            // this is the `join_by_room_id::Response` but since no PartialEq we check the RoomId
+            // field
             client
                 .join_room_by_id_or_alias(&room_id, &["server.com".try_into().unwrap()])
                 .await

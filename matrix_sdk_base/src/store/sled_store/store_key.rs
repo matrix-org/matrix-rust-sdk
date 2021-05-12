@@ -21,10 +21,9 @@ use chacha20poly1305::{
 use hmac::Hmac;
 use pbkdf2::pbkdf2;
 use rand::{thread_rng, Error as RngError, Fill};
+use serde::{Deserialize, Serialize};
 use sha2::Sha256;
 use zeroize::{Zeroize, Zeroizing};
-
-use serde::{Deserialize, Serialize};
 
 use crate::StoreError;
 
@@ -248,8 +247,9 @@ impl StoreKey {
 
 #[cfg(test)]
 mod test {
-    use super::StoreKey;
     use serde_json::{json, Value};
+
+    use super::StoreKey;
 
     #[test]
     fn generating() {

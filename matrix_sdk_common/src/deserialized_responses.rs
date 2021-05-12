@@ -1,3 +1,5 @@
+use std::{collections::BTreeMap, convert::TryFrom, time::SystemTime};
+
 use ruma::{
     api::client::r0::sync::sync_events::{
         Ephemeral, InvitedRoom, Presence, RoomAccountData, State, ToDevice,
@@ -6,7 +8,6 @@ use ruma::{
     DeviceIdBox,
 };
 use serde::{Deserialize, Serialize};
-use std::{collections::BTreeMap, convert::TryFrom, time::SystemTime};
 
 use super::{
     api::r0::{

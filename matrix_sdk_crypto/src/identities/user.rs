@@ -21,19 +21,17 @@ use std::{
     },
 };
 
-use serde::{Deserialize, Serialize};
-use serde_json::to_value;
-
 use matrix_sdk_common::{
     api::r0::keys::{CrossSigningKey, KeyUsage},
     identifiers::{DeviceKeyId, UserId},
 };
+use serde::{Deserialize, Serialize};
+use serde_json::to_value;
 
+use super::{atomic_bool_deserializer, atomic_bool_serializer};
 #[cfg(test)]
 use crate::olm::PrivateCrossSigningIdentity;
 use crate::{error::SignatureError, olm::Utility, ReadOnlyDevice};
-
-use super::{atomic_bool_deserializer, atomic_bool_serializer};
 
 /// Wrapper for a cross signing key marking it as the master key.
 ///
@@ -719,6 +717,12 @@ impl OwnUserIdentity {
 pub(crate) mod test {
     use std::{convert::TryFrom, sync::Arc};
 
+    use matrix_sdk_common::{
+        api::r0::keys::get_keys::Response as KeyQueryResponse, identifiers::user_id, locks::Mutex,
+    };
+    use matrix_sdk_test::async_test;
+
+    use super::{OwnUserIdentity, UserIdentities, UserIdentity};
     use crate::{
         identities::{
             manager::test::{other_key_query, own_key_query},
@@ -728,13 +732,6 @@ pub(crate) mod test {
         store::MemoryStore,
         verification::VerificationMachine,
     };
-
-    use matrix_sdk_common::{
-        api::r0::keys::get_keys::Response as KeyQueryResponse, identifiers::user_id, locks::Mutex,
-    };
-    use matrix_sdk_test::async_test;
-
-    use super::{OwnUserIdentity, UserIdentities, UserIdentity};
 
     fn device(response: &KeyQueryResponse) -> (ReadOnlyDevice, ReadOnlyDevice) {
         let mut devices = response.device_keys.values().next().unwrap().values();

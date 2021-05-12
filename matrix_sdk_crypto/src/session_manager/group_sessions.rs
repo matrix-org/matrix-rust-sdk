@@ -17,9 +17,8 @@ use std::{
     sync::Arc,
 };
 
-use futures::future::join_all;
-
 use dashmap::DashMap;
+use futures::future::join_all;
 use matrix_sdk_common::{
     api::r0::to_device::DeviceIdOrAllDevices,
     events::{

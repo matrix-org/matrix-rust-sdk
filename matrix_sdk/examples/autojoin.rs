@@ -1,5 +1,4 @@
 use std::{env, process::exit};
-use tokio::time::{sleep, Duration};
 
 use matrix_sdk::{
     self, async_trait,
@@ -7,6 +6,7 @@ use matrix_sdk::{
     room::Room,
     Client, ClientConfig, EventHandler, SyncSettings,
 };
+use tokio::time::{sleep, Duration};
 use url::Url;
 
 struct AutoJoinBot {

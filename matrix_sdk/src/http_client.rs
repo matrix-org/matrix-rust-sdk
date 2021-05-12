@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#[cfg(all(not(target_arch = "wasm32")))]
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::{convert::TryFrom, fmt::Debug, sync::Arc};
 
 #[cfg(all(not(target_arch = "wasm32")))]
@@ -19,16 +21,13 @@ use backoff::{future::retry, Error as RetryError, ExponentialBackoff};
 #[cfg(all(not(target_arch = "wasm32")))]
 use http::StatusCode;
 use http::{HeaderValue, Response as HttpResponse};
-use reqwest::{Client, Response};
-#[cfg(all(not(target_arch = "wasm32")))]
-use std::sync::atomic::{AtomicU64, Ordering};
-use tracing::trace;
-use url::Url;
-
 use matrix_sdk_common::{
     api::r0::media::create_content, async_trait, locks::RwLock, AsyncTraitDeps, AuthScheme,
     FromHttpResponseError, IncomingResponse, SendAccessToken,
 };
+use reqwest::{Client, Response};
+use tracing::trace;
+use url::Url;
 
 use crate::{
     error::HttpError, Bytes, BytesMut, ClientConfig, OutgoingRequest, RequestConfig, Session,

@@ -35,7 +35,6 @@ use matrix_sdk_common::{
     identifiers::{DeviceIdBox, RoomId, UserId},
     uuid::Uuid,
 };
-
 use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue as RawJsonValue;
 

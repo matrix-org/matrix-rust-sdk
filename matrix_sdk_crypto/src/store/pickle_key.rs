@@ -22,10 +22,9 @@ use getrandom::getrandom;
 use hmac::Hmac;
 use olm_rs::PicklingMode;
 use pbkdf2::pbkdf2;
+use serde::{Deserialize, Serialize};
 use sha2::Sha256;
 use zeroize::{Zeroize, Zeroizing};
-
-use serde::{Deserialize, Serialize};
 
 const KEY_SIZE: usize = 32;
 const NONCE_SIZE: usize = 12;

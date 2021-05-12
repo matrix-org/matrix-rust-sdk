@@ -37,12 +37,11 @@ use matrix_sdk_common::{
 use serde::{Deserialize, Serialize};
 use tracing::info;
 
+use super::{BaseRoomInfo, RoomMember};
 use crate::{
     deserialized_responses::UnreadNotificationsCount,
     store::{Result as StoreResult, StateStore},
 };
-
-use super::{BaseRoomInfo, RoomMember};
 
 /// The underlying room data structure collecting state for joined, left and invtied rooms.
 #[derive(Debug, Clone)]

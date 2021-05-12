@@ -44,17 +44,17 @@ pub(crate) mod device;
 mod manager;
 pub(crate) mod user;
 
-pub use device::{Device, LocalTrust, ReadOnlyDevice, UserDevices};
-pub(crate) use manager::IdentityManager;
-pub use user::{
-    MasterPubkey, OwnUserIdentity, SelfSigningPubkey, UserIdentities, UserIdentity,
-    UserSigningPubkey,
-};
-
-use serde::{Deserialize, Deserializer, Serializer};
 use std::sync::{
     atomic::{AtomicBool, Ordering},
     Arc,
+};
+
+pub use device::{Device, LocalTrust, ReadOnlyDevice, UserDevices};
+pub(crate) use manager::IdentityManager;
+use serde::{Deserialize, Deserializer, Serializer};
+pub use user::{
+    MasterPubkey, OwnUserIdentity, SelfSigningPubkey, UserIdentities, UserIdentity,
+    UserSigningPubkey,
 };
 
 // These methods are only here because Serialize and Deserialize don't seem to

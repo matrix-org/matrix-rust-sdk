@@ -19,19 +19,6 @@ use std::{
     sync::Arc,
 };
 
-use olm_rs::{
-    errors::OlmGroupSessionError, inbound_group_session::OlmInboundGroupSession, PicklingMode,
-};
-use serde::{Deserialize, Serialize};
-use serde_json::Value;
-use zeroize::Zeroizing;
-
-pub use olm_rs::{
-    account::IdentityKeys,
-    session::{OlmMessage, PreKeyMessage},
-    utility::OlmUtility,
-};
-
 use matrix_sdk_common::{
     events::{
         forwarded_room_key::ForwardedRoomKeyToDeviceEventContent,
@@ -45,6 +32,17 @@ use matrix_sdk_common::{
     locks::Mutex,
     Raw,
 };
+pub use olm_rs::{
+    account::IdentityKeys,
+    session::{OlmMessage, PreKeyMessage},
+    utility::OlmUtility,
+};
+use olm_rs::{
+    errors::OlmGroupSessionError, inbound_group_session::OlmInboundGroupSession, PicklingMode,
+};
+use serde::{Deserialize, Serialize};
+use serde_json::Value;
+use zeroize::Zeroizing;
 
 use super::{ExportedGroupSessionKey, ExportedRoomKey, GroupSessionKey};
 use crate::error::{EventError, MegolmResult};

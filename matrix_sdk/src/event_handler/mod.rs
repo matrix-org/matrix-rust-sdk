@@ -56,7 +56,6 @@ use crate::{
     room::Room,
     Client,
 };
-use matrix_sdk_common::async_trait;
 
 pub(crate) struct Handler {
     pub(crate) inner: Box<dyn EventHandler>,
@@ -341,8 +340,8 @@ pub enum CustomEvent<'c> {
     StrippedState(&'c StrippedStateEvent<CustomEventContent>),
 }
 
-/// This trait allows any type implementing `EventHandler` to specify event callbacks for each event.
-/// The `Client` calls each method when the corresponding event is received.
+/// This trait allows any type implementing `EventHandler` to specify event callbacks for each
+/// event. The `Client` calls each method when the corresponding event is received.
 ///
 /// # Examples
 /// ```
@@ -539,14 +538,15 @@ pub trait EventHandler: Send + Sync {
 
 #[cfg(test)]
 mod test {
-    use super::*;
+    use std::{sync::Arc, time::Duration};
+
     use matrix_sdk_common::{async_trait, locks::Mutex};
     use matrix_sdk_test::{async_test, test_json};
     use mockito::{mock, Matcher};
-    use std::{sync::Arc, time::Duration};
-
     #[cfg(target_arch = "wasm32")]
     pub use wasm_bindgen_test::*;
+
+    use super::*;
 
     #[derive(Clone)]
     pub struct EvHandlerTest(Arc<Mutex<Vec<String>>>);
@@ -656,7 +656,8 @@ mod test {
         async fn on_stripped_state_name(&self, _: Room, _: &StrippedStateEvent<NameEventContent>) {
             self.0.lock().await.push("stripped state name".to_string())
         }
-        /// Fires when `Client` receives a `AnyStrippedStateEvent::StrippedRoomCanonicalAlias` event.
+        /// Fires when `Client` receives a `AnyStrippedStateEvent::StrippedRoomCanonicalAlias`
+        /// event.
         async fn on_stripped_state_canonical_alias(
             &self,
             _: Room,

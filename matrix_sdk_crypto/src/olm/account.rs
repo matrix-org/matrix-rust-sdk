@@ -12,10 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use matrix_sdk_common::events::ToDeviceEvent;
-use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
-use sha2::{Digest, Sha256};
 use std::{
     collections::BTreeMap,
     convert::{TryFrom, TryInto},
@@ -26,7 +22,6 @@ use std::{
         Arc,
     },
 };
-use tracing::{debug, trace, warn};
 
 #[cfg(test)]
 use matrix_sdk_common::events::EventType;
@@ -37,7 +32,7 @@ use matrix_sdk_common::{
     encryption::DeviceKeys,
     events::{
         room::encrypted::{EncryptedEventContent, EncryptedEventScheme},
-        AnyToDeviceEvent,
+        AnyToDeviceEvent, ToDeviceEvent,
     },
     identifiers::{
         DeviceId, DeviceIdBox, DeviceKeyAlgorithm, DeviceKeyId, EventEncryptionAlgorithm, RoomId,
@@ -53,7 +48,15 @@ use olm_rs::{
     session::{OlmMessage, PreKeyMessage},
     PicklingMode,
 };
+use serde::{Deserialize, Serialize};
+use serde_json::{json, Value};
+use sha2::{Digest, Sha256};
+use tracing::{debug, trace, warn};
 
+use super::{
+    EncryptionSettings, InboundGroupSession, OutboundGroupSession, PrivateCrossSigningIdentity,
+    Session,
+};
 use crate::{
     error::{EventError, OlmResult, SessionCreationError},
     identities::ReadOnlyDevice,
@@ -61,11 +64,6 @@ use crate::{
     store::{Changes, Store},
     utilities::encode,
     OlmError,
-};
-
-use super::{
-    EncryptionSettings, InboundGroupSession, OutboundGroupSession, PrivateCrossSigningIdentity,
-    Session,
 };
 
 #[derive(Debug, Clone)]
@@ -873,8 +871,8 @@ impl ReadOnlyAccount {
     /// # Arguments
     /// * `device` - The other account's device.
     ///
-    /// * `key_map` - A map from the algorithm and device id to the one-time
-    ///     key that the other account created and shared with us.
+    /// * `key_map` - A map from the algorithm and device id to the one-time key that the other
+    ///   account created and shared with us.
     pub(crate) async fn create_outbound_session(
         &self,
         device: ReadOnlyDevice,

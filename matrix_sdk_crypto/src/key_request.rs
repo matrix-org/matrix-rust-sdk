@@ -20,13 +20,9 @@
 // If we don't trust the device store an object that remembers the request and
 // let the users introspect that object.
 
-use dashmap::{mapref::entry::Entry, DashMap, DashSet};
-use serde::{Deserialize, Serialize};
-use serde_json::value::to_raw_value;
 use std::{collections::BTreeMap, sync::Arc};
-use thiserror::Error;
-use tracing::{error, info, trace, warn};
 
+use dashmap::{mapref::entry::Entry, DashMap, DashSet};
 use matrix_sdk_common::{
     api::r0::to_device::DeviceIdOrAllDevices,
     events::{
@@ -37,6 +33,10 @@ use matrix_sdk_common::{
     identifiers::{DeviceId, DeviceIdBox, EventEncryptionAlgorithm, RoomId, UserId},
     uuid::Uuid,
 };
+use serde::{Deserialize, Serialize};
+use serde_json::value::to_raw_value;
+use thiserror::Error;
+use tracing::{error, info, trace, warn};
 
 use crate::{
     error::{OlmError, OlmResult},
@@ -817,6 +817,8 @@ impl KeyRequestMachine {
 
 #[cfg(test)]
 mod test {
+    use std::{convert::TryInto, sync::Arc};
+
     use dashmap::DashMap;
     use matrix_sdk_common::{
         api::r0::to_device::DeviceIdOrAllDevices,
@@ -829,8 +831,8 @@ mod test {
         locks::Mutex,
     };
     use matrix_sdk_test::async_test;
-    use std::{convert::TryInto, sync::Arc};
 
+    use super::{KeyRequestMachine, KeyshareDecision};
     use crate::{
         identities::{LocalTrust, ReadOnlyDevice},
         olm::{Account, PrivateCrossSigningIdentity, ReadOnlyAccount},
@@ -838,8 +840,6 @@ mod test {
         store::{Changes, CryptoStore, MemoryStore, Store},
         verification::VerificationMachine,
     };
-
-    use super::{KeyRequestMachine, KeyshareDecision};
 
     fn alice_id() -> UserId {
         user_id!("@alice:example.org")

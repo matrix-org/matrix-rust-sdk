@@ -22,18 +22,17 @@ pub use sas::{AcceptSettings, Sas, VerificationResult};
 
 #[cfg(test)]
 pub(crate) mod test {
-    use crate::{
-        requests::{OutgoingRequest, OutgoingRequests},
-        OutgoingVerificationRequest,
-    };
-    use serde_json::Value;
-
     use matrix_sdk_common::{
         events::{AnyToDeviceEvent, AnyToDeviceEventContent, EventType, ToDeviceEvent},
         identifiers::UserId,
     };
+    use serde_json::Value;
 
     use super::sas::OutgoingContent;
+    use crate::{
+        requests::{OutgoingRequest, OutgoingRequests},
+        OutgoingVerificationRequest,
+    };
 
     pub(crate) fn request_to_event(
         sender: &UserId,

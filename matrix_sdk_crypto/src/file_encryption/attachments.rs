@@ -17,21 +17,17 @@ use std::{
     io::{Error as IoError, ErrorKind, Read},
 };
 
-use thiserror::Error;
-use zeroize::Zeroizing;
-
-use serde::{Deserialize, Serialize};
-
-use matrix_sdk_common::events::room::JsonWebKey;
-
-use getrandom::getrandom;
-
 use aes_ctr::{
     cipher::{NewStreamCipher, SyncStreamCipher},
     Aes256Ctr,
 };
 use base64::DecodeError;
+use getrandom::getrandom;
+use matrix_sdk_common::events::room::JsonWebKey;
+use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
+use thiserror::Error;
+use zeroize::Zeroizing;
 
 use crate::utilities::{decode, decode_url_safe, encode, encode_url_safe};
 
@@ -274,9 +270,11 @@ pub struct EncryptionInfo {
 
 #[cfg(test)]
 mod test {
-    use super::{AttachmentDecryptor, AttachmentEncryptor, EncryptionInfo};
-    use serde_json::json;
     use std::io::{Cursor, Read};
+
+    use serde_json::json;
+
+    use super::{AttachmentDecryptor, AttachmentEncryptor, EncryptionInfo};
 
     const EXAMPLE_DATA: &[u8] = &[
         179, 154, 118, 127, 186, 127, 110, 33, 203, 33, 33, 134, 67, 100, 173, 46, 235, 27, 215,

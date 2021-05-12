@@ -43,11 +43,6 @@ mod pickle_key;
 #[cfg(feature = "sled_cryptostore")]
 pub(crate) mod sled;
 
-#[cfg(feature = "sled_cryptostore")]
-pub use self::sled::SledStore;
-pub use memorystore::MemoryStore;
-pub use pickle_key::{EncryptedPickleKey, PickleKey};
-
 use std::{
     collections::{HashMap, HashSet},
     fmt::Debug,
@@ -55,10 +50,6 @@ use std::{
     ops::Deref,
     sync::Arc,
 };
-
-use olm_rs::errors::{OlmAccountError, OlmGroupSessionError, OlmSessionError};
-use serde_json::Error as SerdeError;
-use thiserror::Error;
 
 use matrix_sdk_common::{
     async_trait,
@@ -71,7 +62,14 @@ use matrix_sdk_common::{
     uuid::Uuid,
     AsyncTraitDeps,
 };
+pub use memorystore::MemoryStore;
+use olm_rs::errors::{OlmAccountError, OlmGroupSessionError, OlmSessionError};
+pub use pickle_key::{EncryptedPickleKey, PickleKey};
+use serde_json::Error as SerdeError;
+use thiserror::Error;
 
+#[cfg(feature = "sled_cryptostore")]
+pub use self::sled::SledStore;
 use crate::{
     error::SessionUnpicklingError,
     identities::{Device, ReadOnlyDevice, UserDevices, UserIdentities},

@@ -12,15 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use dashmap::DashMap;
-use matrix_sdk_common::{
-    api::r0::to_device::DeviceIdOrAllDevices,
-    events::room::{
-        encrypted::MegolmV1AesSha2ContentInit, history_visibility::HistoryVisibility,
-        message::Relation,
-    },
-    uuid::Uuid,
-};
 use std::{
     cmp::max,
     collections::BTreeMap,
@@ -31,23 +22,24 @@ use std::{
     },
     time::Duration,
 };
-use tracing::{debug, error, trace};
 
+use dashmap::DashMap;
 use matrix_sdk_common::{
+    api::r0::to_device::DeviceIdOrAllDevices,
     events::{
         room::{
-            encrypted::{EncryptedEventContent, EncryptedEventScheme},
+            encrypted::{EncryptedEventContent, EncryptedEventScheme, MegolmV1AesSha2ContentInit},
             encryption::EncryptionEventContent,
+            history_visibility::HistoryVisibility,
+            message::Relation,
         },
         AnyMessageEventContent, EventContent,
     },
     identifiers::{DeviceId, DeviceIdBox, EventEncryptionAlgorithm, RoomId, UserId},
     instant::Instant,
     locks::Mutex,
+    uuid::Uuid,
 };
-use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
-
 pub use olm_rs::{
     account::IdentityKeys,
     session::{OlmMessage, PreKeyMessage},
@@ -56,13 +48,15 @@ pub use olm_rs::{
 use olm_rs::{
     errors::OlmGroupSessionError, outbound_group_session::OlmOutboundGroupSession, PicklingMode,
 };
-
-use crate::ToDeviceRequest;
+use serde::{Deserialize, Serialize};
+use serde_json::{json, Value};
+use tracing::{debug, error, trace};
 
 use super::{
     super::{deserialize_instant, serialize_instant},
     GroupSessionKey,
 };
+use crate::ToDeviceRequest;
 
 const ROTATION_PERIOD: Duration = Duration::from_millis(604800000);
 const ROTATION_MESSAGES: u64 = 100;
@@ -461,11 +455,11 @@ impl OutboundGroupSession {
     ///
     /// # Arguments
     ///
-    /// * `device_id` - The device id of the device that created this session.
-    ///     Put differently, our own device id.
+    /// * `device_id` - The device id of the device that created this session. Put differently, our
+    ///   own device id.
     ///
-    /// * `identity_keys` - The identity keys of the device that created this
-    ///     session, our own identity keys.
+    /// * `identity_keys` - The identity keys of the device that created this session, our own
+    ///   identity keys.
     ///
     /// * `pickle` - The pickled version of the `OutboundGroupSession`.
     ///

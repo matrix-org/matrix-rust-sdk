@@ -1,12 +1,15 @@
 use std::{convert::TryFrom, fmt::Debug, sync::Arc};
 
-use futures::executor::block_on;
-use serde::Serialize;
-
 #[cfg(not(target_arch = "wasm32"))]
 use atty::Stream;
 #[cfg(not(target_arch = "wasm32"))]
 use clap::{App as Argparse, AppSettings as ArgParseSettings, Arg, ArgMatches, SubCommand};
+use futures::executor::block_on;
+use matrix_sdk_base::{
+    events::EventType,
+    identifiers::{RoomId, UserId},
+    RoomInfo, Store,
+};
 #[cfg(not(target_arch = "wasm32"))]
 use rustyline::{
     completion::{Completer, Pair},
@@ -18,7 +21,7 @@ use rustyline::{
 };
 #[cfg(not(target_arch = "wasm32"))]
 use rustyline_derive::Helper;
-
+use serde::Serialize;
 #[cfg(not(target_arch = "wasm32"))]
 use syntect::{
     dumps::from_binary,
@@ -26,12 +29,6 @@ use syntect::{
     highlighting::{Style, ThemeSet},
     parsing::SyntaxSet,
     util::{as_24_bit_terminal_escaped, LinesWithEndings},
-};
-
-use matrix_sdk_base::{
-    events::EventType,
-    identifiers::{RoomId, UserId},
-    RoomInfo, Store,
 };
 
 #[derive(Clone)]

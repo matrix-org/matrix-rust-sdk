@@ -1223,11 +1223,10 @@ impl BaseClient {
     ///
     /// # Arguments
     ///
-    /// * `flow_id` - The unique id that identifies a interactive verification
-    ///     flow. For in-room verifications this will be the event id of the
-    ///     *m.key.verification.request* event that started the flow, for the
-    ///     to-device verification flows this will be the transaction id of the
-    ///     *m.key.verification.start* event.
+    /// * `flow_id` - The unique id that identifies a interactive verification flow. For in-room
+    ///   verifications this will be the event id of the *m.key.verification.request* event that
+    ///   started the flow, for the to-device verification flows this will be the transaction id of
+    ///   the *m.key.verification.start* event.
     #[cfg(feature = "encryption")]
     #[cfg_attr(feature = "docs", doc(cfg(encryption)))]
     pub async fn get_verification(&self, flow_id: &str) -> Option<Sas> {

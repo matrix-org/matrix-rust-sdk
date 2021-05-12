@@ -14,8 +14,6 @@
 
 mod pk_signing;
 
-use serde::{Deserialize, Serialize};
-use serde_json::Error as JsonError;
 use std::{
     collections::BTreeMap,
     sync::{
@@ -30,13 +28,14 @@ use matrix_sdk_common::{
     identifiers::{DeviceKeyAlgorithm, DeviceKeyId, UserId},
     locks::Mutex,
 };
+use pk_signing::{MasterSigning, PickledSignings, SelfSigning, Signing, SigningError, UserSigning};
+use serde::{Deserialize, Serialize};
+use serde_json::Error as JsonError;
 
 use crate::{
     error::SignatureError, requests::UploadSigningKeysRequest, OwnUserIdentity, ReadOnlyAccount,
     ReadOnlyDevice, UserIdentity,
 };
-
-use pk_signing::{MasterSigning, PickledSignings, SelfSigning, Signing, SigningError, UserSigning};
 
 /// Private cross signing identity.
 ///
@@ -424,19 +423,19 @@ impl PrivateCrossSigningIdentity {
 
 #[cfg(test)]
 mod test {
-    use crate::{
-        identities::{ReadOnlyDevice, UserIdentity},
-        olm::ReadOnlyAccount,
-    };
     use std::{collections::BTreeMap, sync::Arc};
-
-    use super::{PrivateCrossSigningIdentity, Signing};
 
     use matrix_sdk_common::{
         api::r0::keys::CrossSigningKey,
         identifiers::{user_id, UserId},
     };
     use matrix_sdk_test::async_test;
+
+    use super::{PrivateCrossSigningIdentity, Signing};
+    use crate::{
+        identities::{ReadOnlyDevice, UserIdentity},
+        olm::ReadOnlyAccount,
+    };
 
     fn user_id() -> UserId {
         user_id!("@example:localhost")

@@ -15,9 +15,6 @@
 use std::{convert::TryFrom, sync::Arc};
 
 use dashmap::DashMap;
-
-use tracing::{info, trace, warn};
-
 use matrix_sdk_common::{
     events::{
         room::message::MessageType, AnyMessageEvent, AnySyncMessageEvent, AnySyncRoomEvent,
@@ -27,12 +24,12 @@ use matrix_sdk_common::{
     locks::Mutex,
     uuid::Uuid,
 };
+use tracing::{info, trace, warn};
 
 use super::{
     requests::VerificationRequest,
     sas::{content_to_request, OutgoingContent, Sas, VerificationResult},
 };
-
 use crate::{
     olm::PrivateCrossSigningIdentity,
     requests::OutgoingRequest,

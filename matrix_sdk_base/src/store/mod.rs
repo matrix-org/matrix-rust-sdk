@@ -12,14 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#[cfg(feature = "sled_state_store")]
+use std::path::Path;
 use std::{
     collections::{BTreeMap, BTreeSet},
     ops::Deref,
     sync::Arc,
 };
-
-#[cfg(feature = "sled_state_store")]
-use std::path::Path;
 
 use dashmap::DashMap;
 use matrix_sdk_common::{
@@ -359,7 +358,8 @@ impl Deref for Store {
 pub struct StateChanges {
     /// The sync token that relates to this update.
     pub sync_token: Option<String>,
-    /// A user session, containing an access token and information about the associated user account.
+    /// A user session, containing an access token and information about the associated user
+    /// account.
     pub session: Option<Session>,
     /// A mapping of event type string to `AnyBasicEvent`.
     pub account_data: BTreeMap<String, Raw<AnyGlobalAccountDataEvent>>,
@@ -378,7 +378,8 @@ pub struct StateChanges {
     /// A map of `RoomId` to `RoomInfo`.
     pub room_infos: BTreeMap<RoomId, RoomInfo>,
 
-    /// A mapping of `RoomId` to a map of event type to a map of state key to `AnyStrippedStateEvent`.
+    /// A mapping of `RoomId` to a map of event type to a map of state key to
+    /// `AnyStrippedStateEvent`.
     pub stripped_state:
         BTreeMap<RoomId, BTreeMap<String, BTreeMap<String, Raw<AnyStrippedStateEvent>>>>,
     /// A mapping of `RoomId` to a map of users and their `StrippedMemberEvent`.

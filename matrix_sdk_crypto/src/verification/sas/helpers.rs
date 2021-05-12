@@ -14,11 +14,6 @@
 
 use std::{collections::BTreeMap, convert::TryInto};
 
-use sha2::{Digest, Sha256};
-use tracing::{trace, warn};
-
-use olm_rs::sas::OlmSas;
-
 use matrix_sdk_common::{
     api::r0::to_device::DeviceIdOrAllDevices,
     events::{
@@ -32,16 +27,18 @@ use matrix_sdk_common::{
     identifiers::{DeviceId, DeviceKeyAlgorithm, DeviceKeyId, UserId},
     uuid::Uuid,
 };
-
-use crate::{
-    identities::{ReadOnlyDevice, UserIdentities},
-    utilities::encode,
-    ReadOnlyAccount, ToDeviceRequest,
-};
+use olm_rs::sas::OlmSas;
+use sha2::{Digest, Sha256};
+use tracing::{trace, warn};
 
 use super::{
     event_enums::{MacContent, StartContent},
     sas_state::FlowId,
+};
+use crate::{
+    identities::{ReadOnlyDevice, UserIdentities},
+    utilities::encode,
+    ReadOnlyAccount, ToDeviceRequest,
 };
 
 #[derive(Clone, Debug)]

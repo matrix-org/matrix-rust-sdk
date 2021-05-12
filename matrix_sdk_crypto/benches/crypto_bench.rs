@@ -4,7 +4,6 @@ mod perf;
 use std::sync::Arc;
 
 use criterion::*;
-
 use matrix_sdk_common::{
     api::r0::{
         keys::{claim_keys, get_keys},

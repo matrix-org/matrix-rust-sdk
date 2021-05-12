@@ -14,7 +14,11 @@
 
 //! Error conditions.
 
+use std::io::Error as IoError;
+
 use http::StatusCode;
+#[cfg(feature = "encryption")]
+use matrix_sdk_base::crypto::store::CryptoStoreError;
 use matrix_sdk_base::{Error as MatrixError, StoreError};
 use matrix_sdk_common::{
     api::{
@@ -26,11 +30,7 @@ use matrix_sdk_common::{
 };
 use reqwest::Error as ReqwestError;
 use serde_json::Error as JsonError;
-use std::io::Error as IoError;
 use thiserror::Error;
-
-#[cfg(feature = "encryption")]
-use matrix_sdk_base::crypto::store::CryptoStoreError;
 
 /// Result type of the rust-sdk.
 pub type Result<T> = std::result::Result<T, Error>;

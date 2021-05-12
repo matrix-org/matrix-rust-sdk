@@ -12,14 +12,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use olm_rs::utility::OlmUtility;
-use serde_json::Value;
 use std::convert::TryInto;
 
 use matrix_sdk_common::{
     identifiers::{DeviceKeyAlgorithm, DeviceKeyId, UserId},
     CanonicalJsonValue,
 };
+use olm_rs::utility::OlmUtility;
+use serde_json::Value;
 
 use crate::error::SignatureError;
 
@@ -48,8 +48,7 @@ impl Utility {
     ///
     /// * `key_id` - The id of the key that signed the JSON object.
     ///
-    /// * `signing_key` - The public ed25519 key which was used to sign the JSON
-    ///     object.
+    /// * `signing_key` - The public ed25519 key which was used to sign the JSON object.
     ///
     /// * `json` - The JSON object that should be verified.
     pub(crate) fn verify_json(
@@ -108,9 +107,10 @@ impl Utility {
 
 #[cfg(test)]
 mod test {
-    use super::Utility;
     use matrix_sdk_common::identifiers::{user_id, DeviceKeyAlgorithm, DeviceKeyId};
     use serde_json::json;
+
+    use super::Utility;
 
     #[test]
     fn signature_test() {

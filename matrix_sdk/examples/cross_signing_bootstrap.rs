@@ -5,12 +5,11 @@ use std::{
     sync::atomic::{AtomicBool, Ordering},
 };
 
-use serde_json::json;
-use url::Url;
-
 use matrix_sdk::{
     self, api::r0::uiaa::AuthData, identifiers::UserId, Client, LoopCtrl, SyncSettings,
 };
+use serde_json::json;
+use url::Url;
 
 fn auth_data<'a>(user: &UserId, password: &str, session: Option<&'a str>) -> AuthData<'a> {
     let mut auth_parameters = BTreeMap::new();

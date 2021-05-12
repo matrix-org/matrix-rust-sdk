@@ -19,12 +19,10 @@ use matrix_sdk_common::{
     events::room::member::MembershipState,
     identifiers::{EventId, RoomId, UserId},
 };
-
 use tracing::trace;
 
-use crate::Store;
-
 use super::{Result, StateChanges};
+use crate::Store;
 
 #[derive(Clone, Debug)]
 pub struct AmbiguityCache {

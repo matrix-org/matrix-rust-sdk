@@ -27,20 +27,18 @@ use matrix_sdk_common::{
     locks::Mutex,
 };
 use olm_rs::{errors::OlmSessionError, session::OlmSession, PicklingMode};
-use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
-
-use crate::{
-    error::{EventError, OlmResult, SessionUnpicklingError},
-    ReadOnlyDevice,
-};
-
 pub use olm_rs::{
     session::{OlmMessage, PreKeyMessage},
     utility::OlmUtility,
 };
+use serde::{Deserialize, Serialize};
+use serde_json::{json, Value};
 
 use super::{deserialize_instant, serialize_instant, IdentityKeys};
+use crate::{
+    error::{EventError, OlmResult, SessionUnpicklingError},
+    ReadOnlyDevice,
+};
 
 /// Cryptographic session that enables secure communication between two
 /// `Account`s
@@ -104,9 +102,8 @@ impl Session {
     ///
     /// # Arguments
     ///
-    /// * `recipient_device` - The device for which this message is going to be
-    ///     encrypted, this needs to be the device that was used to create this
-    ///     session with.
+    /// * `recipient_device` - The device for which this message is going to be encrypted, this
+    ///   needs to be the device that was used to create this session with.
     ///
     /// * `event_type` - The type of the event.
     ///

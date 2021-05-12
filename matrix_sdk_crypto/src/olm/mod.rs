@@ -30,13 +30,12 @@ pub use group_sessions::{
     OutboundGroupSession, PickledInboundGroupSession, PickledOutboundGroupSession,
 };
 pub(crate) use group_sessions::{GroupSessionKey, ShareState};
+use matrix_sdk_common::instant::{Duration, Instant};
 pub use olm_rs::{account::IdentityKeys, PicklingMode};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 pub use session::{PickledSession, Session, SessionPickle};
 pub use signing::{PickledCrossSigningIdentity, PrivateCrossSigningIdentity};
 pub(crate) use utility::Utility;
-
-use matrix_sdk_common::instant::{Duration, Instant};
-use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 pub(crate) fn serialize_instant<S>(instant: &Instant, serializer: S) -> Result<S::Ok, S::Error>
 where
@@ -60,14 +59,16 @@ where
 
 #[cfg(test)]
 pub(crate) mod test {
-    use crate::olm::{InboundGroupSession, ReadOnlyAccount, Session};
+    use std::{collections::BTreeMap, convert::TryInto};
+
     use matrix_sdk_common::{
         api::r0::keys::SignedKey,
         events::forwarded_room_key::ForwardedRoomKeyToDeviceEventContent,
         identifiers::{room_id, user_id, DeviceId, UserId},
     };
     use olm_rs::session::OlmMessage;
-    use std::{collections::BTreeMap, convert::TryInto};
+
+    use crate::olm::{InboundGroupSession, ReadOnlyAccount, Session};
 
     fn alice_id() -> UserId {
         user_id!("@alice:example.org")

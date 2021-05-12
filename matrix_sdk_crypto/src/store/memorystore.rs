@@ -291,12 +291,13 @@ impl CryptoStore for MemoryStore {
 
 #[cfg(test)]
 mod test {
+    use matrix_sdk_common::identifiers::room_id;
+
     use crate::{
         identities::device::test::get_device,
         olm::{test::get_account_and_session, InboundGroupSession, OlmMessageHash},
         store::{memorystore::MemoryStore, Changes, CryptoStore},
     };
-    use matrix_sdk_common::identifiers::room_id;
 
     #[tokio::test]
     async fn test_session_store() {

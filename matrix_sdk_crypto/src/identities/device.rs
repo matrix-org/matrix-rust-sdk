@@ -39,24 +39,17 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use serde_json::{json, Value};
 use tracing::warn;
 
-use crate::{
-    olm::{InboundGroupSession, PrivateCrossSigningIdentity, Session},
-    store::{Changes, DeviceChanges},
-    OutgoingVerificationRequest,
-};
-#[cfg(test)]
-use crate::{OlmMachine, ReadOnlyAccount};
-
+use super::{atomic_bool_deserializer, atomic_bool_serializer};
 use crate::{
     error::{EventError, OlmError, OlmResult, SignatureError},
     identities::{OwnUserIdentity, UserIdentities},
-    olm::Utility,
-    store::{CryptoStore, Result as StoreResult},
+    olm::{InboundGroupSession, PrivateCrossSigningIdentity, Session, Utility},
+    store::{Changes, CryptoStore, DeviceChanges, Result as StoreResult},
     verification::VerificationMachine,
-    Sas, ToDeviceRequest,
+    OutgoingVerificationRequest, Sas, ToDeviceRequest,
 };
-
-use super::{atomic_bool_deserializer, atomic_bool_serializer};
+#[cfg(test)]
+use crate::{OlmMachine, ReadOnlyAccount};
 
 /// A read-only version of a `Device`.
 #[derive(Clone, Serialize, Deserialize)]
@@ -590,14 +583,15 @@ impl PartialEq for ReadOnlyDevice {
 
 #[cfg(test)]
 pub(crate) mod test {
-    use serde_json::json;
     use std::convert::TryFrom;
 
-    use crate::identities::{LocalTrust, ReadOnlyDevice};
     use matrix_sdk_common::{
         encryption::DeviceKeys,
         identifiers::{user_id, DeviceKeyAlgorithm},
     };
+    use serde_json::json;
+
+    use crate::identities::{LocalTrust, ReadOnlyDevice};
 
     fn device_keys() -> DeviceKeys {
         let device_keys = json!({

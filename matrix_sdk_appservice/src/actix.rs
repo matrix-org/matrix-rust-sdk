@@ -17,6 +17,7 @@ use std::{
     pin::Pin,
 };
 
+pub use actix_web::Scope;
 use actix_web::{
     dev::Payload,
     error::PayloadError,
@@ -29,8 +30,6 @@ use actix_web::{
 use futures::Future;
 use futures_util::{TryFutureExt, TryStreamExt};
 use matrix_sdk::api_appservice as api;
-
-pub use actix_web::Scope;
 
 use crate::{error::Error, Appservice};
 

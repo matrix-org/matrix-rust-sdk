@@ -28,13 +28,12 @@ use matrix_sdk_common::{
     identifiers::{DeviceId, DeviceIdBox, EventId, RoomId, UserId},
 };
 
+use super::sas::{OutgoingContent, StartContent};
 use crate::{
     olm::{PrivateCrossSigningIdentity, ReadOnlyAccount},
     store::CryptoStore,
     ReadOnlyDevice, Sas, UserIdentities,
 };
-
-use super::sas::{OutgoingContent, StartContent};
 
 const SUPPORTED_METHODS: &[VerificationMethod] = &[VerificationMethod::MSasV1];
 
@@ -453,14 +452,13 @@ mod test {
     };
     use matrix_sdk_test::async_test;
 
+    use super::VerificationRequest;
     use crate::{
         olm::{PrivateCrossSigningIdentity, ReadOnlyAccount},
         store::{CryptoStore, MemoryStore},
         verification::sas::StartContent,
         ReadOnlyDevice,
     };
-
-    use super::VerificationRequest;
 
     fn alice_id() -> UserId {
         UserId::try_from("@alice:example.org").unwrap()

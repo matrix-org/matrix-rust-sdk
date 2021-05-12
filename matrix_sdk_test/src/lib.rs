@@ -1,7 +1,6 @@
 use std::{collections::HashMap, panic};
 
 use http::Response;
-
 use matrix_sdk_common::{
     api::r0::sync::sync_events::Response as SyncResponse,
     events::{
@@ -11,9 +10,8 @@ use matrix_sdk_common::{
     identifiers::{room_id, RoomId},
     IncomingResponse,
 };
-use serde_json::Value as JsonValue;
-
 pub use matrix_sdk_test_macros::async_test;
+use serde_json::Value as JsonValue;
 
 pub mod test_json;
 

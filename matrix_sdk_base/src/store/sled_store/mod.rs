@@ -37,18 +37,15 @@ use matrix_sdk_common::{
     Raw,
 };
 use serde::{Deserialize, Serialize};
-
 use sled::{
     transaction::{ConflictableTransactionError, TransactionError},
     Config, Db, Transactional, Tree,
 };
 use tracing::info;
 
-use crate::deserialized_responses::MemberEvent;
-
 use self::store_key::{EncryptedEvent, StoreKey};
-
 use super::{Result, RoomInfo, StateChanges, StateStore, StoreError};
+use crate::deserialized_responses::MemberEvent;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub enum DatabaseType {

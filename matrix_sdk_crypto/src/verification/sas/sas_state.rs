@@ -19,8 +19,6 @@ use std::{
     time::{Duration, Instant},
 };
 
-use olm_rs::sas::OlmSas;
-
 use matrix_sdk_common::{
     events::key::verification::{
         accept::{
@@ -40,6 +38,7 @@ use matrix_sdk_common::{
     identifiers::{DeviceId, EventId, RoomId, UserId},
     uuid::Uuid,
 };
+use olm_rs::sas::OlmSas;
 use tracing::info;
 
 use super::{
@@ -51,7 +50,6 @@ use super::{
         receive_mac_event, SasIds,
     },
 };
-
 use crate::{
     identities::{ReadOnlyDevice, UserIdentities},
     ReadOnlyAccount,
@@ -1182,10 +1180,6 @@ impl SasState<Canceled> {
 mod test {
     use std::convert::TryFrom;
 
-    use crate::{
-        verification::sas::{event_enums::AcceptContent, StartContent},
-        ReadOnlyAccount, ReadOnlyDevice,
-    };
     use matrix_sdk_common::{
         events::key::verification::{
             accept::{AcceptMethod, CustomContent},
@@ -1195,6 +1189,10 @@ mod test {
     };
 
     use super::{Accepted, Created, SasState, Started};
+    use crate::{
+        verification::sas::{event_enums::AcceptContent, StartContent},
+        ReadOnlyAccount, ReadOnlyDevice,
+    };
 
     fn alice_id() -> UserId {
         UserId::try_from("@alice:example.org").unwrap()

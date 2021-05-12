@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::{collections::BTreeMap, convert::TryInto};
+
 use matrix_sdk_common::{
     events::forwarded_room_key::{
         ForwardedRoomKeyToDeviceEventContent, ForwardedRoomKeyToDeviceEventContentInit,
@@ -19,7 +21,6 @@ use matrix_sdk_common::{
     identifiers::{DeviceKeyAlgorithm, EventEncryptionAlgorithm, RoomId},
 };
 use serde::{Deserialize, Serialize};
-use std::{collections::BTreeMap, convert::TryInto};
 use zeroize::Zeroize;
 
 mod inbound;

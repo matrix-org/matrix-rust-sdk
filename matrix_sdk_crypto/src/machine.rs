@@ -17,8 +17,6 @@ use std::path::Path;
 use std::{collections::BTreeMap, mem, sync::Arc};
 
 use dashmap::DashMap;
-use tracing::{debug, error, info, trace, warn};
-
 use matrix_sdk_common::{
     api::r0::{
         keys::{
@@ -44,6 +42,7 @@ use matrix_sdk_common::{
     uuid::Uuid,
     UInt,
 };
+use tracing::{debug, error, info, trace, warn};
 
 #[cfg(feature = "sled_cryptostore")]
 use crate::store::sled::SledStore;
@@ -1276,15 +1275,6 @@ pub(crate) mod test {
     };
 
     use http::Response;
-    use serde_json::json;
-
-    use crate::{
-        machine::OlmMachine,
-        olm::Utility,
-        verification::test::{outgoing_request_to_event, request_to_event},
-        EncryptionSettings, ReadOnlyDevice, ToDeviceRequest,
-    };
-
     use matrix_sdk_common::{
         api::r0::keys::{claim_keys, get_keys, upload_keys, OneTimeKey},
         events::{
@@ -1301,6 +1291,14 @@ pub(crate) mod test {
         IncomingResponse, Raw,
     };
     use matrix_sdk_test::test_json;
+    use serde_json::json;
+
+    use crate::{
+        machine::OlmMachine,
+        olm::Utility,
+        verification::test::{outgoing_request_to_event, request_to_event},
+        EncryptionSettings, ReadOnlyDevice, ToDeviceRequest,
+    };
 
     /// These keys need to be periodically uploaded to the server.
     type OneTimeKeys = BTreeMap<DeviceKeyId, OneTimeKey>;

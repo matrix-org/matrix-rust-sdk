@@ -307,13 +307,13 @@ impl SessionManager {
 
 #[cfg(test)]
 mod test {
-    use dashmap::DashMap;
-    use matrix_sdk_common::locks::Mutex;
     use std::{collections::BTreeMap, sync::Arc};
 
+    use dashmap::DashMap;
     use matrix_sdk_common::{
         api::r0::keys::claim_keys::Response as KeyClaimResponse,
         identifiers::{user_id, DeviceIdBox, UserId},
+        locks::Mutex,
     };
     use matrix_sdk_test::async_test;
 

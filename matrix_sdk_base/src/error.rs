@@ -15,12 +15,12 @@
 
 //! Error conditions.
 
-use serde_json::Error as JsonError;
 use std::io::Error as IoError;
-use thiserror::Error;
 
 #[cfg(feature = "encryption")]
 use matrix_sdk_crypto::{CryptoStoreError, MegolmError, OlmError};
+use serde_json::Error as JsonError;
+use thiserror::Error;
 
 /// Result type of the rust-sdk.
 pub type Result<T, E = Error> = std::result::Result<T, E>;

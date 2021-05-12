@@ -12,19 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::sync::Arc;
 #[cfg(test)]
 use std::time::Instant;
-
-use std::sync::Arc;
 
 use matrix_sdk_common::{
     events::{key::verification::cancel::CancelCode, AnyMessageEvent, AnyToDeviceEvent},
     identifiers::{EventId, RoomId},
-};
-
-use crate::{
-    identities::{ReadOnlyDevice, UserIdentities},
-    ReadOnlyAccount,
 };
 
 use super::{
@@ -34,6 +28,10 @@ use super::{
         Started, WaitingForDone,
     },
     StartContent,
+};
+use crate::{
+    identities::{ReadOnlyDevice, UserIdentities},
+    ReadOnlyAccount,
 };
 
 #[derive(Clone, Debug)]

@@ -1,5 +1,4 @@
 use std::{env, process::exit};
-use url::Url;
 
 use matrix_sdk::{
     self, async_trait,
@@ -10,6 +9,7 @@ use matrix_sdk::{
     room::Room,
     Client, EventHandler, SyncSettings,
 };
+use url::Url;
 
 struct EventCallback;
 

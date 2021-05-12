@@ -1,13 +1,12 @@
 use std::{convert::TryFrom, env, process::exit};
 
-use url::Url;
-
 use matrix_sdk::{
     self,
     api::r0::profile,
     identifiers::{MxcUri, UserId},
     Client, Result as MatrixResult,
 };
+use url::Url;
 
 #[derive(Debug)]
 struct UserProfile {

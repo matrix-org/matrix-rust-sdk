@@ -6,7 +6,6 @@ use std::{
     process::exit,
     sync::Arc,
 };
-use tokio::sync::Mutex;
 
 use matrix_sdk::{
     self, async_trait,
@@ -17,6 +16,7 @@ use matrix_sdk::{
     room::Room,
     Client, EventHandler, SyncSettings,
 };
+use tokio::sync::Mutex;
 use url::Url;
 
 struct ImageBot {

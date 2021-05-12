@@ -1,7 +1,8 @@
-use crate::{room::Common, BaseRoom, Client, Result, RoomType};
 use std::ops::Deref;
 
 use matrix_sdk_common::api::r0::membership::forget_room;
+
+use crate::{room::Common, BaseRoom, Client, Result, RoomType};
 
 /// A room in the left state.
 ///

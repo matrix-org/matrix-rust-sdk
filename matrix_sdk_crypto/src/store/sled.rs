@@ -20,19 +20,18 @@ use std::{
 };
 
 use dashmap::DashSet;
-use olm_rs::{account::IdentityKeys, PicklingMode};
-pub use sled::Error;
-use sled::{
-    transaction::{ConflictableTransactionError, TransactionError},
-    Config, Db, Transactional, Tree,
-};
-
 use matrix_sdk_common::{
     async_trait,
     events::room_key_request::RequestedKeyInfo,
     identifiers::{DeviceId, DeviceIdBox, RoomId, UserId},
     locks::Mutex,
     uuid,
+};
+use olm_rs::{account::IdentityKeys, PicklingMode};
+pub use sled::Error;
+use sled::{
+    transaction::{ConflictableTransactionError, TransactionError},
+    Config, Db, Transactional, Tree,
 };
 use uuid::Uuid;
 
@@ -793,6 +792,19 @@ impl CryptoStore for SledStore {
 
 #[cfg(test)]
 mod test {
+    use std::collections::BTreeMap;
+
+    use matrix_sdk_common::{
+        api::r0::keys::SignedKey,
+        events::room_key_request::RequestedKeyInfo,
+        identifiers::{room_id, user_id, DeviceId, EventEncryptionAlgorithm, UserId},
+        uuid::Uuid,
+    };
+    use matrix_sdk_test::async_test;
+    use olm_rs::outbound_group_session::OlmOutboundGroupSession;
+    use tempfile::tempdir;
+
+    use super::{CryptoStore, OutgoingKeyRequest, SledStore};
     use crate::{
         identities::{
             device::test::get_device,
@@ -804,18 +816,6 @@ mod test {
         },
         store::{Changes, DeviceChanges, IdentityChanges},
     };
-    use matrix_sdk_common::{
-        api::r0::keys::SignedKey,
-        events::room_key_request::RequestedKeyInfo,
-        identifiers::{room_id, user_id, DeviceId, EventEncryptionAlgorithm, UserId},
-        uuid::Uuid,
-    };
-    use matrix_sdk_test::async_test;
-    use olm_rs::outbound_group_session::OlmOutboundGroupSession;
-    use std::collections::BTreeMap;
-    use tempfile::tempdir;
-
-    use super::{CryptoStore, OutgoingKeyRequest, SledStore};
 
     fn alice_id() -> UserId {
         user_id!("@alice:example.org")

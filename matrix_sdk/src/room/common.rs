@@ -1,3 +1,5 @@
+use std::{ops::Deref, sync::Arc};
+
 use matrix_sdk_base::{deserialized_responses::MembersResponse, identifiers::UserId};
 use matrix_sdk_common::{
     api::r0::{
@@ -7,8 +9,6 @@ use matrix_sdk_common::{
     },
     locks::Mutex,
 };
-
-use std::{ops::Deref, sync::Arc};
 
 use crate::{BaseRoom, Client, Result, RoomMember};
 
@@ -295,7 +295,6 @@ impl Common {
     ///
     /// * `user_id` - The ID of the user that should be fetched out of the
     /// store.
-    ///
     pub async fn get_member_no_sync(&self, user_id: &UserId) -> Result<Option<RoomMember>> {
         Ok(self
             .inner

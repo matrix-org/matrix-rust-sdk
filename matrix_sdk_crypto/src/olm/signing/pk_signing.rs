@@ -12,32 +12,27 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::{collections::BTreeMap, convert::TryInto, sync::Arc};
+
 use aes_gcm::{
     aead::{generic_array::GenericArray, Aead, NewAead},
     Aes256Gcm,
 };
 use getrandom::getrandom;
 use matrix_sdk_common::{
-    encryption::DeviceKeys,
-    identifiers::{DeviceKeyAlgorithm, DeviceKeyId},
-};
-use serde::{Deserialize, Serialize};
-use serde_json::{json, Error as JsonError, Value};
-use std::{collections::BTreeMap, convert::TryInto, sync::Arc};
-use thiserror::Error;
-use zeroize::Zeroizing;
-
-use olm_rs::pk::OlmPkSigning;
-
-#[cfg(test)]
-use olm_rs::{errors::OlmUtilityError, utility::OlmUtility};
-
-use matrix_sdk_common::{
     api::r0::keys::{CrossSigningKey, KeyUsage},
-    identifiers::UserId,
+    encryption::DeviceKeys,
+    identifiers::{DeviceKeyAlgorithm, DeviceKeyId, UserId},
     locks::Mutex,
     CanonicalJsonValue,
 };
+use olm_rs::pk::OlmPkSigning;
+#[cfg(test)]
+use olm_rs::{errors::OlmUtilityError, utility::OlmUtility};
+use serde::{Deserialize, Serialize};
+use serde_json::{json, Error as JsonError, Value};
+use thiserror::Error;
+use zeroize::Zeroizing;
 
 use crate::{
     error::SignatureError,

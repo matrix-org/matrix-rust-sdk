@@ -1,27 +1,22 @@
 mod members;
 mod normal;
 
-use matrix_sdk_common::{
-    events::room::{
-        create::CreateEventContent, guest_access::GuestAccess,
-        history_visibility::HistoryVisibility, join_rules::JoinRule,
-    },
-    identifiers::{MxcUri, UserId},
-};
-pub use normal::{Room, RoomInfo, RoomType};
-
-pub use members::RoomMember;
-
-use serde::{Deserialize, Serialize};
 use std::cmp::max;
 
 use matrix_sdk_common::{
     events::{
-        room::{encryption::EncryptionEventContent, tombstone::TombstoneEventContent},
+        room::{
+            create::CreateEventContent, encryption::EncryptionEventContent,
+            guest_access::GuestAccess, history_visibility::HistoryVisibility, join_rules::JoinRule,
+            tombstone::TombstoneEventContent,
+        },
         AnyStateEventContent,
     },
-    identifiers::RoomAliasId,
+    identifiers::{MxcUri, RoomAliasId, UserId},
 };
+pub use members::RoomMember;
+pub use normal::{Room, RoomInfo, RoomType};
+use serde::{Deserialize, Serialize};
 
 /// A base room info struct that is the backbone of normal as well as stripped
 /// rooms. Holds all the state events that are important to present a room to

@@ -30,12 +30,10 @@ use matrix_sdk_common::{
     instant::Instant,
     Raw,
 };
-
 use tracing::info;
 
-use crate::deserialized_responses::{MemberEvent, StrippedMemberEvent};
-
 use super::{Result, RoomInfo, StateChanges, StateStore};
+use crate::deserialized_responses::{MemberEvent, StrippedMemberEvent};
 
 #[derive(Debug, Clone)]
 pub struct MemoryStore {

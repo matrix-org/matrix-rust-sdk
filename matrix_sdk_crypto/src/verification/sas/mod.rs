@@ -17,13 +17,14 @@ mod helpers;
 mod inner_sas;
 mod sas_state;
 
+use std::sync::{Arc, Mutex};
 #[cfg(test)]
 use std::time::Instant;
 
 use event_enums::AcceptContent;
-use std::sync::{Arc, Mutex};
-use tracing::{error, info, trace, warn};
-
+pub use event_enums::{OutgoingContent, StartContent};
+pub use helpers::content_to_request;
+use inner_sas::InnerSas;
 use matrix_sdk_common::{
     api::r0::keys::upload_signatures::Request as SignatureUploadRequest,
     events::{
@@ -37,7 +38,10 @@ use matrix_sdk_common::{
     identifiers::{DeviceId, EventId, RoomId, UserId},
     uuid::Uuid,
 };
+pub use sas_state::FlowId;
+use tracing::{error, info, trace, warn};
 
+use self::event_enums::CancelContent;
 use crate::{
     error::SignatureError,
     identities::{LocalTrust, ReadOnlyDevice, UserIdentities},
@@ -46,14 +50,6 @@ use crate::{
     store::{Changes, CryptoStore, CryptoStoreError, DeviceChanges},
     ReadOnlyAccount, ToDeviceRequest,
 };
-
-pub use helpers::content_to_request;
-use inner_sas::InnerSas;
-pub use sas_state::FlowId;
-
-pub use event_enums::{OutgoingContent, StartContent};
-
-use self::event_enums::CancelContent;
 
 #[derive(Debug)]
 /// A result of a verification flow.
@@ -741,14 +737,13 @@ mod test {
 
     use matrix_sdk_common::identifiers::{DeviceId, UserId};
 
+    use super::Sas;
     use crate::{
         olm::PrivateCrossSigningIdentity,
         store::{CryptoStore, MemoryStore},
         verification::test::{get_content_from_request, wrap_any_to_device_content},
         ReadOnlyAccount, ReadOnlyDevice,
     };
-
-    use super::Sas;
 
     fn alice_id() -> UserId {
         UserId::try_from("@alice:example.org").unwrap()

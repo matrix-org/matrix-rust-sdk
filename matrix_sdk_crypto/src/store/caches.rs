@@ -195,12 +195,13 @@ impl DeviceStore {
 
 #[cfg(test)]
 mod test {
+    use matrix_sdk_common::identifiers::room_id;
+
     use crate::{
         identities::device::test::get_device,
         olm::{test::get_account_and_session, InboundGroupSession},
         store::caches::{DeviceStore, GroupSessionStore, SessionStore},
     };
-    use matrix_sdk_common::identifiers::room_id;
 
     #[tokio::test]
     async fn test_session_store() {
