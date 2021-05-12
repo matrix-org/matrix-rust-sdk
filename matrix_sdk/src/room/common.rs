@@ -12,7 +12,8 @@ use matrix_sdk_common::{
 
 use crate::{BaseRoom, Client, Result, RoomMember};
 
-/// A struct containing methodes that are common for Joined, Invited and Left Rooms
+/// A struct containing methodes that are common for Joined, Invited and Left
+/// Rooms
 #[derive(Debug, Clone)]
 pub struct Common {
     inner: BaseRoom,
@@ -108,9 +109,9 @@ impl Common {
         }
     }
 
-    /// Sends a request to `/_matrix/client/r0/rooms/{room_id}/messages` and returns
-    /// a `get_message_events::Response` that contains a chunk of room and state events
-    /// (`AnyRoomEvent` and `AnyStateEvent`).
+    /// Sends a request to `/_matrix/client/r0/rooms/{room_id}/messages` and
+    /// returns a `get_message_events::Response` that contains a chunk of
+    /// room and state events (`AnyRoomEvent` and `AnyStateEvent`).
     ///
     /// # Arguments
     ///
@@ -235,9 +236,9 @@ impl Common {
 
     /// Get all the joined members of this room.
     ///
-    /// *Note*: This method will not fetch the members from the homeserver if the
-    /// member list isn't synchronized due to member lazy loading. Thus, members
-    /// could be missing from the list.
+    /// *Note*: This method will not fetch the members from the homeserver if
+    /// the member list isn't synchronized due to member lazy loading. Thus,
+    /// members could be missing from the list.
     ///
     /// Use [joined_members()](#method.joined_members) if you want to ensure to
     /// always get the full member list.
@@ -271,9 +272,9 @@ impl Common {
 
     /// Get a specific member of this room.
     ///
-    /// *Note*: This method will not fetch the members from the homeserver if the
-    /// member list isn't synchronized due to member lazy loading. Thus, members
-    /// could be missing.
+    /// *Note*: This method will not fetch the members from the homeserver if
+    /// the member list isn't synchronized due to member lazy loading. Thus,
+    /// members could be missing.
     ///
     /// Use [get_member()](#method.get_member) if you want to ensure to always
     /// have the full member list to chose from.
@@ -290,7 +291,8 @@ impl Common {
             .map(|member| RoomMember::new(self.client.clone(), member)))
     }
 
-    /// Get all members for this room, includes invited, joined and left members.
+    /// Get all members for this room, includes invited, joined and left
+    /// members.
     ///
     /// *Note*: This method will fetch the members from the homeserver if the
     /// member list isn't synchronized due to member lazy loading. Because of
@@ -303,11 +305,12 @@ impl Common {
         self.members_no_sync().await
     }
 
-    /// Get all members for this room, includes invited, joined and left members.
+    /// Get all members for this room, includes invited, joined and left
+    /// members.
     ///
-    /// *Note*: This method will not fetch the members from the homeserver if the
-    /// member list isn't synchronized due to member lazy loading. Thus, members
-    /// could be missing.
+    /// *Note*: This method will not fetch the members from the homeserver if
+    /// the member list isn't synchronized due to member lazy loading. Thus,
+    /// members could be missing.
     ///
     /// Use [members()](#method.members) if you want to ensure to always get
     /// the full member list.

@@ -1,8 +1,8 @@
 //! Test data for the matrix-sdk crates.
 //!
-//! Exporting each const allows all the test data to have a single source of truth.
-//! When running `cargo publish` no external folders are allowed so all the
-//! test data needs to be contained within this crate.
+//! Exporting each const allows all the test data to have a single source of
+//! truth. When running `cargo publish` no external folders are allowed so all
+//! the test data needs to be contained within this crate.
 
 use lazy_static::lazy_static;
 use serde_json::{json, Value as JsonValue};

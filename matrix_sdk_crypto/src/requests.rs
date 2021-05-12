@@ -38,14 +38,16 @@ use matrix_sdk_common::{
 use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue as RawJsonValue;
 
-/// Customized version of `ruma_client_api::r0::to_device::send_event_to_device::Request`, using a
+/// Customized version of
+/// `ruma_client_api::r0::to_device::send_event_to_device::Request`, using a
 /// UUID for the transaction ID.
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct ToDeviceRequest {
     /// Type of event being sent to each device.
     pub event_type: EventType,
 
-    /// A request identifier unique to the access token used to send the request.
+    /// A request identifier unique to the access token used to send the
+    /// request.
     pub txn_id: Uuid,
 
     /// A map of users to devices to a content for a message event to be
@@ -79,15 +81,18 @@ impl ToDeviceRequest {
 pub struct UploadSigningKeysRequest {
     /// The user's master key.
     pub master_key: Option<CrossSigningKey>,
-    /// The user's self-signing key. Must be signed with the accompanied master, or by the
-    /// user's most recently uploaded master key if no master key is included in the request.
+    /// The user's self-signing key. Must be signed with the accompanied master,
+    /// or by the user's most recently uploaded master key if no master key
+    /// is included in the request.
     pub self_signing_key: Option<CrossSigningKey>,
-    /// The user's user-signing key. Must be signed with the accompanied master, or by the
-    /// user's most recently uploaded master key if no master key is included in the request.
+    /// The user's user-signing key. Must be signed with the accompanied master,
+    /// or by the user's most recently uploaded master key if no master key
+    /// is included in the request.
     pub user_signing_key: Option<CrossSigningKey>,
 }
 
-/// Customized version of `ruma_client_api::r0::keys::get_keys::Request`, without any references.
+/// Customized version of `ruma_client_api::r0::keys::get_keys::Request`,
+/// without any references.
 #[derive(Clone, Debug)]
 pub struct KeysQueryRequest {
     /// The time (in milliseconds) to wait when downloading keys from remote

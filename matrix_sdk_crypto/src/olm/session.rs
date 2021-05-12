@@ -102,8 +102,9 @@ impl Session {
     ///
     /// # Arguments
     ///
-    /// * `recipient_device` - The device for which this message is going to be encrypted, this
-    ///   needs to be the device that was used to create this session with.
+    /// * `recipient_device` - The device for which this message is going to be
+    ///   encrypted, this needs to be the device that was used to create this
+    ///   session with.
     ///
     /// * `event_type` - The type of the event.
     ///
@@ -258,7 +259,8 @@ pub struct PickledSession {
     pub last_use_time: Instant,
 }
 
-/// The typed representation of a base64 encoded string of the Olm Session pickle.
+/// The typed representation of a base64 encoded string of the Olm Session
+/// pickle.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SessionPickle(String);
 

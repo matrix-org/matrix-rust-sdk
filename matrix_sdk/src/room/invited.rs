@@ -4,15 +4,17 @@ use crate::{room::Common, BaseRoom, Client, Result, RoomType};
 
 /// A room in the invited state.
 ///
-/// This struct contains all methodes specific to a `Room` with type `RoomType::Invited`.
-/// Operations may fail once the underlaying `Room` changes `RoomType`.
+/// This struct contains all methodes specific to a `Room` with type
+/// `RoomType::Invited`. Operations may fail once the underlaying `Room` changes
+/// `RoomType`.
 #[derive(Debug, Clone)]
 pub struct Invited {
     pub(crate) inner: Common,
 }
 
 impl Invited {
-    /// Create a new `room::Invited` if the underlaying `Room` has type `RoomType::Invited`.
+    /// Create a new `room::Invited` if the underlaying `Room` has type
+    /// `RoomType::Invited`.
     ///
     /// # Arguments
     /// * `client` - The client used to make requests.

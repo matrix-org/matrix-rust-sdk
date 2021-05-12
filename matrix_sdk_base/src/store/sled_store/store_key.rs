@@ -75,9 +75,11 @@ pub struct EncryptedEvent {
 #[derive(Debug, Serialize, Deserialize, PartialEq)]
 pub enum KdfInfo {
     Pbkdf2ToChaCha20Poly1305 {
-        /// The number of PBKDF rounds that were used when deriving the store key.
+        /// The number of PBKDF rounds that were used when deriving the store
+        /// key.
         rounds: u32,
-        /// The salt that was used when the passphrase was expanded into a store key.
+        /// The salt that was used when the passphrase was expanded into a store
+        /// key.
         kdf_salt: Vec<u8>,
     },
 }

@@ -382,7 +382,8 @@ pub struct PickledInboundGroupSession {
     pub history_visibility: Option<HistoryVisibility>,
 }
 
-/// The typed representation of a base64 encoded string of the GroupSession pickle.
+/// The typed representation of a base64 encoded string of the GroupSession
+/// pickle.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct InboundGroupSessionPickle(String);
 

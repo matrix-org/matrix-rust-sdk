@@ -76,12 +76,7 @@ impl Handler {
     }
 
     pub(crate) async fn handle_sync(&self, response: &SyncResponse) {
-        for event in response
-            .account_data
-            .events
-            .iter()
-            .filter_map(|e| e.deserialize().ok())
-        {
+        for event in response.account_data.events.iter().filter_map(|e| e.deserialize().ok()) {
             self.handle_account_data_event(&event).await;
         }
 
@@ -95,8 +90,7 @@ impl Handler {
                 for event in
                     room_info.account_data.events.iter().filter_map(|e| e.deserialize().ok())
                 {
-                    self.handle_room_account_data_event(room.clone(), &event)
-                        .await;
+                    self.handle_room_account_data_event(room.clone(), &event).await;
                 }
 
                 for event in room_info.state.events.iter().filter_map(|e| e.deserialize().ok()) {
@@ -116,8 +110,7 @@ impl Handler {
                 for event in
                     room_info.account_data.events.iter().filter_map(|e| e.deserialize().ok())
                 {
-                    self.handle_room_account_data_event(room.clone(), &event)
-                        .await;
+                    self.handle_room_account_data_event(room.clone(), &event).await;
                 }
 
                 for event in room_info.state.events.iter().filter_map(|e| e.deserialize().ok()) {

@@ -38,13 +38,16 @@ use crate::{
 #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
 #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
 pub trait HttpSend: AsyncTraitDeps {
-    /// The method abstracting sending request types and receiving response types.
+    /// The method abstracting sending request types and receiving response
+    /// types.
     ///
-    /// This is called by the client every time it wants to send anything to a homeserver.
+    /// This is called by the client every time it wants to send anything to a
+    /// homeserver.
     ///
     /// # Arguments
     ///
-    /// * `request` - The http request that has been converted from a ruma `Request`.
+    /// * `request` - The http request that has been converted from a ruma
+    ///   `Request`.
     ///
     /// * `request_config` - The config used for this request.
     ///

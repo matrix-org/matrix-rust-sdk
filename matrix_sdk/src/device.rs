@@ -40,7 +40,8 @@ impl Deref for Device {
 impl Device {
     /// Start a interactive verification with this `Device`
     ///
-    /// Returns a `Sas` object that represents the interactive verification flow.
+    /// Returns a `Sas` object that represents the interactive verification
+    /// flow.
     ///
     /// # Example
     ///

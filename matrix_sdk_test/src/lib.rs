@@ -42,16 +42,17 @@ pub enum EventsJson {
     Typing,
 }
 
-/// The `EventBuilder` struct can be used to easily generate valid sync responses for testing.
-/// These can be then fed into either `Client` or `Room`.
+/// The `EventBuilder` struct can be used to easily generate valid sync
+/// responses for testing. These can be then fed into either `Client` or `Room`.
 ///
-/// It supports generated a number of canned events, such as a member entering a room, his power
-/// level and display name changing and similar. It also supports insertion of custom events in the
-/// form of `EventsJson` values.
+/// It supports generated a number of canned events, such as a member entering a
+/// room, his power level and display name changing and similar. It also
+/// supports insertion of custom events in the form of `EventsJson` values.
 ///
-/// **Important** You *must* use the *same* builder when sending multiple sync responses to
-/// a single client. Otherwise, the subsequent responses will be *ignored* by the client because
-/// the `next_batch` sync token will not be rotated properly.
+/// **Important** You *must* use the *same* builder when sending multiple sync
+/// responses to a single client. Otherwise, the subsequent responses will be
+/// *ignored* by the client because the `next_batch` sync token will not be
+/// rotated properly.
 ///
 /// # Example usage
 ///
@@ -92,7 +93,8 @@ pub struct EventBuilder {
     ephemeral: Vec<AnySyncEphemeralRoomEvent>,
     /// The account data events that determine the state of a `Room`.
     account_data: Vec<AnyGlobalAccountDataEvent>,
-    /// Internal counter to enable the `prev_batch` and `next_batch` of each sync response to vary.
+    /// Internal counter to enable the `prev_batch` and `next_batch` of each
+    /// sync response to vary.
     batch_counter: i64,
 }
 
@@ -216,7 +218,8 @@ impl EventBuilder {
     pub fn build_json_sync_response(&mut self) -> JsonValue {
         let main_room_id = room_id!("!SVkFJHzfwvuaIEawgC:localhost");
 
-        // First time building a sync response, so initialize the `prev_batch` to a default one.
+        // First time building a sync response, so initialize the `prev_batch` to a
+        // default one.
         let prev_batch = self.generate_sync_token();
         self.batch_counter += 1;
         let next_batch = self.generate_sync_token();

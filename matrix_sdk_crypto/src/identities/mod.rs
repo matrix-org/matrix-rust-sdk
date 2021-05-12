@@ -29,10 +29,10 @@
 //!
 //! ## User
 //!
-//! Cross-signing capable devices will upload 3 additional (master, self-signing,
-//! user-signing) public keys which represent the user identity owning all the
-//! devices. This is represented in two ways, as a `UserIdentity` for other
-//! users and as `OwnUserIdentity` for our own user.
+//! Cross-signing capable devices will upload 3 additional (master,
+//! self-signing, user-signing) public keys which represent the user identity
+//! owning all the devices. This is represented in two ways, as a `UserIdentity`
+//! for other users and as `OwnUserIdentity` for our own user.
 //!
 //! This is done because the server will only give us access to 2 of the 3
 //! additional public keys for other users, while it will give us access to all

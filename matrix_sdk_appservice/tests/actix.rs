@@ -107,8 +107,8 @@ mod actix {
 
         let resp = test::call_service(&app, req).await;
 
-        // TODO: this should actually return a 401 but is 500 because something in the extractor
-        // fails
+        // TODO: this should actually return a 401 but is 500 because something in the
+        // extractor fails
         assert_eq!(resp.status(), 500);
     }
 }

@@ -6,8 +6,9 @@ use std::{fs::File, os::raw::c_int, path::Path};
 use criterion::profiler::Profiler;
 use pprof::ProfilerGuard;
 
-/// Small custom profiler that can be used with Criterion to create a flamegraph for benchmarks.
-/// Also see [the Criterion documentation on this][custom-profiler].
+/// Small custom profiler that can be used with Criterion to create a flamegraph
+/// for benchmarks. Also see [the Criterion documentation on
+/// this][custom-profiler].
 ///
 /// ## Example on how to enable the custom profiler:
 ///
@@ -30,12 +31,12 @@ use pprof::ProfilerGuard;
 /// }
 /// ```
 ///
-/// The neat thing about this is that it will sample _only_ the benchmark, and not other stuff like
-/// the setup process.
+/// The neat thing about this is that it will sample _only_ the benchmark, and
+/// not other stuff like the setup process.
 ///
-/// Further, it will only kick in if `--profile-time <time>` is passed to the benchmark binary.
-/// A flamegraph will be created for each individual benchmark in its report directory under
-/// `profile/flamegraph.svg`.
+/// Further, it will only kick in if `--profile-time <time>` is passed to the
+/// benchmark binary. A flamegraph will be created for each individual benchmark
+/// in its report directory under `profile/flamegraph.svg`.
 ///
 /// [custom-profiler]: https://bheisler.github.io/criterion.rs/book/user_guide/profiling.html#implementing-in-process-profiling-hooks
 pub struct FlamegraphProfiler<'a> {

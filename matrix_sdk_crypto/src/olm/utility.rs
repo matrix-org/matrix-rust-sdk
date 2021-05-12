@@ -46,7 +46,8 @@ impl Utility {
     ///
     /// * `key_id` - The id of the key that signed the JSON object.
     ///
-    /// * `signing_key` - The public ed25519 key which was used to sign the JSON object.
+    /// * `signing_key` - The public ed25519 key which was used to sign the JSON
+    ///   object.
     ///
     /// * `json` - The JSON object that should be verified.
     pub(crate) fn verify_json(
