@@ -200,7 +200,8 @@ pub trait StateStore: AsyncTraitDeps {
     ///
     /// # Arguments
     ///
-    /// * `room_id` - The id of the room for which the room account data event should
+    /// * `room_id` - The id of the room for which the room account data event
+    ///   should
     /// be fetched.
     ///
     /// * `event_type` - The event type of the room account data event.
@@ -297,20 +298,16 @@ impl Store {
 
     /// Get all the rooms this store knows about.
     pub fn get_rooms(&self) -> Vec<Room> {
-        self.rooms
-            .iter()
-            .filter_map(|r| self.get_room(r.key()))
-            .collect()
+        self.rooms.iter().filter_map(|r| self.get_room(r.key())).collect()
     }
 
     /// Get the room with the given room id.
     pub fn get_room(&self, room_id: &RoomId) -> Option<Room> {
-        self.get_bare_room(room_id)
-            .and_then(|r| match r.room_type() {
-                RoomType::Joined => Some(r),
-                RoomType::Left => Some(r),
-                RoomType::Invited => self.get_stripped_room(room_id),
-            })
+        self.get_bare_room(room_id).and_then(|r| match r.room_type() {
+            RoomType::Joined => Some(r),
+            RoomType::Left => Some(r),
+            RoomType::Invited => self.get_stripped_room(room_id),
+        })
     }
 
     fn get_stripped_room(&self, room_id: &RoomId) -> Option<Room> {
@@ -320,10 +317,7 @@ impl Store {
 
     pub(crate) async fn get_or_create_stripped_room(&self, room_id: &RoomId) -> Room {
         let session = self.session.read().await;
-        let user_id = &session
-            .as_ref()
-            .expect("Creating room while not being logged in")
-            .user_id;
+        let user_id = &session.as_ref().expect("Creating room while not being logged in").user_id;
 
         self.stripped_rooms
             .entry(room_id.clone())
@@ -333,10 +327,7 @@ impl Store {
 
     pub(crate) async fn get_or_create_room(&self, room_id: &RoomId, room_type: RoomType) -> Room {
         let session = self.session.read().await;
-        let user_id = &session
-            .as_ref()
-            .expect("Creating room while not being logged in")
-            .user_id;
+        let user_id = &session.as_ref().expect("Creating room while not being logged in").user_id;
 
         self.rooms
             .entry(room_id.clone())
@@ -358,8 +349,8 @@ impl Deref for Store {
 pub struct StateChanges {
     /// The sync token that relates to this update.
     pub sync_token: Option<String>,
-    /// A user session, containing an access token and information about the associated user
-    /// account.
+    /// A user session, containing an access token and information about the
+    /// associated user account.
     pub session: Option<Session>,
     /// A mapping of event type string to `AnyBasicEvent`.
     pub account_data: BTreeMap<String, Raw<AnyGlobalAccountDataEvent>>,
@@ -371,7 +362,8 @@ pub struct StateChanges {
     /// A mapping of `RoomId` to a map of users and their `MemberEventContent`.
     pub profiles: BTreeMap<RoomId, BTreeMap<UserId, MemberEventContent>>,
 
-    /// A mapping of `RoomId` to a map of event type string to a state key and `AnySyncStateEvent`.
+    /// A mapping of `RoomId` to a map of event type string to a state key and
+    /// `AnySyncStateEvent`.
     pub state: BTreeMap<RoomId, BTreeMap<String, BTreeMap<String, Raw<AnySyncStateEvent>>>>,
     /// A mapping of `RoomId` to a map of event type string to `AnyBasicEvent`.
     pub room_account_data: BTreeMap<RoomId, BTreeMap<String, Raw<AnyRoomAccountDataEvent>>>,
@@ -397,10 +389,7 @@ pub struct StateChanges {
 impl StateChanges {
     /// Create a new `StateChanges` struct with the given sync_token.
     pub fn new(sync_token: String) -> Self {
-        Self {
-            sync_token: Some(sync_token),
-            ..Default::default()
-        }
+        Self { sync_token: Some(sync_token), ..Default::default() }
     }
 
     /// Update the `StateChanges` struct with the given `PresenceEvent`.
@@ -410,14 +399,12 @@ impl StateChanges {
 
     /// Update the `StateChanges` struct with the given `RoomInfo`.
     pub fn add_room(&mut self, room: RoomInfo) {
-        self.room_infos
-            .insert(room.room_id.as_ref().to_owned(), room);
+        self.room_infos.insert(room.room_id.as_ref().to_owned(), room);
     }
 
     /// Update the `StateChanges` struct with the given `RoomInfo`.
     pub fn add_stripped_room(&mut self, room: RoomInfo) {
-        self.invited_room_info
-            .insert(room.room_id.as_ref().to_owned(), room);
+        self.invited_room_info.insert(room.room_id.as_ref().to_owned(), room);
     }
 
     /// Update the `StateChanges` struct with the given `AnyBasicEvent`.
@@ -426,11 +413,11 @@ impl StateChanges {
         event: AnyGlobalAccountDataEvent,
         raw_event: Raw<AnyGlobalAccountDataEvent>,
     ) {
-        self.account_data
-            .insert(event.content().event_type().to_owned(), raw_event);
+        self.account_data.insert(event.content().event_type().to_owned(), raw_event);
     }
 
-    /// Update the `StateChanges` struct with the given room with a new `AnyBasicEvent`.
+    /// Update the `StateChanges` struct with the given room with a new
+    /// `AnyBasicEvent`.
     pub fn add_room_account_data(
         &mut self,
         room_id: &RoomId,
@@ -443,7 +430,8 @@ impl StateChanges {
             .insert(event.content().event_type().to_owned(), raw_event);
     }
 
-    /// Update the `StateChanges` struct with the given room with a new `StrippedMemberEvent`.
+    /// Update the `StateChanges` struct with the given room with a new
+    /// `StrippedMemberEvent`.
     pub fn add_stripped_member(&mut self, room_id: &RoomId, event: StrippedMemberEvent) {
         let user_id = event.state_key.clone();
 
@@ -453,7 +441,8 @@ impl StateChanges {
             .insert(user_id, event);
     }
 
-    /// Update the `StateChanges` struct with the given room with a new `AnySyncStateEvent`.
+    /// Update the `StateChanges` struct with the given room with a new
+    /// `AnySyncStateEvent`.
     pub fn add_state_event(
         &mut self,
         room_id: &RoomId,
@@ -468,11 +457,9 @@ impl StateChanges {
             .insert(event.state_key().to_string(), raw_event);
     }
 
-    /// Update the `StateChanges` struct with the given room with a new `Notification`.
+    /// Update the `StateChanges` struct with the given room with a new
+    /// `Notification`.
     pub fn add_notification(&mut self, room_id: &RoomId, notification: Notification) {
-        self.notifications
-            .entry(room_id.to_owned())
-            .or_insert_with(Vec::new)
-            .push(notification);
+        self.notifications.entry(room_id.to_owned()).or_insert_with(Vec::new).push(notification);
     }
 }

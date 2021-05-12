@@ -39,9 +39,7 @@ pub struct SessionStore {
 impl SessionStore {
     /// Create a new empty Session store.
     pub fn new() -> Self {
-        SessionStore {
-            entries: Arc::new(DashMap::new()),
-        }
+        SessionStore { entries: Arc::new(DashMap::new()) }
     }
 
     /// Add a session to the store.
@@ -72,8 +70,7 @@ impl SessionStore {
 
     /// Add a list of sessions belonging to the sender key.
     pub fn set_for_sender(&self, sender_key: &str, sessions: Vec<Session>) {
-        self.entries
-            .insert(sender_key.to_owned(), Arc::new(Mutex::new(sessions)));
+        self.entries.insert(sender_key.to_owned(), Arc::new(Mutex::new(sessions)));
     }
 }
 
@@ -87,9 +84,7 @@ pub struct GroupSessionStore {
 impl GroupSessionStore {
     /// Create a new empty store.
     pub fn new() -> Self {
-        GroupSessionStore {
-            entries: Arc::new(DashMap::new()),
-        }
+        GroupSessionStore { entries: Arc::new(DashMap::new()) }
     }
 
     /// Add an inbound group session to the store.
@@ -148,9 +143,7 @@ pub struct DeviceStore {
 impl DeviceStore {
     /// Create a new empty device store.
     pub fn new() -> Self {
-        DeviceStore {
-            entries: Arc::new(DashMap::new()),
-        }
+        DeviceStore { entries: Arc::new(DashMap::new()) }
     }
 
     /// Add a device to the store.
@@ -167,19 +160,15 @@ impl DeviceStore {
 
     /// Get the device with the given device_id and belonging to the given user.
     pub fn get(&self, user_id: &UserId, device_id: &DeviceId) -> Option<ReadOnlyDevice> {
-        self.entries
-            .get(user_id)
-            .and_then(|m| m.get(device_id).map(|d| d.value().clone()))
+        self.entries.get(user_id).and_then(|m| m.get(device_id).map(|d| d.value().clone()))
     }
 
-    /// Remove the device with the given device_id and belonging to the given user.
+    /// Remove the device with the given device_id and belonging to the given
+    /// user.
     ///
     /// Returns the device if it was removed, None if it wasn't in the store.
     pub fn remove(&self, user_id: &UserId, device_id: &DeviceId) -> Option<ReadOnlyDevice> {
-        self.entries
-            .get(user_id)
-            .and_then(|m| m.remove(device_id))
-            .map(|(_, d)| d)
+        self.entries.get(user_id).and_then(|m| m.remove(device_id)).map(|(_, d)| d)
     }
 
     /// Get a read-only view over all devices of the given user.
@@ -240,10 +229,8 @@ mod test {
         let (account, _) = get_account_and_session().await;
         let room_id = room_id!("!test:localhost");
 
-        let (outbound, _) = account
-            .create_group_session_pair_with_defaults(&room_id)
-            .await
-            .unwrap();
+        let (outbound, _) =
+            account.create_group_session_pair_with_defaults(&room_id).await.unwrap();
 
         assert_eq!(0, outbound.message_index().await);
         assert!(!outbound.shared());
@@ -262,9 +249,7 @@ mod test {
         let store = GroupSessionStore::new();
         store.add(inbound.clone());
 
-        let loaded_session = store
-            .get(&room_id, "test_key", outbound.session_id())
-            .unwrap();
+        let loaded_session = store.get(&room_id, "test_key", outbound.session_id()).unwrap();
         assert_eq!(inbound, loaded_session);
     }
 

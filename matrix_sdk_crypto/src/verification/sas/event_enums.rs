@@ -61,10 +61,7 @@ impl StartContent {
             StartContent::Room(_, c) => serde_json::to_value(c),
         };
 
-        content
-            .expect("Can't serialize content")
-            .try_into()
-            .expect("Can't canonicalize content")
+        content.expect("Can't serialize content").try_into().expect("Can't canonicalize content")
     }
 }
 

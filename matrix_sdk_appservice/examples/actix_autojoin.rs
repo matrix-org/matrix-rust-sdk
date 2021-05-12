@@ -26,11 +26,7 @@ impl AppserviceEventHandler {
 #[async_trait]
 impl EventHandler for AppserviceEventHandler {
     async fn on_room_member(&self, room: Room, event: &SyncStateEvent<MemberEventContent>) {
-        if !self
-            .appservice
-            .user_id_is_in_namespace(&event.state_key)
-            .unwrap()
-        {
+        if !self.appservice.user_id_is_in_namespace(&event.state_key).unwrap() {
             dbg!("not an appservice user");
             return;
         }
@@ -38,11 +34,7 @@ impl EventHandler for AppserviceEventHandler {
         if let MembershipState::Invite = event.content.membership {
             let user_id = UserId::try_from(event.state_key.clone()).unwrap();
 
-            let client = self
-                .appservice
-                .client_with_localpart(user_id.localpart())
-                .await
-                .unwrap();
+            let client = self.appservice.client_with_localpart(user_id.localpart()).await.unwrap();
 
             client.join_room_by_id(room.room_id()).await.unwrap();
         }
@@ -51,10 +43,7 @@ impl EventHandler for AppserviceEventHandler {
 
 #[actix_web::main]
 pub async fn main() -> std::io::Result<()> {
-    env::set_var(
-        "RUST_LOG",
-        "actix_web=debug,actix_server=info,matrix_sdk=debug",
-    );
+    env::set_var("RUST_LOG", "actix_web=debug,actix_server=info,matrix_sdk=debug");
     tracing_subscriber::fmt::init();
 
     let homeserver_url = "http://localhost:8008";
@@ -62,16 +51,11 @@ pub async fn main() -> std::io::Result<()> {
     let registration =
         AppserviceRegistration::try_from_yaml_file("./tests/registration.yaml").unwrap();
 
-    let appservice = Appservice::new(homeserver_url, server_name, registration)
-        .await
-        .unwrap();
+    let appservice = Appservice::new(homeserver_url, server_name, registration).await.unwrap();
 
     let event_handler = AppserviceEventHandler::new(appservice.clone());
 
-    appservice
-        .client()
-        .set_event_handler(Box::new(event_handler))
-        .await;
+    appservice.client().set_event_handler(Box::new(event_handler)).await;
 
     HttpServer::new(move || App::new().service(appservice.actix_service()))
         .bind(("0.0.0.0", 8090))?

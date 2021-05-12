@@ -36,10 +36,7 @@ impl Common {
     /// * `room` - The underlaying room.
     pub fn new(client: Client, room: BaseRoom) -> Self {
         // TODO: Make this private
-        Self {
-            inner: room,
-            client,
-        }
+        Self { inner: room, client }
     }
 
     /// Leave this room.
@@ -152,35 +149,25 @@ impl Common {
 
     pub(crate) async fn request_members(&self) -> Result<Option<MembersResponse>> {
         #[allow(clippy::map_clone)]
-        if let Some(mutex) = self
-            .client
-            .members_request_locks
-            .get(self.inner.room_id())
-            .map(|m| m.clone())
+        if let Some(mutex) =
+            self.client.members_request_locks.get(self.inner.room_id()).map(|m| m.clone())
         {
             mutex.lock().await;
 
             Ok(None)
         } else {
             let mutex = Arc::new(Mutex::new(()));
-            self.client
-                .members_request_locks
-                .insert(self.inner.room_id().clone(), mutex.clone());
+            self.client.members_request_locks.insert(self.inner.room_id().clone(), mutex.clone());
 
             let _guard = mutex.lock().await;
 
             let request = get_member_events::Request::new(self.inner.room_id());
             let response = self.client.send(request, None).await?;
 
-            let response = self
-                .client
-                .base_client
-                .receive_members(self.inner.room_id(), &response)
-                .await?;
+            let response =
+                self.client.base_client.receive_members(self.inner.room_id(), &response).await?;
 
-            self.client
-                .members_request_locks
-                .remove(self.inner.room_id());
+            self.client.members_request_locks.remove(self.inner.room_id());
 
             Ok(Some(response))
         }

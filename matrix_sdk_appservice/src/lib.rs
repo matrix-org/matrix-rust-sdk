@@ -104,9 +104,7 @@ impl AppserviceRegistration {
     ///
     /// See the fields of [`Registration`] for the required format
     pub fn try_from_yaml_str(value: impl AsRef<str>) -> Result<Self> {
-        Ok(Self {
-            inner: serde_yaml::from_str(value.as_ref())?,
-        })
+        Ok(Self { inner: serde_yaml::from_str(value.as_ref())? })
     }
 
     /// Try to load registration from yaml file
@@ -115,9 +113,7 @@ impl AppserviceRegistration {
     pub fn try_from_yaml_file(path: impl Into<PathBuf>) -> Result<Self> {
         let file = File::open(path.into())?;
 
-        Ok(Self {
-            inner: serde_yaml::from_reader(file)?,
-        })
+        Ok(Self { inner: serde_yaml::from_reader(file)? })
     }
 }
 

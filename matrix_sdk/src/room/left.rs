@@ -23,9 +23,7 @@ impl Left {
     pub fn new(client: Client, room: BaseRoom) -> Option<Self> {
         // TODO: Make this private
         if room.room_type() == RoomType::Left {
-            Some(Self {
-                inner: Common::new(client, room),
-            })
+            Some(Self { inner: Common::new(client, room) })
         } else {
             None
         }

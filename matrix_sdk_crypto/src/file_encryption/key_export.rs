@@ -98,14 +98,10 @@ pub fn decrypt_key_export(
         return Err(KeyExportError::InvalidHeaders);
     }
 
-    let payload: String = x
-        .lines()
-        .filter(|l| !(l.starts_with(HEADER) || l.starts_with(FOOTER)))
-        .collect();
+    let payload: String =
+        x.lines().filter(|l| !(l.starts_with(HEADER) || l.starts_with(FOOTER))).collect();
 
-    Ok(serde_json::from_str(&decrypt_helper(
-        &payload, passphrase,
-    )?)?)
+    Ok(serde_json::from_str(&decrypt_helper(&payload, passphrase)?)?)
 }
 
 /// Encrypt the list of exported room keys using the given passphrase.
@@ -260,10 +256,7 @@ mod test {
     "};
 
     fn export_wihtout_headers() -> String {
-        TEST_EXPORT
-            .lines()
-            .filter(|l| !l.starts_with("-----"))
-            .collect()
+        TEST_EXPORT.lines().filter(|l| !l.starts_with("-----")).collect()
     }
 
     #[test]
@@ -300,14 +293,8 @@ mod test {
         let (machine, _) = get_prepared_machine().await;
         let room_id = room_id!("!test:localhost");
 
-        machine
-            .create_outbound_group_session_with_defaults(&room_id)
-            .await
-            .unwrap();
-        let export = machine
-            .export_keys(|s| s.room_id() == &room_id)
-            .await
-            .unwrap();
+        machine.create_outbound_group_session_with_defaults(&room_id).await.unwrap();
+        let export = machine.export_keys(|s| s.room_id() == &room_id).await.unwrap();
 
         assert!(!export.is_empty());
 
@@ -315,10 +302,7 @@ mod test {
         let decrypted = decrypt_key_export(Cursor::new(encrypted), "1234").unwrap();
 
         assert_eq!(export, decrypted);
-        assert_eq!(
-            machine.import_keys(decrypted, |_, _| {}).await.unwrap(),
-            (0, 1)
-        );
+        assert_eq!(machine.import_keys(decrypted, |_, _| {}).await.unwrap(), (0, 1));
     }
 
     #[test]

@@ -21,10 +21,7 @@ impl Deref for RoomMember {
 
 impl RoomMember {
     pub(crate) fn new(client: Client, member: BaseRoomMember) -> Self {
-        Self {
-            inner: member,
-            client,
-        }
+        Self { inner: member, client }
     }
 
     /// Gets the avatar of this member, if set.

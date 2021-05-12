@@ -83,17 +83,13 @@ impl VerificationMachine {
         );
 
         let request = match content.into() {
-            OutgoingContent::Room(r, c) => RoomMessageRequest {
-                room_id: r,
-                txn_id: Uuid::new_v4(),
-                content: c,
+            OutgoingContent::Room(r, c) => {
+                RoomMessageRequest { room_id: r, txn_id: Uuid::new_v4(), content: c }.into()
             }
-            .into(),
             OutgoingContent::ToDevice(c) => {
                 let request = content_to_request(device.user_id(), device.device_id(), c);
 
-                self.verifications
-                    .insert(sas.flow_id().as_str().to_owned(), sas.clone());
+                self.verifications.insert(sas.flow_id().as_str().to_owned(), sas.clone());
 
                 request.into()
             }
@@ -134,10 +130,7 @@ impl VerificationMachine {
                 let request = content_to_request(recipient, recipient_device, c);
                 let request_id = request.txn_id;
 
-                let request = OutgoingRequest {
-                    request_id,
-                    request: Arc::new(request.into()),
-                };
+                let request = OutgoingRequest { request_id, request: Arc::new(request.into()) };
 
                 self.outgoing_to_device_messages.insert(request_id, request);
             }
@@ -147,12 +140,7 @@ impl VerificationMachine {
 
                 let request = OutgoingRequest {
                     request: Arc::new(
-                        RoomMessageRequest {
-                            room_id: r,
-                            txn_id: request_id,
-                            content: c,
-                        }
-                        .into(),
+                        RoomMessageRequest { room_id: r, txn_id: request_id, content: c }.into(),
                     ),
                     request_id,
                 };
@@ -181,32 +169,22 @@ impl VerificationMachine {
     }
 
     pub fn outgoing_room_message_requests(&self) -> Vec<OutgoingRequest> {
-        self.outgoing_room_messages
-            .iter()
-            .map(|r| (*r).clone())
-            .collect()
+        self.outgoing_room_messages.iter().map(|r| (*r).clone()).collect()
     }
 
     pub fn outgoing_to_device_requests(&self) -> Vec<OutgoingRequest> {
         #[allow(clippy::map_clone)]
-        self.outgoing_to_device_messages
-            .iter()
-            .map(|r| (*r).clone())
-            .collect()
+        self.outgoing_to_device_messages.iter().map(|r| (*r).clone()).collect()
     }
 
     pub fn garbage_collect(&self) {
-        self.verifications
-            .retain(|_, s| !(s.is_done() || s.is_canceled()));
+        self.verifications.retain(|_, s| !(s.is_done() || s.is_canceled()));
 
         for sas in self.verifications.iter() {
             if let Some(r) = sas.cancel_if_timed_out() {
                 self.outgoing_to_device_messages.insert(
                     r.request_id(),
-                    OutgoingRequest {
-                        request_id: r.request_id(),
-                        request: Arc::new(r.into()),
-                    },
+                    OutgoingRequest { request_id: r.request_id(), request: Arc::new(r.into()) },
                 );
             }
         }
@@ -266,10 +244,8 @@ impl VerificationMachine {
                     );
 
                     if let Some((_, request)) = self.requests.remove(&e.content.relation.event_id) {
-                        if let Some(d) = self
-                            .store
-                            .get_device(&e.sender, &e.content.from_device)
-                            .await?
+                        if let Some(d) =
+                            self.store.get_device(&e.sender, &e.content.from_device).await?
                         {
                             match request.into_started_sas(
                                 e,
@@ -296,7 +272,8 @@ impl VerificationMachine {
                                         "Can't start key verification with {} {}, canceling: {:?}",
                                         e.sender, e.content.from_device, c
                                     );
-                                    // self.queue_up_content(&e.sender, &e.content.from_device, c)
+                                    // self.queue_up_content(&e.sender,
+                                    // &e.content.from_device, c)
                                 }
                             }
                         }
@@ -375,11 +352,7 @@ impl VerificationMachine {
                     e.content.from_device
                 );
 
-                if let Some(d) = self
-                    .store
-                    .get_device(&e.sender, &e.content.from_device)
-                    .await?
-                {
+                if let Some(d) = self.store.get_device(&e.sender, &e.content.from_device).await? {
                     let private_identity = self.private_identity.lock().await.clone();
                     match Sas::from_start_event(
                         self.account.clone(),
@@ -390,8 +363,7 @@ impl VerificationMachine {
                         self.store.get_user_identity(&e.sender).await?,
                     ) {
                         Ok(s) => {
-                            self.verifications
-                                .insert(e.content.transaction_id.clone(), s);
+                            self.verifications.insert(e.content.transaction_id.clone(), s);
                         }
                         Err(c) => {
                             warn!(
@@ -442,10 +414,7 @@ impl VerificationMachine {
 
                                 self.outgoing_to_device_messages.insert(
                                     request_id,
-                                    OutgoingRequest {
-                                        request_id,
-                                        request: Arc::new(r.into()),
-                                    },
+                                    OutgoingRequest { request_id, request: Arc::new(r.into()) },
                                 );
                             }
                         }
@@ -521,10 +490,7 @@ mod test {
         );
 
         machine
-            .receive_event(&wrap_any_to_device_content(
-                bob_sas.user_id(),
-                start_content.into(),
-            ))
+            .receive_event(&wrap_any_to_device_content(bob_sas.user_id(), start_content.into()))
             .await
             .unwrap();
 
@@ -559,11 +525,7 @@ mod test {
         alice_machine.receive_event(&event).await.unwrap();
         assert!(!alice_machine.outgoing_to_device_messages.is_empty());
 
-        let request = alice_machine
-            .outgoing_to_device_messages
-            .iter()
-            .next()
-            .unwrap();
+        let request = alice_machine.outgoing_to_device_messages.iter().next().unwrap();
 
         let txn_id = *request.request_id();
 

@@ -106,15 +106,13 @@ impl VerificationRequest {
         content: &KeyVerificationRequestEventContent,
     ) -> Self {
         Self {
-            inner: Arc::new(Mutex::new(InnerRequest::Requested(
-                RequestState::from_request_event(
-                    account.user_id(),
-                    account.device_id(),
-                    sender,
-                    event_id,
-                    content,
-                ),
-            ))),
+            inner: Arc::new(Mutex::new(InnerRequest::Requested(RequestState::from_request_event(
+                account.user_id(),
+                account.device_id(),
+                sender,
+                event_id,
+                content,
+            )))),
             account,
             other_user_id: sender.clone().into(),
             private_cross_signing_identity,
@@ -285,10 +283,7 @@ impl RequestState<Created> {
             own_user_id: self.own_user_id,
             own_device_id: self.own_device_id,
             other_user_id: self.other_user_id,
-            state: Sent {
-                methods: SUPPORTED_METHODS.to_vec(),
-                flow_id: response.event_id.clone(),
-            },
+            state: Sent { methods: SUPPORTED_METHODS.to_vec(), flow_id: response.event_id.clone() },
         }
     }
 }
@@ -368,9 +363,7 @@ impl RequestState<Requested> {
         let content = ReadyEventContent {
             from_device: self.own_device_id,
             methods: self.state.methods,
-            relation: Relation {
-                event_id: self.state.flow_id,
-            },
+            relation: Relation { event_id: self.state.flow_id },
         };
 
         (state, content)
@@ -580,9 +573,7 @@ mod test {
             panic!("Invalid start event content type");
         };
 
-        let alice_sas = alice_request
-            .into_started_sas(&event, bob_device, None)
-            .unwrap();
+        let alice_sas = alice_request.into_started_sas(&event, bob_device, None).unwrap();
 
         assert!(!bob_sas.is_canceled());
         assert!(!alice_sas.is_canceled());

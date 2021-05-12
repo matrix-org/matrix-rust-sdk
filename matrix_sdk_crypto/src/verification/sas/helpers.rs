@@ -62,12 +62,7 @@ pub fn calculate_commitment(public_key: &str, content: impl Into<StartContent>) 
     let content = content.into().canonical_json();
     let content_string = content.to_string();
 
-    encode(
-        Sha256::new()
-            .chain(&public_key)
-            .chain(&content_string)
-            .finalize(),
-    )
+    encode(Sha256::new().chain(&public_key).chain(&content_string).finalize())
 }
 
 /// Get a tuple of an emoji and a description of the emoji using a number.
@@ -231,11 +226,7 @@ pub fn receive_mac_event(
                     .calculate_mac(key, &format!("{}{}", info, key_id))
                     .expect("Can't calculate SAS MAC")
             {
-                trace!(
-                    "Successfully verified the device key {} from {}",
-                    key_id,
-                    sender
-                );
+                trace!("Successfully verified the device key {} from {}", key_id, sender);
 
                 verified_devices.push(ids.other_device.clone());
             } else {
@@ -250,11 +241,7 @@ pub fn receive_mac_event(
                         .calculate_mac(key, &format!("{}{}", info, key_id))
                         .expect("Can't calculate SAS MAC")
                 {
-                    trace!(
-                        "Successfully verified the master key {} from {}",
-                        key_id,
-                        sender
-                    );
+                    trace!("Successfully verified the master key {} from {}", key_id, sender);
                     verified_identities.push(identity.clone())
                 } else {
                     return Err(CancelCode::KeyMismatch);
@@ -316,8 +303,7 @@ pub fn get_mac_content(sas: &OlmSas, ids: &SasIds, flow_id: &FlowId) -> MacConte
 
     mac.insert(
         key_id.to_string(),
-        sas.calculate_mac(key, &format!("{}{}", info, key_id))
-            .expect("Can't calculate SAS MAC"),
+        sas.calculate_mac(key, &format!("{}{}", info, key_id)).expect("Can't calculate SAS MAC"),
     );
 
     // TODO Add the cross signing master key here if we trust/have it.
@@ -329,23 +315,13 @@ pub fn get_mac_content(sas: &OlmSas, ids: &SasIds, flow_id: &FlowId) -> MacConte
         .expect("Can't calculate SAS MAC");
 
     match flow_id {
-        FlowId::ToDevice(s) => MacToDeviceEventContent {
-            transaction_id: s.to_string(),
-            keys,
-            mac,
+        FlowId::ToDevice(s) => {
+            MacToDeviceEventContent { transaction_id: s.to_string(), keys, mac }.into()
         }
-        .into(),
-        FlowId::InRoom(r, e) => (
-            r.clone(),
-            MacEventContent {
-                mac,
-                keys,
-                relation: Relation {
-                    event_id: e.clone(),
-                },
-            },
-        )
-            .into(),
+        FlowId::InRoom(r, e) => {
+            (r.clone(), MacEventContent { mac, keys, relation: Relation { event_id: e.clone() } })
+                .into()
+        }
     }
 }
 
@@ -366,24 +342,12 @@ fn extra_info_sas(
     flow_id: &str,
     we_started: bool,
 ) -> String {
-    let our_info = format!(
-        "{}|{}|{}",
-        ids.account.user_id(),
-        ids.account.device_id(),
-        own_pubkey
-    );
-    let their_info = format!(
-        "{}|{}|{}",
-        ids.other_device.user_id(),
-        ids.other_device.device_id(),
-        their_pubkey
-    );
+    let our_info = format!("{}|{}|{}", ids.account.user_id(), ids.account.device_id(), own_pubkey);
+    let their_info =
+        format!("{}|{}|{}", ids.other_device.user_id(), ids.other_device.device_id(), their_pubkey);
 
-    let (first_info, second_info) = if we_started {
-        (our_info, their_info)
-    } else {
-        (their_info, our_info)
-    };
+    let (first_info, second_info) =
+        if we_started { (our_info, their_info) } else { (their_info, our_info) };
 
     let info = format!(
         "MATRIX_KEY_VERIFICATION_SAS|{first_info}|{second_info}|{flow_id}",
@@ -580,11 +544,7 @@ pub fn content_to_request(
         _ => unreachable!(),
     };
 
-    ToDeviceRequest {
-        txn_id: Uuid::new_v4(),
-        event_type,
-        messages,
-    }
+    ToDeviceRequest { txn_id: Uuid::new_v4(), event_type, messages }
 }
 
 #[cfg(test)]
@@ -622,18 +582,14 @@ mod test {
     #[test]
     fn emoji_generation() {
         let bytes = vec![0, 0, 0, 0, 0, 0];
-        let index: Vec<(&'static str, &'static str)> = vec![0, 0, 0, 0, 0, 0, 0]
-            .into_iter()
-            .map(emoji_from_index)
-            .collect();
+        let index: Vec<(&'static str, &'static str)> =
+            vec![0, 0, 0, 0, 0, 0, 0].into_iter().map(emoji_from_index).collect();
         assert_eq!(bytes_to_emoji(bytes), index.as_ref());
 
         let bytes = vec![0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF];
 
-        let index: Vec<(&'static str, &'static str)> = vec![63, 63, 63, 63, 63, 63, 63]
-            .into_iter()
-            .map(emoji_from_index)
-            .collect();
+        let index: Vec<(&'static str, &'static str)> =
+            vec![63, 63, 63, 63, 63, 63, 63].into_iter().map(emoji_from_index).collect();
         assert_eq!(bytes_to_emoji(bytes), index.as_ref());
     }
 

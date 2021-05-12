@@ -29,9 +29,7 @@ pub(crate) struct Utility {
 
 impl Utility {
     pub fn new() -> Self {
-        Self {
-            inner: OlmUtility::new(),
-        }
+        Self { inner: OlmUtility::new() }
     }
 
     /// Verify a signed JSON object.
@@ -66,29 +64,20 @@ impl Utility {
         let unsigned = json_object.remove("unsigned");
         let signatures = json_object.remove("signatures");
 
-        let canonical_json: CanonicalJsonValue = json
-            .clone()
-            .try_into()
-            .map_err(|_| SignatureError::NotAnObject)?;
+        let canonical_json: CanonicalJsonValue =
+            json.clone().try_into().map_err(|_| SignatureError::NotAnObject)?;
 
         let canonical_json: String = canonical_json.to_string();
 
         let signatures = signatures.ok_or(SignatureError::NoSignatureFound)?;
-        let signature_object = signatures
-            .as_object()
-            .ok_or(SignatureError::NoSignatureFound)?;
-        let signature = signature_object
-            .get(user_id.as_str())
-            .ok_or(SignatureError::NoSignatureFound)?;
-        let signature = signature
-            .get(key_id.to_string())
-            .ok_or(SignatureError::NoSignatureFound)?;
+        let signature_object = signatures.as_object().ok_or(SignatureError::NoSignatureFound)?;
+        let signature =
+            signature_object.get(user_id.as_str()).ok_or(SignatureError::NoSignatureFound)?;
+        let signature =
+            signature.get(key_id.to_string()).ok_or(SignatureError::NoSignatureFound)?;
         let signature = signature.as_str().ok_or(SignatureError::NoSignatureFound)?;
 
-        let ret = match self
-            .inner
-            .ed25519_verify(signing_key, &canonical_json, signature)
-        {
+        let ret = match self.inner.ed25519_verify(signing_key, &canonical_json, signature) {
             Ok(_) => Ok(()),
             Err(_) => Err(SignatureError::VerificationError),
         };

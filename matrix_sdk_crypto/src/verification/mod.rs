@@ -56,11 +56,7 @@ pub(crate) mod test {
         sender: &UserId,
         content: OutgoingContent,
     ) -> AnyToDeviceEvent {
-        let content = if let OutgoingContent::ToDevice(c) = content {
-            c
-        } else {
-            unreachable!()
-        };
+        let content = if let OutgoingContent::ToDevice(c) = content { c } else { unreachable!() };
 
         match content {
             AnyToDeviceEventContent::KeyVerificationKey(c) => {
@@ -95,22 +91,11 @@ pub(crate) mod test {
     pub(crate) fn get_content_from_request(
         request: &OutgoingVerificationRequest,
     ) -> OutgoingContent {
-        let request = if let OutgoingVerificationRequest::ToDevice(r) = request {
-            r
-        } else {
-            unreachable!()
-        };
+        let request =
+            if let OutgoingVerificationRequest::ToDevice(r) = request { r } else { unreachable!() };
 
         let json: Value = serde_json::from_str(
-            request
-                .messages
-                .values()
-                .next()
-                .unwrap()
-                .values()
-                .next()
-                .unwrap()
-                .get(),
+            request.messages.values().next().unwrap().values().next().unwrap().get(),
         )
         .unwrap();
 

@@ -108,13 +108,7 @@ impl EncodeKey for &str {
 
 impl EncodeKey for (&str, &str) {
     fn encode(&self) -> Vec<u8> {
-        [
-            self.0.as_bytes(),
-            &[Self::SEPARATOR],
-            self.1.as_bytes(),
-            &[Self::SEPARATOR],
-        ]
-        .concat()
+        [self.0.as_bytes(), &[Self::SEPARATOR], self.1.as_bytes(), &[Self::SEPARATOR]].concat()
     }
 }
 
@@ -164,9 +158,7 @@ impl std::fmt::Debug for SledStore {
         if let Some(path) = &self.path {
             f.debug_struct("SledStore").field("path", &path).finish()
         } else {
-            f.debug_struct("SledStore")
-                .field("path", &"memory store")
-                .finish()
+            f.debug_struct("SledStore").field("path", &"memory store").finish()
         }
     }
 }
@@ -236,8 +228,7 @@ impl SledStore {
         } else {
             let key = StoreKey::new().map_err::<StoreError, _>(|e| e.into())?;
             let encrypted_key = DatabaseType::Encrypted(
-                key.export(passphrase)
-                    .map_err::<StoreError, _>(|e| e.into())?,
+                key.export(passphrase).map_err::<StoreError, _>(|e| e.into())?,
             );
             db.insert("store_key".encode(), serde_json::to_vec(&encrypted_key)?)?;
             key
@@ -275,8 +266,7 @@ impl SledStore {
     }
 
     pub async fn save_filter(&self, filter_name: &str, filter_id: &str) -> Result<()> {
-        self.session
-            .insert(("filter", filter_name).encode(), filter_id)?;
+        self.session.insert(("filter", filter_name).encode(), filter_id)?;
 
         Ok(())
     }
@@ -476,11 +466,7 @@ impl SledStore {
     }
 
     pub async fn get_presence_event(&self, user_id: &UserId) -> Result<Option<Raw<PresenceEvent>>> {
-        Ok(self
-            .presence
-            .get(user_id.encode())?
-            .map(|e| self.deserialize_event(&e))
-            .transpose()?)
+        Ok(self.presence.get(user_id.encode())?.map(|e| self.deserialize_event(&e)).transpose()?)
     }
 
     pub async fn get_state_event(
@@ -531,14 +517,10 @@ impl SledStore {
         &self,
         room_id: &RoomId,
     ) -> impl Stream<Item = Result<UserId>> {
-        stream::iter(
-            self.invited_user_ids
-                .scan_prefix(room_id.encode())
-                .map(|u| {
-                    UserId::try_from(String::from_utf8_lossy(&u?.1).to_string())
-                        .map_err(StoreError::Identifier)
-                }),
-        )
+        stream::iter(self.invited_user_ids.scan_prefix(room_id.encode()).map(|u| {
+            UserId::try_from(String::from_utf8_lossy(&u?.1).to_string())
+                .map_err(StoreError::Identifier)
+        }))
     }
 
     pub async fn get_joined_user_ids(
@@ -554,9 +536,7 @@ impl SledStore {
     pub async fn get_room_infos(&self) -> impl Stream<Item = Result<RoomInfo>> {
         let db = self.clone();
         stream::iter(
-            self.room_info
-                .iter()
-                .map(move |r| db.deserialize_event(&r?.1).map_err(|e| e.into())),
+            self.room_info.iter().map(move |r| db.deserialize_event(&r?.1).map_err(|e| e.into())),
         )
     }
 
@@ -680,8 +660,7 @@ impl StateStore for SledStore {
         room_id: &RoomId,
         display_name: &str,
     ) -> Result<BTreeSet<UserId>> {
-        self.get_users_with_display_name(room_id, display_name)
-            .await
+        self.get_users_with_display_name(room_id, display_name).await
     }
 
     async fn get_account_data_event(
@@ -767,11 +746,7 @@ mod test {
         let room_id = room_id!("!test:localhost");
         let user_id = user_id();
 
-        assert!(store
-            .get_member_event(&room_id, &user_id)
-            .await
-            .unwrap()
-            .is_none());
+        assert!(store.get_member_event(&room_id, &user_id).await.unwrap().is_none());
         let mut changes = StateChanges::default();
         changes
             .members
@@ -780,11 +755,7 @@ mod test {
             .insert(user_id.clone(), membership_event());
 
         store.save_changes(&changes).await.unwrap();
-        assert!(store
-            .get_member_event(&room_id, &user_id)
-            .await
-            .unwrap()
-            .is_some());
+        assert!(store.get_member_event(&room_id, &user_id).await.unwrap().is_some());
     }
 
     #[async_test]

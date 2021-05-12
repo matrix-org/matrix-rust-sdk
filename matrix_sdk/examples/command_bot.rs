@@ -69,9 +69,7 @@ async fn login_and_sync(
     // create a new Client with the given homeserver url and config
     let client = Client::new_with_config(homeserver_url, client_config).unwrap();
 
-    client
-        .login(&username, &password, None, Some("command bot"))
-        .await?;
+    client.login(&username, &password, None, Some("command bot")).await?;
 
     println!("logged in as {}", username);
 

@@ -6,10 +6,7 @@ mod actix {
     use matrix_sdk_appservice::*;
 
     async fn appservice() -> Appservice {
-        env::set_var(
-            "RUST_LOG",
-            "mockito=debug,matrix_sdk=debug,ruma=debug,actix_web=debug",
-        );
+        env::set_var("RUST_LOG", "mockito=debug,matrix_sdk=debug,ruma=debug,actix_web=debug");
         let _ = tracing_subscriber::fmt::try_init();
 
         Appservice::new(

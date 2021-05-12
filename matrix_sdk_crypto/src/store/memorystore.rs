@@ -37,10 +37,7 @@ use crate::{
 };
 
 fn encode_key_info(info: &RequestedKeyInfo) -> String {
-    format!(
-        "{}{}{}{}",
-        info.room_id, info.sender_key, info.algorithm, info.session_id
-    )
+    format!("{}{}{}{}", info.room_id, info.sender_key, info.algorithm, info.session_id)
 }
 
 /// An in-memory only store that will forget all the E2EE key once it's dropped.
@@ -121,22 +118,14 @@ impl CryptoStore for MemoryStore {
 
     async fn save_changes(&self, mut changes: Changes) -> Result<()> {
         self.save_sessions(changes.sessions).await;
-        self.save_inbound_group_sessions(changes.inbound_group_sessions)
-            .await;
+        self.save_inbound_group_sessions(changes.inbound_group_sessions).await;
 
         self.save_devices(changes.devices.new).await;
         self.save_devices(changes.devices.changed).await;
         self.delete_devices(changes.devices.deleted).await;
 
-        for identity in changes
-            .identities
-            .new
-            .drain(..)
-            .chain(changes.identities.changed)
-        {
-            let _ = self
-                .identities
-                .insert(identity.user_id().to_owned(), identity.clone());
+        for identity in changes.identities.new.drain(..).chain(changes.identities.changed) {
+            let _ = self.identities.insert(identity.user_id().to_owned(), identity.clone());
         }
 
         for hash in changes.message_hashes {
@@ -167,9 +156,7 @@ impl CryptoStore for MemoryStore {
         sender_key: &str,
         session_id: &str,
     ) -> Result<Option<InboundGroupSession>> {
-        Ok(self
-            .inbound_group_sessions
-            .get(room_id, sender_key, session_id))
+        Ok(self.inbound_group_sessions.get(room_id, sender_key, session_id))
     }
 
     async fn get_inbound_group_sessions(&self) -> Result<Vec<InboundGroupSession>> {
@@ -250,10 +237,7 @@ impl CryptoStore for MemoryStore {
         &self,
         request_id: Uuid,
     ) -> Result<Option<OutgoingKeyRequest>> {
-        Ok(self
-            .outgoing_key_requests
-            .get(&request_id)
-            .map(|r| r.clone()))
+        Ok(self.outgoing_key_requests.get(&request_id).map(|r| r.clone()))
     }
 
     async fn get_key_request_by_info(
@@ -278,12 +262,10 @@ impl CryptoStore for MemoryStore {
     }
 
     async fn delete_outgoing_key_request(&self, request_id: Uuid) -> Result<()> {
-        self.outgoing_key_requests
-            .remove(&request_id)
-            .and_then(|(_, i)| {
-                let key_info_string = encode_key_info(&i.info);
-                self.key_requests_by_info.remove(&key_info_string)
-            });
+        self.outgoing_key_requests.remove(&request_id).and_then(|(_, i)| {
+            let key_info_string = encode_key_info(&i.info);
+            self.key_requests_by_info.remove(&key_info_string)
+        });
 
         Ok(())
     }
@@ -309,11 +291,7 @@ mod test {
 
         store.save_sessions(vec![session.clone()]).await;
 
-        let sessions = store
-            .get_sessions(&session.sender_key)
-            .await
-            .unwrap()
-            .unwrap();
+        let sessions = store.get_sessions(&session.sender_key).await.unwrap().unwrap();
         let sessions = sessions.lock().await;
 
         let loaded_session = &sessions[0];
@@ -326,10 +304,8 @@ mod test {
         let (account, _) = get_account_and_session().await;
         let room_id = room_id!("!test:localhost");
 
-        let (outbound, _) = account
-            .create_group_session_pair_with_defaults(&room_id)
-            .await
-            .unwrap();
+        let (outbound, _) =
+            account.create_group_session_pair_with_defaults(&room_id).await.unwrap();
         let inbound = InboundGroupSession::new(
             "test_key",
             "test_key",
@@ -340,9 +316,7 @@ mod test {
         .unwrap();
 
         let store = MemoryStore::new();
-        let _ = store
-            .save_inbound_group_sessions(vec![inbound.clone()])
-            .await;
+        let _ = store.save_inbound_group_sessions(vec![inbound.clone()]).await;
 
         let loaded_session = store
             .get_inbound_group_session(&room_id, "test_key", outbound.session_id())
@@ -359,11 +333,8 @@ mod test {
 
         store.save_devices(vec![device.clone()]).await;
 
-        let loaded_device = store
-            .get_device(device.user_id(), device.device_id())
-            .await
-            .unwrap()
-            .unwrap();
+        let loaded_device =
+            store.get_device(device.user_id(), device.device_id()).await.unwrap().unwrap();
 
         assert_eq!(device, loaded_device);
 
@@ -377,11 +348,7 @@ mod test {
         assert_eq!(&device, loaded_device);
 
         store.delete_devices(vec![device.clone()]).await;
-        assert!(store
-            .get_device(device.user_id(), device.device_id())
-            .await
-            .unwrap()
-            .is_none());
+        assert!(store.get_device(device.user_id(), device.device_id()).await.unwrap().is_none());
     }
 
     #[tokio::test]
@@ -389,14 +356,8 @@ mod test {
         let device = get_device();
         let store = MemoryStore::new();
 
-        assert!(store
-            .update_tracked_user(device.user_id(), false)
-            .await
-            .unwrap());
-        assert!(!store
-            .update_tracked_user(device.user_id(), false)
-            .await
-            .unwrap());
+        assert!(store.update_tracked_user(device.user_id(), false).await.unwrap());
+        assert!(!store.update_tracked_user(device.user_id(), false).await.unwrap());
 
         assert!(store.is_user_tracked(device.user_id()));
     }
@@ -405,10 +366,8 @@ mod test {
     async fn test_message_hash() {
         let store = MemoryStore::new();
 
-        let hash = OlmMessageHash {
-            sender_key: "test_sender".to_owned(),
-            hash: "test_hash".to_owned(),
-        };
+        let hash =
+            OlmMessageHash { sender_key: "test_sender".to_owned(), hash: "test_hash".to_owned() };
 
         let mut changes = Changes::default();
         changes.message_hashes.push(hash.clone());

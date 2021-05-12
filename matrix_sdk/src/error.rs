@@ -43,11 +43,13 @@ pub enum HttpError {
     #[error(transparent)]
     Reqwest(#[from] ReqwestError),
 
-    /// Queried endpoint requires authentication but was called on an anonymous client.
+    /// Queried endpoint requires authentication but was called on an anonymous
+    /// client.
     #[error("the queried endpoint requires authentication but was called before logging in")]
     AuthenticationRequired,
 
-    /// Client tried to force authentication but did not provide an access token.
+    /// Client tried to force authentication but did not provide an access
+    /// token.
     #[error("tried to force authentication but no access token was provided")]
     ForcedAuthenticationWithoutAccessToken,
 
@@ -69,9 +71,10 @@ pub enum HttpError {
 
     /// An error occurred while authenticating.
     ///
-    /// When registering or authenticating the Matrix server can send a `UiaaResponse`
-    /// as the error type, this is a User-Interactive Authentication API response. This
-    /// represents an error with information about how to authenticate the user.
+    /// When registering or authenticating the Matrix server can send a
+    /// `UiaaResponse` as the error type, this is a User-Interactive
+    /// Authentication API response. This represents an error with
+    /// information about how to authenticate the user.
     #[error(transparent)]
     UiaaError(#[from] FromHttpResponseError<UiaaError>),
 
@@ -96,7 +99,8 @@ pub enum Error {
     #[error(transparent)]
     Http(#[from] HttpError),
 
-    /// Queried endpoint requires authentication but was called on an anonymous client.
+    /// Queried endpoint requires authentication but was called on an anonymous
+    /// client.
     #[error("the queried endpoint requires authentication but was called before logging in")]
     AuthenticationRequired,
 

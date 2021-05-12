@@ -104,10 +104,7 @@ impl GroupSessionCache {
         room_id: &RoomId,
         session_id: &str,
     ) -> StoreResult<Option<OutboundGroupSession>> {
-        Ok(self
-            .get_or_load(room_id)
-            .await?
-            .filter(|o| session_id == o.session_id()))
+        Ok(self.get_or_load(room_id).await?.filter(|o| session_id == o.session_id()))
     }
 }
 
@@ -126,11 +123,7 @@ impl GroupSessionManager {
     const MAX_TO_DEVICE_MESSAGES: usize = 250;
 
     pub(crate) fn new(account: Account, store: Store) -> Self {
-        Self {
-            account,
-            store: store.clone(),
-            sessions: GroupSessionCache::new(store),
-        }
+        Self { account, store: store.clone(), sessions: GroupSessionCache::new(store) }
     }
 
     pub async fn invalidate_group_session(&self, room_id: &RoomId) -> StoreResult<bool> {
@@ -230,9 +223,7 @@ impl GroupSessionManager {
                 Ok((s, None))
             }
         } else {
-            self.create_outbound_group_session(room_id, settings)
-                .await
-                .map(|(o, i)| (o, i.into()))
+            self.create_outbound_group_session(room_id, settings).await.map(|(o, i)| (o, i.into()))
         }
     }
 
@@ -252,13 +243,10 @@ impl GroupSessionManager {
 
             let used_session = match encrypted {
                 Ok((session, encrypted)) => {
-                    message
-                        .entry(device.user_id().clone())
-                        .or_insert_with(BTreeMap::new)
-                        .insert(
-                            DeviceIdOrAllDevices::DeviceId(device.device_id().into()),
-                            serde_json::value::to_raw_value(&encrypted)?,
-                        );
+                    message.entry(device.user_id().clone()).or_insert_with(BTreeMap::new).insert(
+                        DeviceIdOrAllDevices::DeviceId(device.device_id().into()),
+                        serde_json::value::to_raw_value(&encrypted)?,
+                    );
                     Some(session)
                 }
                 // TODO we'll want to create m.room_key.withheld here.
@@ -270,10 +258,8 @@ impl GroupSessionManager {
             Ok((used_session, message))
         };
 
-        let tasks: Vec<_> = devices
-            .iter()
-            .map(|d| spawn(encrypt(d.clone(), content.clone())))
-            .collect();
+        let tasks: Vec<_> =
+            devices.iter().map(|d| spawn(encrypt(d.clone(), content.clone()))).collect();
 
         let results = join_all(tasks).await;
 
@@ -285,20 +271,14 @@ impl GroupSessionManager {
             }
 
             for (user, device_messages) in message.into_iter() {
-                messages
-                    .entry(user)
-                    .or_insert_with(BTreeMap::new)
-                    .extend(device_messages);
+                messages.entry(user).or_insert_with(BTreeMap::new).extend(device_messages);
             }
         }
 
         let id = Uuid::new_v4();
 
-        let request = ToDeviceRequest {
-            event_type: EventType::RoomEncrypted,
-            txn_id: id,
-            messages,
-        };
+        let request =
+            ToDeviceRequest { event_type: EventType::RoomEncrypted, txn_id: id, messages };
 
         trace!(
             recipient_count = request.message_count(),
@@ -330,20 +310,14 @@ impl GroupSessionManager {
             "Calculating group session recipients"
         );
 
-        let users_shared_with: HashSet<UserId> = outbound
-            .shared_with_set
-            .iter()
-            .map(|k| k.key().clone())
-            .collect();
+        let users_shared_with: HashSet<UserId> =
+            outbound.shared_with_set.iter().map(|k| k.key().clone()).collect();
 
         let users_shared_with: HashSet<&UserId> = users_shared_with.iter().collect();
 
         // A user left if a user is missing from the set of users that should
         // get the session but is in the set of users that received the session.
-        let user_left = !users_shared_with
-            .difference(&users)
-            .collect::<HashSet<_>>()
-            .is_empty();
+        let user_left = !users_shared_with.difference(&users).collect::<HashSet<_>>().is_empty();
 
         let visibility_changed = outbound.settings().history_visibility != history_visibility;
 
@@ -358,10 +332,8 @@ impl GroupSessionManager {
 
         for user_id in users {
             let user_devices = self.store.get_user_devices(&user_id).await?;
-            let non_blacklisted_devices: Vec<Device> = user_devices
-                .devices()
-                .filter(|d| !d.is_blacklisted())
-                .collect();
+            let non_blacklisted_devices: Vec<Device> =
+                user_devices.devices().filter(|d| !d.is_blacklisted()).collect();
 
             // If we haven't already concluded that the session should be
             // rotated for other reasons, we also need to check whether any
@@ -369,10 +341,8 @@ impl GroupSessionManager {
             // meantime. If so, we should also rotate the session.
             if !should_rotate {
                 // Device IDs that should receive this session
-                let non_blacklisted_device_ids: HashSet<&DeviceId> = non_blacklisted_devices
-                    .iter()
-                    .map(|d| d.device_id())
-                    .collect();
+                let non_blacklisted_device_ids: HashSet<&DeviceId> =
+                    non_blacklisted_devices.iter().map(|d| d.device_id()).collect();
 
                 if let Some(shared) = outbound.shared_with_set.get(user_id) {
                     #[allow(clippy::map_clone)]
@@ -388,9 +358,8 @@ impl GroupSessionManager {
                     //
                     // represents newly deleted or blacklisted devices. If this
                     // set is non-empty, we must rotate.
-                    let newly_deleted_or_blacklisted = shared
-                        .difference(&non_blacklisted_device_ids)
-                        .collect::<HashSet<_>>();
+                    let newly_deleted_or_blacklisted =
+                        shared.difference(&non_blacklisted_device_ids).collect::<HashSet<_>>();
 
                     if !newly_deleted_or_blacklisted.is_empty() {
                         should_rotate = true;
@@ -398,10 +367,7 @@ impl GroupSessionManager {
                 };
             }
 
-            devices
-                .entry(user_id.clone())
-                .or_insert_with(Vec::new)
-                .extend(non_blacklisted_devices);
+            devices.entry(user_id.clone()).or_insert_with(Vec::new).extend(non_blacklisted_devices);
         }
 
         debug!(
@@ -461,25 +427,22 @@ impl GroupSessionManager {
         let history_visibility = encryption_settings.history_visibility.clone();
         let mut changes = Changes::default();
 
-        let (outbound, inbound) = self
-            .get_or_create_outbound_session(room_id, encryption_settings.clone())
-            .await?;
+        let (outbound, inbound) =
+            self.get_or_create_outbound_session(room_id, encryption_settings.clone()).await?;
 
         if let Some(inbound) = inbound {
             changes.outbound_group_sessions.push(outbound.clone());
             changes.inbound_group_sessions.push(inbound);
         }
 
-        let (should_rotate, devices) = self
-            .collect_session_recipients(users, history_visibility, &outbound)
-            .await?;
+        let (should_rotate, devices) =
+            self.collect_session_recipients(users, history_visibility, &outbound).await?;
 
         let outbound = if should_rotate {
             let old_session_id = outbound.session_id();
 
-            let (outbound, inbound) = self
-                .create_outbound_group_session(room_id, encryption_settings)
-                .await?;
+            let (outbound, inbound) =
+                self.create_outbound_group_session(room_id, encryption_settings).await?;
             changes.outbound_group_sessions.push(outbound.clone());
             changes.inbound_group_sessions.push(inbound);
 
@@ -514,9 +477,7 @@ impl GroupSessionManager {
 
         if !devices.is_empty() {
             let users = devices.iter().fold(BTreeMap::new(), |mut acc, d| {
-                acc.entry(d.user_id())
-                    .or_insert_with(BTreeSet::new)
-                    .insert(d.device_id());
+                acc.entry(d.user_id()).or_insert_with(BTreeSet::new).insert(d.device_id());
                 acc
             });
 
@@ -625,14 +586,8 @@ mod test {
 
         let machine = OlmMachine::new(&alice_id(), &alice_device_id());
 
-        machine
-            .mark_request_as_sent(&uuid, &keys_query)
-            .await
-            .unwrap();
-        machine
-            .mark_request_as_sent(&uuid, &keys_claim)
-            .await
-            .unwrap();
+        machine.mark_request_as_sent(&uuid, &keys_query).await.unwrap();
+        machine.mark_request_as_sent(&uuid, &keys_claim).await.unwrap();
 
         machine
     }
@@ -646,11 +601,7 @@ mod test {
         let users: Vec<_> = keys_claim.one_time_keys.keys().collect();
 
         let requests = machine
-            .share_group_session(
-                &room_id,
-                users.clone().into_iter(),
-                EncryptionSettings::default(),
-            )
+            .share_group_session(&room_id, users.clone().into_iter(), EncryptionSettings::default())
             .await
             .unwrap();
 

@@ -21,11 +21,7 @@ fn auth_data<'a>(user: &UserId, password: &str, session: Option<&'a str>) -> Aut
     auth_parameters.insert("identifier".to_owned(), identifier);
     auth_parameters.insert("password".to_owned(), password.to_owned().into());
 
-    AuthData::DirectRequest {
-        kind: "m.login.password",
-        auth_parameters,
-        session,
-    }
+    AuthData::DirectRequest { kind: "m.login.password", auth_parameters, session }
 }
 
 async fn bootstrap(client: Client, user_id: UserId, password: String) {
@@ -33,9 +29,7 @@ async fn bootstrap(client: Client, user_id: UserId, password: String) {
 
     let mut input = String::new();
 
-    io::stdin()
-        .read_line(&mut input)
-        .expect("error: unable to read user input");
+    io::stdin().read_line(&mut input).expect("error: unable to read user input");
 
     #[cfg(feature = "encryption")]
     if let Err(e) = client.bootstrap_cross_signing(None).await {
@@ -62,9 +56,7 @@ async fn login(
     let homeserver_url = Url::parse(&homeserver_url).expect("Couldn't parse the homeserver URL");
     let client = Client::new(homeserver_url).unwrap();
 
-    let response = client
-        .login(username, password, None, Some("rust-sdk"))
-        .await?;
+    let response = client.login(username, password, None, Some("rust-sdk")).await?;
 
     let user_id = &response.user_id;
     let client_ref = &client;

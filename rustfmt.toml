@@ -1,5 +1,6 @@
-comment_width = 100
+max_width = 100
+comment_width = 80
 wrap_comments = true
 imports_granularity = "Crate"
-max_width = 100
+use_small_heuristics = "Max"
 group_imports = "StdExternalCrate"

@@ -225,12 +225,7 @@ impl MasterPubkey {
         &self,
         subkey: impl Into<CrossSigningSubKeys<'a>>,
     ) -> Result<(), SignatureError> {
-        let (key_id, key) = self
-            .0
-            .keys
-            .iter()
-            .next()
-            .ok_or(SignatureError::MissingSigningKey)?;
+        let (key_id, key) = self.0.keys.iter().next().ok_or(SignatureError::MissingSigningKey)?;
 
         let key_id = DeviceKeyId::try_from(key_id.as_str())?;
 
@@ -287,12 +282,7 @@ impl UserSigningPubkey {
         &self,
         master_key: &MasterPubkey,
     ) -> Result<(), SignatureError> {
-        let (key_id, key) = self
-            .0
-            .keys
-            .iter()
-            .next()
-            .ok_or(SignatureError::MissingSigningKey)?;
+        let (key_id, key) = self.0.keys.iter().next().ok_or(SignatureError::MissingSigningKey)?;
 
         // TODO check that the usage is OK.
 
@@ -335,12 +325,7 @@ impl SelfSigningPubkey {
     /// Returns an empty result if the signature check succeeded, otherwise a
     /// SignatureError indicating why the check failed.
     pub(crate) fn verify_device(&self, device: &ReadOnlyDevice) -> Result<(), SignatureError> {
-        let (key_id, key) = self
-            .0
-            .keys
-            .iter()
-            .next()
-            .ok_or(SignatureError::MissingSigningKey)?;
+        let (key_id, key) = self.0.keys.iter().next().ok_or(SignatureError::MissingSigningKey)?;
 
         // TODO check that the usage is OK.
 
@@ -472,37 +457,16 @@ impl UserIdentity {
     ) -> Result<Self, SignatureError> {
         master_key.verify_subkey(&self_signing_key)?;
 
-        Ok(Self {
-            user_id: Arc::new(master_key.0.user_id.clone()),
-            master_key,
-            self_signing_key,
-        })
+        Ok(Self { user_id: Arc::new(master_key.0.user_id.clone()), master_key, self_signing_key })
     }
 
     #[cfg(test)]
     pub async fn from_private(identity: &PrivateCrossSigningIdentity) -> Self {
-        let master_key = identity
-            .master_key
-            .lock()
-            .await
-            .as_ref()
-            .unwrap()
-            .public_key
-            .clone();
-        let self_signing_key = identity
-            .self_signing_key
-            .lock()
-            .await
-            .as_ref()
-            .unwrap()
-            .public_key
-            .clone();
+        let master_key = identity.master_key.lock().await.as_ref().unwrap().public_key.clone();
+        let self_signing_key =
+            identity.self_signing_key.lock().await.as_ref().unwrap().public_key.clone();
 
-        Self {
-            user_id: Arc::new(identity.user_id().clone()),
-            master_key,
-            self_signing_key,
-        }
+        Self { user_id: Arc::new(identity.user_id().clone()), master_key, self_signing_key }
     }
 
     /// Get the user id of this identity.
@@ -644,8 +608,7 @@ impl OwnUserIdentity {
     /// Returns an empty result if the signature check succeeded, otherwise a
     /// SignatureError indicating why the check failed.
     pub fn is_identity_signed(&self, identity: &UserIdentity) -> Result<(), SignatureError> {
-        self.user_signing_key
-            .verify_master_key(&identity.master_key)
+        self.user_signing_key.verify_master_key(&identity.master_key)
     }
 
     /// Check if the given device has been signed by this identity.
@@ -790,9 +753,8 @@ pub(crate) mod test {
         assert!(identity.is_device_signed(&first).is_err());
         assert!(identity.is_device_signed(&second).is_ok());
 
-        let private_identity = Arc::new(Mutex::new(PrivateCrossSigningIdentity::empty(
-            second.user_id().clone(),
-        )));
+        let private_identity =
+            Arc::new(Mutex::new(PrivateCrossSigningIdentity::empty(second.user_id().clone())));
         let verification_machine = VerificationMachine::new(
             ReadOnlyAccount::new(second.user_id(), second.device_id()),
             private_identity.clone(),

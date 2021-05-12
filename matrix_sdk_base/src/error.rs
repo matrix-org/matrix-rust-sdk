@@ -28,7 +28,8 @@ pub type Result<T, E = Error> = std::result::Result<T, E>;
 /// Internal representation of errors.
 #[derive(Error, Debug)]
 pub enum Error {
-    /// Queried endpoint requires authentication but was called on an anonymous client.
+    /// Queried endpoint requires authentication but was called on an anonymous
+    /// client.
     #[error("the queried endpoint requires authentication but was called before logging in")]
     AuthenticationRequired,
 

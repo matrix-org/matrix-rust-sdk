@@ -76,17 +76,8 @@ impl InspectorHelper {
     fn complete_event_types(&self, arg: Option<&&str>) -> Vec<Pair> {
         Self::EVENT_TYPES
             .iter()
-            .map(|t| Pair {
-                display: t.to_string(),
-                replacement: format!("{} ", t),
-            })
-            .filter(|r| {
-                if let Some(arg) = arg {
-                    r.replacement.starts_with(arg)
-                } else {
-                    true
-                }
-            })
+            .map(|t| Pair { display: t.to_string(), replacement: format!("{} ", t) })
+            .filter(|r| if let Some(arg) = arg { r.replacement.starts_with(arg) } else { true })
             .collect()
     }
 
@@ -99,13 +90,7 @@ impl InspectorHelper {
                 display: r.room_id.to_string(),
                 replacement: format!("{} ", r.room_id.to_string()),
             })
-            .filter(|r| {
-                if let Some(arg) = arg {
-                    r.replacement.starts_with(arg)
-                } else {
-                    true
-                }
-            })
+            .filter(|r| if let Some(arg) = arg { r.replacement.starts_with(arg) } else { true })
             .collect()
     }
 }
@@ -124,15 +109,9 @@ impl Completer for InspectorHelper {
 
         let commands = vec![
             ("get-state", "get a state event in the given room"),
-            (
-                "get-profiles",
-                "get all the stored profiles in the given room",
-            ),
+            ("get-profiles", "get all the stored profiles in the given room"),
             ("list-rooms", "list all rooms"),
-            (
-                "get-members",
-                "get all the membership events in the given room",
-            ),
+            ("get-members", "get all the membership events in the given room"),
         ]
         .iter()
         .map(|(r, d)| Pair {
@@ -151,19 +130,13 @@ impl Completer for InspectorHelper {
             } else {
                 Ok((
                     0,
-                    commands
-                        .into_iter()
-                        .filter(|c| c.replacement.starts_with(args[0]))
-                        .collect(),
+                    commands.into_iter().filter(|c| c.replacement.starts_with(args[0])).collect(),
                 ))
             }
         } else if args.len() == 2 {
             if args[0] == "get-state" {
                 if line.ends_with(' ') {
-                    Ok((
-                        args[0].len() + args[1].len() + 2,
-                        self.complete_event_types(args.get(2)),
-                    ))
+                    Ok((args[0].len() + args[1].len() + 2, self.complete_event_types(args.get(2))))
                 } else {
                     Ok((args[0].len() + 1, self.complete_rooms(args.get(1))))
                 }
@@ -174,10 +147,7 @@ impl Completer for InspectorHelper {
             }
         } else if args.len() == 3 {
             if args[0] == "get-state" {
-                Ok((
-                    args[0].len() + args[1].len() + 2,
-                    self.complete_event_types(args.get(2)),
-                ))
+                Ok((args[0].len() + args[1].len() + 2, self.complete_event_types(args.get(2))))
             } else {
                 Ok((pos, vec![]))
             }
@@ -213,12 +183,7 @@ impl Printer {
         let syntax_set: SyntaxSet = from_binary(include_bytes!("./syntaxes.bin"));
         let themes: ThemeSet = from_binary(include_bytes!("./themes.bin"));
 
-        Self {
-            ps: syntax_set.into(),
-            ts: themes.into(),
-            json,
-            color,
-        }
+        Self { ps: syntax_set.into(), ts: themes.into(), json, color }
     }
 
     fn pretty_print_struct<T: Debug + Serialize>(&self, data: &T) {
@@ -229,13 +194,9 @@ impl Printer {
         };
 
         let syntax = if self.json {
-            self.ps
-                .find_syntax_by_extension("rs")
-                .expect("Can't find rust syntax extension")
+            self.ps.find_syntax_by_extension("rs").expect("Can't find rust syntax extension")
         } else {
-            self.ps
-                .find_syntax_by_extension("json")
-                .expect("Can't find json syntax extension")
+            self.ps.find_syntax_by_extension("json").expect("Can't find json syntax extension")
         };
 
         if self.color {
@@ -302,11 +263,7 @@ impl Inspector {
     }
 
     async fn get_display_name_owners(&self, room_id: RoomId, display_name: String) {
-        let users = self
-            .store
-            .get_users_with_display_name(&room_id, &display_name)
-            .await
-            .unwrap();
+        let users = self.store.get_users_with_display_name(&room_id, &display_name).await.unwrap();
         self.printer.pretty_print_struct(&users);
     }
 
@@ -323,22 +280,14 @@ impl Inspector {
         let joined: Vec<UserId> = self.store.get_joined_user_ids(&room_id).await.unwrap();
 
         for member in joined {
-            let event = self
-                .store
-                .get_member_event(&room_id, &member)
-                .await
-                .unwrap();
+            let event = self.store.get_member_event(&room_id, &member).await.unwrap();
             self.printer.pretty_print_struct(&event);
         }
     }
 
     async fn get_state(&self, room_id: RoomId, event_type: EventType) {
         self.printer.pretty_print_struct(
-            &self
-                .store
-                .get_state_event(&room_id, event_type, "")
-                .await
-                .unwrap(),
+            &self.store.get_state_event(&room_id, event_type, "").await.unwrap(),
         );
     }
 
@@ -347,35 +296,25 @@ impl Inspector {
             SubCommand::with_name("list-rooms"),
             SubCommand::with_name("get-members").arg(
                 Arg::with_name("room-id").required(true).validator(|r| {
-                    RoomId::try_from(r)
-                        .map(|_| ())
-                        .map_err(|_| "Invalid room id given".to_owned())
+                    RoomId::try_from(r).map(|_| ()).map_err(|_| "Invalid room id given".to_owned())
                 }),
             ),
             SubCommand::with_name("get-profiles").arg(
                 Arg::with_name("room-id").required(true).validator(|r| {
-                    RoomId::try_from(r)
-                        .map(|_| ())
-                        .map_err(|_| "Invalid room id given".to_owned())
+                    RoomId::try_from(r).map(|_| ()).map_err(|_| "Invalid room id given".to_owned())
                 }),
             ),
             SubCommand::with_name("get-display-names")
                 .arg(Arg::with_name("room-id").required(true).validator(|r| {
-                    RoomId::try_from(r)
-                        .map(|_| ())
-                        .map_err(|_| "Invalid room id given".to_owned())
+                    RoomId::try_from(r).map(|_| ()).map_err(|_| "Invalid room id given".to_owned())
                 }))
                 .arg(Arg::with_name("display-name").required(true)),
             SubCommand::with_name("get-state")
                 .arg(Arg::with_name("room-id").required(true).validator(|r| {
-                    RoomId::try_from(r)
-                        .map(|_| ())
-                        .map_err(|_| "Invalid room id given".to_owned())
+                    RoomId::try_from(r).map(|_| ()).map_err(|_| "Invalid room id given".to_owned())
                 }))
                 .arg(Arg::with_name("event-type").required(true).validator(|e| {
-                    EventType::try_from(e)
-                        .map(|_| ())
-                        .map_err(|_| "Invalid event type".to_string())
+                    EventType::try_from(e).map(|_| ()).map_err(|_| "Invalid event type".to_string())
                 })),
         ]
     }

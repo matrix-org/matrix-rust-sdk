@@ -150,11 +150,8 @@ impl Sas {
         store: Arc<Box<dyn CryptoStore>>,
         other_identity: Option<UserIdentities>,
     ) -> (Sas, StartContent) {
-        let (inner, content) = InnerSas::start(
-            account.clone(),
-            other_device.clone(),
-            other_identity.clone(),
-        );
+        let (inner, content) =
+            InnerSas::start(account.clone(), other_device.clone(), other_identity.clone());
 
         (
             Self::start_helper(
@@ -266,22 +263,18 @@ impl Sas {
         &self,
         settings: AcceptSettings,
     ) -> Option<OutgoingVerificationRequest> {
-        self.inner
-            .lock()
-            .unwrap()
-            .accept()
-            .map(|c| match settings.apply(c) {
-                AcceptContent::ToDevice(c) => {
-                    let content = AnyToDeviceEventContent::KeyVerificationAccept(c);
-                    self.content_to_request(content).into()
-                }
-                AcceptContent::Room(room_id, content) => RoomMessageRequest {
-                    room_id,
-                    txn_id: Uuid::new_v4(),
-                    content: AnyMessageEventContent::KeyVerificationAccept(content),
-                }
-                .into(),
-            })
+        self.inner.lock().unwrap().accept().map(|c| match settings.apply(c) {
+            AcceptContent::ToDevice(c) => {
+                let content = AnyToDeviceEventContent::KeyVerificationAccept(c);
+                self.content_to_request(content).into()
+            }
+            AcceptContent::Room(room_id, content) => RoomMessageRequest {
+                room_id,
+                txn_id: Uuid::new_v4(),
+                content: AnyMessageEventContent::KeyVerificationAccept(content),
+            }
+            .into(),
+        })
     }
 
     /// Confirm the Sas verification.
@@ -294,10 +287,7 @@ impl Sas {
     pub async fn confirm(
         &self,
     ) -> Result<
-        (
-            Option<OutgoingVerificationRequest>,
-            Option<SignatureUploadRequest>,
-        ),
+        (Option<OutgoingVerificationRequest>, Option<SignatureUploadRequest>),
         CryptoStoreError,
     > {
         let (content, done) = {
@@ -310,9 +300,9 @@ impl Sas {
         };
 
         let mac_request = content.map(|c| match c {
-            event_enums::MacContent::ToDevice(c) => self
-                .content_to_request(AnyToDeviceEventContent::KeyVerificationMac(c))
-                .into(),
+            event_enums::MacContent::ToDevice(c) => {
+                self.content_to_request(AnyToDeviceEventContent::KeyVerificationMac(c)).into()
+            }
             event_enums::MacContent::Room(r, c) => RoomMessageRequest {
                 room_id: r,
                 txn_id: Uuid::new_v4(),
@@ -365,10 +355,7 @@ impl Sas {
             };
 
             let mut changes = Changes {
-                devices: DeviceChanges {
-                    changed: vec![device],
-                    ..Default::default()
-                },
+                devices: DeviceChanges { changed: vec![device], ..Default::default() },
                 ..Default::default()
             };
 
@@ -428,10 +415,7 @@ impl Sas {
                 .map(VerificationResult::SignatureUpload)
                 .unwrap_or(VerificationResult::Ok))
         } else {
-            Ok(self
-                .cancel()
-                .map(VerificationResult::Cancel)
-                .unwrap_or(VerificationResult::Ok))
+            Ok(self.cancel().map(VerificationResult::Cancel).unwrap_or(VerificationResult::Ok))
         }
     }
 
@@ -454,14 +438,8 @@ impl Sas {
                 .as_ref()
                 .map_or(false, |i| i.master_key() == identity.master_key())
             {
-                if self
-                    .verified_identities()
-                    .map_or(false, |i| i.contains(&identity))
-                {
-                    trace!(
-                        "Marking user identity of {} as verified.",
-                        identity.user_id(),
-                    );
+                if self.verified_identities().map_or(false, |i| i.contains(&identity)) {
+                    trace!("Marking user identity of {} as verified.", identity.user_id(),);
 
                     if let UserIdentities::Own(i) = &identity {
                         i.mark_as_verified();
@@ -500,17 +478,11 @@ impl Sas {
     pub(crate) async fn mark_device_as_verified(
         &self,
     ) -> Result<Option<ReadOnlyDevice>, CryptoStoreError> {
-        let device = self
-            .store
-            .get_device(self.other_user_id(), self.other_device_id())
-            .await?;
+        let device = self.store.get_device(self.other_user_id(), self.other_device_id()).await?;
 
         if let Some(device) = device {
             if device.keys() == self.other_device.keys() {
-                if self
-                    .verified_devices()
-                    .map_or(false, |v| v.contains(&device))
-                {
+                if self.verified_devices().map_or(false, |v| v.contains(&device)) {
                     trace!(
                         "Marking device {} {} as verified.",
                         device.user_id(),
@@ -571,9 +543,9 @@ impl Sas {
                 content: AnyMessageEventContent::KeyVerificationCancel(content),
             }
             .into(),
-            CancelContent::ToDevice(c) => self
-                .content_to_request(AnyToDeviceEventContent::KeyVerificationCancel(c))
-                .into(),
+            CancelContent::ToDevice(c) => {
+                self.content_to_request(AnyToDeviceEventContent::KeyVerificationCancel(c)).into()
+            }
         })
     }
 
@@ -704,9 +676,7 @@ impl AcceptSettings {
     ///
     /// * `methods` - The methods this client allows at most
     pub fn with_allowed_methods(methods: Vec<ShortAuthenticationString>) -> Self {
-        Self {
-            allowed_methods: methods,
-        }
+        Self { allowed_methods: methods }
     }
 
     fn apply(self, mut content: AcceptContent) -> AcceptContent {
@@ -715,15 +685,8 @@ impl AcceptSettings {
                 method: AcceptMethod::MSasV1(c),
                 ..
             })
-            | AcceptContent::Room(
-                _,
-                AcceptEventContent {
-                    method: AcceptMethod::MSasV1(c),
-                    ..
-                },
-            ) => {
-                c.short_authentication_string
-                    .retain(|sas| self.allowed_methods.contains(sas));
+            | AcceptContent::Room(_, AcceptEventContent { method: AcceptMethod::MSasV1(c), .. }) => {
+                c.short_authentication_string.retain(|sas| self.allowed_methods.contains(sas));
                 content
             }
             _ => content,
@@ -826,13 +789,7 @@ mod test {
         );
         alice.receive_event(&event);
 
-        assert!(alice
-            .verified_devices()
-            .unwrap()
-            .contains(&alice.other_device()));
-        assert!(bob
-            .verified_devices()
-            .unwrap()
-            .contains(&bob.other_device()));
+        assert!(alice.verified_devices().unwrap().contains(&alice.other_device()));
+        assert!(bob.verified_devices().unwrap().contains(&bob.other_device()));
     }
 }

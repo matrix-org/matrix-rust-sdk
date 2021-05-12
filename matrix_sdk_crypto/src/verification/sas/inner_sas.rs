@@ -278,14 +278,15 @@ impl InnerSas {
                 _ => (self, None),
             },
             AnyToDeviceEvent::KeyVerificationMac(e) => match self {
-                InnerSas::KeyRecieved(s) => match s.into_mac_received(&e.sender, e.content.clone())
-                {
-                    Ok(s) => (InnerSas::MacReceived(s), None),
-                    Err(s) => {
-                        let content = s.as_content();
-                        (InnerSas::Canceled(s), Some(content.into()))
+                InnerSas::KeyRecieved(s) => {
+                    match s.into_mac_received(&e.sender, e.content.clone()) {
+                        Ok(s) => (InnerSas::MacReceived(s), None),
+                        Err(s) => {
+                            let content = s.as_content();
+                            (InnerSas::Canceled(s), Some(content.into()))
+                        }
                     }
-                },
+                }
                 InnerSas::Confirmed(s) => match s.into_done(&e.sender, e.content.clone()) {
                     Ok(s) => (InnerSas::Done(s), None),
                     Err(s) => {

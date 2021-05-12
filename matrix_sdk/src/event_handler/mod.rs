@@ -87,39 +87,24 @@ impl Handler {
 
         for (room_id, room_info) in &response.rooms.join {
             if let Some(room) = self.get_room(room_id) {
-                for event in room_info
-                    .ephemeral
-                    .events
-                    .iter()
-                    .filter_map(|e| e.deserialize().ok())
+                for event in room_info.ephemeral.events.iter().filter_map(|e| e.deserialize().ok())
                 {
                     self.handle_ephemeral_event(room.clone(), &event).await;
                 }
 
-                for event in room_info
-                    .account_data
-                    .events
-                    .iter()
-                    .filter_map(|e| e.deserialize().ok())
+                for event in
+                    room_info.account_data.events.iter().filter_map(|e| e.deserialize().ok())
                 {
                     self.handle_room_account_data_event(room.clone(), &event)
                         .await;
                 }
 
-                for event in room_info
-                    .state
-                    .events
-                    .iter()
-                    .filter_map(|e| e.deserialize().ok())
-                {
+                for event in room_info.state.events.iter().filter_map(|e| e.deserialize().ok()) {
                     self.handle_state_event(room.clone(), &event).await;
                 }
 
-                for event in room_info
-                    .timeline
-                    .events
-                    .iter()
-                    .filter_map(|e| e.event.deserialize().ok())
+                for event in
+                    room_info.timeline.events.iter().filter_map(|e| e.event.deserialize().ok())
                 {
                     self.handle_timeline_event(room.clone(), &event).await;
                 }
@@ -128,30 +113,19 @@ impl Handler {
 
         for (room_id, room_info) in &response.rooms.leave {
             if let Some(room) = self.get_room(room_id) {
-                for event in room_info
-                    .account_data
-                    .events
-                    .iter()
-                    .filter_map(|e| e.deserialize().ok())
+                for event in
+                    room_info.account_data.events.iter().filter_map(|e| e.deserialize().ok())
                 {
                     self.handle_room_account_data_event(room.clone(), &event)
                         .await;
                 }
 
-                for event in room_info
-                    .state
-                    .events
-                    .iter()
-                    .filter_map(|e| e.deserialize().ok())
-                {
+                for event in room_info.state.events.iter().filter_map(|e| e.deserialize().ok()) {
                     self.handle_state_event(room.clone(), &event).await;
                 }
 
-                for event in room_info
-                    .timeline
-                    .events
-                    .iter()
-                    .filter_map(|e| e.event.deserialize().ok())
+                for event in
+                    room_info.timeline.events.iter().filter_map(|e| e.event.deserialize().ok())
                 {
                     self.handle_timeline_event(room.clone(), &event).await;
                 }
@@ -160,31 +134,22 @@ impl Handler {
 
         for (room_id, room_info) in &response.rooms.invite {
             if let Some(room) = self.get_room(room_id) {
-                for event in room_info
-                    .invite_state
-                    .events
-                    .iter()
-                    .filter_map(|e| e.deserialize().ok())
+                for event in
+                    room_info.invite_state.events.iter().filter_map(|e| e.deserialize().ok())
                 {
                     self.handle_stripped_state_event(room.clone(), &event).await;
                 }
             }
         }
 
-        for event in response
-            .presence
-            .events
-            .iter()
-            .filter_map(|e| e.deserialize().ok())
-        {
+        for event in response.presence.events.iter().filter_map(|e| e.deserialize().ok()) {
             self.on_presence_event(&event).await;
         }
 
         for (room_id, notifications) in &response.notifications {
             if let Some(room) = self.get_room(&room_id) {
                 for notification in notifications {
-                    self.on_room_notification(room.clone(), notification.clone())
-                        .await;
+                    self.on_room_notification(room.clone(), notification.clone()).await;
                 }
             }
         }
@@ -248,8 +213,7 @@ impl Handler {
                 self.on_room_tombstone(room, &tomb).await
             }
             AnySyncStateEvent::Custom(custom) => {
-                self.on_custom_event(room, &CustomEvent::State(custom))
-                    .await
+                self.on_custom_event(room, &CustomEvent::State(custom)).await
             }
             _ => {}
         }
@@ -267,8 +231,7 @@ impl Handler {
             }
             AnyStrippedStateEvent::RoomName(name) => self.on_stripped_state_name(room, &name).await,
             AnyStrippedStateEvent::RoomCanonicalAlias(canonical) => {
-                self.on_stripped_state_canonical_alias(room, &canonical)
-                    .await
+                self.on_stripped_state_canonical_alias(room, &canonical).await
             }
             AnyStrippedStateEvent::RoomAliases(aliases) => {
                 self.on_stripped_state_aliases(room, &aliases).await
@@ -340,8 +303,9 @@ pub enum CustomEvent<'c> {
     StrippedState(&'c StrippedStateEvent<CustomEventContent>),
 }
 
-/// This trait allows any type implementing `EventHandler` to specify event callbacks for each
-/// event. The `Client` calls each method when the corresponding event is received.
+/// This trait allows any type implementing `EventHandler` to specify event
+/// callbacks for each event. The `Client` calls each method when the
+/// corresponding event is received.
 ///
 /// # Examples
 /// ```
@@ -426,8 +390,8 @@ pub trait EventHandler: Send + Sync {
     /// Fires when `Client` receives a `RoomEvent::Tombstone` event.
     async fn on_room_tombstone(&self, _: Room, _: &SyncStateEvent<TombstoneEventContent>) {}
 
-    /// Fires when `Client` receives room events that trigger notifications according to
-    /// the push rules of the user.
+    /// Fires when `Client` receives room events that trigger notifications
+    /// according to the push rules of the user.
     async fn on_room_notification(&self, _: Room, _: Notification) {}
 
     // `RoomEvent`s from `IncomingState`
@@ -452,7 +416,8 @@ pub trait EventHandler: Send + Sync {
     async fn on_state_join_rules(&self, _: Room, _: &SyncStateEvent<JoinRulesEventContent>) {}
 
     // `AnyStrippedStateEvent`s
-    /// Fires when `Client` receives a `AnyStrippedStateEvent::StrippedRoomMember` event.
+    /// Fires when `Client` receives a
+    /// `AnyStrippedStateEvent::StrippedRoomMember` event.
     async fn on_stripped_state_member(
         &self,
         _: Room,
@@ -460,32 +425,38 @@ pub trait EventHandler: Send + Sync {
         _: Option<MemberEventContent>,
     ) {
     }
-    /// Fires when `Client` receives a `AnyStrippedStateEvent::StrippedRoomName` event.
+    /// Fires when `Client` receives a `AnyStrippedStateEvent::StrippedRoomName`
+    /// event.
     async fn on_stripped_state_name(&self, _: Room, _: &StrippedStateEvent<NameEventContent>) {}
-    /// Fires when `Client` receives a `AnyStrippedStateEvent::StrippedRoomCanonicalAlias` event.
+    /// Fires when `Client` receives a
+    /// `AnyStrippedStateEvent::StrippedRoomCanonicalAlias` event.
     async fn on_stripped_state_canonical_alias(
         &self,
         _: Room,
         _: &StrippedStateEvent<CanonicalAliasEventContent>,
     ) {
     }
-    /// Fires when `Client` receives a `AnyStrippedStateEvent::StrippedRoomAliases` event.
+    /// Fires when `Client` receives a
+    /// `AnyStrippedStateEvent::StrippedRoomAliases` event.
     async fn on_stripped_state_aliases(
         &self,
         _: Room,
         _: &StrippedStateEvent<AliasesEventContent>,
     ) {
     }
-    /// Fires when `Client` receives a `AnyStrippedStateEvent::StrippedRoomAvatar` event.
+    /// Fires when `Client` receives a
+    /// `AnyStrippedStateEvent::StrippedRoomAvatar` event.
     async fn on_stripped_state_avatar(&self, _: Room, _: &StrippedStateEvent<AvatarEventContent>) {}
-    /// Fires when `Client` receives a `AnyStrippedStateEvent::StrippedRoomPowerLevels` event.
+    /// Fires when `Client` receives a
+    /// `AnyStrippedStateEvent::StrippedRoomPowerLevels` event.
     async fn on_stripped_state_power_levels(
         &self,
         _: Room,
         _: &StrippedStateEvent<PowerLevelsEventContent>,
     ) {
     }
-    /// Fires when `Client` receives a `AnyStrippedStateEvent::StrippedRoomJoinRules` event.
+    /// Fires when `Client` receives a
+    /// `AnyStrippedStateEvent::StrippedRoomJoinRules` event.
     async fn on_stripped_state_join_rules(
         &self,
         _: Room,
@@ -522,17 +493,18 @@ pub trait EventHandler: Send + Sync {
     /// Fires when `Client` receives a `NonRoomEvent::RoomAliases` event.
     async fn on_presence_event(&self, _: &PresenceEvent) {}
 
-    /// Fires when `Client` receives a `Event::Custom` event or if deserialization fails
-    /// because the event was unknown to ruma.
+    /// Fires when `Client` receives a `Event::Custom` event or if
+    /// deserialization fails because the event was unknown to ruma.
     ///
-    /// The only guarantee this method can give about the event is that it is valid JSON.
+    /// The only guarantee this method can give about the event is that it is
+    /// valid JSON.
     async fn on_unrecognized_event(&self, _: Room, _: &RawJsonValue) {}
 
-    /// Fires when `Client` receives a `Event::Custom` event or if deserialization fails
-    /// because the event was unknown to ruma.
+    /// Fires when `Client` receives a `Event::Custom` event or if
+    /// deserialization fails because the event was unknown to ruma.
     ///
-    /// The only guarantee this method can give about the event is that it is in the
-    /// shape of a valid matrix event.
+    /// The only guarantee this method can give about the event is that it is in
+    /// the shape of a valid matrix event.
     async fn on_custom_event(&self, _: Room, _: &CustomEvent<'_>) {}
 }
 
@@ -640,57 +612,50 @@ mod test {
         }
 
         // `AnyStrippedStateEvent`s
-        /// Fires when `Client` receives a `AnyStrippedStateEvent::StrippedRoomMember` event.
+        /// Fires when `Client` receives a
+        /// `AnyStrippedStateEvent::StrippedRoomMember` event.
         async fn on_stripped_state_member(
             &self,
             _: Room,
             _: &StrippedStateEvent<MemberEventContent>,
             _: Option<MemberEventContent>,
         ) {
-            self.0
-                .lock()
-                .await
-                .push("stripped state member".to_string())
+            self.0.lock().await.push("stripped state member".to_string())
         }
-        /// Fires when `Client` receives a `AnyStrippedStateEvent::StrippedRoomName` event.
+        /// Fires when `Client` receives a
+        /// `AnyStrippedStateEvent::StrippedRoomName` event.
         async fn on_stripped_state_name(&self, _: Room, _: &StrippedStateEvent<NameEventContent>) {
             self.0.lock().await.push("stripped state name".to_string())
         }
-        /// Fires when `Client` receives a `AnyStrippedStateEvent::StrippedRoomCanonicalAlias`
-        /// event.
+        /// Fires when `Client` receives a
+        /// `AnyStrippedStateEvent::StrippedRoomCanonicalAlias` event.
         async fn on_stripped_state_canonical_alias(
             &self,
             _: Room,
             _: &StrippedStateEvent<CanonicalAliasEventContent>,
         ) {
-            self.0
-                .lock()
-                .await
-                .push("stripped state canonical".to_string())
+            self.0.lock().await.push("stripped state canonical".to_string())
         }
-        /// Fires when `Client` receives a `AnyStrippedStateEvent::StrippedRoomAliases` event.
+        /// Fires when `Client` receives a
+        /// `AnyStrippedStateEvent::StrippedRoomAliases` event.
         async fn on_stripped_state_aliases(
             &self,
             _: Room,
             _: &StrippedStateEvent<AliasesEventContent>,
         ) {
-            self.0
-                .lock()
-                .await
-                .push("stripped state aliases".to_string())
+            self.0.lock().await.push("stripped state aliases".to_string())
         }
-        /// Fires when `Client` receives a `AnyStrippedStateEvent::StrippedRoomAvatar` event.
+        /// Fires when `Client` receives a
+        /// `AnyStrippedStateEvent::StrippedRoomAvatar` event.
         async fn on_stripped_state_avatar(
             &self,
             _: Room,
             _: &StrippedStateEvent<AvatarEventContent>,
         ) {
-            self.0
-                .lock()
-                .await
-                .push("stripped state avatar".to_string())
+            self.0.lock().await.push("stripped state avatar".to_string())
         }
-        /// Fires when `Client` receives a `AnyStrippedStateEvent::StrippedRoomPowerLevels` event.
+        /// Fires when `Client` receives a
+        /// `AnyStrippedStateEvent::StrippedRoomPowerLevels` event.
         async fn on_stripped_state_power_levels(
             &self,
             _: Room,
@@ -698,7 +663,8 @@ mod test {
         ) {
             self.0.lock().await.push("stripped state power".to_string())
         }
-        /// Fires when `Client` receives a `AnyStrippedStateEvent::StrippedRoomJoinRules` event.
+        /// Fires when `Client` receives a
+        /// `AnyStrippedStateEvent::StrippedRoomJoinRules` event.
         async fn on_stripped_state_join_rules(
             &self,
             _: Room,
@@ -769,14 +735,11 @@ mod test {
     }
 
     async fn mock_sync(client: &Client, response: String) {
-        let _m = mock(
-            "GET",
-            Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_string()),
-        )
-        .with_status(200)
-        .match_header("authorization", "Bearer 1234")
-        .with_body(response)
-        .create();
+        let _m = mock("GET", Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_string()))
+            .with_status(200)
+            .match_header("authorization", "Bearer 1234")
+            .with_body(response)
+            .create();
 
         let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
         let _response = client.sync_once(sync_settings).await.unwrap();
@@ -824,14 +787,7 @@ mod test {
         mock_sync(&client, test_json::INVITE_SYNC.to_string()).await;
 
         let v = test_vec.lock().await;
-        assert_eq!(
-            v.as_slice(),
-            [
-                "stripped state name",
-                "stripped state member",
-                "presence event"
-            ],
-        )
+        assert_eq!(v.as_slice(), ["stripped state name", "stripped state member", "presence event"],)
     }
 
     #[async_test]
@@ -898,15 +854,7 @@ mod test {
         mock_sync(&client, test_json::VOIP_SYNC.to_string()).await;
 
         let v = test_vec.lock().await;
-        assert_eq!(
-            v.as_slice(),
-            [
-                "call invite",
-                "call answer",
-                "call candidates",
-                "call hangup",
-            ],
-        )
+        assert_eq!(v.as_slice(), ["call invite", "call answer", "call candidates", "call hangup",],)
     }
 
     #[async_test]

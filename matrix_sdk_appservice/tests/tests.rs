@@ -76,10 +76,7 @@ async fn test_event_handler() -> Result<()> {
         }
     }
 
-    appservice
-        .client()
-        .set_event_handler(Box::new(Example::new()))
-        .await;
+    appservice.client().set_event_handler(Box::new(Example::new())).await;
 
     let event = serde_json::from_value::<AnyStateEvent>(member_json()).unwrap();
     let event: Raw<AnyRoomEvent> = AnyRoomEvent::State(event).into();

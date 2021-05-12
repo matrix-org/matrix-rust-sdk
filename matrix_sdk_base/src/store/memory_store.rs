@@ -80,8 +80,7 @@ impl MemoryStore {
     }
 
     async fn save_filter(&self, filter_name: &str, filter_id: &str) -> Result<()> {
-        self.filters
-            .insert(filter_name.to_string(), filter_id.to_string());
+        self.filters.insert(filter_name.to_string(), filter_id.to_string());
 
         Ok(())
     }
@@ -162,8 +161,7 @@ impl MemoryStore {
         }
 
         for (event_type, event) in &changes.account_data {
-            self.account_data
-                .insert(event_type.to_string(), event.clone());
+            self.account_data.insert(event_type.to_string(), event.clone());
         }
 
         for (room, events) in &changes.room_account_data {
@@ -197,8 +195,7 @@ impl MemoryStore {
         }
 
         for (room_id, info) in &changes.invited_room_info {
-            self.stripped_room_info
-                .insert(room_id.clone(), info.clone());
+            self.stripped_room_info.insert(room_id.clone(), info.clone());
         }
 
         for (room, events) in &changes.stripped_members {
@@ -241,8 +238,7 @@ impl MemoryStore {
     ) -> Result<Option<Raw<AnySyncStateEvent>>> {
         #[allow(clippy::map_clone)]
         Ok(self.room_state.get(room_id).and_then(|e| {
-            e.get(event_type.as_ref())
-                .and_then(|s| s.get(state_key).map(|e| e.clone()))
+            e.get(event_type.as_ref()).and_then(|s| s.get(state_key).map(|e| e.clone()))
         }))
     }
 
@@ -252,10 +248,7 @@ impl MemoryStore {
         user_id: &UserId,
     ) -> Result<Option<MemberEventContent>> {
         #[allow(clippy::map_clone)]
-        Ok(self
-            .profiles
-            .get(room_id)
-            .and_then(|p| p.get(user_id).map(|p| p.clone())))
+        Ok(self.profiles.get(room_id).and_then(|p| p.get(user_id).map(|p| p.clone())))
     }
 
     async fn get_member_event(
@@ -264,10 +257,7 @@ impl MemoryStore {
         state_key: &UserId,
     ) -> Result<Option<MemberEvent>> {
         #[allow(clippy::map_clone)]
-        Ok(self
-            .members
-            .get(room_id)
-            .and_then(|m| m.get(state_key).map(|m| m.clone())))
+        Ok(self.members.get(room_id).and_then(|m| m.get(state_key).map(|m| m.clone())))
     }
 
     fn get_user_ids(&self, room_id: &RoomId) -> Vec<UserId> {
@@ -308,10 +298,7 @@ impl MemoryStore {
         &self,
         event_type: EventType,
     ) -> Result<Option<Raw<AnyGlobalAccountDataEvent>>> {
-        Ok(self
-            .account_data
-            .get(event_type.as_ref())
-            .map(|e| e.clone()))
+        Ok(self.account_data.get(event_type.as_ref()).map(|e| e.clone()))
     }
 
     async fn get_room_account_data_event(

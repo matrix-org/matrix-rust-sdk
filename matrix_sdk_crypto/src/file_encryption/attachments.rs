@@ -55,10 +55,7 @@ impl<'a, R: Read> Read for AttachmentDecryptor<'a, R> {
             if hash.as_slice() == self.expected_hash.as_slice() {
                 Ok(0)
             } else {
-                Err(IoError::new(
-                    ErrorKind::Other,
-                    "Hash missmatch while decrypting",
-                ))
+                Err(IoError::new(ErrorKind::Other, "Hash missmatch while decrypting"))
             }
         } else {
             self.sha.update(&buf[0..read_bytes]);
@@ -126,23 +123,14 @@ impl<'a, R: Read + 'a> AttachmentDecryptor<'a, R> {
             return Err(DecryptorError::UnknownVersion);
         }
 
-        let hash = decode(
-            info.hashes
-                .get("sha256")
-                .ok_or(DecryptorError::MissingHash)?,
-        )?;
+        let hash = decode(info.hashes.get("sha256").ok_or(DecryptorError::MissingHash)?)?;
         let key = Zeroizing::from(decode_url_safe(info.web_key.k)?);
         let iv = decode(info.iv)?;
 
         let sha = Sha256::default();
         let aes = Aes256Ctr::new_var(&key, &iv).map_err(|_| DecryptorError::KeyNonceLength)?;
 
-        Ok(AttachmentDecryptor {
-            inner_reader: input,
-            expected_hash: hash,
-            sha,
-            aes,
-        })
+        Ok(AttachmentDecryptor { inner_reader: input, expected_hash: hash, sha, aes })
     }
 }
 
@@ -164,9 +152,7 @@ impl<'a, R: Read + 'a> Read for AttachmentEncryptor<'a, R> {
 
         if read_bytes == 0 {
             let hash = self.sha.finalize_reset();
-            self.hashes
-                .entry("sha256".to_owned())
-                .or_insert_with(|| encode(hash));
+            self.hashes.entry("sha256".to_owned()).or_insert_with(|| encode(hash));
             Ok(0)
         } else {
             self.aes.apply_keystream(&mut buf[0..read_bytes]);
@@ -240,9 +226,7 @@ impl<'a, R: Read + 'a> AttachmentEncryptor<'a, R> {
     /// Consume the encryptor and get the encryption key.
     pub fn finish(mut self) -> EncryptionInfo {
         let hash = self.sha.finalize();
-        self.hashes
-            .entry("sha256".to_owned())
-            .or_insert_with(|| encode(hash));
+        self.hashes.entry("sha256".to_owned()).or_insert_with(|| encode(hash));
 
         EncryptionInfo {
             version: VERSION.to_string(),

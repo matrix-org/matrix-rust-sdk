@@ -108,11 +108,7 @@ pub struct KeysQueryRequest {
 
 impl KeysQueryRequest {
     pub(crate) fn new(device_keys: BTreeMap<UserId, Vec<DeviceIdBox>>) -> Self {
-        Self {
-            timeout: None,
-            device_keys,
-            token: None,
-        }
+        Self { timeout: None, device_keys, token: None }
     }
 }
 
@@ -176,19 +172,13 @@ impl From<SignatureUploadRequest> for OutgoingRequests {
 
 impl From<OutgoingVerificationRequest> for OutgoingRequest {
     fn from(r: OutgoingVerificationRequest) -> Self {
-        Self {
-            request_id: r.request_id(),
-            request: Arc::new(r.into()),
-        }
+        Self { request_id: r.request_id(), request: Arc::new(r.into()) }
     }
 }
 
 impl From<SignatureUploadRequest> for OutgoingRequest {
     fn from(r: SignatureUploadRequest) -> Self {
-        Self {
-            request_id: Uuid::new_v4(),
-            request: Arc::new(r.into()),
-        }
+        Self { request_id: Uuid::new_v4(), request: Arc::new(r.into()) }
     }
 }
 

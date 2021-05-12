@@ -152,10 +152,7 @@ impl EventBuilder {
     }
 
     fn add_joined_event(&mut self, room_id: &RoomId, event: AnySyncRoomEvent) {
-        self.joined_room_events
-            .entry(room_id.clone())
-            .or_insert_with(Vec::new)
-            .push(event);
+        self.joined_room_events.entry(room_id.clone()).or_insert_with(Vec::new).push(event);
     }
 
     pub fn add_custom_invited_event(
@@ -164,10 +161,7 @@ impl EventBuilder {
         event: serde_json::Value,
     ) -> &mut Self {
         let event = serde_json::from_value::<AnySyncStateEvent>(event).unwrap();
-        self.invited_room_events
-            .entry(room_id.clone())
-            .or_insert_with(Vec::new)
-            .push(event);
+        self.invited_room_events.entry(room_id.clone()).or_insert_with(Vec::new).push(event);
         self
     }
 
@@ -177,10 +171,7 @@ impl EventBuilder {
         event: serde_json::Value,
     ) -> &mut Self {
         let event = serde_json::from_value::<AnySyncRoomEvent>(event).unwrap();
-        self.left_room_events
-            .entry(room_id.clone())
-            .or_insert_with(Vec::new)
-            .push(event);
+        self.left_room_events.entry(room_id.clone()).or_insert_with(Vec::new).push(event);
         self
     }
 
@@ -350,9 +341,7 @@ impl EventBuilder {
     pub fn build_sync_response(&mut self) -> SyncResponse {
         let body = self.build_json_sync_response();
 
-        let response = Response::builder()
-            .body(serde_json::to_vec(&body).unwrap())
-            .unwrap();
+        let response = Response::builder().body(serde_json::to_vec(&body).unwrap()).unwrap();
 
         SyncResponse::try_from_http_response(response).unwrap()
     }
@@ -393,15 +382,10 @@ pub fn sync_response(kind: SyncResponseFile) -> SyncResponse {
         SyncResponseFile::Voip => &test_json::VOIP_SYNC,
     };
 
-    let response = Response::builder()
-        .body(data.to_string().as_bytes().to_vec())
-        .unwrap();
+    let response = Response::builder().body(data.to_string().as_bytes().to_vec()).unwrap();
     SyncResponse::try_from_http_response(response).unwrap()
 }
 
 pub fn response_from_file(json: &serde_json::Value) -> Response<Vec<u8>> {
-    Response::builder()
-        .status(200)
-        .body(json.to_string().as_bytes().to_vec())
-        .unwrap()
+    Response::builder().status(200).body(json.to_string().as_bytes().to_vec()).unwrap()
 }

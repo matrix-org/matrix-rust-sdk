@@ -147,10 +147,8 @@ impl InboundGroupSession {
         forwarding_chains.push(sender_key.to_owned());
 
         let mut sender_claimed_key = BTreeMap::new();
-        sender_claimed_key.insert(
-            DeviceKeyAlgorithm::Ed25519,
-            content.sender_claimed_ed25519_key.to_owned(),
-        );
+        sender_claimed_key
+            .insert(DeviceKeyAlgorithm::Ed25519, content.sender_claimed_ed25519_key.to_owned());
 
         Ok(InboundGroupSession {
             inner: Mutex::new(session).into(),
@@ -217,11 +215,7 @@ impl InboundGroupSession {
         let message_index = std::cmp::max(self.first_known_index(), message_index);
 
         let session_key = ExportedGroupSessionKey(
-            self.inner
-                .lock()
-                .await
-                .export(message_index)
-                .expect("Can't export session"),
+            self.inner.lock().await.export(message_index).expect("Can't export session"),
         );
 
         ExportedRoomKey {
@@ -314,9 +308,7 @@ impl InboundGroupSession {
         let (plaintext, message_index) = self.decrypt_helper(content.ciphertext.clone()).await?;
 
         let mut decrypted_value = serde_json::from_str::<Value>(&plaintext)?;
-        let decrypted_object = decrypted_value
-            .as_object_mut()
-            .ok_or(EventError::NotAnObject)?;
+        let decrypted_object = decrypted_value.as_object_mut().ok_or(EventError::NotAnObject)?;
 
         // TODO better number conversion here.
         let server_ts = event
@@ -335,10 +327,8 @@ impl InboundGroupSession {
             serde_json::to_value(&event.unsigned).unwrap_or_default(),
         );
 
-        if let Some(decrypted_content) = decrypted_object
-            .get_mut("content")
-            .map(|c| c.as_object_mut())
-            .flatten()
+        if let Some(decrypted_content) =
+            decrypted_object.get_mut("content").map(|c| c.as_object_mut()).flatten()
         {
             if !decrypted_content.contains_key("m.relates_to") {
                 if let Some(relation) = &event.content.relates_to {
@@ -350,19 +340,14 @@ impl InboundGroupSession {
             }
         }
 
-        Ok((
-            serde_json::from_value::<Raw<AnySyncRoomEvent>>(decrypted_value)?,
-            message_index,
-        ))
+        Ok((serde_json::from_value::<Raw<AnySyncRoomEvent>>(decrypted_value)?, message_index))
     }
 }
 
 #[cfg(not(tarpaulin_include))]
 impl fmt::Debug for InboundGroupSession {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("InboundGroupSession")
-            .field("session_id", &self.session_id())
-            .finish()
+        f.debug_struct("InboundGroupSession").field("session_id", &self.session_id()).finish()
     }
 }
 

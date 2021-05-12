@@ -169,10 +169,7 @@ impl StoreKey {
             cipher.encrypt(Nonce::from_slice(nonce.as_ref()), self.inner.as_slice())?;
 
         Ok(EncryptedStoreKey {
-            kdf_info: KdfInfo::Pbkdf2ToChaCha20Poly1305 {
-                rounds: KDF_ROUNDS,
-                kdf_salt: salt,
-            },
+            kdf_info: KdfInfo::Pbkdf2ToChaCha20Poly1305 { rounds: KDF_ROUNDS, kdf_salt: salt },
             ciphertext_info: CipherTextInfo::ChaCha20Poly1305 { nonce, ciphertext },
         })
     }
@@ -195,11 +192,7 @@ impl StoreKey {
 
         let ciphertext = cipher.encrypt(xnonce, event.as_ref())?;
 
-        Ok(EncryptedEvent {
-            version: VERSION,
-            ciphertext,
-            nonce,
-        })
+        Ok(EncryptedEvent { version: VERSION, ciphertext, nonce })
     }
 
     pub fn decrypt<T: for<'b> Deserialize<'b>>(&self, event: EncryptedEvent) -> Result<T, Error> {

@@ -59,10 +59,8 @@ const KEY_AGREEMENT_PROTOCOLS: &[KeyAgreementProtocol] =
     &[KeyAgreementProtocol::Curve25519HkdfSha256];
 const HASHES: &[HashAlgorithm] = &[HashAlgorithm::Sha256];
 const MACS: &[MessageAuthenticationCode] = &[MessageAuthenticationCode::HkdfHmacSha256];
-const STRINGS: &[ShortAuthenticationString] = &[
-    ShortAuthenticationString::Decimal,
-    ShortAuthenticationString::Emoji,
-];
+const STRINGS: &[ShortAuthenticationString] =
+    &[ShortAuthenticationString::Decimal, ShortAuthenticationString::Emoji];
 
 // The max time a SAS flow can take from start to done.
 const MAX_AGE: Duration = Duration::from_secs(60 * 5);
@@ -111,9 +109,7 @@ impl TryFrom<AcceptV1Content> for AcceptedProtocols {
         if !KEY_AGREEMENT_PROTOCOLS.contains(&content.key_agreement_protocol)
             || !HASHES.contains(&content.hash)
             || !MACS.contains(&content.message_authentication_code)
-            || (!content
-                .short_authentication_string
-                .contains(&ShortAuthenticationString::Emoji)
+            || (!content.short_authentication_string.contains(&ShortAuthenticationString::Emoji)
                 && !content
                     .short_authentication_string
                     .contains(&ShortAuthenticationString::Decimal))
@@ -372,11 +368,7 @@ impl SasState<Created> {
     ) -> SasState<Created> {
         SasState {
             inner: Arc::new(Mutex::new(OlmSas::new())),
-            ids: SasIds {
-                account,
-                other_device,
-                other_identity,
-            },
+            ids: SasIds { account, other_device, other_identity },
             verification_flow_id: flow_id.into(),
 
             creation_time: Arc::new(Instant::now()),
@@ -411,9 +403,7 @@ impl SasState<Created> {
                         MSasV1Content::new(self.state.protocol_definitions.clone())
                             .expect("Invalid initial protocol definitions."),
                     ),
-                    relation: Relation {
-                        event_id: e.clone(),
-                    },
+                    relation: Relation { event_id: e.clone() },
                 },
             ),
         }
@@ -460,8 +450,8 @@ impl SasState<Created> {
 }
 
 impl SasState<Started> {
-    /// Create a new SAS verification flow from an in-room m.key.verification.start
-    /// event.
+    /// Create a new SAS verification flow from an in-room
+    /// m.key.verification.start event.
     ///
     /// This will put us in the `started` state.
     ///
@@ -502,11 +492,7 @@ impl SasState<Started> {
             let sas = SasState {
                 inner: Arc::new(Mutex::new(sas)),
 
-                ids: SasIds {
-                    account,
-                    other_device,
-                    other_identity,
-                },
+                ids: SasIds { account, other_device, other_identity },
 
                 creation_time: Arc::new(Instant::now()),
                 last_event_time: Arc::new(Instant::now()),
@@ -544,11 +530,7 @@ impl SasState<Started> {
                 creation_time: Arc::new(Instant::now()),
                 last_event_time: Arc::new(Instant::now()),
 
-                ids: SasIds {
-                    account,
-                    other_device,
-                    other_identity,
-                },
+                ids: SasIds { account, other_device, other_identity },
 
                 verification_flow_id: content.flow_id().into(),
                 state: Arc::new(Canceled::new(CancelCode::UnknownMethod)),
@@ -582,19 +564,12 @@ impl SasState<Started> {
         );
 
         match self.verification_flow_id.as_ref() {
-            FlowId::ToDevice(s) => AcceptToDeviceEventContent {
-                transaction_id: s.to_string(),
-                method,
+            FlowId::ToDevice(s) => {
+                AcceptToDeviceEventContent { transaction_id: s.to_string(), method }.into()
             }
-            .into(),
             FlowId::InRoom(r, e) => (
                 r.clone(),
-                AcceptEventContent {
-                    method,
-                    relation: Relation {
-                        event_id: e.clone(),
-                    },
-                },
+                AcceptEventContent { method, relation: Relation { event_id: e.clone() } },
             )
                 .into(),
         }
@@ -662,10 +637,8 @@ impl SasState<Accepted> {
         self.check_event(&sender, content.flow_id().as_str())
             .map_err(|c| self.clone().cancel(c))?;
 
-        let commitment = calculate_commitment(
-            content.public_key(),
-            self.state.start_content.as_ref().clone(),
-        );
+        let commitment =
+            calculate_commitment(content.public_key(), self.state.start_content.as_ref().clone());
 
         if self.state.commitment != commitment {
             Err(self.cancel(CancelCode::InvalidMessage))
@@ -707,9 +680,7 @@ impl SasState<Accepted> {
                 r.clone(),
                 KeyEventContent {
                     key: self.inner.lock().unwrap().public_key(),
-                    relation: Relation {
-                        event_id: e.clone(),
-                    },
+                    relation: Relation { event_id: e.clone() },
                 },
             )
                 .into(),
@@ -733,9 +704,7 @@ impl SasState<KeyReceived> {
                 r.clone(),
                 KeyEventContent {
                     key: self.inner.lock().unwrap().public_key(),
-                    relation: Relation {
-                        event_id: e.clone(),
-                    },
+                    relation: Relation { event_id: e.clone() },
                 },
             )
                 .into(),
@@ -758,8 +727,8 @@ impl SasState<KeyReceived> {
 
     /// Get the index of the emoji of the short authentication string.
     ///
-    /// Returns seven u8 numbers in the range from 0 to 63 inclusive, those numbers
-    /// can be converted to a unique emoji defined by the spec.
+    /// Returns seven u8 numbers in the range from 0 to 63 inclusive, those
+    /// numbers can be converted to a unique emoji defined by the spec.
     pub fn get_emoji_index(&self) -> [u8; 7] {
         get_emoji_index(
             &self.inner.lock().unwrap(),
@@ -930,11 +899,7 @@ impl SasState<Confirmed> {
     ///
     /// The content needs to be automatically sent to the other side.
     pub fn as_content(&self) -> MacContent {
-        get_mac_content(
-            &self.inner.lock().unwrap(),
-            &self.ids,
-            &self.verification_flow_id,
-        )
+        get_mac_content(&self.inner.lock().unwrap(), &self.ids, &self.verification_flow_id)
     }
 }
 
@@ -993,8 +958,8 @@ impl SasState<MacReceived> {
 
     /// Get the index of the emoji of the short authentication string.
     ///
-    /// Returns seven u8 numbers in the range from 0 to 63 inclusive, those numbers
-    /// can be converted to a unique emoji defined by the spec.
+    /// Returns seven u8 numbers in the range from 0 to 63 inclusive, those
+    /// numbers can be converted to a unique emoji defined by the spec.
     pub fn get_emoji_index(&self) -> [u8; 7] {
         get_emoji_index(
             &self.inner.lock().unwrap(),
@@ -1026,11 +991,7 @@ impl SasState<WaitingForDone> {
     /// The content needs to be automatically sent to the other side if it
     /// wasn't already sent.
     pub fn as_content(&self) -> MacContent {
-        get_mac_content(
-            &self.inner.lock().unwrap(),
-            &self.ids,
-            &self.verification_flow_id,
-        )
+        get_mac_content(&self.inner.lock().unwrap(), &self.ids, &self.verification_flow_id)
     }
 
     pub fn done_content(&self) -> DoneContent {
@@ -1038,15 +999,9 @@ impl SasState<WaitingForDone> {
             FlowId::ToDevice(_) => {
                 unreachable!("The done content isn't supported yet for to-device verifications")
             }
-            FlowId::InRoom(r, e) => (
-                r.clone(),
-                DoneEventContent {
-                    relation: Relation {
-                        event_id: e.clone(),
-                    },
-                },
-            )
-                .into(),
+            FlowId::InRoom(r, e) => {
+                (r.clone(), DoneEventContent { relation: Relation { event_id: e.clone() } }).into()
+            }
         }
     }
 
@@ -1088,11 +1043,7 @@ impl SasState<Done> {
     /// The content needs to be automatically sent to the other side if it
     /// wasn't already sent.
     pub fn as_content(&self) -> MacContent {
-        get_mac_content(
-            &self.inner.lock().unwrap(),
-            &self.ids,
-            &self.verification_flow_id,
-        )
+        get_mac_content(&self.inner.lock().unwrap(), &self.ids, &self.verification_flow_id)
     }
 
     pub fn done_content(&self) -> DoneContent {
@@ -1100,15 +1051,9 @@ impl SasState<Done> {
             FlowId::ToDevice(_) => {
                 unreachable!("The done content isn't supported yet for to-device verifications")
             }
-            FlowId::InRoom(r, e) => (
-                r.clone(),
-                DoneEventContent {
-                    relation: Relation {
-                        event_id: e.clone(),
-                    },
-                },
-            )
-                .into(),
+            FlowId::InRoom(r, e) => {
+                (r.clone(), DoneEventContent { relation: Relation { event_id: e.clone() } }).into()
+            }
         }
     }
 
@@ -1144,10 +1089,7 @@ impl Canceled {
             _ => unimplemented!(),
         };
 
-        Canceled {
-            cancel_code: code,
-            reason,
-        }
+        Canceled { cancel_code: code, reason }
     }
 }
 
@@ -1166,9 +1108,7 @@ impl SasState<Canceled> {
                 CancelEventContent {
                     reason: self.state.reason.to_string(),
                     code: self.state.cancel_code.clone(),
-                    relation: Relation {
-                        event_id: e.clone(),
-                    },
+                    relation: Relation { event_id: e.clone() },
                 },
             )
                 .into(),
@@ -1331,9 +1271,7 @@ mod test {
 
         let content = bob.as_content();
         let sender = UserId::try_from("@malory:example.org").unwrap();
-        alice
-            .into_accepted(&sender, content)
-            .expect_err("Didn't cancel on a invalid sender");
+        alice.into_accepted(&sender, content).expect_err("Didn't cancel on a invalid sender");
     }
 
     #[tokio::test]
