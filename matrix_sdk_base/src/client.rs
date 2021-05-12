@@ -42,8 +42,8 @@ use matrix_sdk_common::{
     },
     events::{
         room::member::{MemberEventContent, MembershipState},
-        AnyBasicEvent, AnyStrippedStateEvent, AnySyncRoomEvent, AnySyncStateEvent, EventContent,
-        EventType, StateEvent,
+        AnyGlobalAccountDataEvent, AnyRoomAccountDataEvent, AnyStrippedStateEvent,
+        AnySyncRoomEvent, AnySyncStateEvent, EventContent, EventType, StateEvent,
     },
     identifiers::{RoomId, UserId},
     instant::Instant,
@@ -657,7 +657,7 @@ impl BaseClient {
     async fn handle_room_account_data(
         &self,
         room_id: &RoomId,
-        events: &[Raw<AnyBasicEvent>],
+        events: &[Raw<AnyRoomAccountDataEvent>],
         changes: &mut StateChanges,
     ) {
         for raw_event in events {
@@ -667,7 +667,11 @@ impl BaseClient {
         }
     }
 
-    async fn handle_account_data(&self, events: &[Raw<AnyBasicEvent>], changes: &mut StateChanges) {
+    async fn handle_account_data(
+        &self,
+        events: &[Raw<AnyGlobalAccountDataEvent>],
+        changes: &mut StateChanges,
+    ) {
         let mut account_data = BTreeMap::new();
 
         for raw_event in events {
@@ -677,7 +681,7 @@ impl BaseClient {
                 continue;
             };
 
-            if let AnyBasicEvent::Direct(e) = &event {
+            if let AnyGlobalAccountDataEvent::Direct(e) = &event {
                 for (user_id, rooms) in e.content.iter() {
                     for room_id in rooms {
                         if let Some(room) = changes.room_infos.get_mut(room_id) {
@@ -1348,13 +1352,13 @@ impl BaseClient {
     /// Gets the push rules from `changes` if they have been updated, otherwise get them from the
     /// store. As a fallback, uses `Ruleset::server_default` if the user is logged in.
     pub async fn get_push_rules(&self, changes: &StateChanges) -> Result<Ruleset> {
-        if let Some(AnyBasicEvent::PushRules(event)) = changes
+        if let Some(AnyGlobalAccountDataEvent::PushRules(event)) = changes
             .account_data
             .get(EventType::PushRules.as_str())
             .and_then(|e| e.deserialize().ok())
         {
             Ok(event.content.global)
-        } else if let Some(AnyBasicEvent::PushRules(event)) = self
+        } else if let Some(AnyGlobalAccountDataEvent::PushRules(event)) = self
             .store
             .get_account_data_event(EventType::PushRules)
             .await?

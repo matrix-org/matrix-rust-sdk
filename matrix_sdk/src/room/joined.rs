@@ -31,6 +31,7 @@ use matrix_sdk_common::{
     },
     identifiers::{EventId, UserId},
     instant::{Duration, Instant},
+    receipt::ReceiptType,
     uuid::Uuid,
 };
 
@@ -225,11 +226,8 @@ impl Joined {
     ///
     /// * `event_id` - The `EventId` specifies the event to set the read receipt on.
     pub async fn read_receipt(&self, event_id: &EventId) -> Result<()> {
-        let request = create_receipt::Request::new(
-            self.inner.room_id(),
-            create_receipt::ReceiptType::Read,
-            event_id,
-        );
+        let request =
+            create_receipt::Request::new(self.inner.room_id(), ReceiptType::Read, event_id);
 
         self.client.send(request, None).await?;
         Ok(())

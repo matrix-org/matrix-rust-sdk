@@ -26,8 +26,8 @@ use matrix_sdk_common::{
     api::r0::push::get_notifications::Notification,
     async_trait,
     events::{
-        presence::PresenceEvent, room::member::MemberEventContent, AnyBasicEvent,
-        AnyStrippedStateEvent, AnySyncStateEvent, EventContent, EventType,
+        presence::PresenceEvent, room::member::MemberEventContent, AnyGlobalAccountDataEvent,
+        AnyRoomAccountDataEvent, AnyStrippedStateEvent, AnySyncStateEvent, EventContent, EventType,
     },
     identifiers::{RoomId, UserId},
     locks::RwLock,
@@ -195,7 +195,7 @@ pub trait StateStore: AsyncTraitDeps {
     async fn get_account_data_event(
         &self,
         event_type: EventType,
-    ) -> Result<Option<Raw<AnyBasicEvent>>>;
+    ) -> Result<Option<Raw<AnyGlobalAccountDataEvent>>>;
 
     /// Get an event out of the room account data store.
     ///
@@ -209,7 +209,7 @@ pub trait StateStore: AsyncTraitDeps {
         &self,
         room_id: &RoomId,
         event_type: EventType,
-    ) -> Result<Option<Raw<AnyBasicEvent>>>;
+    ) -> Result<Option<Raw<AnyRoomAccountDataEvent>>>;
 }
 
 /// A state store wrapper for the SDK.
@@ -362,7 +362,7 @@ pub struct StateChanges {
     /// A user session, containing an access token and information about the associated user account.
     pub session: Option<Session>,
     /// A mapping of event type string to `AnyBasicEvent`.
-    pub account_data: BTreeMap<String, Raw<AnyBasicEvent>>,
+    pub account_data: BTreeMap<String, Raw<AnyGlobalAccountDataEvent>>,
     /// A mapping of `UserId` to `PresenceEvent`.
     pub presence: BTreeMap<UserId, Raw<PresenceEvent>>,
 
@@ -374,7 +374,7 @@ pub struct StateChanges {
     /// A mapping of `RoomId` to a map of event type string to a state key and `AnySyncStateEvent`.
     pub state: BTreeMap<RoomId, BTreeMap<String, BTreeMap<String, Raw<AnySyncStateEvent>>>>,
     /// A mapping of `RoomId` to a map of event type string to `AnyBasicEvent`.
-    pub room_account_data: BTreeMap<RoomId, BTreeMap<String, Raw<AnyBasicEvent>>>,
+    pub room_account_data: BTreeMap<RoomId, BTreeMap<String, Raw<AnyRoomAccountDataEvent>>>,
     /// A map of `RoomId` to `RoomInfo`.
     pub room_infos: BTreeMap<RoomId, RoomInfo>,
 
@@ -420,7 +420,11 @@ impl StateChanges {
     }
 
     /// Update the `StateChanges` struct with the given `AnyBasicEvent`.
-    pub fn add_account_data(&mut self, event: AnyBasicEvent, raw_event: Raw<AnyBasicEvent>) {
+    pub fn add_account_data(
+        &mut self,
+        event: AnyGlobalAccountDataEvent,
+        raw_event: Raw<AnyGlobalAccountDataEvent>,
+    ) {
         self.account_data
             .insert(event.content().event_type().to_owned(), raw_event);
     }
@@ -429,8 +433,8 @@ impl StateChanges {
     pub fn add_room_account_data(
         &mut self,
         room_id: &RoomId,
-        event: AnyBasicEvent,
-        raw_event: Raw<AnyBasicEvent>,
+        event: AnyRoomAccountDataEvent,
+        raw_event: Raw<AnyRoomAccountDataEvent>,
     ) {
         self.room_account_data
             .entry(room_id.to_owned())

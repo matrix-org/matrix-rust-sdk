@@ -15,7 +15,12 @@
 use std::ops::Deref;
 
 use matrix_sdk_common::{
-    api::r0::push::get_notifications::Notification, events::AnySyncRoomEvent, identifiers::RoomId,
+    api::r0::push::get_notifications::Notification,
+    events::{
+        fully_read::FullyReadEventContent, AnySyncRoomEvent, GlobalAccountDataEvent,
+        RoomAccountDataEvent,
+    },
+    identifiers::RoomId,
 };
 use serde_json::value::RawValue as RawJsonValue;
 
@@ -27,7 +32,6 @@ use crate::{
             hangup::HangupEventContent, invite::InviteEventContent,
         },
         custom::CustomEventContent,
-        fully_read::FullyReadEventContent,
         ignored_user_list::IgnoredUserListEventContent,
         presence::PresenceEvent,
         push_rules::PushRulesEventContent,
@@ -45,9 +49,9 @@ use crate::{
             tombstone::TombstoneEventContent,
         },
         typing::TypingEventContent,
-        AnyBasicEvent, AnyStrippedStateEvent, AnySyncEphemeralRoomEvent, AnySyncMessageEvent,
-        AnySyncStateEvent, BasicEvent, StrippedStateEvent, SyncEphemeralRoomEvent,
-        SyncMessageEvent, SyncStateEvent,
+        AnyGlobalAccountDataEvent, AnyRoomAccountDataEvent, AnyStrippedStateEvent,
+        AnySyncEphemeralRoomEvent, AnySyncMessageEvent, AnySyncStateEvent, StrippedStateEvent,
+        SyncEphemeralRoomEvent, SyncMessageEvent, SyncStateEvent,
     },
     room::Room,
     Client,
@@ -73,6 +77,15 @@ impl Handler {
     }
 
     pub(crate) async fn handle_sync(&self, response: &SyncResponse) {
+        for event in response
+            .account_data
+            .events
+            .iter()
+            .filter_map(|e| e.deserialize().ok())
+        {
+            self.handle_account_data_event(&event).await;
+        }
+
         for (room_id, room_info) in &response.rooms.join {
             if let Some(room) = self.get_room(room_id) {
                 for event in room_info
@@ -90,7 +103,8 @@ impl Handler {
                     .iter()
                     .filter_map(|e| e.deserialize().ok())
                 {
-                    self.handle_account_data_event(room.clone(), &event).await;
+                    self.handle_room_account_data_event(room.clone(), &event)
+                        .await;
                 }
 
                 for event in room_info
@@ -121,7 +135,8 @@ impl Handler {
                     .iter()
                     .filter_map(|e| e.deserialize().ok())
                 {
-                    self.handle_account_data_event(room.clone(), &event).await;
+                    self.handle_room_account_data_event(room.clone(), &event)
+                        .await;
                 }
 
                 for event in room_info
@@ -272,13 +287,27 @@ impl Handler {
         }
     }
 
-    pub(crate) async fn handle_account_data_event(&self, room: Room, event: &AnyBasicEvent) {
+    pub(crate) async fn handle_room_account_data_event(
+        &self,
+        room: Room,
+        event: &AnyRoomAccountDataEvent,
+    ) {
         match event {
-            AnyBasicEvent::Presence(presence) => self.on_non_room_presence(room, &presence).await,
-            AnyBasicEvent::IgnoredUserList(ignored) => {
-                self.on_non_room_ignored_users(room, &ignored).await
+            AnyRoomAccountDataEvent::FullyRead(event) => {
+                self.on_non_room_fully_read(room, &event).await
             }
-            AnyBasicEvent::PushRules(rules) => self.on_non_room_push_rules(room, &rules).await,
+            _ => {}
+        }
+    }
+
+    pub(crate) async fn handle_account_data_event(&self, event: &AnyGlobalAccountDataEvent) {
+        match event {
+            AnyGlobalAccountDataEvent::IgnoredUserList(ignored) => {
+                self.on_non_room_ignored_users(&ignored).await
+            }
+            AnyGlobalAccountDataEvent::PushRules(rules) => {
+                self.on_non_room_push_rules(&rules).await
+            }
             _ => {}
         }
     }
@@ -289,9 +318,6 @@ impl Handler {
         event: &AnySyncEphemeralRoomEvent,
     ) {
         match event {
-            AnySyncEphemeralRoomEvent::FullyRead(full_read) => {
-                self.on_non_room_fully_read(room, full_read).await
-            }
             AnySyncEphemeralRoomEvent::Typing(typing) => {
                 self.on_non_room_typing(room, typing).await
             }
@@ -307,7 +333,7 @@ impl Handler {
 #[derive(Clone, Copy, Debug)]
 pub enum CustomEvent<'c> {
     /// A custom basic event.
-    Basic(&'c BasicEvent<CustomEventContent>),
+    Basic(&'c GlobalAccountDataEvent<CustomEventContent>),
     /// A custom basic event.
     EphemeralRoom(&'c SyncEphemeralRoomEvent<CustomEventContent>),
     /// A custom room event.
@@ -477,17 +503,16 @@ pub trait EventHandler: Send + Sync {
     /// Fires when `Client` receives a `NonRoomEvent::RoomName` event.
     async fn on_non_room_ignored_users(
         &self,
-        _: Room,
-        _: &BasicEvent<IgnoredUserListEventContent>,
+        _: &GlobalAccountDataEvent<IgnoredUserListEventContent>,
     ) {
     }
     /// Fires when `Client` receives a `NonRoomEvent::RoomCanonicalAlias` event.
-    async fn on_non_room_push_rules(&self, _: Room, _: &BasicEvent<PushRulesEventContent>) {}
+    async fn on_non_room_push_rules(&self, _: &GlobalAccountDataEvent<PushRulesEventContent>) {}
     /// Fires when `Client` receives a `NonRoomEvent::RoomAliases` event.
     async fn on_non_room_fully_read(
         &self,
         _: Room,
-        _: &SyncEphemeralRoomEvent<FullyReadEventContent>,
+        _: &RoomAccountDataEvent<FullyReadEventContent>,
     ) {
     }
     /// Fires when `Client` receives a `NonRoomEvent::Typing` event.
@@ -689,18 +714,17 @@ mod test {
         }
         async fn on_non_room_ignored_users(
             &self,
-            _: Room,
-            _: &BasicEvent<IgnoredUserListEventContent>,
+            _: &GlobalAccountDataEvent<IgnoredUserListEventContent>,
         ) {
             self.0.lock().await.push("account ignore".to_string())
         }
-        async fn on_non_room_push_rules(&self, _: Room, _: &BasicEvent<PushRulesEventContent>) {
+        async fn on_non_room_push_rules(&self, _: &GlobalAccountDataEvent<PushRulesEventContent>) {
             self.0.lock().await.push("account push rules".to_string())
         }
         async fn on_non_room_fully_read(
             &self,
             _: Room,
-            _: &SyncEphemeralRoomEvent<FullyReadEventContent>,
+            _: &RoomAccountDataEvent<FullyReadEventContent>,
         ) {
             self.0.lock().await.push("account read".to_string())
         }
@@ -774,9 +798,9 @@ mod test {
         assert_eq!(
             v.as_slice(),
             [
+                "account ignore",
                 "receipt event",
                 "account read",
-                "account ignore",
                 "state rules",
                 "state member",
                 "state aliases",
@@ -902,9 +926,9 @@ mod test {
         assert_eq!(
             v.as_slice(),
             [
+                "account ignore",
                 "receipt event",
                 "account read",
-                "account ignore",
                 "state rules",
                 "state member",
                 "state aliases",

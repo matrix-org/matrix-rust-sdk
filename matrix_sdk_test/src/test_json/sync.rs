@@ -11,6 +11,18 @@ lazy_static! {
             ],
             "left": []
         },
+        "account_data": {
+            "events": [
+                {
+                    "content": {
+                        "ignored_users": {
+                            "@someone:example.org": {}
+                        }
+                    },
+                    "type": "m.ignored_user_list"
+                }
+            ]
+        },
         "rooms": {
             "invite": {},
             "join": {
@@ -20,11 +32,10 @@ lazy_static! {
                         "events": [
                             {
                                 "content": {
-                                    "ignored_users": {
-                                        "@someone:example.org": {}
-                                    }
+                                    "event_id": "$someplace:example.org"
                                 },
-                                "type": "m.ignored_user_list"
+                                "room_id": "!roomid:room.com",
+                                "type": "m.fully_read"
                             }
                         ]
                     },
@@ -43,13 +54,6 @@ lazy_static! {
                                 "room_id": "!SVkFJHzfwvuaIEawgC:localhost",
                                 "type": "m.receipt"
                             },
-                            {
-                                "content": {
-                                    "event_id": "$someplace:example.org"
-                                },
-                                "room_id": "!roomid:room.com",
-                                "type": "m.fully_read"
-                            }
                         ]
                     },
                     "state": {
@@ -782,6 +786,18 @@ lazy_static! {
             ],
             "left": []
         },
+        "account_data": {
+            "events": [
+                {
+                    "content": {
+                        "ignored_users": {
+                            "@someone:example.org": {}
+                        }
+                    },
+                    "type": "m.ignored_user_list"
+                }
+            ]
+        },
         "rooms": {
             "invite": {},
             "join": {},
@@ -789,16 +805,7 @@ lazy_static! {
                 "!SVkFJHzfwvuaIEawgC:localhost": {
                     "summary": {},
                     "account_data": {
-                        "events": [
-                            {
-                                "content": {
-                                    "ignored_users": {
-                                        "@someone:example.org": {}
-                                    }
-                                },
-                                "type": "m.ignored_user_list"
-                            }
-                        ]
+                        "events": []
                     },
                     "ephemeral": {
                         "events": [

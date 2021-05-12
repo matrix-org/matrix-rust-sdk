@@ -31,7 +31,7 @@ use matrix_sdk_common::{
     events::{
         presence::PresenceEvent,
         room::member::{MemberEventContent, MembershipState},
-        AnyBasicEvent, AnySyncStateEvent, EventType,
+        AnyGlobalAccountDataEvent, AnyRoomAccountDataEvent, AnySyncStateEvent, EventType,
     },
     identifiers::{RoomId, UserId},
     Raw,
@@ -590,7 +590,7 @@ impl SledStore {
     pub async fn get_account_data_event(
         &self,
         event_type: EventType,
-    ) -> Result<Option<Raw<AnyBasicEvent>>> {
+    ) -> Result<Option<Raw<AnyGlobalAccountDataEvent>>> {
         Ok(self
             .account_data
             .get(event_type.encode())?
@@ -602,7 +602,7 @@ impl SledStore {
         &self,
         room_id: &RoomId,
         event_type: EventType,
-    ) -> Result<Option<Raw<AnyBasicEvent>>> {
+    ) -> Result<Option<Raw<AnyRoomAccountDataEvent>>> {
         Ok(self
             .room_account_data
             .get((room_id.as_str(), event_type.as_str()).encode())?
@@ -690,7 +690,7 @@ impl StateStore for SledStore {
     async fn get_account_data_event(
         &self,
         event_type: EventType,
-    ) -> Result<Option<Raw<AnyBasicEvent>>> {
+    ) -> Result<Option<Raw<AnyGlobalAccountDataEvent>>> {
         self.get_account_data_event(event_type).await
     }
 
@@ -698,7 +698,7 @@ impl StateStore for SledStore {
         &self,
         room_id: &RoomId,
         event_type: EventType,
-    ) -> Result<Option<Raw<AnyBasicEvent>>> {
+    ) -> Result<Option<Raw<AnyRoomAccountDataEvent>>> {
         self.get_room_account_data_event(room_id, event_type).await
     }
 }

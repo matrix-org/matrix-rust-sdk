@@ -13,7 +13,7 @@ pub use ruma::{
         },
         AuthScheme, EndpointError, IncomingResponse, OutgoingRequest, SendAccessToken,
     },
-    assign, directory, encryption, events, identifiers, int, presence, push,
+    assign, directory, encryption, events, identifiers, int, presence, push, receipt,
     serde::{CanonicalJsonValue, Raw},
     thirdparty, uint, Int, Outgoing, UInt,
 };

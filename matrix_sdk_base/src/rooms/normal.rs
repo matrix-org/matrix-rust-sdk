@@ -30,7 +30,7 @@ use matrix_sdk_common::{
             tombstone::TombstoneEventContent,
         },
         tag::Tags,
-        AnyBasicEvent, AnyStateEventContent, AnySyncStateEvent, EventType,
+        AnyRoomAccountDataEvent, AnyStateEventContent, AnySyncStateEvent, EventType,
     },
     identifiers::{MxcUri, RoomAliasId, RoomId, UserId},
 };
@@ -451,7 +451,7 @@ impl Room {
 
     /// Get the `Tags` for this room.
     pub async fn tags(&self) -> StoreResult<Option<Tags>> {
-        if let Some(AnyBasicEvent::Tag(event)) = self
+        if let Some(AnyRoomAccountDataEvent::Tag(event)) = self
             .store
             .get_room_account_data_event(self.room_id(), EventType::Tag)
             .await?

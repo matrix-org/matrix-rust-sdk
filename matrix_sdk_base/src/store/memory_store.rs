@@ -23,7 +23,8 @@ use matrix_sdk_common::{
     events::{
         presence::PresenceEvent,
         room::member::{MemberEventContent, MembershipState},
-        AnyBasicEvent, AnyStrippedStateEvent, AnySyncStateEvent, EventType,
+        AnyGlobalAccountDataEvent, AnyRoomAccountDataEvent, AnyStrippedStateEvent,
+        AnySyncStateEvent, EventType,
     },
     identifiers::{RoomId, UserId},
     instant::Instant,
@@ -40,7 +41,7 @@ use super::{Result, RoomInfo, StateChanges, StateStore};
 pub struct MemoryStore {
     sync_token: Arc<RwLock<Option<String>>>,
     filters: Arc<DashMap<String, String>>,
-    account_data: Arc<DashMap<String, Raw<AnyBasicEvent>>>,
+    account_data: Arc<DashMap<String, Raw<AnyGlobalAccountDataEvent>>>,
     members: Arc<DashMap<RoomId, DashMap<UserId, MemberEvent>>>,
     profiles: Arc<DashMap<RoomId, DashMap<UserId, MemberEventContent>>>,
     display_names: Arc<DashMap<RoomId, DashMap<String, BTreeSet<UserId>>>>,
@@ -49,7 +50,7 @@ pub struct MemoryStore {
     room_info: Arc<DashMap<RoomId, RoomInfo>>,
     #[allow(clippy::type_complexity)]
     room_state: Arc<DashMap<RoomId, DashMap<String, DashMap<String, Raw<AnySyncStateEvent>>>>>,
-    room_account_data: Arc<DashMap<RoomId, DashMap<String, Raw<AnyBasicEvent>>>>,
+    room_account_data: Arc<DashMap<RoomId, DashMap<String, Raw<AnyRoomAccountDataEvent>>>>,
     stripped_room_info: Arc<DashMap<RoomId, RoomInfo>>,
     #[allow(clippy::type_complexity)]
     stripped_room_state:
@@ -308,7 +309,7 @@ impl MemoryStore {
     async fn get_account_data_event(
         &self,
         event_type: EventType,
-    ) -> Result<Option<Raw<AnyBasicEvent>>> {
+    ) -> Result<Option<Raw<AnyGlobalAccountDataEvent>>> {
         Ok(self
             .account_data
             .get(event_type.as_ref())
@@ -319,7 +320,7 @@ impl MemoryStore {
         &self,
         room_id: &RoomId,
         event_type: EventType,
-    ) -> Result<Option<Raw<AnyBasicEvent>>> {
+    ) -> Result<Option<Raw<AnyRoomAccountDataEvent>>> {
         Ok(self
             .room_account_data
             .get(room_id)
@@ -411,7 +412,7 @@ impl StateStore for MemoryStore {
     async fn get_account_data_event(
         &self,
         event_type: EventType,
-    ) -> Result<Option<Raw<AnyBasicEvent>>> {
+    ) -> Result<Option<Raw<AnyGlobalAccountDataEvent>>> {
         self.get_account_data_event(event_type).await
     }
 
@@ -419,7 +420,7 @@ impl StateStore for MemoryStore {
         &self,
         room_id: &RoomId,
         event_type: EventType,
-    ) -> Result<Option<Raw<AnyBasicEvent>>> {
+    ) -> Result<Option<Raw<AnyRoomAccountDataEvent>>> {
         self.get_room_account_data_event(room_id, event_type).await
     }
 }

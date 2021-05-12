@@ -33,7 +33,7 @@ use matrix_sdk_common::{
     deserialized_responses::{AlgorithmInfo, EncryptionInfo, SyncRoomEvent, VerificationState},
     events::{
         room::encrypted::{EncryptedEventContent, EncryptedEventScheme},
-        room_key::RoomKeyEventContent,
+        room_key::RoomKeyToDeviceEventContent,
         AnyMessageEventContent, AnyToDeviceEvent, SyncMessageEvent, ToDeviceEvent,
     },
     identifiers::{
@@ -592,7 +592,7 @@ impl OlmMachine {
         &self,
         sender_key: &str,
         signing_key: &str,
-        event: &mut ToDeviceEvent<RoomKeyEventContent>,
+        event: &mut ToDeviceEvent<RoomKeyToDeviceEventContent>,
     ) -> OlmResult<(Option<AnyToDeviceEvent>, Option<InboundGroupSession>)> {
         match event.content.algorithm {
             EventEncryptionAlgorithm::MegolmV1AesSha2 => {

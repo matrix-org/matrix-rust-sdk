@@ -4,7 +4,7 @@ use matrix_sdk::{
     api_appservice,
     api_appservice::Registration,
     async_trait,
-    events::{room::member::MemberEventContent, AnyEvent, AnyStateEvent, SyncStateEvent},
+    events::{room::member::MemberEventContent, AnyRoomEvent, AnyStateEvent, SyncStateEvent},
     room::Room,
     EventHandler, Raw,
 };
@@ -82,7 +82,7 @@ async fn test_event_handler() -> Result<()> {
         .await;
 
     let event = serde_json::from_value::<AnyStateEvent>(member_json()).unwrap();
-    let event: Raw<AnyEvent> = AnyEvent::State(event).into();
+    let event: Raw<AnyRoomEvent> = AnyRoomEvent::State(event).into();
     let events = vec![event];
 
     let incoming = api_appservice::event::push_events::v1::IncomingRequest::new(
@@ -100,7 +100,7 @@ async fn test_transaction() -> Result<()> {
     let appservice = appservice(None).await?;
 
     let event = serde_json::from_value::<AnyStateEvent>(member_json()).unwrap();
-    let event: Raw<AnyEvent> = AnyEvent::State(event).into();
+    let event: Raw<AnyRoomEvent> = AnyRoomEvent::State(event).into();
     let events = vec![event];
 
     let incoming = api_appservice::event::push_events::v1::IncomingRequest::new(

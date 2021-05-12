@@ -5,8 +5,8 @@ use http::Response;
 use matrix_sdk_common::{
     api::r0::sync::sync_events::Response as SyncResponse,
     events::{
-        presence::PresenceEvent, AnyBasicEvent, AnySyncEphemeralRoomEvent, AnySyncRoomEvent,
-        AnySyncStateEvent,
+        presence::PresenceEvent, AnyGlobalAccountDataEvent, AnySyncEphemeralRoomEvent,
+        AnySyncRoomEvent, AnySyncStateEvent,
     },
     identifiers::{room_id, RoomId},
     IncomingResponse,
@@ -93,7 +93,7 @@ pub struct EventBuilder {
     /// The ephemeral room events that determine the state of a `Room`.
     ephemeral: Vec<AnySyncEphemeralRoomEvent>,
     /// The account data events that determine the state of a `Room`.
-    account_data: Vec<AnyBasicEvent>,
+    account_data: Vec<AnyGlobalAccountDataEvent>,
     /// Internal counter to enable the `prev_batch` and `next_batch` of each sync response to vary.
     batch_counter: i64,
 }
@@ -123,7 +123,7 @@ impl EventBuilder {
             _ => panic!("unknown account event {:?}", json),
         };
 
-        let event = serde_json::from_value::<AnyBasicEvent>(val.clone()).unwrap();
+        let event = serde_json::from_value::<AnyGlobalAccountDataEvent>(val.clone()).unwrap();
         self.account_data.push(event);
         self
     }

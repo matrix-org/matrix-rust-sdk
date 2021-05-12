@@ -1573,7 +1573,7 @@ impl Client {
             MIN_UPLOAD_REQUEST_TIMEOUT,
         );
 
-        let request = assign!(create_content::Request::new(data), {
+        let request = assign!(create_content::Request::new(&data), {
             content_type: Some(content_type.essence_str()),
         });
 

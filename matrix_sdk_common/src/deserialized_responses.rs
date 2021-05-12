@@ -1,6 +1,6 @@
 use ruma::{
     api::client::r0::sync::sync_events::{
-        AccountData, Ephemeral, InvitedRoom, Presence, State, ToDevice,
+        Ephemeral, InvitedRoom, Presence, RoomAccountData, State, ToDevice,
     },
     serde::Raw,
     DeviceIdBox,
@@ -12,7 +12,8 @@ use super::{
     api::r0::{
         push::get_notifications::Notification,
         sync::sync_events::{
-            DeviceLists, UnreadNotificationsCount as RumaUnreadNotificationsCount,
+            DeviceLists, GlobalAccountData,
+            UnreadNotificationsCount as RumaUnreadNotificationsCount,
         },
     },
     events::{
@@ -118,7 +119,7 @@ pub struct SyncResponse {
     /// Updates to the presence status of other users.
     pub presence: Presence,
     /// The global private data created by this user.
-    pub account_data: AccountData,
+    pub account_data: GlobalAccountData,
     /// Messages sent dirrectly between devices.
     pub to_device: ToDevice,
     /// Information on E2E device updates.
@@ -165,7 +166,7 @@ pub struct JoinedRoom {
     /// given, or `full_state` is true).
     pub state: State,
     /// The private data that this user has attached to this room.
-    pub account_data: AccountData,
+    pub account_data: RoomAccountData,
     /// The ephemeral events in the room that aren't recorded in the timeline or state of the
     /// room. e.g. typing.
     pub ephemeral: Ephemeral,
@@ -175,7 +176,7 @@ impl JoinedRoom {
     pub fn new(
         timeline: Timeline,
         state: State,
-        account_data: AccountData,
+        account_data: RoomAccountData,
         ephemeral: Ephemeral,
         unread_notifications: UnreadNotificationsCount,
     ) -> Self {
@@ -220,11 +221,11 @@ pub struct LeftRoom {
     /// given, or `full_state` is true).
     pub state: State,
     /// The private data that this user has attached to this room.
-    pub account_data: AccountData,
+    pub account_data: RoomAccountData,
 }
 
 impl LeftRoom {
-    pub fn new(timeline: Timeline, state: State, account_data: AccountData) -> Self {
+    pub fn new(timeline: Timeline, state: State, account_data: RoomAccountData) -> Self {
         Self {
             timeline,
             state,
