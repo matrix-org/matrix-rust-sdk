@@ -18,7 +18,10 @@ use std::time::Instant;
 use std::sync::Arc;
 
 use matrix_sdk_common::{
-    events::{key::verification::cancel::CancelCode, AnyMessageEvent, AnyToDeviceEvent},
+    events::{
+        key::verification::{cancel::CancelCode, ShortAuthenticationString},
+        AnyMessageEvent, AnyToDeviceEvent,
+    },
     identifiers::{EventId, RoomId},
 };
 
@@ -59,6 +62,37 @@ impl InnerSas {
         let sas = SasState::<Created>::new(account, other_device, other_identity);
         let content = sas.as_content();
         (InnerSas::Created(sas), content)
+    }
+
+    pub fn supports_emoji(&self) -> bool {
+        match self {
+            InnerSas::Created(_) => false,
+            InnerSas::Started(s) => s
+                .state
+                .accepted_protocols
+                .short_auth_string
+                .contains(&ShortAuthenticationString::Emoji),
+            InnerSas::Accepted(s) => s
+                .state
+                .accepted_protocols
+                .short_auth_string
+                .contains(&ShortAuthenticationString::Emoji),
+            InnerSas::KeyRecieved(s) => s
+                .state
+                .accepted_protocols
+                .short_auth_string
+                .contains(&ShortAuthenticationString::Emoji),
+            InnerSas::Confirmed(_) => false,
+            InnerSas::MacReceived(s) => s
+                .state
+                .accepted_protocols
+                .short_auth_string
+                .contains(&ShortAuthenticationString::Emoji),
+            InnerSas::WaitingForDone(_) => false,
+            InnerSas::WaitingForDoneUnconfirmed(_) => false,
+            InnerSas::Done(_) => false,
+            InnerSas::Canceled(_) => false,
+        }
     }
 
     pub fn start_in_room(

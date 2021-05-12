@@ -110,6 +110,12 @@ impl Sas {
         &self.flow_id
     }
 
+    /// Does this verification flow support displaying emoji for the short
+    /// authentication string.
+    pub fn supports_emoji(&self) -> bool {
+        self.inner.lock().unwrap().supports_emoji()
+    }
+
     #[cfg(test)]
     #[allow(dead_code)]
     pub(crate) fn set_creation_time(&self, time: Instant) {

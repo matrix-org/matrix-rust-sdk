@@ -98,12 +98,12 @@ impl FlowId {
 /// Struct containing the protocols that were agreed to be used for the SAS
 /// flow.
 #[derive(Clone, Debug)]
-struct AcceptedProtocols {
-    method: VerificationMethod,
-    key_agreement_protocol: KeyAgreementProtocol,
-    hash: HashAlgorithm,
-    message_auth_code: MessageAuthenticationCode,
-    short_auth_string: Vec<ShortAuthenticationString>,
+pub struct AcceptedProtocols {
+    pub method: VerificationMethod,
+    pub key_agreement_protocol: KeyAgreementProtocol,
+    pub hash: HashAlgorithm,
+    pub message_auth_code: MessageAuthenticationCode,
+    pub short_auth_string: Vec<ShortAuthenticationString>,
 }
 
 impl TryFrom<AcceptV1Content> for AcceptedProtocols {
@@ -128,6 +128,53 @@ impl TryFrom<AcceptV1Content> for AcceptedProtocols {
                 key_agreement_protocol: content.key_agreement_protocol,
                 message_auth_code: content.message_authentication_code,
                 short_auth_string: content.short_authentication_string,
+            })
+        }
+    }
+}
+
+impl TryFrom<&MSasV1Content> for AcceptedProtocols {
+    type Error = CancelCode;
+
+    fn try_from(method_content: &MSasV1Content) -> Result<Self, Self::Error> {
+        if !method_content
+            .key_agreement_protocols
+            .contains(&KeyAgreementProtocol::Curve25519HkdfSha256)
+            || !method_content
+                .message_authentication_codes
+                .contains(&MessageAuthenticationCode::HkdfHmacSha256)
+            || !method_content.hashes.contains(&HashAlgorithm::Sha256)
+            || (!method_content
+                .short_authentication_string
+                .contains(&ShortAuthenticationString::Decimal)
+                && !method_content
+                    .short_authentication_string
+                    .contains(&ShortAuthenticationString::Emoji))
+        {
+            Err(CancelCode::UnknownMethod)
+        } else {
+            let mut short_auth_string = vec![];
+
+            if method_content
+                .short_authentication_string
+                .contains(&ShortAuthenticationString::Decimal)
+            {
+                short_auth_string.push(ShortAuthenticationString::Decimal)
+            }
+
+            if method_content
+                .short_authentication_string
+                .contains(&ShortAuthenticationString::Emoji)
+            {
+                short_auth_string.push(ShortAuthenticationString::Emoji);
+            }
+
+            Ok(Self {
+                method: VerificationMethod::MSasV1,
+                hash: HashAlgorithm::Sha256,
+                key_agreement_protocol: KeyAgreementProtocol::Curve25519HkdfSha256,
+                message_auth_code: MessageAuthenticationCode::HkdfHmacSha256,
+                short_auth_string,
             })
         }
     }
@@ -176,7 +223,7 @@ pub struct SasState<S: Clone> {
     pub verification_flow_id: Arc<FlowId>,
 
     /// The SAS state we're in.
-    state: Arc<S>,
+    pub state: Arc<S>,
 }
 
 #[cfg(not(tarpaulin_include))]
@@ -200,14 +247,14 @@ pub struct Created {
 #[derive(Clone, Debug)]
 pub struct Started {
     commitment: String,
-    protocol_definitions: MSasV1Content,
+    pub accepted_protocols: Arc<AcceptedProtocols>,
 }
 
 /// The SAS state we're going to be in after the other side accepted our
 /// verification start event.
 #[derive(Clone, Debug)]
 pub struct Accepted {
-    accepted_protocols: Arc<AcceptedProtocols>,
+    pub accepted_protocols: Arc<AcceptedProtocols>,
     start_content: Arc<StartContent>,
     commitment: String,
 }
@@ -220,7 +267,7 @@ pub struct Accepted {
 pub struct KeyReceived {
     their_pubkey: String,
     we_started: bool,
-    accepted_protocols: Arc<AcceptedProtocols>,
+    pub accepted_protocols: Arc<AcceptedProtocols>,
 }
 
 /// The SAS state we're going to be in after the user has confirmed that the
@@ -228,7 +275,7 @@ pub struct KeyReceived {
 /// other side.
 #[derive(Clone, Debug)]
 pub struct Confirmed {
-    accepted_protocols: Arc<AcceptedProtocols>,
+    pub accepted_protocols: Arc<AcceptedProtocols>,
 }
 
 /// The SAS state we're going to be in after we receive a MAC event from the
@@ -240,6 +287,7 @@ pub struct MacReceived {
     their_pubkey: String,
     verified_devices: Arc<[ReadOnlyDevice]>,
     verified_master_keys: Arc<[UserIdentities]>,
+    pub accepted_protocols: Arc<AcceptedProtocols>,
 }
 
 /// The SAS state we're going to be in after we receive a MAC event in a DM. DMs
@@ -490,6 +538,22 @@ impl SasState<Started> {
         other_identity: Option<UserIdentities>,
         content: &StartContent,
     ) -> Result<SasState<Started>, SasState<Canceled>> {
+        let canceled = || SasState {
+            inner: Arc::new(Mutex::new(OlmSas::new())),
+
+            creation_time: Arc::new(Instant::now()),
+            last_event_time: Arc::new(Instant::now()),
+
+            ids: SasIds {
+                account: account.clone(),
+                other_device: other_device.clone(),
+                other_identity: other_identity.clone(),
+            },
+
+            verification_flow_id: content.flow_id().into(),
+            state: Arc::new(Canceled::new(CancelCode::UnknownMethod)),
+        };
+
         if let StartMethod::MSasV1(method_content) = content.method() {
             let sas = OlmSas::new();
 
@@ -501,60 +565,31 @@ impl SasState<Started> {
                 pubkey, content, commitment
             );
 
-            let sas = SasState {
-                inner: Arc::new(Mutex::new(sas)),
+            if let Ok(accepted_protocols) = AcceptedProtocols::try_from(method_content) {
+                Ok(SasState {
+                    inner: Arc::new(Mutex::new(sas)),
 
-                ids: SasIds {
-                    account,
-                    other_device,
-                    other_identity,
-                },
+                    ids: SasIds {
+                        account,
+                        other_device,
+                        other_identity,
+                    },
 
-                creation_time: Arc::new(Instant::now()),
-                last_event_time: Arc::new(Instant::now()),
+                    creation_time: Arc::new(Instant::now()),
+                    last_event_time: Arc::new(Instant::now()),
 
-                verification_flow_id: content.flow_id().into(),
+                    verification_flow_id: content.flow_id().into(),
 
-                state: Arc::new(Started {
-                    protocol_definitions: method_content.clone(),
-                    commitment,
-                }),
-            };
-
-            if !method_content
-                .key_agreement_protocols
-                .contains(&KeyAgreementProtocol::Curve25519HkdfSha256)
-                || !method_content
-                    .message_authentication_codes
-                    .contains(&MessageAuthenticationCode::HkdfHmacSha256)
-                || !method_content.hashes.contains(&HashAlgorithm::Sha256)
-                || (!method_content
-                    .short_authentication_string
-                    .contains(&ShortAuthenticationString::Decimal)
-                    && !method_content
-                        .short_authentication_string
-                        .contains(&ShortAuthenticationString::Emoji))
-            {
-                Err(sas.cancel(CancelCode::UnknownMethod))
+                    state: Arc::new(Started {
+                        accepted_protocols: accepted_protocols.into(),
+                        commitment,
+                    }),
+                })
             } else {
-                Ok(sas)
+                Err(canceled())
             }
         } else {
-            Err(SasState {
-                inner: Arc::new(Mutex::new(OlmSas::new())),
-
-                creation_time: Arc::new(Instant::now()),
-                last_event_time: Arc::new(Instant::now()),
-
-                ids: SasIds {
-                    account,
-                    other_device,
-                    other_identity,
-                },
-
-                verification_flow_id: content.flow_id().into(),
-                state: Arc::new(Canceled::new(CancelCode::UnknownMethod)),
-            })
+            Err(canceled())
         }
     }
 
@@ -566,18 +601,24 @@ impl SasState<Started> {
     /// been started because of a
     /// m.key.verification.request -> m.key.verification.ready flow.
     pub fn as_content(&self) -> AcceptContent {
-        let accepted_protocols = AcceptedProtocols::default();
-
         let method = AcceptMethod::MSasV1(
             AcceptV1ContentInit {
                 commitment: self.state.commitment.clone(),
-                hash: accepted_protocols.hash,
-                key_agreement_protocol: accepted_protocols.key_agreement_protocol,
-                message_authentication_code: accepted_protocols.message_auth_code,
+                hash: self.state.accepted_protocols.hash.clone(),
+                key_agreement_protocol: self
+                    .state
+                    .accepted_protocols
+                    .key_agreement_protocol
+                    .clone(),
+                message_authentication_code: self
+                    .state
+                    .accepted_protocols
+                    .message_auth_code
+                    .clone(),
                 short_authentication_string: self
                     .state
-                    .protocol_definitions
-                    .short_authentication_string
+                    .accepted_protocols
+                    .short_auth_string
                     .clone(),
             }
             .into(),
@@ -620,8 +661,6 @@ impl SasState<Started> {
         self.check_event(&sender, &content.flow_id().as_str())
             .map_err(|c| self.clone().cancel(c))?;
 
-        let accepted_protocols = AcceptedProtocols::default();
-
         let their_pubkey = content.public_key().to_owned();
 
         self.inner
@@ -639,7 +678,7 @@ impl SasState<Started> {
             state: Arc::new(KeyReceived {
                 we_started: false,
                 their_pubkey,
-                accepted_protocols: Arc::new(accepted_protocols),
+                accepted_protocols: self.state.accepted_protocols.clone(),
             }),
         })
     }
@@ -823,6 +862,7 @@ impl SasState<KeyReceived> {
                 their_pubkey: self.state.their_pubkey.clone(),
                 verified_devices: devices.into(),
                 verified_master_keys: master_keys.into(),
+                accepted_protocols: self.state.accepted_protocols.clone(),
             }),
         })
     }

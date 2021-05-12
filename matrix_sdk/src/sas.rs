@@ -121,6 +121,12 @@ impl Sas {
         self.inner.decimals()
     }
 
+    /// Does this verification flow support emoji for the short authentication
+    /// string.
+    pub fn supports_emoji(&self) -> bool {
+        self.inner.supports_emoji()
+    }
+
     /// Is the verification process done.
     pub fn is_done(&self) -> bool {
         self.inner.is_done()
