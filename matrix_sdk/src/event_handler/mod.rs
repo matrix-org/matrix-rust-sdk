@@ -292,11 +292,8 @@ impl Handler {
         room: Room,
         event: &AnyRoomAccountDataEvent,
     ) {
-        match event {
-            AnyRoomAccountDataEvent::FullyRead(event) => {
-                self.on_non_room_fully_read(room, &event).await
-            }
-            _ => {}
+        if let AnyRoomAccountDataEvent::FullyRead(event) = event {
+            self.on_non_room_fully_read(room, &event).await
         }
     }
 
