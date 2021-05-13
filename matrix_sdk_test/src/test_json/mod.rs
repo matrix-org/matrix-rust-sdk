@@ -42,3 +42,29 @@ lazy_static! {
         ]
     });
 }
+
+lazy_static! {
+    pub static ref WELL_KNOWN: JsonValue = json!({
+        "m.homeserver": {
+            "base_url": "HOMESERVER_URL"
+        }
+    });
+}
+
+lazy_static! {
+    pub static ref VERSIONS: JsonValue = json!({
+        "versions": [
+            "r0.0.1",
+            "r0.1.0",
+            "r0.2.0",
+            "r0.3.0",
+            "r0.4.0",
+            "r0.5.0",
+            "r0.6.0"
+        ],
+        "unstable_features": {
+            "org.matrix.label_based_filtering":true,
+            "org.matrix.e2e_cross_signing":true
+        }
+    });
+}
