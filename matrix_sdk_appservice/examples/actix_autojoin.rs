@@ -34,7 +34,9 @@ impl EventHandler for AppserviceEventHandler {
         if let MembershipState::Invite = event.content.membership {
             let user_id = UserId::try_from(event.state_key.clone()).unwrap();
 
-            let client = self.appservice.client_with_localpart(user_id.localpart()).await.unwrap();
+            self.appservice.register(user_id.localpart()).await.unwrap();
+
+            let client = self.appservice.client(Some(user_id.localpart())).await.unwrap();
 
             client.join_room_by_id(room.room_id()).await.unwrap();
         }
@@ -55,7 +57,7 @@ pub async fn main() -> std::io::Result<()> {
 
     let event_handler = AppserviceEventHandler::new(appservice.clone());
 
-    appservice.client().set_event_handler(Box::new(event_handler)).await;
+    appservice.set_event_handler(Box::new(event_handler)).await.unwrap();
 
     HttpServer::new(move || App::new().service(appservice.actix_service()))
         .bind(("0.0.0.0", 8090))?

@@ -76,7 +76,7 @@ async fn test_event_handler() -> Result<()> {
         }
     }
 
-    appservice.client().set_event_handler(Box::new(Example::new())).await;
+    appservice.set_event_handler(Box::new(Example::new())).await?;
 
     let event = serde_json::from_value::<AnyStateEvent>(member_json()).unwrap();
     let event: Raw<AnyRoomEvent> = AnyRoomEvent::State(event).into();
@@ -87,7 +87,7 @@ async fn test_event_handler() -> Result<()> {
         events,
     );
 
-    appservice.client().receive_transaction(incoming).await?;
+    appservice.client(None).await?.receive_transaction(incoming).await?;
 
     Ok(())
 }
@@ -105,7 +105,7 @@ async fn test_transaction() -> Result<()> {
         events,
     );
 
-    appservice.client().receive_transaction(incoming).await?;
+    appservice.client(None).await?.receive_transaction(incoming).await?;
 
     Ok(())
 }
@@ -116,7 +116,7 @@ async fn test_verify_hs_token() -> Result<()> {
 
     let registration = appservice.registration();
 
-    assert!(appservice.hs_token_matches(&registration.hs_token));
+    assert!(appservice.compare_hs_token(&registration.hs_token));
 
     Ok(())
 }
