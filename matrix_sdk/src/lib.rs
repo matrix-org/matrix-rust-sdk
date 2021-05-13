@@ -110,6 +110,9 @@ pub use room_member::RoomMember;
 #[cfg(feature = "encryption")]
 #[cfg_attr(feature = "docs", doc(cfg(encryption)))]
 pub use sas::Sas;
+#[cfg(feature = "encryption")]
+#[cfg_attr(feature = "docs", doc(cfg(encryption)))]
+pub use verification_request::VerificationRequest;
 
 #[cfg(not(target_arch = "wasm32"))]
 pub(crate) const VERSION: &str = env!("CARGO_PKG_VERSION");

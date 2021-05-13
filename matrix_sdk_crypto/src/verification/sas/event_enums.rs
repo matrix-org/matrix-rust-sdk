@@ -12,8 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#![allow(dead_code)]
-
 use std::{collections::BTreeMap, convert::TryInto};
 
 use matrix_sdk_common::{
@@ -274,5 +272,73 @@ impl From<AnyToDeviceEventContent> for OutgoingContent {
 impl From<(RoomId, AnyMessageEventContent)> for OutgoingContent {
     fn from(content: (RoomId, AnyMessageEventContent)) -> Self {
         OutgoingContent::Room(content.0, content.1)
+    }
+}
+
+#[cfg(test)]
+use crate::OutgoingVerificationRequest;
+
+#[cfg(test)]
+impl From<OutgoingVerificationRequest> for OutgoingContent {
+    fn from(request: OutgoingVerificationRequest) -> Self {
+        use matrix_sdk_common::events::EventType;
+        use serde_json::Value;
+
+        match request {
+            OutgoingVerificationRequest::ToDevice(r) => {
+                let json: Value = serde_json::from_str(
+                    r.messages
+                        .values()
+                        .next()
+                        .unwrap()
+                        .values()
+                        .next()
+                        .unwrap()
+                        .get(),
+                )
+                .unwrap();
+
+                match r.event_type {
+                    EventType::KeyVerificationRequest => {
+                        AnyToDeviceEventContent::KeyVerificationRequest(
+                            serde_json::from_value(json).unwrap(),
+                        )
+                    }
+                    EventType::KeyVerificationReady => {
+                        AnyToDeviceEventContent::KeyVerificationReady(
+                            serde_json::from_value(json).unwrap(),
+                        )
+                    }
+                    EventType::KeyVerificationDone => AnyToDeviceEventContent::KeyVerificationDone(
+                        serde_json::from_value(json).unwrap(),
+                    ),
+                    EventType::KeyVerificationStart => {
+                        AnyToDeviceEventContent::KeyVerificationStart(
+                            serde_json::from_value(json).unwrap(),
+                        )
+                    }
+                    EventType::KeyVerificationKey => AnyToDeviceEventContent::KeyVerificationKey(
+                        serde_json::from_value(json).unwrap(),
+                    ),
+                    EventType::KeyVerificationAccept => {
+                        AnyToDeviceEventContent::KeyVerificationAccept(
+                            serde_json::from_value(json).unwrap(),
+                        )
+                    }
+                    EventType::KeyVerificationMac => AnyToDeviceEventContent::KeyVerificationMac(
+                        serde_json::from_value(json).unwrap(),
+                    ),
+                    EventType::KeyVerificationCancel => {
+                        AnyToDeviceEventContent::KeyVerificationCancel(
+                            serde_json::from_value(json).unwrap(),
+                        )
+                    }
+                    _ => unreachable!(),
+                }
+                .into()
+            }
+
+            OutgoingVerificationRequest::InRoom(r) => (r.room_id, r.content).into(),
+        }
     }
 }

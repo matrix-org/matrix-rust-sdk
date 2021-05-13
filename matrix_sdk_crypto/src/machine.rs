@@ -37,8 +37,7 @@ use matrix_sdk_common::{
         AnyMessageEventContent, AnyToDeviceEvent, SyncMessageEvent, ToDeviceEvent,
     },
     identifiers::{
-        DeviceId, DeviceIdBox, DeviceKeyAlgorithm, EventEncryptionAlgorithm, EventId, RoomId,
-        UserId,
+        DeviceId, DeviceIdBox, DeviceKeyAlgorithm, EventEncryptionAlgorithm, RoomId, UserId,
     },
     locks::Mutex,
     uuid::Uuid,
@@ -317,8 +316,7 @@ impl OlmMachine {
             requests.push(request);
         }
 
-        requests.append(&mut self.outgoing_to_device_requests());
-        requests.append(&mut self.verification_machine.outgoing_room_message_requests());
+        requests.append(&mut self.verification_machine.outgoing_messages());
         requests.append(
             &mut self
                 .key_request_machine
@@ -747,11 +745,6 @@ impl OlmMachine {
         }
     }
 
-    /// Get the to-device requests that need to be sent out.
-    fn outgoing_to_device_requests(&self) -> Vec<OutgoingRequest> {
-        self.verification_machine.outgoing_to_device_requests()
-    }
-
     /// Mark an outgoing to-device requests as sent.
     async fn mark_to_device_request_as_sent(&self, request_id: &Uuid) -> StoreResult<()> {
         self.verification_machine.mark_request_as_sent(request_id);
@@ -773,7 +766,10 @@ impl OlmMachine {
     }
 
     /// Get a verification request object with the given flow id.
-    pub fn get_verification_request(&self, flow_id: &EventId) -> Option<VerificationRequest> {
+    pub fn get_verification_request(
+        &self,
+        flow_id: impl AsRef<str>,
+    ) -> Option<VerificationRequest> {
         self.verification_machine.get_request(flow_id)
     }
 
@@ -1967,14 +1963,16 @@ pub(crate) mod test {
         alice.handle_verification_event(&event).await;
 
         let event = alice
-            .outgoing_to_device_requests()
+            .verification_machine
+            .outgoing_messages()
             .first()
             .map(|r| outgoing_request_to_event(alice.user_id(), r))
             .unwrap();
         bob.handle_verification_event(&event).await;
 
         let event = bob
-            .outgoing_to_device_requests()
+            .verification_machine
+            .outgoing_messages()
             .first()
             .map(|r| outgoing_request_to_event(bob.user_id(), r))
             .unwrap();

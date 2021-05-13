@@ -29,7 +29,7 @@ use matrix_sdk_common::{
         },
         AnyToDeviceEventContent, EventType,
     },
-    identifiers::{DeviceId, DeviceKeyAlgorithm, DeviceKeyId, UserId},
+    identifiers::{DeviceKeyAlgorithm, DeviceKeyId, UserId},
     uuid::Uuid,
 };
 
@@ -41,7 +41,7 @@ use crate::{
 
 use super::{
     event_enums::{MacContent, StartContent},
-    sas_state::FlowId,
+    FlowId,
 };
 
 #[derive(Clone, Debug)]
@@ -562,14 +562,14 @@ fn bytes_to_decimal(bytes: Vec<u8>) -> (u16, u16, u16) {
 
 pub fn content_to_request(
     recipient: &UserId,
-    recipient_device: &DeviceId,
+    recipient_device: impl Into<DeviceIdOrAllDevices>,
     content: AnyToDeviceEventContent,
 ) -> ToDeviceRequest {
     let mut messages = BTreeMap::new();
     let mut user_messages = BTreeMap::new();
 
     user_messages.insert(
-        DeviceIdOrAllDevices::DeviceId(recipient_device.into()),
+        recipient_device.into(),
         serde_json::value::to_raw_value(&content).expect("Can't serialize to-device content"),
     );
     messages.insert(recipient.clone(), user_messages);
@@ -580,6 +580,8 @@ pub fn content_to_request(
         AnyToDeviceEventContent::KeyVerificationKey(_) => EventType::KeyVerificationKey,
         AnyToDeviceEventContent::KeyVerificationMac(_) => EventType::KeyVerificationMac,
         AnyToDeviceEventContent::KeyVerificationCancel(_) => EventType::KeyVerificationCancel,
+        AnyToDeviceEventContent::KeyVerificationReady(_) => EventType::KeyVerificationReady,
+        AnyToDeviceEventContent::KeyVerificationDone(_) => EventType::KeyVerificationDone,
         _ => unreachable!(),
     };
 

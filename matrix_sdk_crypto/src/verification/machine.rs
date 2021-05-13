@@ -47,9 +47,8 @@ pub struct VerificationMachine {
     pub(crate) store: Arc<Box<dyn CryptoStore>>,
     verifications: Arc<DashMap<String, Sas>>,
     room_verifications: Arc<DashMap<EventId, Sas>>,
-    requests: Arc<DashMap<EventId, VerificationRequest>>,
-    outgoing_to_device_messages: Arc<DashMap<Uuid, OutgoingRequest>>,
-    outgoing_room_messages: Arc<DashMap<Uuid, OutgoingRequest>>,
+    requests: Arc<DashMap<String, VerificationRequest>>,
+    outgoing_messages: Arc<DashMap<Uuid, OutgoingRequest>>,
 }
 
 impl VerificationMachine {
@@ -64,9 +63,8 @@ impl VerificationMachine {
             store,
             verifications: DashMap::new().into(),
             requests: DashMap::new().into(),
-            outgoing_to_device_messages: DashMap::new().into(),
             room_verifications: DashMap::new().into(),
-            outgoing_room_messages: DashMap::new().into(),
+            outgoing_messages: DashMap::new().into(),
         }
     }
 
@@ -83,6 +81,7 @@ impl VerificationMachine {
             device.clone(),
             self.store.clone(),
             identity,
+            None,
         );
 
         let request = match content.into() {
@@ -93,7 +92,8 @@ impl VerificationMachine {
             }
             .into(),
             OutgoingContent::ToDevice(c) => {
-                let request = content_to_request(device.user_id(), device.device_id(), c);
+                let request =
+                    content_to_request(device.user_id(), device.device_id().to_owned(), c);
 
                 self.verifications
                     .insert(sas.flow_id().as_str().to_owned(), sas.clone());
@@ -105,9 +105,8 @@ impl VerificationMachine {
         Ok((sas, request))
     }
 
-    pub fn get_request(&self, flow_id: &EventId) -> Option<VerificationRequest> {
-        #[allow(clippy::map_clone)]
-        self.requests.get(flow_id).map(|s| s.clone())
+    pub fn get_request(&self, flow_id: impl AsRef<str>) -> Option<VerificationRequest> {
+        self.requests.get(flow_id.as_ref()).map(|s| s.clone())
     }
 
     pub fn get_sas(&self, transaction_id: &str) -> Option<Sas> {
@@ -134,7 +133,7 @@ impl VerificationMachine {
     ) {
         match content {
             OutgoingContent::ToDevice(c) => {
-                let request = content_to_request(recipient, recipient_device, c);
+                let request = content_to_request(recipient, recipient_device.to_owned(), c);
                 let request_id = request.txn_id;
 
                 let request = OutgoingRequest {
@@ -142,7 +141,7 @@ impl VerificationMachine {
                     request: Arc::new(request.into()),
                 };
 
-                self.outgoing_to_device_messages.insert(request_id, request);
+                self.outgoing_messages.insert(request_id, request);
             }
 
             OutgoingContent::Room(r, c) => {
@@ -160,12 +159,11 @@ impl VerificationMachine {
                     request_id,
                 };
 
-                self.outgoing_room_messages.insert(request_id, request);
+                self.outgoing_messages.insert(request_id, request);
             }
         }
     }
 
-    #[allow(dead_code)]
     fn receive_room_event_helper(&self, sas: &Sas, event: &AnyMessageEvent) {
         if let Some(c) = sas.receive_room_event(event) {
             self.queue_up_content(sas.other_user_id(), sas.other_device_id(), c);
@@ -179,20 +177,11 @@ impl VerificationMachine {
     }
 
     pub fn mark_request_as_sent(&self, uuid: &Uuid) {
-        self.outgoing_room_messages.remove(uuid);
-        self.outgoing_to_device_messages.remove(uuid);
+        self.outgoing_messages.remove(uuid);
     }
 
-    pub fn outgoing_room_message_requests(&self) -> Vec<OutgoingRequest> {
-        self.outgoing_room_messages
-            .iter()
-            .map(|r| (*r).clone())
-            .collect()
-    }
-
-    pub fn outgoing_to_device_requests(&self) -> Vec<OutgoingRequest> {
-        #[allow(clippy::map_clone)]
-        self.outgoing_to_device_messages
+    pub fn outgoing_messages(&self) -> Vec<OutgoingRequest> {
+        self.outgoing_messages
             .iter()
             .map(|r| (*r).clone())
             .collect()
@@ -204,7 +193,7 @@ impl VerificationMachine {
 
         for sas in self.verifications.iter() {
             if let Some(r) = sas.cancel_if_timed_out() {
-                self.outgoing_to_device_messages.insert(
+                self.outgoing_messages.insert(
                     r.request_id(),
                     OutgoingRequest {
                         request_id: r.request_id(),
@@ -240,22 +229,23 @@ impl VerificationMachine {
                                 m.sender, r.from_device
                             );
 
-                            let request = VerificationRequest::from_request_event(
+                            let request = VerificationRequest::from_room_request(
                                 self.account.clone(),
                                 self.private_identity.lock().await.clone(),
                                 self.store.clone(),
-                                room_id,
                                 &m.sender,
                                 &m.event_id,
+                                room_id,
                                 r,
                             );
 
-                            self.requests.insert(m.event_id.clone(), request);
+                            self.requests
+                                .insert(request.flow_id().as_str().to_owned(), request);
                         }
                     }
                 }
                 AnySyncMessageEvent::KeyVerificationReady(e) => {
-                    if let Some(request) = self.requests.get(&e.content.relation.event_id) {
+                    if let Some(request) = self.requests.get(e.content.relation.event_id.as_str()) {
                         if &e.sender == request.other_user() {
                             // TODO remove this unwrap.
                             request.receive_ready(&e.sender, &e.content).unwrap();
@@ -268,7 +258,9 @@ impl VerificationMachine {
                         e.sender, e.content.from_device
                     );
 
-                    if let Some((_, request)) = self.requests.remove(&e.content.relation.event_id) {
+                    if let Some((_, request)) =
+                        self.requests.remove(e.content.relation.event_id.as_str())
+                    {
                         if let Some(d) = self
                             .store
                             .get_device(&e.sender, &e.content.from_device)
@@ -282,7 +274,7 @@ impl VerificationMachine {
                                 Ok(s) => {
                                     info!(
                                         "Started a new SAS verification, \
-                                          automatically accepting because of in-room"
+                                          automatically accepting because we accepted from a request"
                                     );
 
                                     // TODO remove this unwrap
@@ -291,7 +283,7 @@ impl VerificationMachine {
                                     self.room_verifications
                                         .insert(e.content.relation.event_id.clone(), s);
 
-                                    self.outgoing_room_messages
+                                    self.outgoing_messages
                                         .insert(accept_request.request_id(), accept_request.into());
                                 }
                                 Err(c) => {
@@ -299,7 +291,7 @@ impl VerificationMachine {
                                         "Can't start key verification with {} {}, canceling: {:?}",
                                         e.sender, e.content.from_device, c
                                     );
-                                    // self.queue_up_content(&e.sender, &e.content.from_device, c)
+                                    self.queue_up_content(&e.sender, &e.content.from_device, c)
                                 }
                             }
                         }
@@ -339,14 +331,12 @@ impl VerificationMachine {
                                     }
                                 }
                                 VerificationResult::Cancel(r) => {
-                                    self.outgoing_to_device_messages
-                                        .insert(r.request_id(), r.into());
+                                    self.outgoing_messages.insert(r.request_id(), r.into());
                                 }
                                 VerificationResult::SignatureUpload(r) => {
                                     let request: OutgoingRequest = r.into();
 
-                                    self.outgoing_to_device_messages
-                                        .insert(request.request_id, request);
+                                    self.outgoing_messages.insert(request.request_id, request);
 
                                     if let Some(c) = content {
                                         self.queue_up_content(
@@ -371,6 +361,26 @@ impl VerificationMachine {
         trace!("Received a key verification event {:?}", event);
 
         match event {
+            AnyToDeviceEvent::KeyVerificationRequest(e) => {
+                let request = VerificationRequest::from_request(
+                    self.account.clone(),
+                    self.private_identity.lock().await.clone(),
+                    self.store.clone(),
+                    &e.sender,
+                    &e.content,
+                );
+
+                self.requests
+                    .insert(request.flow_id().as_str().to_string(), request);
+            }
+            AnyToDeviceEvent::KeyVerificationReady(e) => {
+                if let Some(request) = self.requests.get(&e.content.transaction_id) {
+                    if &e.sender == request.other_user() {
+                        // TODO remove this unwrap.
+                        request.receive_ready(&e.sender, &e.content).unwrap();
+                    }
+                }
+            }
             AnyToDeviceEvent::KeyVerificationStart(e) => {
                 trace!(
                     "Received a m.key.verification start event from {} {}",
@@ -432,7 +442,7 @@ impl VerificationMachine {
                         match s.mark_as_done().await? {
                             VerificationResult::Ok => (),
                             VerificationResult::Cancel(r) => {
-                                self.outgoing_to_device_messages.insert(
+                                self.outgoing_messages.insert(
                                     r.request_id(),
                                     OutgoingRequest {
                                         request_id: r.request_id(),
@@ -443,7 +453,7 @@ impl VerificationMachine {
                             VerificationResult::SignatureUpload(r) => {
                                 let request_id = Uuid::new_v4();
 
-                                self.outgoing_to_device_messages.insert(
+                                self.outgoing_messages.insert(
                                     request_id,
                                     OutgoingRequest {
                                         request_id,
@@ -521,6 +531,7 @@ mod test {
             alice_device,
             bob_store,
             None,
+            None,
         );
 
         machine
@@ -558,15 +569,11 @@ mod test {
             .map(|c| wrap_any_to_device_content(bob.user_id(), c))
             .unwrap();
 
-        assert!(alice_machine.outgoing_to_device_messages.is_empty());
+        assert!(alice_machine.outgoing_messages.is_empty());
         alice_machine.receive_event(&event).await.unwrap();
-        assert!(!alice_machine.outgoing_to_device_messages.is_empty());
+        assert!(!alice_machine.outgoing_messages.is_empty());
 
-        let request = alice_machine
-            .outgoing_to_device_messages
-            .iter()
-            .next()
-            .unwrap();
+        let request = alice_machine.outgoing_messages.iter().next().unwrap();
 
         let txn_id = *request.request_id();
 
@@ -611,14 +618,14 @@ mod test {
         let alice = alice_machine.get_sas(bob.flow_id().as_str()).unwrap();
 
         assert!(!alice.timed_out());
-        assert!(alice_machine.outgoing_to_device_messages.is_empty());
+        assert!(alice_machine.outgoing_messages.is_empty());
 
         // This line panics on macOS, so we're disabled for now.
         alice.set_creation_time(Instant::now() - Duration::from_secs(60 * 15));
         assert!(alice.timed_out());
-        assert!(alice_machine.outgoing_to_device_messages.is_empty());
+        assert!(alice_machine.outgoing_messages.is_empty());
         alice_machine.garbage_collect();
-        assert!(!alice_machine.outgoing_to_device_messages.is_empty());
+        assert!(!alice_machine.outgoing_messages.is_empty());
         alice_machine.garbage_collect();
         assert!(alice_machine.verifications.is_empty());
     }

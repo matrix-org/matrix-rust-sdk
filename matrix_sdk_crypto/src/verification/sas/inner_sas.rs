@@ -33,10 +33,10 @@ use crate::{
 use super::{
     event_enums::{AcceptContent, CancelContent, MacContent, OutgoingContent},
     sas_state::{
-        Accepted, Canceled, Confirmed, Created, Done, FlowId, KeyReceived, MacReceived, SasState,
-        Started, WaitingForDone,
+        Accepted, Canceled, Confirmed, Created, Done, KeyReceived, MacReceived, SasState, Started,
+        WaitingForDone,
     },
-    StartContent,
+    FlowId, StartContent,
 };
 
 #[derive(Clone, Debug)]
@@ -58,8 +58,9 @@ impl InnerSas {
         account: ReadOnlyAccount,
         other_device: ReadOnlyDevice,
         other_identity: Option<UserIdentities>,
+        transaction_id: Option<String>,
     ) -> (InnerSas, StartContent) {
-        let sas = SasState::<Created>::new(account, other_device, other_identity);
+        let sas = SasState::<Created>::new(account, other_device, other_identity, transaction_id);
         let content = sas.as_content();
         (InnerSas::Created(sas), content)
     }

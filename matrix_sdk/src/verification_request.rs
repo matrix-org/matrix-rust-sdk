@@ -12,27 +12,38 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use matrix_sdk_base::{
-    crypto::VerificationRequest as BaseVerificationRequest, events::AnyMessageEventContent,
+use matrix_sdk_base::crypto::{
+    OutgoingVerificationRequest, VerificationRequest as BaseVerificationRequest,
 };
 
-use crate::{room::Joined, Result};
+use crate::{Client, Result};
 
 /// An object controling the interactive verification flow.
 #[derive(Debug, Clone)]
 pub struct VerificationRequest {
     pub(crate) inner: BaseVerificationRequest,
-    pub(crate) room: Joined,
+    pub(crate) client: Client,
 }
 
 impl VerificationRequest {
-    /// Accept the interactive verification flow.
+    /// Accept the verification request
     pub async fn accept(&self) -> Result<()> {
-        if let Some(content) = self.inner.accept() {
-            let content = AnyMessageEventContent::KeyVerificationReady(content);
-            self.room.send(content, None).await?;
+        if let Some(request) = self.inner.accept() {
+            match request {
+                OutgoingVerificationRequest::ToDevice(r) => {
+                    self.client.send_to_device(&r).await?;
+                }
+                OutgoingVerificationRequest::InRoom(r) => {
+                    self.client.room_send_helper(&r).await?;
+                }
+            };
         }
 
         Ok(())
+    }
+
+    /// Cancel the verification request
+    pub async fn cancel(&self) -> Result<()> {
+        todo!()
     }
 }

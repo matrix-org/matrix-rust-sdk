@@ -103,14 +103,11 @@ use matrix_sdk_common::{
 };
 
 #[cfg(feature = "encryption")]
-use matrix_sdk_common::{
-    api::r0::{
-        keys::{get_keys, upload_keys, upload_signing_keys::Request as UploadSigningKeysRequest},
-        to_device::send_event_to_device::{
-            Request as RumaToDeviceRequest, Response as ToDeviceResponse,
-        },
+use matrix_sdk_common::api::r0::{
+    keys::{get_keys, upload_keys, upload_signing_keys::Request as UploadSigningKeysRequest},
+    to_device::send_event_to_device::{
+        Request as RumaToDeviceRequest, Response as ToDeviceResponse,
     },
-    identifiers::EventId,
 };
 
 use matrix_sdk_common::locks::Mutex;
@@ -2131,13 +2128,17 @@ impl Client {
     /// Get a `VerificationRequest` object with the given flow id.
     #[cfg(feature = "encryption")]
     #[cfg_attr(feature = "docs", doc(cfg(encryption)))]
-    pub async fn get_verification_request(&self, flow_id: &EventId) -> Option<VerificationRequest> {
+    pub async fn get_verification_request(
+        &self,
+        flow_id: impl AsRef<str>,
+    ) -> Option<VerificationRequest> {
         let olm = self.base_client.olm_machine().await?;
 
-        olm.get_verification_request(flow_id).and_then(|r| {
-            self.get_joined_room(r.room_id())
-                .map(|room| VerificationRequest { inner: r, room })
-        })
+        olm.get_verification_request(flow_id)
+            .map(|r| VerificationRequest {
+                inner: r,
+                client: self.clone(),
+            })
     }
 
     /// Get a specific device of a user.

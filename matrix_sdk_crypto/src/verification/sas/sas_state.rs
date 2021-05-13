@@ -54,6 +54,7 @@ use super::{
 
 use crate::{
     identities::{ReadOnlyDevice, UserIdentities},
+    verification::FlowId,
     ReadOnlyAccount,
 };
 
@@ -71,29 +72,6 @@ const MAX_AGE: Duration = Duration::from_secs(60 * 5);
 
 // The max time a SAS object will wait for a new event to arrive.
 const MAX_EVENT_TIMEOUT: Duration = Duration::from_secs(60);
-
-#[derive(Clone, Debug)]
-pub enum FlowId {
-    ToDevice(String),
-    InRoom(RoomId, EventId),
-}
-
-impl FlowId {
-    pub fn room_id(&self) -> Option<&RoomId> {
-        if let FlowId::InRoom(r, _) = &self {
-            Some(r)
-        } else {
-            None
-        }
-    }
-
-    pub fn as_str(&self) -> &str {
-        match self {
-            FlowId::InRoom(_, r) => r.as_str(),
-            FlowId::ToDevice(t) => t.as_str(),
-        }
-    }
-}
 
 /// Struct containing the protocols that were agreed to be used for the SAS
 /// flow.
@@ -386,8 +364,10 @@ impl SasState<Created> {
         account: ReadOnlyAccount,
         other_device: ReadOnlyDevice,
         other_identity: Option<UserIdentities>,
+        transaction_id: Option<String>,
     ) -> SasState<Created> {
-        let flow_id = FlowId::ToDevice(Uuid::new_v4().to_string());
+        let flow_id =
+            FlowId::ToDevice(transaction_id.unwrap_or_else(|| Uuid::new_v4().to_string()));
         Self::new_helper(flow_id, account, other_device, other_identity)
     }
 
@@ -1259,7 +1239,7 @@ mod test {
         let bob = ReadOnlyAccount::new(&bob_id(), &bob_device_id());
         let bob_device = ReadOnlyDevice::from_account(&bob).await;
 
-        let alice_sas = SasState::<Created>::new(alice.clone(), bob_device, None);
+        let alice_sas = SasState::<Created>::new(alice.clone(), bob_device, None, None);
 
         let start_content = alice_sas.as_content();
 
@@ -1430,7 +1410,7 @@ mod test {
         let bob = ReadOnlyAccount::new(&bob_id(), &bob_device_id());
         let bob_device = ReadOnlyDevice::from_account(&bob).await;
 
-        let alice_sas = SasState::<Created>::new(alice.clone(), bob_device, None);
+        let alice_sas = SasState::<Created>::new(alice.clone(), bob_device, None, None);
 
         let mut start_content = alice_sas.as_content();
 

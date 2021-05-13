@@ -47,13 +47,11 @@ use crate::{
     ReadOnlyAccount, ToDeviceRequest,
 };
 
+use super::FlowId;
+
+pub use event_enums::{CancelContent, OutgoingContent, StartContent};
 pub use helpers::content_to_request;
 use inner_sas::InnerSas;
-pub use sas_state::FlowId;
-
-pub use event_enums::{OutgoingContent, StartContent};
-
-use self::event_enums::CancelContent;
 
 #[derive(Debug)]
 /// A result of a verification flow.
@@ -159,11 +157,13 @@ impl Sas {
         other_device: ReadOnlyDevice,
         store: Arc<Box<dyn CryptoStore>>,
         other_identity: Option<UserIdentities>,
+        transaction_id: Option<String>,
     ) -> (Sas, StartContent) {
         let (inner, content) = InnerSas::start(
             account.clone(),
             other_device.clone(),
             other_identity.clone(),
+            transaction_id,
         );
 
         (
@@ -189,7 +189,6 @@ impl Sas {
     ///
     /// Returns the new `Sas` object and a `StartEventContent` that needs to be
     /// sent out through the server to the other device.
-    #[allow(dead_code)]
     pub(crate) fn start_in_room(
         flow_id: EventId,
         room_id: RoomId,
@@ -685,7 +684,11 @@ impl Sas {
     }
 
     pub(crate) fn content_to_request(&self, content: AnyToDeviceEventContent) -> ToDeviceRequest {
-        content_to_request(self.other_user_id(), self.other_device_id(), content)
+        content_to_request(
+            self.other_user_id(),
+            self.other_device_id().to_owned(),
+            content,
+        )
     }
 }
 
@@ -792,6 +795,7 @@ mod test {
             PrivateCrossSigningIdentity::empty(alice_id()),
             bob_device,
             alice_store,
+            None,
             None,
         );
 

@@ -20,6 +20,43 @@ pub use machine::VerificationMachine;
 pub use requests::VerificationRequest;
 pub use sas::{AcceptSettings, Sas, VerificationResult};
 
+use matrix_sdk_common::identifiers::{EventId, RoomId};
+
+#[derive(Clone, Debug, Hash, PartialEq, PartialOrd)]
+pub enum FlowId {
+    ToDevice(String),
+    InRoom(RoomId, EventId),
+}
+
+impl FlowId {
+    pub fn room_id(&self) -> Option<&RoomId> {
+        if let FlowId::InRoom(r, _) = &self {
+            Some(r)
+        } else {
+            None
+        }
+    }
+
+    pub fn as_str(&self) -> &str {
+        match self {
+            FlowId::InRoom(_, r) => r.as_str(),
+            FlowId::ToDevice(t) => t.as_str(),
+        }
+    }
+}
+
+impl From<String> for FlowId {
+    fn from(transaciton_id: String) -> Self {
+        FlowId::ToDevice(transaciton_id)
+    }
+}
+
+impl From<(RoomId, EventId)> for FlowId {
+    fn from(ids: (RoomId, EventId)) -> Self {
+        FlowId::InRoom(ids.0, ids.1)
+    }
+}
+
 #[cfg(test)]
 pub(crate) mod test {
     use crate::{
