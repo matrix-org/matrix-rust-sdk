@@ -16,6 +16,7 @@ use std::ops::Deref;
 
 use matrix_sdk_common::{
     api::r0::push::get_notifications::Notification,
+    async_trait,
     events::{
         fully_read::FullyReadEventContent, AnySyncRoomEvent, GlobalAccountDataEvent,
         RoomAccountDataEvent,
