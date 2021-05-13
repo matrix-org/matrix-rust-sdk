@@ -12,10 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use matrix_sdk_common::events::ToDeviceEvent;
-use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
-use sha2::{Digest, Sha256};
 use std::{
     collections::BTreeMap,
     convert::{TryFrom, TryInto},
@@ -26,7 +22,6 @@ use std::{
         Arc,
     },
 };
-use tracing::{debug, trace, warn};
 
 #[cfg(test)]
 use matrix_sdk_common::events::EventType;
@@ -37,7 +32,7 @@ use matrix_sdk_common::{
     encryption::DeviceKeys,
     events::{
         room::encrypted::{EncryptedEventContent, EncryptedEventScheme},
-        AnyToDeviceEvent,
+        AnyToDeviceEvent, ToDeviceEvent,
     },
     identifiers::{
         DeviceId, DeviceIdBox, DeviceKeyAlgorithm, DeviceKeyId, EventEncryptionAlgorithm, RoomId,
@@ -53,7 +48,15 @@ use olm_rs::{
     session::{OlmMessage, PreKeyMessage},
     PicklingMode,
 };
+use serde::{Deserialize, Serialize};
+use serde_json::{json, Value};
+use sha2::{Digest, Sha256};
+use tracing::{debug, trace, warn};
 
+use super::{
+    EncryptionSettings, InboundGroupSession, OutboundGroupSession, PrivateCrossSigningIdentity,
+    Session,
+};
 use crate::{
     error::{EventError, OlmResult, SessionCreationError},
     identities::ReadOnlyDevice,
@@ -61,11 +64,6 @@ use crate::{
     store::{Changes, Store},
     utilities::encode,
     OlmError,
-};
-
-use super::{
-    EncryptionSettings, InboundGroupSession, OutboundGroupSession, PrivateCrossSigningIdentity,
-    Session,
 };
 
 #[derive(Debug, Clone)]
@@ -141,10 +139,8 @@ impl Account {
 
         // Try to find a ciphertext that was meant for our device.
         if let Some(ciphertext) = own_ciphertext {
-            let message_type: u8 = ciphertext
-                .message_type
-                .try_into()
-                .map_err(|_| EventError::UnsupportedOlmType)?;
+            let message_type: u8 =
+                ciphertext.message_type.try_into().map_err(|_| EventError::UnsupportedOlmType)?;
 
             let sha = Sha256::new()
                 .chain(&content.sender_key)
@@ -162,20 +158,18 @@ impl Account {
                     .map_err(|_| EventError::UnsupportedOlmType)?;
 
             // Decrypt the OlmMessage and get a Ruma event out of it.
-            let (session, event, signing_key) = match self
-                .decrypt_olm_message(&event.sender, &content.sender_key, message)
-                .await
-            {
-                Ok(d) => d,
-                Err(OlmError::SessionWedged(user_id, sender_key)) => {
-                    if self.store.is_message_known(&message_hash).await? {
-                        return Err(OlmError::ReplayedMessage(user_id, sender_key));
-                    } else {
-                        return Err(OlmError::SessionWedged(user_id, sender_key));
+            let (session, event, signing_key) =
+                match self.decrypt_olm_message(&event.sender, &content.sender_key, message).await {
+                    Ok(d) => d,
+                    Err(OlmError::SessionWedged(user_id, sender_key)) => {
+                        if self.store.is_message_known(&message_hash).await? {
+                            return Err(OlmError::ReplayedMessage(user_id, sender_key));
+                        } else {
+                            return Err(OlmError::SessionWedged(user_id, sender_key));
+                        }
                     }
-                }
-                Err(e) => return Err(e),
-            };
+                    Err(e) => return Err(e),
+                };
 
             debug!("Decrypted a to-device event {:?}", event);
 
@@ -210,9 +204,8 @@ impl Account {
         }
         self.inner.mark_as_shared();
 
-        let one_time_key_count = response
-            .one_time_key_counts
-            .get(&DeviceKeyAlgorithm::SignedCurve25519);
+        let one_time_key_count =
+            response.one_time_key_counts.get(&DeviceKeyAlgorithm::SignedCurve25519);
 
         let count: u64 = one_time_key_count.map_or(0, |c| (*c).into());
         debug!(
@@ -297,9 +290,8 @@ impl Account {
         message: OlmMessage,
     ) -> OlmResult<(SessionType, Raw<AnyToDeviceEvent>, String)> {
         // First try to decrypt using an existing session.
-        let (session, plaintext) = if let Some(d) = self
-            .try_decrypt_olm_message(sender, sender_key, &message)
-            .await?
+        let (session, plaintext) = if let Some(d) =
+            self.try_decrypt_olm_message(sender, sender_key, &message).await?
         {
             // Decryption succeeded, de-structure the session/plaintext out of
             // the Option.
@@ -316,32 +308,26 @@ impl Account {
                           available sessions {} {}",
                         sender, sender_key
                     );
-                    return Err(OlmError::SessionWedged(
-                        sender.to_owned(),
-                        sender_key.to_owned(),
-                    ));
+                    return Err(OlmError::SessionWedged(sender.to_owned(), sender_key.to_owned()));
                 }
 
                 OlmMessage::PreKey(m) => {
                     // Create the new session.
-                    let session = match self
-                        .inner
-                        .create_inbound_session(sender_key, m.clone())
-                        .await
-                    {
-                        Ok(s) => s,
-                        Err(e) => {
-                            warn!(
-                                "Failed to create a new Olm session for {} {}
+                    let session =
+                        match self.inner.create_inbound_session(sender_key, m.clone()).await {
+                            Ok(s) => s,
+                            Err(e) => {
+                                warn!(
+                                    "Failed to create a new Olm session for {} {}
                                       from a prekey message: {}",
-                                sender, sender_key, e
-                            );
-                            return Err(OlmError::SessionWedged(
-                                sender.to_owned(),
-                                sender_key.to_owned(),
-                            ));
-                        }
-                    };
+                                    sender, sender_key, e
+                                );
+                                return Err(OlmError::SessionWedged(
+                                    sender.to_owned(),
+                                    sender_key.to_owned(),
+                                ));
+                            }
+                        };
 
                     session
                 }
@@ -428,9 +414,8 @@ impl Account {
             return Err(EventError::MissmatchedKeys.into());
         }
 
-        let signing_key = keys
-            .get(&DeviceKeyAlgorithm::Ed25519)
-            .ok_or(EventError::MissingSigningKey)?;
+        let signing_key =
+            keys.get(&DeviceKeyAlgorithm::Ed25519).ok_or(EventError::MissingSigningKey)?;
 
         Ok((
             Raw::from(serde_json::from_value::<AnyToDeviceEvent>(decrypted_json)?),
@@ -547,8 +532,7 @@ impl ReadOnlyAccount {
     /// * `new_count` - The new count that was reported by the server.
     pub(crate) fn update_uploaded_key_count(&self, new_count: u64) {
         let key_count = i64::try_from(new_count).unwrap_or(i64::MAX);
-        self.uploaded_signed_key_count
-            .store(key_count, Ordering::Relaxed);
+        self.uploaded_signed_key_count.store(key_count, Ordering::Relaxed);
     }
 
     /// Get the currently known uploaded key count.
@@ -631,19 +615,12 @@ impl ReadOnlyAccount {
     /// Returns None if no keys need to be uploaded.
     pub(crate) async fn keys_for_upload(
         &self,
-    ) -> Option<(
-        Option<DeviceKeys>,
-        Option<BTreeMap<DeviceKeyId, OneTimeKey>>,
-    )> {
+    ) -> Option<(Option<DeviceKeys>, Option<BTreeMap<DeviceKeyId, OneTimeKey>>)> {
         if !self.should_upload_keys().await {
             return None;
         }
 
-        let device_keys = if !self.shared() {
-            Some(self.device_keys().await)
-        } else {
-            None
-        };
+        let device_keys = if !self.shared() { Some(self.device_keys().await) } else { None };
 
         let one_time_keys = self.signed_one_time_keys().await.ok();
 
@@ -666,7 +643,8 @@ impl ReadOnlyAccount {
     ///
     /// # Arguments
     ///
-    /// * `pickle_mode` - The mode that was used to pickle the account, either an
+    /// * `pickle_mode` - The mode that was used to pickle the account, either
+    ///   an
     /// unencrypted mode or an encrypted using passphrase.
     pub async fn pickle(&self, pickle_mode: PicklingMode) -> PickledAccount {
         let pickle = AccountPickle(self.inner.lock().await.pickle(pickle_mode));
@@ -686,7 +664,8 @@ impl ReadOnlyAccount {
     ///
     /// * `pickle` - The pickled version of the Account.
     ///
-    /// * `pickle_mode` - The mode that was used to pickle the account, either an
+    /// * `pickle_mode` - The mode that was used to pickle the account, either
+    ///   an
     /// unencrypted mode or an encrypted using passphrase.
     pub fn from_pickle(
         pickle: PickledAccount,
@@ -742,25 +721,17 @@ impl ReadOnlyAccount {
             "keys": device_keys.keys,
         });
 
-        device_keys
-            .signatures
-            .entry(self.user_id().clone())
-            .or_insert_with(BTreeMap::new)
-            .insert(
-                DeviceKeyId::from_parts(DeviceKeyAlgorithm::Ed25519, &self.device_id),
-                self.sign_json(json_device_keys).await,
-            );
+        device_keys.signatures.entry(self.user_id().clone()).or_insert_with(BTreeMap::new).insert(
+            DeviceKeyId::from_parts(DeviceKeyAlgorithm::Ed25519, &self.device_id),
+            self.sign_json(json_device_keys).await,
+        );
 
         device_keys
     }
 
     pub(crate) async fn bootstrap_cross_signing(
         &self,
-    ) -> (
-        PrivateCrossSigningIdentity,
-        UploadSigningKeysRequest,
-        SignatureUploadRequest,
-    ) {
+    ) -> (PrivateCrossSigningIdentity, UploadSigningKeysRequest, SignatureUploadRequest) {
         PrivateCrossSigningIdentity::new_with_account(self).await
     }
 
@@ -873,8 +844,8 @@ impl ReadOnlyAccount {
     /// # Arguments
     /// * `device` - The other account's device.
     ///
-    /// * `key_map` - A map from the algorithm and device id to the one-time
-    ///     key that the other account created and shared with us.
+    /// * `key_map` - A map from the algorithm and device id to the one-time key
+    ///   that the other account created and shared with us.
     pub(crate) async fn create_outbound_session(
         &self,
         device: ReadOnlyDevice,
@@ -911,24 +882,20 @@ impl ReadOnlyAccount {
             )
         })?;
 
-        let curve_key = device
-            .get_key(DeviceKeyAlgorithm::Curve25519)
-            .ok_or_else(|| {
-                SessionCreationError::DeviceMissingCurveKey(
-                    device.user_id().to_owned(),
-                    device.device_id().into(),
-                )
-            })?;
+        let curve_key = device.get_key(DeviceKeyAlgorithm::Curve25519).ok_or_else(|| {
+            SessionCreationError::DeviceMissingCurveKey(
+                device.user_id().to_owned(),
+                device.device_id().into(),
+            )
+        })?;
 
-        self.create_outbound_session_helper(curve_key, &one_time_key)
-            .await
-            .map_err(|e| {
-                SessionCreationError::OlmError(
-                    device.user_id().to_owned(),
-                    device.device_id().into(),
-                    e,
-                )
-            })
+        self.create_outbound_session_helper(curve_key, &one_time_key).await.map_err(|e| {
+            SessionCreationError::OlmError(
+                device.user_id().to_owned(),
+                device.device_id().into(),
+                e,
+            )
+        })
     }
 
     /// Create a new session with another account given a pre-key Olm message.
@@ -946,17 +913,10 @@ impl ReadOnlyAccount {
         their_identity_key: &str,
         message: PreKeyMessage,
     ) -> Result<Session, OlmSessionError> {
-        let session = self
-            .inner
-            .lock()
-            .await
-            .create_inbound_session_from(their_identity_key, message)?;
+        let session =
+            self.inner.lock().await.create_inbound_session_from(their_identity_key, message)?;
 
-        self.inner
-            .lock()
-            .await
-            .remove_one_time_keys(&session)
-            .expect(
+        self.inner.lock().await.remove_one_time_keys(&session).expect(
             "Session was successfully created but the account doesn't hold a matching one-time key",
         );
 
@@ -1028,8 +988,7 @@ impl ReadOnlyAccount {
         &self,
         room_id: &RoomId,
     ) -> Result<(OutboundGroupSession, InboundGroupSession), ()> {
-        self.create_group_session_pair(room_id, EncryptionSettings::default())
-            .await
+        self.create_group_session_pair(room_id, EncryptionSettings::default()).await
     }
 
     #[cfg(test)]
@@ -1039,27 +998,19 @@ impl ReadOnlyAccount {
 
         let device = ReadOnlyDevice::from_account(other).await;
 
-        let mut our_session = self
-            .create_outbound_session(device.clone(), &one_time)
-            .await
-            .unwrap();
+        let mut our_session =
+            self.create_outbound_session(device.clone(), &one_time).await.unwrap();
 
         other.mark_keys_as_published().await;
 
-        let message = our_session
-            .encrypt(&device, EventType::Dummy, json!({}))
-            .await
-            .unwrap();
+        let message = our_session.encrypt(&device, EventType::Dummy, json!({})).await.unwrap();
         let content = if let EncryptedEventScheme::OlmV1Curve25519AesSha2(c) = message.scheme {
             c
         } else {
             panic!("Invalid encrypted event algorithm");
         };
 
-        let own_ciphertext = content
-            .ciphertext
-            .get(other.identity_keys.curve25519())
-            .unwrap();
+        let own_ciphertext = content.ciphertext.get(other.identity_keys.curve25519()).unwrap();
         let message_type: u8 = own_ciphertext.message_type.try_into().unwrap();
 
         let message =

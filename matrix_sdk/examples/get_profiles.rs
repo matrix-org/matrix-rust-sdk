@@ -1,13 +1,12 @@
 use std::{convert::TryFrom, env, process::exit};
 
-use url::Url;
-
 use matrix_sdk::{
     self,
     api::r0::profile,
     identifiers::{MxcUri, UserId},
     Client, Result as MatrixResult,
 };
+use url::Url;
 
 #[derive(Debug)]
 struct UserProfile {
@@ -29,10 +28,7 @@ async fn get_profile(client: Client, mxid: &UserId) -> MatrixResult<UserProfile>
     // Use the response and construct a UserProfile struct.
     // See https://docs.rs/ruma-client-api/0.9.0/ruma_client_api/r0/profile/get_profile/struct.Response.html
     // for details on the Response for this Request
-    let user_profile = UserProfile {
-        avatar_url: resp.avatar_url,
-        displayname: resp.displayname,
-    };
+    let user_profile = UserProfile { avatar_url: resp.avatar_url, displayname: resp.displayname };
     Ok(user_profile)
 }
 
@@ -44,9 +40,7 @@ async fn login(
     let homeserver_url = Url::parse(&homeserver_url).expect("Couldn't parse the homeserver URL");
     let client = Client::new(homeserver_url).unwrap();
 
-    client
-        .login(username, password, None, Some("rust-sdk"))
-        .await?;
+    client.login(username, password, None, Some("rust-sdk")).await?;
 
     Ok(client)
 }

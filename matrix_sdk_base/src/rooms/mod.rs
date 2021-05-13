@@ -1,27 +1,22 @@
 mod members;
 mod normal;
 
-use matrix_sdk_common::{
-    events::room::{
-        create::CreateEventContent, guest_access::GuestAccess,
-        history_visibility::HistoryVisibility, join_rules::JoinRule,
-    },
-    identifiers::{MxcUri, UserId},
-};
-pub use normal::{Room, RoomInfo, RoomType};
-
-pub use members::RoomMember;
-
-use serde::{Deserialize, Serialize};
 use std::cmp::max;
 
 use matrix_sdk_common::{
     events::{
-        room::{encryption::EncryptionEventContent, tombstone::TombstoneEventContent},
+        room::{
+            create::CreateEventContent, encryption::EncryptionEventContent,
+            guest_access::GuestAccess, history_visibility::HistoryVisibility, join_rules::JoinRule,
+            tombstone::TombstoneEventContent,
+        },
         AnyStateEventContent,
     },
-    identifiers::RoomAliasId,
+    identifiers::{MxcUri, RoomAliasId, UserId},
 };
+pub use members::RoomMember;
+pub use normal::{Room, RoomInfo, RoomType};
+use serde::{Deserialize, Serialize};
 
 /// A base room info struct that is the backbone of normal as well as stripped
 /// rooms. Holds all the state events that are important to present a room to
@@ -71,20 +66,12 @@ impl BaseRoomInfo {
         let invited_joined = (invited_member_count + joined_member_count).saturating_sub(1);
 
         if heroes_count >= invited_joined {
-            let mut names = heroes
-                .iter()
-                .take(3)
-                .map(|mem| mem.name())
-                .collect::<Vec<&str>>();
+            let mut names = heroes.iter().take(3).map(|mem| mem.name()).collect::<Vec<&str>>();
             // stabilize ordering
             names.sort_unstable();
             names.join(", ")
         } else if heroes_count < invited_joined && invited_joined > 1 {
-            let mut names = heroes
-                .iter()
-                .take(3)
-                .map(|mem| mem.name())
-                .collect::<Vec<&str>>();
+            let mut names = heroes.iter().take(3).map(|mem| mem.name()).collect::<Vec<&str>>();
             names.sort_unstable();
 
             // TODO: What length does the spec want us to use here and in
@@ -149,10 +136,8 @@ impl BaseRoomInfo {
                 true
             }
             AnyStateEventContent::RoomPowerLevels(p) => {
-                let max_power_level = p
-                    .users
-                    .values()
-                    .fold(self.max_power_level, |acc, p| max(acc, (*p).into()));
+                let max_power_level =
+                    p.users.values().fold(self.max_power_level, |acc, p| max(acc, (*p).into()));
                 self.max_power_level = max_power_level;
                 true
             }

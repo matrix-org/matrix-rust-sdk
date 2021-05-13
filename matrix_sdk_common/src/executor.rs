@@ -6,14 +6,12 @@ use std::{
     task::{Context, Poll},
 };
 
-#[cfg(not(target_arch = "wasm32"))]
-pub use tokio::spawn;
-
-#[cfg(target_arch = "wasm32")]
-use wasm_bindgen_futures::spawn_local;
-
 #[cfg(target_arch = "wasm32")]
 use futures::{future::RemoteHandle, Future, FutureExt};
+#[cfg(not(target_arch = "wasm32"))]
+pub use tokio::spawn;
+#[cfg(target_arch = "wasm32")]
+use wasm_bindgen_futures::spawn_local;
 
 #[cfg(target_arch = "wasm32")]
 pub fn spawn<F, T>(future: F) -> JoinHandle<T>

@@ -17,21 +17,17 @@ use std::{
     io::{Error as IoError, ErrorKind, Read},
 };
 
-use thiserror::Error;
-use zeroize::Zeroizing;
-
-use serde::{Deserialize, Serialize};
-
-use matrix_sdk_common::events::room::JsonWebKey;
-
-use getrandom::getrandom;
-
 use aes_ctr::{
     cipher::{NewStreamCipher, SyncStreamCipher},
     Aes256Ctr,
 };
 use base64::DecodeError;
+use getrandom::getrandom;
+use matrix_sdk_common::events::room::JsonWebKey;
+use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
+use thiserror::Error;
+use zeroize::Zeroizing;
 
 use crate::utilities::{decode, decode_url_safe, encode, encode_url_safe};
 
@@ -59,10 +55,7 @@ impl<'a, R: Read> Read for AttachmentDecryptor<'a, R> {
             if hash.as_slice() == self.expected_hash.as_slice() {
                 Ok(0)
             } else {
-                Err(IoError::new(
-                    ErrorKind::Other,
-                    "Hash missmatch while decrypting",
-                ))
+                Err(IoError::new(ErrorKind::Other, "Hash missmatch while decrypting"))
             }
         } else {
             self.sha.update(&buf[0..read_bytes]);
@@ -130,23 +123,14 @@ impl<'a, R: Read + 'a> AttachmentDecryptor<'a, R> {
             return Err(DecryptorError::UnknownVersion);
         }
 
-        let hash = decode(
-            info.hashes
-                .get("sha256")
-                .ok_or(DecryptorError::MissingHash)?,
-        )?;
+        let hash = decode(info.hashes.get("sha256").ok_or(DecryptorError::MissingHash)?)?;
         let key = Zeroizing::from(decode_url_safe(info.web_key.k)?);
         let iv = decode(info.iv)?;
 
         let sha = Sha256::default();
         let aes = Aes256Ctr::new_var(&key, &iv).map_err(|_| DecryptorError::KeyNonceLength)?;
 
-        Ok(AttachmentDecryptor {
-            inner_reader: input,
-            expected_hash: hash,
-            sha,
-            aes,
-        })
+        Ok(AttachmentDecryptor { inner_reader: input, expected_hash: hash, sha, aes })
     }
 }
 
@@ -168,9 +152,7 @@ impl<'a, R: Read + 'a> Read for AttachmentEncryptor<'a, R> {
 
         if read_bytes == 0 {
             let hash = self.sha.finalize_reset();
-            self.hashes
-                .entry("sha256".to_owned())
-                .or_insert_with(|| encode(hash));
+            self.hashes.entry("sha256".to_owned()).or_insert_with(|| encode(hash));
             Ok(0)
         } else {
             self.aes.apply_keystream(&mut buf[0..read_bytes]);
@@ -244,9 +226,7 @@ impl<'a, R: Read + 'a> AttachmentEncryptor<'a, R> {
     /// Consume the encryptor and get the encryption key.
     pub fn finish(mut self) -> EncryptionInfo {
         let hash = self.sha.finalize();
-        self.hashes
-            .entry("sha256".to_owned())
-            .or_insert_with(|| encode(hash));
+        self.hashes.entry("sha256".to_owned()).or_insert_with(|| encode(hash));
 
         EncryptionInfo {
             version: VERSION.to_string(),
@@ -274,9 +254,11 @@ pub struct EncryptionInfo {
 
 #[cfg(test)]
 mod test {
-    use super::{AttachmentDecryptor, AttachmentEncryptor, EncryptionInfo};
-    use serde_json::json;
     use std::io::{Cursor, Read};
+
+    use serde_json::json;
+
+    use super::{AttachmentDecryptor, AttachmentEncryptor, EncryptionInfo};
 
     const EXAMPLE_DATA: &[u8] = &[
         179, 154, 118, 127, 186, 127, 110, 33, 203, 33, 33, 134, 67, 100, 173, 46, 235, 27, 215,

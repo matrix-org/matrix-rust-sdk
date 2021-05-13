@@ -1,5 +1,4 @@
 use std::{env, process::exit};
-use url::Url;
 
 use matrix_sdk::{
     self, async_trait,
@@ -10,6 +9,7 @@ use matrix_sdk::{
     room::Room,
     Client, EventHandler, SyncSettings,
 };
+use url::Url;
 
 struct EventCallback;
 
@@ -28,9 +28,7 @@ impl EventHandler for EventCallback {
             } = event
             {
                 let member = room.get_member(&sender).await.unwrap().unwrap();
-                let name = member
-                    .display_name()
-                    .unwrap_or_else(|| member.user_id().as_str());
+                let name = member.display_name().unwrap_or_else(|| member.user_id().as_str());
                 println!("{}: {}", name, msg_body);
             }
         }
@@ -47,9 +45,7 @@ async fn login(
 
     client.set_event_handler(Box::new(EventCallback)).await;
 
-    client
-        .login(username, password, None, Some("rust-sdk"))
-        .await?;
+    client.login(username, password, None, Some("rust-sdk")).await?;
     client.sync(SyncSettings::new()).await;
 
     Ok(())

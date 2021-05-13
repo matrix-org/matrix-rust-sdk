@@ -1,14 +1,12 @@
 #[cfg(feature = "actix")]
 mod actix {
-    use actix_web::{test, App};
-    use matrix_sdk_appservice::*;
     use std::env;
 
+    use actix_web::{test, App};
+    use matrix_sdk_appservice::*;
+
     async fn appservice() -> Appservice {
-        env::set_var(
-            "RUST_LOG",
-            "mockito=debug,matrix_sdk=debug,ruma=debug,actix_web=debug",
-        );
+        env::set_var("RUST_LOG", "mockito=debug,matrix_sdk=debug,ruma=debug,actix_web=debug");
         let _ = tracing_subscriber::fmt::try_init();
 
         Appservice::new(
@@ -109,7 +107,8 @@ mod actix {
 
         let resp = test::call_service(&app, req).await;
 
-        // TODO: this should actually return a 401 but is 500 because something in the extractor fails
+        // TODO: this should actually return a 401 but is 500 because something in the
+        // extractor fails
         assert_eq!(resp.status(), 500);
     }
 }

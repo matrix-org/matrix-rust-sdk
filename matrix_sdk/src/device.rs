@@ -40,7 +40,8 @@ impl Deref for Device {
 impl Device {
     /// Start a interactive verification with this `Device`
     ///
-    /// Returns a `Sas` object that represents the interactive verification flow.
+    /// Returns a `Sas` object that represents the interactive verification
+    /// flow.
     ///
     /// # Example
     ///
@@ -65,10 +66,7 @@ impl Device {
         let (sas, request) = self.inner.start_verification().await?;
         self.client.send_to_device(&request).await?;
 
-        Ok(Sas {
-            inner: sas,
-            client: self.client.clone(),
-        })
+        Ok(Sas { inner: sas, client: self.client.clone() })
     }
 
     /// Is the device trusted.
@@ -102,10 +100,7 @@ pub struct UserDevices {
 impl UserDevices {
     /// Get the specific device with the given device id.
     pub fn get(&self, device_id: &DeviceId) -> Option<Device> {
-        self.inner.get(device_id).map(|d| Device {
-            inner: d,
-            client: self.client.clone(),
-        })
+        self.inner.get(device_id).map(|d| Device { inner: d, client: self.client.clone() })
     }
 
     /// Iterator over all the device ids of the user devices.
@@ -117,9 +112,6 @@ impl UserDevices {
     pub fn devices(&self) -> impl Iterator<Item = Device> + '_ {
         let client = self.client.clone();
 
-        self.inner.devices().map(move |d| Device {
-            inner: d,
-            client: client.clone(),
-        })
+        self.inner.devices().map(move |d| Device { inner: d, client: client.clone() })
     }
 }

@@ -15,9 +15,6 @@
 use std::{convert::TryFrom, sync::Arc};
 
 use dashmap::DashMap;
-
-use tracing::{info, trace, warn};
-
 use matrix_sdk_common::{
     events::{
         room::message::MessageType, AnyMessageEvent, AnySyncMessageEvent, AnySyncRoomEvent,
@@ -27,12 +24,12 @@ use matrix_sdk_common::{
     locks::Mutex,
     uuid::Uuid,
 };
+use tracing::{info, trace, warn};
 
 use super::{
     requests::VerificationRequest,
     sas::{content_to_request, OutgoingContent, Sas, VerificationResult},
 };
-
 use crate::{
     olm::PrivateCrossSigningIdentity,
     requests::OutgoingRequest,
@@ -85,18 +82,14 @@ impl VerificationMachine {
         );
 
         let request = match content.into() {
-            OutgoingContent::Room(r, c) => RoomMessageRequest {
-                room_id: r,
-                txn_id: Uuid::new_v4(),
-                content: c,
+            OutgoingContent::Room(r, c) => {
+                RoomMessageRequest { room_id: r, txn_id: Uuid::new_v4(), content: c }.into()
             }
-            .into(),
             OutgoingContent::ToDevice(c) => {
                 let request =
                     content_to_request(device.user_id(), device.device_id().to_owned(), c);
 
-                self.verifications
-                    .insert(sas.flow_id().as_str().to_owned(), sas.clone());
+                self.verifications.insert(sas.flow_id().as_str().to_owned(), sas.clone());
 
                 request.into()
             }
@@ -136,10 +129,7 @@ impl VerificationMachine {
                 let request = content_to_request(recipient, recipient_device.to_owned(), c);
                 let request_id = request.txn_id;
 
-                let request = OutgoingRequest {
-                    request_id,
-                    request: Arc::new(request.into()),
-                };
+                let request = OutgoingRequest { request_id, request: Arc::new(request.into()) };
 
                 self.outgoing_messages.insert(request_id, request);
             }
@@ -149,12 +139,7 @@ impl VerificationMachine {
 
                 let request = OutgoingRequest {
                     request: Arc::new(
-                        RoomMessageRequest {
-                            room_id: r,
-                            txn_id: request_id,
-                            content: c,
-                        }
-                        .into(),
+                        RoomMessageRequest { room_id: r, txn_id: request_id, content: c }.into(),
                     ),
                     request_id,
                 };
@@ -181,24 +166,17 @@ impl VerificationMachine {
     }
 
     pub fn outgoing_messages(&self) -> Vec<OutgoingRequest> {
-        self.outgoing_messages
-            .iter()
-            .map(|r| (*r).clone())
-            .collect()
+        self.outgoing_messages.iter().map(|r| (*r).clone()).collect()
     }
 
     pub fn garbage_collect(&self) {
-        self.verifications
-            .retain(|_, s| !(s.is_done() || s.is_canceled()));
+        self.verifications.retain(|_, s| !(s.is_done() || s.is_canceled()));
 
         for sas in self.verifications.iter() {
             if let Some(r) = sas.cancel_if_timed_out() {
                 self.outgoing_messages.insert(
                     r.request_id(),
-                    OutgoingRequest {
-                        request_id: r.request_id(),
-                        request: Arc::new(r.into()),
-                    },
+                    OutgoingRequest { request_id: r.request_id(), request: Arc::new(r.into()) },
                 );
             }
         }
@@ -239,8 +217,7 @@ impl VerificationMachine {
                                 r,
                             );
 
-                            self.requests
-                                .insert(request.flow_id().as_str().to_owned(), request);
+                            self.requests.insert(request.flow_id().as_str().to_owned(), request);
                         }
                     }
                 }
@@ -261,10 +238,8 @@ impl VerificationMachine {
                     if let Some((_, request)) =
                         self.requests.remove(e.content.relation.event_id.as_str())
                     {
-                        if let Some(d) = self
-                            .store
-                            .get_device(&e.sender, &e.content.from_device)
-                            .await?
+                        if let Some(d) =
+                            self.store.get_device(&e.sender, &e.content.from_device).await?
                         {
                             match request.into_started_sas(
                                 e,
@@ -370,8 +345,7 @@ impl VerificationMachine {
                     &e.content,
                 );
 
-                self.requests
-                    .insert(request.flow_id().as_str().to_string(), request);
+                self.requests.insert(request.flow_id().as_str().to_string(), request);
             }
             AnyToDeviceEvent::KeyVerificationReady(e) => {
                 if let Some(request) = self.requests.get(&e.content.transaction_id) {
@@ -388,11 +362,7 @@ impl VerificationMachine {
                     e.content.from_device
                 );
 
-                if let Some(d) = self
-                    .store
-                    .get_device(&e.sender, &e.content.from_device)
-                    .await?
-                {
+                if let Some(d) = self.store.get_device(&e.sender, &e.content.from_device).await? {
                     let private_identity = self.private_identity.lock().await.clone();
                     match Sas::from_start_event(
                         self.account.clone(),
@@ -403,8 +373,7 @@ impl VerificationMachine {
                         self.store.get_user_identity(&e.sender).await?,
                     ) {
                         Ok(s) => {
-                            self.verifications
-                                .insert(e.content.transaction_id.clone(), s);
+                            self.verifications.insert(e.content.transaction_id.clone(), s);
                         }
                         Err(c) => {
                             warn!(
@@ -455,10 +424,7 @@ impl VerificationMachine {
 
                                 self.outgoing_messages.insert(
                                     request_id,
-                                    OutgoingRequest {
-                                        request_id,
-                                        request: Arc::new(r.into()),
-                                    },
+                                    OutgoingRequest { request_id, request: Arc::new(r.into()) },
                                 );
                             }
                         }
@@ -535,10 +501,7 @@ mod test {
         );
 
         machine
-            .receive_event(&wrap_any_to_device_content(
-                bob_sas.user_id(),
-                start_content.into(),
-            ))
+            .receive_event(&wrap_any_to_device_content(bob_sas.user_id(), start_content.into()))
             .await
             .unwrap();
 

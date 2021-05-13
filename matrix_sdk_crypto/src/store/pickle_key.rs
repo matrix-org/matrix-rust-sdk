@@ -22,10 +22,9 @@ use getrandom::getrandom;
 use hmac::Hmac;
 use olm_rs::PicklingMode;
 use pbkdf2::pbkdf2;
+use serde::{Deserialize, Serialize};
 use sha2::Sha256;
 use zeroize::{Zeroize, Zeroizing};
-
-use serde::{Deserialize, Serialize};
 
 const KEY_SIZE: usize = 32;
 const NONCE_SIZE: usize = 12;
@@ -114,9 +113,7 @@ impl PickleKey {
 
     /// Get a `PicklingMode` version of this pickle key.
     pub fn pickle_mode(&self) -> PicklingMode {
-        PicklingMode::Encrypted {
-            key: self.aes256_key.clone(),
-        }
+        PicklingMode::Encrypted { key: self.aes256_key.clone() }
     }
 
     /// Get the raw AES256 key.
@@ -142,10 +139,7 @@ impl PickleKey {
         getrandom(&mut nonce).expect("Can't generate new random nonce for the pickle key");
 
         let ciphertext = cipher
-            .encrypt(
-                &GenericArray::from_slice(nonce.as_ref()),
-                self.aes256_key.as_slice(),
-            )
+            .encrypt(&GenericArray::from_slice(nonce.as_ref()), self.aes256_key.as_slice())
             .expect("Can't encrypt pickle key");
 
         EncryptedPickleKey {
@@ -181,9 +175,7 @@ impl PickleKey {
             }
         };
 
-        Ok(Self {
-            aes256_key: decrypted,
-        })
+        Ok(Self { aes256_key: decrypted })
     }
 }
 

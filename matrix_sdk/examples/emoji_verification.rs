@@ -6,7 +6,6 @@ use std::{
         Arc,
     },
 };
-use url::Url;
 
 use matrix_sdk::{
     self,
@@ -14,14 +13,13 @@ use matrix_sdk::{
     identifiers::UserId,
     Client, LoopCtrl, Sas, SyncSettings,
 };
+use url::Url;
 
 async fn wait_for_confirmation(client: Client, sas: Sas) {
     println!("Does the emoji match: {:?}", sas.emoji());
 
     let mut input = String::new();
-    io::stdin()
-        .read_line(&mut input)
-        .expect("error: unable to read user input");
+    io::stdin().read_line(&mut input).expect("error: unable to read user input");
 
     match input.trim().to_lowercase().as_ref() {
         "yes" | "true" | "ok" => {
@@ -68,9 +66,7 @@ async fn login(
     let homeserver_url = Url::parse(&homeserver_url).expect("Couldn't parse the homeserver URL");
     let client = Client::new(homeserver_url).unwrap();
 
-    client
-        .login(username, password, None, Some("rust-sdk"))
-        .await?;
+    client.login(username, password, None, Some("rust-sdk")).await?;
 
     let client_ref = &client;
     let initial_sync = Arc::new(AtomicBool::from(true));
@@ -81,12 +77,7 @@ async fn login(
             let client = &client_ref;
             let initial = &initial_ref;
 
-            for event in response
-                .to_device
-                .events
-                .iter()
-                .filter_map(|e| e.deserialize().ok())
-            {
+            for event in response.to_device.events.iter().filter_map(|e| e.deserialize().ok()) {
                 match event {
                     AnyToDeviceEvent::KeyVerificationStart(e) => {
                         let sas = client
@@ -129,11 +120,8 @@ async fn login(
 
             if !initial.load(Ordering::SeqCst) {
                 for (_room_id, room_info) in response.rooms.join {
-                    for event in room_info
-                        .timeline
-                        .events
-                        .iter()
-                        .filter_map(|e| e.event.deserialize().ok())
+                    for event in
+                        room_info.timeline.events.iter().filter_map(|e| e.event.deserialize().ok())
                     {
                         if let AnySyncRoomEvent::Message(event) = event {
                             match event {

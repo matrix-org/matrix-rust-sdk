@@ -39,24 +39,17 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use serde_json::{json, Value};
 use tracing::warn;
 
-use crate::{
-    olm::{InboundGroupSession, PrivateCrossSigningIdentity, Session},
-    store::{Changes, DeviceChanges},
-    OutgoingVerificationRequest,
-};
-#[cfg(test)]
-use crate::{OlmMachine, ReadOnlyAccount};
-
+use super::{atomic_bool_deserializer, atomic_bool_serializer};
 use crate::{
     error::{EventError, OlmError, OlmResult, SignatureError},
     identities::{OwnUserIdentity, UserIdentities},
-    olm::Utility,
-    store::{CryptoStore, Result as StoreResult},
+    olm::{InboundGroupSession, PrivateCrossSigningIdentity, Session, Utility},
+    store::{Changes, CryptoStore, DeviceChanges, Result as StoreResult},
     verification::VerificationMachine,
-    Sas, ToDeviceRequest,
+    OutgoingVerificationRequest, Sas, ToDeviceRequest,
 };
-
-use super::{atomic_bool_deserializer, atomic_bool_serializer};
+#[cfg(test)]
+use crate::{OlmMachine, ReadOnlyAccount};
 
 /// A read-only version of a `Device`.
 #[derive(Clone, Serialize, Deserialize)]
@@ -120,9 +113,7 @@ pub struct Device {
 
 impl std::fmt::Debug for Device {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("Device")
-            .field("device", &self.inner)
-            .finish()
+        f.debug_struct("Device").field("device", &self.inner).finish()
     }
 }
 
@@ -139,10 +130,7 @@ impl Device {
     ///
     /// Returns a `Sas` object and to-device request that needs to be sent out.
     pub async fn start_verification(&self) -> StoreResult<(Sas, ToDeviceRequest)> {
-        let (sas, request) = self
-            .verification_machine
-            .start_sas(self.inner.clone())
-            .await?;
+        let (sas, request) = self.verification_machine.start_sas(self.inner.clone()).await?;
 
         if let OutgoingVerificationRequest::ToDevice(r) = request {
             Ok((sas, r))
@@ -162,8 +150,7 @@ impl Device {
 
     /// Get the trust state of the device.
     pub fn trust_state(&self) -> bool {
-        self.inner
-            .trust_state(&self.own_identity, &self.device_owner_identity)
+        self.inner.trust_state(&self.own_identity, &self.device_owner_identity)
     }
 
     /// Set the local trust state of the device to the given state.
@@ -178,10 +165,7 @@ impl Device {
         self.inner.set_trust_state(trust_state);
 
         let changes = Changes {
-            devices: DeviceChanges {
-                changed: vec![self.inner.clone()],
-                ..Default::default()
-            },
+            devices: DeviceChanges { changed: vec![self.inner.clone()], ..Default::default() },
             ..Default::default()
         };
 
@@ -200,9 +184,7 @@ impl Device {
         event_type: EventType,
         content: Value,
     ) -> OlmResult<(Session, EncryptedEventContent)> {
-        self.inner
-            .encrypt(&**self.verification_machine.store, event_type, content)
-            .await
+        self.inner.encrypt(&**self.verification_machine.store, event_type, content).await
     }
 
     /// Encrypt the given inbound group session as a forwarded room key for this
@@ -261,9 +243,7 @@ impl UserDevices {
     /// Returns true if there is at least one devices of this user that is
     /// considered to be verified, false otherwise.
     pub fn is_any_verified(&self) -> bool {
-        self.inner
-            .values()
-            .any(|d| d.trust_state(&self.own_identity, &self.device_owner_identity))
+        self.inner.values().any(|d| d.trust_state(&self.own_identity, &self.device_owner_identity))
     }
 
     /// Iterator over all the device ids of the user devices.
@@ -348,8 +328,7 @@ impl ReadOnlyDevice {
 
     /// Get the key of the given key algorithm belonging to this device.
     pub fn get_key(&self, algorithm: DeviceKeyAlgorithm) -> Option<&String> {
-        self.keys
-            .get(&DeviceKeyId::from_parts(algorithm, &self.device_id))
+        self.keys.get(&DeviceKeyId::from_parts(algorithm, &self.device_id))
     }
 
     /// Get a map containing all the device keys.
@@ -496,9 +475,8 @@ impl ReadOnlyDevice {
     }
 
     fn is_signed_by_device(&self, json: &mut Value) -> Result<(), SignatureError> {
-        let signing_key = self
-            .get_key(DeviceKeyAlgorithm::Ed25519)
-            .ok_or(SignatureError::MissingSigningKey)?;
+        let signing_key =
+            self.get_key(DeviceKeyAlgorithm::Ed25519).ok_or(SignatureError::MissingSigningKey)?;
 
         let utility = Utility::new();
 
@@ -590,14 +568,15 @@ impl PartialEq for ReadOnlyDevice {
 
 #[cfg(test)]
 pub(crate) mod test {
-    use serde_json::json;
     use std::convert::TryFrom;
 
-    use crate::identities::{LocalTrust, ReadOnlyDevice};
     use matrix_sdk_common::{
         encryption::DeviceKeys,
         identifiers::{user_id, DeviceKeyAlgorithm},
     };
+    use serde_json::json;
+
+    use crate::identities::{LocalTrust, ReadOnlyDevice};
 
     fn device_keys() -> DeviceKeys {
         let device_keys = json!({
@@ -640,10 +619,7 @@ pub(crate) mod test {
         assert_eq!(device_id, device.device_id());
         assert_eq!(device.algorithms.len(), 2);
         assert_eq!(LocalTrust::Unset, device.local_trust_state());
-        assert_eq!(
-            "Alice's mobile phone",
-            device.display_name().as_ref().unwrap()
-        );
+        assert_eq!("Alice's mobile phone", device.display_name().as_ref().unwrap());
         assert_eq!(
             device.get_key(DeviceKeyAlgorithm::Curve25519).unwrap(),
             "xfgbLIC5WAl1OIkpOzoxpCe8FsRDT6nch7NQsOb15nc"
@@ -658,10 +634,7 @@ pub(crate) mod test {
     fn update_a_device() {
         let mut device = get_device();
 
-        assert_eq!(
-            "Alice's mobile phone",
-            device.display_name().as_ref().unwrap()
-        );
+        assert_eq!("Alice's mobile phone", device.display_name().as_ref().unwrap());
 
         let display_name = "Alice's work computer".to_owned();
 

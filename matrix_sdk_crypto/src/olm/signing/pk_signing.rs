@@ -12,32 +12,27 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::{collections::BTreeMap, convert::TryInto, sync::Arc};
+
 use aes_gcm::{
     aead::{generic_array::GenericArray, Aead, NewAead},
     Aes256Gcm,
 };
 use getrandom::getrandom;
 use matrix_sdk_common::{
-    encryption::DeviceKeys,
-    identifiers::{DeviceKeyAlgorithm, DeviceKeyId},
-};
-use serde::{Deserialize, Serialize};
-use serde_json::{json, Error as JsonError, Value};
-use std::{collections::BTreeMap, convert::TryInto, sync::Arc};
-use thiserror::Error;
-use zeroize::Zeroizing;
-
-use olm_rs::pk::OlmPkSigning;
-
-#[cfg(test)]
-use olm_rs::{errors::OlmUtilityError, utility::OlmUtility};
-
-use matrix_sdk_common::{
     api::r0::keys::{CrossSigningKey, KeyUsage},
-    identifiers::UserId,
+    encryption::DeviceKeys,
+    identifiers::{DeviceKeyAlgorithm, DeviceKeyId, UserId},
     locks::Mutex,
     CanonicalJsonValue,
 };
+use olm_rs::pk::OlmPkSigning;
+#[cfg(test)]
+use olm_rs::{errors::OlmUtilityError, utility::OlmUtility};
+use serde::{Deserialize, Serialize};
+use serde_json::{json, Error as JsonError, Value};
+use thiserror::Error;
+use zeroize::Zeroizing;
 
 use crate::{
     error::SignatureError,
@@ -73,9 +68,7 @@ pub struct Signing {
 
 impl std::fmt::Debug for Signing {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("Signing")
-            .field("public_key", &self.public_key.as_str())
-            .finish()
+        f.debug_struct("Signing").field("public_key", &self.public_key.as_str()).finish()
     }
 }
 
@@ -156,10 +149,7 @@ impl MasterSigning {
     ) -> Result<Self, SigningError> {
         let inner = Signing::from_pickle(pickle.pickle, pickle_key)?;
 
-        Ok(Self {
-            inner,
-            public_key: pickle.public_key.into(),
-        })
+        Ok(Self { inner, public_key: pickle.public_key.into() })
     }
 
     pub async fn sign_subkey<'a>(&self, subkey: &mut CrossSigningKey) {
@@ -200,10 +190,7 @@ impl UserSigning {
         user: &UserIdentity,
     ) -> Result<BTreeMap<UserId, BTreeMap<String, Value>>, SignatureError> {
         let user_master: &CrossSigningKey = user.master_key().as_ref();
-        let signature = self
-            .inner
-            .sign_json(serde_json::to_value(user_master)?)
-            .await?;
+        let signature = self.inner.sign_json(serde_json::to_value(user_master)?).await?;
 
         let mut signatures = BTreeMap::new();
 
@@ -228,10 +215,7 @@ impl UserSigning {
     ) -> Result<Self, SigningError> {
         let inner = Signing::from_pickle(pickle.pickle, pickle_key)?;
 
-        Ok(Self {
-            inner,
-            public_key: pickle.public_key.into(),
-        })
+        Ok(Self { inner, public_key: pickle.public_key.into() })
     }
 }
 
@@ -279,10 +263,7 @@ impl SelfSigning {
     ) -> Result<Self, SigningError> {
         let inner = Signing::from_pickle(pickle.pickle, pickle_key)?;
 
-        Ok(Self {
-            inner,
-            public_key: pickle.public_key.into(),
-        })
+        Ok(Self { inner, public_key: pickle.public_key.into() })
     }
 }
 
@@ -353,17 +334,12 @@ impl Signing {
         getrandom(&mut nonce).expect("Can't generate nonce to pickle the signing object");
         let nonce = GenericArray::from_slice(nonce.as_slice());
 
-        let ciphertext = cipher
-            .encrypt(nonce, self.seed.as_slice())
-            .expect("Can't encrypt signing pickle");
+        let ciphertext =
+            cipher.encrypt(nonce, self.seed.as_slice()).expect("Can't encrypt signing pickle");
 
         let ciphertext = encode(ciphertext);
 
-        let pickle = InnerPickle {
-            version: 1,
-            nonce: encode(nonce.as_slice()),
-            ciphertext,
-        };
+        let pickle = InnerPickle { version: 1, nonce: encode(nonce.as_slice()), ciphertext };
 
         PickledSigning(serde_json::to_string(&pickle).expect("Can't encode pickled signing"))
     }
@@ -376,11 +352,8 @@ impl Signing {
         let mut keys = BTreeMap::new();
 
         keys.insert(
-            DeviceKeyId::from_parts(
-                DeviceKeyAlgorithm::Ed25519,
-                self.public_key().as_str().into(),
-            )
-            .to_string(),
+            DeviceKeyId::from_parts(DeviceKeyAlgorithm::Ed25519, self.public_key().as_str().into())
+                .to_string(),
             self.public_key().to_string(),
         );
 

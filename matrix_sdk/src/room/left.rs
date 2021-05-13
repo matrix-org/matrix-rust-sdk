@@ -1,19 +1,22 @@
-use crate::{room::Common, BaseRoom, Client, Result, RoomType};
 use std::ops::Deref;
 
 use matrix_sdk_common::api::r0::membership::forget_room;
 
+use crate::{room::Common, BaseRoom, Client, Result, RoomType};
+
 /// A room in the left state.
 ///
-/// This struct contains all methodes specific to a `Room` with type `RoomType::Left`.
-/// Operations may fail once the underlaying `Room` changes `RoomType`.
+/// This struct contains all methodes specific to a `Room` with type
+/// `RoomType::Left`. Operations may fail once the underlaying `Room` changes
+/// `RoomType`.
 #[derive(Debug, Clone)]
 pub struct Left {
     pub(crate) inner: Common,
 }
 
 impl Left {
-    /// Create a new `room::Left` if the underlaying `Room` has type `RoomType::Left`.
+    /// Create a new `room::Left` if the underlaying `Room` has type
+    /// `RoomType::Left`.
     ///
     /// # Arguments
     /// * `client` - The client used to make requests.
@@ -22,9 +25,7 @@ impl Left {
     pub fn new(client: Client, room: BaseRoom) -> Option<Self> {
         // TODO: Make this private
         if room.room_type() == RoomType::Left {
-            Some(Self {
-                inner: Common::new(client, room),
-            })
+            Some(Self { inner: Common::new(client, room) })
         } else {
             None
         }

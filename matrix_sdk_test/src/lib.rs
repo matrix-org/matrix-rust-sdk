@@ -1,7 +1,6 @@
 use std::{collections::HashMap, panic};
 
 use http::Response;
-
 use matrix_sdk_common::{
     api::r0::sync::sync_events::Response as SyncResponse,
     events::{
@@ -11,9 +10,8 @@ use matrix_sdk_common::{
     identifiers::{room_id, RoomId},
     IncomingResponse,
 };
-use serde_json::Value as JsonValue;
-
 pub use matrix_sdk_test_macros::async_test;
+use serde_json::Value as JsonValue;
 
 pub mod test_json;
 
@@ -44,16 +42,17 @@ pub enum EventsJson {
     Typing,
 }
 
-/// The `EventBuilder` struct can be used to easily generate valid sync responses for testing.
-/// These can be then fed into either `Client` or `Room`.
+/// The `EventBuilder` struct can be used to easily generate valid sync
+/// responses for testing. These can be then fed into either `Client` or `Room`.
 ///
-/// It supports generated a number of canned events, such as a member entering a room, his power
-/// level and display name changing and similar. It also supports insertion of custom events in the
-/// form of `EventsJson` values.
+/// It supports generated a number of canned events, such as a member entering a
+/// room, his power level and display name changing and similar. It also
+/// supports insertion of custom events in the form of `EventsJson` values.
 ///
-/// **Important** You *must* use the *same* builder when sending multiple sync responses to
-/// a single client. Otherwise, the subsequent responses will be *ignored* by the client because
-/// the `next_batch` sync token will not be rotated properly.
+/// **Important** You *must* use the *same* builder when sending multiple sync
+/// responses to a single client. Otherwise, the subsequent responses will be
+/// *ignored* by the client because the `next_batch` sync token will not be
+/// rotated properly.
 ///
 /// # Example usage
 ///
@@ -94,7 +93,8 @@ pub struct EventBuilder {
     ephemeral: Vec<AnySyncEphemeralRoomEvent>,
     /// The account data events that determine the state of a `Room`.
     account_data: Vec<AnyGlobalAccountDataEvent>,
-    /// Internal counter to enable the `prev_batch` and `next_batch` of each sync response to vary.
+    /// Internal counter to enable the `prev_batch` and `next_batch` of each
+    /// sync response to vary.
     batch_counter: i64,
 }
 
@@ -154,10 +154,7 @@ impl EventBuilder {
     }
 
     fn add_joined_event(&mut self, room_id: &RoomId, event: AnySyncRoomEvent) {
-        self.joined_room_events
-            .entry(room_id.clone())
-            .or_insert_with(Vec::new)
-            .push(event);
+        self.joined_room_events.entry(room_id.clone()).or_insert_with(Vec::new).push(event);
     }
 
     pub fn add_custom_invited_event(
@@ -166,10 +163,7 @@ impl EventBuilder {
         event: serde_json::Value,
     ) -> &mut Self {
         let event = serde_json::from_value::<AnySyncStateEvent>(event).unwrap();
-        self.invited_room_events
-            .entry(room_id.clone())
-            .or_insert_with(Vec::new)
-            .push(event);
+        self.invited_room_events.entry(room_id.clone()).or_insert_with(Vec::new).push(event);
         self
     }
 
@@ -179,10 +173,7 @@ impl EventBuilder {
         event: serde_json::Value,
     ) -> &mut Self {
         let event = serde_json::from_value::<AnySyncRoomEvent>(event).unwrap();
-        self.left_room_events
-            .entry(room_id.clone())
-            .or_insert_with(Vec::new)
-            .push(event);
+        self.left_room_events.entry(room_id.clone()).or_insert_with(Vec::new).push(event);
         self
     }
 
@@ -227,7 +218,8 @@ impl EventBuilder {
     pub fn build_json_sync_response(&mut self) -> JsonValue {
         let main_room_id = room_id!("!SVkFJHzfwvuaIEawgC:localhost");
 
-        // First time building a sync response, so initialize the `prev_batch` to a default one.
+        // First time building a sync response, so initialize the `prev_batch` to a
+        // default one.
         let prev_batch = self.generate_sync_token();
         self.batch_counter += 1;
         let next_batch = self.generate_sync_token();
@@ -352,9 +344,7 @@ impl EventBuilder {
     pub fn build_sync_response(&mut self) -> SyncResponse {
         let body = self.build_json_sync_response();
 
-        let response = Response::builder()
-            .body(serde_json::to_vec(&body).unwrap())
-            .unwrap();
+        let response = Response::builder().body(serde_json::to_vec(&body).unwrap()).unwrap();
 
         SyncResponse::try_from_http_response(response).unwrap()
     }
@@ -395,15 +385,10 @@ pub fn sync_response(kind: SyncResponseFile) -> SyncResponse {
         SyncResponseFile::Voip => &test_json::VOIP_SYNC,
     };
 
-    let response = Response::builder()
-        .body(data.to_string().as_bytes().to_vec())
-        .unwrap();
+    let response = Response::builder().body(data.to_string().as_bytes().to_vec()).unwrap();
     SyncResponse::try_from_http_response(response).unwrap()
 }
 
 pub fn response_from_file(json: &serde_json::Value) -> Response<Vec<u8>> {
-    Response::builder()
-        .status(200)
-        .body(json.to_string().as_bytes().to_vec())
-        .unwrap()
+    Response::builder().status(200).body(json.to_string().as_bytes().to_vec()).unwrap()
 }

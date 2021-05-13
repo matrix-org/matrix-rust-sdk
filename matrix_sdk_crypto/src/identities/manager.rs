@@ -12,20 +12,20 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use futures::future::join_all;
 use std::{
     collections::{BTreeMap, HashSet},
     convert::TryFrom,
     sync::Arc,
 };
-use tracing::{trace, warn};
 
+use futures::future::join_all;
 use matrix_sdk_common::{
     api::r0::keys::get_keys::Response as KeysQueryResponse,
     encryption::DeviceKeys,
     executor::spawn,
     identifiers::{DeviceIdBox, UserId},
 };
+use tracing::{trace, warn};
 
 use crate::{
     error::OlmResult,
@@ -54,11 +54,7 @@ impl IdentityManager {
     const MAX_KEY_QUERY_USERS: usize = 250;
 
     pub fn new(user_id: Arc<UserId>, device_id: Arc<DeviceIdBox>, store: Store) -> Self {
-        IdentityManager {
-            user_id,
-            device_id,
-            store,
-        }
+        IdentityManager { user_id, device_id, store }
     }
 
     fn user_id(&self) -> &UserId {
@@ -78,9 +74,8 @@ impl IdentityManager {
         &self,
         response: &KeysQueryResponse,
     ) -> OlmResult<(DeviceChanges, IdentityChanges)> {
-        let changed_devices = self
-            .handle_devices_from_key_query(response.device_keys.clone())
-            .await?;
+        let changed_devices =
+            self.handle_devices_from_key_query(response.device_keys.clone()).await?;
         let changed_identities = self.handle_cross_singing_keys(response).await?;
 
         let changes = Changes {
@@ -104,9 +99,8 @@ impl IdentityManager {
         store: Store,
         device_keys: DeviceKeys,
     ) -> StoreResult<DeviceChange> {
-        let old_device = store
-            .get_readonly_device(&device_keys.user_id, &device_keys.device_id)
-            .await?;
+        let old_device =
+            store.get_readonly_device(&device_keys.user_id, &device_keys.device_id).await?;
 
         if let Some(mut device) = old_device {
             if let Err(e) = device.update_device(&device_keys) {
@@ -148,25 +142,20 @@ impl IdentityManager {
 
         let current_devices: HashSet<DeviceIdBox> = device_map.keys().cloned().collect();
 
-        let tasks = device_map
-            .into_iter()
-            .filter_map(|(device_id, device_keys)| {
-                // We don't need our own device in the device store.
-                if user_id == *own_user_id && device_id == *own_device_id {
-                    None
-                } else if user_id != device_keys.user_id || device_id != device_keys.device_id {
-                    warn!(
-                        "Mismatch in device keys payload of device {}|{} from user {}|{}",
-                        device_id, device_keys.device_id, user_id, device_keys.user_id
-                    );
-                    None
-                } else {
-                    Some(spawn(Self::update_or_create_device(
-                        store.clone(),
-                        device_keys,
-                    )))
-                }
-            });
+        let tasks = device_map.into_iter().filter_map(|(device_id, device_keys)| {
+            // We don't need our own device in the device store.
+            if user_id == *own_user_id && device_id == *own_device_id {
+                None
+            } else if user_id != device_keys.user_id || device_id != device_keys.device_id {
+                warn!(
+                    "Mismatch in device keys payload of device {}|{} from user {}|{}",
+                    device_id, device_keys.device_id, user_id, device_keys.user_id
+                );
+                None
+            } else {
+                Some(spawn(Self::update_or_create_device(store.clone(), device_keys)))
+            }
+        });
 
         let results = join_all(tasks).await;
 
@@ -211,17 +200,15 @@ impl IdentityManager {
     ) -> StoreResult<DeviceChanges> {
         let mut changes = DeviceChanges::default();
 
-        let tasks = device_keys_map
-            .into_iter()
-            .map(|(user_id, device_keys_map)| {
-                spawn(Self::update_user_devices(
-                    self.store.clone(),
-                    self.user_id.clone(),
-                    self.device_id.clone(),
-                    user_id,
-                    device_keys_map,
-                ))
-            });
+        let tasks = device_keys_map.into_iter().map(|(user_id, device_keys_map)| {
+            spawn(Self::update_user_devices(
+                self.store.clone(),
+                self.user_id.clone(),
+                self.device_id.clone(),
+                user_id,
+                device_keys_map,
+            ))
+        });
 
         let results = join_all(tasks).await;
 
@@ -254,10 +241,7 @@ impl IdentityManager {
             let self_signing = if let Some(s) = response.self_signing_keys.get(user_id) {
                 SelfSigningPubkey::from(s)
             } else {
-                warn!(
-                    "User identity for user {} didn't contain a self signing pubkey",
-                    user_id
-                );
+                warn!("User identity for user {} didn't contain a self signing pubkey", user_id);
                 continue;
             };
 
@@ -276,13 +260,11 @@ impl IdentityManager {
                             continue;
                         };
 
-                        identity
-                            .update(master_key, self_signing, user_signing)
-                            .map(|_| (i, false))
+                        identity.update(master_key, self_signing, user_signing).map(|_| (i, false))
                     }
-                    UserIdentities::Other(ref mut identity) => identity
-                        .update(master_key, self_signing)
-                        .map(|_| (i, false)),
+                    UserIdentities::Other(ref mut identity) => {
+                        identity.update(master_key, self_signing).map(|_| (i, false))
+                    }
                 }
             } else if user_id == self.user_id() {
                 if let Some(s) = response.user_signing_keys.get(user_id) {
@@ -310,10 +292,7 @@ impl IdentityManager {
                     continue;
                 }
             } else if master_key.user_id() != user_id || self_signing.user_id() != user_id {
-                warn!(
-                    "User id mismatch in one of the cross signing keys for user {}",
-                    user_id
-                );
+                warn!("User id mismatch in one of the cross signing keys for user {}", user_id);
                 continue;
             } else {
                 UserIdentity::new(master_key, self_signing)
@@ -322,11 +301,7 @@ impl IdentityManager {
 
             match result {
                 Ok((i, new)) => {
-                    trace!(
-                        "Updated or created new user identity for {}: {:?}",
-                        user_id,
-                        i
-                    );
+                    trace!("Updated or created new user identity for {}: {:?}", user_id, i);
                     if new {
                         changes.new.push(i);
                     } else {
@@ -334,10 +309,7 @@ impl IdentityManager {
                     }
                 }
                 Err(e) => {
-                    warn!(
-                        "Couldn't update or create new user identity for {}: {:?}",
-                        user_id, e
-                    );
+                    warn!("Couldn't update or create new user identity for {}: {:?}", user_id, e);
                     continue;
                 }
             }
@@ -424,9 +396,7 @@ pub(crate) mod test {
         locks::Mutex,
         IncomingResponse,
     };
-
     use matrix_sdk_test::async_test;
-
     use serde_json::json;
 
     use crate::{
@@ -637,10 +607,7 @@ pub(crate) mod test {
         let devices = manager.store.get_user_devices(&other_user).await.unwrap();
         assert_eq!(devices.devices().count(), 0);
 
-        manager
-            .receive_keys_query_response(&other_key_query())
-            .await
-            .unwrap();
+        manager.receive_keys_query_response(&other_key_query()).await.unwrap();
 
         let devices = manager.store.get_user_devices(&other_user).await.unwrap();
         assert_eq!(devices.devices().count(), 1);
@@ -651,12 +618,7 @@ pub(crate) mod test {
             .await
             .unwrap()
             .unwrap();
-        let identity = manager
-            .store
-            .get_user_identity(&other_user)
-            .await
-            .unwrap()
-            .unwrap();
+        let identity = manager.store.get_user_identity(&other_user).await.unwrap().unwrap();
         let identity = identity.other().unwrap();
 
         assert!(identity.is_device_signed(&device).is_ok())
@@ -669,10 +631,7 @@ pub(crate) mod test {
         let devices = manager.store.get_user_devices(&other_user).await.unwrap();
         assert_eq!(devices.devices().count(), 0);
 
-        manager
-            .receive_keys_query_response(&other_key_query())
-            .await
-            .unwrap();
+        manager.receive_keys_query_response(&other_key_query()).await.unwrap();
 
         let devices = manager.store.get_user_devices(&other_user).await.unwrap();
         assert_eq!(devices.devices().count(), 1);
@@ -683,12 +642,7 @@ pub(crate) mod test {
             .await
             .unwrap()
             .unwrap();
-        let identity = manager
-            .store
-            .get_user_identity(&other_user)
-            .await
-            .unwrap()
-            .unwrap();
+        let identity = manager.store.get_user_identity(&other_user).await.unwrap().unwrap();
         let identity = identity.other().unwrap();
 
         assert!(identity.is_device_signed(&device).is_ok())

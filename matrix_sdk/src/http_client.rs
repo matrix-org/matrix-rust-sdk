@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#[cfg(all(not(target_arch = "wasm32")))]
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::{convert::TryFrom, fmt::Debug, sync::Arc};
 
 #[cfg(all(not(target_arch = "wasm32")))]
@@ -19,16 +21,13 @@ use backoff::{future::retry, Error as RetryError, ExponentialBackoff};
 #[cfg(all(not(target_arch = "wasm32")))]
 use http::StatusCode;
 use http::{HeaderValue, Response as HttpResponse};
-use reqwest::{Client, Response};
-#[cfg(all(not(target_arch = "wasm32")))]
-use std::sync::atomic::{AtomicU64, Ordering};
-use tracing::trace;
-use url::Url;
-
 use matrix_sdk_common::{
     api::r0::media::create_content, async_trait, locks::RwLock, AsyncTraitDeps, AuthScheme,
     FromHttpResponseError, IncomingResponse, SendAccessToken,
 };
+use reqwest::{Client, Response};
+use tracing::trace;
+use url::Url;
 
 use crate::{
     error::HttpError, Bytes, BytesMut, ClientConfig, OutgoingRequest, RequestConfig, Session,
@@ -39,13 +38,16 @@ use crate::{
 #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
 #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
 pub trait HttpSend: AsyncTraitDeps {
-    /// The method abstracting sending request types and receiving response types.
+    /// The method abstracting sending request types and receiving response
+    /// types.
     ///
-    /// This is called by the client every time it wants to send anything to a homeserver.
+    /// This is called by the client every time it wants to send anything to a
+    /// homeserver.
     ///
     /// # Arguments
     ///
-    /// * `request` - The http request that has been converted from a ruma `Request`.
+    /// * `request` - The http request that has been converted from a ruma
+    ///   `Request`.
     ///
     /// * `request_config` - The config used for this request.
     ///
@@ -122,8 +124,7 @@ impl HttpClient {
         let request = if !self.request_config.assert_identity {
             self.try_into_http_request(request, session, config).await?
         } else {
-            self.try_into_http_request_with_identy_assertion(request, session, config)
-                .await?
+            self.try_into_http_request_with_identy_assertion(request, session, config).await?
         };
 
         self.inner.send_request(request, config).await
@@ -202,9 +203,7 @@ impl HttpClient {
         request: create_content::Request<'_>,
         config: Option<RequestConfig>,
     ) -> Result<create_content::Response, HttpError> {
-        let response = self
-            .send_request(request, self.session.clone(), config)
-            .await?;
+        let response = self.send_request(request, self.session.clone(), config).await?;
         Ok(create_content::Response::try_from_http_response(response)?)
     }
 
@@ -217,9 +216,7 @@ impl HttpClient {
         Request: OutgoingRequest + Debug,
         HttpError: From<FromHttpResponseError<Request::EndpointError>>,
     {
-        let response = self
-            .send_request(request, self.session.clone(), config)
-            .await?;
+        let response = self.send_request(request, self.session.clone(), config).await?;
 
         trace!("Got response: {:?}", response);
 
@@ -256,9 +253,7 @@ pub(crate) fn client_with_config(config: &ClientConfig) -> Result<Client, HttpEr
 
         headers.insert(reqwest::header::USER_AGENT, user_agent);
 
-        http_client
-            .default_headers(headers)
-            .timeout(config.request_config.timeout)
+        http_client.default_headers(headers).timeout(config.request_config.timeout)
     };
 
     #[cfg(target_arch = "wasm32")]
@@ -274,9 +269,7 @@ async fn response_to_http_response(
     let status = response.status();
 
     let mut http_builder = HttpResponse::builder().status(status);
-    let headers = http_builder
-        .headers_mut()
-        .expect("Can't get the response builder headers");
+    let headers = http_builder.headers_mut().expect("Can't get the response builder headers");
 
     for (k, v) in response.headers_mut().drain() {
         if let Some(key) = k {
@@ -286,9 +279,7 @@ async fn response_to_http_response(
 
     let body = response.bytes().await?;
 
-    Ok(http_builder
-        .body(body)
-        .expect("Can't construct a response using the given body"))
+    Ok(http_builder.body(body).expect("Can't construct a response using the given body"))
 }
 
 #[cfg(any(target_arch = "wasm32"))]
@@ -329,18 +320,12 @@ async fn send_request(
         };
 
         // Turn errors into permanent errors when the retry limit is reached
-        let error_type = if stop {
-            RetryError::Permanent
-        } else {
-            RetryError::Transient
-        };
+        let error_type = if stop { RetryError::Permanent } else { RetryError::Transient };
 
         let request = request.try_clone().ok_or(HttpError::UnableToCloneRequest)?;
 
-        let response = client
-            .execute(request)
-            .await
-            .map_err(|e| error_type(HttpError::Reqwest(e)))?;
+        let response =
+            client.execute(request).await.map_err(|e| error_type(HttpError::Reqwest(e)))?;
 
         let status_code = response.status();
         // TODO TOO_MANY_REQUESTS will have a retry timeout which we should

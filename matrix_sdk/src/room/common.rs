@@ -1,3 +1,5 @@
+use std::{ops::Deref, sync::Arc};
+
 use matrix_sdk_base::{deserialized_responses::MembersResponse, identifiers::UserId};
 use matrix_sdk_common::{
     api::r0::{
@@ -8,11 +10,10 @@ use matrix_sdk_common::{
     locks::Mutex,
 };
 
-use std::{ops::Deref, sync::Arc};
-
 use crate::{BaseRoom, Client, Result, RoomMember};
 
-/// A struct containing methodes that are common for Joined, Invited and Left Rooms
+/// A struct containing methodes that are common for Joined, Invited and Left
+/// Rooms
 #[derive(Debug, Clone)]
 pub struct Common {
     inner: BaseRoom,
@@ -36,10 +37,7 @@ impl Common {
     /// * `room` - The underlaying room.
     pub fn new(client: Client, room: BaseRoom) -> Self {
         // TODO: Make this private
-        Self {
-            inner: room,
-            client,
-        }
+        Self { inner: room, client }
     }
 
     /// Leave this room.
@@ -111,9 +109,9 @@ impl Common {
         }
     }
 
-    /// Sends a request to `/_matrix/client/r0/rooms/{room_id}/messages` and returns
-    /// a `get_message_events::Response` that contains a chunk of room and state events
-    /// (`AnyRoomEvent` and `AnyStateEvent`).
+    /// Sends a request to `/_matrix/client/r0/rooms/{room_id}/messages` and
+    /// returns a `get_message_events::Response` that contains a chunk of
+    /// room and state events (`AnyRoomEvent` and `AnyStateEvent`).
     ///
     /// # Arguments
     ///
@@ -152,35 +150,25 @@ impl Common {
 
     pub(crate) async fn request_members(&self) -> Result<Option<MembersResponse>> {
         #[allow(clippy::map_clone)]
-        if let Some(mutex) = self
-            .client
-            .members_request_locks
-            .get(self.inner.room_id())
-            .map(|m| m.clone())
+        if let Some(mutex) =
+            self.client.members_request_locks.get(self.inner.room_id()).map(|m| m.clone())
         {
             mutex.lock().await;
 
             Ok(None)
         } else {
             let mutex = Arc::new(Mutex::new(()));
-            self.client
-                .members_request_locks
-                .insert(self.inner.room_id().clone(), mutex.clone());
+            self.client.members_request_locks.insert(self.inner.room_id().clone(), mutex.clone());
 
             let _guard = mutex.lock().await;
 
             let request = get_member_events::Request::new(self.inner.room_id());
             let response = self.client.send(request, None).await?;
 
-            let response = self
-                .client
-                .base_client
-                .receive_members(self.inner.room_id(), &response)
-                .await?;
+            let response =
+                self.client.base_client.receive_members(self.inner.room_id(), &response).await?;
 
-            self.client
-                .members_request_locks
-                .remove(self.inner.room_id());
+            self.client.members_request_locks.remove(self.inner.room_id());
 
             Ok(Some(response))
         }
@@ -248,9 +236,9 @@ impl Common {
 
     /// Get all the joined members of this room.
     ///
-    /// *Note*: This method will not fetch the members from the homeserver if the
-    /// member list isn't synchronized due to member lazy loading. Thus, members
-    /// could be missing from the list.
+    /// *Note*: This method will not fetch the members from the homeserver if
+    /// the member list isn't synchronized due to member lazy loading. Thus,
+    /// members could be missing from the list.
     ///
     /// Use [joined_members()](#method.joined_members) if you want to ensure to
     /// always get the full member list.
@@ -284,9 +272,9 @@ impl Common {
 
     /// Get a specific member of this room.
     ///
-    /// *Note*: This method will not fetch the members from the homeserver if the
-    /// member list isn't synchronized due to member lazy loading. Thus, members
-    /// could be missing.
+    /// *Note*: This method will not fetch the members from the homeserver if
+    /// the member list isn't synchronized due to member lazy loading. Thus,
+    /// members could be missing.
     ///
     /// Use [get_member()](#method.get_member) if you want to ensure to always
     /// have the full member list to chose from.
@@ -295,7 +283,6 @@ impl Common {
     ///
     /// * `user_id` - The ID of the user that should be fetched out of the
     /// store.
-    ///
     pub async fn get_member_no_sync(&self, user_id: &UserId) -> Result<Option<RoomMember>> {
         Ok(self
             .inner
@@ -304,7 +291,8 @@ impl Common {
             .map(|member| RoomMember::new(self.client.clone(), member)))
     }
 
-    /// Get all members for this room, includes invited, joined and left members.
+    /// Get all members for this room, includes invited, joined and left
+    /// members.
     ///
     /// *Note*: This method will fetch the members from the homeserver if the
     /// member list isn't synchronized due to member lazy loading. Because of
@@ -317,11 +305,12 @@ impl Common {
         self.members_no_sync().await
     }
 
-    /// Get all members for this room, includes invited, joined and left members.
+    /// Get all members for this room, includes invited, joined and left
+    /// members.
     ///
-    /// *Note*: This method will not fetch the members from the homeserver if the
-    /// member list isn't synchronized due to member lazy loading. Thus, members
-    /// could be missing.
+    /// *Note*: This method will not fetch the members from the homeserver if
+    /// the member list isn't synchronized due to member lazy loading. Thus,
+    /// members could be missing.
     ///
     /// Use [members()](#method.members) if you want to ensure to always get
     /// the full member list.

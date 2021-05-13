@@ -12,10 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::sync::Arc;
 #[cfg(test)]
 use std::time::Instant;
-
-use std::sync::Arc;
 
 use matrix_sdk_common::{
     events::{
@@ -25,11 +24,6 @@ use matrix_sdk_common::{
     identifiers::{EventId, RoomId},
 };
 
-use crate::{
-    identities::{ReadOnlyDevice, UserIdentities},
-    ReadOnlyAccount,
-};
-
 use super::{
     event_enums::{AcceptContent, CancelContent, MacContent, OutgoingContent},
     sas_state::{
@@ -37,6 +31,10 @@ use super::{
         WaitingForDone,
     },
     FlowId, StartContent,
+};
+use crate::{
+    identities::{ReadOnlyDevice, UserIdentities},
+    ReadOnlyAccount,
 };
 
 #[derive(Clone, Debug)]
@@ -315,14 +313,15 @@ impl InnerSas {
                 _ => (self, None),
             },
             AnyToDeviceEvent::KeyVerificationMac(e) => match self {
-                InnerSas::KeyRecieved(s) => match s.into_mac_received(&e.sender, e.content.clone())
-                {
-                    Ok(s) => (InnerSas::MacReceived(s), None),
-                    Err(s) => {
-                        let content = s.as_content();
-                        (InnerSas::Canceled(s), Some(content.into()))
+                InnerSas::KeyRecieved(s) => {
+                    match s.into_mac_received(&e.sender, e.content.clone()) {
+                        Ok(s) => (InnerSas::MacReceived(s), None),
+                        Err(s) => {
+                            let content = s.as_content();
+                            (InnerSas::Canceled(s), Some(content.into()))
+                        }
                     }
-                },
+                }
                 InnerSas::Confirmed(s) => match s.into_done(&e.sender, e.content.clone()) {
                     Ok(s) => (InnerSas::Done(s), None),
                     Err(s) => {

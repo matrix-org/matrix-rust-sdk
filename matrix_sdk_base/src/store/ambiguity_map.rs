@@ -19,12 +19,10 @@ use matrix_sdk_common::{
     events::room::member::MembershipState,
     identifiers::{EventId, RoomId, UserId},
 };
-
 use tracing::trace;
 
-use crate::Store;
-
 use super::{Result, StateChanges};
+use crate::Store;
 
 #[derive(Clone, Debug)]
 pub struct AmbiguityCache {
@@ -51,11 +49,8 @@ impl AmbiguityMap {
     }
 
     fn add(&mut self, user_id: UserId) -> Option<UserId> {
-        let ambiguous_user = if self.user_count() == 1 {
-            self.users.iter().next().cloned()
-        } else {
-            None
-        };
+        let ambiguous_user =
+            if self.user_count() == 1 { self.users.iter().next().cloned() } else { None };
 
         self.users.insert(user_id);
 
@@ -73,11 +68,7 @@ impl AmbiguityMap {
 
 impl AmbiguityCache {
     pub fn new(store: Store) -> Self {
-        Self {
-            store,
-            cache: BTreeMap::new(),
-            changes: BTreeMap::new(),
-        }
+        Self { store, cache: BTreeMap::new(), changes: BTreeMap::new() }
     }
 
     pub async fn handle_event(
@@ -115,12 +106,9 @@ impl AmbiguityCache {
             return Ok(());
         }
 
-        let disambiguated_member = old_map
-            .as_mut()
-            .and_then(|o| o.remove(&member_event.state_key));
-        let ambiguated_member = new_map
-            .as_mut()
-            .and_then(|n| n.add(member_event.state_key.clone()));
+        let disambiguated_member = old_map.as_mut().and_then(|o| o.remove(&member_event.state_key));
+        let ambiguated_member =
+            new_map.as_mut().and_then(|n| n.add(member_event.state_key.clone()));
         let ambiguous = new_map.as_ref().map(|n| n.is_ambiguous()).unwrap_or(false);
 
         self.update(room_id, old_map, new_map);
@@ -131,11 +119,7 @@ impl AmbiguityCache {
             member_ambiguous: ambiguous,
         };
 
-        trace!(
-            "Handling display name ambiguity for {}: {:#?}",
-            member_event.state_key,
-            change
-        );
+        trace!("Handling display name ambiguity for {}: {:#?}", member_event.state_key, change);
 
         self.add_change(room_id, member_event.event_id.clone(), change);
 
@@ -148,10 +132,7 @@ impl AmbiguityCache {
         old_map: Option<AmbiguityMap>,
         new_map: Option<AmbiguityMap>,
     ) {
-        let entry = self
-            .cache
-            .entry(room_id.clone())
-            .or_insert_with(BTreeMap::new);
+        let entry = self.cache.entry(room_id.clone()).or_insert_with(BTreeMap::new);
 
         if let Some(old) = old_map {
             entry.insert(old.display_name, old.users);
@@ -163,10 +144,7 @@ impl AmbiguityCache {
     }
 
     fn add_change(&mut self, room_id: &RoomId, event_id: EventId, change: AmbiguityChange) {
-        self.changes
-            .entry(room_id.clone())
-            .or_insert_with(BTreeMap::new)
-            .insert(event_id, change);
+        self.changes.entry(room_id.clone()).or_insert_with(BTreeMap::new).insert(event_id, change);
     }
 
     async fn get(
@@ -177,16 +155,12 @@ impl AmbiguityCache {
     ) -> Result<(Option<AmbiguityMap>, Option<AmbiguityMap>)> {
         use MembershipState::*;
 
-        let old_event = if let Some(m) = changes
-            .members
-            .get(room_id)
-            .and_then(|m| m.get(&member_event.state_key))
+        let old_event = if let Some(m) =
+            changes.members.get(room_id).and_then(|m| m.get(&member_event.state_key))
         {
             Some(m.clone())
         } else {
-            self.store
-                .get_member_event(room_id, &member_event.state_key)
-                .await?
+            self.store.get_member_event(room_id, &member_event.state_key).await?
         };
 
         let old_display_name = if let Some(event) = old_event {
@@ -218,23 +192,15 @@ impl AmbiguityCache {
         };
 
         let old_map = if let Some(old_name) = old_display_name.as_deref() {
-            let old_display_name_map = if let Some(u) = self
-                .cache
-                .entry(room_id.clone())
-                .or_insert_with(BTreeMap::new)
-                .get(old_name)
+            let old_display_name_map = if let Some(u) =
+                self.cache.entry(room_id.clone()).or_insert_with(BTreeMap::new).get(old_name)
             {
                 u.clone()
             } else {
-                self.store
-                    .get_users_with_display_name(&room_id, &old_name)
-                    .await?
+                self.store.get_users_with_display_name(&room_id, &old_name).await?
             };
 
-            Some(AmbiguityMap {
-                display_name: old_name.to_string(),
-                users: old_display_name_map,
-            })
+            Some(AmbiguityMap { display_name: old_name.to_string(), users: old_display_name_map })
         } else {
             None
         };
@@ -246,8 +212,9 @@ impl AmbiguityCache {
                 .as_deref()
                 .unwrap_or_else(|| member_event.state_key.localpart());
 
-            // We don't allow other users to set the display name, so if we have
-            // a more trusted version of the display name use that.
+            // We don't allow other users to set the display name, so if we
+            // have a more trusted version of the display
+            // name use that.
             let new_display_name = if member_event.sender.as_str() == member_event.state_key {
                 new
             } else if let Some(old) = old_display_name.as_deref() {
@@ -264,9 +231,7 @@ impl AmbiguityCache {
             {
                 u.clone()
             } else {
-                self.store
-                    .get_users_with_display_name(&room_id, &new_display_name)
-                    .await?
+                self.store.get_users_with_display_name(&room_id, &new_display_name).await?
             };
 
             Some(AmbiguityMap {

@@ -20,19 +20,18 @@ use std::{
 };
 
 use dashmap::DashSet;
-use olm_rs::{account::IdentityKeys, PicklingMode};
-pub use sled::Error;
-use sled::{
-    transaction::{ConflictableTransactionError, TransactionError},
-    Config, Db, Transactional, Tree,
-};
-
 use matrix_sdk_common::{
     async_trait,
     events::room_key_request::RequestedKeyInfo,
     identifiers::{DeviceId, DeviceIdBox, RoomId, UserId},
     locks::Mutex,
     uuid,
+};
+use olm_rs::{account::IdentityKeys, PicklingMode};
+pub use sled::Error;
+use sled::{
+    transaction::{ConflictableTransactionError, TransactionError},
+    Config, Db, Transactional, Tree,
 };
 use uuid::Uuid;
 
@@ -97,13 +96,7 @@ impl EncodeKey for &str {
 
 impl EncodeKey for (&str, &str) {
     fn encode(&self) -> Vec<u8> {
-        [
-            self.0.as_bytes(),
-            &[Self::SEPARATOR],
-            self.1.as_bytes(),
-            &[Self::SEPARATOR],
-        ]
-        .concat()
+        [self.0.as_bytes(), &[Self::SEPARATOR], self.1.as_bytes(), &[Self::SEPARATOR]].concat()
     }
 }
 
@@ -164,9 +157,7 @@ impl std::fmt::Debug for SledStore {
         if let Some(path) = &self.path {
             f.debug_struct("SledStore").field("path", &path).finish()
         } else {
-            f.debug_struct("SledStore")
-                .field("path", &"memory store")
-                .finish()
+            f.debug_struct("SledStore").field("path", &"memory store").finish()
         }
     }
 }
@@ -253,9 +244,8 @@ impl SledStore {
     }
 
     fn get_or_create_pickle_key(passphrase: &str, database: &Db) -> Result<PickleKey> {
-        let key = if let Some(key) = database
-            .get("pickle_key".encode())?
-            .map(|v| serde_json::from_slice(&v))
+        let key = if let Some(key) =
+            database.get("pickle_key".encode())?.map(|v| serde_json::from_slice(&v))
         {
             PickleKey::from_encrypted(passphrase, key?)
                 .map_err(|_| CryptoStoreError::UnpicklingError)?
@@ -297,9 +287,7 @@ impl SledStore {
         &self,
         room_id: &RoomId,
     ) -> Result<Option<OutboundGroupSession>> {
-        let account_info = self
-            .get_account_info()
-            .ok_or(CryptoStoreError::AccountUnset)?;
+        let account_info = self.get_account_info().ok_or(CryptoStoreError::AccountUnset)?;
 
         self.outbound_group_sessions
             .get(room_id.encode())?
@@ -501,17 +489,11 @@ impl SledStore {
         &self,
         id: &[u8],
     ) -> Result<Option<OutgoingKeyRequest>> {
-        let request = self
-            .outgoing_key_requests
-            .get(id)?
-            .map(|r| serde_json::from_slice(&r))
-            .transpose()?;
+        let request =
+            self.outgoing_key_requests.get(id)?.map(|r| serde_json::from_slice(&r)).transpose()?;
 
         let request = if request.is_none() {
-            self.unsent_key_requests
-                .get(id)?
-                .map(|r| serde_json::from_slice(&r))
-                .transpose()?
+            self.unsent_key_requests.get(id)?.map(|r| serde_json::from_slice(&r)).transpose()?
         } else {
             request
         };
@@ -553,10 +535,7 @@ impl CryptoStore for SledStore {
 
         *self.account_info.write().unwrap() = Some(account_info);
 
-        let changes = Changes {
-            account: Some(account),
-            ..Default::default()
-        };
+        let changes = Changes { account: Some(account), ..Default::default() };
 
         self.save_changes(changes).await
     }
@@ -579,9 +558,7 @@ impl CryptoStore for SledStore {
     }
 
     async fn get_sessions(&self, sender_key: &str) -> Result<Option<Arc<Mutex<Vec<Session>>>>> {
-        let account_info = self
-            .get_account_info()
-            .ok_or(CryptoStoreError::AccountUnset)?;
+        let account_info = self.get_account_info().ok_or(CryptoStoreError::AccountUnset)?;
 
         if self.session_cache.get(sender_key).is_none() {
             let sessions: Result<Vec<Session>> = self
@@ -613,16 +590,10 @@ impl CryptoStore for SledStore {
         session_id: &str,
     ) -> Result<Option<InboundGroupSession>> {
         let key = (room_id.as_str(), sender_key, session_id).encode();
-        let pickle = self
-            .inbound_group_sessions
-            .get(&key)?
-            .map(|p| serde_json::from_slice(&p));
+        let pickle = self.inbound_group_sessions.get(&key)?.map(|p| serde_json::from_slice(&p));
 
         if let Some(pickle) = pickle {
-            Ok(Some(InboundGroupSession::from_pickle(
-                pickle?,
-                self.get_pickle_mode(),
-            )?))
+            Ok(Some(InboundGroupSession::from_pickle(pickle?, self.get_pickle_mode())?))
         } else {
             Ok(None)
         }
@@ -658,10 +629,7 @@ impl CryptoStore for SledStore {
 
     fn users_for_key_query(&self) -> HashSet<UserId> {
         #[allow(clippy::map_clone)]
-        self.users_for_key_query_cache
-            .iter()
-            .map(|u| u.clone())
-            .collect()
+        self.users_for_key_query_cache.iter().map(|u| u.clone()).collect()
     }
 
     async fn update_tracked_user(&self, user: &UserId, dirty: bool) -> Result<bool> {
@@ -715,9 +683,7 @@ impl CryptoStore for SledStore {
     }
 
     async fn is_message_known(&self, message_hash: &crate::olm::OlmMessageHash) -> Result<bool> {
-        Ok(self
-            .olm_hashes
-            .contains_key(serde_json::to_vec(message_hash)?)?)
+        Ok(self.olm_hashes.contains_key(serde_json::to_vec(message_hash)?)?)
     }
 
     async fn get_outgoing_key_request(
@@ -753,36 +719,33 @@ impl CryptoStore for SledStore {
     }
 
     async fn delete_outgoing_key_request(&self, request_id: Uuid) -> Result<()> {
-        let ret: Result<(), TransactionError<serde_json::Error>> = (
-            &self.outgoing_key_requests,
-            &self.unsent_key_requests,
-            &self.key_requests_by_info,
-        )
-            .transaction(
-                |(outgoing_key_requests, unsent_key_requests, key_requests_by_info)| {
-                    let sent_request: Option<OutgoingKeyRequest> = outgoing_key_requests
-                        .remove(request_id.encode())?
-                        .map(|r| serde_json::from_slice(&r))
-                        .transpose()
-                        .map_err(ConflictableTransactionError::Abort)?;
+        let ret: Result<(), TransactionError<serde_json::Error>> =
+            (&self.outgoing_key_requests, &self.unsent_key_requests, &self.key_requests_by_info)
+                .transaction(
+                    |(outgoing_key_requests, unsent_key_requests, key_requests_by_info)| {
+                        let sent_request: Option<OutgoingKeyRequest> = outgoing_key_requests
+                            .remove(request_id.encode())?
+                            .map(|r| serde_json::from_slice(&r))
+                            .transpose()
+                            .map_err(ConflictableTransactionError::Abort)?;
 
-                    let unsent_request: Option<OutgoingKeyRequest> = unsent_key_requests
-                        .remove(request_id.encode())?
-                        .map(|r| serde_json::from_slice(&r))
-                        .transpose()
-                        .map_err(ConflictableTransactionError::Abort)?;
+                        let unsent_request: Option<OutgoingKeyRequest> = unsent_key_requests
+                            .remove(request_id.encode())?
+                            .map(|r| serde_json::from_slice(&r))
+                            .transpose()
+                            .map_err(ConflictableTransactionError::Abort)?;
 
-                    if let Some(request) = sent_request {
-                        key_requests_by_info.remove((&request.info).encode())?;
-                    }
+                        if let Some(request) = sent_request {
+                            key_requests_by_info.remove((&request.info).encode())?;
+                        }
 
-                    if let Some(request) = unsent_request {
-                        key_requests_by_info.remove((&request.info).encode())?;
-                    }
+                        if let Some(request) = unsent_request {
+                            key_requests_by_info.remove((&request.info).encode())?;
+                        }
 
-                    Ok(())
-                },
-            );
+                        Ok(())
+                    },
+                );
 
         ret?;
         self.inner.flush_async().await?;
@@ -793,6 +756,19 @@ impl CryptoStore for SledStore {
 
 #[cfg(test)]
 mod test {
+    use std::collections::BTreeMap;
+
+    use matrix_sdk_common::{
+        api::r0::keys::SignedKey,
+        events::room_key_request::RequestedKeyInfo,
+        identifiers::{room_id, user_id, DeviceId, EventEncryptionAlgorithm, UserId},
+        uuid::Uuid,
+    };
+    use matrix_sdk_test::async_test;
+    use olm_rs::outbound_group_session::OlmOutboundGroupSession;
+    use tempfile::tempdir;
+
+    use super::{CryptoStore, OutgoingKeyRequest, SledStore};
     use crate::{
         identities::{
             device::test::get_device,
@@ -804,18 +780,6 @@ mod test {
         },
         store::{Changes, DeviceChanges, IdentityChanges},
     };
-    use matrix_sdk_common::{
-        api::r0::keys::SignedKey,
-        events::room_key_request::RequestedKeyInfo,
-        identifiers::{room_id, user_id, DeviceId, EventEncryptionAlgorithm, UserId},
-        uuid::Uuid,
-    };
-    use matrix_sdk_test::async_test;
-    use olm_rs::outbound_group_session::OlmOutboundGroupSession;
-    use std::collections::BTreeMap;
-    use tempfile::tempdir;
-
-    use super::{CryptoStore, OutgoingKeyRequest, SledStore};
 
     fn alice_id() -> UserId {
         user_id!("@alice:example.org")
@@ -846,10 +810,7 @@ mod test {
     async fn get_loaded_store() -> (ReadOnlyAccount, SledStore, tempfile::TempDir) {
         let (store, dir) = get_store(None).await;
         let account = get_account();
-        store
-            .save_account(account.clone())
-            .await
-            .expect("Can't save account");
+        store.save_account(account.clone()).await.expect("Can't save account");
 
         (account, store, dir)
     }
@@ -863,21 +824,12 @@ mod test {
         let bob = ReadOnlyAccount::new(&bob_id(), &bob_device_id());
 
         bob.generate_one_time_keys_helper(1).await;
-        let one_time_key = bob
-            .one_time_keys()
-            .await
-            .curve25519()
-            .iter()
-            .next()
-            .unwrap()
-            .1
-            .to_owned();
+        let one_time_key =
+            bob.one_time_keys().await.curve25519().iter().next().unwrap().1.to_owned();
         let one_time_key = SignedKey::new(one_time_key, BTreeMap::new());
         let sender_key = bob.identity_keys().curve25519().to_owned();
-        let session = alice
-            .create_outbound_session_helper(&sender_key, &one_time_key)
-            .await
-            .unwrap();
+        let session =
+            alice.create_outbound_session_helper(&sender_key, &one_time_key).await.unwrap();
 
         (alice, session)
     }
@@ -895,10 +847,7 @@ mod test {
         assert!(store.load_account().await.unwrap().is_none());
         let account = get_account();
 
-        store
-            .save_account(account)
-            .await
-            .expect("Can't save account");
+        store.save_account(account).await.expect("Can't save account");
     }
 
     #[async_test]
@@ -906,10 +855,7 @@ mod test {
         let (store, _dir) = get_store(None).await;
         let account = get_account();
 
-        store
-            .save_account(account.clone())
-            .await
-            .expect("Can't save account");
+        store.save_account(account.clone()).await.expect("Can't save account");
 
         let loaded_account = store.load_account().await.expect("Can't load account");
         let loaded_account = loaded_account.unwrap();
@@ -922,10 +868,7 @@ mod test {
         let (store, _dir) = get_store(Some("secret_passphrase")).await;
         let account = get_account();
 
-        store
-            .save_account(account.clone())
-            .await
-            .expect("Can't save account");
+        store.save_account(account.clone()).await.expect("Can't save account");
 
         let loaded_account = store.load_account().await.expect("Can't load account");
         let loaded_account = loaded_account.unwrap();
@@ -938,50 +881,32 @@ mod test {
         let (store, _dir) = get_store(None).await;
         let account = get_account();
 
-        store
-            .save_account(account.clone())
-            .await
-            .expect("Can't save account");
+        store.save_account(account.clone()).await.expect("Can't save account");
 
         account.mark_as_shared();
         account.update_uploaded_key_count(50);
 
-        store
-            .save_account(account.clone())
-            .await
-            .expect("Can't save account");
+        store.save_account(account.clone()).await.expect("Can't save account");
 
         let loaded_account = store.load_account().await.expect("Can't load account");
         let loaded_account = loaded_account.unwrap();
 
         assert_eq!(account, loaded_account);
-        assert_eq!(
-            account.uploaded_key_count(),
-            loaded_account.uploaded_key_count()
-        );
+        assert_eq!(account.uploaded_key_count(), loaded_account.uploaded_key_count());
     }
 
     #[async_test]
     async fn load_sessions() {
         let (store, _dir) = get_store(None).await;
         let (account, session) = get_account_and_session().await;
-        store
-            .save_account(account.clone())
-            .await
-            .expect("Can't save account");
+        store.save_account(account.clone()).await.expect("Can't save account");
 
-        let changes = Changes {
-            sessions: vec![session.clone()],
-            ..Default::default()
-        };
+        let changes = Changes { sessions: vec![session.clone()], ..Default::default() };
 
         store.save_changes(changes).await.unwrap();
 
-        let sessions = store
-            .get_sessions(&session.sender_key)
-            .await
-            .expect("Can't load sessions")
-            .unwrap();
+        let sessions =
+            store.get_sessions(&session.sender_key).await.expect("Can't load sessions").unwrap();
         let loaded_session = sessions.lock().await.get(0).cloned().unwrap();
 
         assert_eq!(&session, &loaded_session);
@@ -994,15 +919,9 @@ mod test {
         let sender_key = session.sender_key.to_owned();
         let session_id = session.session_id().to_owned();
 
-        store
-            .save_account(account.clone())
-            .await
-            .expect("Can't save account");
+        store.save_account(account.clone()).await.expect("Can't save account");
 
-        let changes = Changes {
-            sessions: vec![session.clone()],
-            ..Default::default()
-        };
+        let changes = Changes { sessions: vec![session.clone()], ..Default::default() };
         store.save_changes(changes).await.unwrap();
 
         let sessions = store.get_sessions(&sender_key).await.unwrap().unwrap();
@@ -1040,15 +959,9 @@ mod test {
         )
         .expect("Can't create session");
 
-        let changes = Changes {
-            inbound_group_sessions: vec![session],
-            ..Default::default()
-        };
+        let changes = Changes { inbound_group_sessions: vec![session], ..Default::default() };
 
-        store
-            .save_changes(changes)
-            .await
-            .expect("Can't save group session");
+        store.save_changes(changes).await.expect("Can't save group session");
     }
 
     #[async_test]
@@ -1072,15 +985,10 @@ mod test {
 
         let session = InboundGroupSession::from_export(export).unwrap();
 
-        let changes = Changes {
-            inbound_group_sessions: vec![session.clone()],
-            ..Default::default()
-        };
+        let changes =
+            Changes { inbound_group_sessions: vec![session.clone()], ..Default::default() };
 
-        store
-            .save_changes(changes)
-            .await
-            .expect("Can't save group session");
+        store.save_changes(changes).await.expect("Can't save group session");
 
         drop(store);
 
@@ -1103,21 +1011,12 @@ mod test {
         let (_account, store, dir) = get_loaded_store().await;
         let device = get_device();
 
-        assert!(store
-            .update_tracked_user(device.user_id(), false)
-            .await
-            .unwrap());
-        assert!(!store
-            .update_tracked_user(device.user_id(), false)
-            .await
-            .unwrap());
+        assert!(store.update_tracked_user(device.user_id(), false).await.unwrap());
+        assert!(!store.update_tracked_user(device.user_id(), false).await.unwrap());
 
         assert!(store.is_user_tracked(device.user_id()));
         assert!(!store.users_for_key_query().contains(device.user_id()));
-        assert!(!store
-            .update_tracked_user(device.user_id(), true)
-            .await
-            .unwrap());
+        assert!(!store.update_tracked_user(device.user_id(), true).await.unwrap());
         assert!(store.users_for_key_query().contains(device.user_id()));
         drop(store);
 
@@ -1128,10 +1027,7 @@ mod test {
         assert!(store.is_user_tracked(device.user_id()));
         assert!(store.users_for_key_query().contains(device.user_id()));
 
-        store
-            .update_tracked_user(device.user_id(), false)
-            .await
-            .unwrap();
+        store.update_tracked_user(device.user_id(), false).await.unwrap();
         assert!(!store.users_for_key_query().contains(device.user_id()));
         drop(store);
 
@@ -1148,10 +1044,7 @@ mod test {
         let device = get_device();
 
         let changes = Changes {
-            devices: DeviceChanges {
-                changed: vec![device.clone()],
-                ..Default::default()
-            },
+            devices: DeviceChanges { changed: vec![device.clone()], ..Default::default() },
             ..Default::default()
         };
 
@@ -1163,11 +1056,8 @@ mod test {
 
         store.load_account().await.unwrap();
 
-        let loaded_device = store
-            .get_device(device.user_id(), device.device_id())
-            .await
-            .unwrap()
-            .unwrap();
+        let loaded_device =
+            store.get_device(device.user_id(), device.device_id()).await.unwrap().unwrap();
 
         assert_eq!(device, loaded_device);
 
@@ -1188,20 +1078,14 @@ mod test {
         let device = get_device();
 
         let changes = Changes {
-            devices: DeviceChanges {
-                changed: vec![device.clone()],
-                ..Default::default()
-            },
+            devices: DeviceChanges { changed: vec![device.clone()], ..Default::default() },
             ..Default::default()
         };
 
         store.save_changes(changes).await.unwrap();
 
         let changes = Changes {
-            devices: DeviceChanges {
-                deleted: vec![device.clone()],
-                ..Default::default()
-            },
+            devices: DeviceChanges { deleted: vec![device.clone()], ..Default::default() },
             ..Default::default()
         };
 
@@ -1212,10 +1096,7 @@ mod test {
 
         store.load_account().await.unwrap();
 
-        let loaded_device = store
-            .get_device(device.user_id(), device.device_id())
-            .await
-            .unwrap();
+        let loaded_device = store.get_device(device.user_id(), device.device_id()).await.unwrap();
 
         assert!(loaded_device.is_none());
     }
@@ -1232,10 +1113,7 @@ mod test {
 
         let account = ReadOnlyAccount::new(&user_id, &device_id);
 
-        store
-            .save_account(account.clone())
-            .await
-            .expect("Can't save account");
+        store.save_account(account.clone()).await.expect("Can't save account");
 
         let own_identity = get_own_identity();
 
@@ -1247,10 +1125,7 @@ mod test {
             ..Default::default()
         };
 
-        store
-            .save_changes(changes)
-            .await
-            .expect("Can't save identity");
+        store.save_changes(changes).await.expect("Can't save identity");
 
         drop(store);
 
@@ -1258,17 +1133,10 @@ mod test {
 
         store.load_account().await.unwrap();
 
-        let loaded_user = store
-            .get_user_identity(own_identity.user_id())
-            .await
-            .unwrap()
-            .unwrap();
+        let loaded_user = store.get_user_identity(own_identity.user_id()).await.unwrap().unwrap();
 
         assert_eq!(loaded_user.master_key(), own_identity.master_key());
-        assert_eq!(
-            loaded_user.self_signing_key(),
-            own_identity.self_signing_key()
-        );
+        assert_eq!(loaded_user.self_signing_key(), own_identity.self_signing_key());
         assert_eq!(loaded_user, own_identity.clone().into());
 
         let other_identity = get_other_identity();
@@ -1283,17 +1151,10 @@ mod test {
 
         store.save_changes(changes).await.unwrap();
 
-        let loaded_user = store
-            .get_user_identity(other_identity.user_id())
-            .await
-            .unwrap()
-            .unwrap();
+        let loaded_user = store.get_user_identity(other_identity.user_id()).await.unwrap().unwrap();
 
         assert_eq!(loaded_user.master_key(), other_identity.master_key());
-        assert_eq!(
-            loaded_user.self_signing_key(),
-            other_identity.self_signing_key()
-        );
+        assert_eq!(loaded_user.self_signing_key(), other_identity.self_signing_key());
         assert_eq!(loaded_user, other_identity.into());
 
         own_identity.mark_as_verified();
@@ -1317,10 +1178,7 @@ mod test {
         assert!(store.load_identity().await.unwrap().is_none());
         let identity = PrivateCrossSigningIdentity::new(alice_id()).await;
 
-        let changes = Changes {
-            private_identity: Some(identity.clone()),
-            ..Default::default()
-        };
+        let changes = Changes { private_identity: Some(identity.clone()), ..Default::default() };
 
         store.save_changes(changes).await.unwrap();
         let loaded_identity = store.load_identity().await.unwrap().unwrap();
@@ -1331,10 +1189,8 @@ mod test {
     async fn olm_hash_saving() {
         let (_, store, _dir) = get_loaded_store().await;
 
-        let hash = OlmMessageHash {
-            sender_key: "test_sender".to_owned(),
-            hash: "test_hash".to_owned(),
-        };
+        let hash =
+            OlmMessageHash { sender_key: "test_sender".to_owned(), hash: "test_hash".to_owned() };
 
         let mut changes = Changes::default();
         changes.message_hashes.push(hash.clone());

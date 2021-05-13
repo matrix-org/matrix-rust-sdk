@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::{collections::BTreeMap, convert::TryInto};
+
 use matrix_sdk_common::{
     events::forwarded_room_key::{
         ForwardedRoomKeyToDeviceEventContent, ForwardedRoomKeyToDeviceEventContentInit,
@@ -19,7 +21,6 @@ use matrix_sdk_common::{
     identifiers::{DeviceKeyAlgorithm, EventEncryptionAlgorithm, RoomId},
 };
 use serde::{Deserialize, Serialize};
-use std::{collections::BTreeMap, convert::TryInto};
 use zeroize::Zeroize;
 
 mod inbound;
@@ -107,10 +108,8 @@ impl From<ForwardedRoomKeyToDeviceEventContent> for ExportedRoomKey {
     /// Convert the content of a forwarded room key into a exported room key.
     fn from(forwarded_key: ForwardedRoomKeyToDeviceEventContent) -> Self {
         let mut sender_claimed_keys: BTreeMap<DeviceKeyAlgorithm, String> = BTreeMap::new();
-        sender_claimed_keys.insert(
-            DeviceKeyAlgorithm::Ed25519,
-            forwarded_key.sender_claimed_ed25519_key,
-        );
+        sender_claimed_keys
+            .insert(DeviceKeyAlgorithm::Ed25519, forwarded_key.sender_claimed_ed25519_key);
 
         Self {
             algorithm: forwarded_key.algorithm,
@@ -142,10 +141,7 @@ mod test {
     #[tokio::test]
     #[cfg(target_os = "linux")]
     async fn expiration() {
-        let settings = EncryptionSettings {
-            rotation_period_msgs: 1,
-            ..Default::default()
-        };
+        let settings = EncryptionSettings { rotation_period_msgs: 1, ..Default::default() };
 
         let account = ReadOnlyAccount::new(&user_id!("@alice:example.org"), "DEVICEID".into());
         let (session, _) = account
@@ -155,9 +151,9 @@ mod test {
 
         assert!(!session.expired());
         let _ = session
-            .encrypt(AnyMessageEventContent::RoomMessage(
-                MessageEventContent::text_plain("Test message"),
-            ))
+            .encrypt(AnyMessageEventContent::RoomMessage(MessageEventContent::text_plain(
+                "Test message",
+            )))
             .await;
         assert!(session.expired());
 

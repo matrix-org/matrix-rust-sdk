@@ -1,9 +1,11 @@
-use crate::{room::Common, BaseRoom, Client, Result, RoomType};
+#[cfg(feature = "encryption")]
+use std::sync::Arc;
 use std::{io::Read, ops::Deref};
 
 #[cfg(feature = "encryption")]
-use std::sync::Arc;
-
+use matrix_sdk_base::crypto::AttachmentEncryptor;
+#[cfg(feature = "encryption")]
+use matrix_sdk_common::locks::Mutex;
 use matrix_sdk_common::{
     api::r0::{
         membership::{
@@ -34,25 +36,20 @@ use matrix_sdk_common::{
     receipt::ReceiptType,
     uuid::Uuid,
 };
-
 use mime::{self, Mime};
-
-#[cfg(feature = "encryption")]
-use matrix_sdk_common::locks::Mutex;
-
-#[cfg(feature = "encryption")]
-use matrix_sdk_base::crypto::AttachmentEncryptor;
-
 #[cfg(feature = "encryption")]
 use tracing::instrument;
+
+use crate::{room::Common, BaseRoom, Client, Result, RoomType};
 
 const TYPING_NOTICE_TIMEOUT: Duration = Duration::from_secs(4);
 const TYPING_NOTICE_RESEND_TIMEOUT: Duration = Duration::from_secs(3);
 
 /// A room in the joined state.
 ///
-/// The `JoinedRoom` contains all methodes specific to a `Room` with type `RoomType::Joined`.
-/// Operations may fail once the underlaying `Room` changes `RoomType`.
+/// The `JoinedRoom` contains all methodes specific to a `Room` with type
+/// `RoomType::Joined`. Operations may fail once the underlaying `Room` changes
+/// `RoomType`.
 #[derive(Debug, Clone)]
 pub struct Joined {
     pub(crate) inner: Common,
@@ -67,7 +64,8 @@ impl Deref for Joined {
 }
 
 impl Joined {
-    /// Create a new `room::Joined` if the underlaying `BaseRoom` has type `RoomType::Joined`.
+    /// Create a new `room::Joined` if the underlaying `BaseRoom` has type
+    /// `RoomType::Joined`.
     ///
     /// # Arguments
     /// * `client` - The client used to make requests.
@@ -76,9 +74,7 @@ impl Joined {
     pub fn new(client: Client, room: BaseRoom) -> Option<Self> {
         // TODO: Make this private
         if room.room_type() == RoomType::Joined {
-            Some(Self {
-                inner: Common::new(client, room),
-            })
+            Some(Self { inner: Common::new(client, room) })
         } else {
             None
         }
@@ -97,9 +93,7 @@ impl Joined {
     ///
     /// * `reason` - The reason for banning this user.
     pub async fn ban_user(&self, user_id: &UserId, reason: Option<&str>) -> Result<()> {
-        let request = assign!(ban_user::Request::new(self.inner.room_id(), user_id), {
-            reason
-        });
+        let request = assign!(ban_user::Request::new(self.inner.room_id(), user_id), { reason });
         self.client.send(request, None).await?;
         Ok(())
     }
@@ -108,13 +102,12 @@ impl Joined {
     ///
     /// # Arguments
     ///
-    /// * `user_id` - The `UserId` of the user that should be kicked out of the room.
+    /// * `user_id` - The `UserId` of the user that should be kicked out of the
+    ///   room.
     ///
     /// * `reason` - Optional reason why the room member is being kicked out.
     pub async fn kick_user(&self, user_id: &UserId, reason: Option<&str>) -> Result<()> {
-        let request = assign!(kick_user::Request::new(self.inner.room_id(), user_id), {
-            reason
-        });
+        let request = assign!(kick_user::Request::new(self.inner.room_id(), user_id), { reason });
         self.client.send(request, None).await?;
         Ok(())
     }
@@ -148,9 +141,10 @@ impl Joined {
 
     /// Activate typing notice for this room.
     ///
-    /// The typing notice remains active for 4s. It can be deactivate at any point by setting
-    /// typing to `false`. If this method is called while the typing notice is active nothing will happen.
-    /// This method can be called on every key stroke, since it will do nothing while typing is
+    /// The typing notice remains active for 4s. It can be deactivate at any
+    /// point by setting typing to `false`. If this method is called while
+    /// the typing notice is active nothing will happen. This method can be
+    /// called on every key stroke, since it will do nothing while typing is
     /// active.
     ///
     /// # Arguments
@@ -183,21 +177,23 @@ impl Joined {
     /// # });
     /// ```
     pub async fn typing_notice(&self, typing: bool) -> Result<()> {
-        // Only send a request to the homeserver if the old timeout has elapsed or the typing
-        // notice changed state within the TYPING_NOTICE_TIMEOUT
+        // Only send a request to the homeserver if the old timeout has elapsed
+        // or the typing notice changed state within the
+        // TYPING_NOTICE_TIMEOUT
         let send =
             if let Some(typing_time) = self.client.typing_notice_times.get(self.inner.room_id()) {
                 if typing_time.elapsed() > TYPING_NOTICE_RESEND_TIMEOUT {
-                    // We always reactivate the typing notice if typing is true or we may need to
-                    // deactivate it if it's currently active if typing is false
+                    // We always reactivate the typing notice if typing is true or
+                    // we may need to deactivate it if it's
+                    // currently active if typing is false
                     typing || typing_time.elapsed() <= TYPING_NOTICE_TIMEOUT
                 } else {
                     // Only send a request when we need to deactivate typing
                     !typing
                 }
             } else {
-                // Typing notice is currently deactivated, therefore, send a request only when it's
-                // about to be activated
+                // Typing notice is currently deactivated, therefore, send a request
+                // only when it's about to be activated
                 typing
             };
 
@@ -220,11 +216,13 @@ impl Joined {
         Ok(())
     }
 
-    /// Send a request to notify this room that the user has read specific event.
+    /// Send a request to notify this room that the user has read specific
+    /// event.
     ///
     /// # Arguments
     ///
-    /// * `event_id` - The `EventId` specifies the event to set the read receipt on.
+    /// * `event_id` - The `EventId` specifies the event to set the read receipt
+    ///   on.
     pub async fn read_receipt(&self, event_id: &EventId) -> Result<()> {
         let request =
             create_receipt::Request::new(self.inner.room_id(), ReceiptType::Read, event_id);
@@ -233,22 +231,23 @@ impl Joined {
         Ok(())
     }
 
-    /// Send a request to notify this room that the user has read up to specific event.
+    /// Send a request to notify this room that the user has read up to specific
+    /// event.
     ///
     /// # Arguments
     ///
     /// * fully_read - The `EventId` of the event the user has read to.
     ///
-    /// * read_receipt - An `EventId` to specify the event to set the read receipt on.
+    /// * read_receipt - An `EventId` to specify the event to set the read
+    ///   receipt on.
     pub async fn read_marker(
         &self,
         fully_read: &EventId,
         read_receipt: Option<&EventId>,
     ) -> Result<()> {
-        let request = assign!(
-            set_read_marker::Request::new(self.inner.room_id(), fully_read),
-            { read_receipt }
-        );
+        let request = assign!(set_read_marker::Request::new(self.inner.room_id(), fully_read), {
+            read_receipt
+        });
 
         self.client.send(request, None).await?;
         Ok(())
@@ -266,11 +265,8 @@ impl Joined {
         // TODO expose this publicly so people can pre-share a group session if
         // e.g. a user starts to type a message for a room.
         #[allow(clippy::map_clone)]
-        if let Some(mutex) = self
-            .client
-            .group_session_locks
-            .get(self.inner.room_id())
-            .map(|m| m.clone())
+        if let Some(mutex) =
+            self.client.group_session_locks.get(self.inner.room_id()).map(|m| m.clone())
         {
             // If a group session share request is already going on,
             // await the release of the lock.
@@ -279,23 +275,14 @@ impl Joined {
             // Otherwise create a new lock and share the group
             // session.
             let mutex = Arc::new(Mutex::new(()));
-            self.client
-                .group_session_locks
-                .insert(self.inner.room_id().clone(), mutex.clone());
+            self.client.group_session_locks.insert(self.inner.room_id().clone(), mutex.clone());
 
             let _guard = mutex.lock().await;
 
             {
-                let joined = self
-                    .client
-                    .store()
-                    .get_joined_user_ids(self.inner.room_id())
-                    .await?;
-                let invited = self
-                    .client
-                    .store()
-                    .get_invited_user_ids(self.inner.room_id())
-                    .await?;
+                let joined = self.client.store().get_joined_user_ids(self.inner.room_id()).await?;
+                let invited =
+                    self.client.store().get_invited_user_ids(self.inner.room_id()).await?;
                 let members = joined.iter().chain(&invited);
                 self.client.claim_one_time_keys(members).await?;
             };
@@ -308,10 +295,7 @@ impl Joined {
             // session as using it would end up in undecryptable
             // messages.
             if let Err(r) = response {
-                self.client
-                    .base_client
-                    .invalidate_group_session(self.inner.room_id())
-                    .await?;
+                self.client.base_client.invalidate_group_session(self.inner.room_id()).await?;
                 return Err(r);
             }
         }
@@ -328,19 +312,13 @@ impl Joined {
     #[cfg_attr(feature = "docs", doc(cfg(encryption)))]
     #[instrument]
     async fn share_group_session(&self) -> Result<()> {
-        let mut requests = self
-            .client
-            .base_client
-            .share_group_session(self.inner.room_id())
-            .await?;
+        let mut requests =
+            self.client.base_client.share_group_session(self.inner.room_id()).await?;
 
         for request in requests.drain(..) {
             let response = self.client.send_to_device(&request).await?;
 
-            self.client
-                .base_client
-                .mark_request_as_sent(&request.txn_id, &response)
-                .await?;
+            self.client.base_client.mark_request_as_sent(&request.txn_id, &response).await?;
         }
 
         Ok(())
@@ -407,10 +385,7 @@ impl Joined {
 
             self.preshare_group_session().await?;
             AnyMessageEventContent::RoomEncrypted(
-                self.client
-                    .base_client
-                    .encrypt(self.inner.room_id(), content)
-                    .await?,
+                self.client.base_client.encrypt(self.inner.room_id(), content).await?,
             )
         } else {
             content.into()
@@ -430,8 +405,9 @@ impl Joined {
     /// If the room is encrypted and the encryption feature is enabled the
     /// upload will be encrypted.
     ///
-    /// This is a convenience method that calls the [`Client::upload()`](#Client::method.upload)
-    /// and afterwards the [`send()`](#method.send).
+    /// This is a convenience method that calls the
+    /// [`Client::upload()`](#Client::method.upload) and afterwards the
+    /// [`send()`](#method.send).
     ///
     /// # Arguments
     /// * `body` - A textual representation of the media that is going to be
@@ -538,11 +514,8 @@ impl Joined {
             }),
         };
 
-        self.send(
-            AnyMessageEventContent::RoomMessage(MessageEventContent::new(content)),
-            txn_id,
-        )
-        .await
+        self.send(AnyMessageEventContent::RoomMessage(MessageEventContent::new(content)), txn_id)
+            .await
     }
 
     /// Send a room state event to the homeserver.
@@ -639,10 +612,10 @@ impl Joined {
         txn_id: Option<Uuid>,
     ) -> Result<redact_event::Response> {
         let txn_id = txn_id.unwrap_or_else(Uuid::new_v4).to_string();
-        let request = assign!(
-            redact_event::Request::new(self.inner.room_id(), event_id, &txn_id),
-            { reason }
-        );
+        let request =
+            assign!(redact_event::Request::new(self.inner.room_id(), event_id, &txn_id), {
+                reason
+            });
 
         self.client.send(request, None).await
     }

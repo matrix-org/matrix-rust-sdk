@@ -30,13 +30,12 @@ pub use group_sessions::{
     OutboundGroupSession, PickledInboundGroupSession, PickledOutboundGroupSession,
 };
 pub(crate) use group_sessions::{GroupSessionKey, ShareState};
+use matrix_sdk_common::instant::{Duration, Instant};
 pub use olm_rs::{account::IdentityKeys, PicklingMode};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 pub use session::{PickledSession, Session, SessionPickle};
 pub use signing::{PickledCrossSigningIdentity, PrivateCrossSigningIdentity};
 pub(crate) use utility::Utility;
-
-use matrix_sdk_common::instant::{Duration, Instant};
-use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 pub(crate) fn serialize_instant<S>(instant: &Instant, serializer: S) -> Result<S::Ok, S::Error>
 where
@@ -60,14 +59,16 @@ where
 
 #[cfg(test)]
 pub(crate) mod test {
-    use crate::olm::{InboundGroupSession, ReadOnlyAccount, Session};
+    use std::{collections::BTreeMap, convert::TryInto};
+
     use matrix_sdk_common::{
         api::r0::keys::SignedKey,
         events::forwarded_room_key::ForwardedRoomKeyToDeviceEventContent,
         identifiers::{room_id, user_id, DeviceId, UserId},
     };
     use olm_rs::session::OlmMessage;
-    use std::{collections::BTreeMap, convert::TryInto};
+
+    use crate::olm::{InboundGroupSession, ReadOnlyAccount, Session};
 
     fn alice_id() -> UserId {
         user_id!("@alice:example.org")
@@ -90,21 +91,12 @@ pub(crate) mod test {
         let bob = ReadOnlyAccount::new(&bob_id(), &bob_device_id());
 
         bob.generate_one_time_keys_helper(1).await;
-        let one_time_key = bob
-            .one_time_keys()
-            .await
-            .curve25519()
-            .iter()
-            .next()
-            .unwrap()
-            .1
-            .to_owned();
+        let one_time_key =
+            bob.one_time_keys().await.curve25519().iter().next().unwrap().1.to_owned();
         let one_time_key = SignedKey::new(one_time_key, BTreeMap::new());
         let sender_key = bob.identity_keys().curve25519().to_owned();
-        let session = alice
-            .create_outbound_session_helper(&sender_key, &one_time_key)
-            .await
-            .unwrap();
+        let session =
+            alice.create_outbound_session_helper(&sender_key, &one_time_key).await.unwrap();
 
         (alice, session)
     }
@@ -120,10 +112,7 @@ pub(crate) mod test {
         assert_ne!(identity_keys.keys().len(), 0);
         assert_ne!(identity_keys.iter().len(), 0);
         assert!(identity_keys.contains_key("ed25519"));
-        assert_eq!(
-            identity_keys.ed25519(),
-            identity_keys.get("ed25519").unwrap()
-        );
+        assert_eq!(identity_keys.ed25519(), identity_keys.get("ed25519").unwrap());
         assert!(!identity_keys.curve25519().is_empty());
 
         account.mark_as_shared();
@@ -147,10 +136,7 @@ pub(crate) mod test {
         assert_ne!(one_time_keys.iter().len(), 0);
         assert!(one_time_keys.contains_key("curve25519"));
         assert_eq!(one_time_keys.curve25519().keys().len(), 10);
-        assert_eq!(
-            one_time_keys.curve25519(),
-            one_time_keys.get("curve25519").unwrap()
-        );
+        assert_eq!(one_time_keys.curve25519(), one_time_keys.get("curve25519").unwrap());
 
         account.mark_keys_as_published().await;
         let one_time_keys = account.one_time_keys().await;
@@ -166,13 +152,7 @@ pub(crate) mod test {
         let one_time_keys = alice.one_time_keys().await;
         alice.mark_keys_as_published().await;
 
-        let one_time_key = one_time_keys
-            .curve25519()
-            .iter()
-            .next()
-            .unwrap()
-            .1
-            .to_owned();
+        let one_time_key = one_time_keys.curve25519().iter().next().unwrap().1.to_owned();
 
         let one_time_key = SignedKey::new(one_time_key, BTreeMap::new());
 
@@ -196,10 +176,7 @@ pub(crate) mod test {
             .await
             .unwrap();
 
-        assert!(alice_session
-            .matches(bob_keys.curve25519(), prekey_message)
-            .await
-            .unwrap());
+        assert!(alice_session.matches(bob_keys.curve25519(), prekey_message).await.unwrap());
 
         assert_eq!(bob_session.session_id(), alice_session.session_id());
 
@@ -212,10 +189,7 @@ pub(crate) mod test {
         let alice = ReadOnlyAccount::new(&alice_id(), &alice_device_id());
         let room_id = room_id!("!test:localhost");
 
-        let (outbound, _) = alice
-            .create_group_session_pair_with_defaults(&room_id)
-            .await
-            .unwrap();
+        let (outbound, _) = alice.create_group_session_pair_with_defaults(&room_id).await.unwrap();
 
         assert_eq!(0, outbound.message_index().await);
         assert!(!outbound.shared());
@@ -238,10 +212,7 @@ pub(crate) mod test {
         let plaintext = "This is a secret to everybody".to_owned();
         let ciphertext = outbound.encrypt_helper(plaintext.clone()).await;
 
-        assert_eq!(
-            plaintext,
-            inbound.decrypt_helper(ciphertext).await.unwrap().0
-        );
+        assert_eq!(plaintext, inbound.decrypt_helper(ciphertext).await.unwrap().0);
     }
 
     #[tokio::test]
@@ -249,10 +220,7 @@ pub(crate) mod test {
         let alice = ReadOnlyAccount::new(&alice_id(), &alice_device_id());
         let room_id = room_id!("!test:localhost");
 
-        let (_, inbound) = alice
-            .create_group_session_pair_with_defaults(&room_id)
-            .await
-            .unwrap();
+        let (_, inbound) = alice.create_group_session_pair_with_defaults(&room_id).await.unwrap();
 
         let export = inbound.export().await;
         let export: ForwardedRoomKeyToDeviceEventContent = export.try_into().unwrap();

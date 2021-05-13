@@ -87,20 +87,21 @@ pub struct AdditionalUnsignedData {
     pub prev_content: Option<Raw<MemberEventContent>>,
 }
 
-/// Transform state event by hoisting `prev_content` field from `unsigned` to the top level.
+/// Transform state event by hoisting `prev_content` field from `unsigned` to
+/// the top level.
 ///
-/// Due to a [bug in synapse][synapse-bug], `prev_content` often ends up in `unsigned` contrary to
-/// the C2S spec. Some more discussion can be found [here][discussion]. Until this is fixed in
-/// synapse or handled in Ruma, we use this to hoist up `prev_content` to the top level.
+/// Due to a [bug in synapse][synapse-bug], `prev_content` often ends up in
+/// `unsigned` contrary to the C2S spec. Some more discussion can be found
+/// [here][discussion]. Until this is fixed in synapse or handled in Ruma, we
+/// use this to hoist up `prev_content` to the top level.
 ///
 /// [synapse-bug]: <https://github.com/matrix-org/matrix-doc/issues/684#issuecomment-641182668>
 /// [discussion]: <https://github.com/matrix-org/matrix-doc/issues/684#issuecomment-641182668>
 pub fn hoist_and_deserialize_state_event(
     event: &Raw<AnySyncStateEvent>,
 ) -> StdResult<AnySyncStateEvent, serde_json::Error> {
-    let prev_content = serde_json::from_str::<AdditionalEventData>(event.json().get())?
-        .unsigned
-        .prev_content;
+    let prev_content =
+        serde_json::from_str::<AdditionalEventData>(event.json().get())?.unsigned.prev_content;
 
     let mut ev = event.deserialize()?;
 
@@ -116,9 +117,8 @@ pub fn hoist_and_deserialize_state_event(
 fn hoist_member_event(
     event: &Raw<StateEvent<MemberEventContent>>,
 ) -> StdResult<StateEvent<MemberEventContent>, serde_json::Error> {
-    let prev_content = serde_json::from_str::<AdditionalEventData>(event.json().get())?
-        .unsigned
-        .prev_content;
+    let prev_content =
+        serde_json::from_str::<AdditionalEventData>(event.json().get())?.unsigned.prev_content;
 
     let mut e = event.deserialize()?;
 
@@ -340,7 +340,8 @@ impl BaseClient {
     ///
     /// # Arguments
     ///
-    /// * `response` - A successful login response that contains our access token
+    /// * `response` - A successful login response that contains our access
+    ///   token
     /// and device id.
     pub async fn receive_login_response(
         &self,
@@ -440,9 +441,7 @@ impl BaseClient {
                         AnySyncRoomEvent::State(s) => match s {
                             AnySyncStateEvent::RoomMember(member) => {
                                 if let Ok(member) = MemberEvent::try_from(member.clone()) {
-                                    ambiguity_cache
-                                        .handle_event(changes, room_id, &member)
-                                        .await?;
+                                    ambiguity_cache.handle_event(changes, room_id, &member).await?;
 
                                     match member.content.membership {
                                         MembershipState::Join | MembershipState::Invite => {
@@ -500,8 +499,7 @@ impl BaseClient {
                     }
 
                     if let Some(context) = &mut push_context {
-                        self.update_push_room_context(context, user_id, room_info, changes)
-                            .await;
+                        self.update_push_room_context(context, user_id, room_info, changes).await;
                     } else {
                         push_context = self.get_push_room_context(room, room_info, changes).await?;
                     }
@@ -521,10 +519,13 @@ impl BaseClient {
                                 ),
                             );
                         }
-                        // TODO if there is an Action::SetTweak(Tweak::Highlight) we need to store
-                        // its value with the event so a client can show if the event is highlighted
+                        // TODO if there is an
+                        // Action::SetTweak(Tweak::Highlight) we need to store
+                        // its value with the event so a client can show if the
+                        // event is highlighted
                         // in the UI.
-                        // Requires the possibility to associate custom data with events and to
+                        // Requires the possibility to associate custom data
+                        // with events and to
                         // store them.
                     }
                 }
@@ -762,18 +763,14 @@ impl BaseClient {
         let mut changes = StateChanges::new(next_batch.clone());
         let mut ambiguity_cache = AmbiguityCache::new(self.store.clone());
 
-        self.handle_account_data(&account_data.events, &mut changes)
-            .await;
+        self.handle_account_data(&account_data.events, &mut changes).await;
 
         let push_rules = self.get_push_rules(&changes).await?;
 
         let mut new_rooms = Rooms::default();
 
         for (room_id, new_info) in rooms.join {
-            let room = self
-                .store
-                .get_or_create_room(&room_id, RoomType::Joined)
-                .await;
+            let room = self.store.get_or_create_room(&room_id, RoomType::Joined).await;
             let mut room_info = room.clone_info();
             room_info.mark_as_joined();
 
@@ -844,10 +841,7 @@ impl BaseClient {
         }
 
         for (room_id, new_info) in rooms.leave {
-            let room = self
-                .store
-                .get_or_create_room(&room_id, RoomType::Left)
-                .await;
+            let room = self.store.get_or_create_room(&room_id, RoomType::Left).await;
             let mut room_info = room.clone_info();
             room_info.mark_as_left();
 
@@ -876,18 +870,14 @@ impl BaseClient {
                 .await;
 
             changes.add_room(room_info);
-            new_rooms.leave.insert(
-                room_id,
-                LeftRoom::new(timeline, new_info.state, new_info.account_data),
-            );
+            new_rooms
+                .leave
+                .insert(room_id, LeftRoom::new(timeline, new_info.state, new_info.account_data));
         }
 
         for (room_id, new_info) in rooms.invite {
             {
-                let room = self
-                    .store
-                    .get_or_create_room(&room_id, RoomType::Invited)
-                    .await;
+                let room = self.store.get_or_create_room(&room_id, RoomType::Invited).await;
                 let mut room_info = room.clone_info();
                 room_info.mark_as_invited();
                 changes.add_room(room_info);
@@ -934,9 +924,7 @@ impl BaseClient {
                 .into_iter()
                 .map(|(k, v)| (k, v.into()))
                 .collect(),
-            ambiguity_changes: AmbiguityChanges {
-                changes: ambiguity_cache.changes,
-            },
+            ambiguity_changes: AmbiguityChanges { changes: ambiguity_cache.changes },
             notifications: changes.notifications,
         };
 
@@ -968,11 +956,7 @@ impl BaseClient {
         let members: Vec<MemberEvent> = response
             .chunk
             .iter()
-            .filter_map(|e| {
-                hoist_member_event(e)
-                    .ok()
-                    .and_then(|e| MemberEvent::try_from(e).ok())
-            })
+            .filter_map(|e| hoist_member_event(e).ok().and_then(|e| MemberEvent::try_from(e).ok()))
             .collect();
         let mut ambiguity_cache = AmbiguityCache::new(self.store.clone());
 
@@ -986,12 +970,7 @@ impl BaseClient {
             let mut user_ids = BTreeSet::new();
 
             for member in &members {
-                if self
-                    .store
-                    .get_member_event(&room_id, &member.state_key)
-                    .await?
-                    .is_none()
-                {
+                if self.store.get_member_event(&room_id, &member.state_key).await?.is_none() {
                     #[cfg(feature = "encryption")]
                     match member.content.membership {
                         MembershipState::Join | MembershipState::Invite => {
@@ -1000,9 +979,7 @@ impl BaseClient {
                         _ => (),
                     }
 
-                    ambiguity_cache
-                        .handle_event(&changes, room_id, &member)
-                        .await?;
+                    ambiguity_cache.handle_event(&changes, room_id, &member).await?;
 
                     if member.state_key == member.sender {
                         changes
@@ -1036,9 +1013,7 @@ impl BaseClient {
 
         Ok(MembersResponse {
             chunk: members,
-            ambiguity_changes: AmbiguityChanges {
-                changes: ambiguity_cache.changes,
-            },
+            ambiguity_changes: AmbiguityChanges { changes: ambiguity_cache.changes },
         })
     }
 
@@ -1050,7 +1025,8 @@ impl BaseClient {
     ///
     /// # Arguments
     ///
-    /// * `filter_name` - The name that should be used to persist the filter id in
+    /// * `filter_name` - The name that should be used to persist the filter id
+    ///   in
     /// the store.
     ///
     /// * `response` - The successful filter upload response containing the
@@ -1062,10 +1038,7 @@ impl BaseClient {
         filter_name: &str,
         response: &api::filter::create_filter::Response,
     ) -> Result<()> {
-        Ok(self
-            .store
-            .save_filter(filter_name, &response.filter_id)
-            .await?)
+        Ok(self.store.save_filter(filter_name, &response.filter_id).await?)
     }
 
     /// Get the filter id of a previously uploaded filter.
@@ -1224,18 +1197,14 @@ impl BaseClient {
     /// # Arguments
     ///
     /// * `flow_id` - The unique id that identifies a interactive verification
-    ///     flow. For in-room verifications this will be the event id of the
-    ///     *m.key.verification.request* event that started the flow, for the
-    ///     to-device verification flows this will be the transaction id of the
-    ///     *m.key.verification.start* event.
+    ///   flow. For in-room verifications this will be the event id of the
+    ///   *m.key.verification.request* event that started the flow, for the
+    ///   to-device verification flows this will be the transaction id of the
+    ///   *m.key.verification.start* event.
     #[cfg(feature = "encryption")]
     #[cfg_attr(feature = "docs", doc(cfg(encryption)))]
     pub async fn get_verification(&self, flow_id: &str) -> Option<Sas> {
-        self.olm
-            .lock()
-            .await
-            .as_ref()
-            .and_then(|o| o.get_verification(flow_id))
+        self.olm.lock().await.as_ref().and_then(|o| o.get_verification(flow_id))
     }
 
     /// Get a specific device of a user.
@@ -1284,10 +1253,12 @@ impl BaseClient {
 
     /// Get the user login session.
     ///
-    /// If the client is currently logged in, this will return a `matrix_sdk::Session` object which
-    /// can later be given to `restore_login`.
+    /// If the client is currently logged in, this will return a
+    /// `matrix_sdk::Session` object which can later be given to
+    /// `restore_login`.
     ///
-    /// Returns a session object if the client is logged in. Otherwise returns `None`.
+    /// Returns a session object if the client is logged in. Otherwise returns
+    /// `None`.
     pub async fn get_session(&self) -> Option<Session> {
         self.session.read().await.clone()
     }
@@ -1349,8 +1320,9 @@ impl BaseClient {
 
     /// Get the push rules.
     ///
-    /// Gets the push rules from `changes` if they have been updated, otherwise get them from the
-    /// store. As a fallback, uses `Ruleset::server_default` if the user is logged in.
+    /// Gets the push rules from `changes` if they have been updated, otherwise
+    /// get them from the store. As a fallback, uses
+    /// `Ruleset::server_default` if the user is logged in.
     pub async fn get_push_rules(&self, changes: &StateChanges) -> Result<Ruleset> {
         if let Some(AnyGlobalAccountDataEvent::PushRules(event)) = changes
             .account_data
@@ -1374,11 +1346,11 @@ impl BaseClient {
 
     /// Get the push context for the given room.
     ///
-    /// Tries to get the data from `changes` or the up to date `room_info`. Loads the data from the
-    /// store otherwise.
+    /// Tries to get the data from `changes` or the up to date `room_info`.
+    /// Loads the data from the store otherwise.
     ///
-    /// Returns `None` if some data couldn't be found. This should only happen in brand new rooms,
-    /// while we process its state.
+    /// Returns `None` if some data couldn't be found. This should only happen
+    /// in brand new rooms, while we process its state.
     pub async fn get_push_room_context(
         &self,
         room: &Room,
@@ -1390,16 +1362,10 @@ impl BaseClient {
 
         let member_count = room_info.active_members_count();
 
-        let user_display_name = if let Some(member) = changes
-            .members
-            .get(room_id)
-            .and_then(|members| members.get(user_id))
+        let user_display_name = if let Some(member) =
+            changes.members.get(room_id).and_then(|members| members.get(user_id))
         {
-            member
-                .content
-                .displayname
-                .clone()
-                .unwrap_or_else(|| user_id.localpart().to_owned())
+            member.content.displayname.clone().unwrap_or_else(|| user_id.localpart().to_owned())
         } else if let Some(member) = room.get_member(user_id).await? {
             member.name().to_owned()
         } else {
@@ -1449,16 +1415,10 @@ impl BaseClient {
 
         push_rules.member_count = UInt::new(room_info.active_members_count()).unwrap_or(UInt::MAX);
 
-        if let Some(member) = changes
-            .members
-            .get(room_id)
-            .and_then(|members| members.get(user_id))
+        if let Some(member) = changes.members.get(room_id).and_then(|members| members.get(user_id))
         {
-            push_rules.user_display_name = member
-                .content
-                .displayname
-                .clone()
-                .unwrap_or_else(|| user_id.localpart().to_owned())
+            push_rules.user_display_name =
+                member.content.displayname.clone().unwrap_or_else(|| user_id.localpart().to_owned())
         }
 
         if let Some(AnySyncStateEvent::RoomPowerLevels(event)) = changes

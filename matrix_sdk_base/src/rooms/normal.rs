@@ -37,14 +37,14 @@ use matrix_sdk_common::{
 use serde::{Deserialize, Serialize};
 use tracing::info;
 
+use super::{BaseRoomInfo, RoomMember};
 use crate::{
     deserialized_responses::UnreadNotificationsCount,
     store::{Result as StoreResult, StateStore},
 };
 
-use super::{BaseRoomInfo, RoomMember};
-
-/// The underlying room data structure collecting state for joined, left and invtied rooms.
+/// The underlying room data structure collecting state for joined, left and
+/// invtied rooms.
 #[derive(Debug, Clone)]
 pub struct Room {
     room_id: Arc<RoomId>,
@@ -135,7 +135,8 @@ impl Room {
 
     /// Check if the room has it's members fully synced.
     ///
-    /// Members might be missing if lazy member loading was enabled for the sync.
+    /// Members might be missing if lazy member loading was enabled for the
+    /// sync.
     ///
     /// Returns true if no members are missing, false otherwise.
     pub fn are_members_synced(&self) -> bool {
@@ -200,12 +201,7 @@ impl Room {
 
     /// Get the history visibility policy of this room.
     pub fn history_visibility(&self) -> HistoryVisibility {
-        self.inner
-            .read()
-            .unwrap()
-            .base_info
-            .history_visibility
-            .clone()
+        self.inner.read().unwrap().base_info.history_visibility.clone()
     }
 
     /// Is the room considered to be public.
@@ -367,9 +363,7 @@ impl Room {
         );
 
         let inner = self.inner.read().unwrap();
-        Ok(inner
-            .base_info
-            .calculate_room_name(joined, invited, members))
+        Ok(inner.base_info.calculate_room_name(joined, invited, members))
     }
 
     pub(crate) fn clone_info(&self) -> RoomInfo {
@@ -394,11 +388,8 @@ impl Room {
                 return Ok(None);
             };
 
-        let presence = self
-            .store
-            .get_presence_event(user_id)
-            .await?
-            .and_then(|e| e.deserialize().ok());
+        let presence =
+            self.store.get_presence_event(user_id).await?.and_then(|e| e.deserialize().ok());
         let profile = self.store.get_profile(self.room_id(), user_id).await?;
         let max_power_level = self.max_power_level();
         let is_room_creator = self
@@ -411,28 +402,24 @@ impl Room {
             .map(|c| &c.creator == user_id)
             .unwrap_or(false);
 
-        let power = self
-            .store
-            .get_state_event(self.room_id(), EventType::RoomPowerLevels, "")
-            .await?
-            .and_then(|e| e.deserialize().ok())
-            .and_then(|e| {
-                if let AnySyncStateEvent::RoomPowerLevels(e) = e {
-                    Some(e)
-                } else {
-                    None
-                }
-            });
+        let power =
+            self.store
+                .get_state_event(self.room_id(), EventType::RoomPowerLevels, "")
+                .await?
+                .and_then(|e| e.deserialize().ok())
+                .and_then(|e| {
+                    if let AnySyncStateEvent::RoomPowerLevels(e) = e {
+                        Some(e)
+                    } else {
+                        None
+                    }
+                });
 
         let ambiguous = self
             .store
             .get_users_with_display_name(
                 self.room_id(),
-                member_event
-                    .content
-                    .displayname
-                    .as_deref()
-                    .unwrap_or_else(|| user_id.localpart()),
+                member_event.content.displayname.as_deref().unwrap_or_else(|| user_id.localpart()),
             )
             .await?
             .len()
@@ -558,8 +545,6 @@ impl RoomInfo {
     ///
     /// The return value is saturated at `u64::MAX`.
     pub fn active_members_count(&self) -> u64 {
-        self.summary
-            .joined_member_count
-            .saturating_add(self.summary.invited_member_count)
+        self.summary.joined_member_count.saturating_add(self.summary.invited_member_count)
     }
 }

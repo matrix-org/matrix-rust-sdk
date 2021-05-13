@@ -14,11 +14,14 @@
 
 //! Matrix [Application Service] library
 //!
-//! The appservice crate aims to provide a batteries-included experience. That means that we
-//! * ship with functionality to configure your webserver crate or simply run the webserver for you
+//! The appservice crate aims to provide a batteries-included experience. That
+//! means that we
+//! * ship with functionality to configure your webserver crate or simply run
+//!   the webserver for you
 //! * receive and validate requests from the homeserver correctly
 //! * allow calling the homeserver with proper virtual user identity assertion
-//! * have the goal to have a consistent room state available by leveraging the stores that the matrix-sdk provides
+//! * have the goal to have a consistent room state available by leveraging the
+//!   stores that the matrix-sdk provides
 //!
 //! # Quickstart
 //!
@@ -62,6 +65,8 @@ use std::{
 };
 
 use http::Uri;
+#[doc(inline)]
+pub use matrix_sdk::api_appservice as api;
 use matrix_sdk::{
     api::{
         error::ErrorKind,
@@ -80,9 +85,6 @@ use regex::Regex;
 #[cfg(not(feature = "actix"))]
 use tracing::error;
 use tracing::warn;
-
-#[doc(inline)]
-pub use matrix_sdk::api_appservice as api;
 
 #[cfg(feature = "actix")]
 mod actix;
@@ -104,9 +106,7 @@ impl AppserviceRegistration {
     ///
     /// See the fields of [`Registration`] for the required format
     pub fn try_from_yaml_str(value: impl AsRef<str>) -> Result<Self> {
-        Ok(Self {
-            inner: serde_yaml::from_str(value.as_ref())?,
-        })
+        Ok(Self { inner: serde_yaml::from_str(value.as_ref())? })
     }
 
     /// Try to load registration from yaml file
@@ -115,9 +115,7 @@ impl AppserviceRegistration {
     pub fn try_from_yaml_file(path: impl Into<PathBuf>) -> Result<Self> {
         let file = File::open(path.into())?;
 
-        Ok(Self {
-            inner: serde_yaml::from_reader(file)?,
-        })
+        Ok(Self { inner: serde_yaml::from_reader(file)? })
     }
 }
 
@@ -177,8 +175,10 @@ impl Appservice {
     /// # Arguments
     ///
     /// * `homeserver_url` - The homeserver that the client should connect to.
-    /// * `server_name` - The server name to use when constructing user ids from the localpart.
-    /// * `registration` - The [Appservice Registration] to use when interacting with the homserver.
+    /// * `server_name` - The server name to use when constructing user ids from
+    ///   the localpart.
+    /// * `registration` - The [Appservice Registration] to use when interacting
+    ///   with the homserver.
     ///
     /// [Appservice Registration]: https://matrix.org/docs/spec/application_service/r0.1.2#registration
     pub async fn new(
@@ -209,8 +209,9 @@ impl Appservice {
 
     /// Get `Client` for the given `localpart`
     ///
-    /// If the `localpart` is covered by the `namespaces` in the [registration] all requests to the
-    /// homeserver will [assert the identity] to the according virtual user.
+    /// If the `localpart` is covered by the `namespaces` in the [registration]
+    /// all requests to the homeserver will [assert the identity] to the
+    /// according virtual user.
     ///
     /// [registration]: https://matrix.org/docs/spec/application_service/r0.1.2#registration
     /// [assert the identity]:
@@ -291,7 +292,8 @@ impl Appservice {
 
     /// Get the host and port from the registration URL
     ///
-    /// If no port is found it falls back to scheme defaults: 80 for http and 443 for https
+    /// If no port is found it falls back to scheme defaults: 80 for http and
+    /// 443 for https
     pub fn get_host_and_port_from_registration(&self) -> Result<(Host, Port)> {
         let uri = Uri::try_from(&self.registration.url)?;
 
@@ -315,9 +317,11 @@ impl Appservice {
         actix::get_scope().data(self.clone())
     }
 
-    /// Convenience method that runs an http server depending on the selected server feature
+    /// Convenience method that runs an http server depending on the selected
+    /// server feature
     ///
-    /// This is a blocking call that tries to listen on the provided host and port
+    /// This is a blocking call that tries to listen on the provided host and
+    /// port
     pub async fn run(&self, host: impl AsRef<str>, port: impl Into<u16>) -> Result<()> {
         #[cfg(feature = "actix")]
         {

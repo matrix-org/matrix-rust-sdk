@@ -59,10 +59,7 @@ impl StartContent {
             StartContent::Room(_, c) => serde_json::to_value(c),
         };
 
-        content
-            .expect("Can't serialize content")
-            .try_into()
-            .expect("Can't canonicalize content")
+        content.expect("Can't serialize content").try_into().expect("Can't canonicalize content")
     }
 }
 
@@ -287,14 +284,7 @@ impl From<OutgoingVerificationRequest> for OutgoingContent {
         match request {
             OutgoingVerificationRequest::ToDevice(r) => {
                 let json: Value = serde_json::from_str(
-                    r.messages
-                        .values()
-                        .next()
-                        .unwrap()
-                        .values()
-                        .next()
-                        .unwrap()
-                        .get(),
+                    r.messages.values().next().unwrap().values().next().unwrap().get(),
                 )
                 .unwrap();
 

@@ -77,11 +77,7 @@ impl SessionManager {
     }
 
     pub async fn mark_device_as_wedged(&self, sender: &UserId, curve_key: &str) -> StoreResult<()> {
-        if let Some(device) = self
-            .store
-            .get_device_from_curve_key(sender, curve_key)
-            .await?
-        {
+        if let Some(device) = self.store.get_device_from_curve_key(sender, curve_key).await? {
             let sessions = device.get_sessions().await?;
 
             if let Some(sessions) = sessions {
@@ -120,25 +116,16 @@ impl SessionManager {
     ///
     /// If the device was wedged this will queue up a dummy to-device message.
     async fn check_if_unwedged(&self, user_id: &UserId, device_id: &DeviceId) -> OlmResult<()> {
-        if self
-            .wedged_devices
-            .get(user_id)
-            .map(|d| d.remove(device_id))
-            .flatten()
-            .is_some()
-        {
+        if self.wedged_devices.get(user_id).map(|d| d.remove(device_id)).flatten().is_some() {
             if let Some(device) = self.store.get_device(user_id, device_id).await? {
                 let (_, content) = device.encrypt(EventType::Dummy, json!({})).await?;
                 let id = Uuid::new_v4();
                 let mut messages = BTreeMap::new();
 
-                messages
-                    .entry(device.user_id().to_owned())
-                    .or_insert_with(BTreeMap::new)
-                    .insert(
-                        DeviceIdOrAllDevices::DeviceId(device.device_id().into()),
-                        to_raw_value(&content)?,
-                    );
+                messages.entry(device.user_id().to_owned()).or_insert_with(BTreeMap::new).insert(
+                    DeviceIdOrAllDevices::DeviceId(device.device_id().into()),
+                    to_raw_value(&content)?,
+                );
 
                 let request = OutgoingRequest {
                     request_id: id,
@@ -307,13 +294,13 @@ impl SessionManager {
 
 #[cfg(test)]
 mod test {
-    use dashmap::DashMap;
-    use matrix_sdk_common::locks::Mutex;
     use std::{collections::BTreeMap, sync::Arc};
 
+    use dashmap::DashMap;
     use matrix_sdk_common::{
         api::r0::keys::claim_keys::Response as KeyClaimResponse,
         identifiers::{user_id, DeviceIdBox, UserId},
+        locks::Mutex,
     };
     use matrix_sdk_test::async_test;
 
@@ -347,9 +334,7 @@ mod test {
         let account = ReadOnlyAccount::new(&user_id, &device_id);
         let store: Arc<Box<dyn CryptoStore>> = Arc::new(Box::new(MemoryStore::new()));
         store.save_account(account.clone()).await.unwrap();
-        let identity = Arc::new(Mutex::new(PrivateCrossSigningIdentity::empty(
-            user_id.clone(),
-        )));
+        let identity = Arc::new(Mutex::new(PrivateCrossSigningIdentity::empty(user_id.clone())));
         let verification =
             VerificationMachine::new(account.clone(), identity.clone(), store.clone());
 
@@ -358,10 +343,7 @@ mod test {
 
         let store = Store::new(user_id.clone(), identity, store, verification);
 
-        let account = Account {
-            inner: account,
-            store: store.clone(),
-        };
+        let account = Account { inner: account, store: store.clone() };
 
         let session_cache = GroupSessionCache::new(store.clone());
 
@@ -405,10 +387,7 @@ mod test {
 
         let response = KeyClaimResponse::new(one_time_keys);
 
-        manager
-            .receive_keys_claim_response(&response)
-            .await
-            .unwrap();
+        manager.receive_keys_claim_response(&response).await.unwrap();
 
         assert!(manager
             .get_missing_sessions(&mut [bob.user_id().clone()].iter())
@@ -434,11 +413,7 @@ mod test {
         let bob_device = ReadOnlyDevice::from_account(&bob).await;
         session.creation_time = Arc::new(Instant::now() - Duration::from_secs(3601));
 
-        manager
-            .store
-            .save_devices(&[bob_device.clone()])
-            .await
-            .unwrap();
+        manager.store.save_devices(&[bob_device.clone()]).await.unwrap();
         manager.store.save_sessions(&[session]).await.unwrap();
 
         assert!(manager
@@ -451,10 +426,7 @@ mod test {
 
         assert!(!manager.users_for_key_claim.contains_key(bob.user_id()));
         assert!(!manager.is_device_wedged(&bob_device));
-        manager
-            .mark_device_as_wedged(bob_device.user_id(), &curve_key)
-            .await
-            .unwrap();
+        manager.mark_device_as_wedged(bob_device.user_id(), &curve_key).await.unwrap();
         assert!(manager.is_device_wedged(&bob_device));
         assert!(manager.users_for_key_claim.contains_key(bob.user_id()));
 
@@ -480,10 +452,7 @@ mod test {
 
         assert!(manager.outgoing_to_device_requests.is_empty());
 
-        manager
-            .receive_keys_claim_response(&response)
-            .await
-            .unwrap();
+        manager.receive_keys_claim_response(&response).await.unwrap();
 
         assert!(!manager.is_device_wedged(&bob_device));
         assert!(manager

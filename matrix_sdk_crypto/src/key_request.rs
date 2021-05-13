@@ -20,13 +20,9 @@
 // If we don't trust the device store an object that remembers the request and
 // let the users introspect that object.
 
-use dashmap::{mapref::entry::Entry, DashMap, DashSet};
-use serde::{Deserialize, Serialize};
-use serde_json::value::to_raw_value;
 use std::{collections::BTreeMap, sync::Arc};
-use thiserror::Error;
-use tracing::{error, info, trace, warn};
 
+use dashmap::{mapref::entry::Entry, DashMap, DashSet};
 use matrix_sdk_common::{
     api::r0::to_device::DeviceIdOrAllDevices,
     events::{
@@ -37,6 +33,10 @@ use matrix_sdk_common::{
     identifiers::{DeviceId, DeviceIdBox, EventEncryptionAlgorithm, RoomId, UserId},
     uuid::Uuid,
 };
+use serde::{Deserialize, Serialize};
+use serde_json::value::to_raw_value;
+use thiserror::Error;
+use tracing::{error, info, trace, warn};
 
 use crate::{
     error::{OlmError, OlmResult},
@@ -105,10 +105,8 @@ impl WaitQueue {
         &self,
         user_id: &UserId,
         device_id: &DeviceId,
-    ) -> Vec<(
-        (UserId, DeviceIdBox, String),
-        ToDeviceEvent<RoomKeyRequestToDeviceEventContent>,
-    )> {
+    ) -> Vec<((UserId, DeviceIdBox, String), ToDeviceEvent<RoomKeyRequestToDeviceEventContent>)>
+    {
         self.requests_ids_waiting
             .remove(&(user_id.to_owned(), device_id.into()))
             .map(|(_, request_ids)| {
@@ -204,12 +202,7 @@ fn wrap_key_request_content(
     Ok(OutgoingRequest {
         request_id: id,
         request: Arc::new(
-            ToDeviceRequest {
-                event_type: EventType::RoomKeyRequest,
-                txn_id: id,
-                messages,
-            }
-            .into(),
+            ToDeviceRequest { event_type: EventType::RoomKeyRequest, txn_id: id, messages }.into(),
         ),
     })
 }
@@ -241,10 +234,7 @@ impl KeyRequestMachine {
             .await?
             .into_iter()
             .filter(|i| !i.sent_out)
-            .map(|info| {
-                info.to_request(self.device_id())
-                    .map_err(CryptoStoreError::from)
-            })
+            .map(|info| info.to_request(self.device_id()).map_err(CryptoStoreError::from))
             .collect()
     }
 
@@ -262,11 +252,8 @@ impl KeyRequestMachine {
         &self,
     ) -> Result<Vec<OutgoingRequest>, CryptoStoreError> {
         let mut key_requests = self.load_outgoing_requests().await?;
-        let key_forwards: Vec<OutgoingRequest> = self
-            .outgoing_to_device_requests
-            .iter()
-            .map(|i| i.value().clone())
-            .collect();
+        let key_forwards: Vec<OutgoingRequest> =
+            self.outgoing_to_device_requests.iter().map(|i| i.value().clone()).collect();
         key_requests.extend(key_forwards);
 
         Ok(key_requests)
@@ -281,8 +268,7 @@ impl KeyRequestMachine {
         let device_id = event.content.requesting_device_id.clone();
         let request_id = event.content.request_id.clone();
 
-        self.incoming_key_requests
-            .insert((sender, device_id, request_id), event.clone());
+        self.incoming_key_requests.insert((sender, device_id, request_id), event.clone());
     }
 
     /// Handle all the incoming key requests that are queued up and empty our
@@ -401,10 +387,8 @@ impl KeyRequestMachine {
             return Ok(None);
         };
 
-        let device = self
-            .store
-            .get_device(&event.sender, &event.content.requesting_device_id)
-            .await?;
+        let device =
+            self.store.get_device(&event.sender, &event.content.requesting_device_id).await?;
 
         if let Some(device) = device {
             match self.should_share_key(&device, &session).await {
@@ -461,30 +445,22 @@ impl KeyRequestMachine {
         device: &Device,
         message_index: Option<u32>,
     ) -> OlmResult<Session> {
-        let (used_session, content) = device
-            .encrypt_session(session.clone(), message_index)
-            .await?;
+        let (used_session, content) =
+            device.encrypt_session(session.clone(), message_index).await?;
 
         let id = Uuid::new_v4();
         let mut messages = BTreeMap::new();
 
-        messages
-            .entry(device.user_id().to_owned())
-            .or_insert_with(BTreeMap::new)
-            .insert(
-                DeviceIdOrAllDevices::DeviceId(device.device_id().into()),
-                to_raw_value(&content)?,
-            );
+        messages.entry(device.user_id().to_owned()).or_insert_with(BTreeMap::new).insert(
+            DeviceIdOrAllDevices::DeviceId(device.device_id().into()),
+            to_raw_value(&content)?,
+        );
 
         let request = OutgoingRequest {
             request_id: id,
             request: Arc::new(
-                ToDeviceRequest {
-                    event_type: EventType::RoomEncrypted,
-                    txn_id: id,
-                    messages,
-                }
-                .into(),
+                ToDeviceRequest { event_type: EventType::RoomEncrypted, txn_id: id, messages }
+                    .into(),
             ),
         };
 
@@ -542,8 +518,8 @@ impl KeyRequestMachine {
             } else {
                 Err(KeyshareDecision::OutboundSessionNotShared)
             }
-        // Else just check if it's one of our own devices that requested the key and
-        // check if the device is trusted.
+        // Else just check if it's one of our own devices that requested the key
+        // and check if the device is trusted.
         } else if device.user_id() == self.user_id() {
             own_device_check()
         // Otherwise, there's not enough info to decide if we can safely share
@@ -711,9 +687,7 @@ impl KeyRequestMachine {
 
     /// Delete the given outgoing key info.
     async fn delete_key_info(&self, info: &OutgoingKeyRequest) -> Result<(), CryptoStoreError> {
-        self.store
-            .delete_outgoing_key_request(info.request_id)
-            .await
+        self.store.delete_outgoing_key_request(info.request_id).await
     }
 
     /// Mark the outgoing request as sent.
@@ -736,20 +710,15 @@ impl KeyRequestMachine {
     /// This will queue up a request cancelation.
     async fn mark_as_done(&self, key_info: OutgoingKeyRequest) -> Result<(), CryptoStoreError> {
         // TODO perhaps only remove the key info if the first known index is 0.
-        trace!(
-            "Successfully received a forwarded room key for {:#?}",
-            key_info
-        );
+        trace!("Successfully received a forwarded room key for {:#?}", key_info);
 
-        self.outgoing_to_device_requests
-            .remove(&key_info.request_id);
+        self.outgoing_to_device_requests.remove(&key_info.request_id);
         // TODO return the key info instead of deleting it so the sync handler
         // can delete it in one transaction.
         self.delete_key_info(&key_info).await?;
 
         let request = key_info.to_cancelation(self.device_id())?;
-        self.outgoing_to_device_requests
-            .insert(request.request_id, request);
+        self.outgoing_to_device_requests.insert(request.request_id, request);
 
         Ok(())
     }
@@ -801,10 +770,7 @@ impl KeyRequestMachine {
                 );
             }
 
-            Ok((
-                Some(AnyToDeviceEvent::ForwardedRoomKey(event.clone())),
-                session,
-            ))
+            Ok((Some(AnyToDeviceEvent::ForwardedRoomKey(event.clone())), session))
         } else {
             info!(
                 "Received a forwarded room key from {}, but no key info was found.",
@@ -817,6 +783,8 @@ impl KeyRequestMachine {
 
 #[cfg(test)]
 mod test {
+    use std::{convert::TryInto, sync::Arc};
+
     use dashmap::DashMap;
     use matrix_sdk_common::{
         api::r0::to_device::DeviceIdOrAllDevices,
@@ -829,8 +797,8 @@ mod test {
         locks::Mutex,
     };
     use matrix_sdk_test::async_test;
-    use std::{convert::TryInto, sync::Arc};
 
+    use super::{KeyRequestMachine, KeyshareDecision};
     use crate::{
         identities::{LocalTrust, ReadOnlyDevice},
         olm::{Account, PrivateCrossSigningIdentity, ReadOnlyAccount},
@@ -838,8 +806,6 @@ mod test {
         store::{Changes, CryptoStore, MemoryStore, Store},
         verification::VerificationMachine,
     };
-
-    use super::{KeyRequestMachine, KeyshareDecision};
 
     fn alice_id() -> UserId {
         user_id!("@alice:example.org")
@@ -919,11 +885,7 @@ mod test {
     async fn create_machine() {
         let machine = get_machine().await;
 
-        assert!(machine
-            .outgoing_to_device_requests()
-            .await
-            .unwrap()
-            .is_empty());
+        assert!(machine.outgoing_to_device_requests().await.unwrap().is_empty());
     }
 
     #[async_test]
@@ -931,16 +893,10 @@ mod test {
         let machine = get_machine().await;
         let account = account();
 
-        let (_, session) = account
-            .create_group_session_pair_with_defaults(&room_id())
-            .await
-            .unwrap();
+        let (_, session) =
+            account.create_group_session_pair_with_defaults(&room_id()).await.unwrap();
 
-        assert!(machine
-            .outgoing_to_device_requests()
-            .await
-            .unwrap()
-            .is_empty());
+        assert!(machine.outgoing_to_device_requests().await.unwrap().is_empty());
         let (cancel, request) = machine
             .request_key(session.room_id(), &session.sender_key, session.session_id())
             .await
@@ -948,10 +904,7 @@ mod test {
 
         assert!(cancel.is_none());
 
-        machine
-            .mark_outgoing_request_as_sent(request.request_id)
-            .await
-            .unwrap();
+        machine.mark_outgoing_request_as_sent(request.request_id).await.unwrap();
 
         let (cancel, _) = machine
             .request_key(session.room_id(), &session.sender_key, session.session_id())
@@ -972,16 +925,10 @@ mod test {
         alice_device.set_trust_state(LocalTrust::Verified);
         machine.store.save_devices(&[alice_device]).await.unwrap();
 
-        let (_, session) = account
-            .create_group_session_pair_with_defaults(&room_id())
-            .await
-            .unwrap();
+        let (_, session) =
+            account.create_group_session_pair_with_defaults(&room_id()).await.unwrap();
 
-        assert!(machine
-            .outgoing_to_device_requests()
-            .await
-            .unwrap()
-            .is_empty());
+        assert!(machine.outgoing_to_device_requests().await.unwrap().is_empty());
         machine
             .create_outgoing_key_request(
                 session.room_id(),
@@ -990,15 +937,8 @@ mod test {
             )
             .await
             .unwrap();
-        assert!(!machine
-            .outgoing_to_device_requests()
-            .await
-            .unwrap()
-            .is_empty());
-        assert_eq!(
-            machine.outgoing_to_device_requests().await.unwrap().len(),
-            1
-        );
+        assert!(!machine.outgoing_to_device_requests().await.unwrap().is_empty());
+        assert_eq!(machine.outgoing_to_device_requests().await.unwrap().len(), 1);
 
         machine
             .create_outgoing_key_request(
@@ -1014,15 +954,8 @@ mod test {
 
         let request = requests.get(0).unwrap();
 
-        machine
-            .mark_outgoing_request_as_sent(request.request_id)
-            .await
-            .unwrap();
-        assert!(machine
-            .outgoing_to_device_requests()
-            .await
-            .unwrap()
-            .is_empty());
+        machine.mark_outgoing_request_as_sent(request.request_id).await.unwrap();
+        assert!(machine.outgoing_to_device_requests().await.unwrap().is_empty());
     }
 
     #[async_test]
@@ -1037,10 +970,8 @@ mod test {
         alice_device.set_trust_state(LocalTrust::Verified);
         machine.store.save_devices(&[alice_device]).await.unwrap();
 
-        let (_, session) = account
-            .create_group_session_pair_with_defaults(&room_id())
-            .await
-            .unwrap();
+        let (_, session) =
+            account.create_group_session_pair_with_defaults(&room_id()).await.unwrap();
         machine
             .create_outgoing_key_request(
                 session.room_id(),
@@ -1060,10 +991,7 @@ mod test {
 
         let content: ForwardedRoomKeyToDeviceEventContent = export.try_into().unwrap();
 
-        let mut event = ToDeviceEvent {
-            sender: alice_id(),
-            content,
-        };
+        let mut event = ToDeviceEvent { sender: alice_id(), content };
 
         assert!(
             machine
@@ -1078,19 +1006,13 @@ mod test {
                 .is_none()
         );
 
-        let (_, first_session) = machine
-            .receive_forwarded_room_key(&session.sender_key, &mut event)
-            .await
-            .unwrap();
+        let (_, first_session) =
+            machine.receive_forwarded_room_key(&session.sender_key, &mut event).await.unwrap();
         let first_session = first_session.unwrap();
 
         assert_eq!(first_session.first_known_index(), 10);
 
-        machine
-            .store
-            .save_inbound_group_sessions(&[first_session.clone()])
-            .await
-            .unwrap();
+        machine.store.save_inbound_group_sessions(&[first_session.clone()]).await.unwrap();
 
         // Get the cancel request.
         let request = machine.outgoing_to_device_requests.iter().next().unwrap();
@@ -1110,24 +1032,16 @@ mod test {
         let requests = machine.outgoing_to_device_requests().await.unwrap();
         let request = &requests[0];
 
-        machine
-            .mark_outgoing_request_as_sent(request.request_id)
-            .await
-            .unwrap();
+        machine.mark_outgoing_request_as_sent(request.request_id).await.unwrap();
 
         let export = session.export_at_index(15).await;
 
         let content: ForwardedRoomKeyToDeviceEventContent = export.try_into().unwrap();
 
-        let mut event = ToDeviceEvent {
-            sender: alice_id(),
-            content,
-        };
+        let mut event = ToDeviceEvent { sender: alice_id(), content };
 
-        let (_, second_session) = machine
-            .receive_forwarded_room_key(&session.sender_key, &mut event)
-            .await
-            .unwrap();
+        let (_, second_session) =
+            machine.receive_forwarded_room_key(&session.sender_key, &mut event).await.unwrap();
 
         assert!(second_session.is_none());
 
@@ -1135,15 +1049,10 @@ mod test {
 
         let content: ForwardedRoomKeyToDeviceEventContent = export.try_into().unwrap();
 
-        let mut event = ToDeviceEvent {
-            sender: alice_id(),
-            content,
-        };
+        let mut event = ToDeviceEvent { sender: alice_id(), content };
 
-        let (_, second_session) = machine
-            .receive_forwarded_room_key(&session.sender_key, &mut event)
-            .await
-            .unwrap();
+        let (_, second_session) =
+            machine.receive_forwarded_room_key(&session.sender_key, &mut event).await.unwrap();
 
         assert_eq!(second_session.unwrap().first_known_index(), 0);
     }
@@ -1153,17 +1062,11 @@ mod test {
         let machine = get_machine().await;
         let account = account();
 
-        let own_device = machine
-            .store
-            .get_device(&alice_id(), &alice_device_id())
-            .await
-            .unwrap()
-            .unwrap();
+        let own_device =
+            machine.store.get_device(&alice_id(), &alice_device_id()).await.unwrap().unwrap();
 
-        let (outbound, inbound) = account
-            .create_group_session_pair_with_defaults(&room_id())
-            .await
-            .unwrap();
+        let (outbound, inbound) =
+            account.create_group_session_pair_with_defaults(&room_id()).await.unwrap();
 
         // We don't share keys with untrusted devices.
         assert_eq!(
@@ -1175,20 +1078,13 @@ mod test {
         );
         own_device.set_trust_state(LocalTrust::Verified);
         // Now we do want to share the keys.
-        assert!(machine
-            .should_share_key(&own_device, &inbound)
-            .await
-            .is_ok());
+        assert!(machine.should_share_key(&own_device, &inbound).await.is_ok());
 
         let bob_device = ReadOnlyDevice::from_account(&bob_account()).await;
         machine.store.save_devices(&[bob_device]).await.unwrap();
 
-        let bob_device = machine
-            .store
-            .get_device(&bob_id(), &bob_device_id())
-            .await
-            .unwrap()
-            .unwrap();
+        let bob_device =
+            machine.store.get_device(&bob_id(), &bob_device_id()).await.unwrap().unwrap();
 
         // We don't share sessions with other user's devices if no outbound
         // session was provided.
@@ -1231,17 +1127,12 @@ mod test {
 
         // We now share the session, since it was shared before.
         outbound.mark_shared_with(bob_device.user_id(), bob_device.device_id());
-        assert!(machine
-            .should_share_key(&bob_device, &inbound)
-            .await
-            .is_ok());
+        assert!(machine.should_share_key(&bob_device, &inbound).await.is_ok());
 
         // But we don't share some other session that doesn't match our outbound
         // session
-        let (_, other_inbound) = account
-            .create_group_session_pair_with_defaults(&room_id())
-            .await
-            .unwrap();
+        let (_, other_inbound) =
+            account.create_group_session_pair_with_defaults(&room_id()).await.unwrap();
 
         assert_eq!(
             machine
@@ -1255,10 +1146,7 @@ mod test {
     #[async_test]
     async fn key_share_cycle() {
         let alice_machine = get_machine().await;
-        let alice_account = Account {
-            inner: account(),
-            store: alice_machine.store.clone(),
-        };
+        let alice_account = Account { inner: account(), store: alice_machine.store.clone() };
 
         let bob_machine = bob_machine();
         let bob_account = bob_account();
@@ -1268,11 +1156,7 @@ mod test {
 
         // We need a trusted device, otherwise we won't request keys
         alice_device.set_trust_state(LocalTrust::Verified);
-        alice_machine
-            .store
-            .save_devices(&[alice_device])
-            .await
-            .unwrap();
+        alice_machine.store.save_devices(&[alice_device]).await.unwrap();
 
         // Create Olm sessions for our two accounts.
         let (alice_session, bob_session) = alice_account.create_session_for(&bob_account).await;
@@ -1282,37 +1166,15 @@ mod test {
 
         // Populate our stores with Olm sessions and a Megolm session.
 
-        alice_machine
-            .store
-            .save_sessions(&[alice_session])
-            .await
-            .unwrap();
-        alice_machine
-            .store
-            .save_devices(&[bob_device])
-            .await
-            .unwrap();
-        bob_machine
-            .store
-            .save_sessions(&[bob_session])
-            .await
-            .unwrap();
-        bob_machine
-            .store
-            .save_devices(&[alice_device])
-            .await
-            .unwrap();
+        alice_machine.store.save_sessions(&[alice_session]).await.unwrap();
+        alice_machine.store.save_devices(&[bob_device]).await.unwrap();
+        bob_machine.store.save_sessions(&[bob_session]).await.unwrap();
+        bob_machine.store.save_devices(&[alice_device]).await.unwrap();
 
-        let (group_session, inbound_group_session) = bob_account
-            .create_group_session_pair_with_defaults(&room_id())
-            .await
-            .unwrap();
+        let (group_session, inbound_group_session) =
+            bob_account.create_group_session_pair_with_defaults(&room_id()).await.unwrap();
 
-        bob_machine
-            .store
-            .save_inbound_group_sessions(&[inbound_group_session])
-            .await
-            .unwrap();
+        bob_machine.store.save_inbound_group_sessions(&[inbound_group_session]).await.unwrap();
 
         // Alice wants to request the outbound group session from bob.
         alice_machine
@@ -1326,9 +1188,7 @@ mod test {
         group_session.mark_shared_with(&alice_id(), &alice_device_id());
 
         // Put the outbound session into bobs store.
-        bob_machine
-            .outbound_group_sessions
-            .insert(group_session.clone());
+        bob_machine.outbound_group_sessions.insert(group_session.clone());
 
         // Get the request and convert it into a event.
         let requests = alice_machine.outgoing_to_device_requests().await.unwrap();
@@ -1346,15 +1206,9 @@ mod test {
         let content: RoomKeyRequestToDeviceEventContent =
             serde_json::from_str(content.get()).unwrap();
 
-        alice_machine
-            .mark_outgoing_request_as_sent(id)
-            .await
-            .unwrap();
+        alice_machine.mark_outgoing_request_as_sent(id).await.unwrap();
 
-        let event = ToDeviceEvent {
-            sender: alice_id(),
-            content,
-        };
+        let event = ToDeviceEvent { sender: alice_id(), content };
 
         // Bob doesn't have any outgoing requests.
         assert!(bob_machine.outgoing_to_device_requests.is_empty());
@@ -1383,10 +1237,7 @@ mod test {
 
         bob_machine.mark_outgoing_request_as_sent(id).await.unwrap();
 
-        let event = ToDeviceEvent {
-            sender: bob_id(),
-            content,
-        };
+        let event = ToDeviceEvent { sender: bob_id(), content };
 
         // Check that alice doesn't have the session.
         assert!(alice_machine
@@ -1407,11 +1258,7 @@ mod test {
                 .receive_forwarded_room_key(&decrypted.sender_key, &mut e)
                 .await
                 .unwrap();
-            alice_machine
-                .store
-                .save_inbound_group_sessions(&[session.unwrap()])
-                .await
-                .unwrap();
+            alice_machine.store.save_inbound_group_sessions(&[session.unwrap()]).await.unwrap();
         } else {
             panic!("Invalid decrypted event type");
         }
@@ -1434,10 +1281,7 @@ mod test {
     #[async_test]
     async fn key_share_cycle_without_session() {
         let alice_machine = get_machine().await;
-        let alice_account = Account {
-            inner: account(),
-            store: alice_machine.store.clone(),
-        };
+        let alice_account = Account { inner: account(), store: alice_machine.store.clone() };
 
         let bob_machine = bob_machine();
         let bob_account = bob_account();
@@ -1447,11 +1291,7 @@ mod test {
 
         // We need a trusted device, otherwise we won't request keys
         alice_device.set_trust_state(LocalTrust::Verified);
-        alice_machine
-            .store
-            .save_devices(&[alice_device])
-            .await
-            .unwrap();
+        alice_machine.store.save_devices(&[alice_device]).await.unwrap();
 
         // Create Olm sessions for our two accounts.
         let (alice_session, bob_session) = alice_account.create_session_for(&bob_account).await;
@@ -1461,27 +1301,13 @@ mod test {
 
         // Populate our stores with Olm sessions and a Megolm session.
 
-        alice_machine
-            .store
-            .save_devices(&[bob_device])
-            .await
-            .unwrap();
-        bob_machine
-            .store
-            .save_devices(&[alice_device])
-            .await
-            .unwrap();
+        alice_machine.store.save_devices(&[bob_device]).await.unwrap();
+        bob_machine.store.save_devices(&[alice_device]).await.unwrap();
 
-        let (group_session, inbound_group_session) = bob_account
-            .create_group_session_pair_with_defaults(&room_id())
-            .await
-            .unwrap();
+        let (group_session, inbound_group_session) =
+            bob_account.create_group_session_pair_with_defaults(&room_id()).await.unwrap();
 
-        bob_machine
-            .store
-            .save_inbound_group_sessions(&[inbound_group_session])
-            .await
-            .unwrap();
+        bob_machine.store.save_inbound_group_sessions(&[inbound_group_session]).await.unwrap();
 
         // Alice wants to request the outbound group session from bob.
         alice_machine
@@ -1495,9 +1321,7 @@ mod test {
         group_session.mark_shared_with(&alice_id(), &alice_device_id());
 
         // Put the outbound session into bobs store.
-        bob_machine
-            .outbound_group_sessions
-            .insert(group_session.clone());
+        bob_machine.outbound_group_sessions.insert(group_session.clone());
 
         // Get the request and convert it into a event.
         let requests = alice_machine.outgoing_to_device_requests().await.unwrap();
@@ -1515,22 +1339,12 @@ mod test {
         let content: RoomKeyRequestToDeviceEventContent =
             serde_json::from_str(content.get()).unwrap();
 
-        alice_machine
-            .mark_outgoing_request_as_sent(id)
-            .await
-            .unwrap();
+        alice_machine.mark_outgoing_request_as_sent(id).await.unwrap();
 
-        let event = ToDeviceEvent {
-            sender: alice_id(),
-            content,
-        };
+        let event = ToDeviceEvent { sender: alice_id(), content };
 
         // Bob doesn't have any outgoing requests.
-        assert!(bob_machine
-            .outgoing_to_device_requests()
-            .await
-            .unwrap()
-            .is_empty());
+        assert!(bob_machine.outgoing_to_device_requests().await.unwrap().is_empty());
         assert!(bob_machine.users_for_key_claim.is_empty());
         assert!(bob_machine.wait_queue.is_empty());
 
@@ -1538,35 +1352,19 @@ mod test {
         bob_machine.receive_incoming_key_request(&event);
         bob_machine.collect_incoming_key_requests().await.unwrap();
         // Bob doens't have an outgoing requests since we're lacking a session.
-        assert!(bob_machine
-            .outgoing_to_device_requests()
-            .await
-            .unwrap()
-            .is_empty());
+        assert!(bob_machine.outgoing_to_device_requests().await.unwrap().is_empty());
         assert!(!bob_machine.users_for_key_claim.is_empty());
         assert!(!bob_machine.wait_queue.is_empty());
 
         // We create a session now.
-        alice_machine
-            .store
-            .save_sessions(&[alice_session])
-            .await
-            .unwrap();
-        bob_machine
-            .store
-            .save_sessions(&[bob_session])
-            .await
-            .unwrap();
+        alice_machine.store.save_sessions(&[alice_session]).await.unwrap();
+        bob_machine.store.save_sessions(&[bob_session]).await.unwrap();
 
         bob_machine.retry_keyshare(&alice_id(), &alice_device_id());
         assert!(bob_machine.users_for_key_claim.is_empty());
         bob_machine.collect_incoming_key_requests().await.unwrap();
         // Bob now has an outgoing requests.
-        assert!(!bob_machine
-            .outgoing_to_device_requests()
-            .await
-            .unwrap()
-            .is_empty());
+        assert!(!bob_machine.outgoing_to_device_requests().await.unwrap().is_empty());
         assert!(bob_machine.wait_queue.is_empty());
 
         // Get the request and convert it to a encrypted to-device event.
@@ -1588,10 +1386,7 @@ mod test {
 
         bob_machine.mark_outgoing_request_as_sent(id).await.unwrap();
 
-        let event = ToDeviceEvent {
-            sender: bob_id(),
-            content,
-        };
+        let event = ToDeviceEvent { sender: bob_id(), content };
 
         // Check that alice doesn't have the session.
         assert!(alice_machine
@@ -1612,11 +1407,7 @@ mod test {
                 .receive_forwarded_room_key(&decrypted.sender_key, &mut e)
                 .await
                 .unwrap();
-            alice_machine
-                .store
-                .save_inbound_group_sessions(&[session.unwrap()])
-                .await
-                .unwrap();
+            alice_machine.store.save_inbound_group_sessions(&[session.unwrap()]).await.unwrap();
         } else {
             panic!("Invalid decrypted event type");
         }

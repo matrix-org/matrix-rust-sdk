@@ -12,20 +12,19 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use serde_json::Error as SerdeError;
 use std::io::{Cursor, Read, Seek, SeekFrom};
-use thiserror::Error;
-
-use byteorder::{BigEndian, ReadBytesExt};
-use getrandom::getrandom;
 
 use aes_ctr::{
     cipher::{NewStreamCipher, SyncStreamCipher},
     Aes256Ctr,
 };
+use byteorder::{BigEndian, ReadBytesExt};
+use getrandom::getrandom;
 use hmac::{Hmac, Mac, NewMac};
 use pbkdf2::pbkdf2;
+use serde_json::Error as SerdeError;
 use sha2::{Sha256, Sha512};
+use thiserror::Error;
 
 use crate::{
     olm::ExportedRoomKey,
@@ -99,14 +98,10 @@ pub fn decrypt_key_export(
         return Err(KeyExportError::InvalidHeaders);
     }
 
-    let payload: String = x
-        .lines()
-        .filter(|l| !(l.starts_with(HEADER) || l.starts_with(FOOTER)))
-        .collect();
+    let payload: String =
+        x.lines().filter(|l| !(l.starts_with(HEADER) || l.starts_with(FOOTER))).collect();
 
-    Ok(serde_json::from_str(&decrypt_helper(
-        &payload, passphrase,
-    )?)?)
+    Ok(serde_json::from_str(&decrypt_helper(&payload, passphrase)?)?)
 }
 
 /// Encrypt the list of exported room keys using the given passphrase.
@@ -231,12 +226,12 @@ fn decrypt_helper(ciphertext: &str, passphrase: &str) -> Result<String, KeyExpor
 
 #[cfg(test)]
 mod test {
-    use indoc::indoc;
-    use proptest::prelude::*;
     use std::io::Cursor;
 
+    use indoc::indoc;
     use matrix_sdk_common::identifiers::room_id;
     use matrix_sdk_test::async_test;
+    use proptest::prelude::*;
 
     use super::{decode, decrypt_helper, decrypt_key_export, encrypt_helper, encrypt_key_export};
     use crate::machine::test::get_prepared_machine;
@@ -261,10 +256,7 @@ mod test {
     "};
 
     fn export_wihtout_headers() -> String {
-        TEST_EXPORT
-            .lines()
-            .filter(|l| !l.starts_with("-----"))
-            .collect()
+        TEST_EXPORT.lines().filter(|l| !l.starts_with("-----")).collect()
     }
 
     #[test]
@@ -301,14 +293,8 @@ mod test {
         let (machine, _) = get_prepared_machine().await;
         let room_id = room_id!("!test:localhost");
 
-        machine
-            .create_outbound_group_session_with_defaults(&room_id)
-            .await
-            .unwrap();
-        let export = machine
-            .export_keys(|s| s.room_id() == &room_id)
-            .await
-            .unwrap();
+        machine.create_outbound_group_session_with_defaults(&room_id).await.unwrap();
+        let export = machine.export_keys(|s| s.room_id() == &room_id).await.unwrap();
 
         assert!(!export.is_empty());
 
@@ -316,10 +302,7 @@ mod test {
         let decrypted = decrypt_key_export(Cursor::new(encrypted), "1234").unwrap();
 
         assert_eq!(export, decrypted);
-        assert_eq!(
-            machine.import_keys(decrypted, |_, _| {}).await.unwrap(),
-            (0, 1)
-        );
+        assert_eq!(machine.import_keys(decrypted, |_, _| {}).await.unwrap(), (0, 1));
     }
 
     #[test]

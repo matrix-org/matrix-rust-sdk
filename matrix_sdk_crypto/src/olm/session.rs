@@ -27,20 +27,18 @@ use matrix_sdk_common::{
     locks::Mutex,
 };
 use olm_rs::{errors::OlmSessionError, session::OlmSession, PicklingMode};
-use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
-
-use crate::{
-    error::{EventError, OlmResult, SessionUnpicklingError},
-    ReadOnlyDevice,
-};
-
 pub use olm_rs::{
     session::{OlmMessage, PreKeyMessage},
     utility::OlmUtility,
 };
+use serde::{Deserialize, Serialize};
+use serde_json::{json, Value};
 
 use super::{deserialize_instant, serialize_instant, IdentityKeys};
+use crate::{
+    error::{EventError, OlmResult, SessionUnpicklingError},
+    ReadOnlyDevice,
+};
 
 /// Cryptographic session that enables secure communication between two
 /// `Account`s
@@ -105,8 +103,8 @@ impl Session {
     /// # Arguments
     ///
     /// * `recipient_device` - The device for which this message is going to be
-    ///     encrypted, this needs to be the device that was used to create this
-    ///     session with.
+    ///   encrypted, this needs to be the device that was used to create this
+    ///   session with.
     ///
     /// * `event_type` - The type of the event.
     ///
@@ -121,10 +119,8 @@ impl Session {
             .get_key(DeviceKeyAlgorithm::Ed25519)
             .ok_or(EventError::MissingSigningKey)?;
 
-        let relates_to = content
-            .get("m.relates_to")
-            .cloned()
-            .and_then(|v| serde_json::from_value(v).ok());
+        let relates_to =
+            content.get("m.relates_to").cloned().and_then(|v| serde_json::from_value(v).ok());
 
         let payload = json!({
             "sender": self.user_id.as_str(),
@@ -174,10 +170,7 @@ impl Session {
         their_identity_key: &str,
         message: PreKeyMessage,
     ) -> Result<bool, OlmSessionError> {
-        self.inner
-            .lock()
-            .await
-            .matches_inbound_session_from(their_identity_key, message)
+        self.inner.lock().await.matches_inbound_session_from(their_identity_key, message)
     }
 
     /// Returns the unique identifier for this session.
@@ -259,20 +252,15 @@ pub struct PickledSession {
     /// The curve25519 key of the other user that we share this session with.
     pub sender_key: String,
     /// The relative time elapsed since the session was created.
-    #[serde(
-        deserialize_with = "deserialize_instant",
-        serialize_with = "serialize_instant"
-    )]
+    #[serde(deserialize_with = "deserialize_instant", serialize_with = "serialize_instant")]
     pub creation_time: Instant,
     /// The relative time elapsed since the session was last used.
-    #[serde(
-        deserialize_with = "deserialize_instant",
-        serialize_with = "serialize_instant"
-    )]
+    #[serde(deserialize_with = "deserialize_instant", serialize_with = "serialize_instant")]
     pub last_use_time: Instant,
 }
 
-/// The typed representation of a base64 encoded string of the Olm Session pickle.
+/// The typed representation of a base64 encoded string of the Olm Session
+/// pickle.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SessionPickle(String);
 

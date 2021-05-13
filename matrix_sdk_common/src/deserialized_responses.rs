@@ -1,3 +1,5 @@
+use std::{collections::BTreeMap, convert::TryFrom, time::SystemTime};
+
 use ruma::{
     api::client::r0::sync::sync_events::{
         Ephemeral, InvitedRoom, Presence, RoomAccountData, State, ToDevice,
@@ -6,7 +8,6 @@ use ruma::{
     DeviceIdBox,
 };
 use serde::{Deserialize, Serialize};
-use std::{collections::BTreeMap, convert::TryFrom, time::SystemTime};
 
 use super::{
     api::r0::{
@@ -103,16 +104,14 @@ pub struct SyncRoomEvent {
 
 impl From<Raw<AnySyncRoomEvent>> for SyncRoomEvent {
     fn from(inner: Raw<AnySyncRoomEvent>) -> Self {
-        Self {
-            encryption_info: None,
-            event: inner,
-        }
+        Self { encryption_info: None, event: inner }
     }
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
 pub struct SyncResponse {
-    /// The batch token to supply in the `since` param of the next `/sync` request.
+    /// The batch token to supply in the `since` param of the next `/sync`
+    /// request.
     pub next_batch: String,
     /// Updates to rooms.
     pub rooms: Rooms,
@@ -137,10 +136,7 @@ pub struct SyncResponse {
 
 impl SyncResponse {
     pub fn new(next_batch: String) -> Self {
-        Self {
-            next_batch,
-            ..Default::default()
-        }
+        Self { next_batch, ..Default::default() }
     }
 }
 
@@ -161,14 +157,15 @@ pub struct JoinedRoom {
     pub unread_notifications: UnreadNotificationsCount,
     /// The timeline of messages and state changes in the room.
     pub timeline: Timeline,
-    /// Updates to the state, between the time indicated by the `since` parameter, and the start
-    /// of the `timeline` (or all state up to the start of the `timeline`, if `since` is not
-    /// given, or `full_state` is true).
+    /// Updates to the state, between the time indicated by the `since`
+    /// parameter, and the start of the `timeline` (or all state up to the
+    /// start of the `timeline`, if `since` is not given, or `full_state` is
+    /// true).
     pub state: State,
     /// The private data that this user has attached to this room.
     pub account_data: RoomAccountData,
-    /// The ephemeral events in the room that aren't recorded in the timeline or state of the
-    /// room. e.g. typing.
+    /// The ephemeral events in the room that aren't recorded in the timeline or
+    /// state of the room. e.g. typing.
     pub ephemeral: Ephemeral,
 }
 
@@ -180,20 +177,15 @@ impl JoinedRoom {
         ephemeral: Ephemeral,
         unread_notifications: UnreadNotificationsCount,
     ) -> Self {
-        Self {
-            unread_notifications,
-            timeline,
-            state,
-            account_data,
-            ephemeral,
-        }
+        Self { unread_notifications, timeline, state, account_data, ephemeral }
     }
 }
 
 /// Counts of unread notifications for a room.
 #[derive(Copy, Clone, Debug, Default, Deserialize, Serialize)]
 pub struct UnreadNotificationsCount {
-    /// The number of unread notifications for this room with the highlight flag set.
+    /// The number of unread notifications for this room with the highlight flag
+    /// set.
     pub highlight_count: u64,
     /// The total number of unread notifications for this room.
     pub notification_count: u64,
@@ -203,10 +195,7 @@ impl From<RumaUnreadNotificationsCount> for UnreadNotificationsCount {
     fn from(notifications: RumaUnreadNotificationsCount) -> Self {
         Self {
             highlight_count: notifications.highlight_count.map(|c| c.into()).unwrap_or(0),
-            notification_count: notifications
-                .notification_count
-                .map(|c| c.into())
-                .unwrap_or(0),
+            notification_count: notifications.notification_count.map(|c| c.into()).unwrap_or(0),
         }
     }
 }
@@ -216,9 +205,10 @@ pub struct LeftRoom {
     /// The timeline of messages and state changes in the room up to the point
     /// when the user left.
     pub timeline: Timeline,
-    /// Updates to the state, between the time indicated by the `since` parameter, and the start
-    /// of the `timeline` (or all state up to the start of the `timeline`, if `since` is not
-    /// given, or `full_state` is true).
+    /// Updates to the state, between the time indicated by the `since`
+    /// parameter, and the start of the `timeline` (or all state up to the
+    /// start of the `timeline`, if `since` is not given, or `full_state` is
+    /// true).
     pub state: State,
     /// The private data that this user has attached to this room.
     pub account_data: RoomAccountData,
@@ -226,18 +216,15 @@ pub struct LeftRoom {
 
 impl LeftRoom {
     pub fn new(timeline: Timeline, state: State, account_data: RoomAccountData) -> Self {
-        Self {
-            timeline,
-            state,
-            account_data,
-        }
+        Self { timeline, state, account_data }
     }
 }
 
 /// Events in the room.
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
 pub struct Timeline {
-    /// True if the number of events returned was limited by the `limit` on the filter.
+    /// True if the number of events returned was limited by the `limit` on the
+    /// filter.
     pub limited: bool,
 
     /// A token that can be supplied to to the `from` parameter of the
@@ -250,11 +237,7 @@ pub struct Timeline {
 
 impl Timeline {
     pub fn new(limited: bool, prev_batch: Option<String>) -> Self {
-        Self {
-            limited,
-            prev_batch,
-            ..Default::default()
-        }
+        Self { limited, prev_batch, ..Default::default() }
     }
 }
 

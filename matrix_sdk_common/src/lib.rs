@@ -17,7 +17,6 @@ pub use ruma::{
     serde::{CanonicalJsonValue, Raw},
     thirdparty, uint, Int, Outgoing, UInt,
 };
-
 pub use uuid;
 
 pub mod deserialized_responses;

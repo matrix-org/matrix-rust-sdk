@@ -12,14 +12,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use olm_rs::utility::OlmUtility;
-use serde_json::Value;
 use std::convert::TryInto;
 
 use matrix_sdk_common::{
     identifiers::{DeviceKeyAlgorithm, DeviceKeyId, UserId},
     CanonicalJsonValue,
 };
+use olm_rs::utility::OlmUtility;
+use serde_json::Value;
 
 use crate::error::SignatureError;
 
@@ -29,9 +29,7 @@ pub(crate) struct Utility {
 
 impl Utility {
     pub fn new() -> Self {
-        Self {
-            inner: OlmUtility::new(),
-        }
+        Self { inner: OlmUtility::new() }
     }
 
     /// Verify a signed JSON object.
@@ -49,7 +47,7 @@ impl Utility {
     /// * `key_id` - The id of the key that signed the JSON object.
     ///
     /// * `signing_key` - The public ed25519 key which was used to sign the JSON
-    ///     object.
+    ///   object.
     ///
     /// * `json` - The JSON object that should be verified.
     pub(crate) fn verify_json(
@@ -67,29 +65,20 @@ impl Utility {
         let unsigned = json_object.remove("unsigned");
         let signatures = json_object.remove("signatures");
 
-        let canonical_json: CanonicalJsonValue = json
-            .clone()
-            .try_into()
-            .map_err(|_| SignatureError::NotAnObject)?;
+        let canonical_json: CanonicalJsonValue =
+            json.clone().try_into().map_err(|_| SignatureError::NotAnObject)?;
 
         let canonical_json: String = canonical_json.to_string();
 
         let signatures = signatures.ok_or(SignatureError::NoSignatureFound)?;
-        let signature_object = signatures
-            .as_object()
-            .ok_or(SignatureError::NoSignatureFound)?;
-        let signature = signature_object
-            .get(user_id.as_str())
-            .ok_or(SignatureError::NoSignatureFound)?;
-        let signature = signature
-            .get(key_id.to_string())
-            .ok_or(SignatureError::NoSignatureFound)?;
+        let signature_object = signatures.as_object().ok_or(SignatureError::NoSignatureFound)?;
+        let signature =
+            signature_object.get(user_id.as_str()).ok_or(SignatureError::NoSignatureFound)?;
+        let signature =
+            signature.get(key_id.to_string()).ok_or(SignatureError::NoSignatureFound)?;
         let signature = signature.as_str().ok_or(SignatureError::NoSignatureFound)?;
 
-        let ret = match self
-            .inner
-            .ed25519_verify(signing_key, &canonical_json, signature)
-        {
+        let ret = match self.inner.ed25519_verify(signing_key, &canonical_json, signature) {
             Ok(_) => Ok(()),
             Err(_) => Err(SignatureError::VerificationError),
         };
@@ -108,9 +97,10 @@ impl Utility {
 
 #[cfg(test)]
 mod test {
-    use super::Utility;
     use matrix_sdk_common::identifiers::{user_id, DeviceKeyAlgorithm, DeviceKeyId};
     use serde_json::json;
+
+    use super::Utility;
 
     #[test]
     fn signature_test() {

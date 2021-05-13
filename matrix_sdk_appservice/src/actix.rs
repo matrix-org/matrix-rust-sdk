@@ -17,6 +17,7 @@ use std::{
     pin::Pin,
 };
 
+pub use actix_web::Scope;
 use actix_web::{
     dev::Payload,
     error::PayloadError,
@@ -29,8 +30,6 @@ use actix_web::{
 use futures::Future;
 use futures_util::{TryFutureExt, TryStreamExt};
 use matrix_sdk::api_appservice as api;
-
-pub use actix_web::Scope;
 
 use crate::{error::Error, Appservice};
 
@@ -53,10 +52,7 @@ pub fn get_scope() -> Scope {
 }
 
 fn gen_scope(scope: &str) -> Scope {
-    web::scope(scope)
-        .service(push_transactions)
-        .service(query_user_id)
-        .service(query_room_alias)
+    web::scope(scope).service(push_transactions).service(query_user_id).service(query_room_alias)
 }
 
 #[tracing::instrument]
@@ -69,11 +65,7 @@ async fn push_transactions(
         return Ok(HttpResponse::Unauthorized().finish());
     }
 
-    appservice
-        .client()
-        .receive_transaction(request.incoming)
-        .await
-        .unwrap();
+    appservice.client().receive_transaction(request.incoming).await.unwrap();
 
     Ok(HttpResponse::Ok().json("{}"))
 }
@@ -136,13 +128,9 @@ impl<T: matrix_sdk::IncomingRequest> FromRequest for IncomingRequest<T> {
                 uri
             };
 
-            let mut builder = http::request::Builder::new()
-                .method(request.method())
-                .uri(uri);
+            let mut builder = http::request::Builder::new().method(request.method()).uri(uri);
 
-            let headers = builder
-                .headers_mut()
-                .ok_or(Error::UnknownHttpRequestBuilder)?;
+            let headers = builder.headers_mut().ok_or(Error::UnknownHttpRequestBuilder)?;
             for (key, value) in request.headers().iter() {
                 headers.append(key, value.to_owned());
             }
@@ -158,10 +146,7 @@ impl<T: matrix_sdk::IncomingRequest> FromRequest for IncomingRequest<T> {
             let access_token = match request.uri().query() {
                 Some(query) => {
                     let query: Vec<(String, String)> = matrix_sdk::urlencoded::from_str(query)?;
-                    query
-                        .into_iter()
-                        .find(|(key, _)| key == "access_token")
-                        .map(|(_, value)| value)
+                    query.into_iter().find(|(key, _)| key == "access_token").map(|(_, value)| value)
                 }
                 None => None,
             };

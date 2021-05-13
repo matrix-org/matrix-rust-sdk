@@ -12,15 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use dashmap::DashMap;
-use matrix_sdk_common::{
-    api::r0::to_device::DeviceIdOrAllDevices,
-    events::room::{
-        encrypted::MegolmV1AesSha2ContentInit, history_visibility::HistoryVisibility,
-        message::Relation,
-    },
-    uuid::Uuid,
-};
 use std::{
     cmp::max,
     collections::BTreeMap,
@@ -31,23 +22,24 @@ use std::{
     },
     time::Duration,
 };
-use tracing::{debug, error, trace};
 
+use dashmap::DashMap;
 use matrix_sdk_common::{
+    api::r0::to_device::DeviceIdOrAllDevices,
     events::{
         room::{
-            encrypted::{EncryptedEventContent, EncryptedEventScheme},
+            encrypted::{EncryptedEventContent, EncryptedEventScheme, MegolmV1AesSha2ContentInit},
             encryption::EncryptionEventContent,
+            history_visibility::HistoryVisibility,
+            message::Relation,
         },
         AnyMessageEventContent, EventContent,
     },
     identifiers::{DeviceId, DeviceIdBox, EventEncryptionAlgorithm, RoomId, UserId},
     instant::Instant,
     locks::Mutex,
+    uuid::Uuid,
 };
-use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
-
 pub use olm_rs::{
     account::IdentityKeys,
     session::{OlmMessage, PreKeyMessage},
@@ -56,13 +48,15 @@ pub use olm_rs::{
 use olm_rs::{
     errors::OlmGroupSessionError, outbound_group_session::OlmOutboundGroupSession, PicklingMode,
 };
-
-use crate::ToDeviceRequest;
+use serde::{Deserialize, Serialize};
+use serde_json::{json, Value};
+use tracing::{debug, error, trace};
 
 use super::{
     super::{deserialize_instant, serialize_instant},
     GroupSessionKey,
 };
+use crate::ToDeviceRequest;
 
 const ROTATION_PERIOD: Duration = Duration::from_millis(604800000);
 const ROTATION_MESSAGES: u64 = 100;
@@ -102,12 +96,10 @@ impl EncryptionSettings {
     /// Create new encryption settings using an `EncryptionEventContent` and a
     /// history visibility.
     pub fn new(content: EncryptionEventContent, history_visibility: HistoryVisibility) -> Self {
-        let rotation_period: Duration = content
-            .rotation_period_ms
-            .map_or(ROTATION_PERIOD, |r| Duration::from_millis(r.into()));
-        let rotation_period_msgs: u64 = content
-            .rotation_period_msgs
-            .map_or(ROTATION_MESSAGES, Into::into);
+        let rotation_period: Duration =
+            content.rotation_period_ms.map_or(ROTATION_PERIOD, |r| Duration::from_millis(r.into()));
+        let rotation_period_msgs: u64 =
+            content.rotation_period_msgs.map_or(ROTATION_MESSAGES, Into::into);
 
         Self {
             algorithm: content.algorithm,
@@ -186,8 +178,7 @@ impl OutboundGroupSession {
         request: Arc<ToDeviceRequest>,
         message_index: u32,
     ) {
-        self.to_share_with_set
-            .insert(request_id, (request, message_index));
+        self.to_share_with_set.insert(request_id, (request, message_index));
     }
 
     /// This should be called if an the user wishes to rotate this session.
@@ -225,10 +216,7 @@ impl OutboundGroupSession {
             });
 
             user_pairs.for_each(|(u, d)| {
-                self.shared_with_set
-                    .entry(u)
-                    .or_insert_with(DashMap::new)
-                    .extend(d);
+                self.shared_with_set.entry(u).or_insert_with(DashMap::new).extend(d);
             });
 
             if self.to_share_with_set.is_empty() {
@@ -241,11 +229,8 @@ impl OutboundGroupSession {
                 self.mark_as_shared();
             }
         } else {
-            let request_ids: Vec<String> = self
-                .to_share_with_set
-                .iter()
-                .map(|e| e.key().to_string())
-                .collect();
+            let request_ids: Vec<String> =
+                self.to_share_with_set.iter().map(|e| e.key().to_string()).collect();
 
             error!(
                 all_request_ids = ?request_ids,
@@ -296,11 +281,7 @@ impl OutboundGroupSession {
 
         let relates_to: Option<Relation> = json_content
             .get("content")
-            .map(|c| {
-                c.get("m.relates_to")
-                    .cloned()
-                    .map(|r| serde_json::from_value(r).ok())
-            })
+            .map(|c| c.get("m.relates_to").cloned().map(|r| serde_json::from_value(r).ok()))
             .flatten()
             .flatten();
 
@@ -443,10 +424,7 @@ impl OutboundGroupSession {
     /// Get the list of requests that need to be sent out for this session to be
     /// marked as shared.
     pub(crate) fn pending_requests(&self) -> Vec<Arc<ToDeviceRequest>> {
-        self.to_share_with_set
-            .iter()
-            .map(|i| i.value().0.clone())
-            .collect()
+        self.to_share_with_set.iter().map(|i| i.value().0.clone()).collect()
     }
 
     /// Get the list of request ids this session is waiting for to be sent out.
@@ -462,10 +440,10 @@ impl OutboundGroupSession {
     /// # Arguments
     ///
     /// * `device_id` - The device id of the device that created this session.
-    ///     Put differently, our own device id.
+    ///   Put differently, our own device id.
     ///
     /// * `identity_keys` - The identity keys of the device that created this
-    ///     session, our own identity keys.
+    ///   session, our own identity keys.
     ///
     /// * `pickle` - The pickled version of the `OutboundGroupSession`.
     ///
@@ -507,7 +485,8 @@ impl OutboundGroupSession {
     ///
     /// # Arguments
     ///
-    /// * `pickle_mode` - The mode that should be used to pickle the group session,
+    /// * `pickle_mode` - The mode that should be used to pickle the group
+    ///   session,
     /// either an unencrypted mode or an encrypted using passphrase.
     pub async fn pickle(&self, pickling_mode: PicklingMode) -> PickledOutboundGroupSession {
         let pickle: OutboundGroupSessionPickle =
@@ -528,10 +507,7 @@ impl OutboundGroupSession {
                     (
                         u.key().clone(),
                         #[allow(clippy::map_clone)]
-                        u.value()
-                            .iter()
-                            .map(|d| (d.key().clone(), *d.value()))
-                            .collect(),
+                        u.value().iter().map(|d| (d.key().clone(), *d.value())).collect(),
                     )
                 })
                 .collect(),
@@ -578,10 +554,7 @@ pub struct PickledOutboundGroupSession {
     /// The room id this session is used for.
     pub room_id: Arc<RoomId>,
     /// The timestamp when this session was created.
-    #[serde(
-        deserialize_with = "deserialize_instant",
-        serialize_with = "serialize_instant"
-    )]
+    #[serde(deserialize_with = "deserialize_instant", serialize_with = "serialize_instant")]
     pub creation_time: Instant,
     /// The number of messages this session has already encrypted.
     pub message_count: u64,

@@ -21,10 +21,9 @@ use chacha20poly1305::{
 use hmac::Hmac;
 use pbkdf2::pbkdf2;
 use rand::{thread_rng, Error as RngError, Fill};
+use serde::{Deserialize, Serialize};
 use sha2::Sha256;
 use zeroize::{Zeroize, Zeroizing};
-
-use serde::{Deserialize, Serialize};
 
 use crate::StoreError;
 
@@ -76,9 +75,11 @@ pub struct EncryptedEvent {
 #[derive(Debug, Serialize, Deserialize, PartialEq)]
 pub enum KdfInfo {
     Pbkdf2ToChaCha20Poly1305 {
-        /// The number of PBKDF rounds that were used when deriving the store key.
+        /// The number of PBKDF rounds that were used when deriving the store
+        /// key.
         rounds: u32,
-        /// The salt that was used when the passphrase was expanded into a store key.
+        /// The salt that was used when the passphrase was expanded into a store
+        /// key.
         kdf_salt: Vec<u8>,
     },
 }
@@ -170,10 +171,7 @@ impl StoreKey {
             cipher.encrypt(Nonce::from_slice(nonce.as_ref()), self.inner.as_slice())?;
 
         Ok(EncryptedStoreKey {
-            kdf_info: KdfInfo::Pbkdf2ToChaCha20Poly1305 {
-                rounds: KDF_ROUNDS,
-                kdf_salt: salt,
-            },
+            kdf_info: KdfInfo::Pbkdf2ToChaCha20Poly1305 { rounds: KDF_ROUNDS, kdf_salt: salt },
             ciphertext_info: CipherTextInfo::ChaCha20Poly1305 { nonce, ciphertext },
         })
     }
@@ -196,11 +194,7 @@ impl StoreKey {
 
         let ciphertext = cipher.encrypt(xnonce, event.as_ref())?;
 
-        Ok(EncryptedEvent {
-            version: VERSION,
-            ciphertext,
-            nonce,
-        })
+        Ok(EncryptedEvent { version: VERSION, ciphertext, nonce })
     }
 
     pub fn decrypt<T: for<'b> Deserialize<'b>>(&self, event: EncryptedEvent) -> Result<T, Error> {
@@ -248,8 +242,9 @@ impl StoreKey {
 
 #[cfg(test)]
 mod test {
-    use super::StoreKey;
     use serde_json::{json, Value};
+
+    use super::StoreKey;
 
     #[test]
     fn generating() {

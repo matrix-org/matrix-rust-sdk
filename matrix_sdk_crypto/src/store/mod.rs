@@ -43,11 +43,6 @@ mod pickle_key;
 #[cfg(feature = "sled_cryptostore")]
 pub(crate) mod sled;
 
-#[cfg(feature = "sled_cryptostore")]
-pub use self::sled::SledStore;
-pub use memorystore::MemoryStore;
-pub use pickle_key::{EncryptedPickleKey, PickleKey};
-
 use std::{
     collections::{HashMap, HashSet},
     fmt::Debug,
@@ -55,10 +50,6 @@ use std::{
     ops::Deref,
     sync::Arc,
 };
-
-use olm_rs::errors::{OlmAccountError, OlmGroupSessionError, OlmSessionError};
-use serde_json::Error as SerdeError;
-use thiserror::Error;
 
 use matrix_sdk_common::{
     async_trait,
@@ -71,7 +62,14 @@ use matrix_sdk_common::{
     uuid::Uuid,
     AsyncTraitDeps,
 };
+pub use memorystore::MemoryStore;
+use olm_rs::errors::{OlmAccountError, OlmGroupSessionError, OlmSessionError};
+pub use pickle_key::{EncryptedPickleKey, PickleKey};
+use serde_json::Error as SerdeError;
+use thiserror::Error;
 
+#[cfg(feature = "sled_cryptostore")]
+pub use self::sled::SledStore;
 use crate::{
     error::SessionUnpicklingError,
     identities::{Device, ReadOnlyDevice, UserDevices, UserIdentities},
@@ -145,12 +143,7 @@ impl Store {
         store: Arc<Box<dyn CryptoStore>>,
         verification_machine: VerificationMachine,
     ) -> Self {
-        Self {
-            user_id,
-            identity,
-            inner: store,
-            verification_machine,
-        }
+        Self { user_id, identity, inner: store, verification_machine }
     }
 
     pub async fn get_readonly_device(
@@ -162,10 +155,7 @@ impl Store {
     }
 
     pub async fn save_sessions(&self, sessions: &[Session]) -> Result<()> {
-        let changes = Changes {
-            sessions: sessions.to_vec(),
-            ..Default::default()
-        };
+        let changes = Changes { sessions: sessions.to_vec(), ..Default::default() };
 
         self.save_changes(changes).await
     }
@@ -173,10 +163,7 @@ impl Store {
     #[cfg(test)]
     pub async fn save_devices(&self, devices: &[ReadOnlyDevice]) -> Result<()> {
         let changes = Changes {
-            devices: DeviceChanges {
-                changed: devices.to_vec(),
-                ..Default::default()
-            },
+            devices: DeviceChanges { changed: devices.to_vec(), ..Default::default() },
             ..Default::default()
         };
 
@@ -188,10 +175,7 @@ impl Store {
         &self,
         sessions: &[InboundGroupSession],
     ) -> Result<()> {
-        let changes = Changes {
-            inbound_group_sessions: sessions.to_vec(),
-            ..Default::default()
-        };
+        let changes = Changes { inbound_group_sessions: sessions.to_vec(), ..Default::default() };
 
         self.save_changes(changes).await
     }
@@ -210,8 +194,7 @@ impl Store {
     ) -> Result<Option<Device>> {
         self.get_user_devices(user_id).await.map(|d| {
             d.devices().find(|d| {
-                d.get_key(DeviceKeyAlgorithm::Curve25519)
-                    .map_or(false, |k| k == curve_key)
+                d.get_key(DeviceKeyAlgorithm::Curve25519).map_or(false, |k| k == curve_key)
             })
         })
     }
@@ -219,12 +202,8 @@ impl Store {
     pub async fn get_user_devices(&self, user_id: &UserId) -> Result<UserDevices> {
         let devices = self.inner.get_user_devices(user_id).await?;
 
-        let own_identity = self
-            .inner
-            .get_user_identity(&self.user_id)
-            .await?
-            .map(|i| i.own().cloned())
-            .flatten();
+        let own_identity =
+            self.inner.get_user_identity(&self.user_id).await?.map(|i| i.own().cloned()).flatten();
         let device_owner_identity = self.inner.get_user_identity(user_id).await.ok().flatten();
 
         Ok(UserDevices {
@@ -241,24 +220,17 @@ impl Store {
         user_id: &UserId,
         device_id: &DeviceId,
     ) -> Result<Option<Device>> {
-        let own_identity = self
-            .get_user_identity(&self.user_id)
-            .await?
-            .map(|i| i.own().cloned())
-            .flatten();
+        let own_identity =
+            self.get_user_identity(&self.user_id).await?.map(|i| i.own().cloned()).flatten();
         let device_owner_identity = self.get_user_identity(user_id).await?;
 
-        Ok(self
-            .inner
-            .get_device(user_id, device_id)
-            .await?
-            .map(|d| Device {
-                inner: d,
-                private_identity: self.identity.clone(),
-                verification_machine: self.verification_machine.clone(),
-                own_identity,
-                device_owner_identity,
-            }))
+        Ok(self.inner.get_device(user_id, device_id).await?.map(|d| Device {
+            inner: d,
+            private_identity: self.identity.clone(),
+            verification_machine: self.verification_machine.clone(),
+            own_identity,
+            device_owner_identity,
+        }))
     }
 }
 
@@ -366,7 +338,8 @@ pub trait CryptoStore: AsyncTraitDeps {
     /// Get all the inbound group sessions we have stored.
     async fn get_inbound_group_sessions(&self) -> Result<Vec<InboundGroupSession>>;
 
-    /// Get the outobund group sessions we have stored that is used for the given room.
+    /// Get the outobund group sessions we have stored that is used for the
+    /// given room.
     async fn get_outbound_group_sessions(
         &self,
         room_id: &RoomId,

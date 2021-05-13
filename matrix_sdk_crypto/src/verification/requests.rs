@@ -35,16 +35,15 @@ use matrix_sdk_common::{
     uuid::Uuid,
 };
 
+use super::{
+    sas::{content_to_request, OutgoingContent, StartContent},
+    FlowId,
+};
 use crate::{
     olm::{PrivateCrossSigningIdentity, ReadOnlyAccount},
     store::CryptoStore,
     OutgoingVerificationRequest, ReadOnlyDevice, RoomMessageRequest, Sas, ToDeviceRequest,
     UserIdentities,
-};
-
-use super::{
-    sas::{content_to_request, OutgoingContent, StartContent},
-    FlowId,
 };
 
 const SUPPORTED_METHODS: &[VerificationMethod] = &[VerificationMethod::MSasV1];
@@ -256,15 +255,13 @@ impl VerificationRequest {
         content: RequestContent,
     ) -> Self {
         Self {
-            inner: Arc::new(Mutex::new(InnerRequest::Requested(
-                RequestState::from_request_event(
-                    account.user_id(),
-                    account.device_id(),
-                    sender,
-                    &flow_id,
-                    content,
-                ),
-            ))),
+            inner: Arc::new(Mutex::new(InnerRequest::Requested(RequestState::from_request_event(
+                account.user_id(),
+                account.device_id(),
+                sender,
+                &flow_id,
+                content,
+            )))),
             account,
             other_user_id: sender.clone().into(),
             private_cross_signing_identity,
@@ -278,15 +275,12 @@ impl VerificationRequest {
         let mut inner = self.inner.lock().unwrap();
 
         inner.accept().map(|c| match c {
-            OutgoingContent::ToDevice(content) => self
-                .content_to_request(inner.other_device_id(), content)
-                .into(),
-            OutgoingContent::Room(room_id, content) => RoomMessageRequest {
-                room_id,
-                txn_id: Uuid::new_v4(),
-                content,
+            OutgoingContent::ToDevice(content) => {
+                self.content_to_request(inner.other_device_id(), content).into()
             }
-            .into(),
+            OutgoingContent::Room(room_id, content) => {
+                RoomMessageRequest { room_id, txn_id: Uuid::new_v4(), content }.into()
+            }
         })
     }
 
@@ -445,10 +439,7 @@ impl RequestState<Created> {
             own_user_id: own_user_id.to_owned(),
             own_device_id: own_device_id.to_owned(),
             other_user_id: other_user_id.to_owned(),
-            state: Created {
-                methods: SUPPORTED_METHODS.to_vec(),
-                flow_id: flow_id.to_owned(),
-            },
+            state: Created { methods: SUPPORTED_METHODS.to_vec(), flow_id: flow_id.to_owned() },
         }
     }
 
@@ -589,14 +580,9 @@ impl RequestState<Ready> {
         other_identity: Option<UserIdentities>,
     ) -> (Sas, StartContent) {
         match self.state.flow_id {
-            FlowId::ToDevice(t) => Sas::start(
-                account,
-                private_identity,
-                other_device,
-                store,
-                other_identity,
-                Some(t),
-            ),
+            FlowId::ToDevice(t) => {
+                Sas::start(account, private_identity, other_device, store, other_identity, Some(t))
+            }
             FlowId::InRoom(r, e) => Sas::start_in_room(
                 e,
                 r,
@@ -630,6 +616,7 @@ mod test {
     };
     use matrix_sdk_test::async_test;
 
+    use super::VerificationRequest;
     use crate::{
         olm::{PrivateCrossSigningIdentity, ReadOnlyAccount},
         store::{CryptoStore, MemoryStore},
@@ -639,8 +626,6 @@ mod test {
         },
         ReadOnlyDevice,
     };
-
-    use super::VerificationRequest;
 
     fn alice_id() -> UserId {
         UserId::try_from("@alice:example.org").unwrap()
@@ -760,9 +745,7 @@ mod test {
             panic!("Invalid start event content type");
         };
 
-        let alice_sas = alice_request
-            .into_started_sas(&event, bob_device, None)
-            .unwrap();
+        let alice_sas = alice_request.into_started_sas(&event, bob_device, None).unwrap();
 
         assert!(!bob_sas.is_canceled());
         assert!(!alice_sas.is_canceled());

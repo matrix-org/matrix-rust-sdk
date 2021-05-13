@@ -1,6 +1,7 @@
 use proc_macro::TokenStream;
 
-/// Attribute to use `wasm_bindgen_test` for wasm32 targets and `tokio::test` for everything else
+/// Attribute to use `wasm_bindgen_test` for wasm32 targets and `tokio::test`
+/// for everything else
 #[proc_macro_attribute]
 pub fn async_test(_attr: TokenStream, item: TokenStream) -> TokenStream {
     let attrs = r#"
