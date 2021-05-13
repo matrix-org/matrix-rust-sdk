@@ -781,6 +781,29 @@ impl OlmMachine {
         self.account.update_uploaded_key_count(key_count).await;
     }
 
+    async fn handle_to_device_evnet(&self, event: &AnyToDeviceEvent) {
+        match event {
+            AnyToDeviceEvent::RoomKeyRequest(e) => {
+                self.key_request_machine.receive_incoming_key_request(&e)
+            }
+            AnyToDeviceEvent::KeyVerificationAccept(..)
+            | AnyToDeviceEvent::KeyVerificationCancel(..)
+            | AnyToDeviceEvent::KeyVerificationKey(..)
+            | AnyToDeviceEvent::KeyVerificationMac(..)
+            | AnyToDeviceEvent::KeyVerificationRequest(..)
+            | AnyToDeviceEvent::KeyVerificationReady(..)
+            | AnyToDeviceEvent::KeyVerificationDone(..)
+            | AnyToDeviceEvent::KeyVerificationStart(..) => {
+                self.handle_verification_event(&event).await;
+            }
+            AnyToDeviceEvent::Dummy(_) => {}
+            AnyToDeviceEvent::RoomKey(_) => {}
+            AnyToDeviceEvent::ForwardedRoomKey(_) => {}
+            AnyToDeviceEvent::RoomEncrypted(_) => {}
+            AnyToDeviceEvent::Custom(_) => {}
+        }
+    }
+
     /// Handle a to-device and one-time key counts from a sync response.
     ///
     /// This will decrypt and handle to-device events returning the decrypted
@@ -885,20 +908,13 @@ impl OlmMachine {
                         changes.inbound_group_sessions.push(group_session);
                     }
 
+                    if let Some(event) = decrypted.deserialized_event {
+                        self.handle_to_device_evnet(&event).await;
+                    }
+
                     raw_event = decrypted.event;
                 }
-                AnyToDeviceEvent::RoomKeyRequest(e) => {
-                    self.key_request_machine.receive_incoming_key_request(&e)
-                }
-                AnyToDeviceEvent::KeyVerificationAccept(..)
-                | AnyToDeviceEvent::KeyVerificationCancel(..)
-                | AnyToDeviceEvent::KeyVerificationKey(..)
-                | AnyToDeviceEvent::KeyVerificationMac(..)
-                | AnyToDeviceEvent::KeyVerificationRequest(..)
-                | AnyToDeviceEvent::KeyVerificationStart(..) => {
-                    self.handle_verification_event(&event).await;
-                }
-                _ => continue,
+                e => self.handle_to_device_evnet(&e).await,
             }
 
             events.push(raw_event);
