@@ -436,12 +436,13 @@ struct Passive {
 
 #[cfg(test)]
 mod test {
-    use std::{convert::TryFrom, time::SystemTime};
+    use std::convert::TryFrom;
 
     use matrix_sdk_common::{
         api::r0::message::send_message_event::Response as RoomMessageResponse,
         events::{SyncMessageEvent, Unsigned},
         identifiers::{event_id, room_id, DeviceIdBox, UserId},
+        MilliSecondsSinceUnixEpoch,
     };
     use matrix_sdk_test::async_test;
 
@@ -566,7 +567,7 @@ mod test {
                 content: c,
                 event_id: event_id.clone(),
                 sender: bob_id(),
-                origin_server_ts: SystemTime::now(),
+                origin_server_ts: MilliSecondsSinceUnixEpoch::now(),
                 unsigned: Unsigned::default(),
             }
         } else {

@@ -1204,7 +1204,6 @@ pub(crate) mod test {
         collections::BTreeMap,
         convert::{TryFrom, TryInto},
         sync::Arc,
-        time::SystemTime,
     };
 
     use http::Response;
@@ -1221,7 +1220,7 @@ pub(crate) mod test {
         identifiers::{
             event_id, room_id, user_id, DeviceId, DeviceKeyAlgorithm, DeviceKeyId, UserId,
         },
-        IncomingResponse, Raw,
+        IncomingResponse, MilliSecondsSinceUnixEpoch, Raw,
     };
     use matrix_sdk_test::test_json;
     use serde_json::json;
@@ -1668,7 +1667,7 @@ pub(crate) mod test {
 
         let event = SyncMessageEvent {
             event_id: event_id!("$xxxxx:example.org"),
-            origin_server_ts: SystemTime::now(),
+            origin_server_ts: MilliSecondsSinceUnixEpoch::now(),
             sender: alice.user_id().clone(),
             content: encrypted_content,
             unsigned: Unsigned::default(),

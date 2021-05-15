@@ -15,7 +15,7 @@ pub use ruma::{
     },
     assign, directory, encryption, events, identifiers, int, presence, push, receipt,
     serde::{CanonicalJsonValue, Raw},
-    thirdparty, uint, Int, Outgoing, UInt,
+    thirdparty, uint, Int, MilliSecondsSinceUnixEpoch, Outgoing, SecondsSinceUnixEpoch, UInt,
 };
 pub use uuid;
 

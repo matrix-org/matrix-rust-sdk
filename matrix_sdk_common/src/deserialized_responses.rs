@@ -1,4 +1,4 @@
-use std::{collections::BTreeMap, convert::TryFrom, time::SystemTime};
+use std::{collections::BTreeMap, convert::TryFrom};
 
 use ruma::{
     api::client::r0::sync::sync_events::{
@@ -22,6 +22,7 @@ use super::{
         SyncStateEvent, Unsigned,
     },
     identifiers::{DeviceKeyAlgorithm, EventId, RoomId, UserId},
+    MilliSecondsSinceUnixEpoch,
 };
 
 /// A change in ambiguity of room members that an `m.room.member` event
@@ -249,7 +250,7 @@ impl Timeline {
 pub struct MemberEvent {
     pub content: MemberEventContent,
     pub event_id: EventId,
-    pub origin_server_ts: SystemTime,
+    pub origin_server_ts: MilliSecondsSinceUnixEpoch,
     pub prev_content: Option<MemberEventContent>,
     pub sender: UserId,
     pub state_key: UserId,

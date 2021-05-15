@@ -12,12 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{
-    collections::BTreeMap,
-    convert::{TryFrom, TryInto},
-    fmt, mem,
-    sync::Arc,
-};
+use std::{collections::BTreeMap, convert::TryFrom, fmt, mem, sync::Arc};
 
 use matrix_sdk_common::{
     events::{
@@ -310,13 +305,7 @@ impl InboundGroupSession {
         let mut decrypted_value = serde_json::from_str::<Value>(&plaintext)?;
         let decrypted_object = decrypted_value.as_object_mut().ok_or(EventError::NotAnObject)?;
 
-        // TODO better number conversion here.
-        let server_ts = event
-            .origin_server_ts
-            .duration_since(std::time::SystemTime::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_millis();
-        let server_ts: i64 = server_ts.try_into().unwrap_or_default();
+        let server_ts: i64 = event.origin_server_ts.0.into();
 
         decrypted_object.insert("sender".to_owned(), event.sender.to_string().into());
         decrypted_object.insert("event_id".to_owned(), event.event_id.to_string().into());

@@ -681,7 +681,7 @@ impl StateStore for SledStore {
 
 #[cfg(test)]
 mod test {
-    use std::{convert::TryFrom, time::SystemTime};
+    use std::convert::TryFrom;
 
     use matrix_sdk_common::{
         events::{
@@ -692,7 +692,7 @@ mod test {
             AnySyncStateEvent, EventType, Unsigned,
         },
         identifiers::{room_id, user_id, EventId, UserId},
-        Raw,
+        MilliSecondsSinceUnixEpoch, Raw,
     };
     use matrix_sdk_test::async_test;
     use serde_json::json;
@@ -733,7 +733,7 @@ mod test {
             event_id: EventId::try_from("$h29iv0s8:example.com").unwrap(),
             content,
             sender: user_id(),
-            origin_server_ts: SystemTime::now(),
+            origin_server_ts: MilliSecondsSinceUnixEpoch::now(),
             state_key: user_id(),
             prev_content: None,
             unsigned: Unsigned::default(),

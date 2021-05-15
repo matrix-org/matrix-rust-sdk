@@ -20,7 +20,6 @@ use std::{
     path::{Path, PathBuf},
     result::Result as StdResult,
     sync::Arc,
-    time::SystemTime,
 };
 
 #[cfg(feature = "encryption")]
@@ -49,7 +48,7 @@ use matrix_sdk_common::{
     instant::Instant,
     locks::RwLock,
     push::{Action, PushConditionRoomCtx, Ruleset},
-    Raw, UInt,
+    MilliSecondsSinceUnixEpoch, Raw, UInt,
 };
 #[cfg(feature = "encryption")]
 use matrix_sdk_crypto::{
@@ -100,8 +99,7 @@ pub struct AdditionalUnsignedData {
 pub fn hoist_and_deserialize_state_event(
     event: &Raw<AnySyncStateEvent>,
 ) -> StdResult<AnySyncStateEvent, serde_json::Error> {
-    let prev_content =
-        serde_json::from_str::<AdditionalEventData>(event.json().get())?.unsigned.prev_content;
+    let prev_content = event.deserialize_as::<AdditionalEventData>()?.unsigned.prev_content;
 
     let mut ev = event.deserialize()?;
 
@@ -117,8 +115,7 @@ pub fn hoist_and_deserialize_state_event(
 fn hoist_member_event(
     event: &Raw<StateEvent<MemberEventContent>>,
 ) -> StdResult<StateEvent<MemberEventContent>, serde_json::Error> {
-    let prev_content =
-        serde_json::from_str::<AdditionalEventData>(event.json().get())?.unsigned.prev_content;
+    let prev_content = event.deserialize_as::<AdditionalEventData>()?.unsigned.prev_content;
 
     let mut e = event.deserialize()?;
 
@@ -132,7 +129,8 @@ fn hoist_member_event(
 fn hoist_room_event_prev_content(
     event: &Raw<AnySyncRoomEvent>,
 ) -> StdResult<AnySyncRoomEvent, serde_json::Error> {
-    let prev_content = serde_json::from_str::<AdditionalEventData>(event.json().get())
+    let prev_content = event
+        .deserialize_as::<AdditionalEventData>()
         .map(|more_unsigned| more_unsigned.unsigned)
         .map(|additional| additional.prev_content)?
         .and_then(|p| p.deserialize().ok());
@@ -515,7 +513,7 @@ impl BaseClient {
                                     event.event.clone(),
                                     false,
                                     room_id.clone(),
-                                    SystemTime::now(),
+                                    MilliSecondsSinceUnixEpoch::now(),
                                 ),
                             );
                         }
