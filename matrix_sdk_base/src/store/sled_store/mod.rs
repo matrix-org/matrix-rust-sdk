@@ -19,7 +19,7 @@ use std::{
     convert::TryFrom,
     path::{Path, PathBuf},
     sync::Arc,
-    time::SystemTime,
+    time::Instant,
 };
 
 use futures::{
@@ -286,7 +286,7 @@ impl SledStore {
     }
 
     pub async fn save_changes(&self, changes: &StateChanges) -> Result<()> {
-        let now = SystemTime::now();
+        let now = Instant::now();
 
         let ret: Result<(), TransactionError<SerializationError>> = (
             &self.session,
