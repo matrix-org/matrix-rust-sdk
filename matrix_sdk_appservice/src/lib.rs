@@ -14,8 +14,9 @@
 
 //! Matrix [Application Service] library
 //!
-//! The appservice crate aims to provide a batteries-included experience. That
-//! means that we
+//! The appservice crate aims to provide a batteries-included experience by
+//! being a thin wrapper around the [`matrix_sdk`]. That means that we
+//!
 //! * ship with functionality to configure your webserver crate or simply run
 //!   the webserver for you
 //! * receive and validate requests from the homeserver correctly
