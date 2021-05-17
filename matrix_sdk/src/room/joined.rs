@@ -4,8 +4,6 @@ use std::{io::Read, ops::Deref};
 
 #[cfg(feature = "encryption")]
 use matrix_sdk_base::crypto::AttachmentEncryptor;
-#[cfg(feature = "encryption")]
-use matrix_sdk_common::locks::Mutex;
 use matrix_sdk_common::{
     api::r0::{
         membership::{
@@ -36,6 +34,8 @@ use matrix_sdk_common::{
     receipt::ReceiptType,
     uuid::Uuid,
 };
+#[cfg(feature = "encryption")]
+use matrix_sdk_common::{events::room::EncryptedFileInit, locks::Mutex};
 use mime::{self, Mime};
 #[cfg(feature = "encryption")]
 use tracing::instrument;
@@ -462,15 +462,18 @@ impl Joined {
             let response = self.client.upload(&content_type, &mut reader).await?;
 
             #[cfg(feature = "encryption")]
-            let keys = {
+            let keys: Option<Box<EncryptedFile>> = {
                 let keys = reader.finish();
-                Some(Box::new(EncryptedFile {
-                    url: response.content_uri.clone(),
-                    key: keys.web_key,
-                    iv: keys.iv,
-                    hashes: keys.hashes,
-                    v: keys.version,
-                }))
+                Some(Box::new(
+                    EncryptedFileInit {
+                        url: response.content_uri.clone(),
+                        key: keys.web_key,
+                        iv: keys.iv,
+                        hashes: keys.hashes,
+                        v: keys.version,
+                    }
+                    .into(),
+                ))
             };
             #[cfg(not(feature = "encryption"))]
             let keys: Option<Box<EncryptedFile>> = None;
@@ -486,32 +489,23 @@ impl Joined {
         let content = match content_type.type_() {
             mime::IMAGE => {
                 // TODO create a thumbnail using the image crate?.
-                MessageType::Image(ImageMessageEventContent {
-                    body: body.to_owned(),
-                    info: None,
-                    url: Some(url),
-                    file: encrypted_file,
-                })
+                MessageType::Image(assign!(
+                    ImageMessageEventContent::plain(body.to_owned(), url, None),
+                    { file: encrypted_file }
+                ))
             }
-            mime::AUDIO => MessageType::Audio(AudioMessageEventContent {
-                body: body.to_owned(),
-                info: None,
-                url: Some(url),
-                file: encrypted_file,
-            }),
-            mime::VIDEO => MessageType::Video(VideoMessageEventContent {
-                body: body.to_owned(),
-                info: None,
-                url: Some(url),
-                file: encrypted_file,
-            }),
-            _ => MessageType::File(FileMessageEventContent {
-                filename: None,
-                body: body.to_owned(),
-                info: None,
-                url: Some(url),
-                file: encrypted_file,
-            }),
+            mime::AUDIO => MessageType::Audio(assign!(
+                AudioMessageEventContent::plain(body.to_owned(), url, None),
+                { file: encrypted_file }
+            )),
+            mime::VIDEO => MessageType::Video(assign!(
+                VideoMessageEventContent::plain(body.to_owned(), url, None),
+                { file: encrypted_file }
+            )),
+            _ => MessageType::File(assign!(
+                FileMessageEventContent::plain(body.to_owned(), url, None),
+                { file: encrypted_file }
+            )),
         };
 
         self.send(AnyMessageEventContent::RoomMessage(MessageEventContent::new(content)), txn_id)
@@ -540,6 +534,7 @@ impl Joined {
     ///         room::member::{MemberEventContent, MembershipState},
     ///     },
     ///     identifiers::mxc_uri,
+    ///     assign,
     /// };
     /// # futures::executor::block_on(async {
     /// # let homeserver = url::Url::parse("http://localhost:8080").unwrap();
@@ -547,13 +542,9 @@ impl Joined {
     /// # let room_id = matrix_sdk::identifiers::room_id!("!test:localhost");
     ///
     /// let avatar_url = mxc_uri!("mxc://example.org/avatar");
-    /// let member_event = MemberEventContent {
+    /// let member_event = assign!(MemberEventContent::new(MembershipState::Join), {
     ///    avatar_url: Some(avatar_url),
-    ///    membership: MembershipState::Join,
-    ///    is_direct: None,
-    ///    displayname: None,
-    ///    third_party_invite: None,
-    /// };
+    /// });
     /// # let room = client
     /// #    .get_joined_room(&room_id)
     /// #    .unwrap();

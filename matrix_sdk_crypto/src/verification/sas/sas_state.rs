@@ -23,13 +23,13 @@ use matrix_sdk_common::{
     events::key::verification::{
         accept::{
             AcceptEventContent, AcceptMethod, AcceptToDeviceEventContent,
-            MSasV1Content as AcceptV1Content, MSasV1ContentInit as AcceptV1ContentInit,
+            SasV1Content as AcceptV1Content, SasV1ContentInit as AcceptV1ContentInit,
         },
         cancel::{CancelCode, CancelEventContent, CancelToDeviceEventContent},
         done::DoneEventContent,
         key::{KeyEventContent, KeyToDeviceEventContent},
         start::{
-            MSasV1Content, MSasV1ContentInit, StartEventContent, StartMethod,
+            SasV1Content, SasV1ContentInit, StartEventContent, StartMethod,
             StartToDeviceEventContent,
         },
         HashAlgorithm, KeyAgreementProtocol, MessageAuthenticationCode, Relation,
@@ -187,14 +187,14 @@ impl<S: Clone + std::fmt::Debug> std::fmt::Debug for SasState<S> {
 /// The initial SAS state.
 #[derive(Clone, Debug)]
 pub struct Created {
-    protocol_definitions: MSasV1ContentInit,
+    protocol_definitions: SasV1ContentInit,
 }
 
 /// The initial SAS state if the other side started the SAS verification.
 #[derive(Clone, Debug)]
 pub struct Started {
     commitment: String,
-    protocol_definitions: MSasV1Content,
+    protocol_definitions: SasV1Content,
 }
 
 /// The SAS state we're going to be in after the other side accepted our
@@ -375,7 +375,7 @@ impl SasState<Created> {
             last_event_time: Arc::new(Instant::now()),
 
             state: Arc::new(Created {
-                protocol_definitions: MSasV1ContentInit {
+                protocol_definitions: SasV1ContentInit {
                     short_authentication_string: STRINGS.to_vec(),
                     key_agreement_protocols: KEY_AGREEMENT_PROTOCOLS.to_vec(),
                     message_authentication_codes: MACS.to_vec(),
@@ -387,24 +387,24 @@ impl SasState<Created> {
 
     pub fn as_content(&self) -> StartContent {
         match self.verification_flow_id.as_ref() {
-            FlowId::ToDevice(s) => StartContent::ToDevice(StartToDeviceEventContent {
-                transaction_id: s.to_string(),
-                from_device: self.device_id().into(),
-                method: StartMethod::MSasV1(
-                    MSasV1Content::new(self.state.protocol_definitions.clone())
+            FlowId::ToDevice(s) => StartContent::ToDevice(StartToDeviceEventContent::new(
+                self.device_id().into(),
+                s.to_string(),
+                StartMethod::SasV1(
+                    SasV1Content::new(self.state.protocol_definitions.clone())
                         .expect("Invalid initial protocol definitions."),
                 ),
-            }),
+            )),
             FlowId::InRoom(r, e) => StartContent::Room(
                 r.clone(),
-                StartEventContent {
-                    from_device: self.device_id().into(),
-                    method: StartMethod::MSasV1(
-                        MSasV1Content::new(self.state.protocol_definitions.clone())
+                StartEventContent::new(
+                    self.device_id().into(),
+                    StartMethod::SasV1(
+                        SasV1Content::new(self.state.protocol_definitions.clone())
                             .expect("Invalid initial protocol definitions."),
                     ),
-                    relation: Relation { event_id: e.clone() },
-                },
+                    Relation::new(e.clone()),
+                ),
             ),
         }
     }
@@ -478,7 +478,7 @@ impl SasState<Started> {
         other_identity: Option<UserIdentities>,
         content: &StartContent,
     ) -> Result<SasState<Started>, SasState<Canceled>> {
-        if let StartMethod::MSasV1(method_content) = content.method() {
+        if let StartMethod::SasV1(method_content) = content.method() {
             let sas = OlmSas::new();
 
             let pubkey = sas.public_key();
@@ -564,14 +564,10 @@ impl SasState<Started> {
         );
 
         match self.verification_flow_id.as_ref() {
-            FlowId::ToDevice(s) => {
-                AcceptToDeviceEventContent { transaction_id: s.to_string(), method }.into()
+            FlowId::ToDevice(s) => AcceptToDeviceEventContent::new(s.to_string(), method).into(),
+            FlowId::InRoom(r, e) => {
+                (r.clone(), AcceptEventContent::new(method, Relation::new(e.clone()))).into()
             }
-            FlowId::InRoom(r, e) => (
-                r.clone(),
-                AcceptEventContent { method, relation: Relation { event_id: e.clone() } },
-            )
-                .into(),
         }
     }
 
@@ -678,10 +674,10 @@ impl SasState<Accepted> {
             .into(),
             FlowId::InRoom(r, e) => (
                 r.clone(),
-                KeyEventContent {
-                    key: self.inner.lock().unwrap().public_key(),
-                    relation: Relation { event_id: e.clone() },
-                },
+                KeyEventContent::new(
+                    self.inner.lock().unwrap().public_key(),
+                    Relation::new(e.clone()),
+                ),
             )
                 .into(),
         }
@@ -702,10 +698,10 @@ impl SasState<KeyReceived> {
             .into(),
             FlowId::InRoom(r, e) => (
                 r.clone(),
-                KeyEventContent {
-                    key: self.inner.lock().unwrap().public_key(),
-                    relation: Relation { event_id: e.clone() },
-                },
+                KeyEventContent::new(
+                    self.inner.lock().unwrap().public_key(),
+                    Relation::new(e.clone()),
+                ),
             )
                 .into(),
         }
@@ -1000,7 +996,7 @@ impl SasState<WaitingForDone> {
                 unreachable!("The done content isn't supported yet for to-device verifications")
             }
             FlowId::InRoom(r, e) => {
-                (r.clone(), DoneEventContent { relation: Relation { event_id: e.clone() } }).into()
+                (r.clone(), DoneEventContent::new(Relation::new(e.clone()))).into()
             }
         }
     }
@@ -1052,7 +1048,7 @@ impl SasState<Done> {
                 unreachable!("The done content isn't supported yet for to-device verifications")
             }
             FlowId::InRoom(r, e) => {
-                (r.clone(), DoneEventContent { relation: Relation { event_id: e.clone() } }).into()
+                (r.clone(), DoneEventContent::new(Relation::new(e.clone()))).into()
             }
         }
     }
@@ -1096,20 +1092,20 @@ impl Canceled {
 impl SasState<Canceled> {
     pub fn as_content(&self) -> CancelContent {
         match self.verification_flow_id.as_ref() {
-            FlowId::ToDevice(s) => CancelToDeviceEventContent {
-                transaction_id: s.clone(),
-                reason: self.state.reason.to_string(),
-                code: self.state.cancel_code.clone(),
-            }
+            FlowId::ToDevice(s) => CancelToDeviceEventContent::new(
+                s.clone(),
+                self.state.reason.to_string(),
+                self.state.cancel_code.clone(),
+            )
             .into(),
 
             FlowId::InRoom(r, e) => (
                 r.clone(),
-                CancelEventContent {
-                    reason: self.state.reason.to_string(),
-                    code: self.state.cancel_code.clone(),
-                    relation: Relation { event_id: e.clone() },
-                },
+                CancelEventContent::new(
+                    self.state.reason.to_string(),
+                    self.state.cancel_code.clone(),
+                    Relation::new(e.clone()),
+                ),
             )
                 .into(),
         }
@@ -1336,7 +1332,7 @@ mod test {
         };
 
         match method {
-            StartMethod::MSasV1(ref mut c) => {
+            StartMethod::SasV1(ref mut c) => {
                 c.message_authentication_codes = vec![];
             }
             _ => panic!("Unknown SAS start method"),

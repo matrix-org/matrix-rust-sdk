@@ -265,17 +265,17 @@ impl RequestState<Created> {
     }
 
     fn as_content(&self) -> KeyVerificationRequestEventContent {
-        KeyVerificationRequestEventContent {
-            body: format!(
+        KeyVerificationRequestEventContent::new(
+            format!(
                 "{} is requesting to verify your key, but your client does not \
                 support in-chat key verification. You will need to use legacy \
                 key verification to verify keys.",
                 self.own_user_id
             ),
-            methods: SUPPORTED_METHODS.to_vec(),
-            from_device: self.own_device_id.clone(),
-            to: self.other_user_id.clone(),
-        }
+            SUPPORTED_METHODS.to_vec(),
+            self.own_device_id.clone(),
+            self.other_user_id.clone(),
+        )
     }
 
     fn into_sent(self, response: &RoomMessageResponse) -> RequestState<Sent> {
@@ -360,11 +360,11 @@ impl RequestState<Requested> {
             },
         };
 
-        let content = ReadyEventContent {
-            from_device: self.own_device_id,
-            methods: self.state.methods,
-            relation: Relation { event_id: self.state.flow_id },
-        };
+        let content = ReadyEventContent::new(
+            self.own_device_id,
+            self.state.methods,
+            Relation::new(self.state.flow_id),
+        );
 
         (state, content)
     }

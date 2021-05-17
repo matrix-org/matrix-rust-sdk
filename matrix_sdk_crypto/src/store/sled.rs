@@ -1205,12 +1205,12 @@ mod test {
         let (account, store, _dir) = get_loaded_store().await;
 
         let id = Uuid::new_v4();
-        let info = RequestedKeyInfo {
-            algorithm: EventEncryptionAlgorithm::MegolmV1AesSha2,
-            room_id: room_id!("!test:localhost"),
-            sender_key: "test_sender_key".to_string(),
-            session_id: "test_session_id".to_string(),
-        };
+        let info = RequestedKeyInfo::new(
+            EventEncryptionAlgorithm::MegolmV1AesSha2,
+            room_id!("!test:localhost"),
+            "test_sender_key".to_string(),
+            "test_session_id".to_string(),
+        );
 
         let request = OutgoingKeyRequest {
             request_recipient: account.user_id().to_owned(),

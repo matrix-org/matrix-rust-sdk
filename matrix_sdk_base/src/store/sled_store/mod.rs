@@ -721,17 +721,9 @@ mod test {
     }
 
     fn membership_event() -> MemberEvent {
-        let content = MemberEventContent {
-            avatar_url: None,
-            displayname: None,
-            is_direct: None,
-            third_party_invite: None,
-            membership: MembershipState::Join,
-        };
-
         MemberEvent {
             event_id: EventId::try_from("$h29iv0s8:example.com").unwrap(),
-            content,
+            content: MemberEventContent::new(MembershipState::Join),
             sender: user_id(),
             origin_server_ts: MilliSecondsSinceUnixEpoch::now(),
             state_key: user_id(),
