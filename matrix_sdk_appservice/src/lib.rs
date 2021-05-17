@@ -102,8 +102,6 @@ use matrix_sdk::{
     ServerError, Session,
 };
 use regex::Regex;
-#[cfg(not(feature = "actix"))]
-use tracing::error;
 use tracing::warn;
 
 #[cfg(feature = "actix")]
