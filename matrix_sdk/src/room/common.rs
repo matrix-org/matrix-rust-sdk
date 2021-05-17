@@ -245,7 +245,7 @@ impl Common {
     pub async fn joined_members_no_sync(&self) -> Result<Vec<RoomMember>> {
         Ok(self
             .inner
-            .members()
+            .joined_members()
             .await?
             .into_iter()
             .map(|member| RoomMember::new(self.client.clone(), member))
