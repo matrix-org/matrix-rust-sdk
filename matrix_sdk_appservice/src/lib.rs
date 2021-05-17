@@ -82,6 +82,7 @@ use std::{
     fs::File,
     ops::Deref,
     path::PathBuf,
+    sync::Arc,
 };
 
 use http::Uri;
@@ -195,7 +196,7 @@ async fn client_session_with_login_restore(
 pub struct Appservice {
     homeserver_url: Url,
     server_name: ServerNameBox,
-    registration: AppserviceRegistration,
+    registration: Arc<AppserviceRegistration>,
     client_sender_localpart: Client,
 }
 
@@ -228,6 +229,8 @@ impl Appservice {
             &server_name,
         )
         .await?;
+
+        let registration = Arc::new(registration);
 
         Ok(Appservice { homeserver_url, server_name, registration, client_sender_localpart })
     }
