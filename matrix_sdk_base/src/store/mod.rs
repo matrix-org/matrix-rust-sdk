@@ -31,7 +31,8 @@ use matrix_sdk_common::{
     async_trait,
     events::{
         presence::PresenceEvent, room::member::MemberEventContent, AnyGlobalAccountDataEvent,
-        AnyRoomAccountDataEvent, AnyStrippedStateEvent, AnySyncStateEvent, EventContent, EventType,
+        AnyRoomAccountDataEvent, AnyRoomEvent, AnyStrippedStateEvent, AnySyncRoomEvent,
+        AnySyncStateEvent, EventContent, EventType,
     },
     identifiers::{EventId, RoomId, UserId},
     locks::RwLock,
@@ -482,9 +483,37 @@ pub type NextBatchToken = String;
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct SliceIdx(u128);
 
+impl SliceIdx {
+    pub fn first() -> Self {
+        Self(u128::MAX / 2)
+    }
+
+    pub fn from_prev(prev: u128) -> Self {
+        Self(prev + 1)
+    }
+
+    pub fn from_post(prev: u128) -> Self {
+        Self(prev - 1)
+    }
+}
+
 /// The position of an event within a slice or chunk.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct EventIdx(u128);
+
+impl EventIdx {
+    pub fn first() -> Self {
+        Self(u128::MAX / 2)
+    }
+
+    pub fn from_prev(prev: u128) -> Self {
+        Self(prev + 1)
+    }
+
+    pub fn from_post(prev: u128) -> Self {
+        Self(prev - 1)
+    }
+}
 
 /// Represents a chunk of events from either /sync or /messages.
 #[derive(Clone, Debug)]
@@ -550,11 +579,12 @@ impl Timeline {
         room_id: &RoomId,
         prev_batch: &str,
         next_batch: &str,
-        content: &[AnySyncRoomEvent],
+        limited: bool,
+        events: &[AnySyncRoomEvent],
     ) {
         let timeline_slice = TimelineSlice::new(prev_batch.to_owned(), next_batch.to_owned());
 
-        // The new `prev_batch` token is the `next_batch` token of previous /sync
+        // The new `prev_batch` token is the `next_batch` token of a previous /sync
         if let Some(SliceIdx(idx)) = self.next_slice_map.get(prev_batch) {
             let next_idx = SliceIdx(idx + 1);
             let last_event_index = self
@@ -567,20 +597,20 @@ impl Timeline {
                     let EventIdx(idx) = e;
                     *idx
                 })
-                .unwrap_or_default();
+                .expect("event map is in sync with timeline");
 
             self.prev_slice_map.insert(prev_batch.to_owned(), next_idx);
             self.next_slice_map.insert(next_batch.to_owned(), next_idx);
             self.slices.insert(next_idx, timeline_slice);
 
-            self.update_events_map_forward(content, last_event_index, next_idx);
+            self.update_events_map_forward(events, last_event_index, next_idx);
         } else if self.is_empty() {
-            let next_idx = SliceIdx(u128::MAX / 2);
+            let next_idx = SliceIdx::first();
             self.prev_slice_map.insert(prev_batch.to_owned(), next_idx);
             self.next_slice_map.insert(next_batch.to_owned(), next_idx);
             self.slices.insert(next_idx, timeline_slice);
 
-            self.update_events_map_forward(content, u128::MAX / 2, next_idx);
+            self.update_events_map_forward(events, u128::MAX / 2, next_idx);
         } else {
             todo!("hmmm we got a problem or a gap")
         }
@@ -627,7 +657,7 @@ impl Timeline {
                                         let EventIdx(idx) = e;
                                         *idx
                                     })
-                                    .unwrap_or_default();
+                                    .expect("event map is in sync with timeline");
 
                                 self.prev_slice_map.insert(prev_batch.to_owned(), prev_idx);
                                 self.next_slice_map.insert(end.to_owned(), prev_idx);
@@ -676,7 +706,7 @@ impl Timeline {
                                         let EventIdx(idx) = e;
                                         *idx
                                     })
-                                    .unwrap_or_default();
+                                    .expect("event map is in sync with timeline");
 
                                 self.prev_slice_map.insert(prev_batch.to_owned(), next_idx);
                                 self.next_slice_map.insert(end.to_owned(), next_idx);
@@ -711,7 +741,7 @@ impl Timeline {
                                         let EventIdx(idx) = e;
                                         *idx
                                     })
-                                    .unwrap_or_default();
+                                    .expect("event map is in sync with timeline");
 
                                 self.prev_slice_map.insert(prev_batch.to_owned(), prev_idx);
                                 self.next_slice_map.insert(end.to_owned(), prev_idx);
@@ -728,7 +758,7 @@ impl Timeline {
                     }
                     (Some(prev), None) => {}
                     (None, Some(end)) => {}
-                    (None, None) => todo!("problems"),
+                    (None, None) => todo!("can't move forward nor backward, timeline full"),
                 }
             }
         }
@@ -736,12 +766,12 @@ impl Timeline {
 
     fn update_events_map_forward(
         &mut self,
-        content: &[AnySyncRoomEvent],
+        events: &[AnySyncRoomEvent],
         last_event_index: u128,
         slice_idx: SliceIdx,
     ) {
         let mut index_event = BTreeMap::new();
-        for (i, event) in content.iter().enumerate() {
+        for (i, event) in events.iter().enumerate() {
             let e_idx = EventIdx(last_event_index + ((i + 1) as u128));
             let e_id = event.event_id();
 
@@ -754,13 +784,13 @@ impl Timeline {
 
     fn update_events_map_backward(
         &mut self,
-        content: &[Raw<AnyRoomEvent>],
+        events: &[Raw<AnyRoomEvent>],
         last_event_index: u128,
         slice_idx: SliceIdx,
     ) {
         let mut index_event = BTreeMap::new();
         // Reverse so that newer events have a smaller index from enumerate
-        for (i, event) in content
+        for (i, event) in events
             .iter()
             // TODO: don't eat events or is this ok?
             .filter_map(|e| e.deserialize().ok())
@@ -808,25 +838,12 @@ impl EventIdExt for AnyRoomEvent {
 #[cfg(test)]
 mod test {
     use matrix_sdk_common::{
-        api::r0::{
-            account::register::Request as RegistrationRequest,
-            directory::get_public_rooms_filtered::Request as PublicRoomsFilterRequest,
-            message::get_message_events::{Direction, Response as MessagesResponse},
-            sync,
-            typing::create_typing_event::Typing,
-            uiaa::AuthData,
-        },
-        assign,
-        directory::Filter,
-        events::{
-            room::message::MessageEventContent, AnyMessageEventContent, AnyRoomEvent,
-            AnySyncRoomEvent,
-        },
-        identifiers::{event_id, room_id, user_id},
-        thirdparty, Raw,
+        api::r0::message::get_message_events::{Direction, Response as MessagesResponse},
+        events::{AnyRoomEvent, AnySyncRoomEvent},
+        identifiers::room_id,
+        Raw,
     };
-    use matrix_sdk_test::{test_json, EventBuilder, EventsJson};
-    use serde_json::json;
+    use matrix_sdk_test::test_json;
 
     use super::Timeline;
 
@@ -838,10 +855,11 @@ mod test {
             test_json::ROOM_MESSAGES["chunk"].clone(),
         )
         .unwrap();
-        let sync = serde_json::from_value::<Vec<AnySyncRoomEvent>>(
-            test_json::SYNC["rooms"]["join"][room_id.as_str()]["timeline"]["events"].clone(),
-        )
-        .unwrap();
+        let sync =
+            serde_json::from_value::<matrix_sdk_common::api::r0::sync::sync_events::Timeline>(
+                test_json::SYNC["rooms"]["join"][room_id.as_str()]["timeline"].clone(),
+            )
+            .unwrap();
 
         let mut timeline = Timeline::new();
 
@@ -849,7 +867,13 @@ mod test {
             &room_id,
             "t392-516_47314_0_7_1_1_1_11444_1",
             "s526_47314_0_7_1_1_1_11444_1",
-            &sync,
+            sync.limited,
+            &sync
+                .events
+                .into_iter()
+                .map(|e| e.deserialize())
+                .collect::<Result<Vec<_>, _>>()
+                .unwrap(),
         );
 
         let mut resp = MessagesResponse::new();
