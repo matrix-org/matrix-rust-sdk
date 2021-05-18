@@ -315,12 +315,9 @@ pub fn get_mac_content(sas: &OlmSas, ids: &SasIds, flow_id: &FlowId) -> MacConte
         .expect("Can't calculate SAS MAC");
 
     match flow_id {
-        FlowId::ToDevice(s) => {
-            MacToDeviceEventContent { transaction_id: s.to_string(), keys, mac }.into()
-        }
+        FlowId::ToDevice(s) => MacToDeviceEventContent::new(s.to_string(), mac, keys).into(),
         FlowId::InRoom(r, e) => {
-            (r.clone(), MacEventContent { mac, keys, relation: Relation { event_id: e.clone() } })
-                .into()
+            (r.clone(), MacEventContent::new(mac, keys, Relation::new(e.clone()))).into()
         }
     }
 }

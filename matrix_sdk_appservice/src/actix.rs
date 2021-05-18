@@ -61,11 +61,11 @@ async fn push_transactions(
     request: IncomingRequest<api::event::push_events::v1::IncomingRequest>,
     appservice: Data<Appservice>,
 ) -> Result<HttpResponse, Error> {
-    if !appservice.hs_token_matches(request.access_token) {
+    if !appservice.compare_hs_token(request.access_token) {
         return Ok(HttpResponse::Unauthorized().finish());
     }
 
-    appservice.client().receive_transaction(request.incoming).await.unwrap();
+    appservice.client(None).await?.receive_transaction(request.incoming).await?;
 
     Ok(HttpResponse::Ok().json("{}"))
 }
@@ -76,7 +76,7 @@ async fn query_user_id(
     request: IncomingRequest<api::query::query_user_id::v1::IncomingRequest>,
     appservice: Data<Appservice>,
 ) -> Result<HttpResponse, Error> {
-    if !appservice.hs_token_matches(request.access_token) {
+    if !appservice.compare_hs_token(request.access_token) {
         return Ok(HttpResponse::Unauthorized().finish());
     }
 
@@ -89,7 +89,7 @@ async fn query_room_alias(
     request: IncomingRequest<api::query::query_room_alias::v1::IncomingRequest>,
     appservice: Data<Appservice>,
 ) -> Result<HttpResponse, Error> {
-    if !appservice.hs_token_matches(request.access_token) {
+    if !appservice.compare_hs_token(request.access_token) {
         return Ok(HttpResponse::Unauthorized().finish());
     }
 

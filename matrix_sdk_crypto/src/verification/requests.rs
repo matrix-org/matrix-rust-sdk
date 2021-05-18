@@ -184,17 +184,17 @@ impl VerificationRequest {
         own_device_id: &DeviceId,
         other_user_id: &UserId,
     ) -> KeyVerificationRequestEventContent {
-        KeyVerificationRequestEventContent {
-            body: format!(
+        KeyVerificationRequestEventContent::new(
+            format!(
                 "{} is requesting to verify your key, but your client does not \
                 support in-chat key verification. You will need to use legacy \
                 key verification to verify keys.",
                 own_user_id
             ),
-            methods: SUPPORTED_METHODS.to_vec(),
-            from_device: own_device_id.into(),
-            to: other_user_id.to_owned(),
-        }
+            SUPPORTED_METHODS.to_vec(),
+            own_device_id.into(),
+            other_user_id.to_owned(),
+        )
     }
 
     /// The id of the other user that is participating in this verification
@@ -515,21 +515,17 @@ impl RequestState<Requested> {
         };
 
         let content = match self.state.flow_id {
-            FlowId::ToDevice(i) => {
-                AnyToDeviceEventContent::KeyVerificationReady(ReadyToDeviceEventContent {
-                    from_device: self.own_device_id,
-                    methods: self.state.methods,
-                    transaction_id: i,
-                })
-                .into()
-            }
+            FlowId::ToDevice(i) => AnyToDeviceEventContent::KeyVerificationReady(
+                ReadyToDeviceEventContent::new(self.own_device_id, self.state.methods, i),
+            )
+            .into(),
             FlowId::InRoom(r, e) => (
                 r,
-                AnyMessageEventContent::KeyVerificationReady(ReadyEventContent {
-                    from_device: self.own_device_id,
-                    methods: self.state.methods,
-                    relation: Relation { event_id: e },
-                }),
+                AnyMessageEventContent::KeyVerificationReady(ReadyEventContent::new(
+                    self.own_device_id,
+                    self.state.methods,
+                    Relation::new(e),
+                )),
             )
                 .into(),
         };
@@ -608,11 +604,12 @@ struct Passive {
 
 #[cfg(test)]
 mod test {
-    use std::{convert::TryFrom, time::SystemTime};
+    use std::convert::TryFrom;
 
     use matrix_sdk_common::{
         events::{SyncMessageEvent, Unsigned},
         identifiers::{event_id, room_id, DeviceIdBox, UserId},
+        MilliSecondsSinceUnixEpoch,
     };
     use matrix_sdk_test::async_test;
 
@@ -738,7 +735,7 @@ mod test {
                 content: c,
                 event_id: event_id.clone(),
                 sender: bob_id(),
-                origin_server_ts: SystemTime::now(),
+                origin_server_ts: MilliSecondsSinceUnixEpoch::now(),
                 unsigned: Unsigned::default(),
             }
         } else {

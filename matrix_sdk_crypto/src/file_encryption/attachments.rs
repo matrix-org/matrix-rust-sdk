@@ -23,7 +23,7 @@ use aes_ctr::{
 };
 use base64::DecodeError;
 use getrandom::getrandom;
-use matrix_sdk_common::events::room::JsonWebKey;
+use matrix_sdk_common::events::room::{JsonWebKey, JsonWebKeyInit};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use thiserror::Error;
@@ -201,13 +201,13 @@ impl<'a, R: Read + 'a> AttachmentEncryptor<'a, R> {
         // initialized.
         getrandom(&mut iv[0..8]).expect("Can't generate randomness");
 
-        let web_key = JsonWebKey {
+        let web_key = JsonWebKey::from(JsonWebKeyInit {
             kty: "oct".to_owned(),
             key_ops: vec!["encrypt".to_owned(), "decrypt".to_owned()],
             alg: "A256CTR".to_owned(),
             k: encode_url_safe(&*key),
             ext: true,
-        };
+        });
         let encoded_iv = encode(&*iv);
 
         let aes = Aes256Ctr::new_var(&*key, &*iv).expect("Cannot create AES encryption object.");

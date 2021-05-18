@@ -2393,7 +2393,7 @@ mod test {
         api::r0::{
             account::register::Request as RegistrationRequest,
             directory::get_public_rooms_filtered::Request as PublicRoomsFilterRequest,
-            membership::Invite3pid, session::get_login_types::LoginType, uiaa::AuthData,
+            membership::Invite3pidInit, session::get_login_types::LoginType, uiaa::AuthData,
         },
         assign,
         directory::Filter,
@@ -2791,12 +2791,15 @@ mod test {
 
         let room = client.get_joined_room(&room_id!("!SVkFJHzfwvuaIEawgC:localhost")).unwrap();
 
-        room.invite_user_by_3pid(Invite3pid {
-            id_server: "example.org",
-            id_access_token: "IdToken",
-            medium: thirdparty::Medium::Email,
-            address: "address",
-        })
+        room.invite_user_by_3pid(
+            Invite3pidInit {
+                id_server: "example.org",
+                id_access_token: "IdToken",
+                medium: thirdparty::Medium::Email,
+                address: "address",
+            }
+            .into(),
+        )
         .await
         .unwrap();
     }
@@ -3052,13 +3055,9 @@ mod test {
         let room = client.get_joined_room(&room_id).unwrap();
 
         let avatar_url = mxc_uri!("mxc://example.org/avA7ar");
-        let member_event = MemberEventContent {
-            avatar_url: Some(avatar_url),
-            membership: MembershipState::Join,
-            is_direct: None,
-            displayname: None,
-            third_party_invite: None,
-        };
+        let member_event = assign!(MemberEventContent::new(MembershipState::Join), {
+            avatar_url: Some(avatar_url)
+        });
         let content = AnyStateEventContent::RoomMember(member_event);
         let response = room.send_state_event(content, "").await.unwrap();
         assert_eq!(event_id!("$h29iv0s8:example.com"), response.event_id);

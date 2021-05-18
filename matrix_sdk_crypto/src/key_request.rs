@@ -151,12 +151,12 @@ pub struct OutgoingKeyRequest {
 
 impl OutgoingKeyRequest {
     fn to_request(&self, own_device_id: &DeviceId) -> Result<OutgoingRequest, serde_json::Error> {
-        let content = RoomKeyRequestToDeviceEventContent {
-            action: Action::Request,
-            request_id: self.request_id.to_string(),
-            requesting_device_id: own_device_id.to_owned(),
-            body: Some(self.info.clone()),
-        };
+        let content = RoomKeyRequestToDeviceEventContent::new(
+            Action::Request,
+            Some(self.info.clone()),
+            own_device_id.to_owned(),
+            self.request_id.to_string(),
+        );
 
         wrap_key_request_content(self.request_recipient.clone(), self.request_id, &content)
     }
@@ -165,12 +165,12 @@ impl OutgoingKeyRequest {
         &self,
         own_device_id: &DeviceId,
     ) -> Result<OutgoingRequest, serde_json::Error> {
-        let content = RoomKeyRequestToDeviceEventContent {
-            action: Action::CancelRequest,
-            request_id: self.request_id.to_string(),
-            requesting_device_id: own_device_id.to_owned(),
-            body: None,
-        };
+        let content = RoomKeyRequestToDeviceEventContent::new(
+            Action::CancelRequest,
+            None,
+            own_device_id.to_owned(),
+            self.request_id.to_string(),
+        );
 
         let id = Uuid::new_v4();
         wrap_key_request_content(self.request_recipient.clone(), id, &content)
@@ -584,12 +584,12 @@ impl KeyRequestMachine {
         sender_key: &str,
         session_id: &str,
     ) -> Result<(Option<OutgoingRequest>, OutgoingRequest), CryptoStoreError> {
-        let key_info = RequestedKeyInfo {
-            algorithm: EventEncryptionAlgorithm::MegolmV1AesSha2,
-            room_id: room_id.to_owned(),
-            sender_key: sender_key.to_owned(),
-            session_id: session_id.to_owned(),
-        };
+        let key_info = RequestedKeyInfo::new(
+            EventEncryptionAlgorithm::MegolmV1AesSha2,
+            room_id.to_owned(),
+            sender_key.to_owned(),
+            session_id.to_owned(),
+        );
 
         let request = self.store.get_key_request_by_info(&key_info).await?;
 
@@ -644,12 +644,12 @@ impl KeyRequestMachine {
         sender_key: &str,
         session_id: &str,
     ) -> Result<(), CryptoStoreError> {
-        let key_info = RequestedKeyInfo {
-            algorithm: EventEncryptionAlgorithm::MegolmV1AesSha2,
-            room_id: room_id.to_owned(),
-            sender_key: sender_key.to_owned(),
-            session_id: session_id.to_owned(),
-        };
+        let key_info = RequestedKeyInfo::new(
+            EventEncryptionAlgorithm::MegolmV1AesSha2,
+            room_id.to_owned(),
+            sender_key.to_owned(),
+            session_id.to_owned(),
+        );
 
         if self.should_request_key(&key_info).await? {
             self.request_key_helper(key_info).await?;
@@ -675,12 +675,12 @@ impl KeyRequestMachine {
         &self,
         content: &ForwardedRoomKeyToDeviceEventContent,
     ) -> Result<Option<OutgoingKeyRequest>, CryptoStoreError> {
-        let info = RequestedKeyInfo {
-            algorithm: content.algorithm.clone(),
-            room_id: content.room_id.clone(),
-            sender_key: content.sender_key.clone(),
-            session_id: content.session_id.clone(),
-        };
+        let info = RequestedKeyInfo::new(
+            content.algorithm.clone(),
+            content.room_id.clone(),
+            content.sender_key.clone(),
+            content.session_id.clone(),
+        );
 
         self.store.get_key_request_by_info(&info).await
     }

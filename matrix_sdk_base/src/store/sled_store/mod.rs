@@ -19,7 +19,7 @@ use std::{
     convert::TryFrom,
     path::{Path, PathBuf},
     sync::Arc,
-    time::SystemTime,
+    time::Instant,
 };
 
 use futures::{
@@ -83,8 +83,9 @@ impl From<SerializationError> for StoreError {
     }
 }
 
+const ENCODE_SEPARATOR: u8 = 0xff;
+
 trait EncodeKey {
-    const SEPARATOR: u8 = 0xff;
     fn encode(&self) -> Vec<u8>;
 }
 
@@ -102,13 +103,13 @@ impl EncodeKey for &RoomId {
 
 impl EncodeKey for &str {
     fn encode(&self) -> Vec<u8> {
-        [self.as_bytes(), &[Self::SEPARATOR]].concat()
+        [self.as_bytes(), &[ENCODE_SEPARATOR]].concat()
     }
 }
 
 impl EncodeKey for (&str, &str) {
     fn encode(&self) -> Vec<u8> {
-        [self.0.as_bytes(), &[Self::SEPARATOR], self.1.as_bytes(), &[Self::SEPARATOR]].concat()
+        [self.0.as_bytes(), &[ENCODE_SEPARATOR], self.1.as_bytes(), &[ENCODE_SEPARATOR]].concat()
     }
 }
 
@@ -116,11 +117,11 @@ impl EncodeKey for (&str, &str, &str) {
     fn encode(&self) -> Vec<u8> {
         [
             self.0.as_bytes(),
-            &[Self::SEPARATOR],
+            &[ENCODE_SEPARATOR],
             self.1.as_bytes(),
-            &[Self::SEPARATOR],
+            &[ENCODE_SEPARATOR],
             self.2.as_bytes(),
-            &[Self::SEPARATOR],
+            &[ENCODE_SEPARATOR],
         ]
         .concat()
     }
@@ -286,7 +287,7 @@ impl SledStore {
     }
 
     pub async fn save_changes(&self, changes: &StateChanges) -> Result<()> {
-        let now = SystemTime::now();
+        let now = Instant::now();
 
         let ret: Result<(), TransactionError<SerializationError>> = (
             &self.session,
@@ -506,11 +507,22 @@ impl SledStore {
             .transpose()?)
     }
 
-    pub async fn get_user_ids(&self, room_id: &RoomId) -> impl Stream<Item = Result<UserId>> {
-        stream::iter(self.members.scan_prefix(room_id.encode()).map(|u| {
-            UserId::try_from(String::from_utf8_lossy(&u?.1).to_string())
-                .map_err(StoreError::Identifier)
-        }))
+    pub async fn get_user_ids_stream(
+        &self,
+        room_id: &RoomId,
+    ) -> impl Stream<Item = Result<UserId>> {
+        let decode = |key: &[u8]| -> Result<UserId> {
+            let mut iter = key.split(|c| c == &ENCODE_SEPARATOR);
+            // Our key is a the room id separated from the user id by a null
+            // byte, discard the first value of the split.
+            iter.next();
+
+            let user_id = iter.next().expect("User ids weren't properly encoded");
+
+            Ok(UserId::try_from(String::from_utf8_lossy(user_id).to_string())?)
+        };
+
+        stream::iter(self.members.scan_prefix(room_id.encode()).map(move |u| decode(&u?.0)))
     }
 
     pub async fn get_invited_user_ids(
@@ -636,7 +648,7 @@ impl StateStore for SledStore {
     }
 
     async fn get_user_ids(&self, room_id: &RoomId) -> Result<Vec<UserId>> {
-        self.get_user_ids(room_id).await.try_collect().await
+        self.get_user_ids_stream(room_id).await.try_collect().await
     }
 
     async fn get_invited_user_ids(&self, room_id: &RoomId) -> Result<Vec<UserId>> {
@@ -681,7 +693,7 @@ impl StateStore for SledStore {
 
 #[cfg(test)]
 mod test {
-    use std::{convert::TryFrom, time::SystemTime};
+    use std::convert::TryFrom;
 
     use matrix_sdk_common::{
         events::{
@@ -692,13 +704,13 @@ mod test {
             AnySyncStateEvent, EventType, Unsigned,
         },
         identifiers::{room_id, user_id, EventId, UserId},
-        Raw,
+        MilliSecondsSinceUnixEpoch, Raw,
     };
     use matrix_sdk_test::async_test;
     use serde_json::json;
 
     use super::{SledStore, StateChanges};
-    use crate::deserialized_responses::MemberEvent;
+    use crate::{deserialized_responses::MemberEvent, StateStore};
 
     fn user_id() -> UserId {
         user_id!("@example:localhost")
@@ -721,19 +733,11 @@ mod test {
     }
 
     fn membership_event() -> MemberEvent {
-        let content = MemberEventContent {
-            avatar_url: None,
-            displayname: None,
-            is_direct: None,
-            third_party_invite: None,
-            membership: MembershipState::Join,
-        };
-
         MemberEvent {
             event_id: EventId::try_from("$h29iv0s8:example.com").unwrap(),
-            content,
+            content: MemberEventContent::new(MembershipState::Join),
             sender: user_id(),
-            origin_server_ts: SystemTime::now(),
+            origin_server_ts: MilliSecondsSinceUnixEpoch::now(),
             state_key: user_id(),
             prev_content: None,
             unsigned: Unsigned::default(),
@@ -756,6 +760,9 @@ mod test {
 
         store.save_changes(&changes).await.unwrap();
         assert!(store.get_member_event(&room_id, &user_id).await.unwrap().is_some());
+
+        let members = store.get_user_ids(&room_id).await.unwrap();
+        assert!(!members.is_empty())
     }
 
     #[async_test]

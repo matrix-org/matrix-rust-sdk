@@ -20,13 +20,26 @@
 //!   the webserver for you
 //! * receive and validate requests from the homeserver correctly
 //! * allow calling the homeserver with proper virtual user identity assertion
-//! * have the goal to have a consistent room state available by leveraging the
-//!   stores that the matrix-sdk provides
+//! * have consistent room state by leveraging matrix-sdk's state store
+//! * provide E2EE support by leveraging matrix-sdk's crypto store
+//!
+//! # Status
+//!
+//! The crate is in an experimental state. Follow
+//! [matrix-org/matrix-rust-sdk#228] for progress.
 //!
 //! # Quickstart
 //!
 //! ```no_run
 //! # async {
+//! #
+//! # use matrix_sdk::{async_trait, EventHandler};
+//! #
+//! # struct AppserviceEventHandler;
+//! #
+//! # #[async_trait]
+//! # impl EventHandler for AppserviceEventHandler {}
+//! #
 //! use matrix_sdk_appservice::{Appservice, AppserviceRegistration};
 //!
 //! let homeserver_url = "http://127.0.0.1:8008";
@@ -42,17 +55,23 @@
 //!           users:
 //!           - exclusive: true
 //!             regex: '@_appservice_.*'
-//!     ")
-//!     .unwrap();
+//!     ")?;
 //!
-//! let appservice = Appservice::new(homeserver_url, server_name, registration).await.unwrap();
-//! // set event handler with `appservice.client().set_event_handler()` here
-//! let (host, port) = appservice.get_host_and_port_from_registration().unwrap();
-//! appservice.run(host, port).await.unwrap();
+//! let appservice = Appservice::new(homeserver_url, server_name, registration).await?;
+//! appservice.set_event_handler(Box::new(AppserviceEventHandler)).await?;
+//!
+//! let (host, port) = appservice.registration().get_host_and_port()?;
+//! appservice.run(host, port).await?;
+//! #
+//! # Ok::<(), Box<dyn std::error::Error + 'static>>(())
 //! # };
 //! ```
 //!
+//! Check the [examples directory] for fully working examples.
+//!
 //! [Application Service]: https://matrix.org/docs/spec/application_service/r0.1.2
+//! [matrix-org/matrix-rust-sdk#228]: https://github.com/matrix-org/matrix-rust-sdk/issues/228
+//! [examples directory]: https://github.com/matrix-org/matrix-rust-sdk/tree/master/matrix_sdk_appservice/examples
 
 #[cfg(not(any(feature = "actix",)))]
 compile_error!("one webserver feature must be enabled. available ones: `actix`");
@@ -79,11 +98,10 @@ use matrix_sdk::{
     assign,
     identifiers::{self, DeviceId, ServerNameBox, UserId},
     reqwest::Url,
-    Client, ClientConfig, FromHttpResponseError, HttpError, RequestConfig, ServerError, Session,
+    Client, ClientConfig, EventHandler, FromHttpResponseError, HttpError, RequestConfig,
+    ServerError, Session,
 };
 use regex::Regex;
-#[cfg(not(feature = "actix"))]
-use tracing::error;
 use tracing::warn;
 
 #[cfg(feature = "actix")]
@@ -96,6 +114,8 @@ pub type Host = String;
 pub type Port = u16;
 
 /// Appservice Registration
+///
+/// Wrapper around [`Registration`]
 #[derive(Debug, Clone)]
 pub struct AppserviceRegistration {
     inner: Registration,
@@ -117,6 +137,26 @@ impl AppserviceRegistration {
 
         Ok(Self { inner: serde_yaml::from_reader(file)? })
     }
+
+    /// Get the host and port from the registration URL
+    ///
+    /// If no port is found it falls back to scheme defaults: 80 for http and
+    /// 443 for https
+    pub fn get_host_and_port(&self) -> Result<(Host, Port)> {
+        let uri = Uri::try_from(&self.inner.url)?;
+
+        let host = uri.host().ok_or(Error::MissingRegistrationHost)?.to_owned();
+        let port = match uri.port() {
+            Some(port) => Ok(port.as_u16()),
+            None => match uri.scheme_str() {
+                Some("http") => Ok(80),
+                Some("https") => Ok(443),
+                _ => Err(Error::MissingRegistrationPort),
+            },
+        }?;
+
+        Ok((host, port))
+    }
 }
 
 impl From<Registration> for AppserviceRegistration {
@@ -133,31 +173,20 @@ impl Deref for AppserviceRegistration {
     }
 }
 
-async fn create_client(
-    homeserver_url: &Url,
-    server_name: &ServerNameBox,
+async fn client_session_with_login_restore(
+    client: &Client,
     registration: &AppserviceRegistration,
-    localpart: Option<&str>,
-) -> Result<Client> {
-    let client = if localpart.is_some() {
-        let request_config = RequestConfig::default().assert_identity();
-        let config = ClientConfig::default().request_config(request_config);
-        Client::new_with_config(homeserver_url.clone(), config)?
-    } else {
-        Client::new(homeserver_url.clone())?
-    };
-
+    localpart: impl AsRef<str> + Into<Box<str>>,
+    server_name: &ServerNameBox,
+) -> Result<()> {
     let session = Session {
         access_token: registration.as_token.clone(),
-        user_id: UserId::parse_with_server_name(
-            localpart.unwrap_or(&registration.sender_localpart),
-            &server_name,
-        )?,
+        user_id: UserId::parse_with_server_name(localpart, server_name)?,
         device_id: DeviceId::new(),
     };
     client.restore_login(session).await?;
 
-    Ok(client)
+    Ok(())
 }
 
 /// Appservice
@@ -189,60 +218,82 @@ impl Appservice {
         let homeserver_url = homeserver_url.try_into()?;
         let server_name = server_name.try_into()?;
 
-        let client = create_client(&homeserver_url, &server_name, &registration, None).await?;
+        let client_sender_localpart = Client::new(homeserver_url.clone())?;
 
-        Ok(Appservice {
-            homeserver_url,
-            server_name,
-            registration,
-            client_sender_localpart: client,
-        })
-    }
-
-    /// Get `Client` for the user associated with the application service
-    /// (`sender_localpart` of the [registration])
-    ///
-    /// [registration]: https://matrix.org/docs/spec/application_service/r0.1.2#registration
-    pub fn client(&self) -> Client {
-        self.client_sender_localpart.clone()
-    }
-
-    /// Get `Client` for the given `localpart`
-    ///
-    /// If the `localpart` is covered by the `namespaces` in the [registration]
-    /// all requests to the homeserver will [assert the identity] to the
-    /// according virtual user.
-    ///
-    /// [registration]: https://matrix.org/docs/spec/application_service/r0.1.2#registration
-    /// [assert the identity]:
-    /// https://matrix.org/docs/spec/application_service/r0.1.2#identity-assertion
-    pub async fn client_with_localpart(
-        &self,
-        localpart: impl AsRef<str> + Into<Box<str>>,
-    ) -> Result<Client> {
-        let user_id = UserId::parse_with_server_name(localpart, &self.server_name)?;
-        let localpart = user_id.localpart().to_owned();
-
-        let client = create_client(
-            &self.homeserver_url,
-            &self.server_name,
-            &self.registration,
-            Some(&localpart),
+        client_session_with_login_restore(
+            &client_sender_localpart,
+            &registration,
+            registration.sender_localpart.as_ref(),
+            &server_name,
         )
         .await?;
 
-        self.ensure_registered(localpart).await?;
+        Ok(Appservice { homeserver_url, server_name, registration, client_sender_localpart })
+    }
+
+    /// Get a [`Client`]
+    ///
+    /// Will return a `Client` that's configured to [assert the identity] on all
+    /// outgoing homeserver requests if `localpart` is given. If not given
+    /// the `Client` will use the main user associated with this appservice,
+    /// that is the `sender_localpart` in the [`AppserviceRegistration`]
+    ///
+    /// # Arguments
+    ///
+    /// * `localpart` - The localpart of the user we want assert our identity to
+    ///
+    /// [registration]: https://matrix.org/docs/spec/application_service/r0.1.2#registration
+    /// [assert the identity]: https://matrix.org/docs/spec/application_service/r0.1.2#identity-assertion
+    pub async fn client(&self, localpart: Option<&str>) -> Result<Client> {
+        let localpart = localpart.unwrap_or_else(|| self.registration.sender_localpart.as_ref());
+
+        // The `as_token` in the `Session` maps to the main appservice user
+        // (`sender_localpart`) by default, so we don't need to assert identity
+        // in that case
+        let client = if localpart == self.registration.sender_localpart {
+            self.client_sender_localpart.clone()
+        } else {
+            let request_config = RequestConfig::default().assert_identity();
+            let config = ClientConfig::default().request_config(request_config);
+            let client = Client::new_with_config(self.homeserver_url.clone(), config)?;
+
+            client_session_with_login_restore(
+                &client,
+                &self.registration,
+                localpart,
+                &self.server_name,
+            )
+            .await?;
+
+            client
+        };
 
         Ok(client)
     }
 
-    async fn ensure_registered(&self, localpart: impl AsRef<str>) -> Result<()> {
+    /// Convenience wrapper around [`Client::set_event_handler()`]
+    pub async fn set_event_handler(&self, handler: Box<dyn EventHandler>) -> Result<()> {
+        let client = self.client(None).await?;
+        client.set_event_handler(handler).await;
+
+        Ok(())
+    }
+
+    /// Register a virtual user by sending a [`RegistrationRequest`] to the
+    /// homeserver
+    ///
+    /// # Arguments
+    ///
+    /// * `localpart` - The localpart of the user to register. Must be covered
+    ///   by the namespaces in the [`Registration`] in order to succeed.
+    pub async fn register(&self, localpart: impl AsRef<str>) -> Result<()> {
         let request = assign!(RegistrationRequest::new(), {
             username: Some(localpart.as_ref()),
             login_type: Some(&LoginType::ApplicationService),
         });
 
-        match self.client().register(request).await {
+        let client = self.client(None).await?;
+        match client.register(request).await {
             Ok(_) => (),
             Err(error) => match error {
                 matrix_sdk::Error::Http(HttpError::UiaaError(FromHttpResponseError::Http(
@@ -266,14 +317,14 @@ impl Appservice {
     /// Get the Appservice [registration]
     ///
     /// [registration]: https://matrix.org/docs/spec/application_service/r0.1.2#registration
-    pub fn registration(&self) -> &Registration {
+    pub fn registration(&self) -> &AppserviceRegistration {
         &self.registration
     }
 
     /// Compare the given `hs_token` against `registration.hs_token`
     ///
     /// Returns `true` if the tokens match, `false` otherwise.
-    pub fn hs_token_matches(&self, hs_token: impl AsRef<str>) -> bool {
+    pub fn compare_hs_token(&self, hs_token: impl AsRef<str>) -> bool {
         self.registration.hs_token == hs_token.as_ref()
     }
 
@@ -288,26 +339,6 @@ impl Appservice {
         }
 
         Ok(false)
-    }
-
-    /// Get the host and port from the registration URL
-    ///
-    /// If no port is found it falls back to scheme defaults: 80 for http and
-    /// 443 for https
-    pub fn get_host_and_port_from_registration(&self) -> Result<(Host, Port)> {
-        let uri = Uri::try_from(&self.registration.url)?;
-
-        let host = uri.host().ok_or(Error::MissingRegistrationHost)?.to_owned();
-        let port = match uri.port() {
-            Some(port) => Ok(port.as_u16()),
-            None => match uri.scheme_str() {
-                Some("http") => Ok(80),
-                Some("https") => Ok(443),
-                _ => Err(Error::MissingRegistrationPort),
-            },
-        }?;
-
-        Ok((host, port))
     }
 
     /// Service to register on an Actix `App`
