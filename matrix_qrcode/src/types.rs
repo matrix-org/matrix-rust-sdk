@@ -58,6 +58,14 @@ impl TryFrom<ImageBuffer<Luma<u8>, Vec<u8>>> for QrVerification {
     }
 }
 
+impl TryFrom<&[u8]> for QrVerification {
+    type Error = DecodingError;
+
+    fn try_from(value: &[u8]) -> Result<Self, Self::Error> {
+        Self::from_bytes(value)
+    }
+}
+
 impl TryFrom<Vec<u8>> for QrVerification {
     type Error = DecodingError;
 
