@@ -197,8 +197,27 @@ mod test {
 
     #[test]
     fn decode_short_secret() {
-        let data = b"MATRIX\x02\x02\x00\x07FLOW_IDAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBSECRET";
+        let data = b"MATRIX\
+                   \x02\x02\x00\x07\
+                   FLOW_ID\
+                   AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\
+                   BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB\
+                   SECRET";
+
         let result = QrVerification::from_bytes(data);
         assert!(matches!(result, Err(DecodingError::SharedSecret(_))))
+    }
+
+    #[test]
+    fn decode_invalid_room_id() {
+        let data = b"MATRIX\
+                   \x02\x00\x00\x0f\
+                   test:localhost\
+                   AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\
+                   BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB\
+                   SECRETISLONGENOUGH";
+
+        let result = QrVerification::from_bytes(data);
+        assert!(matches!(result, Err(DecodingError::Identifier(_))))
     }
 }
