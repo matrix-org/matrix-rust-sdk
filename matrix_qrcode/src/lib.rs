@@ -30,10 +30,12 @@
 //! # }
 //! ```
 
+#![cfg_attr(feature = "docs", feature(doc_cfg))]
 #![deny(
     missing_debug_implementations,
     dead_code,
     trivial_casts,
+    missing_docs,
     trivial_numeric_casts,
     unused_extern_crates,
     unused_import_braces,

@@ -14,34 +14,48 @@
 
 use thiserror::Error;
 
+/// Error type describing errors that happen while QR data is being decoded.
 #[derive(Error, Debug)]
 pub enum DecodingError {
+    /// Error decoding the QR code.
     #[cfg(feature = "decode_image")]
     #[cfg_attr(feature = "docs", doc(cfg(decode_image)))]
     #[error(transparent)]
     Qr(#[from] rqrr::DeQRError),
+    /// The QR code data is missing the mandatory Matrix header.
     #[error("the decoded QR code is missing the Matrix header")]
     Header,
+    /// The QR code data is containing an invalid, non UTF-8, flow id.
     #[error(transparent)]
     Utf8(#[from] std::string::FromUtf8Error),
+    /// The QR code data is using an unsupported or invalid verification mode.
     #[error("the QR code contains an invalid verification mode: {0}")]
     Mode(u8),
+    /// The flow id is not a valid event ID.
     #[error(transparent)]
     Identifier(#[from] ruma_identifiers::Error),
     #[error(transparent)]
+    /// The QR code data does not contain all the necessary fields.
     Read(#[from] std::io::Error),
+    /// The QR code data uses an invalid shared secret.
     #[error("the QR code contains a too short shared secret, length: {0}")]
     SharedSecret(usize),
+    /// The QR code data uses an invalid or unsupported version.
     #[error("the QR code contains an invalid or unsupported version: {0}")]
     Version(u8),
 }
 
+/// Error type describing errors that happen while QR data is being encoded.
 #[derive(Error, Debug)]
 pub enum EncodingError {
+    /// Error generating a QR code from the data, likely because the data
+    /// doesn't fit into a QR code.
     #[error(transparent)]
     Qr(#[from] qrcode::types::QrError),
+    /// Error decoding the identity keys as base64.
     #[error(transparent)]
     Base64(#[from] base64::DecodeError),
+    /// Error encoding the given flow id, the flow id is too large.
     #[error("The verification flow id length can't be converted into a u16: {0}")]
     FlowId(#[from] std::num::TryFromIntError),
 }

@@ -4,9 +4,15 @@ version = "0.1.0"
 authors = ["Damir Jelić <poljar@termina.org.uk>"]
 edition = "2018"
 
+[package.metadata.docs.rs]
+features = ["docs"]
+rustdoc-args = ["--cfg", "feature=\"docs\""]
+
 [features]
 default = ["decode_image"]
 decode_image = ["image", "rqrr", "qrcode/image", "qrcode/svg"]
+
+docs = ["decode_image"]
 
 [dependencies]
 base64 = "0.13.0"
