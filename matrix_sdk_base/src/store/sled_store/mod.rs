@@ -16,7 +16,7 @@ mod store_key;
 
 use std::{
     collections::BTreeSet,
-    convert::TryFrom,
+    convert::{TryFrom, TryInto},
     path::{Path, PathBuf},
     sync::Arc,
     time::Instant,
@@ -30,10 +30,12 @@ use matrix_sdk_common::{
     async_trait,
     events::{
         presence::PresenceEvent,
+        receipt::Receipt,
         room::member::{MemberEventContent, MembershipState},
         AnyGlobalAccountDataEvent, AnyRoomAccountDataEvent, AnySyncStateEvent, EventType,
     },
-    identifiers::{RoomId, UserId},
+    identifiers::{EventId, RoomId, UserId},
+    receipt::ReceiptType,
     Raw,
 };
 use serde::{Deserialize, Serialize};
@@ -127,10 +129,43 @@ impl EncodeKey for (&str, &str, &str) {
     }
 }
 
+impl EncodeKey for (&str, &str, &str, &str) {
+    fn encode(&self) -> Vec<u8> {
+        [
+            self.0.as_bytes(),
+            &[ENCODE_SEPARATOR],
+            self.1.as_bytes(),
+            &[ENCODE_SEPARATOR],
+            self.2.as_bytes(),
+            &[ENCODE_SEPARATOR],
+            self.3.as_bytes(),
+            &[ENCODE_SEPARATOR],
+        ]
+        .concat()
+    }
+}
+
 impl EncodeKey for EventType {
     fn encode(&self) -> Vec<u8> {
         self.as_str().encode()
     }
+}
+
+/// Get the value at `position` in encoded `key`.
+///
+/// The key must have been encoded with the `EncodeKey` trait. `position`
+/// corresponds to the position in the tuple before the key was encoded. If it
+/// wasn't encoded in a tuple, use `0`.
+///
+/// Returns `None` if there is no key at `position`.
+pub fn decode_key_value(key: &[u8], position: usize) -> Option<String> {
+    let values: Vec<&[u8]> = key.split(|v| *v == ENCODE_SEPARATOR).collect();
+
+    if position >= values.len() {
+        return None;
+    }
+
+    Some(String::from_utf8_lossy(values[position]).to_string())
 }
 
 #[derive(Clone)]
@@ -152,6 +187,8 @@ pub struct SledStore {
     stripped_room_state: Tree,
     stripped_members: Tree,
     presence: Tree,
+    room_user_receipts: Tree,
+    room_event_receipts: Tree,
 }
 
 impl std::fmt::Debug for SledStore {
@@ -184,6 +221,9 @@ impl SledStore {
         let stripped_members = db.open_tree("stripped_members")?;
         let stripped_room_state = db.open_tree("stripped_room_state")?;
 
+        let room_user_receipts = db.open_tree("room_user_receipts")?;
+        let room_event_receipts = db.open_tree("room_event_receipts")?;
+
         Ok(Self {
             path,
             inner: db,
@@ -202,6 +242,8 @@ impl SledStore {
             stripped_room_info,
             stripped_members,
             stripped_room_state,
+            room_user_receipts,
+            room_event_receipts,
         })
     }
 
@@ -459,6 +501,58 @@ impl SledStore {
 
         ret?;
 
+        let ret: Result<(), TransactionError<SerializationError>> =
+            (&self.room_user_receipts, &self.room_event_receipts).transaction(
+                |(room_user_receipts, room_event_receipts)| {
+                    for (room, content) in &changes.receipts {
+                        for (event_id, receipts) in &content.0 {
+                            for (receipt_type, receipts) in receipts {
+                                for (user_id, receipt) in receipts {
+                                    // Add the receipt to the room user receipts
+                                    if let Some(old) = room_user_receipts.insert(
+                                        (room.as_str(), receipt_type.as_ref(), user_id.as_str())
+                                            .encode(),
+                                        self.serialize_event(&(event_id, receipt))
+                                            .map_err(ConflictableTransactionError::Abort)?,
+                                    )? {
+                                        // Remove the old receipt from the room event receipts
+                                        let (old_event, _): (EventId, Receipt) = self
+                                            .deserialize_event(&old)
+                                            .map_err(ConflictableTransactionError::Abort)?;
+                                        room_event_receipts.remove(
+                                            (
+                                                room.as_str(),
+                                                receipt_type.as_ref(),
+                                                old_event.as_str(),
+                                                user_id.as_str(),
+                                            )
+                                                .encode(),
+                                        )?;
+                                    }
+
+                                    // Add the receipt to the room event receipts
+                                    room_event_receipts.insert(
+                                        (
+                                            room.as_str(),
+                                            receipt_type.as_ref(),
+                                            event_id.as_str(),
+                                            user_id.as_str(),
+                                        )
+                                            .encode(),
+                                        self.serialize_event(receipt)
+                                            .map_err(ConflictableTransactionError::Abort)?,
+                                    )?;
+                                }
+                            }
+                        }
+                    }
+
+                    Ok(())
+                },
+            );
+
+        ret?;
+
         self.inner.flush_async().await?;
 
         info!("Saved changes in {:?}", now.elapsed());
@@ -598,6 +692,39 @@ impl SledStore {
             .map(|m| self.deserialize_event(&m))
             .transpose()?)
     }
+
+    async fn get_user_room_receipt_event(
+        &self,
+        room_id: &RoomId,
+        receipt_type: ReceiptType,
+        user_id: &UserId,
+    ) -> Result<Option<(EventId, Receipt)>> {
+        Ok(self
+            .room_user_receipts
+            .get((room_id.as_str(), receipt_type.as_ref(), user_id.as_str()).encode())?
+            .map(|m| self.deserialize_event(&m))
+            .transpose()?)
+    }
+
+    async fn get_event_room_receipt_events(
+        &self,
+        room_id: &RoomId,
+        receipt_type: ReceiptType,
+        event_id: &EventId,
+    ) -> Result<Vec<(UserId, Receipt)>> {
+        self.room_event_receipts
+            .scan_prefix((room_id.as_str(), receipt_type.as_ref(), event_id.as_str()).encode())
+            .map(|u| {
+                u.map_err(StoreError::Sled).and_then(|(key, value)| {
+                    self.deserialize_event(&value)
+                        .map(|receipt| {
+                            (decode_key_value(&key, 3).unwrap().try_into().unwrap(), receipt)
+                        })
+                        .map_err(Into::into)
+                })
+            })
+            .collect()
+    }
 }
 
 #[async_trait]
@@ -688,6 +815,24 @@ impl StateStore for SledStore {
         event_type: EventType,
     ) -> Result<Option<Raw<AnyRoomAccountDataEvent>>> {
         self.get_room_account_data_event(room_id, event_type).await
+    }
+
+    async fn get_user_room_receipt_event(
+        &self,
+        room_id: &RoomId,
+        receipt_type: ReceiptType,
+        user_id: &UserId,
+    ) -> Result<Option<(EventId, Receipt)>> {
+        self.get_user_room_receipt_event(room_id, receipt_type, user_id).await
+    }
+
+    async fn get_event_room_receipt_events(
+        &self,
+        room_id: &RoomId,
+        receipt_type: ReceiptType,
+        event_id: &EventId,
+    ) -> Result<Vec<(UserId, Receipt)>> {
+        self.get_event_room_receipt_events(room_id, receipt_type, event_id).await
     }
 }
 

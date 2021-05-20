@@ -25,11 +25,15 @@ use matrix_sdk_common::{
     api::r0::push::get_notifications::Notification,
     async_trait,
     events::{
-        presence::PresenceEvent, room::member::MemberEventContent, AnyGlobalAccountDataEvent,
-        AnyRoomAccountDataEvent, AnyStrippedStateEvent, AnySyncStateEvent, EventContent, EventType,
+        presence::PresenceEvent,
+        receipt::{Receipt, ReceiptEventContent},
+        room::member::MemberEventContent,
+        AnyGlobalAccountDataEvent, AnyRoomAccountDataEvent, AnyStrippedStateEvent,
+        AnySyncStateEvent, EventContent, EventType,
     },
-    identifiers::{RoomId, UserId},
+    identifiers::{EventId, RoomId, UserId},
     locks::RwLock,
+    receipt::ReceiptType,
     AsyncTraitDeps, Raw,
 };
 #[cfg(feature = "sled_state_store")]
@@ -210,6 +214,41 @@ pub trait StateStore: AsyncTraitDeps {
         room_id: &RoomId,
         event_type: EventType,
     ) -> Result<Option<Raw<AnyRoomAccountDataEvent>>>;
+
+    /// Get an event out of the user room receipt store.
+    ///
+    /// # Arguments
+    ///
+    /// * `room_id` - The id of the room for which the receipt should be
+    ///   fetched.
+    ///
+    /// * `receipt_type` - The type of the receipt.
+    ///
+    /// * `user_id` - The id of the user for who the receipt should be fetched.
+    async fn get_user_room_receipt_event(
+        &self,
+        room_id: &RoomId,
+        receipt_type: ReceiptType,
+        user_id: &UserId,
+    ) -> Result<Option<(EventId, Receipt)>>;
+
+    /// Get events out of the event room receipt store.
+    ///
+    /// # Arguments
+    ///
+    /// * `room_id` - The id of the room for which the receipts should be
+    ///   fetched.
+    ///
+    /// * `receipt_type` - The type of the receipts.
+    ///
+    /// * `event_id` - The id of the event for which the receipts should be
+    ///   fetched.
+    async fn get_event_room_receipt_events(
+        &self,
+        room_id: &RoomId,
+        receipt_type: ReceiptType,
+        event_id: &EventId,
+    ) -> Result<Vec<(UserId, Receipt)>>;
 }
 
 /// A state store wrapper for the SDK.
@@ -369,6 +408,8 @@ pub struct StateChanges {
     pub room_account_data: BTreeMap<RoomId, BTreeMap<String, Raw<AnyRoomAccountDataEvent>>>,
     /// A map of `RoomId` to `RoomInfo`.
     pub room_infos: BTreeMap<RoomId, RoomInfo>,
+    /// A map of `RoomId` to `ReceiptEventContent`.
+    pub receipts: BTreeMap<RoomId, ReceiptEventContent>,
 
     /// A mapping of `RoomId` to a map of event type to a map of state key to
     /// `AnyStrippedStateEvent`.
@@ -461,5 +502,11 @@ impl StateChanges {
     /// `Notification`.
     pub fn add_notification(&mut self, room_id: &RoomId, notification: Notification) {
         self.notifications.entry(room_id.to_owned()).or_insert_with(Vec::new).push(notification);
+    }
+
+    /// Update the `StateChanges` struct with the given room with a new
+    /// `Receipts`.
+    pub fn add_receipts(&mut self, room_id: &RoomId, event: ReceiptEventContent) {
+        self.receipts.insert(room_id.to_owned(), event);
     }
 }
