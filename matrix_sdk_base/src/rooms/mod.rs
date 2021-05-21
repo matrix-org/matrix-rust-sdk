@@ -62,29 +62,11 @@ impl BaseRoomInfo {
         invited_member_count: u64,
         heroes: Vec<RoomMember>,
     ) -> String {
-        let heroes_count = heroes.len() as u64;
-        let invited_joined = invited_member_count + joined_member_count;
-        let invited_joined_minus_one = invited_joined.saturating_sub(1);
-
-        if heroes_count >= invited_joined_minus_one {
-            let mut names = heroes.iter().take(3).map(|mem| mem.name()).collect::<Vec<&str>>();
-            // stabilize ordering
-            names.sort_unstable();
-            names.join(", ")
-        } else if heroes_count < invited_joined_minus_one && invited_joined > 1 {
-            let mut names = heroes.iter().take(3).map(|mem| mem.name()).collect::<Vec<&str>>();
-            names.sort_unstable();
-
-            // TODO: What length does the spec want us to use here and in
-            // the `else`?
-            format!(
-                "{}, and {} others",
-                names.join(", "),
-                (joined_member_count + invited_member_count)
-            )
-        } else {
-            "Empty room".to_string()
-        }
+        calculate_room_name(
+            joined_member_count,
+            invited_member_count,
+            heroes.iter().take(3).map(|mem| mem.name()).collect::<Vec<&str>>(),
+        )
     }
 
     /// Handle a state event for this room and update our info accordingly.
@@ -163,5 +145,34 @@ impl Default for BaseRoomInfo {
             tombstone: None,
             topic: None,
         }
+    }
+}
+
+/// Calculate room name according to step 3 of the [naming algorithm.][spec]
+///
+/// [spec]: <https://matrix.org/docs/spec/client_server/latest#calculating-the-display-name-for-a-room>
+fn calculate_room_name(
+    joined_member_count: u64,
+    invited_member_count: u64,
+    heroes: Vec<&str>,
+) -> String {
+    let heroes_count = heroes.len() as u64;
+    let invited_joined = invited_member_count + joined_member_count;
+    let invited_joined_minus_one = invited_joined.saturating_sub(1);
+
+    if heroes_count >= invited_joined_minus_one {
+        let mut names = heroes;
+        // stabilize ordering
+        names.sort_unstable();
+        names.join(", ")
+    } else if heroes_count < invited_joined_minus_one && invited_joined > 1 {
+        let mut names = heroes;
+        names.sort_unstable();
+
+        // TODO: What length does the spec want us to use here and in
+        // the `else`?
+        format!("{}, and {} others", names.join(", "), (joined_member_count + invited_member_count))
+    } else {
+        "Empty room".to_string()
     }
 }
