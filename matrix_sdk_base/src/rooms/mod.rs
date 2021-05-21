@@ -63,14 +63,15 @@ impl BaseRoomInfo {
         heroes: Vec<RoomMember>,
     ) -> String {
         let heroes_count = heroes.len() as u64;
-        let invited_joined = (invited_member_count + joined_member_count).saturating_sub(1);
+        let invited_joined = invited_member_count + joined_member_count;
+        let invited_joined_minus_one = invited_joined.saturating_sub(1);
 
-        if heroes_count >= invited_joined {
+        if heroes_count >= invited_joined_minus_one {
             let mut names = heroes.iter().take(3).map(|mem| mem.name()).collect::<Vec<&str>>();
             // stabilize ordering
             names.sort_unstable();
             names.join(", ")
-        } else if heroes_count < invited_joined && invited_joined > 1 {
+        } else if heroes_count < invited_joined_minus_one && invited_joined > 1 {
             let mut names = heroes.iter().take(3).map(|mem| mem.name()).collect::<Vec<&str>>();
             names.sort_unstable();
 
