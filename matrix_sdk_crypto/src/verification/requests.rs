@@ -140,12 +140,9 @@ impl<'a> TryFrom<&'a OutgoingContent> for ReadyContent<'a> {
 #[derive(Clone, Debug)]
 /// TODO
 pub struct VerificationRequest {
-    inner: Arc<Mutex<InnerRequest>>,
-    account: ReadOnlyAccount,
-    other_user_id: Arc<UserId>,
-    private_cross_signing_identity: PrivateCrossSigningIdentity,
-    store: Arc<Box<dyn CryptoStore>>,
     flow_id: Arc<FlowId>,
+    other_user_id: Arc<UserId>,
+    inner: Arc<Mutex<InnerRequest>>,
 }
 
 impl VerificationRequest {
@@ -161,21 +158,15 @@ impl VerificationRequest {
         let flow_id = (room_id.to_owned(), event_id.to_owned()).into();
 
         let inner = Mutex::new(InnerRequest::Created(RequestState::new(
-            account.user_id(),
-            account.device_id(),
+            account,
+            private_cross_signing_identity,
+            store,
             other_user,
             &flow_id,
         )))
         .into();
 
-        Self {
-            inner,
-            account,
-            private_cross_signing_identity,
-            store,
-            other_user_id: other_user.clone().into(),
-            flow_id: flow_id.into(),
-        }
+        Self { flow_id: flow_id.into(), inner, other_user_id: other_user.to_owned().into() }
     }
 
     /// TODO
@@ -256,16 +247,14 @@ impl VerificationRequest {
     ) -> Self {
         Self {
             inner: Arc::new(Mutex::new(InnerRequest::Requested(RequestState::from_request_event(
-                account.user_id(),
-                account.device_id(),
+                account,
+                private_cross_signing_identity,
+                store,
                 sender,
                 &flow_id,
                 content,
             )))),
-            account,
-            other_user_id: sender.clone().into(),
-            private_cross_signing_identity,
-            store,
+            other_user_id: sender.to_owned().into(),
             flow_id: flow_id.into(),
         }
     }
@@ -316,9 +305,9 @@ impl VerificationRequest {
                 FlowId::ToDevice(_) => todo!(),
                 FlowId::InRoom(r, _) => s.clone().into_started_sas(
                     &event.clone().into_full_event(r.to_owned()),
-                    self.store.clone(),
-                    self.account.clone(),
-                    self.private_cross_signing_identity.clone(),
+                    s.store.clone(),
+                    s.account.clone(),
+                    s.private_cross_signing_identity.clone(),
                     device,
                     user_identity,
                 ),
@@ -338,9 +327,9 @@ impl VerificationRequest {
             InnerRequest::Ready(s) => match &s.state.flow_id {
                 FlowId::ToDevice(_) => todo!(),
                 FlowId::InRoom(_, _) => Some(s.clone().start_sas(
-                    self.store.clone(),
-                    self.account.clone(),
-                    self.private_cross_signing_identity.clone(),
+                    s.store.clone(),
+                    s.account.clone(),
+                    s.private_cross_signing_identity.clone(),
                     device,
                     user_identity,
                 )),
@@ -375,6 +364,15 @@ impl InnerRequest {
                 DeviceIdOrAllDevices::DeviceId(r.state.other_device_id.to_owned())
             }
             InnerRequest::Passive(_) => DeviceIdOrAllDevices::AllDevices,
+        }
+    }
+
+    fn other_user_id(&self) -> &UserId {
+        match self {
+            InnerRequest::Created(s) => &s.other_user_id,
+            InnerRequest::Requested(s) => &s.other_user_id,
+            InnerRequest::Ready(s) => &s.other_user_id,
+            InnerRequest::Passive(s) => &s.other_user_id,
         }
     }
 
@@ -415,11 +413,10 @@ impl InnerRequest {
 
 #[derive(Clone, Debug)]
 struct RequestState<S: Clone> {
-    /// Our own user id.
-    pub own_user_id: UserId,
-
-    /// Our own device id.
-    pub own_device_id: DeviceIdBox,
+    account: ReadOnlyAccount,
+    private_cross_signing_identity: PrivateCrossSigningIdentity,
+    store: Arc<Box<dyn CryptoStore>>,
+    flow_id: Arc<FlowId>,
 
     /// The id of the user which is participating in this verification request.
     pub other_user_id: UserId,
@@ -430,24 +427,29 @@ struct RequestState<S: Clone> {
 
 impl RequestState<Created> {
     fn new(
-        own_user_id: &UserId,
-        own_device_id: &DeviceId,
+        account: ReadOnlyAccount,
+        private_identity: PrivateCrossSigningIdentity,
+        store: Arc<Box<dyn CryptoStore>>,
         other_user_id: &UserId,
         flow_id: &FlowId,
     ) -> Self {
         Self {
-            own_user_id: own_user_id.to_owned(),
-            own_device_id: own_device_id.to_owned(),
+            account,
             other_user_id: other_user_id.to_owned(),
+            private_cross_signing_identity: private_identity,
             state: Created { methods: SUPPORTED_METHODS.to_vec(), flow_id: flow_id.to_owned() },
+            store,
+            flow_id: flow_id.to_owned().into(),
         }
     }
 
     fn into_ready(self, _sender: &UserId, content: ReadyContent) -> RequestState<Ready> {
         // TODO check the flow id, and that the methods match what we suggested.
         RequestState {
-            own_user_id: self.own_user_id,
-            own_device_id: self.own_device_id,
+            account: self.account,
+            flow_id: self.flow_id,
+            private_cross_signing_identity: self.private_cross_signing_identity,
+            store: self.store,
             other_user_id: self.other_user_id,
             state: Ready {
                 methods: content.methods().to_owned(),
@@ -483,16 +485,19 @@ struct Requested {
 
 impl RequestState<Requested> {
     fn from_request_event(
-        own_user_id: &UserId,
-        own_device_id: &DeviceId,
+        account: ReadOnlyAccount,
+        private_identity: PrivateCrossSigningIdentity,
+        store: Arc<Box<dyn CryptoStore>>,
         sender: &UserId,
         flow_id: &FlowId,
         content: RequestContent,
     ) -> RequestState<Requested> {
         // TODO only create this if we suport the methods
         RequestState {
-            own_user_id: own_user_id.clone(),
-            own_device_id: own_device_id.into(),
+            account,
+            private_cross_signing_identity: private_identity,
+            store,
+            flow_id: flow_id.to_owned().into(),
             other_user_id: sender.clone(),
             state: Requested {
                 methods: content.methods().to_owned(),
@@ -504,26 +509,32 @@ impl RequestState<Requested> {
 
     fn accept(self) -> (RequestState<Ready>, OutgoingContent) {
         let state = RequestState {
-            own_user_id: self.own_user_id,
-            own_device_id: self.own_device_id.clone(),
+            account: self.account.clone(),
+            store: self.store,
+            private_cross_signing_identity: self.private_cross_signing_identity,
+            flow_id: self.flow_id,
             other_user_id: self.other_user_id,
             state: Ready {
-                methods: self.state.methods.clone(),
+                methods: SUPPORTED_METHODS.to_vec(),
                 other_device_id: self.state.other_device_id.clone(),
                 flow_id: self.state.flow_id.clone(),
             },
         };
 
         let content = match self.state.flow_id {
-            FlowId::ToDevice(i) => AnyToDeviceEventContent::KeyVerificationReady(
-                ReadyToDeviceEventContent::new(self.own_device_id, self.state.methods, i),
-            )
-            .into(),
+            FlowId::ToDevice(i) => {
+                AnyToDeviceEventContent::KeyVerificationReady(ReadyToDeviceEventContent::new(
+                    self.account.device_id().to_owned(),
+                    SUPPORTED_METHODS.to_vec(),
+                    i,
+                ))
+                .into()
+            }
             FlowId::InRoom(r, e) => (
                 r,
                 AnyMessageEventContent::KeyVerificationReady(ReadyEventContent::new(
-                    self.own_device_id,
-                    self.state.methods,
+                    self.account.device_id().to_owned(),
+                    SUPPORTED_METHODS.to_vec(),
                     Relation::new(e),
                 )),
             )
@@ -599,7 +610,7 @@ struct Passive {
 
     /// The event id of the `m.key.verification.request` event which acts as an
     /// unique id identifying this verification flow.
-    pub flow_id: EventId,
+    pub flow_id: FlowId,
 }
 
 #[cfg(test)]
