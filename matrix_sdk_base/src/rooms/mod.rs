@@ -171,8 +171,28 @@ fn calculate_room_name(
 
         // TODO: What length does the spec want us to use here and in
         // the `else`?
-        format!("{}, and {} others", names.join(", "), (joined_member_count + invited_member_count))
+        format!("{}, and {} others", names.join(", "), (invited_joined - heroes_count))
     } else {
         "Empty room".to_string()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+
+    fn test_calculate_room_name() {
+        let mut actual = calculate_room_name(2, 0, vec!["a"]);
+        assert_eq!("a", actual);
+
+        actual = calculate_room_name(3, 0, vec!["a", "b"]);
+        assert_eq!("a, b", actual);
+
+        actual = calculate_room_name(4, 0, vec!["a", "b", "c"]);
+        assert_eq!("a, b, c", actual);
+
+        actual = calculate_room_name(5, 0, vec!["a", "b", "c"]);
+        assert_eq!("a, b, c, and 2 others", actual);
     }
 }
