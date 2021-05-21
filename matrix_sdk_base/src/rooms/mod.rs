@@ -160,7 +160,7 @@ fn calculate_room_name(
     let invited_joined = invited_member_count + joined_member_count;
     let invited_joined_minus_one = invited_joined.saturating_sub(1);
 
-    if heroes_count >= invited_joined_minus_one {
+    let names = if heroes_count >= invited_joined_minus_one {
         let mut names = heroes;
         // stabilize ordering
         names.sort_unstable();
@@ -173,7 +173,18 @@ fn calculate_room_name(
         // the `else`?
         format!("{}, and {} others", names.join(", "), (invited_joined - heroes_count))
     } else {
-        "Empty room".to_string()
+        "".to_string()
+    };
+
+    // User is alone.
+    if invited_joined <= 1 {
+        if names.is_empty() {
+            "Empty room".to_string()
+        } else {
+            format!("Empty room (was {})", names)
+        }
+    } else {
+        names
     }
 }
 
@@ -194,5 +205,23 @@ mod tests {
 
         actual = calculate_room_name(5, 0, vec!["a", "b", "c"]);
         assert_eq!("a, b, c, and 2 others", actual);
+
+        actual = calculate_room_name(0, 0, vec![]);
+        assert_eq!("Empty room", actual);
+
+        actual = calculate_room_name(1, 0, vec![]);
+        assert_eq!("Empty room", actual);
+
+        actual = calculate_room_name(0, 1, vec![]);
+        assert_eq!("Empty room", actual);
+
+        actual = calculate_room_name(1, 0, vec!["a"]);
+        assert_eq!("Empty room (was a)", actual);
+
+        actual = calculate_room_name(1, 0, vec!["a", "b"]);
+        assert_eq!("Empty room (was a, b)", actual);
+
+        actual = calculate_room_name(1, 0, vec!["a", "b", "c"]);
+        assert_eq!("Empty room (was a, b, c)", actual);
     }
 }
