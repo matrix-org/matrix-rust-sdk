@@ -44,7 +44,7 @@ pub struct VerificationCache {
 }
 
 impl VerificationCache {
-    fn new() -> Self {
+    pub fn new() -> Self {
         Self {
             sas_verification: DashMap::new().into(),
             room_sas_verifications: DashMap::new().into(),
@@ -257,6 +257,7 @@ impl VerificationMachine {
                             );
 
                             let request = VerificationRequest::from_room_request(
+                                self.verifications.clone(),
                                 self.account.clone(),
                                 self.private_identity.lock().await.clone(),
                                 self.store.clone(),
@@ -291,7 +292,7 @@ impl VerificationMachine {
                             self.store.get_device(&e.sender, &e.content.from_device).await?
                         {
                             match request.into_started_sas(
-                                e,
+                                &e.content,
                                 d,
                                 self.store.get_user_identity(&e.sender).await?,
                             ) {
@@ -388,6 +389,7 @@ impl VerificationMachine {
         match event {
             AnyToDeviceEvent::KeyVerificationRequest(e) => {
                 let request = VerificationRequest::from_request(
+                    self.verifications.clone(),
                     self.account.clone(),
                     self.private_identity.lock().await.clone(),
                     self.store.clone(),

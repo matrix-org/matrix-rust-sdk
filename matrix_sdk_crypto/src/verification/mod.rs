@@ -16,7 +16,7 @@ mod machine;
 mod requests;
 mod sas;
 
-pub use machine::VerificationMachine;
+pub use machine::{VerificationCache, VerificationMachine};
 use matrix_sdk_common::identifiers::{EventId, RoomId};
 pub use requests::VerificationRequest;
 pub use sas::{AcceptSettings, Sas, VerificationResult};
