@@ -31,6 +31,7 @@ use matrix_sdk_common::{
 use reqwest::Error as ReqwestError;
 use serde_json::Error as JsonError;
 use thiserror::Error;
+use url::ParseError as UrlParseError;
 
 /// Result type of the rust-sdk.
 pub type Result<T> = std::result::Result<T, Error>;
@@ -128,6 +129,10 @@ pub enum Error {
     /// An error encountered when trying to parse an identifier.
     #[error(transparent)]
     Identifier(#[from] IdentifierError),
+
+    /// An error encountered when trying to parse a url.
+    #[error(transparent)]
+    Url(#[from] UrlParseError),
 }
 
 impl Error {
