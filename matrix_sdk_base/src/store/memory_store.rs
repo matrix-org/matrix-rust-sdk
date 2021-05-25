@@ -22,12 +22,14 @@ use matrix_sdk_common::{
     async_trait,
     events::{
         presence::PresenceEvent,
+        receipt::Receipt,
         room::member::{MemberEventContent, MembershipState},
         AnyGlobalAccountDataEvent, AnyRoomAccountDataEvent, AnyStrippedStateEvent,
         AnySyncStateEvent, EventType,
     },
-    identifiers::{RoomId, UserId},
+    identifiers::{EventId, RoomId, UserId},
     instant::Instant,
+    receipt::ReceiptType,
     Raw,
 };
 use tracing::info;
@@ -55,6 +57,11 @@ pub struct MemoryStore {
         Arc<DashMap<RoomId, DashMap<String, DashMap<String, Raw<AnyStrippedStateEvent>>>>>,
     stripped_members: Arc<DashMap<RoomId, DashMap<UserId, StrippedMemberEvent>>>,
     presence: Arc<DashMap<UserId, Raw<PresenceEvent>>>,
+    #[allow(clippy::type_complexity)]
+    room_user_receipts: Arc<DashMap<RoomId, DashMap<String, DashMap<UserId, (EventId, Receipt)>>>>,
+    #[allow(clippy::type_complexity)]
+    room_event_receipts:
+        Arc<DashMap<RoomId, DashMap<String, DashMap<EventId, DashMap<UserId, Receipt>>>>>,
 }
 
 impl MemoryStore {
@@ -76,6 +83,8 @@ impl MemoryStore {
             stripped_room_state: DashMap::new().into(),
             stripped_members: DashMap::new().into(),
             presence: DashMap::new().into(),
+            room_user_receipts: DashMap::new().into(),
+            room_event_receipts: DashMap::new().into(),
         }
     }
 
@@ -220,6 +229,43 @@ impl MemoryStore {
             }
         }
 
+        for (room, content) in &changes.receipts {
+            for (event_id, receipts) in &content.0 {
+                for (receipt_type, receipts) in receipts {
+                    for (user_id, receipt) in receipts {
+                        // Add the receipt to the room user receipts
+                        if let Some((old_event, _)) = self
+                            .room_user_receipts
+                            .entry(room.clone())
+                            .or_insert_with(DashMap::new)
+                            .entry(receipt_type.to_string())
+                            .or_insert_with(DashMap::new)
+                            .insert(user_id.clone(), (event_id.clone(), receipt.clone()))
+                        {
+                            // Remove the old receipt from the room event receipts
+                            if let Some(receipt_map) = self.room_event_receipts.get(room) {
+                                if let Some(event_map) = receipt_map.get(receipt_type.as_ref()) {
+                                    if let Some(user_map) = event_map.get_mut(&old_event) {
+                                        user_map.remove(user_id);
+                                    }
+                                }
+                            }
+                        }
+
+                        // Add the receipt to the room event receipts
+                        self.room_event_receipts
+                            .entry(room.clone())
+                            .or_insert_with(DashMap::new)
+                            .entry(receipt_type.to_string())
+                            .or_insert_with(DashMap::new)
+                            .entry(event_id.clone())
+                            .or_insert_with(DashMap::new)
+                            .insert(user_id.clone(), receipt.clone());
+                    }
+                }
+            }
+        }
+
         info!("Saved changes in {:?}", now.elapsed());
 
         Ok(())
@@ -310,6 +356,35 @@ impl MemoryStore {
             .room_account_data
             .get(room_id)
             .and_then(|m| m.get(event_type.as_ref()).map(|e| e.clone())))
+    }
+
+    async fn get_user_room_receipt_event(
+        &self,
+        room_id: &RoomId,
+        receipt_type: ReceiptType,
+        user_id: &UserId,
+    ) -> Result<Option<(EventId, Receipt)>> {
+        Ok(self.room_user_receipts.get(room_id).and_then(|m| {
+            m.get(receipt_type.as_ref()).and_then(|m| m.get(user_id).map(|r| r.clone()))
+        }))
+    }
+
+    async fn get_event_room_receipt_events(
+        &self,
+        room_id: &RoomId,
+        receipt_type: ReceiptType,
+        event_id: &EventId,
+    ) -> Result<Vec<(UserId, Receipt)>> {
+        Ok(self
+            .room_event_receipts
+            .get(room_id)
+            .and_then(|m| {
+                m.get(receipt_type.as_ref()).and_then(|m| {
+                    m.get(event_id)
+                        .map(|m| m.iter().map(|r| (r.key().clone(), r.value().clone())).collect())
+                })
+            })
+            .unwrap_or_else(Vec::new))
     }
 }
 
@@ -407,5 +482,134 @@ impl StateStore for MemoryStore {
         event_type: EventType,
     ) -> Result<Option<Raw<AnyRoomAccountDataEvent>>> {
         self.get_room_account_data_event(room_id, event_type).await
+    }
+
+    async fn get_user_room_receipt_event(
+        &self,
+        room_id: &RoomId,
+        receipt_type: ReceiptType,
+        user_id: &UserId,
+    ) -> Result<Option<(EventId, Receipt)>> {
+        self.get_user_room_receipt_event(room_id, receipt_type, user_id).await
+    }
+
+    async fn get_event_room_receipt_events(
+        &self,
+        room_id: &RoomId,
+        receipt_type: ReceiptType,
+        event_id: &EventId,
+    ) -> Result<Vec<(UserId, Receipt)>> {
+        self.get_event_room_receipt_events(room_id, receipt_type, event_id).await
+    }
+}
+
+#[cfg(test)]
+#[cfg(not(feature = "sled_state_store"))]
+mod test {
+    use matrix_sdk_common::{
+        identifiers::{event_id, room_id, user_id},
+        receipt::ReceiptType,
+    };
+    use matrix_sdk_test::async_test;
+    use serde_json::json;
+
+    use super::{MemoryStore, StateChanges};
+
+    fn user_id() -> UserId {
+        user_id!("@example:localhost")
+    }
+
+    #[async_test]
+    async fn test_receipts_saving() {
+        let store = MemoryStore::new();
+
+        let room_id = room_id!("!test:localhost");
+
+        let first_event_id = event_id!("$1435641916114394fHBLK:matrix.org");
+        let second_event_id = event_id!("$fHBLK1435641916114394:matrix.org");
+
+        let first_receipt_event = serde_json::from_value(json!({
+            first_event_id.clone(): {
+                "m.read": {
+                    user_id(): {
+                        "ts": 1436451550453u64
+                    }
+                }
+            }
+        }))
+        .unwrap();
+
+        let second_receipt_event = serde_json::from_value(json!({
+            second_event_id.clone(): {
+                "m.read": {
+                    user_id(): {
+                        "ts": 1436451551453u64
+                    }
+                }
+            }
+        }))
+        .unwrap();
+
+        assert!(store
+            .get_user_room_receipt_event(&room_id, ReceiptType::Read, &user_id())
+            .await
+            .unwrap()
+            .is_none());
+        assert!(store
+            .get_event_room_receipt_events(&room_id, ReceiptType::Read, &first_event_id)
+            .await
+            .unwrap()
+            .is_empty());
+        assert!(store
+            .get_event_room_receipt_events(&room_id, ReceiptType::Read, &second_event_id)
+            .await
+            .unwrap()
+            .is_empty());
+
+        let mut changes = StateChanges::default();
+        changes.add_receipts(&room_id, first_receipt_event);
+
+        store.save_changes(&changes).await.unwrap();
+        assert!(store
+            .get_user_room_receipt_event(&room_id, ReceiptType::Read, &user_id())
+            .await
+            .unwrap()
+            .is_some(),);
+        assert_eq!(
+            store
+                .get_event_room_receipt_events(&room_id, ReceiptType::Read, &first_event_id)
+                .await
+                .unwrap()
+                .len(),
+            1
+        );
+        assert!(store
+            .get_event_room_receipt_events(&room_id, ReceiptType::Read, &second_event_id)
+            .await
+            .unwrap()
+            .is_empty());
+
+        let mut changes = StateChanges::default();
+        changes.add_receipts(&room_id, second_receipt_event);
+
+        store.save_changes(&changes).await.unwrap();
+        assert!(store
+            .get_user_room_receipt_event(&room_id, ReceiptType::Read, &user_id())
+            .await
+            .unwrap()
+            .is_some());
+        assert!(store
+            .get_event_room_receipt_events(&room_id, ReceiptType::Read, &first_event_id)
+            .await
+            .unwrap()
+            .is_empty());
+        assert_eq!(
+            store
+                .get_event_room_receipt_events(&room_id, ReceiptType::Read, &second_event_id)
+                .await
+                .unwrap()
+                .len(),
+            1
+        );
     }
 }
