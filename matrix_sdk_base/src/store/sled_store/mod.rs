@@ -161,11 +161,7 @@ impl EncodeKey for EventType {
 pub fn decode_key_value(key: &[u8], position: usize) -> Option<String> {
     let values: Vec<&[u8]> = key.split(|v| *v == ENCODE_SEPARATOR).collect();
 
-    if position >= values.len() {
-        return None;
-    }
-
-    Some(String::from_utf8_lossy(values[position]).to_string())
+    values.get(position).map(|s| String::from_utf8_lossy(s).to_string())
 }
 
 #[derive(Clone)]
