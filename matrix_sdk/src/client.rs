@@ -24,7 +24,7 @@ use std::{
 use std::{
     fmt::{self, Debug},
     future::Future,
-    io::Read,
+    io::{Cursor, Read},
     path::Path,
     result::Result as StdResult,
     sync::Arc,
@@ -41,7 +41,11 @@ use matrix_sdk_base::crypto::{
     OutgoingRequests, RoomMessageRequest, ToDeviceRequest,
 };
 use matrix_sdk_base::{
-    deserialized_responses::SyncResponse, events::AnyMessageEventContent, identifiers::MxcUri,
+    crypto::AttachmentDecryptor,
+    deserialized_responses::SyncResponse,
+    events::AnyMessageEventContent,
+    identifiers::MxcUri,
+    media::{MediaFormat, MediaRequest, MediaType},
     BaseClient, BaseClientConfig, SendAccessToken, Session, Store,
 };
 use mime::{self, Mime};
@@ -2464,6 +2468,94 @@ impl Client {
         let import = task.await.expect("Task join error").unwrap();
 
         Ok(olm.import_keys(import, |_, _| {}).await?)
+    }
+
+    /// Get a media file's content.
+    ///
+    /// If the content is encrypted and encryption is enabled, the content will
+    /// be decrypted.
+    ///
+    /// # Arguments
+    ///
+    /// * `request` - The `MediaRequest` of the content.
+    ///
+    /// * `use_cache` - If we should use the media cache for this request.
+    pub async fn get_media_content(
+        &self,
+        request: &MediaRequest,
+        use_cache: bool,
+    ) -> Result<Vec<u8>> {
+        let content = if use_cache {
+            self.base_client.store().get_media_content(request).await?
+        } else {
+            None
+        };
+
+        if let Some(content) = content {
+            Ok(content)
+        } else {
+            let content: Vec<u8> = match &request.media_type {
+                MediaType::Encrypted(file) => {
+                    let content: Vec<u8> =
+                        self.send(get_content::Request::from_url(&file.url)?, None).await?.file;
+
+                    #[cfg(feature = "encryption")]
+                    let content = {
+                        let mut cursor = Cursor::new(content);
+                        let mut reader =
+                            AttachmentDecryptor::new(&mut cursor, file.clone().into())?;
+
+                        let mut decrypted = Vec::new();
+                        reader.read_to_end(&mut decrypted)?;
+
+                        decrypted
+                    };
+
+                    content
+                }
+                MediaType::Uri(uri) => {
+                    if let MediaFormat::Thumbnail(size) = &request.format {
+                        self.send(
+                            get_content_thumbnail::Request::from_url(
+                                &uri,
+                                size.width,
+                                size.height,
+                            )?,
+                            None,
+                        )
+                        .await?
+                        .file
+                    } else {
+                        self.send(get_content::Request::from_url(&uri)?, None).await?.file
+                    }
+                }
+            };
+
+            if use_cache {
+                self.base_client.store().add_media_content(request, content.clone()).await?;
+            }
+
+            Ok(content)
+        }
+    }
+
+    /// Remove a media file's content from the store.
+    ///
+    /// # Arguments
+    ///
+    /// * `request` - The `MediaRequest` of the content.
+    pub async fn remove_media_content(&self, request: &MediaRequest) -> Result<()> {
+        Ok(self.base_client.store().remove_media_content(request).await?)
+    }
+
+    /// Delete all the media content corresponding to the given
+    /// uri from the store.
+    ///
+    /// # Arguments
+    ///
+    /// * `uri` - The `MxcUri` of the files.
+    pub async fn remove_media_content_for_uri(&self, uri: &MxcUri) -> Result<()> {
+        Ok(self.base_client.store().remove_media_content_for_uri(&uri).await?)
     }
 }
 
