@@ -2683,7 +2683,13 @@ mod test {
         time::Duration,
     };
 
-    use matrix_sdk_base::identifiers::mxc_uri;
+    use matrix_sdk_base::{
+        api::r0::media::get_content_thumbnail::Method,
+        events::room::{message::ImageMessageEventContent, ImageInfo},
+        identifiers::mxc_uri,
+        media::{MediaFormat, MediaRequest, MediaThumbnailSize, MediaType},
+        uint,
+    };
     use matrix_sdk_common::{
         api::r0::{
             account::register::Request as RegistrationRequest,
@@ -3756,5 +3762,75 @@ mod test {
         } else {
             panic!("this request should return an `Err` variant")
         }
+    }
+
+    #[tokio::test]
+    async fn get_media_content() {
+        let client = logged_in_client().await;
+
+        let request = MediaRequest {
+            media_type: MediaType::Uri(mxc_uri!("mxc://localhost/textfile")),
+            format: MediaFormat::File,
+        };
+
+        let m = mock(
+            "GET",
+            Matcher::Regex(r"^/_matrix/media/r0/download/localhost/textfile\?.*$".to_string()),
+        )
+        .with_status(200)
+        .with_body("Some very interesting text.")
+        .expect(2)
+        .create();
+
+        assert!(client.get_media_content(&request, true).await.is_ok());
+        assert!(client.get_media_content(&request, true).await.is_ok());
+        assert!(client.get_media_content(&request, false).await.is_ok());
+        m.assert();
+    }
+
+    #[tokio::test]
+    async fn get_media_file() {
+        let client = logged_in_client().await;
+
+        let event_content = ImageMessageEventContent::plain(
+            "filename.jpg".into(),
+            mxc_uri!("mxc://example.org/image"),
+            Some(Box::new(assign!(ImageInfo::new(), {
+                height: Some(uint!(398)),
+                width: Some(uint!(394)),
+                mimetype: Some("image/jpeg".into()),
+                size: Some(uint!(31037)),
+            }))),
+        );
+
+        let m = mock(
+            "GET",
+            Matcher::Regex(r"^/_matrix/media/r0/download/example%2Eorg/image\?.*$".to_string()),
+        )
+        .with_status(200)
+        .with_body("binaryjpegdata")
+        .create();
+
+        assert!(client.get_file(event_content.clone(), true).await.is_ok());
+        assert!(client.get_file(event_content.clone(), true).await.is_ok());
+        m.assert();
+
+        let m = mock(
+            "GET",
+            Matcher::Regex(r"^/_matrix/media/r0/thumbnail/example%2Eorg/image\?.*$".to_string()),
+        )
+        .with_status(200)
+        .with_body("smallerbinaryjpegdata")
+        .create();
+
+        assert!(client
+            .get_thumbnail(
+                event_content,
+                MediaThumbnailSize { method: Method::Scale, width: uint!(100), height: uint!(100) },
+                true
+            )
+            .await
+            .is_ok());
+        m.assert();
     }
 }
