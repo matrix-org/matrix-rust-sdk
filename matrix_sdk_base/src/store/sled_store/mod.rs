@@ -844,7 +844,8 @@ mod test {
             },
             AnySyncStateEvent, EventType, Unsigned,
         },
-        identifiers::{room_id, user_id, EventId, UserId},
+        identifiers::{event_id, room_id, user_id, EventId, UserId},
+        receipt::ReceiptType,
         MilliSecondsSinceUnixEpoch, Raw,
     };
     use matrix_sdk_test::async_test;
@@ -928,5 +929,100 @@ mod test {
             .await
             .unwrap()
             .is_some());
+    }
+
+    #[async_test]
+    async fn test_receipts_saving() {
+        let store = SledStore::open().unwrap();
+
+        let room_id = room_id!("!test:localhost");
+        let user_id = user_id!("@rikj:jki.re");
+
+        let first_event_id = event_id!("$1435641916114394fHBLK:matrix.org");
+        let second_event_id = event_id!("$fHBLK1435641916114394:matrix.org");
+
+        let first_receipt_event = serde_json::from_value(json!({
+            first_event_id.clone(): {
+                "m.read": {
+                    user_id.clone(): {
+                        "ts": 1436451550453u64
+                    }
+                }
+            }
+        }))
+        .unwrap();
+
+        let second_receipt_event = serde_json::from_value(json!({
+            second_event_id.clone(): {
+                "m.read": {
+                    user_id.clone(): {
+                        "ts": 1436451551453u64
+                    }
+                }
+            }
+        }))
+        .unwrap();
+
+        assert!(store
+            .get_user_room_receipt_event(&room_id, ReceiptType::Read, &user_id)
+            .await
+            .unwrap()
+            .is_none());
+        assert!(store
+            .get_event_room_receipt_events(&room_id, ReceiptType::Read, &first_event_id)
+            .await
+            .unwrap()
+            .is_empty());
+        assert!(store
+            .get_event_room_receipt_events(&room_id, ReceiptType::Read, &second_event_id)
+            .await
+            .unwrap()
+            .is_empty());
+
+        let mut changes = StateChanges::default();
+        changes.add_receipts(&room_id, first_receipt_event);
+
+        store.save_changes(&changes).await.unwrap();
+        assert!(store
+            .get_user_room_receipt_event(&room_id, ReceiptType::Read, &user_id)
+            .await
+            .unwrap()
+            .is_some(),);
+        assert_eq!(
+            store
+                .get_event_room_receipt_events(&room_id, ReceiptType::Read, &first_event_id)
+                .await
+                .unwrap()
+                .len(),
+            1
+        );
+        assert!(store
+            .get_event_room_receipt_events(&room_id, ReceiptType::Read, &second_event_id)
+            .await
+            .unwrap()
+            .is_empty());
+
+        let mut changes = StateChanges::default();
+        changes.add_receipts(&room_id, second_receipt_event);
+
+        store.save_changes(&changes).await.unwrap();
+        assert!(store
+            .get_user_room_receipt_event(&room_id, ReceiptType::Read, &user_id)
+            .await
+            .unwrap()
+            .is_some());
+        assert!(store
+            .get_event_room_receipt_events(&room_id, ReceiptType::Read, &first_event_id)
+            .await
+            .unwrap()
+            .is_empty());
+        assert_eq!(
+            store
+                .get_event_room_receipt_events(&room_id, ReceiptType::Read, &second_event_id)
+                .await
+                .unwrap()
+                .len(),
+            1
+        );
     }
 }
