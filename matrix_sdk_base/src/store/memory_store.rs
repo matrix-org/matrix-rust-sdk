@@ -18,6 +18,7 @@ use std::{
 };
 
 use dashmap::{DashMap, DashSet};
+use lru::LruCache;
 use matrix_sdk_common::{
     async_trait,
     events::{
@@ -27,15 +28,19 @@ use matrix_sdk_common::{
         AnyGlobalAccountDataEvent, AnyRoomAccountDataEvent, AnyStrippedStateEvent,
         AnySyncStateEvent, EventType,
     },
-    identifiers::{EventId, RoomId, UserId},
+    identifiers::{EventId, MxcUri, RoomId, UserId},
     instant::Instant,
+    locks::Mutex,
     receipt::ReceiptType,
     Raw,
 };
 use tracing::info;
 
 use super::{Result, RoomInfo, StateChanges, StateStore};
-use crate::deserialized_responses::{MemberEvent, StrippedMemberEvent};
+use crate::{
+    deserialized_responses::{MemberEvent, StrippedMemberEvent},
+    media::{MediaRequest, UniqueKey},
+};
 
 #[derive(Debug, Clone)]
 pub struct MemoryStore {
@@ -62,6 +67,7 @@ pub struct MemoryStore {
     #[allow(clippy::type_complexity)]
     room_event_receipts:
         Arc<DashMap<RoomId, DashMap<String, DashMap<EventId, DashMap<UserId, Receipt>>>>>,
+    media: Arc<Mutex<LruCache<String, Vec<u8>>>>,
 }
 
 impl MemoryStore {
@@ -85,6 +91,7 @@ impl MemoryStore {
             presence: DashMap::new().into(),
             room_user_receipts: DashMap::new().into(),
             room_event_receipts: DashMap::new().into(),
+            media: Arc::new(Mutex::new(LruCache::new(100))),
         }
     }
 
@@ -386,6 +393,39 @@ impl MemoryStore {
             })
             .unwrap_or_else(Vec::new))
     }
+
+    async fn add_media_content(&self, request: &MediaRequest, data: Vec<u8>) -> Result<()> {
+        self.media.lock().await.put(request.unique_key(), data);
+
+        Ok(())
+    }
+
+    async fn get_media_content(&self, request: &MediaRequest) -> Result<Option<Vec<u8>>> {
+        Ok(self.media.lock().await.get(&request.unique_key()).cloned())
+    }
+
+    async fn remove_media_content(&self, request: &MediaRequest) -> Result<()> {
+        self.media.lock().await.pop(&request.unique_key());
+
+        Ok(())
+    }
+
+    async fn remove_media_content_for_uri(&self, uri: &MxcUri) -> Result<()> {
+        let mut media_store = self.media.lock().await;
+
+        let keys: Vec<String> = media_store
+            .iter()
+            .filter_map(
+                |(key, _)| if key.starts_with(&uri.to_string()) { Some(key.clone()) } else { None },
+            )
+            .collect();
+
+        for key in keys {
+            media_store.pop(&key);
+        }
+
+        Ok(())
+    }
 }
 
 #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
@@ -500,6 +540,22 @@ impl StateStore for MemoryStore {
         event_id: &EventId,
     ) -> Result<Vec<(UserId, Receipt)>> {
         self.get_event_room_receipt_events(room_id, receipt_type, event_id).await
+    }
+
+    async fn add_media_content(&self, request: &MediaRequest, data: Vec<u8>) -> Result<()> {
+        self.add_media_content(request, data).await
+    }
+
+    async fn get_media_content(&self, request: &MediaRequest) -> Result<Option<Vec<u8>>> {
+        self.get_media_content(request).await
+    }
+
+    async fn remove_media_content(&self, request: &MediaRequest) -> Result<()> {
+        self.remove_media_content(request).await
+    }
+
+    async fn remove_media_content_for_uri(&self, uri: &MxcUri) -> Result<()> {
+        self.remove_media_content_for_uri(uri).await
     }
 }
 

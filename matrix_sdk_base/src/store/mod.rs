@@ -31,7 +31,7 @@ use matrix_sdk_common::{
         AnyGlobalAccountDataEvent, AnyRoomAccountDataEvent, AnyStrippedStateEvent,
         AnySyncStateEvent, EventContent, EventType,
     },
-    identifiers::{EventId, RoomId, UserId},
+    identifiers::{EventId, MxcUri, RoomId, UserId},
     locks::RwLock,
     receipt::ReceiptType,
     AsyncTraitDeps, Raw,
@@ -41,6 +41,7 @@ use sled::Db;
 
 use crate::{
     deserialized_responses::{MemberEvent, StrippedMemberEvent},
+    media::MediaRequest,
     rooms::{RoomInfo, RoomType},
     Room, Session,
 };
@@ -249,6 +250,37 @@ pub trait StateStore: AsyncTraitDeps {
         receipt_type: ReceiptType,
         event_id: &EventId,
     ) -> Result<Vec<(UserId, Receipt)>>;
+
+    /// Add a media file's content in the media store.
+    ///
+    /// # Arguments
+    ///
+    /// * `request` - The `MediaRequest` of the file.
+    ///
+    /// * `content` - The content of the file.
+    async fn add_media_content(&self, request: &MediaRequest, content: Vec<u8>) -> Result<()>;
+
+    /// Get a media file's content out of the media store.
+    ///
+    /// # Arguments
+    ///
+    /// * `request` - The `MediaRequest` of the file.
+    async fn get_media_content(&self, request: &MediaRequest) -> Result<Option<Vec<u8>>>;
+
+    /// Removes a media file's content from the media store.
+    ///
+    /// # Arguments
+    ///
+    /// * `request` - The `MediaRequest` of the file.
+    async fn remove_media_content(&self, request: &MediaRequest) -> Result<()>;
+
+    /// Removes all the media files' content associated to an `MxcUri` from the
+    /// media store.
+    ///
+    /// # Arguments
+    ///
+    /// * `uri` - The `MxcUri` of the media files.
+    async fn remove_media_content_for_uri(&self, uri: &MxcUri) -> Result<()>;
 }
 
 /// A state store wrapper for the SDK.
