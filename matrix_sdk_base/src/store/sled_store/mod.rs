@@ -900,6 +900,7 @@ mod test {
     use std::convert::TryFrom;
 
     use matrix_sdk_common::{
+        api::r0::media::get_content_thumbnail::Method,
         events::{
             room::{
                 member::{MemberEventContent, MembershipState},
@@ -907,15 +908,19 @@ mod test {
             },
             AnySyncStateEvent, EventType, Unsigned,
         },
-        identifiers::{event_id, room_id, user_id, EventId, UserId},
+        identifiers::{event_id, mxc_uri, room_id, user_id, EventId, UserId},
         receipt::ReceiptType,
-        MilliSecondsSinceUnixEpoch, Raw,
+        uint, MilliSecondsSinceUnixEpoch, Raw,
     };
     use matrix_sdk_test::async_test;
     use serde_json::json;
 
     use super::{SledStore, StateChanges};
-    use crate::{deserialized_responses::MemberEvent, StateStore};
+    use crate::{
+        deserialized_responses::MemberEvent,
+        media::{MediaFormat, MediaRequest, MediaThumbnailSize, MediaType},
+        StateStore,
+    };
 
     fn user_id() -> UserId {
         user_id!("@example:localhost")
@@ -1086,5 +1091,44 @@ mod test {
                 .len(),
             1
         );
+    }
+
+    #[async_test]
+    async fn test_media_content() {
+        let store = SledStore::open().unwrap();
+
+        let uri = mxc_uri!("mxc://localhost/media");
+        let content: Vec<u8> = "somebinarydata".into();
+
+        let request_file =
+            MediaRequest { media_type: MediaType::Uri(uri.clone()), format: MediaFormat::File };
+
+        let request_thumbnail = MediaRequest {
+            media_type: MediaType::Uri(uri.clone()),
+            format: MediaFormat::Thumbnail(MediaThumbnailSize {
+                method: Method::Crop,
+                width: uint!(100),
+                height: uint!(100),
+            }),
+        };
+
+        assert!(store.get_media_content(&request_file).await.unwrap().is_none());
+        assert!(store.get_media_content(&request_thumbnail).await.unwrap().is_none());
+
+        store.add_media_content(&request_file, content.clone()).await.unwrap();
+        assert!(store.get_media_content(&request_file).await.unwrap().is_some());
+
+        store.remove_media_content(&request_file).await.unwrap();
+        assert!(store.get_media_content(&request_file).await.unwrap().is_none());
+
+        store.add_media_content(&request_file, content.clone()).await.unwrap();
+        assert!(store.get_media_content(&request_file).await.unwrap().is_some());
+
+        store.add_media_content(&request_thumbnail, content.clone()).await.unwrap();
+        assert!(store.get_media_content(&request_thumbnail).await.unwrap().is_some());
+
+        store.remove_media_content_for_uri(&uri).await.unwrap();
+        assert!(store.get_media_content(&request_file).await.unwrap().is_none());
+        assert!(store.get_media_content(&request_thumbnail).await.unwrap().is_none());
     }
 }

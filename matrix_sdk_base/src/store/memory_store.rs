@@ -563,13 +563,16 @@ impl StateStore for MemoryStore {
 #[cfg(not(feature = "sled_state_store"))]
 mod test {
     use matrix_sdk_common::{
-        identifiers::{event_id, room_id, user_id},
+        api::r0::media::get_content_thumbnail::Method,
+        identifiers::{event_id, mxc_uri, room_id, user_id, UserId},
         receipt::ReceiptType,
+        uint,
     };
     use matrix_sdk_test::async_test;
     use serde_json::json;
 
     use super::{MemoryStore, StateChanges};
+    use crate::media::{MediaFormat, MediaRequest, MediaThumbnailSize, MediaType};
 
     fn user_id() -> UserId {
         user_id!("@example:localhost")
@@ -667,5 +670,44 @@ mod test {
                 .len(),
             1
         );
+    }
+
+    #[async_test]
+    async fn test_media_content() {
+        let store = MemoryStore::new();
+
+        let uri = mxc_uri!("mxc://localhost/media");
+        let content: Vec<u8> = "somebinarydata".into();
+
+        let request_file =
+            MediaRequest { media_type: MediaType::Uri(uri.clone()), format: MediaFormat::File };
+
+        let request_thumbnail = MediaRequest {
+            media_type: MediaType::Uri(uri.clone()),
+            format: MediaFormat::Thumbnail(MediaThumbnailSize {
+                method: Method::Crop,
+                width: uint!(100),
+                height: uint!(100),
+            }),
+        };
+
+        assert!(store.get_media_content(&request_file).await.unwrap().is_none());
+        assert!(store.get_media_content(&request_thumbnail).await.unwrap().is_none());
+
+        store.add_media_content(&request_file, content.clone()).await.unwrap();
+        assert!(store.get_media_content(&request_file).await.unwrap().is_some());
+
+        store.remove_media_content(&request_file).await.unwrap();
+        assert!(store.get_media_content(&request_file).await.unwrap().is_none());
+
+        store.add_media_content(&request_file, content.clone()).await.unwrap();
+        assert!(store.get_media_content(&request_file).await.unwrap().is_some());
+
+        store.add_media_content(&request_thumbnail, content.clone()).await.unwrap();
+        assert!(store.get_media_content(&request_thumbnail).await.unwrap().is_some());
+
+        store.remove_media_content_for_uri(&uri).await.unwrap();
+        assert!(store.get_media_content(&request_file).await.unwrap().is_none());
+        assert!(store.get_media_content(&request_thumbnail).await.unwrap().is_none());
     }
 }
