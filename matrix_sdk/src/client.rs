@@ -3421,6 +3421,7 @@ mod test {
             .with_status(200)
             .match_header("authorization", "Bearer 1234")
             .with_body(test_json::SYNC.to_string())
+            .expect_at_least(1)
             .create();
 
         let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
@@ -3430,6 +3431,19 @@ mod test {
         let room = client.get_joined_room(&room_id!("!SVkFJHzfwvuaIEawgC:localhost")).unwrap();
 
         assert_eq!("tutorial".to_string(), room.display_name().await.unwrap());
+
+        let _m = mock("GET", Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_string()))
+            .with_status(200)
+            .match_header("authorization", "Bearer 1234")
+            .with_body(test_json::INVITE_SYNC.to_string())
+            .expect_at_least(1)
+            .create();
+
+        let _response = client.sync_once(SyncSettings::new()).await.unwrap();
+
+        let invited_room = client.get_invited_room(&room_id!("!696r7674:example.com")).unwrap();
+
+        assert_eq!("My Room Name".to_string(), invited_room.display_name().await.unwrap());
     }
 
     #[tokio::test]

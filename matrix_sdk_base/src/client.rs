@@ -685,7 +685,7 @@ impl BaseClient {
                     for room_id in rooms {
                         if let Some(room) = changes.room_infos.get_mut(room_id) {
                             room.base_info.dm_target = Some(user_id.clone());
-                        } else if let Some(room) = self.store.get_bare_room(room_id) {
+                        } else if let Some(room) = self.store.get_room(room_id) {
                             let mut info = room.clone_info();
                             info.base_info.dm_target = Some(user_id.clone());
                             changes.add_room(info);
@@ -931,7 +931,7 @@ impl BaseClient {
 
     async fn apply_changes(&self, changes: &StateChanges) {
         for (room_id, room_info) in &changes.room_infos {
-            if let Some(room) = self.store.get_bare_room(&room_id) {
+            if let Some(room) = self.store.get_room(&room_id) {
                 room.update_summary(room_info.clone())
             }
         }
@@ -958,7 +958,7 @@ impl BaseClient {
             .collect();
         let mut ambiguity_cache = AmbiguityCache::new(self.store.clone());
 
-        if let Some(room) = self.store.get_bare_room(room_id) {
+        if let Some(room) = self.store.get_room(room_id) {
             let mut room_info = room.clone_info();
             room_info.mark_members_synced();
 

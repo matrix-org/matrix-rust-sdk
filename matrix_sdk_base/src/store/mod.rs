@@ -291,11 +291,6 @@ impl Store {
         Ok((Self::new(Box::new(inner.clone())), inner.inner))
     }
 
-    pub(crate) fn get_bare_room(&self, room_id: &RoomId) -> Option<Room> {
-        #[allow(clippy::map_clone)]
-        self.rooms.get(room_id).map(|r| r.clone())
-    }
-
     /// Get all the rooms this store knows about.
     pub fn get_rooms(&self) -> Vec<Room> {
         self.rooms.iter().filter_map(|r| self.get_room(r.key())).collect()
@@ -303,15 +298,17 @@ impl Store {
 
     /// Get the room with the given room id.
     pub fn get_room(&self, room_id: &RoomId) -> Option<Room> {
-        self.get_bare_room(room_id).and_then(|r| match r.room_type() {
-            RoomType::Joined => Some(r),
-            RoomType::Left => Some(r),
-            RoomType::Invited => self.get_stripped_room(room_id),
-        })
+        self.rooms
+            .get(room_id)
+            .and_then(|r| match r.room_type() {
+                RoomType::Joined => Some(r.clone()),
+                RoomType::Left => Some(r.clone()),
+                RoomType::Invited => self.get_stripped_room(room_id),
+            })
+            .or_else(|| self.get_stripped_room(room_id))
     }
 
     fn get_stripped_room(&self, room_id: &RoomId) -> Option<Room> {
-        #[allow(clippy::map_clone)]
         self.stripped_rooms.get(room_id).map(|r| r.clone())
     }
 
@@ -404,7 +401,7 @@ impl StateChanges {
 
     /// Update the `StateChanges` struct with the given `RoomInfo`.
     pub fn add_stripped_room(&mut self, room: RoomInfo) {
-        self.invited_room_info.insert(room.room_id.as_ref().to_owned(), room);
+        self.room_infos.insert(room.room_id.as_ref().to_owned(), room);
     }
 
     /// Update the `StateChanges` struct with the given `AnyBasicEvent`.
