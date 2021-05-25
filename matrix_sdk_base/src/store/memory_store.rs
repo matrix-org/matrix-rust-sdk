@@ -515,12 +515,15 @@ mod test {
 
     use super::{MemoryStore, StateChanges};
 
+    fn user_id() -> UserId {
+        user_id!("@example:localhost")
+    }
+
     #[async_test]
     async fn test_receipts_saving() {
         let store = MemoryStore::new();
 
         let room_id = room_id!("!test:localhost");
-        let user_id = user_id!("@rikj:jki.re");
 
         let first_event_id = event_id!("$1435641916114394fHBLK:matrix.org");
         let second_event_id = event_id!("$fHBLK1435641916114394:matrix.org");
@@ -528,7 +531,7 @@ mod test {
         let first_receipt_event = serde_json::from_value(json!({
             first_event_id.clone(): {
                 "m.read": {
-                    user_id.clone(): {
+                    user_id(): {
                         "ts": 1436451550453u64
                     }
                 }
@@ -539,7 +542,7 @@ mod test {
         let second_receipt_event = serde_json::from_value(json!({
             second_event_id.clone(): {
                 "m.read": {
-                    user_id.clone(): {
+                    user_id(): {
                         "ts": 1436451551453u64
                     }
                 }
@@ -548,7 +551,7 @@ mod test {
         .unwrap();
 
         assert!(store
-            .get_user_room_receipt_event(&room_id, ReceiptType::Read, &user_id)
+            .get_user_room_receipt_event(&room_id, ReceiptType::Read, &user_id())
             .await
             .unwrap()
             .is_none());
@@ -568,7 +571,7 @@ mod test {
 
         store.save_changes(&changes).await.unwrap();
         assert!(store
-            .get_user_room_receipt_event(&room_id, ReceiptType::Read, &user_id)
+            .get_user_room_receipt_event(&room_id, ReceiptType::Read, &user_id())
             .await
             .unwrap()
             .is_some(),);
@@ -591,7 +594,7 @@ mod test {
 
         store.save_changes(&changes).await.unwrap();
         assert!(store
-            .get_user_room_receipt_event(&room_id, ReceiptType::Read, &user_id)
+            .get_user_room_receipt_event(&room_id, ReceiptType::Read, &user_id())
             .await
             .unwrap()
             .is_some());
