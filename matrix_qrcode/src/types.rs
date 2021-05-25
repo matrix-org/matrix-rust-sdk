@@ -327,6 +327,44 @@ impl QrVerification {
             m => Err(DecodingError::Mode(m)),
         }
     }
+
+    /// Get the flow id for this `QrVerification`.
+    ///
+    /// This represents the ID as a string even if it is a `EventId`.
+    pub fn flow_id(&self) -> &str {
+        match self {
+            QrVerification::Verification(v) => &v.event_id.as_str(),
+            QrVerification::SelfVerification(v) => &v.transaction_id,
+            QrVerification::SelfVerificationNoMasterKey(v) => &v.transaction_id,
+        }
+    }
+
+    /// Get the first key of this `QrVerification`.
+    pub fn first_key(&self) -> &str {
+        match self {
+            QrVerification::Verification(v) => &v.first_master_key,
+            QrVerification::SelfVerification(v) => &v.master_key,
+            QrVerification::SelfVerificationNoMasterKey(v) => &v.device_key,
+        }
+    }
+
+    /// Get the second key of this `QrVerification`.
+    pub fn second_key(&self) -> &str {
+        match self {
+            QrVerification::Verification(v) => &v.second_master_key,
+            QrVerification::SelfVerification(v) => &v.device_key,
+            QrVerification::SelfVerificationNoMasterKey(v) => &v.master_key,
+        }
+    }
+
+    /// Get the secret of this `QrVerification`.
+    pub fn secret(&self) -> &str {
+        match self {
+            QrVerification::Verification(v) => &v.shared_secret,
+            QrVerification::SelfVerification(v) => &v.shared_secret,
+            QrVerification::SelfVerificationNoMasterKey(v) => &v.shared_secret,
+        }
+    }
 }
 
 /// The non-encoded data for the first mode of QR code verification.
