@@ -45,7 +45,7 @@ use matrix_sdk_base::{
     deserialized_responses::SyncResponse,
     events::AnyMessageEventContent,
     identifiers::MxcUri,
-    media::{MediaFormat, MediaRequest, MediaType},
+    media::{MediaEventContent, MediaFormat, MediaRequest, MediaThumbnailSize, MediaType},
     BaseClient, BaseClientConfig, SendAccessToken, Session, Store,
 };
 use mime::{self, Mime};
@@ -2503,7 +2503,7 @@ impl Client {
                     let content = {
                         let mut cursor = Cursor::new(content);
                         let mut reader =
-                            AttachmentDecryptor::new(&mut cursor, file.clone().into())?;
+                            AttachmentDecryptor::new(&mut cursor, file.as_ref().clone().into())?;
 
                         let mut decrypted = Vec::new();
                         reader.read_to_end(&mut decrypted)?;
@@ -2556,6 +2556,120 @@ impl Client {
     /// * `uri` - The `MxcUri` of the files.
     pub async fn remove_media_content_for_uri(&self, uri: &MxcUri) -> Result<()> {
         Ok(self.base_client.store().remove_media_content_for_uri(&uri).await?)
+    }
+
+    /// Get the file of the given media event content.
+    ///
+    /// If the content is encrypted and encryption is enabled, the content will
+    /// be decrypted.
+    ///
+    /// Returns `Ok(None)` if the event content has no file.
+    ///
+    /// This is a convenience method that calls the
+    /// [`get_media_content`](#method.get_media_content) method.
+    ///
+    /// # Arguments
+    ///
+    /// * `event_content` - The media event content.
+    ///
+    /// * `use_cache` - If we should use the media cache for this file.
+    pub async fn get_file(
+        &self,
+        event_content: impl MediaEventContent,
+        use_cache: bool,
+    ) -> Result<Option<Vec<u8>>> {
+        if let Some(media_type) = event_content.file() {
+            Ok(Some(
+                self.get_media_content(
+                    &MediaRequest { media_type, format: MediaFormat::File },
+                    use_cache,
+                )
+                .await?,
+            ))
+        } else {
+            Ok(None)
+        }
+    }
+
+    /// Remove the file of the given media event content from the cache.
+    ///
+    /// This is a convenience method that calls the
+    /// [`remove_media_content`](#method.remove_media_content) method.
+    ///
+    /// # Arguments
+    ///
+    /// * `event_content` - The media event content.
+    pub async fn remove_file(&self, event_content: impl MediaEventContent) -> Result<()> {
+        if let Some(media_type) = event_content.file() {
+            self.remove_media_content(&MediaRequest { media_type, format: MediaFormat::File })
+                .await?
+        }
+
+        Ok(())
+    }
+
+    /// Get a thumbnail of the given media event content.
+    ///
+    /// If the content is encrypted and encryption is enabled, the content will
+    /// be decrypted.
+    ///
+    /// Returns `Ok(None)` if the event content has no thumbnail.
+    ///
+    /// This is a convenience method that calls the
+    /// [`get_media_content`](#method.get_media_content) method.
+    ///
+    /// # Arguments
+    ///
+    /// * `event_content` - The media event content.
+    ///
+    /// * `size` - The _desired_ size of the thumbnail. The actual thumbnail may
+    ///   not match the size specified.
+    ///
+    /// * `use_cache` - If we should use the media cache for this thumbnail.
+    pub async fn get_thumbnail(
+        &self,
+        event_content: impl MediaEventContent,
+        size: MediaThumbnailSize,
+        use_cache: bool,
+    ) -> Result<Option<Vec<u8>>> {
+        if let Some(media_type) = event_content.thumbnail() {
+            Ok(Some(
+                self.get_media_content(
+                    &MediaRequest { media_type, format: MediaFormat::Thumbnail(size) },
+                    use_cache,
+                )
+                .await?,
+            ))
+        } else {
+            Ok(None)
+        }
+    }
+
+    /// Remove the thumbnail of the given media event content from the cache.
+    ///
+    /// This is a convenience method that calls the
+    /// [`remove_media_content`](#method.remove_media_content) method.
+    ///
+    /// # Arguments
+    ///
+    /// * `event_content` - The media event content.
+    ///
+    /// * `size` - The _desired_ size of the thumbnail. Must match the size
+    ///   requested with [`get_thumbnail`](#method.get_thumbnail).
+    pub async fn remove_thumbnail(
+        &self,
+        event_content: impl MediaEventContent,
+        size: MediaThumbnailSize,
+    ) -> Result<()> {
+        if let Some(media_type) = event_content.file() {
+            self.remove_media_content(&MediaRequest {
+                media_type,
+                format: MediaFormat::Thumbnail(size),
+            })
+            .await?
+        }
+
+        Ok(())
     }
 }
 
