@@ -59,7 +59,7 @@ fn member_json() -> serde_json::Value {
 
 #[async_test]
 async fn test_event_handler() -> Result<()> {
-    let appservice = appservice(None).await?;
+    let mut appservice = appservice(None).await?;
 
     struct Example {}
 
@@ -94,7 +94,7 @@ async fn test_event_handler() -> Result<()> {
 
 #[async_test]
 async fn test_transaction() -> Result<()> {
-    let appservice = appservice(None).await?;
+    let mut appservice = appservice(None).await?;
 
     let event = serde_json::from_value::<AnyStateEvent>(member_json()).unwrap();
     let event: Raw<AnyRoomEvent> = AnyRoomEvent::State(event).into();

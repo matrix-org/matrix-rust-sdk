@@ -58,7 +58,7 @@
 //!             regex: '@_appservice_.*'
 //!     ")?;
 //!
-//! let appservice = Appservice::new(homeserver_url, server_name, registration).await?;
+//! let mut appservice = Appservice::new(homeserver_url, server_name, registration).await?;
 //! appservice.set_event_handler(Box::new(AppserviceEventHandler)).await?;
 //!
 //! let (host, port) = appservice.registration().get_host_and_port()?;
@@ -85,6 +85,7 @@ use std::{
     sync::Arc,
 };
 
+use dashmap::DashMap;
 use http::Uri;
 #[doc(inline)]
 pub use matrix_sdk::api_appservice as api;
@@ -100,8 +101,7 @@ use matrix_sdk::{
     assign,
     identifiers::{self, DeviceId, ServerNameBox, UserId},
     reqwest::Url,
-    Client, ClientConfig, EventHandler, FromHttpResponseError, HttpError, RequestConfig,
-    ServerError, Session,
+    Client, ClientConfig, EventHandler, FromHttpResponseError, HttpError, ServerError, Session,
 };
 use regex::Regex;
 use tracing::warn;
@@ -175,21 +175,14 @@ impl Deref for AppserviceRegistration {
     }
 }
 
-async fn client_session_with_login_restore(
-    client: &Client,
-    registration: &AppserviceRegistration,
-    localpart: impl AsRef<str> + Into<Box<str>>,
-    server_name: &ServerNameBox,
-) -> Result<()> {
-    let session = Session {
-        access_token: registration.as_token.clone(),
-        user_id: UserId::parse_with_server_name(localpart, server_name)?,
-        device_id: DeviceId::new(),
-    };
-    client.restore_login(session).await?;
+type Localpart = String;
 
-    Ok(())
-}
+/// The main appservice user is the `sender_localpart` from the given
+/// [`AppserviceRegistration`]
+///
+/// Dummy type for shared documentation
+#[allow(dead_code)]
+pub type MainAppserviceUser = ();
 
 /// Appservice
 #[derive(Debug, Clone)]
@@ -197,7 +190,7 @@ pub struct Appservice {
     homeserver_url: Url,
     server_name: ServerNameBox,
     registration: Arc<AppserviceRegistration>,
-    client_sender_localpart: Client,
+    clients: Arc<DashMap<Localpart, Client>>,
 }
 
 impl Appservice {
@@ -235,12 +228,14 @@ impl Appservice {
         Ok(Appservice { homeserver_url, server_name, registration, client_sender_localpart })
     }
 
-    /// Get a [`Client`]
+    /// Create a [`Client`]
     ///
-    /// Will return a `Client` that's configured to [assert the identity] on all
-    /// outgoing homeserver requests if `localpart` is given. If not given
-    /// the `Client` will use the main user associated with this appservice,
-    /// that is the `sender_localpart` in the [`AppserviceRegistration`]
+    /// Will create and return a [`Client`] that's configured to [assert the
+    /// identity] on all outgoing homeserver requests if `localpart` is
+    /// given. If not given the [`Client`] will use the [`MainAppserviceUser`].
+    ///
+    /// This method is a singleton that saves the client internally for re-use
+    /// based on the `localpart`.
     ///
     /// # Arguments
     ///
@@ -248,26 +243,47 @@ impl Appservice {
     ///
     /// [registration]: https://matrix.org/docs/spec/application_service/r0.1.2#registration
     /// [assert the identity]: https://matrix.org/docs/spec/application_service/r0.1.2#identity-assertion
-    pub async fn client(&self, localpart: Option<&str>) -> Result<Client> {
+    pub async fn client(&mut self, localpart: Option<&str>) -> Result<Client> {
+        let client = self.client_with_config(localpart, ClientConfig::default()).await?;
+
+        Ok(client)
+    }
+
+    /// Same as [`Self::client`] but with the ability to pass in a
+    /// [`ClientConfig`]
+    ///
+    /// Since this method is a singleton follow-up calls with different
+    /// [`ClientConfig`]s will be ignored.
+    pub async fn client_with_config(
+        &mut self,
+        localpart: Option<&str>,
+        config: ClientConfig,
+    ) -> Result<Client> {
         let localpart = localpart.unwrap_or_else(|| self.registration.sender_localpart.as_ref());
 
-        // The `as_token` in the `Session` maps to the main appservice user
-        // (`sender_localpart`) by default, so we don't need to assert identity
-        // in that case
-        let client = if localpart == self.registration.sender_localpart {
-            self.client_sender_localpart.clone()
+        let client = if let Some(client) = self.clients.get(localpart) {
+            client.clone()
         } else {
-            let request_config = RequestConfig::default().assert_identity();
-            let config = ClientConfig::default().request_config(request_config);
+            let user_id = UserId::parse_with_server_name(localpart, &self.server_name)?;
+
+            // The `as_token` in the `Session` maps to the [`MainAppserviceUser`]
+            // (`sender_localpart`) by default, so we don't need to assert identity
+            // in that case
+            if localpart != self.registration.sender_localpart {
+                config.get_request_config().assert_identity();
+            }
+
             let client = Client::new_with_config(self.homeserver_url.clone(), config)?;
 
-            client_session_with_login_restore(
-                &client,
-                &self.registration,
-                localpart,
-                &self.server_name,
-            )
-            .await?;
+            let session = Session {
+                access_token: self.registration.as_token.clone(),
+                user_id: user_id.clone(),
+                // TODO: expose & proper E2EE
+                device_id: DeviceId::new(),
+            };
+
+            client.restore_login(session).await?;
+            self.clients.insert(localpart.to_owned(), client.clone());
 
             client
         };
@@ -275,9 +291,26 @@ impl Appservice {
         Ok(client)
     }
 
+    /// Get cached [`Client`]
+    ///
+    /// Will return the client for the given `localpart` if previously
+    /// constructed with [`Self::client()`] or [`Self::client_with_config()`].
+    /// If no client for the `localpart` is found it will return an Error.
+    pub fn get_cached_client(&self, localpart: Option<&str>) -> Result<Client> {
+        let localpart = localpart.unwrap_or_else(|| self.registration.sender_localpart.as_ref());
+
+        let entry = self.clients.get(localpart).ok_or(Error::NoClientForLocalpart)?;
+
+        Ok(entry.value().clone())
+    }
+
     /// Convenience wrapper around [`Client::set_event_handler()`]
-    pub async fn set_event_handler(&self, handler: Box<dyn EventHandler>) -> Result<()> {
+    ///
+    /// Attaches the event handler to [`Self::client()`] with `None` as
+    /// `localpart`
+    pub async fn set_event_handler(&mut self, handler: Box<dyn EventHandler>) -> Result<()> {
         let client = self.client(None).await?;
+
         client.set_event_handler(handler).await;
 
         Ok(())
@@ -290,7 +323,7 @@ impl Appservice {
     ///
     /// * `localpart` - The localpart of the user to register. Must be covered
     ///   by the namespaces in the [`Registration`] in order to succeed.
-    pub async fn register(&self, localpart: impl AsRef<str>) -> Result<()> {
+    pub async fn register(&mut self, localpart: impl AsRef<str>) -> Result<()> {
         let request = assign!(RegistrationRequest::new(), {
             username: Some(localpart.as_ref()),
             login_type: Some(&LoginType::ApplicationService),
