@@ -61,8 +61,8 @@ impl VerificationCache {
     }
 
     pub fn garbage_collect(&self) -> Vec<OutgoingRequest> {
-        self.sas_verification.retain(|_, s| !(s.is_done() || s.is_canceled()));
-        self.room_sas_verifications.retain(|_, s| !(s.is_done() || s.is_canceled()));
+        self.sas_verification.retain(|_, s| !(s.is_done() || s.is_cancelled()));
+        self.room_sas_verifications.retain(|_, s| !(s.is_done() || s.is_cancelled()));
 
         let mut requests: Vec<OutgoingRequest> = self
             .sas_verification

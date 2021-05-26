@@ -27,13 +27,14 @@ use matrix_sdk_common::{
 use super::{
     event_enums::{AcceptContent, CancelContent, MacContent, OutgoingContent},
     sas_state::{
-        Accepted, Canceled, Confirmed, Created, Done, KeyReceived, MacReceived, SasState, Started,
+        Accepted, Confirmed, Created, Done, KeyReceived, MacReceived, SasState, Started,
         WaitingForDone,
     },
     FlowId, StartContent,
 };
 use crate::{
     identities::{ReadOnlyDevice, UserIdentities},
+    verification::Cancelled,
     ReadOnlyAccount,
 };
 
@@ -48,7 +49,7 @@ pub enum InnerSas {
     WaitingForDone(SasState<WaitingForDone>),
     WaitingForDoneUnconfirmed(SasState<WaitingForDone>),
     Done(SasState<Done>),
-    Canceled(SasState<Canceled>),
+    Cancelled(SasState<Cancelled>),
 }
 
 impl InnerSas {
@@ -90,7 +91,7 @@ impl InnerSas {
             InnerSas::WaitingForDone(_) => false,
             InnerSas::WaitingForDoneUnconfirmed(_) => false,
             InnerSas::Done(_) => false,
-            InnerSas::Canceled(_) => false,
+            InnerSas::Cancelled(_) => false,
         }
     }
 
@@ -139,7 +140,7 @@ impl InnerSas {
         match self {
             InnerSas::Created(s) => s.set_creation_time(time),
             InnerSas::Started(s) => s.set_creation_time(time),
-            InnerSas::Canceled(s) => s.set_creation_time(time),
+            InnerSas::Cancelled(s) => s.set_creation_time(time),
             InnerSas::Accepted(s) => s.set_creation_time(time),
             InnerSas::KeyRecieved(s) => s.set_creation_time(time),
             InnerSas::Confirmed(s) => s.set_creation_time(time),
@@ -162,7 +163,7 @@ impl InnerSas {
 
         let content = sas.as_content();
 
-        (InnerSas::Canceled(sas), Some(content))
+        (InnerSas::Cancelled(sas), Some(content))
     }
 
     pub fn confirm(self) -> (InnerSas, Option<MacContent>) {
@@ -201,7 +202,7 @@ impl InnerSas {
                         Ok(s) => (InnerSas::KeyRecieved(s), None),
                         Err(s) => {
                             let content = s.as_content();
-                            (InnerSas::Canceled(s), Some(content.into()))
+                            (InnerSas::Cancelled(s), Some(content.into()))
                         }
                     }
                 }
@@ -213,7 +214,7 @@ impl InnerSas {
                         }
                         Err(s) => {
                             let content = s.as_content();
-                            (InnerSas::Canceled(s), Some(content.into()))
+                            (InnerSas::Cancelled(s), Some(content.into()))
                         }
                     }
                 }
@@ -226,7 +227,7 @@ impl InnerSas {
                         Ok(s) => (InnerSas::MacReceived(s), None),
                         Err(s) => {
                             let content = s.as_content();
-                            (InnerSas::Canceled(s), Some(content.into()))
+                            (InnerSas::Cancelled(s), Some(content.into()))
                         }
                     }
                 }
@@ -239,7 +240,7 @@ impl InnerSas {
                         }
                         Err(s) => {
                             let content = s.as_content();
-                            (InnerSas::Canceled(s), Some(content.into()))
+                            (InnerSas::Cancelled(s), Some(content.into()))
                         }
                     }
                 }
@@ -251,7 +252,7 @@ impl InnerSas {
                         Ok(s) => (InnerSas::Done(s), None),
                         Err(s) => {
                             let content = s.as_content();
-                            (InnerSas::Canceled(s), Some(content.into()))
+                            (InnerSas::Cancelled(s), Some(content.into()))
                         }
                     }
                 }
@@ -263,7 +264,7 @@ impl InnerSas {
                         }
                         Err(s) => {
                             let content = s.as_content();
-                            (InnerSas::Canceled(s), Some(content.into()))
+                            (InnerSas::Cancelled(s), Some(content.into()))
                         }
                     }
                 }
@@ -285,7 +286,7 @@ impl InnerSas {
                         }
                         Err(s) => {
                             let content = s.as_content();
-                            (InnerSas::Canceled(s), Some(content.into()))
+                            (InnerSas::Cancelled(s), Some(content.into()))
                         }
                     }
                 } else {
@@ -297,7 +298,7 @@ impl InnerSas {
                     Ok(s) => (InnerSas::KeyRecieved(s), None),
                     Err(s) => {
                         let content = s.as_content();
-                        (InnerSas::Canceled(s), Some(content.into()))
+                        (InnerSas::Cancelled(s), Some(content.into()))
                     }
                 },
                 InnerSas::Started(s) => match s.into_key_received(&e.sender, e.content.clone()) {
@@ -307,7 +308,7 @@ impl InnerSas {
                     }
                     Err(s) => {
                         let content = s.as_content();
-                        (InnerSas::Canceled(s), Some(content.into()))
+                        (InnerSas::Cancelled(s), Some(content.into()))
                     }
                 },
                 _ => (self, None),
@@ -318,7 +319,7 @@ impl InnerSas {
                         Ok(s) => (InnerSas::MacReceived(s), None),
                         Err(s) => {
                             let content = s.as_content();
-                            (InnerSas::Canceled(s), Some(content.into()))
+                            (InnerSas::Cancelled(s), Some(content.into()))
                         }
                     }
                 }
@@ -326,7 +327,7 @@ impl InnerSas {
                     Ok(s) => (InnerSas::Done(s), None),
                     Err(s) => {
                         let content = s.as_content();
-                        (InnerSas::Canceled(s), Some(content.into()))
+                        (InnerSas::Cancelled(s), Some(content.into()))
                     }
                 },
                 _ => (self, None),
@@ -343,15 +344,15 @@ impl InnerSas {
         matches!(self, InnerSas::Done(_))
     }
 
-    pub fn is_canceled(&self) -> bool {
-        matches!(self, InnerSas::Canceled(_))
+    pub fn is_cancelled(&self) -> bool {
+        matches!(self, InnerSas::Cancelled(_))
     }
 
     pub fn timed_out(&self) -> bool {
         match self {
             InnerSas::Created(s) => s.timed_out(),
             InnerSas::Started(s) => s.timed_out(),
-            InnerSas::Canceled(s) => s.timed_out(),
+            InnerSas::Cancelled(s) => s.timed_out(),
             InnerSas::Accepted(s) => s.timed_out(),
             InnerSas::KeyRecieved(s) => s.timed_out(),
             InnerSas::Confirmed(s) => s.timed_out(),
@@ -366,7 +367,7 @@ impl InnerSas {
         match self {
             InnerSas::Created(s) => s.verification_flow_id.clone(),
             InnerSas::Started(s) => s.verification_flow_id.clone(),
-            InnerSas::Canceled(s) => s.verification_flow_id.clone(),
+            InnerSas::Cancelled(s) => s.verification_flow_id.clone(),
             InnerSas::Accepted(s) => s.verification_flow_id.clone(),
             InnerSas::KeyRecieved(s) => s.verification_flow_id.clone(),
             InnerSas::Confirmed(s) => s.verification_flow_id.clone(),

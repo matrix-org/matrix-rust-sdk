@@ -559,7 +559,7 @@ impl Sas {
     }
 
     pub(crate) fn cancel_if_timed_out(&self) -> Option<OutgoingVerificationRequest> {
-        if self.is_canceled() || self.is_done() {
+        if self.is_cancelled() || self.is_done() {
             None
         } else if self.timed_out() {
             let mut guard = self.inner.lock().unwrap();
@@ -598,8 +598,8 @@ impl Sas {
     }
 
     /// Is the SAS flow canceled.
-    pub fn is_canceled(&self) -> bool {
-        self.inner.lock().unwrap().is_canceled()
+    pub fn is_cancelled(&self) -> bool {
+        self.inner.lock().unwrap().is_cancelled()
     }
 
     /// Get the emoji version of the short auth string.

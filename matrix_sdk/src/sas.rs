@@ -133,8 +133,8 @@ impl Sas {
     }
 
     /// Is the verification process canceled.
-    pub fn is_canceled(&self) -> bool {
-        self.inner.is_canceled()
+    pub fn is_cancelled(&self) -> bool {
+        self.inner.is_cancelled()
     }
 
     /// Get the other users device that we're veryfying.

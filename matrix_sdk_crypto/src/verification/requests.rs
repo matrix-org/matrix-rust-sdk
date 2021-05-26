@@ -848,7 +848,7 @@ mod test {
         let content = StartContent::try_from(&start_content).unwrap();
         let alice_sas = alice_request.into_started_sas(content, bob_device, None).unwrap();
 
-        assert!(!bob_sas.is_canceled());
-        assert!(!alice_sas.is_canceled());
+        assert!(!bob_sas.is_cancelled());
+        assert!(!alice_sas.is_cancelled());
     }
 }

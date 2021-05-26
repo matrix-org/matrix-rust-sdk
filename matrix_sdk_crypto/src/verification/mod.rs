@@ -17,9 +17,69 @@ mod requests;
 mod sas;
 
 pub use machine::{VerificationCache, VerificationMachine};
-use matrix_sdk_common::identifiers::{EventId, RoomId};
+use matrix_sdk_common::{
+    events::key::verification::{
+        cancel::{CancelCode, CancelEventContent, CancelToDeviceEventContent},
+        Relation,
+    },
+    identifiers::{EventId, RoomId},
+};
 pub use requests::VerificationRequest;
 pub use sas::{AcceptSettings, Sas, VerificationResult};
+
+use self::sas::CancelContent;
+
+#[derive(Clone, Debug)]
+pub struct Cancelled {
+    cancel_code: CancelCode,
+    reason: &'static str,
+}
+
+impl Cancelled {
+    fn new(code: CancelCode) -> Self {
+        let reason = match code {
+            CancelCode::Accepted => {
+                "A m.key.verification.request was accepted by a different device."
+            }
+            CancelCode::InvalidMessage => "The received message was invalid.",
+            CancelCode::KeyMismatch => "The expected key did not match the verified one",
+            CancelCode::Timeout => "The verification process timed out.",
+            CancelCode::UnexpectedMessage => "The device received an unexpected message.",
+            CancelCode::UnknownMethod => {
+                "The device does not know how to handle the requested method."
+            }
+            CancelCode::UnknownTransaction => {
+                "The device does not know about the given transaction ID."
+            }
+            CancelCode::User => "The user cancelled the verification.",
+            CancelCode::UserMismatch => "The expected user did not match the verified user",
+            _ => unimplemented!(),
+        };
+
+        Self { cancel_code: code, reason }
+    }
+
+    pub fn as_content(&self, flow_id: &FlowId) -> CancelContent {
+        match flow_id {
+            FlowId::ToDevice(s) => CancelToDeviceEventContent::new(
+                s.clone(),
+                self.reason.to_string(),
+                self.cancel_code.clone(),
+            )
+            .into(),
+
+            FlowId::InRoom(r, e) => (
+                r.clone(),
+                CancelEventContent::new(
+                    self.reason.to_string(),
+                    self.cancel_code.clone(),
+                    Relation::new(e.clone()),
+                ),
+            )
+                .into(),
+        }
+    }
+}
 
 #[derive(Clone, Debug, Hash, PartialEq, PartialOrd)]
 pub enum FlowId {

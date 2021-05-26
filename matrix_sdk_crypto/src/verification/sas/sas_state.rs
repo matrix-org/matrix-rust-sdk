@@ -25,7 +25,7 @@ use matrix_sdk_common::{
             AcceptEventContent, AcceptMethod, AcceptToDeviceEventContent,
             SasV1Content as AcceptV1Content, SasV1ContentInit as AcceptV1ContentInit,
         },
-        cancel::{CancelCode, CancelEventContent, CancelToDeviceEventContent},
+        cancel::CancelCode,
         done::DoneEventContent,
         key::{KeyEventContent, KeyToDeviceEventContent},
         start::{
@@ -52,7 +52,7 @@ use super::{
 };
 use crate::{
     identities::{ReadOnlyDevice, UserIdentities},
-    verification::FlowId,
+    verification::{Cancelled, FlowId},
     ReadOnlyAccount,
 };
 
@@ -281,12 +281,6 @@ pub struct Done {
     verified_master_keys: Arc<[UserIdentities]>,
 }
 
-#[derive(Clone, Debug)]
-pub struct Canceled {
-    cancel_code: CancelCode,
-    reason: &'static str,
-}
-
 impl<S: Clone> SasState<S> {
     /// Get our own user id.
     #[cfg(test)]
@@ -304,14 +298,14 @@ impl<S: Clone> SasState<S> {
         self.ids.other_device.clone()
     }
 
-    pub fn cancel(self, cancel_code: CancelCode) -> SasState<Canceled> {
+    pub fn cancel(self, cancel_code: CancelCode) -> SasState<Cancelled> {
         SasState {
             inner: self.inner,
             ids: self.ids,
             creation_time: self.creation_time,
             last_event_time: self.last_event_time,
             verification_flow_id: self.verification_flow_id,
-            state: Arc::new(Canceled::new(cancel_code)),
+            state: Arc::new(Cancelled::new(cancel_code)),
         }
     }
 
@@ -448,7 +442,7 @@ impl SasState<Created> {
         self,
         sender: &UserId,
         content: impl Into<AcceptContent>,
-    ) -> Result<SasState<Accepted>, SasState<Canceled>> {
+    ) -> Result<SasState<Accepted>, SasState<Cancelled>> {
         let content = content.into();
         self.check_event(&sender, content.flow_id().as_str())
             .map_err(|c| self.clone().cancel(c))?;
@@ -496,7 +490,7 @@ impl SasState<Started> {
         other_device: ReadOnlyDevice,
         other_identity: Option<UserIdentities>,
         content: impl Into<StartContent>,
-    ) -> Result<SasState<Started>, SasState<Canceled>> {
+    ) -> Result<SasState<Started>, SasState<Cancelled>> {
         Self::from_start_helper(account, other_device, other_identity, &content.into())
     }
 
@@ -505,7 +499,7 @@ impl SasState<Started> {
         other_device: ReadOnlyDevice,
         other_identity: Option<UserIdentities>,
         content: &StartContent,
-    ) -> Result<SasState<Started>, SasState<Canceled>> {
+    ) -> Result<SasState<Started>, SasState<Cancelled>> {
         let canceled = || SasState {
             inner: Arc::new(Mutex::new(OlmSas::new())),
 
@@ -519,7 +513,7 @@ impl SasState<Started> {
             },
 
             verification_flow_id: content.flow_id().into(),
-            state: Arc::new(Canceled::new(CancelCode::UnknownMethod)),
+            state: Arc::new(Cancelled::new(CancelCode::UnknownMethod)),
         };
 
         if let StartMethod::SasV1(method_content) = content.method() {
@@ -608,7 +602,7 @@ impl SasState<Started> {
         self,
         sender: &UserId,
         content: impl Into<KeyContent>,
-    ) -> Result<SasState<KeyReceived>, SasState<Canceled>> {
+    ) -> Result<SasState<KeyReceived>, SasState<Cancelled>> {
         let content = content.into();
 
         self.check_event(&sender, &content.flow_id().as_str())
@@ -650,7 +644,7 @@ impl SasState<Accepted> {
         self,
         sender: &UserId,
         content: impl Into<KeyContent>,
-    ) -> Result<SasState<KeyReceived>, SasState<Canceled>> {
+    ) -> Result<SasState<KeyReceived>, SasState<Cancelled>> {
         let content = content.into();
 
         self.check_event(&sender, content.flow_id().as_str())
@@ -783,7 +777,7 @@ impl SasState<KeyReceived> {
         self,
         sender: &UserId,
         content: impl Into<MacContent>,
-    ) -> Result<SasState<MacReceived>, SasState<Canceled>> {
+    ) -> Result<SasState<MacReceived>, SasState<Cancelled>> {
         let content = content.into();
 
         self.check_event(&sender, content.flow_id().as_str())
@@ -844,7 +838,7 @@ impl SasState<Confirmed> {
         self,
         sender: &UserId,
         content: impl Into<MacContent>,
-    ) -> Result<SasState<Done>, SasState<Canceled>> {
+    ) -> Result<SasState<Done>, SasState<Cancelled>> {
         let content = content.into();
 
         self.check_event(&sender, &content.flow_id().as_str())
@@ -886,7 +880,7 @@ impl SasState<Confirmed> {
         self,
         sender: &UserId,
         content: impl Into<MacContent>,
-    ) -> Result<SasState<WaitingForDone>, SasState<Canceled>> {
+    ) -> Result<SasState<WaitingForDone>, SasState<Cancelled>> {
         let content = content.into();
 
         self.check_event(&sender, &content.flow_id().as_str())
@@ -1036,7 +1030,7 @@ impl SasState<WaitingForDone> {
         self,
         sender: &UserId,
         content: impl Into<DoneContent>,
-    ) -> Result<SasState<Done>, SasState<Canceled>> {
+    ) -> Result<SasState<Done>, SasState<Cancelled>> {
         let content = content.into();
 
         self.check_event(&sender, &content.flow_id().as_str())
@@ -1088,51 +1082,9 @@ impl SasState<Done> {
     }
 }
 
-impl Canceled {
-    fn new(code: CancelCode) -> Canceled {
-        let reason = match code {
-            CancelCode::Accepted => {
-                "A m.key.verification.request was accepted by a different device."
-            }
-            CancelCode::InvalidMessage => "The received message was invalid.",
-            CancelCode::KeyMismatch => "The expected key did not match the verified one",
-            CancelCode::Timeout => "The verification process timed out.",
-            CancelCode::UnexpectedMessage => "The device received an unexpected message.",
-            CancelCode::UnknownMethod => {
-                "The device does not know how to handle the requested method."
-            }
-            CancelCode::UnknownTransaction => {
-                "The device does not know about the given transaction ID."
-            }
-            CancelCode::User => "The user cancelled the verification.",
-            CancelCode::UserMismatch => "The expected user did not match the verified user",
-            _ => unimplemented!(),
-        };
-
-        Canceled { cancel_code: code, reason }
-    }
-}
-
-impl SasState<Canceled> {
+impl SasState<Cancelled> {
     pub fn as_content(&self) -> CancelContent {
-        match self.verification_flow_id.as_ref() {
-            FlowId::ToDevice(s) => CancelToDeviceEventContent::new(
-                s.clone(),
-                self.state.reason.to_string(),
-                self.state.cancel_code.clone(),
-            )
-            .into(),
-
-            FlowId::InRoom(r, e) => (
-                r.clone(),
-                CancelEventContent::new(
-                    self.state.reason.to_string(),
-                    self.state.cancel_code.clone(),
-                    Relation::new(e.clone()),
-                ),
-            )
-                .into(),
-        }
+        self.state.as_content(&self.verification_flow_id)
     }
 }
 
