@@ -227,11 +227,11 @@ impl Sas {
     /// * `event` - The m.key.verification.start event that was sent to us by
     /// the other side.
     pub(crate) fn from_start_event(
+        content: impl Into<StartContent>,
+        store: Arc<Box<dyn CryptoStore>>,
         account: ReadOnlyAccount,
         private_identity: PrivateCrossSigningIdentity,
         other_device: ReadOnlyDevice,
-        store: Arc<Box<dyn CryptoStore>>,
-        content: impl Into<StartContent>,
         other_identity: Option<UserIdentities>,
     ) -> Result<Sas, OutgoingContent> {
         let inner = InnerSas::from_start_event(
@@ -758,11 +758,11 @@ mod test {
         );
 
         let bob = Sas::from_start_event(
+            content,
+            bob_store,
             bob,
             PrivateCrossSigningIdentity::empty(bob_id()),
             alice_device,
-            bob_store,
-            content,
             None,
         )
         .unwrap();

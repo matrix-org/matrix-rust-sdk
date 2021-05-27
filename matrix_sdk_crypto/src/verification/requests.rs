@@ -35,6 +35,7 @@ use matrix_sdk_common::{
     uuid::Uuid,
     MilliSecondsSinceUnixEpoch,
 };
+use tracing::{info, warn};
 
 use super::{
     sas::{content_to_request, OutgoingContent, StartContent as OwnedStartContent},
@@ -43,8 +44,8 @@ use super::{
 use crate::{
     olm::{PrivateCrossSigningIdentity, ReadOnlyAccount},
     store::CryptoStore,
-    OutgoingVerificationRequest, ReadOnlyDevice, RoomMessageRequest, Sas, ToDeviceRequest,
-    UserIdentities,
+    CryptoStoreError, OutgoingVerificationRequest, ReadOnlyDevice, RoomMessageRequest, Sas,
+    ToDeviceRequest, UserIdentities,
 };
 
 const SUPPORTED_METHODS: &[VerificationMethod] = &[VerificationMethod::MSasV1];
@@ -158,7 +159,7 @@ impl<'a> StartContent<'a> {
         }
     }
 
-    pub fn methods(&self) -> &StartMethod {
+    pub fn method(&self) -> &StartMethod {
         match self {
             StartContent::ToDevice(c) => &c.method,
             StartContent::Room(c) => &c.method,
@@ -227,6 +228,7 @@ impl VerificationRequest {
         let inner = Mutex::new(InnerRequest::Created(RequestState::new(
             account.clone(),
             private_cross_signing_identity,
+            cache.clone(),
             store,
             other_user,
             &flow_id,
@@ -334,10 +336,11 @@ impl VerificationRequest {
         content: RequestContent,
     ) -> Self {
         Self {
-            verification_cache: cache,
+            verification_cache: cache.clone(),
             inner: Arc::new(Mutex::new(InnerRequest::Requested(RequestState::from_request_event(
                 account.clone(),
                 private_cross_signing_identity,
+                cache,
                 store,
                 sender,
                 &flow_id,
@@ -379,30 +382,24 @@ impl VerificationRequest {
         Ok(())
     }
 
+    pub(crate) async fn receive_start<'a>(
+        &self,
+        sender: &UserId,
+        content: impl Into<StartContent<'a>>,
+    ) -> Result<(), CryptoStoreError> {
+        match &*self.inner.lock().unwrap() {
+            InnerRequest::Created(_) => {}
+            InnerRequest::Requested(_) => {}
+            InnerRequest::Ready(s) => s.receive_start(sender, content).await?,
+            InnerRequest::Passive(_) => {}
+        }
+
+        Ok(())
+    }
+
     /// Is the verification request ready to start a verification flow.
     pub fn is_ready(&self) -> bool {
         matches!(&*self.inner.lock().unwrap(), InnerRequest::Ready(_))
-    }
-
-    pub(crate) fn into_started_sas<'a>(
-        self,
-        content: impl Into<StartContent<'a>>,
-        device: ReadOnlyDevice,
-        user_identity: Option<UserIdentities>,
-    ) -> Result<Sas, OutgoingContent> {
-        match &*self.inner.lock().unwrap() {
-            InnerRequest::Ready(s) => s.clone().into_started_sas(
-                content,
-                s.store.clone(),
-                s.account.clone(),
-                s.private_cross_signing_identity.clone(),
-                device,
-                user_identity,
-            ),
-            // TODO cancel here since we got a missmatched message or do
-            // nothing?
-            _ => todo!(),
-        }
     }
 
     pub(crate) fn start(
@@ -471,24 +468,14 @@ impl InnerRequest {
         }
     }
 
-    fn into_started_sas<'a>(
-        self,
+    fn to_started_sas<'a>(
+        &self,
         content: impl Into<StartContent<'a>>,
-        store: Arc<Box<dyn CryptoStore>>,
-        account: ReadOnlyAccount,
-        private_identity: PrivateCrossSigningIdentity,
         other_device: ReadOnlyDevice,
         other_identity: Option<UserIdentities>,
     ) -> Result<Option<Sas>, OutgoingContent> {
         if let InnerRequest::Ready(s) = self {
-            Ok(Some(s.into_started_sas(
-                content,
-                store,
-                account,
-                private_identity,
-                other_device,
-                other_identity,
-            )?))
+            Ok(Some(s.to_started_sas(content, other_device, other_identity)?))
         } else {
             Ok(None)
         }
@@ -499,6 +486,7 @@ impl InnerRequest {
 struct RequestState<S: Clone> {
     account: ReadOnlyAccount,
     private_cross_signing_identity: PrivateCrossSigningIdentity,
+    verification_cache: VerificationCache,
     store: Arc<Box<dyn CryptoStore>>,
     flow_id: Arc<FlowId>,
 
@@ -513,6 +501,7 @@ impl RequestState<Created> {
     fn new(
         account: ReadOnlyAccount,
         private_identity: PrivateCrossSigningIdentity,
+        cache: VerificationCache,
         store: Arc<Box<dyn CryptoStore>>,
         other_user_id: &UserId,
         flow_id: &FlowId,
@@ -522,6 +511,7 @@ impl RequestState<Created> {
             other_user_id: other_user_id.to_owned(),
             private_cross_signing_identity: private_identity,
             state: Created { methods: SUPPORTED_METHODS.to_vec(), flow_id: flow_id.to_owned() },
+            verification_cache: cache,
             store,
             flow_id: flow_id.to_owned().into(),
         }
@@ -532,6 +522,7 @@ impl RequestState<Created> {
         RequestState {
             account: self.account,
             flow_id: self.flow_id,
+            verification_cache: self.verification_cache,
             private_cross_signing_identity: self.private_cross_signing_identity,
             store: self.store,
             other_user_id: self.other_user_id,
@@ -571,6 +562,7 @@ impl RequestState<Requested> {
     fn from_request_event(
         account: ReadOnlyAccount,
         private_identity: PrivateCrossSigningIdentity,
+        cache: VerificationCache,
         store: Arc<Box<dyn CryptoStore>>,
         sender: &UserId,
         flow_id: &FlowId,
@@ -581,6 +573,7 @@ impl RequestState<Requested> {
             account,
             private_cross_signing_identity: private_identity,
             store,
+            verification_cache: cache,
             flow_id: flow_id.to_owned().into(),
             other_user_id: sender.clone(),
             state: Requested {
@@ -595,6 +588,7 @@ impl RequestState<Requested> {
         let state = RequestState {
             account: self.account.clone(),
             store: self.store,
+            verification_cache: self.verification_cache,
             private_cross_signing_identity: self.private_cross_signing_identity,
             flow_id: self.flow_id,
             other_user_id: self.other_user_id,
@@ -643,12 +637,9 @@ struct Ready {
 }
 
 impl RequestState<Ready> {
-    fn into_started_sas<'a>(
-        self,
+    fn to_started_sas<'a>(
+        &self,
         content: impl Into<StartContent<'a>>,
-        store: Arc<Box<dyn CryptoStore>>,
-        account: ReadOnlyAccount,
-        private_identity: PrivateCrossSigningIdentity,
         other_device: ReadOnlyDevice,
         other_identity: Option<UserIdentities>,
     ) -> Result<Sas, OutgoingContent> {
@@ -665,13 +656,68 @@ impl RequestState<Ready> {
         };
 
         Sas::from_start_event(
-            account,
-            private_identity,
-            other_device,
-            store,
             content,
+            self.store.clone(),
+            self.account.clone(),
+            self.private_cross_signing_identity.clone(),
+            other_device,
             other_identity,
         )
+    }
+
+    async fn receive_start<'a>(
+        &self,
+        sender: &UserId,
+        content: impl Into<StartContent<'a>>,
+    ) -> Result<(), CryptoStoreError> {
+        let content = content.into();
+
+        info!(
+            sender = sender.as_str(),
+            device = content.from_device().as_str(),
+            "Received a new verification start event",
+        );
+
+        let device = if let Some(d) = self.store.get_device(&sender, content.from_device()).await? {
+            d
+        } else {
+            warn!(
+                sender = sender.as_str(),
+                device = content.from_device().as_str(),
+                "Received a key verification start event from an unknown device",
+            );
+
+            return Ok(());
+        };
+
+        let identity = self.store.get_user_identity(&sender).await?;
+
+        match content.method() {
+            StartMethod::SasV1(_) => match self.to_started_sas(content, device.clone(), identity) {
+                Ok(s) => {
+                    info!("Started a new SAS verification.");
+                    self.verification_cache.insert_sas(s);
+                }
+                Err(c) => {
+                    warn!(
+                        user_id = device.user_id().as_str(),
+                        device_id = device.device_id().as_str(),
+                        content =? c,
+                        "Can't start key verification, canceling.",
+                    );
+                    self.verification_cache.queue_up_content(
+                        device.user_id(),
+                        device.device_id(),
+                        c,
+                    )
+                }
+            },
+            m => {
+                warn!(method =? m, "Received a key verificaton start event with an unknown method")
+            }
+        }
+
+        Ok(())
     }
 
     fn start_sas(
@@ -730,7 +776,7 @@ mod test {
     use super::{StartContent, VerificationRequest};
     use crate::{
         olm::{PrivateCrossSigningIdentity, ReadOnlyAccount},
-        store::{CryptoStore, MemoryStore},
+        store::{Changes, CryptoStore, MemoryStore},
         verification::{requests::ReadyContent, sas::OutgoingContent, VerificationCache},
         ReadOnlyDevice,
     };
@@ -812,6 +858,10 @@ mod test {
         let bob_store: Box<dyn CryptoStore> = Box::new(MemoryStore::new());
         let bob_identity = PrivateCrossSigningIdentity::empty(alice_id());
 
+        let mut changes = Changes::default();
+        changes.devices.new.push(bob_device.clone());
+        alice_store.save_changes(changes).await.unwrap();
+
         let content = VerificationRequest::request(bob.user_id(), bob.device_id(), &alice_id());
 
         let bob_request = VerificationRequest::new(
@@ -846,7 +896,9 @@ mod test {
         let (bob_sas, start_content) = bob_request.start(alice_device, None).unwrap();
 
         let content = StartContent::try_from(&start_content).unwrap();
-        let alice_sas = alice_request.into_started_sas(content, bob_device, None).unwrap();
+        let flow_id = content.flow_id().to_owned();
+        alice_request.receive_start(bob_device.user_id(), content).await.unwrap();
+        let alice_sas = alice_request.verification_cache.get_sas(&flow_id).unwrap();
 
         assert!(!bob_sas.is_cancelled());
         assert!(!alice_sas.is_cancelled());

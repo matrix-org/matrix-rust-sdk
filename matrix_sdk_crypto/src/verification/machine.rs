@@ -62,6 +62,13 @@ impl VerificationCache {
         self.room_sas_verifications.get(event_id).map(|s| s.clone())
     }
 
+    pub fn insert_sas(&self, sas: Sas) {
+        match sas.flow_id() {
+            super::FlowId::ToDevice(t) => self.sas_verification.insert(t.to_owned(), sas),
+            super::FlowId::InRoom(_, e) => self.room_sas_verifications.insert(e.to_owned(), sas),
+        };
+    }
+
     pub fn garbage_collect(&self) -> Vec<OutgoingRequest> {
         self.sas_verification.retain(|_, s| !(s.is_done() || s.is_cancelled()));
         self.room_sas_verifications.retain(|_, s| !(s.is_done() || s.is_cancelled()));
@@ -297,46 +304,8 @@ impl VerificationMachine {
                     }
                 }
                 AnySyncMessageEvent::KeyVerificationStart(e) => {
-                    info!(
-                        "Received a new verification start event from {} {}",
-                        e.sender, e.content.from_device
-                    );
-
-                    if let Some((_, request)) =
-                        self.requests.remove(e.content.relation.event_id.as_str())
-                    {
-                        if let Some(d) =
-                            self.store.get_device(&e.sender, &e.content.from_device).await?
-                        {
-                            match request.into_started_sas(
-                                &e.content,
-                                d,
-                                self.store.get_user_identity(&e.sender).await?,
-                            ) {
-                                Ok(s) => {
-                                    info!(
-                                        "Started a new SAS verification, \
-                                          automatically accepting because we accepted from a request"
-                                    );
-
-                                    // TODO remove this unwrap
-                                    let accept_request = s.accept().unwrap();
-
-                                    self.verifications
-                                        .room_sas_verifications
-                                        .insert(e.content.relation.event_id.clone(), s);
-
-                                    self.verifications.add_request(accept_request.into());
-                                }
-                                Err(c) => {
-                                    warn!(
-                                        "Can't start key verification with {} {}, canceling: {:?}",
-                                        e.sender, e.content.from_device, c
-                                    );
-                                    self.queue_up_content(&e.sender, &e.content.from_device, c)
-                                }
-                            }
-                        }
+                    if let Some(request) = self.requests.get(e.content.relation.event_id.as_str()) {
+                        request.receive_start(&e.sender, &e.content).await?
                     }
                 }
                 AnySyncMessageEvent::KeyVerificationKey(e) => {
@@ -428,14 +397,20 @@ impl VerificationMachine {
                     e.content.from_device
                 );
 
-                if let Some(d) = self.store.get_device(&e.sender, &e.content.from_device).await? {
+                if let Some(verification) = self.get_request(&e.content.transaction_id) {
+                    verification.receive_start(&e.sender, &e.content).await?;
+                } else if let Some(d) =
+                    self.store.get_device(&e.sender, &e.content.from_device).await?
+                {
+                    // TODO remove this soon, this has been deprecated by
+                    // MSC3122 https://github.com/matrix-org/matrix-doc/pull/3122
                     let private_identity = self.private_identity.lock().await.clone();
                     match Sas::from_start_event(
+                        e.content.clone(),
+                        self.store.clone(),
                         self.account.clone(),
                         private_identity,
                         d,
-                        self.store.clone(),
-                        e.content.clone(),
                         self.store.get_user_identity(&e.sender).await?,
                     ) {
                         Ok(s) => {
