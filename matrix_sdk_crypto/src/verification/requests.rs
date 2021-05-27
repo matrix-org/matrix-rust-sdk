@@ -389,7 +389,9 @@ impl VerificationRequest {
     ) -> Result<(), CryptoStoreError> {
         let content = content.into();
 
-        if let InnerRequest::Ready(s) = &*self.inner.lock().unwrap() {
+        let inner = self.inner.lock().unwrap().clone();
+
+        if let InnerRequest::Ready(s) = inner {
             s.receive_start(sender, content).await?;
         } else {
             warn!(
@@ -433,7 +435,7 @@ impl VerificationRequest {
     }
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 enum InnerRequest {
     Created(RequestState<Created>),
     Requested(RequestState<Requested>),
