@@ -105,8 +105,8 @@ impl FlowId {
 }
 
 impl From<String> for FlowId {
-    fn from(transaciton_id: String) -> Self {
-        FlowId::ToDevice(transaciton_id)
+    fn from(transaction_id: String) -> Self {
+        FlowId::ToDevice(transaction_id)
     }
 }
 

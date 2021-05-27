@@ -43,7 +43,7 @@ pub enum InnerSas {
     Created(SasState<Created>),
     Started(SasState<Started>),
     Accepted(SasState<Accepted>),
-    KeyRecieved(SasState<KeyReceived>),
+    KeyReceived(SasState<KeyReceived>),
     Confirmed(SasState<Confirmed>),
     MacReceived(SasState<MacReceived>),
     WaitingForDone(SasState<WaitingForDone>),
@@ -77,7 +77,7 @@ impl InnerSas {
                 .accepted_protocols
                 .short_auth_string
                 .contains(&ShortAuthenticationString::Emoji),
-            InnerSas::KeyRecieved(s) => s
+            InnerSas::KeyReceived(s) => s
                 .state
                 .accepted_protocols
                 .short_auth_string
@@ -142,7 +142,7 @@ impl InnerSas {
             InnerSas::Started(s) => s.set_creation_time(time),
             InnerSas::Cancelled(s) => s.set_creation_time(time),
             InnerSas::Accepted(s) => s.set_creation_time(time),
-            InnerSas::KeyRecieved(s) => s.set_creation_time(time),
+            InnerSas::KeyReceived(s) => s.set_creation_time(time),
             InnerSas::Confirmed(s) => s.set_creation_time(time),
             InnerSas::MacReceived(s) => s.set_creation_time(time),
             InnerSas::Done(s) => s.set_creation_time(time),
@@ -156,7 +156,7 @@ impl InnerSas {
             InnerSas::Created(s) => s.cancel(code),
             InnerSas::Started(s) => s.cancel(code),
             InnerSas::Accepted(s) => s.cancel(code),
-            InnerSas::KeyRecieved(s) => s.cancel(code),
+            InnerSas::KeyReceived(s) => s.cancel(code),
             InnerSas::MacReceived(s) => s.cancel(code),
             _ => return (self, None),
         };
@@ -168,7 +168,7 @@ impl InnerSas {
 
     pub fn confirm(self) -> (InnerSas, Option<MacContent>) {
         match self {
-            InnerSas::KeyRecieved(s) => {
+            InnerSas::KeyReceived(s) => {
                 let sas = s.confirm();
                 let content = sas.as_content();
                 (InnerSas::Confirmed(sas), Some(content))
@@ -199,7 +199,7 @@ impl InnerSas {
             AnyMessageEvent::KeyVerificationKey(e) => match self {
                 InnerSas::Accepted(s) => {
                     match s.into_key_received(&e.sender, (e.room_id.clone(), e.content.clone())) {
-                        Ok(s) => (InnerSas::KeyRecieved(s), None),
+                        Ok(s) => (InnerSas::KeyReceived(s), None),
                         Err(s) => {
                             let content = s.as_content();
                             (InnerSas::Cancelled(s), Some(content.into()))
@@ -210,7 +210,7 @@ impl InnerSas {
                     match s.into_key_received(&e.sender, (e.room_id.clone(), e.content.clone())) {
                         Ok(s) => {
                             let content = s.as_content();
-                            (InnerSas::KeyRecieved(s), Some(content.into()))
+                            (InnerSas::KeyReceived(s), Some(content.into()))
                         }
                         Err(s) => {
                             let content = s.as_content();
@@ -222,7 +222,7 @@ impl InnerSas {
                 _ => (self, None),
             },
             AnyMessageEvent::KeyVerificationMac(e) => match self {
-                InnerSas::KeyRecieved(s) => {
+                InnerSas::KeyReceived(s) => {
                     match s.into_mac_received(&e.sender, (e.room_id.clone(), e.content.clone())) {
                         Ok(s) => (InnerSas::MacReceived(s), None),
                         Err(s) => {
@@ -295,7 +295,7 @@ impl InnerSas {
             }
             AnyToDeviceEvent::KeyVerificationKey(e) => match self {
                 InnerSas::Accepted(s) => match s.into_key_received(&e.sender, e.content.clone()) {
-                    Ok(s) => (InnerSas::KeyRecieved(s), None),
+                    Ok(s) => (InnerSas::KeyReceived(s), None),
                     Err(s) => {
                         let content = s.as_content();
                         (InnerSas::Cancelled(s), Some(content.into()))
@@ -304,7 +304,7 @@ impl InnerSas {
                 InnerSas::Started(s) => match s.into_key_received(&e.sender, e.content.clone()) {
                     Ok(s) => {
                         let content = s.as_content();
-                        (InnerSas::KeyRecieved(s), Some(content.into()))
+                        (InnerSas::KeyReceived(s), Some(content.into()))
                     }
                     Err(s) => {
                         let content = s.as_content();
@@ -314,7 +314,7 @@ impl InnerSas {
                 _ => (self, None),
             },
             AnyToDeviceEvent::KeyVerificationMac(e) => match self {
-                InnerSas::KeyRecieved(s) => {
+                InnerSas::KeyReceived(s) => {
                     match s.into_mac_received(&e.sender, e.content.clone()) {
                         Ok(s) => (InnerSas::MacReceived(s), None),
                         Err(s) => {
@@ -337,7 +337,7 @@ impl InnerSas {
     }
 
     pub fn can_be_presented(&self) -> bool {
-        matches!(self, InnerSas::KeyRecieved(_) | InnerSas::MacReceived(_))
+        matches!(self, InnerSas::KeyReceived(_) | InnerSas::MacReceived(_))
     }
 
     pub fn is_done(&self) -> bool {
@@ -354,7 +354,7 @@ impl InnerSas {
             InnerSas::Started(s) => s.timed_out(),
             InnerSas::Cancelled(s) => s.timed_out(),
             InnerSas::Accepted(s) => s.timed_out(),
-            InnerSas::KeyRecieved(s) => s.timed_out(),
+            InnerSas::KeyReceived(s) => s.timed_out(),
             InnerSas::Confirmed(s) => s.timed_out(),
             InnerSas::MacReceived(s) => s.timed_out(),
             InnerSas::WaitingForDone(s) => s.timed_out(),
@@ -369,7 +369,7 @@ impl InnerSas {
             InnerSas::Started(s) => s.verification_flow_id.clone(),
             InnerSas::Cancelled(s) => s.verification_flow_id.clone(),
             InnerSas::Accepted(s) => s.verification_flow_id.clone(),
-            InnerSas::KeyRecieved(s) => s.verification_flow_id.clone(),
+            InnerSas::KeyReceived(s) => s.verification_flow_id.clone(),
             InnerSas::Confirmed(s) => s.verification_flow_id.clone(),
             InnerSas::MacReceived(s) => s.verification_flow_id.clone(),
             InnerSas::WaitingForDone(s) => s.verification_flow_id.clone(),
@@ -380,7 +380,7 @@ impl InnerSas {
 
     pub fn emoji(&self) -> Option<[(&'static str, &'static str); 7]> {
         match self {
-            InnerSas::KeyRecieved(s) => Some(s.get_emoji()),
+            InnerSas::KeyReceived(s) => Some(s.get_emoji()),
             InnerSas::MacReceived(s) => Some(s.get_emoji()),
             _ => None,
         }
@@ -388,7 +388,7 @@ impl InnerSas {
 
     pub fn emoji_index(&self) -> Option<[u8; 7]> {
         match self {
-            InnerSas::KeyRecieved(s) => Some(s.get_emoji_index()),
+            InnerSas::KeyReceived(s) => Some(s.get_emoji_index()),
             InnerSas::MacReceived(s) => Some(s.get_emoji_index()),
             _ => None,
         }
@@ -396,7 +396,7 @@ impl InnerSas {
 
     pub fn decimals(&self) -> Option<(u16, u16, u16)> {
         match self {
-            InnerSas::KeyRecieved(s) => Some(s.get_decimal()),
+            InnerSas::KeyReceived(s) => Some(s.get_decimal()),
             InnerSas::MacReceived(s) => Some(s.get_decimal()),
             _ => None,
         }
