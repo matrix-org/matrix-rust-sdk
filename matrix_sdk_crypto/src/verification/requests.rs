@@ -387,11 +387,16 @@ impl VerificationRequest {
         sender: &UserId,
         content: impl Into<StartContent<'a>>,
     ) -> Result<(), CryptoStoreError> {
-        match &*self.inner.lock().unwrap() {
-            InnerRequest::Created(_) => {}
-            InnerRequest::Requested(_) => {}
-            InnerRequest::Ready(s) => s.receive_start(sender, content).await?,
-            InnerRequest::Passive(_) => {}
+        let content = content.into();
+
+        if let InnerRequest::Ready(s) = &*self.inner.lock().unwrap() {
+            s.receive_start(sender, content).await?;
+        } else {
+            warn!(
+                sender = sender.as_str(),
+                device_id = content.from_device().as_str(),
+                "Received a key verification start event but we're not yet in the ready state"
+            )
         }
 
         Ok(())
