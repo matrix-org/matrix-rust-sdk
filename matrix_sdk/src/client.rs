@@ -14,7 +14,11 @@
 // limitations under the License.
 
 #[cfg(feature = "encryption")]
-use std::{collections::BTreeMap, io::Write, path::PathBuf};
+use std::{
+    collections::BTreeMap,
+    io::{Cursor, Write},
+    path::PathBuf,
+};
 #[cfg(feature = "sso_login")]
 use std::{
     collections::HashMap,
@@ -24,7 +28,7 @@ use std::{
 use std::{
     fmt::{self, Debug},
     future::Future,
-    io::{Cursor, Read},
+    io::Read,
     path::Path,
     result::Result as StdResult,
     sync::Arc,
@@ -38,10 +42,9 @@ use http::Response;
 #[cfg(feature = "encryption")]
 use matrix_sdk_base::crypto::{
     decrypt_key_export, encrypt_key_export, olm::InboundGroupSession, store::CryptoStoreError,
-    OutgoingRequests, RoomMessageRequest, ToDeviceRequest,
+    AttachmentDecryptor, OutgoingRequests, RoomMessageRequest, ToDeviceRequest,
 };
 use matrix_sdk_base::{
-    crypto::AttachmentDecryptor,
     deserialized_responses::SyncResponse,
     events::AnyMessageEventContent,
     identifiers::MxcUri,
