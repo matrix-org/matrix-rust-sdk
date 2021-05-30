@@ -48,7 +48,7 @@ const TYPING_NOTICE_RESEND_TIMEOUT: Duration = Duration::from_secs(3);
 /// A room in the joined state.
 ///
 /// The `JoinedRoom` contains all methodes specific to a `Room` with type
-/// `RoomType::Joined`. Operations may fail once the underlaying `Room` changes
+/// `RoomType::Joined`. Operations may fail once the underlying `Room` changes
 /// `RoomType`.
 #[derive(Debug, Clone)]
 pub struct Joined {
@@ -64,13 +64,13 @@ impl Deref for Joined {
 }
 
 impl Joined {
-    /// Create a new `room::Joined` if the underlaying `BaseRoom` has type
+    /// Create a new `room::Joined` if the underlying `BaseRoom` has type
     /// `RoomType::Joined`.
     ///
     /// # Arguments
     /// * `client` - The client used to make requests.
     ///
-    /// * `room` - The underlaying room.
+    /// * `room` - The underlying room.
     pub fn new(client: Client, room: BaseRoom) -> Option<Self> {
         // TODO: Make this private
         if room.room_type() == RoomType::Joined {
