@@ -26,7 +26,7 @@ rustls-tls = ["reqwest/rustls-tls"]
 socks = ["reqwest/socks"]
 sso_login = ["warp", "rand", "tokio-stream"]
 require_auth_for_profile_requests = []
-appservice = ["matrix-sdk-common/appservice", "serde_yaml"]
+appservice = ["matrix-sdk-common/appservice"]
 
 docs = ["encryption", "sled_cryptostore", "sled_state_store", "sso_login"]
 
@@ -41,7 +41,6 @@ url = "2.2.0"
 zeroize = "1.2.0"
 mime = "0.3.16"
 rand = { version = "0.8.2", optional = true }
-serde_yaml = { version = "0.8", optional = true }
 bytes = "1.0.1"
 
 matrix-sdk-common = { version = "0.2.0", path = "../matrix_sdk_common" }

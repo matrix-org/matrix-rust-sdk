@@ -16,9 +16,6 @@ use thiserror::Error;
 
 #[derive(Error, Debug)]
 pub enum Error {
-    #[error("tried to run without webserver configured")]
-    RunWithoutServer,
-
     #[error("missing access token")]
     MissingAccessToken,
 
@@ -30,6 +27,9 @@ pub enum Error {
 
     #[error("no port found")]
     MissingRegistrationPort,
+
+    #[error("no client for localpart found")]
+    NoClientForLocalpart,
 
     #[error(transparent)]
     HttpRequest(#[from] matrix_sdk::FromHttpRequestError),

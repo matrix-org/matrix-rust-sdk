@@ -12,7 +12,7 @@ mod actix {
         Appservice::new(
             mockito::server_url().as_ref(),
             "test.local",
-            AppserviceRegistration::try_from_yaml_file("./tests/registration.yaml").unwrap(),
+            AppserviceRegistration::try_from_yaml_str(include_str!("./registration.yaml")).unwrap(),
         )
         .await
         .unwrap()

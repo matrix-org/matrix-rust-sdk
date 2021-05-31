@@ -304,6 +304,11 @@ impl ClientConfig {
         self
     }
 
+    /// Get the [`RequestConfig`]
+    pub fn get_request_config(&self) -> &RequestConfig {
+        &self.request_config
+    }
+
     /// Specify a client to handle sending requests and receiving responses.
     ///
     /// Any type that implements the `HttpSend` trait can be used to
