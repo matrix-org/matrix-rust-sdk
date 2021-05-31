@@ -23,6 +23,7 @@ use matrix_sdk_common::{
     api::r0::to_device::DeviceIdOrAllDevices,
     events::{
         key::verification::{
+            done::{DoneEventContent, DoneToDeviceEventContent},
             ready::{ReadyEventContent, ReadyToDeviceEventContent},
             request::RequestToDeviceEventContent,
             start::{StartEventContent, StartMethod, StartToDeviceEventContent},
@@ -35,7 +36,7 @@ use matrix_sdk_common::{
     uuid::Uuid,
     MilliSecondsSinceUnixEpoch,
 };
-use tracing::{info, warn};
+use tracing::{info, trace, warn};
 
 use super::{
     sas::{content_to_request, OutgoingContent, StartContent as OwnedStartContent},
@@ -198,6 +199,32 @@ impl<'a> TryFrom<&'a OutgoingContent> for StartContent<'a> {
                     Err(())
                 }
             }
+        }
+    }
+}
+
+pub enum DoneContent<'a> {
+    ToDevice(&'a DoneToDeviceEventContent),
+    Room(&'a DoneEventContent),
+}
+
+impl<'a> From<&'a DoneEventContent> for DoneContent<'a> {
+    fn from(c: &'a DoneEventContent) -> Self {
+        Self::Room(c)
+    }
+}
+
+impl<'a> From<&'a DoneToDeviceEventContent> for DoneContent<'a> {
+    fn from(c: &'a DoneToDeviceEventContent) -> Self {
+        Self::ToDevice(c)
+    }
+}
+
+impl<'a> DoneContent<'a> {
+    pub fn flow_id(&self) -> &str {
+        match self {
+            Self::ToDevice(c) => &c.transaction_id,
+            Self::Room(c) => &c.relation.event_id.as_str(),
         }
     }
 }

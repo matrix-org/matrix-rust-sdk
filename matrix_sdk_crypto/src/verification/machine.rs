@@ -28,7 +28,8 @@ use tracing::{info, trace, warn};
 
 use super::{
     requests::VerificationRequest,
-    sas::{content_to_request, OutgoingContent, Sas, VerificationResult},
+    sas::{content_to_request, OutgoingContent, Sas},
+    VerificationResult,
 };
 use crate::{
     olm::PrivateCrossSigningIdentity,
@@ -341,8 +342,10 @@ impl VerificationMachine {
                                         );
                                     }
                                 }
-                                VerificationResult::Cancel(r) => {
-                                    self.verifications.add_request(r.into());
+                                VerificationResult::Cancel(c) => {
+                                    if let Some(r) = s.cancel_with_code(c) {
+                                        self.verifications.add_request(r.into());
+                                    }
                                 }
                                 VerificationResult::SignatureUpload(r) => {
                                     self.verifications.add_request(r.into());
@@ -453,8 +456,10 @@ impl VerificationMachine {
                     if s.is_done() {
                         match s.mark_as_done().await? {
                             VerificationResult::Ok => (),
-                            VerificationResult::Cancel(r) => {
-                                self.verifications.add_request(r.into());
+                            VerificationResult::Cancel(c) => {
+                                if let Some(r) = s.cancel_with_code(c) {
+                                    self.verifications.add_request(r.into());
+                                }
                             }
                             VerificationResult::SignatureUpload(r) => {
                                 self.verifications.add_request(r.into());

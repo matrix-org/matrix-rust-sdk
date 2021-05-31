@@ -138,7 +138,7 @@ impl Sas {
     }
 
     /// Get the other users device that we're veryfying.
-    pub fn other_device(&self) -> ReadOnlyDevice {
+    pub fn other_device(&self) -> &ReadOnlyDevice {
         self.inner.other_device()
     }
 }

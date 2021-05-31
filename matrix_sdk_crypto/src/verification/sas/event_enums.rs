@@ -109,6 +109,7 @@ impl From<(RoomId, AcceptEventContent)> for AcceptContent {
     }
 }
 
+#[derive(Clone, Debug)]
 pub enum KeyContent {
     ToDevice(KeyToDeviceEventContent),
     Room(RoomId, KeyEventContent),
@@ -142,6 +143,7 @@ impl From<(RoomId, KeyEventContent)> for KeyContent {
     }
 }
 
+#[derive(Clone, Debug)]
 pub enum MacContent {
     ToDevice(MacToDeviceEventContent),
     Room(RoomId, MacEventContent),
@@ -182,6 +184,7 @@ impl From<(RoomId, MacEventContent)> for MacContent {
     }
 }
 
+#[derive(Clone, Debug)]
 pub enum CancelContent {
     ToDevice(CancelToDeviceEventContent),
     Room(RoomId, CancelEventContent),
@@ -199,6 +202,7 @@ impl From<CancelToDeviceEventContent> for CancelContent {
     }
 }
 
+#[derive(Clone, Debug)]
 pub enum DoneContent {
     Room(RoomId, DoneEventContent),
 }
