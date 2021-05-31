@@ -196,6 +196,10 @@ pub struct Appservice {
 impl Appservice {
     /// Create new Appservice
     ///
+    /// Also creates and caches a [`Client`] with the [`MainAppserviceUser`].
+    /// The default [`ClientConfig`] is used, if you want to customize it
+    /// use [`Self::new_with_client_config()`] instead.
+    ///
     /// # Arguments
     ///
     /// * `homeserver_url` - The homeserver that the client should connect to.
@@ -210,22 +214,36 @@ impl Appservice {
         server_name: impl TryInto<ServerNameBox, Error = identifiers::Error>,
         registration: AppserviceRegistration,
     ) -> Result<Self> {
-        let homeserver_url = homeserver_url.try_into()?;
-        let server_name = server_name.try_into()?;
-
-        let client_sender_localpart = Client::new(homeserver_url.clone())?;
-
-        client_session_with_login_restore(
-            &client_sender_localpart,
-            &registration,
-            registration.sender_localpart.as_ref(),
-            &server_name,
+        let appservice = Self::new_with_client_config(
+            homeserver_url,
+            server_name,
+            registration,
+            ClientConfig::default(),
         )
         .await?;
 
-        let registration = Arc::new(registration);
+        Ok(appservice)
+    }
 
-        Ok(Appservice { homeserver_url, server_name, registration, client_sender_localpart })
+    /// Same as [`Self::new()`] but lets you provide a [`ClientConfig`] for the
+    /// [`Client`]
+    pub async fn new_with_client_config(
+        homeserver_url: impl TryInto<Url, Error = url::ParseError>,
+        server_name: impl TryInto<ServerNameBox, Error = identifiers::Error>,
+        registration: AppserviceRegistration,
+        client_config: ClientConfig,
+    ) -> Result<Self> {
+        let homeserver_url = homeserver_url.try_into()?;
+        let server_name = server_name.try_into()?;
+        let registration = Arc::new(registration);
+        let clients = Arc::new(DashMap::new());
+
+        let appservice = Appservice { homeserver_url, server_name, registration, clients };
+
+        // we cache the [`MainAppserviceUser`] by default
+        appservice.client_with_config(None, client_config).await?;
+
+        Ok(appservice)
     }
 
     /// Create a [`Client`]
@@ -243,7 +261,7 @@ impl Appservice {
     ///
     /// [registration]: https://matrix.org/docs/spec/application_service/r0.1.2#registration
     /// [assert the identity]: https://matrix.org/docs/spec/application_service/r0.1.2#identity-assertion
-    pub async fn client(&mut self, localpart: Option<&str>) -> Result<Client> {
+    pub async fn client(&self, localpart: Option<&str>) -> Result<Client> {
         let client = self.client_with_config(localpart, ClientConfig::default()).await?;
 
         Ok(client)
@@ -255,7 +273,7 @@ impl Appservice {
     /// Since this method is a singleton follow-up calls with different
     /// [`ClientConfig`]s will be ignored.
     pub async fn client_with_config(
-        &mut self,
+        &self,
         localpart: Option<&str>,
         config: ClientConfig,
     ) -> Result<Client> {
