@@ -2000,7 +2000,7 @@ impl Client {
             #[cfg(feature = "encryption")]
             {
                 // This is needed because sometimes we need to automatically
-                // claim some one-time keys to unwedge an exisitng Olm session.
+                // claim some one-time keys to unwedge an existing Olm session.
                 if let Err(e) = self.claim_one_time_keys([].iter()).await {
                     warn!("Error while claiming one-time keys {:?}", e);
                 }
@@ -2562,7 +2562,10 @@ mod test {
             .create();
 
         if Client::new_from_user_id(alice).await.is_ok() {
-            panic!("Creating a client from a user ID should fail when the .well-known server returns no version infromation.");
+            panic!(
+                "Creating a client from a user ID should fail when the \
+                   .well-known server returns no version information."
+            );
         }
     }
 

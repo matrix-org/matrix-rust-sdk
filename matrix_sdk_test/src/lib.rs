@@ -364,7 +364,7 @@ impl EventBuilder {
     }
 }
 
-/// Embedded sync reponse files
+/// Embedded sync response files
 pub enum SyncResponseFile {
     All,
     Default,

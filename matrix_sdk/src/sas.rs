@@ -18,7 +18,7 @@ use matrix_sdk_base::crypto::{
 
 use crate::{error::Result, Client};
 
-/// An object controling the interactive verification flow.
+/// An object controlling the interactive verification flow.
 #[derive(Debug, Clone)]
 pub struct Sas {
     pub(crate) inner: BaseSas,

@@ -486,7 +486,7 @@ pub struct RoomInfo {
     pub summary: RoomSummary,
     /// Flag remembering if the room members are synced.
     pub members_synced: bool,
-    /// The prev batch of this room we received durring the last sync.
+    /// The prev batch of this room we received during the last sync.
     pub last_prev_batch: Option<String>,
     /// Base room info which holds some basic event contents important for the
     /// room state.

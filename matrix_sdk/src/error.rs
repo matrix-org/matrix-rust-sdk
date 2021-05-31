@@ -122,7 +122,7 @@ pub enum Error {
     #[error(transparent)]
     CryptoStoreError(#[from] CryptoStoreError),
 
-    /// An error occured in the state store.
+    /// An error occurred in the state store.
     #[error(transparent)]
     StateStore(#[from] StoreError),
 
