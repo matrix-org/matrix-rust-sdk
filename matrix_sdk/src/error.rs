@@ -18,7 +18,7 @@ use std::io::Error as IoError;
 
 use http::StatusCode;
 #[cfg(feature = "encryption")]
-use matrix_sdk_base::crypto::store::CryptoStoreError;
+use matrix_sdk_base::crypto::{store::CryptoStoreError, DecryptorError};
 use matrix_sdk_base::{Error as MatrixError, StoreError};
 use matrix_sdk_common::{
     api::{
@@ -121,6 +121,11 @@ pub enum Error {
     #[cfg(feature = "encryption")]
     #[error(transparent)]
     CryptoStoreError(#[from] CryptoStoreError),
+
+    /// An error occurred during decryption.
+    #[cfg(feature = "encryption")]
+    #[error(transparent)]
+    DecryptorError(#[from] DecryptorError),
 
     /// An error occurred in the state store.
     #[error(transparent)]

@@ -34,7 +34,7 @@ use matrix_sdk_common::{
         room::member::{MemberEventContent, MembershipState},
         AnyGlobalAccountDataEvent, AnyRoomAccountDataEvent, AnySyncStateEvent, EventType,
     },
-    identifiers::{EventId, RoomId, UserId},
+    identifiers::{EventId, MxcUri, RoomId, UserId},
     receipt::ReceiptType,
     Raw,
 };
@@ -47,7 +47,10 @@ use tracing::info;
 
 use self::store_key::{EncryptedEvent, StoreKey};
 use super::{Result, RoomInfo, StateChanges, StateStore, StoreError};
-use crate::deserialized_responses::MemberEvent;
+use crate::{
+    deserialized_responses::MemberEvent,
+    media::{MediaRequest, UniqueKey},
+};
 
 #[derive(Debug, Serialize, Deserialize)]
 pub enum DatabaseType {
@@ -185,6 +188,7 @@ pub struct SledStore {
     presence: Tree,
     room_user_receipts: Tree,
     room_event_receipts: Tree,
+    media: Tree,
 }
 
 impl std::fmt::Debug for SledStore {
@@ -220,6 +224,8 @@ impl SledStore {
         let room_user_receipts = db.open_tree("room_user_receipts")?;
         let room_event_receipts = db.open_tree("room_event_receipts")?;
 
+        let media = db.open_tree("media")?;
+
         Ok(Self {
             path,
             inner: db,
@@ -240,6 +246,7 @@ impl SledStore {
             stripped_room_state,
             room_user_receipts,
             room_event_receipts,
+            media,
         })
     }
 
@@ -721,6 +728,46 @@ impl SledStore {
             })
             .collect()
     }
+
+    async fn add_media_content(&self, request: &MediaRequest, data: Vec<u8>) -> Result<()> {
+        self.media.insert(
+            (request.media_type.unique_key().as_str(), request.format.unique_key().as_str())
+                .encode(),
+            data,
+        )?;
+
+        Ok(())
+    }
+
+    async fn get_media_content(&self, request: &MediaRequest) -> Result<Option<Vec<u8>>> {
+        Ok(self
+            .media
+            .get(
+                (request.media_type.unique_key().as_str(), request.format.unique_key().as_str())
+                    .encode(),
+            )?
+            .map(|m| m.to_vec()))
+    }
+
+    async fn remove_media_content(&self, request: &MediaRequest) -> Result<()> {
+        self.media.remove(
+            (request.media_type.unique_key().as_str(), request.format.unique_key().as_str())
+                .encode(),
+        )?;
+
+        Ok(())
+    }
+
+    async fn remove_media_content_for_uri(&self, uri: &MxcUri) -> Result<()> {
+        let keys = self.media.scan_prefix(uri.as_str().encode()).keys();
+
+        let mut batch = sled::Batch::default();
+        for key in keys {
+            batch.remove(key?);
+        }
+
+        Ok(self.media.apply_batch(batch)?)
+    }
 }
 
 #[async_trait]
@@ -830,6 +877,22 @@ impl StateStore for SledStore {
     ) -> Result<Vec<(UserId, Receipt)>> {
         self.get_event_room_receipt_events(room_id, receipt_type, event_id).await
     }
+
+    async fn add_media_content(&self, request: &MediaRequest, data: Vec<u8>) -> Result<()> {
+        self.add_media_content(request, data).await
+    }
+
+    async fn get_media_content(&self, request: &MediaRequest) -> Result<Option<Vec<u8>>> {
+        self.get_media_content(request).await
+    }
+
+    async fn remove_media_content(&self, request: &MediaRequest) -> Result<()> {
+        self.remove_media_content(request).await
+    }
+
+    async fn remove_media_content_for_uri(&self, uri: &MxcUri) -> Result<()> {
+        self.remove_media_content_for_uri(uri).await
+    }
 }
 
 #[cfg(test)]
@@ -837,6 +900,7 @@ mod test {
     use std::convert::TryFrom;
 
     use matrix_sdk_common::{
+        api::r0::media::get_content_thumbnail::Method,
         events::{
             room::{
                 member::{MemberEventContent, MembershipState},
@@ -844,15 +908,19 @@ mod test {
             },
             AnySyncStateEvent, EventType, Unsigned,
         },
-        identifiers::{event_id, room_id, user_id, EventId, UserId},
+        identifiers::{event_id, mxc_uri, room_id, user_id, EventId, UserId},
         receipt::ReceiptType,
-        MilliSecondsSinceUnixEpoch, Raw,
+        uint, MilliSecondsSinceUnixEpoch, Raw,
     };
     use matrix_sdk_test::async_test;
     use serde_json::json;
 
     use super::{SledStore, StateChanges};
-    use crate::{deserialized_responses::MemberEvent, StateStore};
+    use crate::{
+        deserialized_responses::MemberEvent,
+        media::{MediaFormat, MediaRequest, MediaThumbnailSize, MediaType},
+        StateStore,
+    };
 
     fn user_id() -> UserId {
         user_id!("@example:localhost")
@@ -1023,5 +1091,44 @@ mod test {
                 .len(),
             1
         );
+    }
+
+    #[async_test]
+    async fn test_media_content() {
+        let store = SledStore::open().unwrap();
+
+        let uri = mxc_uri!("mxc://localhost/media");
+        let content: Vec<u8> = "somebinarydata".into();
+
+        let request_file =
+            MediaRequest { media_type: MediaType::Uri(uri.clone()), format: MediaFormat::File };
+
+        let request_thumbnail = MediaRequest {
+            media_type: MediaType::Uri(uri.clone()),
+            format: MediaFormat::Thumbnail(MediaThumbnailSize {
+                method: Method::Crop,
+                width: uint!(100),
+                height: uint!(100),
+            }),
+        };
+
+        assert!(store.get_media_content(&request_file).await.unwrap().is_none());
+        assert!(store.get_media_content(&request_thumbnail).await.unwrap().is_none());
+
+        store.add_media_content(&request_file, content.clone()).await.unwrap();
+        assert!(store.get_media_content(&request_file).await.unwrap().is_some());
+
+        store.remove_media_content(&request_file).await.unwrap();
+        assert!(store.get_media_content(&request_file).await.unwrap().is_none());
+
+        store.add_media_content(&request_file, content.clone()).await.unwrap();
+        assert!(store.get_media_content(&request_file).await.unwrap().is_some());
+
+        store.add_media_content(&request_thumbnail, content.clone()).await.unwrap();
+        assert!(store.get_media_content(&request_thumbnail).await.unwrap().is_some());
+
+        store.remove_media_content_for_uri(&uri).await.unwrap();
+        assert!(store.get_media_content(&request_file).await.unwrap().is_none());
+        assert!(store.get_media_content(&request_thumbnail).await.unwrap().is_none());
     }
 }

@@ -14,7 +14,11 @@
 // limitations under the License.
 
 #[cfg(feature = "encryption")]
-use std::{collections::BTreeMap, io::Write, path::PathBuf};
+use std::{
+    collections::BTreeMap,
+    io::{Cursor, Write},
+    path::PathBuf,
+};
 #[cfg(feature = "sso_login")]
 use std::{
     collections::HashMap,
@@ -38,10 +42,13 @@ use http::Response;
 #[cfg(feature = "encryption")]
 use matrix_sdk_base::crypto::{
     decrypt_key_export, encrypt_key_export, olm::InboundGroupSession, store::CryptoStoreError,
-    OutgoingRequests, RoomMessageRequest, ToDeviceRequest,
+    AttachmentDecryptor, OutgoingRequests, RoomMessageRequest, ToDeviceRequest,
 };
 use matrix_sdk_base::{
-    deserialized_responses::SyncResponse, events::AnyMessageEventContent, identifiers::MxcUri,
+    deserialized_responses::SyncResponse,
+    events::AnyMessageEventContent,
+    identifiers::MxcUri,
+    media::{MediaEventContent, MediaFormat, MediaRequest, MediaThumbnailSize, MediaType},
     BaseClient, BaseClientConfig, SendAccessToken, Session, Store,
 };
 use mime::{self, Mime};
@@ -2465,6 +2472,208 @@ impl Client {
 
         Ok(olm.import_keys(import, |_, _| {}).await?)
     }
+
+    /// Get a media file's content.
+    ///
+    /// If the content is encrypted and encryption is enabled, the content will
+    /// be decrypted.
+    ///
+    /// # Arguments
+    ///
+    /// * `request` - The `MediaRequest` of the content.
+    ///
+    /// * `use_cache` - If we should use the media cache for this request.
+    pub async fn get_media_content(
+        &self,
+        request: &MediaRequest,
+        use_cache: bool,
+    ) -> Result<Vec<u8>> {
+        let content = if use_cache {
+            self.base_client.store().get_media_content(request).await?
+        } else {
+            None
+        };
+
+        if let Some(content) = content {
+            Ok(content)
+        } else {
+            let content: Vec<u8> = match &request.media_type {
+                MediaType::Encrypted(file) => {
+                    let content: Vec<u8> =
+                        self.send(get_content::Request::from_url(&file.url)?, None).await?.file;
+
+                    #[cfg(feature = "encryption")]
+                    let content = {
+                        let mut cursor = Cursor::new(content);
+                        let mut reader =
+                            AttachmentDecryptor::new(&mut cursor, file.as_ref().clone().into())?;
+
+                        let mut decrypted = Vec::new();
+                        reader.read_to_end(&mut decrypted)?;
+
+                        decrypted
+                    };
+
+                    content
+                }
+                MediaType::Uri(uri) => {
+                    if let MediaFormat::Thumbnail(size) = &request.format {
+                        self.send(
+                            get_content_thumbnail::Request::from_url(
+                                &uri,
+                                size.width,
+                                size.height,
+                            )?,
+                            None,
+                        )
+                        .await?
+                        .file
+                    } else {
+                        self.send(get_content::Request::from_url(&uri)?, None).await?.file
+                    }
+                }
+            };
+
+            if use_cache {
+                self.base_client.store().add_media_content(request, content.clone()).await?;
+            }
+
+            Ok(content)
+        }
+    }
+
+    /// Remove a media file's content from the store.
+    ///
+    /// # Arguments
+    ///
+    /// * `request` - The `MediaRequest` of the content.
+    pub async fn remove_media_content(&self, request: &MediaRequest) -> Result<()> {
+        Ok(self.base_client.store().remove_media_content(request).await?)
+    }
+
+    /// Delete all the media content corresponding to the given
+    /// uri from the store.
+    ///
+    /// # Arguments
+    ///
+    /// * `uri` - The `MxcUri` of the files.
+    pub async fn remove_media_content_for_uri(&self, uri: &MxcUri) -> Result<()> {
+        Ok(self.base_client.store().remove_media_content_for_uri(&uri).await?)
+    }
+
+    /// Get the file of the given media event content.
+    ///
+    /// If the content is encrypted and encryption is enabled, the content will
+    /// be decrypted.
+    ///
+    /// Returns `Ok(None)` if the event content has no file.
+    ///
+    /// This is a convenience method that calls the
+    /// [`get_media_content`](#method.get_media_content) method.
+    ///
+    /// # Arguments
+    ///
+    /// * `event_content` - The media event content.
+    ///
+    /// * `use_cache` - If we should use the media cache for this file.
+    pub async fn get_file(
+        &self,
+        event_content: impl MediaEventContent,
+        use_cache: bool,
+    ) -> Result<Option<Vec<u8>>> {
+        if let Some(media_type) = event_content.file() {
+            Ok(Some(
+                self.get_media_content(
+                    &MediaRequest { media_type, format: MediaFormat::File },
+                    use_cache,
+                )
+                .await?,
+            ))
+        } else {
+            Ok(None)
+        }
+    }
+
+    /// Remove the file of the given media event content from the cache.
+    ///
+    /// This is a convenience method that calls the
+    /// [`remove_media_content`](#method.remove_media_content) method.
+    ///
+    /// # Arguments
+    ///
+    /// * `event_content` - The media event content.
+    pub async fn remove_file(&self, event_content: impl MediaEventContent) -> Result<()> {
+        if let Some(media_type) = event_content.file() {
+            self.remove_media_content(&MediaRequest { media_type, format: MediaFormat::File })
+                .await?
+        }
+
+        Ok(())
+    }
+
+    /// Get a thumbnail of the given media event content.
+    ///
+    /// If the content is encrypted and encryption is enabled, the content will
+    /// be decrypted.
+    ///
+    /// Returns `Ok(None)` if the event content has no thumbnail.
+    ///
+    /// This is a convenience method that calls the
+    /// [`get_media_content`](#method.get_media_content) method.
+    ///
+    /// # Arguments
+    ///
+    /// * `event_content` - The media event content.
+    ///
+    /// * `size` - The _desired_ size of the thumbnail. The actual thumbnail may
+    ///   not match the size specified.
+    ///
+    /// * `use_cache` - If we should use the media cache for this thumbnail.
+    pub async fn get_thumbnail(
+        &self,
+        event_content: impl MediaEventContent,
+        size: MediaThumbnailSize,
+        use_cache: bool,
+    ) -> Result<Option<Vec<u8>>> {
+        if let Some(media_type) = event_content.thumbnail() {
+            Ok(Some(
+                self.get_media_content(
+                    &MediaRequest { media_type, format: MediaFormat::Thumbnail(size) },
+                    use_cache,
+                )
+                .await?,
+            ))
+        } else {
+            Ok(None)
+        }
+    }
+
+    /// Remove the thumbnail of the given media event content from the cache.
+    ///
+    /// This is a convenience method that calls the
+    /// [`remove_media_content`](#method.remove_media_content) method.
+    ///
+    /// # Arguments
+    ///
+    /// * `event_content` - The media event content.
+    ///
+    /// * `size` - The _desired_ size of the thumbnail. Must match the size
+    ///   requested with [`get_thumbnail`](#method.get_thumbnail).
+    pub async fn remove_thumbnail(
+        &self,
+        event_content: impl MediaEventContent,
+        size: MediaThumbnailSize,
+    ) -> Result<()> {
+        if let Some(media_type) = event_content.file() {
+            self.remove_media_content(&MediaRequest {
+                media_type,
+                format: MediaFormat::Thumbnail(size),
+            })
+            .await?
+        }
+
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -2477,7 +2686,13 @@ mod test {
         time::Duration,
     };
 
-    use matrix_sdk_base::identifiers::mxc_uri;
+    use matrix_sdk_base::{
+        api::r0::media::get_content_thumbnail::Method,
+        events::room::{message::ImageMessageEventContent, ImageInfo},
+        identifiers::mxc_uri,
+        media::{MediaFormat, MediaRequest, MediaThumbnailSize, MediaType},
+        uint,
+    };
     use matrix_sdk_common::{
         api::r0::{
             account::register::Request as RegistrationRequest,
@@ -3553,5 +3768,75 @@ mod test {
         } else {
             panic!("this request should return an `Err` variant")
         }
+    }
+
+    #[tokio::test]
+    async fn get_media_content() {
+        let client = logged_in_client().await;
+
+        let request = MediaRequest {
+            media_type: MediaType::Uri(mxc_uri!("mxc://localhost/textfile")),
+            format: MediaFormat::File,
+        };
+
+        let m = mock(
+            "GET",
+            Matcher::Regex(r"^/_matrix/media/r0/download/localhost/textfile\?.*$".to_string()),
+        )
+        .with_status(200)
+        .with_body("Some very interesting text.")
+        .expect(2)
+        .create();
+
+        assert!(client.get_media_content(&request, true).await.is_ok());
+        assert!(client.get_media_content(&request, true).await.is_ok());
+        assert!(client.get_media_content(&request, false).await.is_ok());
+        m.assert();
+    }
+
+    #[tokio::test]
+    async fn get_media_file() {
+        let client = logged_in_client().await;
+
+        let event_content = ImageMessageEventContent::plain(
+            "filename.jpg".into(),
+            mxc_uri!("mxc://example.org/image"),
+            Some(Box::new(assign!(ImageInfo::new(), {
+                height: Some(uint!(398)),
+                width: Some(uint!(394)),
+                mimetype: Some("image/jpeg".into()),
+                size: Some(uint!(31037)),
+            }))),
+        );
+
+        let m = mock(
+            "GET",
+            Matcher::Regex(r"^/_matrix/media/r0/download/example%2Eorg/image\?.*$".to_string()),
+        )
+        .with_status(200)
+        .with_body("binaryjpegdata")
+        .create();
+
+        assert!(client.get_file(event_content.clone(), true).await.is_ok());
+        assert!(client.get_file(event_content.clone(), true).await.is_ok());
+        m.assert();
+
+        let m = mock(
+            "GET",
+            Matcher::Regex(r"^/_matrix/media/r0/thumbnail/example%2Eorg/image\?.*$".to_string()),
+        )
+        .with_status(200)
+        .with_body("smallerbinaryjpegdata")
+        .create();
+
+        assert!(client
+            .get_thumbnail(
+                event_content,
+                MediaThumbnailSize { method: Method::Scale, width: uint!(100), height: uint!(100) },
+                true
+            )
+            .await
+            .is_ok());
+        m.assert();
     }
 }
