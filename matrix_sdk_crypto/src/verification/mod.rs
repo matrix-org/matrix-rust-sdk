@@ -41,6 +41,17 @@ use crate::{
 
 use self::sas::CancelContent;
 
+/// The verification state indicating that the verification finished
+/// successfully.
+///
+/// We can now mark the device in our verified devices lits as verified and sign
+/// the master keys in the verified devices list.
+#[derive(Clone, Debug)]
+pub struct Done {
+    verified_devices: Arc<[ReadOnlyDevice]>,
+    verified_master_keys: Arc<[UserIdentities]>,
+}
+
 #[derive(Clone, Debug)]
 pub struct Cancelled {
     cancel_code: CancelCode,

@@ -52,7 +52,7 @@ use super::{
 };
 use crate::{
     identities::{ReadOnlyDevice, UserIdentities},
-    verification::{Cancelled, FlowId},
+    verification::{Cancelled, Done, FlowId},
     ReadOnlyAccount,
 };
 
@@ -267,16 +267,6 @@ pub struct MacReceived {
 /// verificaton. This state waits for such a message.
 #[derive(Clone, Debug)]
 pub struct WaitingForDone {
-    verified_devices: Arc<[ReadOnlyDevice]>,
-    verified_master_keys: Arc<[UserIdentities]>,
-}
-
-/// The SAS state indicating that the verification finished successfully.
-///
-/// We can now mark the device in our verified devices lits as verified and sign
-/// the master keys in the verified devices list.
-#[derive(Clone, Debug)]
-pub struct Done {
     verified_devices: Arc<[ReadOnlyDevice]>,
     verified_master_keys: Arc<[UserIdentities]>,
 }

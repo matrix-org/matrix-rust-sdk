@@ -27,14 +27,13 @@ use matrix_sdk_common::{
 use super::{
     event_enums::{AcceptContent, CancelContent, MacContent, OutgoingContent},
     sas_state::{
-        Accepted, Confirmed, Created, Done, KeyReceived, MacReceived, SasState, Started,
-        WaitingForDone,
+        Accepted, Confirmed, Created, KeyReceived, MacReceived, SasState, Started, WaitingForDone,
     },
     FlowId, StartContent,
 };
 use crate::{
     identities::{ReadOnlyDevice, UserIdentities},
-    verification::Cancelled,
+    verification::{Cancelled, Done},
     ReadOnlyAccount,
 };
 
