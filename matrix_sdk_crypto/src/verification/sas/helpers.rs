@@ -198,8 +198,9 @@ pub fn receive_mac_event(
         ids.other_device.device_id()
     );
 
-    let mut keys = content.mac().keys().cloned().collect::<Vec<String>>();
+    let mut keys = content.mac().keys().map(|k| k.as_str()).collect::<Vec<_>>();
     keys.sort();
+
     let keys = sas
         .calculate_mac(&keys.join(","), &format!("{}KEY_IDS", &info))
         .expect("Can't calculate SAS MAC");
@@ -215,6 +216,7 @@ pub fn receive_mac_event(
             sender,
             ids.other_device.device_id()
         );
+
         let key_id: DeviceKeyId = match key_id.as_str().try_into() {
             Ok(id) => id,
             Err(_) => continue,
