@@ -87,14 +87,14 @@ async fn test_event_handler() -> Result<()> {
         events,
     );
 
-    appservice.client(None).await?.receive_transaction(incoming).await?;
+    appservice.get_cached_client(None)?.receive_transaction(incoming).await?;
 
     Ok(())
 }
 
 #[async_test]
 async fn test_transaction() -> Result<()> {
-    let mut appservice = appservice(None).await?;
+    let appservice = appservice(None).await?;
 
     let event = serde_json::from_value::<AnyStateEvent>(member_json()).unwrap();
     let event: Raw<AnyRoomEvent> = AnyRoomEvent::State(event).into();
@@ -105,7 +105,7 @@ async fn test_transaction() -> Result<()> {
         events,
     );
 
-    appservice.client(None).await?.receive_transaction(incoming).await?;
+    appservice.get_cached_client(None)?.receive_transaction(incoming).await?;
 
     Ok(())
 }

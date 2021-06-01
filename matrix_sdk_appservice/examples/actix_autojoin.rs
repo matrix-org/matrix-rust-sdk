@@ -37,7 +37,7 @@ impl EventHandler for AppserviceEventHandler {
             let mut appservice = self.appservice.clone();
             appservice.register(user_id.localpart()).await.unwrap();
 
-            let client = appservice.client(Some(user_id.localpart())).await.unwrap();
+            let client = appservice.virtual_user(user_id.localpart()).await.unwrap();
 
             client.join_room_by_id(room.room_id()).await.unwrap();
         }

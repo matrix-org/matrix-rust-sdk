@@ -177,12 +177,20 @@ impl Deref for AppserviceRegistration {
 
 type Localpart = String;
 
-/// The main appservice user is the `sender_localpart` from the given
-/// [`AppserviceRegistration`]
+/// The `localpart` of the user associated with the application service via
+/// `sender_localpart` in [`AppserviceRegistration`].
 ///
 /// Dummy type for shared documentation
 #[allow(dead_code)]
-pub type MainAppserviceUser = ();
+pub type MainUser = ();
+
+/// The application service may specify the virtual user to act as through use
+/// of a user_id query string parameter on the request. The user specified in
+/// the query string must be covered by one of the [`AppserviceRegistration`]'s
+/// `users` namespaces.
+///
+/// Dummy type for shared documentation
+pub type VirtualUser = ();
 
 /// Appservice
 #[derive(Debug, Clone)]
@@ -196,9 +204,9 @@ pub struct Appservice {
 impl Appservice {
     /// Create new Appservice
     ///
-    /// Also creates and caches a [`Client`] with the [`MainAppserviceUser`].
+    /// Also creates and caches a [`Client`] for the [`MainUser`].
     /// The default [`ClientConfig`] is used, if you want to customize it
-    /// use [`Self::new_with_client_config()`] instead.
+    /// use [`Self::new_with_config()`] instead.
     ///
     /// # Arguments
     ///
@@ -214,7 +222,7 @@ impl Appservice {
         server_name: impl TryInto<ServerNameBox, Error = identifiers::Error>,
         registration: AppserviceRegistration,
     ) -> Result<Self> {
-        let appservice = Self::new_with_client_config(
+        let appservice = Self::new_with_config(
             homeserver_url,
             server_name,
             registration,
@@ -227,7 +235,7 @@ impl Appservice {
 
     /// Same as [`Self::new()`] but lets you provide a [`ClientConfig`] for the
     /// [`Client`]
-    pub async fn new_with_client_config(
+    pub async fn new_with_config(
         homeserver_url: impl TryInto<Url, Error = url::ParseError>,
         server_name: impl TryInto<ServerNameBox, Error = identifiers::Error>,
         registration: AppserviceRegistration,
@@ -237,23 +245,26 @@ impl Appservice {
         let server_name = server_name.try_into()?;
         let registration = Arc::new(registration);
         let clients = Arc::new(DashMap::new());
+        let sender_localpart = registration.sender_localpart.clone();
 
         let appservice = Appservice { homeserver_url, server_name, registration, clients };
 
-        // we cache the [`MainAppserviceUser`] by default
-        appservice.client_with_config(None, client_config).await?;
+        // we cache the [`MainUser`] by default
+        appservice.virtual_user_with_config(sender_localpart, client_config).await?;
 
         Ok(appservice)
     }
 
-    /// Create a [`Client`]
+    /// Create a [`Client`] for the given [`VirtualUser`]'s `localpart`
     ///
     /// Will create and return a [`Client`] that's configured to [assert the
     /// identity] on all outgoing homeserver requests if `localpart` is
-    /// given. If not given the [`Client`] will use the [`MainAppserviceUser`].
+    /// given.
     ///
     /// This method is a singleton that saves the client internally for re-use
-    /// based on the `localpart`.
+    /// based on the `localpart`. The cached [`Client`] can be retrieved either
+    /// by calling this method again or by calling [`Self::get_cached_client()`]
+    /// which is non-async convenience wrapper.
     ///
     /// # Arguments
     ///
@@ -261,30 +272,31 @@ impl Appservice {
     ///
     /// [registration]: https://matrix.org/docs/spec/application_service/r0.1.2#registration
     /// [assert the identity]: https://matrix.org/docs/spec/application_service/r0.1.2#identity-assertion
-    pub async fn client(&self, localpart: Option<&str>) -> Result<Client> {
-        let client = self.client_with_config(localpart, ClientConfig::default()).await?;
+    pub async fn virtual_user(&self, localpart: impl AsRef<str>) -> Result<Client> {
+        let client = self.virtual_user_with_config(localpart, ClientConfig::default()).await?;
 
         Ok(client)
     }
 
-    /// Same as [`Self::client`] but with the ability to pass in a
+    /// Same as [`Self::virtual_user()`] but with the ability to pass in a
     /// [`ClientConfig`]
     ///
     /// Since this method is a singleton follow-up calls with different
     /// [`ClientConfig`]s will be ignored.
-    pub async fn client_with_config(
+    pub async fn virtual_user_with_config(
         &self,
-        localpart: Option<&str>,
+        localpart: impl AsRef<str>,
         config: ClientConfig,
     ) -> Result<Client> {
-        let localpart = localpart.unwrap_or_else(|| self.registration.sender_localpart.as_ref());
+        // TODO: check if localpart is covered by namespace?
+        let localpart = localpart.as_ref();
 
         let client = if let Some(client) = self.clients.get(localpart) {
             client.clone()
         } else {
             let user_id = UserId::parse_with_server_name(localpart, &self.server_name)?;
 
-            // The `as_token` in the `Session` maps to the [`MainAppserviceUser`]
+            // The `as_token` in the `Session` maps to the [`MainUser`]
             // (`sender_localpart`) by default, so we don't need to assert identity
             // in that case
             if localpart != self.registration.sender_localpart {
@@ -312,8 +324,11 @@ impl Appservice {
     /// Get cached [`Client`]
     ///
     /// Will return the client for the given `localpart` if previously
-    /// constructed with [`Self::client()`] or [`Self::client_with_config()`].
-    /// If no client for the `localpart` is found it will return an Error.
+    /// constructed with [`Self::virtual_user()`] or
+    /// [`Self::virtual_user_with_config()`].
+    ///
+    /// If no `localpart` is given it assumes the [`MainUser`]'s `localpart`. If
+    /// no client for `localpart` is found it will return an Error.
     pub fn get_cached_client(&self, localpart: Option<&str>) -> Result<Client> {
         let localpart = localpart.unwrap_or_else(|| self.registration.sender_localpart.as_ref());
 
@@ -324,10 +339,9 @@ impl Appservice {
 
     /// Convenience wrapper around [`Client::set_event_handler()`]
     ///
-    /// Attaches the event handler to [`Self::client()`] with `None` as
-    /// `localpart`
+    /// Attaches the event handler to the [`MainUser`]'s [`Client`]
     pub async fn set_event_handler(&mut self, handler: Box<dyn EventHandler>) -> Result<()> {
-        let client = self.client(None).await?;
+        let client = self.get_cached_client(None)?;
 
         client.set_event_handler(handler).await;
 
@@ -347,7 +361,7 @@ impl Appservice {
             login_type: Some(&LoginType::ApplicationService),
         });
 
-        let client = self.client(None).await?;
+        let client = self.get_cached_client(None)?;
         match client.register(request).await {
             Ok(_) => (),
             Err(error) => match error {
@@ -383,7 +397,8 @@ impl Appservice {
         self.registration.hs_token == hs_token.as_ref()
     }
 
-    /// Check if given `user_id` is in any of the registration user namespaces
+    /// Check if given `user_id` is in any of the [`AppserviceRegistration`]'s
+    /// `users` namespaces
     pub fn user_id_is_in_namespace(&self, user_id: impl AsRef<str>) -> Result<bool> {
         for user in &self.registration.namespaces.users {
             // TODO: precompile on Appservice construction
