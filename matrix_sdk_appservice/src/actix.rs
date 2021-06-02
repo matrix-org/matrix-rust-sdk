@@ -35,11 +35,11 @@ use crate::{error::Error, Appservice};
 
 pub async fn run_server(
     appservice: Appservice,
-    host: impl AsRef<str>,
+    host: impl Into<String>,
     port: impl Into<u16>,
 ) -> Result<(), Error> {
     HttpServer::new(move || App::new().service(appservice.actix_service()))
-        .bind((host.as_ref(), port.into()))?
+        .bind((host.into(), port.into()))?
         .run()
         .await?;
 

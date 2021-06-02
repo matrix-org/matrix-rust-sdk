@@ -34,7 +34,7 @@ impl EventHandler for AppserviceEventHandler {
         if let MembershipState::Invite = event.content.membership {
             let user_id = UserId::try_from(event.state_key.clone()).unwrap();
 
-            let mut appservice = self.appservice.clone();
+            let appservice = self.appservice.clone();
             appservice.register(user_id.localpart()).await.unwrap();
 
             let client = appservice.virtual_user(user_id.localpart()).await.unwrap();

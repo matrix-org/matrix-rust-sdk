@@ -424,7 +424,7 @@ impl Appservice {
     ///
     /// This is a blocking call that tries to listen on the provided host and
     /// port
-    pub async fn run(&self, host: impl AsRef<str>, port: impl Into<u16>) -> Result<()> {
+    pub async fn run(&self, host: impl Into<String>, port: impl Into<u16>) -> Result<()> {
         #[cfg(feature = "actix")]
         {
             actix::run_server(self.clone(), host, port).await?;
