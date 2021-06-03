@@ -316,6 +316,7 @@ impl<S: Clone> SasState<S> {
     }
 
     /// Is this verification happening inside a DM.
+    #[allow(dead_code)]
     pub fn is_dm_verification(&self) -> bool {
         matches!(&*self.verification_flow_id, FlowId::InRoom(_, _))
     }

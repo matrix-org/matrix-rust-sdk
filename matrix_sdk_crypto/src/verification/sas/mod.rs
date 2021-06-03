@@ -37,6 +37,7 @@ use matrix_sdk_common::{
     identifiers::{DeviceId, EventId, RoomId, UserId},
     uuid::Uuid,
 };
+use tracing::trace;
 
 use super::{
     event_enums::{AnyVerificationContent, OwnedAcceptContent, StartContent},
@@ -304,6 +305,14 @@ impl Sas {
                 RoomMessageRequest { room_id: r, txn_id: Uuid::new_v4(), content: c }.into()
             }
         });
+
+        if mac_request.is_some() {
+            trace!(
+                user_id = self.other_user_id().as_str(),
+                device_id = self.other_device_id().as_str(),
+                "Confirming SAS verification"
+            )
+        }
 
         if done {
             match self.mark_as_done().await? {

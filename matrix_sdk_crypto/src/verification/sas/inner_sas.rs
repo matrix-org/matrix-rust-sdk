@@ -46,7 +46,6 @@ pub enum InnerSas {
     Confirmed(SasState<Confirmed>),
     MacReceived(SasState<MacReceived>),
     WaitingForDone(SasState<WaitingForDone>),
-    WaitingForDoneUnconfirmed(SasState<WaitingForDone>),
     Done(SasState<Done>),
     Cancelled(SasState<Cancelled>),
 }
@@ -88,7 +87,6 @@ impl InnerSas {
                 .short_auth_string
                 .contains(&ShortAuthenticationString::Emoji),
             InnerSas::WaitingForDone(_) => false,
-            InnerSas::WaitingForDoneUnconfirmed(_) => false,
             InnerSas::Done(_) => false,
             InnerSas::Cancelled(_) => false,
         }
@@ -154,7 +152,6 @@ impl InnerSas {
             InnerSas::MacReceived(s) => s.set_creation_time(time),
             InnerSas::Done(s) => s.set_creation_time(time),
             InnerSas::WaitingForDone(s) => s.set_creation_time(time),
-            InnerSas::WaitingForDoneUnconfirmed(s) => s.set_creation_time(time),
         }
     }
 
@@ -181,11 +178,11 @@ impl InnerSas {
                 (InnerSas::Confirmed(sas), Some(content))
             }
             InnerSas::MacReceived(s) => {
-                if s.is_dm_verification() {
+                if s.started_from_request {
                     let sas = s.confirm_and_wait_for_done();
                     let content = sas.as_content();
 
-                    (InnerSas::WaitingForDoneUnconfirmed(sas), Some(content))
+                    (InnerSas::WaitingForDone(sas), Some(content))
                 } else {
                     let sas = s.confirm();
                     let content = sas.as_content();
@@ -273,13 +270,6 @@ impl InnerSas {
             },
             AnyVerificationContent::Done(c) => match self {
                 InnerSas::WaitingForDone(s) => match s.into_done(sender, c) {
-                    Ok(s) => (InnerSas::Done(s), None),
-                    Err(s) => {
-                        let content = s.as_content();
-                        (InnerSas::Cancelled(s), Some(content))
-                    }
-                },
-                InnerSas::WaitingForDoneUnconfirmed(s) => match s.into_done(sender, c) {
                     Ok(s) => {
                         let content = s.done_content();
                         (InnerSas::Done(s), Some(content))
@@ -289,7 +279,6 @@ impl InnerSas {
                         (InnerSas::Cancelled(s), Some(content))
                     }
                 },
-
                 _ => (self, None),
             },
             AnyVerificationContent::Request(_)
@@ -320,7 +309,6 @@ impl InnerSas {
             InnerSas::Confirmed(s) => s.timed_out(),
             InnerSas::MacReceived(s) => s.timed_out(),
             InnerSas::WaitingForDone(s) => s.timed_out(),
-            InnerSas::WaitingForDoneUnconfirmed(s) => s.timed_out(),
             InnerSas::Done(s) => s.timed_out(),
         }
     }
@@ -335,7 +323,6 @@ impl InnerSas {
             InnerSas::Confirmed(s) => s.verification_flow_id.clone(),
             InnerSas::MacReceived(s) => s.verification_flow_id.clone(),
             InnerSas::WaitingForDone(s) => s.verification_flow_id.clone(),
-            InnerSas::WaitingForDoneUnconfirmed(s) => s.verification_flow_id.clone(),
             InnerSas::Done(s) => s.verification_flow_id.clone(),
         }
     }
