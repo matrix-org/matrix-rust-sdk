@@ -216,6 +216,7 @@ impl Sas {
     ///
     /// * `event` - The m.key.verification.start event that was sent to us by
     /// the other side.
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn from_start_event(
         flow_id: FlowId,
         content: &StartContent,
