@@ -1064,19 +1064,7 @@ impl SasState<Done> {
     }
 
     pub fn done_content(&self) -> OutgoingContent {
-        match self.verification_flow_id.as_ref() {
-            FlowId::ToDevice(t) => AnyToDeviceEventContent::KeyVerificationDone(
-                DoneToDeviceEventContent::new(t.to_owned()),
-            )
-            .into(),
-            FlowId::InRoom(r, e) => (
-                r.clone(),
-                AnyMessageEventContent::KeyVerificationDone(DoneEventContent::new(Relation::new(
-                    e.clone(),
-                ))),
-            )
-                .into(),
-        }
+        self.state.as_content(self.verification_flow_id.as_ref())
     }
 
     /// Get the list of verified devices.

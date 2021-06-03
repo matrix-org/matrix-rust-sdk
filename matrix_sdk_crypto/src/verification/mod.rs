@@ -25,6 +25,7 @@ use matrix_sdk_common::{
     events::{
         key::verification::{
             cancel::{CancelCode, CancelEventContent, CancelToDeviceEventContent},
+            done::{DoneEventContent, DoneToDeviceEventContent},
             Relation,
         },
         AnyMessageEventContent, AnyToDeviceEventContent,
@@ -52,6 +53,24 @@ use crate::{
 pub struct Done {
     verified_devices: Arc<[ReadOnlyDevice]>,
     verified_master_keys: Arc<[UserIdentities]>,
+}
+
+impl Done {
+    pub fn as_content(&self, flow_id: &FlowId) -> OutgoingContent {
+        match flow_id {
+            FlowId::ToDevice(t) => AnyToDeviceEventContent::KeyVerificationDone(
+                DoneToDeviceEventContent::new(t.to_owned()),
+            )
+            .into(),
+            FlowId::InRoom(r, e) => (
+                r.to_owned(),
+                AnyMessageEventContent::KeyVerificationDone(DoneEventContent::new(Relation::new(
+                    e.to_owned(),
+                ))),
+            )
+                .into(),
+        }
+    }
 }
 
 #[derive(Clone, Debug)]
