@@ -14,19 +14,15 @@
 
 #![allow(dead_code)]
 
-use std::{
-    convert::TryFrom,
-    sync::{Arc, Mutex},
-};
+use std::sync::{Arc, Mutex};
 
 use matrix_sdk_common::{
     api::r0::to_device::DeviceIdOrAllDevices,
     events::{
         key::verification::{
-            done::{DoneEventContent, DoneToDeviceEventContent},
             ready::{ReadyEventContent, ReadyToDeviceEventContent},
             request::RequestToDeviceEventContent,
-            start::{StartEventContent, StartMethod, StartToDeviceEventContent},
+            start::StartMethod,
             Relation, VerificationMethod,
         },
         room::message::KeyVerificationRequestEventContent,
@@ -36,10 +32,11 @@ use matrix_sdk_common::{
     uuid::Uuid,
     MilliSecondsSinceUnixEpoch,
 };
-use tracing::{info, trace, warn};
+use tracing::{info, warn};
 
 use super::{
-    sas::{content_to_request, OutgoingContent, StartContent as OwnedStartContent},
+    event_enums::{ReadyContent, RequestContent, StartContent},
+    sas::{content_to_request, OutgoingContent},
     FlowId, VerificationCache,
 };
 use crate::{
@@ -50,184 +47,6 @@ use crate::{
 };
 
 const SUPPORTED_METHODS: &[VerificationMethod] = &[VerificationMethod::MSasV1];
-
-pub enum RequestContent<'a> {
-    ToDevice(&'a RequestToDeviceEventContent),
-    Room(&'a KeyVerificationRequestEventContent),
-}
-
-impl RequestContent<'_> {
-    fn from_device(&self) -> &DeviceId {
-        match self {
-            RequestContent::ToDevice(t) => &t.from_device,
-            RequestContent::Room(r) => &r.from_device,
-        }
-    }
-
-    fn methods(&self) -> &[VerificationMethod] {
-        match self {
-            RequestContent::ToDevice(t) => &t.methods,
-            RequestContent::Room(r) => &r.methods,
-        }
-    }
-}
-
-impl<'a> From<&'a KeyVerificationRequestEventContent> for RequestContent<'a> {
-    fn from(c: &'a KeyVerificationRequestEventContent) -> Self {
-        Self::Room(c)
-    }
-}
-
-impl<'a> From<&'a RequestToDeviceEventContent> for RequestContent<'a> {
-    fn from(c: &'a RequestToDeviceEventContent) -> Self {
-        Self::ToDevice(c)
-    }
-}
-
-pub enum ReadyContent<'a> {
-    ToDevice(&'a ReadyToDeviceEventContent),
-    Room(&'a ReadyEventContent),
-}
-
-impl ReadyContent<'_> {
-    fn from_device(&self) -> &DeviceId {
-        match self {
-            ReadyContent::ToDevice(t) => &t.from_device,
-            ReadyContent::Room(r) => &r.from_device,
-        }
-    }
-
-    fn methods(&self) -> &[VerificationMethod] {
-        match self {
-            ReadyContent::ToDevice(t) => &t.methods,
-            ReadyContent::Room(r) => &r.methods,
-        }
-    }
-}
-
-impl<'a> From<&'a ReadyEventContent> for ReadyContent<'a> {
-    fn from(c: &'a ReadyEventContent) -> Self {
-        Self::Room(c)
-    }
-}
-
-impl<'a> From<&'a ReadyToDeviceEventContent> for ReadyContent<'a> {
-    fn from(c: &'a ReadyToDeviceEventContent) -> Self {
-        Self::ToDevice(c)
-    }
-}
-
-impl<'a> TryFrom<&'a OutgoingContent> for ReadyContent<'a> {
-    type Error = ();
-
-    fn try_from(value: &'a OutgoingContent) -> Result<Self, Self::Error> {
-        match value {
-            OutgoingContent::Room(_, c) => {
-                if let AnyMessageEventContent::KeyVerificationReady(c) = c {
-                    Ok(ReadyContent::Room(c))
-                } else {
-                    Err(())
-                }
-            }
-            OutgoingContent::ToDevice(c) => {
-                if let AnyToDeviceEventContent::KeyVerificationReady(c) = c {
-                    Ok(ReadyContent::ToDevice(c))
-                } else {
-                    Err(())
-                }
-            }
-        }
-    }
-}
-
-pub enum StartContent<'a> {
-    ToDevice(&'a StartToDeviceEventContent),
-    Room(&'a StartEventContent),
-}
-
-impl<'a> StartContent<'a> {
-    pub fn from_device(&self) -> &DeviceId {
-        match self {
-            StartContent::ToDevice(c) => &c.from_device,
-            StartContent::Room(c) => &c.from_device,
-        }
-    }
-
-    pub fn flow_id(&self) -> &str {
-        match self {
-            StartContent::ToDevice(c) => &c.transaction_id,
-            StartContent::Room(c) => &c.relation.event_id.as_str(),
-        }
-    }
-
-    pub fn method(&self) -> &StartMethod {
-        match self {
-            StartContent::ToDevice(c) => &c.method,
-            StartContent::Room(c) => &c.method,
-        }
-    }
-}
-
-impl<'a> From<&'a StartEventContent> for StartContent<'a> {
-    fn from(c: &'a StartEventContent) -> Self {
-        Self::Room(c)
-    }
-}
-
-impl<'a> From<&'a StartToDeviceEventContent> for StartContent<'a> {
-    fn from(c: &'a StartToDeviceEventContent) -> Self {
-        Self::ToDevice(c)
-    }
-}
-
-impl<'a> TryFrom<&'a OutgoingContent> for StartContent<'a> {
-    type Error = ();
-
-    fn try_from(value: &'a OutgoingContent) -> Result<Self, Self::Error> {
-        match value {
-            OutgoingContent::Room(_, c) => {
-                if let AnyMessageEventContent::KeyVerificationStart(c) = c {
-                    Ok(StartContent::Room(c))
-                } else {
-                    Err(())
-                }
-            }
-            OutgoingContent::ToDevice(c) => {
-                if let AnyToDeviceEventContent::KeyVerificationStart(c) = c {
-                    Ok(StartContent::ToDevice(c))
-                } else {
-                    Err(())
-                }
-            }
-        }
-    }
-}
-
-pub enum DoneContent<'a> {
-    ToDevice(&'a DoneToDeviceEventContent),
-    Room(&'a DoneEventContent),
-}
-
-impl<'a> From<&'a DoneEventContent> for DoneContent<'a> {
-    fn from(c: &'a DoneEventContent) -> Self {
-        Self::Room(c)
-    }
-}
-
-impl<'a> From<&'a DoneToDeviceEventContent> for DoneContent<'a> {
-    fn from(c: &'a DoneToDeviceEventContent) -> Self {
-        Self::ToDevice(c)
-    }
-}
-
-impl<'a> DoneContent<'a> {
-    pub fn flow_id(&self) -> &str {
-        match self {
-            Self::ToDevice(c) => &c.transaction_id,
-            Self::Room(c) => &c.relation.event_id.as_str(),
-        }
-    }
-}
 
 #[derive(Clone, Debug)]
 /// TODO
@@ -311,56 +130,14 @@ impl VerificationRequest {
         &self.flow_id
     }
 
-    pub(crate) fn from_room_request(
-        cache: VerificationCache,
-        account: ReadOnlyAccount,
-        private_cross_signing_identity: PrivateCrossSigningIdentity,
-        store: Arc<Box<dyn CryptoStore>>,
-        sender: &UserId,
-        event_id: &EventId,
-        room_id: &RoomId,
-        content: &KeyVerificationRequestEventContent,
-    ) -> Self {
-        let flow_id = FlowId::from((room_id.to_owned(), event_id.to_owned()));
-        Self::from_helper(
-            cache,
-            account,
-            private_cross_signing_identity,
-            store,
-            sender,
-            flow_id,
-            content.into(),
-        )
-    }
-
     pub(crate) fn from_request(
         cache: VerificationCache,
         account: ReadOnlyAccount,
         private_cross_signing_identity: PrivateCrossSigningIdentity,
         store: Arc<Box<dyn CryptoStore>>,
         sender: &UserId,
-        content: &RequestToDeviceEventContent,
-    ) -> Self {
-        let flow_id = FlowId::from(content.transaction_id.to_owned());
-        Self::from_helper(
-            cache,
-            account,
-            private_cross_signing_identity,
-            store,
-            sender,
-            flow_id,
-            content.into(),
-        )
-    }
-
-    fn from_helper(
-        cache: VerificationCache,
-        account: ReadOnlyAccount,
-        private_cross_signing_identity: PrivateCrossSigningIdentity,
-        store: Arc<Box<dyn CryptoStore>>,
-        sender: &UserId,
         flow_id: FlowId,
-        content: RequestContent,
+        content: &RequestContent,
     ) -> Self {
         Self {
             verification_cache: cache.clone(),
@@ -394,13 +171,8 @@ impl VerificationRequest {
     }
 
     #[allow(clippy::unnecessary_wraps)]
-    pub(crate) fn receive_ready<'a>(
-        &self,
-        sender: &UserId,
-        content: impl Into<ReadyContent<'a>>,
-    ) -> Result<(), ()> {
+    pub(crate) fn receive_ready(&self, sender: &UserId, content: &ReadyContent) -> Result<(), ()> {
         let mut inner = self.inner.lock().unwrap();
-        let content = content.into();
 
         if let InnerRequest::Created(s) = &*inner {
             *inner = InnerRequest::Ready(s.clone().into_ready(sender, content));
@@ -409,13 +181,11 @@ impl VerificationRequest {
         Ok(())
     }
 
-    pub(crate) async fn receive_start<'a>(
+    pub(crate) async fn receive_start(
         &self,
         sender: &UserId,
-        content: impl Into<StartContent<'a>>,
+        content: &StartContent<'_>,
     ) -> Result<(), CryptoStoreError> {
-        let content = content.into();
-
         let inner = self.inner.lock().unwrap().clone();
 
         if let InnerRequest::Ready(s) = inner {
@@ -502,9 +272,9 @@ impl InnerRequest {
         }
     }
 
-    fn to_started_sas<'a>(
+    fn to_started_sas(
         &self,
-        content: impl Into<StartContent<'a>>,
+        content: &StartContent,
         other_device: ReadOnlyDevice,
         other_identity: Option<UserIdentities>,
     ) -> Result<Option<Sas>, OutgoingContent> {
@@ -551,7 +321,7 @@ impl RequestState<Created> {
         }
     }
 
-    fn into_ready(self, _sender: &UserId, content: ReadyContent) -> RequestState<Ready> {
+    fn into_ready(self, _sender: &UserId, content: &ReadyContent) -> RequestState<Ready> {
         // TODO check the flow id, and that the methods match what we suggested.
         RequestState {
             account: self.account,
@@ -600,7 +370,7 @@ impl RequestState<Requested> {
         store: Arc<Box<dyn CryptoStore>>,
         sender: &UserId,
         flow_id: &FlowId,
-        content: RequestContent,
+        content: &RequestContent,
     ) -> RequestState<Requested> {
         // TODO only create this if we suport the methods
         RequestState {
@@ -673,39 +443,27 @@ struct Ready {
 impl RequestState<Ready> {
     fn to_started_sas<'a>(
         &self,
-        content: impl Into<StartContent<'a>>,
+        content: &StartContent<'a>,
         other_device: ReadOnlyDevice,
         other_identity: Option<UserIdentities>,
     ) -> Result<Sas, OutgoingContent> {
-        let content: OwnedStartContent = match content.into() {
-            StartContent::Room(c) => {
-                if let FlowId::InRoom(r, _) = &*self.flow_id {
-                    (r.to_owned(), c.to_owned()).into()
-                } else {
-                    // TODO cancel here
-                    panic!("Missmatch between content and flow id");
-                }
-            }
-            StartContent::ToDevice(c) => c.clone().into(),
-        };
-
         Sas::from_start_event(
+            (&*self.flow_id).to_owned(),
             content,
             self.store.clone(),
             self.account.clone(),
             self.private_cross_signing_identity.clone(),
             other_device,
             other_identity,
+            true,
         )
     }
 
-    async fn receive_start<'a>(
+    async fn receive_start(
         &self,
         sender: &UserId,
-        content: impl Into<StartContent<'a>>,
+        content: &StartContent<'_>,
     ) -> Result<(), CryptoStoreError> {
-        let content = content.into();
-
         info!(
             sender = sender.as_str(),
             device = content.from_device().as_str(),
@@ -747,7 +505,7 @@ impl RequestState<Ready> {
                 }
             },
             m => {
-                warn!(method =? m, "Received a key verificaton start event with an unknown method")
+                warn!(method =? m, "Received a key verificaton start event with an unsupported method")
             }
         }
 
@@ -772,7 +530,7 @@ impl RequestState<Ready> {
                     other_identity,
                     Some(t),
                 );
-                (sas, content.into())
+                (sas, content)
             }
             FlowId::InRoom(r, e) => {
                 let (sas, content) = Sas::start_in_room(
@@ -784,7 +542,7 @@ impl RequestState<Ready> {
                     store,
                     other_identity,
                 );
-                (sas, content.into())
+                (sas, content)
             }
         }
     }
@@ -807,11 +565,15 @@ mod test {
     use matrix_sdk_common::identifiers::{event_id, room_id, DeviceIdBox, UserId};
     use matrix_sdk_test::async_test;
 
-    use super::{StartContent, VerificationRequest};
+    use super::VerificationRequest;
     use crate::{
         olm::{PrivateCrossSigningIdentity, ReadOnlyAccount},
         store::{Changes, CryptoStore, MemoryStore},
-        verification::{requests::ReadyContent, sas::OutgoingContent, VerificationCache},
+        verification::{
+            event_enums::{ReadyContent, StartContent},
+            sas::OutgoingContent,
+            FlowId, VerificationCache,
+        },
         ReadOnlyDevice,
     };
 
@@ -856,21 +618,22 @@ mod test {
             &alice_id(),
         );
 
-        let alice_request = VerificationRequest::from_room_request(
+        let flow_id = FlowId::from((room_id, event_id));
+
+        let alice_request = VerificationRequest::from_request(
             VerificationCache::new(),
             alice,
             alice_identity,
             alice_store.into(),
             &bob_id(),
-            &event_id,
-            &room_id,
-            &content,
+            flow_id,
+            &(&content).into(),
         );
 
         let content: OutgoingContent = alice_request.accept().unwrap().into();
         let content = ReadyContent::try_from(&content).unwrap();
 
-        bob_request.receive_ready(&alice_id(), content).unwrap();
+        bob_request.receive_ready(&alice_id(), &content).unwrap();
 
         assert!(bob_request.is_ready());
         assert!(alice_request.is_ready());
@@ -908,21 +671,22 @@ mod test {
             &alice_id(),
         );
 
-        let alice_request = VerificationRequest::from_room_request(
+        let flow_id = FlowId::from((room_id, event_id));
+
+        let alice_request = VerificationRequest::from_request(
             VerificationCache::new(),
             alice,
             alice_identity,
             alice_store.into(),
             &bob_id(),
-            &event_id,
-            &room_id,
-            &content,
+            flow_id,
+            &(&content).into(),
         );
 
         let content: OutgoingContent = alice_request.accept().unwrap().into();
         let content = ReadyContent::try_from(&content).unwrap();
 
-        bob_request.receive_ready(&alice_id(), content).unwrap();
+        bob_request.receive_ready(&alice_id(), &content).unwrap();
 
         assert!(bob_request.is_ready());
         assert!(alice_request.is_ready());
@@ -931,7 +695,7 @@ mod test {
 
         let content = StartContent::try_from(&start_content).unwrap();
         let flow_id = content.flow_id().to_owned();
-        alice_request.receive_start(bob_device.user_id(), content).await.unwrap();
+        alice_request.receive_start(bob_device.user_id(), &content).await.unwrap();
         let alice_sas = alice_request.verification_cache.get_sas(&flow_id).unwrap();
 
         assert!(!bob_sas.is_cancelled());

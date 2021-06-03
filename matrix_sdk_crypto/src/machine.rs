@@ -32,7 +32,7 @@ use matrix_sdk_common::{
     events::{
         room::encrypted::{EncryptedEventContent, EncryptedEventScheme},
         room_key::RoomKeyToDeviceEventContent,
-        AnyMessageEventContent, AnyToDeviceEvent, SyncMessageEvent, ToDeviceEvent,
+        AnyMessageEventContent, AnyRoomEvent, AnyToDeviceEvent, SyncMessageEvent, ToDeviceEvent,
     },
     identifiers::{
         DeviceId, DeviceIdBox, DeviceKeyAlgorithm, EventEncryptionAlgorithm, RoomId, UserId,
@@ -703,7 +703,7 @@ impl OlmMachine {
     }
 
     async fn handle_verification_event(&self, event: &AnyToDeviceEvent) {
-        if let Err(e) = self.verification_machine.receive_event(&event).await {
+        if let Err(e) = self.verification_machine.receive_any_event(event).await {
             error!("Error handling a verification event: {:?}", e);
         }
     }
@@ -986,7 +986,11 @@ impl OlmMachine {
         trace!("Successfully decrypted a Megolm event {:?}", decrypted_event);
 
         if let Ok(e) = decrypted_event.deserialize() {
-            self.verification_machine.receive_room_event(room_id, &e).await?;
+            let event = e.into_full_event(room_id.to_owned());
+
+            if let AnyRoomEvent::Message(e) = event {
+                self.verification_machine.receive_any_event(&e).await?;
+            }
         }
 
         let encryption_info =

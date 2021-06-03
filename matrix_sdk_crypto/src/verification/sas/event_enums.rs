@@ -12,214 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{collections::BTreeMap, convert::TryInto};
-
 use matrix_sdk_common::{
-    events::{
-        key::verification::{
-            accept::{AcceptEventContent, AcceptMethod, AcceptToDeviceEventContent},
-            cancel::{CancelEventContent, CancelToDeviceEventContent},
-            done::DoneEventContent,
-            key::{KeyEventContent, KeyToDeviceEventContent},
-            mac::{MacEventContent, MacToDeviceEventContent},
-            start::{StartEventContent, StartMethod, StartToDeviceEventContent},
-        },
-        AnyMessageEventContent, AnyToDeviceEventContent,
-    },
+    events::{AnyMessageEventContent, AnyToDeviceEventContent},
     identifiers::RoomId,
-    CanonicalJsonValue,
 };
-
-use super::FlowId;
-
-#[derive(Clone, Debug)]
-pub enum StartContent {
-    ToDevice(StartToDeviceEventContent),
-    Room(RoomId, StartEventContent),
-}
-
-impl StartContent {
-    pub fn method(&self) -> &StartMethod {
-        match self {
-            StartContent::ToDevice(c) => &c.method,
-            StartContent::Room(_, c) => &c.method,
-        }
-    }
-
-    pub fn flow_id(&self) -> FlowId {
-        match self {
-            StartContent::ToDevice(c) => FlowId::ToDevice(c.transaction_id.clone()),
-            StartContent::Room(r, c) => FlowId::InRoom(r.clone(), c.relation.event_id.clone()),
-        }
-    }
-
-    pub fn canonical_json(self) -> CanonicalJsonValue {
-        let content = match self {
-            StartContent::ToDevice(c) => serde_json::to_value(c),
-            StartContent::Room(_, c) => serde_json::to_value(c),
-        };
-
-        content.expect("Can't serialize content").try_into().expect("Can't canonicalize content")
-    }
-}
-
-impl From<(RoomId, StartEventContent)> for StartContent {
-    fn from(tuple: (RoomId, StartEventContent)) -> Self {
-        StartContent::Room(tuple.0, tuple.1)
-    }
-}
-
-impl From<StartToDeviceEventContent> for StartContent {
-    fn from(content: StartToDeviceEventContent) -> Self {
-        StartContent::ToDevice(content)
-    }
-}
-
-#[derive(Clone, Debug)]
-pub enum AcceptContent {
-    ToDevice(AcceptToDeviceEventContent),
-    Room(RoomId, AcceptEventContent),
-}
-
-impl AcceptContent {
-    pub fn flow_id(&self) -> FlowId {
-        match self {
-            AcceptContent::ToDevice(c) => FlowId::ToDevice(c.transaction_id.clone()),
-            AcceptContent::Room(r, c) => FlowId::InRoom(r.clone(), c.relation.event_id.clone()),
-        }
-    }
-
-    pub fn method(&self) -> &AcceptMethod {
-        match self {
-            AcceptContent::ToDevice(c) => &c.method,
-            AcceptContent::Room(_, c) => &c.method,
-        }
-    }
-}
-
-impl From<AcceptToDeviceEventContent> for AcceptContent {
-    fn from(content: AcceptToDeviceEventContent) -> Self {
-        AcceptContent::ToDevice(content)
-    }
-}
-
-impl From<(RoomId, AcceptEventContent)> for AcceptContent {
-    fn from(content: (RoomId, AcceptEventContent)) -> Self {
-        AcceptContent::Room(content.0, content.1)
-    }
-}
-
-#[derive(Clone, Debug)]
-pub enum KeyContent {
-    ToDevice(KeyToDeviceEventContent),
-    Room(RoomId, KeyEventContent),
-}
-
-impl KeyContent {
-    pub fn flow_id(&self) -> FlowId {
-        match self {
-            KeyContent::ToDevice(c) => FlowId::ToDevice(c.transaction_id.clone()),
-            KeyContent::Room(r, c) => FlowId::InRoom(r.clone(), c.relation.event_id.clone()),
-        }
-    }
-
-    pub fn public_key(&self) -> &str {
-        match self {
-            KeyContent::ToDevice(c) => &c.key,
-            KeyContent::Room(_, c) => &c.key,
-        }
-    }
-}
-
-impl From<KeyToDeviceEventContent> for KeyContent {
-    fn from(content: KeyToDeviceEventContent) -> Self {
-        KeyContent::ToDevice(content)
-    }
-}
-
-impl From<(RoomId, KeyEventContent)> for KeyContent {
-    fn from(content: (RoomId, KeyEventContent)) -> Self {
-        KeyContent::Room(content.0, content.1)
-    }
-}
-
-#[derive(Clone, Debug)]
-pub enum MacContent {
-    ToDevice(MacToDeviceEventContent),
-    Room(RoomId, MacEventContent),
-}
-
-impl MacContent {
-    pub fn flow_id(&self) -> FlowId {
-        match self {
-            MacContent::ToDevice(c) => FlowId::ToDevice(c.transaction_id.clone()),
-            MacContent::Room(r, c) => FlowId::InRoom(r.clone(), c.relation.event_id.clone()),
-        }
-    }
-
-    pub fn mac(&self) -> &BTreeMap<String, String> {
-        match self {
-            MacContent::ToDevice(c) => &c.mac,
-            MacContent::Room(_, c) => &c.mac,
-        }
-    }
-
-    pub fn keys(&self) -> &str {
-        match self {
-            MacContent::ToDevice(c) => &c.keys,
-            MacContent::Room(_, c) => &c.keys,
-        }
-    }
-}
-
-impl From<MacToDeviceEventContent> for MacContent {
-    fn from(content: MacToDeviceEventContent) -> Self {
-        MacContent::ToDevice(content)
-    }
-}
-
-impl From<(RoomId, MacEventContent)> for MacContent {
-    fn from(content: (RoomId, MacEventContent)) -> Self {
-        MacContent::Room(content.0, content.1)
-    }
-}
-
-#[derive(Clone, Debug)]
-pub enum CancelContent {
-    ToDevice(CancelToDeviceEventContent),
-    Room(RoomId, CancelEventContent),
-}
-
-impl From<(RoomId, CancelEventContent)> for CancelContent {
-    fn from(content: (RoomId, CancelEventContent)) -> Self {
-        CancelContent::Room(content.0, content.1)
-    }
-}
-
-impl From<CancelToDeviceEventContent> for CancelContent {
-    fn from(content: CancelToDeviceEventContent) -> Self {
-        CancelContent::ToDevice(content)
-    }
-}
-
-#[derive(Clone, Debug)]
-pub enum DoneContent {
-    Room(RoomId, DoneEventContent),
-}
-
-impl DoneContent {
-    pub fn flow_id(&self) -> FlowId {
-        match self {
-            DoneContent::Room(r, c) => FlowId::InRoom(r.clone(), c.relation.event_id.clone()),
-        }
-    }
-}
-
-impl From<(RoomId, DoneEventContent)> for DoneContent {
-    fn from(content: (RoomId, DoneEventContent)) -> Self {
-        DoneContent::Room(content.0, content.1)
-    }
-}
 
 #[derive(Clone, Debug)]
 pub enum OutgoingContent {
@@ -227,39 +23,15 @@ pub enum OutgoingContent {
     ToDevice(AnyToDeviceEventContent),
 }
 
-impl From<StartContent> for OutgoingContent {
-    fn from(content: StartContent) -> Self {
+impl From<OwnedStartContent> for OutgoingContent {
+    fn from(content: OwnedStartContent) -> Self {
         match content {
-            StartContent::Room(r, c) => (r, AnyMessageEventContent::KeyVerificationStart(c)).into(),
-            StartContent::ToDevice(c) => AnyToDeviceEventContent::KeyVerificationStart(c).into(),
-        }
-    }
-}
-
-impl From<CancelContent> for OutgoingContent {
-    fn from(content: CancelContent) -> Self {
-        match content {
-            CancelContent::Room(r, c) => {
-                (r, AnyMessageEventContent::KeyVerificationCancel(c)).into()
+            OwnedStartContent::Room(r, c) => {
+                (r, AnyMessageEventContent::KeyVerificationStart(c)).into()
             }
-            CancelContent::ToDevice(c) => AnyToDeviceEventContent::KeyVerificationCancel(c).into(),
-        }
-    }
-}
-
-impl From<KeyContent> for OutgoingContent {
-    fn from(content: KeyContent) -> Self {
-        match content {
-            KeyContent::Room(r, c) => (r, AnyMessageEventContent::KeyVerificationKey(c)).into(),
-            KeyContent::ToDevice(c) => AnyToDeviceEventContent::KeyVerificationKey(c).into(),
-        }
-    }
-}
-
-impl From<DoneContent> for OutgoingContent {
-    fn from(content: DoneContent) -> Self {
-        match content {
-            DoneContent::Room(r, c) => (r, AnyMessageEventContent::KeyVerificationDone(c)).into(),
+            OwnedStartContent::ToDevice(c) => {
+                AnyToDeviceEventContent::KeyVerificationStart(c).into()
+            }
         }
     }
 }
@@ -277,62 +49,98 @@ impl From<(RoomId, AnyMessageEventContent)> for OutgoingContent {
 }
 
 #[cfg(test)]
-use crate::OutgoingVerificationRequest;
+use std::convert::TryFrom;
+
+use crate::verification::event_enums::OwnedStartContent;
+#[cfg(test)]
+use crate::{OutgoingRequest, OutgoingVerificationRequest, RoomMessageRequest, ToDeviceRequest};
 
 #[cfg(test)]
 impl From<OutgoingVerificationRequest> for OutgoingContent {
     fn from(request: OutgoingVerificationRequest) -> Self {
+        match request {
+            OutgoingVerificationRequest::ToDevice(r) => Self::try_from(r).unwrap(),
+            OutgoingVerificationRequest::InRoom(r) => Self::from(r),
+        }
+    }
+}
+
+#[cfg(test)]
+impl From<RoomMessageRequest> for OutgoingContent {
+    fn from(value: RoomMessageRequest) -> Self {
+        (value.room_id, value.content).into()
+    }
+}
+
+#[cfg(test)]
+impl TryFrom<ToDeviceRequest> for OutgoingContent {
+    type Error = ();
+
+    fn try_from(value: ToDeviceRequest) -> Result<Self, Self::Error> {
         use matrix_sdk_common::events::EventType;
         use serde_json::Value;
 
-        match request {
-            OutgoingVerificationRequest::ToDevice(r) => {
-                let json: Value = serde_json::from_str(
-                    r.messages.values().next().unwrap().values().next().unwrap().get(),
+        let json: Value = serde_json::from_str(
+            value
+                .messages
+                .values()
+                .next()
+                .and_then(|m| m.values().next().map(|j| j.get()))
+                .ok_or(())?,
+        )
+        .map_err(|_| ())?;
+
+        match value.event_type {
+            EventType::KeyVerificationRequest => {
+                Ok(AnyToDeviceEventContent::KeyVerificationRequest(
+                    serde_json::from_value(json).map_err(|_| ())?,
                 )
-                .unwrap();
-
-                match r.event_type {
-                    EventType::KeyVerificationRequest => {
-                        AnyToDeviceEventContent::KeyVerificationRequest(
-                            serde_json::from_value(json).unwrap(),
-                        )
-                    }
-                    EventType::KeyVerificationReady => {
-                        AnyToDeviceEventContent::KeyVerificationReady(
-                            serde_json::from_value(json).unwrap(),
-                        )
-                    }
-                    EventType::KeyVerificationDone => AnyToDeviceEventContent::KeyVerificationDone(
-                        serde_json::from_value(json).unwrap(),
-                    ),
-                    EventType::KeyVerificationStart => {
-                        AnyToDeviceEventContent::KeyVerificationStart(
-                            serde_json::from_value(json).unwrap(),
-                        )
-                    }
-                    EventType::KeyVerificationKey => AnyToDeviceEventContent::KeyVerificationKey(
-                        serde_json::from_value(json).unwrap(),
-                    ),
-                    EventType::KeyVerificationAccept => {
-                        AnyToDeviceEventContent::KeyVerificationAccept(
-                            serde_json::from_value(json).unwrap(),
-                        )
-                    }
-                    EventType::KeyVerificationMac => AnyToDeviceEventContent::KeyVerificationMac(
-                        serde_json::from_value(json).unwrap(),
-                    ),
-                    EventType::KeyVerificationCancel => {
-                        AnyToDeviceEventContent::KeyVerificationCancel(
-                            serde_json::from_value(json).unwrap(),
-                        )
-                    }
-                    _ => unreachable!(),
-                }
-                .into()
+                .into())
             }
+            EventType::KeyVerificationReady => Ok(AnyToDeviceEventContent::KeyVerificationReady(
+                serde_json::from_value(json).map_err(|_| ())?,
+            )
+            .into()),
+            EventType::KeyVerificationDone => Ok(AnyToDeviceEventContent::KeyVerificationDone(
+                serde_json::from_value(json).map_err(|_| ())?,
+            )
+            .into()),
+            EventType::KeyVerificationStart => Ok(AnyToDeviceEventContent::KeyVerificationStart(
+                serde_json::from_value(json).map_err(|_| ())?,
+            )
+            .into()),
+            EventType::KeyVerificationKey => Ok(AnyToDeviceEventContent::KeyVerificationKey(
+                serde_json::from_value(json).map_err(|_| ())?,
+            )
+            .into()),
+            EventType::KeyVerificationAccept => Ok(AnyToDeviceEventContent::KeyVerificationAccept(
+                serde_json::from_value(json).map_err(|_| ())?,
+            )
+            .into()),
+            EventType::KeyVerificationMac => Ok(AnyToDeviceEventContent::KeyVerificationMac(
+                serde_json::from_value(json).map_err(|_| ())?,
+            )
+            .into()),
+            EventType::KeyVerificationCancel => Ok(AnyToDeviceEventContent::KeyVerificationCancel(
+                serde_json::from_value(json).map_err(|_| ())?,
+            )
+            .into()),
+            _ => Err(()),
+        }
+    }
+}
 
-            OutgoingVerificationRequest::InRoom(r) => (r.room_id, r.content).into(),
+#[cfg(test)]
+impl TryFrom<OutgoingRequest> for OutgoingContent {
+    type Error = ();
+
+    fn try_from(value: OutgoingRequest) -> Result<Self, ()> {
+        match value.request() {
+            crate::OutgoingRequests::KeysUpload(_) => Err(()),
+            crate::OutgoingRequests::KeysQuery(_) => Err(()),
+            crate::OutgoingRequests::ToDeviceRequest(r) => Self::try_from(r.clone()),
+            crate::OutgoingRequests::SignatureUpload(_) => Err(()),
+            crate::OutgoingRequests::RoomMessage(r) => Ok(Self::from(r.clone())),
         }
     }
 }

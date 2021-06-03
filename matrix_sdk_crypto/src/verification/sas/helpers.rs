@@ -22,7 +22,7 @@ use matrix_sdk_common::{
             mac::{MacEventContent, MacToDeviceEventContent},
             Relation,
         },
-        AnyToDeviceEventContent, EventType,
+        AnyMessageEventContent, AnyToDeviceEventContent, EventType,
     },
     identifiers::{DeviceKeyAlgorithm, DeviceKeyId, UserId},
     uuid::Uuid,
@@ -31,13 +31,11 @@ use olm_rs::sas::OlmSas;
 use sha2::{Digest, Sha256};
 use tracing::{trace, warn};
 
-use super::{
-    event_enums::{MacContent, StartContent},
-    FlowId,
-};
+use super::{FlowId, OutgoingContent};
 use crate::{
     identities::{ReadOnlyDevice, UserIdentities},
     utilities::encode,
+    verification::event_enums::{MacContent, StartContent},
     ReadOnlyAccount, ToDeviceRequest,
 };
 
@@ -58,8 +56,8 @@ pub struct SasIds {
 ///
 /// * `content` - The `m.key.verification.start` event content that started the
 /// interactive verification process.
-pub fn calculate_commitment(public_key: &str, content: impl Into<StartContent>) -> String {
-    let content = content.into().canonical_json();
+pub fn calculate_commitment(public_key: &str, content: &StartContent) -> String {
+    let content = content.canonical_json();
     let content_string = content.to_string();
 
     encode(Sha256::new().chain(&public_key).chain(&content_string).finalize())
@@ -199,7 +197,7 @@ pub fn receive_mac_event(
     );
 
     let mut keys = content.mac().keys().map(|k| k.as_str()).collect::<Vec<_>>();
-    keys.sort();
+    keys.sort_unstable();
 
     let keys = sas
         .calculate_mac(&keys.join(","), &format!("{}KEY_IDS", &info))
@@ -296,7 +294,7 @@ fn extra_mac_info_send(ids: &SasIds, flow_id: &str) -> String {
 /// # Panics
 ///
 /// This will panic if the public key of the other side wasn't set.
-pub fn get_mac_content(sas: &OlmSas, ids: &SasIds, flow_id: &FlowId) -> MacContent {
+pub fn get_mac_content(sas: &OlmSas, ids: &SasIds, flow_id: &FlowId) -> OutgoingContent {
     let mut mac: BTreeMap<String, String> = BTreeMap::new();
 
     let key_id = DeviceKeyId::from_parts(DeviceKeyAlgorithm::Ed25519, ids.account.device_id());
@@ -317,10 +315,19 @@ pub fn get_mac_content(sas: &OlmSas, ids: &SasIds, flow_id: &FlowId) -> MacConte
         .expect("Can't calculate SAS MAC");
 
     match flow_id {
-        FlowId::ToDevice(s) => MacToDeviceEventContent::new(s.to_string(), mac, keys).into(),
-        FlowId::InRoom(r, e) => {
-            (r.clone(), MacEventContent::new(mac, keys, Relation::new(e.clone()))).into()
-        }
+        FlowId::ToDevice(s) => AnyToDeviceEventContent::KeyVerificationMac(
+            MacToDeviceEventContent::new(s.to_string(), mac, keys),
+        )
+        .into(),
+        FlowId::InRoom(r, e) => (
+            r.clone(),
+            AnyMessageEventContent::KeyVerificationMac(MacEventContent::new(
+                mac,
+                keys,
+                Relation::new(e.clone()),
+            )),
+        )
+            .into(),
     }
 }
 
@@ -558,6 +565,7 @@ mod test {
         bytes_to_decimal, bytes_to_emoji, bytes_to_emoji_index, calculate_commitment,
         emoji_from_index,
     };
+    use crate::verification::event_enums::StartContent;
 
     #[test]
     fn commitment_calculation() {
@@ -575,7 +583,8 @@ mod test {
         });
 
         let content: StartToDeviceEventContent = serde_json::from_value(content).unwrap();
-        let calculated_commitment = calculate_commitment(public_key, content);
+        let content = StartContent::from(&content);
+        let calculated_commitment = calculate_commitment(public_key, &content);
 
         assert_eq!(commitment, &calculated_commitment);
     }

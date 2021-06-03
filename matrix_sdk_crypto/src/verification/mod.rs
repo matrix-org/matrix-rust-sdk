@@ -12,34 +12,36 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+mod event_enums;
 mod machine;
 mod requests;
 mod sas;
 
 use std::sync::Arc;
 
+pub use machine::{VerificationCache, VerificationMachine};
 use matrix_sdk_common::{
     api::r0::keys::upload_signatures::Request as SignatureUploadRequest,
-    events::key::verification::{
-        cancel::{CancelCode, CancelEventContent, CancelToDeviceEventContent},
-        Relation,
+    events::{
+        key::verification::{
+            cancel::{CancelCode, CancelEventContent, CancelToDeviceEventContent},
+            Relation,
+        },
+        AnyMessageEventContent, AnyToDeviceEventContent,
     },
     identifiers::{DeviceId, EventId, RoomId, UserId},
 };
-
-pub use machine::{VerificationCache, VerificationMachine};
 pub use requests::VerificationRequest;
 pub use sas::{AcceptSettings, Sas};
 use tracing::{error, info, trace, warn};
 
+use self::sas::OutgoingContent;
 use crate::{
     error::SignatureError,
     olm::PrivateCrossSigningIdentity,
     store::{Changes, CryptoStore, DeviceChanges},
     CryptoStoreError, LocalTrust, ReadOnlyDevice, UserIdentities,
 };
-
-use self::sas::CancelContent;
 
 /// The verification state indicating that the verification finished
 /// successfully.
@@ -82,22 +84,24 @@ impl Cancelled {
         Self { cancel_code: code, reason }
     }
 
-    pub fn as_content(&self, flow_id: &FlowId) -> CancelContent {
+    pub fn as_content(&self, flow_id: &FlowId) -> OutgoingContent {
         match flow_id {
-            FlowId::ToDevice(s) => CancelToDeviceEventContent::new(
-                s.clone(),
-                self.reason.to_string(),
-                self.cancel_code.clone(),
-            )
-            .into(),
+            FlowId::ToDevice(s) => {
+                AnyToDeviceEventContent::KeyVerificationCancel(CancelToDeviceEventContent::new(
+                    s.clone(),
+                    self.reason.to_string(),
+                    self.cancel_code.clone(),
+                ))
+                .into()
+            }
 
             FlowId::InRoom(r, e) => (
                 r.clone(),
-                CancelEventContent::new(
+                AnyMessageEventContent::KeyVerificationCancel(CancelEventContent::new(
                     self.reason.to_string(),
                     self.cancel_code.clone(),
                     Relation::new(e.clone()),
-                ),
+                )),
             )
                 .into(),
         }
@@ -139,6 +143,12 @@ impl From<(RoomId, EventId)> for FlowId {
     }
 }
 
+impl From<(&RoomId, &EventId)> for FlowId {
+    fn from(ids: (&RoomId, &EventId)) -> Self {
+        FlowId::InRoom(ids.0.to_owned(), ids.1.to_owned())
+    }
+}
+
 /// A result of a verification flow.
 #[derive(Clone, Debug)]
 pub enum VerificationResult {
@@ -158,7 +168,6 @@ pub struct IdentitiesBeingVerified {
     identity_being_verified: Option<UserIdentities>,
 }
 
-#[allow(dead_code)]
 impl IdentitiesBeingVerified {
     fn user_id(&self) -> &UserId {
         self.private_identity.user_id()
@@ -298,7 +307,10 @@ impl IdentitiesBeingVerified {
                 .map_or(false, |i| i.master_key() == identity.master_key())
             {
                 if verified_identities.map_or(false, |i| i.contains(&identity)) {
-                    trace!("Marking user identity of {} as verified.", identity.user_id(),);
+                    trace!(
+                        user_id = self.other_user_id().as_str(),
+                        "Marking the user identity of as verified."
+                    );
 
                     if let UserIdentities::Own(i) = &identity {
                         i.mark_as_verified();
@@ -307,28 +319,28 @@ impl IdentitiesBeingVerified {
                     Ok(Some(identity))
                 } else {
                     info!(
+                        user_id = self.other_user_id().as_str(),
                         "The interactive verification process didn't verify \
-                         the user identity of {} {:?}",
-                        identity.user_id(),
-                        verified_identities,
+                         the user identity of the user that participated in \
+                         the interactive verification",
                     );
 
                     Ok(None)
                 }
             } else {
                 warn!(
-                    "The master keys of {} have changed while an interactive \
+                    user_id = self.other_user_id().as_str(),
+                    "The master keys of the user have changed while an interactive \
                       verification was going on, not marking the identity as verified.",
-                    identity.user_id(),
                 );
 
                 Ok(None)
             }
         } else {
             info!(
-                "The identity for {} was deleted while an interactive \
+                user_id = self.other_user_id().as_str(),
+                "The identity of the user was deleted while an interactive \
                  verification was going on.",
-                self.other_user_id(),
             );
             Ok(None)
         }

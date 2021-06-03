@@ -21,8 +21,7 @@ use std::sync::{Arc, Mutex};
 #[cfg(test)]
 use std::time::Instant;
 
-use event_enums::AcceptContent;
-pub use event_enums::{CancelContent, OutgoingContent, StartContent};
+pub use event_enums::OutgoingContent;
 pub use helpers::content_to_request;
 use inner_sas::InnerSas;
 use matrix_sdk_common::{
@@ -33,13 +32,16 @@ use matrix_sdk_common::{
             cancel::CancelCode,
             ShortAuthenticationString,
         },
-        AnyMessageEvent, AnyMessageEventContent, AnyToDeviceEvent, AnyToDeviceEventContent,
+        AnyMessageEventContent, AnyToDeviceEventContent,
     },
     identifiers::{DeviceId, EventId, RoomId, UserId},
     uuid::Uuid,
 };
 
-use super::{FlowId, IdentitiesBeingVerified, VerificationResult};
+use super::{
+    event_enums::{AnyVerificationContent, OwnedAcceptContent, StartContent},
+    FlowId, IdentitiesBeingVerified, VerificationResult,
+};
 use crate::{
     identities::{ReadOnlyDevice, UserIdentities},
     olm::PrivateCrossSigningIdentity,
@@ -111,10 +113,10 @@ impl Sas {
         let flow_id = inner_sas.verification_flow_id();
 
         let identities = IdentitiesBeingVerified {
-            private_identity: private_identity.clone(),
+            private_identity,
             store: store.clone(),
-            device_being_verified: other_device.clone(),
-            identity_being_verified: other_identity.clone(),
+            device_being_verified: other_device,
+            identity_being_verified: other_identity,
         };
 
         Sas {
@@ -142,7 +144,7 @@ impl Sas {
         store: Arc<Box<dyn CryptoStore>>,
         other_identity: Option<UserIdentities>,
         transaction_id: Option<String>,
-    ) -> (Sas, StartContent) {
+    ) -> (Sas, OutgoingContent) {
         let (inner, content) = InnerSas::start(
             account.clone(),
             other_device.clone(),
@@ -181,7 +183,7 @@ impl Sas {
         other_device: ReadOnlyDevice,
         store: Arc<Box<dyn CryptoStore>>,
         other_identity: Option<UserIdentities>,
-    ) -> (Sas, StartContent) {
+    ) -> (Sas, OutgoingContent) {
         let (inner, content) = InnerSas::start_in_room(
             flow_id,
             room_id,
@@ -214,18 +216,22 @@ impl Sas {
     /// * `event` - The m.key.verification.start event that was sent to us by
     /// the other side.
     pub(crate) fn from_start_event(
-        content: impl Into<StartContent>,
+        flow_id: FlowId,
+        content: &StartContent,
         store: Arc<Box<dyn CryptoStore>>,
         account: ReadOnlyAccount,
         private_identity: PrivateCrossSigningIdentity,
         other_device: ReadOnlyDevice,
         other_identity: Option<UserIdentities>,
+        started_from_request: bool,
     ) -> Result<Sas, OutgoingContent> {
         let inner = InnerSas::from_start_event(
             account.clone(),
             other_device.clone(),
+            flow_id,
             content,
             other_identity.clone(),
+            started_from_request,
         )?;
 
         Ok(Self::start_helper(
@@ -257,11 +263,11 @@ impl Sas {
         settings: AcceptSettings,
     ) -> Option<OutgoingVerificationRequest> {
         self.inner.lock().unwrap().accept().map(|c| match settings.apply(c) {
-            AcceptContent::ToDevice(c) => {
+            OwnedAcceptContent::ToDevice(c) => {
                 let content = AnyToDeviceEventContent::KeyVerificationAccept(c);
                 self.content_to_request(content).into()
             }
-            AcceptContent::Room(room_id, content) => RoomMessageRequest {
+            OwnedAcceptContent::Room(room_id, content) => RoomMessageRequest {
                 room_id,
                 txn_id: Uuid::new_v4(),
                 content: AnyMessageEventContent::KeyVerificationAccept(content),
@@ -293,15 +299,10 @@ impl Sas {
         };
 
         let mac_request = content.map(|c| match c {
-            event_enums::MacContent::ToDevice(c) => {
-                self.content_to_request(AnyToDeviceEventContent::KeyVerificationMac(c)).into()
+            OutgoingContent::ToDevice(c) => self.content_to_request(c).into(),
+            OutgoingContent::Room(r, c) => {
+                RoomMessageRequest { room_id: r, txn_id: Uuid::new_v4(), content: c }.into()
             }
-            event_enums::MacContent::Room(r, c) => RoomMessageRequest {
-                room_id: r,
-                txn_id: Uuid::new_v4(),
-                content: AnyMessageEventContent::KeyVerificationMac(c),
-            }
-            .into(),
         });
 
         if done {
@@ -337,15 +338,10 @@ impl Sas {
         let (sas, content) = sas.cancel(code);
         *guard = sas;
         content.map(|c| match c {
-            CancelContent::Room(room_id, content) => RoomMessageRequest {
-                room_id,
-                txn_id: Uuid::new_v4(),
-                content: AnyMessageEventContent::KeyVerificationCancel(content),
+            OutgoingContent::Room(room_id, content) => {
+                RoomMessageRequest { room_id, txn_id: Uuid::new_v4(), content }.into()
             }
-            .into(),
-            CancelContent::ToDevice(c) => {
-                self.content_to_request(AnyToDeviceEventContent::KeyVerificationCancel(c)).into()
-            }
+            OutgoingContent::ToDevice(c) => self.content_to_request(c).into(),
         })
     }
 
@@ -406,19 +402,14 @@ impl Sas {
         self.inner.lock().unwrap().decimals()
     }
 
-    pub(crate) fn receive_room_event(&self, event: &AnyMessageEvent) -> Option<OutgoingContent> {
+    pub(crate) fn receive_any_event(
+        &self,
+        sender: &UserId,
+        content: &AnyVerificationContent,
+    ) -> Option<OutgoingContent> {
         let mut guard = self.inner.lock().unwrap();
         let sas: InnerSas = (*guard).clone();
-        let (sas, content) = sas.receive_room_event(event);
-        *guard = sas;
-
-        content
-    }
-
-    pub(crate) fn receive_event(&self, event: &AnyToDeviceEvent) -> Option<OutgoingContent> {
-        let mut guard = self.inner.lock().unwrap();
-        let sas: InnerSas = (*guard).clone();
-        let (sas, content) = sas.receive_event(event);
+        let (sas, content) = sas.receive_any_event(sender, content);
         *guard = sas;
 
         content
@@ -465,13 +456,16 @@ impl AcceptSettings {
         Self { allowed_methods: methods }
     }
 
-    fn apply(self, mut content: AcceptContent) -> AcceptContent {
+    fn apply(self, mut content: OwnedAcceptContent) -> OwnedAcceptContent {
         match &mut content {
-            AcceptContent::ToDevice(AcceptToDeviceEventContent {
+            OwnedAcceptContent::ToDevice(AcceptToDeviceEventContent {
                 method: AcceptMethod::MSasV1(c),
                 ..
             })
-            | AcceptContent::Room(_, AcceptEventContent { method: AcceptMethod::MSasV1(c), .. }) => {
+            | OwnedAcceptContent::Room(
+                _,
+                AcceptEventContent { method: AcceptMethod::MSasV1(c), .. },
+            ) => {
                 c.short_authentication_string.retain(|sas| self.allowed_methods.contains(sas));
                 content
             }
@@ -490,7 +484,10 @@ mod test {
     use crate::{
         olm::PrivateCrossSigningIdentity,
         store::{CryptoStore, MemoryStore},
-        verification::test::{get_content_from_request, wrap_any_to_device_content},
+        verification::{
+            event_enums::{AcceptContent, KeyContent, MacContent, StartContent},
+            sas::OutgoingContent,
+        },
         ReadOnlyAccount, ReadOnlyDevice,
     };
 
@@ -534,47 +531,51 @@ mod test {
             None,
         );
 
+        let flow_id = alice.flow_id().to_owned();
+        let content = StartContent::try_from(&content).unwrap();
+
         let bob = Sas::from_start_event(
-            content,
+            flow_id,
+            &content,
             bob_store,
             bob,
             PrivateCrossSigningIdentity::empty(bob_id()),
             alice_device,
             None,
+            false,
         )
         .unwrap();
-        let event = wrap_any_to_device_content(
-            bob.user_id(),
-            get_content_from_request(&bob.accept().unwrap()),
-        );
 
-        let content = alice.receive_event(&event);
+        let request = bob.accept().unwrap();
+        let content = OutgoingContent::try_from(request).unwrap();
+        let content = AcceptContent::try_from(&content).unwrap();
+
+        let content = alice.receive_any_event(bob.user_id(), &content.into()).unwrap();
 
         assert!(!alice.can_be_presented());
         assert!(!bob.can_be_presented());
 
-        let event = wrap_any_to_device_content(alice.user_id(), content.unwrap());
-        let event = wrap_any_to_device_content(bob.user_id(), bob.receive_event(&event).unwrap());
+        let content = KeyContent::try_from(&content).unwrap();
+        let content = bob.receive_any_event(alice.user_id(), &content.into()).unwrap();
 
         assert!(bob.can_be_presented());
 
-        alice.receive_event(&event);
+        let content = KeyContent::try_from(&content).unwrap();
+        alice.receive_any_event(bob.user_id(), &content.into());
         assert!(alice.can_be_presented());
 
         assert_eq!(alice.emoji().unwrap(), bob.emoji().unwrap());
         assert_eq!(alice.decimals().unwrap(), bob.decimals().unwrap());
 
-        let event = wrap_any_to_device_content(
-            alice.user_id(),
-            get_content_from_request(&alice.confirm().await.unwrap().0.unwrap()),
-        );
-        bob.receive_event(&event);
+        let request = alice.confirm().await.unwrap().0.unwrap();
+        let content = OutgoingContent::try_from(request).unwrap();
+        let content = MacContent::try_from(&content).unwrap();
+        bob.receive_any_event(alice.user_id(), &content.into());
 
-        let event = wrap_any_to_device_content(
-            bob.user_id(),
-            get_content_from_request(&bob.confirm().await.unwrap().0.unwrap()),
-        );
-        alice.receive_event(&event);
+        let request = bob.confirm().await.unwrap().0.unwrap();
+        let content = OutgoingContent::try_from(request).unwrap();
+        let content = MacContent::try_from(&content).unwrap();
+        alice.receive_any_event(bob.user_id(), &content.into());
 
         assert!(alice.verified_devices().unwrap().contains(&alice.other_device()));
         assert!(bob.verified_devices().unwrap().contains(&bob.other_device()));

@@ -17,23 +17,23 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use matrix_sdk_common::{
-    events::{
-        key::verification::{cancel::CancelCode, ShortAuthenticationString},
-        AnyMessageEvent, AnyToDeviceEvent,
-    },
-    identifiers::{EventId, RoomId},
+    events::key::verification::{cancel::CancelCode, ShortAuthenticationString},
+    identifiers::{EventId, RoomId, UserId},
 };
 
 use super::{
-    event_enums::{AcceptContent, CancelContent, MacContent, OutgoingContent},
+    event_enums::OutgoingContent,
     sas_state::{
         Accepted, Confirmed, Created, KeyReceived, MacReceived, SasState, Started, WaitingForDone,
     },
-    FlowId, StartContent,
+    FlowId,
 };
 use crate::{
     identities::{ReadOnlyDevice, UserIdentities},
-    verification::{Cancelled, Done},
+    verification::{
+        event_enums::{AnyVerificationContent, OwnedAcceptContent, StartContent},
+        Cancelled, Done,
+    },
     ReadOnlyAccount,
 };
 
@@ -57,10 +57,10 @@ impl InnerSas {
         other_device: ReadOnlyDevice,
         other_identity: Option<UserIdentities>,
         transaction_id: Option<String>,
-    ) -> (InnerSas, StartContent) {
+    ) -> (InnerSas, OutgoingContent) {
         let sas = SasState::<Created>::new(account, other_device, other_identity, transaction_id);
         let content = sas.as_content();
-        (InnerSas::Created(sas), content)
+        (InnerSas::Created(sas), content.into())
     }
 
     pub fn supports_emoji(&self) -> bool {
@@ -100,7 +100,7 @@ impl InnerSas {
         account: ReadOnlyAccount,
         other_device: ReadOnlyDevice,
         other_identity: Option<UserIdentities>,
-    ) -> (InnerSas, StartContent) {
+    ) -> (InnerSas, OutgoingContent) {
         let sas = SasState::<Created>::new_in_room(
             room_id,
             event_id,
@@ -109,23 +109,31 @@ impl InnerSas {
             other_identity,
         );
         let content = sas.as_content();
-        (InnerSas::Created(sas), content)
+        (InnerSas::Created(sas), content.into())
     }
 
     pub fn from_start_event(
         account: ReadOnlyAccount,
         other_device: ReadOnlyDevice,
-        content: impl Into<StartContent>,
+        flow_id: FlowId,
+        content: &StartContent,
         other_identity: Option<UserIdentities>,
-    ) -> Result<InnerSas, CancelContent> {
-        match SasState::<Started>::from_start_event(account, other_device, other_identity, content)
-        {
+        started_from_request: bool,
+    ) -> Result<InnerSas, OutgoingContent> {
+        match SasState::<Started>::from_start_event(
+            account,
+            other_device,
+            other_identity,
+            flow_id,
+            content,
+            started_from_request,
+        ) {
             Ok(s) => Ok(InnerSas::Started(s)),
             Err(s) => Err(s.as_content()),
         }
     }
 
-    pub fn accept(&self) -> Option<AcceptContent> {
+    pub fn accept(&self) -> Option<OwnedAcceptContent> {
         if let InnerSas::Started(s) = self {
             Some(s.as_content())
         } else {
@@ -150,7 +158,7 @@ impl InnerSas {
         }
     }
 
-    pub fn cancel(self, code: CancelCode) -> (InnerSas, Option<CancelContent>) {
+    pub fn cancel(self, code: CancelCode) -> (InnerSas, Option<OutgoingContent>) {
         let sas = match self {
             InnerSas::Created(s) => s.cancel(code),
             InnerSas::Started(s) => s.cancel(code),
@@ -165,7 +173,7 @@ impl InnerSas {
         (InnerSas::Cancelled(sas), Some(content))
     }
 
-    pub fn confirm(self) -> (InnerSas, Option<MacContent>) {
+    pub fn confirm(self) -> (InnerSas, Option<OutgoingContent>) {
         match self {
             InnerSas::KeyReceived(s) => {
                 let sas = s.confirm();
@@ -189,149 +197,104 @@ impl InnerSas {
         }
     }
 
-    #[allow(dead_code)]
-    pub fn receive_room_event(
+    pub fn receive_any_event(
         self,
-        event: &AnyMessageEvent,
-    ) -> (InnerSas, Option<OutgoingContent>) {
-        match event {
-            AnyMessageEvent::KeyVerificationKey(e) => match self {
-                InnerSas::Accepted(s) => {
-                    match s.into_key_received(&e.sender, (e.room_id.clone(), e.content.clone())) {
-                        Ok(s) => (InnerSas::KeyReceived(s), None),
-                        Err(s) => {
-                            let content = s.as_content();
-                            (InnerSas::Cancelled(s), Some(content.into()))
-                        }
-                    }
-                }
-                InnerSas::Started(s) => {
-                    match s.into_key_received(&e.sender, (e.room_id.clone(), e.content.clone())) {
-                        Ok(s) => {
-                            let content = s.as_content();
-                            (InnerSas::KeyReceived(s), Some(content.into()))
-                        }
-                        Err(s) => {
-                            let content = s.as_content();
-                            (InnerSas::Cancelled(s), Some(content.into()))
-                        }
-                    }
-                }
-
-                _ => (self, None),
-            },
-            AnyMessageEvent::KeyVerificationMac(e) => match self {
-                InnerSas::KeyReceived(s) => {
-                    match s.into_mac_received(&e.sender, (e.room_id.clone(), e.content.clone())) {
-                        Ok(s) => (InnerSas::MacReceived(s), None),
-                        Err(s) => {
-                            let content = s.as_content();
-                            (InnerSas::Cancelled(s), Some(content.into()))
-                        }
-                    }
-                }
-                InnerSas::Confirmed(s) => {
-                    match s.into_waiting_for_done(&e.sender, (e.room_id.clone(), e.content.clone()))
-                    {
-                        Ok(s) => {
-                            let content = s.done_content();
-                            (InnerSas::WaitingForDone(s), Some(content.into()))
-                        }
-                        Err(s) => {
-                            let content = s.as_content();
-                            (InnerSas::Cancelled(s), Some(content.into()))
-                        }
-                    }
-                }
-                _ => (self, None),
-            },
-            AnyMessageEvent::KeyVerificationDone(e) => match self {
-                InnerSas::WaitingForDone(s) => {
-                    match s.into_done(&e.sender, (e.room_id.clone(), e.content.clone())) {
-                        Ok(s) => (InnerSas::Done(s), None),
-                        Err(s) => {
-                            let content = s.as_content();
-                            (InnerSas::Cancelled(s), Some(content.into()))
-                        }
-                    }
-                }
-                InnerSas::WaitingForDoneUnconfirmed(s) => {
-                    match s.into_done(&e.sender, (e.room_id.clone(), e.content.clone())) {
-                        Ok(s) => {
-                            let content = s.done_content();
-                            (InnerSas::Done(s), Some(content.into()))
-                        }
-                        Err(s) => {
-                            let content = s.as_content();
-                            (InnerSas::Cancelled(s), Some(content.into()))
-                        }
-                    }
-                }
-
-                _ => (self, None),
-            },
-            _ => (self, None),
-        }
-    }
-
-    pub fn receive_event(self, event: &AnyToDeviceEvent) -> (InnerSas, Option<OutgoingContent>) {
-        match event {
-            AnyToDeviceEvent::KeyVerificationAccept(e) => {
+        sender: &UserId,
+        content: &AnyVerificationContent,
+    ) -> (Self, Option<OutgoingContent>) {
+        match content {
+            AnyVerificationContent::Accept(c) => {
                 if let InnerSas::Created(s) = self {
-                    match s.into_accepted(&e.sender, e.content.clone()) {
+                    match s.into_accepted(sender, c) {
                         Ok(s) => {
                             let content = s.as_content();
-                            (InnerSas::Accepted(s), Some(content.into()))
+                            (InnerSas::Accepted(s), Some(content))
                         }
                         Err(s) => {
                             let content = s.as_content();
-                            (InnerSas::Cancelled(s), Some(content.into()))
+                            (InnerSas::Cancelled(s), Some(content))
                         }
                     }
                 } else {
                     (self, None)
                 }
             }
-            AnyToDeviceEvent::KeyVerificationKey(e) => match self {
-                InnerSas::Accepted(s) => match s.into_key_received(&e.sender, e.content.clone()) {
+            AnyVerificationContent::Cancel(c) => {
+                let (sas, _) = self.cancel(c.cancel_code().to_owned());
+                (sas, None)
+            }
+            AnyVerificationContent::Key(c) => match self {
+                InnerSas::Accepted(s) => match s.into_key_received(sender, c) {
                     Ok(s) => (InnerSas::KeyReceived(s), None),
                     Err(s) => {
                         let content = s.as_content();
-                        (InnerSas::Cancelled(s), Some(content.into()))
+                        (InnerSas::Cancelled(s), Some(content))
                     }
                 },
-                InnerSas::Started(s) => match s.into_key_received(&e.sender, e.content.clone()) {
+                InnerSas::Started(s) => match s.into_key_received(sender, c) {
                     Ok(s) => {
                         let content = s.as_content();
-                        (InnerSas::KeyReceived(s), Some(content.into()))
+                        (InnerSas::KeyReceived(s), Some(content))
                     }
                     Err(s) => {
                         let content = s.as_content();
-                        (InnerSas::Cancelled(s), Some(content.into()))
+                        (InnerSas::Cancelled(s), Some(content))
                     }
                 },
+
                 _ => (self, None),
             },
-            AnyToDeviceEvent::KeyVerificationMac(e) => match self {
-                InnerSas::KeyReceived(s) => {
-                    match s.into_mac_received(&e.sender, e.content.clone()) {
-                        Ok(s) => (InnerSas::MacReceived(s), None),
+            AnyVerificationContent::Mac(c) => match self {
+                InnerSas::KeyReceived(s) => match s.into_mac_received(sender, c) {
+                    Ok(s) => (InnerSas::MacReceived(s), None),
+                    Err(s) => {
+                        let content = s.as_content();
+                        (InnerSas::Cancelled(s), Some(content))
+                    }
+                },
+                InnerSas::Confirmed(s) =>
+                // TODO remove the else branch when we remove the ability to
+                // start from a `m.key.verification.start` event.
+                {
+                    match if s.started_from_request {
+                        s.into_waiting_for_done(sender, c)
+                            .map(|s| (Some(s.done_content()), InnerSas::WaitingForDone(s)))
+                    } else {
+                        s.into_done(sender, c).map(|s| (None, InnerSas::Done(s)))
+                    } {
+                        Ok((c, s)) => (s, c),
                         Err(s) => {
                             let content = s.as_content();
-                            (InnerSas::Cancelled(s), Some(content.into()))
+                            (InnerSas::Cancelled(s), Some(content))
                         }
                     }
                 }
-                InnerSas::Confirmed(s) => match s.into_done(&e.sender, e.content.clone()) {
+                _ => (self, None),
+            },
+            AnyVerificationContent::Done(c) => match self {
+                InnerSas::WaitingForDone(s) => match s.into_done(sender, c) {
                     Ok(s) => (InnerSas::Done(s), None),
                     Err(s) => {
                         let content = s.as_content();
-                        (InnerSas::Cancelled(s), Some(content.into()))
+                        (InnerSas::Cancelled(s), Some(content))
                     }
                 },
+                InnerSas::WaitingForDoneUnconfirmed(s) => match s.into_done(sender, c) {
+                    Ok(s) => {
+                        let content = s.done_content();
+                        (InnerSas::Done(s), Some(content))
+                    }
+                    Err(s) => {
+                        let content = s.as_content();
+                        (InnerSas::Cancelled(s), Some(content))
+                    }
+                },
+
                 _ => (self, None),
             },
-            _ => (self, None),
+            AnyVerificationContent::Request(_)
+            | AnyVerificationContent::Ready(_)
+            | AnyVerificationContent::Start(_) => (self, None),
         }
     }
 

@@ -16,20 +16,17 @@ use std::{convert::TryFrom, sync::Arc};
 
 use dashmap::DashMap;
 use matrix_sdk_common::{
-    events::{
-        room::message::MessageType, AnyMessageEvent, AnySyncMessageEvent, AnySyncRoomEvent,
-        AnyToDeviceEvent,
-    },
-    identifiers::{DeviceId, EventId, RoomId, UserId},
+    identifiers::{DeviceId, EventId, UserId},
     locks::Mutex,
     uuid::Uuid,
 };
-use tracing::{info, trace, warn};
+use tracing::info;
 
 use super::{
+    event_enums::{AnyEvent, AnyVerificationContent},
     requests::VerificationRequest,
     sas::{content_to_request, OutgoingContent, Sas},
-    VerificationResult,
+    FlowId, VerificationResult,
 };
 use crate::{
     olm::PrivateCrossSigningIdentity,
@@ -57,10 +54,6 @@ impl VerificationCache {
     #[cfg(test)]
     fn is_empty(&self) -> bool {
         self.room_sas_verifications.is_empty() && self.sas_verification.is_empty()
-    }
-
-    pub fn get_room_sas(&self, event_id: &EventId) -> Option<Sas> {
-        self.room_sas_verifications.get(event_id).map(|s| s.clone())
     }
 
     pub fn insert_sas(&self, sas: Sas) {
@@ -194,7 +187,7 @@ impl VerificationMachine {
             None,
         );
 
-        let request = match content.into() {
+        let request = match content {
             OutgoingContent::Room(r, c) => {
                 RoomMessageRequest { room_id: r, txn_id: Uuid::new_v4(), content: c }.into()
             }
@@ -230,18 +223,6 @@ impl VerificationMachine {
         self.verifications.queue_up_content(recipient, recipient_device, content)
     }
 
-    fn receive_room_event_helper(&self, sas: &Sas, event: &AnyMessageEvent) {
-        if let Some(c) = sas.receive_room_event(event) {
-            self.queue_up_content(sas.other_user_id(), sas.other_device_id(), c);
-        }
-    }
-
-    fn receive_event_helper(&self, sas: &Sas, event: &AnyToDeviceEvent) {
-        if let Some(c) = sas.receive_event(event) {
-            self.queue_up_content(sas.other_user_id(), sas.other_device_id(), c);
-        }
-    }
-
     pub fn mark_request_as_sent(&self, uuid: &Uuid) {
         self.verifications.mark_request_as_sent(uuid);
     }
@@ -256,220 +237,155 @@ impl VerificationMachine {
         }
     }
 
-    pub async fn receive_room_event(
+    async fn mark_sas_as_done(
         &self,
-        room_id: &RoomId,
-        event: &AnySyncRoomEvent,
+        sas: Sas,
+        out_content: Option<OutgoingContent>,
     ) -> Result<(), CryptoStoreError> {
-        if let AnySyncRoomEvent::Message(m) = event {
-            // Since these are room events we will get events that we send out on
-            // our own as well.
-            if m.sender() == self.account.user_id() {
-                if let AnySyncMessageEvent::KeyVerificationReady(_e) = m {
-                    // TODO if there is a verification request, go into passive
-                    // mode since another device is handling this request.
+        match sas.mark_as_done().await? {
+            VerificationResult::Ok => {
+                if let Some(c) = out_content {
+                    self.queue_up_content(sas.other_user_id(), sas.other_device_id(), c);
                 }
-                return Ok(());
             }
-
-            match m {
-                AnySyncMessageEvent::RoomMessage(m) => {
-                    if let MessageType::VerificationRequest(r) = &m.content.msgtype {
-                        if self.account.user_id() == &r.to {
-                            info!(
-                                "Received a new verification request from {} {}",
-                                m.sender, r.from_device
-                            );
-
-                            let request = VerificationRequest::from_room_request(
-                                self.verifications.clone(),
-                                self.account.clone(),
-                                self.private_identity.lock().await.clone(),
-                                self.store.clone(),
-                                &m.sender,
-                                &m.event_id,
-                                room_id,
-                                r,
-                            );
-
-                            self.requests.insert(request.flow_id().as_str().to_owned(), request);
-                        }
-                    }
+            VerificationResult::Cancel(c) => {
+                if let Some(r) = sas.cancel_with_code(c) {
+                    self.verifications.add_request(r.into());
                 }
-                AnySyncMessageEvent::KeyVerificationReady(e) => {
-                    if let Some(request) = self.requests.get(e.content.relation.event_id.as_str()) {
-                        if &e.sender == request.other_user() {
-                            // TODO remove this unwrap.
-                            request.receive_ready(&e.sender, &e.content).unwrap();
-                        }
-                    }
-                }
-                AnySyncMessageEvent::KeyVerificationStart(e) => {
-                    if let Some(request) = self.requests.get(e.content.relation.event_id.as_str()) {
-                        request.receive_start(&e.sender, &e.content).await?
-                    }
-                }
-                AnySyncMessageEvent::KeyVerificationKey(e) => {
-                    if let Some(s) = self.verifications.get_room_sas(&e.content.relation.event_id) {
-                        self.receive_room_event_helper(
-                            &s,
-                            &m.clone().into_full_event(room_id.clone()),
-                        )
-                    };
-                }
-                AnySyncMessageEvent::KeyVerificationMac(e) => {
-                    if let Some(s) = self.verifications.get_room_sas(&e.content.relation.event_id) {
-                        self.receive_room_event_helper(
-                            &s,
-                            &m.clone().into_full_event(room_id.clone()),
-                        );
-                    }
-                }
+            }
+            VerificationResult::SignatureUpload(r) => {
+                self.verifications.add_request(r.into());
 
-                AnySyncMessageEvent::KeyVerificationDone(e) => {
-                    if let Some(s) = self.verifications.get_room_sas(&e.content.relation.event_id) {
-                        let content =
-                            s.receive_room_event(&m.clone().into_full_event(room_id.clone()));
-
-                        if s.is_done() {
-                            match s.mark_as_done().await? {
-                                VerificationResult::Ok => {
-                                    if let Some(c) = content {
-                                        self.queue_up_content(
-                                            s.other_user_id(),
-                                            s.other_device_id(),
-                                            c,
-                                        );
-                                    }
-                                }
-                                VerificationResult::Cancel(c) => {
-                                    if let Some(r) = s.cancel_with_code(c) {
-                                        self.verifications.add_request(r.into());
-                                    }
-                                }
-                                VerificationResult::SignatureUpload(r) => {
-                                    self.verifications.add_request(r.into());
-
-                                    if let Some(c) = content {
-                                        self.queue_up_content(
-                                            s.other_user_id(),
-                                            s.other_device_id(),
-                                            c,
-                                        );
-                                    }
-                                }
-                            }
-                        }
-                    };
+                if let Some(c) = out_content {
+                    self.queue_up_content(sas.other_user_id(), sas.other_device_id(), c);
                 }
-                _ => (),
             }
         }
 
         Ok(())
     }
 
-    pub async fn receive_event(&self, event: &AnyToDeviceEvent) -> Result<(), CryptoStoreError> {
-        trace!("Received a key verification event {:?}", event);
+    pub async fn receive_any_event(
+        &self,
+        event: impl Into<AnyEvent<'_>>,
+    ) -> Result<(), CryptoStoreError> {
+        let event = event.into();
 
-        match event {
-            AnyToDeviceEvent::KeyVerificationRequest(e) => {
-                let request = VerificationRequest::from_request(
-                    self.verifications.clone(),
-                    self.account.clone(),
-                    self.private_identity.lock().await.clone(),
-                    self.store.clone(),
-                    &e.sender,
-                    &e.content,
-                );
+        let flow_id = if let Ok(flow_id) = FlowId::try_from(&event) {
+            flow_id
+        } else {
+            // This isn't a verification event, return early.
+            return Ok(());
+        };
 
-                self.requests.insert(request.flow_id().as_str().to_string(), request);
-            }
-            AnyToDeviceEvent::KeyVerificationReady(e) => {
-                if let Some(request) = self.requests.get(&e.content.transaction_id) {
-                    if &e.sender == request.other_user() {
-                        // TODO remove this unwrap.
-                        request.receive_ready(&e.sender, &e.content).unwrap();
-                    }
-                }
-            }
-            AnyToDeviceEvent::KeyVerificationStart(e) => {
-                trace!(
-                    "Received a m.key.verification start event from {} {}",
-                    e.sender,
-                    e.content.from_device
-                );
-
-                if let Some(verification) = self.get_request(&e.content.transaction_id) {
-                    verification.receive_start(&e.sender, &e.content).await?;
-                } else if let Some(d) =
-                    self.store.get_device(&e.sender, &e.content.from_device).await?
-                {
-                    // TODO remove this soon, this has been deprecated by
-                    // MSC3122 https://github.com/matrix-org/matrix-doc/pull/3122
-                    let private_identity = self.private_identity.lock().await.clone();
-                    match Sas::from_start_event(
-                        e.content.clone(),
-                        self.store.clone(),
-                        self.account.clone(),
-                        private_identity,
-                        d,
-                        self.store.get_user_identity(&e.sender).await?,
-                    ) {
-                        Ok(s) => {
-                            self.verifications
-                                .sas_verification
-                                .insert(e.content.transaction_id.clone(), s);
-                        }
-                        Err(c) => {
-                            warn!(
-                                "Can't start key verification with {} {}, canceling: {:?}",
-                                e.sender, e.content.from_device, c
-                            );
-                            self.queue_up_content(&e.sender, &e.content.from_device, c)
-                        }
-                    }
-                } else {
-                    warn!(
-                        "Received a key verification start event from an unknown device {} {}",
-                        e.sender, e.content.from_device
+        if let Some(content) = event.verification_content() {
+            match &content {
+                AnyVerificationContent::Request(r) => {
+                    info!(
+                        sender = event.sender().as_str(),
+                        from_device = r.from_device().as_str(),
+                        "Received a new verification request",
                     );
-                }
-            }
-            AnyToDeviceEvent::KeyVerificationCancel(e) => {
-                self.verifications.sas_verification.remove(&e.content.transaction_id);
-            }
-            AnyToDeviceEvent::KeyVerificationAccept(e) => {
-                if let Some(s) = self.get_sas(&e.content.transaction_id) {
-                    self.receive_event_helper(&s, event)
-                };
-            }
-            AnyToDeviceEvent::KeyVerificationKey(e) => {
-                if let Some(s) = self.get_sas(&e.content.transaction_id) {
-                    self.receive_event_helper(&s, event)
-                };
-            }
-            AnyToDeviceEvent::KeyVerificationMac(e) => {
-                if let Some(s) = self.get_sas(&e.content.transaction_id) {
-                    self.receive_event_helper(&s, event);
 
-                    if s.is_done() {
-                        match s.mark_as_done().await? {
-                            VerificationResult::Ok => (),
-                            VerificationResult::Cancel(c) => {
-                                if let Some(r) = s.cancel_with_code(c) {
-                                    self.verifications.add_request(r.into());
+                    let request = VerificationRequest::from_request(
+                        self.verifications.clone(),
+                        self.account.clone(),
+                        self.private_identity.lock().await.clone(),
+                        self.store.clone(),
+                        event.sender(),
+                        flow_id,
+                        r,
+                    );
+
+                    self.requests.insert(request.flow_id().as_str().to_owned(), request);
+                }
+                AnyVerificationContent::Cancel(_) => {
+                    todo!()
+                }
+                AnyVerificationContent::Ready(c) => {
+                    if let Some(request) = self.requests.get(flow_id.as_str()) {
+                        if request.flow_id() == &flow_id {
+                            // TODO remove this unwrap.
+                            request.receive_ready(event.sender(), c).unwrap();
+                        } else {
+                            todo!()
+                        }
+                    }
+                }
+                AnyVerificationContent::Start(c) => {
+                    if let Some(request) = self.requests.get(flow_id.as_str()) {
+                        request.receive_start(event.sender(), &c).await?
+                    } else if let FlowId::ToDevice(_) = flow_id {
+                        // TODO remove this soon, this has been deprecated by
+                        // MSC3122 https://github.com/matrix-org/matrix-doc/pull/3122
+                        if let Some(device) =
+                            self.store.get_device(event.sender(), c.from_device()).await?
+                        {
+                            let private_identity = self.private_identity.lock().await.clone();
+                            let identity = self.store.get_user_identity(event.sender()).await?;
+
+                            match Sas::from_start_event(
+                                flow_id,
+                                c,
+                                self.store.clone(),
+                                self.account.clone(),
+                                private_identity,
+                                device,
+                                identity,
+                                false,
+                            ) {
+                                Ok(sas) => {
+                                    self.verifications.insert_sas(sas);
                                 }
-                            }
-                            VerificationResult::SignatureUpload(r) => {
-                                self.verifications.add_request(r.into());
+                                Err(cancellation) => self.queue_up_content(
+                                    event.sender(),
+                                    c.from_device(),
+                                    cancellation,
+                                ),
                             }
                         }
                     }
-                };
+                }
+                AnyVerificationContent::Accept(_) | AnyVerificationContent::Key(_) => {
+                    if let Some(sas) = self.verifications.get_sas(flow_id.as_str()) {
+                        if sas.flow_id() == &flow_id {
+                            if let Some(content) = sas.receive_any_event(event.sender(), &content) {
+                                self.queue_up_content(
+                                    sas.other_user_id(),
+                                    sas.other_device_id(),
+                                    content,
+                                );
+                            }
+                        } else {
+                            todo!()
+                        }
+                    }
+                }
+                AnyVerificationContent::Mac(_) => {
+                    if let Some(s) = self.verifications.get_sas(flow_id.as_str()) {
+                        if s.flow_id() == &flow_id {
+                            let content = s.receive_any_event(event.sender(), &content);
+
+                            if s.is_done() {
+                                self.mark_sas_as_done(s, content).await?;
+                            }
+                        } else {
+                            todo!()
+                        }
+                    }
+                }
+                AnyVerificationContent::Done(_) => {
+                    if let Some(s) = self.verifications.get_sas(flow_id.as_str()) {
+                        let content = s.receive_any_event(event.sender(), &content);
+
+                        if s.is_done() {
+                            self.mark_sas_as_done(s, content).await?;
+                        }
+                    }
+                }
             }
-            _ => (),
         }
+
         Ok(())
     }
 }
@@ -491,9 +407,12 @@ mod test {
     use super::{Sas, VerificationMachine};
     use crate::{
         olm::PrivateCrossSigningIdentity,
-        requests::OutgoingRequests,
         store::{CryptoStore, MemoryStore},
-        verification::test::{get_content_from_request, wrap_any_to_device_content},
+        verification::{
+            event_enums::{AcceptContent, KeyContent, MacContent},
+            sas::OutgoingContent,
+            test::wrap_any_to_device_content,
+        },
         ReadOnlyAccount, ReadOnlyDevice,
     };
 
@@ -538,7 +457,7 @@ mod test {
         );
 
         machine
-            .receive_event(&wrap_any_to_device_content(bob_sas.user_id(), start_content.into()))
+            .receive_any_event(&wrap_any_to_device_content(bob_sas.user_id(), start_content.into()))
             .await
             .unwrap();
 
@@ -559,53 +478,41 @@ mod test {
 
         let alice = alice_machine.get_sas(bob.flow_id().as_str()).unwrap();
 
-        let event = alice
-            .accept()
-            .map(|c| wrap_any_to_device_content(alice.user_id(), get_content_from_request(&c)))
-            .unwrap();
+        let request = alice.accept().unwrap();
 
-        let event = bob
-            .receive_event(&event)
-            .map(|c| wrap_any_to_device_content(bob.user_id(), c))
-            .unwrap();
+        let content = OutgoingContent::try_from(request).unwrap();
+        let content = AcceptContent::try_from(&content).unwrap().into();
+
+        let content = bob.receive_any_event(alice.user_id(), &content).unwrap();
+
+        let event = wrap_any_to_device_content(bob.user_id(), content);
 
         assert!(alice_machine.verifications.outgoing_requests.is_empty());
-        alice_machine.receive_event(&event).await.unwrap();
+        alice_machine.receive_any_event(&event).await.unwrap();
         assert!(!alice_machine.verifications.outgoing_requests.is_empty());
 
-        let request = alice_machine.verifications.outgoing_requests.iter().next().unwrap();
-
+        let request = alice_machine.verifications.outgoing_requests.iter().next().unwrap().clone();
         let txn_id = *request.request_id();
+        let content = OutgoingContent::try_from(request).unwrap();
+        let content = KeyContent::try_from(&content).unwrap().into();
 
-        let r = if let OutgoingRequests::ToDeviceRequest(r) = request.request() {
-            r.clone()
-        } else {
-            panic!("Invalid request type");
-        };
-
-        let event =
-            wrap_any_to_device_content(alice.user_id(), get_content_from_request(&r.into()));
-        drop(request);
         alice_machine.mark_request_as_sent(&txn_id);
 
-        assert!(bob.receive_event(&event).is_none());
+        assert!(bob.receive_any_event(alice.user_id(), &content).is_none());
 
         assert!(alice.emoji().is_some());
         assert!(bob.emoji().is_some());
-
         assert_eq!(alice.emoji(), bob.emoji());
 
-        let event = wrap_any_to_device_content(
-            alice.user_id(),
-            get_content_from_request(&alice.confirm().await.unwrap().0.unwrap()),
-        );
-        bob.receive_event(&event);
+        let request = alice.confirm().await.unwrap().0.unwrap();
+        let content = OutgoingContent::try_from(request).unwrap();
+        let content = MacContent::try_from(&content).unwrap().into();
+        bob.receive_any_event(alice.user_id(), &content);
 
-        let event = wrap_any_to_device_content(
-            bob.user_id(),
-            get_content_from_request(&bob.confirm().await.unwrap().0.unwrap()),
-        );
-        alice.receive_event(&event);
+        let request = bob.confirm().await.unwrap().0.unwrap();
+        let content = OutgoingContent::try_from(request).unwrap();
+        let content = MacContent::try_from(&content).unwrap().into();
+        alice.receive_any_event(bob.user_id(), &content);
 
         assert!(alice.is_done());
         assert!(bob.is_done());
