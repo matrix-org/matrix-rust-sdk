@@ -91,6 +91,35 @@ impl VerificationRequest {
     }
 
     /// TODO
+    pub(crate) fn new_to_device(
+        cache: VerificationCache,
+        account: ReadOnlyAccount,
+        private_cross_signing_identity: PrivateCrossSigningIdentity,
+        store: Arc<Box<dyn CryptoStore>>,
+        other_user: &UserId,
+    ) -> Self {
+        let flow_id = Uuid::new_v4().to_string().into();
+
+        let inner = Mutex::new(InnerRequest::Created(RequestState::new(
+            account.clone(),
+            private_cross_signing_identity,
+            cache.clone(),
+            store,
+            other_user,
+            &flow_id,
+        )))
+        .into();
+
+        Self {
+            account,
+            verification_cache: cache,
+            flow_id: flow_id.into(),
+            inner,
+            other_user_id: other_user.to_owned().into(),
+        }
+    }
+
+    /// TODO
     pub fn request_to_device(&self) -> RequestToDeviceEventContent {
         RequestToDeviceEventContent::new(
             self.account.device_id().into(),
@@ -672,6 +701,63 @@ mod test {
         );
 
         let flow_id = FlowId::from((room_id, event_id));
+
+        let alice_request = VerificationRequest::from_request(
+            VerificationCache::new(),
+            alice,
+            alice_identity,
+            alice_store.into(),
+            &bob_id(),
+            flow_id,
+            &(&content).into(),
+        );
+
+        let content: OutgoingContent = alice_request.accept().unwrap().into();
+        let content = ReadyContent::try_from(&content).unwrap();
+
+        bob_request.receive_ready(&alice_id(), &content).unwrap();
+
+        assert!(bob_request.is_ready());
+        assert!(alice_request.is_ready());
+
+        let (bob_sas, start_content) = bob_request.start(alice_device, None).unwrap();
+
+        let content = StartContent::try_from(&start_content).unwrap();
+        let flow_id = content.flow_id().to_owned();
+        alice_request.receive_start(bob_device.user_id(), &content).await.unwrap();
+        let alice_sas = alice_request.verification_cache.get_sas(&flow_id).unwrap();
+
+        assert!(!bob_sas.is_cancelled());
+        assert!(!alice_sas.is_cancelled());
+    }
+
+    #[async_test]
+    async fn test_requesting_until_sas_to_device() {
+        let alice = ReadOnlyAccount::new(&alice_id(), &alice_device_id());
+        let alice_device = ReadOnlyDevice::from_account(&alice).await;
+
+        let alice_store: Box<dyn CryptoStore> = Box::new(MemoryStore::new());
+        let alice_identity = PrivateCrossSigningIdentity::empty(alice_id());
+
+        let bob = ReadOnlyAccount::new(&bob_id(), &bob_device_id());
+        let bob_device = ReadOnlyDevice::from_account(&bob).await;
+        let bob_store: Box<dyn CryptoStore> = Box::new(MemoryStore::new());
+        let bob_identity = PrivateCrossSigningIdentity::empty(alice_id());
+
+        let mut changes = Changes::default();
+        changes.devices.new.push(bob_device.clone());
+        alice_store.save_changes(changes).await.unwrap();
+
+        let bob_request = VerificationRequest::new_to_device(
+            VerificationCache::new(),
+            bob,
+            bob_identity,
+            bob_store.into(),
+            &alice_id(),
+        );
+
+        let content = bob_request.request_to_device();
+        let flow_id = bob_request.flow_id().to_owned();
 
         let alice_request = VerificationRequest::from_request(
             VerificationCache::new(),
