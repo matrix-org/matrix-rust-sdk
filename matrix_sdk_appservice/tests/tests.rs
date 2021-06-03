@@ -13,6 +13,8 @@ use matrix_sdk::{
 use matrix_sdk_appservice::*;
 use matrix_sdk_test::async_test;
 use serde_json::json;
+#[cfg(feature = "warp")]
+use warp::Reply;
 
 fn registration_string() -> String {
     include_str!("../tests/registration.yaml").to_owned()
@@ -63,11 +65,8 @@ fn member_json() -> serde_json::Value {
 }
 
 #[async_test]
-async fn test_transactions() -> Result<()> {
+async fn test_put_transaction() -> Result<()> {
     let appservice = appservice(None).await?;
-
-    #[cfg(feature = "actix")]
-    let app = actix_test::init_service(ActixApp::new().service(appservice.actix_service())).await;
 
     let transactions = r#"{
         "events": [
@@ -78,40 +77,93 @@ async fn test_transactions() -> Result<()> {
         ]
     }"#;
 
-    let transactions: serde_json::Value = serde_json::from_str(transactions).unwrap();
+    let uri = "/_matrix/app/v1/transactions/1?access_token=hs_token";
+    let transactions: serde_json::Value = serde_json::from_str(transactions)?;
+
+    #[cfg(feature = "warp")]
+    let status = warp::test::request()
+        .method("PUT")
+        .path(uri)
+        .json(&transactions)
+        .filter(&appservice.warp_filter())
+        .await
+        .unwrap()
+        .into_response()
+        .status();
 
     #[cfg(feature = "actix")]
-    {
-        let req = actix_test::TestRequest::put()
-            .uri("/_matrix/app/v1/transactions/1?access_token=hs_token")
-            .set_json(&transactions)
-            .to_request();
+    let status = {
+        let app =
+            actix_test::init_service(ActixApp::new().service(appservice.actix_service())).await;
 
-        let resp = actix_test::call_service(&app, req).await;
+        let req = actix_test::TestRequest::put().uri(uri).set_json(&transactions).to_request();
 
-        assert_eq!(resp.status(), 200);
-    }
+        actix_test::call_service(&app, req).await.status()
+    };
+
+    assert_eq!(status, 200);
 
     Ok(())
 }
 
 #[async_test]
-async fn test_users() -> Result<()> {
+async fn test_get_user() -> Result<()> {
     let appservice = appservice(None).await?;
 
+    let uri = "/_matrix/app/v1/users/%40_botty_1%3Adev.famedly.local?access_token=hs_token";
+
+    #[cfg(feature = "warp")]
+    let status = warp::test::request()
+        .method("GET")
+        .path(uri)
+        .filter(&appservice.warp_filter())
+        .await
+        .unwrap()
+        .into_response()
+        .status();
+
     #[cfg(feature = "actix")]
-    {
+    let status = {
         let app =
             actix_test::init_service(ActixApp::new().service(appservice.actix_service())).await;
 
-        let req = actix_test::TestRequest::get()
-            .uri("/_matrix/app/v1/users/%40_botty_1%3Adev.famedly.local?access_token=hs_token")
-            .to_request();
+        let req = actix_test::TestRequest::get().uri(uri).to_request();
 
-        let resp = actix_test::call_service(&app, req).await;
+        actix_test::call_service(&app, req).await.status()
+    };
 
-        assert_eq!(resp.status(), 200);
-    }
+    assert_eq!(status, 200);
+
+    Ok(())
+}
+
+#[async_test]
+async fn test_get_room() -> Result<()> {
+    let appservice = appservice(None).await?;
+
+    let uri = "/_matrix/app/v1/rooms/%23magicforest%3Aexample.com?access_token=hs_token";
+
+    #[cfg(feature = "warp")]
+    let status = warp::test::request()
+        .method("GET")
+        .path(uri)
+        .filter(&appservice.warp_filter())
+        .await
+        .unwrap()
+        .into_response()
+        .status();
+
+    #[cfg(feature = "actix")]
+    let status = {
+        let app =
+            actix_test::init_service(ActixApp::new().service(appservice.actix_service())).await;
+
+        let req = actix_test::TestRequest::get().uri(uri).to_request();
+
+        actix_test::call_service(&app, req).await.status()
+    };
+
+    assert_eq!(status, 200);
 
     Ok(())
 }
@@ -120,9 +172,6 @@ async fn test_users() -> Result<()> {
 async fn test_invalid_access_token() -> Result<()> {
     let appservice = appservice(None).await?;
 
-    #[cfg(feature = "actix")]
-    let app = actix_test::init_service(ActixApp::new().service(appservice.actix_service())).await;
-
     let transactions = r#"{
         "events": [
             {
@@ -133,18 +182,30 @@ async fn test_invalid_access_token() -> Result<()> {
     }"#;
 
     let transactions: serde_json::Value = serde_json::from_str(transactions).unwrap();
+    let uri = "/_matrix/app/v1/transactions/1?access_token=invalid_token";
+
+    #[cfg(feature = "warp")]
+    let status = warp::test::request()
+        .method("PUT")
+        .path(uri)
+        .json(&transactions)
+        .filter(&appservice.warp_filter())
+        .await
+        .unwrap()
+        .into_response()
+        .status();
 
     #[cfg(feature = "actix")]
-    {
-        let req = actix_test::TestRequest::put()
-            .uri("/_matrix/app/v1/transactions/1?access_token=invalid_token")
-            .set_json(&transactions)
-            .to_request();
+    let status = {
+        let app =
+            actix_test::init_service(ActixApp::new().service(appservice.actix_service())).await;
 
-        let resp = actix_test::call_service(&app, req).await;
+        let req = actix_test::TestRequest::put().uri(uri).set_json(&transactions).to_request();
 
-        assert_eq!(resp.status(), 401);
-    }
+        actix_test::call_service(&app, req).await.status()
+    };
+
+    assert_eq!(status, 401);
 
     Ok(())
 }
@@ -153,9 +214,6 @@ async fn test_invalid_access_token() -> Result<()> {
 async fn test_no_access_token() -> Result<()> {
     let appservice = appservice(None).await?;
 
-    #[cfg(feature = "actix")]
-    let app = actix_test::init_service(ActixApp::new().service(appservice.actix_service())).await;
-
     let transactions = r#"{
         "events": [
             {
@@ -167,12 +225,29 @@ async fn test_no_access_token() -> Result<()> {
 
     let transactions: serde_json::Value = serde_json::from_str(transactions).unwrap();
 
+    let uri = "/_matrix/app/v1/transactions/1";
+
+    #[cfg(feature = "warp")]
+    {
+        let status = warp::test::request()
+            .method("PUT")
+            .path(uri)
+            .json(&transactions)
+            .filter(&appservice.warp_filter())
+            .await
+            .unwrap()
+            .into_response()
+            .status();
+
+        assert_eq!(status, 401);
+    }
+
     #[cfg(feature = "actix")]
     {
-        let req = actix_test::TestRequest::put()
-            .uri("/_matrix/app/v1/transactions/1")
-            .set_json(&transactions)
-            .to_request();
+        let app =
+            actix_test::init_service(ActixApp::new().service(appservice.actix_service())).await;
+
+        let req = actix_test::TestRequest::put().uri(uri).set_json(&transactions).to_request();
 
         let resp = actix_test::call_service(&app, req).await;
 
@@ -215,35 +290,6 @@ async fn test_event_handler() -> Result<()> {
     );
 
     appservice.get_cached_client(None)?.receive_transaction(incoming).await?;
-
-    Ok(())
-}
-
-#[async_test]
-async fn test_transaction() -> Result<()> {
-    let appservice = appservice(None).await?;
-
-    let event = serde_json::from_value::<AnyStateEvent>(member_json()).unwrap();
-    let event: Raw<AnyRoomEvent> = AnyRoomEvent::State(event).into();
-    let events = vec![event];
-
-    let incoming = api_appservice::event::push_events::v1::IncomingRequest::new(
-        "any_txn_id".to_owned(),
-        events,
-    );
-
-    appservice.get_cached_client(None)?.receive_transaction(incoming).await?;
-
-    Ok(())
-}
-
-#[async_test]
-async fn test_verify_hs_token() -> Result<()> {
-    let appservice = appservice(None).await?;
-
-    let registration = appservice.registration();
-
-    assert!(appservice.compare_hs_token(&registration.hs_token));
 
     Ok(())
 }

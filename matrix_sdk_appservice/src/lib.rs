@@ -36,10 +36,10 @@
 //! #
 //! # use matrix_sdk::{async_trait, EventHandler};
 //! #
-//! # struct AppserviceEventHandler;
+//! # struct MyEventHandler;
 //! #
 //! # #[async_trait]
-//! # impl EventHandler for AppserviceEventHandler {}
+//! # impl EventHandler for MyEventHandler {}
 //! #
 //! use matrix_sdk_appservice::{Appservice, AppserviceRegistration};
 //!
@@ -59,7 +59,7 @@
 //!     ")?;
 //!
 //! let mut appservice = Appservice::new(homeserver_url, server_name, registration).await?;
-//! appservice.set_event_handler(Box::new(AppserviceEventHandler)).await?;
+//! appservice.set_event_handler(Box::new(MyEventHandler)).await?;
 //!
 //! let (host, port) = appservice.registration().get_host_and_port()?;
 //! appservice.run(host, port).await?;
@@ -74,8 +74,8 @@
 //! [matrix-org/matrix-rust-sdk#228]: https://github.com/matrix-org/matrix-rust-sdk/issues/228
 //! [examples directory]: https://github.com/matrix-org/matrix-rust-sdk/tree/master/matrix_sdk_appservice/examples
 
-#[cfg(not(any(feature = "actix",)))]
-compile_error!("one webserver feature must be enabled. available ones: `actix`");
+#[cfg(not(any(feature = "actix", feature = "warp")))]
+compile_error!("one webserver feature must be enabled. available ones: `actix`, `warp`");
 
 use std::{
     convert::{TryFrom, TryInto},
@@ -86,8 +86,12 @@ use std::{
 };
 
 use dashmap::DashMap;
-use http::Uri;
-use matrix_sdk::{reqwest::Url, Client, ClientConfig, EventHandler, HttpError, Session};
+pub use error::Error;
+use http::{uri::PathAndQuery, Uri};
+pub use matrix_sdk as sdk;
+use matrix_sdk::{
+    reqwest::Url, Bytes, Client, ClientConfig, EventHandler, HttpError, RequestConfig, Session,
+};
 use regex::Regex;
 #[doc(inline)]
 pub use ruma::api::appservice as api;
@@ -110,8 +114,9 @@ use tracing::warn;
 #[cfg(feature = "actix")]
 mod actix;
 mod error;
+#[cfg(feature = "warp")]
+mod warp;
 
-pub use error::Error;
 pub type Result<T> = std::result::Result<T, Error>;
 pub type Host = String;
 pub type Port = u16;
@@ -356,14 +361,18 @@ impl Appservice {
     ///
     /// * `localpart` - The localpart of the user to register. Must be covered
     ///   by the namespaces in the [`Registration`] in order to succeed.
-    pub async fn register(&mut self, localpart: impl AsRef<str>) -> Result<()> {
+    pub async fn register_virtual_user(&self, localpart: impl AsRef<str>) -> Result<()> {
         let request = assign!(RegistrationRequest::new(), {
             username: Some(localpart.as_ref()),
             login_type: Some(&LoginType::ApplicationService),
         });
 
         let client = self.get_cached_client(None)?;
-        match client.register(request).await {
+
+        // TODO: use `client.register()` instead
+        // blocked by: https://github.com/seanmonstar/warp/pull/861
+        let config = Some(RequestConfig::new().force_auth());
+        match client.send(request, config).await {
             Ok(_) => (),
             Err(error) => match error {
                 matrix_sdk::Error::Http(HttpError::UiaaError(FromHttpResponseError::Http(
@@ -412,11 +421,18 @@ impl Appservice {
         Ok(false)
     }
 
-    /// Service to register on an Actix `App`
+    /// [`actix_web::Scope`] to be used with [`actix_web::App::service()`]
     #[cfg(feature = "actix")]
     #[cfg_attr(docs, doc(cfg(feature = "actix")))]
     pub fn actix_service(&self) -> actix::Scope {
         actix::get_scope().data(self.clone())
+    }
+
+    /// [`::warp::Filter`] to be used as warp serve route
+    #[cfg(feature = "warp")]
+    #[cfg_attr(docs, doc(cfg(feature = "warp")))]
+    pub fn warp_filter(&self) -> ::warp::filters::BoxedFilter<(impl ::warp::Reply,)> {
+        crate::warp::warp_filter(self.clone())
     }
 
     /// Convenience method that runs an http server depending on the selected
@@ -431,7 +447,39 @@ impl Appservice {
             Ok(())
         }
 
-        #[cfg(not(any(feature = "actix",)))]
+        #[cfg(feature = "warp")]
+        {
+            warp::run_server(self.clone(), host, port).await?;
+            Ok(())
+        }
+
+        #[cfg(not(any(feature = "actix", feature = "warp",)))]
         unreachable!()
     }
+}
+
+/// Transforms [legacy routes] to the correct route so ruma can parse them
+/// properly
+///
+/// [legacy routes]: https://matrix.org/docs/spec/application_service/r0.1.2#legacy-routes
+pub(crate) fn transform_legacy_route(
+    mut request: http::Request<Bytes>,
+) -> Result<http::Request<Bytes>> {
+    let uri = request.uri().to_owned();
+
+    if !uri.path().starts_with("/_matrix/app/v1") {
+        // rename legacy routes
+        let mut parts = uri.into_parts();
+        let path_and_query = match parts.path_and_query {
+            Some(path_and_query) => format!("/_matrix/app/v1{}", path_and_query),
+            None => "/_matrix/app/v1".to_owned(),
+        };
+        parts.path_and_query =
+            Some(PathAndQuery::try_from(path_and_query).map_err(http::Error::from)?);
+        let uri = parts.try_into().map_err(http::Error::from)?;
+
+        *request.uri_mut() = uri;
+    }
+
+    Ok(request)
 }

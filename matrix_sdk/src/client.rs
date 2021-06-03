@@ -480,9 +480,9 @@ impl RequestConfig {
 
     /// Force sending authorization even if the endpoint does not require it.
     /// Default is only sending authorization if it is required
-    #[cfg(feature = "require_auth_for_profile_requests")]
-    #[cfg_attr(feature = "docs", doc(cfg(require_auth_for_profile_requests)))]
-    pub(crate) fn force_auth(mut self) -> Self {
+    #[cfg(any(feature = "require_auth_for_profile_requests", feature = "appservice"))]
+    #[cfg_attr(feature = "docs", doc(cfg(any(require_auth_for_profile_requests, appservice))))]
+    pub fn force_auth(mut self) -> Self {
         self.force_auth = true;
         self
     }
@@ -1363,8 +1363,14 @@ impl Client {
     ) -> Result<register::Response> {
         info!("Registering to {}", self.homeserver().await);
 
+        #[cfg(not(feature = "appservice"))]
+        let config = None;
+
+        #[cfg(feature = "appservice")]
+        let config = Some(RequestConfig::new().force_auth());
+
         let request = registration.into();
-        self.send(request, None).await
+        self.send(request, config).await
     }
 
     /// Get or upload a sync filter.

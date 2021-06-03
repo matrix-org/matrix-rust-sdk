@@ -31,6 +31,9 @@ pub enum Error {
     #[error("no client for localpart found")]
     NoClientForLocalpart,
 
+    #[error("could not convert host:port to socket addr")]
+    HostPortToSocketAddrs,
+
     #[error(transparent)]
     HttpRequest(#[from] ruma::api::error::FromHttpRequestError),
 
@@ -61,6 +64,9 @@ pub enum Error {
     #[error(transparent)]
     SerdeYaml(#[from] serde_yaml::Error),
 
+    #[error(transparent)]
+    SerdeJson(#[from] serde_json::Error),
+
     #[cfg(feature = "actix")]
     #[error(transparent)]
     Actix(#[from] actix_web::Error),
@@ -72,3 +78,6 @@ pub enum Error {
 
 #[cfg(feature = "actix")]
 impl actix_web::error::ResponseError for Error {}
+
+#[cfg(feature = "warp")]
+impl warp::reject::Reject for Error {}

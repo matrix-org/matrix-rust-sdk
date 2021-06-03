@@ -35,7 +35,7 @@ impl EventHandler for AppserviceEventHandler {
             let user_id = UserId::try_from(event.state_key.clone()).unwrap();
 
             let appservice = self.appservice.clone();
-            appservice.register(user_id.localpart()).await.unwrap();
+            appservice.register_virtual_user(user_id.localpart()).await.unwrap();
 
             let client = appservice.virtual_user(user_id.localpart()).await.unwrap();
 
