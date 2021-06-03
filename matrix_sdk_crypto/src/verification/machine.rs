@@ -20,7 +20,7 @@ use matrix_sdk_common::{
     locks::Mutex,
     uuid::Uuid,
 };
-use tracing::info;
+use tracing::{info, warn};
 
 use super::{
     event_enums::{AnyEvent, AnyVerificationContent},
@@ -278,6 +278,17 @@ impl VerificationMachine {
             return Ok(());
         };
 
+        let flow_id_missmatch = || {
+            warn!(
+                sender = event.sender().as_str(),
+                flow_id = flow_id.as_str(),
+                "Received a verification event with a mismatched flow id, \
+                  the verification object was created for a in-room \
+                  verification but a event was received over to-device \
+                  messaging or vice versa"
+            );
+        };
+
         if let Some(content) = event.verification_content() {
             match &content {
                 AnyVerificationContent::Request(r) => {
@@ -308,13 +319,17 @@ impl VerificationMachine {
                             // TODO remove this unwrap.
                             request.receive_ready(event.sender(), c).unwrap();
                         } else {
-                            todo!()
+                            flow_id_missmatch();
                         }
                     }
                 }
                 AnyVerificationContent::Start(c) => {
                     if let Some(request) = self.requests.get(flow_id.as_str()) {
-                        request.receive_start(event.sender(), &c).await?
+                        if request.flow_id() == &flow_id {
+                            request.receive_start(event.sender(), &c).await?
+                        } else {
+                            flow_id_missmatch();
+                        }
                     } else if let FlowId::ToDevice(_) = flow_id {
                         // TODO remove this soon, this has been deprecated by
                         // MSC3122 https://github.com/matrix-org/matrix-doc/pull/3122
@@ -357,7 +372,7 @@ impl VerificationMachine {
                                 );
                             }
                         } else {
-                            todo!()
+                            flow_id_missmatch();
                         }
                     }
                 }
@@ -370,7 +385,7 @@ impl VerificationMachine {
                                 self.mark_sas_as_done(s, content).await?;
                             }
                         } else {
-                            todo!()
+                            flow_id_missmatch();
                         }
                     }
                 }
