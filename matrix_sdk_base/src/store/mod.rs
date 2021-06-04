@@ -25,11 +25,15 @@ use matrix_sdk_common::{
     api::r0::push::get_notifications::Notification,
     async_trait,
     events::{
-        presence::PresenceEvent, room::member::MemberEventContent, AnyGlobalAccountDataEvent,
-        AnyRoomAccountDataEvent, AnyStrippedStateEvent, AnySyncStateEvent, EventContent, EventType,
+        presence::PresenceEvent,
+        receipt::{Receipt, ReceiptEventContent},
+        room::member::MemberEventContent,
+        AnyGlobalAccountDataEvent, AnyRoomAccountDataEvent, AnyStrippedStateEvent,
+        AnySyncStateEvent, EventContent, EventType,
     },
-    identifiers::{RoomId, UserId},
+    identifiers::{EventId, MxcUri, RoomId, UserId},
     locks::RwLock,
+    receipt::ReceiptType,
     AsyncTraitDeps, Raw,
 };
 #[cfg(feature = "sled_state_store")]
@@ -37,6 +41,7 @@ use sled::Db;
 
 use crate::{
     deserialized_responses::{MemberEvent, StrippedMemberEvent},
+    media::MediaRequest,
     rooms::{RoomInfo, RoomType},
     Room, Session,
 };
@@ -210,6 +215,72 @@ pub trait StateStore: AsyncTraitDeps {
         room_id: &RoomId,
         event_type: EventType,
     ) -> Result<Option<Raw<AnyRoomAccountDataEvent>>>;
+
+    /// Get an event out of the user room receipt store.
+    ///
+    /// # Arguments
+    ///
+    /// * `room_id` - The id of the room for which the receipt should be
+    ///   fetched.
+    ///
+    /// * `receipt_type` - The type of the receipt.
+    ///
+    /// * `user_id` - The id of the user for who the receipt should be fetched.
+    async fn get_user_room_receipt_event(
+        &self,
+        room_id: &RoomId,
+        receipt_type: ReceiptType,
+        user_id: &UserId,
+    ) -> Result<Option<(EventId, Receipt)>>;
+
+    /// Get events out of the event room receipt store.
+    ///
+    /// # Arguments
+    ///
+    /// * `room_id` - The id of the room for which the receipts should be
+    ///   fetched.
+    ///
+    /// * `receipt_type` - The type of the receipts.
+    ///
+    /// * `event_id` - The id of the event for which the receipts should be
+    ///   fetched.
+    async fn get_event_room_receipt_events(
+        &self,
+        room_id: &RoomId,
+        receipt_type: ReceiptType,
+        event_id: &EventId,
+    ) -> Result<Vec<(UserId, Receipt)>>;
+
+    /// Add a media file's content in the media store.
+    ///
+    /// # Arguments
+    ///
+    /// * `request` - The `MediaRequest` of the file.
+    ///
+    /// * `content` - The content of the file.
+    async fn add_media_content(&self, request: &MediaRequest, content: Vec<u8>) -> Result<()>;
+
+    /// Get a media file's content out of the media store.
+    ///
+    /// # Arguments
+    ///
+    /// * `request` - The `MediaRequest` of the file.
+    async fn get_media_content(&self, request: &MediaRequest) -> Result<Option<Vec<u8>>>;
+
+    /// Removes a media file's content from the media store.
+    ///
+    /// # Arguments
+    ///
+    /// * `request` - The `MediaRequest` of the file.
+    async fn remove_media_content(&self, request: &MediaRequest) -> Result<()>;
+
+    /// Removes all the media files' content associated to an `MxcUri` from the
+    /// media store.
+    ///
+    /// # Arguments
+    ///
+    /// * `uri` - The `MxcUri` of the media files.
+    async fn remove_media_content_for_uri(&self, uri: &MxcUri) -> Result<()>;
 }
 
 /// A state store wrapper for the SDK.
@@ -291,11 +362,6 @@ impl Store {
         Ok((Self::new(Box::new(inner.clone())), inner.inner))
     }
 
-    pub(crate) fn get_bare_room(&self, room_id: &RoomId) -> Option<Room> {
-        #[allow(clippy::map_clone)]
-        self.rooms.get(room_id).map(|r| r.clone())
-    }
-
     /// Get all the rooms this store knows about.
     pub fn get_rooms(&self) -> Vec<Room> {
         self.rooms.iter().filter_map(|r| self.get_room(r.key())).collect()
@@ -303,15 +369,17 @@ impl Store {
 
     /// Get the room with the given room id.
     pub fn get_room(&self, room_id: &RoomId) -> Option<Room> {
-        self.get_bare_room(room_id).and_then(|r| match r.room_type() {
-            RoomType::Joined => Some(r),
-            RoomType::Left => Some(r),
-            RoomType::Invited => self.get_stripped_room(room_id),
-        })
+        self.rooms
+            .get(room_id)
+            .and_then(|r| match r.room_type() {
+                RoomType::Joined => Some(r.clone()),
+                RoomType::Left => Some(r.clone()),
+                RoomType::Invited => self.get_stripped_room(room_id),
+            })
+            .or_else(|| self.get_stripped_room(room_id))
     }
 
     fn get_stripped_room(&self, room_id: &RoomId) -> Option<Room> {
-        #[allow(clippy::map_clone)]
         self.stripped_rooms.get(room_id).map(|r| r.clone())
     }
 
@@ -369,6 +437,8 @@ pub struct StateChanges {
     pub room_account_data: BTreeMap<RoomId, BTreeMap<String, Raw<AnyRoomAccountDataEvent>>>,
     /// A map of `RoomId` to `RoomInfo`.
     pub room_infos: BTreeMap<RoomId, RoomInfo>,
+    /// A map of `RoomId` to `ReceiptEventContent`.
+    pub receipts: BTreeMap<RoomId, ReceiptEventContent>,
 
     /// A mapping of `RoomId` to a map of event type to a map of state key to
     /// `AnyStrippedStateEvent`.
@@ -404,7 +474,7 @@ impl StateChanges {
 
     /// Update the `StateChanges` struct with the given `RoomInfo`.
     pub fn add_stripped_room(&mut self, room: RoomInfo) {
-        self.invited_room_info.insert(room.room_id.as_ref().to_owned(), room);
+        self.room_infos.insert(room.room_id.as_ref().to_owned(), room);
     }
 
     /// Update the `StateChanges` struct with the given `AnyBasicEvent`.
@@ -461,5 +531,11 @@ impl StateChanges {
     /// `Notification`.
     pub fn add_notification(&mut self, room_id: &RoomId, notification: Notification) {
         self.notifications.entry(room_id.to_owned()).or_insert_with(Vec::new).push(notification);
+    }
+
+    /// Update the `StateChanges` struct with the given room with a new
+    /// `Receipts`.
+    pub fn add_receipts(&mut self, room_id: &RoomId, event: ReceiptEventContent) {
+        self.receipts.insert(room_id.to_owned(), event);
     }
 }

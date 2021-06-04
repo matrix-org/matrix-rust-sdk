@@ -18,7 +18,7 @@ use matrix_sdk_base::crypto::{
 
 use crate::{Client, Result};
 
-/// An object controling the interactive verification flow.
+/// An object controlling the interactive verification flow.
 #[derive(Debug, Clone)]
 pub struct VerificationRequest {
     pub(crate) inner: BaseVerificationRequest,

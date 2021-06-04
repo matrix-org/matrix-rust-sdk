@@ -62,28 +62,11 @@ impl BaseRoomInfo {
         invited_member_count: u64,
         heroes: Vec<RoomMember>,
     ) -> String {
-        let heroes_count = heroes.len() as u64;
-        let invited_joined = (invited_member_count + joined_member_count).saturating_sub(1);
-
-        if heroes_count >= invited_joined {
-            let mut names = heroes.iter().take(3).map(|mem| mem.name()).collect::<Vec<&str>>();
-            // stabilize ordering
-            names.sort_unstable();
-            names.join(", ")
-        } else if heroes_count < invited_joined && invited_joined > 1 {
-            let mut names = heroes.iter().take(3).map(|mem| mem.name()).collect::<Vec<&str>>();
-            names.sort_unstable();
-
-            // TODO: What length does the spec want us to use here and in
-            // the `else`?
-            format!(
-                "{}, and {} others",
-                names.join(", "),
-                (joined_member_count + invited_member_count)
-            )
-        } else {
-            "Empty room".to_string()
-        }
+        calculate_room_name(
+            joined_member_count,
+            invited_member_count,
+            heroes.iter().take(3).map(|mem| mem.name()).collect::<Vec<&str>>(),
+        )
     }
 
     /// Handle a state event for this room and update our info accordingly.
@@ -162,5 +145,83 @@ impl Default for BaseRoomInfo {
             tombstone: None,
             topic: None,
         }
+    }
+}
+
+/// Calculate room name according to step 3 of the [naming algorithm.][spec]
+///
+/// [spec]: <https://matrix.org/docs/spec/client_server/latest#calculating-the-display-name-for-a-room>
+fn calculate_room_name(
+    joined_member_count: u64,
+    invited_member_count: u64,
+    heroes: Vec<&str>,
+) -> String {
+    let heroes_count = heroes.len() as u64;
+    let invited_joined = invited_member_count + joined_member_count;
+    let invited_joined_minus_one = invited_joined.saturating_sub(1);
+
+    let names = if heroes_count >= invited_joined_minus_one {
+        let mut names = heroes;
+        // stabilize ordering
+        names.sort_unstable();
+        names.join(", ")
+    } else if heroes_count < invited_joined_minus_one && invited_joined > 1 {
+        let mut names = heroes;
+        names.sort_unstable();
+
+        // TODO: What length does the spec want us to use here and in
+        // the `else`?
+        format!("{}, and {} others", names.join(", "), (invited_joined - heroes_count))
+    } else {
+        "".to_string()
+    };
+
+    // User is alone.
+    if invited_joined <= 1 {
+        if names.is_empty() {
+            "Empty room".to_string()
+        } else {
+            format!("Empty room (was {})", names)
+        }
+    } else {
+        names
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+
+    fn test_calculate_room_name() {
+        let mut actual = calculate_room_name(2, 0, vec!["a"]);
+        assert_eq!("a", actual);
+
+        actual = calculate_room_name(3, 0, vec!["a", "b"]);
+        assert_eq!("a, b", actual);
+
+        actual = calculate_room_name(4, 0, vec!["a", "b", "c"]);
+        assert_eq!("a, b, c", actual);
+
+        actual = calculate_room_name(5, 0, vec!["a", "b", "c"]);
+        assert_eq!("a, b, c, and 2 others", actual);
+
+        actual = calculate_room_name(0, 0, vec![]);
+        assert_eq!("Empty room", actual);
+
+        actual = calculate_room_name(1, 0, vec![]);
+        assert_eq!("Empty room", actual);
+
+        actual = calculate_room_name(0, 1, vec![]);
+        assert_eq!("Empty room", actual);
+
+        actual = calculate_room_name(1, 0, vec!["a"]);
+        assert_eq!("Empty room (was a)", actual);
+
+        actual = calculate_room_name(1, 0, vec!["a", "b"]);
+        assert_eq!("Empty room (was a, b)", actual);
+
+        actual = calculate_room_name(1, 0, vec!["a", "b", "c"]);
+        assert_eq!("Empty room (was a, b, c)", actual);
     }
 }

@@ -14,7 +14,11 @@
 // limitations under the License.
 
 #[cfg(feature = "encryption")]
-use std::{collections::BTreeMap, io::Write, path::PathBuf};
+use std::{
+    collections::BTreeMap,
+    io::{Cursor, Write},
+    path::PathBuf,
+};
 #[cfg(feature = "sso_login")]
 use std::{
     collections::HashMap,
@@ -38,10 +42,13 @@ use http::Response;
 #[cfg(feature = "encryption")]
 use matrix_sdk_base::crypto::{
     decrypt_key_export, encrypt_key_export, olm::InboundGroupSession, store::CryptoStoreError,
-    OutgoingRequests, RoomMessageRequest, ToDeviceRequest,
+    AttachmentDecryptor, OutgoingRequests, RoomMessageRequest, ToDeviceRequest,
 };
 use matrix_sdk_base::{
-    deserialized_responses::SyncResponse, events::AnyMessageEventContent, identifiers::MxcUri,
+    deserialized_responses::SyncResponse,
+    events::AnyMessageEventContent,
+    identifiers::MxcUri,
+    media::{MediaEventContent, MediaFormat, MediaRequest, MediaThumbnailSize, MediaType},
     BaseClient, BaseClientConfig, SendAccessToken, Session, Store,
 };
 use mime::{self, Mime};
@@ -83,19 +90,22 @@ use matrix_sdk_common::api::r0::{
     },
 };
 use matrix_sdk_common::{
-    api::r0::{
-        account::register,
-        device::{delete_devices, get_devices},
-        directory::{get_public_rooms, get_public_rooms_filtered},
-        filter::{create_filter::Request as FilterUploadRequest, FilterDefinition},
-        media::{create_content, get_content, get_content_thumbnail},
-        membership::{join_room_by_id, join_room_by_id_or_alias},
-        message::send_message_event,
-        profile::{get_avatar_url, get_display_name, set_avatar_url, set_display_name},
-        room::create_room,
-        session::{get_login_types, login, sso_login},
-        sync::sync_events,
-        uiaa::AuthData,
+    api::{
+        r0::{
+            account::register,
+            device::{delete_devices, get_devices},
+            directory::{get_public_rooms, get_public_rooms_filtered},
+            filter::{create_filter::Request as FilterUploadRequest, FilterDefinition},
+            media::{create_content, get_content, get_content_thumbnail},
+            membership::{join_room_by_id, join_room_by_id_or_alias},
+            message::send_message_event,
+            profile::{get_avatar_url, get_display_name, set_avatar_url, set_display_name},
+            room::create_room,
+            session::{get_login_types, login, sso_login},
+            sync::sync_events,
+            uiaa::AuthData,
+        },
+        unversioned::{discover_homeserver, get_supported_versions},
     },
     assign,
     identifiers::{DeviceIdBox, RoomId, RoomIdOrAliasId, ServerName, UserId},
@@ -139,7 +149,7 @@ const SSO_SERVER_BIND_TRIES: u8 = 10;
 #[derive(Clone)]
 pub struct Client {
     /// The URL of the homeserver to connect to.
-    homeserver: Arc<Url>,
+    homeserver: Arc<RwLock<Url>>,
     /// The underlying HTTP client.
     http_client: HttpClient,
     /// User session data.
@@ -161,7 +171,7 @@ pub struct Client {
 #[cfg(not(tarpaulin_include))]
 impl Debug for Client {
     fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> StdResult<(), fmt::Error> {
-        write!(fmt, "Client {{ homeserver: {} }}", self.homeserver)
+        write!(fmt, "Client")
     }
 }
 
@@ -289,6 +299,11 @@ impl ClientConfig {
     pub fn request_config(mut self, request_config: RequestConfig) -> Self {
         self.request_config = request_config;
         self
+    }
+
+    /// Get the [`RequestConfig`]
+    pub fn get_request_config(&self) -> &RequestConfig {
+        &self.request_config
     }
 
     /// Specify a client to handle sending requests and receiving responses.
@@ -499,7 +514,7 @@ impl Client {
     ///
     /// * `config` - Configuration for the client.
     pub fn new_with_config(homeserver_url: Url, config: ClientConfig) -> Result<Self> {
-        let homeserver = Arc::new(homeserver_url);
+        let homeserver = Arc::new(RwLock::new(homeserver_url));
 
         let client = if let Some(client) = config.client {
             client
@@ -510,12 +525,8 @@ impl Client {
         let base_client = BaseClient::new_with_config(config.base_config)?;
         let session = base_client.session().clone();
 
-        let http_client = HttpClient {
-            homeserver: homeserver.clone(),
-            inner: client,
-            session,
-            request_config: config.request_config,
-        };
+        let http_client =
+            HttpClient::new(client, homeserver.clone(), session, config.request_config);
 
         Ok(Self {
             homeserver,
@@ -529,6 +540,89 @@ impl Client {
             typing_notice_times: Arc::new(DashMap::new()),
             event_handler: Arc::new(RwLock::new(None)),
         })
+    }
+
+    /// Creates a new client for making HTTP requests to the homeserver of the
+    /// given user. Follows homeserver discovery directions described
+    /// [here](https://spec.matrix.org/unstable/client-server-api/#well-known-uri).
+    ///
+    /// # Arguments
+    ///
+    /// * `user_id` - The id of the user whose homeserver the client should
+    ///   connect to.
+    ///
+    /// # Example
+    /// ```no_run
+    /// # use std::convert::TryFrom;
+    /// # use matrix_sdk::{Client, identifiers::UserId};
+    /// # use futures::executor::block_on;
+    /// let alice = UserId::try_from("@alice:example.org").unwrap();
+    /// # block_on(async {
+    /// let client = Client::new_from_user_id(alice.clone()).await.unwrap();
+    /// client.login(alice.localpart(), "password", None, None).await.unwrap();
+    /// # });
+    /// ```
+    pub async fn new_from_user_id(user_id: UserId) -> Result<Self> {
+        let config = ClientConfig::new();
+        Client::new_from_user_id_with_config(user_id, config).await
+    }
+
+    /// Creates a new client for making HTTP requests to the homeserver of the
+    /// given user and configuration. Follows homeserver discovery directions
+    /// described [here](https://spec.matrix.org/unstable/client-server-api/#well-known-uri).
+    ///
+    /// # Arguments
+    ///
+    /// * `user_id` - The id of the user whose homeserver the client should
+    ///   connect to.
+    ///
+    /// * `config` - Configuration for the client.
+    pub async fn new_from_user_id_with_config(
+        user_id: UserId,
+        config: ClientConfig,
+    ) -> Result<Self> {
+        let homeserver = Client::homeserver_from_user_id(user_id)?;
+        let mut client = Client::new_with_config(homeserver, config)?;
+
+        let well_known = client.discover_homeserver().await?;
+        let well_known = Url::parse(well_known.homeserver.base_url.as_ref())?;
+        client.set_homeserver(well_known).await;
+        client.get_supported_versions().await?;
+        Ok(client)
+    }
+
+    fn homeserver_from_user_id(user_id: UserId) -> Result<Url> {
+        let homeserver = format!("https://{}", user_id.server_name());
+        #[allow(unused_mut)]
+        let mut result = Url::parse(homeserver.as_str())?;
+        // Mockito only knows how to test http endpoints:
+        // https://github.com/lipanski/mockito/issues/127
+        #[cfg(test)]
+        let _ = result.set_scheme("http");
+        Ok(result)
+    }
+
+    async fn discover_homeserver(&self) -> Result<discover_homeserver::Response> {
+        self.send(discover_homeserver::Request::new(), Some(RequestConfig::new().disable_retry()))
+            .await
+    }
+
+    /// Change the homeserver URL used by this client.
+    ///
+    /// # Arguments
+    ///
+    /// * `homeserver_url` - The new URL to use.
+    pub async fn set_homeserver(&mut self, homeserver_url: Url) {
+        let mut homeserver = self.homeserver.write().await;
+        *homeserver = homeserver_url;
+    }
+
+    async fn get_supported_versions(&self) -> Result<get_supported_versions::Response> {
+        self.send(
+            get_supported_versions::Request::new(),
+            Some(RequestConfig::new().disable_retry()),
+        )
+        .await
     }
 
     /// Process a [transaction] received from the homeserver
@@ -563,8 +657,8 @@ impl Client {
     }
 
     /// The Homeserver of the client.
-    pub fn homeserver(&self) -> &Url {
-        &self.homeserver
+    pub async fn homeserver(&self) -> Url {
+        self.homeserver.read().await.clone()
     }
 
     /// Get the user id of the current owner of the client.
@@ -863,8 +957,8 @@ impl Client {
     ///   successful SSO login.
     ///
     /// [`login_with_token`]: #method.login_with_token
-    pub fn get_sso_login_url(&self, redirect_url: &str) -> Result<String> {
-        let homeserver = self.homeserver();
+    pub async fn get_sso_login_url(&self, redirect_url: &str) -> Result<String> {
+        let homeserver = self.homeserver().await;
         let request = sso_login::Request::new(redirect_url)
             .try_into_http_request::<Vec<u8>>(homeserver.as_str(), SendAccessToken::None);
         match request {
@@ -925,7 +1019,7 @@ impl Client {
         device_id: Option<&str>,
         initial_device_display_name: Option<&str>,
     ) -> Result<login::Response> {
-        info!("Logging in to {} as {:?}", self.homeserver, user);
+        info!("Logging in to {} as {:?}", self.homeserver().await, user);
 
         let request = assign!(
             login::Request::new(
@@ -1034,7 +1128,7 @@ impl Client {
     where
         C: Future<Output = Result<()>>,
     {
-        info!("Logging in to {}", self.homeserver);
+        info!("Logging in to {}", self.homeserver().await);
         let (signal_tx, signal_rx) = oneshot::channel();
         let (data_tx, data_rx) = oneshot::channel();
         let data_tx_mutex = Arc::new(std::sync::Mutex::new(Some(data_tx)));
@@ -1106,7 +1200,7 @@ impl Client {
 
         tokio::spawn(server);
 
-        let sso_url = self.get_sso_login_url(redirect_url.as_str()).unwrap();
+        let sso_url = self.get_sso_login_url(redirect_url.as_str()).await.unwrap();
 
         match use_sso_login_url(sso_url).await {
             Ok(t) => t,
@@ -1190,7 +1284,7 @@ impl Client {
         device_id: Option<&str>,
         initial_device_display_name: Option<&str>,
     ) -> Result<login::Response> {
-        info!("Logging in to {}", self.homeserver);
+        info!("Logging in to {}", self.homeserver().await);
 
         let request = assign!(
             login::Request::new(
@@ -1261,7 +1355,7 @@ impl Client {
         &self,
         registration: impl Into<register::Request<'_>>,
     ) -> Result<register::Response> {
-        info!("Registering to {}", self.homeserver);
+        info!("Registering to {}", self.homeserver().await);
 
         let request = registration.into();
         self.send(request, None).await
@@ -1915,7 +2009,7 @@ impl Client {
             #[cfg(feature = "encryption")]
             {
                 // This is needed because sometimes we need to automatically
-                // claim some one-time keys to unwedge an exisitng Olm session.
+                // claim some one-time keys to unwedge an existing Olm session.
                 if let Err(e) = self.claim_one_time_keys([].iter()).await {
                     warn!("Error while claiming one-time keys {:?}", e);
                 }
@@ -2382,13 +2476,227 @@ impl Client {
 
         Ok(olm.import_keys(import, |_, _| {}).await?)
     }
+
+    /// Get a media file's content.
+    ///
+    /// If the content is encrypted and encryption is enabled, the content will
+    /// be decrypted.
+    ///
+    /// # Arguments
+    ///
+    /// * `request` - The `MediaRequest` of the content.
+    ///
+    /// * `use_cache` - If we should use the media cache for this request.
+    pub async fn get_media_content(
+        &self,
+        request: &MediaRequest,
+        use_cache: bool,
+    ) -> Result<Vec<u8>> {
+        let content = if use_cache {
+            self.base_client.store().get_media_content(request).await?
+        } else {
+            None
+        };
+
+        if let Some(content) = content {
+            Ok(content)
+        } else {
+            let content: Vec<u8> = match &request.media_type {
+                MediaType::Encrypted(file) => {
+                    let content: Vec<u8> =
+                        self.send(get_content::Request::from_url(&file.url)?, None).await?.file;
+
+                    #[cfg(feature = "encryption")]
+                    let content = {
+                        let mut cursor = Cursor::new(content);
+                        let mut reader =
+                            AttachmentDecryptor::new(&mut cursor, file.as_ref().clone().into())?;
+
+                        let mut decrypted = Vec::new();
+                        reader.read_to_end(&mut decrypted)?;
+
+                        decrypted
+                    };
+
+                    content
+                }
+                MediaType::Uri(uri) => {
+                    if let MediaFormat::Thumbnail(size) = &request.format {
+                        self.send(
+                            get_content_thumbnail::Request::from_url(
+                                &uri,
+                                size.width,
+                                size.height,
+                            )?,
+                            None,
+                        )
+                        .await?
+                        .file
+                    } else {
+                        self.send(get_content::Request::from_url(&uri)?, None).await?.file
+                    }
+                }
+            };
+
+            if use_cache {
+                self.base_client.store().add_media_content(request, content.clone()).await?;
+            }
+
+            Ok(content)
+        }
+    }
+
+    /// Remove a media file's content from the store.
+    ///
+    /// # Arguments
+    ///
+    /// * `request` - The `MediaRequest` of the content.
+    pub async fn remove_media_content(&self, request: &MediaRequest) -> Result<()> {
+        Ok(self.base_client.store().remove_media_content(request).await?)
+    }
+
+    /// Delete all the media content corresponding to the given
+    /// uri from the store.
+    ///
+    /// # Arguments
+    ///
+    /// * `uri` - The `MxcUri` of the files.
+    pub async fn remove_media_content_for_uri(&self, uri: &MxcUri) -> Result<()> {
+        Ok(self.base_client.store().remove_media_content_for_uri(&uri).await?)
+    }
+
+    /// Get the file of the given media event content.
+    ///
+    /// If the content is encrypted and encryption is enabled, the content will
+    /// be decrypted.
+    ///
+    /// Returns `Ok(None)` if the event content has no file.
+    ///
+    /// This is a convenience method that calls the
+    /// [`get_media_content`](#method.get_media_content) method.
+    ///
+    /// # Arguments
+    ///
+    /// * `event_content` - The media event content.
+    ///
+    /// * `use_cache` - If we should use the media cache for this file.
+    pub async fn get_file(
+        &self,
+        event_content: impl MediaEventContent,
+        use_cache: bool,
+    ) -> Result<Option<Vec<u8>>> {
+        if let Some(media_type) = event_content.file() {
+            Ok(Some(
+                self.get_media_content(
+                    &MediaRequest { media_type, format: MediaFormat::File },
+                    use_cache,
+                )
+                .await?,
+            ))
+        } else {
+            Ok(None)
+        }
+    }
+
+    /// Remove the file of the given media event content from the cache.
+    ///
+    /// This is a convenience method that calls the
+    /// [`remove_media_content`](#method.remove_media_content) method.
+    ///
+    /// # Arguments
+    ///
+    /// * `event_content` - The media event content.
+    pub async fn remove_file(&self, event_content: impl MediaEventContent) -> Result<()> {
+        if let Some(media_type) = event_content.file() {
+            self.remove_media_content(&MediaRequest { media_type, format: MediaFormat::File })
+                .await?
+        }
+
+        Ok(())
+    }
+
+    /// Get a thumbnail of the given media event content.
+    ///
+    /// If the content is encrypted and encryption is enabled, the content will
+    /// be decrypted.
+    ///
+    /// Returns `Ok(None)` if the event content has no thumbnail.
+    ///
+    /// This is a convenience method that calls the
+    /// [`get_media_content`](#method.get_media_content) method.
+    ///
+    /// # Arguments
+    ///
+    /// * `event_content` - The media event content.
+    ///
+    /// * `size` - The _desired_ size of the thumbnail. The actual thumbnail may
+    ///   not match the size specified.
+    ///
+    /// * `use_cache` - If we should use the media cache for this thumbnail.
+    pub async fn get_thumbnail(
+        &self,
+        event_content: impl MediaEventContent,
+        size: MediaThumbnailSize,
+        use_cache: bool,
+    ) -> Result<Option<Vec<u8>>> {
+        if let Some(media_type) = event_content.thumbnail() {
+            Ok(Some(
+                self.get_media_content(
+                    &MediaRequest { media_type, format: MediaFormat::Thumbnail(size) },
+                    use_cache,
+                )
+                .await?,
+            ))
+        } else {
+            Ok(None)
+        }
+    }
+
+    /// Remove the thumbnail of the given media event content from the cache.
+    ///
+    /// This is a convenience method that calls the
+    /// [`remove_media_content`](#method.remove_media_content) method.
+    ///
+    /// # Arguments
+    ///
+    /// * `event_content` - The media event content.
+    ///
+    /// * `size` - The _desired_ size of the thumbnail. Must match the size
+    ///   requested with [`get_thumbnail`](#method.get_thumbnail).
+    pub async fn remove_thumbnail(
+        &self,
+        event_content: impl MediaEventContent,
+        size: MediaThumbnailSize,
+    ) -> Result<()> {
+        if let Some(media_type) = event_content.file() {
+            self.remove_media_content(&MediaRequest {
+                media_type,
+                format: MediaFormat::Thumbnail(size),
+            })
+            .await?
+        }
+
+        Ok(())
+    }
 }
 
 #[cfg(test)]
 mod test {
-    use std::{collections::BTreeMap, convert::TryInto, io::Cursor, str::FromStr, time::Duration};
+    use std::{
+        collections::BTreeMap,
+        convert::{TryFrom, TryInto},
+        io::Cursor,
+        str::FromStr,
+        time::Duration,
+    };
 
-    use matrix_sdk_base::identifiers::mxc_uri;
+    use matrix_sdk_base::{
+        api::r0::media::get_content_thumbnail::Method,
+        events::room::{message::ImageMessageEventContent, ImageInfo},
+        identifiers::mxc_uri,
+        media::{MediaFormat, MediaRequest, MediaThumbnailSize, MediaType},
+        uint,
+    };
     use matrix_sdk_common::{
         api::r0::{
             account::register::Request as RegistrationRequest,
@@ -2398,7 +2706,7 @@ mod test {
         assign,
         directory::Filter,
         events::{room::message::MessageEventContent, AnyMessageEventContent},
-        identifiers::{event_id, room_id, user_id},
+        identifiers::{event_id, room_id, user_id, UserId},
         thirdparty,
     };
     use matrix_sdk_test::{test_json, EventBuilder, EventsJson};
@@ -2422,6 +2730,62 @@ mod test {
         client.restore_login(session).await.unwrap();
 
         client
+    }
+
+    #[tokio::test]
+    async fn set_homeserver() {
+        let homeserver = Url::from_str("http://example.com/").unwrap();
+
+        let mut client = Client::new(homeserver).unwrap();
+
+        let homeserver = Url::from_str(&mockito::server_url()).unwrap();
+
+        client.set_homeserver(homeserver.clone()).await;
+
+        assert_eq!(client.homeserver().await, homeserver);
+    }
+
+    #[tokio::test]
+    async fn successful_discovery() {
+        let server_url = mockito::server_url();
+        let domain = server_url.strip_prefix("http://").unwrap();
+        let alice = UserId::try_from("@alice:".to_string() + domain).unwrap();
+
+        let _m_well_known = mock("GET", "/.well-known/matrix/client")
+            .with_status(200)
+            .with_body(
+                test_json::WELL_KNOWN.to_string().replace("HOMESERVER_URL", server_url.as_ref()),
+            )
+            .create();
+
+        let _m_versions = mock("GET", "/_matrix/client/versions")
+            .with_status(200)
+            .with_body(test_json::VERSIONS.to_string())
+            .create();
+        let client = Client::new_from_user_id(alice).await.unwrap();
+
+        assert_eq!(client.homeserver().await, Url::parse(server_url.as_ref()).unwrap());
+    }
+
+    #[tokio::test]
+    async fn discovery_broken_server() {
+        let server_url = mockito::server_url();
+        let domain = server_url.strip_prefix("http://").unwrap();
+        let alice = UserId::try_from("@alice:".to_string() + domain).unwrap();
+
+        let _m = mock("GET", "/.well-known/matrix/client")
+            .with_status(200)
+            .with_body(
+                test_json::WELL_KNOWN.to_string().replace("HOMESERVER_URL", server_url.as_ref()),
+            )
+            .create();
+
+        if Client::new_from_user_id(alice).await.is_ok() {
+            panic!(
+                "Creating a client from a user ID should fail when the \
+                   .well-known server returns no version information."
+            );
+        }
     }
 
     #[tokio::test]
@@ -2513,7 +2877,7 @@ mod test {
             .any(|flow| matches!(flow, LoginType::Sso(_)));
         assert!(can_sso);
 
-        let sso_url = client.get_sso_login_url("http://127.0.0.1:3030");
+        let sso_url = client.get_sso_login_url("http://127.0.0.1:3030").await;
         assert!(sso_url.is_ok());
 
         let _m = mock("POST", "/_matrix/client/r0/login")
@@ -2625,7 +2989,7 @@ mod test {
         client.base_client.receive_sync_response(response).await.unwrap();
         let room_id = room_id!("!SVkFJHzfwvuaIEawgC:localhost");
 
-        assert_eq!(client.homeserver(), &Url::parse(&mockito::server_url()).unwrap());
+        assert_eq!(client.homeserver().await, Url::parse(&mockito::server_url()).unwrap());
 
         let room = client.get_joined_room(&room_id);
         assert!(room.is_some());
@@ -3279,6 +3643,7 @@ mod test {
             .with_status(200)
             .match_header("authorization", "Bearer 1234")
             .with_body(test_json::SYNC.to_string())
+            .expect_at_least(1)
             .create();
 
         let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
@@ -3288,6 +3653,19 @@ mod test {
         let room = client.get_joined_room(&room_id!("!SVkFJHzfwvuaIEawgC:localhost")).unwrap();
 
         assert_eq!("tutorial".to_string(), room.display_name().await.unwrap());
+
+        let _m = mock("GET", Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_string()))
+            .with_status(200)
+            .match_header("authorization", "Bearer 1234")
+            .with_body(test_json::INVITE_SYNC.to_string())
+            .expect_at_least(1)
+            .create();
+
+        let _response = client.sync_once(SyncSettings::new()).await.unwrap();
+
+        let invited_room = client.get_invited_room(&room_id!("!696r7674:example.com")).unwrap();
+
+        assert_eq!("My Room Name".to_string(), invited_room.display_name().await.unwrap());
     }
 
     #[tokio::test]
@@ -3394,5 +3772,75 @@ mod test {
         } else {
             panic!("this request should return an `Err` variant")
         }
+    }
+
+    #[tokio::test]
+    async fn get_media_content() {
+        let client = logged_in_client().await;
+
+        let request = MediaRequest {
+            media_type: MediaType::Uri(mxc_uri!("mxc://localhost/textfile")),
+            format: MediaFormat::File,
+        };
+
+        let m = mock(
+            "GET",
+            Matcher::Regex(r"^/_matrix/media/r0/download/localhost/textfile\?.*$".to_string()),
+        )
+        .with_status(200)
+        .with_body("Some very interesting text.")
+        .expect(2)
+        .create();
+
+        assert!(client.get_media_content(&request, true).await.is_ok());
+        assert!(client.get_media_content(&request, true).await.is_ok());
+        assert!(client.get_media_content(&request, false).await.is_ok());
+        m.assert();
+    }
+
+    #[tokio::test]
+    async fn get_media_file() {
+        let client = logged_in_client().await;
+
+        let event_content = ImageMessageEventContent::plain(
+            "filename.jpg".into(),
+            mxc_uri!("mxc://example.org/image"),
+            Some(Box::new(assign!(ImageInfo::new(), {
+                height: Some(uint!(398)),
+                width: Some(uint!(394)),
+                mimetype: Some("image/jpeg".into()),
+                size: Some(uint!(31037)),
+            }))),
+        );
+
+        let m = mock(
+            "GET",
+            Matcher::Regex(r"^/_matrix/media/r0/download/example%2Eorg/image\?.*$".to_string()),
+        )
+        .with_status(200)
+        .with_body("binaryjpegdata")
+        .create();
+
+        assert!(client.get_file(event_content.clone(), true).await.is_ok());
+        assert!(client.get_file(event_content.clone(), true).await.is_ok());
+        m.assert();
+
+        let m = mock(
+            "GET",
+            Matcher::Regex(r"^/_matrix/media/r0/thumbnail/example%2Eorg/image\?.*$".to_string()),
+        )
+        .with_status(200)
+        .with_body("smallerbinaryjpegdata")
+        .create();
+
+        assert!(client
+            .get_thumbnail(
+                event_content,
+                MediaThumbnailSize { method: Method::Scale, width: uint!(100), height: uint!(100) },
+                true
+            )
+            .await
+            .is_ok());
+        m.assert();
     }
 }

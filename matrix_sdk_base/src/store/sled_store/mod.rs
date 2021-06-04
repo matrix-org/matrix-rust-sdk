@@ -16,7 +16,7 @@ mod store_key;
 
 use std::{
     collections::BTreeSet,
-    convert::TryFrom,
+    convert::{TryFrom, TryInto},
     path::{Path, PathBuf},
     sync::Arc,
     time::Instant,
@@ -30,10 +30,12 @@ use matrix_sdk_common::{
     async_trait,
     events::{
         presence::PresenceEvent,
+        receipt::Receipt,
         room::member::{MemberEventContent, MembershipState},
         AnyGlobalAccountDataEvent, AnyRoomAccountDataEvent, AnySyncStateEvent, EventType,
     },
-    identifiers::{RoomId, UserId},
+    identifiers::{EventId, MxcUri, RoomId, UserId},
+    receipt::ReceiptType,
     Raw,
 };
 use serde::{Deserialize, Serialize};
@@ -45,7 +47,10 @@ use tracing::info;
 
 use self::store_key::{EncryptedEvent, StoreKey};
 use super::{Result, RoomInfo, StateChanges, StateStore, StoreError};
-use crate::deserialized_responses::MemberEvent;
+use crate::{
+    deserialized_responses::MemberEvent,
+    media::{MediaRequest, UniqueKey},
+};
 
 #[derive(Debug, Serialize, Deserialize)]
 pub enum DatabaseType {
@@ -127,10 +132,39 @@ impl EncodeKey for (&str, &str, &str) {
     }
 }
 
+impl EncodeKey for (&str, &str, &str, &str) {
+    fn encode(&self) -> Vec<u8> {
+        [
+            self.0.as_bytes(),
+            &[ENCODE_SEPARATOR],
+            self.1.as_bytes(),
+            &[ENCODE_SEPARATOR],
+            self.2.as_bytes(),
+            &[ENCODE_SEPARATOR],
+            self.3.as_bytes(),
+            &[ENCODE_SEPARATOR],
+        ]
+        .concat()
+    }
+}
+
 impl EncodeKey for EventType {
     fn encode(&self) -> Vec<u8> {
         self.as_str().encode()
     }
+}
+
+/// Get the value at `position` in encoded `key`.
+///
+/// The key must have been encoded with the `EncodeKey` trait. `position`
+/// corresponds to the position in the tuple before the key was encoded. If it
+/// wasn't encoded in a tuple, use `0`.
+///
+/// Returns `None` if there is no key at `position`.
+pub fn decode_key_value(key: &[u8], position: usize) -> Option<String> {
+    let values: Vec<&[u8]> = key.split(|v| *v == ENCODE_SEPARATOR).collect();
+
+    values.get(position).map(|s| String::from_utf8_lossy(s).to_string())
 }
 
 #[derive(Clone)]
@@ -152,6 +186,9 @@ pub struct SledStore {
     stripped_room_state: Tree,
     stripped_members: Tree,
     presence: Tree,
+    room_user_receipts: Tree,
+    room_event_receipts: Tree,
+    media: Tree,
 }
 
 impl std::fmt::Debug for SledStore {
@@ -184,6 +221,11 @@ impl SledStore {
         let stripped_members = db.open_tree("stripped_members")?;
         let stripped_room_state = db.open_tree("stripped_room_state")?;
 
+        let room_user_receipts = db.open_tree("room_user_receipts")?;
+        let room_event_receipts = db.open_tree("room_event_receipts")?;
+
+        let media = db.open_tree("media")?;
+
         Ok(Self {
             path,
             inner: db,
@@ -202,6 +244,9 @@ impl SledStore {
             stripped_room_info,
             stripped_members,
             stripped_room_state,
+            room_user_receipts,
+            room_event_receipts,
+            media,
         })
     }
 
@@ -459,6 +504,58 @@ impl SledStore {
 
         ret?;
 
+        let ret: Result<(), TransactionError<SerializationError>> =
+            (&self.room_user_receipts, &self.room_event_receipts).transaction(
+                |(room_user_receipts, room_event_receipts)| {
+                    for (room, content) in &changes.receipts {
+                        for (event_id, receipts) in &content.0 {
+                            for (receipt_type, receipts) in receipts {
+                                for (user_id, receipt) in receipts {
+                                    // Add the receipt to the room user receipts
+                                    if let Some(old) = room_user_receipts.insert(
+                                        (room.as_str(), receipt_type.as_ref(), user_id.as_str())
+                                            .encode(),
+                                        self.serialize_event(&(event_id, receipt))
+                                            .map_err(ConflictableTransactionError::Abort)?,
+                                    )? {
+                                        // Remove the old receipt from the room event receipts
+                                        let (old_event, _): (EventId, Receipt) = self
+                                            .deserialize_event(&old)
+                                            .map_err(ConflictableTransactionError::Abort)?;
+                                        room_event_receipts.remove(
+                                            (
+                                                room.as_str(),
+                                                receipt_type.as_ref(),
+                                                old_event.as_str(),
+                                                user_id.as_str(),
+                                            )
+                                                .encode(),
+                                        )?;
+                                    }
+
+                                    // Add the receipt to the room event receipts
+                                    room_event_receipts.insert(
+                                        (
+                                            room.as_str(),
+                                            receipt_type.as_ref(),
+                                            event_id.as_str(),
+                                            user_id.as_str(),
+                                        )
+                                            .encode(),
+                                        self.serialize_event(receipt)
+                                            .map_err(ConflictableTransactionError::Abort)?,
+                                    )?;
+                                }
+                            }
+                        }
+                    }
+
+                    Ok(())
+                },
+            );
+
+        ret?;
+
         self.inner.flush_async().await?;
 
         info!("Saved changes in {:?}", now.elapsed());
@@ -598,6 +695,79 @@ impl SledStore {
             .map(|m| self.deserialize_event(&m))
             .transpose()?)
     }
+
+    async fn get_user_room_receipt_event(
+        &self,
+        room_id: &RoomId,
+        receipt_type: ReceiptType,
+        user_id: &UserId,
+    ) -> Result<Option<(EventId, Receipt)>> {
+        Ok(self
+            .room_user_receipts
+            .get((room_id.as_str(), receipt_type.as_ref(), user_id.as_str()).encode())?
+            .map(|m| self.deserialize_event(&m))
+            .transpose()?)
+    }
+
+    async fn get_event_room_receipt_events(
+        &self,
+        room_id: &RoomId,
+        receipt_type: ReceiptType,
+        event_id: &EventId,
+    ) -> Result<Vec<(UserId, Receipt)>> {
+        self.room_event_receipts
+            .scan_prefix((room_id.as_str(), receipt_type.as_ref(), event_id.as_str()).encode())
+            .map(|u| {
+                u.map_err(StoreError::Sled).and_then(|(key, value)| {
+                    self.deserialize_event(&value)
+                        .map(|receipt| {
+                            (decode_key_value(&key, 3).unwrap().try_into().unwrap(), receipt)
+                        })
+                        .map_err(Into::into)
+                })
+            })
+            .collect()
+    }
+
+    async fn add_media_content(&self, request: &MediaRequest, data: Vec<u8>) -> Result<()> {
+        self.media.insert(
+            (request.media_type.unique_key().as_str(), request.format.unique_key().as_str())
+                .encode(),
+            data,
+        )?;
+
+        Ok(())
+    }
+
+    async fn get_media_content(&self, request: &MediaRequest) -> Result<Option<Vec<u8>>> {
+        Ok(self
+            .media
+            .get(
+                (request.media_type.unique_key().as_str(), request.format.unique_key().as_str())
+                    .encode(),
+            )?
+            .map(|m| m.to_vec()))
+    }
+
+    async fn remove_media_content(&self, request: &MediaRequest) -> Result<()> {
+        self.media.remove(
+            (request.media_type.unique_key().as_str(), request.format.unique_key().as_str())
+                .encode(),
+        )?;
+
+        Ok(())
+    }
+
+    async fn remove_media_content_for_uri(&self, uri: &MxcUri) -> Result<()> {
+        let keys = self.media.scan_prefix(uri.as_str().encode()).keys();
+
+        let mut batch = sled::Batch::default();
+        for key in keys {
+            batch.remove(key?);
+        }
+
+        Ok(self.media.apply_batch(batch)?)
+    }
 }
 
 #[async_trait]
@@ -689,6 +859,40 @@ impl StateStore for SledStore {
     ) -> Result<Option<Raw<AnyRoomAccountDataEvent>>> {
         self.get_room_account_data_event(room_id, event_type).await
     }
+
+    async fn get_user_room_receipt_event(
+        &self,
+        room_id: &RoomId,
+        receipt_type: ReceiptType,
+        user_id: &UserId,
+    ) -> Result<Option<(EventId, Receipt)>> {
+        self.get_user_room_receipt_event(room_id, receipt_type, user_id).await
+    }
+
+    async fn get_event_room_receipt_events(
+        &self,
+        room_id: &RoomId,
+        receipt_type: ReceiptType,
+        event_id: &EventId,
+    ) -> Result<Vec<(UserId, Receipt)>> {
+        self.get_event_room_receipt_events(room_id, receipt_type, event_id).await
+    }
+
+    async fn add_media_content(&self, request: &MediaRequest, data: Vec<u8>) -> Result<()> {
+        self.add_media_content(request, data).await
+    }
+
+    async fn get_media_content(&self, request: &MediaRequest) -> Result<Option<Vec<u8>>> {
+        self.get_media_content(request).await
+    }
+
+    async fn remove_media_content(&self, request: &MediaRequest) -> Result<()> {
+        self.remove_media_content(request).await
+    }
+
+    async fn remove_media_content_for_uri(&self, uri: &MxcUri) -> Result<()> {
+        self.remove_media_content_for_uri(uri).await
+    }
 }
 
 #[cfg(test)]
@@ -696,6 +900,7 @@ mod test {
     use std::convert::TryFrom;
 
     use matrix_sdk_common::{
+        api::r0::media::get_content_thumbnail::Method,
         events::{
             room::{
                 member::{MemberEventContent, MembershipState},
@@ -703,14 +908,19 @@ mod test {
             },
             AnySyncStateEvent, EventType, Unsigned,
         },
-        identifiers::{room_id, user_id, EventId, UserId},
-        MilliSecondsSinceUnixEpoch, Raw,
+        identifiers::{event_id, mxc_uri, room_id, user_id, EventId, UserId},
+        receipt::ReceiptType,
+        uint, MilliSecondsSinceUnixEpoch, Raw,
     };
     use matrix_sdk_test::async_test;
     use serde_json::json;
 
     use super::{SledStore, StateChanges};
-    use crate::{deserialized_responses::MemberEvent, StateStore};
+    use crate::{
+        deserialized_responses::MemberEvent,
+        media::{MediaFormat, MediaRequest, MediaThumbnailSize, MediaType},
+        StateStore,
+    };
 
     fn user_id() -> UserId {
         user_id!("@example:localhost")
@@ -787,5 +997,138 @@ mod test {
             .await
             .unwrap()
             .is_some());
+    }
+
+    #[async_test]
+    async fn test_receipts_saving() {
+        let store = SledStore::open().unwrap();
+
+        let room_id = room_id!("!test:localhost");
+
+        let first_event_id = event_id!("$1435641916114394fHBLK:matrix.org");
+        let second_event_id = event_id!("$fHBLK1435641916114394:matrix.org");
+
+        let first_receipt_event = serde_json::from_value(json!({
+            first_event_id.clone(): {
+                "m.read": {
+                    user_id(): {
+                        "ts": 1436451550453u64
+                    }
+                }
+            }
+        }))
+        .unwrap();
+
+        let second_receipt_event = serde_json::from_value(json!({
+            second_event_id.clone(): {
+                "m.read": {
+                    user_id(): {
+                        "ts": 1436451551453u64
+                    }
+                }
+            }
+        }))
+        .unwrap();
+
+        assert!(store
+            .get_user_room_receipt_event(&room_id, ReceiptType::Read, &user_id())
+            .await
+            .unwrap()
+            .is_none());
+        assert!(store
+            .get_event_room_receipt_events(&room_id, ReceiptType::Read, &first_event_id)
+            .await
+            .unwrap()
+            .is_empty());
+        assert!(store
+            .get_event_room_receipt_events(&room_id, ReceiptType::Read, &second_event_id)
+            .await
+            .unwrap()
+            .is_empty());
+
+        let mut changes = StateChanges::default();
+        changes.add_receipts(&room_id, first_receipt_event);
+
+        store.save_changes(&changes).await.unwrap();
+        assert!(store
+            .get_user_room_receipt_event(&room_id, ReceiptType::Read, &user_id())
+            .await
+            .unwrap()
+            .is_some(),);
+        assert_eq!(
+            store
+                .get_event_room_receipt_events(&room_id, ReceiptType::Read, &first_event_id)
+                .await
+                .unwrap()
+                .len(),
+            1
+        );
+        assert!(store
+            .get_event_room_receipt_events(&room_id, ReceiptType::Read, &second_event_id)
+            .await
+            .unwrap()
+            .is_empty());
+
+        let mut changes = StateChanges::default();
+        changes.add_receipts(&room_id, second_receipt_event);
+
+        store.save_changes(&changes).await.unwrap();
+        assert!(store
+            .get_user_room_receipt_event(&room_id, ReceiptType::Read, &user_id())
+            .await
+            .unwrap()
+            .is_some());
+        assert!(store
+            .get_event_room_receipt_events(&room_id, ReceiptType::Read, &first_event_id)
+            .await
+            .unwrap()
+            .is_empty());
+        assert_eq!(
+            store
+                .get_event_room_receipt_events(&room_id, ReceiptType::Read, &second_event_id)
+                .await
+                .unwrap()
+                .len(),
+            1
+        );
+    }
+
+    #[async_test]
+    async fn test_media_content() {
+        let store = SledStore::open().unwrap();
+
+        let uri = mxc_uri!("mxc://localhost/media");
+        let content: Vec<u8> = "somebinarydata".into();
+
+        let request_file =
+            MediaRequest { media_type: MediaType::Uri(uri.clone()), format: MediaFormat::File };
+
+        let request_thumbnail = MediaRequest {
+            media_type: MediaType::Uri(uri.clone()),
+            format: MediaFormat::Thumbnail(MediaThumbnailSize {
+                method: Method::Crop,
+                width: uint!(100),
+                height: uint!(100),
+            }),
+        };
+
+        assert!(store.get_media_content(&request_file).await.unwrap().is_none());
+        assert!(store.get_media_content(&request_thumbnail).await.unwrap().is_none());
+
+        store.add_media_content(&request_file, content.clone()).await.unwrap();
+        assert!(store.get_media_content(&request_file).await.unwrap().is_some());
+
+        store.remove_media_content(&request_file).await.unwrap();
+        assert!(store.get_media_content(&request_file).await.unwrap().is_none());
+
+        store.add_media_content(&request_file, content.clone()).await.unwrap();
+        assert!(store.get_media_content(&request_file).await.unwrap().is_some());
+
+        store.add_media_content(&request_thumbnail, content.clone()).await.unwrap();
+        assert!(store.get_media_content(&request_thumbnail).await.unwrap().is_some());
+
+        store.remove_media_content_for_uri(&uri).await.unwrap();
+        assert!(store.get_media_content(&request_file).await.unwrap().is_none());
+        assert!(store.get_media_content(&request_thumbnail).await.unwrap().is_none());
     }
 }

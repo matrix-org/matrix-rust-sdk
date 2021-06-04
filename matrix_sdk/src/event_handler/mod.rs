@@ -379,7 +379,7 @@ pub trait EventHandler: Send + Sync {
     async fn on_room_redaction(&self, _: Room, _: &SyncRedactionEvent) {}
     /// Fires when `Client` receives a `RoomEvent::RoomPowerLevels` event.
     async fn on_room_power_levels(&self, _: Room, _: &SyncStateEvent<PowerLevelsEventContent>) {}
-    /// Fires when `Client` receives a `RoomEvent::Tombstone` event.
+    /// Fires when `Client` receives a `RoomEvent::RoomJoinRules` event.
     async fn on_room_join_rules(&self, _: Room, _: &SyncStateEvent<JoinRulesEventContent>) {}
     /// Fires when `Client` receives a `RoomEvent::Tombstone` event.
     async fn on_room_tombstone(&self, _: Room, _: &SyncStateEvent<TombstoneEventContent>) {}

@@ -97,7 +97,7 @@ pub trait HttpSend: AsyncTraitDeps {
 #[derive(Clone, Debug)]
 pub(crate) struct HttpClient {
     pub(crate) inner: Arc<dyn HttpSend>,
-    pub(crate) homeserver: Arc<Url>,
+    pub(crate) homeserver: Arc<RwLock<Url>>,
     pub(crate) session: Arc<RwLock<Option<Session>>>,
     pub(crate) request_config: RequestConfig,
 }
@@ -106,6 +106,15 @@ pub(crate) struct HttpClient {
 use crate::OutgoingRequestAppserviceExt;
 
 impl HttpClient {
+    pub(crate) fn new(
+        inner: Arc<dyn HttpSend>,
+        homeserver: Arc<RwLock<Url>>,
+        session: Arc<RwLock<Option<Session>>>,
+        request_config: RequestConfig,
+    ) -> Self {
+        HttpClient { inner, homeserver, session, request_config }
+    }
+
     async fn send_request<Request: OutgoingRequest>(
         &self,
         request: Request,
@@ -124,7 +133,7 @@ impl HttpClient {
         let request = if !self.request_config.assert_identity {
             self.try_into_http_request(request, session, config).await?
         } else {
-            self.try_into_http_request_with_identy_assertion(request, session, config).await?
+            self.try_into_http_request_with_identity_assertion(request, session, config).await?
         };
 
         self.inner.send_request(request, config).await
@@ -161,14 +170,17 @@ impl HttpClient {
         };
 
         let http_request = request
-            .try_into_http_request::<BytesMut>(&self.homeserver.to_string(), access_token)?
+            .try_into_http_request::<BytesMut>(
+                &self.homeserver.read().await.to_string(),
+                access_token,
+            )?
             .map(|body| body.freeze());
 
         Ok(http_request)
     }
 
     #[cfg(feature = "appservice")]
-    async fn try_into_http_request_with_identy_assertion<Request: OutgoingRequest>(
+    async fn try_into_http_request_with_identity_assertion<Request: OutgoingRequest>(
         &self,
         request: Request,
         session: Arc<RwLock<Option<Session>>>,
@@ -189,7 +201,7 @@ impl HttpClient {
 
         let http_request = request
             .try_into_http_request_with_user_id::<BytesMut>(
-                &self.homeserver.to_string(),
+                &self.homeserver.read().await.to_string(),
                 access_token,
                 user_id,
             )?

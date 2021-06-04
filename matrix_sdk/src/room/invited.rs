@@ -5,7 +5,7 @@ use crate::{room::Common, BaseRoom, Client, Result, RoomType};
 /// A room in the invited state.
 ///
 /// This struct contains all methodes specific to a `Room` with type
-/// `RoomType::Invited`. Operations may fail once the underlaying `Room` changes
+/// `RoomType::Invited`. Operations may fail once the underlying `Room` changes
 /// `RoomType`.
 #[derive(Debug, Clone)]
 pub struct Invited {
@@ -13,13 +13,13 @@ pub struct Invited {
 }
 
 impl Invited {
-    /// Create a new `room::Invited` if the underlaying `Room` has type
+    /// Create a new `room::Invited` if the underlying `Room` has type
     /// `RoomType::Invited`.
     ///
     /// # Arguments
     /// * `client` - The client used to make requests.
     ///
-    /// * `room` - The underlaying room.
+    /// * `room` - The underlying room.
     pub fn new(client: Client, room: BaseRoom) -> Option<Self> {
         // TODO: Make this private
         if room.room_type() == RoomType::Invited {

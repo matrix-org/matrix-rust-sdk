@@ -34,9 +34,10 @@ impl EventHandler for AppserviceEventHandler {
         if let MembershipState::Invite = event.content.membership {
             let user_id = UserId::try_from(event.state_key.clone()).unwrap();
 
-            self.appservice.register(user_id.localpart()).await.unwrap();
+            let mut appservice = self.appservice.clone();
+            appservice.register(user_id.localpart()).await.unwrap();
 
-            let client = self.appservice.client(Some(user_id.localpart())).await.unwrap();
+            let client = appservice.virtual_user(user_id.localpart()).await.unwrap();
 
             client.join_room_by_id(room.room_id()).await.unwrap();
         }
@@ -53,7 +54,7 @@ pub async fn main() -> std::io::Result<()> {
     let registration =
         AppserviceRegistration::try_from_yaml_file("./tests/registration.yaml").unwrap();
 
-    let appservice = Appservice::new(homeserver_url, server_name, registration).await.unwrap();
+    let mut appservice = Appservice::new(homeserver_url, server_name, registration).await.unwrap();
 
     let event_handler = AppserviceEventHandler::new(appservice.clone());
 

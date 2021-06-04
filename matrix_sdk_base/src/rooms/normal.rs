@@ -24,6 +24,7 @@ use futures::{
 use matrix_sdk_common::{
     api::r0::sync::sync_events::RoomSummary as RumaSummary,
     events::{
+        receipt::Receipt,
         room::{
             create::CreateEventContent, encryption::EncryptionEventContent,
             guest_access::GuestAccess, history_visibility::HistoryVisibility, join_rules::JoinRule,
@@ -32,7 +33,8 @@ use matrix_sdk_common::{
         tag::Tags,
         AnyRoomAccountDataEvent, AnyStateEventContent, AnySyncStateEvent, EventType,
     },
-    identifiers::{MxcUri, RoomAliasId, RoomId, UserId},
+    identifiers::{EventId, MxcUri, RoomAliasId, RoomId, UserId},
+    receipt::ReceiptType,
 };
 use serde::{Deserialize, Serialize};
 use tracing::info;
@@ -449,6 +451,24 @@ impl Room {
             Ok(None)
         }
     }
+
+    /// Get the read receipt as a `EventId` and `Receipt` tuple for the given
+    /// `user_id` in this room.
+    pub async fn user_read_receipt(
+        &self,
+        user_id: &UserId,
+    ) -> StoreResult<Option<(EventId, Receipt)>> {
+        self.store.get_user_room_receipt_event(self.room_id(), ReceiptType::Read, user_id).await
+    }
+
+    /// Get the read receipts as a list of `UserId` and `Receipt` tuples for the
+    /// given `event_id` in this room.
+    pub async fn event_read_receipts(
+        &self,
+        event_id: &EventId,
+    ) -> StoreResult<Vec<(UserId, Receipt)>> {
+        self.store.get_event_room_receipt_events(self.room_id(), ReceiptType::Read, event_id).await
+    }
 }
 
 /// The underlying pure data structure for joined and left rooms.
@@ -466,7 +486,7 @@ pub struct RoomInfo {
     pub summary: RoomSummary,
     /// Flag remembering if the room members are synced.
     pub members_synced: bool,
-    /// The prev batch of this room we received durring the last sync.
+    /// The prev batch of this room we received during the last sync.
     pub last_prev_batch: Option<String>,
     /// Base room info which holds some basic event contents important for the
     /// room state.

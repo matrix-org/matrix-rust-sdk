@@ -52,8 +52,7 @@
 //! synapse configuration `require_auth_for_profile_requests`. Enabled by
 //! default.
 //! * `appservice`: Enables low-level appservice functionality. For an
-//!   high-level API there's the
-//! `matrix-sdk-appservice` crate
+//!   high-level API there's the `matrix-sdk-appservice` crate
 
 #![deny(
     missing_debug_implementations,
@@ -81,7 +80,7 @@ pub use bytes::{Bytes, BytesMut};
 #[cfg_attr(feature = "docs", doc(cfg(encryption)))]
 pub use matrix_sdk_base::crypto::{EncryptionInfo, LocalTrust};
 pub use matrix_sdk_base::{
-    Error as BaseError, Room as BaseRoom, RoomInfo, RoomMember as BaseRoomMember, RoomType,
+    media, Error as BaseError, Room as BaseRoom, RoomInfo, RoomMember as BaseRoomMember, RoomType,
     Session, StateChanges, StoreError,
 };
 pub use matrix_sdk_common::*;

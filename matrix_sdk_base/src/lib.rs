@@ -45,6 +45,7 @@ pub use crate::{
 
 mod client;
 mod error;
+pub mod media;
 mod rooms;
 mod session;
 mod store;

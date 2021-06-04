@@ -65,7 +65,7 @@ async fn push_transactions(
         return Ok(HttpResponse::Unauthorized().finish());
     }
 
-    appservice.client(None).await?.receive_transaction(request.incoming).await?;
+    appservice.get_cached_client(None)?.receive_transaction(request.incoming).await?;
 
     Ok(HttpResponse::Ok().json("{}"))
 }

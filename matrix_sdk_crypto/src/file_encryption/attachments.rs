@@ -23,7 +23,7 @@ use aes_ctr::{
 };
 use base64::DecodeError;
 use getrandom::getrandom;
-use matrix_sdk_common::events::room::{JsonWebKey, JsonWebKeyInit};
+use matrix_sdk_common::events::room::{EncryptedFile, JsonWebKey, JsonWebKeyInit};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use thiserror::Error;
@@ -250,6 +250,12 @@ pub struct EncryptionInfo {
     pub iv: String,
     /// The hashes that can be used to check the validity of the file.
     pub hashes: BTreeMap<String, String>,
+}
+
+impl From<EncryptedFile> for EncryptionInfo {
+    fn from(file: EncryptedFile) -> Self {
+        Self { version: file.v, web_key: file.key, iv: file.iv, hashes: file.hashes }
+    }
 }
 
 #[cfg(test)]

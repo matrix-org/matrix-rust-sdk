@@ -720,7 +720,7 @@ lazy_static! {
 lazy_static! {
     pub static ref INVITE_SYNC: JsonValue = json!({
         "device_one_time_keys_count": {},
-        "next_batch": "s526_47314_0_7_1_1_1_11444_1",
+        "next_batch": "s526_47314_0_7_1_1_1_11444_2",
         "device_lists": {
             "changed": [
                 "@example:example.org"

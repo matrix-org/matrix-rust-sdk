@@ -42,7 +42,8 @@ use matrix_sdk_common::{
     events::{
         room::member::{MemberEventContent, MembershipState},
         AnyGlobalAccountDataEvent, AnyRoomAccountDataEvent, AnyStrippedStateEvent,
-        AnySyncRoomEvent, AnySyncStateEvent, EventContent, EventType, StateEvent,
+        AnySyncEphemeralRoomEvent, AnySyncRoomEvent, AnySyncStateEvent, EventContent, EventType,
+        StateEvent,
     },
     identifiers::{RoomId, UserId},
     instant::Instant,
@@ -685,7 +686,7 @@ impl BaseClient {
                     for room_id in rooms {
                         if let Some(room) = changes.room_infos.get_mut(room_id) {
                             room.base_info.dm_target = Some(user_id.clone());
-                        } else if let Some(room) = self.store.get_bare_room(room_id) {
+                        } else if let Some(room) = self.store.get_room(room_id) {
                             let mut info = room.clone_info();
                             info.base_info.dm_target = Some(user_id.clone());
                             changes.add_room(info);
@@ -783,6 +784,15 @@ impl BaseClient {
                     &mut room_info,
                 )
                 .await?;
+
+            if let Some(event) =
+                new_info.ephemeral.events.iter().find_map(|e| match e.deserialize() {
+                    Ok(AnySyncEphemeralRoomEvent::Receipt(event)) => Some(event.content),
+                    _ => None,
+                })
+            {
+                changes.add_receipts(&room_id, event);
+            }
 
             if new_info.timeline.limited {
                 room_info.mark_members_missing();
@@ -931,7 +941,7 @@ impl BaseClient {
 
     async fn apply_changes(&self, changes: &StateChanges) {
         for (room_id, room_info) in &changes.room_infos {
-            if let Some(room) = self.store.get_bare_room(&room_id) {
+            if let Some(room) = self.store.get_room(&room_id) {
                 room.update_summary(room_info.clone())
             }
         }
@@ -958,7 +968,7 @@ impl BaseClient {
             .collect();
         let mut ambiguity_cache = AmbiguityCache::new(self.store.clone());
 
-        if let Some(room) = self.store.get_bare_room(room_id) {
+        if let Some(room) = self.store.get_room(room_id) {
             let mut room_info = room.clone_info();
             room_info.mark_members_synced();
 

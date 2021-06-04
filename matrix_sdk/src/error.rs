@@ -18,7 +18,7 @@ use std::io::Error as IoError;
 
 use http::StatusCode;
 #[cfg(feature = "encryption")]
-use matrix_sdk_base::crypto::store::CryptoStoreError;
+use matrix_sdk_base::crypto::{store::CryptoStoreError, DecryptorError};
 use matrix_sdk_base::{Error as MatrixError, StoreError};
 use matrix_sdk_common::{
     api::{
@@ -31,6 +31,7 @@ use matrix_sdk_common::{
 use reqwest::Error as ReqwestError;
 use serde_json::Error as JsonError;
 use thiserror::Error;
+use url::ParseError as UrlParseError;
 
 /// Result type of the rust-sdk.
 pub type Result<T> = std::result::Result<T, Error>;
@@ -121,13 +122,22 @@ pub enum Error {
     #[error(transparent)]
     CryptoStoreError(#[from] CryptoStoreError),
 
-    /// An error occured in the state store.
+    /// An error occurred during decryption.
+    #[cfg(feature = "encryption")]
+    #[error(transparent)]
+    DecryptorError(#[from] DecryptorError),
+
+    /// An error occurred in the state store.
     #[error(transparent)]
     StateStore(#[from] StoreError),
 
     /// An error encountered when trying to parse an identifier.
     #[error(transparent)]
     Identifier(#[from] IdentifierError),
+
+    /// An error encountered when trying to parse a url.
+    #[error(transparent)]
+    Url(#[from] UrlParseError),
 }
 
 impl Error {

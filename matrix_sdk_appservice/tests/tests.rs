@@ -59,7 +59,7 @@ fn member_json() -> serde_json::Value {
 
 #[async_test]
 async fn test_event_handler() -> Result<()> {
-    let appservice = appservice(None).await?;
+    let mut appservice = appservice(None).await?;
 
     struct Example {}
 
@@ -87,7 +87,7 @@ async fn test_event_handler() -> Result<()> {
         events,
     );
 
-    appservice.client(None).await?.receive_transaction(incoming).await?;
+    appservice.get_cached_client(None)?.receive_transaction(incoming).await?;
 
     Ok(())
 }
@@ -105,7 +105,7 @@ async fn test_transaction() -> Result<()> {
         events,
     );
 
-    appservice.client(None).await?.receive_transaction(incoming).await?;
+    appservice.get_cached_client(None)?.receive_transaction(incoming).await?;
 
     Ok(())
 }

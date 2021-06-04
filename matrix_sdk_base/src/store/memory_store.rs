@@ -18,22 +18,29 @@ use std::{
 };
 
 use dashmap::{DashMap, DashSet};
+use lru::LruCache;
 use matrix_sdk_common::{
     async_trait,
     events::{
         presence::PresenceEvent,
+        receipt::Receipt,
         room::member::{MemberEventContent, MembershipState},
         AnyGlobalAccountDataEvent, AnyRoomAccountDataEvent, AnyStrippedStateEvent,
         AnySyncStateEvent, EventType,
     },
-    identifiers::{RoomId, UserId},
+    identifiers::{EventId, MxcUri, RoomId, UserId},
     instant::Instant,
+    locks::Mutex,
+    receipt::ReceiptType,
     Raw,
 };
 use tracing::info;
 
 use super::{Result, RoomInfo, StateChanges, StateStore};
-use crate::deserialized_responses::{MemberEvent, StrippedMemberEvent};
+use crate::{
+    deserialized_responses::{MemberEvent, StrippedMemberEvent},
+    media::{MediaRequest, UniqueKey},
+};
 
 #[derive(Debug, Clone)]
 pub struct MemoryStore {
@@ -55,6 +62,12 @@ pub struct MemoryStore {
         Arc<DashMap<RoomId, DashMap<String, DashMap<String, Raw<AnyStrippedStateEvent>>>>>,
     stripped_members: Arc<DashMap<RoomId, DashMap<UserId, StrippedMemberEvent>>>,
     presence: Arc<DashMap<UserId, Raw<PresenceEvent>>>,
+    #[allow(clippy::type_complexity)]
+    room_user_receipts: Arc<DashMap<RoomId, DashMap<String, DashMap<UserId, (EventId, Receipt)>>>>,
+    #[allow(clippy::type_complexity)]
+    room_event_receipts:
+        Arc<DashMap<RoomId, DashMap<String, DashMap<EventId, DashMap<UserId, Receipt>>>>>,
+    media: Arc<Mutex<LruCache<String, Vec<u8>>>>,
 }
 
 impl MemoryStore {
@@ -76,6 +89,9 @@ impl MemoryStore {
             stripped_room_state: DashMap::new().into(),
             stripped_members: DashMap::new().into(),
             presence: DashMap::new().into(),
+            room_user_receipts: DashMap::new().into(),
+            room_event_receipts: DashMap::new().into(),
+            media: Arc::new(Mutex::new(LruCache::new(100))),
         }
     }
 
@@ -220,6 +236,43 @@ impl MemoryStore {
             }
         }
 
+        for (room, content) in &changes.receipts {
+            for (event_id, receipts) in &content.0 {
+                for (receipt_type, receipts) in receipts {
+                    for (user_id, receipt) in receipts {
+                        // Add the receipt to the room user receipts
+                        if let Some((old_event, _)) = self
+                            .room_user_receipts
+                            .entry(room.clone())
+                            .or_insert_with(DashMap::new)
+                            .entry(receipt_type.to_string())
+                            .or_insert_with(DashMap::new)
+                            .insert(user_id.clone(), (event_id.clone(), receipt.clone()))
+                        {
+                            // Remove the old receipt from the room event receipts
+                            if let Some(receipt_map) = self.room_event_receipts.get(room) {
+                                if let Some(event_map) = receipt_map.get(receipt_type.as_ref()) {
+                                    if let Some(user_map) = event_map.get_mut(&old_event) {
+                                        user_map.remove(user_id);
+                                    }
+                                }
+                            }
+                        }
+
+                        // Add the receipt to the room event receipts
+                        self.room_event_receipts
+                            .entry(room.clone())
+                            .or_insert_with(DashMap::new)
+                            .entry(receipt_type.to_string())
+                            .or_insert_with(DashMap::new)
+                            .entry(event_id.clone())
+                            .or_insert_with(DashMap::new)
+                            .insert(user_id.clone(), receipt.clone());
+                    }
+                }
+            }
+        }
+
         info!("Saved changes in {:?}", now.elapsed());
 
         Ok(())
@@ -310,6 +363,68 @@ impl MemoryStore {
             .room_account_data
             .get(room_id)
             .and_then(|m| m.get(event_type.as_ref()).map(|e| e.clone())))
+    }
+
+    async fn get_user_room_receipt_event(
+        &self,
+        room_id: &RoomId,
+        receipt_type: ReceiptType,
+        user_id: &UserId,
+    ) -> Result<Option<(EventId, Receipt)>> {
+        Ok(self.room_user_receipts.get(room_id).and_then(|m| {
+            m.get(receipt_type.as_ref()).and_then(|m| m.get(user_id).map(|r| r.clone()))
+        }))
+    }
+
+    async fn get_event_room_receipt_events(
+        &self,
+        room_id: &RoomId,
+        receipt_type: ReceiptType,
+        event_id: &EventId,
+    ) -> Result<Vec<(UserId, Receipt)>> {
+        Ok(self
+            .room_event_receipts
+            .get(room_id)
+            .and_then(|m| {
+                m.get(receipt_type.as_ref()).and_then(|m| {
+                    m.get(event_id)
+                        .map(|m| m.iter().map(|r| (r.key().clone(), r.value().clone())).collect())
+                })
+            })
+            .unwrap_or_else(Vec::new))
+    }
+
+    async fn add_media_content(&self, request: &MediaRequest, data: Vec<u8>) -> Result<()> {
+        self.media.lock().await.put(request.unique_key(), data);
+
+        Ok(())
+    }
+
+    async fn get_media_content(&self, request: &MediaRequest) -> Result<Option<Vec<u8>>> {
+        Ok(self.media.lock().await.get(&request.unique_key()).cloned())
+    }
+
+    async fn remove_media_content(&self, request: &MediaRequest) -> Result<()> {
+        self.media.lock().await.pop(&request.unique_key());
+
+        Ok(())
+    }
+
+    async fn remove_media_content_for_uri(&self, uri: &MxcUri) -> Result<()> {
+        let mut media_store = self.media.lock().await;
+
+        let keys: Vec<String> = media_store
+            .iter()
+            .filter_map(
+                |(key, _)| if key.starts_with(&uri.to_string()) { Some(key.clone()) } else { None },
+            )
+            .collect();
+
+        for key in keys {
+            media_store.pop(&key);
+        }
+
+        Ok(())
     }
 }
 
@@ -407,5 +522,192 @@ impl StateStore for MemoryStore {
         event_type: EventType,
     ) -> Result<Option<Raw<AnyRoomAccountDataEvent>>> {
         self.get_room_account_data_event(room_id, event_type).await
+    }
+
+    async fn get_user_room_receipt_event(
+        &self,
+        room_id: &RoomId,
+        receipt_type: ReceiptType,
+        user_id: &UserId,
+    ) -> Result<Option<(EventId, Receipt)>> {
+        self.get_user_room_receipt_event(room_id, receipt_type, user_id).await
+    }
+
+    async fn get_event_room_receipt_events(
+        &self,
+        room_id: &RoomId,
+        receipt_type: ReceiptType,
+        event_id: &EventId,
+    ) -> Result<Vec<(UserId, Receipt)>> {
+        self.get_event_room_receipt_events(room_id, receipt_type, event_id).await
+    }
+
+    async fn add_media_content(&self, request: &MediaRequest, data: Vec<u8>) -> Result<()> {
+        self.add_media_content(request, data).await
+    }
+
+    async fn get_media_content(&self, request: &MediaRequest) -> Result<Option<Vec<u8>>> {
+        self.get_media_content(request).await
+    }
+
+    async fn remove_media_content(&self, request: &MediaRequest) -> Result<()> {
+        self.remove_media_content(request).await
+    }
+
+    async fn remove_media_content_for_uri(&self, uri: &MxcUri) -> Result<()> {
+        self.remove_media_content_for_uri(uri).await
+    }
+}
+
+#[cfg(test)]
+#[cfg(not(feature = "sled_state_store"))]
+mod test {
+    use matrix_sdk_common::{
+        api::r0::media::get_content_thumbnail::Method,
+        identifiers::{event_id, mxc_uri, room_id, user_id, UserId},
+        receipt::ReceiptType,
+        uint,
+    };
+    use matrix_sdk_test::async_test;
+    use serde_json::json;
+
+    use super::{MemoryStore, StateChanges};
+    use crate::media::{MediaFormat, MediaRequest, MediaThumbnailSize, MediaType};
+
+    fn user_id() -> UserId {
+        user_id!("@example:localhost")
+    }
+
+    #[async_test]
+    async fn test_receipts_saving() {
+        let store = MemoryStore::new();
+
+        let room_id = room_id!("!test:localhost");
+
+        let first_event_id = event_id!("$1435641916114394fHBLK:matrix.org");
+        let second_event_id = event_id!("$fHBLK1435641916114394:matrix.org");
+
+        let first_receipt_event = serde_json::from_value(json!({
+            first_event_id.clone(): {
+                "m.read": {
+                    user_id(): {
+                        "ts": 1436451550453u64
+                    }
+                }
+            }
+        }))
+        .unwrap();
+
+        let second_receipt_event = serde_json::from_value(json!({
+            second_event_id.clone(): {
+                "m.read": {
+                    user_id(): {
+                        "ts": 1436451551453u64
+                    }
+                }
+            }
+        }))
+        .unwrap();
+
+        assert!(store
+            .get_user_room_receipt_event(&room_id, ReceiptType::Read, &user_id())
+            .await
+            .unwrap()
+            .is_none());
+        assert!(store
+            .get_event_room_receipt_events(&room_id, ReceiptType::Read, &first_event_id)
+            .await
+            .unwrap()
+            .is_empty());
+        assert!(store
+            .get_event_room_receipt_events(&room_id, ReceiptType::Read, &second_event_id)
+            .await
+            .unwrap()
+            .is_empty());
+
+        let mut changes = StateChanges::default();
+        changes.add_receipts(&room_id, first_receipt_event);
+
+        store.save_changes(&changes).await.unwrap();
+        assert!(store
+            .get_user_room_receipt_event(&room_id, ReceiptType::Read, &user_id())
+            .await
+            .unwrap()
+            .is_some(),);
+        assert_eq!(
+            store
+                .get_event_room_receipt_events(&room_id, ReceiptType::Read, &first_event_id)
+                .await
+                .unwrap()
+                .len(),
+            1
+        );
+        assert!(store
+            .get_event_room_receipt_events(&room_id, ReceiptType::Read, &second_event_id)
+            .await
+            .unwrap()
+            .is_empty());
+
+        let mut changes = StateChanges::default();
+        changes.add_receipts(&room_id, second_receipt_event);
+
+        store.save_changes(&changes).await.unwrap();
+        assert!(store
+            .get_user_room_receipt_event(&room_id, ReceiptType::Read, &user_id())
+            .await
+            .unwrap()
+            .is_some());
+        assert!(store
+            .get_event_room_receipt_events(&room_id, ReceiptType::Read, &first_event_id)
+            .await
+            .unwrap()
+            .is_empty());
+        assert_eq!(
+            store
+                .get_event_room_receipt_events(&room_id, ReceiptType::Read, &second_event_id)
+                .await
+                .unwrap()
+                .len(),
+            1
+        );
+    }
+
+    #[async_test]
+    async fn test_media_content() {
+        let store = MemoryStore::new();
+
+        let uri = mxc_uri!("mxc://localhost/media");
+        let content: Vec<u8> = "somebinarydata".into();
+
+        let request_file =
+            MediaRequest { media_type: MediaType::Uri(uri.clone()), format: MediaFormat::File };
+
+        let request_thumbnail = MediaRequest {
+            media_type: MediaType::Uri(uri.clone()),
+            format: MediaFormat::Thumbnail(MediaThumbnailSize {
+                method: Method::Crop,
+                width: uint!(100),
+                height: uint!(100),
+            }),
+        };
+
+        assert!(store.get_media_content(&request_file).await.unwrap().is_none());
+        assert!(store.get_media_content(&request_thumbnail).await.unwrap().is_none());
+
+        store.add_media_content(&request_file, content.clone()).await.unwrap();
+        assert!(store.get_media_content(&request_file).await.unwrap().is_some());
+
+        store.remove_media_content(&request_file).await.unwrap();
+        assert!(store.get_media_content(&request_file).await.unwrap().is_none());
+
+        store.add_media_content(&request_file, content.clone()).await.unwrap();
+        assert!(store.get_media_content(&request_file).await.unwrap().is_some());
+
+        store.add_media_content(&request_thumbnail, content.clone()).await.unwrap();
+        assert!(store.get_media_content(&request_thumbnail).await.unwrap().is_some());
+
+        store.remove_media_content_for_uri(&uri).await.unwrap();
+        assert!(store.get_media_content(&request_file).await.unwrap().is_none());
+        assert!(store.get_media_content(&request_thumbnail).await.unwrap().is_none());
     }
 }

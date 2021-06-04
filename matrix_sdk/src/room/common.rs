@@ -34,7 +34,7 @@ impl Common {
     /// # Arguments
     /// * `client` - The client used to make requests.
     ///
-    /// * `room` - The underlaying room.
+    /// * `room` - The underlying room.
     pub fn new(client: Client, room: BaseRoom) -> Self {
         // TODO: Make this private
         Self { inner: room, client }
