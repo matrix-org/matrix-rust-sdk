@@ -26,7 +26,7 @@ use super::{
     event_enums::{AnyEvent, AnyVerificationContent},
     requests::VerificationRequest,
     sas::{content_to_request, OutgoingContent, Sas},
-    FlowId, VerificationResult,
+    FlowId, Verification, VerificationResult,
 };
 use crate::{
     olm::PrivateCrossSigningIdentity,
@@ -37,74 +37,50 @@ use crate::{
 
 #[derive(Clone, Debug)]
 pub struct VerificationCache {
-    sas_verification: Arc<DashMap<String, Sas>>,
-    room_sas_verifications: Arc<DashMap<EventId, Sas>>,
+    verification: Arc<DashMap<String, Verification>>,
     outgoing_requests: Arc<DashMap<Uuid, OutgoingRequest>>,
 }
 
 impl VerificationCache {
     pub fn new() -> Self {
-        Self {
-            sas_verification: DashMap::new().into(),
-            room_sas_verifications: DashMap::new().into(),
-            outgoing_requests: DashMap::new().into(),
-        }
+        Self { verification: DashMap::new().into(), outgoing_requests: DashMap::new().into() }
     }
 
     #[cfg(test)]
     fn is_empty(&self) -> bool {
-        self.room_sas_verifications.is_empty() && self.sas_verification.is_empty()
+        self.verification.is_empty()
     }
 
     pub fn insert_sas(&self, sas: Sas) {
-        match sas.flow_id() {
-            super::FlowId::ToDevice(t) => self.sas_verification.insert(t.to_owned(), sas),
-            super::FlowId::InRoom(_, e) => self.room_sas_verifications.insert(e.to_owned(), sas),
-        };
+        self.verification.insert(sas.flow_id().as_str().to_string(), sas.into());
     }
 
     pub fn garbage_collect(&self) -> Vec<OutgoingRequest> {
-        self.sas_verification.retain(|_, s| !(s.is_done() || s.is_cancelled()));
-        self.room_sas_verifications.retain(|_, s| !(s.is_done() || s.is_cancelled()));
+        self.verification.retain(|_, s| !(s.is_done() || s.is_cancelled()));
 
-        let mut requests: Vec<OutgoingRequest> = self
-            .sas_verification
+        self.verification
             .iter()
             .filter_map(|s| {
-                s.cancel_if_timed_out().map(|r| OutgoingRequest {
-                    request_id: r.request_id(),
-                    request: Arc::new(r.into()),
-                })
+                if let Verification::SasV1(s) = s.value() {
+                    s.cancel_if_timed_out().map(|r| OutgoingRequest {
+                        request_id: r.request_id(),
+                        request: Arc::new(r.into()),
+                    })
+                } else {
+                    None
+                }
             })
-            .collect();
-        let room_requests: Vec<OutgoingRequest> = self
-            .room_sas_verifications
-            .iter()
-            .filter_map(|s| {
-                s.cancel_if_timed_out().map(|r| OutgoingRequest {
-                    request_id: r.request_id(),
-                    request: Arc::new(r.into()),
-                })
-            })
-            .collect();
-
-        requests.extend(room_requests);
-
-        requests
+            .collect()
     }
 
     pub fn get_sas(&self, transaction_id: &str) -> Option<Sas> {
-        let sas = if let Ok(e) = EventId::try_from(transaction_id) {
-            self.room_sas_verifications.get(&e).map(|s| s.clone())
-        } else {
-            None
-        };
-
-        if sas.is_some() {
-            sas
-        } else {
-            self.sas_verification.get(transaction_id).map(|s| s.clone())
-        }
+        self.verification.get(transaction_id).and_then(|v| {
+            if let Verification::SasV1(sas) = v.value() {
+                Some(sas.clone())
+            } else {
+                None
+            }
+        })
     }
 
     pub fn add_request(&self, request: OutgoingRequest) {
@@ -195,9 +171,7 @@ impl VerificationMachine {
                 let request =
                     content_to_request(device.user_id(), device.device_id().to_owned(), c);
 
-                self.verifications
-                    .sas_verification
-                    .insert(sas.flow_id().as_str().to_owned(), sas.clone());
+                self.verifications.insert_sas(sas.clone());
 
                 request.into()
             }

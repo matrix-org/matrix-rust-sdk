@@ -44,6 +44,31 @@ use crate::{
     CryptoStoreError, LocalTrust, ReadOnlyDevice, UserIdentities,
 };
 
+#[derive(Clone, Debug)]
+pub enum Verification {
+    SasV1(Sas),
+}
+
+impl Verification {
+    pub fn is_done(&self) -> bool {
+        match self {
+            Verification::SasV1(s) => s.is_done(),
+        }
+    }
+
+    pub fn is_cancelled(&self) -> bool {
+        match self {
+            Verification::SasV1(s) => s.is_cancelled(),
+        }
+    }
+}
+
+impl From<Sas> for Verification {
+    fn from(sas: Sas) -> Self {
+        Self::SasV1(sas)
+    }
+}
+
 /// The verification state indicating that the verification finished
 /// successfully.
 ///
