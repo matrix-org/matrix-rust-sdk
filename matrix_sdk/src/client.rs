@@ -482,7 +482,7 @@ impl RequestConfig {
     /// Default is only sending authorization if it is required
     #[cfg(any(feature = "require_auth_for_profile_requests", feature = "appservice"))]
     #[cfg_attr(feature = "docs", doc(cfg(any(require_auth_for_profile_requests, appservice))))]
-    pub fn force_auth(mut self) -> Self {
+    pub(crate) fn force_auth(mut self) -> Self {
         self.force_auth = true;
         self
     }
@@ -1367,7 +1367,7 @@ impl Client {
         let config = None;
 
         #[cfg(feature = "appservice")]
-        let config = Some(RequestConfig::new().force_auth());
+        let config = Some(self.http_client.request_config.force_auth());
 
         let request = registration.into();
         self.send(request, config).await

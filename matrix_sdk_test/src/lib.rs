@@ -12,6 +12,8 @@ use ruma::{
 };
 use serde_json::Value as JsonValue;
 
+#[cfg(feature = "appservice")]
+pub mod appservice;
 pub mod test_json;
 
 /// Embedded event files
