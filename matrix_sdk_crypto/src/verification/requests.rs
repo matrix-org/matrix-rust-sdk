@@ -248,14 +248,14 @@ impl VerificationRequest {
     pub(crate) fn receive_done(&self, sender: &UserId, content: &DoneContent<'_>) {
         if sender == self.other_user() {
             let mut inner = self.inner.lock().unwrap().clone();
-            inner.into_done(content);
+            inner.receive_done(content);
         }
     }
 
     pub(crate) fn receive_cancel(&self, sender: &UserId, content: &CancelContent<'_>) {
         if sender == self.other_user() {
             let mut inner = self.inner.lock().unwrap().clone();
-            inner.into_canceled(content.cancel_code());
+            inner.cancel(content.cancel_code());
         }
     }
 
@@ -336,7 +336,7 @@ impl InnerRequest {
         }
     }
 
-    fn into_done(&mut self, content: &DoneContent) {
+    fn receive_done(&mut self, content: &DoneContent) {
         *self = InnerRequest::Done(match self {
             InnerRequest::Created(s) => s.clone().into_done(content),
             InnerRequest::Requested(s) => s.clone().into_done(content),
@@ -347,7 +347,7 @@ impl InnerRequest {
         })
     }
 
-    fn into_canceled(&mut self, cancel_code: &CancelCode) {
+    fn cancel(&mut self, cancel_code: &CancelCode) {
         *self = InnerRequest::Cancelled(match self {
             InnerRequest::Created(s) => s.clone().into_canceled(cancel_code),
             InnerRequest::Requested(s) => s.clone().into_canceled(cancel_code),

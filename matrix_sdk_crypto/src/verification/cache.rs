@@ -35,6 +35,7 @@ impl VerificationCache {
     }
 
     #[cfg(test)]
+    #[allow(dead_code)]
     pub fn is_empty(&self) -> bool {
         self.verification.is_empty()
     }

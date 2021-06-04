@@ -371,7 +371,7 @@ mod test {
         );
 
         machine
-            .receive_any_event(&wrap_any_to_device_content(bob_sas.user_id(), start_content.into()))
+            .receive_any_event(&wrap_any_to_device_content(bob_sas.user_id(), start_content))
             .await
             .unwrap();
 
@@ -405,8 +405,7 @@ mod test {
         alice_machine.receive_any_event(&event).await.unwrap();
         assert!(!alice_machine.verifications.outgoing_requests().is_empty());
 
-        let request =
-            alice_machine.verifications.outgoing_requests().iter().next().unwrap().clone();
+        let request = alice_machine.verifications.outgoing_requests().get(0).cloned().unwrap();
         let txn_id = *request.request_id();
         let content = OutgoingContent::try_from(request).unwrap();
         let content = KeyContent::try_from(&content).unwrap().into();
