@@ -208,6 +208,8 @@ impl VerificationMachine {
     }
 
     pub fn garbage_collect(&self) {
+        self.requests.retain(|_, r| !(r.is_done() || r.is_cancelled()));
+
         for request in self.verifications.garbage_collect() {
             self.verifications.add_request(request)
         }
@@ -286,7 +288,11 @@ impl VerificationMachine {
 
                     self.requests.insert(request.flow_id().as_str().to_owned(), request);
                 }
-                AnyVerificationContent::Cancel(_) => {
+                AnyVerificationContent::Cancel(c) => {
+                    if let Some(verification) = self.get_request(flow_id.as_str()) {
+                        verification.receive_cancel(event.sender(), c);
+                    }
+
                     if let Some(sas) = self.verifications.get_sas(flow_id.as_str()) {
                         // This won't produce an outgoing content
                         let _ = sas.receive_any_event(event.sender(), &content);
@@ -368,7 +374,11 @@ impl VerificationMachine {
                         }
                     }
                 }
-                AnyVerificationContent::Done(_) => {
+                AnyVerificationContent::Done(c) => {
+                    if let Some(verification) = self.get_request(flow_id.as_str()) {
+                        verification.receive_done(event.sender(), c);
+                    }
+
                     if let Some(s) = self.verifications.get_sas(flow_id.as_str()) {
                         let content = s.receive_any_event(event.sender(), &content);
 

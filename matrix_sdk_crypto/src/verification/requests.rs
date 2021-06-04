@@ -20,6 +20,7 @@ use matrix_sdk_common::{
     api::r0::to_device::DeviceIdOrAllDevices,
     events::{
         key::verification::{
+            cancel::CancelCode,
             ready::{ReadyEventContent, ReadyToDeviceEventContent},
             request::RequestToDeviceEventContent,
             start::StartMethod,
@@ -35,9 +36,11 @@ use matrix_sdk_common::{
 use tracing::{info, warn};
 
 use super::{
-    event_enums::{OutgoingContent, ReadyContent, RequestContent, StartContent},
+    event_enums::{
+        CancelContent, DoneContent, OutgoingContent, ReadyContent, RequestContent, StartContent,
+    },
     sas::content_to_request,
-    FlowId, VerificationCache,
+    Cancelled, FlowId, VerificationCache,
 };
 use crate::{
     olm::{PrivateCrossSigningIdentity, ReadOnlyAccount},
@@ -159,6 +162,17 @@ impl VerificationRequest {
         &self.flow_id
     }
 
+    /// Has the verification flow that was started with this request finished.
+    pub fn is_done(&self) -> bool {
+        matches!(&*self.inner.lock().unwrap(), InnerRequest::Done(_))
+    }
+
+    /// Has the verification flow that was started with this request been
+    /// cancelled.
+    pub fn is_cancelled(&self) -> bool {
+        matches!(&*self.inner.lock().unwrap(), InnerRequest::Cancelled(_))
+    }
+
     pub(crate) fn from_request(
         cache: VerificationCache,
         account: ReadOnlyAccount,
@@ -230,6 +244,20 @@ impl VerificationRequest {
         Ok(())
     }
 
+    pub(crate) fn receive_done(&self, sender: &UserId, content: &DoneContent<'_>) {
+        if sender == self.other_user() {
+            let mut inner = self.inner.lock().unwrap().clone();
+            inner.into_done(content);
+        }
+    }
+
+    pub(crate) fn receive_cancel(&self, sender: &UserId, content: &CancelContent<'_>) {
+        if sender == self.other_user() {
+            let mut inner = self.inner.lock().unwrap().clone();
+            inner.into_canceled(content.cancel_code());
+        }
+    }
+
     /// Is the verification request ready to start a verification flow.
     pub fn is_ready(&self) -> bool {
         matches!(&*self.inner.lock().unwrap(), InnerRequest::Ready(_))
@@ -267,6 +295,8 @@ enum InnerRequest {
     Requested(RequestState<Requested>),
     Ready(RequestState<Ready>),
     Passive(RequestState<Passive>),
+    Done(RequestState<Done>),
+    Cancelled(RequestState<Cancelled>),
 }
 
 impl InnerRequest {
@@ -278,6 +308,8 @@ impl InnerRequest {
                 DeviceIdOrAllDevices::DeviceId(r.state.other_device_id.to_owned())
             }
             InnerRequest::Passive(_) => DeviceIdOrAllDevices::AllDevices,
+            InnerRequest::Done(_) => DeviceIdOrAllDevices::AllDevices,
+            InnerRequest::Cancelled(_) => DeviceIdOrAllDevices::AllDevices,
         }
     }
 
@@ -287,6 +319,8 @@ impl InnerRequest {
             InnerRequest::Requested(s) => &s.other_user_id,
             InnerRequest::Ready(s) => &s.other_user_id,
             InnerRequest::Passive(s) => &s.other_user_id,
+            InnerRequest::Done(s) => &s.other_user_id,
+            InnerRequest::Cancelled(s) => &s.other_user_id,
         }
     }
 
@@ -299,6 +333,28 @@ impl InnerRequest {
         } else {
             None
         }
+    }
+
+    fn into_done(&mut self, content: &DoneContent) {
+        *self = InnerRequest::Done(match self {
+            InnerRequest::Created(s) => s.clone().into_done(content),
+            InnerRequest::Requested(s) => s.clone().into_done(content),
+            InnerRequest::Ready(s) => s.clone().into_done(content),
+            InnerRequest::Passive(s) => s.clone().into_done(content),
+            InnerRequest::Done(s) => s.clone().into_done(content),
+            InnerRequest::Cancelled(_) => return,
+        })
+    }
+
+    fn into_canceled(&mut self, cancel_code: &CancelCode) {
+        *self = InnerRequest::Cancelled(match self {
+            InnerRequest::Created(s) => s.clone().into_canceled(cancel_code),
+            InnerRequest::Requested(s) => s.clone().into_canceled(cancel_code),
+            InnerRequest::Ready(s) => s.clone().into_canceled(cancel_code),
+            InnerRequest::Passive(s) => s.clone().into_canceled(cancel_code),
+            InnerRequest::Done(_) => return,
+            InnerRequest::Cancelled(_) => return,
+        })
     }
 
     fn to_started_sas(
@@ -328,6 +384,32 @@ struct RequestState<S: Clone> {
 
     /// The verification request state we are in.
     state: S,
+}
+
+impl<S: Clone> RequestState<S> {
+    fn into_done(self, _: &DoneContent) -> RequestState<Done> {
+        RequestState::<Done> {
+            account: self.account,
+            private_cross_signing_identity: self.private_cross_signing_identity,
+            verification_cache: self.verification_cache,
+            store: self.store,
+            flow_id: self.flow_id,
+            other_user_id: self.other_user_id,
+            state: Done {},
+        }
+    }
+
+    fn into_canceled(self, cancel_code: &CancelCode) -> RequestState<Cancelled> {
+        RequestState::<Cancelled> {
+            account: self.account,
+            private_cross_signing_identity: self.private_cross_signing_identity,
+            verification_cache: self.verification_cache,
+            store: self.store,
+            flow_id: self.flow_id,
+            other_user_id: self.other_user_id,
+            state: Cancelled::new(cancel_code.clone()),
+        }
+    }
 }
 
 impl RequestState<Created> {
@@ -586,6 +668,9 @@ struct Passive {
     /// unique id identifying this verification flow.
     pub flow_id: FlowId,
 }
+
+#[derive(Clone, Debug)]
+struct Done {}
 
 #[cfg(test)]
 mod test {
