@@ -12,7 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-mod event_enums;
 mod helpers;
 mod inner_sas;
 mod sas_state;
@@ -21,7 +20,6 @@ use std::sync::{Arc, Mutex};
 #[cfg(test)]
 use std::time::Instant;
 
-pub use event_enums::OutgoingContent;
 pub use helpers::content_to_request;
 use inner_sas::InnerSas;
 use matrix_sdk_common::{
@@ -40,7 +38,7 @@ use matrix_sdk_common::{
 use tracing::trace;
 
 use super::{
-    event_enums::{AnyVerificationContent, OwnedAcceptContent, StartContent},
+    event_enums::{AnyVerificationContent, OutgoingContent, OwnedAcceptContent, StartContent},
     FlowId, IdentitiesBeingVerified, VerificationResult,
 };
 use crate::{
@@ -494,9 +492,8 @@ mod test {
     use crate::{
         olm::PrivateCrossSigningIdentity,
         store::{CryptoStore, MemoryStore},
-        verification::{
-            event_enums::{AcceptContent, KeyContent, MacContent, StartContent},
-            sas::OutgoingContent,
+        verification::event_enums::{
+            AcceptContent, KeyContent, MacContent, OutgoingContent, StartContent,
         },
         ReadOnlyAccount, ReadOnlyDevice,
     };

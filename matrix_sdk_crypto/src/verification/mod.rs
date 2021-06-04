@@ -19,6 +19,7 @@ mod sas;
 
 use std::sync::Arc;
 
+use event_enums::OutgoingContent;
 pub use machine::{VerificationCache, VerificationMachine};
 use matrix_sdk_common::{
     api::r0::keys::upload_signatures::Request as SignatureUploadRequest,
@@ -36,7 +37,6 @@ pub use requests::VerificationRequest;
 pub use sas::{AcceptSettings, Sas};
 use tracing::{error, info, trace, warn};
 
-use self::sas::OutgoingContent;
 use crate::{
     error::SignatureError,
     olm::PrivateCrossSigningIdentity,
@@ -450,7 +450,7 @@ pub(crate) mod test {
     };
     use serde_json::Value;
 
-    use super::sas::OutgoingContent;
+    use super::event_enums::OutgoingContent;
     use crate::{
         requests::{OutgoingRequest, OutgoingRequests},
         OutgoingVerificationRequest,

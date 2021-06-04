@@ -16,16 +16,16 @@ use std::{convert::TryFrom, sync::Arc};
 
 use dashmap::DashMap;
 use matrix_sdk_common::{
-    identifiers::{DeviceId, EventId, UserId},
+    identifiers::{DeviceId, UserId},
     locks::Mutex,
     uuid::Uuid,
 };
 use tracing::{info, warn};
 
 use super::{
-    event_enums::{AnyEvent, AnyVerificationContent},
+    event_enums::{AnyEvent, AnyVerificationContent, OutgoingContent},
     requests::VerificationRequest,
-    sas::{content_to_request, OutgoingContent, Sas},
+    sas::{content_to_request, Sas},
     FlowId, Verification, VerificationResult,
 };
 use crate::{
@@ -398,8 +398,7 @@ mod test {
         olm::PrivateCrossSigningIdentity,
         store::{CryptoStore, MemoryStore},
         verification::{
-            event_enums::{AcceptContent, KeyContent, MacContent},
-            sas::OutgoingContent,
+            event_enums::{AcceptContent, KeyContent, MacContent, OutgoingContent},
             test::wrap_any_to_device_content,
         },
         ReadOnlyAccount, ReadOnlyDevice,

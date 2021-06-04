@@ -22,7 +22,6 @@ use matrix_sdk_common::{
 };
 
 use super::{
-    event_enums::OutgoingContent,
     sas_state::{
         Accepted, Confirmed, Created, KeyReceived, MacReceived, SasState, Started, WaitingForDone,
     },
@@ -31,7 +30,7 @@ use super::{
 use crate::{
     identities::{ReadOnlyDevice, UserIdentities},
     verification::{
-        event_enums::{AnyVerificationContent, OwnedAcceptContent, StartContent},
+        event_enums::{AnyVerificationContent, OutgoingContent, OwnedAcceptContent, StartContent},
         Cancelled, Done,
     },
     ReadOnlyAccount,
