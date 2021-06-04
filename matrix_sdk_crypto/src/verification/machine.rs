@@ -287,7 +287,10 @@ impl VerificationMachine {
                     self.requests.insert(request.flow_id().as_str().to_owned(), request);
                 }
                 AnyVerificationContent::Cancel(_) => {
-                    todo!()
+                    if let Some(sas) = self.verifications.get_sas(flow_id.as_str()) {
+                        // This won't produce an outgoing content
+                        let _ = sas.receive_any_event(event.sender(), &content);
+                    }
                 }
                 AnyVerificationContent::Ready(c) => {
                     if let Some(request) = self.requests.get(flow_id.as_str()) {
