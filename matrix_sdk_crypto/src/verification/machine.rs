@@ -61,6 +61,7 @@ impl VerificationCache {
         self.verification
             .iter()
             .filter_map(|s| {
+                #[allow(irrefutable_let_patterns)]
                 if let Verification::SasV1(s) = s.value() {
                     s.cancel_if_timed_out().map(|r| OutgoingRequest {
                         request_id: r.request_id(),
@@ -75,6 +76,7 @@ impl VerificationCache {
 
     pub fn get_sas(&self, transaction_id: &str) -> Option<Sas> {
         self.verification.get(transaction_id).and_then(|v| {
+            #[allow(irrefutable_let_patterns)]
             if let Verification::SasV1(sas) = v.value() {
                 Some(sas.clone())
             } else {
