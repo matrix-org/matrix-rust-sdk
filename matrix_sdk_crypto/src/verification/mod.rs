@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+mod cache;
 mod event_enums;
 mod machine;
 mod requests;
@@ -20,7 +21,7 @@ mod sas;
 use std::sync::Arc;
 
 use event_enums::OutgoingContent;
-pub use machine::{VerificationCache, VerificationMachine};
+pub use machine::VerificationMachine;
 use matrix_sdk_common::{
     api::r0::keys::upload_signatures::Request as SignatureUploadRequest,
     events::{

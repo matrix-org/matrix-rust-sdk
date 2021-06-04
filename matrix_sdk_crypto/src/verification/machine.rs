@@ -23,10 +23,11 @@ use matrix_sdk_common::{
 use tracing::{info, warn};
 
 use super::{
+    cache::VerificationCache,
     event_enums::{AnyEvent, AnyVerificationContent, OutgoingContent},
     requests::VerificationRequest,
     sas::{content_to_request, Sas},
-    FlowId, Verification, VerificationResult,
+    FlowId, VerificationResult,
 };
 use crate::{
     olm::PrivateCrossSigningIdentity,
@@ -34,96 +35,6 @@ use crate::{
     store::{CryptoStore, CryptoStoreError},
     OutgoingVerificationRequest, ReadOnlyAccount, ReadOnlyDevice, RoomMessageRequest,
 };
-
-#[derive(Clone, Debug)]
-pub struct VerificationCache {
-    verification: Arc<DashMap<String, Verification>>,
-    outgoing_requests: Arc<DashMap<Uuid, OutgoingRequest>>,
-}
-
-impl VerificationCache {
-    pub fn new() -> Self {
-        Self { verification: DashMap::new().into(), outgoing_requests: DashMap::new().into() }
-    }
-
-    #[cfg(test)]
-    fn is_empty(&self) -> bool {
-        self.verification.is_empty()
-    }
-
-    pub fn insert_sas(&self, sas: Sas) {
-        self.verification.insert(sas.flow_id().as_str().to_string(), sas.into());
-    }
-
-    pub fn garbage_collect(&self) -> Vec<OutgoingRequest> {
-        self.verification.retain(|_, s| !(s.is_done() || s.is_cancelled()));
-
-        self.verification
-            .iter()
-            .filter_map(|s| {
-                #[allow(irrefutable_let_patterns)]
-                if let Verification::SasV1(s) = s.value() {
-                    s.cancel_if_timed_out().map(|r| OutgoingRequest {
-                        request_id: r.request_id(),
-                        request: Arc::new(r.into()),
-                    })
-                } else {
-                    None
-                }
-            })
-            .collect()
-    }
-
-    pub fn get_sas(&self, transaction_id: &str) -> Option<Sas> {
-        self.verification.get(transaction_id).and_then(|v| {
-            #[allow(irrefutable_let_patterns)]
-            if let Verification::SasV1(sas) = v.value() {
-                Some(sas.clone())
-            } else {
-                None
-            }
-        })
-    }
-
-    pub fn add_request(&self, request: OutgoingRequest) {
-        self.outgoing_requests.insert(request.request_id, request);
-    }
-
-    pub fn queue_up_content(
-        &self,
-        recipient: &UserId,
-        recipient_device: &DeviceId,
-        content: OutgoingContent,
-    ) {
-        match content {
-            OutgoingContent::ToDevice(c) => {
-                let request = content_to_request(recipient, recipient_device.to_owned(), c);
-                let request_id = request.txn_id;
-
-                let request = OutgoingRequest { request_id, request: Arc::new(request.into()) };
-
-                self.outgoing_requests.insert(request_id, request);
-            }
-
-            OutgoingContent::Room(r, c) => {
-                let request_id = Uuid::new_v4();
-
-                let request = OutgoingRequest {
-                    request: Arc::new(
-                        RoomMessageRequest { room_id: r, txn_id: request_id, content: c }.into(),
-                    ),
-                    request_id,
-                };
-
-                self.outgoing_requests.insert(request_id, request);
-            }
-        }
-    }
-
-    pub fn mark_request_as_sent(&self, uuid: &Uuid) {
-        self.outgoing_requests.remove(uuid);
-    }
-}
 
 #[derive(Clone, Debug)]
 pub struct VerificationMachine {
@@ -204,7 +115,7 @@ impl VerificationMachine {
     }
 
     pub fn outgoing_messages(&self) -> Vec<OutgoingRequest> {
-        self.verifications.outgoing_requests.iter().map(|r| (*r).clone()).collect()
+        self.verifications.outgoing_requests()
     }
 
     pub fn garbage_collect(&self) {
@@ -490,11 +401,12 @@ mod test {
 
         let event = wrap_any_to_device_content(bob.user_id(), content);
 
-        assert!(alice_machine.verifications.outgoing_requests.is_empty());
+        assert!(alice_machine.verifications.outgoing_requests().is_empty());
         alice_machine.receive_any_event(&event).await.unwrap();
-        assert!(!alice_machine.verifications.outgoing_requests.is_empty());
+        assert!(!alice_machine.verifications.outgoing_requests().is_empty());
 
-        let request = alice_machine.verifications.outgoing_requests.iter().next().unwrap().clone();
+        let request =
+            alice_machine.verifications.outgoing_requests().iter().next().unwrap().clone();
         let txn_id = *request.request_id();
         let content = OutgoingContent::try_from(request).unwrap();
         let content = KeyContent::try_from(&content).unwrap().into();
@@ -528,14 +440,14 @@ mod test {
         let alice = alice_machine.get_sas(bob.flow_id().as_str()).unwrap();
 
         assert!(!alice.timed_out());
-        assert!(alice_machine.verifications.outgoing_requests.is_empty());
+        assert!(alice_machine.verifications.outgoing_requests().is_empty());
 
         // This line panics on macOS, so we're disabled for now.
         alice.set_creation_time(Instant::now() - Duration::from_secs(60 * 15));
         assert!(alice.timed_out());
-        assert!(alice_machine.verifications.outgoing_requests.is_empty());
+        assert!(alice_machine.verifications.outgoing_requests().is_empty());
         alice_machine.garbage_collect();
-        assert!(!alice_machine.verifications.outgoing_requests.is_empty());
+        assert!(!alice_machine.verifications.outgoing_requests().is_empty());
         alice_machine.garbage_collect();
         assert!(alice_machine.verifications.is_empty());
     }

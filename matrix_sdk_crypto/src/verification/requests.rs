@@ -36,11 +36,12 @@ use matrix_sdk_common::{
 use tracing::{info, warn};
 
 use super::{
+    cache::VerificationCache,
     event_enums::{
         CancelContent, DoneContent, OutgoingContent, ReadyContent, RequestContent, StartContent,
     },
     sas::content_to_request,
-    Cancelled, FlowId, VerificationCache,
+    Cancelled, FlowId,
 };
 use crate::{
     olm::{PrivateCrossSigningIdentity, ReadOnlyAccount},
@@ -684,8 +685,9 @@ mod test {
         olm::{PrivateCrossSigningIdentity, ReadOnlyAccount},
         store::{Changes, CryptoStore, MemoryStore},
         verification::{
+            cache::VerificationCache,
             event_enums::{OutgoingContent, ReadyContent, StartContent},
-            FlowId, VerificationCache,
+            FlowId,
         },
         ReadOnlyDevice,
     };
