@@ -122,7 +122,7 @@ impl Cancelled {
             }
             CancelCode::User => "The user cancelled the verification.",
             CancelCode::UserMismatch => "The expected user did not match the verified user",
-            _ => unimplemented!(),
+            _ => "Unknown cancel reason",
         };
 
         Self { cancel_code: code, reason }
