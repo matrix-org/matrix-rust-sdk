@@ -76,7 +76,7 @@ pub struct OlmMachine {
     account: Account,
     /// The private part of our cross signing identity.
     /// Used to sign devices and other users, might be missing if some other
-    /// device bootstraped cross signing or cross signing isn't bootstrapped at
+    /// device bootstrapped cross signing or cross signing isn't bootstrapped at
     /// all.
     user_identity: Arc<Mutex<PrivateCrossSigningIdentity>>,
     /// Store for the encryption keys.
@@ -735,7 +735,7 @@ impl OlmMachine {
         self.account.update_uploaded_key_count(key_count).await;
     }
 
-    async fn handle_to_device_evnet(&self, event: &AnyToDeviceEvent) {
+    async fn handle_to_device_event(&self, event: &AnyToDeviceEvent) {
         match event {
             AnyToDeviceEvent::RoomKeyRequest(e) => {
                 self.key_request_machine.receive_incoming_key_request(&e)
@@ -771,7 +771,7 @@ impl OlmMachine {
     /// response.
     ///
     /// * `changed_devices` - The list of devices that changed in this sync
-    /// resopnse.
+    /// response.
     ///
     /// * `one_time_keys_count` - The current one-time keys counts that the sync
     /// response returned.
@@ -855,12 +855,12 @@ impl OlmMachine {
                     }
 
                     if let Some(event) = decrypted.deserialized_event {
-                        self.handle_to_device_evnet(&event).await;
+                        self.handle_to_device_event(&event).await;
                     }
 
                     raw_event = decrypted.event;
                 }
-                e => self.handle_to_device_evnet(&e).await,
+                e => self.handle_to_device_event(&e).await,
             }
 
             events.push(raw_event);
@@ -880,11 +880,11 @@ impl OlmMachine {
 
     /// Request a room key from our devices.
     ///
-    /// This method will return a request cancelation and a new key request if
+    /// This method will return a request cancellation and a new key request if
     /// the key was already requested, otherwise it will return just the key
     /// request.
     ///
-    /// The request cancelation *must* be sent out before the request is sent
+    /// The request cancellation *must* be sent out before the request is sent
     /// out, otherwise devices will ignore the key request.
     ///
     /// # Arguments
@@ -942,7 +942,7 @@ impl OlmMachine {
             algorithm_info: AlgorithmInfo::MegolmV1AesSha2 {
                 curve25519_key: session.sender_key().to_owned(),
                 sender_claimed_keys: session.signing_keys().to_owned(),
-                forwarding_curve25519_key_chain: session.forwading_key_chain().to_vec(),
+                forwarding_curve25519_key_chain: session.forwarding_key_chain().to_vec(),
             },
             verification_state,
         })
@@ -1167,7 +1167,7 @@ impl OlmMachine {
     ///
     /// * `predicate` - A closure that will be called for every known
     /// `InboundGroupSession`, which represents a room key. If the closure
-    /// returns `true` the `InboundGroupSessoin` will be included in the export,
+    /// returns `true` the `InboundGroupSession` will be included in the export,
     /// if the closure returns `false` it will not be included.
     ///
     /// # Panics
@@ -1318,10 +1318,10 @@ pub(crate) mod test {
         let alice_device = alice_device_id();
         let alice = OlmMachine::new(&alice_id, &alice_device);
 
-        let alice_deivce = ReadOnlyDevice::from_machine(&alice).await;
+        let alice_device = ReadOnlyDevice::from_machine(&alice).await;
         let bob_device = ReadOnlyDevice::from_machine(&bob).await;
         alice.store.save_devices(&[bob_device]).await.unwrap();
-        bob.store.save_devices(&[alice_deivce]).await.unwrap();
+        bob.store.save_devices(&[alice_device]).await.unwrap();
 
         (alice, bob, otk)
     }

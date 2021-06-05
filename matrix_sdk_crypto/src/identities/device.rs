@@ -385,7 +385,7 @@ impl ReadOnlyDevice {
         // only the identity is trusted, if the identity and the device are
         // trusted.
         if self.is_trusted() {
-            // If the device is localy marked as verified just return so, no
+            // If the device is locally marked as verified just return so, no
             // need to check signatures.
             true
         } else {

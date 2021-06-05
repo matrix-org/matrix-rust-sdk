@@ -139,7 +139,7 @@ const MIN_UPLOAD_REQUEST_TIMEOUT: Duration = Duration::from_secs(60 * 5);
 /// The range of ports the SSO server will try to bind to randomly
 #[cfg(feature = "sso_login")]
 const SSO_SERVER_BIND_RANGE: Range<u16> = 20000..30000;
-/// The number of timesthe SSO server will try to bind to a random port
+/// The number of times the SSO server will try to bind to a random port
 #[cfg(feature = "sso_login")]
 const SSO_SERVER_BIND_TRIES: u8 = 10;
 

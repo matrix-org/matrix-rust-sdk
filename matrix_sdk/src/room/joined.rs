@@ -47,7 +47,7 @@ const TYPING_NOTICE_RESEND_TIMEOUT: Duration = Duration::from_secs(3);
 
 /// A room in the joined state.
 ///
-/// The `JoinedRoom` contains all methodes specific to a `Room` with type
+/// The `JoinedRoom` contains all methods specific to a `Room` with type
 /// `RoomType::Joined`. Operations may fail once the underlying `Room` changes
 /// `RoomType`.
 #[derive(Debug, Clone)]

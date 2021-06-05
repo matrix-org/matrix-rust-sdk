@@ -215,7 +215,7 @@ impl Handler {
 
     pub(crate) async fn handle_stripped_state_event(
         &self,
-        // TODO these events are only handleted in invited rooms.
+        // TODO these events are only handled in invited rooms.
         room: Room,
         event: &AnyStrippedStateEvent,
     ) {

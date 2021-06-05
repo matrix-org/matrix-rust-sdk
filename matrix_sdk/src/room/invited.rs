@@ -4,7 +4,7 @@ use crate::{room::Common, BaseRoom, Client, Result, RoomType};
 
 /// A room in the invited state.
 ///
-/// This struct contains all methodes specific to a `Room` with type
+/// This struct contains all methods specific to a `Room` with type
 /// `RoomType::Invited`. Operations may fail once the underlying `Room` changes
 /// `RoomType`.
 #[derive(Debug, Clone)]

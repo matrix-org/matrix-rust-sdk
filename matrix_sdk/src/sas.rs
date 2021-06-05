@@ -137,7 +137,7 @@ impl Sas {
         self.inner.is_cancelled()
     }
 
-    /// Get the other users device that we're veryfying.
+    /// Get the other users device that we're verifying.
     pub fn other_device(&self) -> &ReadOnlyDevice {
         self.inner.other_device()
     }

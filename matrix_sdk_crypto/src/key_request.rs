@@ -161,7 +161,7 @@ impl OutgoingKeyRequest {
         wrap_key_request_content(self.request_recipient.clone(), self.request_id, &content)
     }
 
-    fn to_cancelation(
+    fn to_cancellation(
         &self,
         own_device_id: &DeviceId,
     ) -> Result<OutgoingRequest, serde_json::Error> {
@@ -594,7 +594,7 @@ impl KeyRequestMachine {
         let request = self.store.get_key_request_by_info(&key_info).await?;
 
         if let Some(request) = request {
-            let cancel = request.to_cancelation(self.device_id())?;
+            let cancel = request.to_cancellation(self.device_id())?;
             let request = request.to_request(self.device_id())?;
 
             Ok((Some(cancel), request))
@@ -707,7 +707,7 @@ impl KeyRequestMachine {
 
     /// Mark the given outgoing key info as done.
     ///
-    /// This will queue up a request cancelation.
+    /// This will queue up a request cancellation.
     async fn mark_as_done(&self, key_info: OutgoingKeyRequest) -> Result<(), CryptoStoreError> {
         // TODO perhaps only remove the key info if the first known index is 0.
         trace!("Successfully received a forwarded room key for {:#?}", key_info);
@@ -717,7 +717,7 @@ impl KeyRequestMachine {
         // can delete it in one transaction.
         self.delete_key_info(&key_info).await?;
 
-        let request = key_info.to_cancelation(self.device_id())?;
+        let request = key_info.to_cancellation(self.device_id())?;
         self.outgoing_to_device_requests.insert(request.request_id, request);
 
         Ok(())
@@ -1351,7 +1351,7 @@ mod test {
         // Receive the room key request from alice.
         bob_machine.receive_incoming_key_request(&event);
         bob_machine.collect_incoming_key_requests().await.unwrap();
-        // Bob doens't have an outgoing requests since we're lacking a session.
+        // Bob doesn't have an outgoing requests since we're lacking a session.
         assert!(bob_machine.outgoing_to_device_requests().await.unwrap().is_empty());
         assert!(!bob_machine.users_for_key_claim.is_empty());
         assert!(!bob_machine.wait_queue.is_empty());

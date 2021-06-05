@@ -38,7 +38,7 @@
 //! additional public keys for other users, while it will give us access to all
 //! 3 for our own user.
 //!
-//! Both identity sets need to reqularly fetched from the server using the
+//! Both identity sets need to regularly fetched from the server using the
 //! `/keys/query` API call.
 pub(crate) mod device;
 mod manager;

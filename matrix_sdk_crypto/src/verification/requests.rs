@@ -484,7 +484,7 @@ impl RequestState<Requested> {
         flow_id: &FlowId,
         content: &RequestContent,
     ) -> RequestState<Requested> {
-        // TODO only create this if we suport the methods
+        // TODO only create this if we support the methods
         RequestState {
             account,
             private_cross_signing_identity: private_identity,
@@ -617,7 +617,7 @@ impl RequestState<Ready> {
                 }
             },
             m => {
-                warn!(method =? m, "Received a key verificaton start event with an unsupported method")
+                warn!(method =? m, "Received a key verification start event with an unsupported method")
             }
         }
 

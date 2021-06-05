@@ -320,7 +320,7 @@ impl IdentityManager {
 
     /// Get a key query request if one is needed.
     ///
-    /// Returns a key query reqeust if the client should query E2E keys,
+    /// Returns a key query request if the client should query E2E keys,
     /// otherwise None.
     ///
     /// The response of a successful key query requests needs to be passed to

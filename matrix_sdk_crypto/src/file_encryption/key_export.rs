@@ -115,7 +115,7 @@ pub fn decrypt_key_export(
 ///
 /// * `rounds` - The number of rounds that should be used for the key
 /// derivation when the passphrase gets turned into an AES key. More rounds are
-/// increasingly computationally intensive and as such help against bruteforce
+/// increasingly computationally intensive and as such help against brute-force
 /// attacks. Should be at least `10000`, while values in the `100000` ranges
 /// should be preferred.
 ///

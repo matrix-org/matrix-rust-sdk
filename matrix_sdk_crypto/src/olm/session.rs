@@ -265,8 +265,8 @@ pub struct PickledSession {
 pub struct SessionPickle(String);
 
 impl From<String> for SessionPickle {
-    fn from(picle_string: String) -> Self {
-        SessionPickle(picle_string)
+    fn from(pickle_string: String) -> Self {
+        SessionPickle(pickle_string)
     }
 }
 
