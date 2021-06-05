@@ -44,7 +44,7 @@ impl SessionStore {
 
     /// Add a session to the store.
     ///
-    /// Returns true if the the session was added, false if the session was
+    /// Returns true if the session was added, false if the session was
     /// already in the store.
     pub async fn add(&self, session: Session) -> bool {
         let sessions_lock = self
@@ -89,7 +89,7 @@ impl GroupSessionStore {
 
     /// Add an inbound group session to the store.
     ///
-    /// Returns true if the the session was added, false if the session was
+    /// Returns true if the session was added, false if the session was
     /// already in the store.
     pub fn add(&self, session: InboundGroupSession) -> bool {
         self.entries
