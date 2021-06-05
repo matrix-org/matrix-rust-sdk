@@ -125,7 +125,7 @@ impl WaitQueue {
 #[derive(Debug, Clone)]
 pub(crate) struct KeyRequestMachine {
     user_id: Arc<UserId>,
-    device_id: Arc<DeviceIdBox>,
+    device_id: Arc<DeviceId>,
     store: Store,
     outbound_group_sessions: GroupSessionCache,
     outgoing_to_device_requests: Arc<DashMap<Uuid, OutgoingRequest>>,
@@ -210,7 +210,7 @@ fn wrap_key_request_content(
 impl KeyRequestMachine {
     pub fn new(
         user_id: Arc<UserId>,
-        device_id: Arc<DeviceIdBox>,
+        device_id: Arc<DeviceId>,
         store: Store,
         outbound_group_sessions: GroupSessionCache,
         users_for_key_claim: Arc<DashMap<UserId, DashSet<DeviceIdBox>>>,
@@ -854,7 +854,7 @@ mod test {
 
         KeyRequestMachine::new(
             user_id,
-            Arc::new(bob_device_id()),
+            bob_device_id().into(),
             store,
             session_cache,
             Arc::new(DashMap::new()),
@@ -862,7 +862,7 @@ mod test {
     }
 
     async fn get_machine() -> KeyRequestMachine {
-        let user_id = Arc::new(alice_id());
+        let user_id: Arc<UserId> = alice_id().into();
         let account = ReadOnlyAccount::new(&user_id, &alice_device_id());
         let device = ReadOnlyDevice::from_account(&account).await;
         let store: Arc<Box<dyn CryptoStore>> = Arc::new(Box::new(MemoryStore::new()));
@@ -874,7 +874,7 @@ mod test {
 
         KeyRequestMachine::new(
             user_id,
-            Arc::new(alice_device_id()),
+            alice_device_id().into(),
             store,
             session_cache,
             Arc::new(DashMap::new()),

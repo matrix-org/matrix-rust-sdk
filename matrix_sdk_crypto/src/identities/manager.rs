@@ -23,7 +23,7 @@ use matrix_sdk_common::{
     api::r0::keys::get_keys::Response as KeysQueryResponse,
     encryption::DeviceKeys,
     executor::spawn,
-    identifiers::{DeviceIdBox, UserId},
+    identifiers::{DeviceId, DeviceIdBox, UserId},
 };
 use tracing::{trace, warn};
 
@@ -46,14 +46,14 @@ enum DeviceChange {
 #[derive(Debug, Clone)]
 pub(crate) struct IdentityManager {
     user_id: Arc<UserId>,
-    device_id: Arc<DeviceIdBox>,
+    device_id: Arc<DeviceId>,
     store: Store,
 }
 
 impl IdentityManager {
     const MAX_KEY_QUERY_USERS: usize = 250;
 
-    pub fn new(user_id: Arc<UserId>, device_id: Arc<DeviceIdBox>, store: Store) -> Self {
+    pub fn new(user_id: Arc<UserId>, device_id: Arc<DeviceId>, store: Store) -> Self {
         IdentityManager { user_id, device_id, store }
     }
 
@@ -134,7 +134,7 @@ impl IdentityManager {
     async fn update_user_devices(
         store: Store,
         own_user_id: Arc<UserId>,
-        own_device_id: Arc<DeviceIdBox>,
+        own_device_id: Arc<DeviceId>,
         user_id: UserId,
         device_map: BTreeMap<DeviceIdBox, DeviceKeys>,
     ) -> StoreResult<DeviceChanges> {
@@ -144,7 +144,7 @@ impl IdentityManager {
 
         let tasks = device_map.into_iter().filter_map(|(device_id, device_keys)| {
             // We don't need our own device in the device store.
-            if user_id == *own_user_id && device_id == *own_device_id {
+            if user_id == *own_user_id && *device_id == *own_device_id {
                 None
             } else if user_id != device_keys.user_id || device_id != device_keys.device_id {
                 warn!(
@@ -431,7 +431,7 @@ pub(crate) mod test {
             Arc::new(Box::new(MemoryStore::new())),
             verification,
         );
-        IdentityManager::new(user_id, Arc::new(device_id()), store)
+        IdentityManager::new(user_id, device_id().into(), store)
     }
 
     pub(crate) fn other_key_query() -> KeyQueryResponse {

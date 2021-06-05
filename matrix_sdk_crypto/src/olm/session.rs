@@ -45,7 +45,7 @@ use crate::{
 #[derive(Clone)]
 pub struct Session {
     pub(crate) user_id: Arc<UserId>,
-    pub(crate) device_id: Arc<Box<DeviceId>>,
+    pub(crate) device_id: Arc<DeviceId>,
     pub(crate) our_identity_keys: Arc<IdentityKeys>,
     pub(crate) inner: Arc<Mutex<OlmSession>>,
     pub(crate) session_id: Arc<str>,
@@ -214,7 +214,7 @@ impl Session {
     /// an unencrypted mode or an encrypted using passphrase.
     pub fn from_pickle(
         user_id: Arc<UserId>,
-        device_id: Arc<Box<DeviceId>>,
+        device_id: Arc<DeviceId>,
         our_identity_keys: Arc<IdentityKeys>,
         pickle: PickledSession,
         pickle_mode: PicklingMode,

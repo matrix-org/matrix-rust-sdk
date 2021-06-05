@@ -431,7 +431,7 @@ impl Account {
 #[derive(Clone)]
 pub struct ReadOnlyAccount {
     pub(crate) user_id: Arc<UserId>,
-    pub(crate) device_id: Arc<Box<DeviceId>>,
+    pub(crate) device_id: Arc<DeviceId>,
     inner: Arc<Mutex<OlmAccount>>,
     pub(crate) identity_keys: Arc<IdentityKeys>,
     shared: Arc<AtomicBool>,
@@ -502,7 +502,7 @@ impl ReadOnlyAccount {
 
         Self {
             user_id: Arc::new(user_id.to_owned()),
-            device_id: Arc::new(device_id.into()),
+            device_id: device_id.to_owned().into(),
             inner: Arc::new(Mutex::new(account)),
             identity_keys: Arc::new(identity_keys),
             shared: Arc::new(AtomicBool::new(false)),
@@ -676,7 +676,7 @@ impl ReadOnlyAccount {
 
         Ok(Self {
             user_id: Arc::new(pickle.user_id),
-            device_id: Arc::new(pickle.device_id),
+            device_id: pickle.device_id.into(),
             inner: Arc::new(Mutex::new(account)),
             identity_keys: Arc::new(identity_keys),
             shared: Arc::new(AtomicBool::from(pickle.shared)),
@@ -700,7 +700,7 @@ impl ReadOnlyAccount {
 
         DeviceKeys::new(
             (*self.user_id).clone(),
-            (*self.device_id).clone(),
+            (*self.device_id).to_owned(),
             Self::ALGORITHMS.iter().map(|a| (&**a).clone()).collect(),
             keys,
             BTreeMap::new(),

@@ -71,7 +71,7 @@ pub struct OlmMachine {
     /// The unique user id that owns this account.
     user_id: Arc<UserId>,
     /// The unique device id of the device that holds this account.
-    device_id: Arc<Box<DeviceId>>,
+    device_id: Arc<DeviceId>,
     /// Our underlying Olm Account holding our identity keys.
     account: Account,
     /// The private part of our cross signing identity.
@@ -149,7 +149,7 @@ impl OlmMachine {
             VerificationMachine::new(account.clone(), user_identity.clone(), store.clone());
         let store =
             Store::new(user_id.clone(), user_identity.clone(), store, verification_machine.clone());
-        let device_id: Arc<DeviceIdBox> = Arc::new(device_id);
+        let device_id: Arc<DeviceId> = device_id.into();
         let users_for_key_claim = Arc::new(DashMap::new());
 
         let account = Account { inner: account, store: store.clone() };

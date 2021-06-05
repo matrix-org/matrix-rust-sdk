@@ -55,7 +55,7 @@ use crate::{OlmMachine, ReadOnlyAccount};
 #[derive(Clone, Serialize, Deserialize)]
 pub struct ReadOnlyDevice {
     user_id: Arc<UserId>,
-    device_id: Arc<DeviceIdBox>,
+    device_id: Arc<DeviceId>,
     algorithms: Arc<[EventEncryptionAlgorithm]>,
     keys: Arc<BTreeMap<DeviceKeyId, String>>,
     pub(crate) signatures: Arc<BTreeMap<UserId, BTreeMap<DeviceKeyId, String>>>,
@@ -301,7 +301,7 @@ impl ReadOnlyDevice {
     ) -> Self {
         Self {
             user_id: Arc::new(user_id),
-            device_id: Arc::new(device_id),
+            device_id: device_id.into(),
             display_name: Arc::new(display_name),
             trust_state: Arc::new(Atomic::new(trust_state)),
             signatures: Arc::new(signatures),
@@ -546,7 +546,7 @@ impl TryFrom<&DeviceKeys> for ReadOnlyDevice {
     fn try_from(device_keys: &DeviceKeys) -> Result<Self, Self::Error> {
         let device = Self {
             user_id: Arc::new(device_keys.user_id.clone()),
-            device_id: Arc::new(device_keys.device_id.clone()),
+            device_id: device_keys.device_id.clone().into(),
             algorithms: device_keys.algorithms.as_slice().into(),
             signatures: Arc::new(device_keys.signatures.clone()),
             keys: Arc::new(device_keys.keys.clone()),

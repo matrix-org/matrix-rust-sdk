@@ -118,7 +118,7 @@ impl EncryptionSettings {
 #[derive(Clone)]
 pub struct OutboundGroupSession {
     inner: Arc<Mutex<OlmOutboundGroupSession>>,
-    device_id: Arc<DeviceIdBox>,
+    device_id: Arc<DeviceId>,
     account_identity_keys: Arc<IdentityKeys>,
     session_id: Arc<str>,
     room_id: Arc<RoomId>,
@@ -148,7 +148,7 @@ impl OutboundGroupSession {
     /// * `settings` - Settings determining the algorithm and rotation period of
     /// the outbound group session.
     pub fn new(
-        device_id: Arc<DeviceIdBox>,
+        device_id: Arc<DeviceId>,
         identity_keys: Arc<IdentityKeys>,
         room_id: &RoomId,
         settings: EncryptionSettings,
@@ -450,7 +450,7 @@ impl OutboundGroupSession {
     /// * `pickle_mode` - The mode that was used to pickle the session, either
     /// an unencrypted mode or an encrypted using passphrase.
     pub fn from_pickle(
-        device_id: Arc<DeviceIdBox>,
+        device_id: Arc<DeviceId>,
         identity_keys: Arc<IdentityKeys>,
         pickle: PickledOutboundGroupSession,
         pickling_mode: PicklingMode,

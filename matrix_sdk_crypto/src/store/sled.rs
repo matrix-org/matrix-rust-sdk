@@ -117,7 +117,7 @@ impl EncodeKey for (&str, &str, &str) {
 #[derive(Clone, Debug)]
 pub struct AccountInfo {
     user_id: Arc<UserId>,
-    device_id: Arc<DeviceIdBox>,
+    device_id: Arc<DeviceId>,
     identity_keys: Arc<IdentityKeys>,
 }
 

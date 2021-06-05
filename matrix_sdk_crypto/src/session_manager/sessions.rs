@@ -339,7 +339,7 @@ mod test {
             VerificationMachine::new(account.clone(), identity.clone(), store.clone());
 
         let user_id = Arc::new(user_id);
-        let device_id = Arc::new(device_id);
+        let device_id = device_id.into();
 
         let store = Store::new(user_id.clone(), identity, store, verification);
 
