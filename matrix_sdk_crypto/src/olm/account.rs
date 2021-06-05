@@ -99,7 +99,7 @@ pub struct OlmDecryptionInfo {
     pub inbound_group_session: Option<InboundGroupSession>,
 }
 
-/// A hash of a succesfully decrypted Olm message.
+/// A hash of a successfully decrypted Olm message.
 ///
 /// Can be used to check if a message has been replayed to us.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -378,11 +378,11 @@ impl Account {
         // TODO make the errors a bit more specific.
         let decrypted_json: Value = serde_json::from_str(&plaintext)?;
 
-        let encrytped_sender = decrypted_json
+        let encrypted_sender = decrypted_json
             .get("sender")
             .cloned()
             .ok_or_else(|| EventError::MissingField("sender".to_string()))?;
-        let encrytped_sender: UserId = serde_json::from_value(encrytped_sender)?;
+        let encrypted_sender: UserId = serde_json::from_value(encrypted_sender)?;
         let recipient = decrypted_json
             .get("recipient")
             .cloned()
@@ -402,7 +402,7 @@ impl Account {
                 .ok_or_else(|| EventError::MissingField("keys".to_string()))?,
         )?;
 
-        if &recipient != self.user_id() || sender != &encrytped_sender {
+        if &recipient != self.user_id() || sender != &encrypted_sender {
             return Err(EventError::MissmatchedSender.into());
         }
 

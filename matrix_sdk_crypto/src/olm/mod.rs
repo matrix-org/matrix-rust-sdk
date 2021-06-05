@@ -53,7 +53,7 @@ where
     let now = Instant::now();
     let instant = now
         .checked_sub(duration)
-        .ok_or_else(|| serde::de::Error::custom("Can't substract the the current instant"))?;
+        .ok_or_else(|| serde::de::Error::custom("Can't subtract the the current instant"))?;
     Ok(instant)
 }
 
