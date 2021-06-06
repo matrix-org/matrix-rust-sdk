@@ -274,7 +274,7 @@ pub struct MacReceived {
 
 /// The SAS state we're going to be in after we receive a MAC event in a DM. DMs
 /// require a final message `m.key.verification.done` message to conclude the
-/// verificaton. This state waits for such a message.
+/// verification. This state waits for such a message.
 #[derive(Clone, Debug)]
 pub struct WaitingForDone {
     verified_devices: Arc<[ReadOnlyDevice]>,

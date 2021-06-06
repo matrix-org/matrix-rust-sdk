@@ -503,7 +503,7 @@ impl GroupSessionManager {
             .collect();
 
         for result in join_all(tasks).await {
-            let used_sessions: OlmResult<Vec<Session>> = result.expect("Encryption task paniced");
+            let used_sessions: OlmResult<Vec<Session>> = result.expect("Encryption task panicked");
 
             changes.sessions.extend(used_sessions?);
         }

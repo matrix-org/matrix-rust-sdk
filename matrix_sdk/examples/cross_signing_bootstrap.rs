@@ -40,7 +40,7 @@ async fn bootstrap(client: Client, user_id: UserId, password: String) {
                 .await
                 .expect("Couldn't bootstrap cross signing")
         } else {
-            panic!("Error durign cross signing bootstrap {:#?}", e);
+            panic!("Error during cross-signing bootstrap {:#?}", e);
         }
     }
 

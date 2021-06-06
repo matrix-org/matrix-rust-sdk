@@ -197,7 +197,7 @@ impl<'a, R: Read + 'a> AttachmentEncryptor<'a, R> {
         let mut iv = Zeroizing::new([0u8; IV_SIZE]);
 
         getrandom(&mut *key).expect("Can't generate randomness");
-        // Only populate the the first 8 bits with randomness, the rest is 0
+        // Only populate the first 8 bits with randomness, the rest is 0
         // initialized.
         getrandom(&mut iv[0..8]).expect("Can't generate randomness");
 

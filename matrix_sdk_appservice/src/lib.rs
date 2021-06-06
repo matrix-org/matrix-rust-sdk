@@ -214,7 +214,7 @@ impl Appservice {
     /// * `server_name` - The server name to use when constructing user ids from
     ///   the localpart.
     /// * `registration` - The [Appservice Registration] to use when interacting
-    ///   with the homserver.
+    ///   with the homeserver.
     ///
     /// [Appservice Registration]: https://matrix.org/docs/spec/application_service/r0.1.2#registration
     pub async fn new(

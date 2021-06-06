@@ -120,7 +120,7 @@ pub struct SyncResponse {
     pub presence: Presence,
     /// The global private data created by this user.
     pub account_data: GlobalAccountData,
-    /// Messages sent dirrectly between devices.
+    /// Messages sent directly between devices.
     pub to_device: ToDevice,
     /// Information on E2E device updates.
     ///
@@ -129,7 +129,7 @@ pub struct SyncResponse {
     /// For each key algorithm, the number of unclaimed one-time keys
     /// currently held on the server for a device.
     pub device_one_time_keys_count: BTreeMap<DeviceKeyAlgorithm, u64>,
-    /// Collection of ambiguioty changes that room member events trigger.
+    /// Collection of ambiguity changes that room member events trigger.
     pub ambiguity_changes: AmbiguityChanges,
     /// New notifications per room.
     pub notifications: BTreeMap<RoomId, Vec<Notification>>,
@@ -343,6 +343,6 @@ impl From<StrippedMemberEvent> for StrippedStateEvent<MemberEventContent> {
 pub struct MembersResponse {
     /// The list of members events.
     pub chunk: Vec<MemberEvent>,
-    /// Collection of ambiguioty changes that room member events trigger.
+    /// Collection of ambiguity changes that room member events trigger.
     pub ambiguity_changes: AmbiguityChanges,
 }

@@ -167,7 +167,7 @@ impl VerificationMachine {
             return Ok(());
         };
 
-        let flow_id_missmatch = || {
+        let flow_id_mismatch = || {
             warn!(
                 sender = event.sender().as_str(),
                 flow_id = flow_id.as_str(),
@@ -215,7 +215,7 @@ impl VerificationMachine {
                             // TODO remove this unwrap.
                             request.receive_ready(event.sender(), c).unwrap();
                         } else {
-                            flow_id_missmatch();
+                            flow_id_mismatch();
                         }
                     }
                 }
@@ -224,7 +224,7 @@ impl VerificationMachine {
                         if request.flow_id() == &flow_id {
                             request.receive_start(event.sender(), &c).await?
                         } else {
-                            flow_id_missmatch();
+                            flow_id_mismatch();
                         }
                     } else if let FlowId::ToDevice(_) = flow_id {
                         // TODO remove this soon, this has been deprecated by
@@ -268,7 +268,7 @@ impl VerificationMachine {
                                 );
                             }
                         } else {
-                            flow_id_missmatch();
+                            flow_id_mismatch();
                         }
                     }
                 }
@@ -281,7 +281,7 @@ impl VerificationMachine {
                                 self.mark_sas_as_done(s, content).await?;
                             }
                         } else {
-                            flow_id_missmatch();
+                            flow_id_mismatch();
                         }
                     }
                 }

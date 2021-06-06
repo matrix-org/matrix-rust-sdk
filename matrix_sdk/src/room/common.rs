@@ -12,7 +12,7 @@ use matrix_sdk_common::{
 
 use crate::{BaseRoom, Client, Result, RoomMember};
 
-/// A struct containing methodes that are common for Joined, Invited and Left
+/// A struct containing methods that are common for Joined, Invited and Left
 /// Rooms
 #[derive(Debug, Clone)]
 pub struct Common {
@@ -55,7 +55,7 @@ impl Common {
     /// Only invited and left rooms can be joined via this method
     pub(crate) async fn join(&self) -> Result<()> {
         let request = join_room_by_id::Request::new(self.inner.room_id());
-        let _resposne = self.client.send(request, None).await?;
+        let _response = self.client.send(request, None).await?;
 
         Ok(())
     }

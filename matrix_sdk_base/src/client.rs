@@ -749,8 +749,8 @@ impl BaseClient {
 
             if let Some(o) = &*olm {
                 // Let the crypto machine handle the sync response, this
-                // decryptes to-device events, but leaves room events alone.
-                // This makes sure that we have the deryption keys for the room
+                // decrypts to-device events, but leaves room events alone.
+                // This makes sure that we have the decryption keys for the room
                 // events at hand.
                 o.receive_sync_changes(to_device, &device_lists, &device_one_time_keys_count)
                     .await?

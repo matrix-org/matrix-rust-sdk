@@ -46,7 +46,7 @@ use crate::{
 };
 
 /// The underlying room data structure collecting state for joined, left and
-/// invtied rooms.
+/// invited rooms.
 #[derive(Debug, Clone)]
 pub struct Room {
     room_id: Arc<RoomId>,
@@ -178,7 +178,7 @@ impl Room {
     /// If this room is a direct message, get the member that we're sharing the
     /// room with.
     ///
-    /// *Note*: The member list might have been moddified in the meantime and
+    /// *Note*: The member list might have been modified in the meantime and
     /// the target might not even be in the room anymore. This setting should
     /// only be considered as guidance.
     pub fn direct_target(&self) -> Option<UserId> {

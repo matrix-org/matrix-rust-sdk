@@ -42,9 +42,9 @@ use zeroize::Zeroizing;
 use super::{ExportedGroupSessionKey, ExportedRoomKey, GroupSessionKey};
 use crate::error::{EventError, MegolmResult};
 
-// TODO add creation times to the inbound grop sessions so we can export
+// TODO add creation times to the inbound group sessions so we can export
 // sessions that were created between some time period, this should only be set
-// for non-imported sessoins.
+// for non-imported sessions.
 
 /// Inbound group session.
 ///
@@ -172,7 +172,7 @@ impl InboundGroupSession {
             sender_key: self.sender_key.to_string(),
             signing_key: (&*self.signing_keys).clone(),
             room_id: (&*self.room_id).clone(),
-            forwarding_chains: self.forwading_key_chain().to_vec(),
+            forwarding_chains: self.forwarding_key_chain().to_vec(),
             imported: *self.imported,
             history_visibility: self.history_visibility.as_ref().clone(),
         }
@@ -201,7 +201,7 @@ impl InboundGroupSession {
     /// Each ed25519 key represents a single device. If device A forwards the
     /// session to device B and device B to C this list will contain the ed25519
     /// keys of A and B.
-    pub fn forwading_key_chain(&self) -> &[String] {
+    pub fn forwarding_key_chain(&self) -> &[String] {
         &self.forwarding_chains
     }
 
@@ -218,7 +218,7 @@ impl InboundGroupSession {
             room_id: (&*self.room_id).clone(),
             sender_key: (&*self.sender_key).to_owned(),
             session_id: self.session_id().to_owned(),
-            forwarding_curve25519_key_chain: self.forwading_key_chain().to_vec(),
+            forwarding_curve25519_key_chain: self.forwarding_key_chain().to_vec(),
             sender_claimed_keys: (&*self.signing_keys).clone(),
             session_key,
         }
@@ -361,10 +361,10 @@ pub struct PickledInboundGroupSession {
     /// The id of the room that the session is used in.
     pub room_id: RoomId,
     /// The list of claimed ed25519 that forwarded us this key. Will be None if
-    /// we dirrectly received this session.
+    /// we directly received this session.
     #[serde(default)]
     pub forwarding_chains: Vec<String>,
-    /// Flag remembering if the session was dirrectly sent to us by the sender
+    /// Flag remembering if the session was directly sent to us by the sender
     /// or if it was imported.
     pub imported: bool,
     /// History visibility of the room when the session was created.

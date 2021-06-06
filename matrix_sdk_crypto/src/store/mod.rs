@@ -279,7 +279,7 @@ pub enum CryptoStoreError {
     #[error("An object failed to be decrypted while unpickling")]
     UnpicklingError,
 
-    /// A Matirx identifier failed to be validated.
+    /// A Matrix identifier failed to be validated.
     #[error(transparent)]
     IdentifierValidation(#[from] IdentifierValidationError),
 
@@ -338,7 +338,7 @@ pub trait CryptoStore: AsyncTraitDeps {
     /// Get all the inbound group sessions we have stored.
     async fn get_inbound_group_sessions(&self) -> Result<Vec<InboundGroupSession>>;
 
-    /// Get the outobund group sessions we have stored that is used for the
+    /// Get the outbound group sessions we have stored that is used for the
     /// given room.
     async fn get_outbound_group_sessions(
         &self,
@@ -399,7 +399,7 @@ pub trait CryptoStore: AsyncTraitDeps {
     /// Check if a hash for an Olm message stored in the database.
     async fn is_message_known(&self, message_hash: &OlmMessageHash) -> Result<bool>;
 
-    /// Get an outoing key request that we created that matches the given
+    /// Get an outgoing key request that we created that matches the given
     /// request id.
     ///
     /// # Arguments
@@ -411,7 +411,7 @@ pub trait CryptoStore: AsyncTraitDeps {
         request_id: Uuid,
     ) -> Result<Option<OutgoingKeyRequest>>;
 
-    /// Get an outoing key request that we created that matches the given
+    /// Get an outgoing key request that we created that matches the given
     /// requested key info.
     ///
     /// # Arguments
@@ -425,7 +425,7 @@ pub trait CryptoStore: AsyncTraitDeps {
     /// Get all outgoing key requests that we have in the store.
     async fn get_unsent_key_requests(&self) -> Result<Vec<OutgoingKeyRequest>>;
 
-    /// Delete an outoing key request that we created that matches the given
+    /// Delete an outgoing key request that we created that matches the given
     /// request id.
     ///
     /// # Arguments
