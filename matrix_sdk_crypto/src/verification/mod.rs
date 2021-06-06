@@ -208,7 +208,7 @@ pub enum VerificationResult {
 #[derive(Clone, Debug)]
 pub struct IdentitiesBeingVerified {
     private_identity: PrivateCrossSigningIdentity,
-    store: Arc<Box<dyn CryptoStore>>,
+    store: Arc<dyn CryptoStore>,
     device_being_verified: ReadOnlyDevice,
     identity_being_verified: Option<UserIdentities>,
 }

@@ -423,14 +423,10 @@ pub(crate) mod test {
         let identity = Arc::new(Mutex::new(PrivateCrossSigningIdentity::empty(user_id())));
         let user_id = Arc::new(user_id());
         let account = ReadOnlyAccount::new(&user_id, &device_id());
-        let store: Arc<Box<dyn CryptoStore>> = Arc::new(Box::new(MemoryStore::new()));
+        let store: Arc<dyn CryptoStore> = Arc::new(MemoryStore::new());
         let verification = VerificationMachine::new(account, identity.clone(), store);
-        let store = Store::new(
-            user_id.clone(),
-            identity,
-            Arc::new(Box::new(MemoryStore::new())),
-            verification,
-        );
+        let store =
+            Store::new(user_id.clone(), identity, Arc::new(MemoryStore::new()), verification);
         IdentityManager::new(user_id, device_id().into(), store)
     }
 

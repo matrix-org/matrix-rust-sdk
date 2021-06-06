@@ -94,7 +94,7 @@ pub type Result<T, E = CryptoStoreError> = std::result::Result<T, E>;
 pub(crate) struct Store {
     user_id: Arc<UserId>,
     identity: Arc<Mutex<PrivateCrossSigningIdentity>>,
-    inner: Arc<Box<dyn CryptoStore>>,
+    inner: Arc<dyn CryptoStore>,
     verification_machine: VerificationMachine,
 }
 
@@ -140,7 +140,7 @@ impl Store {
     pub fn new(
         user_id: Arc<UserId>,
         identity: Arc<Mutex<PrivateCrossSigningIdentity>>,
-        store: Arc<Box<dyn CryptoStore>>,
+        store: Arc<dyn CryptoStore>,
         verification_machine: VerificationMachine,
     ) -> Self {
         Self { user_id, identity, inner: store, verification_machine }
@@ -238,7 +238,7 @@ impl Deref for Store {
     type Target = dyn CryptoStore;
 
     fn deref(&self) -> &Self::Target {
-        &**self.inner
+        &*self.inner
     }
 }
 

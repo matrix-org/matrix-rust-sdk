@@ -846,7 +846,7 @@ mod test {
     fn bob_machine() -> KeyRequestMachine {
         let user_id = Arc::new(bob_id());
         let account = ReadOnlyAccount::new(&user_id, &alice_device_id());
-        let store: Arc<Box<dyn CryptoStore>> = Arc::new(Box::new(MemoryStore::new()));
+        let store: Arc<dyn CryptoStore> = Arc::new(MemoryStore::new());
         let identity = Arc::new(Mutex::new(PrivateCrossSigningIdentity::empty(bob_id())));
         let verification = VerificationMachine::new(account, identity.clone(), store.clone());
         let store = Store::new(user_id.clone(), identity, store, verification);
@@ -865,7 +865,7 @@ mod test {
         let user_id: Arc<UserId> = alice_id().into();
         let account = ReadOnlyAccount::new(&user_id, &alice_device_id());
         let device = ReadOnlyDevice::from_account(&account).await;
-        let store: Arc<Box<dyn CryptoStore>> = Arc::new(Box::new(MemoryStore::new()));
+        let store: Arc<dyn CryptoStore> = Arc::new(MemoryStore::new());
         let identity = Arc::new(Mutex::new(PrivateCrossSigningIdentity::empty(alice_id())));
         let verification = VerificationMachine::new(account, identity.clone(), store.clone());
         let store = Store::new(user_id.clone(), identity, store, verification);

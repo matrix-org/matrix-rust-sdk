@@ -758,7 +758,7 @@ pub(crate) mod test {
         let verification_machine = VerificationMachine::new(
             ReadOnlyAccount::new(second.user_id(), second.device_id()),
             private_identity.clone(),
-            Arc::new(Box::new(MemoryStore::new())),
+            Arc::new(MemoryStore::new()),
         );
 
         let first = Device {
@@ -801,7 +801,7 @@ pub(crate) mod test {
         let verification_machine = VerificationMachine::new(
             ReadOnlyAccount::new(device.user_id(), device.device_id()),
             id.clone(),
-            Arc::new(Box::new(MemoryStore::new())),
+            Arc::new(MemoryStore::new()),
         );
 
         let public_identity = identity.as_public_identity().await.unwrap();

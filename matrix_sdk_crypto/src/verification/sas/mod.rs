@@ -106,7 +106,7 @@ impl Sas {
         account: ReadOnlyAccount,
         private_identity: PrivateCrossSigningIdentity,
         other_device: ReadOnlyDevice,
-        store: Arc<Box<dyn CryptoStore>>,
+        store: Arc<dyn CryptoStore>,
         other_identity: Option<UserIdentities>,
     ) -> Sas {
         let flow_id = inner_sas.verification_flow_id();
@@ -140,7 +140,7 @@ impl Sas {
         account: ReadOnlyAccount,
         private_identity: PrivateCrossSigningIdentity,
         other_device: ReadOnlyDevice,
-        store: Arc<Box<dyn CryptoStore>>,
+        store: Arc<dyn CryptoStore>,
         other_identity: Option<UserIdentities>,
         transaction_id: Option<String>,
     ) -> (Sas, OutgoingContent) {
@@ -180,7 +180,7 @@ impl Sas {
         account: ReadOnlyAccount,
         private_identity: PrivateCrossSigningIdentity,
         other_device: ReadOnlyDevice,
-        store: Arc<Box<dyn CryptoStore>>,
+        store: Arc<dyn CryptoStore>,
         other_identity: Option<UserIdentities>,
     ) -> (Sas, OutgoingContent) {
         let (inner, content) = InnerSas::start_in_room(
@@ -218,7 +218,7 @@ impl Sas {
     pub(crate) fn from_start_event(
         flow_id: FlowId,
         content: &StartContent,
-        store: Arc<Box<dyn CryptoStore>>,
+        store: Arc<dyn CryptoStore>,
         account: ReadOnlyAccount,
         private_identity: PrivateCrossSigningIdentity,
         other_device: ReadOnlyDevice,
@@ -522,12 +522,12 @@ mod test {
         let bob = ReadOnlyAccount::new(&bob_id(), &bob_device_id());
         let bob_device = ReadOnlyDevice::from_account(&bob).await;
 
-        let alice_store: Arc<Box<dyn CryptoStore>> = Arc::new(Box::new(MemoryStore::new()));
+        let alice_store: Arc<dyn CryptoStore> = Arc::new(MemoryStore::new());
         let bob_store = MemoryStore::new();
 
         bob_store.save_devices(vec![alice_device.clone()]).await;
 
-        let bob_store: Arc<Box<dyn CryptoStore>> = Arc::new(Box::new(bob_store));
+        let bob_store: Arc<dyn CryptoStore> = Arc::new(bob_store);
 
         let (alice, content) = Sas::start(
             alice,

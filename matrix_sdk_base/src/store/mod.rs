@@ -289,7 +289,7 @@ pub trait StateStore: AsyncTraitDeps {
 /// `StateStore` implementation.
 #[derive(Debug, Clone)]
 pub struct Store {
-    inner: Arc<Box<dyn StateStore>>,
+    inner: Arc<dyn StateStore>,
     pub(crate) session: Arc<RwLock<Option<Session>>>,
     pub(crate) sync_token: Arc<RwLock<Option<String>>>,
     rooms: Arc<DashMap<RoomId, Room>>,
@@ -405,10 +405,10 @@ impl Store {
 }
 
 impl Deref for Store {
-    type Target = Box<dyn StateStore>;
+    type Target = dyn StateStore;
 
     fn deref(&self) -> &Self::Target {
-        &self.inner
+        &*self.inner
     }
 }
 

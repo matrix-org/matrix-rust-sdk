@@ -144,7 +144,7 @@ impl OlmMachine {
         let user_id = Arc::new(user_id.clone());
         let user_identity = Arc::new(Mutex::new(user_identity));
 
-        let store = Arc::new(store);
+        let store: Arc<dyn CryptoStore> = store.into();
         let verification_machine =
             VerificationMachine::new(account.clone(), user_identity.clone(), store.clone());
         let store =

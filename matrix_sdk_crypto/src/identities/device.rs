@@ -184,7 +184,7 @@ impl Device {
         event_type: EventType,
         content: Value,
     ) -> OlmResult<(Session, EncryptedEventContent)> {
-        self.inner.encrypt(&**self.verification_machine.store, event_type, content).await
+        self.inner.encrypt(&*self.verification_machine.store, event_type, content).await
     }
 
     /// Encrypt the given inbound group session as a forwarded room key for this

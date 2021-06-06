@@ -40,7 +40,7 @@ use crate::{
 pub struct VerificationMachine {
     account: ReadOnlyAccount,
     private_identity: Arc<Mutex<PrivateCrossSigningIdentity>>,
-    pub(crate) store: Arc<Box<dyn CryptoStore>>,
+    pub(crate) store: Arc<dyn CryptoStore>,
     verifications: VerificationCache,
     requests: Arc<DashMap<String, VerificationRequest>>,
 }
@@ -49,7 +49,7 @@ impl VerificationMachine {
     pub(crate) fn new(
         account: ReadOnlyAccount,
         identity: Arc<Mutex<PrivateCrossSigningIdentity>>,
-        store: Arc<Box<dyn CryptoStore>>,
+        store: Arc<dyn CryptoStore>,
     ) -> Self {
         Self {
             account,
@@ -358,9 +358,9 @@ mod test {
         store.save_devices(vec![bob_device]).await;
         bob_store.save_devices(vec![alice_device.clone()]).await;
 
-        let bob_store: Arc<Box<dyn CryptoStore>> = Arc::new(Box::new(bob_store));
+        let bob_store: Arc<dyn CryptoStore> = Arc::new(bob_store);
         let identity = Arc::new(Mutex::new(PrivateCrossSigningIdentity::empty(alice_id())));
-        let machine = VerificationMachine::new(alice, identity, Arc::new(Box::new(store)));
+        let machine = VerificationMachine::new(alice, identity, Arc::new(store));
         let (bob_sas, start_content) = Sas::start(
             bob,
             PrivateCrossSigningIdentity::empty(bob_id()),
@@ -383,7 +383,7 @@ mod test {
         let alice = ReadOnlyAccount::new(&alice_id(), &alice_device_id());
         let identity = Arc::new(Mutex::new(PrivateCrossSigningIdentity::empty(alice_id())));
         let store = MemoryStore::new();
-        let _ = VerificationMachine::new(alice, identity, Arc::new(Box::new(store)));
+        let _ = VerificationMachine::new(alice, identity, Arc::new(store));
     }
 
     #[tokio::test]

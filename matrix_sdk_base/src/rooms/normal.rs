@@ -52,7 +52,7 @@ pub struct Room {
     room_id: Arc<RoomId>,
     own_user_id: Arc<UserId>,
     inner: Arc<SyncRwLock<RoomInfo>>,
-    store: Arc<Box<dyn StateStore>>,
+    store: Arc<dyn StateStore>,
 }
 
 /// The room summary containing member counts and members that should be used to
@@ -83,7 +83,7 @@ pub enum RoomType {
 impl Room {
     pub(crate) fn new(
         own_user_id: &UserId,
-        store: Arc<Box<dyn StateStore>>,
+        store: Arc<dyn StateStore>,
         room_id: &RoomId,
         room_type: RoomType,
     ) -> Self {
@@ -104,7 +104,7 @@ impl Room {
 
     pub(crate) fn restore(
         own_user_id: &UserId,
-        store: Arc<Box<dyn StateStore>>,
+        store: Arc<dyn StateStore>,
         room_info: RoomInfo,
     ) -> Self {
         Self {

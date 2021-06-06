@@ -68,7 +68,7 @@ impl VerificationRequest {
         cache: VerificationCache,
         account: ReadOnlyAccount,
         private_cross_signing_identity: PrivateCrossSigningIdentity,
-        store: Arc<Box<dyn CryptoStore>>,
+        store: Arc<dyn CryptoStore>,
         room_id: &RoomId,
         event_id: &EventId,
         other_user: &UserId,
@@ -99,7 +99,7 @@ impl VerificationRequest {
         cache: VerificationCache,
         account: ReadOnlyAccount,
         private_cross_signing_identity: PrivateCrossSigningIdentity,
-        store: Arc<Box<dyn CryptoStore>>,
+        store: Arc<dyn CryptoStore>,
         other_user: &UserId,
     ) -> Self {
         let flow_id = Uuid::new_v4().to_string().into();
@@ -178,7 +178,7 @@ impl VerificationRequest {
         cache: VerificationCache,
         account: ReadOnlyAccount,
         private_cross_signing_identity: PrivateCrossSigningIdentity,
-        store: Arc<Box<dyn CryptoStore>>,
+        store: Arc<dyn CryptoStore>,
         sender: &UserId,
         flow_id: FlowId,
         content: &RequestContent,
@@ -377,7 +377,7 @@ struct RequestState<S: Clone> {
     account: ReadOnlyAccount,
     private_cross_signing_identity: PrivateCrossSigningIdentity,
     verification_cache: VerificationCache,
-    store: Arc<Box<dyn CryptoStore>>,
+    store: Arc<dyn CryptoStore>,
     flow_id: Arc<FlowId>,
 
     /// The id of the user which is participating in this verification request.
@@ -418,7 +418,7 @@ impl RequestState<Created> {
         account: ReadOnlyAccount,
         private_identity: PrivateCrossSigningIdentity,
         cache: VerificationCache,
-        store: Arc<Box<dyn CryptoStore>>,
+        store: Arc<dyn CryptoStore>,
         other_user_id: &UserId,
         flow_id: &FlowId,
     ) -> Self {
@@ -479,7 +479,7 @@ impl RequestState<Requested> {
         account: ReadOnlyAccount,
         private_identity: PrivateCrossSigningIdentity,
         cache: VerificationCache,
-        store: Arc<Box<dyn CryptoStore>>,
+        store: Arc<dyn CryptoStore>,
         sender: &UserId,
         flow_id: &FlowId,
         content: &RequestContent,
@@ -626,7 +626,7 @@ impl RequestState<Ready> {
 
     fn start_sas(
         self,
-        store: Arc<Box<dyn CryptoStore>>,
+        store: Arc<dyn CryptoStore>,
         account: ReadOnlyAccount,
         private_identity: PrivateCrossSigningIdentity,
         other_device: ReadOnlyDevice,
