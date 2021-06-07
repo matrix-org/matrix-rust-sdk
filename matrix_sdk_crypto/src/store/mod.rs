@@ -26,7 +26,7 @@
 //! #     OlmMachine,
 //! #     store::MemoryStore,
 //! # };
-//! # use matrix_sdk_common::identifiers::{user_id, DeviceIdBox};
+//! # use ruma::{user_id, DeviceIdBox};
 //! # let user_id = user_id!("@example:localhost");
 //! # let device_id: DeviceIdBox = "TEST".into();
 //! let store = Box::new(MemoryStore::new());
@@ -51,20 +51,17 @@ use std::{
     sync::Arc,
 };
 
-use matrix_sdk_common::{
-    async_trait,
+use matrix_sdk_common::{async_trait, locks::Mutex, uuid::Uuid, AsyncTraitDeps};
+pub use memorystore::MemoryStore;
+use olm_rs::errors::{OlmAccountError, OlmGroupSessionError, OlmSessionError};
+pub use pickle_key::{EncryptedPickleKey, PickleKey};
+use ruma::{
     events::room_key_request::RequestedKeyInfo,
     identifiers::{
         DeviceId, DeviceIdBox, DeviceKeyAlgorithm, Error as IdentifierValidationError, RoomId,
         UserId,
     },
-    locks::Mutex,
-    uuid::Uuid,
-    AsyncTraitDeps,
 };
-pub use memorystore::MemoryStore;
-use olm_rs::errors::{OlmAccountError, OlmGroupSessionError, OlmSessionError};
-pub use pickle_key::{EncryptedPickleKey, PickleKey};
 use serde_json::Error as SerdeError;
 use thiserror::Error;
 

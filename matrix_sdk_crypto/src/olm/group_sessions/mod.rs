@@ -14,11 +14,11 @@
 
 use std::{collections::BTreeMap, convert::TryInto};
 
-use matrix_sdk_common::{
+use ruma::{
     events::forwarded_room_key::{
         ForwardedRoomKeyToDeviceEventContent, ForwardedRoomKeyToDeviceEventContentInit,
     },
-    identifiers::{DeviceKeyAlgorithm, EventEncryptionAlgorithm, RoomId},
+    DeviceKeyAlgorithm, EventEncryptionAlgorithm, RoomId,
 };
 use serde::{Deserialize, Serialize};
 use zeroize::Zeroize;
@@ -130,9 +130,9 @@ mod test {
         time::{Duration, Instant},
     };
 
-    use matrix_sdk_common::{
+    use ruma::{
         events::{room::message::MessageEventContent, AnyMessageEventContent},
-        identifiers::{room_id, user_id},
+        room_id, user_id,
     };
 
     use super::EncryptionSettings;

@@ -18,13 +18,8 @@ use std::{
 };
 
 use dashmap::{DashMap, DashSet};
-use matrix_sdk_common::{
-    async_trait,
-    events::room_key_request::RequestedKeyInfo,
-    identifiers::{DeviceId, DeviceIdBox, RoomId, UserId},
-    locks::Mutex,
-    uuid::Uuid,
-};
+use matrix_sdk_common::{async_trait, locks::Mutex, uuid::Uuid};
+use ruma::{events::room_key_request::RequestedKeyInfo, DeviceId, DeviceIdBox, RoomId, UserId};
 
 use super::{
     caches::{DeviceStore, GroupSessionStore, SessionStore},
@@ -273,7 +268,7 @@ impl CryptoStore for MemoryStore {
 
 #[cfg(test)]
 mod test {
-    use matrix_sdk_common::identifiers::room_id;
+    use ruma::room_id;
 
     use crate::{
         identities::device::test::get_device,

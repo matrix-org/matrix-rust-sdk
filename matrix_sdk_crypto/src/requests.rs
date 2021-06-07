@@ -16,8 +16,9 @@
 
 use std::{collections::BTreeMap, sync::Arc, time::Duration};
 
-use matrix_sdk_common::{
-    api::r0::{
+use matrix_sdk_common::uuid::Uuid;
+use ruma::{
+    api::client::r0::{
         keys::{
             claim_keys::Response as KeysClaimResponse,
             get_keys::Response as KeysQueryResponse,
@@ -32,15 +33,14 @@ use matrix_sdk_common::{
         to_device::{send_event_to_device::Response as ToDeviceResponse, DeviceIdOrAllDevices},
     },
     events::{AnyMessageEventContent, EventType},
-    identifiers::{DeviceIdBox, RoomId, UserId},
-    uuid::Uuid,
+    DeviceIdBox, RoomId, UserId,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue as RawJsonValue;
 
 /// Customized version of
-/// `ruma_client_api::r0::to_device::send_event_to_device::Request`, using a
-/// UUID for the transaction ID.
+/// `ruma_client_api::r0::to_device::send_event_to_device::Request`,
+/// using a UUID for the transaction ID.
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct ToDeviceRequest {
     /// Type of event being sent to each device.
@@ -91,8 +91,9 @@ pub struct UploadSigningKeysRequest {
     pub user_signing_key: Option<CrossSigningKey>,
 }
 
-/// Customized version of `ruma_client_api::r0::keys::get_keys::Request`,
-/// without any references.
+/// Customized version of
+/// `ruma_client_api::r0::keys::get_keys::Request`, without any
+/// references.
 #[derive(Clone, Debug)]
 pub struct KeysQueryRequest {
     /// The time (in milliseconds) to wait when downloading keys from remote

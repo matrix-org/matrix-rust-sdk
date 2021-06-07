@@ -20,14 +20,9 @@ use std::{
 };
 
 use dashmap::DashSet;
-use matrix_sdk_common::{
-    async_trait,
-    events::room_key_request::RequestedKeyInfo,
-    identifiers::{DeviceId, DeviceIdBox, RoomId, UserId},
-    locks::Mutex,
-    uuid,
-};
+use matrix_sdk_common::{async_trait, locks::Mutex, uuid};
 use olm_rs::{account::IdentityKeys, PicklingMode};
+use ruma::{events::room_key_request::RequestedKeyInfo, DeviceId, DeviceIdBox, RoomId, UserId};
 pub use sled::Error;
 use sled::{
     transaction::{ConflictableTransactionError, TransactionError},
@@ -758,14 +753,14 @@ impl CryptoStore for SledStore {
 mod test {
     use std::collections::BTreeMap;
 
-    use matrix_sdk_common::{
-        api::r0::keys::SignedKey,
-        events::room_key_request::RequestedKeyInfo,
-        identifiers::{room_id, user_id, DeviceId, EventEncryptionAlgorithm, UserId},
-        uuid::Uuid,
-    };
+    use matrix_sdk_common::uuid::Uuid;
     use matrix_sdk_test::async_test;
     use olm_rs::outbound_group_session::OlmOutboundGroupSession;
+    use ruma::{
+        api::client::r0::keys::SignedKey,
+        events::room_key_request::RequestedKeyInfo,
+        identifiers::{room_id, user_id, DeviceId, EventEncryptionAlgorithm, UserId},
+    };
     use tempfile::tempdir;
 
     use super::{CryptoStore, OutgoingKeyRequest, SledStore};

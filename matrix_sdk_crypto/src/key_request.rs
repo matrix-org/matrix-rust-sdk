@@ -23,15 +23,15 @@
 use std::{collections::BTreeMap, sync::Arc};
 
 use dashmap::{mapref::entry::Entry, DashMap, DashSet};
-use matrix_sdk_common::{
-    api::r0::to_device::DeviceIdOrAllDevices,
+use matrix_sdk_common::uuid::Uuid;
+use ruma::{
+    api::client::r0::to_device::DeviceIdOrAllDevices,
     events::{
         forwarded_room_key::ForwardedRoomKeyToDeviceEventContent,
         room_key_request::{Action, RequestedKeyInfo, RoomKeyRequestToDeviceEventContent},
         AnyToDeviceEvent, EventType, ToDeviceEvent,
     },
     identifiers::{DeviceId, DeviceIdBox, EventEncryptionAlgorithm, RoomId, UserId},
-    uuid::Uuid,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::value::to_raw_value;
@@ -786,17 +786,17 @@ mod test {
     use std::{convert::TryInto, sync::Arc};
 
     use dashmap::DashMap;
-    use matrix_sdk_common::{
-        api::r0::to_device::DeviceIdOrAllDevices,
+    use matrix_sdk_common::locks::Mutex;
+    use matrix_sdk_test::async_test;
+    use ruma::{
+        api::client::r0::to_device::DeviceIdOrAllDevices,
         events::{
             forwarded_room_key::ForwardedRoomKeyToDeviceEventContent,
             room::encrypted::EncryptedEventContent,
             room_key_request::RoomKeyRequestToDeviceEventContent, AnyToDeviceEvent, ToDeviceEvent,
         },
-        identifiers::{room_id, user_id, DeviceIdBox, RoomId, UserId},
-        locks::Mutex,
+        room_id, user_id, DeviceIdBox, RoomId, UserId,
     };
-    use matrix_sdk_test::async_test;
 
     use super::{KeyRequestMachine, KeyshareDecision};
     use crate::{

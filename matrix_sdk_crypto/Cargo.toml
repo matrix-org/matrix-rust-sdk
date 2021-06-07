@@ -21,6 +21,7 @@ docs = ["sled_cryptostore"]
 
 [dependencies]
 matrix-sdk-common = { version = "0.2.0", path = "../matrix_sdk_common" }
+ruma = { version = "0.1.2", features = ["client-api-c", "unstable-pre-spec"] }
 
 olm-rs = { version = "1.0.0", features = ["serde"] }
 getrandom = "0.2.2"

@@ -4,17 +4,19 @@ mod perf;
 use std::sync::Arc;
 
 use criterion::*;
-use matrix_sdk_common::{
-    api::r0::{
-        keys::{claim_keys, get_keys},
-        to_device::send_event_to_device::Response as ToDeviceResponse,
-    },
-    identifiers::{room_id, user_id, DeviceIdBox, UserId},
-    uuid::Uuid,
-    IncomingResponse,
-};
+use matrix_sdk_common::uuid::Uuid;
 use matrix_sdk_crypto::{EncryptionSettings, OlmMachine};
 use matrix_sdk_test::response_from_file;
+use ruma::{
+    api::{
+        client::r0::{
+            keys::{claim_keys, get_keys},
+            to_device::send_event_to_device::Response as ToDeviceResponse,
+        },
+        IncomingResponse,
+    },
+    room_id, user_id, DeviceIdBox, UserId,
+};
 use serde_json::Value;
 use tokio::runtime::Builder;
 

@@ -19,15 +19,14 @@ use std::{
 
 use dashmap::DashMap;
 use futures::future::join_all;
-use matrix_sdk_common::{
-    api::r0::to_device::DeviceIdOrAllDevices,
+use matrix_sdk_common::{executor::spawn, uuid::Uuid};
+use ruma::{
+    api::client::r0::to_device::DeviceIdOrAllDevices,
     events::{
         room::{encrypted::EncryptedEventContent, history_visibility::HistoryVisibility},
         AnyMessageEventContent, EventType,
     },
-    executor::spawn,
-    identifiers::{DeviceId, DeviceIdBox, RoomId, UserId},
-    uuid::Uuid,
+    DeviceId, DeviceIdBox, RoomId, UserId,
 };
 use serde_json::Value;
 use tracing::{debug, info, trace};
@@ -544,13 +543,15 @@ impl GroupSessionManager {
 
 #[cfg(test)]
 mod test {
-    use matrix_sdk_common::{
-        api::r0::keys::{claim_keys, get_keys},
-        identifiers::{room_id, user_id, DeviceIdBox, UserId},
-        uuid::Uuid,
-        IncomingResponse,
-    };
+    use matrix_sdk_common::uuid::Uuid;
     use matrix_sdk_test::response_from_file;
+    use ruma::{
+        api::{
+            client::r0::keys::{claim_keys, get_keys},
+            IncomingResponse,
+        },
+        room_id, user_id, DeviceIdBox, UserId,
+    };
     use serde_json::Value;
 
     use crate::{EncryptionSettings, OlmMachine};

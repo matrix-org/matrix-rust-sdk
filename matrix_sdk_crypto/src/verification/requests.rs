@@ -16,8 +16,9 @@
 
 use std::sync::{Arc, Mutex};
 
-use matrix_sdk_common::{
-    api::r0::to_device::DeviceIdOrAllDevices,
+use matrix_sdk_common::uuid::Uuid;
+use ruma::{
+    api::client::r0::to_device::DeviceIdOrAllDevices,
     events::{
         key::verification::{
             cancel::CancelCode,
@@ -29,9 +30,7 @@ use matrix_sdk_common::{
         room::message::KeyVerificationRequestEventContent,
         AnyMessageEventContent, AnyToDeviceEventContent,
     },
-    identifiers::{DeviceId, DeviceIdBox, EventId, RoomId, UserId},
-    uuid::Uuid,
-    MilliSecondsSinceUnixEpoch,
+    DeviceId, DeviceIdBox, EventId, MilliSecondsSinceUnixEpoch, RoomId, UserId,
 };
 use tracing::{info, warn};
 
@@ -677,8 +676,8 @@ struct Done {}
 mod test {
     use std::convert::TryFrom;
 
-    use matrix_sdk_common::identifiers::{event_id, room_id, DeviceIdBox, UserId};
     use matrix_sdk_test::async_test;
+    use ruma::{event_id, room_id, DeviceIdBox, UserId};
 
     use super::VerificationRequest;
     use crate::{

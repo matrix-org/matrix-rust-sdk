@@ -23,8 +23,9 @@ use std::{
 };
 
 use atomic::Atomic;
-use matrix_sdk_common::{
-    api::r0::keys::SignedKey,
+use matrix_sdk_common::locks::Mutex;
+use ruma::{
+    api::client::r0::keys::SignedKey,
     encryption::DeviceKeys,
     events::{
         forwarded_room_key::ForwardedRoomKeyToDeviceEventContent,
@@ -33,7 +34,6 @@ use matrix_sdk_common::{
     identifiers::{
         DeviceId, DeviceIdBox, DeviceKeyAlgorithm, DeviceKeyId, EventEncryptionAlgorithm, UserId,
     },
-    locks::Mutex,
 };
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use serde_json::{json, Value};
@@ -570,10 +570,7 @@ impl PartialEq for ReadOnlyDevice {
 pub(crate) mod test {
     use std::convert::TryFrom;
 
-    use matrix_sdk_common::{
-        encryption::DeviceKeys,
-        identifiers::{user_id, DeviceKeyAlgorithm},
-    };
+    use ruma::{encryption::DeviceKeys, user_id, DeviceKeyAlgorithm};
     use serde_json::json;
 
     use crate::identities::{LocalTrust, ReadOnlyDevice};

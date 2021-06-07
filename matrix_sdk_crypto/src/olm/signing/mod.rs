@@ -22,13 +22,13 @@ use std::{
     },
 };
 
-use matrix_sdk_common::{
-    api::r0::keys::{upload_signatures::Request as SignatureUploadRequest, KeyUsage},
-    encryption::DeviceKeys,
-    identifiers::{DeviceKeyAlgorithm, DeviceKeyId, UserId},
-    locks::Mutex,
-};
+use matrix_sdk_common::locks::Mutex;
 use pk_signing::{MasterSigning, PickledSignings, SelfSigning, Signing, SigningError, UserSigning};
+use ruma::{
+    api::client::r0::keys::{upload_signatures::Request as SignatureUploadRequest, KeyUsage},
+    encryption::DeviceKeys,
+    DeviceKeyAlgorithm, DeviceKeyId, UserId,
+};
 use serde::{Deserialize, Serialize};
 use serde_json::Error as JsonError;
 
@@ -387,11 +387,8 @@ impl PrivateCrossSigningIdentity {
 mod test {
     use std::{collections::BTreeMap, sync::Arc};
 
-    use matrix_sdk_common::{
-        api::r0::keys::CrossSigningKey,
-        identifiers::{user_id, UserId},
-    };
     use matrix_sdk_test::async_test;
+    use ruma::{api::client::r0::keys::CrossSigningKey, user_id, UserId};
 
     use super::{PrivateCrossSigningIdentity, Signing};
     use crate::{

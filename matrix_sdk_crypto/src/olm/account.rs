@@ -23,10 +23,17 @@ use std::{
     },
 };
 
+use matrix_sdk_common::{instant::Instant, locks::Mutex};
+use olm_rs::{
+    account::{IdentityKeys, OlmAccount, OneTimeKeys},
+    errors::{OlmAccountError, OlmSessionError},
+    session::{OlmMessage, PreKeyMessage},
+    PicklingMode,
+};
 #[cfg(test)]
-use matrix_sdk_common::events::EventType;
-use matrix_sdk_common::{
-    api::r0::keys::{
+use ruma::events::EventType;
+use ruma::{
+    api::client::r0::keys::{
         upload_keys, upload_signatures::Request as SignatureUploadRequest, OneTimeKey, SignedKey,
     },
     encryption::DeviceKeys,
@@ -38,15 +45,8 @@ use matrix_sdk_common::{
         DeviceId, DeviceIdBox, DeviceKeyAlgorithm, DeviceKeyId, EventEncryptionAlgorithm, RoomId,
         UserId,
     },
-    instant::Instant,
-    locks::Mutex,
-    CanonicalJsonValue, Raw, UInt,
-};
-use olm_rs::{
-    account::{IdentityKeys, OlmAccount, OneTimeKeys},
-    errors::{OlmAccountError, OlmSessionError},
-    session::{OlmMessage, PreKeyMessage},
-    PicklingMode,
+    serde::{CanonicalJsonValue, Raw},
+    UInt,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};

@@ -12,8 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use matrix_sdk_common::identifiers::{DeviceId, Error as IdentifierError, UserId};
 use olm_rs::errors::{OlmGroupSessionError, OlmSessionError};
+use ruma::{identifiers::Error as IdentifierError, DeviceId, UserId};
 use serde_json::Error as SerdeError;
 use thiserror::Error;
 

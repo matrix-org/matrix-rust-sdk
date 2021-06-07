@@ -19,7 +19,9 @@ use std::{
     time::{Duration, Instant},
 };
 
-use matrix_sdk_common::{
+use matrix_sdk_common::uuid::Uuid;
+use olm_rs::sas::OlmSas;
+use ruma::{
     events::{
         key::verification::{
             accept::{
@@ -38,10 +40,8 @@ use matrix_sdk_common::{
         },
         AnyMessageEventContent, AnyToDeviceEventContent,
     },
-    identifiers::{DeviceId, EventId, RoomId, UserId},
-    uuid::Uuid,
+    DeviceId, EventId, RoomId, UserId,
 };
-use olm_rs::sas::OlmSas;
 use tracing::info;
 
 use super::{
@@ -1088,12 +1088,12 @@ impl SasState<Cancelled> {
 mod test {
     use std::convert::TryFrom;
 
-    use matrix_sdk_common::{
+    use ruma::{
         events::key::verification::{
             accept::{AcceptMethod, CustomContent},
             start::{CustomContent as CustomStartContent, StartMethod},
         },
-        identifiers::{DeviceId, UserId},
+        DeviceId, UserId,
     };
 
     use super::{Accepted, Created, SasState, Started};

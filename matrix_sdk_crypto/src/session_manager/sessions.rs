@@ -15,15 +15,15 @@
 use std::{collections::BTreeMap, sync::Arc, time::Duration};
 
 use dashmap::{DashMap, DashSet};
-use matrix_sdk_common::{
-    api::r0::{
+use matrix_sdk_common::uuid::Uuid;
+use ruma::{
+    api::client::r0::{
         keys::claim_keys::{Request as KeysClaimRequest, Response as KeysClaimResponse},
         to_device::DeviceIdOrAllDevices,
     },
     assign,
     events::EventType,
-    identifiers::{DeviceId, DeviceIdBox, DeviceKeyAlgorithm, UserId},
-    uuid::Uuid,
+    DeviceId, DeviceIdBox, DeviceKeyAlgorithm, UserId,
 };
 use serde_json::{json, value::to_raw_value};
 use tracing::{error, info, warn};
@@ -297,12 +297,12 @@ mod test {
     use std::{collections::BTreeMap, sync::Arc};
 
     use dashmap::DashMap;
-    use matrix_sdk_common::{
-        api::r0::keys::claim_keys::Response as KeyClaimResponse,
-        identifiers::{user_id, DeviceIdBox, UserId},
-        locks::Mutex,
-    };
+    use matrix_sdk_common::locks::Mutex;
     use matrix_sdk_test::async_test;
+    use ruma::{
+        api::client::r0::keys::claim_keys::Response as KeyClaimResponse, user_id, DeviceIdBox,
+        UserId,
+    };
 
     use super::SessionManager;
     use crate::{
@@ -401,10 +401,8 @@ mod test {
     #[async_test]
     #[cfg(target_os = "linux")]
     async fn session_unwedging() {
-        use matrix_sdk_common::{
-            identifiers::DeviceKeyAlgorithm,
-            instant::{Duration, Instant},
-        };
+        use matrix_sdk_common::instant::{Duration, Instant};
+        use ruma::DeviceKeyAlgorithm;
 
         let manager = session_manager().await;
         let bob = bob_account();

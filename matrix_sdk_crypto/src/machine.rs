@@ -18,7 +18,12 @@ use std::{collections::BTreeMap, mem, sync::Arc};
 
 use dashmap::DashMap;
 use matrix_sdk_common::{
-    api::r0::{
+    deserialized_responses::{AlgorithmInfo, EncryptionInfo, SyncRoomEvent, VerificationState},
+    locks::Mutex,
+    uuid::Uuid,
+};
+use ruma::{
+    api::client::r0::{
         keys::{
             claim_keys::{Request as KeysClaimRequest, Response as KeysClaimResponse},
             get_keys::Response as KeysQueryResponse,
@@ -28,18 +33,12 @@ use matrix_sdk_common::{
         sync::sync_events::{DeviceLists, ToDevice},
     },
     assign,
-    deserialized_responses::{AlgorithmInfo, EncryptionInfo, SyncRoomEvent, VerificationState},
     events::{
         room::encrypted::{EncryptedEventContent, EncryptedEventScheme},
         room_key::RoomKeyToDeviceEventContent,
         AnyMessageEventContent, AnyRoomEvent, AnyToDeviceEvent, SyncMessageEvent, ToDeviceEvent,
     },
-    identifiers::{
-        DeviceId, DeviceIdBox, DeviceKeyAlgorithm, EventEncryptionAlgorithm, RoomId, UserId,
-    },
-    locks::Mutex,
-    uuid::Uuid,
-    UInt,
+    DeviceId, DeviceIdBox, DeviceKeyAlgorithm, EventEncryptionAlgorithm, RoomId, UInt, UserId,
 };
 use tracing::{debug, error, info, trace, warn};
 
@@ -412,7 +411,7 @@ impl OlmMachine {
     /// ```
     /// # use std::convert::TryFrom;
     /// # use matrix_sdk_crypto::OlmMachine;
-    /// # use matrix_sdk_common::identifiers::UserId;
+    /// # use ruma::UserId;
     /// # use futures::executor::block_on;
     /// # let alice = UserId::try_from("@alice:example.org").unwrap();
     /// # let machine = OlmMachine::new(&alice, "DEVICEID".into());
@@ -1031,7 +1030,7 @@ impl OlmMachine {
     /// ```
     /// # use std::convert::TryFrom;
     /// # use matrix_sdk_crypto::OlmMachine;
-    /// # use matrix_sdk_common::identifiers::UserId;
+    /// # use ruma::UserId;
     /// # use futures::executor::block_on;
     /// # let alice = UserId::try_from("@alice:example.org").unwrap();
     /// # let machine = OlmMachine::new(&alice, "DEVICEID".into());
@@ -1060,7 +1059,7 @@ impl OlmMachine {
     /// ```
     /// # use std::convert::TryFrom;
     /// # use matrix_sdk_crypto::OlmMachine;
-    /// # use matrix_sdk_common::identifiers::UserId;
+    /// # use ruma::UserId;
     /// # use futures::executor::block_on;
     /// # let alice = UserId::try_from("@alice:example.org").unwrap();
     /// # let machine = OlmMachine::new(&alice, "DEVICEID".into());
@@ -1092,7 +1091,7 @@ impl OlmMachine {
     /// ```no_run
     /// # use std::io::Cursor;
     /// # use matrix_sdk_crypto::{OlmMachine, decrypt_key_export};
-    /// # use matrix_sdk_common::identifiers::user_id;
+    /// # use ruma::user_id;
     /// # use futures::executor::block_on;
     /// # let alice = user_id!("@alice:example.org");
     /// # let machine = OlmMachine::new(&alice, "DEVICEID".into());
@@ -1179,7 +1178,7 @@ impl OlmMachine {
     ///
     /// ```no_run
     /// # use matrix_sdk_crypto::{OlmMachine, encrypt_key_export};
-    /// # use matrix_sdk_common::identifiers::{user_id, room_id};
+    /// # use ruma::{user_id, room_id};
     /// # use futures::executor::block_on;
     /// # let alice = user_id!("@alice:example.org");
     /// # let machine = OlmMachine::new(&alice, "DEVICEID".into());
@@ -1223,8 +1222,12 @@ pub(crate) mod test {
     };
 
     use http::Response;
-    use matrix_sdk_common::{
-        api::r0::keys::{claim_keys, get_keys, upload_keys, OneTimeKey},
+    use matrix_sdk_test::test_json;
+    use ruma::{
+        api::{
+            client::r0::keys::{claim_keys, get_keys, upload_keys, OneTimeKey},
+            IncomingResponse,
+        },
         events::{
             room::{
                 encrypted::EncryptedEventContent,
@@ -1236,9 +1239,9 @@ pub(crate) mod test {
         identifiers::{
             event_id, room_id, user_id, DeviceId, DeviceKeyAlgorithm, DeviceKeyId, UserId,
         },
-        IncomingResponse, MilliSecondsSinceUnixEpoch, Raw,
+        serde::Raw,
+        uint, MilliSecondsSinceUnixEpoch,
     };
-    use matrix_sdk_test::test_json;
     use serde_json::json;
 
     use crate::{
@@ -1250,8 +1253,6 @@ pub(crate) mod test {
 
     /// These keys need to be periodically uploaded to the server.
     type OneTimeKeys = BTreeMap<DeviceKeyId, OneTimeKey>;
-
-    use matrix_sdk_common::uint;
 
     fn alice_id() -> UserId {
         user_id!("@alice:example.org")

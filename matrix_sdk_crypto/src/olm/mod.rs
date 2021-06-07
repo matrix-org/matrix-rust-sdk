@@ -61,12 +61,12 @@ where
 pub(crate) mod test {
     use std::{collections::BTreeMap, convert::TryInto};
 
-    use matrix_sdk_common::{
-        api::r0::keys::SignedKey,
-        events::forwarded_room_key::ForwardedRoomKeyToDeviceEventContent,
-        identifiers::{room_id, user_id, DeviceId, UserId},
-    };
     use olm_rs::session::OlmMessage;
+    use ruma::{
+        api::client::r0::keys::SignedKey,
+        events::forwarded_room_key::ForwardedRoomKeyToDeviceEventContent, room_id, user_id,
+        DeviceId, UserId,
+    };
 
     use crate::olm::{InboundGroupSession, ReadOnlyAccount, Session};
 

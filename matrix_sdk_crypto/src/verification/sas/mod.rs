@@ -22,8 +22,9 @@ use std::time::Instant;
 
 pub use helpers::content_to_request;
 use inner_sas::InnerSas;
-use matrix_sdk_common::{
-    api::r0::keys::upload_signatures::Request as SignatureUploadRequest,
+use matrix_sdk_common::uuid::Uuid;
+use ruma::{
+    api::client::r0::keys::upload_signatures::Request as SignatureUploadRequest,
     events::{
         key::verification::{
             accept::{AcceptEventContent, AcceptMethod, AcceptToDeviceEventContent},
@@ -32,8 +33,7 @@ use matrix_sdk_common::{
         },
         AnyMessageEventContent, AnyToDeviceEventContent,
     },
-    identifiers::{DeviceId, EventId, RoomId, UserId},
-    uuid::Uuid,
+    DeviceId, EventId, RoomId, UserId,
 };
 use tracing::trace;
 
@@ -486,7 +486,7 @@ impl AcceptSettings {
 mod test {
     use std::{convert::TryFrom, sync::Arc};
 
-    use matrix_sdk_common::identifiers::{DeviceId, UserId};
+    use ruma::{DeviceId, UserId};
 
     use super::Sas;
     use crate::{

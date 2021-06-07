@@ -22,8 +22,9 @@ use std::sync::Arc;
 
 use event_enums::OutgoingContent;
 pub use machine::VerificationMachine;
-use matrix_sdk_common::{
-    api::r0::keys::upload_signatures::Request as SignatureUploadRequest,
+pub use requests::VerificationRequest;
+use ruma::{
+    api::client::r0::keys::upload_signatures::Request as SignatureUploadRequest,
     events::{
         key::verification::{
             cancel::{CancelCode, CancelEventContent, CancelToDeviceEventContent},
@@ -32,9 +33,8 @@ use matrix_sdk_common::{
         },
         AnyMessageEventContent, AnyToDeviceEventContent,
     },
-    identifiers::{DeviceId, EventId, RoomId, UserId},
+    DeviceId, EventId, RoomId, UserId,
 };
-pub use requests::VerificationRequest;
 pub use sas::{AcceptSettings, Sas};
 use tracing::{error, info, trace, warn};
 
@@ -445,9 +445,9 @@ impl IdentitiesBeingVerified {
 
 #[cfg(test)]
 pub(crate) mod test {
-    use matrix_sdk_common::{
+    use ruma::{
         events::{AnyToDeviceEvent, AnyToDeviceEventContent, EventType, ToDeviceEvent},
-        identifiers::UserId,
+        UserId,
     };
     use serde_json::Value;
 

@@ -19,16 +19,16 @@ use aes_gcm::{
     Aes256Gcm,
 };
 use getrandom::getrandom;
-use matrix_sdk_common::{
-    api::r0::keys::{CrossSigningKey, KeyUsage},
-    encryption::DeviceKeys,
-    identifiers::{DeviceKeyAlgorithm, DeviceKeyId, UserId},
-    locks::Mutex,
-    CanonicalJsonValue,
-};
+use matrix_sdk_common::locks::Mutex;
 use olm_rs::pk::OlmPkSigning;
 #[cfg(test)]
 use olm_rs::{errors::OlmUtilityError, utility::OlmUtility};
+use ruma::{
+    api::client::r0::keys::{CrossSigningKey, KeyUsage},
+    encryption::DeviceKeys,
+    serde::CanonicalJsonValue,
+    DeviceKeyAlgorithm, DeviceKeyId, UserId,
+};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Error as JsonError, Value};
 use thiserror::Error;

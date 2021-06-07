@@ -14,7 +14,13 @@
 
 use std::{collections::BTreeMap, fmt, sync::Arc};
 
-use matrix_sdk_common::{
+use matrix_sdk_common::{instant::Instant, locks::Mutex};
+use olm_rs::{errors::OlmSessionError, session::OlmSession, PicklingMode};
+pub use olm_rs::{
+    session::{OlmMessage, PreKeyMessage},
+    utility::OlmUtility,
+};
+use ruma::{
     events::{
         room::encrypted::{
             CiphertextInfo, EncryptedEventContent, EncryptedEventScheme,
@@ -23,13 +29,6 @@ use matrix_sdk_common::{
         EventType,
     },
     identifiers::{DeviceId, DeviceKeyAlgorithm, UserId},
-    instant::Instant,
-    locks::Mutex,
-};
-use olm_rs::{errors::OlmSessionError, session::OlmSession, PicklingMode};
-pub use olm_rs::{
-    session::{OlmMessage, PreKeyMessage},
-    utility::OlmUtility,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};

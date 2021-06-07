@@ -17,7 +17,7 @@ use std::{
     convert::{TryFrom, TryInto},
 };
 
-use matrix_sdk_common::{
+use ruma::{
     events::{
         key::verification::{
             accept::{AcceptEventContent, AcceptMethod, AcceptToDeviceEventContent},
@@ -34,7 +34,7 @@ use matrix_sdk_common::{
         AnyMessageEvent, AnyMessageEventContent, AnyToDeviceEvent, AnyToDeviceEventContent,
     },
     identifiers::{DeviceId, RoomId, UserId},
-    CanonicalJsonValue,
+    serde::CanonicalJsonValue,
 };
 
 use super::FlowId;
@@ -676,7 +676,7 @@ impl TryFrom<ToDeviceRequest> for OutgoingContent {
     type Error = ();
 
     fn try_from(value: ToDeviceRequest) -> Result<Self, Self::Error> {
-        use matrix_sdk_common::events::EventType;
+        use ruma::events::EventType;
         use serde_json::Value;
 
         let json: Value = serde_json::from_str(

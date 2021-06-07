@@ -19,10 +19,10 @@ use std::{
 };
 
 use futures::future::join_all;
-use matrix_sdk_common::{
-    api::r0::keys::get_keys::Response as KeysQueryResponse,
+use matrix_sdk_common::executor::spawn;
+use ruma::{
+    api::client::r0::keys::get_keys::Response as KeysQueryResponse,
     encryption::DeviceKeys,
-    executor::spawn,
     identifiers::{DeviceId, DeviceIdBox, UserId},
 };
 use tracing::{trace, warn};
@@ -390,13 +390,12 @@ impl IdentityManager {
 pub(crate) mod test {
     use std::sync::Arc;
 
-    use matrix_sdk_common::{
-        api::r0::keys::get_keys::Response as KeyQueryResponse,
-        identifiers::{user_id, DeviceIdBox, UserId},
-        locks::Mutex,
-        IncomingResponse,
-    };
+    use matrix_sdk_common::locks::Mutex;
     use matrix_sdk_test::async_test;
+    use ruma::{
+        api::{client::r0::keys::get_keys::Response as KeyQueryResponse, IncomingResponse},
+        user_id, DeviceIdBox, UserId,
+    };
     use serde_json::json;
 
     use crate::{

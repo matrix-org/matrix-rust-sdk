@@ -14,7 +14,16 @@
 
 use std::{collections::BTreeMap, convert::TryFrom, fmt, mem, sync::Arc};
 
-use matrix_sdk_common::{
+use matrix_sdk_common::locks::Mutex;
+pub use olm_rs::{
+    account::IdentityKeys,
+    session::{OlmMessage, PreKeyMessage},
+    utility::OlmUtility,
+};
+use olm_rs::{
+    errors::OlmGroupSessionError, inbound_group_session::OlmInboundGroupSession, PicklingMode,
+};
+use ruma::{
     events::{
         forwarded_room_key::ForwardedRoomKeyToDeviceEventContent,
         room::{
@@ -24,16 +33,7 @@ use matrix_sdk_common::{
         AnySyncRoomEvent, SyncMessageEvent,
     },
     identifiers::{DeviceKeyAlgorithm, EventEncryptionAlgorithm, RoomId},
-    locks::Mutex,
-    Raw,
-};
-pub use olm_rs::{
-    account::IdentityKeys,
-    session::{OlmMessage, PreKeyMessage},
-    utility::OlmUtility,
-};
-use olm_rs::{
-    errors::OlmGroupSessionError, inbound_group_session::OlmInboundGroupSession, PicklingMode,
+    serde::Raw,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;

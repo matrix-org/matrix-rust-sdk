@@ -14,11 +14,8 @@
 
 use std::convert::TryInto;
 
-use matrix_sdk_common::{
-    identifiers::{DeviceKeyAlgorithm, DeviceKeyId, UserId},
-    CanonicalJsonValue,
-};
 use olm_rs::utility::OlmUtility;
+use ruma::{serde::CanonicalJsonValue, DeviceKeyAlgorithm, DeviceKeyId, UserId};
 use serde_json::Value;
 
 use crate::error::SignatureError;
@@ -97,7 +94,7 @@ impl Utility {
 
 #[cfg(test)]
 mod test {
-    use matrix_sdk_common::identifiers::{user_id, DeviceKeyAlgorithm, DeviceKeyId};
+    use ruma::{user_id, DeviceKeyAlgorithm, DeviceKeyId};
     use serde_json::json;
 
     use super::Utility;

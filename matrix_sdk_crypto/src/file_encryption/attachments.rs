@@ -23,7 +23,7 @@ use aes_ctr::{
 };
 use base64::DecodeError;
 use getrandom::getrandom;
-use matrix_sdk_common::events::room::{EncryptedFile, JsonWebKey, JsonWebKeyInit};
+use ruma::events::room::{EncryptedFile, JsonWebKey, JsonWebKeyInit};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use thiserror::Error;

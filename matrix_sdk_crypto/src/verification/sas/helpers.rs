@@ -14,8 +14,10 @@
 
 use std::{collections::BTreeMap, convert::TryInto};
 
-use matrix_sdk_common::{
-    api::r0::to_device::DeviceIdOrAllDevices,
+use matrix_sdk_common::uuid::Uuid;
+use olm_rs::sas::OlmSas;
+use ruma::{
+    api::client::r0::to_device::DeviceIdOrAllDevices,
     events::{
         key::verification::{
             cancel::CancelCode,
@@ -24,10 +26,8 @@ use matrix_sdk_common::{
         },
         AnyMessageEventContent, AnyToDeviceEventContent, EventType,
     },
-    identifiers::{DeviceKeyAlgorithm, DeviceKeyId, UserId},
-    uuid::Uuid,
+    DeviceKeyAlgorithm, DeviceKeyId, UserId,
 };
-use olm_rs::sas::OlmSas;
 use sha2::{Digest, Sha256};
 use tracing::{trace, warn};
 
@@ -557,8 +557,8 @@ pub fn content_to_request(
 
 #[cfg(test)]
 mod test {
-    use matrix_sdk_common::events::key::verification::start::StartToDeviceEventContent;
     use proptest::prelude::*;
+    use ruma::events::key::verification::start::StartToDeviceEventContent;
     use serde_json::json;
 
     use super::{

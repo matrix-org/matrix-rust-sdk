@@ -24,8 +24,17 @@ use std::{
 };
 
 use dashmap::DashMap;
-use matrix_sdk_common::{
-    api::r0::to_device::DeviceIdOrAllDevices,
+use matrix_sdk_common::{instant::Instant, locks::Mutex, uuid::Uuid};
+pub use olm_rs::{
+    account::IdentityKeys,
+    session::{OlmMessage, PreKeyMessage},
+    utility::OlmUtility,
+};
+use olm_rs::{
+    errors::OlmGroupSessionError, outbound_group_session::OlmOutboundGroupSession, PicklingMode,
+};
+use ruma::{
+    api::client::r0::to_device::DeviceIdOrAllDevices,
     events::{
         room::{
             encrypted::{EncryptedEventContent, EncryptedEventScheme, MegolmV1AesSha2ContentInit},
@@ -35,18 +44,7 @@ use matrix_sdk_common::{
         },
         AnyMessageEventContent, EventContent,
     },
-    identifiers::{DeviceId, DeviceIdBox, EventEncryptionAlgorithm, RoomId, UserId},
-    instant::Instant,
-    locks::Mutex,
-    uuid::Uuid,
-};
-pub use olm_rs::{
-    account::IdentityKeys,
-    session::{OlmMessage, PreKeyMessage},
-    utility::OlmUtility,
-};
-use olm_rs::{
-    errors::OlmGroupSessionError, outbound_group_session::OlmOutboundGroupSession, PicklingMode,
+    DeviceId, DeviceIdBox, EventEncryptionAlgorithm, RoomId, UserId,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -572,10 +570,9 @@ pub struct PickledOutboundGroupSession {
 mod test {
     use std::time::Duration;
 
-    use matrix_sdk_common::{
+    use ruma::{
         events::room::{encryption::EncryptionEventContent, history_visibility::HistoryVisibility},
-        identifiers::EventEncryptionAlgorithm,
-        uint,
+        uint, EventEncryptionAlgorithm,
     };
 
     use super::{EncryptionSettings, ROTATION_MESSAGES, ROTATION_PERIOD};

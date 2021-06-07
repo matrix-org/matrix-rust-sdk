@@ -15,11 +15,8 @@
 use std::{convert::TryFrom, sync::Arc};
 
 use dashmap::DashMap;
-use matrix_sdk_common::{
-    identifiers::{DeviceId, UserId},
-    locks::Mutex,
-    uuid::Uuid,
-};
+use matrix_sdk_common::{locks::Mutex, uuid::Uuid};
+use ruma::{DeviceId, UserId};
 use tracing::{info, warn};
 
 use super::{
@@ -314,10 +311,8 @@ mod test {
         time::{Duration, Instant},
     };
 
-    use matrix_sdk_common::{
-        identifiers::{DeviceId, UserId},
-        locks::Mutex,
-    };
+    use matrix_sdk_common::locks::Mutex;
+    use ruma::{DeviceId, UserId};
 
     use super::{Sas, VerificationMachine};
     use crate::{

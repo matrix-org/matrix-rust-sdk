@@ -20,10 +20,8 @@
 use std::{collections::HashMap, sync::Arc};
 
 use dashmap::DashMap;
-use matrix_sdk_common::{
-    identifiers::{DeviceId, DeviceIdBox, RoomId, UserId},
-    locks::Mutex,
-};
+use matrix_sdk_common::locks::Mutex;
+use ruma::{DeviceId, DeviceIdBox, RoomId, UserId};
 
 use crate::{
     identities::ReadOnlyDevice,
@@ -184,7 +182,7 @@ impl DeviceStore {
 
 #[cfg(test)]
 mod test {
-    use matrix_sdk_common::identifiers::room_id;
+    use ruma::room_id;
 
     use crate::{
         identities::device::test::get_device,

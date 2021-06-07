@@ -21,9 +21,9 @@ use std::{
     },
 };
 
-use matrix_sdk_common::{
-    api::r0::keys::{CrossSigningKey, KeyUsage},
-    identifiers::{DeviceKeyId, UserId},
+use ruma::{
+    api::client::r0::keys::{CrossSigningKey, KeyUsage},
+    DeviceKeyId, UserId,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::to_value;
@@ -680,10 +680,9 @@ impl OwnUserIdentity {
 pub(crate) mod test {
     use std::{convert::TryFrom, sync::Arc};
 
-    use matrix_sdk_common::{
-        api::r0::keys::get_keys::Response as KeyQueryResponse, identifiers::user_id, locks::Mutex,
-    };
+    use matrix_sdk_common::locks::Mutex;
     use matrix_sdk_test::async_test;
+    use ruma::{api::client::r0::keys::get_keys::Response as KeyQueryResponse, user_id};
 
     use super::{OwnUserIdentity, UserIdentities, UserIdentity};
     use crate::{

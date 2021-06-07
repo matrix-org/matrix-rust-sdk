@@ -15,10 +15,8 @@
 use std::sync::Arc;
 
 use dashmap::DashMap;
-use matrix_sdk_common::{
-    identifiers::{DeviceId, UserId},
-    uuid::Uuid,
-};
+use matrix_sdk_common::uuid::Uuid;
+use ruma::{DeviceId, UserId};
 
 use super::{event_enums::OutgoingContent, sas::content_to_request, Sas, Verification};
 use crate::{OutgoingRequest, RoomMessageRequest};
