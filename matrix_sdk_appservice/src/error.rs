@@ -67,6 +67,10 @@ pub enum Error {
     #[error(transparent)]
     SerdeJson(#[from] serde_json::Error),
 
+    #[cfg(feature = "warp")]
+    #[error("warp rejection: {0}")]
+    WarpRejection(String),
+
     #[cfg(feature = "actix")]
     #[error(transparent)]
     Actix(#[from] actix_web::Error),
@@ -81,3 +85,10 @@ impl actix_web::error::ResponseError for Error {}
 
 #[cfg(feature = "warp")]
 impl warp::reject::Reject for Error {}
+
+#[cfg(feature = "warp")]
+impl From<warp::Rejection> for Error {
+    fn from(rejection: warp::Rejection) -> Self {
+        Self::WarpRejection(format!("{:?}", rejection))
+    }
+}

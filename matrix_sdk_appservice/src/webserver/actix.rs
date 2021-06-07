@@ -33,7 +33,7 @@ pub async fn run_server(
     host: impl Into<String>,
     port: impl Into<u16>,
 ) -> Result<(), Error> {
-    HttpServer::new(move || App::new().service(appservice.actix_service()))
+    HttpServer::new(move || App::new().configure(appservice.actix_configure()))
         .bind((host.into(), port.into()))?
         .run()
         .await?;
@@ -41,13 +41,14 @@ pub async fn run_server(
     Ok(())
 }
 
-pub fn get_scope() -> Scope {
-    gen_scope("/"). // handle legacy routes
-    service(gen_scope("/_matrix/app/v1"))
-}
-
-fn gen_scope(scope: &str) -> Scope {
-    web::scope(scope).service(push_transactions).service(query_user_id).service(query_room_alias)
+pub fn configure(config: &mut actix_web::web::ServiceConfig) {
+    // also handles legacy routes
+    config.service(push_transactions).service(query_user_id).service(query_room_alias).service(
+        web::scope("/_matrix/app/v1")
+            .service(push_transactions)
+            .service(query_user_id)
+            .service(query_room_alias),
+    );
 }
 
 #[tracing::instrument]

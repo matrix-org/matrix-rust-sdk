@@ -38,8 +38,9 @@ pub async fn run_server(
 }
 
 pub fn warp_filter(appservice: Appservice) -> BoxedFilter<(impl Reply,)> {
+    // TODO: try to use a struct instead of cloning appservice before `warp::path!`
+    // matching
     warp::any()
-        .and(filters::valid_access_token(appservice.registration().hs_token.clone()))
         .and(filters::transactions(appservice))
         .or(filters::users())
         .or(filters::rooms())
@@ -82,6 +83,7 @@ mod filters {
                     .or(warp::path!("transactions" / String))
                     .unify(),
             )
+            .and(filters::valid_access_token(appservice.registration().hs_token.clone()))
             .and(with_appservice(appservice))
             .and(http_request().and_then(|request| async move {
                 let request = crate::transform_legacy_route(request).map_err(Error::from)?;
@@ -181,18 +183,15 @@ struct ErrorMessage {
     message: String,
 }
 
-pub async fn handle_rejection(
-    err: Rejection,
-) -> std::result::Result<impl Reply, std::convert::Infallible> {
-    let mut code = http::StatusCode::INTERNAL_SERVER_ERROR;
-    let mut message = "INTERNAL_SERVER_ERROR";
-
+pub async fn handle_rejection(err: Rejection) -> std::result::Result<impl Reply, Rejection> {
     if err.find::<Unauthorized>().is_some() || err.find::<warp::reject::InvalidQuery>().is_some() {
-        code = http::StatusCode::UNAUTHORIZED;
-        message = "UNAUTHORIZED";
+        let code = http::StatusCode::UNAUTHORIZED;
+        let message = "UNAUTHORIZED";
+
+        let json =
+            warp::reply::json(&ErrorMessage { code: code.as_u16(), message: message.into() });
+        Ok(warp::reply::with_status(json, code))
+    } else {
+        Err(err)
     }
-
-    let json = warp::reply::json(&ErrorMessage { code: code.as_u16(), message: message.into() });
-
-    Ok(warp::reply::with_status(json, code))
 }

@@ -105,11 +105,8 @@ use ruma::{
 };
 use tracing::{info, warn};
 
-#[cfg(feature = "actix")]
-mod actix;
 mod error;
-#[cfg(feature = "warp")]
-mod warp;
+mod webserver;
 
 pub type Result<T> = std::result::Result<T, Error>;
 pub type Host = String;
@@ -427,18 +424,35 @@ impl Appservice {
         Ok(false)
     }
 
-    /// [`actix_web::Scope`] to be used with [`actix_web::App::service()`]
+    /// Returns a closure to be used with [`actix_web::App::configure()`]
+    ///
+    /// Note that if you handle any of the [application-service-specific
+    /// routes], including the legacy routes, you will break the appservice
+    /// functionality.
+    ///
+    /// [application-service-specific routes]: https://spec.matrix.org/unstable/application-service-api/#legacy-routes
     #[cfg(feature = "actix")]
     #[cfg_attr(docs, doc(cfg(feature = "actix")))]
-    pub fn actix_service(&self) -> actix::Scope {
-        actix::get_scope().data(self.clone())
+    pub fn actix_configure(&self) -> impl FnOnce(&mut actix_web::web::ServiceConfig) {
+        let appservice = self.clone();
+
+        move |config| {
+            config.data(appservice);
+            webserver::actix::configure(config);
+        }
     }
 
-    /// [`::warp::Filter`] to be used as warp serve route
+    /// Returns a [`warp::Filter`] to be used as [`warp::serve()`] route
+    ///
+    /// Note that if you handle any of the [application-service-specific
+    /// routes], including the legacy routes, you will break the appservice
+    /// functionality.
+    ///
+    /// [application-service-specific routes]: https://spec.matrix.org/unstable/application-service-api/#legacy-routes
     #[cfg(feature = "warp")]
     #[cfg_attr(docs, doc(cfg(feature = "warp")))]
-    pub fn warp_filter(&self) -> ::warp::filters::BoxedFilter<(impl ::warp::Reply,)> {
-        crate::warp::warp_filter(self.clone())
+    pub fn warp_filter(&self) -> warp::filters::BoxedFilter<(impl warp::Reply,)> {
+        webserver::warp::warp_filter(self.clone())
     }
 
     /// Convenience method that runs an http server depending on the selected
@@ -453,13 +467,13 @@ impl Appservice {
 
         #[cfg(feature = "actix")]
         {
-            actix::run_server(self.clone(), host, port).await?;
+            webserver::actix::run_server(self.clone(), host, port).await?;
             Ok(())
         }
 
         #[cfg(feature = "warp")]
         {
-            warp::run_server(self.clone(), host, port).await?;
+            webserver::warp::run_server(self.clone(), host, port).await?;
             Ok(())
         }
 

@@ -1,10 +1,7 @@
-use std::{
-    env,
-    sync::{Arc, Mutex},
-};
+use std::sync::{Arc, Mutex};
 
 #[cfg(feature = "actix")]
-use actix_web::{test as actix_test, App as ActixApp};
+use actix_web::{test as actix_test, App as ActixApp, HttpResponse};
 use matrix_sdk::{
     api_appservice::Registration,
     async_trait,
@@ -17,17 +14,17 @@ use matrix_sdk_test::{appservice::TransactionBuilder, async_test, EventsJson};
 use sdk::{ClientConfig, RequestConfig};
 use serde_json::json;
 #[cfg(feature = "warp")]
-use warp::Reply;
+use warp::{Filter, Reply};
 
 fn registration_string() -> String {
     include_str!("../tests/registration.yaml").to_owned()
 }
 
 async fn appservice(registration: Option<Registration>) -> Result<Appservice> {
-    env::set_var(
-        "RUST_LOG",
-        "mockito=debug,matrix_sdk=debug,ruma=debug,actix_web=debug,warp=debug",
-    );
+    // env::set_var(
+    //     "RUST_LOG",
+    //     "mockito=debug,matrix_sdk=debug,ruma=debug,actix_web=debug,warp=debug",
+    // );
     let _ = tracing_subscriber::fmt::try_init();
 
     let registration = match registration {
@@ -104,7 +101,7 @@ async fn test_put_transaction() -> Result<()> {
     #[cfg(feature = "actix")]
     let status = {
         let app =
-            actix_test::init_service(ActixApp::new().service(appservice.actix_service())).await;
+            actix_test::init_service(ActixApp::new().configure(appservice.actix_configure())).await;
 
         let req = actix_test::TestRequest::put().uri(uri).set_json(&transaction).to_request();
 
@@ -135,7 +132,7 @@ async fn test_get_user() -> Result<()> {
     #[cfg(feature = "actix")]
     let status = {
         let app =
-            actix_test::init_service(ActixApp::new().service(appservice.actix_service())).await;
+            actix_test::init_service(ActixApp::new().configure(appservice.actix_configure())).await;
 
         let req = actix_test::TestRequest::get().uri(uri).to_request();
 
@@ -166,7 +163,7 @@ async fn test_get_room() -> Result<()> {
     #[cfg(feature = "actix")]
     let status = {
         let app =
-            actix_test::init_service(ActixApp::new().service(appservice.actix_service())).await;
+            actix_test::init_service(ActixApp::new().configure(appservice.actix_configure())).await;
 
         let req = actix_test::TestRequest::get().uri(uri).to_request();
 
@@ -202,7 +199,7 @@ async fn test_invalid_access_token() -> Result<()> {
     #[cfg(feature = "actix")]
     let status = {
         let app =
-            actix_test::init_service(ActixApp::new().service(appservice.actix_service())).await;
+            actix_test::init_service(ActixApp::new().configure(appservice.actix_configure())).await;
 
         let req = actix_test::TestRequest::put().uri(uri).set_json(&transaction).to_request();
 
@@ -242,7 +239,7 @@ async fn test_no_access_token() -> Result<()> {
     #[cfg(feature = "actix")]
     {
         let app =
-            actix_test::init_service(ActixApp::new().service(appservice.actix_service())).await;
+            actix_test::init_service(ActixApp::new().configure(appservice.actix_configure())).await;
 
         let req = actix_test::TestRequest::put().uri(uri).set_json(&transaction).to_request();
 
@@ -267,7 +264,7 @@ async fn test_event_handler() -> Result<()> {
 
     impl Example {
         pub fn new() -> Self {
-            #[allow(clippy::mutex::mutex_atomic)]
+            #[allow(clippy::mutex_atomic)]
             Self { on_state_member: Arc::new(Mutex::new(false)) }
         }
     }
@@ -299,9 +296,9 @@ async fn test_event_handler() -> Result<()> {
         .unwrap();
 
     #[cfg(feature = "actix")]
-    let status = {
+    {
         let app =
-            actix_test::init_service(ActixApp::new().service(appservice.actix_service())).await;
+            actix_test::init_service(ActixApp::new().configure(appservice.actix_configure())).await;
 
         let req = actix_test::TestRequest::put().uri(uri).set_json(&transaction).to_request();
 
@@ -310,6 +307,45 @@ async fn test_event_handler() -> Result<()> {
 
     let on_room_member_called = *example.on_state_member.lock().unwrap();
     assert!(on_room_member_called);
+
+    Ok(())
+}
+
+#[async_test]
+async fn test_unrelated_path() -> Result<()> {
+    let appservice = appservice(None).await?;
+
+    #[cfg(feature = "warp")]
+    let status = {
+        let consumer_filter = warp::any()
+            .and(appservice.warp_filter())
+            .or(warp::get().and(warp::path("unrelated").map(|| warp::reply())));
+
+        let response = warp::test::request()
+            .method("GET")
+            .path("/unrelated")
+            .filter(&consumer_filter)
+            .await?
+            .into_response();
+
+        response.status()
+    };
+
+    #[cfg(feature = "actix")]
+    let status = {
+        let app = actix_test::init_service(
+            ActixApp::new()
+                .configure(appservice.actix_configure())
+                .route("/unrelated", actix_web::web::get().to(HttpResponse::Ok)),
+        )
+        .await;
+
+        let req = actix_test::TestRequest::get().uri("/unrelated").to_request();
+
+        actix_test::call_service(&app, req).await.status()
+    };
+
+    assert_eq!(status, 200);
 
     Ok(())
 }
