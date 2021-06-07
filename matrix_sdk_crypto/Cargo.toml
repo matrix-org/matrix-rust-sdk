@@ -59,3 +59,4 @@ pprof = { version = "0.4.2", features = ["flamegraph"] }
 [[bench]]
 name = "crypto_bench"
 harness = false
+required-features = ["sled_cryptostore"]
