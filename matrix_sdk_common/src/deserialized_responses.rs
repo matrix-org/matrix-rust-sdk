@@ -1,20 +1,11 @@
 use std::{collections::BTreeMap, convert::TryFrom};
 
 use ruma::{
-    api::client::r0::sync::sync_events::{
-        Ephemeral, InvitedRoom, Presence, RoomAccountData, State, ToDevice,
-    },
-    serde::Raw,
-    DeviceIdBox,
-};
-use serde::{Deserialize, Serialize};
-
-use super::{
-    api::r0::{
+    api::client::r0::{
         push::get_notifications::Notification,
         sync::sync_events::{
-            DeviceLists, GlobalAccountData,
-            UnreadNotificationsCount as RumaUnreadNotificationsCount,
+            DeviceLists, Ephemeral, GlobalAccountData, InvitedRoom, Presence, RoomAccountData,
+            State, ToDevice, UnreadNotificationsCount as RumaUnreadNotificationsCount,
         },
     },
     events::{
@@ -22,8 +13,10 @@ use super::{
         SyncStateEvent, Unsigned,
     },
     identifiers::{DeviceKeyAlgorithm, EventId, RoomId, UserId},
-    MilliSecondsSinceUnixEpoch,
+    serde::Raw,
+    DeviceIdBox, MilliSecondsSinceUnixEpoch,
 };
+use serde::{Deserialize, Serialize};
 
 /// A change in ambiguity of room members that an `m.room.member` event
 /// triggers.
@@ -258,7 +251,7 @@ pub struct MemberEvent {
 }
 
 impl TryFrom<SyncStateEvent<MemberEventContent>> for MemberEvent {
-    type Error = super::identifiers::Error;
+    type Error = ruma::identifiers::Error;
 
     fn try_from(event: SyncStateEvent<MemberEventContent>) -> Result<Self, Self::Error> {
         Ok(MemberEvent {
@@ -274,7 +267,7 @@ impl TryFrom<SyncStateEvent<MemberEventContent>> for MemberEvent {
 }
 
 impl TryFrom<StateEvent<MemberEventContent>> for MemberEvent {
-    type Error = super::identifiers::Error;
+    type Error = ruma::identifiers::Error;
 
     fn try_from(event: StateEvent<MemberEventContent>) -> Result<Self, Self::Error> {
         Ok(MemberEvent {
@@ -315,7 +308,7 @@ pub struct StrippedMemberEvent {
 }
 
 impl TryFrom<StrippedStateEvent<MemberEventContent>> for StrippedMemberEvent {
-    type Error = super::identifiers::Error;
+    type Error = ruma::identifiers::Error;
 
     fn try_from(event: StrippedStateEvent<MemberEventContent>) -> Result<Self, Self::Error> {
         Ok(StrippedMemberEvent {

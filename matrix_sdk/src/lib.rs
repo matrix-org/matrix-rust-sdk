@@ -85,6 +85,23 @@ pub use matrix_sdk_base::{
 };
 pub use matrix_sdk_common::*;
 pub use reqwest;
+#[cfg(feature = "appservice")]
+pub use ruma::{
+    api::{appservice as api_appservice, IncomingRequest, OutgoingRequestAppserviceExt},
+    serde::{exports::serde::de::value::Error as SerdeError, urlencoded},
+};
+pub use ruma::{
+    api::{
+        client as api,
+        error::{
+            FromHttpRequestError, FromHttpResponseError, IntoHttpError, MatrixError, ServerError,
+        },
+        AuthScheme, EndpointError, IncomingResponse, OutgoingRequest, SendAccessToken,
+    },
+    assign, directory, encryption, events, identifiers, int, presence, push, receipt,
+    serde::{CanonicalJsonValue, Raw},
+    thirdparty, uint, Int, MilliSecondsSinceUnixEpoch, Outgoing, SecondsSinceUnixEpoch, UInt,
+};
 
 mod client;
 mod error;

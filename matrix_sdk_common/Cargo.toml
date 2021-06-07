@@ -10,18 +10,11 @@ readme = "README.md"
 repository = "https://github.com/matrix-org/matrix-rust-sdk"
 version = "0.2.0"
 
-[features]
-markdown = ["ruma/markdown"]
-appservice = ["ruma/appservice-api", "ruma/appservice-api-helper", "ruma/rand"]
-
 [dependencies]
-instant = { version = "0.1.9", features = ["wasm-bindgen", "now"] }
-serde = "1.0.122"
 async-trait = "0.1.42"
-
-[dependencies.ruma]
-version = "0.1.0"
-features = ["client-api-c", "compat", "unstable-pre-spec"]
+instant = { version = "0.1.9", features = ["wasm-bindgen", "now"] }
+ruma = { version = "0.1.2", features = ["client-api-c"] }
+serde = "1.0.122"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 uuid = { version = "0.8.2", default-features = false, features = ["v4", "serde"] }
@@ -29,7 +22,7 @@ uuid = { version = "0.8.2", default-features = false, features = ["v4", "serde"]
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies.tokio]
 version = "1.1.0"
 default-features = false
-features = ["sync"]
+features = ["rt", "sync"]
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 futures = "0.3.12"
