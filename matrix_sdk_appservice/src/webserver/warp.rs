@@ -38,12 +38,12 @@ pub async fn run_server(
 }
 
 pub fn warp_filter(appservice: Appservice) -> BoxedFilter<(impl Reply,)> {
-    // TODO: try to use a struct instead of cloning appservice before `warp::path!`
-    // matching
+    // TODO: try to use a struct instead of needlessly cloning appservice multiple
+    // times on every request
     warp::any()
-        .and(filters::transactions(appservice))
-        .or(filters::users())
-        .or(filters::rooms())
+        .and(filters::transactions(appservice.clone()))
+        .or(filters::users(appservice.clone()))
+        .or(filters::rooms(appservice))
         .recover(handle_rejection)
         .boxed()
 }
@@ -51,7 +51,7 @@ pub fn warp_filter(appservice: Appservice) -> BoxedFilter<(impl Reply,)> {
 mod filters {
     use super::*;
 
-    pub fn users() -> BoxedFilter<(impl Reply,)> {
+    pub fn users(appservice: Appservice) -> BoxedFilter<(impl Reply,)> {
         warp::get()
             .and(
                 warp::path!("_matrix" / "app" / "v1" / "users" / String)
@@ -59,11 +59,13 @@ mod filters {
                     .or(warp::path!("users" / String))
                     .unify(),
             )
+            .and(warp::path::end())
+            .and(common(appservice))
             .and_then(handlers::user)
             .boxed()
     }
 
-    pub fn rooms() -> BoxedFilter<(impl Reply,)> {
+    pub fn rooms(appservice: Appservice) -> BoxedFilter<(impl Reply,)> {
         warp::get()
             .and(
                 warp::path!("_matrix" / "app" / "v1" / "rooms" / String)
@@ -71,6 +73,8 @@ mod filters {
                     .or(warp::path!("rooms" / String))
                     .unify(),
             )
+            .and(warp::path::end())
+            .and(common(appservice))
             .and_then(handlers::room)
             .boxed()
     }
@@ -83,20 +87,21 @@ mod filters {
                     .or(warp::path!("transactions" / String))
                     .unify(),
             )
-            .and(filters::valid_access_token(appservice.registration().hs_token.clone()))
-            .and(with_appservice(appservice))
-            .and(http_request().and_then(|request| async move {
-                let request = crate::transform_legacy_route(request).map_err(Error::from)?;
-                Ok::<http::Request<Bytes>, Rejection>(request)
-            }))
+            .and(warp::path::end())
+            .and(common(appservice))
             .and_then(handlers::transaction)
             .boxed()
     }
 
-    pub fn with_appservice(
-        appservice: Appservice,
-    ) -> impl Filter<Extract = (Appservice,), Error = std::convert::Infallible> + Clone {
-        warp::any().map(move || appservice.clone())
+    fn common(appservice: Appservice) -> BoxedFilter<(Appservice, http::Request<Bytes>)> {
+        warp::any()
+            .and(filters::valid_access_token(appservice.registration().hs_token.clone()))
+            .map(move || appservice.clone())
+            .and(http_request().and_then(|request| async move {
+                let request = crate::transform_legacy_route(request).map_err(Error::from)?;
+                Ok::<http::Request<Bytes>, Rejection>(request)
+            }))
+            .boxed()
     }
 
     pub fn valid_access_token(token: String) -> BoxedFilter<()> {
@@ -149,16 +154,24 @@ mod filters {
 mod handlers {
     use super::*;
 
-    pub async fn user(_: String) -> StdResult<impl warp::Reply, Rejection> {
+    pub async fn user(
+        _user_id: String,
+        _appservice: Appservice,
+        _request: http::Request<Bytes>,
+    ) -> StdResult<impl warp::Reply, Rejection> {
         Ok(warp::reply::json(&String::from("{}")))
     }
 
-    pub async fn room(_: String) -> StdResult<impl warp::Reply, Rejection> {
+    pub async fn room(
+        _room_id: String,
+        _appservice: Appservice,
+        _request: http::Request<Bytes>,
+    ) -> StdResult<impl warp::Reply, Rejection> {
         Ok(warp::reply::json(&String::from("{}")))
     }
 
     pub async fn transaction(
-        _: String,
+        _txn_id: String,
         appservice: Appservice,
         request: http::Request<Bytes>,
     ) -> StdResult<impl warp::Reply, Rejection> {
