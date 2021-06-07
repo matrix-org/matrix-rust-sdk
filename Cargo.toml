@@ -1,6 +1,7 @@
 [workspace]
 members = [
     "matrix_sdk",
+    "matrix_qrcode",
     "matrix_sdk_base",
     "matrix_sdk_test",
     "matrix_sdk_test_macros",

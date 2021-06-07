@@ -1,0 +1,24 @@
+[package]
+name = "matrix-qrcode"
+version = "0.1.0"
+authors = ["Damir Jelić <poljar@termina.org.uk>"]
+edition = "2018"
+
+[package.metadata.docs.rs]
+features = ["docs"]
+rustdoc-args = ["--cfg", "feature=\"docs\""]
+
+[features]
+default = ["decode_image"]
+decode_image = ["image", "rqrr", "qrcode/image", "qrcode/svg"]
+
+docs = ["decode_image"]
+
+[dependencies]
+base64 = "0.13.0"
+byteorder = "1.4.3"
+image = { version = "0.23.14", optional = true }
+qrcode = { version = "0.12.0", default-features = false }
+rqrr = { version = "0.3.2" , optional = true }
+ruma-identifiers = "0.19.1"
+thiserror = "1.0.24"
