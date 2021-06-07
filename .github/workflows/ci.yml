@@ -96,17 +96,12 @@ jobs:
         name:
           - linux / appservice / stable
           - macOS / appservice / stable
-          - windows / appservice / stable-x86_64-msvc
 
         include:
           - name: linux / appservice / stable
 
           - name: macOS / appservice / stable
             os: macOS-latest
-
-          - name: windows / appservice / stable-x86_64-msvc
-            os: windows-latest
-            target: x86_64-pc-windows-msvc
 
     steps:
       - name: Checkout
@@ -219,7 +214,6 @@ jobs:
           - linux / stable
           - linux / beta
           - macOS / stable
-          - windows / stable-x86_64-msvc
 
         include:
           - name: linux / stable
@@ -229,10 +223,6 @@ jobs:
 
           - name: macOS / stable
             os: macOS-latest
-
-          - name: windows / stable-x86_64-msvc
-            os: windows-latest
-            target: x86_64-pc-windows-msvc
 
     steps:
       - name: Checkout
