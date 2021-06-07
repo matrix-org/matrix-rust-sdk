@@ -1,16 +1,15 @@
 use std::{collections::HashMap, panic};
 
 use http::Response;
-use matrix_sdk_common::{
-    api::r0::sync::sync_events::Response as SyncResponse,
+pub use matrix_sdk_test_macros::async_test;
+use ruma::{
+    api::{client::r0::sync::sync_events::Response as SyncResponse, IncomingResponse},
     events::{
         presence::PresenceEvent, AnyGlobalAccountDataEvent, AnySyncEphemeralRoomEvent,
         AnySyncRoomEvent, AnySyncStateEvent,
     },
-    identifiers::{room_id, RoomId},
-    IncomingResponse,
+    room_id, RoomId,
 };
-pub use matrix_sdk_test_macros::async_test;
 use serde_json::Value as JsonValue;
 
 pub mod test_json;
