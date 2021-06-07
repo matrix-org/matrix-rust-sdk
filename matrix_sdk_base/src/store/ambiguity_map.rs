@@ -14,11 +14,8 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use matrix_sdk_common::{
-    deserialized_responses::{AmbiguityChange, MemberEvent},
-    events::room::member::MembershipState,
-    identifiers::{EventId, RoomId, UserId},
-};
+use matrix_sdk_common::deserialized_responses::{AmbiguityChange, MemberEvent};
+use ruma::{events::room::member::MembershipState, EventId, RoomId, UserId};
 use tracing::trace;
 
 use super::{Result, StateChanges};

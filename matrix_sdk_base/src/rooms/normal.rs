@@ -21,8 +21,8 @@ use futures::{
     future,
     stream::{self, StreamExt},
 };
-use matrix_sdk_common::{
-    api::r0::sync::sync_events::RoomSummary as RumaSummary,
+use ruma::{
+    api::client::r0::sync::sync_events::RoomSummary as RumaSummary,
     events::{
         receipt::Receipt,
         room::{
@@ -33,8 +33,8 @@ use matrix_sdk_common::{
         tag::Tags,
         AnyRoomAccountDataEvent, AnyStateEventContent, AnySyncStateEvent, EventType,
     },
-    identifiers::{EventId, MxcUri, RoomAliasId, RoomId, UserId},
     receipt::ReceiptType,
+    EventId, MxcUri, RoomAliasId, RoomId, UserId,
 };
 use serde::{Deserialize, Serialize};
 use tracing::info;

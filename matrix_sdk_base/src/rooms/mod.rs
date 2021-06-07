@@ -3,7 +3,9 @@ mod normal;
 
 use std::cmp::max;
 
-use matrix_sdk_common::{
+pub use members::RoomMember;
+pub use normal::{Room, RoomInfo, RoomType};
+use ruma::{
     events::{
         room::{
             create::CreateEventContent, encryption::EncryptionEventContent,
@@ -12,10 +14,8 @@ use matrix_sdk_common::{
         },
         AnyStateEventContent,
     },
-    identifiers::{MxcUri, RoomAliasId, UserId},
+    MxcUri, RoomAliasId, UserId,
 };
-pub use members::RoomMember;
-pub use normal::{Room, RoomInfo, RoomType};
 use serde::{Deserialize, Serialize};
 
 /// A base room info struct that is the backbone of normal as well as stripped

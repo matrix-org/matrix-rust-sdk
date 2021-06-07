@@ -19,8 +19,8 @@ use std::{
 
 use dashmap::{DashMap, DashSet};
 use lru::LruCache;
-use matrix_sdk_common::{
-    async_trait,
+use matrix_sdk_common::{async_trait, instant::Instant, locks::Mutex};
+use ruma::{
     events::{
         presence::PresenceEvent,
         receipt::Receipt,
@@ -29,10 +29,8 @@ use matrix_sdk_common::{
         AnySyncStateEvent, EventType,
     },
     identifiers::{EventId, MxcUri, RoomId, UserId},
-    instant::Instant,
-    locks::Mutex,
     receipt::ReceiptType,
-    Raw,
+    serde::Raw,
 };
 use tracing::info;
 
@@ -563,7 +561,7 @@ impl StateStore for MemoryStore {
 #[cfg(not(feature = "sled_state_store"))]
 mod test {
     use matrix_sdk_common::{
-        api::r0::media::get_content_thumbnail::Method,
+        api::client::r0::media::get_content_thumbnail::Method,
         identifiers::{event_id, mxc_uri, room_id, user_id, UserId},
         receipt::ReceiptType,
         uint,

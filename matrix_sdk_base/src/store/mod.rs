@@ -21,9 +21,9 @@ use std::{
 };
 
 use dashmap::DashMap;
-use matrix_sdk_common::{
-    api::r0::push::get_notifications::Notification,
-    async_trait,
+use matrix_sdk_common::{async_trait, locks::RwLock, AsyncTraitDeps};
+use ruma::{
+    api::client::r0::push::get_notifications::Notification,
     events::{
         presence::PresenceEvent,
         receipt::{Receipt, ReceiptEventContent},
@@ -31,10 +31,9 @@ use matrix_sdk_common::{
         AnyGlobalAccountDataEvent, AnyRoomAccountDataEvent, AnyStrippedStateEvent,
         AnySyncStateEvent, EventContent, EventType,
     },
-    identifiers::{EventId, MxcUri, RoomId, UserId},
-    locks::RwLock,
     receipt::ReceiptType,
-    AsyncTraitDeps, Raw,
+    serde::Raw,
+    EventId, MxcUri, RoomId, UserId,
 };
 #[cfg(feature = "sled_state_store")]
 use sled::Db;
@@ -69,7 +68,7 @@ pub enum StoreError {
     /// An error happened while deserializing a Matrix identifier, e.g. an user
     /// id.
     #[error(transparent)]
-    Identifier(#[from] matrix_sdk_common::identifiers::Error),
+    Identifier(#[from] ruma::identifiers::Error),
     /// The store is locked with a passphrase and an incorrect passphrase was
     /// given.
     #[error("The store failed to be unlocked")]

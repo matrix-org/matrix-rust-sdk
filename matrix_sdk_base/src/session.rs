@@ -15,7 +15,7 @@
 
 //! User sessions.
 
-use matrix_sdk_common::identifiers::{DeviceId, UserId};
+use ruma::{DeviceId, UserId};
 use serde::{Deserialize, Serialize};
 
 /// A user session, containing an access token and information about the

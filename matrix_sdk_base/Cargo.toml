@@ -19,13 +19,14 @@ default = []
 encryption = ["matrix-sdk-crypto"]
 sled_state_store = ["sled", "pbkdf2", "hmac", "sha2", "rand", "chacha20poly1305"]
 sled_cryptostore = ["matrix-sdk-crypto/sled_cryptostore"]
-markdown = ["matrix-sdk-common/markdown"]
+markdown = ["ruma/markdown"]
 
 docs = ["encryption", "sled_cryptostore"]
 
 [dependencies]
 dashmap = "4.0.2"
 lru = "0.6.5"
+ruma = { version = "0.1.2", features = ["client-api-c", "unstable-pre-spec"] }
 serde = { version = "1.0.122", features = ["rc"] }
 serde_json = "1.0.61"
 tracing = "0.1.22"

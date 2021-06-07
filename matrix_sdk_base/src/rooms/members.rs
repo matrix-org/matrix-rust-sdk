@@ -14,13 +14,13 @@
 
 use std::sync::Arc;
 
-use matrix_sdk_common::{
+use ruma::{
     events::{
         presence::PresenceEvent,
         room::{member::MemberEventContent, power_levels::PowerLevelsEventContent},
         SyncStateEvent,
     },
-    identifiers::{MxcUri, UserId},
+    MxcUri, UserId,
 };
 
 use crate::deserialized_responses::MemberEvent;

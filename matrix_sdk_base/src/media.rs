@@ -1,7 +1,7 @@
 //! Common types for [media content](https://matrix.org/docs/spec/client_server/r0.6.1#id66).
 
-use matrix_sdk_common::{
-    api::r0::media::get_content_thumbnail::Method,
+use ruma::{
+    api::client::r0::media::get_content_thumbnail::Method,
     events::{
         room::{
             message::{
@@ -12,8 +12,7 @@ use matrix_sdk_common::{
         },
         sticker::StickerEventContent,
     },
-    identifiers::MxcUri,
-    UInt,
+    MxcUri, UInt,
 };
 
 const UNIQUE_SEPARATOR: &str = "_";

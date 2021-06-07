@@ -22,40 +22,42 @@ use std::{
     sync::Arc,
 };
 
-#[cfg(feature = "encryption")]
 use matrix_sdk_common::{
-    api::r0::keys::claim_keys::Request as KeysClaimRequest,
-    events::{
-        room::{encrypted::EncryptedEventContent, history_visibility::HistoryVisibility},
-        AnyMessageEventContent, AnySyncMessageEvent,
-    },
-    identifiers::DeviceId,
-    locks::Mutex,
-    uuid::Uuid,
-};
-use matrix_sdk_common::{
-    api::r0::{self as api, push::get_notifications::Notification},
     deserialized_responses::{
         AmbiguityChanges, JoinedRoom, LeftRoom, MemberEvent, MembersResponse, Rooms,
         StrippedMemberEvent, SyncResponse, SyncRoomEvent, Timeline,
     },
+    instant::Instant,
+    locks::RwLock,
+};
+#[cfg(feature = "encryption")]
+use matrix_sdk_common::{locks::Mutex, uuid::Uuid};
+#[cfg(feature = "encryption")]
+use matrix_sdk_crypto::{
+    store::{CryptoStore, CryptoStoreError},
+    Device, EncryptionSettings, IncomingResponse, MegolmError, OlmError, OlmMachine,
+    OutgoingRequest, Sas, ToDeviceRequest, UserDevices,
+};
+#[cfg(feature = "encryption")]
+use ruma::{
+    api::client::r0::keys::claim_keys::Request as KeysClaimRequest,
+    events::{
+        room::{encrypted::EncryptedEventContent, history_visibility::HistoryVisibility},
+        AnyMessageEventContent, AnySyncMessageEvent,
+    },
+    DeviceId,
+};
+use ruma::{
+    api::client::r0::{self as api, push::get_notifications::Notification},
     events::{
         room::member::{MemberEventContent, MembershipState},
         AnyGlobalAccountDataEvent, AnyRoomAccountDataEvent, AnyStrippedStateEvent,
         AnySyncEphemeralRoomEvent, AnySyncRoomEvent, AnySyncStateEvent, EventContent, EventType,
         StateEvent,
     },
-    identifiers::{RoomId, UserId},
-    instant::Instant,
-    locks::RwLock,
     push::{Action, PushConditionRoomCtx, Ruleset},
-    MilliSecondsSinceUnixEpoch, Raw, UInt,
-};
-#[cfg(feature = "encryption")]
-use matrix_sdk_crypto::{
-    store::{CryptoStore, CryptoStoreError},
-    Device, EncryptionSettings, IncomingResponse, MegolmError, OlmError, OlmMachine,
-    OutgoingRequest, Sas, ToDeviceRequest, UserDevices,
+    serde::Raw,
+    MilliSecondsSinceUnixEpoch, RoomId, UInt, UserId,
 };
 use tracing::{info, warn};
 use zeroize::Zeroizing;
@@ -1233,7 +1235,7 @@ impl BaseClient {
     /// ```
     /// # use std::convert::TryFrom;
     /// # use matrix_sdk_base::BaseClient;
-    /// # use matrix_sdk_common::identifiers::UserId;
+    /// # use ruma::UserId;
     /// # use futures::executor::block_on;
     /// # let alice = UserId::try_from("@alice:example.org").unwrap();
     /// # let client = BaseClient::new().unwrap();
@@ -1290,7 +1292,7 @@ impl BaseClient {
     /// ```no_run
     /// # use std::convert::TryFrom;
     /// # use matrix_sdk_base::BaseClient;
-    /// # use matrix_sdk_common::identifiers::UserId;
+    /// # use ruma::UserId;
     /// # use futures::executor::block_on;
     /// # let alice = UserId::try_from("@alice:example.org").unwrap();
     /// # let client = BaseClient::new().unwrap();

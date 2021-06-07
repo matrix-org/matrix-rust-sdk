@@ -26,17 +26,17 @@ use futures::{
     stream::{self, Stream},
     TryStreamExt,
 };
-use matrix_sdk_common::{
-    async_trait,
+use matrix_sdk_common::async_trait;
+use ruma::{
     events::{
         presence::PresenceEvent,
         receipt::Receipt,
         room::member::{MemberEventContent, MembershipState},
         AnyGlobalAccountDataEvent, AnyRoomAccountDataEvent, AnySyncStateEvent, EventType,
     },
-    identifiers::{EventId, MxcUri, RoomId, UserId},
     receipt::ReceiptType,
-    Raw,
+    serde::Raw,
+    EventId, MxcUri, RoomId, UserId,
 };
 use serde::{Deserialize, Serialize};
 use sled::{
@@ -899,8 +899,9 @@ impl StateStore for SledStore {
 mod test {
     use std::convert::TryFrom;
 
-    use matrix_sdk_common::{
-        api::r0::media::get_content_thumbnail::Method,
+    use matrix_sdk_test::async_test;
+    use ruma::{
+        api::client::r0::media::get_content_thumbnail::Method,
         events::{
             room::{
                 member::{MemberEventContent, MembershipState},
@@ -910,9 +911,9 @@ mod test {
         },
         identifiers::{event_id, mxc_uri, room_id, user_id, EventId, UserId},
         receipt::ReceiptType,
-        uint, MilliSecondsSinceUnixEpoch, Raw,
+        serde::Raw,
+        uint, MilliSecondsSinceUnixEpoch,
     };
-    use matrix_sdk_test::async_test;
     use serde_json::json;
 
     use super::{SledStore, StateChanges};
