@@ -144,7 +144,7 @@ impl PrivateCrossSigningIdentity {
             .await
             .as_ref()
             .ok_or(SignatureError::MissingSigningKey)?
-            .sign_user(&user_identity)
+            .sign_user(user_identity)
             .await?;
 
         Ok(SignatureUploadRequest::new(signed_keys))

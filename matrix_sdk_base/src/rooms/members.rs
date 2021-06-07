@@ -92,7 +92,7 @@ impl RoomMember {
             .map(|e| {
                 e.content
                     .users
-                    .get(&self.user_id())
+                    .get(self.user_id())
                     .map(|p| (*p).into())
                     .unwrap_or_else(|| e.content.users_default.into())
             })

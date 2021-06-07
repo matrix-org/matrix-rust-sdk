@@ -222,7 +222,7 @@ impl VerificationMachine {
                 AnyVerificationContent::Start(c) => {
                     if let Some(request) = self.requests.get(flow_id.as_str()) {
                         if request.flow_id() == &flow_id {
-                            request.receive_start(event.sender(), &c).await?
+                            request.receive_start(event.sender(), c).await?
                         } else {
                             flow_id_mismatch();
                         }

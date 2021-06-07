@@ -123,7 +123,7 @@ impl OlmMachine {
     pub fn new(user_id: &UserId, device_id: &DeviceId) -> Self {
         let store: Box<dyn CryptoStore> = Box::new(MemoryStore::new());
         let device_id: DeviceIdBox = device_id.into();
-        let account = ReadOnlyAccount::new(&user_id, &device_id);
+        let account = ReadOnlyAccount::new(user_id, &device_id);
 
         OlmMachine::new_helper(
             user_id,
@@ -334,7 +334,7 @@ impl OlmMachine {
                 self.receive_keys_claim_response(response).await?;
             }
             IncomingResponse::ToDevice(_) => {
-                self.mark_to_device_request_as_sent(&request_id).await?;
+                self.mark_to_device_request_as_sent(request_id).await?;
             }
             IncomingResponse::SigningKeysUpload(_) => {
                 self.receive_cross_signing_upload_response().await?;
@@ -738,7 +738,7 @@ impl OlmMachine {
     async fn handle_to_device_event(&self, event: &AnyToDeviceEvent) {
         match event {
             AnyToDeviceEvent::RoomKeyRequest(e) => {
-                self.key_request_machine.receive_incoming_key_request(&e)
+                self.key_request_machine.receive_incoming_key_request(e)
             }
             AnyToDeviceEvent::KeyVerificationAccept(..)
             | AnyToDeviceEvent::KeyVerificationCancel(..)
@@ -748,7 +748,7 @@ impl OlmMachine {
             | AnyToDeviceEvent::KeyVerificationReady(..)
             | AnyToDeviceEvent::KeyVerificationDone(..)
             | AnyToDeviceEvent::KeyVerificationStart(..) => {
-                self.handle_verification_event(&event).await;
+                self.handle_verification_event(event).await;
             }
             AnyToDeviceEvent::Dummy(_) => {}
             AnyToDeviceEvent::RoomKey(_) => {}
@@ -794,7 +794,7 @@ impl OlmMachine {
         self.update_one_time_key_count(one_time_keys_counts).await;
 
         for user_id in &changed_devices.changed {
-            if let Err(e) = self.identity_manager.mark_user_as_changed(&user_id).await {
+            if let Err(e) = self.identity_manager.mark_user_as_changed(user_id).await {
                 error!("Error marking a tracked user as changed {:?}", e);
             }
         }
@@ -1200,7 +1200,7 @@ impl OlmMachine {
             .get_inbound_group_sessions()
             .await?
             .drain(..)
-            .filter(|s| predicate(&s))
+            .filter(|s| predicate(s))
             .collect();
 
         for session in sessions.drain(..) {

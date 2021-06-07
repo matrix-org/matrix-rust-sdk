@@ -213,7 +213,7 @@ impl SledStore {
         let session_cache = SessionStore::new();
 
         let pickle_key = if let Some(passphrase) = passphrase {
-            Self::get_or_create_pickle_key(&passphrase, &db)?
+            Self::get_or_create_pickle_key(passphrase, &db)?
         } else {
             PickleKey::try_from(DEFAULT_PICKLE.as_bytes().to_vec())
                 .expect("Can't create default pickle key")
@@ -1111,7 +1111,7 @@ mod test {
 
         let store = SledStore::open_with_passphrase(tmpdir_path, None).expect("Can't create store");
 
-        let account = ReadOnlyAccount::new(&user_id, &device_id);
+        let account = ReadOnlyAccount::new(&user_id, device_id);
 
         store.save_account(account.clone()).await.expect("Can't save account");
 

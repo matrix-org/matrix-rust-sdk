@@ -376,7 +376,7 @@ impl Account {
         plaintext: &str,
     ) -> OlmResult<(Raw<AnyToDeviceEvent>, String)> {
         // TODO make the errors a bit more specific.
-        let decrypted_json: Value = serde_json::from_str(&plaintext)?;
+        let decrypted_json: Value = serde_json::from_str(plaintext)?;
 
         let encrypted_sender = decrypted_json
             .get("sender")
@@ -874,7 +874,7 @@ impl ReadOnlyAccount {
             }
         };
 
-        device.verify_one_time_key(&one_time_key).map_err(|e| {
+        device.verify_one_time_key(one_time_key).map_err(|e| {
             SessionCreationError::InvalidSignature(
                 device.user_id().to_owned(),
                 device.device_id().into(),
@@ -889,7 +889,7 @@ impl ReadOnlyAccount {
             )
         })?;
 
-        self.create_outbound_session_helper(curve_key, &one_time_key).await.map_err(|e| {
+        self.create_outbound_session_helper(curve_key, one_time_key).await.map_err(|e| {
             SessionCreationError::OlmError(
                 device.user_id().to_owned(),
                 device.device_id().into(),
@@ -974,7 +974,7 @@ impl ReadOnlyAccount {
         let inbound = InboundGroupSession::new(
             sender_key,
             signing_key,
-            &room_id,
+            room_id,
             outbound.session_key().await,
             Some(visibility),
         )

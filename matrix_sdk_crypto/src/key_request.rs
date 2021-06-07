@@ -540,7 +540,7 @@ impl KeyRequestMachine {
         &self,
         key_info: &RequestedKeyInfo,
     ) -> Result<bool, CryptoStoreError> {
-        let request = self.store.get_key_request_by_info(&key_info).await?;
+        let request = self.store.get_key_request_by_info(key_info).await?;
 
         // Don't send out duplicate requests, users can re-request them if they
         // think a second request might succeed.
@@ -1244,7 +1244,7 @@ mod test {
             .store
             .get_inbound_group_session(
                 &room_id(),
-                &bob_account.identity_keys().curve25519(),
+                bob_account.identity_keys().curve25519(),
                 group_session.session_id()
             )
             .await
@@ -1393,7 +1393,7 @@ mod test {
             .store
             .get_inbound_group_session(
                 &room_id(),
-                &bob_account.identity_keys().curve25519(),
+                bob_account.identity_keys().curve25519(),
                 group_session.session_id()
             )
             .await

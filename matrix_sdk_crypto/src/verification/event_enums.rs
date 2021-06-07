@@ -48,8 +48,8 @@ pub enum AnyEvent<'a> {
 impl AnyEvent<'_> {
     pub fn sender(&self) -> &UserId {
         match self {
-            Self::Room(e) => &e.sender(),
-            Self::ToDevice(e) => &e.sender(),
+            Self::Room(e) => e.sender(),
+            Self::ToDevice(e) => e.sender(),
         }
     }
 
@@ -382,7 +382,7 @@ impl<'a> StartContent<'a> {
     pub fn flow_id(&self) -> &str {
         match self {
             Self::ToDevice(c) => &c.transaction_id,
-            Self::Room(c) => &c.relation.event_id.as_str(),
+            Self::Room(c) => c.relation.event_id.as_str(),
         }
     }
 
@@ -434,7 +434,7 @@ impl<'a> DoneContent<'a> {
     pub fn flow_id(&self) -> &str {
         match self {
             Self::ToDevice(c) => &c.transaction_id,
-            Self::Room(c) => &c.relation.event_id.as_str(),
+            Self::Room(c) => c.relation.event_id.as_str(),
         }
     }
 }

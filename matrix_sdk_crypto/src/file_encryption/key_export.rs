@@ -161,7 +161,7 @@ fn encrypt_helper(mut plaintext: &mut [u8], passphrase: &str, rounds: u32) -> St
     pbkdf2::<Hmac<Sha512>>(passphrase.as_bytes(), &salt, rounds, &mut derived_keys);
     let (key, hmac_key) = derived_keys.split_at(KEY_SIZE);
 
-    let mut aes = Aes256Ctr::new_var(&key, &iv.to_be_bytes()).expect("Can't create AES object");
+    let mut aes = Aes256Ctr::new_var(key, &iv.to_be_bytes()).expect("Can't create AES object");
 
     aes.apply_keystream(&mut plaintext);
 
@@ -171,7 +171,7 @@ fn encrypt_helper(mut plaintext: &mut [u8], passphrase: &str, rounds: u32) -> St
     payload.extend(&salt);
     payload.extend(&iv.to_be_bytes());
     payload.extend(&rounds.to_be_bytes());
-    payload.extend_from_slice(&plaintext);
+    payload.extend_from_slice(plaintext);
 
     let mut hmac = Hmac::<Sha256>::new_varkey(hmac_key).expect("Can't create HMAC object");
     hmac.update(&payload);
@@ -218,7 +218,7 @@ fn decrypt_helper(ciphertext: &str, passphrase: &str) -> Result<String, KeyExpor
     hmac.verify(&mac).map_err(|_| KeyExportError::InvalidMac)?;
 
     let mut ciphertext = &mut decoded[ciphertext_start..ciphertext_end];
-    let mut aes = Aes256Ctr::new_var(&key, &iv).expect("Can't create an AES object");
+    let mut aes = Aes256Ctr::new_var(key, &iv).expect("Can't create an AES object");
     aes.apply_keystream(&mut ciphertext);
 
     Ok(String::from_utf8(ciphertext.to_owned())?)

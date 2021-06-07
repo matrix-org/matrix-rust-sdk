@@ -398,7 +398,7 @@ impl ReadOnlyDevice {
                             // If it's one of our own devices, just check that
                             // we signed the device.
                             UserIdentities::Own(_) => {
-                                own_identity.is_device_signed(&self).map_or(false, |_| true)
+                                own_identity.is_device_signed(self).map_or(false, |_| true)
                             }
 
                             // If it's a device from someone else, first check
@@ -406,10 +406,10 @@ impl ReadOnlyDevice {
                             // check if the other user has signed this device.
                             UserIdentities::Other(device_identity) => {
                                 own_identity
-                                    .is_identity_signed(&device_identity)
+                                    .is_identity_signed(device_identity)
                                     .map_or(false, |_| true)
                                     && device_identity
-                                        .is_device_signed(&self)
+                                        .is_device_signed(self)
                                         .map_or(false, |_| true)
                             }
                         })
@@ -455,7 +455,7 @@ impl ReadOnlyDevice {
             return Err(OlmError::MissingSession);
         };
 
-        let message = session.encrypt(&self, event_type, content).await?;
+        let message = session.encrypt(self, event_type, content).await?;
 
         Ok((session, message))
     }

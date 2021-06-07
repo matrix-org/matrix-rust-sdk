@@ -210,7 +210,7 @@ impl GroupSessionManager {
         room_id: &RoomId,
         settings: EncryptionSettings,
     ) -> OlmResult<(OutboundGroupSession, Option<InboundGroupSession>)> {
-        let outbound_session = self.sessions.get_or_load(&room_id).await?;
+        let outbound_session = self.sessions.get_or_load(room_id).await?;
 
         // If there is no session or the session has expired or is invalid,
         // create a new one.
@@ -331,7 +331,7 @@ impl GroupSessionManager {
         let mut should_rotate = user_left || visibility_changed;
 
         for user_id in users {
-            let user_devices = self.store.get_user_devices(&user_id).await?;
+            let user_devices = self.store.get_user_devices(user_id).await?;
             let non_blacklisted_devices: Vec<Device> =
                 user_devices.devices().filter(|d| !d.is_blacklisted()).collect();
 

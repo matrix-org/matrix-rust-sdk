@@ -582,7 +582,7 @@ impl RequestState<Ready> {
             "Received a new verification start event",
         );
 
-        let device = if let Some(d) = self.store.get_device(&sender, content.from_device()).await? {
+        let device = if let Some(d) = self.store.get_device(sender, content.from_device()).await? {
             d
         } else {
             warn!(
@@ -594,7 +594,7 @@ impl RequestState<Ready> {
             return Ok(());
         };
 
-        let identity = self.store.get_user_identity(&sender).await?;
+        let identity = self.store.get_user_identity(sender).await?;
 
         match content.method() {
             StartMethod::SasV1(_) => match self.to_started_sas(content, device.clone(), identity) {

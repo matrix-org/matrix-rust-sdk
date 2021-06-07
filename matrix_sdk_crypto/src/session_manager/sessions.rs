@@ -246,7 +246,7 @@ impl SessionManager {
 
         for (user_id, user_devices) in &response.one_time_keys {
             for (device_id, key_map) in user_devices {
-                let device = match self.store.get_readonly_device(&user_id, device_id).await {
+                let device = match self.store.get_readonly_device(user_id, device_id).await {
                     Ok(Some(d)) => d,
                     Ok(None) => {
                         warn!(
@@ -267,7 +267,7 @@ impl SessionManager {
 
                 info!("Creating outbound Session for {} {}", user_id, device_id);
 
-                let session = match self.account.create_outbound_session(device, &key_map).await {
+                let session = match self.account.create_outbound_session(device, key_map).await {
                     Ok(s) => s,
                     Err(e) => {
                         warn!("Error creating new outbound session {:?}", e);
@@ -277,9 +277,9 @@ impl SessionManager {
 
                 changes.sessions.push(session);
 
-                self.key_request_machine.retry_keyshare(&user_id, device_id);
+                self.key_request_machine.retry_keyshare(user_id, device_id);
 
-                if let Err(e) = self.check_if_unwedged(&user_id, device_id).await {
+                if let Err(e) = self.check_if_unwedged(user_id, device_id).await {
                     error!(
                         "Error while treating an unwedged device {} {} {:?}",
                         user_id, device_id, e
@@ -426,7 +426,7 @@ mod test {
 
         assert!(!manager.users_for_key_claim.contains_key(bob.user_id()));
         assert!(!manager.is_device_wedged(&bob_device));
-        manager.mark_device_as_wedged(bob_device.user_id(), &curve_key).await.unwrap();
+        manager.mark_device_as_wedged(bob_device.user_id(), curve_key).await.unwrap();
         assert!(manager.is_device_wedged(&bob_device));
         assert!(manager.users_for_key_claim.contains_key(bob.user_id()));
 

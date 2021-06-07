@@ -368,6 +368,6 @@ impl HttpSend for Client {
         request: http::Request<Bytes>,
         config: RequestConfig,
     ) -> Result<http::Response<Bytes>, HttpError> {
-        send_request(&self, request, config).await
+        send_request(self, request, config).await
     }
 }

@@ -197,7 +197,7 @@ impl AmbiguityCache {
             {
                 u.clone()
             } else {
-                self.store.get_users_with_display_name(&room_id, &old_name).await?
+                self.store.get_users_with_display_name(room_id, old_name).await?
             };
 
             Some(AmbiguityMap { display_name: old_name.to_string(), users: old_display_name_map })
@@ -231,7 +231,7 @@ impl AmbiguityCache {
             {
                 u.clone()
             } else {
-                self.store.get_users_with_display_name(&room_id, &new_display_name).await?
+                self.store.get_users_with_display_name(room_id, new_display_name).await?
             };
 
             Some(AmbiguityMap {

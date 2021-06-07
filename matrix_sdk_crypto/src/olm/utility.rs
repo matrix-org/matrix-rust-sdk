@@ -133,7 +133,7 @@ mod test {
             .verify_json(
                 &user_id!("@example:localhost"),
                 &DeviceKeyId::from_parts(DeviceKeyAlgorithm::Ed25519, "GBEWHQOYGS".into()),
-                &signing_key,
+                signing_key,
                 &mut device_keys,
             )
             .expect("Can't verify device keys");

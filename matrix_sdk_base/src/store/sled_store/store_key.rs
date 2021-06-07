@@ -139,7 +139,7 @@ impl StoreKey {
     /// Expand the given passphrase into a KEY_SIZE long key.
     fn expand_key(passphrase: &str, salt: &[u8], rounds: u32) -> Zeroizing<Vec<u8>> {
         let mut key = Zeroizing::from(vec![0u8; KEY_SIZE]);
-        pbkdf2::<Hmac<Sha256>>(passphrase.as_bytes(), &salt, rounds, &mut *key);
+        pbkdf2::<Hmac<Sha256>>(passphrase.as_bytes(), salt, rounds, &mut *key);
         key
     }
 
@@ -162,7 +162,7 @@ impl StoreKey {
 
         let key = StoreKey::expand_key(passphrase, &salt, KDF_ROUNDS);
         let key = Key::from_slice(key.as_ref());
-        let cipher = ChaCha20Poly1305::new(&key);
+        let cipher = ChaCha20Poly1305::new(key);
 
         let mut nonce = vec![0u8; NONCE_SIZE];
         nonce.try_fill(&mut rng)?;
@@ -230,7 +230,7 @@ impl StoreKey {
 
         let decrypted = match encrypted.ciphertext_info {
             CipherTextInfo::ChaCha20Poly1305 { nonce, ciphertext } => {
-                let cipher = ChaCha20Poly1305::new(&key);
+                let cipher = ChaCha20Poly1305::new(key);
                 let nonce = Nonce::from_slice(&nonce);
                 cipher.decrypt(nonce, ciphertext.as_ref())?
             }

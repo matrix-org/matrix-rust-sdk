@@ -275,7 +275,7 @@ impl IdentitiesBeingVerified {
                 // We only sign other users here.
                 let request = if let Some(i) = i.other() {
                     // Signing can fail if the user signing key is missing.
-                    match self.private_identity.sign_user(&i).await {
+                    match self.private_identity.sign_user(i).await {
                         Ok(r) => Some(r),
                         Err(SignatureError::MissingSigningKey) => {
                             warn!(

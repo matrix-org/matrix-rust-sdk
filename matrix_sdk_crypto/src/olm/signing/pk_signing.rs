@@ -320,7 +320,7 @@ impl Signing {
         let ciphertext = &decode(pickled.ciphertext)?;
 
         let seed = cipher
-            .decrypt(&nonce, ciphertext.as_slice())
+            .decrypt(nonce, ciphertext.as_slice())
             .map_err(|e| SigningError::Decryption(e.to_string()))?;
 
         Ok(Self::from_seed(seed))

@@ -584,7 +584,7 @@ mod test {
         let content = MacContent::try_from(&content).unwrap();
         alice.receive_any_event(bob.user_id(), &content.into());
 
-        assert!(alice.verified_devices().unwrap().contains(&alice.other_device()));
-        assert!(bob.verified_devices().unwrap().contains(&bob.other_device()));
+        assert!(alice.verified_devices().unwrap().contains(alice.other_device()));
+        assert!(bob.verified_devices().unwrap().contains(bob.other_device()));
     }
 }

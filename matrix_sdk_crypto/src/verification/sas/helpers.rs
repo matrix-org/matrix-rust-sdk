@@ -188,7 +188,7 @@ pub fn receive_mac_event(
     let mut verified_devices = Vec::new();
     let mut verified_identities = Vec::new();
 
-    let info = extra_mac_info_receive(&ids, flow_id);
+    let info = extra_mac_info_receive(ids, flow_id);
 
     trace!(
         "Received a key.verification.mac event from {} {}",
@@ -395,7 +395,7 @@ pub fn get_emoji(
 ) -> [(&'static str, &'static str); 7] {
     let bytes = sas
         .generate_bytes(
-            &extra_info_sas(&ids, &sas.public_key(), their_pubkey, &flow_id, we_started),
+            &extra_info_sas(ids, &sas.public_key(), their_pubkey, flow_id, we_started),
             6,
         )
         .expect("Can't generate bytes");
@@ -432,7 +432,7 @@ pub fn get_emoji_index(
 ) -> [u8; 7] {
     let bytes = sas
         .generate_bytes(
-            &extra_info_sas(&ids, &sas.public_key(), their_pubkey, &flow_id, we_started),
+            &extra_info_sas(ids, &sas.public_key(), their_pubkey, flow_id, we_started),
             6,
         )
         .expect("Can't generate bytes");
@@ -507,7 +507,7 @@ pub fn get_decimal(
 ) -> (u16, u16, u16) {
     let bytes = sas
         .generate_bytes(
-            &extra_info_sas(&ids, &sas.public_key(), their_pubkey, &flow_id, we_started),
+            &extra_info_sas(ids, &sas.public_key(), their_pubkey, flow_id, we_started),
             5,
         )
         .expect("Can't generate bytes");

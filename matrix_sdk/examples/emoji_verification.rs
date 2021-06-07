@@ -89,7 +89,7 @@ async fn login(
                             &sas.other_device().user_id(),
                             &sas.other_device().device_id()
                         );
-                        print_devices(&e.sender, &client).await;
+                        print_devices(&e.sender, client).await;
                         sas.accept().await.unwrap();
                     }
 
@@ -110,7 +110,7 @@ async fn login(
 
                         if sas.is_done() {
                             print_result(&sas);
-                            print_devices(&e.sender, &client).await;
+                            print_devices(&e.sender, client).await;
                         }
                     }
 
@@ -141,7 +141,7 @@ async fn login(
                                 }
                                 AnySyncMessageEvent::KeyVerificationKey(e) => {
                                     let sas = client
-                                        .get_verification(&e.content.relation.event_id.as_str())
+                                        .get_verification(e.content.relation.event_id.as_str())
                                         .await
                                         .expect("Sas object wasn't created");
 
@@ -149,13 +149,13 @@ async fn login(
                                 }
                                 AnySyncMessageEvent::KeyVerificationMac(e) => {
                                     let sas = client
-                                        .get_verification(&e.content.relation.event_id.as_str())
+                                        .get_verification(e.content.relation.event_id.as_str())
                                         .await
                                         .expect("Sas object wasn't created");
 
                                     if sas.is_done() {
                                         print_result(&sas);
-                                        print_devices(&e.sender, &client).await;
+                                        print_devices(&e.sender, client).await;
                                     }
                                 }
                                 _ => (),

@@ -304,7 +304,7 @@ impl SledStore {
         event: &[u8],
     ) -> Result<T, SerializationError> {
         if let Some(key) = &*self.store_key {
-            let encrypted: EncryptedEvent = serde_json::from_slice(&event)?;
+            let encrypted: EncryptedEvent = serde_json::from_slice(event)?;
             Ok(key.decrypt(encrypted)?)
         } else {
             Ok(serde_json::from_slice(event)?)

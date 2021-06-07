@@ -504,7 +504,7 @@ impl BaseClient {
                     }
 
                     if let Some(context) = &push_context {
-                        let actions = push_rules.get_actions(&event.event, &context).to_vec();
+                        let actions = push_rules.get_actions(&event.event, context).to_vec();
 
                         if actions.iter().any(|a| matches!(a, Action::Notify)) {
                             changes.add_notification(
@@ -941,7 +941,7 @@ impl BaseClient {
 
     async fn apply_changes(&self, changes: &StateChanges) {
         for (room_id, room_info) in &changes.room_infos {
-            if let Some(room) = self.store.get_room(&room_id) {
+            if let Some(room) = self.store.get_room(room_id) {
                 room.update_summary(room_info.clone())
             }
         }
@@ -978,7 +978,7 @@ impl BaseClient {
             let mut user_ids = BTreeSet::new();
 
             for member in &members {
-                if self.store.get_member_event(&room_id, &member.state_key).await?.is_none() {
+                if self.store.get_member_event(room_id, &member.state_key).await?.is_none() {
                     #[cfg(feature = "encryption")]
                     match member.content.membership {
                         MembershipState::Join | MembershipState::Invite => {
@@ -987,7 +987,7 @@ impl BaseClient {
                         _ => (),
                     }
 
-                    ambiguity_cache.handle_event(&changes, room_id, &member).await?;
+                    ambiguity_cache.handle_event(&changes, room_id, member).await?;
 
                     if member.state_key == member.sender {
                         changes

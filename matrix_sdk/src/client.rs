@@ -2033,15 +2033,15 @@ impl Client {
                             }
                         }
                         OutgoingRequests::KeysUpload(request) => {
-                            if let Err(e) = self.keys_upload(&r.request_id(), request).await {
+                            if let Err(e) = self.keys_upload(r.request_id(), request).await {
                                 warn!("Error while querying device keys {:?}", e);
                             }
                         }
                         OutgoingRequests::ToDeviceRequest(request) => {
                             // TODO remove this unwrap
-                            if let Ok(resp) = self.send_to_device(&request).await {
+                            if let Ok(resp) = self.send_to_device(request).await {
                                 self.base_client
-                                    .mark_request_as_sent(&r.request_id(), &resp)
+                                    .mark_request_as_sent(r.request_id(), &resp)
                                     .await
                                     .unwrap();
                             }
@@ -2050,7 +2050,7 @@ impl Client {
                             // TODO remove this unwrap.
                             if let Ok(resp) = self.send(request.clone(), None).await {
                                 self.base_client
-                                    .mark_request_as_sent(&r.request_id(), &resp)
+                                    .mark_request_as_sent(r.request_id(), &resp)
                                     .await
                                     .unwrap();
                             }
@@ -2058,7 +2058,7 @@ impl Client {
                         OutgoingRequests::RoomMessage(request) => {
                             if let Ok(resp) = self.room_send_helper(request).await {
                                 self.base_client
-                                    .mark_request_as_sent(&r.request_id(), &resp)
+                                    .mark_request_as_sent(r.request_id(), &resp)
                                     .await
                                     .unwrap();
                             }
@@ -2523,17 +2523,13 @@ impl Client {
                 MediaType::Uri(uri) => {
                     if let MediaFormat::Thumbnail(size) = &request.format {
                         self.send(
-                            get_content_thumbnail::Request::from_url(
-                                &uri,
-                                size.width,
-                                size.height,
-                            )?,
+                            get_content_thumbnail::Request::from_url(uri, size.width, size.height)?,
                             None,
                         )
                         .await?
                         .file
                     } else {
-                        self.send(get_content::Request::from_url(&uri)?, None).await?.file
+                        self.send(get_content::Request::from_url(uri)?, None).await?.file
                     }
                 }
             };
@@ -2562,7 +2558,7 @@ impl Client {
     ///
     /// * `uri` - The `MxcUri` of the files.
     pub async fn remove_media_content_for_uri(&self, uri: &MxcUri) -> Result<()> {
-        Ok(self.base_client.store().remove_media_content_for_uri(&uri).await?)
+        Ok(self.base_client.store().remove_media_content_for_uri(uri).await?)
     }
 
     /// Get the file of the given media event content.

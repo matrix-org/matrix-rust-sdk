@@ -141,7 +141,7 @@ impl Handler {
         }
 
         for (room_id, notifications) in &response.notifications {
-            if let Some(room) = self.get_room(&room_id) {
+            if let Some(room) = self.get_room(room_id) {
                 for notification in notifications {
                     self.on_room_notification(room.clone(), notification.clone()).await;
                 }
@@ -191,20 +191,20 @@ impl Handler {
 
     async fn handle_state_event(&self, room: Room, event: &AnySyncStateEvent) {
         match event {
-            AnySyncStateEvent::RoomMember(member) => self.on_state_member(room, &member).await,
-            AnySyncStateEvent::RoomName(name) => self.on_state_name(room, &name).await,
+            AnySyncStateEvent::RoomMember(member) => self.on_state_member(room, member).await,
+            AnySyncStateEvent::RoomName(name) => self.on_state_name(room, name).await,
             AnySyncStateEvent::RoomCanonicalAlias(canonical) => {
-                self.on_state_canonical_alias(room, &canonical).await
+                self.on_state_canonical_alias(room, canonical).await
             }
-            AnySyncStateEvent::RoomAliases(aliases) => self.on_state_aliases(room, &aliases).await,
-            AnySyncStateEvent::RoomAvatar(avatar) => self.on_state_avatar(room, &avatar).await,
+            AnySyncStateEvent::RoomAliases(aliases) => self.on_state_aliases(room, aliases).await,
+            AnySyncStateEvent::RoomAvatar(avatar) => self.on_state_avatar(room, avatar).await,
             AnySyncStateEvent::RoomPowerLevels(power) => {
-                self.on_state_power_levels(room, &power).await
+                self.on_state_power_levels(room, power).await
             }
-            AnySyncStateEvent::RoomJoinRules(rules) => self.on_state_join_rules(room, &rules).await,
+            AnySyncStateEvent::RoomJoinRules(rules) => self.on_state_join_rules(room, rules).await,
             AnySyncStateEvent::RoomTombstone(tomb) => {
                 // TODO make `on_state_tombstone` method
-                self.on_room_tombstone(room, &tomb).await
+                self.on_room_tombstone(room, tomb).await
             }
             AnySyncStateEvent::Custom(custom) => {
                 self.on_custom_event(room, &CustomEvent::State(custom)).await
@@ -221,23 +221,23 @@ impl Handler {
     ) {
         match event {
             AnyStrippedStateEvent::RoomMember(member) => {
-                self.on_stripped_state_member(room, &member, None).await
+                self.on_stripped_state_member(room, member, None).await
             }
-            AnyStrippedStateEvent::RoomName(name) => self.on_stripped_state_name(room, &name).await,
+            AnyStrippedStateEvent::RoomName(name) => self.on_stripped_state_name(room, name).await,
             AnyStrippedStateEvent::RoomCanonicalAlias(canonical) => {
-                self.on_stripped_state_canonical_alias(room, &canonical).await
+                self.on_stripped_state_canonical_alias(room, canonical).await
             }
             AnyStrippedStateEvent::RoomAliases(aliases) => {
-                self.on_stripped_state_aliases(room, &aliases).await
+                self.on_stripped_state_aliases(room, aliases).await
             }
             AnyStrippedStateEvent::RoomAvatar(avatar) => {
-                self.on_stripped_state_avatar(room, &avatar).await
+                self.on_stripped_state_avatar(room, avatar).await
             }
             AnyStrippedStateEvent::RoomPowerLevels(power) => {
-                self.on_stripped_state_power_levels(room, &power).await
+                self.on_stripped_state_power_levels(room, power).await
             }
             AnyStrippedStateEvent::RoomJoinRules(rules) => {
-                self.on_stripped_state_join_rules(room, &rules).await
+                self.on_stripped_state_join_rules(room, rules).await
             }
             _ => {}
         }
@@ -249,18 +249,16 @@ impl Handler {
         event: &AnyRoomAccountDataEvent,
     ) {
         if let AnyRoomAccountDataEvent::FullyRead(event) = event {
-            self.on_non_room_fully_read(room, &event).await
+            self.on_non_room_fully_read(room, event).await
         }
     }
 
     pub(crate) async fn handle_account_data_event(&self, event: &AnyGlobalAccountDataEvent) {
         match event {
             AnyGlobalAccountDataEvent::IgnoredUserList(ignored) => {
-                self.on_non_room_ignored_users(&ignored).await
+                self.on_non_room_ignored_users(ignored).await
             }
-            AnyGlobalAccountDataEvent::PushRules(rules) => {
-                self.on_non_room_push_rules(&rules).await
-            }
+            AnyGlobalAccountDataEvent::PushRules(rules) => self.on_non_room_push_rules(rules).await,
             _ => {}
         }
     }

@@ -392,7 +392,7 @@ impl Joined {
         };
 
         let txn_id = txn_id.unwrap_or_else(Uuid::new_v4).to_string();
-        let request = send_message_event::Request::new(&self.inner.room_id(), &txn_id, &content);
+        let request = send_message_event::Request::new(self.inner.room_id(), &txn_id, &content);
 
         let response = self.client.send(request, None).await?;
         Ok(response)
@@ -480,7 +480,7 @@ impl Joined {
 
             (response, keys)
         } else {
-            let response = self.client.upload(&content_type, &mut reader).await?;
+            let response = self.client.upload(content_type, &mut reader).await?;
             (response, None)
         };
 

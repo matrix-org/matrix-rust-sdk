@@ -333,7 +333,7 @@ impl QrVerification {
     /// This represents the ID as a string even if it is a `EventId`.
     pub fn flow_id(&self) -> &str {
         match self {
-            QrVerification::Verification(v) => &v.event_id.as_str(),
+            QrVerification::Verification(v) => v.event_id.as_str(),
             QrVerification::SelfVerification(v) => &v.transaction_id,
             QrVerification::SelfVerificationNoMasterKey(v) => &v.transaction_id,
         }
@@ -434,7 +434,7 @@ impl VerificationData {
     pub fn to_bytes(&self) -> Result<Vec<u8>, EncodingError> {
         to_bytes(
             Self::QR_MODE,
-            &self.event_id.as_str(),
+            self.event_id.as_str(),
             &self.first_master_key,
             &self.second_master_key,
             &self.shared_secret,

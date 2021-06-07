@@ -285,12 +285,12 @@ impl<S: Clone> SasState<S> {
     /// Get our own user id.
     #[cfg(test)]
     pub fn user_id(&self) -> &UserId {
-        &self.ids.account.user_id()
+        self.ids.account.user_id()
     }
 
     /// Get our own device id.
     pub fn device_id(&self) -> &DeviceId {
-        &self.ids.account.device_id()
+        self.ids.account.device_id()
     }
 
     #[cfg(test)]
@@ -448,7 +448,7 @@ impl SasState<Created> {
         sender: &UserId,
         content: &AcceptContent,
     ) -> Result<SasState<Accepted>, SasState<Cancelled>> {
-        self.check_event(&sender, content.flow_id()).map_err(|c| self.clone().cancel(c))?;
+        self.check_event(sender, content.flow_id()).map_err(|c| self.clone().cancel(c))?;
 
         if let AcceptMethod::MSasV1(content) = content.method() {
             let accepted_protocols =
@@ -604,7 +604,7 @@ impl SasState<Started> {
         sender: &UserId,
         content: &KeyContent,
     ) -> Result<SasState<KeyReceived>, SasState<Cancelled>> {
-        self.check_event(&sender, &content.flow_id()).map_err(|c| self.clone().cancel(c))?;
+        self.check_event(sender, content.flow_id()).map_err(|c| self.clone().cancel(c))?;
 
         let their_pubkey = content.public_key().to_owned();
 
@@ -644,7 +644,7 @@ impl SasState<Accepted> {
         sender: &UserId,
         content: &KeyContent,
     ) -> Result<SasState<KeyReceived>, SasState<Cancelled>> {
-        self.check_event(&sender, content.flow_id()).map_err(|c| self.clone().cancel(c))?;
+        self.check_event(sender, content.flow_id()).map_err(|c| self.clone().cancel(c))?;
 
         let commitment = calculate_commitment(
             content.public_key(),
@@ -781,14 +781,14 @@ impl SasState<KeyReceived> {
         sender: &UserId,
         content: &MacContent,
     ) -> Result<SasState<MacReceived>, SasState<Cancelled>> {
-        self.check_event(&sender, content.flow_id()).map_err(|c| self.clone().cancel(c))?;
+        self.check_event(sender, content.flow_id()).map_err(|c| self.clone().cancel(c))?;
 
         let (devices, master_keys) = receive_mac_event(
             &self.inner.lock().unwrap(),
             &self.ids,
             self.verification_flow_id.as_str(),
             sender,
-            &content,
+            content,
         )
         .map_err(|c| self.clone().cancel(c))?;
 
@@ -846,9 +846,9 @@ impl SasState<Confirmed> {
         let (devices, master_keys) = receive_mac_event(
             &self.inner.lock().unwrap(),
             &self.ids,
-            &self.verification_flow_id.as_str(),
+            self.verification_flow_id.as_str(),
             sender,
-            &content,
+            content,
         )
         .map_err(|c| self.clone().cancel(c))?;
 
@@ -881,14 +881,14 @@ impl SasState<Confirmed> {
         sender: &UserId,
         content: &MacContent,
     ) -> Result<SasState<WaitingForDone>, SasState<Cancelled>> {
-        self.check_event(&sender, &content.flow_id()).map_err(|c| self.clone().cancel(c))?;
+        self.check_event(sender, content.flow_id()).map_err(|c| self.clone().cancel(c))?;
 
         let (devices, master_keys) = receive_mac_event(
             &self.inner.lock().unwrap(),
             &self.ids,
-            &self.verification_flow_id.as_str(),
+            self.verification_flow_id.as_str(),
             sender,
-            &content,
+            content,
         )
         .map_err(|c| self.clone().cancel(c))?;
 
@@ -965,7 +965,7 @@ impl SasState<MacReceived> {
             &self.inner.lock().unwrap(),
             &self.ids,
             &self.state.their_pubkey,
-            &self.verification_flow_id.as_str(),
+            self.verification_flow_id.as_str(),
             self.state.we_started,
         )
     }
@@ -993,7 +993,7 @@ impl SasState<MacReceived> {
             &self.inner.lock().unwrap(),
             &self.ids,
             &self.state.their_pubkey,
-            &self.verification_flow_id.as_str(),
+            self.verification_flow_id.as_str(),
             self.state.we_started,
         )
     }
@@ -1036,7 +1036,7 @@ impl SasState<WaitingForDone> {
         sender: &UserId,
         content: &DoneContent,
     ) -> Result<SasState<Done>, SasState<Cancelled>> {
-        self.check_event(&sender, content.flow_id()).map_err(|c| self.clone().cancel(c))?;
+        self.check_event(sender, content.flow_id()).map_err(|c| self.clone().cancel(c))?;
 
         Ok(SasState {
             inner: self.inner,

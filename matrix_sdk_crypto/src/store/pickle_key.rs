@@ -107,7 +107,7 @@ impl PickleKey {
 
     fn expand_key(passphrase: &str, salt: &[u8], rounds: u32) -> Zeroizing<Vec<u8>> {
         let mut key = Zeroizing::from(vec![0u8; KEY_SIZE]);
-        pbkdf2::<Hmac<Sha256>>(passphrase.as_bytes(), &salt, rounds, &mut *key);
+        pbkdf2::<Hmac<Sha256>>(passphrase.as_bytes(), salt, rounds, &mut *key);
         key
     }
 
@@ -133,13 +133,13 @@ impl PickleKey {
 
         let key = PickleKey::expand_key(passphrase, &salt, KDF_ROUNDS);
         let key = GenericArray::from_slice(key.as_ref());
-        let cipher = Aes256Gcm::new(&key);
+        let cipher = Aes256Gcm::new(key);
 
         let mut nonce = vec![0u8; NONCE_SIZE];
         getrandom(&mut nonce).expect("Can't generate new random nonce for the pickle key");
 
         let ciphertext = cipher
-            .encrypt(&GenericArray::from_slice(nonce.as_ref()), self.aes256_key.as_slice())
+            .encrypt(GenericArray::from_slice(nonce.as_ref()), self.aes256_key.as_slice())
             .expect("Can't encrypt pickle key");
 
         EncryptedPickleKey {
@@ -169,7 +169,7 @@ impl PickleKey {
 
         let decrypted = match encrypted.ciphertext_info {
             CipherTextInfo::Aes256Gcm { nonce, ciphertext } => {
-                let cipher = Aes256Gcm::new(&key);
+                let cipher = Aes256Gcm::new(key);
                 let nonce = GenericArray::from_slice(&nonce);
                 cipher.decrypt(nonce, ciphertext.as_ref())?
             }

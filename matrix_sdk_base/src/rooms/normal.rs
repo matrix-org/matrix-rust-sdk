@@ -335,12 +335,7 @@ impl Room {
         let is_own_user_id = |u: &str| u == self.own_user_id().as_str();
 
         let members: Vec<RoomMember> = if summary.heroes.is_empty() {
-            self.active_members()
-                .await?
-                .into_iter()
-                .filter(|u| !is_own_member(&u))
-                .take(5)
-                .collect()
+            self.active_members().await?.into_iter().filter(|u| !is_own_member(u)).take(5).collect()
         } else {
             let members: Vec<_> = stream::iter(summary.heroes.iter())
                 .filter(|u| future::ready(!is_own_user_id(u)))
@@ -528,7 +523,7 @@ impl RoomInfo {
     }
 
     pub(crate) fn handle_state_event(&mut self, event: &AnyStateEventContent) -> bool {
-        self.base_info.handle_state_event(&event)
+        self.base_info.handle_state_event(event)
     }
 
     pub(crate) fn update_notification_count(
