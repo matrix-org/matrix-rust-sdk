@@ -4,8 +4,17 @@ use std::{io::Read, ops::Deref};
 
 #[cfg(feature = "encryption")]
 use matrix_sdk_base::crypto::AttachmentEncryptor;
+#[cfg(feature = "encryption")]
+use matrix_sdk_common::locks::Mutex;
 use matrix_sdk_common::{
-    api::r0::{
+    instant::{Duration, Instant},
+    uuid::Uuid,
+};
+use mime::{self, Mime};
+#[cfg(feature = "encryption")]
+use ruma::events::room::EncryptedFileInit;
+use ruma::{
+    api::client::r0::{
         membership::{
             ban_user,
             invite_user::{self, InvitationRecipient},
@@ -30,13 +39,8 @@ use matrix_sdk_common::{
         AnyMessageEventContent, AnyStateEventContent,
     },
     identifiers::{EventId, UserId},
-    instant::{Duration, Instant},
     receipt::ReceiptType,
-    uuid::Uuid,
 };
-#[cfg(feature = "encryption")]
-use matrix_sdk_common::{events::room::EncryptedFileInit, locks::Mutex};
-use mime::{self, Mime};
 #[cfg(feature = "encryption")]
 use tracing::instrument;
 

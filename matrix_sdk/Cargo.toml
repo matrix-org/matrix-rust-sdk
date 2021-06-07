@@ -26,7 +26,7 @@ rustls-tls = ["reqwest/rustls-tls"]
 socks = ["reqwest/socks"]
 sso_login = ["warp", "rand", "tokio-stream"]
 require_auth_for_profile_requests = []
-appservice = ["matrix-sdk-common/appservice"]
+appservice = ["matrix-sdk-common/appservice", "ruma/appservice-api-s", "ruma/appservice-api-helper", "ruma/rand"]
 
 docs = ["encryption", "sled_cryptostore", "sled_state_store", "sso_login"]
 
@@ -53,6 +53,10 @@ default_features = false
 [dependencies.reqwest]
 version = "0.11.0"
 default_features = false
+
+[dependencies.ruma]
+version = "0.1.2"
+features = ["client-api-c", "unstable-pre-spec"]
 
 [dependencies.tokio-stream]
 version = "0.1.4"

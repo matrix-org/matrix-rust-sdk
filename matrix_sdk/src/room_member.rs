@@ -1,6 +1,6 @@
 use std::ops::Deref;
 
-use matrix_sdk_common::api::r0::media::{get_content, get_content_thumbnail};
+use ruma::api::client::r0::media::{get_content, get_content_thumbnail};
 
 use crate::{BaseRoomMember, Client, Result};
 

@@ -20,15 +20,17 @@ use http::StatusCode;
 #[cfg(feature = "encryption")]
 use matrix_sdk_base::crypto::{store::CryptoStoreError, DecryptorError};
 use matrix_sdk_base::{Error as MatrixError, StoreError};
-use matrix_sdk_common::{
+use reqwest::Error as ReqwestError;
+use ruma::{
     api::{
-        r0::uiaa::{UiaaInfo, UiaaResponse as UiaaError},
-        Error as RumaClientApiError,
+        client::{
+            r0::uiaa::{UiaaInfo, UiaaResponse as UiaaError},
+            Error as RumaClientApiError,
+        },
+        error::{FromHttpResponseError, IntoHttpError, MatrixError as RumaApiError, ServerError},
     },
     identifiers::Error as IdentifierError,
-    FromHttpResponseError, IntoHttpError, MatrixError as RumaApiError, ServerError,
 };
-use reqwest::Error as ReqwestError;
 use serde_json::Error as JsonError;
 use thiserror::Error;
 use url::ParseError as UrlParseError;

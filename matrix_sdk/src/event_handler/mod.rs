@@ -14,25 +14,16 @@
 // limitations under the License.
 use std::ops::Deref;
 
-use matrix_sdk_common::{
-    api::r0::push::get_notifications::Notification,
-    async_trait,
-    events::{
-        fully_read::FullyReadEventContent, AnySyncRoomEvent, GlobalAccountDataEvent,
-        RoomAccountDataEvent,
-    },
-    identifiers::RoomId,
-};
-use serde_json::value::RawValue as RawJsonValue;
-
-use crate::{
-    deserialized_responses::SyncResponse,
+use matrix_sdk_common::async_trait;
+use ruma::{
+    api::client::r0::push::get_notifications::Notification,
     events::{
         call::{
             answer::AnswerEventContent, candidates::CandidatesEventContent,
             hangup::HangupEventContent, invite::InviteEventContent,
         },
         custom::CustomEventContent,
+        fully_read::FullyReadEventContent,
         ignored_user_list::IgnoredUserListEventContent,
         presence::PresenceEvent,
         push_rules::PushRulesEventContent,
@@ -51,12 +42,15 @@ use crate::{
         },
         typing::TypingEventContent,
         AnyGlobalAccountDataEvent, AnyRoomAccountDataEvent, AnyStrippedStateEvent,
-        AnySyncEphemeralRoomEvent, AnySyncMessageEvent, AnySyncStateEvent, StrippedStateEvent,
-        SyncEphemeralRoomEvent, SyncMessageEvent, SyncStateEvent,
+        AnySyncEphemeralRoomEvent, AnySyncMessageEvent, AnySyncRoomEvent, AnySyncStateEvent,
+        GlobalAccountDataEvent, RoomAccountDataEvent, StrippedStateEvent, SyncEphemeralRoomEvent,
+        SyncMessageEvent, SyncStateEvent,
     },
-    room::Room,
-    Client,
+    RoomId,
 };
+use serde_json::value::RawValue as RawJsonValue;
+
+use crate::{deserialized_responses::SyncResponse, room::Room, Client};
 
 pub(crate) struct Handler {
     pub(crate) inner: Box<dyn EventHandler>,
@@ -507,6 +501,7 @@ mod test {
     use matrix_sdk_common::{async_trait, locks::Mutex};
     use matrix_sdk_test::{async_test, test_json};
     use mockito::{mock, Matcher};
+    use ruma::user_id;
     #[cfg(target_arch = "wasm32")]
     pub use wasm_bindgen_test::*;
 
@@ -712,7 +707,7 @@ mod test {
         }
     }
 
-    use crate::{identifiers::user_id, Client, Session, SyncSettings};
+    use crate::{Client, Session, SyncSettings};
 
     async fn get_client() -> Client {
         let session = Session {

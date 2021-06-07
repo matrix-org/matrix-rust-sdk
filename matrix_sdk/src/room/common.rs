@@ -1,13 +1,14 @@
 use std::{ops::Deref, sync::Arc};
 
-use matrix_sdk_base::{deserialized_responses::MembersResponse, identifiers::UserId};
-use matrix_sdk_common::{
-    api::r0::{
+use matrix_sdk_base::deserialized_responses::MembersResponse;
+use matrix_sdk_common::locks::Mutex;
+use ruma::{
+    api::client::r0::{
         media::{get_content, get_content_thumbnail},
         membership::{get_member_events, join_room_by_id, leave_room},
         message::get_message_events,
     },
-    locks::Mutex,
+    UserId,
 };
 
 use crate::{BaseRoom, Client, Result, RoomMember};

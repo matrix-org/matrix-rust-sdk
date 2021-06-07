@@ -46,15 +46,14 @@ use matrix_sdk_base::crypto::{
 };
 use matrix_sdk_base::{
     deserialized_responses::SyncResponse,
-    events::AnyMessageEventContent,
-    identifiers::MxcUri,
     media::{MediaEventContent, MediaFormat, MediaRequest, MediaThumbnailSize, MediaType},
-    BaseClient, BaseClientConfig, SendAccessToken, Session, Store,
+    BaseClient, BaseClientConfig, Session, Store,
 };
 use mime::{self, Mime};
 #[cfg(feature = "sso_login")]
 use rand::{thread_rng, Rng};
 use reqwest::header::InvalidHeaderValue;
+use ruma::{api::SendAccessToken, events::AnyMessageEventContent, identifiers::MxcUri};
 #[cfg(feature = "sso_login")]
 use tokio::{net::TcpListener, sync::oneshot};
 #[cfg(feature = "sso_login")]
@@ -82,44 +81,51 @@ pub enum LoopCtrl {
     Break,
 }
 
-#[cfg(feature = "encryption")]
-use matrix_sdk_common::api::r0::{
-    keys::{get_keys, upload_keys, upload_signing_keys::Request as UploadSigningKeysRequest},
-    to_device::send_event_to_device::{
-        Request as RumaToDeviceRequest, Response as ToDeviceResponse,
-    },
-};
 use matrix_sdk_common::{
-    api::{
-        r0::{
-            account::register,
-            device::{delete_devices, get_devices},
-            directory::{get_public_rooms, get_public_rooms_filtered},
-            filter::{create_filter::Request as FilterUploadRequest, FilterDefinition},
-            media::{create_content, get_content, get_content_thumbnail},
-            membership::{join_room_by_id, join_room_by_id_or_alias},
-            message::send_message_event,
-            profile::{get_avatar_url, get_display_name, set_avatar_url, set_display_name},
-            room::create_room,
-            session::{get_login_types, login, sso_login},
-            sync::sync_events,
-            uiaa::AuthData,
-        },
-        unversioned::{discover_homeserver, get_supported_versions},
-    },
-    assign,
-    identifiers::{DeviceIdBox, RoomId, RoomIdOrAliasId, ServerName, UserId},
     instant::{Duration, Instant},
     locks::{Mutex, RwLock},
-    presence::PresenceState,
     uuid::Uuid,
-    FromHttpResponseError, UInt,
+};
+#[cfg(feature = "encryption")]
+use ruma::{
+    api::client::r0::{
+        keys::{get_keys, upload_keys, upload_signing_keys::Request as UploadSigningKeysRequest},
+        to_device::send_event_to_device::{
+            Request as RumaToDeviceRequest, Response as ToDeviceResponse,
+        },
+    },
+    DeviceId,
+};
+use ruma::{
+    api::{
+        client::{
+            r0::{
+                account::register,
+                device::{delete_devices, get_devices},
+                directory::{get_public_rooms, get_public_rooms_filtered},
+                filter::{create_filter::Request as FilterUploadRequest, FilterDefinition},
+                media::{create_content, get_content, get_content_thumbnail},
+                membership::{join_room_by_id, join_room_by_id_or_alias},
+                message::send_message_event,
+                profile::{get_avatar_url, get_display_name, set_avatar_url, set_display_name},
+                room::create_room,
+                session::{get_login_types, login, sso_login},
+                sync::sync_events,
+                uiaa::AuthData,
+            },
+            unversioned::{discover_homeserver, get_supported_versions},
+        },
+        error::FromHttpResponseError,
+        OutgoingRequest,
+    },
+    assign,
+    presence::PresenceState,
+    DeviceIdBox, RoomId, RoomIdOrAliasId, ServerName, UInt, UserId,
 };
 
 #[cfg(feature = "encryption")]
 use crate::{
     device::{Device, UserDevices},
-    identifiers::DeviceId,
     sas::Sas,
     verification_request::VerificationRequest,
 };
@@ -127,7 +133,7 @@ use crate::{
     error::HttpError,
     event_handler::Handler,
     http_client::{client_with_config, HttpClient, HttpSend},
-    room, Error, EventHandler, OutgoingRequest, Result,
+    room, Error, EventHandler, Result,
 };
 
 const DEFAULT_REQUEST_TIMEOUT: Duration = Duration::from_secs(10);
@@ -637,7 +643,7 @@ impl Client {
     #[cfg_attr(feature = "docs", doc(cfg(appservice)))]
     pub async fn receive_transaction(
         &self,
-        incoming_transaction: crate::api_appservice::event::push_events::v1::IncomingRequest,
+        incoming_transaction: ruma::api::appservice::event::push_events::v1::IncomingRequest,
     ) -> Result<()> {
         let txn_id = incoming_transaction.txn_id.clone();
         let response = incoming_transaction.try_into_sync_response(txn_id)?;
@@ -994,7 +1000,7 @@ impl Client {
     /// # use std::convert::TryFrom;
     /// # use matrix_sdk::Client;
     /// # use matrix_sdk::identifiers::DeviceId;
-    /// # use matrix_sdk_common::assign;
+    /// # use matrix_sdk::assign;
     /// # use futures::executor::block_on;
     /// # use url::Url;
     /// # let homeserver = Url::parse("http://example.com").unwrap();
@@ -1253,7 +1259,7 @@ impl Client {
     /// # use std::convert::TryFrom;
     /// # use matrix_sdk::Client;
     /// # use matrix_sdk::identifiers::DeviceId;
-    /// # use matrix_sdk_common::assign;
+    /// # use matrix_sdk::assign;
     /// # use futures::executor::block_on;
     /// # use url::Url;
     /// # let homeserver = Url::parse("https://example.com").unwrap();
@@ -1335,7 +1341,7 @@ impl Client {
     /// # use matrix_sdk::api::r0::account::register::{Request as RegistrationRequest, RegistrationKind};
     /// # use matrix_sdk::api::r0::uiaa::AuthData;
     /// # use matrix_sdk::identifiers::DeviceId;
-    /// # use matrix_sdk_common::assign;
+    /// # use matrix_sdk::assign;
     /// # use futures::executor::block_on;
     /// # use url::Url;
     /// # let homeserver = Url::parse("http://example.com").unwrap();
@@ -1558,7 +1564,7 @@ impl Client {
     /// # use matrix_sdk::Client;
     /// # use matrix_sdk::directory::{Filter, RoomNetwork};
     /// # use matrix_sdk::api::r0::directory::get_public_rooms_filtered::Request as PublicRoomsFilterRequest;
-    /// # use matrix_sdk_common::assign;
+    /// # use matrix_sdk::assign;
     /// # use url::Url;
     /// # use futures::executor::block_on;
     /// # let homeserver = Url::parse("http://example.com").unwrap();
@@ -2686,33 +2692,42 @@ mod test {
         time::Duration,
     };
 
-    use matrix_sdk_base::{
-        api::r0::media::get_content_thumbnail::Method,
-        events::room::{message::ImageMessageEventContent, ImageInfo},
-        identifiers::mxc_uri,
-        media::{MediaFormat, MediaRequest, MediaThumbnailSize, MediaType},
-        uint,
-    };
-    use matrix_sdk_common::{
-        api::r0::{
-            account::register::Request as RegistrationRequest,
-            directory::get_public_rooms_filtered::Request as PublicRoomsFilterRequest,
-            membership::Invite3pidInit, session::get_login_types::LoginType, uiaa::AuthData,
+    use matrix_sdk_base::media::{MediaFormat, MediaRequest, MediaThumbnailSize, MediaType};
+    use matrix_sdk_test::{test_json, EventBuilder, EventsJson};
+    use mockito::{mock, Matcher};
+    use ruma::{
+        api::{
+            client::{
+                self as client_api,
+                r0::{
+                    account::register::{RegistrationKind, Request as RegistrationRequest},
+                    directory::{
+                        get_public_rooms,
+                        get_public_rooms_filtered::{self, Request as PublicRoomsFilterRequest},
+                    },
+                    media::get_content_thumbnail::Method,
+                    membership::Invite3pidInit,
+                    session::get_login_types::LoginType,
+                    uiaa::{AuthData, UiaaResponse},
+                },
+            },
+            error::{FromHttpResponseError, ServerError},
         },
         assign,
         directory::Filter,
-        events::{room::message::MessageEventContent, AnyMessageEventContent},
-        identifiers::{event_id, room_id, user_id, UserId},
-        thirdparty,
+        event_id,
+        events::{
+            room::{
+                message::{ImageMessageEventContent, MessageEventContent},
+                ImageInfo,
+            },
+            AnyMessageEventContent,
+        },
+        mxc_uri, room_id, thirdparty, uint, user_id, UserId,
     };
-    use matrix_sdk_test::{test_json, EventBuilder, EventsJson};
-    use mockito::{mock, Matcher};
     use serde_json::json;
 
-    use super::{
-        get_public_rooms, get_public_rooms_filtered, register::RegistrationKind, Client, Session,
-        SyncSettings, Url,
-    };
+    use super::{Client, Session, SyncSettings, Url};
     use crate::{ClientConfig, HttpError, RequestConfig, RoomMember};
 
     async fn logged_in_client() -> Client {
@@ -3002,11 +3017,11 @@ mod test {
             .create();
 
         if let Err(err) = client.login("example", "wordpass", None, None).await {
-            if let crate::Error::Http(HttpError::ClientApi(crate::FromHttpResponseError::Http(
-                crate::ServerError::Known(crate::api::Error { kind, message, status_code }),
+            if let crate::Error::Http(HttpError::ClientApi(FromHttpResponseError::Http(
+                ServerError::Known(client_api::Error { kind, message, status_code }),
             ))) = err
             {
-                if let crate::api::error::ErrorKind::Forbidden = kind {
+                if let client_api::error::ErrorKind::Forbidden = kind {
                 } else {
                     panic!("found the wrong `ErrorKind` {:?}, expected `Forbidden", kind);
                 }
@@ -3038,13 +3053,15 @@ mod test {
         });
 
         if let Err(err) = client.register(user).await {
-            if let crate::Error::Http(HttpError::UiaaError(crate::FromHttpResponseError::Http(
-                crate::ServerError::Known(crate::api::r0::uiaa::UiaaResponse::MatrixError(
-                    crate::api::Error { kind, message, status_code },
-                )),
+            if let crate::Error::Http(HttpError::UiaaError(FromHttpResponseError::Http(
+                ServerError::Known(UiaaResponse::MatrixError(client_api::Error {
+                    kind,
+                    message,
+                    status_code,
+                })),
             ))) = err
             {
-                if let crate::api::error::ErrorKind::Forbidden = kind {
+                if let client_api::error::ErrorKind::Forbidden = kind {
                 } else {
                     panic!("found the wrong `ErrorKind` {:?}, expected `Forbidden", kind);
                 }
@@ -3387,7 +3404,7 @@ mod test {
 
     #[tokio::test]
     async fn room_state_event_send() {
-        use crate::events::{
+        use ruma::events::{
             room::member::{MemberEventContent, MembershipState},
             AnyStateEventContent,
         };

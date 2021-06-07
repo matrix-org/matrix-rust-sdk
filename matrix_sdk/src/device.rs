@@ -18,7 +18,7 @@ use matrix_sdk_base::crypto::{
     store::CryptoStoreError, Device as BaseDevice, LocalTrust, ReadOnlyDevice,
     UserDevices as BaseUserDevices,
 };
-use matrix_sdk_common::identifiers::{DeviceId, DeviceIdBox};
+use ruma::{DeviceId, DeviceIdBox};
 
 use crate::{error::Result, Client, Sas};
 

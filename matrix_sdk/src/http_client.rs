@@ -21,17 +21,16 @@ use backoff::{future::retry, Error as RetryError, ExponentialBackoff};
 #[cfg(all(not(target_arch = "wasm32")))]
 use http::StatusCode;
 use http::{HeaderValue, Response as HttpResponse};
-use matrix_sdk_common::{
-    api::r0::media::create_content, async_trait, locks::RwLock, AsyncTraitDeps, AuthScheme,
-    FromHttpResponseError, IncomingResponse, SendAccessToken,
-};
+use matrix_sdk_common::{async_trait, locks::RwLock, AsyncTraitDeps};
 use reqwest::{Client, Response};
+use ruma::api::{
+    client::r0::media::create_content, error::FromHttpResponseError, AuthScheme, IncomingResponse,
+    OutgoingRequest, SendAccessToken,
+};
 use tracing::trace;
 use url::Url;
 
-use crate::{
-    error::HttpError, Bytes, BytesMut, ClientConfig, OutgoingRequest, RequestConfig, Session,
-};
+use crate::{error::HttpError, Bytes, BytesMut, ClientConfig, RequestConfig, Session};
 
 /// Abstraction around the http layer. The allows implementors to use different
 /// http libraries.
@@ -103,7 +102,7 @@ pub(crate) struct HttpClient {
 }
 
 #[cfg(feature = "appservice")]
-use crate::OutgoingRequestAppserviceExt;
+use ruma::api::OutgoingRequestAppserviceExt;
 
 impl HttpClient {
     pub(crate) fn new(
