@@ -32,10 +32,10 @@ pub enum Error {
     NoClientForLocalpart,
 
     #[error(transparent)]
-    HttpRequest(#[from] matrix_sdk::FromHttpRequestError),
+    HttpRequest(#[from] ruma::api::error::FromHttpRequestError),
 
     #[error(transparent)]
-    Identifier(#[from] matrix_sdk::identifiers::Error),
+    Identifier(#[from] ruma::identifiers::Error),
 
     #[error(transparent)]
     Http(#[from] http::Error),
@@ -44,7 +44,7 @@ pub enum Error {
     Url(#[from] url::ParseError),
 
     #[error(transparent)]
-    Serde(#[from] matrix_sdk::SerdeError),
+    Serde(#[from] serde::de::value::Error),
 
     #[error(transparent)]
     Io(#[from] std::io::Error),

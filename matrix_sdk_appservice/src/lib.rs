@@ -87,23 +87,24 @@ use std::{
 
 use dashmap::DashMap;
 use http::Uri;
-#[doc(inline)]
-pub use matrix_sdk::api_appservice as api;
-use matrix_sdk::{
-    api::{
-        error::ErrorKind,
-        r0::{
-            account::register::{LoginType, Request as RegistrationRequest},
-            uiaa::UiaaResponse,
-        },
-    },
-    api_appservice::Registration,
-    assign,
-    identifiers::{self, DeviceId, ServerNameBox, UserId},
-    reqwest::Url,
-    Client, ClientConfig, EventHandler, FromHttpResponseError, HttpError, ServerError, Session,
-};
+use matrix_sdk::{reqwest::Url, Client, ClientConfig, EventHandler, HttpError, Session};
 use regex::Regex;
+#[doc(inline)]
+pub use ruma::api::appservice as api;
+use ruma::{
+    api::{
+        appservice::Registration,
+        client::{
+            error::ErrorKind,
+            r0::{
+                account::register::{LoginType, Request as RegistrationRequest},
+                uiaa::UiaaResponse,
+            },
+        },
+        error::{FromHttpResponseError, ServerError},
+    },
+    assign, identifiers, DeviceId, ServerNameBox, UserId,
+};
 use tracing::warn;
 
 #[cfg(feature = "actix")]

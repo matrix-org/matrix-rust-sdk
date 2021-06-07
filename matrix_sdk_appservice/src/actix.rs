@@ -29,7 +29,7 @@ use actix_web::{
 };
 use futures::Future;
 use futures_util::{TryFutureExt, TryStreamExt};
-use matrix_sdk::api_appservice as api;
+use ruma::api::appservice as api;
 
 use crate::{error::Error, Appservice};
 
@@ -102,7 +102,7 @@ pub struct IncomingRequest<T> {
     incoming: T,
 }
 
-impl<T: matrix_sdk::IncomingRequest> FromRequest for IncomingRequest<T> {
+impl<T: ruma::api::IncomingRequest> FromRequest for IncomingRequest<T> {
     type Error = Error;
     type Future = Pin<Box<dyn Future<Output = Result<Self, Self::Error>>>>;
     type Config = ();
@@ -145,7 +145,7 @@ impl<T: matrix_sdk::IncomingRequest> FromRequest for IncomingRequest<T> {
 
             let access_token = match request.uri().query() {
                 Some(query) => {
-                    let query: Vec<(String, String)> = matrix_sdk::urlencoded::from_str(query)?;
+                    let query: Vec<(String, String)> = ruma::serde::urlencoded::from_str(query)?;
                     query.into_iter().find(|(key, _)| key == "access_token").map(|(_, value)| value)
                 }
                 None => None,
@@ -160,7 +160,7 @@ impl<T: matrix_sdk::IncomingRequest> FromRequest for IncomingRequest<T> {
 
             Ok(IncomingRequest {
                 access_token,
-                incoming: matrix_sdk::IncomingRequest::try_from_http_request(request)?,
+                incoming: ruma::api::IncomingRequest::try_from_http_request(request)?,
             })
         })
     }

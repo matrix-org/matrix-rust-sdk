@@ -21,12 +21,17 @@ futures = "0.3"
 futures-util = "0.3"
 http = "0.2"
 regex = "1"
+serde = "1.0.126"
 serde_yaml = "0.8"
 thiserror = "1.0"
 tracing = "0.1"
 url = "2"
 
 matrix-sdk = { version = "0.2", path = "../matrix_sdk", default-features = false, features = ["appservice", "native-tls"] }
+
+[dependencies.ruma]
+version = "0.1.2"
+features = ["client-api-c", "appservice-api-s", "unstable-pre-spec"]
 
 [dev-dependencies]
 env_logger = "0.8"
