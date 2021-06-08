@@ -16,8 +16,8 @@ use std::{convert::TryFrom, sync::Arc};
 
 use dashmap::DashMap;
 use matrix_sdk_common::{locks::Mutex, uuid::Uuid};
-use ruma::{DeviceId, UserId};
-use tracing::{info, warn};
+use ruma::{uint, DeviceId, MilliSecondsSinceUnixEpoch, UInt, UserId};
+use tracing::{info, trace, warn};
 
 use super::{
     cache::VerificationCache,
@@ -96,6 +96,30 @@ impl VerificationMachine {
 
     pub fn get_sas(&self, transaction_id: &str) -> Option<Sas> {
         self.verifications.get_sas(transaction_id)
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    fn is_timestamp_valid(timestamp: &MilliSecondsSinceUnixEpoch) -> bool {
+        // The event should be ignored if the event is older than 10 minutes
+        let old_timestamp_threshold: UInt = uint!(600);
+        // The event should be ignored if the event is 5 minutes or more into the
+        // future.
+        let timestamp_threshold: UInt = uint!(300);
+
+        let timestamp = timestamp.as_secs();
+        let now = MilliSecondsSinceUnixEpoch::now().as_secs();
+
+        !(now.saturating_sub(timestamp) > old_timestamp_threshold
+            || timestamp.saturating_sub(now) > timestamp_threshold)
+    }
+
+    #[cfg(target_arch = "wasm32")]
+    fn is_timestamp_valid(timestamp: &MilliSecondsSinceUnixEpoch) -> bool {
+        // TODO the non-wasm method with the same name uses
+        // `MilliSecondsSinceUnixEpoch::now()` which internally uses
+        // `SystemTime::now()` this panics under WASM, thus we're returning here
+        // true for now.
+        true
     }
 
     fn queue_up_content(
@@ -184,17 +208,34 @@ impl VerificationMachine {
                         "Received a new verification request",
                     );
 
-                    let request = VerificationRequest::from_request(
-                        self.verifications.clone(),
-                        self.account.clone(),
-                        self.private_identity.lock().await.clone(),
-                        self.store.clone(),
-                        event.sender(),
-                        flow_id,
-                        r,
-                    );
+                    if let Some(timestamp) = event.timestamp() {
+                        if Self::is_timestamp_valid(timestamp) {
+                            let request = VerificationRequest::from_request(
+                                self.verifications.clone(),
+                                self.account.clone(),
+                                self.private_identity.lock().await.clone(),
+                                self.store.clone(),
+                                event.sender(),
+                                flow_id,
+                                r,
+                            );
 
-                    self.requests.insert(request.flow_id().as_str().to_owned(), request);
+                            self.requests.insert(request.flow_id().as_str().to_owned(), request);
+                        } else {
+                            trace!(
+                                sender = event.sender().as_str(),
+                                from_device = r.from_device().as_str(),
+                                timestamp =? timestamp,
+                                "The received verification request was too old or too far into the future",
+                            );
+                        }
+                    } else {
+                        warn!(
+                            sender = event.sender().as_str(),
+                            from_device = r.from_device().as_str(),
+                            "The key verification request didn't contain a valid timestamp"
+                        );
+                    }
                 }
                 AnyVerificationContent::Cancel(c) => {
                     if let Some(verification) = self.get_request(flow_id.as_str()) {

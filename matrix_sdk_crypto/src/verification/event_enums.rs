@@ -35,6 +35,7 @@ use ruma::{
     },
     identifiers::{DeviceId, RoomId, UserId},
     serde::CanonicalJsonValue,
+    MilliSecondsSinceUnixEpoch,
 };
 
 use super::FlowId;
@@ -50,6 +51,16 @@ impl AnyEvent<'_> {
         match self {
             Self::Room(e) => e.sender(),
             Self::ToDevice(e) => e.sender(),
+        }
+    }
+
+    pub fn timestamp(&self) -> Option<&MilliSecondsSinceUnixEpoch> {
+        match self {
+            AnyEvent::Room(e) => Some(e.origin_server_ts()),
+            AnyEvent::ToDevice(e) => match e {
+                AnyToDeviceEvent::KeyVerificationRequest(e) => Some(&e.content.timestamp),
+                _ => None,
+            },
         }
     }
 
