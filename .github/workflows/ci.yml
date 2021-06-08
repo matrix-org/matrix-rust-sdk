@@ -96,10 +96,8 @@ jobs:
         name:
           - linux / appservice / stable / actix
           - macOS / appservice / stable / actix
-          - windows / appservice / stable-x86_64-msvc / actix
           - linux / appservice / stable / warp
           - macOS / appservice / stable / warp
-          - windows / appservice / stable-x86_64-msvc / warp
 
         include:
           - name: linux / appservice / stable / actix
@@ -109,21 +107,11 @@ jobs:
             os: macOS-latest
             cargo_args: --features actix
 
-          - name: windows / appservice / stable-x86_64-msvc / actix
-            os: windows-latest
-            target: x86_64-pc-windows-msvc
-            cargo_args: --features actix
-
           - name: linux / appservice / stable / warp
             cargo_args: --features warp
 
           - name: macOS / appservice / stable / warp
             os: macOS-latest
-            cargo_args: --features warp
-
-          - name: windows / appservice / stable-x86_64-msvc / warp
-            os: windows-latest
-            target: x86_64-pc-windows-msvc
             cargo_args: --features warp
 
     steps:
