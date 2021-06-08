@@ -177,7 +177,7 @@ impl Default for AcceptedProtocols {
 
 /// A type level state machine modeling the Sas flow.
 ///
-/// This is the generic struc holding common data between the different states
+/// This is the generic struct holding common data between the different states
 /// and the specific state.
 #[derive(Clone)]
 pub struct SasState<S: Clone> {

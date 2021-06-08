@@ -843,7 +843,7 @@ impl Client {
     /// # use matrix_sdk::Client;
     /// # use url::Url;
     /// # block_on(async {
-    /// # let homeserver = Url::parse("http://locahost:8080").unwrap();
+    /// # let homeserver = Url::parse("http://localhost:8080").unwrap();
     /// # let client = Client::new(homeserver).unwrap();
     /// let path = Path::new("/home/example/selfie.jpg");
     /// let mut image = File::open(&path).unwrap();

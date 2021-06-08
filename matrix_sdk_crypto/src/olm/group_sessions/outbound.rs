@@ -75,7 +75,7 @@ pub struct EncryptionSettings {
     pub rotation_period: Duration,
     /// How many messages should be sent before changing the session.
     pub rotation_period_msgs: u64,
-    /// The history visibilty of the room when the session was created.
+    /// The history visibility of the room when the session was created.
     pub history_visibility: HistoryVisibility,
 }
 

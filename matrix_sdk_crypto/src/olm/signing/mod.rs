@@ -42,7 +42,7 @@ use crate::{
 /// This object holds the private and public ed25519 key triplet that is used
 /// for cross signing.
 ///
-/// The object might be comletely empty or have only some of the key pairs
+/// The object might be completely empty or have only some of the key pairs
 /// available.
 ///
 /// It can be used to sign devices or other identities.

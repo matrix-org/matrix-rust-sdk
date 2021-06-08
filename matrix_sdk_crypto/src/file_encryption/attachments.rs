@@ -55,7 +55,7 @@ impl<'a, R: Read> Read for AttachmentDecryptor<'a, R> {
             if hash.as_slice() == self.expected_hash.as_slice() {
                 Ok(0)
             } else {
-                Err(IoError::new(ErrorKind::Other, "Hash missmatch while decrypting"))
+                Err(IoError::new(ErrorKind::Other, "Hash mismatch while decrypting"))
             }
         } else {
             self.sha.update(&buf[0..read_bytes]);

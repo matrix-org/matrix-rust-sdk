@@ -59,7 +59,7 @@ pub enum AlgorithmInfo {
         /// key originally.
         curve25519_key: String,
         /// The signing keys that have created the megolm key that was used to
-        /// decrypt this session. This map will usually contain a signle ed25519
+        /// decrypt this session. This map will usually contain a single ed25519
         /// key.
         sender_claimed_keys: BTreeMap<DeviceKeyAlgorithm, String>,
         /// Chain of curve25519 keys through which this session was forwarded,

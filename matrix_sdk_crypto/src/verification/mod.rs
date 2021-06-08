@@ -73,7 +73,7 @@ impl From<Sas> for Verification {
 /// The verification state indicating that the verification finished
 /// successfully.
 ///
-/// We can now mark the device in our verified devices lits as verified and sign
+/// We can now mark the device in our verified devices list as verified and sign
 /// the master keys in the verified devices list.
 #[derive(Clone, Debug)]
 pub struct Done {
