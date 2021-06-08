@@ -43,7 +43,7 @@ use tracing::{error, info, trace, warn};
 use crate::{
     error::SignatureError,
     olm::PrivateCrossSigningIdentity,
-    store::{Changes, CryptoStore, DeviceChanges},
+    store::{Changes, CryptoStore},
     CryptoStoreError, LocalTrust, ReadOnlyDevice, UserIdentities,
 };
 
@@ -257,9 +257,18 @@ impl IdentitiesBeingVerified {
         verified_devices: Option<&[ReadOnlyDevice]>,
         verified_identities: Option<&[UserIdentities]>,
     ) -> Result<VerificationResult, CryptoStoreError> {
-        if let Some(device) = self.mark_device_as_verified(verified_devices).await? {
-            let identity = self.mark_identity_as_verified(verified_identities).await?;
+        let device = self.mark_device_as_verified(verified_devices).await?;
+        let identity = self.mark_identity_as_verified(verified_identities).await?;
 
+        if device.is_none() && identity.is_none() {
+            // Something wen't wrong if nothing was verified, we use key
+            // mismatch here, since it's the closest to nothing was verified
+            return Ok(VerificationResult::Cancel(CancelCode::KeyMismatch));
+        }
+
+        let mut changes = Changes::default();
+
+        let signature_request = if let Some(device) = device {
             // We only sign devices of our own user here.
             let signature_request = if device.user_id() == self.user_id() {
                 match self.private_identity.sign_device(&device).await {
@@ -288,69 +297,67 @@ impl IdentitiesBeingVerified {
                 None
             };
 
-            let mut changes = Changes {
-                devices: DeviceChanges { changed: vec![device], ..Default::default() },
-                ..Default::default()
-            };
+            changes.devices.changed.push(device);
+            signature_request
+        } else {
+            None
+        };
 
-            let identity_signature_request = if let Some(i) = identity {
-                // We only sign other users here.
-                let request = if let Some(i) = i.other() {
-                    // Signing can fail if the user signing key is missing.
-                    match self.private_identity.sign_user(i).await {
-                        Ok(r) => Some(r),
-                        Err(SignatureError::MissingSigningKey) => {
-                            warn!(
-                                "Can't sign the public cross signing keys for {}, \
-                                  no private user signing key found",
-                                i.user_id()
-                            );
-                            None
-                        }
-                        Err(e) => {
-                            error!(
-                                "Error signing the public cross signing keys for {} {:?}",
-                                i.user_id(),
-                                e
-                            );
-                            None
-                        }
+        let identity_signature_request = if let Some(i) = identity {
+            // We only sign other users here.
+            let request = if let Some(i) = i.other() {
+                // Signing can fail if the user signing key is missing.
+                match self.private_identity.sign_user(i).await {
+                    Ok(r) => Some(r),
+                    Err(SignatureError::MissingSigningKey) => {
+                        warn!(
+                            "Can't sign the public cross signing keys for {}, \
+                              no private user signing key found",
+                            i.user_id()
+                        );
+                        None
                     }
-                } else {
-                    None
-                };
-
-                changes.identities.changed.push(i);
-
-                request
+                    Err(e) => {
+                        error!(
+                            "Error signing the public cross signing keys for {} {:?}",
+                            i.user_id(),
+                            e
+                        );
+                        None
+                    }
+                }
             } else {
                 None
             };
 
-            // If there are two signature upload requests, merge them. Otherwise
-            // use the one we have or None.
-            //
-            // Realistically at most one request will be used but let's make
-            // this future proof.
-            let merged_request = if let Some(mut r) = signature_request {
-                if let Some(user_request) = identity_signature_request {
-                    r.signed_keys.extend(user_request.signed_keys);
-                    Some(r)
-                } else {
-                    Some(r)
-                }
-            } else {
-                identity_signature_request
-            };
-
-            // TODO store the signature upload request as well.
-            self.store.save_changes(changes).await?;
-            Ok(merged_request
-                .map(VerificationResult::SignatureUpload)
-                .unwrap_or(VerificationResult::Ok))
+            changes.identities.changed.push(i);
+            request
         } else {
-            Ok(VerificationResult::Cancel(CancelCode::UserMismatch))
-        }
+            None
+        };
+
+        // If there are two signature upload requests, merge them. Otherwise
+        // use the one we have or None.
+        //
+        // Realistically at most one request will be used but let's make
+        // this future proof.
+        let merged_request = if let Some(mut r) = signature_request {
+            if let Some(user_request) = identity_signature_request {
+                r.signed_keys.extend(user_request.signed_keys);
+                Some(r)
+            } else {
+                Some(r)
+            }
+        } else {
+            identity_signature_request
+        };
+
+        // TODO store the signature upload request as well.
+        self.store.save_changes(changes).await?;
+
+        Ok(merged_request
+            .map(VerificationResult::SignatureUpload)
+            .unwrap_or(VerificationResult::Ok))
     }
 
     async fn mark_identity_as_verified(
