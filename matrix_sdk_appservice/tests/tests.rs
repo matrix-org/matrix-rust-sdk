@@ -7,11 +7,10 @@ use matrix_sdk::{
     async_trait,
     events::{room::member::MemberEventContent, SyncStateEvent},
     room::Room,
-    EventHandler,
+    ClientConfig, EventHandler, RequestConfig,
 };
 use matrix_sdk_appservice::*;
 use matrix_sdk_test::{appservice::TransactionBuilder, async_test, EventsJson};
-use sdk::{ClientConfig, RequestConfig};
 use serde_json::json;
 #[cfg(feature = "warp")]
 use warp::{Filter, Reply};
@@ -319,7 +318,7 @@ async fn test_unrelated_path() -> Result<()> {
     let status = {
         let consumer_filter = warp::any()
             .and(appservice.warp_filter())
-            .or(warp::get().and(warp::path("unrelated").map(|| warp::reply())));
+            .or(warp::get().and(warp::path("unrelated").map(warp::reply)));
 
         let response = warp::test::request()
             .method("GET")
