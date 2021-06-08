@@ -350,9 +350,22 @@ impl Appservice {
         Ok(entry.value().clone())
     }
 
-    /// Convenience wrapper around [`Client::set_event_handler()`]
+    /// Convenience wrapper around [`Client::set_event_handler()`] that attaches
+    /// the event handler to the [`MainUser`]'s [`Client`]
     ///
-    /// Attaches the event handler to the [`MainUser`]'s [`Client`]
+    /// Note that the event handler in the [`Appservice`] context only triggers
+    /// [`join` room `timeline` events], so no state events or events from the
+    /// `invite`, `knock` or `leave` scope. The rationale behind that is
+    /// that incoming Appservice transactions from the homeserver are not
+    /// necessarily bound to a specific user but can cover a multitude of
+    /// namespaces, and as such the Appservice basically only "observes
+    /// joined rooms". Also currently homeservers only push PDUs to appservices,
+    /// no EDUs. There's the open [MSC2409] regarding supporting EDUs in the
+    /// future, though it seems to be planned to put EDUs into a different
+    /// JSON key than `events` to stay backwards compatible.
+    ///
+    /// [`join` room `timeline` events]: https://spec.matrix.org/unstable/client-server-api/#get_matrixclientr0sync
+    /// [MSC2409]: https://github.com/matrix-org/matrix-doc/pull/2409
     pub async fn set_event_handler(&mut self, handler: Box<dyn EventHandler>) -> Result<()> {
         let client = self.get_cached_client(None)?;
 
