@@ -45,4 +45,4 @@ matrix-sdk-test = { version = "0.2", path = "../matrix_sdk_test", features = ["a
 
 [[example]]
 name = "autojoin"
-required-features = ["actix"]
+required-features = ["warp"]
