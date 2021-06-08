@@ -23,7 +23,7 @@ use crate::{OutgoingRequest, RoomMessageRequest};
 
 #[derive(Clone, Debug)]
 pub struct VerificationCache {
-    verification: Arc<DashMap<String, Verification>>,
+    verification: Arc<DashMap<UserId, DashMap<String, Verification>>>,
     outgoing_requests: Arc<DashMap<Uuid, OutgoingRequest>>,
 }
 
@@ -35,11 +35,24 @@ impl VerificationCache {
     #[cfg(test)]
     #[allow(dead_code)]
     pub fn is_empty(&self) -> bool {
-        self.verification.is_empty()
+        self.verification.iter().all(|m| m.is_empty())
+    }
+
+    pub fn insert(&self, verification: impl Into<Verification>) {
+        let verification = verification.into();
+
+        self.verification
+            .entry(verification.other_user().to_owned())
+            .or_insert_with(DashMap::new)
+            .insert(verification.flow_id().to_owned(), verification);
     }
 
     pub fn insert_sas(&self, sas: Sas) {
-        self.verification.insert(sas.flow_id().as_str().to_string(), sas.into());
+        self.insert(sas);
+    }
+
+    pub fn get(&self, sender: &UserId, flow_id: &str) -> Option<Verification> {
+        self.verification.get(sender).and_then(|m| m.get(flow_id).map(|v| v.clone()))
     }
 
     pub fn outgoing_requests(&self) -> Vec<OutgoingRequest> {
@@ -47,28 +60,38 @@ impl VerificationCache {
     }
 
     pub fn garbage_collect(&self) -> Vec<OutgoingRequest> {
-        self.verification.retain(|_, s| !(s.is_done() || s.is_cancelled()));
+        for user_verification in self.verification.iter() {
+            user_verification.retain(|_, s| !(s.is_done() || s.is_cancelled()));
+        }
+
+        self.verification.retain(|_, m| !m.is_empty());
 
         self.verification
             .iter()
-            .filter_map(|s| {
-                #[allow(irrefutable_let_patterns)]
-                if let Verification::SasV1(s) = s.value() {
-                    s.cancel_if_timed_out().map(|r| OutgoingRequest {
-                        request_id: r.request_id(),
-                        request: Arc::new(r.into()),
+            .flat_map(|v| {
+                let requests: Vec<OutgoingRequest> = v
+                    .value()
+                    .iter()
+                    .filter_map(|s| {
+                        if let Verification::SasV1(s) = s.value() {
+                            s.cancel_if_timed_out().map(|r| OutgoingRequest {
+                                request_id: r.request_id(),
+                                request: Arc::new(r.into()),
+                            })
+                        } else {
+                            None
+                        }
                     })
-                } else {
-                    None
-                }
+                    .collect();
+
+                requests
             })
             .collect()
     }
 
-    pub fn get_sas(&self, transaction_id: &str) -> Option<Sas> {
-        self.verification.get(transaction_id).and_then(|v| {
-            #[allow(irrefutable_let_patterns)]
-            if let Verification::SasV1(sas) = v.value() {
+    pub fn get_sas(&self, user_id: &UserId, flow_id: &str) -> Option<Sas> {
+        self.get(user_id, flow_id).and_then(|v| {
+            if let Verification::SasV1(sas) = v {
                 Some(sas.clone())
             } else {
                 None

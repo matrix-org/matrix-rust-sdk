@@ -1213,8 +1213,13 @@ impl BaseClient {
     ///   *m.key.verification.start* event.
     #[cfg(feature = "encryption")]
     #[cfg_attr(feature = "docs", doc(cfg(encryption)))]
-    pub async fn get_verification(&self, flow_id: &str) -> Option<Sas> {
-        self.olm.lock().await.as_ref().and_then(|o| o.get_verification(flow_id))
+    pub async fn get_verification(&self, user_id: &UserId, flow_id: &str) -> Option<Sas> {
+        self.olm
+            .lock()
+            .await
+            .as_ref()
+            .and_then(|o| o.get_verification(user_id, flow_id).map(|v| v.sas_v1()))
+            .flatten()
     }
 
     /// Get a specific device of a user.

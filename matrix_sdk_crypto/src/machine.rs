@@ -59,7 +59,7 @@ use crate::{
         Changes, CryptoStore, DeviceChanges, IdentityChanges, MemoryStore, Result as StoreResult,
         Store,
     },
-    verification::{Sas, VerificationMachine, VerificationRequest},
+    verification::{Verification, VerificationMachine, VerificationRequest},
     ToDeviceRequest,
 };
 
@@ -717,9 +717,9 @@ impl OlmMachine {
         Ok(())
     }
 
-    /// Get a `Sas` verification object with the given flow id.
-    pub fn get_verification(&self, flow_id: &str) -> Option<Sas> {
-        self.verification_machine.get_sas(flow_id)
+    /// Get a verification object for the given user id with the given flow id.
+    pub fn get_verification(&self, user_id: &UserId, flow_id: &str) -> Option<Verification> {
+        self.verification_machine.get_verification(user_id, flow_id)
     }
 
     /// Get a verification request object with the given flow id.
@@ -1761,7 +1761,11 @@ pub(crate) mod test {
         let event = request_to_event(alice.user_id(), &request.into());
         bob.handle_verification_event(&event).await;
 
-        let bob_sas = bob.get_verification(alice_sas.flow_id().as_str()).unwrap();
+        let bob_sas = bob
+            .get_verification(alice.user_id(), alice_sas.flow_id().as_str())
+            .unwrap()
+            .sas_v1()
+            .unwrap();
 
         assert!(alice_sas.emoji().is_none());
         assert!(bob_sas.emoji().is_none());

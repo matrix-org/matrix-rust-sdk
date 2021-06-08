@@ -2185,9 +2185,9 @@ impl Client {
     /// Get a `Sas` verification object with the given flow id.
     #[cfg(feature = "encryption")]
     #[cfg_attr(feature = "docs", doc(cfg(encryption)))]
-    pub async fn get_verification(&self, flow_id: &str) -> Option<Sas> {
+    pub async fn get_verification(&self, user_id: &UserId, flow_id: &str) -> Option<Sas> {
         self.base_client
-            .get_verification(flow_id)
+            .get_verification(user_id, flow_id)
             .await
             .map(|sas| Sas { inner: sas, client: self.clone() })
     }

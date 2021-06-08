@@ -24,7 +24,7 @@ use super::{
     event_enums::{AnyEvent, AnyVerificationContent, OutgoingContent},
     requests::VerificationRequest,
     sas::{content_to_request, Sas},
-    FlowId, VerificationResult,
+    FlowId, Verification, VerificationResult,
 };
 use crate::{
     olm::PrivateCrossSigningIdentity,
@@ -94,8 +94,12 @@ impl VerificationMachine {
         self.requests.get(flow_id.as_ref()).map(|s| s.clone())
     }
 
-    pub fn get_sas(&self, transaction_id: &str) -> Option<Sas> {
-        self.verifications.get_sas(transaction_id)
+    pub fn get_verification(&self, user_id: &UserId, flow_id: &str) -> Option<Verification> {
+        self.verifications.get(user_id, flow_id)
+    }
+
+    pub fn get_sas(&self, user_id: &UserId, flow_id: &str) -> Option<Sas> {
+        self.verifications.get_sas(user_id, flow_id)
     }
 
     #[cfg(not(target_arch = "wasm32"))]
@@ -242,7 +246,7 @@ impl VerificationMachine {
                         verification.receive_cancel(event.sender(), c);
                     }
 
-                    if let Some(sas) = self.verifications.get_sas(flow_id.as_str()) {
+                    if let Some(sas) = self.get_sas(event.sender(), flow_id.as_str()) {
                         // This won't produce an outgoing content
                         let _ = sas.receive_any_event(event.sender(), &content);
                     }
@@ -296,7 +300,7 @@ impl VerificationMachine {
                     }
                 }
                 AnyVerificationContent::Accept(_) | AnyVerificationContent::Key(_) => {
-                    if let Some(sas) = self.verifications.get_sas(flow_id.as_str()) {
+                    if let Some(sas) = self.get_sas(event.sender(), flow_id.as_str()) {
                         if sas.flow_id() == &flow_id {
                             if let Some(content) = sas.receive_any_event(event.sender(), &content) {
                                 self.queue_up_content(
@@ -311,7 +315,7 @@ impl VerificationMachine {
                     }
                 }
                 AnyVerificationContent::Mac(_) => {
-                    if let Some(s) = self.verifications.get_sas(flow_id.as_str()) {
+                    if let Some(s) = self.get_sas(event.sender(), flow_id.as_str()) {
                         if s.flow_id() == &flow_id {
                             let content = s.receive_any_event(event.sender(), &content);
 
@@ -328,12 +332,15 @@ impl VerificationMachine {
                         verification.receive_done(event.sender(), c);
                     }
 
-                    if let Some(s) = self.verifications.get_sas(flow_id.as_str()) {
-                        let content = s.receive_any_event(event.sender(), &content);
+                    match self.get_verification(event.sender(), flow_id.as_str()) {
+                        Some(Verification::SasV1(sas)) => {
+                            let content = sas.receive_any_event(event.sender(), &content);
 
-                        if s.is_done() {
-                            self.mark_sas_as_done(s, content).await?;
+                            if sas.is_done() {
+                                self.mark_sas_as_done(sas, content).await?;
+                            }
                         }
+                        None => (),
                     }
                 }
             }
@@ -426,7 +433,7 @@ mod test {
     async fn full_flow() {
         let (alice_machine, bob) = setup_verification_machine().await;
 
-        let alice = alice_machine.get_sas(bob.flow_id().as_str()).unwrap();
+        let alice = alice_machine.get_sas(bob.user_id(), bob.flow_id().as_str()).unwrap();
 
         let request = alice.accept().unwrap();
 
@@ -472,7 +479,7 @@ mod test {
     #[tokio::test]
     async fn timing_out() {
         let (alice_machine, bob) = setup_verification_machine().await;
-        let alice = alice_machine.get_sas(bob.flow_id().as_str()).unwrap();
+        let alice = alice_machine.get_sas(bob.user_id(), bob.flow_id().as_str()).unwrap();
 
         assert!(!alice.timed_out());
         assert!(alice_machine.verifications.outgoing_requests().is_empty());

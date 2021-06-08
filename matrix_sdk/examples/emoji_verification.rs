@@ -81,7 +81,7 @@ async fn login(
                 match event {
                     AnyToDeviceEvent::KeyVerificationStart(e) => {
                         let sas = client
-                            .get_verification(&e.content.transaction_id)
+                            .get_verification(&e.sender, &e.content.transaction_id)
                             .await
                             .expect("Sas object wasn't created");
                         println!(
@@ -95,7 +95,7 @@ async fn login(
 
                     AnyToDeviceEvent::KeyVerificationKey(e) => {
                         let sas = client
-                            .get_verification(&e.content.transaction_id)
+                            .get_verification(&e.sender, &e.content.transaction_id)
                             .await
                             .expect("Sas object wasn't created");
 
@@ -104,7 +104,7 @@ async fn login(
 
                     AnyToDeviceEvent::KeyVerificationMac(e) => {
                         let sas = client
-                            .get_verification(&e.content.transaction_id)
+                            .get_verification(&e.sender, &e.content.transaction_id)
                             .await
                             .expect("Sas object wasn't created");
 
@@ -141,7 +141,10 @@ async fn login(
                                 }
                                 AnySyncMessageEvent::KeyVerificationKey(e) => {
                                     let sas = client
-                                        .get_verification(e.content.relation.event_id.as_str())
+                                        .get_verification(
+                                            &e.sender,
+                                            e.content.relation.event_id.as_str(),
+                                        )
                                         .await
                                         .expect("Sas object wasn't created");
 
@@ -149,7 +152,10 @@ async fn login(
                                 }
                                 AnySyncMessageEvent::KeyVerificationMac(e) => {
                                     let sas = client
-                                        .get_verification(e.content.relation.event_id.as_str())
+                                        .get_verification(
+                                            &e.sender,
+                                            e.content.relation.event_id.as_str(),
+                                        )
                                         .await
                                         .expect("Sas object wasn't created");
 

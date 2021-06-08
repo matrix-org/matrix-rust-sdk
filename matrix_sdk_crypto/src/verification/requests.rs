@@ -810,7 +810,8 @@ mod test {
         let content = StartContent::try_from(&start_content).unwrap();
         let flow_id = content.flow_id().to_owned();
         alice_request.receive_start(bob_device.user_id(), &content).await.unwrap();
-        let alice_sas = alice_request.verification_cache.get_sas(&flow_id).unwrap();
+        let alice_sas =
+            alice_request.verification_cache.get_sas(bob_device.user_id(), &flow_id).unwrap();
 
         assert!(!bob_sas.is_cancelled());
         assert!(!alice_sas.is_cancelled());
@@ -867,7 +868,8 @@ mod test {
         let content = StartContent::try_from(&start_content).unwrap();
         let flow_id = content.flow_id().to_owned();
         alice_request.receive_start(bob_device.user_id(), &content).await.unwrap();
-        let alice_sas = alice_request.verification_cache.get_sas(&flow_id).unwrap();
+        let alice_sas =
+            alice_request.verification_cache.get_sas(bob_device.user_id(), &flow_id).unwrap();
 
         assert!(!bob_sas.is_cancelled());
         assert!(!alice_sas.is_cancelled());

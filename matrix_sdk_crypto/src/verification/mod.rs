@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#![allow(missing_docs)]
+
 mod cache;
 mod event_enums;
 mod machine;
@@ -57,9 +59,29 @@ impl Verification {
         }
     }
 
+    pub fn sas_v1(self) -> Option<Sas> {
+        if let Verification::SasV1(sas) = self {
+            Some(sas)
+        } else {
+            None
+        }
+    }
+
+    pub fn flow_id(&self) -> &str {
+        match self {
+            Verification::SasV1(s) => s.flow_id().as_str(),
+        }
+    }
+
     pub fn is_cancelled(&self) -> bool {
         match self {
             Verification::SasV1(s) => s.is_cancelled(),
+        }
+    }
+
+    pub fn other_user(&self) -> &UserId {
+        match self {
+            Verification::SasV1(s) => s.other_user_id(),
         }
     }
 }
