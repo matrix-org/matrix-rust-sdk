@@ -61,6 +61,20 @@ impl InnerSas {
         (InnerSas::Created(sas), content.into())
     }
 
+    pub fn started_from_request(&self) -> bool {
+        match self {
+            InnerSas::Created(s) => s.started_from_request,
+            InnerSas::Started(s) => s.started_from_request,
+            InnerSas::Accepted(s) => s.started_from_request,
+            InnerSas::KeyReceived(s) => s.started_from_request,
+            InnerSas::Confirmed(s) => s.started_from_request,
+            InnerSas::MacReceived(s) => s.started_from_request,
+            InnerSas::WaitingForDone(s) => s.started_from_request,
+            InnerSas::Done(s) => s.started_from_request,
+            InnerSas::Cancelled(s) => s.started_from_request,
+        }
+    }
+
     pub fn supports_emoji(&self) -> bool {
         match self {
             InnerSas::Created(_) => false,

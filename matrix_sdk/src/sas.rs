@@ -15,6 +15,7 @@
 use matrix_sdk_base::crypto::{
     AcceptSettings, OutgoingVerificationRequest, ReadOnlyDevice, Sas as BaseSas,
 };
+use ruma::UserId;
 
 use crate::{error::Result, Client};
 
@@ -43,14 +44,19 @@ impl Sas {
     /// # use matrix_sdk::Client;
     /// # use futures::executor::block_on;
     /// # use url::Url;
+    /// # use ruma::identifiers::user_id;
     /// use matrix_sdk::Sas;
     /// use matrix_sdk_base::crypto::AcceptSettings;
     /// use matrix_sdk::events::key::verification::ShortAuthenticationString;
     /// # let homeserver = Url::parse("http://example.com").unwrap();
     /// # let client = Client::new(homeserver).unwrap();
     /// # let flow_id = "someID";
+    /// # let user_id = user_id!("@alice:example");
     /// # block_on(async {
-    /// let sas = client.get_verification(flow_id).await.unwrap();
+    /// let sas = client
+    ///     .get_verification(&user_id, flow_id)
+    ///     .await
+    ///     .unwrap();
     ///
     /// let only_decimal = AcceptSettings::with_allowed_methods(
     ///     vec![ShortAuthenticationString::Decimal]
@@ -140,5 +146,20 @@ impl Sas {
     /// Get the other users device that we're verifying.
     pub fn other_device(&self) -> &ReadOnlyDevice {
         self.inner.other_device()
+    }
+
+    /// Did this verification flow start from a verification request.
+    pub fn started_from_request(&self) -> bool {
+        self.inner.started_from_request()
+    }
+
+    /// Is this a verification that is veryfying one of our own devices.
+    pub fn is_self_verification(&self) -> bool {
+        self.inner.is_self_verification()
+    }
+
+    /// Get our own user id.
+    pub fn own_user_id(&self) -> &UserId {
+        self.inner.user_id()
     }
 }

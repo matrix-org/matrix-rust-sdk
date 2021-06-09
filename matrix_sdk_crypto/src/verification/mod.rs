@@ -240,6 +240,10 @@ impl IdentitiesBeingVerified {
         self.private_identity.user_id()
     }
 
+    fn is_self_verification(&self) -> bool {
+        self.user_id() == self.other_user_id()
+    }
+
     fn other_user_id(&self) -> &UserId {
         self.device_being_verified.user_id()
     }
@@ -370,8 +374,6 @@ impl IdentitiesBeingVerified {
             return Ok(None);
         }
 
-        // TODO signal an error, e.g. when the identity got deleted so we don't
-        // verify/save the device either.
         let identity = self.store.get_user_identity(self.other_user_id()).await?;
 
         if let Some(identity) = identity {

@@ -49,8 +49,8 @@ use crate::{
     ReadOnlyAccount, ToDeviceRequest,
 };
 
-#[derive(Clone, Debug)]
 /// Short authentication string object.
+#[derive(Clone, Debug)]
 pub struct Sas {
     inner: Arc<Mutex<InnerSas>>,
     account: ReadOnlyAccount,
@@ -93,6 +93,16 @@ impl Sas {
     /// authentication string.
     pub fn supports_emoji(&self) -> bool {
         self.inner.lock().unwrap().supports_emoji()
+    }
+
+    /// Did this verification flow start from a verification request.
+    pub fn started_from_request(&self) -> bool {
+        self.inner.lock().unwrap().started_from_request()
+    }
+
+    /// Is this a verification that is veryfying one of our own devices.
+    pub fn is_self_verification(&self) -> bool {
+        self.identities_being_verified.is_self_verification()
     }
 
     #[cfg(test)]
