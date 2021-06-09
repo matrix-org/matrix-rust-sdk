@@ -8,7 +8,7 @@ name = "matrix-sdk-appservice"
 version = "0.1.0"
 
 [features]
-default = []
+default = ["warp"]
 actix = ["actix-rt", "actix-web"]
 
 docs = ["actix", "warp"]
@@ -27,7 +27,7 @@ serde_yaml = "0.8"
 thiserror = "1.0"
 tracing = "0.1"
 url = "2"
-warp = { git = "https://github.com/seanmonstar/warp.git", rev = "629405", optional = true, default-features = false, features = ["multipart", "websocket"] }
+warp = { git = "https://github.com/seanmonstar/warp.git", rev = "629405", optional = true, default-features = false }
 
 matrix-sdk = { version = "0.2", path = "../matrix_sdk", default-features = false, features = ["appservice", "native-tls"] }
 

@@ -101,11 +101,11 @@ jobs:
 
         include:
           - name: linux / appservice / stable / actix
-            cargo_args: --features actix
+            cargo_args: --no-default-features --features actix
 
           - name: macOS / appservice / stable / actix
             os: macOS-latest
-            cargo_args: --features actix
+            cargo_args: --no-default-features --features actix
 
           - name: linux / appservice / stable / warp
             cargo_args: --features warp
