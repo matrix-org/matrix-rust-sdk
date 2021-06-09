@@ -44,5 +44,5 @@ tracing-subscriber = "0.2"
 matrix-sdk-test = { version = "0.2", path = "../matrix_sdk_test", features = ["appservice"] }
 
 [[example]]
-name = "autojoin"
+name = "appservice_autojoin"
 required-features = ["warp"]
