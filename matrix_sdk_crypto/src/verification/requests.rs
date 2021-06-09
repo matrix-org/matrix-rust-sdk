@@ -16,6 +16,7 @@
 
 use std::sync::{Arc, Mutex};
 
+use matrix_qrcode::QrVerificationData;
 use matrix_sdk_common::uuid::Uuid;
 use ruma::{
     api::client::r0::to_device::DeviceIdOrAllDevices,
@@ -30,17 +31,18 @@ use ruma::{
         room::message::KeyVerificationRequestEventContent,
         AnyMessageEventContent, AnyToDeviceEventContent,
     },
-    DeviceId, DeviceIdBox, EventId, MilliSecondsSinceUnixEpoch, RoomId, UserId,
+    DeviceId, DeviceIdBox, DeviceKeyAlgorithm, EventId, MilliSecondsSinceUnixEpoch, RoomId, UserId,
 };
-use tracing::{info, warn};
+use tracing::{info, trace, warn};
 
 use super::{
     cache::VerificationCache,
     event_enums::{
         CancelContent, DoneContent, OutgoingContent, ReadyContent, RequestContent, StartContent,
     },
+    qrcode::{QrVerification, ScanError},
     sas::content_to_request,
-    Cancelled, FlowId,
+    Cancelled, FlowId, IdentitiesBeingVerified,
 };
 use crate::{
     olm::{PrivateCrossSigningIdentity, ReadOnlyAccount},
@@ -49,10 +51,20 @@ use crate::{
     ToDeviceRequest, UserIdentities,
 };
 
-const SUPPORTED_METHODS: &[VerificationMethod] = &[VerificationMethod::MSasV1];
+const SUPPORTED_METHODS: &[VerificationMethod] = &[
+    VerificationMethod::MSasV1,
+    VerificationMethod::MQrCodeShowV1,
+    VerificationMethod::MReciprocateV1,
+];
 
+/// An object controlling key verification requests.
+///
+/// Interactive verification flows usually start with a verification request,
+/// this object lets you send and reply to such a verification request.
+///
+/// After the initial handshake the verification flow transitions into one of
+/// the verification methods.
 #[derive(Clone, Debug)]
-/// TODO
 pub struct VerificationRequest {
     verification_cache: VerificationCache,
     account: ReadOnlyAccount,
@@ -62,7 +74,6 @@ pub struct VerificationRequest {
 }
 
 impl VerificationRequest {
-    /// TODO
     pub(crate) fn new(
         cache: VerificationCache,
         account: ReadOnlyAccount,
@@ -93,7 +104,6 @@ impl VerificationRequest {
         }
     }
 
-    /// TODO
     pub(crate) fn new_to_device(
         cache: VerificationCache,
         account: ReadOnlyAccount,
@@ -122,7 +132,10 @@ impl VerificationRequest {
         }
     }
 
-    /// TODO
+    /// Create an event content that can be sent as a to-device event to request
+    /// verification from the other side. This should be used only for
+    /// self-verifications and it should be sent to the specific device that we
+    /// want to verify.
     pub fn request_to_device(&self) -> RequestToDeviceEventContent {
         RequestToDeviceEventContent::new(
             self.account.device_id().into(),
@@ -132,7 +145,10 @@ impl VerificationRequest {
         )
     }
 
-    /// TODO
+    /// Create an event content that can be sent as a room event to request
+    /// verification from the other side. This should be used only for
+    /// verifications of other users and it should be sent to a room we consider
+    /// to be a DM with the other user.
     pub fn request(
         own_user_id: &UserId,
         own_device_id: &DeviceId,
@@ -157,9 +173,19 @@ impl VerificationRequest {
         &self.other_user_id
     }
 
+    /// Is the verification request ready to start a verification flow.
+    pub fn is_ready(&self) -> bool {
+        matches!(&*self.inner.lock().unwrap(), InnerRequest::Ready(_))
+    }
+
     /// Get the unique ID of this verification request
     pub fn flow_id(&self) -> &FlowId {
         &self.flow_id
+    }
+
+    /// Is this a verification that is veryfying one of our own devices
+    pub fn is_self_verification(&self) -> bool {
+        self.account.user_id() == self.other_user()
     }
 
     /// Has the verification flow that was started with this request finished.
@@ -171,6 +197,43 @@ impl VerificationRequest {
     /// cancelled.
     pub fn is_cancelled(&self) -> bool {
         matches!(&*self.inner.lock().unwrap(), InnerRequest::Cancelled(_))
+    }
+
+    /// Generate a QR code that can be used by another client to start a QR code
+    /// based verification.
+    pub async fn generate_qr_code(&self) -> Result<Option<QrVerification>, CryptoStoreError> {
+        self.inner.lock().unwrap().generate_qr_code().await
+    }
+
+    /// Start a QR code verification by providing a scanned QR code for this
+    /// verification flow.
+    ///
+    /// Returns a `ScanError` if the QR code isn't valid, `None` if the
+    /// verification request isn't in the ready state or we don't support QR
+    /// code verification, otherwise a newly created `QrVerification` object
+    /// which will be used for the remainder of the verification flow.
+    pub async fn scan_qr_code(
+        &self,
+        data: QrVerificationData,
+    ) -> Result<Option<QrVerification>, ScanError> {
+        let state = self.inner.lock().unwrap();
+
+        if let InnerRequest::Ready(r) = &*state {
+            Ok(Some(
+                QrVerification::from_scan(
+                    r.store.clone(),
+                    r.account.clone(),
+                    r.private_cross_signing_identity.clone(),
+                    r.other_user_id.clone(),
+                    r.state.other_device_id.clone(),
+                    r.state.flow_id.clone(),
+                    data,
+                )
+                .await?,
+            ))
+        } else {
+            Ok(None)
+        }
     }
 
     pub(crate) fn from_request(
@@ -256,11 +319,6 @@ impl VerificationRequest {
             let mut inner = self.inner.lock().unwrap().clone();
             inner.cancel(content.cancel_code());
         }
-    }
-
-    /// Is the verification request ready to start a verification flow.
-    pub fn is_ready(&self) -> bool {
-        matches!(&*self.inner.lock().unwrap(), InnerRequest::Ready(_))
     }
 
     pub(crate) fn start(
@@ -355,6 +413,17 @@ impl InnerRequest {
             InnerRequest::Done(_) => return,
             InnerRequest::Cancelled(_) => return,
         })
+    }
+
+    async fn generate_qr_code(&self) -> Result<Option<QrVerification>, CryptoStoreError> {
+        match self {
+            InnerRequest::Created(_) => Ok(None),
+            InnerRequest::Requested(_) => Ok(None),
+            InnerRequest::Ready(s) => s.generate_qr_code().await,
+            InnerRequest::Passive(_) => Ok(None),
+            InnerRequest::Done(_) => Ok(None),
+            InnerRequest::Cancelled(_) => Ok(None),
+        }
     }
 
     fn to_started_sas(
@@ -570,6 +639,86 @@ impl RequestState<Ready> {
         )
     }
 
+    async fn generate_qr_code(&self) -> Result<Option<QrVerification>, CryptoStoreError> {
+        // TODO return an error explaining why we can't generate a QR code?
+        let device = if let Some(device) =
+            self.store.get_device(&self.other_user_id, &self.state.other_device_id).await?
+        {
+            device
+        } else {
+            warn!(
+                user_id = self.other_user_id.as_str(),
+                device_id = self.state.other_device_id.as_str(),
+                "Can't create a QR code, the device that accepted the \
+                 verification doesn't exist"
+            );
+            return Ok(None);
+        };
+
+        let identites = IdentitiesBeingVerified {
+            private_identity: self.private_cross_signing_identity.clone(),
+            store: self.store.clone(),
+            device_being_verified: device,
+            identity_being_verified: self.store.get_user_identity(&self.other_user_id).await?,
+        };
+
+        let verification = if let Some(identity) = &identites.identity_being_verified {
+            match &identity {
+                UserIdentities::Own(i) => {
+                    if identites.can_sign_devices().await {
+                        Some(QrVerification::new_self(
+                            self.store.clone(),
+                            self.flow_id.as_ref().to_owned(),
+                            i.master_key().get_first_key().unwrap().to_owned(),
+                            identites
+                                .other_device()
+                                .get_key(DeviceKeyAlgorithm::Ed25519)
+                                .unwrap()
+                                .to_owned(),
+                            identites,
+                        ))
+                    } else {
+                        Some(QrVerification::new_self_no_master(
+                            self.account.clone(),
+                            self.store.clone(),
+                            self.flow_id.as_ref().to_owned(),
+                            i.master_key().get_first_key().unwrap().to_owned(),
+                            identites,
+                        ))
+                    }
+                }
+                UserIdentities::Other(i) => Some(QrVerification::new_cross(
+                    self.store.clone(),
+                    self.flow_id.as_ref().to_owned(),
+                    self.private_cross_signing_identity
+                        .master_public_key()
+                        .await
+                        .unwrap()
+                        .get_first_key()
+                        .unwrap()
+                        .to_owned(),
+                    i.master_key().get_first_key().unwrap().to_owned(),
+                    identites,
+                )),
+            }
+        } else {
+            warn!(
+                user_id = self.other_user_id.as_str(),
+                device_id = self.state.other_device_id.as_str(),
+                "Can't create a QR code, the user doesn't have a valid cross \
+                 signing identity."
+            );
+
+            None
+        };
+
+        if let Some(verification) = &verification {
+            self.verification_cache.insert_qr(verification.clone());
+        }
+
+        Ok(verification)
+    }
+
     async fn receive_start(
         &self,
         sender: &UserId,
@@ -597,6 +746,10 @@ impl RequestState<Ready> {
 
         match content.method() {
             StartMethod::SasV1(_) => match self.to_started_sas(content, device.clone(), identity) {
+                // TODO check if there is already a SAS verification, i.e. we
+                // already started one before the other side tried to do the
+                // same; ignore it if we did and we're the lexicographically
+                // smaller user ID, otherwise auto-accept the newly started one.
                 Ok(s) => {
                     info!("Started a new SAS verification.");
                     self.verification_cache.insert_sas(s);
@@ -615,6 +768,21 @@ impl RequestState<Ready> {
                     )
                 }
             },
+            StartMethod::ReciprocateV1(_) => {
+                if let Some(qr_verification) =
+                    self.verification_cache.get_qr(sender, content.flow_id())
+                {
+                    if let Some(request) = qr_verification.receive_reciprocation(content) {
+                        self.verification_cache.add_request(request.into())
+                    }
+                    trace!(
+                        sender = device.user_id().as_str(),
+                        device_id = device.device_id().as_str(),
+                        verification =? qr_verification,
+                        "Received a QR code reciprocation"
+                    )
+                }
+            }
             m => {
                 warn!(method =? m, "Received a key verification start event with an unsupported method")
             }

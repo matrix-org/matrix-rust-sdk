@@ -340,6 +340,17 @@ impl VerificationMachine {
                                 self.mark_sas_as_done(sas, content).await?;
                             }
                         }
+                        Some(Verification::QrV1(qr)) => {
+                            let (cancellation, request) = qr.receive_done(&c).await?;
+
+                            if let Some(c) = cancellation {
+                                self.verifications.add_request(c.into())
+                            }
+
+                            if let Some(s) = request {
+                                self.verifications.add_request(s.into())
+                            }
+                        }
                         None => (),
                     }
                 }

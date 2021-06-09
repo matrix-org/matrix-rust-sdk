@@ -379,7 +379,7 @@ impl OlmMachine {
 
             *identity = id;
 
-            let public = identity.as_public_identity().await.expect(
+            let public = identity.to_public_identity().await.expect(
                 "Couldn't create a public version of the identity from a new private identity",
             );
 

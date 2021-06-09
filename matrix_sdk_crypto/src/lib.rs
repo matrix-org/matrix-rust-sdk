@@ -48,6 +48,7 @@ pub use identities::{
     Device, LocalTrust, OwnUserIdentity, ReadOnlyDevice, UserDevices, UserIdentities, UserIdentity,
 };
 pub use machine::OlmMachine;
+pub use matrix_qrcode;
 pub use olm::EncryptionSettings;
 pub(crate) use olm::ReadOnlyAccount;
 pub use requests::{
@@ -55,4 +56,4 @@ pub use requests::{
     OutgoingVerificationRequest, RoomMessageRequest, ToDeviceRequest,
 };
 pub use store::CryptoStoreError;
-pub use verification::{AcceptSettings, Sas, VerificationRequest};
+pub use verification::{AcceptSettings, QrVerification, Sas, Verification, VerificationRequest};

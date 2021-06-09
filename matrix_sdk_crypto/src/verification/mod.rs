@@ -12,11 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#![allow(missing_docs)]
-
 mod cache;
 mod event_enums;
 mod machine;
+mod qrcode;
 mod requests;
 mod sas;
 
@@ -24,6 +23,7 @@ use std::sync::Arc;
 
 use event_enums::OutgoingContent;
 pub use machine::VerificationMachine;
+pub use qrcode::QrVerification;
 pub use requests::VerificationRequest;
 use ruma::{
     api::client::r0::keys::upload_signatures::Request as SignatureUploadRequest,
@@ -47,18 +47,25 @@ use crate::{
     CryptoStoreError, LocalTrust, ReadOnlyDevice, UserIdentities,
 };
 
+/// An enum over the different verification types the SDK supports.
 #[derive(Clone, Debug)]
 pub enum Verification {
+    /// The `m.sas.v1` verification variant.
     SasV1(Sas),
+    /// The `m.qr_code.*.v1` verification variant.
+    QrV1(QrVerification),
 }
 
 impl Verification {
+    /// Has this verification finished.
     pub fn is_done(&self) -> bool {
         match self {
             Verification::SasV1(s) => s.is_done(),
+            Verification::QrV1(qr) => qr.is_done(),
         }
     }
 
+    /// Try to deconstruct this verification enum into a SAS verification.
     pub fn sas_v1(self) -> Option<Sas> {
         if let Verification::SasV1(sas) = self {
             Some(sas)
@@ -67,21 +74,52 @@ impl Verification {
         }
     }
 
+    /// Try to deconstruct this verification enum into a QR code verification.
+    pub fn qr_v1(self) -> Option<QrVerification> {
+        if let Verification::QrV1(qr) = self {
+            Some(qr)
+        } else {
+            None
+        }
+    }
+
+    /// Get the ID that uniquely identifies this verification flow.
     pub fn flow_id(&self) -> &str {
         match self {
             Verification::SasV1(s) => s.flow_id().as_str(),
+            Verification::QrV1(qr) => qr.flow_id().as_str(),
         }
     }
 
+    /// Has the verification been cancelled.
     pub fn is_cancelled(&self) -> bool {
         match self {
             Verification::SasV1(s) => s.is_cancelled(),
+            Verification::QrV1(qr) => qr.is_cancelled(),
         }
     }
 
+    /// Get our own user id that is participating in this verification.
+    pub fn user_id(&self) -> &UserId {
+        match self {
+            Verification::SasV1(v) => v.user_id(),
+            Verification::QrV1(v) => v.user_id(),
+        }
+    }
+
+    /// Get the other user id that is participating in this verification.
     pub fn other_user(&self) -> &UserId {
         match self {
             Verification::SasV1(s) => s.other_user_id(),
+            Verification::QrV1(qr) => qr.other_user_id(),
+        }
+    }
+
+    /// Is this a verification verifying a device that belongs to us.
+    pub fn is_self_verification(&self) -> bool {
+        match self {
+            Verification::SasV1(v) => v.is_self_verification(),
+            Verification::QrV1(v) => v.is_self_verification(),
         }
     }
 }
@@ -89,6 +127,12 @@ impl Verification {
 impl From<Sas> for Verification {
     fn from(sas: Sas) -> Self {
         Self::SasV1(sas)
+    }
+}
+
+impl From<QrVerification> for Verification {
+    fn from(qr: QrVerification) -> Self {
+        Self::QrV1(qr)
     }
 }
 
@@ -236,6 +280,10 @@ pub struct IdentitiesBeingVerified {
 }
 
 impl IdentitiesBeingVerified {
+    async fn can_sign_devices(&self) -> bool {
+        self.private_identity.can_sign_devices().await
+    }
+
     fn user_id(&self) -> &UserId {
         self.private_identity.user_id()
     }

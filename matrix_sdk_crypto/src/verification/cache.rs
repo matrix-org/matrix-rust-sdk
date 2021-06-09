@@ -19,7 +19,7 @@ use matrix_sdk_common::uuid::Uuid;
 use ruma::{DeviceId, UserId};
 
 use super::{event_enums::OutgoingContent, sas::content_to_request, Sas, Verification};
-use crate::{OutgoingRequest, RoomMessageRequest};
+use crate::{OutgoingRequest, QrVerification, RoomMessageRequest};
 
 #[derive(Clone, Debug)]
 pub struct VerificationCache {
@@ -49,6 +49,20 @@ impl VerificationCache {
 
     pub fn insert_sas(&self, sas: Sas) {
         self.insert(sas);
+    }
+
+    pub fn insert_qr(&self, qr: QrVerification) {
+        self.insert(qr)
+    }
+
+    pub fn get_qr(&self, sender: &UserId, flow_id: &str) -> Option<QrVerification> {
+        self.get(sender, flow_id).and_then(|v| {
+            if let Verification::QrV1(qr) = v {
+                Some(qr)
+            } else {
+                None
+            }
+        })
     }
 
     pub fn get(&self, sender: &UserId, flow_id: &str) -> Option<Verification> {
@@ -92,7 +106,7 @@ impl VerificationCache {
     pub fn get_sas(&self, user_id: &UserId, flow_id: &str) -> Option<Sas> {
         self.get(user_id, flow_id).and_then(|v| {
             if let Verification::SasV1(sas) = v {
-                Some(sas.clone())
+                Some(sas)
             } else {
                 None
             }

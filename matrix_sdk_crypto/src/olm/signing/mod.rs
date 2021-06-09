@@ -33,8 +33,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::Error as JsonError;
 
 use crate::{
-    error::SignatureError, requests::UploadSigningKeysRequest, OwnUserIdentity, ReadOnlyAccount,
-    ReadOnlyDevice, UserIdentity,
+    error::SignatureError, identities::MasterPubkey, requests::UploadSigningKeysRequest,
+    OwnUserIdentity, ReadOnlyAccount, ReadOnlyDevice, UserIdentity,
 };
 
 /// Private cross signing identity.
@@ -91,6 +91,21 @@ impl PrivateCrossSigningIdentity {
         !(has_master && has_user && has_self)
     }
 
+    /// Can we sign our own devices, i.e. do we have a self signing key.
+    pub async fn can_sign_devices(&self) -> bool {
+        self.self_signing_key.lock().await.is_some()
+    }
+
+    /// Do we have the master key.
+    pub async fn has_master_key(&self) -> bool {
+        self.master_key.lock().await.is_some()
+    }
+
+    /// Get the public part of the master key, if we have one.
+    pub async fn master_public_key(&self) -> Option<MasterPubkey> {
+        self.master_key.lock().await.as_ref().map(|m| m.public_key.to_owned())
+    }
+
     /// Create a new empty identity.
     pub(crate) fn empty(user_id: UserId) -> Self {
         Self {
@@ -102,7 +117,7 @@ impl PrivateCrossSigningIdentity {
         }
     }
 
-    pub(crate) async fn as_public_identity(&self) -> Result<OwnUserIdentity, SignatureError> {
+    pub(crate) async fn to_public_identity(&self) -> Result<OwnUserIdentity, SignatureError> {
         let master = self
             .master_key
             .lock()

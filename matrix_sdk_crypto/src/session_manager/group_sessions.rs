@@ -146,11 +146,6 @@ impl GroupSessionManager {
             let mut changes = Changes::default();
             changes.outbound_group_sessions.push(s.clone());
             self.store.save_changes(changes).await?;
-        } else {
-            trace!(
-                request_id = request_id.to_string().as_str(),
-                "Marking room key share request as sent but session found that owns the given id"
-            )
         }
 
         Ok(())

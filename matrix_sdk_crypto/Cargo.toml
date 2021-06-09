@@ -20,6 +20,7 @@ sled_cryptostore = ["sled"]
 docs = ["sled_cryptostore"]
 
 [dependencies]
+matrix-qrcode = { version = "0.1.0", path = "../matrix_qrcode" }
 matrix-sdk-common = { version = "0.2.0", path = "../matrix_sdk_common" }
 ruma = { version = "0.1.2", features = ["client-api-c", "unstable-pre-spec"] }
 

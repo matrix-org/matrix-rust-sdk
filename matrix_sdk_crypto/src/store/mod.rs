@@ -239,7 +239,7 @@ impl Deref for Store {
     }
 }
 
-#[derive(Error, Debug)]
+#[derive(Debug, Error)]
 /// The crypto store's error type.
 pub enum CryptoStoreError {
     /// The account that owns the sessions, group sessions, and devices wasn't
