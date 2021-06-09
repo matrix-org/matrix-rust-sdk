@@ -33,7 +33,7 @@ jobs:
       uses: actions-rs/cargo@v1
       with:
         command: tarpaulin
-        args: --ignore-config --exclude-files "matrix_sdk/examples/*,matrix_sdk_common,matrix_sdk_test" --out Xml
+        args: --ignore-config --exclude-files "matrix_sdk/examples/*,matrix_sdk_common,matrix_sdk_test,matrix_sdk_appservice" --workspace --exclude matrix-sdk-appservice --out Xml
 
     - name: Upload to codecov.io
       uses: codecov/codecov-action@v1
