@@ -36,10 +36,10 @@
 //! #
 //! # use matrix_sdk::{async_trait, EventHandler};
 //! #
-//! # struct AppserviceEventHandler;
+//! # struct MyEventHandler;
 //! #
 //! # #[async_trait]
-//! # impl EventHandler for AppserviceEventHandler {}
+//! # impl EventHandler for MyEventHandler {}
 //! #
 //! use matrix_sdk_appservice::{Appservice, AppserviceRegistration};
 //!
@@ -59,7 +59,7 @@
 //!     ")?;
 //!
 //! let mut appservice = Appservice::new(homeserver_url, server_name, registration).await?;
-//! appservice.set_event_handler(Box::new(AppserviceEventHandler)).await?;
+//! appservice.set_event_handler(Box::new(MyEventHandler)).await?;
 //!
 //! let (host, port) = appservice.registration().get_host_and_port()?;
 //! appservice.run(host, port).await?;
@@ -74,8 +74,8 @@
 //! [matrix-org/matrix-rust-sdk#228]: https://github.com/matrix-org/matrix-rust-sdk/issues/228
 //! [examples directory]: https://github.com/matrix-org/matrix-rust-sdk/tree/master/matrix_sdk_appservice/examples
 
-#[cfg(not(any(feature = "actix",)))]
-compile_error!("one webserver feature must be enabled. available ones: `actix`");
+#[cfg(not(any(feature = "actix", feature = "warp")))]
+compile_error!("one webserver feature must be enabled. available ones: `actix`, `warp`");
 
 use std::{
     convert::{TryFrom, TryInto},
@@ -86,32 +86,28 @@ use std::{
 };
 
 use dashmap::DashMap;
-use http::Uri;
-use matrix_sdk::{reqwest::Url, Client, ClientConfig, EventHandler, HttpError, Session};
+pub use error::Error;
+use http::{uri::PathAndQuery, Uri};
+pub use matrix_sdk;
+use matrix_sdk::{reqwest::Url, Bytes, Client, ClientConfig, EventHandler, HttpError, Session};
 use regex::Regex;
 #[doc(inline)]
-pub use ruma::api::appservice as api;
+pub use ruma::api::{appservice as api, appservice::Registration};
 use ruma::{
     api::{
-        appservice::Registration,
         client::{
             error::ErrorKind,
-            r0::{
-                account::register::{LoginType, Request as RegistrationRequest},
-                uiaa::UiaaResponse,
-            },
+            r0::{account::register, uiaa::UiaaResponse},
         },
         error::{FromHttpResponseError, ServerError},
     },
     assign, identifiers, DeviceId, ServerNameBox, UserId,
 };
-use tracing::warn;
+use tracing::{info, warn};
 
-#[cfg(feature = "actix")]
-mod actix;
 mod error;
+mod webserver;
 
-pub use error::Error;
 pub type Result<T> = std::result::Result<T, Error>;
 pub type Host = String;
 pub type Port = u16;
@@ -250,8 +246,8 @@ impl Appservice {
 
         let appservice = Appservice { homeserver_url, server_name, registration, clients };
 
-        // we cache the [`MainUser`] by default
-        appservice.virtual_user_with_config(sender_localpart, client_config).await?;
+        // we create and cache the [`MainUser`] by default
+        appservice.create_and_cache_client(&sender_localpart, client_config).await?;
 
         Ok(appservice)
     }
@@ -267,24 +263,29 @@ impl Appservice {
     /// by calling this method again or by calling [`Self::get_cached_client()`]
     /// which is non-async convenience wrapper.
     ///
+    /// Note that if you want to do actions like joining rooms with a virtual
+    /// user it needs to be registered first. `Self::register_virtual_user()`
+    /// can be used for that purpose.
+    ///
     /// # Arguments
     ///
     /// * `localpart` - The localpart of the user we want assert our identity to
     ///
     /// [registration]: https://matrix.org/docs/spec/application_service/r0.1.2#registration
     /// [assert the identity]: https://matrix.org/docs/spec/application_service/r0.1.2#identity-assertion
-    pub async fn virtual_user(&self, localpart: impl AsRef<str>) -> Result<Client> {
-        let client = self.virtual_user_with_config(localpart, ClientConfig::default()).await?;
+    pub async fn virtual_user_client(&self, localpart: impl AsRef<str>) -> Result<Client> {
+        let client =
+            self.virtual_user_client_with_config(localpart, ClientConfig::default()).await?;
 
         Ok(client)
     }
 
-    /// Same as [`Self::virtual_user()`] but with the ability to pass in a
-    /// [`ClientConfig`]
+    /// Same as [`Self::virtual_user_client()`] but with the ability to pass in
+    /// a [`ClientConfig`]
     ///
     /// Since this method is a singleton follow-up calls with different
     /// [`ClientConfig`]s will be ignored.
-    pub async fn virtual_user_with_config(
+    pub async fn virtual_user_client_with_config(
         &self,
         localpart: impl AsRef<str>,
         config: ClientConfig,
@@ -295,29 +296,40 @@ impl Appservice {
         let client = if let Some(client) = self.clients.get(localpart) {
             client.clone()
         } else {
-            let user_id = UserId::parse_with_server_name(localpart, &self.server_name)?;
-
-            // The `as_token` in the `Session` maps to the [`MainUser`]
-            // (`sender_localpart`) by default, so we don't need to assert identity
-            // in that case
-            if localpart != self.registration.sender_localpart {
-                config.get_request_config().assert_identity();
-            }
-
-            let client = Client::new_with_config(self.homeserver_url.clone(), config)?;
-
-            let session = Session {
-                access_token: self.registration.as_token.clone(),
-                user_id: user_id.clone(),
-                // TODO: expose & proper E2EE
-                device_id: DeviceId::new(),
-            };
-
-            client.restore_login(session).await?;
-            self.clients.insert(localpart.to_owned(), client.clone());
-
-            client
+            self.create_and_cache_client(localpart, config).await?
         };
+
+        Ok(client)
+    }
+
+    async fn create_and_cache_client(
+        &self,
+        localpart: &str,
+        config: ClientConfig,
+    ) -> Result<Client> {
+        let user_id = UserId::parse_with_server_name(localpart, &self.server_name)?;
+
+        // The `as_token` in the `Session` maps to the [`MainUser`]
+        // (`sender_localpart`) by default, so we don't need to assert identity
+        // in that case
+        let config = if localpart != self.registration.sender_localpart {
+            let request_config = config.get_request_config().assert_identity();
+            config.request_config(request_config)
+        } else {
+            config
+        };
+
+        let client = Client::new_with_config(self.homeserver_url.clone(), config)?;
+
+        let session = Session {
+            access_token: self.registration.as_token.clone(),
+            user_id: user_id.clone(),
+            // TODO: expose & proper E2EE
+            device_id: DeviceId::new(),
+        };
+
+        client.restore_login(session).await?;
+        self.clients.insert(localpart.to_owned(), client.clone());
 
         Ok(client)
     }
@@ -325,8 +337,8 @@ impl Appservice {
     /// Get cached [`Client`]
     ///
     /// Will return the client for the given `localpart` if previously
-    /// constructed with [`Self::virtual_user()`] or
-    /// [`Self::virtual_user_with_config()`].
+    /// constructed with [`Self::virtual_user_client()`] or
+    /// [`Self::virtual_user_client_with_config()`].
     ///
     /// If no `localpart` is given it assumes the [`MainUser`]'s `localpart`. If
     /// no client for `localpart` is found it will return an Error.
@@ -338,9 +350,22 @@ impl Appservice {
         Ok(entry.value().clone())
     }
 
-    /// Convenience wrapper around [`Client::set_event_handler()`]
+    /// Convenience wrapper around [`Client::set_event_handler()`] that attaches
+    /// the event handler to the [`MainUser`]'s [`Client`]
     ///
-    /// Attaches the event handler to the [`MainUser`]'s [`Client`]
+    /// Note that the event handler in the [`Appservice`] context only triggers
+    /// [`join` room `timeline` events], so no state events or events from the
+    /// `invite`, `knock` or `leave` scope. The rationale behind that is
+    /// that incoming Appservice transactions from the homeserver are not
+    /// necessarily bound to a specific user but can cover a multitude of
+    /// namespaces, and as such the Appservice basically only "observes
+    /// joined rooms". Also currently homeservers only push PDUs to appservices,
+    /// no EDUs. There's the open [MSC2409] regarding supporting EDUs in the
+    /// future, though it seems to be planned to put EDUs into a different
+    /// JSON key than `events` to stay backwards compatible.
+    ///
+    /// [`join` room `timeline` events]: https://spec.matrix.org/unstable/client-server-api/#get_matrixclientr0sync
+    /// [MSC2409]: https://github.com/matrix-org/matrix-doc/pull/2409
     pub async fn set_event_handler(&mut self, handler: Box<dyn EventHandler>) -> Result<()> {
         let client = self.get_cached_client(None)?;
 
@@ -349,17 +374,17 @@ impl Appservice {
         Ok(())
     }
 
-    /// Register a virtual user by sending a [`RegistrationRequest`] to the
+    /// Register a virtual user by sending a [`register::Request`] to the
     /// homeserver
     ///
     /// # Arguments
     ///
     /// * `localpart` - The localpart of the user to register. Must be covered
     ///   by the namespaces in the [`Registration`] in order to succeed.
-    pub async fn register(&mut self, localpart: impl AsRef<str>) -> Result<()> {
-        let request = assign!(RegistrationRequest::new(), {
+    pub async fn register_virtual_user(&self, localpart: impl AsRef<str>) -> Result<()> {
+        let request = assign!(register::Request::new(), {
             username: Some(localpart.as_ref()),
-            login_type: Some(&LoginType::ApplicationService),
+            login_type: Some(&register::LoginType::ApplicationService),
         });
 
         let client = self.get_cached_client(None)?;
@@ -412,11 +437,35 @@ impl Appservice {
         Ok(false)
     }
 
-    /// Service to register on an Actix `App`
+    /// Returns a closure to be used with [`actix_web::App::configure()`]
+    ///
+    /// Note that if you handle any of the [application-service-specific
+    /// routes], including the legacy routes, you will break the appservice
+    /// functionality.
+    ///
+    /// [application-service-specific routes]: https://spec.matrix.org/unstable/application-service-api/#legacy-routes
     #[cfg(feature = "actix")]
     #[cfg_attr(docs, doc(cfg(feature = "actix")))]
-    pub fn actix_service(&self) -> actix::Scope {
-        actix::get_scope().data(self.clone())
+    pub fn actix_configure(&self) -> impl FnOnce(&mut actix_web::web::ServiceConfig) {
+        let appservice = self.clone();
+
+        move |config| {
+            config.data(appservice);
+            webserver::actix::configure(config);
+        }
+    }
+
+    /// Returns a [`warp::Filter`] to be used as [`warp::serve()`] route
+    ///
+    /// Note that if you handle any of the [application-service-specific
+    /// routes], including the legacy routes, you will break the appservice
+    /// functionality.
+    ///
+    /// [application-service-specific routes]: https://spec.matrix.org/unstable/application-service-api/#legacy-routes
+    #[cfg(feature = "warp")]
+    #[cfg_attr(docs, doc(cfg(feature = "warp")))]
+    pub fn warp_filter(&self) -> warp::filters::BoxedFilter<(impl warp::Reply,)> {
+        webserver::warp::warp_filter(self.clone())
     }
 
     /// Convenience method that runs an http server depending on the selected
@@ -424,14 +473,50 @@ impl Appservice {
     ///
     /// This is a blocking call that tries to listen on the provided host and
     /// port
-    pub async fn run(&self, host: impl AsRef<str>, port: impl Into<u16>) -> Result<()> {
+    pub async fn run(&self, host: impl Into<String>, port: impl Into<u16>) -> Result<()> {
+        let host = host.into();
+        let port = port.into();
+        info!("Starting Appservice on {}:{}", &host, &port);
+
         #[cfg(feature = "actix")]
         {
-            actix::run_server(self.clone(), host, port).await?;
+            webserver::actix::run_server(self.clone(), host, port).await?;
             Ok(())
         }
 
-        #[cfg(not(any(feature = "actix",)))]
+        #[cfg(feature = "warp")]
+        {
+            webserver::warp::run_server(self.clone(), host, port).await?;
+            Ok(())
+        }
+
+        #[cfg(not(any(feature = "actix", feature = "warp",)))]
         unreachable!()
     }
+}
+
+/// Transforms [legacy routes] to the correct route so ruma can parse them
+/// properly
+///
+/// [legacy routes]: https://matrix.org/docs/spec/application_service/r0.1.2#legacy-routes
+pub(crate) fn transform_legacy_route(
+    mut request: http::Request<Bytes>,
+) -> Result<http::Request<Bytes>> {
+    let uri = request.uri().to_owned();
+
+    if !uri.path().starts_with("/_matrix/app/v1") {
+        // rename legacy routes
+        let mut parts = uri.into_parts();
+        let path_and_query = match parts.path_and_query {
+            Some(path_and_query) => format!("/_matrix/app/v1{}", path_and_query),
+            None => "/_matrix/app/v1".to_owned(),
+        };
+        parts.path_and_query =
+            Some(PathAndQuery::try_from(path_and_query).map_err(http::Error::from)?);
+        let uri = parts.try_into().map_err(http::Error::from)?;
+
+        *request.uri_mut() = uri;
+    }
+
+    Ok(request)
 }

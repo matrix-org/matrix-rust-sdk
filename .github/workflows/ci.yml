@@ -94,14 +94,25 @@ jobs:
     strategy:
       matrix:
         name:
-          - linux / appservice / stable
-          - macOS / appservice / stable
+          - linux / appservice / stable / actix
+          - macOS / appservice / stable / actix
+          - linux / appservice / stable / warp
+          - macOS / appservice / stable / warp
 
         include:
-          - name: linux / appservice / stable
+          - name: linux / appservice / stable / actix
+            cargo_args: --features actix
 
-          - name: macOS / appservice / stable
+          - name: macOS / appservice / stable / actix
             os: macOS-latest
+            cargo_args: --features actix
+
+          - name: linux / appservice / stable / warp
+            cargo_args: --features warp
+
+          - name: macOS / appservice / stable / warp
+            os: macOS-latest
+            cargo_args: --features warp
 
     steps:
       - name: Checkout
@@ -119,19 +130,19 @@ jobs:
         uses: actions-rs/cargo@v1
         with:
           command: clippy
-          args: --manifest-path matrix_sdk_appservice/Cargo.toml -- -D warnings
+          args: --manifest-path matrix_sdk_appservice/Cargo.toml ${{ matrix.cargo_args }} -- -D warnings
 
       - name: Build
         uses: actions-rs/cargo@v1
         with:
           command: build
-          args: --manifest-path matrix_sdk_appservice/Cargo.toml
+          args: --manifest-path matrix_sdk_appservice/Cargo.toml ${{ matrix.cargo_args }}
 
       - name: Test
         uses: actions-rs/cargo@v1
         with:
           command: test
-          args: --manifest-path matrix_sdk_appservice/Cargo.toml
+          args: --manifest-path matrix_sdk_appservice/Cargo.toml ${{ matrix.cargo_args }}
 
   test-features:
     name: ${{ matrix.name }}

@@ -12,47 +12,43 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{
-    convert::{TryFrom, TryInto},
-    pin::Pin,
-};
+use std::pin::Pin;
 
 pub use actix_web::Scope;
 use actix_web::{
     dev::Payload,
     error::PayloadError,
-    get,
-    http::PathAndQuery,
-    put,
+    get, put,
     web::{self, BytesMut, Data},
     App, FromRequest, HttpRequest, HttpResponse, HttpServer,
 };
 use futures::Future;
-use futures_util::{TryFutureExt, TryStreamExt};
+use futures_util::TryStreamExt;
 use ruma::api::appservice as api;
 
 use crate::{error::Error, Appservice};
 
 pub async fn run_server(
     appservice: Appservice,
-    host: impl AsRef<str>,
+    host: impl Into<String>,
     port: impl Into<u16>,
 ) -> Result<(), Error> {
-    HttpServer::new(move || App::new().service(appservice.actix_service()))
-        .bind((host.as_ref(), port.into()))?
+    HttpServer::new(move || App::new().configure(appservice.actix_configure()))
+        .bind((host.into(), port.into()))?
         .run()
         .await?;
 
     Ok(())
 }
 
-pub fn get_scope() -> Scope {
-    gen_scope("/"). // handle legacy routes
-    service(gen_scope("/_matrix/app/v1"))
-}
-
-fn gen_scope(scope: &str) -> Scope {
-    web::scope(scope).service(push_transactions).service(query_user_id).service(query_room_alias)
+pub fn configure(config: &mut actix_web::web::ServiceConfig) {
+    // also handles legacy routes
+    config.service(push_transactions).service(query_user_id).service(query_room_alias).service(
+        web::scope("/_matrix/app/v1")
+            .service(push_transactions)
+            .service(query_user_id)
+            .service(query_room_alias),
+    );
 }
 
 #[tracing::instrument]
@@ -112,23 +108,8 @@ impl<T: ruma::api::IncomingRequest> FromRequest for IncomingRequest<T> {
         let payload = payload.take();
 
         Box::pin(async move {
-            let uri = request.uri().to_owned();
-
-            let uri = if !uri.path().starts_with("/_matrix/app/v1") {
-                // rename legacy routes
-                let mut parts = uri.into_parts();
-                let path_and_query = match parts.path_and_query {
-                    Some(path_and_query) => format!("/_matrix/app/v1{}", path_and_query),
-                    None => "/_matrix/app/v1".to_owned(),
-                };
-                parts.path_and_query =
-                    Some(PathAndQuery::try_from(path_and_query).map_err(http::Error::from)?);
-                parts.try_into().map_err(http::Error::from)?
-            } else {
-                uri
-            };
-
-            let mut builder = http::request::Builder::new().method(request.method()).uri(uri);
+            let mut builder =
+                http::request::Builder::new().method(request.method()).uri(request.uri());
 
             let headers = builder.headers_mut().ok_or(Error::UnknownHttpRequestBuilder)?;
             for (key, value) in request.headers().iter() {
@@ -140,8 +121,8 @@ impl<T: ruma::api::IncomingRequest> FromRequest for IncomingRequest<T> {
                     body.extend_from_slice(&chunk);
                     Ok::<_, PayloadError>(body)
                 })
-                .and_then(|bytes| async move { Ok::<Vec<u8>, _>(bytes.into_iter().collect()) })
-                .await?;
+                .await?
+                .into();
 
             let access_token = match request.uri().query() {
                 Some(query) => {
@@ -157,6 +138,7 @@ impl<T: ruma::api::IncomingRequest> FromRequest for IncomingRequest<T> {
             };
 
             let request = builder.body(bytes)?;
+            let request = crate::transform_legacy_route(request)?;
 
             Ok(IncomingRequest {
                 access_token,
