@@ -166,6 +166,11 @@ impl VerificationRequest {
         )
     }
 
+    /// Our own user id.
+    pub fn own_user_id(&self) -> &UserId {
+        self.account.user_id()
+    }
+
     /// The id of the other user that is participating in this verification
     /// request.
     pub fn other_user(&self) -> &UserId {
@@ -266,6 +271,27 @@ impl VerificationRequest {
         let mut inner = self.inner.lock().unwrap();
 
         inner.accept().map(|c| match c {
+            OutgoingContent::ToDevice(content) => {
+                ToDeviceRequest::new(&self.other_user(), inner.other_device_id(), content).into()
+            }
+            OutgoingContent::Room(room_id, content) => {
+                RoomMessageRequest { room_id, txn_id: Uuid::new_v4(), content }.into()
+            }
+        })
+    }
+
+    /// Cancel the verification request
+    pub fn cancel(&self) -> Option<OutgoingVerificationRequest> {
+        let mut inner = self.inner.lock().unwrap();
+        inner.cancel(&CancelCode::User);
+
+        let content = if let InnerRequest::Cancelled(c) = &*inner {
+            Some(c.state.as_content(self.flow_id()))
+        } else {
+            None
+        };
+
+        content.map(|c| match c {
             OutgoingContent::ToDevice(content) => {
                 ToDeviceRequest::new(&self.other_user(), inner.other_device_id(), content).into()
             }

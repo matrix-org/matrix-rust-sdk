@@ -57,14 +57,6 @@ pub enum Verification {
 }
 
 impl Verification {
-    /// Has this verification finished.
-    pub fn is_done(&self) -> bool {
-        match self {
-            Verification::SasV1(s) => s.is_done(),
-            Verification::QrV1(qr) => qr.is_done(),
-        }
-    }
-
     /// Try to deconstruct this verification enum into a SAS verification.
     pub fn sas_v1(self) -> Option<Sas> {
         if let Verification::SasV1(sas) = self {
@@ -80,6 +72,14 @@ impl Verification {
             Some(qr)
         } else {
             None
+        }
+    }
+
+    /// Has this verification finished.
+    pub fn is_done(&self) -> bool {
+        match self {
+            Verification::SasV1(s) => s.is_done(),
+            Verification::QrV1(qr) => qr.is_done(),
         }
     }
 
