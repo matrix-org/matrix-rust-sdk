@@ -20,7 +20,6 @@ use std::sync::{Arc, Mutex};
 #[cfg(test)]
 use std::time::Instant;
 
-pub use helpers::content_to_request;
 use inner_sas::InnerSas;
 use matrix_sdk_common::uuid::Uuid;
 use ruma::{
@@ -442,7 +441,7 @@ impl Sas {
     }
 
     pub(crate) fn content_to_request(&self, content: AnyToDeviceEventContent) -> ToDeviceRequest {
-        content_to_request(self.other_user_id(), self.other_device_id().to_owned(), content)
+        ToDeviceRequest::new(self.other_user_id(), self.other_device_id().to_owned(), content)
     }
 }
 

@@ -12,8 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#![allow(missing_docs)]
-
 use std::{collections::BTreeMap, sync::Arc, time::Duration};
 
 use matrix_sdk_common::uuid::Uuid;
@@ -32,7 +30,7 @@ use ruma::{
         message::send_message_event::Response as RoomMessageResponse,
         to_device::{send_event_to_device::Response as ToDeviceResponse, DeviceIdOrAllDevices},
     },
-    events::{AnyMessageEventContent, EventType},
+    events::{AnyMessageEventContent, AnyToDeviceEventContent, EventContent, EventType},
     DeviceIdBox, RoomId, UserId,
 };
 use serde::{Deserialize, Serialize};
@@ -60,6 +58,35 @@ pub struct ToDeviceRequest {
 }
 
 impl ToDeviceRequest {
+    /// Create a new owned to-device request
+    ///
+    /// # Arguments
+    ///
+    /// * `recipient` - The ID of the user that should receive this to-device
+    /// event.
+    ///
+    /// * `recipient_device` - The device that should receive this to-device
+    /// event, or all devices.
+    ///
+    /// * `content` - The content of the to-device event.
+    pub(crate) fn new(
+        recipient: &UserId,
+        recipient_device: impl Into<DeviceIdOrAllDevices>,
+        content: AnyToDeviceEventContent,
+    ) -> Self {
+        let mut messages = BTreeMap::new();
+        let mut user_messages = BTreeMap::new();
+
+        user_messages.insert(
+            recipient_device.into(),
+            serde_json::value::to_raw_value(&content).expect("Can't serialize to-device content"),
+        );
+        messages.insert(recipient.clone(), user_messages);
+        let event_type = EventType::from(content.event_type());
+
+        ToDeviceRequest { txn_id: Uuid::new_v4(), event_type, messages }
+    }
+
     /// Gets the transaction ID as a string.
     pub fn txn_id_string(&self) -> String {
         self.txn_id.to_string()
@@ -133,6 +160,8 @@ pub enum OutgoingRequests {
     /// Signature upload request, this request is used after a successful device
     /// or user verification is done.
     SignatureUpload(SignatureUploadRequest),
+    /// A room message request, usually for sending in-room interactive
+    /// verification events.
     RoomMessage(RoomMessageRequest),
 }
 
@@ -205,9 +234,9 @@ pub enum IncomingResponse<'a> {
     /// The cross signing keys upload response, marking our private cross
     /// signing identity as shared.
     SigningKeysUpload(&'a SigningKeysUploadResponse),
-    /// The cross signing keys upload response, marking our private cross
-    /// signing identity as shared.
+    /// The cross signing signature upload response.
     SignatureUpload(&'a SignatureUploadResponse),
+    /// A room message response, usually for interactive verifications.
     RoomMessage(&'a RoomMessageResponse),
 }
 
@@ -270,6 +299,7 @@ impl OutgoingRequest {
     }
 }
 
+/// Customized owned request type for sending out room messages.
 #[derive(Clone, Debug)]
 pub struct RoomMessageRequest {
     /// The room to send the event to.
@@ -286,13 +316,17 @@ pub struct RoomMessageRequest {
     pub content: AnyMessageEventContent,
 }
 
+/// An enum over the different outgoing verification based requests.
 #[derive(Clone, Debug)]
 pub enum OutgoingVerificationRequest {
+    /// The to-device verification request variant.
     ToDevice(ToDeviceRequest),
+    /// The in-room verification request variant.
     InRoom(RoomMessageRequest),
 }
 
 impl OutgoingVerificationRequest {
+    /// Get the unique id of this request.
     pub fn request_id(&self) -> Uuid {
         match self {
             OutgoingVerificationRequest::ToDevice(t) => t.txn_id,

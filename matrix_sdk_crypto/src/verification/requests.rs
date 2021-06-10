@@ -41,7 +41,6 @@ use super::{
         CancelContent, DoneContent, OutgoingContent, ReadyContent, RequestContent, StartContent,
     },
     qrcode::{QrVerification, ScanError},
-    sas::content_to_request,
     Cancelled, FlowId, IdentitiesBeingVerified,
 };
 use crate::{
@@ -268,7 +267,7 @@ impl VerificationRequest {
 
         inner.accept().map(|c| match c {
             OutgoingContent::ToDevice(content) => {
-                self.content_to_request(inner.other_device_id(), content).into()
+                ToDeviceRequest::new(&self.other_user(), inner.other_device_id(), content).into()
             }
             OutgoingContent::Room(room_id, content) => {
                 RoomMessageRequest { room_id, txn_id: Uuid::new_v4(), content }.into()
@@ -336,14 +335,6 @@ impl VerificationRequest {
             )),
             _ => None,
         }
-    }
-
-    fn content_to_request(
-        &self,
-        other_device_id: DeviceIdOrAllDevices,
-        content: AnyToDeviceEventContent,
-    ) -> ToDeviceRequest {
-        content_to_request(&self.other_user_id, other_device_id, content)
     }
 }
 

@@ -23,7 +23,7 @@ use super::{
     cache::VerificationCache,
     event_enums::{AnyEvent, AnyVerificationContent, OutgoingContent},
     requests::VerificationRequest,
-    sas::{content_to_request, Sas},
+    sas::Sas,
     FlowId, Verification, VerificationResult,
 };
 use crate::{
@@ -31,6 +31,7 @@ use crate::{
     requests::OutgoingRequest,
     store::{CryptoStore, CryptoStoreError},
     OutgoingVerificationRequest, ReadOnlyAccount, ReadOnlyDevice, RoomMessageRequest,
+    ToDeviceRequest,
 };
 
 #[derive(Clone, Debug)]
@@ -79,7 +80,7 @@ impl VerificationMachine {
             }
             OutgoingContent::ToDevice(c) => {
                 let request =
-                    content_to_request(device.user_id(), device.device_id().to_owned(), c);
+                    ToDeviceRequest::new(device.user_id(), device.device_id().to_owned(), c);
 
                 self.verifications.insert_sas(sas.clone());
 

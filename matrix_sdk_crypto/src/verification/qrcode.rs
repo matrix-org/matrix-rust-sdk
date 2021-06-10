@@ -39,14 +39,13 @@ use thiserror::Error;
 
 use super::{
     event_enums::{DoneContent, OutgoingContent, OwnedStartContent, StartContent},
-    sas::content_to_request,
     Cancelled, Done, FlowId, IdentitiesBeingVerified, VerificationResult,
 };
 use crate::{
     olm::{PrivateCrossSigningIdentity, ReadOnlyAccount},
     store::CryptoStore,
     CryptoStoreError, OutgoingVerificationRequest, ReadOnlyDevice, RoomMessageRequest,
-    UserIdentities,
+    ToDeviceRequest, UserIdentities,
 };
 
 const SECRET_SIZE: usize = 16;
@@ -201,7 +200,7 @@ impl QrVerification {
             OutgoingContent::Room(room_id, content) => {
                 RoomMessageRequest { room_id, txn_id: Uuid::new_v4(), content }.into()
             }
-            OutgoingContent::ToDevice(c) => content_to_request(
+            OutgoingContent::ToDevice(c) => ToDeviceRequest::new(
                 self.identities.other_user_id(),
                 self.identities.other_device_id().to_owned(),
                 c,

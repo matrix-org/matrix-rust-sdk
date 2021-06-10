@@ -18,8 +18,8 @@ use dashmap::DashMap;
 use matrix_sdk_common::uuid::Uuid;
 use ruma::{DeviceId, UserId};
 
-use super::{event_enums::OutgoingContent, sas::content_to_request, Sas, Verification};
-use crate::{OutgoingRequest, QrVerification, RoomMessageRequest};
+use super::{event_enums::OutgoingContent, Sas, Verification};
+use crate::{OutgoingRequest, QrVerification, RoomMessageRequest, ToDeviceRequest};
 
 #[derive(Clone, Debug)]
 pub struct VerificationCache {
@@ -125,7 +125,7 @@ impl VerificationCache {
     ) {
         match content {
             OutgoingContent::ToDevice(c) => {
-                let request = content_to_request(recipient, recipient_device.to_owned(), c);
+                let request = ToDeviceRequest::new(recipient, recipient_device.to_owned(), c);
                 let request_id = request.txn_id;
 
                 let request = OutgoingRequest { request_id, request: Arc::new(request.into()) };
