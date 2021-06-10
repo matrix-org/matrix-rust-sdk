@@ -91,7 +91,6 @@ pub enum HttpError {
 
     /// Tried to send a request without `user_id` in the `Session`
     #[error("missing user_id in session")]
-    #[cfg(feature = "appservice")]
     UserIdRequired,
 }
 

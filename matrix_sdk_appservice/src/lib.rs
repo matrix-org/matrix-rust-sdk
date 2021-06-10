@@ -319,7 +319,8 @@ impl Appservice {
             config
         };
 
-        let client = Client::new_with_config(self.homeserver_url.clone(), config)?;
+        let client =
+            Client::new_with_config(self.homeserver_url.clone(), config.appservice_mode())?;
 
         let session = Session {
             access_token: self.registration.as_token.clone(),

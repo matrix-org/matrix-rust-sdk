@@ -25,7 +25,7 @@ use matrix_sdk_common::{async_trait, locks::RwLock, AsyncTraitDeps};
 use reqwest::{Client, Response};
 use ruma::api::{
     client::r0::media::create_content, error::FromHttpResponseError, AuthScheme, IncomingResponse,
-    OutgoingRequest, SendAccessToken,
+    OutgoingRequest, OutgoingRequestAppserviceExt, SendAccessToken,
 };
 use tracing::trace;
 use url::Url;
@@ -101,9 +101,6 @@ pub(crate) struct HttpClient {
     pub(crate) request_config: RequestConfig,
 }
 
-#[cfg(feature = "appservice")]
-use ruma::api::OutgoingRequestAppserviceExt;
-
 impl HttpClient {
     pub(crate) fn new(
         inner: Arc<dyn HttpSend>,
@@ -125,10 +122,6 @@ impl HttpClient {
             None => self.request_config,
         };
 
-        #[cfg(not(feature = "appservice"))]
-        let request = self.try_into_http_request(request, session, config).await?;
-
-        #[cfg(feature = "appservice")]
         let request = if !self.request_config.assert_identity {
             self.try_into_http_request(request, session, config).await?
         } else {
@@ -178,7 +171,6 @@ impl HttpClient {
         Ok(http_request)
     }
 
-    #[cfg(feature = "appservice")]
     async fn try_into_http_request_with_identity_assertion<Request: OutgoingRequest>(
         &self,
         request: Request,

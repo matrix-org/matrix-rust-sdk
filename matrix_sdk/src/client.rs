@@ -172,6 +172,10 @@ pub struct Client {
     /// Any implementor of EventHandler will act as the callbacks for various
     /// events.
     event_handler: Arc<RwLock<Option<Handler>>>,
+    /// Whether the client should operate in application service style mode.
+    /// This is low-level functionality. For an high-level API check the
+    /// `matrix_sdk_appservice` crate.
+    appservice_mode: bool,
 }
 
 #[cfg(not(tarpaulin_include))]
@@ -206,6 +210,7 @@ pub struct ClientConfig {
     pub(crate) base_config: BaseClientConfig,
     pub(crate) request_config: RequestConfig,
     pub(crate) client: Option<Arc<dyn HttpSend>>,
+    pub(crate) appservice_mode: bool,
 }
 
 #[cfg(not(tarpaulin_include))]
@@ -320,6 +325,16 @@ impl ClientConfig {
         self.client = Some(client);
         self
     }
+
+    /// Puts the client into application service mode
+    ///
+    /// This is low-level functionality. For an high-level API check the
+    /// `matrix_sdk_appservice` crate.
+    #[cfg(feature = "appservice")]
+    pub fn appservice_mode(mut self) -> Self {
+        self.appservice_mode = true;
+        self
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -417,7 +432,6 @@ pub struct RequestConfig {
     pub(crate) retry_limit: Option<u64>,
     pub(crate) retry_timeout: Option<Duration>,
     pub(crate) force_auth: bool,
-    #[cfg(feature = "appservice")]
     pub(crate) assert_identity: bool,
 }
 
@@ -440,7 +454,6 @@ impl Default for RequestConfig {
             retry_limit: Default::default(),
             retry_timeout: Default::default(),
             force_auth: false,
-            #[cfg(feature = "appservice")]
             assert_identity: false,
         }
     }
@@ -479,9 +492,7 @@ impl RequestConfig {
     }
 
     /// Force sending authorization even if the endpoint does not require it.
-    /// Default is only sending authorization if it is required
-    #[cfg(any(feature = "require_auth_for_profile_requests", feature = "appservice"))]
-    #[cfg_attr(feature = "docs", doc(cfg(any(require_auth_for_profile_requests, appservice))))]
+    /// Default is only sending authorization if it is required.
     pub(crate) fn force_auth(mut self) -> Self {
         self.force_auth = true;
         self
@@ -545,6 +556,7 @@ impl Client {
             members_request_locks: Arc::new(DashMap::new()),
             typing_notice_times: Arc::new(DashMap::new()),
             event_handler: Arc::new(RwLock::new(None)),
+            appservice_mode: config.appservice_mode,
         })
     }
 
@@ -1363,11 +1375,11 @@ impl Client {
     ) -> Result<register::Response> {
         info!("Registering to {}", self.homeserver().await);
 
-        #[cfg(not(feature = "appservice"))]
-        let config = None;
-
-        #[cfg(feature = "appservice")]
-        let config = Some(self.http_client.request_config.force_auth());
+        let config = if self.appservice_mode {
+            Some(self.http_client.request_config.force_auth())
+        } else {
+            None
+        };
 
         let request = registration.into();
         self.send(request, config).await

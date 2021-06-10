@@ -52,14 +52,14 @@ jobs:
       uses: actions-rs/cargo@v1
       with:
         command: clippy
-        args: --workspace --exclude matrix-sdk-appservice --all-targets -- -D warnings
+        args: --all-targets -- -D warnings
 
     - name: Clippy without default features
       uses: actions-rs/cargo@v1
       with:
         command: clippy
         # TODO: add `--all-targets` once all warnings in examples are resolved
-        args: --workspace --exclude matrix-sdk-appservice --no-default-features --features native-tls -- -D warnings
+        args: --no-default-features --features native-tls,warp -- -D warnings
 
   check-wasm:
     name: linux / WASM
@@ -251,10 +251,8 @@ jobs:
         uses: actions-rs/cargo@v1
         with:
           command: build
-          args: --workspace --exclude matrix-sdk-appservice
 
       - name: Test
         uses: actions-rs/cargo@v1
         with:
           command: test
-          args: --workspace --exclude matrix-sdk-appservice
