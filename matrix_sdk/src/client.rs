@@ -100,7 +100,7 @@ use ruma::{
     api::{
         client::{
             r0::{
-                account::register,
+                account::{register, whoami},
                 device::{delete_devices, get_devices},
                 directory::{get_public_rooms, get_public_rooms_filtered},
                 filter::{create_filter::Request as FilterUploadRequest, FilterDefinition},
@@ -2698,6 +2698,12 @@ impl Client {
 
         Ok(())
     }
+
+    /// Gets information about the owner of a given access token.
+    pub async fn whoami(&self) -> Result<whoami::Response> {
+        let request = whoami::Request::new();
+        self.send(request, None).await
+    }
 }
 
 #[cfg(test)]
@@ -3873,5 +3879,20 @@ mod test {
             .await
             .is_ok());
         m.assert();
+    }
+
+    #[tokio::test]
+    async fn whoami() {
+        let client = logged_in_client().await;
+
+        let _m = mock("GET", "/_matrix/client/r0/account/whoami")
+            .with_status(200)
+            .with_body(test_json::WHOAMI.to_string())
+            .match_header("authorization", "Bearer 1234")
+            .create();
+
+        let user_id = user_id!("@joe:example.org");
+
+        assert_eq!(client.whoami().await.unwrap().user_id, user_id);
     }
 }

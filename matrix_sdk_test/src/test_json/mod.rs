@@ -68,3 +68,9 @@ lazy_static! {
         }
     });
 }
+
+lazy_static! {
+    pub static ref WHOAMI: JsonValue = json!({
+        "user_id": "@joe:example.org"
+    });
+}
