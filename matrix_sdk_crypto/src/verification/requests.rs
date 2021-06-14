@@ -177,9 +177,30 @@ impl VerificationRequest {
         &self.other_user_id
     }
 
+    /// Has the verification request been answered by another device.
+    pub fn is_passive(&self) -> bool {
+        matches!(&*self.inner.lock().unwrap(), InnerRequest::Passive(_))
+    }
+
     /// Is the verification request ready to start a verification flow.
     pub fn is_ready(&self) -> bool {
         matches!(&*self.inner.lock().unwrap(), InnerRequest::Ready(_))
+    }
+
+    /// Get the supported verification methods of the other side.
+    ///
+    /// Will be present only if the other side requested the verification or if
+    /// we're in the ready state.
+    pub fn their_supported_methods(&self) -> Vec<VerificationMethod> {
+        match &*self.inner.lock().unwrap() {
+            InnerRequest::Requested(r) => Some(r.state.their_methods.clone()),
+            InnerRequest::Ready(r) => Some(r.state.their_methods.clone()),
+            InnerRequest::Created(_)
+            | InnerRequest::Passive(_)
+            | InnerRequest::Done(_)
+            | InnerRequest::Cancelled(_) => None,
+        }
+        .unwrap_or_default()
     }
 
     /// Get the unique ID of this verification request
