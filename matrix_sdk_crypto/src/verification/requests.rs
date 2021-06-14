@@ -305,7 +305,11 @@ impl VerificationRequest {
         let mut inner = self.inner.lock().unwrap();
 
         if let InnerRequest::Created(s) = &*inner {
-            *inner = InnerRequest::Ready(s.clone().into_ready(sender, content));
+            if sender == self.own_user_id() && content.from_device() == self.account.device_id() {
+                *inner = InnerRequest::Passive(s.clone().into_passive(content))
+            } else {
+                *inner = InnerRequest::Ready(s.clone().into_ready(sender, content));
+            }
         }
     }
 
@@ -512,6 +516,18 @@ impl RequestState<Created> {
             verification_cache: cache,
             store,
             flow_id: flow_id.to_owned().into(),
+        }
+    }
+
+    fn into_passive(self, content: &ReadyContent) -> RequestState<Passive> {
+        RequestState {
+            account: self.account,
+            flow_id: self.flow_id,
+            verification_cache: self.verification_cache,
+            private_cross_signing_identity: self.private_cross_signing_identity,
+            store: self.store,
+            other_user_id: self.other_user_id,
+            state: Passive { other_device_id: content.from_device().to_owned() },
         }
     }
 
