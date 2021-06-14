@@ -368,21 +368,44 @@ impl VerificationRequest {
         }
     }
 
-    pub(crate) fn start(
+    /// Transition from this verification request into a SAS verification flow.
+    pub async fn start_sas(
         &self,
-        device: ReadOnlyDevice,
-        user_identity: Option<UserIdentities>,
-    ) -> Option<(Sas, OutgoingContent)> {
-        match &*self.inner.lock().unwrap() {
-            InnerRequest::Ready(s) => Some(s.clone().start_sas(
-                s.store.clone(),
-                s.account.clone(),
-                s.private_cross_signing_identity.clone(),
-                device,
-                user_identity,
-            )),
+    ) -> Result<Option<(Sas, OutgoingVerificationRequest)>, CryptoStoreError> {
+        let inner = self.inner.lock().unwrap().clone();
+
+        Ok(match &inner {
+            InnerRequest::Ready(s) => {
+                if let Some((sas, content)) = s
+                    .clone()
+                    .start_sas(
+                        s.store.clone(),
+                        s.account.clone(),
+                        s.private_cross_signing_identity.clone(),
+                    )
+                    .await?
+                {
+                    self.verification_cache.insert_sas(sas.clone());
+
+                    let request = match content {
+                        OutgoingContent::ToDevice(content) => ToDeviceRequest::new(
+                            &self.other_user(),
+                            inner.other_device_id(),
+                            content,
+                        )
+                        .into(),
+                        OutgoingContent::Room(room_id, content) => {
+                            RoomMessageRequest { room_id, txn_id: Uuid::new_v4(), content }.into()
+                        }
+                    };
+
+                    Some((sas, request))
+                } else {
+                    None
+                }
+            }
             _ => None,
-        }
+        })
     }
 }
 
@@ -832,20 +855,39 @@ impl RequestState<Ready> {
         Ok(())
     }
 
-    fn start_sas(
+    async fn start_sas(
         self,
         store: Arc<dyn CryptoStore>,
         account: ReadOnlyAccount,
         private_identity: PrivateCrossSigningIdentity,
-        other_device: ReadOnlyDevice,
-        other_identity: Option<UserIdentities>,
-    ) -> (Sas, OutgoingContent) {
-        match self.flow_id.as_ref() {
+    ) -> Result<Option<(Sas, OutgoingContent)>, CryptoStoreError> {
+        if !self.state.their_methods.contains(&VerificationMethod::MSasV1) {
+            return Ok(None);
+        }
+
+        // TODO signal why starting the sas flow doesn't work?
+        let other_identity = store.get_user_identity(&self.other_user_id).await?;
+
+        let device = if let Some(device) =
+            self.store.get_device(&self.other_user_id, &self.state.other_device_id).await?
+        {
+            device
+        } else {
+            warn!(
+                user_id = self.other_user_id.as_str(),
+                device_id = self.state.other_device_id.as_str(),
+                "Can't start the SAS verificaiton flow, the device that \
+                accepted the verification doesn't exist"
+            );
+            return Ok(None);
+        };
+
+        Ok(Some(match self.flow_id.as_ref() {
             FlowId::ToDevice(t) => {
                 let (sas, content) = Sas::start(
                     account,
                     private_identity,
-                    other_device,
+                    device,
                     store,
                     other_identity,
                     Some(t.to_owned()),
@@ -858,13 +900,13 @@ impl RequestState<Ready> {
                     r.to_owned(),
                     account,
                     private_identity,
-                    other_device,
+                    device,
                     store,
                     other_identity,
                 );
                 (sas, content)
             }
-        }
+        }))
     }
 }
 
@@ -978,6 +1020,10 @@ mod test {
         changes.devices.new.push(bob_device.clone());
         alice_store.save_changes(changes).await.unwrap();
 
+        let mut changes = Changes::default();
+        changes.devices.new.push(alice_device.clone());
+        bob_store.save_changes(changes).await.unwrap();
+
         let content = VerificationRequest::request(bob.user_id(), bob.device_id(), &alice_id());
 
         let bob_request = VerificationRequest::new(
@@ -1010,9 +1056,10 @@ mod test {
         assert!(bob_request.is_ready());
         assert!(alice_request.is_ready());
 
-        let (bob_sas, start_content) = bob_request.start(alice_device, None).unwrap();
+        let (bob_sas, request) = bob_request.start_sas().await.unwrap().unwrap();
 
-        let content = StartContent::try_from(&start_content).unwrap();
+        let content: OutgoingContent = request.into();
+        let content = StartContent::try_from(&content).unwrap();
         let flow_id = content.flow_id().to_owned();
         alice_request.receive_start(bob_device.user_id(), &content).await.unwrap();
         let alice_sas =
@@ -1038,6 +1085,10 @@ mod test {
         let mut changes = Changes::default();
         changes.devices.new.push(bob_device.clone());
         alice_store.save_changes(changes).await.unwrap();
+
+        let mut changes = Changes::default();
+        changes.devices.new.push(alice_device.clone());
+        bob_store.save_changes(changes).await.unwrap();
 
         let bob_request = VerificationRequest::new_to_device(
             VerificationCache::new(),
@@ -1068,9 +1119,10 @@ mod test {
         assert!(bob_request.is_ready());
         assert!(alice_request.is_ready());
 
-        let (bob_sas, start_content) = bob_request.start(alice_device, None).unwrap();
+        let (bob_sas, request) = bob_request.start_sas().await.unwrap().unwrap();
 
-        let content = StartContent::try_from(&start_content).unwrap();
+        let content: OutgoingContent = request.into();
+        let content = StartContent::try_from(&content).unwrap();
         let flow_id = content.flow_id().to_owned();
         alice_request.receive_start(bob_device.user_id(), &content).await.unwrap();
         let alice_sas =
