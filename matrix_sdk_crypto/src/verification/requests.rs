@@ -726,6 +726,15 @@ impl RequestState<Ready> {
 
     async fn generate_qr_code(&self) -> Result<Option<QrVerification>, CryptoStoreError> {
         // TODO return an error explaining why we can't generate a QR code?
+
+        // If we didn't state that we support showing QR codes or if the other
+        // side doesn't support scanning QR codes bail early.
+        if !self.state.our_methods.contains(&VerificationMethod::MQrCodeShowV1)
+            || !self.state.their_methods.contains(&VerificationMethod::MQrScanShowV1)
+        {
+            return Ok(None);
+        }
+
         let device = if let Some(device) =
             self.store.get_device(&self.other_user_id, &self.state.other_device_id).await?
         {
