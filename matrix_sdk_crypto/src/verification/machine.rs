@@ -204,6 +204,14 @@ impl VerificationMachine {
             );
         };
 
+        let event_sent_from_us = |event: &AnyEvent<'_>, from_device: &DeviceId| {
+            if event.sender() == self.account.user_id() {
+                from_device == self.account.device_id() || event.is_room_event()
+            } else {
+                false
+            }
+        };
+
         if let Some(content) = event.verification_content() {
             match &content {
                 AnyVerificationContent::Request(r) => {
@@ -215,17 +223,26 @@ impl VerificationMachine {
 
                     if let Some(timestamp) = event.timestamp() {
                         if Self::is_timestamp_valid(timestamp) {
-                            let request = VerificationRequest::from_request(
-                                self.verifications.clone(),
-                                self.account.clone(),
-                                self.private_identity.lock().await.clone(),
-                                self.store.clone(),
-                                event.sender(),
-                                flow_id,
-                                r,
-                            );
+                            if !event_sent_from_us(&event, r.from_device()) {
+                                let request = VerificationRequest::from_request(
+                                    self.verifications.clone(),
+                                    self.account.clone(),
+                                    self.private_identity.lock().await.clone(),
+                                    self.store.clone(),
+                                    event.sender(),
+                                    flow_id,
+                                    r,
+                                );
 
-                            self.requests.insert(request.flow_id().as_str().to_owned(), request);
+                                self.requests
+                                    .insert(request.flow_id().as_str().to_owned(), request);
+                            } else {
+                                trace!(
+                                    sender = event.sender().as_str(),
+                                    from_device = r.from_device().as_str(),
+                                    "The received verification request was sent by us, ignoring it",
+                                );
+                            }
                         } else {
                             trace!(
                                 sender = event.sender().as_str(),

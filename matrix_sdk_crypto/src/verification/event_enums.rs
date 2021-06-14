@@ -64,6 +64,10 @@ impl AnyEvent<'_> {
         }
     }
 
+    pub fn is_room_event(&self) -> bool {
+        matches!(self, AnyEvent::Room(_))
+    }
+
     pub fn verification_content(&self) -> Option<AnyVerificationContent> {
         match self {
             AnyEvent::Room(e) => match e {
