@@ -230,7 +230,7 @@ impl VerificationRequest {
                     r.private_cross_signing_identity.clone(),
                     r.other_user_id.clone(),
                     r.state.other_device_id.clone(),
-                    r.state.flow_id.clone(),
+                    r.flow_id.as_ref().to_owned(),
                     data,
                 )
                 .await?,
@@ -508,7 +508,7 @@ impl RequestState<Created> {
             account,
             other_user_id: other_user_id.to_owned(),
             private_cross_signing_identity: private_identity,
-            state: Created { methods: SUPPORTED_METHODS.to_vec(), flow_id: flow_id.to_owned() },
+            state: Created { methods: SUPPORTED_METHODS.to_vec() },
             verification_cache: cache,
             store,
             flow_id: flow_id.to_owned().into(),
@@ -527,7 +527,6 @@ impl RequestState<Created> {
             state: Ready {
                 methods: content.methods().to_owned(),
                 other_device_id: content.from_device().into(),
-                flow_id: self.state.flow_id,
             },
         }
     }
@@ -537,20 +536,12 @@ impl RequestState<Created> {
 struct Created {
     /// The verification methods supported by the sender.
     pub methods: Vec<VerificationMethod>,
-
-    /// The event id of our `m.key.verification.request` event which acts as an
-    /// unique id identifying this verification flow.
-    pub flow_id: FlowId,
 }
 
 #[derive(Clone, Debug)]
 struct Requested {
     /// The verification methods supported by the sender.
     pub methods: Vec<VerificationMethod>,
-
-    /// The event id of the `m.key.verification.request` event which acts as an
-    /// unique id identifying this verification flow.
-    pub flow_id: FlowId,
 
     /// The device id of the device that responded to the verification request.
     pub other_device_id: DeviceIdBox,
@@ -576,7 +567,6 @@ impl RequestState<Requested> {
             other_user_id: sender.clone(),
             state: Requested {
                 methods: content.methods().to_owned(),
-                flow_id: flow_id.clone(),
                 other_device_id: content.from_device().into(),
             },
         }
@@ -588,30 +578,29 @@ impl RequestState<Requested> {
             store: self.store,
             verification_cache: self.verification_cache,
             private_cross_signing_identity: self.private_cross_signing_identity,
-            flow_id: self.flow_id,
+            flow_id: self.flow_id.clone(),
             other_user_id: self.other_user_id,
             state: Ready {
                 methods: SUPPORTED_METHODS.to_vec(),
                 other_device_id: self.state.other_device_id.clone(),
-                flow_id: self.state.flow_id.clone(),
             },
         };
 
-        let content = match self.state.flow_id {
+        let content = match self.flow_id.as_ref() {
             FlowId::ToDevice(i) => {
                 AnyToDeviceEventContent::KeyVerificationReady(ReadyToDeviceEventContent::new(
                     self.account.device_id().to_owned(),
                     SUPPORTED_METHODS.to_vec(),
-                    i,
+                    i.to_owned(),
                 ))
                 .into()
             }
             FlowId::InRoom(r, e) => (
-                r,
+                r.to_owned(),
                 AnyMessageEventContent::KeyVerificationReady(ReadyEventContent::new(
                     self.account.device_id().to_owned(),
                     SUPPORTED_METHODS.to_vec(),
-                    Relation::new(e),
+                    Relation::new(e.to_owned()),
                 )),
             )
                 .into(),
@@ -628,10 +617,6 @@ struct Ready {
 
     /// The device id of the device that responded to the verification request.
     pub other_device_id: DeviceIdBox,
-
-    /// The event id of the `m.key.verification.request` event which acts as an
-    /// unique id identifying this verification flow.
-    pub flow_id: FlowId,
 }
 
 impl RequestState<Ready> {
@@ -813,7 +798,7 @@ impl RequestState<Ready> {
         other_device: ReadOnlyDevice,
         other_identity: Option<UserIdentities>,
     ) -> (Sas, OutgoingContent) {
-        match self.state.flow_id {
+        match self.flow_id.as_ref() {
             FlowId::ToDevice(t) => {
                 let (sas, content) = Sas::start(
                     account,
@@ -821,14 +806,14 @@ impl RequestState<Ready> {
                     other_device,
                     store,
                     other_identity,
-                    Some(t),
+                    Some(t.to_owned()),
                 );
                 (sas, content)
             }
             FlowId::InRoom(r, e) => {
                 let (sas, content) = Sas::start_in_room(
-                    e,
-                    r,
+                    e.to_owned(),
+                    r.to_owned(),
                     account,
                     private_identity,
                     other_device,
@@ -845,10 +830,6 @@ impl RequestState<Ready> {
 struct Passive {
     /// The device id of the device that responded to the verification request.
     pub other_device_id: DeviceIdBox,
-
-    /// The event id of the `m.key.verification.request` event which acts as an
-    /// unique id identifying this verification flow.
-    pub flow_id: FlowId,
 }
 
 #[derive(Clone, Debug)]
