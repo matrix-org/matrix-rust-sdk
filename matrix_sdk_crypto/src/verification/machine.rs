@@ -272,8 +272,7 @@ impl VerificationMachine {
                 AnyVerificationContent::Ready(c) => {
                     if let Some(request) = self.requests.get(flow_id.as_str()) {
                         if request.flow_id() == &flow_id {
-                            // TODO remove this unwrap.
-                            request.receive_ready(event.sender(), c).unwrap();
+                            request.receive_ready(event.sender(), c);
                         } else {
                             flow_id_mismatch();
                         }

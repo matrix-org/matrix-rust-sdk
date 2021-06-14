@@ -301,15 +301,12 @@ impl VerificationRequest {
         })
     }
 
-    #[allow(clippy::unnecessary_wraps)]
-    pub(crate) fn receive_ready(&self, sender: &UserId, content: &ReadyContent) -> Result<(), ()> {
+    pub(crate) fn receive_ready(&self, sender: &UserId, content: &ReadyContent) {
         let mut inner = self.inner.lock().unwrap();
 
         if let InnerRequest::Created(s) = &*inner {
             *inner = InnerRequest::Ready(s.clone().into_ready(sender, content));
         }
-
-        Ok(())
     }
 
     pub(crate) async fn receive_start(
@@ -932,7 +929,7 @@ mod test {
         let content: OutgoingContent = alice_request.accept().unwrap().into();
         let content = ReadyContent::try_from(&content).unwrap();
 
-        bob_request.receive_ready(&alice_id(), &content).unwrap();
+        bob_request.receive_ready(&alice_id(), &content);
 
         assert!(bob_request.is_ready());
         assert!(alice_request.is_ready());
@@ -985,7 +982,7 @@ mod test {
         let content: OutgoingContent = alice_request.accept().unwrap().into();
         let content = ReadyContent::try_from(&content).unwrap();
 
-        bob_request.receive_ready(&alice_id(), &content).unwrap();
+        bob_request.receive_ready(&alice_id(), &content);
 
         assert!(bob_request.is_ready());
         assert!(alice_request.is_ready());
@@ -1043,7 +1040,7 @@ mod test {
         let content: OutgoingContent = alice_request.accept().unwrap().into();
         let content = ReadyContent::try_from(&content).unwrap();
 
-        bob_request.receive_ready(&alice_id(), &content).unwrap();
+        bob_request.receive_ready(&alice_id(), &content);
 
         assert!(bob_request.is_ready());
         assert!(alice_request.is_ready());
