@@ -266,11 +266,19 @@ impl VerificationRequest {
         }
     }
 
-    /// Accept the verification request.
-    pub fn accept(&self) -> Option<OutgoingVerificationRequest> {
+    /// Accept the verification request signaling that our client supports the
+    /// given verification methods.
+    ///
+    /// # Arguments
+    ///
+    /// * `methods` - The methods that we should advertise as supported by us.
+    pub fn accept_with_methods(
+        &self,
+        methods: Vec<VerificationMethod>,
+    ) -> Option<OutgoingVerificationRequest> {
         let mut inner = self.inner.lock().unwrap();
 
-        inner.accept().map(|c| match c {
+        inner.accept(methods).map(|c| match c {
             OutgoingContent::ToDevice(content) => {
                 ToDeviceRequest::new(&self.other_user(), inner.other_device_id(), content).into()
             }
@@ -278,6 +286,19 @@ impl VerificationRequest {
                 RoomMessageRequest { room_id, txn_id: Uuid::new_v4(), content }.into()
             }
         })
+    }
+
+    /// Accept the verification request.
+    ///
+    /// This method will accept the request and signal that it supports the
+    /// `m.sas.v1`, the `m.qr_code.show.v1`, and `m.reciprocate.v1` method.
+    ///
+    /// If QR code scanning should be supported or QR code showing shouldn't be
+    /// supported the [`accept_with_methods()`] method should be used instead.
+    ///
+    /// [`accept_with_methods()`]: #method.accept_with_methods
+    pub fn accept(&self) -> Option<OutgoingVerificationRequest> {
+        self.accept_with_methods(SUPPORTED_METHODS.to_vec())
     }
 
     /// Cancel the verification request
@@ -400,9 +421,9 @@ impl InnerRequest {
         }
     }
 
-    fn accept(&mut self) -> Option<OutgoingContent> {
+    fn accept(&mut self, methods: Vec<VerificationMethod>) -> Option<OutgoingContent> {
         if let InnerRequest::Requested(s) = self {
-            let (state, content) = s.clone().accept();
+            let (state, content) = s.clone().accept(methods);
             *self = InnerRequest::Ready(state);
 
             Some(content)
@@ -512,7 +533,7 @@ impl RequestState<Created> {
             account,
             other_user_id: other_user_id.to_owned(),
             private_cross_signing_identity: private_identity,
-            state: Created { methods: SUPPORTED_METHODS.to_vec() },
+            state: Created { our_methods: SUPPORTED_METHODS.to_vec() },
             verification_cache: cache,
             store,
             flow_id: flow_id.to_owned().into(),
@@ -541,7 +562,8 @@ impl RequestState<Created> {
             store: self.store,
             other_user_id: self.other_user_id,
             state: Ready {
-                methods: content.methods().to_owned(),
+                their_methods: content.methods().to_owned(),
+                our_methods: self.state.our_methods,
                 other_device_id: content.from_device().into(),
             },
         }
@@ -550,14 +572,14 @@ impl RequestState<Created> {
 
 #[derive(Clone, Debug)]
 struct Created {
-    /// The verification methods supported by the sender.
-    pub methods: Vec<VerificationMethod>,
+    /// The verification methods supported by us.
+    pub our_methods: Vec<VerificationMethod>,
 }
 
 #[derive(Clone, Debug)]
 struct Requested {
     /// The verification methods supported by the sender.
-    pub methods: Vec<VerificationMethod>,
+    pub their_methods: Vec<VerificationMethod>,
 
     /// The device id of the device that responded to the verification request.
     pub other_device_id: DeviceIdBox,
@@ -582,13 +604,13 @@ impl RequestState<Requested> {
             flow_id: flow_id.to_owned().into(),
             other_user_id: sender.clone(),
             state: Requested {
-                methods: content.methods().to_owned(),
+                their_methods: content.methods().to_owned(),
                 other_device_id: content.from_device().into(),
             },
         }
     }
 
-    fn accept(self) -> (RequestState<Ready>, OutgoingContent) {
+    fn accept(self, methods: Vec<VerificationMethod>) -> (RequestState<Ready>, OutgoingContent) {
         let state = RequestState {
             account: self.account.clone(),
             store: self.store,
@@ -597,7 +619,8 @@ impl RequestState<Requested> {
             flow_id: self.flow_id.clone(),
             other_user_id: self.other_user_id,
             state: Ready {
-                methods: SUPPORTED_METHODS.to_vec(),
+                their_methods: self.state.their_methods,
+                our_methods: methods.clone(),
                 other_device_id: self.state.other_device_id.clone(),
             },
         };
@@ -606,7 +629,7 @@ impl RequestState<Requested> {
             FlowId::ToDevice(i) => {
                 AnyToDeviceEventContent::KeyVerificationReady(ReadyToDeviceEventContent::new(
                     self.account.device_id().to_owned(),
-                    SUPPORTED_METHODS.to_vec(),
+                    methods,
                     i.to_owned(),
                 ))
                 .into()
@@ -615,7 +638,7 @@ impl RequestState<Requested> {
                 r.to_owned(),
                 AnyMessageEventContent::KeyVerificationReady(ReadyEventContent::new(
                     self.account.device_id().to_owned(),
-                    SUPPORTED_METHODS.to_vec(),
+                    methods,
                     Relation::new(e.to_owned()),
                 )),
             )
@@ -628,8 +651,11 @@ impl RequestState<Requested> {
 
 #[derive(Clone, Debug)]
 struct Ready {
-    /// The verification methods supported by the sender.
-    pub methods: Vec<VerificationMethod>,
+    /// The verification methods supported by the other side.
+    pub their_methods: Vec<VerificationMethod>,
+
+    /// The verification methods supported by the us.
+    pub our_methods: Vec<VerificationMethod>,
 
     /// The device id of the device that responded to the verification request.
     pub other_device_id: DeviceIdBox,
