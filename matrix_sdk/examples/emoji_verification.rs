@@ -129,7 +129,7 @@ async fn login(
                                     if let MessageType::VerificationRequest(_) = &m.content.msgtype
                                     {
                                         let request = client
-                                            .get_verification_request(&m.event_id)
+                                            .get_verification_request(&m.sender, &m.event_id)
                                             .await
                                             .expect("Request object wasn't created");
 

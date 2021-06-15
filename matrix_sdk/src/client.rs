@@ -2192,16 +2192,18 @@ impl Client {
             .map(|sas| Sas { inner: sas, client: self.clone() })
     }
 
-    /// Get a `VerificationRequest` object with the given flow id.
+    /// Get a `VerificationRequest` object for the given user with the given
+    /// flow id.
     #[cfg(feature = "encryption")]
     #[cfg_attr(feature = "docs", doc(cfg(encryption)))]
     pub async fn get_verification_request(
         &self,
+        user_id: &UserId,
         flow_id: impl AsRef<str>,
     ) -> Option<VerificationRequest> {
         let olm = self.base_client.olm_machine().await?;
 
-        olm.get_verification_request(flow_id)
+        olm.get_verification_request(user_id, flow_id)
             .map(|r| VerificationRequest { inner: r, client: self.clone() })
     }
 

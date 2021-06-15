@@ -725,9 +725,10 @@ impl OlmMachine {
     /// Get a verification request object with the given flow id.
     pub fn get_verification_request(
         &self,
+        user_id: &UserId,
         flow_id: impl AsRef<str>,
     ) -> Option<VerificationRequest> {
-        self.verification_machine.get_request(flow_id)
+        self.verification_machine.get_request(user_id, flow_id)
     }
 
     async fn update_one_time_key_count(&self, key_count: &BTreeMap<DeviceKeyAlgorithm, UInt>) {
