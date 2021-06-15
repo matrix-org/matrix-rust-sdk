@@ -19,7 +19,7 @@ fn registration_string() -> String {
     include_str!("../tests/registration.yaml").to_owned()
 }
 
-async fn appservice(registration: Option<Registration>) -> Result<Appservice> {
+async fn appservice(registration: Option<Registration>) -> Result<AppService> {
     // env::set_var(
     //     "RUST_LOG",
     //     "mockito=debug,matrix_sdk=debug,ruma=debug,actix_web=debug,warp=debug",
@@ -28,7 +28,7 @@ async fn appservice(registration: Option<Registration>) -> Result<Appservice> {
 
     let registration = match registration {
         Some(registration) => registration.into(),
-        None => AppserviceRegistration::try_from_yaml_str(registration_string()).unwrap(),
+        None => AppServiceRegistration::try_from_yaml_str(registration_string()).unwrap(),
     };
 
     let homeserver_url = mockito::server_url();
@@ -37,7 +37,7 @@ async fn appservice(registration: Option<Registration>) -> Result<Appservice> {
     let client_config =
         ClientConfig::default().request_config(RequestConfig::default().disable_retry());
 
-    Ok(Appservice::new_with_config(
+    Ok(AppService::new_with_config(
         homeserver_url.as_ref(),
         server_name,
         registration,
@@ -355,7 +355,7 @@ mod registration {
     #[test]
     fn test_registration() -> Result<()> {
         let registration: Registration = serde_yaml::from_str(&registration_string())?;
-        let registration: AppserviceRegistration = registration.into();
+        let registration: AppServiceRegistration = registration.into();
 
         assert_eq!(registration.id, "appservice");
 
@@ -364,7 +364,7 @@ mod registration {
 
     #[test]
     fn test_registration_from_yaml_file() -> Result<()> {
-        let registration = AppserviceRegistration::try_from_yaml_file("./tests/registration.yaml")?;
+        let registration = AppServiceRegistration::try_from_yaml_file("./tests/registration.yaml")?;
 
         assert_eq!(registration.id, "appservice");
 
@@ -373,7 +373,7 @@ mod registration {
 
     #[test]
     fn test_registration_from_yaml_str() -> Result<()> {
-        let registration = AppserviceRegistration::try_from_yaml_str(registration_string())?;
+        let registration = AppServiceRegistration::try_from_yaml_str(registration_string())?;
 
         assert_eq!(registration.id, "appservice");
 

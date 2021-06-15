@@ -11,16 +11,16 @@ use matrix_sdk_appservice::{
         room::Room,
         EventHandler,
     },
-    Appservice, AppserviceRegistration,
+    AppService, AppServiceRegistration,
 };
 use tracing::{error, trace};
 
-struct AppserviceEventHandler {
-    appservice: Appservice,
+struct AppServiceEventHandler {
+    appservice: AppService,
 }
 
-impl AppserviceEventHandler {
-    pub fn new(appservice: Appservice) -> Self {
+impl AppServiceEventHandler {
+    pub fn new(appservice: AppService) -> Self {
         Self { appservice }
     }
 
@@ -47,7 +47,7 @@ impl AppserviceEventHandler {
 }
 
 #[async_trait]
-impl EventHandler for AppserviceEventHandler {
+impl EventHandler for AppServiceEventHandler {
     async fn on_room_member(&self, room: Room, event: &SyncStateEvent<MemberEventContent>) {
         match self.handle_room_member(room, event).await {
             Ok(_) => (),
@@ -63,10 +63,10 @@ pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let homeserver_url = "http://localhost:8008";
     let server_name = "localhost";
-    let registration = AppserviceRegistration::try_from_yaml_file("./tests/registration.yaml")?;
+    let registration = AppServiceRegistration::try_from_yaml_file("./tests/registration.yaml")?;
 
-    let mut appservice = Appservice::new(homeserver_url, server_name, registration).await?;
-    appservice.set_event_handler(Box::new(AppserviceEventHandler::new(appservice.clone()))).await?;
+    let mut appservice = AppService::new(homeserver_url, server_name, registration).await?;
+    appservice.set_event_handler(Box::new(AppServiceEventHandler::new(appservice.clone()))).await?;
 
     let (host, port) = appservice.registration().get_host_and_port()?;
     appservice.run(host, port).await?;

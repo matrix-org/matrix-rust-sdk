@@ -26,10 +26,10 @@ use futures::Future;
 use futures_util::TryStreamExt;
 use ruma::api::appservice as api;
 
-use crate::{error::Error, Appservice};
+use crate::{error::Error, AppService};
 
 pub async fn run_server(
-    appservice: Appservice,
+    appservice: AppService,
     host: impl Into<String>,
     port: impl Into<u16>,
 ) -> Result<(), Error> {
@@ -55,7 +55,7 @@ pub fn configure(config: &mut actix_web::web::ServiceConfig) {
 #[put("/transactions/{txn_id}")]
 async fn push_transactions(
     request: IncomingRequest<api::event::push_events::v1::IncomingRequest>,
-    appservice: Data<Appservice>,
+    appservice: Data<AppService>,
 ) -> Result<HttpResponse, Error> {
     if !appservice.compare_hs_token(request.access_token) {
         return Ok(HttpResponse::Unauthorized().finish());
@@ -70,7 +70,7 @@ async fn push_transactions(
 #[get("/users/{user_id}")]
 async fn query_user_id(
     request: IncomingRequest<api::query::query_user_id::v1::IncomingRequest>,
-    appservice: Data<Appservice>,
+    appservice: Data<AppService>,
 ) -> Result<HttpResponse, Error> {
     if !appservice.compare_hs_token(request.access_token) {
         return Ok(HttpResponse::Unauthorized().finish());
@@ -83,7 +83,7 @@ async fn query_user_id(
 #[get("/rooms/{room_alias}")]
 async fn query_room_alias(
     request: IncomingRequest<api::query::query_room_alias::v1::IncomingRequest>,
-    appservice: Data<Appservice>,
+    appservice: Data<AppService>,
 ) -> Result<HttpResponse, Error> {
     if !appservice.compare_hs_token(request.access_token) {
         return Ok(HttpResponse::Unauthorized().finish());
