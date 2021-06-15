@@ -180,6 +180,22 @@ impl VerificationRequest {
         &self.other_user_id
     }
 
+    /// Get the room id if the verification is happening inside a room.
+    pub fn room_id(&self) -> Option<&RoomId> {
+        match self.flow_id.as_ref() {
+            FlowId::ToDevice(_) => None,
+            FlowId::InRoom(r, _) => Some(r),
+        }
+    }
+
+    /// Get the `CancelCode` that cancelled this verification request.
+    pub fn cancel_code(&self) -> Option<CancelCode> {
+        match &*self.inner.lock().unwrap() {
+            InnerRequest::Cancelled(c) => Some(c.state.cancel_code.to_owned()),
+            _ => None,
+        }
+    }
+
     /// Has the verification request been answered by another device.
     pub fn is_passive(&self) -> bool {
         matches!(&*self.inner.lock().unwrap(), InnerRequest::Passive(_))
