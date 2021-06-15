@@ -70,6 +70,7 @@ pub struct VerificationRequest {
     flow_id: Arc<FlowId>,
     other_user_id: Arc<UserId>,
     inner: Arc<Mutex<InnerRequest>>,
+    we_started: bool,
 }
 
 impl VerificationRequest {
@@ -100,6 +101,7 @@ impl VerificationRequest {
             flow_id: flow_id.into(),
             inner,
             other_user_id: other_user.to_owned().into(),
+            we_started: true,
         }
     }
 
@@ -128,6 +130,7 @@ impl VerificationRequest {
             flow_id: flow_id.into(),
             inner,
             other_user_id: other_user.to_owned().into(),
+            we_started: true,
         }
     }
 
@@ -213,6 +216,11 @@ impl VerificationRequest {
         self.account.user_id() == self.other_user()
     }
 
+    /// Did we initiate the verification request
+    pub fn we_started(&self) -> bool {
+        self.we_started
+    }
+
     /// Has the verification flow that was started with this request finished.
     pub fn is_done(&self) -> bool {
         matches!(&*self.inner.lock().unwrap(), InnerRequest::Done(_))
@@ -284,6 +292,7 @@ impl VerificationRequest {
             account,
             other_user_id: sender.to_owned().into(),
             flow_id: flow_id.into(),
+            we_started: false,
         }
     }
 
