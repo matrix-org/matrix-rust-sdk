@@ -36,7 +36,7 @@ use matrix_sdk_common::{locks::Mutex, uuid::Uuid};
 use matrix_sdk_crypto::{
     store::{CryptoStore, CryptoStoreError},
     Device, EncryptionSettings, IncomingResponse, MegolmError, OlmError, OlmMachine,
-    OutgoingRequest, Sas, ToDeviceRequest, UserDevices,
+    OutgoingRequest, ToDeviceRequest, UserDevices,
 };
 #[cfg(feature = "encryption")]
 use ruma::{
@@ -1200,26 +1200,6 @@ impl BaseClient {
             Some(o) => o.invalidate_group_session(room_id).await,
             None => Ok(false),
         }
-    }
-
-    /// Get a `Sas` verification object with the given flow id.
-    ///
-    /// # Arguments
-    ///
-    /// * `flow_id` - The unique id that identifies a interactive verification
-    ///   flow. For in-room verifications this will be the event id of the
-    ///   *m.key.verification.request* event that started the flow, for the
-    ///   to-device verification flows this will be the transaction id of the
-    ///   *m.key.verification.start* event.
-    #[cfg(feature = "encryption")]
-    #[cfg_attr(feature = "docs", doc(cfg(encryption)))]
-    pub async fn get_verification(&self, user_id: &UserId, flow_id: &str) -> Option<Sas> {
-        self.olm
-            .lock()
-            .await
-            .as_ref()
-            .and_then(|o| o.get_verification(user_id, flow_id).map(|v| v.sas_v1()))
-            .flatten()
     }
 
     /// Get a specific device of a user.

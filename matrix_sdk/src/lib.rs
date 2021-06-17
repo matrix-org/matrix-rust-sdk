@@ -115,9 +115,7 @@ mod room_member;
 #[cfg(feature = "encryption")]
 mod device;
 #[cfg(feature = "encryption")]
-mod sas;
-#[cfg(feature = "encryption")]
-mod verification_request;
+pub mod verification;
 
 pub use client::{Client, ClientConfig, LoopCtrl, RequestConfig, SyncSettings};
 #[cfg(feature = "encryption")]
@@ -127,12 +125,5 @@ pub use error::{Error, HttpError, Result};
 pub use event_handler::{CustomEvent, EventHandler};
 pub use http_client::HttpSend;
 pub use room_member::RoomMember;
-#[cfg(feature = "encryption")]
-#[cfg_attr(feature = "docs", doc(cfg(encryption)))]
-pub use sas::Sas;
-#[cfg(feature = "encryption")]
-#[cfg_attr(feature = "docs", doc(cfg(encryption)))]
-pub use verification_request::VerificationRequest;
-
 #[cfg(not(target_arch = "wasm32"))]
 pub(crate) const VERSION: &str = env!("CARGO_PKG_VERSION");

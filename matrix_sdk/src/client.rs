@@ -126,8 +126,7 @@ use ruma::{
 #[cfg(feature = "encryption")]
 use crate::{
     device::{Device, UserDevices},
-    sas::Sas,
-    verification_request::VerificationRequest,
+    verification::{QrVerification, SasVerification, Verification, VerificationRequest},
 };
 use crate::{
     error::HttpError,
@@ -2182,14 +2181,19 @@ impl Client {
         Ok(response)
     }
 
-    /// Get a `Sas` verification object with the given flow id.
+    /// Get a verification object with the given flow id.
     #[cfg(feature = "encryption")]
     #[cfg_attr(feature = "docs", doc(cfg(encryption)))]
-    pub async fn get_verification(&self, user_id: &UserId, flow_id: &str) -> Option<Sas> {
-        self.base_client
-            .get_verification(user_id, flow_id)
-            .await
-            .map(|sas| Sas { inner: sas, client: self.clone() })
+    pub async fn get_verification(&self, user_id: &UserId, flow_id: &str) -> Option<Verification> {
+        let olm = self.base_client.olm_machine().await?;
+        olm.get_verification(user_id, flow_id).map(|v| match v {
+            matrix_sdk_base::crypto::Verification::SasV1(s) => {
+                SasVerification { inner: s, client: self.clone() }.into()
+            }
+            matrix_sdk_base::crypto::Verification::QrV1(qr) => {
+                QrVerification { inner: qr, client: self.clone() }.into()
+            }
+        })
     }
 
     /// Get a `VerificationRequest` object for the given user with the given
@@ -2696,6 +2700,22 @@ impl Client {
     pub async fn whoami(&self) -> Result<whoami::Response> {
         let request = whoami::Request::new();
         self.send(request, None).await
+    }
+
+    pub(crate) async fn send_verification_request(
+        &self,
+        request: matrix_sdk_base::crypto::OutgoingVerificationRequest,
+    ) -> Result<()> {
+        match request {
+            matrix_sdk_base::crypto::OutgoingVerificationRequest::ToDevice(t) => {
+                self.send_to_device(&t).await?;
+            }
+            matrix_sdk_base::crypto::OutgoingVerificationRequest::InRoom(r) => {
+                self.room_send_helper(&r).await?;
+            }
+        }
+
+        Ok(())
     }
 }
 

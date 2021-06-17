@@ -720,6 +720,7 @@ impl SledStore {
             .map(|u| {
                 u.map_err(StoreError::Sled).and_then(|(key, value)| {
                     self.deserialize_event(&value)
+                        // TODO remove this unwrapping
                         .map(|receipt| {
                             (decode_key_value(&key, 3).unwrap().try_into().unwrap(), receipt)
                         })

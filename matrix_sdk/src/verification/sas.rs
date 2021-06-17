@@ -12,21 +12,19 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use matrix_sdk_base::crypto::{
-    AcceptSettings, OutgoingVerificationRequest, ReadOnlyDevice, Sas as BaseSas,
-};
+use matrix_sdk_base::crypto::{AcceptSettings, ReadOnlyDevice, Sas as BaseSas};
 use ruma::UserId;
 
 use crate::{error::Result, Client};
 
 /// An object controlling the interactive verification flow.
 #[derive(Debug, Clone)]
-pub struct Sas {
+pub struct SasVerification {
     pub(crate) inner: BaseSas,
     pub(crate) client: Client,
 }
 
-impl Sas {
+impl SasVerification {
     /// Accept the interactive verification flow.
     pub async fn accept(&self) -> Result<()> {
         self.accept_with_settings(Default::default()).await
@@ -45,7 +43,7 @@ impl Sas {
     /// # use futures::executor::block_on;
     /// # use url::Url;
     /// # use ruma::identifiers::user_id;
-    /// use matrix_sdk::Sas;
+    /// use matrix_sdk::verification::SasVerification;
     /// use matrix_sdk_base::crypto::AcceptSettings;
     /// use matrix_sdk::events::key::verification::ShortAuthenticationString;
     /// # let homeserver = Url::parse("http://example.com").unwrap();
@@ -56,6 +54,8 @@ impl Sas {
     /// let sas = client
     ///     .get_verification(&user_id, flow_id)
     ///     .await
+    ///     .unwrap()
+    ///     .sas()
     ///     .unwrap();
     ///
     /// let only_decimal = AcceptSettings::with_allowed_methods(
@@ -65,15 +65,8 @@ impl Sas {
     /// # });
     /// ```
     pub async fn accept_with_settings(&self, settings: AcceptSettings) -> Result<()> {
-        if let Some(req) = self.inner.accept_with_settings(settings) {
-            match req {
-                OutgoingVerificationRequest::ToDevice(r) => {
-                    self.client.send_to_device(&r).await?;
-                }
-                OutgoingVerificationRequest::InRoom(r) => {
-                    self.client.room_send_helper(&r).await?;
-                }
-            }
+        if let Some(request) = self.inner.accept_with_settings(settings) {
+            self.client.send_verification_request(request).await?;
         }
         Ok(())
     }
@@ -82,16 +75,8 @@ impl Sas {
     pub async fn confirm(&self) -> Result<()> {
         let (request, signature) = self.inner.confirm().await?;
 
-        match request {
-            Some(OutgoingVerificationRequest::InRoom(r)) => {
-                self.client.room_send_helper(&r).await?;
-            }
-
-            Some(OutgoingVerificationRequest::ToDevice(r)) => {
-                self.client.send_to_device(&r).await?;
-            }
-
-            None => (),
+        if let Some(request) = request {
+            self.client.send_verification_request(request).await?;
         }
 
         if let Some(s) = signature {
@@ -104,14 +89,7 @@ impl Sas {
     /// Cancel the interactive verification flow.
     pub async fn cancel(&self) -> Result<()> {
         if let Some(request) = self.inner.cancel() {
-            match request {
-                OutgoingVerificationRequest::ToDevice(r) => {
-                    self.client.send_to_device(&r).await?;
-                }
-                OutgoingVerificationRequest::InRoom(r) => {
-                    self.client.room_send_helper(&r).await?;
-                }
-            }
+            self.client.send_verification_request(request).await?;
         }
 
         Ok(())
@@ -136,6 +114,11 @@ impl Sas {
     /// Is the verification process done.
     pub fn is_done(&self) -> bool {
         self.inner.is_done()
+    }
+
+    /// Are we in a state where we can show the short auth string.
+    pub fn can_be_presented(&self) -> bool {
+        self.inner.can_be_presented()
     }
 
     /// Is the verification process canceled.

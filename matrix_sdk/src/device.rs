@@ -20,7 +20,7 @@ use matrix_sdk_base::crypto::{
 };
 use ruma::{DeviceId, DeviceIdBox};
 
-use crate::{error::Result, Client, Sas};
+use crate::{error::Result, verification::SasVerification, Client};
 
 #[derive(Clone, Debug)]
 /// A device represents a E2EE capable client of an user.
@@ -62,11 +62,11 @@ impl Device {
     /// let verification = device.start_verification().await.unwrap();
     /// # });
     /// ```
-    pub async fn start_verification(&self) -> Result<Sas> {
+    pub async fn start_verification(&self) -> Result<SasVerification> {
         let (sas, request) = self.inner.start_verification().await?;
         self.client.send_to_device(&request).await?;
 
-        Ok(Sas { inner: sas, client: self.client.clone() })
+        Ok(SasVerification { inner: sas, client: self.client.clone() })
     }
 
     /// Is the device trusted.
