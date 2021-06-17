@@ -731,6 +731,11 @@ impl OlmMachine {
         self.verification_machine.get_request(user_id, flow_id)
     }
 
+    /// Get all the verification requests of a given user.
+    pub fn get_verification_requests(&self, user_id: &UserId) -> Vec<VerificationRequest> {
+        self.verification_machine.get_requests(user_id)
+    }
+
     async fn update_one_time_key_count(&self, key_count: &BTreeMap<DeviceKeyAlgorithm, UInt>) {
         self.account.update_uploaded_key_count(key_count).await;
     }

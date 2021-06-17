@@ -99,6 +99,13 @@ impl VerificationMachine {
         self.requests.get(user_id).and_then(|v| v.get(flow_id.as_ref()).map(|s| s.clone()))
     }
 
+    pub fn get_requests(&self, user_id: &UserId) -> Vec<VerificationRequest> {
+        self.requests
+            .get(user_id)
+            .map(|v| v.iter().map(|i| i.value().clone()).collect())
+            .unwrap_or_default()
+    }
+
     fn insert_request(&self, request: VerificationRequest) {
         self.requests
             .entry(request.other_user().to_owned())
