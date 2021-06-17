@@ -1,8 +1,9 @@
 use std::ops::Deref;
 
-use ruma::api::client::r0::media::{get_content, get_content_thumbnail};
-
-use crate::{BaseRoomMember, Client, Result};
+use crate::{
+    media::{MediaFormat, MediaRequest, MediaType},
+    BaseRoomMember, Client, Result,
+};
 
 /// The high-level `RoomMember` representation
 #[derive(Debug, Clone)]
@@ -26,14 +27,13 @@ impl RoomMember {
 
     /// Gets the avatar of this member, if set.
     ///
-    /// Returns the avatar. No guarantee on the size of the image is given.
-    /// If no size is given the full-sized avatar will be returned.
+    /// Returns the avatar.
+    /// If a thumbnail is requested no guarantee on the size of the image is
+    /// given.
     ///
     /// # Arguments
     ///
-    /// * `width` - The desired width of the avatar.
-    ///
-    /// * `height` - The desired height of the avatar.
+    /// * `format` - The desired format of the avatar.
     ///
     /// # Example
     /// ```no_run
@@ -41,6 +41,7 @@ impl RoomMember {
     /// # use matrix_sdk::Client;
     /// # use matrix_sdk::identifiers::room_id;
     /// # use matrix_sdk::RoomMember;
+    /// # use matrix_sdk::media::MediaFormat;
     /// # use url::Url;
     /// # let homeserver = Url::parse("http://example.com").unwrap();
     /// # block_on(async {
@@ -53,24 +54,15 @@ impl RoomMember {
     ///     .unwrap();
     /// let members = room.members().await.unwrap();
     /// let member = members.first().unwrap();
-    /// if let Some(avatar) = member.avatar(Some(96), Some(96)).await.unwrap() {
+    /// if let Some(avatar) = member.avatar(MediaFormat::File).await.unwrap() {
     ///     std::fs::write("avatar.png", avatar);
     /// }
     /// # })
     /// ```
-    pub async fn avatar(&self, width: Option<u32>, height: Option<u32>) -> Result<Option<Vec<u8>>> {
-        // TODO: try to offer the avatar from cache, requires avatar cache
+    pub async fn avatar(&self, format: MediaFormat) -> Result<Option<Vec<u8>>> {
         if let Some(url) = self.avatar_url() {
-            if let (Some(width), Some(height)) = (width, height) {
-                let request =
-                    get_content_thumbnail::Request::from_url(url, width.into(), height.into())?;
-                let response = self.client.send(request, None).await?;
-                Ok(Some(response.file))
-            } else {
-                let request = get_content::Request::from_url(url)?;
-                let response = self.client.send(request, None).await?;
-                Ok(Some(response.file))
-            }
+            let request = MediaRequest { media_type: MediaType::Uri(url.clone()), format };
+            Ok(Some(self.client.get_media_content(&request, true).await?))
         } else {
             Ok(None)
         }
