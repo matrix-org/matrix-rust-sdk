@@ -180,6 +180,18 @@ impl VerificationRequest {
         &self.other_user_id
     }
 
+    /// The id of the other device that is participating in this verification.
+    pub fn other_device_id(&self) -> Option<DeviceIdBox> {
+        match &*self.inner.lock().unwrap() {
+            InnerRequest::Requested(r) => Some(r.state.other_device_id.clone()),
+            InnerRequest::Ready(r) => Some(r.state.other_device_id.clone()),
+            InnerRequest::Created(_)
+            | InnerRequest::Passive(_)
+            | InnerRequest::Done(_)
+            | InnerRequest::Cancelled(_) => None,
+        }
+    }
+
     /// Get the room id if the verification is happening inside a room.
     pub fn room_id(&self) -> Option<&RoomId> {
         match self.flow_id.as_ref() {
@@ -210,7 +222,7 @@ impl VerificationRequest {
     ///
     /// Will be present only if the other side requested the verification or if
     /// we're in the ready state.
-    pub fn their_supported_methods(&self) -> Vec<VerificationMethod> {
+    pub fn their_supported_methods(&self) -> Option<Vec<VerificationMethod>> {
         match &*self.inner.lock().unwrap() {
             InnerRequest::Requested(r) => Some(r.state.their_methods.clone()),
             InnerRequest::Ready(r) => Some(r.state.their_methods.clone()),
@@ -219,7 +231,21 @@ impl VerificationRequest {
             | InnerRequest::Done(_)
             | InnerRequest::Cancelled(_) => None,
         }
-        .unwrap_or_default()
+    }
+
+    /// Get our own supported verification methods that we advertised.
+    ///
+    /// Will be present only we requested the verification or if we're in the
+    /// ready state.
+    pub fn our_supported_methods(&self) -> Option<Vec<VerificationMethod>> {
+        match &*self.inner.lock().unwrap() {
+            InnerRequest::Created(r) => Some(r.state.our_methods.clone()),
+            InnerRequest::Ready(r) => Some(r.state.our_methods.clone()),
+            InnerRequest::Requested(_)
+            | InnerRequest::Passive(_)
+            | InnerRequest::Done(_)
+            | InnerRequest::Cancelled(_) => None,
+        }
     }
 
     /// Get the unique ID of this verification request
