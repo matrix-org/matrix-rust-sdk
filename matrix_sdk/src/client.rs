@@ -2702,6 +2702,7 @@ impl Client {
         self.send(request, None).await
     }
 
+    #[cfg(feature = "encryption")]
     pub(crate) async fn send_verification_request(
         &self,
         request: matrix_sdk_base::crypto::OutgoingVerificationRequest,

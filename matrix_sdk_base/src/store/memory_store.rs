@@ -560,13 +560,13 @@ impl StateStore for MemoryStore {
 #[cfg(test)]
 #[cfg(not(feature = "sled_state_store"))]
 mod test {
-    use matrix_sdk_common::{
+    use matrix_sdk_test::async_test;
+    use ruma::{
         api::client::r0::media::get_content_thumbnail::Method,
         identifiers::{event_id, mxc_uri, room_id, user_id, UserId},
         receipt::ReceiptType,
         uint,
     };
-    use matrix_sdk_test::async_test;
     use serde_json::json;
 
     use super::{MemoryStore, StateChanges};
