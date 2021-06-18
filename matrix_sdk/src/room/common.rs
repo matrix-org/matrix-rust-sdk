@@ -1,17 +1,20 @@
-use std::{ops::Deref, sync::Arc};
+use std::{cmp::min, convert::TryFrom, ops::Deref, sync::Arc};
 
-use matrix_sdk_base::deserialized_responses::MembersResponse;
+use matrix_sdk_base::deserialized_responses::{MembersResponse, SyncRoomEvent};
 use matrix_sdk_common::locks::Mutex;
 use ruma::{
     api::client::r0::{
+        context::get_context,
         media::{get_content, get_content_thumbnail},
         membership::{get_member_events, join_room_by_id, leave_room},
-        message::get_message_events,
+        message::{get_message_events, get_message_events::Direction},
     },
-    UserId,
+    events::AnyRoomEvent,
+    serde::Raw,
+    EventId, UserId,
 };
 
-use crate::{BaseRoom, Client, Result, RoomMember};
+use crate::{BaseRoom, Client, Result, RoomMember, UInt};
 
 /// A struct containing methods that are common for Joined, Invited and Left
 /// Rooms
@@ -110,27 +113,34 @@ impl Common {
         }
     }
 
-    /// Sends a request to `/_matrix/client/r0/rooms/{room_id}/messages` and
-    /// returns a `get_message_events::Response` that contains a chunk of
-    /// room and state events (`AnyRoomEvent` and `AnyStateEvent`).
+    /// Gets a slice of the timeline of this room
+    ///
+    /// Returns a slice of the timeline between `start` and `end`, no longer
+    /// then `limit`. If the number of events is fewer then `limit` it means
+    /// that in the given direction no more events exist.
+    /// If the timeline doesn't contain an event with the given `start` `None`
+    /// is returned.
     ///
     /// # Arguments
     ///
-    /// * `request` - The easiest way to create this request is using the
-    /// `get_message_events::Request` itself.
+    /// * `start` - An `EventId` that indicates the start of the slice.
+    ///
+    /// * `end` - An `EventId` that indicates the end of the slice.
+    ///
+    /// * `limit` - The maximum number of events that should be returned.
+    ///
+    /// * `direction` - The direction of the search and returned events.
     ///
     /// # Examples
     /// ```no_run
     /// # use std::convert::TryFrom;
     /// use matrix_sdk::Client;
-    /// # use matrix_sdk::identifiers::room_id;
-    /// # use matrix_sdk::api::r0::filter::RoomEventFilter;
-    /// # use matrix_sdk::api::r0::message::get_message_events::Request as MessagesRequest;
+    /// # use matrix_sdk::identifiers::{event_id, room_id};
+    /// # use matrix_sdk::api::r0::message::get_message_events::Direction;
     /// # use url::Url;
     ///
     /// # let homeserver = Url::parse("http://example.com").unwrap();
     /// let room_id = room_id!("!roomid:example.com");
-    /// let request = MessagesRequest::backward(&room_id, "t47429-4392820_219380_26003_2265");
     ///
     /// let mut client = Client::new(homeserver).unwrap();
     /// # let room = client
@@ -138,15 +148,125 @@ impl Common {
     /// #    .unwrap();
     /// # use futures::executor::block_on;
     /// # block_on(async {
-    /// assert!(room.messages(request).await.is_ok());
+    /// assert!(room.messages(&event_id!("$xxxxxx:example.org"), None, 10, Direction::Backward).await.is_ok());
     /// # });
     /// ```
     pub async fn messages(
         &self,
-        request: impl Into<get_message_events::Request<'_>>,
-    ) -> Result<get_message_events::Response> {
-        let request = request.into();
-        self.client.send(request, None).await
+        start: &EventId,
+        end: Option<&EventId>,
+        limit: usize,
+        direction: Direction,
+    ) -> Result<Option<Vec<SyncRoomEvent>>> {
+        let room_id = self.inner.room_id();
+        let events = if let Some(mut stored) = self
+            .client
+            .store()
+            .get_timeline(room_id, Some(start), end, Some(limit), direction.clone())
+            .await?
+        {
+            // We found a gab or the end of the stored timeline.
+            if let Some(token) = stored.token {
+                let mut request = get_message_events::Request::new(
+                    self.inner.room_id(),
+                    &token,
+                    direction.clone(),
+                );
+                request.limit =
+                    UInt::try_from((limit - stored.events.len()) as u64).unwrap_or(UInt::MAX);
+
+                let response = self.client.send(request, None).await?;
+
+                // FIXME: we may recevied an invalied server response that ruma considers valid
+                // See https://github.com/ruma/ruma/issues/644
+                if response.end.is_none() && response.start.is_none() {
+                    return Ok(Some(stored.events));
+                }
+
+                let response_events = self
+                    .client
+                    .base_client
+                    .receive_messages(room_id, &direction, &response)
+                    .await?;
+
+                let mut response_events = if let Some(end) = end {
+                    if let Some(position) =
+                        response_events.iter().position(|event| &event.event_id() == end)
+                    {
+                        response_events.into_iter().take(position + 1).collect()
+                    } else {
+                        response_events
+                    }
+                } else {
+                    response_events
+                };
+
+                match direction {
+                    Direction::Forward => {
+                        response_events.append(&mut stored.events);
+                        stored.events = response_events;
+                    }
+                    Direction::Backward => stored.events.append(&mut response_events),
+                }
+            }
+            stored.events
+        } else {
+            // Fallback to context API because we don't know the start event
+            let mut request = get_context::Request::new(room_id, start);
+
+            // We need to take limit twice because the context api returns events before
+            // and after the given event
+            request.limit = UInt::try_from((limit * 2) as u64).unwrap_or(UInt::MAX);
+
+            let mut context = self.client.send(request, None).await?;
+
+            let event = if let Some(event) = context.event {
+                event
+            } else {
+                return Ok(None);
+            };
+
+            let mut response = get_message_events::Response::new();
+            response.start = context.start;
+            response.end = context.end;
+            let before_length = context.events_before.len();
+            let after_length = context.events_after.len();
+            let mut events: Vec<Raw<AnyRoomEvent>> =
+                context.events_after.into_iter().rev().collect();
+            events.push(event);
+            events.append(&mut context.events_before);
+            response.chunk = events;
+            response.state = context.state;
+            let response_events = self
+                .client
+                .base_client
+                .receive_messages(room_id, &Direction::Backward, &response)
+                .await?;
+
+            let response_events: Vec<SyncRoomEvent> = match direction {
+                Direction::Forward => {
+                    let lower_bound = if before_length > limit { before_length - limit } else { 0 };
+                    response_events[lower_bound..=before_length].to_vec()
+                }
+                Direction::Backward => response_events
+                    [after_length..min(response_events.len(), after_length + limit)]
+                    .to_vec(),
+            };
+
+            if let Some(end) = end {
+                if let Some(position) =
+                    response_events.iter().position(|event| &event.event_id() == end)
+                {
+                    response_events.into_iter().take(position + 1).collect()
+                } else {
+                    response_events
+                }
+            } else {
+                response_events
+            }
+        };
+
+        Ok(Some(events))
     }
 
     pub(crate) async fn request_members(&self) -> Result<Option<MembersResponse>> {
