@@ -580,15 +580,7 @@ impl SledStore {
             .transpose()?)
     }
 
-    pub async fn get_state_events(&self, room_id: &RoomId) -> Result<Vec<Raw<AnySyncStateEvent>>> {
-        Ok(self
-            .room_state
-            .scan_prefix((room_id.as_str()).encode())
-            .flat_map(|e| e.map(|(_, e)| self.deserialize_event(&e)))
-            .collect::<Result<_, _>>()?)
-    }
-
-    pub async fn get_state_events_by_type(
+    pub async fn get_state_events(
         &self,
         room_id: &RoomId,
         event_type: EventType,
@@ -821,16 +813,12 @@ impl StateStore for SledStore {
         self.get_state_event(room_id, event_type, state_key).await
     }
 
-    async fn get_state_events(&self, room_id: &RoomId) -> Result<Vec<Raw<AnySyncStateEvent>>> {
-        self.get_state_events(room_id).await
-    }
-
-    async fn get_state_events_by_type(
+    async fn get_state_events(
         &self,
         room_id: &RoomId,
         event_type: EventType,
     ) -> Result<Vec<Raw<AnySyncStateEvent>>> {
-        self.get_state_events_by_type(room_id, event_type).await
+        self.get_state_events(room_id, event_type).await
     }
 
     async fn get_profile(

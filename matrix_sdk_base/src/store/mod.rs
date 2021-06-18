@@ -133,21 +133,14 @@ pub trait StateStore: AsyncTraitDeps {
         state_key: &str,
     ) -> Result<Option<Raw<AnySyncStateEvent>>>;
 
-    /// Get all synced state events for a room.
-    ///
-    /// # Arguments
-    ///
-    /// * `room_id` - The id of the room to get state events for.
-    async fn get_state_events(&self, room_id: &RoomId) -> Result<Vec<Raw<AnySyncStateEvent>>>;
-
-    /// Get a list of state events for a given `EventType`.
+    /// Get a list of state events for a given room and `EventType`.
     ///
     /// # Arguments
     ///
     /// * `room_id` - The id of the room to find events for.
     ///
-    /// * `event_type` - The event type to find.
-    async fn get_state_events_by_type(
+    /// * `event_type` - The event type.
+    async fn get_state_events(
         &self,
         room_id: &RoomId,
         event_type: EventType,

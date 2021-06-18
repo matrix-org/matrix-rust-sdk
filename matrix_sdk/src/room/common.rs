@@ -8,6 +8,8 @@ use ruma::{
         membership::{get_member_events, join_room_by_id, leave_room},
         message::get_message_events,
     },
+    events::{AnySyncStateEvent, EventType},
+    serde::Raw,
     UserId,
 };
 
@@ -323,5 +325,26 @@ impl Common {
             .into_iter()
             .map(|member| RoomMember::new(self.client.clone(), member))
             .collect())
+    }
+
+    /// Get all state events of a given type in this room.
+    pub async fn get_state_events(
+        &self,
+        event_type: EventType,
+    ) -> Result<Vec<Raw<AnySyncStateEvent>>> {
+        self.client.store().get_state_events(self.room_id(), event_type).await.map_err(Into::into)
+    }
+
+    /// Get a specific state event in this room.
+    pub async fn get_state_event(
+        &self,
+        event_type: EventType,
+        state_key: &str,
+    ) -> Result<Option<Raw<AnySyncStateEvent>>> {
+        self.client
+            .store()
+            .get_state_event(self.room_id(), event_type, state_key)
+            .await
+            .map_err(Into::into)
     }
 }
