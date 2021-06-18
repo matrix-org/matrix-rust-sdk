@@ -293,6 +293,21 @@ impl MemoryStore {
         }))
     }
 
+    async fn get_state_events(
+        &self,
+        room_id: &RoomId,
+        event_type: EventType,
+    ) -> Result<Vec<Raw<AnySyncStateEvent>>> {
+        #[allow(clippy::map_clone)]
+        Ok(self
+            .room_state
+            .get(room_id)
+            .and_then(|e| {
+                e.get(event_type.as_ref()).map(|s| s.iter().map(|e| e.clone()).collect::<Vec<_>>())
+            })
+            .unwrap_or_default())
+    }
+
     async fn get_profile(
         &self,
         room_id: &RoomId,
@@ -456,6 +471,14 @@ impl StateStore for MemoryStore {
         state_key: &str,
     ) -> Result<Option<Raw<AnySyncStateEvent>>> {
         self.get_state_event(room_id, event_type, state_key).await
+    }
+
+    async fn get_state_events(
+        &self,
+        room_id: &RoomId,
+        event_type: EventType,
+    ) -> Result<Vec<Raw<AnySyncStateEvent>>> {
+        self.get_state_events(room_id, event_type).await
     }
 
     async fn get_profile(
