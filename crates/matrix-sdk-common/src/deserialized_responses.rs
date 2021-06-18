@@ -112,6 +112,12 @@ impl From<RoomEvent> for SyncRoomEvent {
         Self { encryption_info: o.encryption_info, event: Raw::from_json(o.event.into_json()) }
     }
 }
+impl From<Raw<AnyRoomEvent>> for SyncRoomEvent {
+    fn from(inner: Raw<AnyRoomEvent>) -> Self {
+        // FIXME: we should strip the room id from `Raw`
+        Self { encryption_info: None, event: Raw::from_json(Raw::into_json(inner)) }
+    }
+}
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
 pub struct SyncResponse {
