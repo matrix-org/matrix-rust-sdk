@@ -9,8 +9,8 @@ use ruma::{
         },
     },
     events::{
-        room::member::MemberEventContent, AnySyncRoomEvent, StateEvent, StrippedStateEvent,
-        SyncStateEvent, Unsigned,
+        room::member::MemberEventContent, AnyRoomEvent, AnySyncRoomEvent, StateEvent,
+        StrippedStateEvent, SyncStateEvent, Unsigned,
     },
     identifiers::{DeviceKeyAlgorithm, EventId, RoomId, UserId},
     serde::Raw,
@@ -99,6 +99,13 @@ pub struct SyncRoomEvent {
 impl From<Raw<AnySyncRoomEvent>> for SyncRoomEvent {
     fn from(inner: Raw<AnySyncRoomEvent>) -> Self {
         Self { encryption_info: None, event: inner }
+    }
+}
+
+impl From<Raw<AnyRoomEvent>> for SyncRoomEvent {
+    fn from(inner: Raw<AnyRoomEvent>) -> Self {
+        // FIXME: we should strip the room id from `Raw`
+        Self { encryption_info: None, event: Raw::from_json(Raw::into_json(inner)) }
     }
 }
 
