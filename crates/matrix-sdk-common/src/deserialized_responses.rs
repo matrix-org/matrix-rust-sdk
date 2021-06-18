@@ -261,6 +261,26 @@ impl Timeline {
     }
 }
 
+/// A slice of the timeline in the room.
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+pub struct TimelineSlice {
+    /// The `next_batch` or `from` token used to obtain this slice
+    pub start: String,
+
+    /// The `prev_batch` or `to` token used to obtain this slice
+    /// If `None` this `TimelineSlice` is the beginning of the room
+    pub end: Option<String>,
+
+    /// A list of events.
+    pub events: Vec<SyncRoomEvent>,
+}
+
+impl TimelineSlice {
+    pub fn new(events: Vec<SyncRoomEvent>, start: String, end: Option<String>) -> Self {
+        Self { start, end, events }
+    }
+}
+
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(try_from = "SyncRoomMemberEvent", into = "SyncRoomMemberEvent")]
 pub struct MemberEvent {
