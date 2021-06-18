@@ -97,6 +97,13 @@ pub struct SyncRoomEvent {
     pub encryption_info: Option<EncryptionInfo>,
 }
 
+impl SyncRoomEvent {
+    /// Get the event id of this `SyncRoomEvent` if the event has any valid id.
+    pub fn event_id(&self) -> Option<Box<EventId>> {
+        self.event.get_field::<Box<EventId>>("event_id").ok().flatten()
+    }
+}
+
 impl From<Raw<AnySyncRoomEvent>> for SyncRoomEvent {
     fn from(inner: Raw<AnySyncRoomEvent>) -> Self {
         Self { encryption_info: None, event: inner }
