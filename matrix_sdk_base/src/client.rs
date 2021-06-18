@@ -25,7 +25,7 @@ use std::{
 use matrix_sdk_common::{
     deserialized_responses::{
         AmbiguityChanges, JoinedRoom, LeftRoom, MemberEvent, MembersResponse, Rooms,
-        StrippedMemberEvent, SyncResponse, SyncRoomEvent, Timeline,
+        StrippedMemberEvent, SyncResponse, SyncRoomEvent, Timeline, TimelineSlice,
     },
     instant::Instant,
     locks::RwLock,
@@ -48,7 +48,11 @@ use ruma::{
     DeviceId,
 };
 use ruma::{
-    api::client::r0::{self as api, push::get_notifications::Notification},
+    api::client::r0::{
+        self as api,
+        message::get_message_events::{Direction, Response as GetMessageEventsResponse},
+        push::get_notifications::Notification,
+    },
     events::{
         room::member::{MemberEventContent, MembershipState},
         AnyGlobalAccountDataEvent, AnyRoomAccountDataEvent, AnyStrippedStateEvent,
@@ -836,6 +840,15 @@ impl BaseClient {
             let notification_count = new_info.unread_notifications.into();
             room_info.update_notification_count(notification_count);
 
+            changes.add_timeline(
+                &room_id,
+                TimelineSlice::new(
+                    timeline.events.iter().cloned().rev().collect(),
+                    next_batch.clone(),
+                    timeline.prev_batch.clone(),
+                ),
+            );
+
             new_rooms.join.insert(
                 room_id,
                 JoinedRoom::new(
@@ -879,6 +892,14 @@ impl BaseClient {
             self.handle_room_account_data(&room_id, &new_info.account_data.events, &mut changes)
                 .await;
 
+            changes.add_timeline(
+                &room_id,
+                TimelineSlice::new(
+                    timeline.events.iter().cloned().rev().collect(),
+                    next_batch.clone(),
+                    timeline.prev_batch.clone(),
+                ),
+            );
             changes.add_room(room_info);
             new_rooms
                 .leave
@@ -947,6 +968,64 @@ impl BaseClient {
                 room.update_summary(room_info.clone())
             }
         }
+    }
+
+    /// Receive a successful /messages response.
+    ///
+    /// * `response` - The successful response from /messages.
+    pub async fn receive_messages(
+        &self,
+        room_id: &RoomId,
+        direction: &Direction,
+        response: &GetMessageEventsResponse,
+    ) -> Result<Vec<SyncRoomEvent>> {
+        let mut changes = StateChanges::default();
+
+        let mut events: Vec<SyncRoomEvent> = vec![];
+        for event in &response.chunk {
+            #[allow(unused_mut)]
+            let mut event: SyncRoomEvent = event.clone().into();
+
+            #[cfg(feature = "encryption")]
+            match hoist_room_event_prev_content(&event.event) {
+                Ok(e) => {
+                    if let AnySyncRoomEvent::Message(AnySyncMessageEvent::RoomEncrypted(
+                        encrypted,
+                    )) = e
+                    {
+                        if let Some(olm) = self.olm_machine().await {
+                            if let Ok(decrypted) = olm.decrypt_room_event(&encrypted, room_id).await
+                            {
+                                event = decrypted;
+                            }
+                        }
+                    }
+                }
+                Err(error) => {
+                    warn!("Error deserializing event {:?}", error);
+                }
+            }
+
+            events.push(event);
+        }
+
+        let (chunk, start, end) = match direction {
+            Direction::Backward => {
+                (events.clone(), response.start.clone().unwrap(), response.end.clone())
+            }
+            Direction::Forward => (
+                events.iter().rev().cloned().collect(),
+                response.end.clone().unwrap(),
+                response.start.clone(),
+            ),
+        };
+
+        let timeline = TimelineSlice::new(chunk, start, end);
+        changes.add_timeline(room_id, timeline);
+
+        self.store().save_changes(&changes).await?;
+
+        Ok(events)
     }
 
     /// Receive a get member events response and convert it to a deserialized

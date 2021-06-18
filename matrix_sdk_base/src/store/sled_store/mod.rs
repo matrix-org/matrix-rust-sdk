@@ -28,6 +28,7 @@ use futures::{
 };
 use matrix_sdk_common::async_trait;
 use ruma::{
+    api::client::r0::message::get_message_events::Direction,
     events::{
         presence::PresenceEvent,
         receipt::Receipt,
@@ -46,9 +47,9 @@ use sled::{
 use tracing::info;
 
 use self::store_key::{EncryptedEvent, StoreKey};
-use super::{Result, RoomInfo, StateChanges, StateStore, StoreError};
+use super::{Result, RoomInfo, StateChanges, StateStore, StoreError, StoredTimelineSlice};
 use crate::{
-    deserialized_responses::MemberEvent,
+    deserialized_responses::{MemberEvent, SyncRoomEvent},
     media::{MediaRequest, UniqueKey},
 };
 
@@ -118,6 +119,44 @@ impl EncodeKey for (&str, &str) {
     }
 }
 
+impl EncodeKey for (&str, usize) {
+    fn encode(&self) -> Vec<u8> {
+        [
+            self.0.as_bytes(),
+            &[ENCODE_SEPARATOR],
+            &self.1.to_be_bytes().to_vec(),
+            &[ENCODE_SEPARATOR],
+        ]
+        .concat()
+    }
+}
+
+impl EncodeKey for (usize, usize) {
+    fn encode(&self) -> Vec<u8> {
+        [self.0.to_be_bytes(), self.1.to_be_bytes()].concat()
+    }
+}
+
+impl EncodeKey for (&str, usize, usize) {
+    fn encode(&self) -> Vec<u8> {
+        [
+            self.0.as_bytes(),
+            &[ENCODE_SEPARATOR],
+            &self.1.to_be_bytes().to_vec(),
+            &[ENCODE_SEPARATOR],
+            &self.2.to_be_bytes().to_vec(),
+            &[ENCODE_SEPARATOR],
+        ]
+        .concat()
+    }
+}
+
+impl EncodeKey for usize {
+    fn encode(&self) -> Vec<u8> {
+        self.to_be_bytes().to_vec()
+    }
+}
+
 impl EncodeKey for (&str, &str, &str) {
     fn encode(&self) -> Vec<u8> {
         [
@@ -167,6 +206,19 @@ pub fn decode_key_value(key: &[u8], position: usize) -> Option<String> {
     values.get(position).map(|s| String::from_utf8_lossy(s).to_string())
 }
 
+pub fn decode_batch_idx_position(key: &[u8]) -> Option<(usize, usize)> {
+    let (first, second) = key.split_at((usize::BITS / u8::BITS) as usize);
+
+    let batch_idx = usize::from_be_bytes((first).try_into().ok()?);
+    let position = usize::from_be_bytes((second).try_into().ok()?);
+
+    Some((batch_idx, position))
+}
+
+pub fn decode_usize(key: &[u8]) -> Option<usize> {
+    Some(usize::from_be_bytes(key.try_into().ok()?))
+}
+
 #[derive(Clone)]
 pub struct SledStore {
     path: Option<PathBuf>,
@@ -189,6 +241,16 @@ pub struct SledStore {
     room_user_receipts: Tree,
     room_event_receipts: Tree,
     media: Tree,
+    // Map an EventId to the batch index and position in the batch
+    event_id_to_position: Tree,
+    // List of batches and the events
+    timeline_events: Tree,
+    batch_idx_to_start_token: Tree,
+    batch_idx_to_end_token: Tree,
+    start_token_to_batch_idx_position: Tree,
+    end_token_to_batch_idx_position: Tree,
+    // Keep track of the highest batch index
+    highest_batch_idx: Tree,
 }
 
 impl std::fmt::Debug for SledStore {
@@ -226,6 +288,15 @@ impl SledStore {
 
         let media = db.open_tree("media")?;
 
+        let event_id_to_position = db.open_tree("event_id_to_position")?;
+        let timeline_events = db.open_tree("events")?;
+        let batch_idx_to_start_token = db.open_tree("batch_idx_to_start_token")?;
+        let batch_idx_to_end_token = db.open_tree("batch_idx_to_end_token")?;
+        let start_token_to_batch_idx_position =
+            db.open_tree("start_token_to_batch_idx_position")?;
+        let end_token_to_batch_idx_position = db.open_tree("end_token_to_batch_idx_position")?;
+        let highest_batch_idx = db.open_tree("highest_batch_idx")?;
+
         Ok(Self {
             path,
             inner: db,
@@ -247,6 +318,13 @@ impl SledStore {
             room_user_receipts,
             room_event_receipts,
             media,
+            event_id_to_position,
+            timeline_events,
+            batch_idx_to_start_token,
+            batch_idx_to_end_token,
+            start_token_to_batch_idx_position,
+            end_token_to_batch_idx_position,
+            highest_batch_idx,
         })
     }
 
@@ -504,9 +582,29 @@ impl SledStore {
 
         ret?;
 
-        let ret: Result<(), TransactionError<SerializationError>> =
-            (&self.room_user_receipts, &self.room_event_receipts).transaction(
-                |(room_user_receipts, room_event_receipts)| {
+        let ret: Result<(), TransactionError<SerializationError>> = (
+            &self.room_user_receipts,
+            &self.room_event_receipts,
+            &self.event_id_to_position,
+            &self.timeline_events,
+            &self.batch_idx_to_start_token,
+            &self.batch_idx_to_end_token,
+            &self.start_token_to_batch_idx_position,
+            &self.end_token_to_batch_idx_position,
+            &self.highest_batch_idx,
+        )
+            .transaction(
+                |(
+                    room_user_receipts,
+                    room_event_receipts,
+                    event_id_to_position,
+                    timeline_events,
+                    batch_idx_to_start_token,
+                    batch_idx_to_end_token,
+                    start_token_to_batch_idx_position,
+                    end_token_to_batch_idx_position,
+                    highest_batch_idx,
+                )| {
                     for (room, content) in &changes.receipts {
                         for (event_id, receipts) in &content.0 {
                             for (receipt_type, receipts) in receipts {
@@ -546,6 +644,129 @@ impl SledStore {
                                             .map_err(ConflictableTransactionError::Abort)?,
                                     )?;
                                 }
+                            }
+                        }
+                    }
+
+                    for (room, timeline) in &changes.timeline {
+                        // Skip empty timeline slices
+                        if timeline.events.is_empty() {
+                            continue;
+                        }
+
+                        let expandable = {
+                            // Handle overlapping slices.
+                            let first_event = timeline.events.first().unwrap().event_id();
+                            let last_event = timeline.events.last().unwrap().event_id();
+
+                            let found_first = if let Some((batch_idx, current_position)) =
+                                event_id_to_position
+                                    .get((room.as_str(), first_event.as_str()).encode())?
+                                    .map(|e| decode_batch_idx_position(&e).unwrap())
+                            {
+                                Some((false, true, batch_idx, current_position))
+                            } else {
+                                None
+                            };
+
+                            let found_last = if let Some((batch_idx, current_position)) =
+                                event_id_to_position
+                                    .get((room.as_str(), last_event.as_str()).encode())?
+                                    .map(|e| decode_batch_idx_position(&e).unwrap())
+                            {
+                                let current_position = current_position - timeline.events.len() + 1;
+
+                                Some((true, false, batch_idx, current_position))
+                            } else {
+                                None
+                            };
+
+                            // The store already knowns all events of this slice.
+                            if found_first.is_some() && found_last.is_some() {
+                                continue;
+                            }
+
+                            found_first.or(found_last)
+                        };
+
+                        // Lookup the previous or next batch
+                        let expandable = if let Some(expandable) = expandable {
+                            Some(expandable)
+                        } else if let Some((batch_idx, position)) = end_token_to_batch_idx_position
+                            .remove((room.as_str(), timeline.start.as_str()).encode())?
+                            .map(|e| decode_batch_idx_position(&e).unwrap())
+                        {
+                            Some((false, true, batch_idx, position))
+                        } else if let Some(end) = &timeline.end {
+                            if let Some((batch_idx, position)) = start_token_to_batch_idx_position
+                                .remove((room.as_str(), end.as_str()).encode())?
+                                .map(|e| decode_batch_idx_position(&e).unwrap())
+                            {
+                                let position = position - timeline.events.len();
+                                Some((true, false, batch_idx, position))
+                            } else {
+                                None
+                            }
+                        } else {
+                            None
+                        };
+
+                        let (new_start_token, new_end_token, batch_idx, current_position) =
+                            if let Some(expandable) = expandable {
+                                expandable
+                            } else {
+                                // If no expandable batch was found we add a new batch to the store
+                                let new_batch_idx = highest_batch_idx
+                                    .get(room.as_str().encode())?
+                                    .map(|e| decode_usize(&e).unwrap())
+                                    .map_or(0, |v| v + 1);
+
+                                highest_batch_idx
+                                    .insert(room.as_str().encode(), new_batch_idx.encode())?;
+
+                                (true, true, new_batch_idx, usize::MAX / 2)
+                            };
+
+                        if new_start_token {
+                            batch_idx_to_start_token.insert(
+                                (room.as_str(), batch_idx).encode(),
+                                timeline.start.as_str().encode(),
+                            )?;
+
+                            start_token_to_batch_idx_position.insert(
+                                (room.as_str(), timeline.start.as_str()).encode(),
+                                (batch_idx, current_position).encode(),
+                            )?;
+                        }
+
+                        if new_end_token {
+                            if let Some(end) = &timeline.end {
+                                batch_idx_to_end_token.insert(
+                                    (room.as_str(), batch_idx).encode(),
+                                    end.as_str().encode(),
+                                )?;
+
+                                end_token_to_batch_idx_position.insert(
+                                    (room.as_str(), end.as_str()).encode(),
+                                    (batch_idx, current_position + timeline.events.len()).encode(),
+                                )?;
+                            }
+                        }
+
+                        for (position, event) in timeline.events.iter().enumerate() {
+                            let position = position + current_position;
+                            let old_event = timeline_events.insert(
+                                (room.as_str(), batch_idx, position).encode(),
+                                self.serialize_event(event)
+                                    .map_err(ConflictableTransactionError::Abort)?,
+                            )?;
+
+                            // A new event was inserted
+                            if old_event.is_none() {
+                                event_id_to_position.insert(
+                                    (room.as_str(), event.event_id().as_str()).encode(),
+                                    (batch_idx, position).encode(),
+                                )?;
                             }
                         }
                     }
@@ -768,6 +989,223 @@ impl SledStore {
 
         Ok(self.media.apply_batch(batch)?)
     }
+
+    async fn get_timeline(
+        &self,
+        room_id: &RoomId,
+        start: Option<&EventId>,
+        end: Option<&EventId>,
+        limit: Option<usize>,
+        direction: Direction,
+    ) -> Result<Option<StoredTimelineSlice>> {
+        let beginning = if let Some(start) = start {
+            self.event_id_to_position
+                .get((room_id.as_str(), start.as_str()).encode())?
+                .map(|t| decode_batch_idx_position(&t).unwrap())
+        } else if let Some(token) = self.get_sync_token().await? {
+            // The timeline beyond the sync token isn't known, so don't bother to check the
+            // store.
+            match direction {
+                Direction::Forward => {
+                    return Ok(Some(StoredTimelineSlice::new(Vec::new(), Some(token))));
+                }
+                Direction::Backward => self
+                    .start_token_to_batch_idx_position
+                    .get((room_id.as_str(), token.as_str()).encode())?
+                    .map(|t| decode_batch_idx_position(&t).unwrap()),
+            }
+        } else {
+            return Ok(None);
+        };
+
+        let ending = if let Some(end) = end {
+            self.event_id_to_position
+                .get((room_id.as_str(), end.as_str()).encode())?
+                .map(|t| decode_batch_idx_position(&t).unwrap())
+        } else {
+            None
+        };
+
+        if let Some((mut batch_idx, mut position)) = beginning {
+            let mut events: Vec<SyncRoomEvent> = Vec::new();
+            let mut token: Option<String>;
+
+            match direction {
+                Direction::Forward => loop {
+                    token = None;
+                    let store_key = self.store_key.clone();
+
+                    let current_limit_position =
+                        limit.map(|limit| position - (limit - events.len()) + 1);
+                    let current_limit = if let Some((_, end_position)) =
+                        ending.filter(|(end_batch_idx, _)| end_batch_idx == &batch_idx)
+                    {
+                        if let Some(current_limit_position) = current_limit_position {
+                            if current_limit_position > end_position {
+                                Some(current_limit_position)
+                            } else {
+                                Some(end_position)
+                            }
+                        } else {
+                            Some(end_position)
+                        }
+                    } else {
+                        current_limit_position
+                    };
+
+                    let range = if let Some(current_limit) = current_limit {
+                        self.timeline_events.range(
+                            (room_id.as_str(), batch_idx, current_limit).encode()
+                                ..=(room_id.as_str(), batch_idx, position).encode(),
+                        )
+                    } else {
+                        self.timeline_events.range(
+                            (room_id.as_str(), batch_idx).encode()
+                                ..=(room_id.as_str(), batch_idx, position).encode(),
+                        )
+                    };
+
+                    let mut part: Vec<SyncRoomEvent> = range
+                        .rev()
+                        .filter_map(move |e| {
+                            deserialize_event::<SyncRoomEvent>(store_key.clone(), &e.ok()?.1).ok()
+                        })
+                        .collect();
+
+                    events.append(&mut part);
+
+                    if let Some(limit) = limit {
+                        if events.len() >= limit {
+                            break;
+                        }
+                    }
+
+                    if let Some(end) = end {
+                        if let Some(last) = events.last() {
+                            if &last.event_id() == end {
+                                break;
+                            }
+                        }
+                    }
+
+                    // Not enought events where found in this batch, therefore, go to the previous
+                    // batch.
+                    if let Some(start_token) = self
+                        .batch_idx_to_start_token
+                        .get((room_id.as_str(), batch_idx).encode())?
+                        .map(|t| decode_key_value(&t, 0).unwrap())
+                    {
+                        if let Some((next_batch_idx, next_position)) = self
+                            .end_token_to_batch_idx_position
+                            .get((room_id.as_str(), start_token.as_str()).encode())?
+                            .map(|t| decode_batch_idx_position(&t).unwrap())
+                        {
+                            // We don't have any other batch with this token
+                            if batch_idx == next_batch_idx {
+                                token = Some(start_token);
+                                break;
+                            }
+
+                            batch_idx = next_batch_idx;
+                            position = next_position - 1;
+                            continue;
+                        }
+
+                        token = Some(start_token);
+                    }
+                    break;
+                },
+                Direction::Backward => loop {
+                    token = None;
+                    let store_key = self.store_key.clone();
+
+                    let current_limit_position =
+                        limit.map(|limit| position + (limit - events.len()));
+                    let current_limit = if let Some((_, end_position)) =
+                        ending.filter(|(end_batch_idx, _)| end_batch_idx == &batch_idx)
+                    {
+                        let end_position = end_position + 1;
+                        if let Some(current_limit_position) = current_limit_position {
+                            if current_limit_position < end_position {
+                                Some(current_limit_position)
+                            } else {
+                                Some(end_position)
+                            }
+                        } else {
+                            Some(end_position)
+                        }
+                    } else {
+                        current_limit_position
+                    };
+
+                    let range = if let Some(current_limit) = current_limit {
+                        self.timeline_events.range(
+                            (room_id.as_str(), batch_idx, position).encode()
+                                ..(room_id.as_str(), batch_idx, current_limit).encode(),
+                        )
+                    } else {
+                        self.timeline_events.range(
+                            (room_id.as_str(), batch_idx, position).encode()
+                                ..(room_id.as_str(), batch_idx + 1).encode(),
+                        )
+                    };
+
+                    let mut part = range
+                        .filter_map(move |e| {
+                            deserialize_event::<SyncRoomEvent>(store_key.clone(), &e.ok()?.1).ok()
+                        })
+                        .collect();
+
+                    events.append(&mut part);
+
+                    if let Some(limit) = limit {
+                        if events.len() >= limit {
+                            break;
+                        }
+                    }
+
+                    if let Some(end) = end {
+                        if let Some(last) = events.last() {
+                            if &last.event_id() == end {
+                                break;
+                            }
+                        }
+                    }
+
+                    // Not enought events where found in this batch, therefore, go to the previous
+                    // batch.
+                    if let Some(end_token) = self
+                        .batch_idx_to_end_token
+                        .get((room_id.as_str(), batch_idx).encode())?
+                        .map(|t| decode_key_value(&t, 0).unwrap())
+                    {
+                        if let Some((prev_batch_idx, prev_position)) = self
+                            .start_token_to_batch_idx_position
+                            .get((room_id.as_str(), end_token.as_str()).encode())?
+                            .map(|t| decode_batch_idx_position(&t).unwrap())
+                        {
+                            // We don't have any other batch with this token
+                            if batch_idx == prev_batch_idx {
+                                token = Some(end_token);
+                                break;
+                            }
+
+                            batch_idx = prev_batch_idx;
+                            position = prev_position;
+                            continue;
+                        }
+
+                        token = Some(end_token);
+                    }
+                    break;
+                },
+            }
+
+            return Ok(Some(StoredTimelineSlice::new(events, token)));
+        }
+
+        Ok(None)
+    }
 }
 
 #[async_trait]
@@ -893,15 +1331,46 @@ impl StateStore for SledStore {
     async fn remove_media_content_for_uri(&self, uri: &MxcUri) -> Result<()> {
         self.remove_media_content_for_uri(uri).await
     }
+
+    async fn get_timeline(
+        &self,
+        room_id: &RoomId,
+        start: Option<&EventId>,
+        end: Option<&EventId>,
+        limit: Option<usize>,
+        direction: Direction,
+    ) -> Result<Option<StoredTimelineSlice>> {
+        self.get_timeline(room_id, start, end, limit, direction).await
+    }
+}
+
+fn deserialize_event<T: for<'b> Deserialize<'b>>(
+    store_key: Arc<Option<StoreKey>>,
+    event: &[u8],
+) -> Result<T, SerializationError> {
+    if let Some(key) = &*store_key {
+        let encrypted: EncryptedEvent = serde_json::from_slice(event)?;
+        Ok(key.decrypt(encrypted)?)
+    } else {
+        Ok(serde_json::from_slice(event)?)
+    }
 }
 
 #[cfg(test)]
 mod test {
     use std::convert::TryFrom;
 
-    use matrix_sdk_test::async_test;
+    use http::Response;
+    use matrix_sdk_test::{async_test, test_json};
     use ruma::{
-        api::client::r0::media::get_content_thumbnail::Method,
+        api::{
+            client::r0::{
+                media::get_content_thumbnail::Method,
+                message::get_message_events::{Direction, Response as MessageResponse},
+                sync::sync_events::Response as SyncResponse,
+            },
+            IncomingResponse,
+        },
         events::{
             room::{
                 member::{MemberEventContent, MembershipState},
@@ -918,7 +1387,7 @@ mod test {
 
     use super::{SledStore, StateChanges};
     use crate::{
-        deserialized_responses::MemberEvent,
+        deserialized_responses::{MemberEvent, SyncRoomEvent, TimelineSlice},
         media::{MediaFormat, MediaRequest, MediaThumbnailSize, MediaType},
         StateStore,
     };
@@ -1131,5 +1600,552 @@ mod test {
         store.remove_media_content_for_uri(&uri).await.unwrap();
         assert!(store.get_media_content(&request_file).await.unwrap().is_none());
         assert!(store.get_media_content(&request_thumbnail).await.unwrap().is_none());
+    }
+
+    #[async_test]
+    async fn test_timeline() {
+        let store = SledStore::open().unwrap();
+        let mut stored_events = Vec::new();
+        let room_id = room_id!("!SVkFJHzfwvuaIEawgC:localhost");
+
+        assert!(store
+            .get_timeline(&room_id, None, None, None, Direction::Forward)
+            .await
+            .unwrap()
+            .is_none());
+        assert!(store
+            .get_timeline(&room_id, None, None, None, Direction::Backward)
+            .await
+            .unwrap()
+            .is_none());
+
+        // Add a sync response
+        let sync = SyncResponse::try_from_http_response(
+            Response::builder().body(serde_json::to_vec(&*test_json::MORE_SYNC).unwrap()).unwrap(),
+        )
+        .unwrap();
+
+        let timeline = &sync.rooms.join[&room_id].timeline;
+        let events: Vec<SyncRoomEvent> =
+            timeline.events.iter().rev().cloned().map(Into::into).collect();
+
+        stored_events.append(&mut events.clone());
+
+        let timeline_slice =
+            TimelineSlice::new(events, sync.next_batch.clone(), timeline.prev_batch.clone());
+        let mut changes = StateChanges::default();
+        changes.add_timeline(&room_id, timeline_slice);
+        store.save_changes(&changes).await.unwrap();
+
+        assert!(store
+            .get_timeline(&room_id, None, None, None, Direction::Forward)
+            .await
+            .unwrap()
+            .is_none());
+        assert!(store
+            .get_timeline(&room_id, None, None, None, Direction::Backward)
+            .await
+            .unwrap()
+            .is_none());
+
+        // Add the next batch token
+        let mut changes = StateChanges::default();
+        changes.sync_token = Some(sync.next_batch.clone());
+        store.save_changes(&changes).await.unwrap();
+
+        let forward_events = store
+            .get_timeline(&room_id, None, None, None, Direction::Forward)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(forward_events.events.len(), 0);
+        assert_eq!(forward_events.token, Some(sync.next_batch.clone()));
+
+        let backward_events = store
+            .get_timeline(&room_id, None, None, None, Direction::Backward)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(backward_events.events.len(), 6);
+        assert_eq!(backward_events.token, timeline.prev_batch.clone());
+
+        assert!(!backward_events
+            .events
+            .iter()
+            .zip(stored_events.iter())
+            .any(|(a, b)| a.event_id() != b.event_id()));
+
+        // Add a message batch before the sync response
+        let messages = MessageResponse::try_from_http_response(
+            Response::builder()
+                .body(serde_json::to_vec(&*test_json::SYNC_ROOM_MESSAGES_BATCH_1).unwrap())
+                .unwrap(),
+        )
+        .unwrap();
+
+        let events: Vec<SyncRoomEvent> = messages.chunk.iter().cloned().map(Into::into).collect();
+
+        stored_events.append(&mut events.clone());
+
+        let timeline_slice = TimelineSlice::new(
+            events.clone(),
+            messages.start.clone().unwrap(),
+            messages.end.clone(),
+        );
+        let mut changes = StateChanges::default();
+        changes.add_timeline(&room_id, timeline_slice);
+        store.save_changes(&changes).await.unwrap();
+
+        // Add the same message batch again
+        let timeline_slice =
+            TimelineSlice::new(events, messages.start.clone().unwrap(), messages.end.clone());
+        let mut changes = StateChanges::default();
+        changes.add_timeline(&room_id, timeline_slice);
+        store.save_changes(&changes).await.unwrap();
+
+        let backward_events = store
+            .get_timeline(&room_id, None, None, None, Direction::Backward)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(backward_events.events.len(), 9);
+        assert_eq!(backward_events.token, messages.end.clone());
+
+        assert!(!backward_events
+            .events
+            .iter()
+            .zip(stored_events.iter())
+            .any(|(a, b)| a.event_id() != b.event_id()));
+
+        // Add a batch after the previous batch
+        let messages = MessageResponse::try_from_http_response(
+            Response::builder()
+                .body(serde_json::to_vec(&*test_json::SYNC_ROOM_MESSAGES_BATCH_2).unwrap())
+                .unwrap(),
+        )
+        .unwrap();
+
+        let events: Vec<SyncRoomEvent> = messages.chunk.iter().cloned().map(Into::into).collect();
+
+        stored_events.append(&mut events.clone());
+
+        let timeline_slice =
+            TimelineSlice::new(events, messages.start.clone().unwrap(), messages.end.clone());
+        let mut changes = StateChanges::default();
+        changes.add_timeline(&room_id, timeline_slice);
+        store.save_changes(&changes).await.unwrap();
+
+        let backward_events = store
+            .get_timeline(&room_id, None, None, None, Direction::Backward)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(backward_events.events.len(), 12);
+        assert_eq!(backward_events.token, messages.end.clone());
+
+        assert!(!backward_events
+            .events
+            .iter()
+            .zip(stored_events.iter())
+            .any(|(a, b)| a.event_id() != b.event_id()));
+
+        let first_block_end = messages.end.clone();
+        let messages = MessageResponse::try_from_http_response(
+            Response::builder()
+                .body(serde_json::to_vec(&*test_json::GAPPED_ROOM_MESSAGES_BATCH_1).unwrap())
+                .unwrap(),
+        )
+        .unwrap();
+
+        let gapped_events: Vec<SyncRoomEvent> =
+            messages.chunk.iter().cloned().map(Into::into).collect();
+
+        // Add a detached batch to create a gap in the known timeline
+        let timeline_slice = TimelineSlice::new(
+            gapped_events.clone(),
+            messages.start.clone().unwrap(),
+            messages.end.clone(),
+        );
+        let mut changes = StateChanges::default();
+        changes.add_timeline(&room_id, timeline_slice);
+        store.save_changes(&changes).await.unwrap();
+
+        let backward_events = store
+            .get_timeline(&room_id, None, None, None, Direction::Backward)
+            .await
+            .unwrap()
+            .unwrap();
+        let gapped_block_end = messages.end.clone();
+        assert_eq!(backward_events.events.len(), 12);
+        assert_eq!(backward_events.token, first_block_end);
+
+        // Fill the gap that was created before
+        let messages = MessageResponse::try_from_http_response(
+            Response::builder()
+                .body(serde_json::to_vec(&*test_json::GAPPED_ROOM_MESSAGES_FILLER).unwrap())
+                .unwrap(),
+        )
+        .unwrap();
+
+        let events: Vec<SyncRoomEvent> = messages.chunk.iter().cloned().map(Into::into).collect();
+
+        stored_events.append(&mut events.clone());
+        stored_events.append(&mut gapped_events.clone());
+
+        let timeline_slice = TimelineSlice::new(
+            events.clone(),
+            messages.start.clone().unwrap(),
+            messages.end.clone(),
+        );
+        let mut changes = StateChanges::default();
+        changes.add_timeline(&room_id, timeline_slice);
+        store.save_changes(&changes).await.unwrap();
+
+        // Read all of the known timeline from the beginning backwards
+        let backward_events = store
+            .get_timeline(&room_id, None, None, None, Direction::Backward)
+            .await
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(backward_events.events.len(), stored_events.len());
+        assert_eq!(backward_events.token, gapped_block_end);
+        assert!(!backward_events
+            .events
+            .iter()
+            .zip(stored_events.iter())
+            .any(|(a, b)| a.event_id() != b.event_id()));
+
+        // The most recent event
+        let first_event = event_id!("$098237280074GZeOm:localhost");
+        let backward_events = store
+            .get_timeline(&room_id, Some(&first_event), None, None, Direction::Backward)
+            .await
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(backward_events.events.len(), stored_events.len());
+        assert_eq!(backward_events.token, gapped_block_end);
+        assert!(!backward_events
+            .events
+            .iter()
+            .zip(stored_events.iter())
+            .any(|(a, b)| a.event_id() != b.event_id()));
+
+        let last_event = event_id!("$1444812213350496Ccccr:example.com");
+
+        // Read from the last known event forward
+        let forward_events = store
+            .get_timeline(&room_id, Some(&last_event), None, None, Direction::Forward)
+            .await
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(forward_events.events.len(), stored_events.len());
+        assert_eq!(forward_events.token, Some(sync.next_batch.clone()));
+        assert!(!forward_events
+            .events
+            .iter()
+            .rev()
+            .zip(backward_events.events)
+            .any(|(a, b)| a.event_id() != b.event_id()));
+
+        // Read from the last known event backwards
+        let events = store
+            .get_timeline(&room_id, Some(&last_event), None, None, Direction::Backward)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(events.events.len(), 1);
+        assert_eq!(events.events.first().unwrap().event_id(), last_event);
+        assert_eq!(events.token, gapped_block_end);
+
+        let events = store
+            .get_timeline(&room_id, Some(&last_event), None, None, Direction::Backward)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(events.events.len(), 1);
+        assert_eq!(events.events.first().unwrap().event_id(), last_event);
+        assert_eq!(events.token, gapped_block_end);
+
+        let end_event = event_id!("$1444812213350496Caaar:example.com");
+
+        // Get a slice of the timeline
+        let backward_events = store
+            .get_timeline(&room_id, Some(&first_event), Some(&end_event), None, Direction::Backward)
+            .await
+            .unwrap()
+            .unwrap();
+
+        let expected_events = &stored_events[..stored_events.len() - 2];
+
+        assert_eq!(backward_events.events.len(), expected_events.len());
+        assert_eq!(backward_events.token, None);
+        assert!(!backward_events
+            .events
+            .iter()
+            .zip(expected_events.iter())
+            .any(|(a, b)| a.event_id() != b.event_id()));
+
+        let forward_events = store
+            .get_timeline(&room_id, Some(&end_event), Some(&first_event), None, Direction::Forward)
+            .await
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(forward_events.events.len(), expected_events.len());
+        assert_eq!(forward_events.token, None);
+
+        assert!(!forward_events
+            .events
+            .iter()
+            .rev()
+            .zip(expected_events.iter())
+            .any(|(a, b)| a.event_id() != b.event_id()));
+
+        // Get a slice of the timeline where the end isn't known
+        let unknown_end_event = event_id!("$XXXXXXXXX:example.com");
+
+        let backward_events = store
+            .get_timeline(
+                &room_id,
+                Some(&first_event),
+                Some(&unknown_end_event),
+                None,
+                Direction::Backward,
+            )
+            .await
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(backward_events.events.len(), stored_events.len());
+        assert_eq!(backward_events.token, gapped_block_end);
+        assert!(!backward_events
+            .events
+            .iter()
+            .zip(expected_events.iter())
+            .any(|(a, b)| a.event_id() != b.event_id()));
+
+        let forward_events = store
+            .get_timeline(
+                &room_id,
+                Some(&first_event),
+                Some(&unknown_end_event),
+                None,
+                Direction::Forward,
+            )
+            .await
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(forward_events.events.len(), 1);
+        assert_eq!(forward_events.events.first().unwrap().event_id(), first_event);
+        assert_eq!(forward_events.token, Some(sync.next_batch.clone()));
+
+        // Get a slice of the timeline with limit with more then the number of events
+        // between start and end
+        let limit = 4;
+        let backward_events = store
+            .get_timeline(
+                &room_id,
+                Some(&first_event),
+                Some(&end_event),
+                Some(limit),
+                Direction::Backward,
+            )
+            .await
+            .unwrap()
+            .unwrap();
+
+        let expected_events = &stored_events[..limit];
+        assert_eq!(backward_events.events.len(), limit);
+        assert_eq!(backward_events.token, None);
+        assert!(!backward_events
+            .events
+            .iter()
+            .zip(expected_events.iter())
+            .any(|(a, b)| a.event_id() != b.event_id()));
+
+        let forward_events = store
+            .get_timeline(
+                &room_id,
+                Some(&last_event),
+                Some(&first_event),
+                Some(limit),
+                Direction::Forward,
+            )
+            .await
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(forward_events.events.len(), limit);
+        assert_eq!(forward_events.token, None);
+
+        let expected_events = &stored_events[stored_events.len() - limit..];
+        assert!(!forward_events
+            .events
+            .iter()
+            .rev()
+            .zip(expected_events.iter())
+            .any(|(a, b)| a.event_id() != b.event_id()));
+
+        // Get a slice of the timeline with limit with less then limit events between
+        // start and end
+        let limit = 30;
+        let backward_events = store
+            .get_timeline(
+                &room_id,
+                Some(&first_event),
+                Some(&last_event),
+                Some(limit),
+                Direction::Backward,
+            )
+            .await
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(backward_events.events.len(), stored_events.len());
+        assert_eq!(backward_events.token, None);
+        assert!(!backward_events
+            .events
+            .iter()
+            .zip(stored_events.iter())
+            .any(|(a, b)| a.event_id() != b.event_id()));
+
+        let forward_events = store
+            .get_timeline(
+                &room_id,
+                Some(&last_event),
+                Some(&first_event),
+                Some(limit),
+                Direction::Forward,
+            )
+            .await
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(forward_events.events.len(), stored_events.len());
+        assert_eq!(forward_events.token, None);
+
+        assert!(!forward_events
+            .events
+            .iter()
+            .rev()
+            .zip(stored_events.iter())
+            .any(|(a, b)| a.event_id() != b.event_id()));
+
+        // Add a second sync response
+        let sync = SyncResponse::try_from_http_response(
+            Response::builder()
+                .body(serde_json::to_vec(&*test_json::MORE_SYNC_2).unwrap())
+                .unwrap(),
+        )
+        .unwrap();
+
+        let timeline = &sync.rooms.join[&room_id].timeline;
+        let events: Vec<SyncRoomEvent> =
+            timeline.events.iter().rev().cloned().map(Into::into).collect();
+
+        for event in events.clone().into_iter().rev() {
+            stored_events.insert(0, event);
+        }
+
+        let timeline_slice =
+            TimelineSlice::new(events, sync.next_batch.clone(), timeline.prev_batch.clone());
+        let mut changes = StateChanges::default();
+        changes.sync_token = Some(sync.next_batch.clone());
+        changes.add_timeline(&room_id, timeline_slice);
+        store.save_changes(&changes).await.unwrap();
+
+        // Read all of the known timeline from the beginning backwards
+        let backward_events = store
+            .get_timeline(&room_id, None, None, None, Direction::Backward)
+            .await
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(backward_events.events.len(), stored_events.len());
+        assert_eq!(backward_events.token, gapped_block_end);
+        assert!(!backward_events
+            .events
+            .iter()
+            .zip(stored_events.iter())
+            .any(|(a, b)| a.event_id() != b.event_id()));
+
+        // Add an overlapping timeline slice to the store
+        let messages = MessageResponse::try_from_http_response(
+            Response::builder()
+                .body(serde_json::to_vec(&*test_json::OVERLAPPING_ROOM_MESSAGES_BATCH_1).unwrap())
+                .unwrap(),
+        )
+        .unwrap();
+
+        let events: Vec<SyncRoomEvent> = messages.chunk.iter().cloned().map(Into::into).collect();
+
+        stored_events.push(events.last().cloned().unwrap());
+
+        let timeline_slice = TimelineSlice::new(
+            events.clone(),
+            messages.start.clone().unwrap(),
+            messages.end.clone(),
+        );
+        let mut changes = StateChanges::default();
+        changes.add_timeline(&room_id, timeline_slice);
+        store.save_changes(&changes).await.unwrap();
+
+        // Read all of the known timeline from the beginning backwards
+        let backward_events = store
+            .get_timeline(&room_id, None, None, None, Direction::Backward)
+            .await
+            .unwrap()
+            .unwrap();
+
+        let end_token = messages.end;
+        assert_eq!(backward_events.events.len(), stored_events.len());
+        assert_eq!(backward_events.token, end_token);
+        assert!(!backward_events
+            .events
+            .iter()
+            .zip(stored_events.iter())
+            .any(|(a, b)| a.event_id() != b.event_id()));
+
+        // Add an overlapping patch to the start of everything
+        let messages = MessageResponse::try_from_http_response(
+            Response::builder()
+                .body(serde_json::to_vec(&*test_json::OVERLAPPING_ROOM_MESSAGES_BATCH_2).unwrap())
+                .unwrap(),
+        )
+        .unwrap();
+
+        let events: Vec<SyncRoomEvent> = messages.chunk.iter().cloned().map(Into::into).collect();
+
+        let mut expected_events = events.clone();
+        expected_events.extend_from_slice(&stored_events[1..]);
+
+        let timeline_slice = TimelineSlice::new(
+            events.clone(),
+            messages.start.clone().unwrap(),
+            messages.end.clone(),
+        );
+        let mut changes = StateChanges::default();
+        changes.add_timeline(&room_id, timeline_slice);
+        store.save_changes(&changes).await.unwrap();
+
+        let start_event = event_id!("$1444812213350496Cbbbr3:example.com");
+        // Read all of the known timeline from the beginning backwards
+        let backward_events = store
+            .get_timeline(&room_id, Some(&start_event), None, None, Direction::Backward)
+            .await
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(backward_events.events.len(), expected_events.len());
+        assert_eq!(backward_events.token, end_token);
+        assert!(!backward_events
+            .events
+            .iter()
+            .zip(expected_events.iter())
+            .any(|(a, b)| a.event_id() != b.event_id()));
     }
 }

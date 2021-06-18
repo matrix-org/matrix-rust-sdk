@@ -21,6 +21,7 @@ use dashmap::{DashMap, DashSet};
 use lru::LruCache;
 use matrix_sdk_common::{async_trait, instant::Instant, locks::Mutex};
 use ruma::{
+    api::client::r0::message::get_message_events::Direction,
     events::{
         presence::PresenceEvent,
         receipt::Receipt,
@@ -34,9 +35,9 @@ use ruma::{
 };
 use tracing::info;
 
-use super::{Result, RoomInfo, StateChanges, StateStore};
+use super::{Result, RoomInfo, StateChanges, StateStore, StoredTimelineSlice};
 use crate::{
-    deserialized_responses::{MemberEvent, StrippedMemberEvent},
+    deserialized_responses::{MemberEvent, StrippedMemberEvent, TimelineSlice},
     media::{MediaRequest, UniqueKey},
 };
 
@@ -66,6 +67,8 @@ pub struct MemoryStore {
     room_event_receipts:
         Arc<DashMap<RoomId, DashMap<String, DashMap<EventId, DashMap<UserId, Receipt>>>>>,
     media: Arc<Mutex<LruCache<String, Vec<u8>>>>,
+    timeline_slices: Arc<DashMap<RoomId, DashMap<String, TimelineSlice>>>,
+    event_id_to_timeline_slice: Arc<DashMap<RoomId, DashMap<EventId, String>>>,
 }
 
 impl MemoryStore {
@@ -90,6 +93,8 @@ impl MemoryStore {
             room_user_receipts: DashMap::new().into(),
             room_event_receipts: DashMap::new().into(),
             media: Arc::new(Mutex::new(LruCache::new(100))),
+            timeline_slices: DashMap::new().into(),
+            event_id_to_timeline_slice: DashMap::new().into(),
         }
     }
 
@@ -271,6 +276,23 @@ impl MemoryStore {
             }
         }
 
+        for (room, timeline) in &changes.timeline {
+            // FIXME: make sure that we don't add events already known
+            for event in &timeline.events {
+                let event_id = event.event_id();
+
+                self.event_id_to_timeline_slice
+                    .entry(room.clone())
+                    .or_insert_with(DashMap::new)
+                    .insert(event_id, timeline.start.clone());
+            }
+
+            self.timeline_slices
+                .entry(room.clone())
+                .or_insert_with(DashMap::new)
+                .insert(timeline.start.clone(), timeline.clone());
+        }
+
         info!("Saved changes in {:?}", now.elapsed());
 
         Ok(())
@@ -424,6 +446,93 @@ impl MemoryStore {
 
         Ok(())
     }
+
+    async fn get_timeline(
+        &self,
+        room_id: &RoomId,
+        start: Option<&EventId>,
+        end: Option<&EventId>,
+        limit: Option<usize>,
+        direction: Direction,
+    ) -> Result<Option<StoredTimelineSlice>> {
+        let event_id_to_timeline_slice = self.event_id_to_timeline_slice.get(room_id).unwrap();
+        let timeline_slices = self.timeline_slices.get(room_id).unwrap();
+
+        let slice = if let Some(start) = start {
+            event_id_to_timeline_slice.get(start).and_then(|s| timeline_slices.get(&*s))
+        } else {
+            self.get_sync_token().await?.and_then(|s| timeline_slices.get(&*s))
+        };
+
+        let mut slice = if let Some(slice) = slice {
+            slice
+        } else {
+            return Ok(None);
+        };
+
+        let mut timeline = StoredTimelineSlice::new(vec![], None);
+
+        match direction {
+            Direction::Forward => {
+                loop {
+                    timeline.events.append(&mut slice.events.iter().rev().cloned().collect());
+
+                    timeline.token = Some(slice.start.clone());
+
+                    let found_end = end.map_or(false, |end| {
+                        slice.events.iter().any(|event| &event.event_id() == end)
+                    });
+
+                    if found_end {
+                        break;
+                    }
+
+                    if let Some(next_slice) = timeline_slices.get(&slice.start) {
+                        slice = next_slice;
+                    } else {
+                        // No more timeline slices or a gap in the known timeline
+                        break;
+                    }
+
+                    if let Some(limit) = limit {
+                        if timeline.events.len() >= limit {
+                            break;
+                        }
+                    }
+                }
+            }
+            Direction::Backward => {
+                loop {
+                    timeline.events.append(&mut slice.events.clone());
+                    timeline.token = slice.end.clone();
+
+                    let found_end = end.map_or(false, |end| {
+                        slice.events.iter().any(|event| &event.event_id() == end)
+                    });
+
+                    if found_end {
+                        break;
+                    }
+
+                    if let Some(prev_slice) =
+                        slice.end.as_deref().and_then(|end| timeline_slices.get(end))
+                    {
+                        slice = prev_slice;
+                    } else {
+                        // No more timeline slices or we have a gap in the known timeline
+                        break;
+                    }
+
+                    if let Some(limit) = limit {
+                        if timeline.events.len() >= limit {
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+        Ok(Some(timeline))
+    }
 }
 
 #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
@@ -554,6 +663,16 @@ impl StateStore for MemoryStore {
 
     async fn remove_media_content_for_uri(&self, uri: &MxcUri) -> Result<()> {
         self.remove_media_content_for_uri(uri).await
+    }
+    async fn get_timeline(
+        &self,
+        room_id: &RoomId,
+        start: Option<&EventId>,
+        end: Option<&EventId>,
+        limit: Option<usize>,
+        direction: Direction,
+    ) -> Result<Option<StoredTimelineSlice>> {
+        self.get_timeline(room_id, start, end, limit, direction).await
     }
 }
 

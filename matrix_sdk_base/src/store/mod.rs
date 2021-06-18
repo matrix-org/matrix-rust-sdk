@@ -23,7 +23,9 @@ use std::{
 use dashmap::DashMap;
 use matrix_sdk_common::{async_trait, locks::RwLock, AsyncTraitDeps};
 use ruma::{
-    api::client::r0::push::get_notifications::Notification,
+    api::client::r0::{
+        message::get_message_events::Direction, push::get_notifications::Notification,
+    },
     events::{
         presence::PresenceEvent,
         receipt::{Receipt, ReceiptEventContent},
@@ -39,7 +41,7 @@ use ruma::{
 use sled::Db;
 
 use crate::{
-    deserialized_responses::{MemberEvent, StrippedMemberEvent},
+    deserialized_responses::{MemberEvent, StrippedMemberEvent, SyncRoomEvent, TimelineSlice},
     media::MediaRequest,
     rooms::{RoomInfo, RoomType},
     Room, Session,
@@ -280,6 +282,29 @@ pub trait StateStore: AsyncTraitDeps {
     ///
     /// * `uri` - The `MxcUri` of the media files.
     async fn remove_media_content_for_uri(&self, uri: &MxcUri) -> Result<()>;
+
+    /// Get a slice of the timeline of a room.
+    ///
+    /// # Arguments
+    ///
+    /// * `room_id` - The id of the room for which the timeline should be
+    ///   fetched.
+    ///
+    /// * `start` - The start point from which events should be returned.
+    ///
+    /// * `end` - The end point to which events should be returned.
+    ///
+    /// * `limit` - The maximum number of events to return.
+    ///
+    /// * `direction` - The direction events should be returned.
+    async fn get_timeline(
+        &self,
+        room_id: &RoomId,
+        start: Option<&EventId>,
+        end: Option<&EventId>,
+        limit: Option<usize>,
+        direction: Direction,
+    ) -> Result<Option<StoredTimelineSlice>>;
 }
 
 /// A state store wrapper for the SDK.
@@ -453,6 +478,9 @@ pub struct StateChanges {
     pub ambiguity_maps: BTreeMap<RoomId, BTreeMap<String, BTreeSet<UserId>>>,
     /// A map of `RoomId` to a vector of `Notification`s
     pub notifications: BTreeMap<RoomId, Vec<Notification>>,
+
+    /// A mapping of `RoomId` to a `TimelineSlice`
+    pub timeline: BTreeMap<RoomId, TimelineSlice>,
 }
 
 impl StateChanges {
@@ -536,5 +564,28 @@ impl StateChanges {
     /// `Receipts`.
     pub fn add_receipts(&mut self, room_id: &RoomId, event: ReceiptEventContent) {
         self.receipts.insert(room_id.to_owned(), event);
+    }
+
+    /// Update the `StateChanges` struct with the given room with a new
+    /// `TimelineSlice`.
+    pub fn add_timeline(&mut self, room_id: &RoomId, timeline: TimelineSlice) {
+        self.timeline.insert(room_id.to_owned(), timeline);
+    }
+}
+
+/// Store state changes and pass them to the StateStore.
+#[derive(Debug, Default)]
+pub struct StoredTimelineSlice {
+    /// A start token to fetch more events if the requested slice isn't fully
+    /// known.
+    pub token: Option<String>,
+
+    /// The requested events
+    pub events: Vec<SyncRoomEvent>,
+}
+
+impl StoredTimelineSlice {
+    pub fn new(events: Vec<SyncRoomEvent>, token: Option<String>) -> Self {
+        Self { events, token }
     }
 }

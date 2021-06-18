@@ -144,6 +144,324 @@ lazy_static! {
 }
 
 lazy_static! {
+    pub static ref SYNC_ROOM_MESSAGES_BATCH_1: JsonValue = json!({
+        "chunk": [
+          {
+            "age": 1042,
+            "content": {
+              "body": "hello world",
+              "msgtype": "m.text"
+            },
+            "event_id": "$1444812213350496Caaaf:example.com",
+            "origin_server_ts": 1444812213737i64,
+            "room_id": "!Xq3620DUiqCaoxq:example.com",
+            "sender": "@alice:example.com",
+            "type": "m.room.message"
+          },
+          {
+            "age": 20123,
+            "content": {
+              "body": "the world is big",
+              "msgtype": "m.text"
+            },
+            "event_id": "$1444812213350496Cbbbf:example.com",
+            "origin_server_ts": 1444812194656i64,
+            "room_id": "!Xq3620DUiqCaoxq:example.com",
+            "sender": "@bob:example.com",
+            "type": "m.room.message"
+          },
+          {
+            "age": 50789,
+            "content": {
+              "name": "New room name"
+            },
+            "event_id": "$1444812213350496Ccccf:example.com",
+            "origin_server_ts": 1444812163990i64,
+            "prev_content": {
+              "name": "Old room name"
+            },
+            "room_id": "!Xq3620DUiqCaoxq:example.com",
+            "sender": "@bob:example.com",
+            "state_key": "",
+            "type": "m.room.name"
+          }
+        ],
+        "end": "t47409-4357353_219380_26003_2269",
+        "start": "t392-516_47314_0_7_1_1_1_11444_1"
+    });
+}
+
+lazy_static! {
+    pub static ref SYNC_ROOM_MESSAGES_BATCH_2: JsonValue = json!({
+        "chunk": [
+          {
+            "age": 1042,
+            "content": {
+              "body": "hello world",
+              "msgtype": "m.text"
+            },
+            "event_id": "$1444812213350496Caaak:example.com",
+            "origin_server_ts": 1444812213737i64,
+            "room_id": "!Xq3620DUiqCaoxq:example.com",
+            "sender": "@alice:example.com",
+            "type": "m.room.message"
+          },
+          {
+            "age": 20123,
+            "content": {
+              "body": "the world is big",
+              "msgtype": "m.text"
+            },
+            "event_id": "$1444812213350496Cbbbk:example.com",
+            "origin_server_ts": 1444812194656i64,
+            "room_id": "!Xq3620DUiqCaoxq:example.com",
+            "sender": "@bob:example.com",
+            "type": "m.room.message"
+          },
+          {
+            "age": 50789,
+            "content": {
+              "name": "New room name"
+            },
+            "event_id": "$1444812213350496Cccck:example.com",
+            "origin_server_ts": 1444812163990i64,
+            "prev_content": {
+              "name": "Old room name"
+            },
+            "room_id": "!Xq3620DUiqCaoxq:example.com",
+            "sender": "@bob:example.com",
+            "state_key": "",
+            "type": "m.room.name"
+          }
+        ],
+        "end": "t47409-4357353_219380_26003_2270",
+        "start": "t47409-4357353_219380_26003_2269"
+    });
+}
+
+lazy_static! {
+    pub static ref OVERLAPPING_ROOM_MESSAGES_BATCH_1: JsonValue = json!({
+        "chunk": [
+          {
+            "age": 1042,
+            "content": {
+              "body": "hello world",
+              "msgtype": "m.text"
+            },
+            "event_id": "$1444812213350496Caaar:example.com",
+            "origin_server_ts": 1444812213737i64,
+            "room_id": "!Xq3620DUiqCaoxq:example.com",
+            "sender": "@alice:example.com",
+            "type": "m.room.message"
+          },
+          {
+            "age": 20123,
+            "content": {
+              "body": "the world is big",
+              "msgtype": "m.text"
+            },
+            "event_id": "$1444812213350496Cbbbr:example.com",
+            "origin_server_ts": 1444812194656i64,
+            "room_id": "!Xq3620DUiqCaoxq:example.com",
+            "sender": "@bob:example.com",
+            "type": "m.room.message"
+          },
+          {
+            "age": 50789,
+            "content": {
+              "name": "New room name"
+            },
+            "event_id": "$1444812213350496Ccccr:example.com",
+            "origin_server_ts": 1444812163990i64,
+            "prev_content": {
+              "name": "Old room name"
+            },
+            "room_id": "!Xq3620DUiqCaoxq:example.com",
+            "sender": "@bob:example.com",
+            "state_key": "",
+            "type": "m.room.name"
+          },
+          {
+            "age": 50789,
+            "content": {
+              "name": "New room name"
+            },
+            "event_id": "$1444812213350496Ccccnewmessage:example.com",
+            "origin_server_ts": 1444812163990i64,
+            "prev_content": {
+              "name": "Old room name"
+            },
+            "room_id": "!Xq3620DUiqCaoxq:example.com",
+            "sender": "@bob:example.com",
+            "state_key": "",
+            "type": "m.room.name"
+          }
+        ],
+        "end": "t47409-4357353_219380_26003_3300",
+        "start": "t47409-4357353_219380_26003_3310"
+    });
+}
+
+lazy_static! {
+    pub static ref OVERLAPPING_ROOM_MESSAGES_BATCH_2: JsonValue = json!({
+        "chunk": [
+          {
+            "age": 20123,
+            "content": {
+              "body": "the world is big",
+              "msgtype": "m.text"
+            },
+            "event_id": "$1444812213350496Cbbbr3:example.com",
+            "origin_server_ts": 1444812194656i64,
+            "room_id": "!Xq3620DUiqCaoxq:example.com",
+            "sender": "@bob:example.com",
+            "type": "m.room.message"
+          },
+          {
+            "age": 50789,
+            "content": {
+              "name": "New room name"
+            },
+            "event_id": "$1444812213350496Ccccr3:example.com",
+            "origin_server_ts": 1444812163990i64,
+            "prev_content": {
+              "name": "Old room name"
+            },
+            "room_id": "!Xq3620DUiqCaoxq3:example.com",
+            "sender": "@bob:example.com",
+            "state_key": "",
+            "type": "m.room.name"
+          },
+          {
+            "age": 50789,
+            "content": {
+              "name": "New room name"
+            },
+            "event_id": "$1444812213350496Ccccnewmessage3:example.com",
+            "origin_server_ts": 1444812163990i64,
+            "prev_content": {
+              "name": "Old room name"
+            },
+            "room_id": "!Xq3620DUiqCaoxq:example.com",
+            "sender": "@bob:example.com",
+            "state_key": "",
+            "type": "m.room.name"
+          },
+          {
+            "age": 1042,
+            "content": {
+              "body": "hello world",
+              "msgtype": "m.text"
+            },
+            "event_id": "$098237280074GZeOm2:localhost",
+            "origin_server_ts": 1444812213737i64,
+            "room_id": "!Xq3620DUiqCaoxq:example.com",
+            "sender": "@alice:example.com",
+            "type": "m.room.message"
+          },
+        ],
+        "end": "t47409-4357353_219380_26003_3320",
+        "start": "t47409-4357353_219380_26003_3330"
+    });
+}
+
+lazy_static! {
+    pub static ref GAPPED_ROOM_MESSAGES_BATCH_1: JsonValue = json!({
+        "chunk": [
+          {
+            "age": 1042,
+            "content": {
+              "body": "hello world",
+              "msgtype": "m.text"
+            },
+            "event_id": "$1444812213350496Caaar:example.com",
+            "origin_server_ts": 1444812213737i64,
+            "room_id": "!Xq3620DUiqCaoxq:example.com",
+            "sender": "@alice:example.com",
+            "type": "m.room.message"
+          },
+          {
+            "age": 20123,
+            "content": {
+              "body": "the world is big",
+              "msgtype": "m.text"
+            },
+            "event_id": "$1444812213350496Cbbbr:example.com",
+            "origin_server_ts": 1444812194656i64,
+            "room_id": "!Xq3620DUiqCaoxq:example.com",
+            "sender": "@bob:example.com",
+            "type": "m.room.message"
+          },
+          {
+            "age": 50789,
+            "content": {
+              "name": "New room name"
+            },
+            "event_id": "$1444812213350496Ccccr:example.com",
+            "origin_server_ts": 1444812163990i64,
+            "prev_content": {
+              "name": "Old room name"
+            },
+            "room_id": "!Xq3620DUiqCaoxq:example.com",
+            "sender": "@bob:example.com",
+            "state_key": "",
+            "type": "m.room.name"
+          }
+        ],
+        "end": "t47409-4357353_219380_26003_3010",
+        "start": "t47409-4357353_219380_26003_3000"
+    });
+}
+
+lazy_static! {
+    pub static ref GAPPED_ROOM_MESSAGES_FILLER: JsonValue = json!({
+        "chunk": [
+          {
+            "age": 1042,
+            "content": {
+              "body": "hello world",
+              "msgtype": "m.text"
+            },
+            "event_id": "$1444812213350496Caaat:example.com",
+            "origin_server_ts": 1444812213737i64,
+            "room_id": "!Xq3620DUiqCaoxq:example.com",
+            "sender": "@alice:example.com",
+            "type": "m.room.message"
+          },
+          {
+            "age": 20123,
+            "content": {
+              "body": "the world is big",
+              "msgtype": "m.text"
+            },
+            "event_id": "$1444812213350496Cbbbt:example.com",
+            "origin_server_ts": 1444812194656i64,
+            "room_id": "!Xq3620DUiqCaoxq:example.com",
+            "sender": "@bob:example.com",
+            "type": "m.room.message"
+          },
+          {
+            "age": 50789,
+            "content": {
+              "name": "New room name"
+            },
+            "event_id": "$1444812213350496Cccct:example.com",
+            "origin_server_ts": 1444812163990i64,
+            "prev_content": {
+              "name": "Old room name"
+            },
+            "room_id": "!Xq3620DUiqCaoxq:example.com",
+            "sender": "@bob:example.com",
+            "state_key": "",
+            "type": "m.room.name"
+          }
+        ],
+        "end": "t47409-4357353_219380_26003_3000",
+        "start": "t47409-4357353_219380_26003_2270"
+    });
+}
+
+lazy_static! {
     pub static ref KEYS_QUERY: JsonValue = json!({
       "device_keys": {
         "@alice:example.org": {
@@ -627,5 +945,183 @@ lazy_static! {
         },
         "room_id": "!jEsUZKDJdhlrceRyVU:example.org",
         "type": "m.typing"
+    });
+}
+
+lazy_static! {
+    pub static ref CONTEXT_MESSAGE: JsonValue = json!({
+        "end": "t29-57_2_0_2",
+        "events_after": [
+        {
+            "content": {
+                "body": "This is an example text message",
+                "msgtype": "m.text",
+                "format": "org.matrix.custom.html",
+                "formatted_body": "<b>This is an example text message</b>"
+            },
+            "type": "m.room.message",
+            "event_id": "$143273582443PhrSnafter1:example.org",
+            "room_id": "!636q39766251:example.com",
+            "sender": "@example:example.org",
+            "origin_server_ts": 143273582,
+            "unsigned": {
+                "age": 1234
+            }
+        },
+        {
+            "content": {
+                "body": "This is an example text message",
+                "msgtype": "m.text",
+                "format": "org.matrix.custom.html",
+                "formatted_body": "<b>This is an example text message</b>"
+            },
+            "type": "m.room.message",
+            "event_id": "$143273582443PhrSnafter2:example.org",
+            "room_id": "!636q39766251:example.com",
+            "sender": "@example:example.org",
+            "origin_server_ts": 143273582,
+            "unsigned": {
+                "age": 1234
+            }
+        },
+        {
+            "content": {
+                "body": "This is an example text message",
+                "msgtype": "m.text",
+                "format": "org.matrix.custom.html",
+                "formatted_body": "<b>This is an example text message</b>"
+            },
+            "type": "m.room.message",
+            "event_id": "$143273582443PhrSnafter3:example.org",
+            "room_id": "!636q39766251:example.com",
+            "sender": "@example:example.org",
+            "origin_server_ts": 143273582,
+            "unsigned": {
+                "age": 1234
+            }
+        }
+        ],
+        "event": {
+            "content": {
+                "body": "filename.jpg",
+                "info": {
+                    "h": 398,
+                    "w": 394,
+                    "mimetype": "image/jpeg",
+                    "size": 31037
+                },
+                "url": "mxc://example.org/JWEIFJgwEIhweiWJE",
+                "msgtype": "m.image"
+            },
+            "type": "m.room.message",
+            "event_id": "$f3h4d129462ha:example.com",
+            "room_id": "!636q39766251:example.com",
+            "sender": "@example:example.org",
+            "origin_server_ts": 143273582,
+            "unsigned": {
+                "age": 1234
+            }
+        },
+        "events_before": [
+        {
+            "content": {
+                "body": "something-important.doc",
+                "filename": "something-important.doc",
+                "info": {
+                    "mimetype": "application/msword",
+                    "size": 46144
+                },
+                "msgtype": "m.file",
+                "url": "mxc://example.org/FHyPlCeYUSFFxlgbQYZmoEoe"
+            },
+            "type": "m.room.message",
+            "event_id": "$143273582443PhrSnbefore1:example.org",
+            "room_id": "!636q39766251:example.com",
+            "sender": "@example:example.org",
+            "origin_server_ts": 143273582,
+            "unsigned": {
+                "age": 1234
+            }
+        },
+        {
+            "content": {
+                "body": "something-important.doc",
+                "filename": "something-important.doc",
+                "info": {
+                    "mimetype": "application/msword",
+                    "size": 46144
+                },
+                "msgtype": "m.file",
+                "url": "mxc://example.org/FHyPlCeYUSFFxlgbQYZmoEoe"
+            },
+            "type": "m.room.message",
+            "event_id": "$143273582443PhrSnbefore2:example.org",
+            "room_id": "!636q39766251:example.com",
+            "sender": "@example:example.org",
+            "origin_server_ts": 143273582,
+            "unsigned": {
+                "age": 1234
+            }
+        },
+        {
+            "content": {
+                "body": "something-important.doc",
+                "filename": "something-important.doc",
+                "info": {
+                    "mimetype": "application/msword",
+                    "size": 46144
+                },
+                "msgtype": "m.file",
+                "url": "mxc://example.org/FHyPlCeYUSFFxlgbQYZmoEoe"
+            },
+            "type": "m.room.message",
+            "event_id": "$143273582443PhrSnbefore3:example.org",
+            "room_id": "!636q39766251:example.com",
+            "sender": "@example:example.org",
+            "origin_server_ts": 143273582,
+            "unsigned": {
+                "age": 1234
+            }
+        }
+        ],
+        "start": "t27-54_2_0_2",
+        "state": [
+        {
+            "content": {
+                "creator": "@example:example.org",
+                "room_version": "1",
+                "m.federate": true,
+                "predecessor": {
+                    "event_id": "$something:example.org",
+                    "room_id": "!oldroom:example.org"
+                }
+            },
+            "type": "m.room.create",
+            "event_id": "$143273582443PhrSn2:example.org",
+            "room_id": "!636q39766251:example.com",
+            "sender": "@example:example.org",
+            "origin_server_ts": 143273582,
+            "unsigned": {
+                "age": 1234
+            },
+            "state_key": ""
+        },
+        {
+            "content": {
+                "membership": "join",
+                "avatar_url": "mxc://example.org/SEsfnsuifSDFSSEF",
+                "displayname": "Alice Margatroid"
+            },
+            "type": "m.room.member",
+            "event_id": "$143273582443PhrSn:example.org",
+            "room_id": "!636q39766251:example.com",
+            "sender": "@example:example.org",
+            "origin_server_ts": 143273582,
+            "unsigned": {
+                "age": 1234
+            },
+            "state_key": "@alice:example.org"
+        }
+        ]
     });
 }
