@@ -30,13 +30,9 @@ use olm_rs::{
     session::{OlmMessage, PreKeyMessage},
     PicklingMode,
 };
-#[cfg(test)]
-use ruma::events::EventType;
 use ruma::{
-    api::client::r0::keys::{
-        upload_keys, upload_signatures::Request as SignatureUploadRequest, OneTimeKey, SignedKey,
-    },
-    encryption::DeviceKeys,
+    api::client::r0::keys::{upload_keys, upload_signatures::Request as SignatureUploadRequest},
+    encryption::{DeviceKeys, OneTimeKey, SignedKey},
     events::{
         room::encrypted::{EncryptedEventContent, EncryptedEventScheme},
         AnyToDeviceEvent, ToDeviceEvent,
@@ -993,6 +989,8 @@ impl ReadOnlyAccount {
 
     #[cfg(test)]
     pub(crate) async fn create_session_for(&self, other: &ReadOnlyAccount) -> (Session, Session) {
+        use ruma::events::{dummy::DummyToDeviceEventContent, AnyToDeviceEventContent};
+
         other.generate_one_time_keys_helper(1).await;
         let one_time = other.signed_one_time_keys().await.unwrap();
 
@@ -1003,7 +1001,10 @@ impl ReadOnlyAccount {
 
         other.mark_keys_as_published().await;
 
-        let message = our_session.encrypt(&device, EventType::Dummy, json!({})).await.unwrap();
+        let message = our_session
+            .encrypt(&device, AnyToDeviceEventContent::Dummy(DummyToDeviceEventContent::new()))
+            .await
+            .unwrap();
         let content = if let EncryptedEventScheme::OlmV1Curve25519AesSha2(c) = message.scheme {
             c
         } else {

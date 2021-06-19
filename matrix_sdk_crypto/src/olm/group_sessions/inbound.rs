@@ -320,11 +320,9 @@ impl InboundGroupSession {
             decrypted_object.get_mut("content").map(|c| c.as_object_mut()).flatten()
         {
             if !decrypted_content.contains_key("m.relates_to") {
-                if let Some(relation) = &event.content.relates_to {
-                    decrypted_content.insert(
-                        "m.relates_to".to_owned(),
-                        serde_json::to_value(relation).unwrap_or_default(),
-                    );
+                let content = serde_json::to_value(&event.content)?;
+                if let Some(relation) = content.as_object().and_then(|o| o.get("m.relates_to")) {
+                    decrypted_content.insert("m.relates_to".to_owned(), relation.to_owned());
                 }
             }
         }

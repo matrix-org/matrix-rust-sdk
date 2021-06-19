@@ -33,6 +33,8 @@ matrix-sdk = { version = "0.2", path = "../matrix_sdk", default-features = false
 
 [dependencies.ruma]
 version = "0.1.2"
+git = "https://github.com/ruma/ruma"
+rev = "d73ab8add"
 features = ["client-api-c", "appservice-api-s", "unstable-pre-spec"]
 
 [dev-dependencies]

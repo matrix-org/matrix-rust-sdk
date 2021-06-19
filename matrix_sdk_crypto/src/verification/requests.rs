@@ -19,7 +19,6 @@ use std::sync::{Arc, Mutex};
 use matrix_qrcode::QrVerificationData;
 use matrix_sdk_common::uuid::Uuid;
 use ruma::{
-    api::client::r0::to_device::DeviceIdOrAllDevices,
     events::{
         key::verification::{
             cancel::CancelCode,
@@ -31,6 +30,7 @@ use ruma::{
         room::message::KeyVerificationRequestEventContent,
         AnyMessageEventContent, AnyToDeviceEventContent,
     },
+    to_device::DeviceIdOrAllDevices,
     DeviceId, DeviceIdBox, DeviceKeyAlgorithm, EventId, MilliSecondsSinceUnixEpoch, RoomId, UserId,
 };
 use tracing::{info, trace, warn};
@@ -51,9 +51,9 @@ use crate::{
 };
 
 const SUPPORTED_METHODS: &[VerificationMethod] = &[
-    VerificationMethod::MSasV1,
-    VerificationMethod::MQrCodeShowV1,
-    VerificationMethod::MReciprocateV1,
+    VerificationMethod::SasV1,
+    VerificationMethod::QrCodeShowV1,
+    VerificationMethod::ReciprocateV1,
 ];
 
 /// An object controlling key verification requests.
@@ -780,8 +780,8 @@ impl RequestState<Ready> {
 
         // If we didn't state that we support showing QR codes or if the other
         // side doesn't support scanning QR codes bail early.
-        if !self.state.our_methods.contains(&VerificationMethod::MQrCodeShowV1)
-            || !self.state.their_methods.contains(&VerificationMethod::MQrScanShowV1)
+        if !self.state.our_methods.contains(&VerificationMethod::QrCodeShowV1)
+            || !self.state.their_methods.contains(&VerificationMethod::QrCodeScanV1)
         {
             return Ok(None);
         }
@@ -942,7 +942,7 @@ impl RequestState<Ready> {
         account: ReadOnlyAccount,
         private_identity: PrivateCrossSigningIdentity,
     ) -> Result<Option<(Sas, OutgoingContent)>, CryptoStoreError> {
-        if !self.state.their_methods.contains(&VerificationMethod::MSasV1) {
+        if !self.state.their_methods.contains(&VerificationMethod::SasV1) {
             return Ok(None);
         }
 

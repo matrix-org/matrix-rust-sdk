@@ -24,8 +24,7 @@ use olm_rs::pk::OlmPkSigning;
 #[cfg(test)]
 use olm_rs::{errors::OlmUtilityError, utility::OlmUtility};
 use ruma::{
-    api::client::r0::keys::{CrossSigningKey, KeyUsage},
-    encryption::DeviceKeys,
+    encryption::{CrossSigningKey, DeviceKeys, KeyUsage},
     serde::CanonicalJsonValue,
     DeviceKeyAlgorithm, DeviceKeyId, UserId,
 };

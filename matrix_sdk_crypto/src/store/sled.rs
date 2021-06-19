@@ -757,7 +757,7 @@ mod test {
     use matrix_sdk_test::async_test;
     use olm_rs::outbound_group_session::OlmOutboundGroupSession;
     use ruma::{
-        api::client::r0::keys::SignedKey,
+        encryption::SignedKey,
         events::room_key_request::RequestedKeyInfo,
         identifiers::{room_id, user_id, DeviceId, EventEncryptionAlgorithm, UserId},
     };

@@ -22,7 +22,7 @@ use std::{
 };
 
 use ruma::{
-    api::client::r0::keys::{CrossSigningKey, KeyUsage},
+    encryption::{CrossSigningKey, KeyUsage},
     DeviceKeyId, UserId,
 };
 use serde::{Deserialize, Serialize};

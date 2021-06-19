@@ -63,9 +63,8 @@ pub(crate) mod test {
 
     use olm_rs::session::OlmMessage;
     use ruma::{
-        api::client::r0::keys::SignedKey,
-        events::forwarded_room_key::ForwardedRoomKeyToDeviceEventContent, room_id, user_id,
-        DeviceId, UserId,
+        encryption::SignedKey, events::forwarded_room_key::ForwardedRoomKeyToDeviceEventContent,
+        room_id, user_id, DeviceId, UserId,
     };
 
     use crate::olm::{InboundGroupSession, ReadOnlyAccount, Session};

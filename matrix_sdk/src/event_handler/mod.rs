@@ -47,6 +47,7 @@ use ruma::{
         GlobalAccountDataEvent, RoomAccountDataEvent, StrippedStateEvent, SyncEphemeralRoomEvent,
         SyncMessageEvent, SyncStateEvent,
     },
+    serde::Raw,
     RoomId,
 };
 use serde_json::value::RawValue as RawJsonValue;
@@ -89,14 +90,24 @@ impl Handler {
                     self.handle_room_account_data_event(room.clone(), &event).await;
                 }
 
-                for event in room_info.state.events.iter().filter_map(|e| e.deserialize().ok()) {
-                    self.handle_state_event(room.clone(), &event).await;
+                for (raw_event, event) in room_info.state.events.iter().filter_map(|e| {
+                    if let Ok(d) = e.deserialize() {
+                        Some((e, d))
+                    } else {
+                        None
+                    }
+                }) {
+                    self.handle_state_event(room.clone(), &event, raw_event).await;
                 }
 
-                for event in
-                    room_info.timeline.events.iter().filter_map(|e| e.event.deserialize().ok())
-                {
-                    self.handle_timeline_event(room.clone(), &event).await;
+                for (raw_event, event) in room_info.timeline.events.iter().filter_map(|e| {
+                    if let Ok(d) = e.event.deserialize() {
+                        Some((&e.event, d))
+                    } else {
+                        None
+                    }
+                }) {
+                    self.handle_timeline_event(room.clone(), &event, raw_event).await;
                 }
             }
         }
@@ -109,14 +120,24 @@ impl Handler {
                     self.handle_room_account_data_event(room.clone(), &event).await;
                 }
 
-                for event in room_info.state.events.iter().filter_map(|e| e.deserialize().ok()) {
-                    self.handle_state_event(room.clone(), &event).await;
+                for (raw_event, event) in room_info.state.events.iter().filter_map(|e| {
+                    if let Ok(d) = e.deserialize() {
+                        Some((e, d))
+                    } else {
+                        None
+                    }
+                }) {
+                    self.handle_state_event(room.clone(), &event, raw_event).await;
                 }
 
-                for event in
-                    room_info.timeline.events.iter().filter_map(|e| e.event.deserialize().ok())
-                {
-                    self.handle_timeline_event(room.clone(), &event).await;
+                for (raw_event, event) in room_info.timeline.events.iter().filter_map(|e| {
+                    if let Ok(d) = e.event.deserialize() {
+                        Some((&e.event, d))
+                    } else {
+                        None
+                    }
+                }) {
+                    self.handle_timeline_event(room.clone(), &event, raw_event).await;
                 }
             }
         }
@@ -144,7 +165,12 @@ impl Handler {
         }
     }
 
-    async fn handle_timeline_event(&self, room: Room, event: &AnySyncRoomEvent) {
+    async fn handle_timeline_event(
+        &self,
+        room: Room,
+        event: &AnySyncRoomEvent,
+        raw_event: &Raw<AnySyncRoomEvent>,
+    ) {
         match event {
             AnySyncRoomEvent::State(event) => match event {
                 AnySyncStateEvent::RoomMember(e) => self.on_room_member(room, e).await,
@@ -157,10 +183,25 @@ impl Handler {
                 AnySyncStateEvent::RoomPowerLevels(e) => self.on_room_power_levels(room, e).await,
                 AnySyncStateEvent::RoomTombstone(e) => self.on_room_tombstone(room, e).await,
                 AnySyncStateEvent::RoomJoinRules(e) => self.on_room_join_rules(room, e).await,
-                AnySyncStateEvent::Custom(e) => {
-                    self.on_custom_event(room, &CustomEvent::State(e)).await
+                AnySyncStateEvent::PolicyRuleRoom(_)
+                | AnySyncStateEvent::PolicyRuleServer(_)
+                | AnySyncStateEvent::PolicyRuleUser(_)
+                | AnySyncStateEvent::RoomCreate(_)
+                | AnySyncStateEvent::RoomEncryption(_)
+                | AnySyncStateEvent::RoomGuestAccess(_)
+                | AnySyncStateEvent::RoomHistoryVisibility(_)
+                | AnySyncStateEvent::RoomPinnedEvents(_)
+                | AnySyncStateEvent::RoomServerAcl(_)
+                | AnySyncStateEvent::RoomThirdPartyInvite(_)
+                | AnySyncStateEvent::RoomTopic(_)
+                | AnySyncStateEvent::SpaceChild(_)
+                | AnySyncStateEvent::SpaceParent(_) => {}
+                _ => {
+                    if let Ok(e) = raw_event.deserialize_as::<SyncStateEvent<CustomEventContent>>()
+                    {
+                        self.on_custom_event(room, &CustomEvent::State(&e)).await;
+                    }
                 }
-                _ => {}
             },
             AnySyncRoomEvent::Message(event) => match event {
                 AnySyncMessageEvent::RoomMessage(e) => self.on_room_message(room, e).await,
@@ -169,23 +210,40 @@ impl Handler {
                 }
                 AnySyncMessageEvent::RoomRedaction(e) => self.on_room_redaction(room, e).await,
                 AnySyncMessageEvent::Reaction(e) => self.on_room_reaction(room, e).await,
-                AnySyncMessageEvent::Custom(e) => {
-                    self.on_custom_event(room, &CustomEvent::Message(e)).await
-                }
                 AnySyncMessageEvent::CallInvite(e) => self.on_room_call_invite(room, e).await,
                 AnySyncMessageEvent::CallAnswer(e) => self.on_room_call_answer(room, e).await,
                 AnySyncMessageEvent::CallCandidates(e) => {
                     self.on_room_call_candidates(room, e).await
                 }
                 AnySyncMessageEvent::CallHangup(e) => self.on_room_call_hangup(room, e).await,
-                _ => {}
+                AnySyncMessageEvent::KeyVerificationReady(_)
+                | AnySyncMessageEvent::KeyVerificationStart(_)
+                | AnySyncMessageEvent::KeyVerificationCancel(_)
+                | AnySyncMessageEvent::KeyVerificationAccept(_)
+                | AnySyncMessageEvent::KeyVerificationKey(_)
+                | AnySyncMessageEvent::KeyVerificationMac(_)
+                | AnySyncMessageEvent::KeyVerificationDone(_)
+                | AnySyncMessageEvent::RoomEncrypted(_)
+                | AnySyncMessageEvent::Sticker(_) => {}
+                _ => {
+                    if let Ok(e) =
+                        raw_event.deserialize_as::<SyncMessageEvent<CustomEventContent>>()
+                    {
+                        self.on_custom_event(room, &CustomEvent::Message(&e)).await;
+                    }
+                }
             },
             AnySyncRoomEvent::RedactedState(_event) => {}
             AnySyncRoomEvent::RedactedMessage(_event) => {}
         }
     }
 
-    async fn handle_state_event(&self, room: Room, event: &AnySyncStateEvent) {
+    async fn handle_state_event(
+        &self,
+        room: Room,
+        event: &AnySyncStateEvent,
+        raw_event: &Raw<AnySyncStateEvent>,
+    ) {
         match event {
             AnySyncStateEvent::RoomMember(member) => self.on_state_member(room, member).await,
             AnySyncStateEvent::RoomName(name) => self.on_state_name(room, name).await,
@@ -202,10 +260,24 @@ impl Handler {
                 // TODO make `on_state_tombstone` method
                 self.on_room_tombstone(room, tomb).await
             }
-            AnySyncStateEvent::Custom(custom) => {
-                self.on_custom_event(room, &CustomEvent::State(custom)).await
+            AnySyncStateEvent::PolicyRuleRoom(_)
+            | AnySyncStateEvent::PolicyRuleServer(_)
+            | AnySyncStateEvent::PolicyRuleUser(_)
+            | AnySyncStateEvent::RoomCreate(_)
+            | AnySyncStateEvent::RoomEncryption(_)
+            | AnySyncStateEvent::RoomGuestAccess(_)
+            | AnySyncStateEvent::RoomHistoryVisibility(_)
+            | AnySyncStateEvent::RoomPinnedEvents(_)
+            | AnySyncStateEvent::RoomServerAcl(_)
+            | AnySyncStateEvent::RoomThirdPartyInvite(_)
+            | AnySyncStateEvent::RoomTopic(_)
+            | AnySyncStateEvent::SpaceChild(_)
+            | AnySyncStateEvent::SpaceParent(_) => {}
+            _ => {
+                if let Ok(e) = raw_event.deserialize_as::<SyncStateEvent<CustomEventContent>>() {
+                    self.on_custom_event(room, &CustomEvent::State(&e)).await;
+                }
             }
-            _ => {}
         }
     }
 

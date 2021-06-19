@@ -20,21 +20,20 @@
 // If we don't trust the device store an object that remembers the request and
 // let the users introspect that object.
 
-use std::{collections::BTreeMap, sync::Arc};
+use std::sync::Arc;
 
 use dashmap::{mapref::entry::Entry, DashMap, DashSet};
 use matrix_sdk_common::uuid::Uuid;
 use ruma::{
-    api::client::r0::to_device::DeviceIdOrAllDevices,
     events::{
         forwarded_room_key::ForwardedRoomKeyToDeviceEventContent,
         room_key_request::{Action, RequestedKeyInfo, RoomKeyRequestToDeviceEventContent},
-        AnyToDeviceEvent, EventType, ToDeviceEvent,
+        AnyToDeviceEvent, AnyToDeviceEventContent, ToDeviceEvent,
     },
     identifiers::{DeviceId, DeviceIdBox, EventEncryptionAlgorithm, RoomId, UserId},
+    to_device::DeviceIdOrAllDevices,
 };
 use serde::{Deserialize, Serialize};
-use serde_json::value::to_raw_value;
 use thiserror::Error;
 use tracing::{error, info, trace, warn};
 
@@ -150,7 +149,7 @@ pub struct OutgoingKeyRequest {
 }
 
 impl OutgoingKeyRequest {
-    fn to_request(&self, own_device_id: &DeviceId) -> Result<OutgoingRequest, serde_json::Error> {
+    fn to_request(&self, own_device_id: &DeviceId) -> OutgoingRequest {
         let content = RoomKeyRequestToDeviceEventContent::new(
             Action::Request,
             Some(self.info.clone()),
@@ -158,13 +157,17 @@ impl OutgoingKeyRequest {
             self.request_id.to_string(),
         );
 
-        wrap_key_request_content(self.request_recipient.clone(), self.request_id, &content)
+        let request = ToDeviceRequest::new_with_id(
+            &self.request_recipient,
+            DeviceIdOrAllDevices::AllDevices,
+            AnyToDeviceEventContent::RoomKeyRequest(content),
+            self.request_id,
+        );
+
+        OutgoingRequest { request_id: request.txn_id, request: Arc::new(request.into()) }
     }
 
-    fn to_cancellation(
-        &self,
-        own_device_id: &DeviceId,
-    ) -> Result<OutgoingRequest, serde_json::Error> {
+    fn to_cancellation(&self, own_device_id: &DeviceId) -> OutgoingRequest {
         let content = RoomKeyRequestToDeviceEventContent::new(
             Action::CancelRequest,
             None,
@@ -172,8 +175,13 @@ impl OutgoingKeyRequest {
             self.request_id.to_string(),
         );
 
-        let id = Uuid::new_v4();
-        wrap_key_request_content(self.request_recipient.clone(), id, &content)
+        let request = ToDeviceRequest::new(
+            &self.request_recipient,
+            DeviceIdOrAllDevices::AllDevices,
+            AnyToDeviceEventContent::RoomKeyRequest(content),
+        );
+
+        OutgoingRequest { request_id: request.txn_id, request: Arc::new(request.into()) }
     }
 }
 
@@ -185,26 +193,6 @@ impl PartialEq for OutgoingKeyRequest {
             && self.info.session_id == other.info.session_id
             && self.info.sender_key == other.info.sender_key
     }
-}
-
-fn wrap_key_request_content(
-    recipient: UserId,
-    id: Uuid,
-    content: &RoomKeyRequestToDeviceEventContent,
-) -> Result<OutgoingRequest, serde_json::Error> {
-    let mut messages = BTreeMap::new();
-
-    messages
-        .entry(recipient)
-        .or_insert_with(BTreeMap::new)
-        .insert(DeviceIdOrAllDevices::AllDevices, to_raw_value(content)?);
-
-    Ok(OutgoingRequest {
-        request_id: id,
-        request: Arc::new(
-            ToDeviceRequest { event_type: EventType::RoomKeyRequest, txn_id: id, messages }.into(),
-        ),
-    })
 }
 
 impl KeyRequestMachine {
@@ -229,13 +217,14 @@ impl KeyRequestMachine {
 
     /// Load stored outgoing requests that were not yet sent out.
     async fn load_outgoing_requests(&self) -> Result<Vec<OutgoingRequest>, CryptoStoreError> {
-        self.store
+        Ok(self
+            .store
             .get_unsent_key_requests()
             .await?
             .into_iter()
             .filter(|i| !i.sent_out)
-            .map(|info| info.to_request(self.device_id()).map_err(CryptoStoreError::from))
-            .collect()
+            .map(|info| info.to_request(self.device_id()))
+            .collect())
     }
 
     /// Our own user id.
@@ -448,23 +437,15 @@ impl KeyRequestMachine {
         let (used_session, content) =
             device.encrypt_session(session.clone(), message_index).await?;
 
-        let id = Uuid::new_v4();
-        let mut messages = BTreeMap::new();
-
-        messages.entry(device.user_id().to_owned()).or_insert_with(BTreeMap::new).insert(
-            DeviceIdOrAllDevices::DeviceId(device.device_id().into()),
-            to_raw_value(&content)?,
+        let request = ToDeviceRequest::new(
+            device.user_id(),
+            device.device_id().to_owned(),
+            AnyToDeviceEventContent::RoomEncrypted(content),
         );
 
-        let request = OutgoingRequest {
-            request_id: id,
-            request: Arc::new(
-                ToDeviceRequest { event_type: EventType::RoomEncrypted, txn_id: id, messages }
-                    .into(),
-            ),
-        };
-
-        self.outgoing_to_device_requests.insert(id, request);
+        let request =
+            OutgoingRequest { request_id: request.txn_id, request: Arc::new(request.into()) };
+        self.outgoing_to_device_requests.insert(request.request_id, request);
 
         Ok(used_session)
     }
@@ -594,8 +575,8 @@ impl KeyRequestMachine {
         let request = self.store.get_key_request_by_info(&key_info).await?;
 
         if let Some(request) = request {
-            let cancel = request.to_cancellation(self.device_id())?;
-            let request = request.to_request(self.device_id())?;
+            let cancel = request.to_cancellation(self.device_id());
+            let request = request.to_request(self.device_id());
 
             Ok((Some(cancel), request))
         } else {
@@ -618,7 +599,7 @@ impl KeyRequestMachine {
             sent_out: false,
         };
 
-        let outgoing_request = request.to_request(self.device_id())?;
+        let outgoing_request = request.to_request(self.device_id());
         self.save_outgoing_key_info(request).await?;
 
         Ok(outgoing_request)
@@ -717,7 +698,7 @@ impl KeyRequestMachine {
         // can delete it in one transaction.
         self.delete_key_info(&key_info).await?;
 
-        let request = key_info.to_cancellation(self.device_id())?;
+        let request = key_info.to_cancellation(self.device_id());
         self.outgoing_to_device_requests.insert(request.request_id, request);
 
         Ok(())
@@ -789,13 +770,14 @@ mod test {
     use matrix_sdk_common::locks::Mutex;
     use matrix_sdk_test::async_test;
     use ruma::{
-        api::client::r0::to_device::DeviceIdOrAllDevices,
         events::{
             forwarded_room_key::ForwardedRoomKeyToDeviceEventContent,
             room::encrypted::EncryptedEventContent,
             room_key_request::RoomKeyRequestToDeviceEventContent, AnyToDeviceEvent, ToDeviceEvent,
         },
-        room_id, user_id, DeviceIdBox, RoomId, UserId,
+        room_id,
+        to_device::DeviceIdOrAllDevices,
+        user_id, DeviceIdBox, RoomId, UserId,
     };
 
     use super::{KeyRequestMachine, KeyshareDecision};
@@ -1203,8 +1185,7 @@ mod test {
             .unwrap()
             .get(&DeviceIdOrAllDevices::AllDevices)
             .unwrap();
-        let content: RoomKeyRequestToDeviceEventContent =
-            serde_json::from_str(content.get()).unwrap();
+        let content: RoomKeyRequestToDeviceEventContent = content.deserialize_as().unwrap();
 
         alice_machine.mark_outgoing_request_as_sent(id).await.unwrap();
 
@@ -1233,7 +1214,7 @@ mod test {
             .unwrap()
             .get(&DeviceIdOrAllDevices::DeviceId(alice_device_id()))
             .unwrap();
-        let content: EncryptedEventContent = serde_json::from_str(content.get()).unwrap();
+        let content: EncryptedEventContent = content.deserialize_as().unwrap();
 
         bob_machine.mark_outgoing_request_as_sent(id).await.unwrap();
 
@@ -1336,8 +1317,7 @@ mod test {
             .unwrap()
             .get(&DeviceIdOrAllDevices::AllDevices)
             .unwrap();
-        let content: RoomKeyRequestToDeviceEventContent =
-            serde_json::from_str(content.get()).unwrap();
+        let content: RoomKeyRequestToDeviceEventContent = content.deserialize_as().unwrap();
 
         alice_machine.mark_outgoing_request_as_sent(id).await.unwrap();
 
@@ -1382,7 +1362,7 @@ mod test {
             .unwrap()
             .get(&DeviceIdOrAllDevices::DeviceId(alice_device_id()))
             .unwrap();
-        let content: EncryptedEventContent = serde_json::from_str(content.get()).unwrap();
+        let content: EncryptedEventContent = content.deserialize_as().unwrap();
 
         bob_machine.mark_outgoing_request_as_sent(id).await.unwrap();
 

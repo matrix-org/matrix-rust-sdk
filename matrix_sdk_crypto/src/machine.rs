@@ -755,11 +755,11 @@ impl OlmMachine {
             | AnyToDeviceEvent::KeyVerificationStart(..) => {
                 self.handle_verification_event(event).await;
             }
-            AnyToDeviceEvent::Dummy(_) => {}
-            AnyToDeviceEvent::RoomKey(_) => {}
-            AnyToDeviceEvent::ForwardedRoomKey(_) => {}
-            AnyToDeviceEvent::RoomEncrypted(_) => {}
-            AnyToDeviceEvent::Custom(_) => {}
+            AnyToDeviceEvent::Dummy(_)
+            | AnyToDeviceEvent::RoomKey(_)
+            | AnyToDeviceEvent::ForwardedRoomKey(_)
+            | AnyToDeviceEvent::RoomEncrypted(_) => {}
+            _ => {}
         }
     }
 
@@ -1231,21 +1231,22 @@ pub(crate) mod test {
     use matrix_sdk_test::test_json;
     use ruma::{
         api::{
-            client::r0::keys::{claim_keys, get_keys, upload_keys, OneTimeKey},
+            client::r0::keys::{claim_keys, get_keys, upload_keys},
             IncomingResponse,
         },
+        encryption::OneTimeKey,
         events::{
+            dummy::DummyToDeviceEventContent,
             room::{
                 encrypted::EncryptedEventContent,
                 message::{MessageEventContent, MessageType},
             },
             AnyMessageEventContent, AnySyncMessageEvent, AnySyncRoomEvent, AnyToDeviceEvent,
-            EventType, SyncMessageEvent, ToDeviceEvent, Unsigned,
+            AnyToDeviceEventContent, SyncMessageEvent, ToDeviceEvent, Unsigned,
         },
         identifiers::{
             event_id, room_id, user_id, DeviceId, DeviceKeyAlgorithm, DeviceKeyId, UserId,
         },
-        serde::Raw,
         uint, MilliSecondsSinceUnixEpoch,
     };
     use serde_json::json;
@@ -1291,12 +1292,16 @@ pub(crate) mod test {
     fn to_device_requests_to_content(requests: Vec<Arc<ToDeviceRequest>>) -> EncryptedEventContent {
         let to_device_request = &requests[0];
 
-        let content: Raw<EncryptedEventContent> = serde_json::from_str(
-            to_device_request.messages.values().next().unwrap().values().next().unwrap().get(),
-        )
-        .unwrap();
-
-        content.deserialize().unwrap()
+        to_device_request
+            .messages
+            .values()
+            .next()
+            .unwrap()
+            .values()
+            .next()
+            .unwrap()
+            .deserialize_as()
+            .unwrap()
     }
 
     pub(crate) async fn get_prepared_machine() -> (OlmMachine, OneTimeKeys) {
@@ -1358,7 +1363,10 @@ pub(crate) mod test {
 
         let bob_device = alice.get_device(&bob.user_id, &bob.device_id).await.unwrap().unwrap();
 
-        let (session, content) = bob_device.encrypt(EventType::Dummy, json!({})).await.unwrap();
+        let (session, content) = bob_device
+            .encrypt(AnyToDeviceEventContent::Dummy(DummyToDeviceEventContent::new()))
+            .await
+            .unwrap();
         alice.store.save_sessions(&[session]).await.unwrap();
 
         let event = ToDeviceEvent { sender: alice.user_id().clone(), content };
@@ -1593,7 +1601,11 @@ pub(crate) mod test {
 
         let event = ToDeviceEvent {
             sender: alice.user_id().clone(),
-            content: bob_device.encrypt(EventType::Dummy, json!({})).await.unwrap().1,
+            content: bob_device
+                .encrypt(AnyToDeviceEventContent::Dummy(DummyToDeviceEventContent::new()))
+                .await
+                .unwrap()
+                .1,
         };
 
         let event = bob.decrypt_to_device_event(&event).await.unwrap().event.deserialize().unwrap();

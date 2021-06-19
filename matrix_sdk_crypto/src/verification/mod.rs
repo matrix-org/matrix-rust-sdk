@@ -525,10 +525,9 @@ impl IdentitiesBeingVerified {
 #[cfg(test)]
 pub(crate) mod test {
     use ruma::{
-        events::{AnyToDeviceEvent, AnyToDeviceEventContent, EventType, ToDeviceEvent},
+        events::{AnyToDeviceEvent, AnyToDeviceEventContent, ToDeviceEvent},
         UserId,
     };
-    use serde_json::Value;
 
     use super::event_enums::OutgoingContent;
     use crate::{
@@ -540,7 +539,7 @@ pub(crate) mod test {
         sender: &UserId,
         request: &OutgoingVerificationRequest,
     ) -> AnyToDeviceEvent {
-        let content = get_content_from_request(request);
+        let content = request.to_owned().into();
         wrap_any_to_device_content(sender, content)
     }
 
@@ -588,37 +587,5 @@ pub(crate) mod test {
 
             _ => unreachable!(),
         }
-    }
-
-    pub(crate) fn get_content_from_request(
-        request: &OutgoingVerificationRequest,
-    ) -> OutgoingContent {
-        let request =
-            if let OutgoingVerificationRequest::ToDevice(r) = request { r } else { unreachable!() };
-
-        let json: Value = serde_json::from_str(
-            request.messages.values().next().unwrap().values().next().unwrap().get(),
-        )
-        .unwrap();
-
-        match request.event_type {
-            EventType::KeyVerificationStart => {
-                AnyToDeviceEventContent::KeyVerificationStart(serde_json::from_value(json).unwrap())
-            }
-            EventType::KeyVerificationKey => {
-                AnyToDeviceEventContent::KeyVerificationKey(serde_json::from_value(json).unwrap())
-            }
-            EventType::KeyVerificationAccept => AnyToDeviceEventContent::KeyVerificationAccept(
-                serde_json::from_value(json).unwrap(),
-            ),
-            EventType::KeyVerificationMac => {
-                AnyToDeviceEventContent::KeyVerificationMac(serde_json::from_value(json).unwrap())
-            }
-            EventType::KeyVerificationCancel => AnyToDeviceEventContent::KeyVerificationCancel(
-                serde_json::from_value(json).unwrap(),
-            ),
-            _ => unreachable!(),
-        }
-        .into()
     }
 }

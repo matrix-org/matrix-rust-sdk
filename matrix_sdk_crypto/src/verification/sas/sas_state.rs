@@ -102,7 +102,7 @@ impl TryFrom<AcceptV1Content> for AcceptedProtocols {
             Err(CancelCode::UnknownMethod)
         } else {
             Ok(Self {
-                method: VerificationMethod::MSasV1,
+                method: VerificationMethod::SasV1,
                 hash: content.hash,
                 key_agreement_protocol: content.key_agreement_protocol,
                 message_auth_code: content.message_authentication_code,
@@ -149,7 +149,7 @@ impl TryFrom<&SasV1Content> for AcceptedProtocols {
             }
 
             Ok(Self {
-                method: VerificationMethod::MSasV1,
+                method: VerificationMethod::SasV1,
                 hash: HashAlgorithm::Sha256,
                 key_agreement_protocol: KeyAgreementProtocol::Curve25519HkdfSha256,
                 message_auth_code: MessageAuthenticationCode::HkdfHmacSha256,
@@ -163,7 +163,7 @@ impl TryFrom<&SasV1Content> for AcceptedProtocols {
 impl Default for AcceptedProtocols {
     fn default() -> Self {
         AcceptedProtocols {
-            method: VerificationMethod::MSasV1,
+            method: VerificationMethod::SasV1,
             hash: HashAlgorithm::Sha256,
             key_agreement_protocol: KeyAgreementProtocol::Curve25519HkdfSha256,
             message_auth_code: MessageAuthenticationCode::HkdfHmacSha256,
@@ -450,7 +450,7 @@ impl SasState<Created> {
     ) -> Result<SasState<Accepted>, SasState<Cancelled>> {
         self.check_event(sender, content.flow_id()).map_err(|c| self.clone().cancel(c))?;
 
-        if let AcceptMethod::MSasV1(content) = content.method() {
+        if let AcceptMethod::SasV1(content) = content.method() {
             let accepted_protocols =
                 AcceptedProtocols::try_from(content.clone()).map_err(|c| self.clone().cancel(c))?;
 
@@ -560,7 +560,7 @@ impl SasState<Started> {
     /// been started because of a
     /// m.key.verification.request -> m.key.verification.ready flow.
     pub fn as_content(&self) -> OwnedAcceptContent {
-        let method = AcceptMethod::MSasV1(
+        let method = AcceptMethod::SasV1(
             AcceptV1ContentInit {
                 commitment: self.state.commitment.clone(),
                 hash: self.state.accepted_protocols.hash.clone(),
@@ -684,10 +684,10 @@ impl SasState<Accepted> {
     pub fn as_content(&self) -> OutgoingContent {
         match &*self.verification_flow_id {
             FlowId::ToDevice(s) => {
-                AnyToDeviceEventContent::KeyVerificationKey(KeyToDeviceEventContent {
-                    transaction_id: s.to_string(),
-                    key: self.inner.lock().unwrap().public_key(),
-                })
+                AnyToDeviceEventContent::KeyVerificationKey(KeyToDeviceEventContent::new(
+                    s.to_string(),
+                    self.inner.lock().unwrap().public_key(),
+                ))
                 .into()
             }
             FlowId::InRoom(r, e) => (
@@ -710,10 +710,10 @@ impl SasState<KeyReceived> {
     pub fn as_content(&self) -> OutgoingContent {
         match &*self.verification_flow_id {
             FlowId::ToDevice(s) => {
-                AnyToDeviceEventContent::KeyVerificationKey(KeyToDeviceEventContent {
-                    transaction_id: s.to_string(),
-                    key: self.inner.lock().unwrap().public_key(),
-                })
+                AnyToDeviceEventContent::KeyVerificationKey(KeyToDeviceEventContent::new(
+                    s.to_string(),
+                    self.inner.lock().unwrap().public_key(),
+                ))
                 .into()
             }
             FlowId::InRoom(r, e) => (
@@ -1090,11 +1090,12 @@ mod test {
 
     use ruma::{
         events::key::verification::{
-            accept::{AcceptMethod, CustomContent},
-            start::{CustomContent as CustomStartContent, StartMethod},
+            accept::{AcceptMethod, AcceptToDeviceEventContent},
+            start::{StartMethod, StartToDeviceEventContent},
         },
         DeviceId, UserId,
     };
+    use serde_json::json;
 
     use super::{Accepted, Created, SasState, Started};
     use crate::{
@@ -1227,7 +1228,7 @@ mod test {
         let mut method = content.method_mut();
 
         match &mut method {
-            AcceptMethod::MSasV1(ref mut c) => {
+            AcceptMethod::SasV1(ref mut c) => {
                 c.commitment = "".to_string();
             }
             _ => panic!("Unknown accept event content"),
@@ -1266,7 +1267,7 @@ mod test {
         let mut method = content.method_mut();
 
         match &mut method {
-            AcceptMethod::MSasV1(ref mut c) => {
+            AcceptMethod::SasV1(ref mut c) => {
                 c.short_authentication_string = vec![];
             }
             _ => panic!("Unknown accept event content"),
@@ -1283,14 +1284,13 @@ mod test {
     async fn sas_unknown_method() {
         let (alice, bob) = get_sas_pair().await;
 
-        let mut content = bob.as_content();
-        let method = content.method_mut();
-
-        *method = AcceptMethod::Custom(CustomContent {
-            method: "m.sas.custom".to_string(),
-            data: Default::default(),
+        let content = json!({
+            "method": "m.sas.custom",
+            "method_data": "something",
+            "transaction_id": "some_id",
         });
 
+        let content: AcceptToDeviceEventContent = serde_json::from_value(content).unwrap();
         let content = AcceptContent::from(&content);
 
         alice
@@ -1331,22 +1331,22 @@ mod test {
         )
         .expect_err("Didn't cancel on invalid MAC method");
 
-        let mut start_content = alice_sas.as_content();
-        let method = start_content.method_mut();
-
-        *method = StartMethod::Custom(CustomStartContent {
-            method: "m.sas.custom".to_string(),
-            data: Default::default(),
+        let content = json!({
+            "method": "m.sas.custom",
+            "from_device": "DEVICEID",
+            "method_data": "something",
+            "transaction_id": "some_id",
         });
 
-        let flow_id = start_content.flow_id();
-        let content = StartContent::from(&start_content);
+        let content: StartToDeviceEventContent = serde_json::from_value(content).unwrap();
+        let content = StartContent::from(&content);
+        let flow_id = content.flow_id().to_owned();
 
         SasState::<Started>::from_start_event(
             bob.clone(),
             alice_device,
             None,
-            flow_id,
+            flow_id.into(),
             &content,
             false,
         )

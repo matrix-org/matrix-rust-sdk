@@ -1786,8 +1786,8 @@ impl Client {
         request: &ToDeviceRequest,
     ) -> Result<ToDeviceResponse> {
         let txn_id_string = request.txn_id_string();
-        let request = RumaToDeviceRequest::new(
-            request.event_type.clone(),
+        let request = RumaToDeviceRequest::new_raw(
+            request.event_type.as_str(),
             &txn_id_string,
             request.messages.clone(),
         );

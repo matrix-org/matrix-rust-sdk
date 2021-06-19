@@ -17,15 +17,13 @@ use std::{collections::BTreeMap, sync::Arc, time::Duration};
 use dashmap::{DashMap, DashSet};
 use matrix_sdk_common::uuid::Uuid;
 use ruma::{
-    api::client::r0::{
-        keys::claim_keys::{Request as KeysClaimRequest, Response as KeysClaimResponse},
-        to_device::DeviceIdOrAllDevices,
+    api::client::r0::keys::claim_keys::{
+        Request as KeysClaimRequest, Response as KeysClaimResponse,
     },
     assign,
-    events::EventType,
+    events::{dummy::DummyToDeviceEventContent, AnyToDeviceEventContent},
     DeviceId, DeviceIdBox, DeviceKeyAlgorithm, UserId,
 };
-use serde_json::{json, value::to_raw_value};
 use tracing::{error, info, warn};
 
 use crate::{
@@ -118,28 +116,21 @@ impl SessionManager {
     async fn check_if_unwedged(&self, user_id: &UserId, device_id: &DeviceId) -> OlmResult<()> {
         if self.wedged_devices.get(user_id).map(|d| d.remove(device_id)).flatten().is_some() {
             if let Some(device) = self.store.get_device(user_id, device_id).await? {
-                let (_, content) = device.encrypt(EventType::Dummy, json!({})).await?;
-                let id = Uuid::new_v4();
-                let mut messages = BTreeMap::new();
+                let content = AnyToDeviceEventContent::Dummy(DummyToDeviceEventContent::new());
+                let (_, content) = device.encrypt(content).await?;
 
-                messages.entry(device.user_id().to_owned()).or_insert_with(BTreeMap::new).insert(
-                    DeviceIdOrAllDevices::DeviceId(device.device_id().into()),
-                    to_raw_value(&content)?,
+                let request = ToDeviceRequest::new(
+                    device.user_id(),
+                    device.device_id().to_owned(),
+                    AnyToDeviceEventContent::RoomEncrypted(content),
                 );
 
                 let request = OutgoingRequest {
-                    request_id: id,
-                    request: Arc::new(
-                        ToDeviceRequest {
-                            event_type: EventType::RoomEncrypted,
-                            txn_id: id,
-                            messages,
-                        }
-                        .into(),
-                    ),
+                    request_id: request.txn_id,
+                    request: Arc::new(request.into()),
                 };
 
-                self.outgoing_to_device_requests.insert(id, request);
+                self.outgoing_to_device_requests.insert(request.request_id, request);
             }
         }
 

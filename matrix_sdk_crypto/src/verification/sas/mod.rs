@@ -476,12 +476,12 @@ impl AcceptSettings {
     fn apply(self, mut content: OwnedAcceptContent) -> OwnedAcceptContent {
         match &mut content {
             OwnedAcceptContent::ToDevice(AcceptToDeviceEventContent {
-                method: AcceptMethod::MSasV1(c),
+                method: AcceptMethod::SasV1(c),
                 ..
             })
             | OwnedAcceptContent::Room(
                 _,
-                AcceptEventContent { method: AcceptMethod::MSasV1(c), .. },
+                AcceptEventContent { method: AcceptMethod::SasV1(c), .. },
             ) => {
                 c.short_authentication_string.retain(|sas| self.allowed_methods.contains(sas));
                 content

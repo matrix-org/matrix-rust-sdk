@@ -142,7 +142,7 @@ async fn login(
                                     if let Some(Verification::SasV1(sas)) = client
                                         .get_verification(
                                             &e.sender,
-                                            e.content.relation.event_id.as_str(),
+                                            e.content.relates_to.event_id.as_str(),
                                         )
                                         .await
                                     {
@@ -153,7 +153,7 @@ async fn login(
                                     if let Some(Verification::SasV1(sas)) = client
                                         .get_verification(
                                             &e.sender,
-                                            e.content.relation.event_id.as_str(),
+                                            e.content.relates_to.event_id.as_str(),
                                         )
                                         .await
                                     {

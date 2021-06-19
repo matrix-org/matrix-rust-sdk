@@ -25,16 +25,17 @@ use ruma::{
                 Request as SignatureUploadRequest, Response as SignatureUploadResponse,
             },
             upload_signing_keys::Response as SigningKeysUploadResponse,
-            CrossSigningKey,
         },
         message::send_message_event::Response as RoomMessageResponse,
-        to_device::{send_event_to_device::Response as ToDeviceResponse, DeviceIdOrAllDevices},
+        to_device::send_event_to_device::Response as ToDeviceResponse,
     },
+    encryption::CrossSigningKey,
     events::{AnyMessageEventContent, AnyToDeviceEventContent, EventContent, EventType},
+    serde::Raw,
+    to_device::DeviceIdOrAllDevices,
     DeviceIdBox, RoomId, UserId,
 };
 use serde::{Deserialize, Serialize};
-use serde_json::value::RawValue as RawJsonValue;
 
 /// Customized version of
 /// `ruma_client_api::r0::to_device::send_event_to_device::Request`,
@@ -54,7 +55,7 @@ pub struct ToDeviceRequest {
     /// The content's type for this field will be updated in a future
     /// release, until then you can create a value using
     /// `serde_json::value::to_raw_value`.
-    pub messages: BTreeMap<UserId, BTreeMap<DeviceIdOrAllDevices, Box<RawJsonValue>>>,
+    pub messages: BTreeMap<UserId, BTreeMap<DeviceIdOrAllDevices, Raw<AnyToDeviceEventContent>>>,
 }
 
 impl ToDeviceRequest {
@@ -74,17 +75,23 @@ impl ToDeviceRequest {
         recipient_device: impl Into<DeviceIdOrAllDevices>,
         content: AnyToDeviceEventContent,
     ) -> Self {
+        Self::new_with_id(recipient, recipient_device, content, Uuid::new_v4())
+    }
+
+    pub(crate) fn new_with_id(
+        recipient: &UserId,
+        recipient_device: impl Into<DeviceIdOrAllDevices>,
+        content: AnyToDeviceEventContent,
+        txn_id: Uuid,
+    ) -> Self {
         let mut messages = BTreeMap::new();
         let mut user_messages = BTreeMap::new();
-
-        user_messages.insert(
-            recipient_device.into(),
-            serde_json::value::to_raw_value(&content).expect("Can't serialize to-device content"),
-        );
-        messages.insert(recipient.clone(), user_messages);
         let event_type = EventType::from(content.event_type());
 
-        ToDeviceRequest { txn_id: Uuid::new_v4(), event_type, messages }
+        user_messages.insert(recipient_device.into(), Raw::from(content));
+        messages.insert(recipient.clone(), user_messages);
+
+        ToDeviceRequest { event_type, txn_id, messages }
     }
 
     /// Gets the transaction ID as a string.

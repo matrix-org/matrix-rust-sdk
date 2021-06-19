@@ -25,8 +25,8 @@ use std::{
 use matrix_sdk_common::locks::Mutex;
 use pk_signing::{MasterSigning, PickledSignings, SelfSigning, Signing, SigningError, UserSigning};
 use ruma::{
-    api::client::r0::keys::{upload_signatures::Request as SignatureUploadRequest, KeyUsage},
-    encryption::DeviceKeys,
+    api::client::r0::keys::upload_signatures::Request as SignatureUploadRequest,
+    encryption::{DeviceKeys, KeyUsage},
     DeviceKeyAlgorithm, DeviceKeyId, UserId,
 };
 use serde::{Deserialize, Serialize};
@@ -403,7 +403,7 @@ mod test {
     use std::{collections::BTreeMap, sync::Arc};
 
     use matrix_sdk_test::async_test;
-    use ruma::{api::client::r0::keys::CrossSigningKey, user_id, UserId};
+    use ruma::{encryption::CrossSigningKey, user_id, UserId};
 
     use super::{PrivateCrossSigningIdentity, Signing};
     use crate::{
