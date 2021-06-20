@@ -13,7 +13,7 @@ use ruma::{
 
 use crate::{
     media::{MediaFormat, MediaRequest, MediaType},
-    BaseRoom, Client, Result, RoomMember,
+    BaseRoom, Client, Result, RoomMember, room::RoomType, error::{self, HttpError}
 };
 
 /// A struct containing methods that are common for Joined, Invited and Left
@@ -170,6 +170,12 @@ impl Common {
     }
 
     async fn ensure_members(&self) -> Result<()> {
+        if !self.are_events_visible() {
+            return Err(
+                error::Error::Http(HttpError::NotClientRequest)
+            )
+        }
+
         if !self.are_members_synced() {
             self.request_members().await?;
         }
@@ -179,7 +185,7 @@ impl Common {
 
     fn are_events_visible(&self) -> bool {
         if let RoomType::Invited = self.inner.room_type() {
-            match self.inner.history_visibility() {
+            return match self.inner.history_visibility() {
                 HistoryVisibility::WorldReadable | HistoryVisibility::Shared => true,
                 _ => false,
             }
