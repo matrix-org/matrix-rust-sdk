@@ -7,6 +7,7 @@ use ruma::{
         membership::{get_member_events, join_room_by_id, leave_room},
         message::get_message_events,
     },
+    events::room::history_visibility::HistoryVisibility,
     UserId,
 };
 
@@ -174,6 +175,17 @@ impl Common {
         }
 
         Ok(())
+    }
+
+    fn are_events_visible(&self) -> bool {
+        if let RoomType::Invited = self.inner.room_type() {
+            match self.inner.history_visibility() {
+                HistoryVisibility::WorldReadable | HistoryVisibility::Shared => true,
+                _ => false,
+            }
+        }
+        
+        true
     }
 
     /// Sync the member list with the server.
