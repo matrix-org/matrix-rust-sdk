@@ -27,6 +27,7 @@ use ruma::{
         ignored_user_list::IgnoredUserListEventContent,
         presence::PresenceEvent,
         push_rules::PushRulesEventContent,
+        reaction::ReactionEventContent,
         receipt::ReceiptEventContent,
         room::{
             aliases::AliasesEventContent,
@@ -167,6 +168,7 @@ impl Handler {
                     self.on_room_message_feedback(room, e).await
                 }
                 AnySyncMessageEvent::RoomRedaction(e) => self.on_room_redaction(room, e).await,
+                AnySyncMessageEvent::Reaction(e) => self.on_room_reaction(room, e).await,
                 AnySyncMessageEvent::Custom(e) => {
                     self.on_custom_event(room, &CustomEvent::Message(e)).await
                 }
@@ -358,6 +360,8 @@ pub trait EventHandler: Send + Sync {
     async fn on_room_message(&self, _: Room, _: &SyncMessageEvent<MsgEventContent>) {}
     /// Fires when `Client` receives a `RoomEvent::RoomMessageFeedback` event.
     async fn on_room_message_feedback(&self, _: Room, _: &SyncMessageEvent<FeedbackEventContent>) {}
+    /// Fires when `Client` receives a `RoomEvent::Reaction` event.
+    async fn on_room_reaction(&self, _: Room, _: &SyncMessageEvent<ReactionEventContent>) {}
     /// Fires when `Client` receives a `RoomEvent::CallInvite` event
     async fn on_room_call_invite(&self, _: Room, _: &SyncMessageEvent<InviteEventContent>) {}
     /// Fires when `Client` receives a `RoomEvent::CallAnswer` event
