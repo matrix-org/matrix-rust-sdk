@@ -7,11 +7,13 @@ use ruma::{
         membership::{get_member_events, join_room_by_id, leave_room},
         message::get_message_events,
     },
+    events::room::history_visibility::HistoryVisibility,
     UserId,
 };
 
 use crate::{
     media::{MediaFormat, MediaRequest, MediaType},
+    room::RoomType,
     BaseRoom, Client, Result, RoomMember,
 };
 
@@ -169,11 +171,26 @@ impl Common {
     }
 
     async fn ensure_members(&self) -> Result<()> {
+        if !self.are_events_visible() {
+            return Ok(());
+        }
+
         if !self.are_members_synced() {
             self.request_members().await?;
         }
 
         Ok(())
+    }
+
+    fn are_events_visible(&self) -> bool {
+        if let RoomType::Invited = self.inner.room_type() {
+            return matches!(
+                self.inner.history_visibility(),
+                HistoryVisibility::WorldReadable | HistoryVisibility::Invited
+            );
+        }
+
+        true
     }
 
     /// Sync the member list with the server.
