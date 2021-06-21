@@ -37,17 +37,25 @@ const VERSION: &str = "v2";
 
 /// A wrapper that transparently encrypts anything that implements `Read` as an
 /// Matrix attachment.
-#[derive(Debug)]
 pub struct AttachmentDecryptor<'a, R: 'a + Read> {
-    inner_reader: &'a mut R,
+    inner: &'a mut R,
     expected_hash: Vec<u8>,
     sha: Sha256,
     aes: Aes256Ctr,
 }
 
+impl<'a, R: 'a + Read + std::fmt::Debug> std::fmt::Debug for AttachmentDecryptor<'a, R> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("AttachmentDecryptor")
+            .field("inner", &self.inner)
+            .field("expected_hash", &self.expected_hash)
+            .finish()
+    }
+}
+
 impl<'a, R: Read> Read for AttachmentDecryptor<'a, R> {
     fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
-        let read_bytes = self.inner_reader.read(buf)?;
+        let read_bytes = self.inner.read(buf)?;
 
         if read_bytes == 0 {
             let hash = self.sha.finalize_reset();
@@ -132,15 +140,14 @@ impl<'a, R: Read + 'a> AttachmentDecryptor<'a, R> {
         let aes = Aes256::new_from_slice(&key).map_err(|_| DecryptorError::KeyNonceLength)?;
         let aes = Aes256Ctr::from_block_cipher(aes, &iv);
 
-        Ok(AttachmentDecryptor { inner_reader: input, expected_hash: hash, sha, aes })
+        Ok(AttachmentDecryptor { inner: input, expected_hash: hash, sha, aes })
     }
 }
 
 /// A wrapper that transparently encrypts anything that implements `Read`.
-#[derive(Debug)]
 pub struct AttachmentEncryptor<'a, R: Read + 'a> {
     finished: bool,
-    inner_reader: &'a mut R,
+    inner: &'a mut R,
     web_key: JsonWebKey,
     iv: String,
     hashes: BTreeMap<String, String>,
@@ -148,9 +155,18 @@ pub struct AttachmentEncryptor<'a, R: Read + 'a> {
     sha: Sha256,
 }
 
+impl<'a, R: 'a + Read + std::fmt::Debug> std::fmt::Debug for AttachmentEncryptor<'a, R> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("AttachmentEncryptor")
+            .field("inner", &self.inner)
+            .field("finished", &self.finished)
+            .finish()
+    }
+}
+
 impl<'a, R: Read + 'a> Read for AttachmentEncryptor<'a, R> {
     fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
-        let read_bytes = self.inner_reader.read(buf)?;
+        let read_bytes = self.inner.read(buf)?;
 
         if read_bytes == 0 {
             let hash = self.sha.finalize_reset();
@@ -219,7 +235,7 @@ impl<'a, R: Read + 'a> AttachmentEncryptor<'a, R> {
 
         AttachmentEncryptor {
             finished: false,
-            inner_reader: reader,
+            inner: reader,
             iv: encoded_iv,
             web_key,
             hashes: BTreeMap::new(),
