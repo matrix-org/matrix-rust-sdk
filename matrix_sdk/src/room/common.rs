@@ -12,7 +12,6 @@ use ruma::{
 };
 
 use crate::{
-    error::{self, HttpError},
     media::{MediaFormat, MediaRequest, MediaType},
     room::RoomType,
     BaseRoom, Client, Result, RoomMember,
@@ -173,7 +172,7 @@ impl Common {
 
     async fn ensure_members(&self) -> Result<()> {
         if !self.are_events_visible() {
-            return Err(error::Error::Http(HttpError::NotClientRequest));
+            return Ok(());
         }
 
         if !self.are_members_synced() {
