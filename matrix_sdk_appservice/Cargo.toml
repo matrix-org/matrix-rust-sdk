@@ -32,9 +32,7 @@ warp = { git = "https://github.com/seanmonstar/warp.git", rev = "629405", option
 matrix-sdk = { version = "0.2", path = "../matrix_sdk", default-features = false, features = ["appservice", "native-tls"] }
 
 [dependencies.ruma]
-version = "0.1.2"
-git = "https://github.com/ruma/ruma"
-rev = "d73ab8add"
+version = "0.2.0"
 features = ["client-api-c", "appservice-api-s", "unstable-pre-spec"]
 
 [dev-dependencies]
