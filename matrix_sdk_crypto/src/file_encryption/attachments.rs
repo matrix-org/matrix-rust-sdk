@@ -17,9 +17,9 @@ use std::{
     io::{Error as IoError, ErrorKind, Read},
 };
 
-use aes_ctr::{
-    cipher::{NewStreamCipher, SyncStreamCipher},
-    Aes256Ctr,
+use aes::{
+    cipher::{generic_array::GenericArray, FromBlockCipher, NewBlockCipher, StreamCipher},
+    Aes256, Aes256Ctr,
 };
 use base64::DecodeError;
 use getrandom::getrandom;
@@ -126,9 +126,11 @@ impl<'a, R: Read + 'a> AttachmentDecryptor<'a, R> {
         let hash = decode(info.hashes.get("sha256").ok_or(DecryptorError::MissingHash)?)?;
         let key = Zeroizing::from(decode_url_safe(info.web_key.k)?);
         let iv = decode(info.iv)?;
+        let iv = GenericArray::from_exact_iter(iv).ok_or(DecryptorError::KeyNonceLength)?;
 
         let sha = Sha256::default();
-        let aes = Aes256Ctr::new_var(&key, &iv).map_err(|_| DecryptorError::KeyNonceLength)?;
+        let aes = Aes256::new_from_slice(&key).map_err(|_| DecryptorError::KeyNonceLength)?;
+        let aes = Aes256Ctr::from_block_cipher(aes, &iv);
 
         Ok(AttachmentDecryptor { inner_reader: input, expected_hash: hash, sha, aes })
     }
@@ -209,8 +211,11 @@ impl<'a, R: Read + 'a> AttachmentEncryptor<'a, R> {
             ext: true,
         });
         let encoded_iv = encode(&*iv);
+        let iv = GenericArray::from_slice(&*iv);
+        let key = GenericArray::from_slice(&*key);
 
-        let aes = Aes256Ctr::new_var(&*key, &*iv).expect("Cannot create AES encryption object.");
+        let aes = Aes256::new(key);
+        let aes = Aes256Ctr::from_block_cipher(aes, iv);
 
         AttachmentEncryptor {
             finished: false,

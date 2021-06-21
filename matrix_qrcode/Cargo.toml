@@ -19,6 +19,6 @@ base64 = "0.13.0"
 byteorder = "1.4.3"
 image = { version = "0.23.14", optional = true }
 qrcode = { version = "0.12.0", default-features = false }
-rqrr = { version = "0.3.2" , optional = true }
+rqrr = { version = "0.3.2", optional = true }
 ruma-identifiers = { version = "0.19.3", git = "https://github.com/ruma/ruma", rev = "d73ab8add" }
-thiserror = "1.0.24"
+thiserror = "1.0.25"
