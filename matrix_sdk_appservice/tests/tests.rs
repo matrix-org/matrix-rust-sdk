@@ -1,4 +1,7 @@
-use std::sync::{Arc, Mutex};
+use std::{
+    convert::TryFrom,
+    sync::{Arc, Mutex},
+};
 
 #[cfg(feature = "actix")]
 use actix_web::{test as actix_test, App as ActixApp, HttpResponse};
@@ -12,8 +15,11 @@ use matrix_sdk::{
     ClientConfig, EventHandler, RequestConfig,
 };
 use matrix_sdk_appservice::*;
-use matrix_sdk_test::{appservice::TransactionBuilder, async_test, EventsJson};
+use matrix_sdk_test::{appservice::TransactionBuilder, async_test, test_json, EventsJson};
+use mockito::{mock, Matcher};
+use ruma::{room_id, user_id, RoomIdOrAliasId};
 use serde_json::json;
+use urlencoding::encode;
 #[cfg(feature = "warp")]
 use warp::{Filter, Reply};
 
@@ -22,9 +28,17 @@ fn registration_string() -> String {
 }
 
 async fn appservice(registration: Option<Registration>) -> Result<AppService> {
-    // env::set_var(
+    // std::env::set_var(
     //     "RUST_LOG",
-    //     "mockito=debug,matrix_sdk=debug,ruma=debug,actix_web=debug,warp=debug",
+    //     vec![
+    //         "matrix_sdk=trace",
+    //         "matrix_sdk_appservice=trace",
+    //         "mockito=debug",
+    //         "ruma=debug",
+    //         "actix_web=debug",
+    //         "warp=debug",
+    //     ]
+    //     .join(","),
     // );
     let _ = tracing_subscriber::fmt::try_init();
 
@@ -347,6 +361,183 @@ async fn test_unrelated_path() -> Result<()> {
     };
 
     assert_eq!(status, 200);
+
+    Ok(())
+}
+
+#[async_test]
+async fn test_transaction_join_room() -> Result<()> {
+    let uri = "/_matrix/app/v1/transactions/1?access_token=hs_token";
+
+    let room_id = room_id!("!SVkFJHzfwvuaIEawgC:localhost");
+
+    let mut transaction_builder = TransactionBuilder::new();
+    transaction_builder.add_room_event(EventsJson::Member);
+    let transaction = transaction_builder.build_json_transaction();
+
+    let appservice = appservice(None).await?;
+    let client = appservice.get_cached_client(None)?;
+
+    let room = client.get_joined_room(&room_id);
+    assert!(room.is_none());
+
+    #[cfg(feature = "warp")]
+    let status = warp::test::request()
+        .method("PUT")
+        .path(uri)
+        .json(&transaction)
+        .filter(&appservice.warp_filter())
+        .await
+        .unwrap()
+        .into_response()
+        .status();
+
+    #[cfg(feature = "actix")]
+    let status = {
+        let app =
+            actix_test::init_service(ActixApp::new().configure(appservice.actix_configure())).await;
+
+        let req = actix_test::TestRequest::put().uri(uri).set_json(&transaction).to_request();
+
+        actix_test::call_service(&app, req).await.status()
+    };
+
+    assert_eq!(status, 200);
+
+    let room = client.get_left_room(&room_id);
+    assert!(room.is_none());
+
+    let room = client.get_joined_room(&room_id);
+    assert!(room.is_some());
+
+    Ok(())
+}
+
+#[async_test]
+async fn test_client_join_room() -> Result<()> {
+    let appservice = appservice(None).await?;
+    let client = appservice.get_cached_client(None)?;
+    let room_id = room_id!("!SVkFJHzfwvuaIEawgC:localhost");
+
+    let room = client.get_joined_room(&room_id);
+    assert!(room.is_none());
+
+    let _m = mock("POST", Matcher::Regex(r"^/_matrix/client/r0/rooms/.*/join$".to_string()))
+        .with_status(200)
+        .with_body(json!({ "room_id": room_id }).to_string())
+        .match_header("authorization", "Bearer as_token")
+        .create();
+
+    let _m = mock("GET", Matcher::Regex(r"^/_matrix/client/r0/rooms/.*/state$".to_string()))
+        .with_status(200)
+        .match_header("authorization", "Bearer as_token")
+        .with_body(test_json::ROOM_STATE.to_string())
+        .create();
+
+    appservice.join_room_by_id(None, &room_id).await?;
+
+    let room = client.get_left_room(&room_id);
+    assert!(room.is_none());
+
+    let room = client.get_joined_room(&room_id);
+    assert!(room.is_some());
+
+    Ok(())
+}
+
+#[async_test]
+async fn test_virtual_user_client_join_room_by_id() -> Result<()> {
+    let appservice = appservice(None).await?;
+    let room_id = room_id!("!SVkFJHzfwvuaIEawgC:localhost");
+    let virtual_user_id = user_id!("@virtual_user:localhost");
+
+    let _m = mockito::mock("POST", Matcher::Regex(r"^/_matrix/client/r0/register\??$".to_owned()))
+        .with_body(serde_json::to_string(&json!(
+            {
+                "access_token": "abc123",
+                "device_id": "GHTYAJCE",
+                "user_id": "@virtual_user:localhost"
+            }
+        ))?)
+        .create();
+
+    let _m = mock(
+        "POST",
+        Matcher::Regex(format!(
+            r"^/_matrix/client/r0/rooms/{}/join\?user_id={}",
+            encode(&room_id.to_string()),
+            encode(&virtual_user_id.to_string())
+        )),
+    )
+    .with_status(200)
+    .with_body(json!({ "room_id": room_id }).to_string())
+    .match_header("authorization", "Bearer as_token")
+    .create();
+
+    let _m = mock(
+        "GET",
+        Matcher::Regex(format!(
+            r"^/_matrix/client/r0/rooms/{}/state\?user_id={}",
+            encode(&room_id.to_string()),
+            encode(&virtual_user_id.to_string())
+        )),
+    )
+    .with_status(200)
+    .match_header("authorization", "Bearer as_token")
+    .with_body(test_json::ROOM_STATE.to_string())
+    .create();
+
+    appservice.join_room_by_id(Some(virtual_user_id.localpart()), &room_id).await?;
+
+    Ok(())
+}
+
+#[async_test]
+async fn test_virtual_user_client_join_room_by_id_or_alias() -> Result<()> {
+    let appservice = appservice(None).await?;
+    let room_id = room_id!("!SVkFJHzfwvuaIEawgC:localhost");
+    let room_alias_id = RoomIdOrAliasId::try_from("#testroom:localhost")?;
+    let virtual_user_id = user_id!("@virtual_user:localhost");
+
+    let _m = mockito::mock("POST", Matcher::Regex(r"^/_matrix/client/r0/register\??$".to_owned()))
+        .with_body(serde_json::to_string(&json!(
+            {
+                "access_token": "abc123",
+                "device_id": "GHTYAJCE",
+                "user_id": "@virtual_user:localhost"
+            }
+        ))?)
+        .create();
+
+    let _m = mock(
+        "POST",
+        Matcher::Regex(format!(
+            r"^/_matrix/client/r0/join/{}\?&?user_id={}",
+            encode(&room_alias_id.to_string()),
+            encode(&virtual_user_id.to_string())
+        )),
+    )
+    .with_status(200)
+    .with_body(json!({ "room_id": room_id }).to_string())
+    .match_header("authorization", "Bearer as_token")
+    .create();
+
+    let _m = mock(
+        "GET",
+        Matcher::Regex(format!(
+            r"^/_matrix/client/r0/rooms/{}/state\?user_id={}",
+            encode(&room_id.to_string()),
+            encode(&virtual_user_id.to_string())
+        )),
+    )
+    .with_status(200)
+    .match_header("authorization", "Bearer as_token")
+    .with_body(test_json::ROOM_STATE.to_string())
+    .create();
+
+    appservice
+        .join_room_by_id_or_alias(Some(virtual_user_id.localpart()), &room_alias_id, &[])
+        .await?;
 
     Ok(())
 }

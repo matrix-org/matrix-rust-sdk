@@ -89,8 +89,6 @@ use dashmap::DashMap;
 pub use error::Error;
 use http::{uri::PathAndQuery, Uri};
 pub use matrix_sdk;
-#[doc(no_inline)]
-pub use matrix_sdk::ruma;
 use matrix_sdk::{
     bytes::Bytes, reqwest::Url, Client, ClientConfig, EventHandler, HttpError, Session,
 };
@@ -100,13 +98,22 @@ use ruma::{
         appservice::Registration,
         client::{
             error::ErrorKind,
-            r0::{account::register, uiaa::UiaaResponse},
+            r0::{
+                account::register,
+                membership::{self, join_room_by_id, join_room_by_id_or_alias},
+                state::get_state_events,
+                sync::sync_events,
+                uiaa::UiaaResponse,
+            },
         },
         error::{FromHttpResponseError, ServerError},
     },
-    assign, identifiers, DeviceId, ServerNameBox, UserId,
+    assign, identifiers,
+    serde::Raw,
+    DeviceId, RoomId, RoomIdOrAliasId, ServerName, ServerNameBox, UserId,
 };
-use tracing::{info, warn};
+use serde::Deserialize;
+use tracing::{error, info, trace, warn};
 
 mod error;
 mod webserver;
@@ -208,6 +215,10 @@ impl AppService {
     /// The default [`ClientConfig`] is used, if you want to customize it
     /// use [`Self::new_with_config()`] instead.
     ///
+    /// Note that all regular state, also for [`VirtualUser`]s, is stored into
+    /// the [`MainUser`]s state store, so if you want the state store
+    /// persisted you need to configure it with [`Self::new_with_config()`].
+    ///
     /// # Arguments
     ///
     /// * `homeserver_url` - The homeserver that the client should connect to.
@@ -266,9 +277,9 @@ impl AppService {
     /// by calling this method again or by calling [`Self::get_cached_client()`]
     /// which is non-async convenience wrapper.
     ///
-    /// Note that if you want to do actions like joining rooms with a virtual
-    /// user it needs to be registered first. `Self::register_virtual_user()`
-    /// can be used for that purpose.
+    /// Note that if you want to do actions with a virtual user client that
+    /// require the user to actually be registered with synapse you need to call
+    /// [`Self::register_virtual_user()`] first.
     ///
     /// # Arguments
     ///
@@ -340,12 +351,14 @@ impl AppService {
 
     /// Get cached [`Client`]
     ///
+    /// If no `localpart` is given it assumes the [`MainUser`]'s `localpart`
+    /// which is always available since it gets constructed as part of
+    /// [`Self::new()`].
+    ///
     /// Will return the client for the given `localpart` if previously
     /// constructed with [`Self::virtual_user_client()`] or
-    /// [`Self::virtual_user_client_with_config()`].
-    ///
-    /// If no `localpart` is given it assumes the [`MainUser`]'s `localpart`. If
-    /// no client for `localpart` is found it will return an Error.
+    /// [`Self::virtual_user_client_with_config()`]. If no client for
+    /// `localpart` is found it will return an Error.
     pub fn get_cached_client(&self, localpart: Option<&str>) -> Result<Client> {
         let localpart = localpart.unwrap_or_else(|| self.registration.sender_localpart.as_ref());
 
@@ -413,9 +426,105 @@ impl AppService {
         Ok(())
     }
 
-    /// Get the AppService [registration]
+    /// Join a room by [`RoomId`].
     ///
-    /// [registration]: https://matrix.org/docs/spec/application_service/r0.1.2#registration
+    /// If no `localpart` is given it joins the [`MainUser`], otherwise the
+    /// appropriate [`VirtualUser`].
+    ///
+    /// To be able to join a [`VirtualUser`] you need to create a client for it
+    /// first by calling [`Self::virtual_user_client()`] or
+    /// [`Self::virtual_user_client_with_config()`] since this method
+    /// calls [`Self::get_cached_client()`] internally.
+    ///
+    /// This method will
+    /// * If `localpart` is given
+    ///   * Check if a [`Client`] for the given `localpart` exists and if it
+    ///     doesn't create it by calling [`Self::virtual_user_client()`]. This
+    ///     will use the default [`ClientConfig`], so if you want that
+    ///     customized you must call [`Self::virtual_user_client_with_config()`]
+    ///     once manually beforehand.
+    ///   * Call [`Self::register_virtual_user()`] for the given `localpart` to
+    ///     make sure we can actually join the room with the virtual user.
+    /// * Sync initial state for the room before returning so that we have a
+    ///   consistent room state. If syncing state fails we return an `Error` and
+    ///   try to leave the room again.
+    /// * Return a [`join_room_by_id::Response`] consisting of the joined rooms
+    ///   `RoomId`.
+    pub async fn join_room_by_id(
+        &self,
+        localpart: Option<&str>,
+        room_id: &RoomId,
+    ) -> Result<join_room_by_id::Response> {
+        let client = self.join_client(localpart).await?;
+
+        let join_response = client.join_room_by_id(room_id).await?;
+
+        self.join_room_state(&client, &join_response.room_id).await.map(|_| join_response)
+    }
+
+    /// Join a room by [`RoomIdOrAliasId`].
+    ///
+    /// Same as [`Self::join_room_by_id`] but lets you provide
+    /// [`RoomIdOrAliasId`] instead of just [`RoomId`].
+    pub async fn join_room_by_id_or_alias(
+        &self,
+        localpart: Option<&str>,
+        alias: &RoomIdOrAliasId,
+        server_names: &[Box<ServerName>],
+    ) -> Result<join_room_by_id_or_alias::Response> {
+        let client = self.join_client(localpart).await?;
+
+        let join_response = client.join_room_by_id_or_alias(alias, server_names).await?;
+
+        self.join_room_state(&client, &join_response.room_id).await.map(|_| join_response)
+    }
+
+    async fn join_client(&self, localpart: Option<&str>) -> Result<Client> {
+        let client = match localpart {
+            Some(localpart) => {
+                let client = match self.get_cached_client(Some(localpart)) {
+                    Ok(client) => client,
+                    Err(_) => self.virtual_user_client(localpart).await?,
+                };
+                self.register_virtual_user(localpart).await?;
+                client
+            }
+            None => self.get_cached_client(None)?,
+        };
+
+        Ok(client)
+    }
+
+    async fn join_room_state(&self, client: &Client, room_id: &RoomId) -> Result<()> {
+        if let Err(error) = self.update_state_for_room(&client, room_id).await {
+            error!(
+                "Syncing state for joined room {} failed, leaving room again: {}",
+                room_id, error
+            );
+
+            let leave_request = membership::leave_room::Request::new(room_id);
+            client.send(leave_request, None).await?;
+
+            Err(error)
+        } else {
+            Ok(())
+        }
+    }
+
+    async fn update_state_for_room(&self, client: &Client, room_id: &RoomId) -> Result<()> {
+        let state_request = get_state_events::Request::new(room_id);
+        let state_response = client.send(state_request, None).await?;
+
+        let sync_response = try_state_into_sync_response(state_response)?;
+
+        trace!("Updating state with sync_response: {:?}", &sync_response);
+
+        client.receive_sync_response(sync_response).await?;
+
+        Ok(())
+    }
+
+    /// Get the [`AppServiceRegistration`]
     pub fn registration(&self) -> &AppServiceRegistration {
         &self.registration
     }
@@ -475,8 +584,8 @@ impl AppService {
     /// Convenience method that runs an http server depending on the selected
     /// server feature
     ///
-    /// This is a blocking call that tries to listen on the provided host and
-    /// port
+    /// This is a forever running call that tries to listen on the provided host
+    /// and port
     pub async fn run(&self, host: impl Into<String>, port: impl Into<u16>) -> Result<()> {
         let host = host.into();
         let port = port.into();
@@ -523,4 +632,31 @@ pub(crate) fn transform_legacy_route(
     }
 
     Ok(request)
+}
+
+/// Convert state response into sync reponse
+// TODO: Consider Ruma PR
+fn try_state_into_sync_response(
+    state_response: get_state_events::Response,
+) -> serde_json::Result<sync_events::Response> {
+    #[derive(Debug, Deserialize)]
+    struct EventDeHelper {
+        room_id: Option<RoomId>,
+    }
+
+    let mut response = sync_events::Response::new("batch".to_owned());
+
+    for raw_event in state_response.room_state {
+        let helper = raw_event.deserialize_as::<EventDeHelper>()?;
+        let event_json = Raw::into_json(raw_event);
+
+        if let Some(room_id) = helper.room_id {
+            let join = response.rooms.join.entry(room_id).or_default();
+            join.state.events.push(Raw::from_json(event_json));
+        } else {
+            warn!("Event without room_id: {}", event_json);
+        }
+    }
+
+    Ok(response)
 }

@@ -40,6 +40,7 @@ env_logger = "0.8"
 mockito = "0.30"
 tokio = { version = "1", default-features = false, features = ["rt-multi-thread", "macros"] }
 tracing-subscriber = "0.2"
+urlencoding = "1"
 
 matrix-sdk-test = { version = "0.3", path = "../matrix_sdk_test", features = ["appservice"] }
 

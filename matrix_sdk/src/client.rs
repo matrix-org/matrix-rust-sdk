@@ -647,6 +647,9 @@ impl Client {
 
     /// Process a [transaction] received from the homeserver
     ///
+    /// This is low-level functionality, only use if you know what you're doing
+    /// as it might corrupt your state or crypto store.
+    ///
     /// # Arguments
     ///
     /// * `incoming_transaction` - The incoming transaction received from the
@@ -663,6 +666,27 @@ impl Client {
         let response = incoming_transaction.try_into_sync_response(txn_id)?;
         let base_client = self.base_client.clone();
         let sync_response = base_client.receive_sync_response(response).await?;
+
+        if let Some(handler) = self.event_handler.read().await.as_ref() {
+            handler.handle_sync(&sync_response).await;
+        }
+
+        Ok(())
+    }
+
+    /// Process a `sync_response`
+    ///
+    /// This is low-level functionality, only use if you know what you're doing
+    /// as it might corrupt your state or crypto store.
+    ///
+    /// # Arguments
+    ///
+    /// * `sync_response` - The sync response received from the homeserver.
+    #[cfg(feature = "appservice")]
+    #[cfg_attr(feature = "docs", doc(cfg(appservice)))]
+    pub async fn receive_sync_response(&self, sync_response: sync_events::Response) -> Result<()> {
+        let base_client = self.base_client.clone();
+        let sync_response = base_client.receive_sync_response(sync_response).await?;
 
         if let Some(handler) = self.event_handler.read().await.as_ref() {
             handler.handle_sync(&sync_response).await;

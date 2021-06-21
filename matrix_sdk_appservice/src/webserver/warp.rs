@@ -152,6 +152,8 @@ mod filters {
 }
 
 mod handlers {
+    use tracing::trace;
+
     use super::*;
 
     pub async fn user(
@@ -177,6 +179,8 @@ mod handlers {
     ) -> StdResult<impl warp::Reply, Rejection> {
         let incoming_transaction: ruma::api::appservice::event::push_events::v1::IncomingRequest =
             ruma::api::IncomingRequest::try_from_http_request(request).map_err(Error::from)?;
+
+        trace!("incoming_transaction: {:?}", &incoming_transaction);
 
         let client = appservice.get_cached_client(None)?;
         client.receive_transaction(incoming_transaction).map_err(Error::from).await?;
