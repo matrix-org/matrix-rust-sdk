@@ -184,10 +184,10 @@ impl Common {
 
     fn are_events_visible(&self) -> bool {
         if let RoomType::Invited = self.inner.room_type() {
-            return match self.inner.history_visibility() {
-                HistoryVisibility::WorldReadable | HistoryVisibility::Invited => true,
-                _ => false,
-            };
+            return matches!(
+                self.inner.history_visibility(),
+                HistoryVisibility::WorldReadable | HistoryVisibility::Invited
+            );
         }
 
         true
