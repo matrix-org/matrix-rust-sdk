@@ -13,12 +13,19 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#[cfg(feature = "encryption")]
+use std::io::{Cursor, Write};
 #[cfg(all(feature = "encryption", not(target_arch = "wasm32")))]
 use std::path::PathBuf;
-#[cfg(feature = "encryption")]
 use std::{
     collections::BTreeMap,
-    io::{Cursor, Write},
+    fmt::{self, Debug},
+    future::Future,
+    io::Read,
+    path::Path,
+    pin::Pin,
+    result::Result as StdResult,
+    sync::Arc,
 };
 #[cfg(feature = "sso_login")]
 use std::{
@@ -26,16 +33,9 @@ use std::{
     io::{Error as IoError, ErrorKind as IoErrorKind},
     ops::Range,
 };
-use std::{
-    fmt::{self, Debug},
-    future::Future,
-    io::Read,
-    path::Path,
-    result::Result as StdResult,
-    sync::Arc,
-};
 
 use dashmap::DashMap;
+use futures::FutureExt;
 use futures_timer::Delay as sleep;
 use http::HeaderValue;
 #[cfg(feature = "sso_login")]
@@ -50,7 +50,7 @@ use matrix_sdk_base::crypto::{
 #[cfg(feature = "encryption")]
 use matrix_sdk_base::deserialized_responses::RoomEvent;
 use matrix_sdk_base::{
-    deserialized_responses::SyncResponse,
+    deserialized_responses::{JoinedRoom, LeftRoom, SyncResponse},
     media::{MediaEventContent, MediaFormat, MediaRequest, MediaThumbnailSize, MediaType},
     BaseClient, BaseClientConfig, Session, Store,
 };
@@ -60,14 +60,19 @@ use rand::{thread_rng, Rng};
 use reqwest::header::InvalidHeaderValue;
 #[cfg(feature = "encryption")]
 use ruma::events::{AnyMessageEvent, AnyRoomEvent, AnySyncMessageEvent};
-use ruma::{api::SendAccessToken, events::AnyMessageEventContent, MxcUri};
+use ruma::{
+    api::{client::r0::push::get_notifications::Notification, SendAccessToken},
+    events::AnyMessageEventContent,
+    MxcUri,
+};
+use serde::de::DeserializeOwned;
 #[cfg(feature = "sso_login")]
 use tokio::{net::TcpListener, sync::oneshot};
 #[cfg(feature = "sso_login")]
 use tokio_stream::wrappers::TcpListenerStream;
 #[cfg(feature = "encryption")]
-use tracing::{debug, warn};
-use tracing::{error, info, instrument};
+use tracing::debug;
+use tracing::{error, info, instrument, warn};
 use url::Url;
 #[cfg(feature = "sso_login")]
 use warp::Filter;
@@ -138,9 +143,9 @@ use crate::{
 };
 use crate::{
     error::HttpError,
-    event_handler::Handler,
+    event_handler::{EventHandler, EventHandlerData, EventHandlerResult, EventKind, SyncEvent},
     http_client::{client_with_config, HttpClient, HttpSend},
-    room, Error, EventHandler, Result,
+    room, Error, Result,
 };
 
 const DEFAULT_REQUEST_TIMEOUT: Duration = Duration::from_secs(10);
@@ -155,6 +160,14 @@ const SSO_SERVER_BIND_RANGE: Range<u16> = 20000..30000;
 /// The number of times the SSO server will try to bind to a random port
 #[cfg(feature = "sso_login")]
 const SSO_SERVER_BIND_TRIES: u8 = 10;
+
+type EventHandlerFut = Pin<Box<dyn Future<Output = ()> + Send>>;
+type EventHandlerFn = Box<dyn Fn(EventHandlerData<'_>) -> EventHandlerFut + Send + Sync>;
+type EventHandlerMap = BTreeMap<(EventKind, &'static str), Vec<EventHandlerFn>>;
+
+type NotificationHandlerFut = EventHandlerFut;
+type NotificationHandlerFn =
+    Box<dyn Fn(Notification, room::Room, Client) -> NotificationHandlerFut + Send + Sync>;
 
 /// An async/await enabled Matrix client.
 ///
@@ -176,9 +189,10 @@ pub struct Client {
     key_claim_lock: Arc<Mutex<()>>,
     pub(crate) members_request_locks: Arc<DashMap<RoomId, Arc<Mutex<()>>>>,
     pub(crate) typing_notice_times: Arc<DashMap<RoomId, Instant>>,
-    /// Any implementor of EventHandler will act as the callbacks for various
-    /// events.
-    event_handler: Arc<RwLock<Option<Handler>>>,
+    /// Event handlers. See `register_event_handler`.
+    pub(crate) event_handlers: Arc<RwLock<EventHandlerMap>>,
+    /// Notification handlers. See `register_notification_handler`.
+    notification_handlers: Arc<RwLock<Vec<NotificationHandlerFn>>>,
     /// Whether the client should operate in application service style mode.
     /// This is low-level functionality. For an high-level API check the
     /// `matrix_sdk_appservice` crate.
@@ -562,7 +576,8 @@ impl Client {
             key_claim_lock: Arc::new(Mutex::new(())),
             members_request_locks: Arc::new(DashMap::new()),
             typing_notice_times: Arc::new(DashMap::new()),
-            event_handler: Arc::new(RwLock::new(None)),
+            event_handlers: Arc::new(RwLock::new(BTreeMap::new())),
+            notification_handlers: Arc::new(RwLock::new(Vec::new())),
             appservice_mode: config.appservice_mode,
         })
     }
@@ -666,12 +681,7 @@ impl Client {
     ) -> Result<()> {
         let txn_id = incoming_transaction.txn_id.clone();
         let response = incoming_transaction.try_into_sync_response(txn_id)?;
-        let base_client = self.base_client.clone();
-        let sync_response = base_client.receive_sync_response(response).await?;
-
-        if let Some(handler) = self.event_handler.read().await.as_ref() {
-            handler.handle_sync(&sync_response).await;
-        }
+        self.process_sync(response).await?;
 
         Ok(())
     }
@@ -867,13 +877,76 @@ impl Client {
         Ok(())
     }
 
-    /// Add `EventHandler` to `Client`.
+    /// Register a handler for a specific event type.
     ///
-    /// The methods of `EventHandler` are called when the respective
-    /// `RoomEvents` occur.
-    pub async fn set_event_handler(&self, handler: Box<dyn EventHandler>) {
-        let handler = Handler { inner: handler, client: self.clone() };
-        *self.event_handler.write().await = Some(handler);
+    /// The handler is a function or closue with one or more arguments. The
+    /// first argument is the event itself. All additional arguments are
+    /// "context" arguments: They have to implement [`EventHandlerContext`][].
+    /// This trait is named that way because most of the types implementing it
+    /// give additional context about an event: The room it was in, its raw form
+    /// and other similar things. As an exception to this,
+    /// [`matrix_sdk::Client`] also implements the `EventHandlerContext` trait
+    /// so you don't have to clone your client into the event handler manually.
+    ///
+    /// Invalid context arguments, for example a [`Room`][room::Room] as an
+    /// argument to an account data event handler, will result in the event
+    /// handler being skipped and an error logged.
+    ///
+    /// [`EventHandlerContext`]: crate::event_handler::EventHandlerContext
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// # let client: matrix_sdk::Client = unimplemented!();
+    /// use matrix_sdk::{
+    ///     room::Room,
+    ///     ruma::events::{
+    ///         push_rules::PushRulesEvent,
+    ///         room::{message::MessageEventContent, topic::TopicEventContent},
+    ///         SyncMessageEvent, SyncStateEvent,
+    ///     },
+    ///     Client,
+    /// };
+    ///
+    /// client.register_event_handler(
+    ///     |msg: SyncMessageEvent<MessageEventContent>, room: Room, client: Client| async move {
+    ///         // Common usage: Room event plus room and client.
+    ///     },
+    /// );
+    /// client.register_event_handler(|ev: SyncStateEvent<TopicEventContent>| async move {
+    ///     // Also possible: Omit any or all arguments after the first.
+    /// });
+    /// ```
+    pub async fn register_event_handler<Ev, Ctx, H>(&self, handler: H)
+    where
+        Ev: SyncEvent + DeserializeOwned + Send + 'static,
+        H: EventHandler<Ev, Ctx>,
+        <H::Future as Future>::Output: EventHandlerResult,
+    {
+        let event_type = H::ID.1;
+        self.event_handlers.write().await.entry(H::ID).or_default().push(Box::new(move |data| {
+            let maybe_fut = serde_json::from_str(data.raw.get())
+                .map(|ev| handler.clone().handle_event(ev, data));
+
+            async move {
+                match maybe_fut {
+                    Ok(Some(fut)) => {
+                        fut.await.print_error(event_type);
+                    }
+                    Ok(None) => {
+                        error!("Event handler for {} has an invalid context argument", event_type);
+                    }
+                    Err(e) => {
+                        warn!(
+                            "Failed to deserialize `{}` event, skipping event handler.\n\
+                                 Deserialization error: {}",
+                            event_type, e,
+                        );
+                    }
+                }
+            }
+            .boxed()
+        }));
     }
 
     /// Get all the rooms the client knows about.
@@ -1957,13 +2030,87 @@ impl Client {
         );
 
         let response = self.send(request, Some(request_config)).await?;
-        let sync_response = self.base_client.receive_sync_response(response).await?;
+        self.process_sync(response).await
+    }
 
-        if let Some(handler) = self.event_handler.read().await.as_ref() {
-            handler.handle_sync(&sync_response).await;
+    async fn process_sync(&self, response: sync_events::Response) -> Result<SyncResponse> {
+        let response = self.base_client.receive_sync_response(response).await?;
+        let SyncResponse {
+            next_batch: _,
+            rooms,
+            presence,
+            account_data,
+            to_device: _,
+            device_lists: _,
+            device_one_time_keys_count: _,
+            ambiguity_changes: _,
+            notifications,
+        } = &response;
+
+        self.handle_sync_events(EventKind::GlobalAccountData, &None, &account_data.events).await?;
+        self.handle_sync_events(EventKind::Presence, &None, &presence.events).await?;
+
+        for (room_id, room_info) in &rooms.join {
+            let room = self.get_room(room_id);
+            if room.is_none() {
+                // raise warning?
+                continue;
+            }
+
+            let JoinedRoom { unread_notifications: _, timeline, state, account_data, ephemeral } =
+                room_info;
+
+            self.handle_sync_events(EventKind::EphemeralRoomData, &room, &ephemeral.events).await?;
+            self.handle_sync_events(EventKind::RoomAccountData, &room, &account_data.events)
+                .await?;
+            self.handle_sync_state_events(&room, &state.events).await?;
+            self.handle_sync_timeline_events(&room, &timeline.events).await?;
         }
 
-        Ok(sync_response)
+        for (room_id, room_info) in &rooms.leave {
+            let room = self.get_room(room_id);
+            if room.is_none() {
+                // raise warning?
+                continue;
+            }
+
+            let LeftRoom { timeline, state, account_data } = room_info;
+
+            self.handle_sync_events(EventKind::RoomAccountData, &room, &account_data.events)
+                .await?;
+            self.handle_sync_state_events(&room, &state.events).await?;
+            self.handle_sync_timeline_events(&room, &timeline.events).await?;
+        }
+
+        for (room_id, room_info) in &rooms.invite {
+            let room = self.get_room(room_id);
+            if room.is_none() {
+                // raise warning?
+                continue;
+            }
+
+            // FIXME: Destructure room_info
+            self.handle_sync_events(EventKind::InitialState, &room, &room_info.invite_state.events)
+                .await?;
+        }
+
+        for handler in &*self.notification_handlers.read().await {
+            for (room_id, room_notifications) in notifications {
+                let room = match self.get_room(room_id) {
+                    Some(room) => room,
+                    None => {
+                        // raise warning?
+                        continue;
+                    }
+                };
+
+                for notification in room_notifications {
+                    (handler)(notification.clone(), room.clone(), self.clone()).await;
+                }
+            }
+        }
+
+        Ok(response)
     }
 
     /// Repeatedly call sync to synchronize the client state with the server.

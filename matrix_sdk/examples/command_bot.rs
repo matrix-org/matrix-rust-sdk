@@ -1,55 +1,43 @@
 use std::{env, process::exit};
 
 use matrix_sdk::{
-    async_trait,
     room::Room,
     ruma::events::{
         room::message::{MessageEventContent, MessageType, TextMessageEventContent},
         AnyMessageEventContent, SyncMessageEvent,
     },
-    Client, ClientConfig, EventHandler, SyncSettings,
+    Client, ClientConfig, SyncSettings,
 };
 use url::Url;
 
-struct CommandBot;
+async fn on_room_message(event: SyncMessageEvent<MessageEventContent>, room: Room) {
+    if let Room::Joined(room) = room {
+        let msg_body = if let SyncMessageEvent {
+            content:
+                MessageEventContent {
+                    msgtype: MessageType::Text(TextMessageEventContent { body: msg_body, .. }),
+                    ..
+                },
+            ..
+        } = event
+        {
+            msg_body
+        } else {
+            return;
+        };
 
-impl CommandBot {
-    pub fn new() -> Self {
-        Self {}
-    }
-}
+        if msg_body.contains("!party") {
+            let content = AnyMessageEventContent::RoomMessage(MessageEventContent::text_plain(
+                "🎉🎊🥳 let's PARTY!! 🥳🎊🎉",
+            ));
 
-#[async_trait]
-impl EventHandler for CommandBot {
-    async fn on_room_message(&self, room: Room, event: &SyncMessageEvent<MessageEventContent>) {
-        if let Room::Joined(room) = room {
-            let msg_body = if let SyncMessageEvent {
-                content:
-                    MessageEventContent {
-                        msgtype: MessageType::Text(TextMessageEventContent { body: msg_body, .. }),
-                        ..
-                    },
-                ..
-            } = event
-            {
-                msg_body
-            } else {
-                return;
-            };
+            println!("sending");
 
-            if msg_body.contains("!party") {
-                let content = AnyMessageEventContent::RoomMessage(MessageEventContent::text_plain(
-                    "🎉🎊🥳 let's PARTY!! 🥳🎊🎉",
-                ));
+            // send our message to the room we found the "!party" command in
+            // the last parameter is an optional Uuid which we don't care about.
+            room.send(content, None).await.unwrap();
 
-                println!("sending");
-
-                // send our message to the room we found the "!party" command in
-                // the last parameter is an optional Uuid which we don't care about.
-                room.send(content, None).await.unwrap();
-
-                println!("message sent");
-            }
+            println!("message sent");
         }
     }
 }
@@ -79,7 +67,7 @@ async fn login_and_sync(
     client.sync_once(SyncSettings::default()).await.unwrap();
     // add our CommandBot to be notified of incoming messages, we do this after the
     // initial sync to avoid responding to messages before the bot was running.
-    client.set_event_handler(Box::new(CommandBot::new())).await;
+    client.register_event_handler(on_room_message).await;
 
     // since we called `sync_once` before we entered our sync loop we must pass
     // that sync token to `sync`
