@@ -8,7 +8,7 @@ license = "Apache-2.0"
 name = "matrix-sdk-crypto"
 readme = "README.md"
 repository = "https://github.com/matrix-org/matrix-rust-sdk"
-version = "0.2.0"
+version = "0.3.0"
 
 [package.metadata.docs.rs]
 features = ["docs"]
@@ -21,7 +21,7 @@ docs = ["sled_cryptostore"]
 
 [dependencies]
 matrix-qrcode = { version = "0.1.0", path = "../matrix_qrcode" }
-matrix-sdk-common = { version = "0.2.0", path = "../matrix_sdk_common" }
+matrix-sdk-common = { version = "0.3.0", path = "../matrix_sdk_common" }
 ruma = { version = "0.2.0", features = ["client-api-c", "unstable-pre-spec"] }
 
 olm-rs = { version = "1.0.1", features = ["serde"] }
@@ -51,7 +51,7 @@ proptest = "1.0.0"
 serde_json = "1.0.64"
 tempfile = "3.2.0"
 http = "0.2.4"
-matrix-sdk-test = { version = "0.2.0", path = "../matrix_sdk_test" }
+matrix-sdk-test = { version = "0.3.0", path = "../matrix_sdk_test" }
 indoc = "1.0.3"
 criterion = { version = "0.3.4", features = ["async", "async_tokio", "html_reports"] }
 

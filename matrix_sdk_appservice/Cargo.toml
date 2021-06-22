@@ -29,7 +29,7 @@ tracing = "0.1"
 url = "2"
 warp = { git = "https://github.com/seanmonstar/warp.git", rev = "629405", optional = true, default-features = false }
 
-matrix-sdk = { version = "0.2", path = "../matrix_sdk", default-features = false, features = ["appservice", "native-tls"] }
+matrix-sdk = { version = "0.3", path = "../matrix_sdk", default-features = false, features = ["appservice", "native-tls"] }
 
 [dependencies.ruma]
 version = "0.2.0"
@@ -41,7 +41,7 @@ mockito = "0.30"
 tokio = { version = "1", default-features = false, features = ["rt-multi-thread", "macros"] }
 tracing-subscriber = "0.2"
 
-matrix-sdk-test = { version = "0.2", path = "../matrix_sdk_test", features = ["appservice"] }
+matrix-sdk-test = { version = "0.3", path = "../matrix_sdk_test", features = ["appservice"] }
 
 [[example]]
 name = "appservice_autojoin"
