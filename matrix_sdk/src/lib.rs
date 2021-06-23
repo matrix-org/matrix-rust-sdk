@@ -80,8 +80,8 @@ pub use bytes;
 #[cfg_attr(feature = "docs", doc(cfg(encryption)))]
 pub use matrix_sdk_base::crypto::{EncryptionInfo, LocalTrust};
 pub use matrix_sdk_base::{
-    media, Error as BaseError, Room as BaseRoom, RoomInfo, RoomMember as BaseRoomMember, RoomType,
-    Session, StateChanges, StoreError,
+    media, Room as BaseRoom, RoomInfo, RoomMember as BaseRoomMember, RoomType, Session,
+    StateChanges, StoreError,
 };
 pub use matrix_sdk_common::*;
 pub use reqwest;
