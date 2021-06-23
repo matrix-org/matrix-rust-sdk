@@ -18,8 +18,8 @@ use std::io::Error as IoError;
 
 use http::StatusCode;
 #[cfg(feature = "encryption")]
-use matrix_sdk_base::crypto::{store::CryptoStoreError, DecryptorError};
-use matrix_sdk_base::{Error as MatrixError, StoreError};
+use matrix_sdk_base::crypto::{CryptoStoreError, DecryptorError, MegolmError, OlmError};
+use matrix_sdk_base::{Error as SdkBaseError, StoreError};
 use reqwest::Error as ReqwestError;
 use ruma::{
     api::{
@@ -114,15 +114,23 @@ pub enum Error {
     #[error(transparent)]
     Io(#[from] IoError),
 
-    /// An error occurred in the Matrix client library.
-    #[error(transparent)]
-    MatrixError(#[from] MatrixError),
-
     /// An error occurred in the crypto store.
     #[cfg(feature = "encryption")]
     #[cfg_attr(feature = "docs", doc(cfg(encryption)))]
     #[error(transparent)]
     CryptoStoreError(#[from] CryptoStoreError),
+
+    /// An error occurred during a E2EE operation.
+    #[cfg(feature = "encryption")]
+    #[cfg_attr(feature = "docs", doc(cfg(encryption)))]
+    #[error(transparent)]
+    OlmError(#[from] OlmError),
+
+    /// An error occurred during a E2EE group operation.
+    #[cfg(feature = "encryption")]
+    #[cfg_attr(feature = "docs", doc(cfg(encryption)))]
+    #[error(transparent)]
+    MegolmError(#[from] MegolmError),
 
     /// An error occurred during decryption.
     #[cfg(feature = "encryption")]
@@ -163,6 +171,23 @@ impl Error {
             Some(i)
         } else {
             None
+        }
+    }
+}
+
+impl From<SdkBaseError> for Error {
+    fn from(e: SdkBaseError) -> Self {
+        match e {
+            SdkBaseError::AuthenticationRequired => Self::AuthenticationRequired,
+            SdkBaseError::StateStore(e) => Self::StateStore(e),
+            SdkBaseError::SerdeJson(e) => Self::SerdeJson(e),
+            SdkBaseError::IoError(e) => Self::Io(e),
+            #[cfg(feature = "encryption")]
+            SdkBaseError::CryptoStore(e) => Self::CryptoStoreError(e),
+            #[cfg(feature = "encryption")]
+            SdkBaseError::OlmError(e) => Self::OlmError(e),
+            #[cfg(feature = "encryption")]
+            SdkBaseError::MegolmError(e) => Self::MegolmError(e),
         }
     }
 }
