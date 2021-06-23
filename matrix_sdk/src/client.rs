@@ -13,11 +13,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#[cfg(all(feature = "encryption", not(target_arch = "wasm32")))]
+use std::path::PathBuf;
 #[cfg(feature = "encryption")]
 use std::{
     collections::BTreeMap,
     io::{Cursor, Write},
-    path::PathBuf,
 };
 #[cfg(feature = "sso_login")]
 use std::{
@@ -39,10 +40,12 @@ use futures_timer::Delay as sleep;
 use http::HeaderValue;
 #[cfg(feature = "sso_login")]
 use http::Response;
+#[cfg(all(feature = "encryption", not(target_arch = "wasm32")))]
+use matrix_sdk_base::crypto::{decrypt_key_export, encrypt_key_export, olm::InboundGroupSession};
 #[cfg(feature = "encryption")]
 use matrix_sdk_base::crypto::{
-    decrypt_key_export, encrypt_key_export, olm::InboundGroupSession, store::CryptoStoreError,
-    AttachmentDecryptor, OutgoingRequests, RoomMessageRequest, ToDeviceRequest,
+    store::CryptoStoreError, AttachmentDecryptor, OutgoingRequests, RoomMessageRequest,
+    ToDeviceRequest,
 };
 use matrix_sdk_base::{
     deserialized_responses::SyncResponse,
@@ -64,7 +67,7 @@ use tracing::{error, info, instrument};
 use url::Url;
 #[cfg(feature = "sso_login")]
 use warp::Filter;
-#[cfg(feature = "encryption")]
+#[cfg(all(feature = "encryption", not(target_arch = "wasm32")))]
 use zeroize::Zeroizing;
 
 /// Enum controlling if a loop running callbacks should continue or abort.
@@ -2427,8 +2430,7 @@ impl Client {
     ///     .expect("Can't export keys.");
     /// # });
     /// ```
-    #[cfg(feature = "encryption")]
-    #[cfg(not(target_arch = "wasm32"))]
+    #[cfg(all(feature = "encryption", not(target_arch = "wasm32")))]
     #[cfg_attr(feature = "docs", doc(cfg(all(encryption, not(target_arch = "wasm32")))))]
     pub async fn export_keys(
         &self,
@@ -2487,8 +2489,7 @@ impl Client {
     ///     .expect("Can't import keys");
     /// # });
     /// ```
-    #[cfg(feature = "encryption")]
-    #[cfg(not(target_arch = "wasm32"))]
+    #[cfg(all(feature = "encryption", not(target_arch = "wasm32")))]
     #[cfg_attr(feature = "docs", doc(cfg(all(encryption, not(target_arch = "wasm32")))))]
     pub async fn import_keys(&self, path: PathBuf, passphrase: &str) -> Result<(usize, usize)> {
         let olm = self.base_client.olm_machine().await.ok_or(Error::AuthenticationRequired)?;

@@ -16,7 +16,7 @@ use std::{convert::TryFrom, sync::Arc};
 
 use dashmap::DashMap;
 use matrix_sdk_common::{locks::Mutex, uuid::Uuid};
-use ruma::{uint, DeviceId, MilliSecondsSinceUnixEpoch, UInt, UserId};
+use ruma::{DeviceId, MilliSecondsSinceUnixEpoch, UserId};
 use tracing::{info, trace, warn};
 
 use super::{
@@ -123,6 +123,8 @@ impl VerificationMachine {
 
     #[cfg(not(target_arch = "wasm32"))]
     fn is_timestamp_valid(timestamp: &MilliSecondsSinceUnixEpoch) -> bool {
+        use ruma::{uint, UInt};
+
         // The event should be ignored if the event is older than 10 minutes
         let old_timestamp_threshold: UInt = uint!(600);
         // The event should be ignored if the event is 5 minutes or more into the
