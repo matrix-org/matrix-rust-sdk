@@ -1,9 +1,7 @@
 use std::{convert::TryFrom, env, process::exit};
 
 use matrix_sdk::{
-    self,
-    api::r0::profile,
-    identifiers::{MxcUri, UserId},
+    ruma::{api::client::r0::profile, MxcUri, UserId},
     Client, Result as MatrixResult,
 };
 use url::Url;

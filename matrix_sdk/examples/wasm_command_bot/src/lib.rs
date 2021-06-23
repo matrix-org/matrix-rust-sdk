@@ -1,10 +1,12 @@
 use matrix_sdk::{
     deserialized_responses::SyncResponse,
-    events::{
-        room::message::{MessageEventContent, MessageType, TextMessageEventContent},
-        AnyMessageEventContent, AnySyncMessageEvent, AnySyncRoomEvent, SyncMessageEvent,
+    ruma::{
+        events::{
+            room::message::{MessageEventContent, MessageType, TextMessageEventContent},
+            AnyMessageEventContent, AnySyncMessageEvent, AnySyncRoomEvent, SyncMessageEvent,
+        },
+        RoomId,
     },
-    identifiers::RoomId,
     Client, LoopCtrl, SyncSettings,
 };
 use url::Url;

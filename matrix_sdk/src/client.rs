@@ -571,7 +571,7 @@ impl Client {
     /// # Example
     /// ```no_run
     /// # use std::convert::TryFrom;
-    /// # use matrix_sdk::{Client, identifiers::UserId};
+    /// # use matrix_sdk::{Client, ruma::UserId};
     /// # use futures::executor::block_on;
     /// let alice = UserId::try_from("@alice:example.org").unwrap();
     /// # block_on(async {
@@ -792,7 +792,7 @@ impl Client {
     /// ```no_run
     /// # use futures::executor::block_on;
     /// # use matrix_sdk::Client;
-    /// # use matrix_sdk::identifiers::room_id;
+    /// # use matrix_sdk::ruma::room_id;
     /// # use matrix_sdk::media::MediaFormat;
     /// # use url::Url;
     /// # let homeserver = Url::parse("http://example.com").unwrap();
@@ -1001,8 +1001,7 @@ impl Client {
     /// ```no_run
     /// # use std::convert::TryFrom;
     /// # use matrix_sdk::Client;
-    /// # use matrix_sdk::identifiers::DeviceId;
-    /// # use matrix_sdk::assign;
+    /// # use matrix_sdk::ruma::{assign, DeviceId};
     /// # use futures::executor::block_on;
     /// # use url::Url;
     /// # let homeserver = Url::parse("http://example.com").unwrap();
@@ -1260,8 +1259,7 @@ impl Client {
     /// ```no_run
     /// # use std::convert::TryFrom;
     /// # use matrix_sdk::Client;
-    /// # use matrix_sdk::identifiers::DeviceId;
-    /// # use matrix_sdk::assign;
+    /// # use matrix_sdk::ruma::{assign, DeviceId};
     /// # use futures::executor::block_on;
     /// # use url::Url;
     /// # let homeserver = Url::parse("https://example.com").unwrap();
@@ -1340,10 +1338,13 @@ impl Client {
     /// ```no_run
     /// # use std::convert::TryFrom;
     /// # use matrix_sdk::Client;
-    /// # use matrix_sdk::api::r0::account::register::{Request as RegistrationRequest, RegistrationKind};
-    /// # use matrix_sdk::api::r0::uiaa::AuthData;
-    /// # use matrix_sdk::identifiers::DeviceId;
-    /// # use matrix_sdk::assign;
+    /// # use matrix_sdk::ruma::{
+    /// #     api::client::r0::{
+    /// #         account::register::{Request as RegistrationRequest, RegistrationKind},
+    /// #         uiaa::AuthData,
+    /// #     },
+    /// #     assign, DeviceId,
+    /// # };
     /// # use futures::executor::block_on;
     /// # use url::Url;
     /// # let homeserver = Url::parse("http://example.com").unwrap();
@@ -1393,7 +1394,7 @@ impl Client {
     /// ```no_run
     /// # use matrix_sdk::{
     /// #    Client, SyncSettings,
-    /// #    api::r0::{
+    /// #    ruma::api::client::r0::{
     /// #        filter::{
     /// #           FilterDefinition, LazyLoadOptions, RoomEventFilter, RoomFilter,
     /// #        },
@@ -1537,7 +1538,10 @@ impl Client {
     /// # Examples
     /// ```no_run
     /// use matrix_sdk::Client;
-    /// # use matrix_sdk::api::r0::room::{create_room::Request as CreateRoomRequest, Visibility};
+    /// # use matrix_sdk::ruma::api::client::r0::room::{
+    /// #     create_room::Request as CreateRoomRequest,
+    /// #     Visibility,
+    /// # };
     /// # use url::Url;
     ///
     /// # let homeserver = Url::parse("http://example.com").unwrap();
@@ -1570,9 +1574,11 @@ impl Client {
     /// ```no_run
     /// # use std::convert::TryFrom;
     /// # use matrix_sdk::Client;
-    /// # use matrix_sdk::directory::{Filter, RoomNetwork};
-    /// # use matrix_sdk::api::r0::directory::get_public_rooms_filtered::Request as PublicRoomsFilterRequest;
-    /// # use matrix_sdk::assign;
+    /// # use matrix_sdk::ruma::{
+    /// #     api::client::r0::directory::get_public_rooms_filtered::Request as PublicRoomsFilterRequest,
+    /// #     directory::{Filter, RoomNetwork},
+    /// #     assign,
+    /// # };
     /// # use url::Url;
     /// # use futures::executor::block_on;
     /// # let homeserver = Url::parse("http://example.com").unwrap();
@@ -1623,7 +1629,7 @@ impl Client {
     ///
     /// ```no_run
     /// # use std::{path::PathBuf, fs::File, io::Read};
-    /// # use matrix_sdk::{Client, identifiers::room_id};
+    /// # use matrix_sdk::{Client, ruma::room_id};
     /// # use url::Url;
     /// # use futures::executor::block_on;
     /// # use mime;
@@ -1690,9 +1696,9 @@ impl Client {
     /// # use matrix_sdk::{Client, SyncSettings};
     /// # use url::Url;
     /// # use futures::executor::block_on;
-    /// # use matrix_sdk::identifiers::room_id;
+    /// # use matrix_sdk::ruma::room_id;
     /// # use std::convert::TryFrom;
-    /// use matrix_sdk::events::{
+    /// use matrix_sdk::ruma::events::{
     ///     AnyMessageEventContent,
     ///     room::message::{MessageEventContent, TextMessageEventContent},
     /// };
@@ -1752,8 +1758,7 @@ impl Client {
     /// # block_on(async {
     /// # let homeserver = Url::parse("http://localhost:8080").unwrap();
     /// # let mut client = Client::new(homeserver).unwrap();
-    /// use matrix_sdk::api::r0::profile;
-    /// use matrix_sdk::identifiers::user_id;
+    /// use matrix_sdk::ruma::{api::client::r0::profile, user_id};
     ///
     /// // First construct the request you want to make
     /// // See https://docs.rs/ruma-client-api/latest/ruma_client_api/index.html
@@ -1839,8 +1844,11 @@ impl Client {
     ///
     /// ```no_run
     /// # use matrix_sdk::{
-    /// #    api::r0::uiaa::{UiaaResponse, AuthData},
-    /// #    Client, SyncSettings, Error, FromHttpResponseError, ServerError,
+    /// #    ruma::api::{
+    /// #        client::r0::uiaa::{UiaaResponse, AuthData},
+    /// #        error::{FromHttpResponseError, ServerError},
+    /// #    },
+    /// #    Client, Error, SyncSettings,
     /// # };
     /// # use futures::executor::block_on;
     /// # use serde_json::json;
@@ -1959,7 +1967,7 @@ impl Client {
     /// UI thread.
     ///
     /// ```no_run
-    /// # use matrix_sdk::events::{
+    /// # use matrix_sdk::ruma::events::{
     /// #     room::message::{MessageEvent, MessageEventContent, TextMessageEventContent},
     /// # };
     /// # use std::sync::{Arc, RwLock};
@@ -2228,7 +2236,7 @@ impl Client {
     ///
     /// ```no_run
     /// # use std::convert::TryFrom;
-    /// # use matrix_sdk::{Client, identifiers::UserId};
+    /// # use matrix_sdk::{Client, ruma::UserId};
     /// # use url::Url;
     /// # use futures::executor::block_on;
     /// # let alice = UserId::try_from("@alice:example.org").unwrap();
@@ -2270,8 +2278,8 @@ impl Client {
     /// # Examples
     /// ```no_run
     /// # use std::{convert::TryFrom, collections::BTreeMap};
-    /// # use matrix_sdk::{Client, identifiers::UserId};
-    /// # use matrix_sdk::api::r0::uiaa::AuthData;
+    /// # use matrix_sdk::{Client, ruma::UserId};
+    /// # use matrix_sdk::ruma::api::client::r0::uiaa::AuthData;
     /// # use url::Url;
     /// # use futures::executor::block_on;
     /// # use serde_json::json;
@@ -2341,7 +2349,7 @@ impl Client {
     ///
     /// ```no_run
     /// # use std::convert::TryFrom;
-    /// # use matrix_sdk::{Client, identifiers::UserId};
+    /// # use matrix_sdk::{Client, ruma::UserId};
     /// # use url::Url;
     /// # use futures::executor::block_on;
     /// # let alice = UserId::try_from("@alice:example.org").unwrap();
@@ -2395,7 +2403,7 @@ impl Client {
     /// # use std::{path::PathBuf, time::Duration};
     /// # use matrix_sdk::{
     /// #     Client, SyncSettings,
-    /// #     identifiers::room_id,
+    /// #     ruma::room_id,
     /// # };
     /// # use futures::executor::block_on;
     /// # use url::Url;
@@ -2465,7 +2473,7 @@ impl Client {
     /// # use std::{path::PathBuf, time::Duration};
     /// # use matrix_sdk::{
     /// #     Client, SyncSettings,
-    /// #     identifiers::room_id,
+    /// #     ruma::room_id,
     /// # };
     /// # use futures::executor::block_on;
     /// # use url::Url;

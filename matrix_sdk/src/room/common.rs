@@ -79,7 +79,7 @@ impl Common {
     /// ```no_run
     /// # use futures::executor::block_on;
     /// # use matrix_sdk::Client;
-    /// # use matrix_sdk::identifiers::room_id;
+    /// # use matrix_sdk::ruma::room_id;
     /// # use matrix_sdk::media::MediaFormat;
     /// # use url::Url;
     /// # let homeserver = Url::parse("http://example.com").unwrap();
@@ -118,9 +118,11 @@ impl Common {
     /// ```no_run
     /// # use std::convert::TryFrom;
     /// use matrix_sdk::Client;
-    /// # use matrix_sdk::identifiers::room_id;
-    /// # use matrix_sdk::api::r0::filter::RoomEventFilter;
-    /// # use matrix_sdk::api::r0::message::get_message_events::Request as MessagesRequest;
+    /// # use matrix_sdk::ruma::room_id;
+    /// # use matrix_sdk::ruma::api::client::r0::{
+    /// #     filter::RoomEventFilter,
+    /// #     message::get_message_events::Request as MessagesRequest,
+    /// # };
     /// # use url::Url;
     ///
     /// # let homeserver = Url::parse("http://example.com").unwrap();

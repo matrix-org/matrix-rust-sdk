@@ -15,7 +15,7 @@
 use std::{net::ToSocketAddrs, result::Result as StdResult};
 
 use futures::TryFutureExt;
-use matrix_sdk::Bytes;
+use matrix_sdk::{bytes::Bytes, ruma};
 use serde::Serialize;
 use warp::{filters::BoxedFilter, path::FullPath, Filter, Rejection, Reply};
 
@@ -110,7 +110,7 @@ mod filters {
             .and(warp::query::raw())
             .and_then(|token: String, query: String| async move {
                 let query: Vec<(String, String)> =
-                    matrix_sdk::urlencoded::from_str(&query).map_err(Error::from)?;
+                    ruma::serde::urlencoded::from_str(&query).map_err(Error::from)?;
 
                 if query.into_iter().any(|(key, value)| key == "access_token" && value == token) {
                     Ok::<(), Rejection>(())
@@ -175,8 +175,8 @@ mod handlers {
         appservice: AppService,
         request: http::Request<Bytes>,
     ) -> StdResult<impl warp::Reply, Rejection> {
-        let incoming_transaction: matrix_sdk::api_appservice::event::push_events::v1::IncomingRequest =
-            matrix_sdk::IncomingRequest::try_from_http_request(request).map_err(Error::from)?;
+        let incoming_transaction: ruma::api::appservice::event::push_events::v1::IncomingRequest =
+            ruma::api::IncomingRequest::try_from_http_request(request).map_err(Error::from)?;
 
         let client = appservice.get_cached_client(None)?;
         client.receive_transaction(incoming_transaction).map_err(Error::from).await?;

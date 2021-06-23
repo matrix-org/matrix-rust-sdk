@@ -9,8 +9,12 @@ use std::{
 
 use matrix_sdk::{
     self,
-    events::{room::message::MessageType, AnySyncMessageEvent, AnySyncRoomEvent, AnyToDeviceEvent},
-    identifiers::UserId,
+    ruma::{
+        events::{
+            room::message::MessageType, AnySyncMessageEvent, AnySyncRoomEvent, AnyToDeviceEvent,
+        },
+        UserId,
+    },
     verification::{SasVerification, Verification},
     Client, LoopCtrl, SyncSettings,
 };

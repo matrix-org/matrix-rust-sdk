@@ -375,7 +375,7 @@ pub enum CustomEvent<'c> {
 /// # use matrix_sdk::{
 /// #     async_trait,
 /// #     EventHandler,
-/// #     events::{
+/// #     ruma::events::{
 /// #         room::message::{MessageEventContent, MessageType, TextMessageEventContent},
 /// #         SyncMessageEvent
 /// #     },

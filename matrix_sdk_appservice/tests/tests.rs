@@ -3,10 +3,12 @@ use std::sync::{Arc, Mutex};
 #[cfg(feature = "actix")]
 use actix_web::{test as actix_test, App as ActixApp, HttpResponse};
 use matrix_sdk::{
-    api_appservice::Registration,
     async_trait,
-    events::{room::member::MemberEventContent, SyncStateEvent},
     room::Room,
+    ruma::{
+        api::appservice::Registration,
+        events::{room::member::MemberEventContent, SyncStateEvent},
+    },
     ClientConfig, EventHandler, RequestConfig,
 };
 use matrix_sdk_appservice::*;

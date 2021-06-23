@@ -45,7 +45,7 @@ impl SasVerification {
     /// # use ruma::identifiers::user_id;
     /// use matrix_sdk::verification::SasVerification;
     /// use matrix_sdk_base::crypto::AcceptSettings;
-    /// use matrix_sdk::events::key::verification::ShortAuthenticationString;
+    /// use matrix_sdk::ruma::events::key::verification::ShortAuthenticationString;
     /// # let homeserver = Url::parse("http://example.com").unwrap();
     /// # let client = Client::new(homeserver).unwrap();
     /// # let flow_id = "someID";

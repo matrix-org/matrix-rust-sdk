@@ -1,9 +1,9 @@
 use std::{env, process::exit};
 
 use matrix_sdk::{
-    self, async_trait,
-    events::{room::member::MemberEventContent, StrippedStateEvent},
+    async_trait,
     room::Room,
+    ruma::events::{room::member::MemberEventContent, StrippedStateEvent},
     Client, ClientConfig, EventHandler, SyncSettings,
 };
 use tokio::time::{sleep, Duration};

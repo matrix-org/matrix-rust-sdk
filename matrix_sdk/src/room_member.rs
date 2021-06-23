@@ -39,7 +39,7 @@ impl RoomMember {
     /// ```no_run
     /// # use futures::executor::block_on;
     /// # use matrix_sdk::Client;
-    /// # use matrix_sdk::identifiers::room_id;
+    /// # use matrix_sdk::ruma::room_id;
     /// # use matrix_sdk::RoomMember;
     /// # use matrix_sdk::media::MediaFormat;
     /// # use url::Url;

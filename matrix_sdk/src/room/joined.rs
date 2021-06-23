@@ -159,10 +159,10 @@ impl Joined {
     ///
     /// ```no_run
     /// use std::time::Duration;
-    /// use matrix_sdk::api::r0::typing::create_typing_event::Typing;
+    /// use matrix_sdk::ruma::api::client::r0::typing::create_typing_event::Typing;
     /// # use matrix_sdk::{
     /// #     Client, SyncSettings,
-    /// #     identifiers::room_id,
+    /// #     ruma::room_id,
     /// # };
     /// # use futures::executor::block_on;
     /// # use url::Url;
@@ -349,9 +349,9 @@ impl Joined {
     /// # use matrix_sdk::{Client, SyncSettings};
     /// # use url::Url;
     /// # use futures::executor::block_on;
-    /// # use matrix_sdk::identifiers::room_id;
+    /// # use matrix_sdk::ruma::room_id;
     /// # use std::convert::TryFrom;
-    /// use matrix_sdk::events::{
+    /// use matrix_sdk::ruma::events::{
     ///     AnyMessageEventContent,
     ///     room::message::{MessageEventContent, TextMessageEventContent},
     /// };
@@ -431,7 +431,7 @@ impl Joined {
     ///
     /// ```no_run
     /// # use std::{path::PathBuf, fs::File, io::Read};
-    /// # use matrix_sdk::{Client, identifiers::room_id};
+    /// # use matrix_sdk::{Client, ruma::room_id};
     /// # use url::Url;
     /// # use mime;
     /// # use futures::executor::block_on;
@@ -532,18 +532,17 @@ impl Joined {
     /// # Example
     ///
     /// ```no_run
-    /// use matrix_sdk::{
+    /// use matrix_sdk::ruma::{
     ///     events::{
     ///         AnyStateEventContent,
     ///         room::member::{MemberEventContent, MembershipState},
     ///     },
-    ///     identifiers::mxc_uri,
-    ///     assign,
+    ///     assign, mxc_uri,
     /// };
     /// # futures::executor::block_on(async {
     /// # let homeserver = url::Url::parse("http://localhost:8080").unwrap();
     /// # let mut client = matrix_sdk::Client::new(homeserver).unwrap();
-    /// # let room_id = matrix_sdk::identifiers::room_id!("!test:localhost");
+    /// # let room_id = matrix_sdk::ruma::room_id!("!test:localhost");
     ///
     /// let avatar_url = mxc_uri!("mxc://example.org/avatar");
     /// let member_event = assign!(MemberEventContent::new(MembershipState::Join), {
@@ -591,11 +590,11 @@ impl Joined {
     /// # futures::executor::block_on(async {
     /// # let homeserver = url::Url::parse("http://localhost:8080").unwrap();
     /// # let mut client = matrix_sdk::Client::new(homeserver).unwrap();
-    /// # let room_id = matrix_sdk::identifiers::room_id!("!test:localhost");
+    /// # let room_id = matrix_sdk::ruma::room_id!("!test:localhost");
     /// # let room = client
     /// #   .get_joined_room(&room_id)
     /// #   .unwrap();
-    /// let event_id = matrix_sdk::identifiers::event_id!("$xxxxxx:example.org");
+    /// let event_id = matrix_sdk::ruma::event_id!("$xxxxxx:example.org");
     /// let reason = Some("Indecent material");
     /// room.redact(&event_id, reason, None).await.unwrap();
     /// # })

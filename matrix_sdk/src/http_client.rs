@@ -18,6 +18,7 @@ use std::{convert::TryFrom, fmt::Debug, sync::Arc};
 
 #[cfg(all(not(target_arch = "wasm32")))]
 use backoff::{future::retry, Error as RetryError, ExponentialBackoff};
+use bytes::{Bytes, BytesMut};
 #[cfg(all(not(target_arch = "wasm32")))]
 use http::StatusCode;
 use http::{HeaderValue, Response as HttpResponse};
@@ -30,7 +31,7 @@ use ruma::api::{
 use tracing::trace;
 use url::Url;
 
-use crate::{error::HttpError, Bytes, BytesMut, ClientConfig, RequestConfig, Session};
+use crate::{error::HttpError, ClientConfig, RequestConfig, Session};
 
 /// Abstraction around the http layer. The allows implementors to use different
 /// http libraries.
@@ -54,7 +55,7 @@ pub trait HttpSend: AsyncTraitDeps {
     ///
     /// ```
     /// use std::convert::TryFrom;
-    /// use matrix_sdk::{HttpSend, async_trait, HttpError, RequestConfig, Bytes};
+    /// use matrix_sdk::{HttpSend, async_trait, HttpError, RequestConfig, bytes::Bytes};
     ///
     /// #[derive(Debug)]
     /// struct Client(reqwest::Client);

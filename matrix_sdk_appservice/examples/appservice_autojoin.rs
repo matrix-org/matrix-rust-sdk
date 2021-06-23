@@ -3,12 +3,14 @@ use std::{convert::TryFrom, env};
 use matrix_sdk_appservice::{
     matrix_sdk::{
         async_trait,
-        events::{
-            room::member::{MemberEventContent, MembershipState},
-            SyncStateEvent,
-        },
-        identifiers::UserId,
         room::Room,
+        ruma::{
+            events::{
+                room::member::{MemberEventContent, MembershipState},
+                SyncStateEvent,
+            },
+            UserId,
+        },
         EventHandler,
     },
     AppService, AppServiceRegistration,

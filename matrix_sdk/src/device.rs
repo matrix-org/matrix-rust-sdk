@@ -47,7 +47,7 @@ impl Device {
     ///
     /// ```no_run
     /// # use std::convert::TryFrom;
-    /// # use matrix_sdk::{Client, identifiers::UserId};
+    /// # use matrix_sdk::{Client, ruma::UserId};
     /// # use url::Url;
     /// # use futures::executor::block_on;
     /// # let alice = UserId::try_from("@alice:example.org").unwrap();

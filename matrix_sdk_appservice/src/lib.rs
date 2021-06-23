@@ -89,7 +89,9 @@ use dashmap::DashMap;
 pub use error::Error;
 use http::{uri::PathAndQuery, Uri};
 pub use matrix_sdk;
-use matrix_sdk::{reqwest::Url, Bytes, Client, ClientConfig, EventHandler, HttpError, Session};
+use matrix_sdk::{
+    bytes::Bytes, reqwest::Url, Client, ClientConfig, EventHandler, HttpError, Session,
+};
 use regex::Regex;
 #[doc(inline)]
 pub use ruma::api::{appservice as api, appservice::Registration};
