@@ -56,7 +56,7 @@ use mime::{self, Mime};
 #[cfg(feature = "sso_login")]
 use rand::{thread_rng, Rng};
 use reqwest::header::InvalidHeaderValue;
-use ruma::{api::SendAccessToken, events::AnyMessageEventContent, identifiers::MxcUri};
+use ruma::{api::SendAccessToken, events::AnyMessageEventContent, MxcUri};
 #[cfg(feature = "sso_login")]
 use tokio::{net::TcpListener, sync::oneshot};
 #[cfg(feature = "sso_login")]

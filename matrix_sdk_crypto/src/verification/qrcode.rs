@@ -33,7 +33,7 @@ use ruma::{
         },
         AnyMessageEventContent, AnyToDeviceEventContent,
     },
-    identifiers::{DeviceIdBox, DeviceKeyAlgorithm, UserId},
+    DeviceIdBox, DeviceKeyAlgorithm, UserId,
 };
 use thiserror::Error;
 
@@ -696,7 +696,7 @@ mod test {
 
     use matrix_qrcode::QrVerificationData;
     use matrix_sdk_test::async_test;
-    use ruma::identifiers::{event_id, room_id, user_id, DeviceIdBox, UserId};
+    use ruma::{event_id, room_id, user_id, DeviceIdBox, UserId};
 
     use crate::{
         olm::{PrivateCrossSigningIdentity, ReadOnlyAccount},

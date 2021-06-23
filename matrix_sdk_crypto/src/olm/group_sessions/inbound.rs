@@ -32,8 +32,8 @@ use ruma::{
         },
         AnySyncRoomEvent, SyncMessageEvent,
     },
-    identifiers::{DeviceKeyAlgorithm, EventEncryptionAlgorithm, RoomId},
     serde::Raw,
+    DeviceKeyAlgorithm, EventEncryptionAlgorithm, RoomId,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;

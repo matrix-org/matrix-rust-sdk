@@ -56,11 +56,8 @@ pub use memorystore::MemoryStore;
 use olm_rs::errors::{OlmAccountError, OlmGroupSessionError, OlmSessionError};
 pub use pickle_key::{EncryptedPickleKey, PickleKey};
 use ruma::{
-    events::room_key_request::RequestedKeyInfo,
-    identifiers::{
-        DeviceId, DeviceIdBox, DeviceKeyAlgorithm, Error as IdentifierValidationError, RoomId,
-        UserId,
-    },
+    events::room_key_request::RequestedKeyInfo, identifiers::Error as IdentifierValidationError,
+    DeviceId, DeviceIdBox, DeviceKeyAlgorithm, RoomId, UserId,
 };
 use serde_json::Error as SerdeError;
 use thiserror::Error;

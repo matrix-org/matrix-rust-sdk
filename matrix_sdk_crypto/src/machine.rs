@@ -1235,6 +1235,7 @@ pub(crate) mod test {
             IncomingResponse,
         },
         encryption::OneTimeKey,
+        event_id,
         events::{
             dummy::DummyToDeviceEventContent,
             room::{
@@ -1244,10 +1245,8 @@ pub(crate) mod test {
             AnyMessageEventContent, AnySyncMessageEvent, AnySyncRoomEvent, AnyToDeviceEvent,
             AnyToDeviceEventContent, SyncMessageEvent, ToDeviceEvent, Unsigned,
         },
-        identifiers::{
-            event_id, room_id, user_id, DeviceId, DeviceKeyAlgorithm, DeviceKeyId, UserId,
-        },
-        uint, MilliSecondsSinceUnixEpoch,
+        room_id, uint, user_id, DeviceId, DeviceKeyAlgorithm, DeviceKeyId,
+        MilliSecondsSinceUnixEpoch, UserId,
     };
     use serde_json::json;
 

@@ -28,9 +28,9 @@ use ruma::{
         AnyGlobalAccountDataEvent, AnyRoomAccountDataEvent, AnyStrippedStateEvent,
         AnySyncStateEvent, EventType,
     },
-    identifiers::{EventId, MxcUri, RoomId, UserId},
     receipt::ReceiptType,
     serde::Raw,
+    EventId, MxcUri, RoomId, UserId,
 };
 use tracing::info;
 
@@ -562,10 +562,8 @@ impl StateStore for MemoryStore {
 mod test {
     use matrix_sdk_test::async_test;
     use ruma::{
-        api::client::r0::media::get_content_thumbnail::Method,
-        identifiers::{event_id, mxc_uri, room_id, user_id, UserId},
-        receipt::ReceiptType,
-        uint,
+        api::client::r0::media::get_content_thumbnail::Method, event_id, mxc_uri,
+        receipt::ReceiptType, room_id, uint, user_id, UserId,
     };
     use serde_json::json;
 

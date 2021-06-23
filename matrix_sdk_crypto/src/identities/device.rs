@@ -30,9 +30,7 @@ use ruma::{
         forwarded_room_key::ForwardedRoomKeyToDeviceEventContent,
         room::encrypted::EncryptedEventContent, AnyToDeviceEventContent,
     },
-    identifiers::{
-        DeviceId, DeviceIdBox, DeviceKeyAlgorithm, DeviceKeyId, EventEncryptionAlgorithm, UserId,
-    },
+    DeviceId, DeviceIdBox, DeviceKeyAlgorithm, DeviceKeyId, EventEncryptionAlgorithm, UserId,
 };
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use serde_json::{json, Value};

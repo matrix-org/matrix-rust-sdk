@@ -33,9 +33,8 @@ use ruma::{
         room::message::{KeyVerificationRequestEventContent, MessageType},
         AnyMessageEvent, AnyMessageEventContent, AnyToDeviceEvent, AnyToDeviceEventContent,
     },
-    identifiers::{DeviceId, RoomId, UserId},
     serde::CanonicalJsonValue,
-    MilliSecondsSinceUnixEpoch,
+    DeviceId, MilliSecondsSinceUnixEpoch, RoomId, UserId,
 };
 
 use super::FlowId;

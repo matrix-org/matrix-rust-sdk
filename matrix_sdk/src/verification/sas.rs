@@ -42,7 +42,7 @@ impl SasVerification {
     /// # use matrix_sdk::Client;
     /// # use futures::executor::block_on;
     /// # use url::Url;
-    /// # use ruma::identifiers::user_id;
+    /// # use ruma::user_id;
     /// use matrix_sdk::verification::SasVerification;
     /// use matrix_sdk_base::crypto::AcceptSettings;
     /// use matrix_sdk::ruma::events::key::verification::ShortAuthenticationString;

@@ -38,8 +38,8 @@ use ruma::{
         },
         AnyMessageEventContent, AnyStateEventContent,
     },
-    identifiers::{EventId, UserId},
     receipt::ReceiptType,
+    EventId, UserId,
 };
 #[cfg(feature = "encryption")]
 use tracing::instrument;

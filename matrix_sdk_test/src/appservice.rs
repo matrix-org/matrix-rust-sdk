@@ -1,6 +1,6 @@
 use std::convert::TryFrom;
 
-use ruma::{events::AnyRoomEvent, identifiers::room_id};
+use ruma::{events::AnyRoomEvent, room_id};
 use serde_json::Value;
 
 use crate::{test_json, EventsJson};

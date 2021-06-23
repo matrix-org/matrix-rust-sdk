@@ -21,9 +21,8 @@ use std::{
 use futures::future::join_all;
 use matrix_sdk_common::executor::spawn;
 use ruma::{
-    api::client::r0::keys::get_keys::Response as KeysQueryResponse,
-    encryption::DeviceKeys,
-    identifiers::{DeviceId, DeviceIdBox, UserId},
+    api::client::r0::keys::get_keys::Response as KeysQueryResponse, encryption::DeviceKeys,
+    DeviceId, DeviceIdBox, UserId,
 };
 use tracing::{trace, warn};
 

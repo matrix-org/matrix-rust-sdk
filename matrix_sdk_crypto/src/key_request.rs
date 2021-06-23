@@ -30,8 +30,8 @@ use ruma::{
         room_key_request::{Action, RequestedKeyInfo, RoomKeyRequestToDeviceEventContent},
         AnyToDeviceEvent, AnyToDeviceEventContent, ToDeviceEvent,
     },
-    identifiers::{DeviceId, DeviceIdBox, EventEncryptionAlgorithm, RoomId, UserId},
     to_device::DeviceIdOrAllDevices,
+    DeviceId, DeviceIdBox, EventEncryptionAlgorithm, RoomId, UserId,
 };
 use serde::{Deserialize, Serialize};
 use thiserror::Error;

@@ -28,7 +28,7 @@ use ruma::{
         },
         AnyToDeviceEventContent, EventContent,
     },
-    identifiers::{DeviceId, DeviceKeyAlgorithm, UserId},
+    DeviceId, DeviceKeyAlgorithm, UserId,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::json;

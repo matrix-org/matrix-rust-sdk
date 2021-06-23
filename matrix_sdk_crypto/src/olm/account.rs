@@ -37,12 +37,9 @@ use ruma::{
         room::encrypted::{EncryptedEventContent, EncryptedEventScheme},
         AnyToDeviceEvent, ToDeviceEvent,
     },
-    identifiers::{
-        DeviceId, DeviceIdBox, DeviceKeyAlgorithm, DeviceKeyId, EventEncryptionAlgorithm, RoomId,
-        UserId,
-    },
     serde::{CanonicalJsonValue, Raw},
-    UInt,
+    DeviceId, DeviceIdBox, DeviceKeyAlgorithm, DeviceKeyId, EventEncryptionAlgorithm, RoomId, UInt,
+    UserId,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};

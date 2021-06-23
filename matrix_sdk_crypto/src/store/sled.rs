@@ -757,9 +757,8 @@ mod test {
     use matrix_sdk_test::async_test;
     use olm_rs::outbound_group_session::OlmOutboundGroupSession;
     use ruma::{
-        encryption::SignedKey,
-        events::room_key_request::RequestedKeyInfo,
-        identifiers::{room_id, user_id, DeviceId, EventEncryptionAlgorithm, UserId},
+        encryption::SignedKey, events::room_key_request::RequestedKeyInfo, room_id, user_id,
+        DeviceId, EventEncryptionAlgorithm, UserId,
     };
     use tempfile::tempdir;
 
