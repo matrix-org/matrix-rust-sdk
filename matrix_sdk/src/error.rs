@@ -120,11 +120,13 @@ pub enum Error {
 
     /// An error occurred in the crypto store.
     #[cfg(feature = "encryption")]
+    #[cfg_attr(feature = "docs", doc(cfg(encryption)))]
     #[error(transparent)]
     CryptoStoreError(#[from] CryptoStoreError),
 
     /// An error occurred during decryption.
     #[cfg(feature = "encryption")]
+    #[cfg_attr(feature = "docs", doc(cfg(encryption)))]
     #[error(transparent)]
     DecryptorError(#[from] DecryptorError),
 
