@@ -2251,7 +2251,7 @@ impl Client {
     ///     .unwrap()
     ///     .unwrap();
     ///
-    /// println!("{:?}", device.is_trusted());
+    /// println!("{:?}", device.verified());
     ///
     /// let verification = device.start_verification().await.unwrap();
     /// # });

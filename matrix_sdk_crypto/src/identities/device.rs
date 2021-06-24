@@ -145,9 +145,20 @@ impl Device {
         }
     }
 
-    /// Get the trust state of the device.
-    pub fn trust_state(&self) -> bool {
-        self.inner.trust_state(&self.own_identity, &self.device_owner_identity)
+    /// Is this device considered to be verified.
+    ///
+    /// This method returns true if either [`is_locally_trusted()`] returns true
+    /// or if [`is_cross_signing_trusted()`] returns true.
+    ///
+    /// [`is_locally_trusted()`]: #method.is_locally_trusted
+    /// [`is_cross_signing_trusted()`]: #method.is_cross_signing_trusted
+    pub fn verified(&self) -> bool {
+        self.inner.verified(&self.own_identity, &self.device_owner_identity)
+    }
+
+    /// Is this device considered to be verified using cross signing.
+    pub fn is_cross_signing_trusted(&self) -> bool {
+        self.inner.is_cross_signing_trusted(&self.own_identity, &self.device_owner_identity)
     }
 
     /// Set the local trust state of the device to the given state.
@@ -236,7 +247,7 @@ impl UserDevices {
     /// Returns true if there is at least one devices of this user that is
     /// considered to be verified, false otherwise.
     pub fn is_any_verified(&self) -> bool {
-        self.inner.values().any(|d| d.trust_state(&self.own_identity, &self.device_owner_identity))
+        self.inner.values().any(|d| d.verified(&self.own_identity, &self.device_owner_identity))
     }
 
     /// Iterator over all the device ids of the user devices.
@@ -340,7 +351,7 @@ impl ReadOnlyDevice {
     }
 
     /// Is the device locally marked as trusted.
-    pub fn is_trusted(&self) -> bool {
+    pub fn is_locally_trusted(&self) -> bool {
         self.local_trust_state() == LocalTrust::Verified
     }
 
@@ -369,46 +380,41 @@ impl ReadOnlyDevice {
         self.deleted.load(Ordering::Relaxed)
     }
 
-    pub(crate) fn trust_state(
+    pub(crate) fn verified(
         &self,
         own_identity: &Option<OwnUserIdentity>,
         device_owner: &Option<UserIdentities>,
     ) -> bool {
-        // TODO we want to return an enum mentioning if the trust is local, if
-        // only the identity is trusted, if the identity and the device are
-        // trusted.
-        if self.is_trusted() {
-            // If the device is locally marked as verified just return so, no
-            // need to check signatures.
-            true
-        } else {
-            own_identity.as_ref().map_or(false, |own_identity| {
-                // Our own identity needs to be marked as verified.
-                own_identity.is_verified()
-                    && device_owner
-                        .as_ref()
-                        .map(|device_identity| match device_identity {
-                            // If it's one of our own devices, just check that
-                            // we signed the device.
-                            UserIdentities::Own(_) => {
-                                own_identity.is_device_signed(self).map_or(false, |_| true)
-                            }
+        self.is_locally_trusted() || self.is_cross_signing_trusted(own_identity, device_owner)
+    }
 
-                            // If it's a device from someone else, first check
-                            // that our user has signed the other user and then
-                            // check if the other user has signed this device.
-                            UserIdentities::Other(device_identity) => {
-                                own_identity
-                                    .is_identity_signed(device_identity)
-                                    .map_or(false, |_| true)
-                                    && device_identity
-                                        .is_device_signed(self)
-                                        .map_or(false, |_| true)
-                            }
-                        })
-                        .unwrap_or(false)
-            })
-        }
+    pub(crate) fn is_cross_signing_trusted(
+        &self,
+        own_identity: &Option<OwnUserIdentity>,
+        device_owner: &Option<UserIdentities>,
+    ) -> bool {
+        own_identity.as_ref().map_or(false, |own_identity| {
+            // Our own identity needs to be marked as verified.
+            own_identity.is_verified()
+                && device_owner
+                    .as_ref()
+                    .map(|device_identity| match device_identity {
+                        // If it's one of our own devices, just check that
+                        // we signed the device.
+                        UserIdentities::Own(_) => {
+                            own_identity.is_device_signed(self).map_or(false, |_| true)
+                        }
+
+                        // If it's a device from someone else, first check
+                        // that our user has signed the other user and then
+                        // check if the other user has signed this device.
+                        UserIdentities::Other(device_identity) => {
+                            own_identity.is_identity_signed(device_identity).map_or(false, |_| true)
+                                && device_identity.is_device_signed(self).map_or(false, |_| true)
+                        }
+                    })
+                    .unwrap_or(false)
+        })
     }
 
     pub(crate) async fn encrypt(

@@ -928,7 +928,7 @@ impl OlmMachine {
                     .unwrap_or(false)
             }) {
             if (self.user_id() == device.user_id() && self.device_id() == device.device_id())
-                || device.is_trusted()
+                || device.verified()
             {
                 VerificationState::Trusted
             } else {
@@ -1771,7 +1771,7 @@ pub(crate) mod test {
 
         let bob_device = alice.get_device(bob.user_id(), bob.device_id()).await.unwrap().unwrap();
 
-        assert!(!bob_device.is_trusted());
+        assert!(!bob_device.verified());
 
         let (alice_sas, request) = bob_device.start_verification().await.unwrap();
 
@@ -1834,14 +1834,14 @@ pub(crate) mod test {
             .unwrap();
 
         assert!(alice_sas.is_done());
-        assert!(bob_device.is_trusted());
+        assert!(bob_device.verified());
 
         let alice_device =
             bob.get_device(alice.user_id(), alice.device_id()).await.unwrap().unwrap();
 
-        assert!(!alice_device.is_trusted());
+        assert!(!alice_device.verified());
         bob.handle_verification_event(&event).await;
         assert!(bob_sas.is_done());
-        assert!(alice_device.is_trusted());
+        assert!(alice_device.verified());
     }
 }

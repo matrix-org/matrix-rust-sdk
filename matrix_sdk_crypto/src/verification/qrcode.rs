@@ -871,8 +871,8 @@ mod test {
 
             let identity = identity.own().unwrap();
 
-            assert!(!bob_device.is_trusted());
-            assert!(alice_device.is_trusted());
+            assert!(!bob_device.is_locally_trusted());
+            assert!(alice_device.is_locally_trusted());
             assert!(identity.is_verified());
         };
 

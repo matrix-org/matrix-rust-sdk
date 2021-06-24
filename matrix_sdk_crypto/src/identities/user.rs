@@ -784,15 +784,15 @@ pub(crate) mod test {
             device_owner_identity: Some(UserIdentities::Own(identity.clone())),
         };
 
-        assert!(!second.trust_state());
-        assert!(!second.is_trusted());
+        assert!(!second.is_locally_trusted());
+        assert!(!second.is_cross_signing_trusted());
 
-        assert!(!first.trust_state());
-        assert!(!first.is_trusted());
+        assert!(!first.is_locally_trusted());
+        assert!(!first.is_cross_signing_trusted());
 
         identity.mark_as_verified();
-        assert!(second.trust_state());
-        assert!(!first.trust_state());
+        assert!(second.verified());
+        assert!(!first.verified());
     }
 
     #[async_test]
@@ -821,12 +821,12 @@ pub(crate) mod test {
             device_owner_identity: Some(public_identity.clone().into()),
         };
 
-        assert!(!device.trust_state());
+        assert!(!device.verified());
 
         let mut device_keys = device.as_device_keys();
 
         identity.sign_device_keys(&mut device_keys).await.unwrap();
         device.inner.signatures = Arc::new(device_keys.signatures);
-        assert!(device.trust_state());
+        assert!(device.verified());
     }
 }
