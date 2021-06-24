@@ -104,6 +104,16 @@ impl Sas {
         self.identities_being_verified.is_self_verification()
     }
 
+    /// Have we confirmed that the short auth string matches.
+    pub fn have_we_confirmed(&self) -> bool {
+        self.inner.lock().unwrap().have_we_confirmed()
+    }
+
+    /// Get the cancel code of this SAS verification if it has been cancelled
+    pub fn cancel_code(&self) -> Option<CancelCode> {
+        self.inner.lock().unwrap().cancel_code()
+    }
+
     #[cfg(test)]
     #[allow(dead_code)]
     pub(crate) fn set_creation_time(&self, time: Instant) {

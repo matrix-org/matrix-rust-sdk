@@ -312,6 +312,18 @@ impl InnerSas {
         matches!(self, InnerSas::Cancelled(_))
     }
 
+    pub fn have_we_confirmed(&self) -> bool {
+        matches!(self, InnerSas::Confirmed(_) | InnerSas::WaitingForDone(_) | InnerSas::Done(_))
+    }
+
+    pub fn cancel_code(&self) -> Option<CancelCode> {
+        if let InnerSas::Cancelled(c) = self {
+            Some(c.state.cancel_code.clone())
+        } else {
+            None
+        }
+    }
+
     pub fn timed_out(&self) -> bool {
         match self {
             InnerSas::Created(s) => s.timed_out(),
