@@ -359,7 +359,20 @@ impl Sas {
         self.cancel_with_code(CancelCode::User)
     }
 
-    pub(crate) fn cancel_with_code(&self, code: CancelCode) -> Option<OutgoingVerificationRequest> {
+    /// Cancel the verification.
+    ///
+    /// This cancels the verification with given `CancelCode`.
+    ///
+    /// **Note**: This method should generally not be used, the [`cancel()`]
+    /// method should be preferred. The SDK will automatically cancel with the
+    /// approprate cancel code, user initiated cancellations should only cancel
+    /// with the `CancelCode::User`
+    ///
+    /// Returns None if the `Sas` object is already in a canceled state,
+    /// otherwise it returns a request that needs to be sent out.
+    ///
+    /// [`cancel()`]: #method.cancel
+    pub fn cancel_with_code(&self, code: CancelCode) -> Option<OutgoingVerificationRequest> {
         let mut guard = self.inner.lock().unwrap();
         let sas: InnerSas = (*guard).clone();
         let (sas, content) = sas.cancel(code);
