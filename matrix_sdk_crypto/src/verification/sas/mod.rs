@@ -89,6 +89,15 @@ impl Sas {
         &self.flow_id
     }
 
+    /// Get the room id if the verification is happening inside a room.
+    pub fn room_id(&self) -> Option<&RoomId> {
+        if let FlowId::InRoom(r, _) = self.flow_id() {
+            Some(r)
+        } else {
+            None
+        }
+    }
+
     /// Does this verification flow support displaying emoji for the short
     /// authentication string.
     pub fn supports_emoji(&self) -> bool {
