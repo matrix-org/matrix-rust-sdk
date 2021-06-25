@@ -115,6 +115,11 @@ impl Sas {
         self.inner.lock().unwrap().cancel_code()
     }
 
+    /// Has the verification flow been cancelled by us.
+    pub fn cancelled_by_us(&self) -> Option<bool> {
+        self.inner.lock().unwrap().cancelled_by_us()
+    }
+
     /// Did we initiate the verification flow.
     pub fn we_started(&self) -> bool {
         self.we_started
@@ -390,7 +395,7 @@ impl Sas {
     pub fn cancel_with_code(&self, code: CancelCode) -> Option<OutgoingVerificationRequest> {
         let mut guard = self.inner.lock().unwrap();
         let sas: InnerSas = (*guard).clone();
-        let (sas, content) = sas.cancel(code);
+        let (sas, content) = sas.cancel(true, code);
         *guard = sas;
         content.map(|c| match c {
             OutgoingContent::Room(room_id, content) => {

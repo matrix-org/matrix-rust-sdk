@@ -210,7 +210,7 @@ impl QrVerification {
     }
 
     fn cancel_with_code(&self, code: CancelCode) -> Option<OutgoingContent> {
-        let new_state = QrState::<Cancelled>::new(code);
+        let new_state = QrState::<Cancelled>::new(true, code);
         let content = new_state.as_content(self.flow_id());
 
         let mut state = self.state.lock().unwrap();
@@ -243,7 +243,7 @@ impl QrVerification {
             match self.identities.mark_as_done(Some(&devices), Some(&identities)).await? {
                 VerificationResult::Ok => (None, None),
                 VerificationResult::Cancel(c) => {
-                    let canceled = QrState::<Cancelled>::new(c);
+                    let canceled = QrState::<Cancelled>::new(false, c);
                     let content = canceled.as_content(self.flow_id());
                     new_state = InnerState::Cancelled(canceled);
                     (Some(content), None)
@@ -594,8 +594,8 @@ impl QrState<Scanned> {
 }
 
 impl QrState<Cancelled> {
-    fn new(cancel_code: CancelCode) -> Self {
-        QrState { state: Cancelled::new(cancel_code) }
+    fn new(cancelled_by_us: bool, cancel_code: CancelCode) -> Self {
+        QrState { state: Cancelled::new(cancelled_by_us, cancel_code) }
     }
 
     fn as_content(&self, flow_id: &FlowId) -> OutgoingContent {
@@ -614,10 +614,10 @@ impl QrState<Created> {
                 if self.state.secret == m.secret {
                     Ok(QrState { state: Scanned {} })
                 } else {
-                    Err(QrState::<Cancelled>::new(CancelCode::KeyMismatch))
+                    Err(QrState::<Cancelled>::new(false, CancelCode::KeyMismatch))
                 }
             }
-            _ => Err(QrState::<Cancelled>::new(CancelCode::UnknownMethod)),
+            _ => Err(QrState::<Cancelled>::new(false, CancelCode::UnknownMethod)),
         }
     }
 }

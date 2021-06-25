@@ -168,13 +168,17 @@ impl InnerSas {
         }
     }
 
-    pub fn cancel(self, code: CancelCode) -> (InnerSas, Option<OutgoingContent>) {
+    pub fn cancel(
+        self,
+        cancelled_by_us: bool,
+        code: CancelCode,
+    ) -> (InnerSas, Option<OutgoingContent>) {
         let sas = match self {
-            InnerSas::Created(s) => s.cancel(code),
-            InnerSas::Started(s) => s.cancel(code),
-            InnerSas::Accepted(s) => s.cancel(code),
-            InnerSas::KeyReceived(s) => s.cancel(code),
-            InnerSas::MacReceived(s) => s.cancel(code),
+            InnerSas::Created(s) => s.cancel(cancelled_by_us, code),
+            InnerSas::Started(s) => s.cancel(cancelled_by_us, code),
+            InnerSas::Accepted(s) => s.cancel(cancelled_by_us, code),
+            InnerSas::KeyReceived(s) => s.cancel(cancelled_by_us, code),
+            InnerSas::MacReceived(s) => s.cancel(cancelled_by_us, code),
             _ => return (self, None),
         };
 
@@ -230,7 +234,7 @@ impl InnerSas {
                 }
             }
             AnyVerificationContent::Cancel(c) => {
-                let (sas, _) = self.cancel(c.cancel_code().to_owned());
+                let (sas, _) = self.cancel(false, c.cancel_code().to_owned());
                 (sas, None)
             }
             AnyVerificationContent::Key(c) => match self {
@@ -319,6 +323,14 @@ impl InnerSas {
     pub fn cancel_code(&self) -> Option<CancelCode> {
         if let InnerSas::Cancelled(c) = self {
             Some(c.state.cancel_code.clone())
+        } else {
+            None
+        }
+    }
+
+    pub fn cancelled_by_us(&self) -> Option<bool> {
+        if let InnerSas::Cancelled(c) = self {
+            Some(c.state.cancelled_by_us)
         } else {
             None
         }

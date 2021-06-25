@@ -167,12 +167,13 @@ impl Done {
 
 #[derive(Clone, Debug)]
 pub struct Cancelled {
+    cancelled_by_us: bool,
     cancel_code: CancelCode,
     reason: &'static str,
 }
 
 impl Cancelled {
-    fn new(code: CancelCode) -> Self {
+    fn new(cancelled_by_us: bool, code: CancelCode) -> Self {
         let reason = match code {
             CancelCode::Accepted => {
                 "A m.key.verification.request was accepted by a different device."
@@ -192,7 +193,7 @@ impl Cancelled {
             _ => "Unknown cancel reason",
         };
 
-        Self { cancel_code: code, reason }
+        Self { cancelled_by_us, cancel_code: code, reason }
     }
 
     pub fn as_content(&self, flow_id: &FlowId) -> OutgoingContent {

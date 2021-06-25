@@ -376,7 +376,7 @@ impl VerificationRequest {
     /// Cancel the verification request
     pub fn cancel(&self) -> Option<OutgoingVerificationRequest> {
         let mut inner = self.inner.lock().unwrap();
-        inner.cancel(&CancelCode::User);
+        inner.cancel(true, &CancelCode::User);
 
         let content = if let InnerRequest::Cancelled(c) = &*inner {
             Some(c.state.as_content(self.flow_id()))
@@ -436,7 +436,7 @@ impl VerificationRequest {
     pub(crate) fn receive_cancel(&self, sender: &UserId, content: &CancelContent<'_>) {
         if sender == self.other_user() {
             let mut inner = self.inner.lock().unwrap().clone();
-            inner.cancel(content.cancel_code());
+            inner.cancel(false, content.cancel_code());
         }
     }
 
@@ -539,12 +539,12 @@ impl InnerRequest {
         })
     }
 
-    fn cancel(&mut self, cancel_code: &CancelCode) {
+    fn cancel(&mut self, cancelled_by_us: bool, cancel_code: &CancelCode) {
         *self = InnerRequest::Cancelled(match self {
-            InnerRequest::Created(s) => s.clone().into_canceled(cancel_code),
-            InnerRequest::Requested(s) => s.clone().into_canceled(cancel_code),
-            InnerRequest::Ready(s) => s.clone().into_canceled(cancel_code),
-            InnerRequest::Passive(s) => s.clone().into_canceled(cancel_code),
+            InnerRequest::Created(s) => s.clone().into_canceled(cancelled_by_us, cancel_code),
+            InnerRequest::Requested(s) => s.clone().into_canceled(cancelled_by_us, cancel_code),
+            InnerRequest::Ready(s) => s.clone().into_canceled(cancelled_by_us, cancel_code),
+            InnerRequest::Passive(s) => s.clone().into_canceled(cancelled_by_us, cancel_code),
             InnerRequest::Done(_) => return,
             InnerRequest::Cancelled(_) => return,
         })
@@ -604,7 +604,11 @@ impl<S: Clone> RequestState<S> {
         }
     }
 
-    fn into_canceled(self, cancel_code: &CancelCode) -> RequestState<Cancelled> {
+    fn into_canceled(
+        self,
+        cancelled_by_us: bool,
+        cancel_code: &CancelCode,
+    ) -> RequestState<Cancelled> {
         RequestState::<Cancelled> {
             account: self.account,
             private_cross_signing_identity: self.private_cross_signing_identity,
@@ -612,7 +616,7 @@ impl<S: Clone> RequestState<S> {
             store: self.store,
             flow_id: self.flow_id,
             other_user_id: self.other_user_id,
-            state: Cancelled::new(cancel_code.clone()),
+            state: Cancelled::new(cancelled_by_us, cancel_code.clone()),
         }
     }
 }
