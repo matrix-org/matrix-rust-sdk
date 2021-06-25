@@ -72,6 +72,7 @@ impl VerificationMachine {
             self.store.clone(),
             identity,
             None,
+            true,
         );
 
         let request = match content {
@@ -325,6 +326,7 @@ impl VerificationMachine {
                                 device,
                                 identity,
                                 false,
+                                false,
                             ) {
                                 Ok(sas) => {
                                     self.verifications.insert_sas(sas);
@@ -461,6 +463,7 @@ mod test {
             bob_store,
             None,
             None,
+            true,
         );
 
         machine

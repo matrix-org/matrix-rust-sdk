@@ -414,7 +414,7 @@ impl VerificationRequest {
         let inner = self.inner.lock().unwrap().clone();
 
         if let InnerRequest::Ready(s) = inner {
-            s.receive_start(sender, content).await?;
+            s.receive_start(sender, content, self.we_started).await?;
         } else {
             warn!(
                 sender = sender.as_str(),
@@ -454,6 +454,7 @@ impl VerificationRequest {
                         s.store.clone(),
                         s.account.clone(),
                         s.private_cross_signing_identity.clone(),
+                        self.we_started,
                     )
                     .await?
                 {
@@ -565,9 +566,10 @@ impl InnerRequest {
         content: &StartContent,
         other_device: ReadOnlyDevice,
         other_identity: Option<UserIdentities>,
+        we_started: bool,
     ) -> Result<Option<Sas>, OutgoingContent> {
         if let InnerRequest::Ready(s) = self {
-            Ok(Some(s.to_started_sas(content, other_device, other_identity)?))
+            Ok(Some(s.to_started_sas(content, other_device, other_identity, we_started)?))
         } else {
             Ok(None)
         }
@@ -762,6 +764,7 @@ impl RequestState<Ready> {
         content: &StartContent<'a>,
         other_device: ReadOnlyDevice,
         other_identity: Option<UserIdentities>,
+        we_started: bool,
     ) -> Result<Sas, OutgoingContent> {
         Sas::from_start_event(
             (&*self.flow_id).to_owned(),
@@ -772,6 +775,7 @@ impl RequestState<Ready> {
             other_device,
             other_identity,
             true,
+            we_started,
         )
     }
 
@@ -868,6 +872,7 @@ impl RequestState<Ready> {
         &self,
         sender: &UserId,
         content: &StartContent<'_>,
+        we_started: bool,
     ) -> Result<(), CryptoStoreError> {
         info!(
             sender = sender.as_str(),
@@ -890,29 +895,31 @@ impl RequestState<Ready> {
         let identity = self.store.get_user_identity(sender).await?;
 
         match content.method() {
-            StartMethod::SasV1(_) => match self.to_started_sas(content, device.clone(), identity) {
-                // TODO check if there is already a SAS verification, i.e. we
-                // already started one before the other side tried to do the
-                // same; ignore it if we did and we're the lexicographically
-                // smaller user ID, otherwise auto-accept the newly started one.
-                Ok(s) => {
-                    info!("Started a new SAS verification.");
-                    self.verification_cache.insert_sas(s);
+            StartMethod::SasV1(_) => {
+                match self.to_started_sas(content, device.clone(), identity, we_started) {
+                    // TODO check if there is already a SAS verification, i.e. we
+                    // already started one before the other side tried to do the
+                    // same; ignore it if we did and we're the lexicographically
+                    // smaller user ID, otherwise auto-accept the newly started one.
+                    Ok(s) => {
+                        info!("Started a new SAS verification.");
+                        self.verification_cache.insert_sas(s);
+                    }
+                    Err(c) => {
+                        warn!(
+                            user_id = device.user_id().as_str(),
+                            device_id = device.device_id().as_str(),
+                            content =? c,
+                            "Can't start key verification, canceling.",
+                        );
+                        self.verification_cache.queue_up_content(
+                            device.user_id(),
+                            device.device_id(),
+                            c,
+                        )
+                    }
                 }
-                Err(c) => {
-                    warn!(
-                        user_id = device.user_id().as_str(),
-                        device_id = device.device_id().as_str(),
-                        content =? c,
-                        "Can't start key verification, canceling.",
-                    );
-                    self.verification_cache.queue_up_content(
-                        device.user_id(),
-                        device.device_id(),
-                        c,
-                    )
-                }
-            },
+            }
             StartMethod::ReciprocateV1(_) => {
                 if let Some(qr_verification) =
                     self.verification_cache.get_qr(sender, content.flow_id())
@@ -941,6 +948,7 @@ impl RequestState<Ready> {
         store: Arc<dyn CryptoStore>,
         account: ReadOnlyAccount,
         private_identity: PrivateCrossSigningIdentity,
+        we_started: bool,
     ) -> Result<Option<(Sas, OutgoingContent)>, CryptoStoreError> {
         if !self.state.their_methods.contains(&VerificationMethod::SasV1) {
             return Ok(None);
@@ -972,6 +980,7 @@ impl RequestState<Ready> {
                     store,
                     other_identity,
                     Some(t.to_owned()),
+                    we_started,
                 );
                 (sas, content)
             }
@@ -984,6 +993,7 @@ impl RequestState<Ready> {
                     device,
                     store,
                     other_identity,
+                    we_started,
                 );
                 (sas, content)
             }

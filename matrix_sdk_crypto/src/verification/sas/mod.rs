@@ -55,6 +55,7 @@ pub struct Sas {
     account: ReadOnlyAccount,
     identities_being_verified: IdentitiesBeingVerified,
     flow_id: Arc<FlowId>,
+    we_started: bool,
 }
 
 impl Sas {
@@ -114,6 +115,11 @@ impl Sas {
         self.inner.lock().unwrap().cancel_code()
     }
 
+    /// Did we initiate the verification flow.
+    pub fn we_started(&self) -> bool {
+        self.we_started
+    }
+
     #[cfg(test)]
     #[allow(dead_code)]
     pub(crate) fn set_creation_time(&self, time: Instant) {
@@ -127,6 +133,7 @@ impl Sas {
         other_device: ReadOnlyDevice,
         store: Arc<dyn CryptoStore>,
         other_identity: Option<UserIdentities>,
+        we_started: bool,
     ) -> Sas {
         let flow_id = inner_sas.verification_flow_id();
 
@@ -142,6 +149,7 @@ impl Sas {
             account,
             identities_being_verified: identities,
             flow_id,
+            we_started,
         }
     }
 
@@ -162,6 +170,7 @@ impl Sas {
         store: Arc<dyn CryptoStore>,
         other_identity: Option<UserIdentities>,
         transaction_id: Option<String>,
+        we_started: bool,
     ) -> (Sas, OutgoingContent) {
         let (inner, content) = InnerSas::start(
             account.clone(),
@@ -178,6 +187,7 @@ impl Sas {
                 other_device,
                 store,
                 other_identity,
+                we_started,
             ),
             content,
         )
@@ -193,6 +203,7 @@ impl Sas {
     ///
     /// Returns the new `Sas` object and a `StartEventContent` that needs to be
     /// sent out through the server to the other device.
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn start_in_room(
         flow_id: EventId,
         room_id: RoomId,
@@ -201,6 +212,7 @@ impl Sas {
         other_device: ReadOnlyDevice,
         store: Arc<dyn CryptoStore>,
         other_identity: Option<UserIdentities>,
+        we_started: bool,
     ) -> (Sas, OutgoingContent) {
         let (inner, content) = InnerSas::start_in_room(
             flow_id,
@@ -218,6 +230,7 @@ impl Sas {
                 other_device,
                 store,
                 other_identity,
+                we_started,
             ),
             content,
         )
@@ -243,6 +256,7 @@ impl Sas {
         other_device: ReadOnlyDevice,
         other_identity: Option<UserIdentities>,
         started_from_request: bool,
+        we_started: bool,
     ) -> Result<Sas, OutgoingContent> {
         let inner = InnerSas::from_start_event(
             account.clone(),
@@ -260,6 +274,7 @@ impl Sas {
             other_device,
             store,
             other_identity,
+            we_started,
         ))
     }
 
@@ -568,6 +583,7 @@ mod test {
             alice_store,
             None,
             None,
+            true,
         );
 
         let flow_id = alice.flow_id().to_owned();
@@ -581,6 +597,7 @@ mod test {
             PrivateCrossSigningIdentity::empty(bob_id()),
             alice_device,
             None,
+            false,
             false,
         )
         .unwrap();
