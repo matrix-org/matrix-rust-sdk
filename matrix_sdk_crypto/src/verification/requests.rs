@@ -277,7 +277,7 @@ impl VerificationRequest {
     /// Generate a QR code that can be used by another client to start a QR code
     /// based verification.
     pub async fn generate_qr_code(&self) -> Result<Option<QrVerification>, CryptoStoreError> {
-        self.inner.lock().unwrap().generate_qr_code().await
+        self.inner.lock().unwrap().generate_qr_code(self.we_started).await
     }
 
     /// Start a QR code verification by providing a scanned QR code for this
@@ -303,6 +303,7 @@ impl VerificationRequest {
                     r.state.other_device_id.clone(),
                     r.flow_id.as_ref().to_owned(),
                     data,
+                    self.we_started,
                 )
                 .await?,
             ))
@@ -550,11 +551,11 @@ impl InnerRequest {
         })
     }
 
-    async fn generate_qr_code(&self) -> Result<Option<QrVerification>, CryptoStoreError> {
+    async fn generate_qr_code(&self, we_started: bool) -> Result<Option<QrVerification>, CryptoStoreError> {
         match self {
             InnerRequest::Created(_) => Ok(None),
             InnerRequest::Requested(_) => Ok(None),
-            InnerRequest::Ready(s) => s.generate_qr_code().await,
+            InnerRequest::Ready(s) => s.generate_qr_code(we_started).await,
             InnerRequest::Passive(_) => Ok(None),
             InnerRequest::Done(_) => Ok(None),
             InnerRequest::Cancelled(_) => Ok(None),
@@ -783,7 +784,10 @@ impl RequestState<Ready> {
         )
     }
 
-    async fn generate_qr_code(&self) -> Result<Option<QrVerification>, CryptoStoreError> {
+    async fn generate_qr_code(
+        &self,
+        we_started: bool,
+    ) -> Result<Option<QrVerification>, CryptoStoreError> {
         // TODO return an error explaining why we can't generate a QR code?
 
         // If we didn't state that we support showing QR codes or if the other
@@ -829,6 +833,7 @@ impl RequestState<Ready> {
                                 .unwrap()
                                 .to_owned(),
                             identites,
+                            we_started,
                         ))
                     } else {
                         Some(QrVerification::new_self_no_master(
@@ -837,6 +842,7 @@ impl RequestState<Ready> {
                             self.flow_id.as_ref().to_owned(),
                             i.master_key().get_first_key().unwrap().to_owned(),
                             identites,
+                            we_started,
                         ))
                     }
                 }
@@ -852,6 +858,7 @@ impl RequestState<Ready> {
                         .to_owned(),
                     i.master_key().get_first_key().unwrap().to_owned(),
                     identites,
+                    we_started,
                 )),
             }
         } else {

@@ -33,7 +33,7 @@ use ruma::{
         },
         AnyMessageEventContent, AnyToDeviceEventContent,
     },
-    DeviceIdBox, DeviceKeyAlgorithm, UserId,
+    DeviceId, DeviceIdBox, DeviceKeyAlgorithm, RoomId, UserId,
 };
 use thiserror::Error;
 
@@ -83,6 +83,7 @@ pub struct QrVerification {
     inner: Arc<QrVerificationData>,
     state: Arc<Mutex<InnerState>>,
     identities: IdentitiesBeingVerified,
+    we_started: bool,
 }
 
 impl std::fmt::Debug for QrVerification {
@@ -115,6 +116,34 @@ impl QrVerification {
         self.identities.other_user_id()
     }
 
+    /// Get the device id of the other side.
+    pub fn other_device_id(&self) -> &DeviceId {
+        self.identities.other_device_id()
+    }
+
+    /// Did we initiate the verification request
+    pub fn we_started(&self) -> bool {
+        self.we_started
+    }
+
+    /// Get the `CancelCode` that cancelled this verification request.
+    pub fn cancel_code(&self) -> Option<CancelCode> {
+        if let InnerState::Cancelled(c) = &*self.state.lock().unwrap() {
+            Some(c.state.cancel_code.to_owned())
+        } else {
+            None
+        }
+    }
+
+    /// Has the verification flow been cancelled by us.
+    pub fn cancelled_by_us(&self) -> Option<bool> {
+        if let InnerState::Cancelled(c) = &*self.state.lock().unwrap() {
+            Some(c.state.cancelled_by_us)
+        } else {
+            None
+        }
+    }
+
     /// Has the verification flow completed.
     pub fn is_done(&self) -> bool {
         matches!(&*self.state.lock().unwrap(), InnerState::Done(_))
@@ -133,6 +162,14 @@ impl QrVerification {
     /// Get the unique ID that identifies this QR code verification flow.
     pub fn flow_id(&self) -> &FlowId {
         &self.flow_id
+    }
+
+    /// Get the room id if the verification is happening inside a room.
+    pub fn room_id(&self) -> Option<&RoomId> {
+        match self.flow_id() {
+            FlowId::ToDevice(_) => None,
+            FlowId::InRoom(r, _) => Some(r),
+        }
     }
 
     /// Generate a QR code object that is representing this verification flow.
@@ -157,6 +194,38 @@ impl QrVerification {
     /// Cancel the verification flow.
     pub fn cancel(&self) -> Option<OutgoingVerificationRequest> {
         self.cancel_with_code(CancelCode::User).map(|c| self.content_to_request(c))
+    }
+
+    /// Cancel the verification.
+    ///
+    /// This cancels the verification with given `CancelCode`.
+    ///
+    /// **Note**: This method should generally not be used, the [`cancel()`]
+    /// method should be preferred. The SDK will automatically cancel with the
+    /// approprate cancel code, user initiated cancellations should only cancel
+    /// with the `CancelCode::User`
+    ///
+    /// Returns None if the `Sas` object is already in a canceled state,
+    /// otherwise it returns a request that needs to be sent out.
+    ///
+    /// [`cancel()`]: #method.cancel
+    pub fn cancel_with_code(&self, code: CancelCode) -> Option<OutgoingContent> {
+        let new_state = QrState::<Cancelled>::new(true, code);
+        let content = new_state.as_content(self.flow_id());
+
+        let mut state = self.state.lock().unwrap();
+
+        match &*state {
+            InnerState::Confirmed(_)
+            | InnerState::Created(_)
+            | InnerState::Scanned(_)
+            | InnerState::Reciprocated(_)
+            | InnerState::Done(_) => {
+                *state = InnerState::Cancelled(new_state);
+                Some(content)
+            }
+            InnerState::Cancelled(_) => None,
+        }
     }
 
     /// Notify the other side that we have successfully scanned the QR code and
@@ -206,25 +275,6 @@ impl QrVerification {
                 c,
             )
             .into(),
-        }
-    }
-
-    fn cancel_with_code(&self, code: CancelCode) -> Option<OutgoingContent> {
-        let new_state = QrState::<Cancelled>::new(true, code);
-        let content = new_state.as_content(self.flow_id());
-
-        let mut state = self.state.lock().unwrap();
-
-        match &*state {
-            InnerState::Confirmed(_)
-            | InnerState::Created(_)
-            | InnerState::Scanned(_)
-            | InnerState::Reciprocated(_)
-            | InnerState::Done(_) => {
-                *state = InnerState::Cancelled(new_state);
-                Some(content)
-            }
-            InnerState::Cancelled(_) => None,
         }
     }
 
@@ -351,6 +401,7 @@ impl QrVerification {
         own_master_key: String,
         other_device_key: String,
         identities: IdentitiesBeingVerified,
+        we_started: bool,
     ) -> Self {
         let secret = Self::generate_secret();
 
@@ -362,7 +413,7 @@ impl QrVerification {
         )
         .into();
 
-        Self::new_helper(store, flow_id, inner, identities)
+        Self::new_helper(store, flow_id, inner, identities, we_started)
     }
 
     pub(crate) fn new_self_no_master(
@@ -371,6 +422,7 @@ impl QrVerification {
         flow_id: FlowId,
         own_master_key: String,
         identities: IdentitiesBeingVerified,
+        we_started: bool,
     ) -> QrVerification {
         let secret = Self::generate_secret();
 
@@ -382,7 +434,7 @@ impl QrVerification {
         )
         .into();
 
-        Self::new_helper(store, flow_id, inner, identities)
+        Self::new_helper(store, flow_id, inner, identities, we_started)
     }
 
     pub(crate) fn new_cross(
@@ -391,6 +443,7 @@ impl QrVerification {
         own_master_key: String,
         other_master_key: String,
         identities: IdentitiesBeingVerified,
+        we_started: bool,
     ) -> Self {
         let secret = Self::generate_secret();
 
@@ -403,9 +456,10 @@ impl QrVerification {
         let inner: QrVerificationData =
             VerificationData::new(event_id, own_master_key, other_master_key, secret).into();
 
-        Self::new_helper(store, flow_id, inner, identities)
+        Self::new_helper(store, flow_id, inner, identities, we_started)
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub(crate) async fn from_scan(
         store: Arc<dyn CryptoStore>,
         own_account: ReadOnlyAccount,
@@ -414,6 +468,7 @@ impl QrVerification {
         other_device_id: DeviceIdBox,
         flow_id: FlowId,
         qr_code: QrVerificationData,
+        we_started: bool,
     ) -> Result<Self, ScanError> {
         if flow_id.as_str() != qr_code.flow_id() {
             return Err(ScanError::FlowIdMismatch {
@@ -510,6 +565,7 @@ impl QrVerification {
             }))
             .into(),
             identities,
+            we_started,
         })
     }
 
@@ -518,6 +574,7 @@ impl QrVerification {
         flow_id: FlowId,
         inner: QrVerificationData,
         identities: IdentitiesBeingVerified,
+        we_started: bool,
     ) -> Self {
         let secret = inner.secret().to_owned();
 
@@ -527,6 +584,7 @@ impl QrVerification {
             inner: inner.into(),
             state: Mutex::new(InnerState::Created(QrState { state: Created { secret } })).into(),
             identities,
+            we_started,
         }
     }
 }
@@ -747,6 +805,7 @@ mod test {
             flow_id.clone(),
             master_key.clone(),
             identities.clone(),
+            false,
         );
 
         assert_eq!(verification.inner.first_key(), &device_key);
@@ -758,6 +817,7 @@ mod test {
             master_key.clone(),
             device_key.clone(),
             identities.clone(),
+            false,
         );
 
         assert_eq!(verification.inner.first_key(), &master_key);
@@ -775,6 +835,7 @@ mod test {
             master_key.clone(),
             bob_master_key.clone(),
             identities,
+            false,
         );
 
         assert_eq!(verification.inner.first_key(), &master_key);
@@ -818,6 +879,7 @@ mod test {
                 flow_id.clone(),
                 master_key.clone(),
                 identities,
+                false,
             );
 
             let bob_store = memory_store();
@@ -838,6 +900,7 @@ mod test {
                 alice_account.device_id().to_owned(),
                 flow_id,
                 qr_code,
+                false,
             )
             .await
             .unwrap();
