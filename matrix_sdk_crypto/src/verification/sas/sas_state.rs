@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use std::{
-    convert::TryFrom,
+    convert::{TryFrom, TryInto},
     matches,
     sync::{Arc, Mutex},
     time::{Duration, Instant},
@@ -222,7 +222,7 @@ impl<S: Clone + std::fmt::Debug> std::fmt::Debug for SasState<S> {
 /// The initial SAS state.
 #[derive(Clone, Debug)]
 pub struct Created {
-    protocol_definitions: SasV1ContentInit,
+    protocol_definitions: SasV1Content,
 }
 
 /// The initial SAS state if the other side started the SAS verification.
@@ -407,7 +407,9 @@ impl SasState<Created> {
                     key_agreement_protocols: KEY_AGREEMENT_PROTOCOLS.to_vec(),
                     message_authentication_codes: MACS.to_vec(),
                     hashes: HASHES.to_vec(),
-                },
+                }
+                .try_into()
+                .expect("Invalid protocol definition."),
             }),
         }
     }
@@ -417,19 +419,13 @@ impl SasState<Created> {
             FlowId::ToDevice(s) => OwnedStartContent::ToDevice(StartToDeviceEventContent::new(
                 self.device_id().into(),
                 s.to_string(),
-                StartMethod::SasV1(
-                    SasV1Content::new(self.state.protocol_definitions.clone())
-                        .expect("Invalid initial protocol definitions."),
-                ),
+                StartMethod::SasV1(self.state.protocol_definitions.clone()),
             )),
             FlowId::InRoom(r, e) => OwnedStartContent::Room(
                 r.clone(),
                 StartEventContent::new(
                     self.device_id().into(),
-                    StartMethod::SasV1(
-                        SasV1Content::new(self.state.protocol_definitions.clone())
-                            .expect("Invalid initial protocol definitions."),
-                    ),
+                    StartMethod::SasV1(self.state.protocol_definitions.clone()),
                     Relation::new(e.clone()),
                 ),
             ),
