@@ -551,7 +551,10 @@ impl InnerRequest {
         })
     }
 
-    async fn generate_qr_code(&self, we_started: bool) -> Result<Option<QrVerification>, CryptoStoreError> {
+    async fn generate_qr_code(
+        &self,
+        we_started: bool,
+    ) -> Result<Option<QrVerification>, CryptoStoreError> {
         match self {
             InnerRequest::Created(_) => Ok(None),
             InnerRequest::Requested(_) => Ok(None),

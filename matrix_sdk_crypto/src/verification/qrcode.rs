@@ -101,8 +101,13 @@ impl QrVerification {
     ///
     /// When the verification object is in this state it's required that the
     /// user confirms that the other side has scanned the QR code.
-    pub fn is_scanned(&self) -> bool {
+    pub fn has_been_scanned(&self) -> bool {
         matches!(&*self.state.lock().unwrap(), InnerState::Scanned(_))
+    }
+
+    /// Has the scanning of the QR code been confirmed by us.
+    pub fn has_been_confirmed(&self) -> bool {
+        matches!(&*self.state.lock().unwrap(), InnerState::Confirmed(_))
     }
 
     /// Get our own user id.
