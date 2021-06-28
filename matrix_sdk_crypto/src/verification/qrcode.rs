@@ -36,9 +36,10 @@ use ruma::{
     DeviceId, DeviceIdBox, DeviceKeyAlgorithm, RoomId, UserId,
 };
 use thiserror::Error;
+use tracing::trace;
 
 use super::{
-    event_enums::{DoneContent, OutgoingContent, OwnedStartContent, StartContent},
+    event_enums::{CancelContent, DoneContent, OutgoingContent, OwnedStartContent, StartContent},
     Cancelled, Done, FlowId, IdentitiesBeingVerified, VerificationResult,
 };
 use crate::{
@@ -393,6 +394,28 @@ impl QrVerification {
         }
     }
 
+    pub(crate) fn receive_cancel(&self, sender: &UserId, content: &CancelContent<'_>) {
+        if sender == self.other_user_id() {
+            let mut state = self.state.lock().unwrap();
+
+            let new_state = match &*state {
+                InnerState::Created(s) => s.clone().into_cancelled(content),
+                InnerState::Scanned(s) => s.clone().into_cancelled(content),
+                InnerState::Confirmed(s) => s.clone().into_cancelled(content),
+                InnerState::Reciprocated(s) => s.clone().into_cancelled(content),
+                InnerState::Done(_) | InnerState::Cancelled(_) => return,
+            };
+
+            trace!(
+                sender = sender.as_str(),
+                code = content.cancel_code().as_str(),
+                "Cancelling a QR verification, other user has cancelled"
+            );
+
+            *state = InnerState::Cancelled(new_state);
+        }
+    }
+
     fn generate_secret() -> String {
         let mut shared_secret = [0u8; SECRET_SIZE];
         getrandom::getrandom(&mut shared_secret)
@@ -607,6 +630,12 @@ enum InnerState {
 #[derive(Clone, Debug)]
 struct QrState<S: Clone> {
     state: S,
+}
+
+impl<S: Clone> QrState<S> {
+    pub fn into_cancelled(self, content: &CancelContent<'_>) -> QrState<Cancelled> {
+        QrState { state: Cancelled::new(false, content.cancel_code().to_owned()) }
+    }
 }
 
 #[derive(Clone, Debug)]

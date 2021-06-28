@@ -287,9 +287,16 @@ impl VerificationMachine {
                         verification.receive_cancel(event.sender(), c);
                     }
 
-                    if let Some(sas) = self.get_sas(event.sender(), flow_id.as_str()) {
-                        // This won't produce an outgoing content
-                        let _ = sas.receive_any_event(event.sender(), &content);
+                    if let Some(verification) =
+                        self.get_verification(event.sender(), flow_id.as_str())
+                    {
+                        match verification {
+                            Verification::SasV1(sas) => {
+                                // This won't produce an outgoing content
+                                let _ = sas.receive_any_event(event.sender(), &content);
+                            }
+                            Verification::QrV1(qr) => qr.receive_cancel(event.sender(), c),
+                        }
                     }
                 }
                 AnyVerificationContent::Ready(c) => {
