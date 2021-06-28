@@ -789,7 +789,7 @@ impl OlmMachine {
         one_time_keys_counts: &BTreeMap<DeviceKeyAlgorithm, UInt>,
     ) -> OlmResult<ToDevice> {
         // Remove verification objects that have expired or are done.
-        self.verification_machine.garbage_collect();
+        let mut events = self.verification_machine.garbage_collect();
 
         // Always save the account, a new session might get created which also
         // touches the account.
@@ -803,8 +803,6 @@ impl OlmMachine {
                 error!("Error marking a tracked user as changed {:?}", e);
             }
         }
-
-        let mut events = Vec::new();
 
         for mut raw_event in to_device_events.events {
             let event = match raw_event.deserialize() {

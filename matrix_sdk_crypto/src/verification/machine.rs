@@ -12,11 +12,18 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{convert::TryFrom, sync::Arc};
+use std::{
+    convert::{TryFrom, TryInto},
+    sync::Arc,
+};
 
 use dashmap::DashMap;
 use matrix_sdk_common::{locks::Mutex, uuid::Uuid};
-use ruma::{DeviceId, MilliSecondsSinceUnixEpoch, UserId};
+use ruma::{
+    events::{AnyToDeviceEvent, AnyToDeviceEventContent, ToDeviceEvent},
+    serde::Raw,
+    DeviceId, MilliSecondsSinceUnixEpoch, UserId,
+};
 use tracing::{info, trace, warn};
 
 use super::{
@@ -165,15 +172,28 @@ impl VerificationMachine {
         self.verifications.outgoing_requests()
     }
 
-    pub fn garbage_collect(&self) {
+    pub fn garbage_collect(&self) -> Vec<Raw<AnyToDeviceEvent>> {
+        let mut events = vec![];
+
         for user_verification in self.requests.iter() {
             user_verification.retain(|_, v| !(v.is_done() || v.is_cancelled()));
         }
         self.requests.retain(|_, v| !v.is_empty());
 
         for request in self.verifications.garbage_collect() {
+            if let Ok(OutgoingContent::ToDevice(AnyToDeviceEventContent::KeyVerificationCancel(
+                content,
+            ))) = request.clone().try_into()
+            {
+                let event = ToDeviceEvent { content, sender: self.account.user_id().to_owned() };
+
+                events.push(AnyToDeviceEvent::KeyVerificationCancel(event).into());
+            }
+
             self.verifications.add_request(request)
         }
+
+        events
     }
 
     async fn mark_sas_as_done(
