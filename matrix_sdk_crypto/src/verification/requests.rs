@@ -436,7 +436,12 @@ impl VerificationRequest {
 
     pub(crate) fn receive_cancel(&self, sender: &UserId, content: &CancelContent<'_>) {
         if sender == self.other_user() {
-            let mut inner = self.inner.lock().unwrap().clone();
+            trace!(
+                sender = sender.as_str(),
+                code = content.cancel_code().as_str(),
+                "Cancelling a verification request, other user has cancelled"
+            );
+            let mut inner = self.inner.lock().unwrap();
             inner.cancel(false, content.cancel_code());
         }
     }
@@ -548,7 +553,7 @@ impl InnerRequest {
             InnerRequest::Passive(s) => s.clone().into_canceled(cancelled_by_us, cancel_code),
             InnerRequest::Done(_) => return,
             InnerRequest::Cancelled(_) => return,
-        })
+        });
     }
 
     async fn generate_qr_code(
