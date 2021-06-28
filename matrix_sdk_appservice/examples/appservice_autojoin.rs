@@ -35,13 +35,9 @@ impl AppServiceEventHandler {
             trace!("not an appservice user: {}", event.state_key);
         } else if let MembershipState::Invite = event.content.membership {
             let user_id = UserId::try_from(event.state_key.clone())?;
-
-            let appservice = self.appservice.clone();
-            appservice.register_virtual_user(user_id.localpart()).await?;
-
-            let client = appservice.virtual_user_client(user_id.localpart()).await?;
-
-            client.join_room_by_id(room.room_id()).await?;
+            let localpart = user_id.localpart();
+            self.appservice.virtual_user_client(localpart).await?;
+            self.appservice.join_room_by_id(Some(localpart), room.room_id()).await?;
         }
 
         Ok(())
@@ -58,9 +54,10 @@ impl EventHandler for AppServiceEventHandler {
     }
 }
 
-#[tokio::main]
+#[cfg_attr(feature = "warp", tokio::main)]
+#[cfg_attr(feature = "actix", actix_rt::main)]
 pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    env::set_var("RUST_LOG", "matrix_sdk=debug,matrix_sdk_appservice=debug");
+    env::set_var("RUST_LOG", "matrix_sdk=trace,matrix_sdk_appservice=trace");
     tracing_subscriber::fmt::init();
 
     let homeserver_url = "http://localhost:8008";
