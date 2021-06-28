@@ -93,6 +93,7 @@ use matrix_sdk::{
     bytes::Bytes, reqwest::Url, Client, ClientConfig, EventHandler, HttpError, Session,
 };
 use regex::Regex;
+pub use ruma;
 use ruma::{
     api::{
         appservice::Registration,
