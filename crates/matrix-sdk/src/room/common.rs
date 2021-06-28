@@ -1,24 +1,30 @@
-use std::{ops::Deref, sync::Arc};
+use std::{cmp::min, convert::TryFrom, ops::Deref, sync::Arc};
 
-use matrix_sdk_base::deserialized_responses::{MembersResponse, RoomEvent};
+use matrix_sdk_base::{
+    deserialized_responses::{MembersResponse, RoomEvent, SyncRoomEvent},
+    StoredTimelineSlice,
+};
 use matrix_sdk_common::locks::Mutex;
 use ruma::{
     api::client::r0::{
+        context::get_context,
         membership::{get_member_events, join_room_by_id, leave_room},
-        message::get_message_events,
+        message::{get_message_events, get_message_events::Direction},
         room::get_room_event,
     },
     events::{
-        room::history_visibility::HistoryVisibility, AnyStateEvent, AnySyncStateEvent, EventType,
+        room::history_visibility::HistoryVisibility, AnyRoomEvent, AnyStateEvent,
+        AnySyncStateEvent, EventType,
     },
     serde::Raw,
-    EventId, UserId,
+    EventId, UInt, UserId,
 };
+use tracing::trace;
 
 use crate::{
     media::{MediaFormat, MediaRequest, MediaType},
     room::RoomType,
-    BaseRoom, Client, Result, RoomMember,
+    BaseRoom, Client, HttpResult, Result, RoomMember,
 };
 
 /// A struct containing methods that are common for Joined, Invited and Left
@@ -129,12 +135,8 @@ impl Common {
     }
 
     /// Sends a request to `/_matrix/client/r0/rooms/{room_id}/messages` and
-    /// returns a `Messages` struct that contains a chunk of room and state
-    /// events (`RoomEvent` and `AnyStateEvent`).
-    ///
-    /// With the encryption feature, messages are decrypted if possible. If
-    /// decryption fails for an individual message, that message is returned
-    /// undecrypted.
+    /// returns a `get_message_events::Response` that contains a chunk of
+    /// room and state events (`AnyRoomEvent` and `AnyStateEvent`).
     ///
     /// # Arguments
     ///
@@ -162,46 +164,221 @@ impl Common {
     /// #    .unwrap();
     /// # use futures::executor::block_on;
     /// # block_on(async {
-    /// assert!(room.messages(request).await.is_ok());
+    /// assert!(room.request_messages(request).await.is_ok());
+    /// # });
+    /// ```
+    pub async fn request_messages(
+        &self,
+        request: impl Into<get_message_events::Request<'_>>,
+    ) -> HttpResult<get_message_events::Response> {
+        let request = request.into();
+        self.client.send(request, None).await
+    }
+
+    /// Gets a slice of the timeline of this room
+    ///
+    /// Returns a slice of the timeline between `start` and `end`, no longer
+    /// then `limit`. If the number of events is fewer then `limit` it means
+    /// that in the given direction no more events exist.
+    /// If the timeline doesn't contain an event with the given `start` `None`
+    /// is returned.
+    ///
+    /// # Arguments
+    ///
+    /// * `start` - An `EventId` that indicates the start of the slice. If
+    ///   `None` the most recent
+    /// events in the given direction are returned.
+    ///
+    /// * `end` - An `EventId` that indicates the end of the slice.
+    ///
+    /// * `limit` - The maximum number of events that should be returned.
+    ///
+    /// * `direction` - The direction of the search and returned events.
+    ///
+    /// # Examples
+    /// ```no_run
+    /// # use std::convert::TryFrom;
+    /// use matrix_sdk::Client;
+    /// # use matrix_sdk::ruma::{event_id, room_id};
+    /// # use matrix_sdk::ruma::api::client::r0::{
+    /// #     filter::RoomEventFilter,
+    /// #     message::get_message_events::{Direction, Request as MessagesRequest},
+    /// # };
+    /// # use url::Url;
+    ///
+    /// # let homeserver = Url::parse("http://example.com").unwrap();
+    /// let room_id = room_id!("!roomid:example.com");
+    ///
+    /// let mut client = Client::new(homeserver).unwrap();
+    /// # let room = client
+    /// #    .get_joined_room(&room_id)
+    /// #    .unwrap();
+    /// # use futures::executor::block_on;
+    /// # block_on(async {
+    /// assert!(room.messages(Some(&event_id!("$xxxxxx:example.org")), None, 10, Direction::Backward).await.is_ok());
     /// # });
     /// ```
     pub async fn messages(
         &self,
-        request: impl Into<get_message_events::Request<'_>>,
-    ) -> Result<Messages> {
-        let request = request.into();
-        let http_response = self.client.send(request, None).await?;
+        start: Option<&EventId>,
+        end: Option<&EventId>,
+        limit: u32,
+        direction: Direction,
+    ) -> Result<Option<Vec<SyncRoomEvent>>> {
+        let room_id = self.inner.room_id();
+        if let Some(stored) = self
+            .client
+            .store()
+            .get_timeline(room_id, start, end, Some(limit as usize), direction.clone())
+            .await?
+        {
+            // We found a gap or the end of the stored timeline.
+            Ok(Some(self.request_missing_messages(stored, end, limit, &direction).await?))
+        } else {
+            // The start event wasn't found in the store fallback to the context api.
+            self.request_missing_messages_via_context(start, end, limit, &direction).await
+        }
+    }
 
-        let mut response = Messages {
-            start: http_response.start,
-            end: http_response.end,
-            chunk: Vec::with_capacity(http_response.chunk.len()),
-            state: http_response.state,
-        };
+    fn context_to_message_response(
+        &self,
+        mut context: get_context::Response,
+    ) -> Option<get_message_events::Response> {
+        let mut response = get_message_events::Response::new();
+        response.start = context.start;
+        response.end = context.end;
 
-        for event in http_response.chunk {
-            #[cfg(feature = "encryption")]
-            let event = match event.deserialize() {
-                Ok(event) => self.client.decrypt_room_event(&event).await,
-                Err(_) => {
-                    // "Broken" messages (i.e., those that cannot be deserialized) are
-                    // returned unchanged so that the caller can handle them individually.
-                    RoomEvent { event, encryption_info: None }
+        let mut events: Vec<Raw<AnyRoomEvent>> = context.events_after.into_iter().rev().collect();
+        events.push(context.event?);
+        events.append(&mut context.events_before);
+
+        response.chunk = events;
+        response.state = context.state;
+
+        Some(response)
+    }
+
+    async fn request_missing_messages(
+        &self,
+        mut stored: StoredTimelineSlice,
+        end: Option<&EventId>,
+        limit: u32,
+        direction: &Direction,
+    ) -> Result<Vec<SyncRoomEvent>> {
+        if let Some(token) = stored.token {
+            trace!("A gap in the stored timeline was found. Request messages from token {}", token);
+
+            let room_id = self.inner.room_id();
+            let mut request = get_message_events::Request::new(room_id, &token, direction.clone());
+            // The number of events found in the store is never more then `limit`.
+            request.limit = UInt::from(limit - stored.events.len() as u32);
+
+            let response = self.request_messages(request).await?;
+
+            // FIXME: we may received an invalied server response that ruma considers valid
+            // See https://github.com/ruma/ruma/issues/644
+            if response.end.is_none() && response.start.is_none() {
+                return Ok(stored.events);
+            }
+
+            let response_events =
+                self.client.base_client().receive_messages(room_id, direction, &response).await?;
+
+            // If our end event is part of our event list make sure we don't return past the
+            // end, otherwise return the whole list.
+            let mut response_events = if let Some(end) = end {
+                if let Some(position) = response_events
+                    .iter()
+                    .position(|event| event.event_id().map_or(false, |event_id| &event_id == end))
+                {
+                    response_events.into_iter().take(position + 1).collect()
+                } else {
+                    response_events
                 }
+            } else {
+                response_events
             };
 
-            #[cfg(not(feature = "encryption"))]
-            let event = RoomEvent { event, encryption_info: None };
-
-            response.chunk.push(event);
+            match direction {
+                Direction::Forward => {
+                    response_events.append(&mut stored.events);
+                    stored.events = response_events;
+                }
+                Direction::Backward => stored.events.append(&mut response_events),
+            }
         }
+        Ok(stored.events)
+    }
 
-        Ok(response)
+    async fn request_missing_messages_via_context(
+        &self,
+        start: Option<&EventId>,
+        end: Option<&EventId>,
+        limit: u32,
+        direction: &Direction,
+    ) -> Result<Option<Vec<SyncRoomEvent>>> {
+        let start = if let Some(start) = start {
+            start
+        } else {
+            // If no start event was given it's not possible to find the context of it.
+            return Ok(None);
+        };
+
+        trace!("The start event with id {} wasn't found in the stored timeline. Fallback to the context API", start);
+
+        let room_id = self.inner.room_id();
+        let mut request = get_context::Request::new(room_id, start);
+
+        // We need to take limit twice because the context api returns events before
+        // and after the given event
+        request.limit = UInt::try_from(limit as u64 * 2u64).unwrap_or(UInt::MAX);
+
+        let context = self.client.send(request, None).await?;
+
+        let limit = limit as usize;
+        let before_length = context.events_before.len();
+        let after_length = context.events_after.len();
+        let response = if let Some(response) = self.context_to_message_response(context) {
+            response
+        } else {
+            return Ok(None);
+        };
+        let response_events = self
+            .client
+            .base_client()
+            .receive_messages(room_id, &Direction::Backward, &response)
+            .await?;
+
+        let response_events: Vec<SyncRoomEvent> = match direction {
+            Direction::Forward => {
+                let lower_bound = if before_length > limit { before_length - limit } else { 0 };
+                response_events[lower_bound..=before_length].to_vec()
+            }
+            Direction::Backward => response_events
+                [after_length..min(response_events.len(), after_length + limit)]
+                .to_vec(),
+        };
+
+        let result = if let Some(end) = end {
+            if let Some(position) = response_events
+                .iter()
+                .position(|event| event.event_id().map_or(false, |event_id| &event_id == end))
+            {
+                response_events.into_iter().take(position + 1).collect()
+            } else {
+                response_events
+            }
+        } else {
+            response_events
+        };
+
+        Ok(Some(result))
     }
 
     /// Fetch the event with the given `EventId` in this room.
     pub async fn event(&self, event_id: &EventId) -> Result<RoomEvent> {
         let request = get_room_event::Request::new(self.room_id(), event_id);
+
         let event = self.client.send(request, None).await?.event.deserialize()?;
 
         #[cfg(feature = "encryption")]

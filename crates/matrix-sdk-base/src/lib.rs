@@ -43,4 +43,4 @@ pub use client::{BaseClient, BaseClientConfig};
 #[cfg(feature = "encryption")]
 pub use matrix_sdk_crypto as crypto;
 pub use rooms::{Room, RoomInfo, RoomMember, RoomType};
-pub use store::{StateChanges, StateStore, Store, StoreError};
+pub use store::{StateChanges, StateStore, Store, StoreError, StoredTimelineSlice};

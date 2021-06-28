@@ -21,6 +21,7 @@ use dashmap::{DashMap, DashSet};
 use lru::LruCache;
 use matrix_sdk_common::{async_trait, instant::Instant, locks::Mutex};
 use ruma::{
+    api::client::r0::message::get_message_events::Direction,
     events::{
         presence::PresenceEvent,
         receipt::Receipt,
@@ -34,7 +35,7 @@ use ruma::{
 };
 use tracing::info;
 
-use super::{Result, RoomInfo, StateChanges, StateStore};
+use super::{Result, RoomInfo, StateChanges, StateStore, StoredTimelineSlice};
 use crate::{
     deserialized_responses::{MemberEvent, StrippedMemberEvent},
     media::{MediaRequest, UniqueKey},
@@ -272,6 +273,8 @@ impl MemoryStore {
             }
         }
 
+        // TODO: implement writing timeline to the store.
+
         info!("Saved changes in {:?}", now.elapsed());
 
         Ok(())
@@ -438,6 +441,23 @@ impl MemoryStore {
 
         Ok(())
     }
+
+    async fn get_timeline(
+        &self,
+        _room_id: &RoomId,
+        _start: Option<&EventId>,
+        _end: Option<&EventId>,
+        _limit: Option<usize>,
+        _direction: Direction,
+    ) -> Result<Option<StoredTimelineSlice>> {
+        // TODO: implement reading from the store.
+        Ok(None)
+    }
+
+    async fn remove_timeline(&self, _room_id: Option<&RoomId>) -> Result<()> {
+        // TODO: implement once writing the timeline to the store is implemented.
+        Ok(())
+    }
 }
 
 #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
@@ -583,6 +603,21 @@ impl StateStore for MemoryStore {
 
     async fn remove_media_content_for_uri(&self, uri: &MxcUri) -> Result<()> {
         self.remove_media_content_for_uri(uri).await
+    }
+
+    async fn get_timeline(
+        &self,
+        room_id: &RoomId,
+        start: Option<&EventId>,
+        end: Option<&EventId>,
+        limit: Option<usize>,
+        direction: Direction,
+    ) -> Result<Option<StoredTimelineSlice>> {
+        self.get_timeline(room_id, start, end, limit, direction).await
+    }
+
+    async fn remove_timeline(&self, room_id: Option<&RoomId>) -> Result<()> {
+        self.remove_timeline(room_id).await
     }
 }
 

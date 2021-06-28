@@ -2372,6 +2372,8 @@ pub(crate) mod test {
     use matrix_sdk_base::media::{MediaFormat, MediaRequest, MediaThumbnailSize, MediaType};
     use matrix_sdk_test::{test_json, EventBuilder, EventsJson};
     use mockito::{mock, Matcher};
+    #[cfg(feature = "sled_state_store")]
+    use ruma::api::client::r0::message::get_message_events::Direction;
     use ruma::{
         api::{
             client::{
@@ -3679,5 +3681,183 @@ pub(crate) mod test {
             .unwrap();
 
         matches::assert_matches!(encryption_event, AnySyncStateEvent::RoomEncryption(_));
+    }
+
+    #[cfg(feature = "sled_state_store")]
+    #[tokio::test]
+    async fn messages() {
+        let room_id = room_id!("!SVkFJHzfwvuaIEawgC:localhost");
+        let client = logged_in_client().await;
+
+        let _m = mock("GET", Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_string()))
+            .with_status(200)
+            .with_body(test_json::MORE_SYNC.to_string())
+            .match_header("authorization", "Bearer 1234")
+            .create();
+
+        let mocked_messages = mock(
+            "GET",
+            Matcher::Regex(
+                r"^/_matrix/client/r0/rooms/.*/messages.*from=t392-516_47314_0_7_1_1_1_11444_1.*"
+                    .to_string(),
+            ),
+        )
+        .with_status(200)
+        .with_body(test_json::SYNC_ROOM_MESSAGES_BATCH_1.to_string())
+        .match_header("authorization", "Bearer 1234")
+        .create();
+
+        let _m = mock(
+            "GET",
+            Matcher::Regex(
+                r"^/_matrix/client/r0/rooms/.*/messages.*from=s526_47314_0_7_1_1_1_11444_2"
+                    .to_string(),
+            ),
+        )
+        .with_status(200)
+        .match_header("authorization", "Bearer 1234")
+        .create();
+
+        let mocked_context =
+            mock("GET", Matcher::Regex(r"^/_matrix/client/r0/rooms/.*/context/.*".to_string()))
+                .with_status(200)
+                .with_body(test_json::CONTEXT_MESSAGE.to_string())
+                .match_header("authorization", "Bearer 1234")
+                .create();
+
+        let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
+
+        let _ = client.sync_once(sync_settings).await.unwrap();
+
+        let room = client.get_joined_room(&room_id).unwrap();
+
+        // Try to get the full timeline
+        let events = room.messages(None, None, 3, Direction::Forward).await.unwrap().unwrap();
+
+        assert_eq!(events.len(), 0);
+
+        let events = room.messages(None, None, 3, Direction::Backward).await.unwrap().unwrap();
+
+        let expected_events = [
+            event_id!("$098237280074GZeOm:localhost"),
+            event_id!("$15275047031IXQRi:localhost"),
+            event_id!("$15275046980maRLj:localhost"),
+        ];
+
+        assert_eq!(events.len(), expected_events.len());
+        assert!(events
+            .iter()
+            .map(|event| event.event_id())
+            .zip(&expected_events)
+            .all(|(a, b)| a.as_ref().unwrap() == b));
+
+        // Try to get the timeline starting at an event not known to the store.
+        let events = room
+            .messages(Some(&event_id!("$f3h4d129462ha:example.com")), None, 3, Direction::Backward)
+            .await
+            .unwrap()
+            .unwrap();
+
+        let expected_events = [
+            event_id!("$f3h4d129462ha:example.com"),
+            event_id!("$143273582443PhrSnbefore1:example.org"),
+            event_id!("$143273582443PhrSnbefore2:example.org"),
+        ];
+
+        assert_eq!(events.len(), expected_events.len());
+        assert!(events
+            .iter()
+            .map(|event| event.event_id())
+            .zip(&expected_events)
+            .all(|(a, b)| a.as_ref().unwrap() == b));
+
+        mocked_context.assert();
+
+        let expected_events = [
+            event_id!("$152037280074GZeOm:localhost"),
+            event_id!("$1444812213350496Caaaf:example.com"),
+            event_id!("$1444812213350496Cbbbf:example.com"),
+            event_id!("$1444812213350496Ccccf:example.com"),
+        ];
+
+        let events = room
+            .messages(
+                Some(&event_id!("$152037280074GZeOm:localhost")),
+                None,
+                expected_events.len() as u32,
+                Direction::Backward,
+            )
+            .await
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(events.len(), expected_events.len());
+        assert!(events
+            .iter()
+            .map(|event| event.event_id())
+            .zip(&expected_events)
+            .all(|(a, b)| a.as_ref().unwrap() == b));
+
+        let events = room
+            .messages(
+                Some(&event_id!("$1444812213350496Ccccf:example.com")),
+                None,
+                expected_events.len() as u32,
+                Direction::Forward,
+            )
+            .await
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(events.len(), expected_events.len());
+        assert!(events
+            .iter()
+            .rev()
+            .map(|event| event.event_id())
+            .zip(&expected_events)
+            .all(|(a, b)| a.as_ref().unwrap() == b));
+
+        let end_event = event_id!("$1444812213350496Cbbbf:example.com");
+        let events = room
+            .messages(
+                Some(&event_id!("$152037280074GZeOm:localhost")),
+                Some(&end_event),
+                expected_events.len() as u32,
+                Direction::Backward,
+            )
+            .await
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(events.len(), 3);
+        assert_eq!(events.last().unwrap().event_id().unwrap(), end_event);
+        assert!(events
+            .iter()
+            .map(|event| event.event_id())
+            .zip(&expected_events[0..4])
+            .any(|(a, b)| a.as_ref().unwrap() == b));
+
+        let end_event = event_id!("$1444812213350496Cbbbf:example.com");
+        let events = room
+            .messages(
+                Some(&event_id!("$1444812213350496Ccccf:example.com")),
+                Some(&end_event),
+                expected_events.len() as u32,
+                Direction::Forward,
+            )
+            .await
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(events.len(), 2);
+        assert_eq!(events.last().unwrap().event_id().unwrap(), end_event);
+        assert!(events
+            .iter()
+            .rev()
+            .map(|event| event.event_id())
+            .zip(&expected_events[2..])
+            .all(|(a, b)| a.as_ref().unwrap() == b));
+
+        mocked_messages.assert();
     }
 }
