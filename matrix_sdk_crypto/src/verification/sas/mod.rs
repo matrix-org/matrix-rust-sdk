@@ -119,6 +119,11 @@ impl Sas {
         self.inner.lock().unwrap().have_we_confirmed()
     }
 
+    /// Has the verification been accepted by both parties.
+    pub fn has_been_accepted(&self) -> bool {
+        self.inner.lock().unwrap().has_been_accepted()
+    }
+
     /// Get the cancel code of this SAS verification if it has been cancelled
     pub fn cancel_code(&self) -> Option<CancelCode> {
         self.inner.lock().unwrap().cancel_code()
@@ -310,18 +315,28 @@ impl Sas {
         &self,
         settings: AcceptSettings,
     ) -> Option<OutgoingVerificationRequest> {
-        self.inner.lock().unwrap().accept().map(|c| match settings.apply(c) {
-            OwnedAcceptContent::ToDevice(c) => {
-                let content = AnyToDeviceEventContent::KeyVerificationAccept(c);
-                self.content_to_request(content).into()
-            }
-            OwnedAcceptContent::Room(room_id, content) => RoomMessageRequest {
-                room_id,
-                txn_id: Uuid::new_v4(),
-                content: AnyMessageEventContent::KeyVerificationAccept(content),
-            }
-            .into(),
-        })
+        let mut guard = self.inner.lock().unwrap();
+        let sas: InnerSas = (*guard).clone();
+
+        if let Some((sas, content)) = sas.accept() {
+            *guard = sas;
+            let content = settings.apply(content);
+
+            Some(match content {
+                OwnedAcceptContent::ToDevice(c) => {
+                    let content = AnyToDeviceEventContent::KeyVerificationAccept(c);
+                    self.content_to_request(content).into()
+                }
+                OwnedAcceptContent::Room(room_id, content) => RoomMessageRequest {
+                    room_id,
+                    txn_id: Uuid::new_v4(),
+                    content: AnyMessageEventContent::KeyVerificationAccept(content),
+                }
+                .into(),
+            })
+        } else {
+            None
+        }
     }
 
     /// Confirm the Sas verification.

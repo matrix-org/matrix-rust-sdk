@@ -241,6 +241,15 @@ pub struct Accepted {
     commitment: String,
 }
 
+/// The SAS state we're going to be in after we accepted our
+/// verification start event.
+#[derive(Clone, Debug)]
+pub struct WeAccepted {
+    we_started: bool,
+    pub accepted_protocols: Arc<AcceptedProtocols>,
+    commitment: String,
+}
+
 /// The SAS state we're going to be in after we received the public key of the
 /// other participant.
 ///
@@ -548,6 +557,24 @@ impl SasState<Started> {
         }
     }
 
+    pub fn into_accepted(self) -> SasState<WeAccepted> {
+        SasState {
+            inner: self.inner,
+            ids: self.ids,
+            verification_flow_id: self.verification_flow_id,
+            creation_time: self.creation_time,
+            last_event_time: self.last_event_time,
+            started_from_request: self.started_from_request,
+            state: Arc::new(WeAccepted {
+                we_started: false,
+                accepted_protocols: self.state.accepted_protocols.clone(),
+                commitment: self.state.commitment.clone(),
+            }),
+        }
+    }
+}
+
+impl SasState<WeAccepted> {
     /// Get the content for the accept event.
     ///
     /// The content needs to be sent to the other device.
@@ -1093,7 +1120,7 @@ mod test {
     };
     use serde_json::json;
 
-    use super::{Accepted, Created, SasState, Started};
+    use super::{Accepted, Created, SasState, Started, WeAccepted};
     use crate::{
         verification::event_enums::{AcceptContent, KeyContent, MacContent, StartContent},
         ReadOnlyAccount, ReadOnlyDevice,
@@ -1115,7 +1142,7 @@ mod test {
         "BOBDEVCIE".into()
     }
 
-    async fn get_sas_pair() -> (SasState<Created>, SasState<Started>) {
+    async fn get_sas_pair() -> (SasState<Created>, SasState<WeAccepted>) {
         let alice = ReadOnlyAccount::new(&alice_id(), &alice_device_id());
         let alice_device = ReadOnlyDevice::from_account(&alice).await;
 
@@ -1135,8 +1162,9 @@ mod test {
             &start_content.as_start_content(),
             false,
         );
+        let bob_sas = bob_sas.unwrap().into_accepted();
 
-        (alice_sas, bob_sas.unwrap())
+        (alice_sas, bob_sas)
     }
 
     #[tokio::test]

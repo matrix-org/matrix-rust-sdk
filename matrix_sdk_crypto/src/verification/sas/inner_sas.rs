@@ -24,6 +24,7 @@ use ruma::{
 use super::{
     sas_state::{
         Accepted, Confirmed, Created, KeyReceived, MacReceived, SasState, Started, WaitingForDone,
+        WeAccepted,
     },
     FlowId,
 };
@@ -41,6 +42,7 @@ pub enum InnerSas {
     Created(SasState<Created>),
     Started(SasState<Started>),
     Accepted(SasState<Accepted>),
+    WeAccepted(SasState<WeAccepted>),
     KeyReceived(SasState<KeyReceived>),
     Confirmed(SasState<Confirmed>),
     MacReceived(SasState<MacReceived>),
@@ -65,6 +67,7 @@ impl InnerSas {
         match self {
             InnerSas::Created(s) => s.started_from_request,
             InnerSas::Started(s) => s.started_from_request,
+            InnerSas::WeAccepted(s) => s.started_from_request,
             InnerSas::Accepted(s) => s.started_from_request,
             InnerSas::KeyReceived(s) => s.started_from_request,
             InnerSas::Confirmed(s) => s.started_from_request,
@@ -75,10 +78,28 @@ impl InnerSas {
         }
     }
 
+    pub fn has_been_accepted(&self) -> bool {
+        match self {
+            InnerSas::Created(_) | InnerSas::Started(_) | InnerSas::Cancelled(_) => false,
+            InnerSas::Accepted(_)
+            | InnerSas::WeAccepted(_)
+            | InnerSas::KeyReceived(_)
+            | InnerSas::Confirmed(_)
+            | InnerSas::MacReceived(_)
+            | InnerSas::WaitingForDone(_)
+            | InnerSas::Done(_) => true,
+        }
+    }
+
     pub fn supports_emoji(&self) -> bool {
         match self {
             InnerSas::Created(_) => false,
             InnerSas::Started(s) => s
+                .state
+                .accepted_protocols
+                .short_auth_string
+                .contains(&ShortAuthenticationString::Emoji),
+            InnerSas::WeAccepted(s) => s
                 .state
                 .accepted_protocols
                 .short_auth_string
@@ -144,9 +165,11 @@ impl InnerSas {
         }
     }
 
-    pub fn accept(&self) -> Option<OwnedAcceptContent> {
+    pub fn accept(self) -> Option<(InnerSas, OwnedAcceptContent)> {
         if let InnerSas::Started(s) = self {
-            Some(s.as_content())
+            let sas = s.into_accepted();
+            let content = sas.as_content();
+            Some((InnerSas::WeAccepted(sas), content))
         } else {
             None
         }
@@ -165,6 +188,7 @@ impl InnerSas {
             InnerSas::MacReceived(s) => s.set_creation_time(time),
             InnerSas::Done(s) => s.set_creation_time(time),
             InnerSas::WaitingForDone(s) => s.set_creation_time(time),
+            InnerSas::WeAccepted(s) => s.set_creation_time(time),
         }
     }
 
@@ -177,6 +201,7 @@ impl InnerSas {
             InnerSas::Created(s) => s.cancel(cancelled_by_us, code),
             InnerSas::Started(s) => s.cancel(cancelled_by_us, code),
             InnerSas::Accepted(s) => s.cancel(cancelled_by_us, code),
+            InnerSas::WeAccepted(s) => s.cancel(cancelled_by_us, code),
             InnerSas::KeyReceived(s) => s.cancel(cancelled_by_us, code),
             InnerSas::MacReceived(s) => s.cancel(cancelled_by_us, code),
             _ => return (self, None),
@@ -245,7 +270,7 @@ impl InnerSas {
                         (InnerSas::Cancelled(s), Some(content))
                     }
                 },
-                InnerSas::Started(s) => match s.into_key_received(sender, c) {
+                InnerSas::WeAccepted(s) => match s.into_key_received(sender, c) {
                     Ok(s) => {
                         let content = s.as_content();
                         (InnerSas::KeyReceived(s), Some(content))
@@ -347,6 +372,7 @@ impl InnerSas {
             InnerSas::MacReceived(s) => s.timed_out(),
             InnerSas::WaitingForDone(s) => s.timed_out(),
             InnerSas::Done(s) => s.timed_out(),
+            InnerSas::WeAccepted(s) => s.timed_out(),
         }
     }
 
@@ -361,6 +387,7 @@ impl InnerSas {
             InnerSas::MacReceived(s) => s.verification_flow_id.clone(),
             InnerSas::WaitingForDone(s) => s.verification_flow_id.clone(),
             InnerSas::Done(s) => s.verification_flow_id.clone(),
+            InnerSas::WeAccepted(s) => s.verification_flow_id.clone(),
         }
     }
 
