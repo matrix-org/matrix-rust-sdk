@@ -70,18 +70,7 @@ pub enum Error {
     #[cfg(feature = "warp")]
     #[error("warp rejection: {0}")]
     WarpRejection(String),
-
-    #[cfg(feature = "actix")]
-    #[error(transparent)]
-    Actix(#[from] actix_web::Error),
-
-    #[cfg(feature = "actix")]
-    #[error(transparent)]
-    ActixPayload(#[from] actix_web::error::PayloadError),
 }
-
-#[cfg(feature = "actix")]
-impl actix_web::error::ResponseError for Error {}
 
 #[cfg(feature = "warp")]
 impl warp::reject::Reject for Error {}

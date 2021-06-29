@@ -74,8 +74,8 @@
 //! [matrix-org/matrix-rust-sdk#228]: https://github.com/matrix-org/matrix-rust-sdk/issues/228
 //! [examples directory]: https://github.com/matrix-org/matrix-rust-sdk/tree/master/matrix_sdk_appservice/examples
 
-#[cfg(not(any(feature = "actix", feature = "warp")))]
-compile_error!("one webserver feature must be enabled. available ones: `actix`, `warp`");
+#[cfg(not(any(feature = "warp")))]
+compile_error!("one webserver feature must be enabled. available ones: `warp`");
 
 use std::{
     convert::{TryFrom, TryInto},
@@ -441,24 +441,6 @@ impl AppService {
         Ok(false)
     }
 
-    /// Returns a closure to be used with [`actix_web::App::configure()`]
-    ///
-    /// Note that if you handle any of the [application-service-specific
-    /// routes], including the legacy routes, you will break the appservice
-    /// functionality.
-    ///
-    /// [application-service-specific routes]: https://spec.matrix.org/unstable/application-service-api/#legacy-routes
-    #[cfg(feature = "actix")]
-    #[cfg_attr(docs, doc(cfg(feature = "actix")))]
-    pub fn actix_configure(&self) -> impl FnOnce(&mut actix_web::web::ServiceConfig) {
-        let appservice = self.clone();
-
-        move |config| {
-            config.data(appservice);
-            webserver::actix::configure(config);
-        }
-    }
-
     /// Returns a [`warp::Filter`] to be used as [`warp::serve()`] route
     ///
     /// Note that if you handle any of the [application-service-specific
@@ -482,19 +464,13 @@ impl AppService {
         let port = port.into();
         info!("Starting AppService on {}:{}", &host, &port);
 
-        #[cfg(feature = "actix")]
-        {
-            webserver::actix::run_server(self.clone(), host, port).await?;
-            Ok(())
-        }
-
         #[cfg(feature = "warp")]
         {
             webserver::warp::run_server(self.clone(), host, port).await?;
             Ok(())
         }
 
-        #[cfg(not(any(feature = "actix", feature = "warp",)))]
+        #[cfg(not(any(feature = "warp",)))]
         unreachable!()
     }
 }

@@ -1,7 +1,5 @@
 use std::sync::{Arc, Mutex};
 
-#[cfg(feature = "actix")]
-use actix_web::{test as actix_test, App as ActixApp, HttpResponse};
 use matrix_sdk::{
     async_trait,
     room::Room,
@@ -24,7 +22,7 @@ fn registration_string() -> String {
 async fn appservice(registration: Option<Registration>) -> Result<AppService> {
     // env::set_var(
     //     "RUST_LOG",
-    //     "mockito=debug,matrix_sdk=debug,ruma=debug,actix_web=debug,warp=debug",
+    //     "mockito=debug,matrix_sdk=debug,ruma=debug,warp=debug",
     // );
     let _ = tracing_subscriber::fmt::try_init();
 
@@ -99,16 +97,6 @@ async fn test_put_transaction() -> Result<()> {
         .into_response()
         .status();
 
-    #[cfg(feature = "actix")]
-    let status = {
-        let app =
-            actix_test::init_service(ActixApp::new().configure(appservice.actix_configure())).await;
-
-        let req = actix_test::TestRequest::put().uri(uri).set_json(&transaction).to_request();
-
-        actix_test::call_service(&app, req).await.status()
-    };
-
     assert_eq!(status, 200);
 
     Ok(())
@@ -130,16 +118,6 @@ async fn test_get_user() -> Result<()> {
         .into_response()
         .status();
 
-    #[cfg(feature = "actix")]
-    let status = {
-        let app =
-            actix_test::init_service(ActixApp::new().configure(appservice.actix_configure())).await;
-
-        let req = actix_test::TestRequest::get().uri(uri).to_request();
-
-        actix_test::call_service(&app, req).await.status()
-    };
-
     assert_eq!(status, 200);
 
     Ok(())
@@ -160,16 +138,6 @@ async fn test_get_room() -> Result<()> {
         .unwrap()
         .into_response()
         .status();
-
-    #[cfg(feature = "actix")]
-    let status = {
-        let app =
-            actix_test::init_service(ActixApp::new().configure(appservice.actix_configure())).await;
-
-        let req = actix_test::TestRequest::get().uri(uri).to_request();
-
-        actix_test::call_service(&app, req).await.status()
-    };
 
     assert_eq!(status, 200);
 
@@ -196,16 +164,6 @@ async fn test_invalid_access_token() -> Result<()> {
         .unwrap()
         .into_response()
         .status();
-
-    #[cfg(feature = "actix")]
-    let status = {
-        let app =
-            actix_test::init_service(ActixApp::new().configure(appservice.actix_configure())).await;
-
-        let req = actix_test::TestRequest::put().uri(uri).set_json(&transaction).to_request();
-
-        actix_test::call_service(&app, req).await.status()
-    };
 
     assert_eq!(status, 401);
 
@@ -235,20 +193,6 @@ async fn test_no_access_token() -> Result<()> {
             .status();
 
         assert_eq!(status, 401);
-    }
-
-    #[cfg(feature = "actix")]
-    {
-        let app =
-            actix_test::init_service(ActixApp::new().configure(appservice.actix_configure())).await;
-
-        let req = actix_test::TestRequest::put().uri(uri).set_json(&transaction).to_request();
-
-        let resp = actix_test::call_service(&app, req).await;
-
-        // TODO: this should actually return a 401 but is 500 because something in the
-        // extractor fails
-        assert_eq!(resp.status(), 500);
     }
 
     Ok(())
@@ -296,16 +240,6 @@ async fn test_event_handler() -> Result<()> {
         .await
         .unwrap();
 
-    #[cfg(feature = "actix")]
-    {
-        let app =
-            actix_test::init_service(ActixApp::new().configure(appservice.actix_configure())).await;
-
-        let req = actix_test::TestRequest::put().uri(uri).set_json(&transaction).to_request();
-
-        actix_test::call_service(&app, req).await;
-    };
-
     let on_room_member_called = *example.on_state_member.lock().unwrap();
     assert!(on_room_member_called);
 
@@ -330,20 +264,6 @@ async fn test_unrelated_path() -> Result<()> {
             .into_response();
 
         response.status()
-    };
-
-    #[cfg(feature = "actix")]
-    let status = {
-        let app = actix_test::init_service(
-            ActixApp::new()
-                .configure(appservice.actix_configure())
-                .route("/unrelated", actix_web::web::get().to(HttpResponse::Ok)),
-        )
-        .await;
-
-        let req = actix_test::TestRequest::get().uri("/unrelated").to_request();
-
-        actix_test::call_service(&app, req).await.status()
     };
 
     assert_eq!(status, 200);
