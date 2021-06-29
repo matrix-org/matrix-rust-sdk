@@ -15,7 +15,7 @@ docs = ["actix", "warp"]
 
 [dependencies]
 actix-rt = { version = "2", optional = true }
-actix-web = { version = "4.0.0-beta.6", optional = true }
+actix-web = { version = "4.0.0-beta.8", optional = true }
 dashmap = "4"
 futures = "0.3"
 futures-util = "0.3"

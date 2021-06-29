@@ -454,7 +454,7 @@ impl AppService {
         let appservice = self.clone();
 
         move |config| {
-            config.data(appservice);
+            config.app_data(appservice);
             webserver::actix::configure(config);
         }
     }
