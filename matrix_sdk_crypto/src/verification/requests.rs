@@ -796,8 +796,6 @@ impl RequestState<Ready> {
         &self,
         we_started: bool,
     ) -> Result<Option<QrVerification>, CryptoStoreError> {
-        // TODO return an error explaining why we can't generate a QR code?
-
         // If we didn't state that we support showing QR codes or if the other
         // side doesn't support scanning QR codes bail early.
         if !self.state.our_methods.contains(&VerificationMethod::QrCodeShowV1)
@@ -830,44 +828,86 @@ impl RequestState<Ready> {
         let verification = if let Some(identity) = &identites.identity_being_verified {
             match &identity {
                 UserIdentities::Own(i) => {
-                    if identites.can_sign_devices().await {
-                        Some(QrVerification::new_self(
-                            self.store.clone(),
-                            self.flow_id.as_ref().to_owned(),
-                            i.master_key().get_first_key().unwrap().to_owned(),
-                            identites
-                                .other_device()
-                                .get_key(DeviceKeyAlgorithm::Ed25519)
-                                .unwrap()
-                                .to_owned(),
-                            identites,
-                            we_started,
-                        ))
+                    if let Some(master_key) = i.master_key().get_first_key() {
+                        if identites.can_sign_devices().await {
+                            if let Some(device_key) =
+                                identites.other_device().get_key(DeviceKeyAlgorithm::Ed25519)
+                            {
+                                Some(QrVerification::new_self(
+                                    self.store.clone(),
+                                    self.flow_id.as_ref().to_owned(),
+                                    master_key.to_owned(),
+                                    device_key.to_owned(),
+                                    identites,
+                                    we_started,
+                                ))
+                            } else {
+                                warn!(
+                                    user_id = self.other_user_id.as_str(),
+                                    device_id = self.state.other_device_id.as_str(),
+                                    "Can't create a QR code, the other device \
+                                     doesn't have a valid device key"
+                                );
+                                None
+                            }
+                        } else {
+                            Some(QrVerification::new_self_no_master(
+                                self.account.clone(),
+                                self.store.clone(),
+                                self.flow_id.as_ref().to_owned(),
+                                master_key.to_owned(),
+                                identites,
+                                we_started,
+                            ))
+                        }
                     } else {
-                        Some(QrVerification::new_self_no_master(
-                            self.account.clone(),
-                            self.store.clone(),
-                            self.flow_id.as_ref().to_owned(),
-                            i.master_key().get_first_key().unwrap().to_owned(),
-                            identites,
-                            we_started,
-                        ))
+                        warn!(
+                            user_id = self.other_user_id.as_str(),
+                            device_id = self.state.other_device_id.as_str(),
+                            "Can't create a QR code, our cross signing identity \
+                             doesn't contain a valid master key"
+                        );
+                        None
                     }
                 }
-                UserIdentities::Other(i) => Some(QrVerification::new_cross(
-                    self.store.clone(),
-                    self.flow_id.as_ref().to_owned(),
-                    self.private_cross_signing_identity
-                        .master_public_key()
-                        .await
-                        .unwrap()
-                        .get_first_key()
-                        .unwrap()
-                        .to_owned(),
-                    i.master_key().get_first_key().unwrap().to_owned(),
-                    identites,
-                    we_started,
-                )),
+                UserIdentities::Other(i) => {
+                    if let Some(other_master) = i.master_key().get_first_key() {
+                        // TODO we can get the master key from the public
+                        // identity if we don't have the private one and we
+                        // trust the public one.
+                        if let Some(own_master) = self
+                            .private_cross_signing_identity
+                            .master_public_key()
+                            .await
+                            .and_then(|m| m.get_first_key().map(|m| m.to_owned()))
+                        {
+                            Some(QrVerification::new_cross(
+                                self.store.clone(),
+                                self.flow_id.as_ref().to_owned(),
+                                own_master,
+                                other_master.to_owned(),
+                                identites,
+                                we_started,
+                            ))
+                        } else {
+                            warn!(
+                                user_id = self.other_user_id.as_str(),
+                                device_id = self.state.other_device_id.as_str(),
+                                "Can't create a QR code, we don't trust our own \
+                                 master key"
+                            );
+                            None
+                        }
+                    } else {
+                        warn!(
+                            user_id = self.other_user_id.as_str(),
+                            device_id = self.state.other_device_id.as_str(),
+                            "Can't create a QR code, the user's identity \
+                             doesn't have a valid master key"
+                        );
+                        None
+                    }
+                }
             }
         } else {
             warn!(
