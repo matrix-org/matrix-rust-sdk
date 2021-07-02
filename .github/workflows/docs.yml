@@ -27,7 +27,7 @@ jobs:
           RUSTDOCFLAGS: "--enable-index-page -Zunstable-options"
         with:
           command: doc
-          args: --no-deps --workspace --features docs
+          args: --no-deps --workspace --features docs -Zrustdoc-map
 
       - name: Deploy docs
         if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/master' }}
