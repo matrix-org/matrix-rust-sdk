@@ -129,7 +129,7 @@ fn hoist_member_event(
     Ok(e)
 }
 
-fn hoist_room_event_prev_content(
+pub fn hoist_room_event_prev_content(
     event: &Raw<AnySyncRoomEvent>,
 ) -> StdResult<AnySyncRoomEvent, serde_json::Error> {
     let prev_content = event
