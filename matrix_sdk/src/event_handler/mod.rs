@@ -14,6 +14,7 @@
 // limitations under the License.
 use std::ops::Deref;
 
+use matrix_sdk_base::{hoist_and_deserialize_state_event, hoist_room_event_prev_content};
 use matrix_sdk_common::async_trait;
 use ruma::{
     api::client::r0::push::get_notifications::Notification,
@@ -91,7 +92,7 @@ impl Handler {
                 }
 
                 for (raw_event, event) in room_info.state.events.iter().filter_map(|e| {
-                    if let Ok(d) = e.deserialize() {
+                    if let Ok(d) = hoist_and_deserialize_state_event(e) {
                         Some((e, d))
                     } else {
                         None
@@ -101,7 +102,7 @@ impl Handler {
                 }
 
                 for (raw_event, event) in room_info.timeline.events.iter().filter_map(|e| {
-                    if let Ok(d) = e.event.deserialize() {
+                    if let Ok(d) = hoist_room_event_prev_content(&e.event) {
                         Some((&e.event, d))
                     } else {
                         None
@@ -121,7 +122,7 @@ impl Handler {
                 }
 
                 for (raw_event, event) in room_info.state.events.iter().filter_map(|e| {
-                    if let Ok(d) = e.deserialize() {
+                    if let Ok(d) = hoist_and_deserialize_state_event(e) {
                         Some((e, d))
                     } else {
                         None
@@ -131,7 +132,7 @@ impl Handler {
                 }
 
                 for (raw_event, event) in room_info.timeline.events.iter().filter_map(|e| {
-                    if let Ok(d) = e.event.deserialize() {
+                    if let Ok(d) = hoist_room_event_prev_content(&e.event) {
                         Some((&e.event, d))
                     } else {
                         None
