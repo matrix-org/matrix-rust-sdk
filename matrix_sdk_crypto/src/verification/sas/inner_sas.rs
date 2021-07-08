@@ -29,7 +29,7 @@ use super::{
     FlowId,
 };
 use crate::{
-    identities::{ReadOnlyDevice, UserIdentities},
+    identities::{ReadOnlyDevice, ReadOnlyUserIdentities},
     verification::{
         event_enums::{AnyVerificationContent, OutgoingContent, OwnedAcceptContent, StartContent},
         Cancelled, Done,
@@ -55,7 +55,7 @@ impl InnerSas {
     pub fn start(
         account: ReadOnlyAccount,
         other_device: ReadOnlyDevice,
-        other_identity: Option<UserIdentities>,
+        other_identity: Option<ReadOnlyUserIdentities>,
         transaction_id: Option<String>,
     ) -> (InnerSas, OutgoingContent) {
         let sas = SasState::<Created>::new(account, other_device, other_identity, transaction_id);
@@ -131,7 +131,7 @@ impl InnerSas {
         room_id: RoomId,
         account: ReadOnlyAccount,
         other_device: ReadOnlyDevice,
-        other_identity: Option<UserIdentities>,
+        other_identity: Option<ReadOnlyUserIdentities>,
     ) -> (InnerSas, OutgoingContent) {
         let sas = SasState::<Created>::new_in_room(
             room_id,
@@ -149,7 +149,7 @@ impl InnerSas {
         other_device: ReadOnlyDevice,
         flow_id: FlowId,
         content: &StartContent,
-        other_identity: Option<UserIdentities>,
+        other_identity: Option<ReadOnlyUserIdentities>,
         started_from_request: bool,
     ) -> Result<InnerSas, OutgoingContent> {
         match SasState::<Started>::from_start_event(
@@ -204,7 +204,9 @@ impl InnerSas {
             InnerSas::WeAccepted(s) => s.cancel(cancelled_by_us, code),
             InnerSas::KeyReceived(s) => s.cancel(cancelled_by_us, code),
             InnerSas::MacReceived(s) => s.cancel(cancelled_by_us, code),
-            _ => return (self, None),
+            InnerSas::Confirmed(s) => s.cancel(cancelled_by_us, code),
+            InnerSas::WaitingForDone(s) => s.cancel(cancelled_by_us, code),
+            InnerSas::Done(_) | InnerSas::Cancelled(_) => return (self, None),
         };
 
         let content = sas.as_content();
@@ -423,7 +425,7 @@ impl InnerSas {
         }
     }
 
-    pub fn verified_identities(&self) -> Option<Arc<[UserIdentities]>> {
+    pub fn verified_identities(&self) -> Option<Arc<[ReadOnlyUserIdentities]>> {
         if let InnerSas::Done(s) = self {
             Some(s.verified_identities())
         } else {

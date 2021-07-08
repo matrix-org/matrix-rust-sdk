@@ -39,11 +39,11 @@ use tracing::warn;
 use super::{atomic_bool_deserializer, atomic_bool_serializer};
 use crate::{
     error::{EventError, OlmError, OlmResult, SignatureError},
-    identities::{OwnUserIdentity, UserIdentities},
+    identities::{ReadOnlyOwnUserIdentity, ReadOnlyUserIdentities},
     olm::{InboundGroupSession, PrivateCrossSigningIdentity, Session, Utility},
     store::{Changes, CryptoStore, DeviceChanges, Result as StoreResult},
     verification::VerificationMachine,
-    OutgoingVerificationRequest, Sas, ToDeviceRequest,
+    OutgoingVerificationRequest, Sas, ToDeviceRequest, VerificationRequest,
 };
 #[cfg(test)]
 use crate::{OlmMachine, ReadOnlyAccount};
@@ -104,8 +104,8 @@ pub struct Device {
     pub(crate) inner: ReadOnlyDevice,
     pub(crate) private_identity: Arc<Mutex<PrivateCrossSigningIdentity>>,
     pub(crate) verification_machine: VerificationMachine,
-    pub(crate) own_identity: Option<OwnUserIdentity>,
-    pub(crate) device_owner_identity: Option<UserIdentities>,
+    pub(crate) own_identity: Option<ReadOnlyOwnUserIdentity>,
+    pub(crate) device_owner_identity: Option<ReadOnlyUserIdentities>,
 }
 
 impl std::fmt::Debug for Device {
@@ -228,8 +228,8 @@ pub struct UserDevices {
     pub(crate) inner: HashMap<DeviceIdBox, ReadOnlyDevice>,
     pub(crate) private_identity: Arc<Mutex<PrivateCrossSigningIdentity>>,
     pub(crate) verification_machine: VerificationMachine,
-    pub(crate) own_identity: Option<OwnUserIdentity>,
-    pub(crate) device_owner_identity: Option<UserIdentities>,
+    pub(crate) own_identity: Option<ReadOnlyOwnUserIdentity>,
+    pub(crate) device_owner_identity: Option<ReadOnlyUserIdentities>,
 }
 
 impl UserDevices {
@@ -382,16 +382,16 @@ impl ReadOnlyDevice {
 
     pub(crate) fn verified(
         &self,
-        own_identity: &Option<OwnUserIdentity>,
-        device_owner: &Option<UserIdentities>,
+        own_identity: &Option<ReadOnlyOwnUserIdentity>,
+        device_owner: &Option<ReadOnlyUserIdentities>,
     ) -> bool {
         self.is_locally_trusted() || self.is_cross_signing_trusted(own_identity, device_owner)
     }
 
     pub(crate) fn is_cross_signing_trusted(
         &self,
-        own_identity: &Option<OwnUserIdentity>,
-        device_owner: &Option<UserIdentities>,
+        own_identity: &Option<ReadOnlyOwnUserIdentity>,
+        device_owner: &Option<ReadOnlyUserIdentities>,
     ) -> bool {
         own_identity.as_ref().map_or(false, |own_identity| {
             // Our own identity needs to be marked as verified.
@@ -401,14 +401,14 @@ impl ReadOnlyDevice {
                     .map(|device_identity| match device_identity {
                         // If it's one of our own devices, just check that
                         // we signed the device.
-                        UserIdentities::Own(_) => {
+                        ReadOnlyUserIdentities::Own(_) => {
                             own_identity.is_device_signed(self).map_or(false, |_| true)
                         }
 
                         // If it's a device from someone else, first check
                         // that our user has signed the other user and then
                         // check if the other user has signed this device.
-                        UserIdentities::Other(device_identity) => {
+                        ReadOnlyUserIdentities::Other(device_identity) => {
                             own_identity.is_identity_signed(device_identity).map_or(false, |_| true)
                                 && device_identity.is_device_signed(self).map_or(false, |_| true)
                         }

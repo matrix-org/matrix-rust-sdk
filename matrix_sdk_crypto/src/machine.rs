@@ -46,7 +46,7 @@ use tracing::{debug, error, info, trace, warn};
 use crate::store::sled::SledStore;
 use crate::{
     error::{EventError, MegolmError, MegolmResult, OlmError, OlmResult},
-    identities::{Device, IdentityManager, UserDevices},
+    identities::{user::UserIdentities, Device, IdentityManager, UserDevices},
     key_request::KeyRequestMachine,
     olm::{
         Account, EncryptionSettings, ExportedRoomKey, GroupSessionKey, IdentityKeys,
@@ -1050,6 +1050,18 @@ impl OlmMachine {
         device_id: &DeviceId,
     ) -> StoreResult<Option<Device>> {
         self.store.get_device(user_id, device_id).await
+    }
+
+    /// Get the cross signing user identity of a user.
+    ///
+    /// # Arguments
+    ///
+    /// * `user_id` - The unique id of the user that the identity belongs to
+    ///
+    /// Returns a `UserIdentities` enum if one is found and the crypto store
+    /// didn't throw an error.
+    pub async fn get_identity(&self, user_id: &UserId) -> StoreResult<Option<UserIdentities>> {
+        self.store.get_identity(user_id).await
     }
 
     /// Get a map holding all the devices of an user.

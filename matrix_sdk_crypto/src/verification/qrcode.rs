@@ -45,8 +45,8 @@ use super::{
 use crate::{
     olm::{PrivateCrossSigningIdentity, ReadOnlyAccount},
     store::CryptoStore,
-    CryptoStoreError, OutgoingVerificationRequest, ReadOnlyDevice, RoomMessageRequest,
-    ToDeviceRequest, UserIdentities,
+    CryptoStoreError, OutgoingVerificationRequest, ReadOnlyDevice, ReadOnlyUserIdentities,
+    RoomMessageRequest, ToDeviceRequest,
 };
 
 const SECRET_SIZE: usize = 16;
@@ -518,7 +518,7 @@ impl QrVerification {
                 ScanError::MissingDeviceKeys(other_user_id.clone(), other_device_id.clone())
             })?;
 
-        let check_master_key = |key, identity: &UserIdentities| {
+        let check_master_key = |key, identity: &ReadOnlyUserIdentities| {
             let master_key = identity.master_key().get_first_key().ok_or_else(|| {
                 ScanError::MissingCrossSigningIdentity(identity.user_id().clone())
             })?;
@@ -719,7 +719,7 @@ impl QrState<Done> {
         self.state.as_content(flow_id)
     }
 
-    fn verified_identities(&self) -> (Arc<[ReadOnlyDevice]>, Arc<[UserIdentities]>) {
+    fn verified_identities(&self) -> (Arc<[ReadOnlyDevice]>, Arc<[ReadOnlyUserIdentities]>) {
         (self.state.verified_devices.clone(), self.state.verified_master_keys.clone())
     }
 }
@@ -729,7 +729,7 @@ impl QrState<Confirmed> {
         self,
         _: &DoneContent,
         verified_device: Option<&ReadOnlyDevice>,
-        verified_identity: Option<&UserIdentities>,
+        verified_identity: Option<&ReadOnlyUserIdentities>,
     ) -> QrState<Done> {
         let devices: Vec<_> = verified_device.into_iter().cloned().collect();
         let identities: Vec<_> = verified_identity.into_iter().cloned().collect();
@@ -768,7 +768,7 @@ impl QrState<Reciprocated> {
         self,
         _: &DoneContent,
         verified_device: Option<&ReadOnlyDevice>,
-        verified_identity: Option<&UserIdentities>,
+        verified_identity: Option<&ReadOnlyUserIdentities>,
     ) -> QrState<Done> {
         let devices: Vec<_> = verified_device.into_iter().cloned().collect();
         let identities: Vec<_> = verified_identity.into_iter().cloned().collect();

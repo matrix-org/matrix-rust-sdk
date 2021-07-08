@@ -12,8 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#![allow(dead_code)]
-
 use std::sync::{Arc, Mutex};
 
 use matrix_qrcode::QrVerificationData;
@@ -31,7 +29,7 @@ use ruma::{
         AnyMessageEventContent, AnyToDeviceEventContent,
     },
     to_device::DeviceIdOrAllDevices,
-    DeviceId, DeviceIdBox, DeviceKeyAlgorithm, EventId, MilliSecondsSinceUnixEpoch, RoomId, UserId,
+    DeviceId, DeviceIdBox, DeviceKeyAlgorithm, MilliSecondsSinceUnixEpoch, RoomId, UserId,
 };
 use tracing::{info, trace, warn};
 
@@ -46,8 +44,8 @@ use super::{
 use crate::{
     olm::{PrivateCrossSigningIdentity, ReadOnlyAccount},
     store::CryptoStore,
-    CryptoStoreError, OutgoingVerificationRequest, ReadOnlyDevice, RoomMessageRequest, Sas,
-    ToDeviceRequest, UserIdentities,
+    CryptoStoreError, OutgoingVerificationRequest, ReadOnlyDevice, ReadOnlyUserIdentities,
+    RoomMessageRequest, Sas, ToDeviceRequest,
 };
 
 const SUPPORTED_METHODS: &[VerificationMethod] = &[
@@ -79,12 +77,10 @@ impl VerificationRequest {
         account: ReadOnlyAccount,
         private_cross_signing_identity: PrivateCrossSigningIdentity,
         store: Arc<dyn CryptoStore>,
-        room_id: &RoomId,
-        event_id: &EventId,
+        flow_id: FlowId,
         other_user: &UserId,
+        methods: Option<Vec<VerificationMethod>>,
     ) -> Self {
-        let flow_id = (room_id.to_owned(), event_id.to_owned()).into();
-
         let inner = Mutex::new(InnerRequest::Created(RequestState::new(
             account.clone(),
             private_cross_signing_identity,
@@ -92,35 +88,7 @@ impl VerificationRequest {
             store,
             other_user,
             &flow_id,
-        )))
-        .into();
-
-        Self {
-            account,
-            verification_cache: cache,
-            flow_id: flow_id.into(),
-            inner,
-            other_user_id: other_user.to_owned().into(),
-            we_started: true,
-        }
-    }
-
-    pub(crate) fn new_to_device(
-        cache: VerificationCache,
-        account: ReadOnlyAccount,
-        private_cross_signing_identity: PrivateCrossSigningIdentity,
-        store: Arc<dyn CryptoStore>,
-        other_user: &UserId,
-    ) -> Self {
-        let flow_id = Uuid::new_v4().to_string().into();
-
-        let inner = Mutex::new(InnerRequest::Created(RequestState::new(
-            account.clone(),
-            private_cross_signing_identity,
-            cache.clone(),
-            store,
-            other_user,
-            &flow_id,
+            methods,
         )))
         .into();
 
@@ -138,11 +106,19 @@ impl VerificationRequest {
     /// verification from the other side. This should be used only for
     /// self-verifications and it should be sent to the specific device that we
     /// want to verify.
-    pub fn request_to_device(&self) -> RequestToDeviceEventContent {
+    pub(crate) fn request_to_device(&self) -> RequestToDeviceEventContent {
+        let inner = self.inner.lock().unwrap();
+
+        let methods = if let InnerRequest::Created(c) = &*inner {
+            c.state.our_methods.clone()
+        } else {
+            SUPPORTED_METHODS.to_vec()
+        };
+
         RequestToDeviceEventContent::new(
             self.account.device_id().into(),
             self.flow_id().as_str().to_string(),
-            SUPPORTED_METHODS.to_vec(),
+            methods,
             MilliSecondsSinceUnixEpoch::now(),
         )
     }
@@ -155,6 +131,7 @@ impl VerificationRequest {
         own_user_id: &UserId,
         own_device_id: &DeviceId,
         other_user_id: &UserId,
+        methods: Option<Vec<VerificationMethod>>,
     ) -> KeyVerificationRequestEventContent {
         KeyVerificationRequestEventContent::new(
             format!(
@@ -163,7 +140,7 @@ impl VerificationRequest {
                 key verification to verify keys.",
                 own_user_id
             ),
-            SUPPORTED_METHODS.to_vec(),
+            methods.unwrap_or_else(|| SUPPORTED_METHODS.to_vec()),
             own_device_id.into(),
             other_user_id.to_owned(),
         )
@@ -376,6 +353,15 @@ impl VerificationRequest {
 
     /// Cancel the verification request
     pub fn cancel(&self) -> Option<OutgoingVerificationRequest> {
+        if let Some(verification) =
+            self.verification_cache.get(self.other_user(), self.flow_id().as_str())
+        {
+            match verification {
+                crate::Verification::SasV1(s) => s.cancel(),
+                crate::Verification::QrV1(q) => q.cancel(),
+            };
+        }
+
         let mut inner = self.inner.lock().unwrap();
         inner.cancel(true, &CancelCode::User);
 
@@ -398,12 +384,20 @@ impl VerificationRequest {
     pub(crate) fn receive_ready(&self, sender: &UserId, content: &ReadyContent) {
         let mut inner = self.inner.lock().unwrap();
 
-        if let InnerRequest::Created(s) = &*inner {
-            if sender == self.own_user_id() && content.from_device() == self.account.device_id() {
-                *inner = InnerRequest::Passive(s.clone().into_passive(content))
-            } else {
+        match &*inner {
+            InnerRequest::Created(s) => {
                 *inner = InnerRequest::Ready(s.clone().into_ready(sender, content));
             }
+            InnerRequest::Requested(s) => {
+                if sender == self.own_user_id() && content.from_device() != self.account.device_id()
+                {
+                    *inner = InnerRequest::Passive(s.clone().into_passive(content))
+                }
+            }
+            InnerRequest::Ready(_)
+            | InnerRequest::Passive(_)
+            | InnerRequest::Done(_)
+            | InnerRequest::Cancelled(_) => {}
         }
     }
 
@@ -512,17 +506,6 @@ impl InnerRequest {
         }
     }
 
-    fn other_user_id(&self) -> &UserId {
-        match self {
-            InnerRequest::Created(s) => &s.other_user_id,
-            InnerRequest::Requested(s) => &s.other_user_id,
-            InnerRequest::Ready(s) => &s.other_user_id,
-            InnerRequest::Passive(s) => &s.other_user_id,
-            InnerRequest::Done(s) => &s.other_user_id,
-            InnerRequest::Cancelled(s) => &s.other_user_id,
-        }
-    }
-
     fn accept(&mut self, methods: Vec<VerificationMethod>) -> Option<OutgoingContent> {
         if let InnerRequest::Requested(s) = self {
             let (state, content) = s.clone().accept(methods);
@@ -567,20 +550,6 @@ impl InnerRequest {
             InnerRequest::Passive(_) => Ok(None),
             InnerRequest::Done(_) => Ok(None),
             InnerRequest::Cancelled(_) => Ok(None),
-        }
-    }
-
-    fn to_started_sas(
-        &self,
-        content: &StartContent,
-        other_device: ReadOnlyDevice,
-        other_identity: Option<UserIdentities>,
-        we_started: bool,
-    ) -> Result<Option<Sas>, OutgoingContent> {
-        if let InnerRequest::Ready(s) = self {
-            Ok(Some(s.to_started_sas(content, other_device, other_identity, we_started)?))
-        } else {
-            Ok(None)
         }
     }
 }
@@ -638,27 +607,18 @@ impl RequestState<Created> {
         store: Arc<dyn CryptoStore>,
         other_user_id: &UserId,
         flow_id: &FlowId,
+        methods: Option<Vec<VerificationMethod>>,
     ) -> Self {
+        let our_methods = methods.unwrap_or_else(|| SUPPORTED_METHODS.to_vec());
+
         Self {
             account,
             other_user_id: other_user_id.to_owned(),
             private_cross_signing_identity: private_identity,
-            state: Created { our_methods: SUPPORTED_METHODS.to_vec() },
+            state: Created { our_methods },
             verification_cache: cache,
             store,
             flow_id: flow_id.to_owned().into(),
-        }
-    }
-
-    fn into_passive(self, content: &ReadyContent) -> RequestState<Passive> {
-        RequestState {
-            account: self.account,
-            flow_id: self.flow_id,
-            verification_cache: self.verification_cache,
-            private_cross_signing_identity: self.private_cross_signing_identity,
-            store: self.store,
-            other_user_id: self.other_user_id,
-            state: Passive { other_device_id: content.from_device().to_owned() },
         }
     }
 
@@ -720,6 +680,18 @@ impl RequestState<Requested> {
         }
     }
 
+    fn into_passive(self, content: &ReadyContent) -> RequestState<Passive> {
+        RequestState {
+            account: self.account,
+            flow_id: self.flow_id,
+            verification_cache: self.verification_cache,
+            private_cross_signing_identity: self.private_cross_signing_identity,
+            store: self.store,
+            other_user_id: self.other_user_id,
+            state: Passive { other_device_id: content.from_device().to_owned() },
+        }
+    }
+
     fn accept(self, methods: Vec<VerificationMethod>) -> (RequestState<Ready>, OutgoingContent) {
         let state = RequestState {
             account: self.account.clone(),
@@ -776,7 +748,7 @@ impl RequestState<Ready> {
         &self,
         content: &StartContent<'a>,
         other_device: ReadOnlyDevice,
-        other_identity: Option<UserIdentities>,
+        other_identity: Option<ReadOnlyUserIdentities>,
         we_started: bool,
     ) -> Result<Sas, OutgoingContent> {
         Sas::from_start_event(
@@ -827,7 +799,7 @@ impl RequestState<Ready> {
 
         let verification = if let Some(identity) = &identites.identity_being_verified {
             match &identity {
-                UserIdentities::Own(i) => {
+                ReadOnlyUserIdentities::Own(i) => {
                     if let Some(master_key) = i.master_key().get_first_key() {
                         if identites.can_sign_devices().await {
                             if let Some(device_key) =
@@ -870,7 +842,7 @@ impl RequestState<Ready> {
                         None
                     }
                 }
-                UserIdentities::Other(i) => {
+                ReadOnlyUserIdentities::Other(i) => {
                     if let Some(other_master) = i.master_key().get_first_key() {
                         // TODO we can get the master key from the public
                         // identity if we don't have the private one and we
@@ -1117,19 +1089,20 @@ mod test {
         let bob_store: Box<dyn CryptoStore> = Box::new(MemoryStore::new());
         let bob_identity = PrivateCrossSigningIdentity::empty(alice_id());
 
-        let content = VerificationRequest::request(bob.user_id(), bob.device_id(), &alice_id());
+        let content =
+            VerificationRequest::request(bob.user_id(), bob.device_id(), &alice_id(), None);
+
+        let flow_id = FlowId::InRoom(room_id, event_id);
 
         let bob_request = VerificationRequest::new(
             VerificationCache::new(),
             bob,
             bob_identity,
             bob_store.into(),
-            &room_id,
-            &event_id,
+            flow_id.clone(),
             &alice_id(),
+            None,
         );
-
-        let flow_id = FlowId::from((room_id, event_id));
 
         let alice_request = VerificationRequest::from_request(
             VerificationCache::new(),
@@ -1174,19 +1147,19 @@ mod test {
         changes.devices.new.push(alice_device.clone());
         bob_store.save_changes(changes).await.unwrap();
 
-        let content = VerificationRequest::request(bob.user_id(), bob.device_id(), &alice_id());
+        let content =
+            VerificationRequest::request(bob.user_id(), bob.device_id(), &alice_id(), None);
+        let flow_id = FlowId::from((room_id, event_id));
 
         let bob_request = VerificationRequest::new(
             VerificationCache::new(),
             bob,
             bob_identity,
             bob_store.into(),
-            &room_id,
-            &event_id,
+            flow_id.clone(),
             &alice_id(),
+            None,
         );
-
-        let flow_id = FlowId::from((room_id, event_id));
 
         let alice_request = VerificationRequest::from_request(
             VerificationCache::new(),
@@ -1240,12 +1213,16 @@ mod test {
         changes.devices.new.push(alice_device.clone());
         bob_store.save_changes(changes).await.unwrap();
 
-        let bob_request = VerificationRequest::new_to_device(
+        let flow_id = FlowId::from("TEST_FLOW_ID".to_owned());
+
+        let bob_request = VerificationRequest::new(
             VerificationCache::new(),
             bob,
             bob_identity,
             bob_store.into(),
+            flow_id,
             &alice_id(),
+            None,
         );
 
         let content = bob_request.request_to_device();

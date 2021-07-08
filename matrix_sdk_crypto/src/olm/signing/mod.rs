@@ -34,7 +34,7 @@ use serde_json::Error as JsonError;
 
 use crate::{
     error::SignatureError, identities::MasterPubkey, requests::UploadSigningKeysRequest,
-    OwnUserIdentity, ReadOnlyAccount, ReadOnlyDevice, UserIdentity,
+    ReadOnlyAccount, ReadOnlyDevice, ReadOnlyOwnUserIdentity, ReadOnlyUserIdentity,
 };
 
 /// Private cross signing identity.
@@ -117,7 +117,9 @@ impl PrivateCrossSigningIdentity {
         }
     }
 
-    pub(crate) async fn to_public_identity(&self) -> Result<OwnUserIdentity, SignatureError> {
+    pub(crate) async fn to_public_identity(
+        &self,
+    ) -> Result<ReadOnlyOwnUserIdentity, SignatureError> {
         let master = self
             .master_key
             .lock()
@@ -142,7 +144,7 @@ impl PrivateCrossSigningIdentity {
             .ok_or(SignatureError::MissingSigningKey)?
             .public_key
             .clone();
-        let identity = OwnUserIdentity::new(master, self_signing, user_signing)?;
+        let identity = ReadOnlyOwnUserIdentity::new(master, self_signing, user_signing)?;
         identity.mark_as_verified();
 
         Ok(identity)
@@ -151,7 +153,7 @@ impl PrivateCrossSigningIdentity {
     /// Sign the given public user identity with this private identity.
     pub(crate) async fn sign_user(
         &self,
-        user_identity: &UserIdentity,
+        user_identity: &ReadOnlyUserIdentity,
     ) -> Result<SignatureUploadRequest, SignatureError> {
         let signed_keys = self
             .user_signing_key
@@ -407,7 +409,7 @@ mod test {
 
     use super::{PrivateCrossSigningIdentity, Signing};
     use crate::{
-        identities::{ReadOnlyDevice, UserIdentity},
+        identities::{ReadOnlyDevice, ReadOnlyUserIdentity},
         olm::ReadOnlyAccount,
     };
 
@@ -518,7 +520,7 @@ mod test {
 
         let bob_account = ReadOnlyAccount::new(&user_id!("@bob:localhost"), "DEVICEID".into());
         let (bob_private, _, _) = PrivateCrossSigningIdentity::new_with_account(&bob_account).await;
-        let mut bob_public = UserIdentity::from_private(&bob_private).await;
+        let mut bob_public = ReadOnlyUserIdentity::from_private(&bob_private).await;
 
         let user_signing = identity.user_signing_key.lock().await;
         let user_signing = user_signing.as_ref().unwrap();

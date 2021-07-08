@@ -41,7 +41,7 @@ use super::{
     FlowId, IdentitiesBeingVerified, VerificationResult,
 };
 use crate::{
-    identities::{ReadOnlyDevice, UserIdentities},
+    identities::{ReadOnlyDevice, ReadOnlyUserIdentities},
     olm::PrivateCrossSigningIdentity,
     requests::{OutgoingVerificationRequest, RoomMessageRequest},
     store::{CryptoStore, CryptoStoreError},
@@ -151,7 +151,7 @@ impl Sas {
         private_identity: PrivateCrossSigningIdentity,
         other_device: ReadOnlyDevice,
         store: Arc<dyn CryptoStore>,
-        other_identity: Option<UserIdentities>,
+        other_identity: Option<ReadOnlyUserIdentities>,
         we_started: bool,
     ) -> Sas {
         let flow_id = inner_sas.verification_flow_id();
@@ -187,7 +187,7 @@ impl Sas {
         private_identity: PrivateCrossSigningIdentity,
         other_device: ReadOnlyDevice,
         store: Arc<dyn CryptoStore>,
-        other_identity: Option<UserIdentities>,
+        other_identity: Option<ReadOnlyUserIdentities>,
         transaction_id: Option<String>,
         we_started: bool,
     ) -> (Sas, OutgoingContent) {
@@ -230,7 +230,7 @@ impl Sas {
         private_identity: PrivateCrossSigningIdentity,
         other_device: ReadOnlyDevice,
         store: Arc<dyn CryptoStore>,
-        other_identity: Option<UserIdentities>,
+        other_identity: Option<ReadOnlyUserIdentities>,
         we_started: bool,
     ) -> (Sas, OutgoingContent) {
         let (inner, content) = InnerSas::start_in_room(
@@ -273,7 +273,7 @@ impl Sas {
         account: ReadOnlyAccount,
         private_identity: PrivateCrossSigningIdentity,
         other_device: ReadOnlyDevice,
-        other_identity: Option<UserIdentities>,
+        other_identity: Option<ReadOnlyUserIdentities>,
         started_from_request: bool,
         we_started: bool,
     ) -> Result<Sas, OutgoingContent> {
@@ -503,7 +503,7 @@ impl Sas {
         self.inner.lock().unwrap().verified_devices()
     }
 
-    pub(crate) fn verified_identities(&self) -> Option<Arc<[UserIdentities]>> {
+    pub(crate) fn verified_identities(&self) -> Option<Arc<[ReadOnlyUserIdentities]>> {
         self.inner.lock().unwrap().verified_identities()
     }
 

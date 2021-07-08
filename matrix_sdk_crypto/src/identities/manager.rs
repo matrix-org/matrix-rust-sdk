@@ -29,8 +29,8 @@ use tracing::{trace, warn};
 use crate::{
     error::OlmResult,
     identities::{
-        MasterPubkey, OwnUserIdentity, ReadOnlyDevice, SelfSigningPubkey, UserIdentities,
-        UserIdentity, UserSigningPubkey,
+        MasterPubkey, ReadOnlyDevice, ReadOnlyOwnUserIdentity, ReadOnlyUserIdentities,
+        ReadOnlyUserIdentity, SelfSigningPubkey, UserSigningPubkey,
     },
     requests::KeysQueryRequest,
     store::{Changes, DeviceChanges, IdentityChanges, Result as StoreResult, Store},
@@ -246,7 +246,7 @@ impl IdentityManager {
 
             let result = if let Some(mut i) = self.store.get_user_identity(user_id).await? {
                 match &mut i {
-                    UserIdentities::Own(ref mut identity) => {
+                    ReadOnlyUserIdentities::Own(ref mut identity) => {
                         let user_signing = if let Some(s) = response.user_signing_keys.get(user_id)
                         {
                             UserSigningPubkey::from(s)
@@ -261,7 +261,7 @@ impl IdentityManager {
 
                         identity.update(master_key, self_signing, user_signing).map(|_| (i, false))
                     }
-                    UserIdentities::Other(ref mut identity) => {
+                    ReadOnlyUserIdentities::Other(ref mut identity) => {
                         identity.update(master_key, self_signing).map(|_| (i, false))
                     }
                 }
@@ -280,8 +280,8 @@ impl IdentityManager {
                         continue;
                     }
 
-                    OwnUserIdentity::new(master_key, self_signing, user_signing)
-                        .map(|i| (UserIdentities::Own(i), true))
+                    ReadOnlyOwnUserIdentity::new(master_key, self_signing, user_signing)
+                        .map(|i| (ReadOnlyUserIdentities::Own(i), true))
                 } else {
                     warn!(
                         "User identity for our own user {} didn't contain a \
@@ -294,8 +294,8 @@ impl IdentityManager {
                 warn!("User id mismatch in one of the cross signing keys for user {}", user_id);
                 continue;
             } else {
-                UserIdentity::new(master_key, self_signing)
-                    .map(|i| (UserIdentities::Other(i), true))
+                ReadOnlyUserIdentity::new(master_key, self_signing)
+                    .map(|i| (ReadOnlyUserIdentities::Other(i), true))
             };
 
             match result {

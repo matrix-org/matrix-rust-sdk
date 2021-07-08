@@ -20,9 +20,13 @@ use std::{
 use dashmap::DashMap;
 use matrix_sdk_common::{locks::Mutex, uuid::Uuid};
 use ruma::{
-    events::{AnyToDeviceEvent, AnyToDeviceEventContent, ToDeviceEvent},
+    events::{
+        key::verification::VerificationMethod, AnyToDeviceEvent, AnyToDeviceEventContent,
+        ToDeviceEvent,
+    },
     serde::Raw,
-    DeviceId, MilliSecondsSinceUnixEpoch, UserId,
+    to_device::DeviceIdOrAllDevices,
+    DeviceId, EventId, MilliSecondsSinceUnixEpoch, RoomId, UserId,
 };
 use tracing::{info, trace, warn};
 
@@ -37,8 +41,8 @@ use crate::{
     olm::PrivateCrossSigningIdentity,
     requests::OutgoingRequest,
     store::{CryptoStore, CryptoStoreError},
-    OutgoingVerificationRequest, ReadOnlyAccount, ReadOnlyDevice, RoomMessageRequest,
-    ToDeviceRequest,
+    OutgoingVerificationRequest, ReadOnlyAccount, ReadOnlyDevice, ReadOnlyOwnUserIdentity,
+    ReadOnlyUserIdentity, RoomMessageRequest, ToDeviceRequest,
 };
 
 #[derive(Clone, Debug)]
@@ -63,6 +67,69 @@ impl VerificationMachine {
             verifications: VerificationCache::new(),
             requests: DashMap::new().into(),
         }
+    }
+
+    pub(crate) fn own_user_id(&self) -> &UserId {
+        self.account.user_id()
+    }
+
+    pub(crate) fn own_device_id(&self) -> &DeviceId {
+        self.account.device_id()
+    }
+
+    pub(crate) async fn request_self_verification(
+        &self,
+        identity: &ReadOnlyOwnUserIdentity,
+        methods: Option<Vec<VerificationMethod>>,
+    ) -> Result<(VerificationRequest, OutgoingVerificationRequest), CryptoStoreError> {
+        let flow_id = FlowId::from(Uuid::new_v4().to_string());
+
+        let verification = VerificationRequest::new(
+            self.verifications.clone(),
+            self.account.clone(),
+            self.private_identity.lock().await.clone(),
+            self.store.clone(),
+            flow_id,
+            identity.user_id(),
+            methods,
+        );
+
+        // TODO get all the device ids of the user instead of using AllDevices
+        // make sure to remember this so we can cancel once someone picks up
+        let request: OutgoingVerificationRequest = ToDeviceRequest::new(
+            identity.user_id(),
+            DeviceIdOrAllDevices::AllDevices,
+            AnyToDeviceEventContent::KeyVerificationRequest(verification.request_to_device()),
+        )
+        .into();
+
+        self.insert_request(verification.clone());
+
+        Ok((verification, request))
+    }
+
+    pub async fn request_verification(
+        &self,
+        identity: &ReadOnlyUserIdentity,
+        room_id: &RoomId,
+        request_event_id: &EventId,
+        methods: Option<Vec<VerificationMethod>>,
+    ) -> VerificationRequest {
+        let flow_id = FlowId::InRoom(room_id.to_owned(), request_event_id.to_owned());
+
+        let request = VerificationRequest::new(
+            self.verifications.clone(),
+            self.account.clone(),
+            self.private_identity.lock().await.clone(),
+            self.store.clone(),
+            flow_id,
+            identity.user_id(),
+            methods,
+        );
+
+        self.insert_request(request.clone());
+
+        request
     }
 
     pub async fn start_sas(

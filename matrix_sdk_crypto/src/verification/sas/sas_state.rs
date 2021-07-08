@@ -52,7 +52,7 @@ use super::{
     OutgoingContent,
 };
 use crate::{
-    identities::{ReadOnlyDevice, UserIdentities},
+    identities::{ReadOnlyDevice, ReadOnlyUserIdentities},
     verification::{
         event_enums::{
             AcceptContent, DoneContent, KeyContent, MacContent, OwnedAcceptContent,
@@ -277,7 +277,7 @@ pub struct MacReceived {
     we_started: bool,
     their_pubkey: String,
     verified_devices: Arc<[ReadOnlyDevice]>,
-    verified_master_keys: Arc<[UserIdentities]>,
+    verified_master_keys: Arc<[ReadOnlyUserIdentities]>,
     pub accepted_protocols: Arc<AcceptedProtocols>,
 }
 
@@ -287,7 +287,7 @@ pub struct MacReceived {
 #[derive(Clone, Debug)]
 pub struct WaitingForDone {
     verified_devices: Arc<[ReadOnlyDevice]>,
-    verified_master_keys: Arc<[UserIdentities]>,
+    verified_master_keys: Arc<[ReadOnlyUserIdentities]>,
 }
 
 impl<S: Clone> SasState<S> {
@@ -362,7 +362,7 @@ impl SasState<Created> {
     pub fn new(
         account: ReadOnlyAccount,
         other_device: ReadOnlyDevice,
-        other_identity: Option<UserIdentities>,
+        other_identity: Option<ReadOnlyUserIdentities>,
         transaction_id: Option<String>,
     ) -> SasState<Created> {
         let started_from_request = transaction_id.is_some();
@@ -388,7 +388,7 @@ impl SasState<Created> {
         event_id: EventId,
         account: ReadOnlyAccount,
         other_device: ReadOnlyDevice,
-        other_identity: Option<UserIdentities>,
+        other_identity: Option<ReadOnlyUserIdentities>,
     ) -> SasState<Created> {
         let flow_id = FlowId::InRoom(room_id, event_id);
         Self::new_helper(flow_id, account, other_device, other_identity, false)
@@ -398,7 +398,7 @@ impl SasState<Created> {
         flow_id: FlowId,
         account: ReadOnlyAccount,
         other_device: ReadOnlyDevice,
-        other_identity: Option<UserIdentities>,
+        other_identity: Option<ReadOnlyUserIdentities>,
         started_from_request: bool,
     ) -> SasState<Created> {
         SasState {
@@ -497,7 +497,7 @@ impl SasState<Started> {
     pub fn from_start_event(
         account: ReadOnlyAccount,
         other_device: ReadOnlyDevice,
-        other_identity: Option<UserIdentities>,
+        other_identity: Option<ReadOnlyUserIdentities>,
         flow_id: FlowId,
         content: &StartContent,
         started_from_request: bool,
@@ -1096,7 +1096,7 @@ impl SasState<Done> {
     }
 
     /// Get the list of verified identities.
-    pub fn verified_identities(&self) -> Arc<[UserIdentities]> {
+    pub fn verified_identities(&self) -> Arc<[ReadOnlyUserIdentities]> {
         self.state.verified_master_keys.clone()
     }
 }
