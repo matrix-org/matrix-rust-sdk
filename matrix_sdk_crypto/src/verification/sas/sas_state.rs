@@ -466,7 +466,7 @@ impl SasState<Created> {
                 ids: self.ids,
                 verification_flow_id: self.verification_flow_id,
                 creation_time: self.creation_time,
-                last_event_time: self.last_event_time,
+                last_event_time: Instant::now().into(),
                 started_from_request: self.started_from_request,
                 state: Arc::new(Accepted {
                     start_content,
@@ -642,7 +642,7 @@ impl SasState<WeAccepted> {
             ids: self.ids,
             verification_flow_id: self.verification_flow_id,
             creation_time: self.creation_time,
-            last_event_time: self.last_event_time,
+            last_event_time: Instant::now().into(),
             started_from_request: self.started_from_request,
             state: Arc::new(KeyReceived {
                 we_started: false,
@@ -690,7 +690,7 @@ impl SasState<Accepted> {
                 ids: self.ids,
                 verification_flow_id: self.verification_flow_id,
                 creation_time: self.creation_time,
-                last_event_time: self.last_event_time,
+                last_event_time: Instant::now().into(),
                 started_from_request: self.started_from_request,
                 state: Arc::new(KeyReceived {
                     their_pubkey,
@@ -819,7 +819,7 @@ impl SasState<KeyReceived> {
             inner: self.inner,
             verification_flow_id: self.verification_flow_id,
             creation_time: self.creation_time,
-            last_event_time: self.last_event_time,
+            last_event_time: Instant::now().into(),
             ids: self.ids,
             started_from_request: self.started_from_request,
             state: Arc::new(MacReceived {
@@ -878,7 +878,7 @@ impl SasState<Confirmed> {
         Ok(SasState {
             inner: self.inner,
             creation_time: self.creation_time,
-            last_event_time: self.last_event_time,
+            last_event_time: Instant::now().into(),
             verification_flow_id: self.verification_flow_id,
             started_from_request: self.started_from_request,
             ids: self.ids,
@@ -918,7 +918,7 @@ impl SasState<Confirmed> {
         Ok(SasState {
             inner: self.inner,
             creation_time: self.creation_time,
-            last_event_time: self.last_event_time,
+            last_event_time: Instant::now().into(),
             verification_flow_id: self.verification_flow_id,
             started_from_request: self.started_from_request,
             ids: self.ids,
@@ -1064,7 +1064,7 @@ impl SasState<WaitingForDone> {
         Ok(SasState {
             inner: self.inner,
             creation_time: self.creation_time,
-            last_event_time: self.last_event_time,
+            last_event_time: Instant::now().into(),
             verification_flow_id: self.verification_flow_id,
             started_from_request: self.started_from_request,
             ids: self.ids,
