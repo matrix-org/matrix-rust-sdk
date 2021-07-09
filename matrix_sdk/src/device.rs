@@ -69,9 +69,10 @@ impl Device {
         Ok(SasVerification { inner: sas, client: self.client.clone() })
     }
 
-    /// Is the device trusted.
-    pub fn is_trusted(&self) -> bool {
-        self.inner.trust_state()
+    /// Is the device considered to be verified, either by locally trusting it
+    /// or using cross signing.
+    pub fn verified(&self) -> bool {
+        self.inner.verified()
     }
 
     /// Set the local trust state of the device to the given state.

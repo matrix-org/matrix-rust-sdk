@@ -26,7 +26,7 @@ use super::{
     Changes, CryptoStore, InboundGroupSession, ReadOnlyAccount, Result, Session,
 };
 use crate::{
-    identities::{ReadOnlyDevice, UserIdentities},
+    identities::{ReadOnlyDevice, ReadOnlyUserIdentities},
     key_request::OutgoingKeyRequest,
     olm::{OutboundGroupSession, PrivateCrossSigningIdentity},
 };
@@ -44,7 +44,7 @@ pub struct MemoryStore {
     users_for_key_query: Arc<DashSet<UserId>>,
     olm_hashes: Arc<DashMap<String, DashSet<String>>>,
     devices: DeviceStore,
-    identities: Arc<DashMap<UserId, UserIdentities>>,
+    identities: Arc<DashMap<UserId, ReadOnlyUserIdentities>>,
     outgoing_key_requests: Arc<DashMap<Uuid, OutgoingKeyRequest>>,
     key_requests_by_info: Arc<DashMap<String, Uuid>>,
 }
@@ -215,7 +215,7 @@ impl CryptoStore for MemoryStore {
         Ok(self.devices.user_devices(user_id))
     }
 
-    async fn get_user_identity(&self, user_id: &UserId) -> Result<Option<UserIdentities>> {
+    async fn get_user_identity(&self, user_id: &UserId) -> Result<Option<ReadOnlyUserIdentities>> {
         #[allow(clippy::map_clone)]
         Ok(self.identities.get(user_id).map(|i| i.clone()))
     }

@@ -479,7 +479,7 @@ impl KeyRequestMachine {
             .flatten();
 
         let own_device_check = || {
-            if device.trust_state() {
+            if device.verified() {
                 Ok(None)
             } else {
                 Err(KeyshareDecision::UntrustedDevice)

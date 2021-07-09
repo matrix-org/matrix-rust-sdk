@@ -45,7 +45,8 @@ pub use file_encryption::{
     DecryptorError, EncryptionInfo, KeyExportError,
 };
 pub use identities::{
-    Device, LocalTrust, OwnUserIdentity, ReadOnlyDevice, UserDevices, UserIdentities, UserIdentity,
+    Device, LocalTrust, OwnUserIdentity, ReadOnlyDevice, ReadOnlyOwnUserIdentity,
+    ReadOnlyUserIdentities, ReadOnlyUserIdentity, UserDevices, UserIdentities, UserIdentity,
 };
 pub use machine::OlmMachine;
 pub use matrix_qrcode;

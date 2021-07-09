@@ -44,7 +44,7 @@ use crate::{
     error::SignatureError,
     olm::PrivateCrossSigningIdentity,
     store::{Changes, CryptoStore},
-    CryptoStoreError, LocalTrust, ReadOnlyDevice, UserIdentities,
+    CryptoStoreError, LocalTrust, ReadOnlyDevice, ReadOnlyUserIdentities,
 };
 
 /// An enum over the different verification types the SDK supports.
@@ -144,7 +144,7 @@ impl From<QrVerification> for Verification {
 #[derive(Clone, Debug)]
 pub struct Done {
     verified_devices: Arc<[ReadOnlyDevice]>,
-    verified_master_keys: Arc<[UserIdentities]>,
+    verified_master_keys: Arc<[ReadOnlyUserIdentities]>,
 }
 
 impl Done {
@@ -167,12 +167,13 @@ impl Done {
 
 #[derive(Clone, Debug)]
 pub struct Cancelled {
+    cancelled_by_us: bool,
     cancel_code: CancelCode,
     reason: &'static str,
 }
 
 impl Cancelled {
-    fn new(code: CancelCode) -> Self {
+    fn new(cancelled_by_us: bool, code: CancelCode) -> Self {
         let reason = match code {
             CancelCode::Accepted => {
                 "A m.key.verification.request was accepted by a different device."
@@ -192,7 +193,7 @@ impl Cancelled {
             _ => "Unknown cancel reason",
         };
 
-        Self { cancel_code: code, reason }
+        Self { cancelled_by_us, cancel_code: code, reason }
     }
 
     pub fn as_content(&self, flow_id: &FlowId) -> OutgoingContent {
@@ -276,7 +277,7 @@ pub struct IdentitiesBeingVerified {
     private_identity: PrivateCrossSigningIdentity,
     store: Arc<dyn CryptoStore>,
     device_being_verified: ReadOnlyDevice,
-    identity_being_verified: Option<UserIdentities>,
+    identity_being_verified: Option<ReadOnlyUserIdentities>,
 }
 
 impl IdentitiesBeingVerified {
@@ -307,7 +308,7 @@ impl IdentitiesBeingVerified {
     pub async fn mark_as_done(
         &self,
         verified_devices: Option<&[ReadOnlyDevice]>,
-        verified_identities: Option<&[UserIdentities]>,
+        verified_identities: Option<&[ReadOnlyUserIdentities]>,
     ) -> Result<VerificationResult, CryptoStoreError> {
         let device = self.mark_device_as_verified(verified_devices).await?;
         let identity = self.mark_identity_as_verified(verified_identities).await?;
@@ -414,8 +415,8 @@ impl IdentitiesBeingVerified {
 
     async fn mark_identity_as_verified(
         &self,
-        verified_identities: Option<&[UserIdentities]>,
-    ) -> Result<Option<UserIdentities>, CryptoStoreError> {
+        verified_identities: Option<&[ReadOnlyUserIdentities]>,
+    ) -> Result<Option<ReadOnlyUserIdentities>, CryptoStoreError> {
         // If there wasn't an identity available during the verification flow
         // return early as there's nothing to do.
         if self.identity_being_verified.is_none() {
@@ -436,7 +437,7 @@ impl IdentitiesBeingVerified {
                         "Marking the user identity of as verified."
                     );
 
-                    if let UserIdentities::Own(i) = &identity {
+                    if let ReadOnlyUserIdentities::Own(i) = &identity {
                         i.mark_as_verified();
                     }
 
@@ -524,6 +525,8 @@ impl IdentitiesBeingVerified {
 
 #[cfg(test)]
 pub(crate) mod test {
+    use std::convert::TryInto;
+
     use ruma::{
         events::{AnyToDeviceEvent, AnyToDeviceEventContent, ToDeviceEvent},
         UserId,
@@ -539,7 +542,8 @@ pub(crate) mod test {
         sender: &UserId,
         request: &OutgoingVerificationRequest,
     ) -> AnyToDeviceEvent {
-        let content = request.to_owned().into();
+        let content =
+            request.to_owned().try_into().expect("Can't fetch content out of the request");
         wrap_any_to_device_content(sender, content)
     }
 

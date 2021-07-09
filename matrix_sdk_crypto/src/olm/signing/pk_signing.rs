@@ -37,7 +37,7 @@ use crate::{
     error::SignatureError,
     identities::{MasterPubkey, SelfSigningPubkey, UserSigningPubkey},
     utilities::{decode_url_safe as decode, encode_url_safe as encode, DecodeError},
-    UserIdentity,
+    ReadOnlyUserIdentity,
 };
 
 const NONCE_SIZE: usize = 12;
@@ -186,7 +186,7 @@ impl UserSigning {
 
     pub async fn sign_user(
         &self,
-        user: &UserIdentity,
+        user: &ReadOnlyUserIdentity,
     ) -> Result<BTreeMap<UserId, BTreeMap<String, Value>>, SignatureError> {
         let user_master: &CrossSigningKey = user.master_key().as_ref();
         let signature = self.inner.sign_json(serde_json::to_value(user_master)?).await?;

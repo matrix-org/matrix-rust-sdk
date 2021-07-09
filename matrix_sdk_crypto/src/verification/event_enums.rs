@@ -665,27 +665,25 @@ impl From<(RoomId, AnyMessageEventContent)> for OutgoingContent {
     }
 }
 
-#[cfg(test)]
 use crate::{OutgoingRequest, OutgoingVerificationRequest, RoomMessageRequest, ToDeviceRequest};
 
-#[cfg(test)]
-impl From<OutgoingVerificationRequest> for OutgoingContent {
-    fn from(request: OutgoingVerificationRequest) -> Self {
+impl TryFrom<OutgoingVerificationRequest> for OutgoingContent {
+    type Error = String;
+
+    fn try_from(request: OutgoingVerificationRequest) -> Result<Self, Self::Error> {
         match request {
-            OutgoingVerificationRequest::ToDevice(r) => Self::try_from(r).unwrap(),
-            OutgoingVerificationRequest::InRoom(r) => Self::from(r),
+            OutgoingVerificationRequest::ToDevice(r) => Self::try_from(r),
+            OutgoingVerificationRequest::InRoom(r) => Ok(Self::from(r)),
         }
     }
 }
 
-#[cfg(test)]
 impl From<RoomMessageRequest> for OutgoingContent {
     fn from(value: RoomMessageRequest) -> Self {
         (value.room_id, value.content).into()
     }
 }
 
-#[cfg(test)]
 impl TryFrom<ToDeviceRequest> for OutgoingContent {
     type Error = String;
 
@@ -736,7 +734,6 @@ impl TryFrom<ToDeviceRequest> for OutgoingContent {
     }
 }
 
-#[cfg(test)]
 impl TryFrom<OutgoingRequest> for OutgoingContent {
     type Error = String;
 
