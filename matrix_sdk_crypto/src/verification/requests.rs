@@ -521,12 +521,12 @@ impl InnerRequest {
 
     fn receive_done(&mut self, content: &DoneContent) {
         *self = InnerRequest::Done(match self {
-            InnerRequest::Created(s) => s.clone().into_done(content),
-            InnerRequest::Requested(s) => s.clone().into_done(content),
             InnerRequest::Ready(s) => s.clone().into_done(content),
             InnerRequest::Passive(s) => s.clone().into_done(content),
-            InnerRequest::Done(s) => s.clone().into_done(content),
-            InnerRequest::Cancelled(_) => return,
+            InnerRequest::Done(_)
+            | InnerRequest::Created(_)
+            | InnerRequest::Requested(_)
+            | InnerRequest::Cancelled(_) => return,
         })
     }
 
