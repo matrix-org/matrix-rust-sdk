@@ -207,7 +207,7 @@ impl QrVerification {
 
     /// Cancel the verification flow.
     pub fn cancel(&self) -> Option<OutgoingVerificationRequest> {
-        self.cancel_with_code(CancelCode::User).map(|c| self.content_to_request(c))
+        self.cancel_with_code(CancelCode::User)
     }
 
     /// Cancel the verification.
@@ -223,7 +223,7 @@ impl QrVerification {
     /// otherwise it returns a request that needs to be sent out.
     ///
     /// [`cancel()`]: #method.cancel
-    pub fn cancel_with_code(&self, code: CancelCode) -> Option<OutgoingContent> {
+    pub fn cancel_with_code(&self, code: CancelCode) -> Option<OutgoingVerificationRequest> {
         let mut state = self.state.lock().unwrap();
 
         if let Some(request) = &self.request_handle {
@@ -240,7 +240,7 @@ impl QrVerification {
             | InnerState::Reciprocated(_)
             | InnerState::Done(_) => {
                 *state = InnerState::Cancelled(new_state);
-                Some(content)
+                Some(self.content_to_request(content))
             }
             InnerState::Cancelled(_) => None,
         }
@@ -966,20 +966,20 @@ mod test {
             .unwrap();
 
             let request = bob_verification.reciprocate().unwrap();
-            let content = OutgoingContent::from(request);
+            let content = OutgoingContent::try_from(request).unwrap();
             let content = StartContent::try_from(&content).unwrap();
 
             alice_verification.receive_reciprocation(&content);
 
             let request = alice_verification.confirm_scanning().unwrap();
-            let content = OutgoingContent::from(request);
+            let content = OutgoingContent::try_from(request).unwrap();
             let content = DoneContent::try_from(&content).unwrap();
 
             assert!(!alice_verification.is_done());
             assert!(!bob_verification.is_done());
 
             let (request, _) = bob_verification.receive_done(&content).await.unwrap();
-            let content = OutgoingContent::from(request.unwrap());
+            let content = OutgoingContent::try_from(request.unwrap()).unwrap();
             let content = DoneContent::try_from(&content).unwrap();
             alice_verification.receive_done(&content).await.unwrap();
 

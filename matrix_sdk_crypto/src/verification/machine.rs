@@ -247,7 +247,19 @@ impl VerificationMachine {
         }
         self.requests.retain(|_, v| !v.is_empty());
 
-        for request in self.verifications.garbage_collect() {
+        let mut requests: Vec<OutgoingVerificationRequest> = self
+            .requests
+            .iter()
+            .flat_map(|v| {
+                let requests: Vec<OutgoingVerificationRequest> =
+                    v.value().iter().filter_map(|v| v.cancel_if_timed_out()).collect();
+                requests
+            })
+            .collect();
+
+        requests.extend(self.verifications.garbage_collect().into_iter());
+
+        for request in requests {
             if let Ok(OutgoingContent::ToDevice(AnyToDeviceEventContent::KeyVerificationCancel(
                 content,
             ))) = request.clone().try_into()
@@ -257,7 +269,7 @@ impl VerificationMachine {
                 events.push(AnyToDeviceEvent::KeyVerificationCancel(event).into());
             }
 
-            self.verifications.add_request(request)
+            self.verifications.add_verification_request(request)
         }
 
         events

@@ -17,9 +17,13 @@ use std::sync::Arc;
 use dashmap::DashMap;
 use matrix_sdk_common::uuid::Uuid;
 use ruma::{DeviceId, UserId};
+use tracing::trace;
 
 use super::{event_enums::OutgoingContent, Sas, Verification};
-use crate::{OutgoingRequest, QrVerification, RoomMessageRequest, ToDeviceRequest};
+use crate::{
+    OutgoingRequest, OutgoingVerificationRequest, QrVerification, RoomMessageRequest,
+    ToDeviceRequest,
+};
 
 #[derive(Clone, Debug)]
 pub struct VerificationCache {
@@ -73,7 +77,7 @@ impl VerificationCache {
         self.outgoing_requests.iter().map(|r| (*r).clone()).collect()
     }
 
-    pub fn garbage_collect(&self) -> Vec<OutgoingRequest> {
+    pub fn garbage_collect(&self) -> Vec<OutgoingVerificationRequest> {
         for user_verification in self.verification.iter() {
             user_verification.retain(|_, s| !(s.is_done() || s.is_cancelled()));
         }
@@ -83,15 +87,12 @@ impl VerificationCache {
         self.verification
             .iter()
             .flat_map(|v| {
-                let requests: Vec<OutgoingRequest> = v
+                let requests: Vec<OutgoingVerificationRequest> = v
                     .value()
                     .iter()
                     .filter_map(|s| {
                         if let Verification::SasV1(s) = s.value() {
-                            s.cancel_if_timed_out().map(|r| OutgoingRequest {
-                                request_id: r.request_id(),
-                                request: Arc::new(r.into()),
-                            })
+                            s.cancel_if_timed_out()
                         } else {
                             None
                         }
@@ -114,7 +115,14 @@ impl VerificationCache {
     }
 
     pub fn add_request(&self, request: OutgoingRequest) {
+        trace!("Adding an outgoing verification request {:?}", request);
         self.outgoing_requests.insert(request.request_id, request);
+    }
+
+    pub fn add_verification_request(&self, request: OutgoingVerificationRequest) {
+        let request =
+            OutgoingRequest { request_id: request.request_id(), request: Arc::new(request.into()) };
+        self.add_request(request);
     }
 
     pub fn queue_up_content(

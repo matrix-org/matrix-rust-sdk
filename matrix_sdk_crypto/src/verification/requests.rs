@@ -12,10 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::sync::{Arc, Mutex};
+use std::{
+    sync::{Arc, Mutex},
+    time::Duration,
+};
 
 use matrix_qrcode::QrVerificationData;
-use matrix_sdk_common::uuid::Uuid;
+use matrix_sdk_common::{instant::Instant, uuid::Uuid};
 use ruma::{
     events::{
         key::verification::{
@@ -54,6 +57,8 @@ const SUPPORTED_METHODS: &[VerificationMethod] = &[
     VerificationMethod::ReciprocateV1,
 ];
 
+const VERIFICATION_TIMEOUT: Duration = Duration::from_secs(60 * 10);
+
 /// An object controlling key verification requests.
 ///
 /// Interactive verification flows usually start with a verification request,
@@ -68,6 +73,7 @@ pub struct VerificationRequest {
     flow_id: Arc<FlowId>,
     other_user_id: Arc<UserId>,
     inner: Arc<Mutex<InnerRequest>>,
+    creation_time: Arc<Instant>,
     we_started: bool,
 }
 
@@ -123,6 +129,7 @@ impl VerificationRequest {
             flow_id: flow_id.into(),
             inner,
             other_user_id: other_user.to_owned().into(),
+            creation_time: Instant::now().into(),
             we_started: true,
         }
     }
@@ -218,6 +225,11 @@ impl VerificationRequest {
     /// Is the verification request ready to start a verification flow.
     pub fn is_ready(&self) -> bool {
         matches!(&*self.inner.lock().unwrap(), InnerRequest::Ready(_))
+    }
+
+    /// Has the verification flow timed out.
+    pub fn timed_out(&self) -> bool {
+        self.creation_time.elapsed() > VERIFICATION_TIMEOUT
     }
 
     /// Get the supported verification methods of the other side.
@@ -345,6 +357,7 @@ impl VerificationRequest {
             other_user_id: sender.to_owned().into(),
             flow_id: flow_id.into(),
             we_started: false,
+            creation_time: Instant::now().into(),
         }
     }
 
@@ -385,8 +398,12 @@ impl VerificationRequest {
 
     /// Cancel the verification request
     pub fn cancel(&self) -> Option<OutgoingVerificationRequest> {
+        self.cancel_with_code(CancelCode::User)
+    }
+
+    fn cancel_with_code(&self, cancel_code: CancelCode) -> Option<OutgoingVerificationRequest> {
         let mut inner = self.inner.lock().unwrap();
-        inner.cancel(true, &CancelCode::User);
+        inner.cancel(true, &cancel_code);
 
         let content = if let InnerRequest::Cancelled(c) = &*inner {
             Some(c.state.as_content(self.flow_id()))
@@ -409,12 +426,22 @@ impl VerificationRequest {
             self.verification_cache.get(self.other_user(), self.flow_id().as_str())
         {
             match verification {
-                crate::Verification::SasV1(s) => s.cancel(),
-                crate::Verification::QrV1(q) => q.cancel(),
+                crate::Verification::SasV1(s) => s.cancel_with_code(cancel_code),
+                crate::Verification::QrV1(q) => q.cancel_with_code(cancel_code),
             };
         }
 
         request
+    }
+
+    pub(crate) fn cancel_if_timed_out(&self) -> Option<OutgoingVerificationRequest> {
+        if self.is_cancelled() || self.is_done() {
+            None
+        } else if self.timed_out() {
+            self.cancel_with_code(CancelCode::Timeout)
+        } else {
+            None
+        }
     }
 
     pub(crate) fn receive_ready(&self, sender: &UserId, content: &ReadyContent) {
@@ -1095,7 +1122,7 @@ struct Done {}
 
 #[cfg(test)]
 mod test {
-    use std::convert::TryFrom;
+    use std::convert::{TryFrom, TryInto};
 
     use matrix_sdk_test::async_test;
     use ruma::{event_id, room_id, DeviceIdBox, UserId};
@@ -1166,7 +1193,7 @@ mod test {
             &(&content).into(),
         );
 
-        let content: OutgoingContent = alice_request.accept().unwrap().into();
+        let content: OutgoingContent = alice_request.accept().unwrap().try_into().unwrap();
         let content = ReadyContent::try_from(&content).unwrap();
 
         bob_request.receive_ready(&alice_id(), &content);
@@ -1223,7 +1250,7 @@ mod test {
             &(&content).into(),
         );
 
-        let content: OutgoingContent = alice_request.accept().unwrap().into();
+        let content: OutgoingContent = alice_request.accept().unwrap().try_into().unwrap();
         let content = ReadyContent::try_from(&content).unwrap();
 
         bob_request.receive_ready(&alice_id(), &content);
@@ -1233,7 +1260,7 @@ mod test {
 
         let (bob_sas, request) = bob_request.start_sas().await.unwrap().unwrap();
 
-        let content: OutgoingContent = request.into();
+        let content: OutgoingContent = request.try_into().unwrap();
         let content = StartContent::try_from(&content).unwrap();
         let flow_id = content.flow_id().to_owned();
         alice_request.receive_start(bob_device.user_id(), &content).await.unwrap();
@@ -1290,7 +1317,7 @@ mod test {
             &(&content).into(),
         );
 
-        let content: OutgoingContent = alice_request.accept().unwrap().into();
+        let content: OutgoingContent = alice_request.accept().unwrap().try_into().unwrap();
         let content = ReadyContent::try_from(&content).unwrap();
 
         bob_request.receive_ready(&alice_id(), &content);
@@ -1300,7 +1327,7 @@ mod test {
 
         let (bob_sas, request) = bob_request.start_sas().await.unwrap().unwrap();
 
-        let content: OutgoingContent = request.into();
+        let content: OutgoingContent = request.try_into().unwrap();
         let content = StartContent::try_from(&content).unwrap();
         let flow_id = content.flow_id().to_owned();
         alice_request.receive_start(bob_device.user_id(), &content).await.unwrap();

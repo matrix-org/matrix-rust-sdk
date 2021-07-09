@@ -525,6 +525,8 @@ impl IdentitiesBeingVerified {
 
 #[cfg(test)]
 pub(crate) mod test {
+    use std::convert::TryInto;
+
     use ruma::{
         events::{AnyToDeviceEvent, AnyToDeviceEventContent, ToDeviceEvent},
         UserId,
@@ -540,7 +542,8 @@ pub(crate) mod test {
         sender: &UserId,
         request: &OutgoingVerificationRequest,
     ) -> AnyToDeviceEvent {
-        let content = request.to_owned().into();
+        let content =
+            request.to_owned().try_into().expect("Can't fetch content out of the request");
         wrap_any_to_device_content(sender, content)
     }
 
