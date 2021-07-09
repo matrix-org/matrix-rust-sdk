@@ -385,15 +385,6 @@ impl VerificationRequest {
 
     /// Cancel the verification request
     pub fn cancel(&self) -> Option<OutgoingVerificationRequest> {
-        if let Some(verification) =
-            self.verification_cache.get(self.other_user(), self.flow_id().as_str())
-        {
-            match verification {
-                crate::Verification::SasV1(s) => s.cancel(),
-                crate::Verification::QrV1(q) => q.cancel(),
-            };
-        }
-
         let mut inner = self.inner.lock().unwrap();
         inner.cancel(true, &CancelCode::User);
 
@@ -403,14 +394,27 @@ impl VerificationRequest {
             None
         };
 
-        content.map(|c| match c {
+        let request = content.map(|c| match c {
             OutgoingContent::ToDevice(content) => {
                 ToDeviceRequest::new(&self.other_user(), inner.other_device_id(), content).into()
             }
             OutgoingContent::Room(room_id, content) => {
                 RoomMessageRequest { room_id, txn_id: Uuid::new_v4(), content }.into()
             }
-        })
+        });
+
+        drop(inner);
+
+        if let Some(verification) =
+            self.verification_cache.get(self.other_user(), self.flow_id().as_str())
+        {
+            match verification {
+                crate::Verification::SasV1(s) => s.cancel(),
+                crate::Verification::QrV1(q) => q.cancel(),
+            };
+        }
+
+        request
     }
 
     pub(crate) fn receive_ready(&self, sender: &UserId, content: &ReadyContent) {
