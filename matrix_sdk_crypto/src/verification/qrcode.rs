@@ -947,7 +947,8 @@ mod test {
             .await
             .unwrap();
 
-            let content = bob_verification.reciprocate().unwrap();
+            let request = bob_verification.reciprocate().unwrap();
+            let content = OutgoingContent::from(request);
             let content = StartContent::try_from(&content).unwrap();
 
             alice_verification.receive_reciprocation(&content);

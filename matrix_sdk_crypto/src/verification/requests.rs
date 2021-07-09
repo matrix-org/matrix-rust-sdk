@@ -271,19 +271,21 @@ impl VerificationRequest {
         let state = self.inner.lock().unwrap();
 
         if let InnerRequest::Ready(r) = &*state {
-            Ok(Some(
-                QrVerification::from_scan(
-                    r.store.clone(),
-                    r.account.clone(),
-                    r.private_cross_signing_identity.clone(),
-                    r.other_user_id.clone(),
-                    r.state.other_device_id.clone(),
-                    r.flow_id.as_ref().to_owned(),
-                    data,
-                    self.we_started,
-                )
-                .await?,
-            ))
+            let qr_verification = QrVerification::from_scan(
+                r.store.clone(),
+                r.account.clone(),
+                r.private_cross_signing_identity.clone(),
+                r.other_user_id.clone(),
+                r.state.other_device_id.clone(),
+                r.flow_id.as_ref().to_owned(),
+                data,
+                self.we_started,
+            )
+            .await?;
+
+            self.verification_cache.insert_qr(qr_verification.clone());
+
+            Ok(Some(qr_verification))
         } else {
             Ok(None)
         }
