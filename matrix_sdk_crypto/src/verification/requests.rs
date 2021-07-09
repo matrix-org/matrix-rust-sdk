@@ -71,6 +71,31 @@ pub struct VerificationRequest {
     we_started: bool,
 }
 
+/// A handle to a request so child verification flows can cancel the request.
+///
+/// A verification flow can branch off into different types of verification
+/// flows after the initial request handshake is done.
+///
+/// Cancelling a QR code verification should also cancel the request. This
+/// `RequestHandle` allows the QR code verification object to cancel the parent
+/// `VerificationRequest` object.
+#[derive(Clone, Debug)]
+pub(crate) struct RequestHandle {
+    inner: Arc<Mutex<InnerRequest>>,
+}
+
+impl RequestHandle {
+    pub fn cancel_with_code(&self, cancel_code: &CancelCode) {
+        self.inner.lock().unwrap().cancel(true, cancel_code)
+    }
+}
+
+impl From<Arc<Mutex<InnerRequest>>> for RequestHandle {
+    fn from(inner: Arc<Mutex<InnerRequest>>) -> Self {
+        Self { inner }
+    }
+}
+
 impl VerificationRequest {
     pub(crate) fn new(
         cache: VerificationCache,
@@ -254,7 +279,11 @@ impl VerificationRequest {
     /// Generate a QR code that can be used by another client to start a QR code
     /// based verification.
     pub async fn generate_qr_code(&self) -> Result<Option<QrVerification>, CryptoStoreError> {
-        self.inner.lock().unwrap().generate_qr_code(self.we_started).await
+        self.inner
+            .lock()
+            .unwrap()
+            .generate_qr_code(self.we_started, self.inner.clone().into())
+            .await
     }
 
     /// Start a QR code verification by providing a scanned QR code for this
@@ -280,6 +309,7 @@ impl VerificationRequest {
                 r.flow_id.as_ref().to_owned(),
                 data,
                 self.we_started,
+                Some(self.inner.clone().into()),
             )
             .await?;
 
@@ -411,7 +441,7 @@ impl VerificationRequest {
         let inner = self.inner.lock().unwrap().clone();
 
         if let InnerRequest::Ready(s) = inner {
-            s.receive_start(sender, content, self.we_started).await?;
+            s.receive_start(sender, content, self.we_started, self.inner.clone().into()).await?;
         } else {
             warn!(
                 sender = sender.as_str(),
@@ -457,6 +487,7 @@ impl VerificationRequest {
                         s.account.clone(),
                         s.private_cross_signing_identity.clone(),
                         self.we_started,
+                        self.inner.clone().into(),
                     )
                     .await?
                 {
@@ -544,11 +575,12 @@ impl InnerRequest {
     async fn generate_qr_code(
         &self,
         we_started: bool,
+        request_handle: RequestHandle,
     ) -> Result<Option<QrVerification>, CryptoStoreError> {
         match self {
             InnerRequest::Created(_) => Ok(None),
             InnerRequest::Requested(_) => Ok(None),
-            InnerRequest::Ready(s) => s.generate_qr_code(we_started).await,
+            InnerRequest::Ready(s) => s.generate_qr_code(we_started, request_handle).await,
             InnerRequest::Passive(_) => Ok(None),
             InnerRequest::Done(_) => Ok(None),
             InnerRequest::Cancelled(_) => Ok(None),
@@ -752,6 +784,7 @@ impl RequestState<Ready> {
         other_device: ReadOnlyDevice,
         other_identity: Option<ReadOnlyUserIdentities>,
         we_started: bool,
+        request_handle: RequestHandle,
     ) -> Result<Sas, OutgoingContent> {
         Sas::from_start_event(
             (&*self.flow_id).to_owned(),
@@ -761,7 +794,7 @@ impl RequestState<Ready> {
             self.private_cross_signing_identity.clone(),
             other_device,
             other_identity,
-            true,
+            Some(request_handle),
             we_started,
         )
     }
@@ -769,6 +802,7 @@ impl RequestState<Ready> {
     async fn generate_qr_code(
         &self,
         we_started: bool,
+        request_handle: RequestHandle,
     ) -> Result<Option<QrVerification>, CryptoStoreError> {
         // If we didn't state that we support showing QR codes or if the other
         // side doesn't support scanning QR codes bail early.
@@ -814,6 +848,7 @@ impl RequestState<Ready> {
                                     device_key.to_owned(),
                                     identites,
                                     we_started,
+                                    Some(request_handle),
                                 ))
                             } else {
                                 warn!(
@@ -832,6 +867,7 @@ impl RequestState<Ready> {
                                 master_key.to_owned(),
                                 identites,
                                 we_started,
+                                Some(request_handle),
                             ))
                         }
                     } else {
@@ -862,6 +898,7 @@ impl RequestState<Ready> {
                                 other_master.to_owned(),
                                 identites,
                                 we_started,
+                                Some(request_handle),
                             ))
                         } else {
                             warn!(
@@ -906,6 +943,7 @@ impl RequestState<Ready> {
         sender: &UserId,
         content: &StartContent<'_>,
         we_started: bool,
+        request_handle: RequestHandle,
     ) -> Result<(), CryptoStoreError> {
         info!(
             sender = sender.as_str(),
@@ -929,7 +967,13 @@ impl RequestState<Ready> {
 
         match content.method() {
             StartMethod::SasV1(_) => {
-                match self.to_started_sas(content, device.clone(), identity, we_started) {
+                match self.to_started_sas(
+                    content,
+                    device.clone(),
+                    identity,
+                    we_started,
+                    request_handle,
+                ) {
                     // TODO check if there is already a SAS verification, i.e. we
                     // already started one before the other side tried to do the
                     // same; ignore it if we did and we're the lexicographically
@@ -982,6 +1026,7 @@ impl RequestState<Ready> {
         account: ReadOnlyAccount,
         private_identity: PrivateCrossSigningIdentity,
         we_started: bool,
+        request_handle: RequestHandle,
     ) -> Result<Option<(Sas, OutgoingContent)>, CryptoStoreError> {
         if !self.state.their_methods.contains(&VerificationMethod::SasV1) {
             return Ok(None);
@@ -1027,6 +1072,7 @@ impl RequestState<Ready> {
                     store,
                     other_identity,
                     we_started,
+                    request_handle,
                 );
                 (sas, content)
             }

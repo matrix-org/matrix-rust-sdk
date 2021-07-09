@@ -38,6 +38,7 @@ use tracing::trace;
 
 use super::{
     event_enums::{AnyVerificationContent, OutgoingContent, OwnedAcceptContent, StartContent},
+    requests::RequestHandle,
     FlowId, IdentitiesBeingVerified, VerificationResult,
 };
 use crate::{
@@ -56,6 +57,7 @@ pub struct Sas {
     identities_being_verified: IdentitiesBeingVerified,
     flow_id: Arc<FlowId>,
     we_started: bool,
+    request_handle: Option<RequestHandle>,
 }
 
 impl Sas {
@@ -145,6 +147,7 @@ impl Sas {
         self.inner.lock().unwrap().set_creation_time(time)
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn start_helper(
         inner_sas: InnerSas,
         account: ReadOnlyAccount,
@@ -153,6 +156,7 @@ impl Sas {
         store: Arc<dyn CryptoStore>,
         other_identity: Option<ReadOnlyUserIdentities>,
         we_started: bool,
+        request_handle: Option<RequestHandle>,
     ) -> Sas {
         let flow_id = inner_sas.verification_flow_id();
 
@@ -169,6 +173,7 @@ impl Sas {
             identities_being_verified: identities,
             flow_id,
             we_started,
+            request_handle,
         }
     }
 
@@ -207,6 +212,7 @@ impl Sas {
                 store,
                 other_identity,
                 we_started,
+                None,
             ),
             content,
         )
@@ -232,6 +238,7 @@ impl Sas {
         store: Arc<dyn CryptoStore>,
         other_identity: Option<ReadOnlyUserIdentities>,
         we_started: bool,
+        request_handle: RequestHandle,
     ) -> (Sas, OutgoingContent) {
         let (inner, content) = InnerSas::start_in_room(
             flow_id,
@@ -250,6 +257,7 @@ impl Sas {
                 store,
                 other_identity,
                 we_started,
+                Some(request_handle),
             ),
             content,
         )
@@ -274,7 +282,7 @@ impl Sas {
         private_identity: PrivateCrossSigningIdentity,
         other_device: ReadOnlyDevice,
         other_identity: Option<ReadOnlyUserIdentities>,
-        started_from_request: bool,
+        request_handle: Option<RequestHandle>,
         we_started: bool,
     ) -> Result<Sas, OutgoingContent> {
         let inner = InnerSas::from_start_event(
@@ -283,7 +291,7 @@ impl Sas {
             flow_id,
             content,
             other_identity.clone(),
-            started_from_request,
+            request_handle.is_some(),
         )?;
 
         Ok(Self::start_helper(
@@ -294,6 +302,7 @@ impl Sas {
             store,
             other_identity,
             we_started,
+            request_handle,
         ))
     }
 
@@ -418,6 +427,11 @@ impl Sas {
     /// [`cancel()`]: #method.cancel
     pub fn cancel_with_code(&self, code: CancelCode) -> Option<OutgoingVerificationRequest> {
         let mut guard = self.inner.lock().unwrap();
+
+        if let Some(request) = &self.request_handle {
+            request.cancel_with_code(&code)
+        }
+
         let sas: InnerSas = (*guard).clone();
         let (sas, content) = sas.cancel(true, code);
         *guard = sas;
@@ -626,7 +640,7 @@ mod test {
             PrivateCrossSigningIdentity::empty(bob_id()),
             alice_device,
             None,
-            false,
+            None,
             false,
         )
         .unwrap();

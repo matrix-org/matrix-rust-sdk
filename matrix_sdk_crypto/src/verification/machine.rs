@@ -419,7 +419,7 @@ impl VerificationMachine {
                                 private_identity,
                                 device,
                                 identity,
-                                false,
+                                None,
                                 false,
                             ) {
                                 Ok(sas) => {

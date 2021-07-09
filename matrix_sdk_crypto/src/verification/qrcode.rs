@@ -40,6 +40,7 @@ use tracing::trace;
 
 use super::{
     event_enums::{CancelContent, DoneContent, OutgoingContent, OwnedStartContent, StartContent},
+    requests::RequestHandle,
     Cancelled, Done, FlowId, IdentitiesBeingVerified, VerificationResult,
 };
 use crate::{
@@ -84,6 +85,7 @@ pub struct QrVerification {
     inner: Arc<QrVerificationData>,
     state: Arc<Mutex<InnerState>>,
     identities: IdentitiesBeingVerified,
+    request_handle: Option<RequestHandle>,
     we_started: bool,
 }
 
@@ -222,10 +224,14 @@ impl QrVerification {
     ///
     /// [`cancel()`]: #method.cancel
     pub fn cancel_with_code(&self, code: CancelCode) -> Option<OutgoingContent> {
+        let mut state = self.state.lock().unwrap();
+
+        if let Some(request) = &self.request_handle {
+            request.cancel_with_code(&code);
+        }
+
         let new_state = QrState::<Cancelled>::new(true, code);
         let content = new_state.as_content(self.flow_id());
-
-        let mut state = self.state.lock().unwrap();
 
         match &*state {
             InnerState::Confirmed(_)
@@ -438,6 +444,7 @@ impl QrVerification {
         other_device_key: String,
         identities: IdentitiesBeingVerified,
         we_started: bool,
+        request_handle: Option<RequestHandle>,
     ) -> Self {
         let secret = Self::generate_secret();
 
@@ -449,7 +456,7 @@ impl QrVerification {
         )
         .into();
 
-        Self::new_helper(store, flow_id, inner, identities, we_started)
+        Self::new_helper(store, flow_id, inner, identities, we_started, request_handle)
     }
 
     pub(crate) fn new_self_no_master(
@@ -459,6 +466,7 @@ impl QrVerification {
         own_master_key: String,
         identities: IdentitiesBeingVerified,
         we_started: bool,
+        request_handle: Option<RequestHandle>,
     ) -> QrVerification {
         let secret = Self::generate_secret();
 
@@ -470,7 +478,7 @@ impl QrVerification {
         )
         .into();
 
-        Self::new_helper(store, flow_id, inner, identities, we_started)
+        Self::new_helper(store, flow_id, inner, identities, we_started, request_handle)
     }
 
     pub(crate) fn new_cross(
@@ -480,6 +488,7 @@ impl QrVerification {
         other_master_key: String,
         identities: IdentitiesBeingVerified,
         we_started: bool,
+        request_handle: Option<RequestHandle>,
     ) -> Self {
         let secret = Self::generate_secret();
 
@@ -492,7 +501,7 @@ impl QrVerification {
         let inner: QrVerificationData =
             VerificationData::new(event_id, own_master_key, other_master_key, secret).into();
 
-        Self::new_helper(store, flow_id, inner, identities, we_started)
+        Self::new_helper(store, flow_id, inner, identities, we_started, request_handle)
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -505,6 +514,7 @@ impl QrVerification {
         flow_id: FlowId,
         qr_code: QrVerificationData,
         we_started: bool,
+        request_handle: Option<RequestHandle>,
     ) -> Result<Self, ScanError> {
         if flow_id.as_str() != qr_code.flow_id() {
             return Err(ScanError::FlowIdMismatch {
@@ -602,6 +612,7 @@ impl QrVerification {
             .into(),
             identities,
             we_started,
+            request_handle,
         })
     }
 
@@ -611,6 +622,7 @@ impl QrVerification {
         inner: QrVerificationData,
         identities: IdentitiesBeingVerified,
         we_started: bool,
+        request_handle: Option<RequestHandle>,
     ) -> Self {
         let secret = inner.secret().to_owned();
 
@@ -621,6 +633,7 @@ impl QrVerification {
             state: Mutex::new(InnerState::Created(QrState { state: Created { secret } })).into(),
             identities,
             we_started,
+            request_handle,
         }
     }
 }
@@ -848,6 +861,7 @@ mod test {
             master_key.clone(),
             identities.clone(),
             false,
+            None,
         );
 
         assert_eq!(verification.inner.first_key(), &device_key);
@@ -860,6 +874,7 @@ mod test {
             device_key.clone(),
             identities.clone(),
             false,
+            None,
         );
 
         assert_eq!(verification.inner.first_key(), &master_key);
@@ -878,6 +893,7 @@ mod test {
             bob_master_key.clone(),
             identities,
             false,
+            None,
         );
 
         assert_eq!(verification.inner.first_key(), &master_key);
@@ -922,6 +938,7 @@ mod test {
                 master_key.clone(),
                 identities,
                 false,
+                None,
             );
 
             let bob_store = memory_store();
@@ -943,6 +960,7 @@ mod test {
                 flow_id,
                 qr_code,
                 false,
+                None,
             )
             .await
             .unwrap();
