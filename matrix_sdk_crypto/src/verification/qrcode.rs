@@ -245,9 +245,11 @@ impl QrVerification {
     ///
     /// This will return some `OutgoingContent` if the object is in the correct
     /// state to start the verification flow, otherwise `None`.
-    pub fn reciprocate(&self) -> Option<OutgoingContent> {
+    pub fn reciprocate(&self) -> Option<OutgoingVerificationRequest> {
         match &*self.state.lock().unwrap() {
-            InnerState::Reciprocated(s) => Some(s.as_content(self.flow_id())),
+            InnerState::Reciprocated(s) => {
+                Some(self.content_to_request(s.as_content(self.flow_id())))
+            }
             InnerState::Created(_)
             | InnerState::Scanned(_)
             | InnerState::Confirmed(_)
