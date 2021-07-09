@@ -165,6 +165,12 @@ impl QrVerification {
         self.identities.is_self_verification()
     }
 
+    /// Have we successfully scanned the QR code and are able to send a
+    /// reciprocation event.
+    pub fn reciprocated(&self) -> bool {
+        matches!(&*self.state.lock().unwrap(), InnerState::Reciprocated(_))
+    }
+
     /// Get the unique ID that identifies this QR code verification flow.
     pub fn flow_id(&self) -> &FlowId {
         &self.flow_id
