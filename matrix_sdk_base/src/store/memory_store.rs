@@ -69,7 +69,7 @@ pub struct MemoryStore {
 }
 
 impl MemoryStore {
-    #[cfg(not(feature = "sled_state_store"))]
+    #[allow(dead_code)]
     pub fn new() -> Self {
         Self {
             sync_token: Arc::new(RwLock::new(None)),
@@ -558,7 +558,6 @@ impl StateStore for MemoryStore {
 }
 
 #[cfg(test)]
-#[cfg(not(feature = "sled_state_store"))]
 mod test {
     use matrix_sdk_test::async_test;
     use ruma::{

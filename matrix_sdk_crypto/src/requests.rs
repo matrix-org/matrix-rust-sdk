@@ -78,6 +78,29 @@ impl ToDeviceRequest {
         Self::new_with_id(recipient, recipient_device, content, Uuid::new_v4())
     }
 
+    pub(crate) fn new_for_recipients(
+        recipient: &UserId,
+        recipient_devices: Vec<DeviceIdBox>,
+        content: AnyToDeviceEventContent,
+        txn_id: Uuid,
+    ) -> Self {
+        let mut messages = BTreeMap::new();
+        let event_type = EventType::from(content.event_type());
+
+        if recipient_devices.is_empty() {
+            Self::new(recipient, DeviceIdOrAllDevices::AllDevices, content)
+        } else {
+            let device_messages = recipient_devices
+                .into_iter()
+                .map(|d| (DeviceIdOrAllDevices::DeviceId(d), Raw::from(content.clone())))
+                .collect();
+
+            messages.insert(recipient.clone(), device_messages);
+
+            ToDeviceRequest { event_type, txn_id, messages }
+        }
+    }
+
     pub(crate) fn new_with_id(
         recipient: &UserId,
         recipient_device: impl Into<DeviceIdOrAllDevices>,

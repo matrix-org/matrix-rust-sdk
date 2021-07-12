@@ -25,8 +25,7 @@ use ruma::{
         ToDeviceEvent,
     },
     serde::Raw,
-    to_device::DeviceIdOrAllDevices,
-    DeviceId, EventId, MilliSecondsSinceUnixEpoch, RoomId, UserId,
+    DeviceId, DeviceIdBox, EventId, MilliSecondsSinceUnixEpoch, RoomId, UserId,
 };
 use tracing::{info, trace, warn};
 
@@ -41,8 +40,8 @@ use crate::{
     olm::PrivateCrossSigningIdentity,
     requests::OutgoingRequest,
     store::{CryptoStore, CryptoStoreError},
-    OutgoingVerificationRequest, ReadOnlyAccount, ReadOnlyDevice, ReadOnlyOwnUserIdentity,
-    ReadOnlyUserIdentity, RoomMessageRequest, ToDeviceRequest,
+    OutgoingVerificationRequest, ReadOnlyAccount, ReadOnlyDevice, ReadOnlyUserIdentity,
+    RoomMessageRequest, ToDeviceRequest,
 };
 
 #[derive(Clone, Debug)]
@@ -77,11 +76,12 @@ impl VerificationMachine {
         self.account.device_id()
     }
 
-    pub(crate) async fn request_self_verification(
+    pub(crate) async fn request_to_device_verification(
         &self,
-        identity: &ReadOnlyOwnUserIdentity,
+        user_id: &UserId,
+        recipient_devices: Vec<DeviceIdBox>,
         methods: Option<Vec<VerificationMethod>>,
-    ) -> Result<(VerificationRequest, OutgoingVerificationRequest), CryptoStoreError> {
+    ) -> (VerificationRequest, OutgoingVerificationRequest) {
         let flow_id = FlowId::from(Uuid::new_v4().to_string());
 
         let verification = VerificationRequest::new(
@@ -90,22 +90,16 @@ impl VerificationMachine {
             self.private_identity.lock().await.clone(),
             self.store.clone(),
             flow_id,
-            identity.user_id(),
+            user_id,
+            recipient_devices,
             methods,
         );
 
-        // TODO get all the device ids of the user instead of using AllDevices
-        // make sure to remember this so we can cancel once someone picks up
-        let request: OutgoingVerificationRequest = ToDeviceRequest::new(
-            identity.user_id(),
-            DeviceIdOrAllDevices::AllDevices,
-            AnyToDeviceEventContent::KeyVerificationRequest(verification.request_to_device()),
-        )
-        .into();
-
         self.insert_request(verification.clone());
 
-        Ok((verification, request))
+        let request = verification.request_to_device();
+
+        (verification, request.into())
     }
 
     pub async fn request_verification(
@@ -124,6 +118,7 @@ impl VerificationMachine {
             self.store.clone(),
             flow_id,
             identity.user_id(),
+            vec![],
             methods,
         );
 

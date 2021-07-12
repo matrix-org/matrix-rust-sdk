@@ -75,6 +75,7 @@ pub struct VerificationRequest {
     inner: Arc<Mutex<InnerRequest>>,
     creation_time: Arc<Instant>,
     we_started: bool,
+    recipient_devices: Arc<Vec<DeviceIdBox>>,
 }
 
 /// A handle to a request so child verification flows can cancel the request.
@@ -110,6 +111,7 @@ impl VerificationRequest {
         store: Arc<dyn CryptoStore>,
         flow_id: FlowId,
         other_user: &UserId,
+        recipient_devices: Vec<DeviceIdBox>,
         methods: Option<Vec<VerificationMethod>>,
     ) -> Self {
         let inner = Mutex::new(InnerRequest::Created(RequestState::new(
@@ -131,6 +133,7 @@ impl VerificationRequest {
             other_user_id: other_user.to_owned().into(),
             creation_time: Instant::now().into(),
             we_started: true,
+            recipient_devices: recipient_devices.into(),
         }
     }
 
@@ -138,7 +141,7 @@ impl VerificationRequest {
     /// verification from the other side. This should be used only for
     /// self-verifications and it should be sent to the specific device that we
     /// want to verify.
-    pub(crate) fn request_to_device(&self) -> RequestToDeviceEventContent {
+    pub(crate) fn request_to_device(&self) -> ToDeviceRequest {
         let inner = self.inner.lock().unwrap();
 
         let methods = if let InnerRequest::Created(c) = &*inner {
@@ -147,11 +150,18 @@ impl VerificationRequest {
             SUPPORTED_METHODS.to_vec()
         };
 
-        RequestToDeviceEventContent::new(
+        let content = RequestToDeviceEventContent::new(
             self.account.device_id().into(),
             self.flow_id().as_str().to_string(),
             methods,
             MilliSecondsSinceUnixEpoch::now(),
+        );
+
+        ToDeviceRequest::new_for_recipients(
+            self.other_user(),
+            self.recipient_devices.to_vec(),
+            AnyToDeviceEventContent::KeyVerificationRequest(content),
+            Uuid::new_v4(),
         )
     }
 
@@ -358,6 +368,7 @@ impl VerificationRequest {
             flow_id: flow_id.into(),
             we_started: false,
             creation_time: Instant::now().into(),
+            recipient_devices: vec![].into(),
         }
     }
 
@@ -403,6 +414,10 @@ impl VerificationRequest {
 
     fn cancel_with_code(&self, cancel_code: CancelCode) -> Option<OutgoingVerificationRequest> {
         let mut inner = self.inner.lock().unwrap();
+
+        let send_to_everyone = self.we_started() && matches!(&*inner, InnerRequest::Created(_));
+        let other_device = inner.other_device_id();
+
         inner.cancel(true, &cancel_code);
 
         let content = if let InnerRequest::Cancelled(c) = &*inner {
@@ -413,7 +428,17 @@ impl VerificationRequest {
 
         let request = content.map(|c| match c {
             OutgoingContent::ToDevice(content) => {
-                ToDeviceRequest::new(&self.other_user(), inner.other_device_id(), content).into()
+                if send_to_everyone {
+                    ToDeviceRequest::new_for_recipients(
+                        &self.other_user(),
+                        self.recipient_devices.to_vec(),
+                        content,
+                        Uuid::new_v4(),
+                    )
+                    .into()
+                } else {
+                    ToDeviceRequest::new(&self.other_user(), other_device, content).into()
+                }
             }
             OutgoingContent::Room(room_id, content) => {
                 RoomMessageRequest { room_id, txn_id: Uuid::new_v4(), content }.into()
@@ -444,12 +469,65 @@ impl VerificationRequest {
         }
     }
 
+    /// Create a key verification cancellation for devices that received the
+    /// request but either shouldn't continue in the verification or didn't get
+    /// notified that the other side cancelled.
+    ///
+    /// The spec states the following[1]:
+    /// When Bob accepts or declines the verification on one of his devices
+    /// (sending either an m.key.verification.ready or m.key.verification.cancel
+    /// event), Alice will send an m.key.verification.cancel event to Bob’s
+    /// other devices with a code of m.accepted in the case where Bob accepted
+    /// the verification, or m.user in the case where Bob rejected the
+    /// verification.
+    ///
+    /// Realistically sending the cancellation to Bob's other devices is only
+    /// possible if Bob accepted the verification since we don't know the device
+    /// id of Bob's device that rejected the verification.
+    ///
+    /// Thus, we're sending the cancellation to all devices that received the
+    /// request in the rejection case.
+    ///
+    /// [1]: https://spec.matrix.org/unstable/client-server-api/#key-verification-framework
+    pub(crate) fn cancel_for_other_devices(
+        &self,
+        code: CancelCode,
+        filter_device: Option<&DeviceId>,
+    ) -> Option<ToDeviceRequest> {
+        let cancelled = Cancelled::new(true, code);
+        let cancel_content = cancelled.as_content(self.flow_id());
+
+        if let OutgoingContent::ToDevice(c) = cancel_content {
+            let recipients: Vec<DeviceIdBox> = self
+                .recipient_devices
+                .to_vec()
+                .into_iter()
+                .filter(|d| if let Some(device) = filter_device { &**d != device } else { true })
+                .collect();
+
+            Some(ToDeviceRequest::new_for_recipients(
+                self.other_user(),
+                recipients,
+                c,
+                Uuid::new_v4(),
+            ))
+        } else {
+            None
+        }
+    }
+
     pub(crate) fn receive_ready(&self, sender: &UserId, content: &ReadyContent) {
         let mut inner = self.inner.lock().unwrap();
 
         match &*inner {
             InnerRequest::Created(s) => {
                 *inner = InnerRequest::Ready(s.clone().into_ready(sender, content));
+
+                if let Some(request) =
+                    self.cancel_for_other_devices(CancelCode::Accepted, Some(content.from_device()))
+                {
+                    self.verification_cache.add_verification_request(request.into());
+                }
             }
             InnerRequest::Requested(s) => {
                 if sender == self.own_user_id() && content.from_device() != self.account.device_id()
@@ -500,6 +578,12 @@ impl VerificationRequest {
             );
             let mut inner = self.inner.lock().unwrap();
             inner.cancel(false, content.cancel_code());
+
+            if let Some(request) =
+                self.cancel_for_other_devices(content.cancel_code().to_owned(), None)
+            {
+                self.verification_cache.add_verification_request(request.into());
+            }
         }
     }
 
@@ -597,9 +681,7 @@ impl InnerRequest {
             InnerRequest::Created(s) => s.clone().into_canceled(cancelled_by_us, cancel_code),
             InnerRequest::Requested(s) => s.clone().into_canceled(cancelled_by_us, cancel_code),
             InnerRequest::Ready(s) => s.clone().into_canceled(cancelled_by_us, cancel_code),
-            InnerRequest::Passive(s) => s.clone().into_canceled(cancelled_by_us, cancel_code),
-            InnerRequest::Done(_) => return,
-            InnerRequest::Cancelled(_) => return,
+            InnerRequest::Passive(_) | InnerRequest::Done(_) | InnerRequest::Cancelled(_) => return,
         });
     }
 
@@ -1133,7 +1215,7 @@ mod test {
         store::{Changes, CryptoStore, MemoryStore},
         verification::{
             cache::VerificationCache,
-            event_enums::{OutgoingContent, ReadyContent, StartContent},
+            event_enums::{OutgoingContent, ReadyContent, RequestContent, StartContent},
             FlowId,
         },
         ReadOnlyDevice,
@@ -1180,6 +1262,7 @@ mod test {
             bob_store.into(),
             flow_id.clone(),
             &alice_id(),
+            vec![],
             None,
         );
 
@@ -1237,6 +1320,7 @@ mod test {
             bob_store.into(),
             flow_id.clone(),
             &alice_id(),
+            vec![],
             None,
         );
 
@@ -1301,10 +1385,13 @@ mod test {
             bob_store.into(),
             flow_id,
             &alice_id(),
+            vec![],
             None,
         );
 
-        let content = bob_request.request_to_device();
+        let request = bob_request.request_to_device();
+        let content: OutgoingContent = request.try_into().unwrap();
+        let content = RequestContent::try_from(&content).unwrap();
         let flow_id = bob_request.flow_id().to_owned();
 
         let alice_request = VerificationRequest::from_request(
@@ -1314,7 +1401,7 @@ mod test {
             alice_store.into(),
             &bob_id(),
             flow_id,
-            &(&content).into(),
+            &content,
         );
 
         let content: OutgoingContent = alice_request.accept().unwrap().try_into().unwrap();

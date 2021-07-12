@@ -379,6 +379,33 @@ try_from_outgoing_content!(MacContent, KeyVerificationMac);
 try_from_outgoing_content!(CancelContent, KeyVerificationCancel);
 try_from_outgoing_content!(DoneContent, KeyVerificationDone);
 
+impl<'a> TryFrom<&'a OutgoingContent> for RequestContent<'a> {
+    type Error = ();
+
+    fn try_from(value: &'a OutgoingContent) -> Result<Self, Self::Error> {
+        match value {
+            OutgoingContent::Room(_, c) => {
+                if let AnyMessageEventContent::RoomMessage(m) = c {
+                    if let MessageType::VerificationRequest(c) = &m.msgtype {
+                        Ok(Self::Room(c))
+                    } else {
+                        Err(())
+                    }
+                } else {
+                    Err(())
+                }
+            }
+            OutgoingContent::ToDevice(c) => {
+                if let AnyToDeviceEventContent::KeyVerificationRequest(c) = c {
+                    Ok(Self::ToDevice(c))
+                } else {
+                    Err(())
+                }
+            }
+        }
+    }
+}
+
 #[derive(Debug)]
 pub enum StartContent<'a> {
     ToDevice(&'a StartToDeviceEventContent),

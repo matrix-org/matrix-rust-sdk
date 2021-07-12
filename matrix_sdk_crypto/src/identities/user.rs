@@ -27,7 +27,7 @@ use ruma::{
     events::{
         key::verification::VerificationMethod, room::message::KeyVerificationRequestEventContent,
     },
-    DeviceKeyId, EventId, RoomId, UserId,
+    DeviceIdBox, DeviceKeyId, EventId, RoomId, UserId,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::to_value;
@@ -108,7 +108,7 @@ impl OwnUserIdentity {
     pub async fn request_verification(
         &self,
     ) -> Result<(VerificationRequest, OutgoingVerificationRequest), CryptoStoreError> {
-        self.verification_machine.request_self_verification(&self.inner, None).await
+        self.request_verification_helper(None).await
     }
 
     /// Send a verification request to our other devices while specifying our
@@ -121,7 +121,27 @@ impl OwnUserIdentity {
         &self,
         methods: Vec<VerificationMethod>,
     ) -> Result<(VerificationRequest, OutgoingVerificationRequest), CryptoStoreError> {
-        self.verification_machine.request_self_verification(&self.inner, Some(methods)).await
+        self.request_verification_helper(Some(methods)).await
+    }
+
+    async fn request_verification_helper(
+        &self,
+        methods: Option<Vec<VerificationMethod>>,
+    ) -> Result<(VerificationRequest, OutgoingVerificationRequest), CryptoStoreError> {
+        let devices: Vec<DeviceIdBox> = self
+            .verification_machine
+            .store
+            .get_user_devices(self.user_id())
+            .await?
+            .into_iter()
+            .map(|(d, _)| d)
+            .filter(|d| &**d != self.verification_machine.own_device_id())
+            .collect();
+
+        Ok(self
+            .verification_machine
+            .request_to_device_verification(self.user_id(), devices, methods)
+            .await)
     }
 }
 
