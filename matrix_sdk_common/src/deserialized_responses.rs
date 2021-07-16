@@ -9,8 +9,8 @@ use ruma::{
         },
     },
     events::{
-        room::member::MemberEventContent, AnySyncRoomEvent, StateEvent, StrippedStateEvent,
-        SyncStateEvent, Unsigned,
+        room::member::MemberEventContent, AnyRoomEvent, AnySyncRoomEvent, StateEvent,
+        StrippedStateEvent, SyncStateEvent, Unsigned,
     },
     serde::Raw,
     DeviceIdBox, DeviceKeyAlgorithm, EventId, MilliSecondsSinceUnixEpoch, RoomId, UserId,
@@ -95,9 +95,23 @@ pub struct SyncRoomEvent {
     pub encryption_info: Option<EncryptionInfo>,
 }
 
+impl SyncRoomEvent {
+    /// Get the event id of this `SyncRoomEvent`
+    pub fn event_id(&self) -> EventId {
+        self.event.get_field::<EventId>("event_id").unwrap().unwrap()
+    }
+}
+
 impl From<Raw<AnySyncRoomEvent>> for SyncRoomEvent {
     fn from(inner: Raw<AnySyncRoomEvent>) -> Self {
         Self { encryption_info: None, event: inner }
+    }
+}
+
+impl From<Raw<AnyRoomEvent>> for SyncRoomEvent {
+    fn from(inner: Raw<AnyRoomEvent>) -> Self {
+        // FIXME: we should strip the room id from `Raw`
+        Self { encryption_info: None, event: Raw::from_json(Raw::into_json(inner)) }
     }
 }
 
@@ -231,6 +245,26 @@ pub struct Timeline {
 impl Timeline {
     pub fn new(limited: bool, prev_batch: Option<String>) -> Self {
         Self { limited, prev_batch, ..Default::default() }
+    }
+}
+
+/// A slice of the timeline in the room.
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+pub struct TimelineSlice {
+    /// The `next_batch` or `from` token used to obtain this slice
+    pub start: String,
+
+    /// The `prev_batch` or `to` token used to obtain this slice
+    /// If `None` this `TimelineSlice` is the begining of the room
+    pub end: Option<String>,
+
+    /// A list of events.
+    pub events: Vec<SyncRoomEvent>,
+}
+
+impl TimelineSlice {
+    pub fn new(events: Vec<SyncRoomEvent>, start: String, end: Option<String>) -> Self {
+        Self { start, end, events }
     }
 }
 
