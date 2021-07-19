@@ -579,10 +579,12 @@ impl VerificationRequest {
             let mut inner = self.inner.lock().unwrap();
             inner.cancel(false, content.cancel_code());
 
-            if let Some(request) =
-                self.cancel_for_other_devices(content.cancel_code().to_owned(), None)
-            {
-                self.verification_cache.add_verification_request(request.into());
+            if self.we_started() {
+                if let Some(request) =
+                    self.cancel_for_other_devices(content.cancel_code().to_owned(), None)
+                {
+                    self.verification_cache.add_verification_request(request.into());
+                }
             }
         }
     }
