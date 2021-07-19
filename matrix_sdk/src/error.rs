@@ -18,7 +18,9 @@ use std::io::Error as IoError;
 
 use http::StatusCode;
 #[cfg(feature = "encryption")]
-use matrix_sdk_base::crypto::{CryptoStoreError, DecryptorError, MegolmError, OlmError};
+use matrix_sdk_base::crypto::{
+    CryptoStoreError, DecryptorError, KeyExportError, MegolmError, OlmError,
+};
 use matrix_sdk_base::{Error as SdkBaseError, StoreError};
 use reqwest::Error as ReqwestError;
 use ruma::{
@@ -149,6 +151,33 @@ pub enum Error {
     /// An error encountered when trying to parse a url.
     #[error(transparent)]
     Url(#[from] UrlParseError),
+}
+
+/// Error for the room key importing functionality.
+#[cfg(feature = "encryption")]
+#[cfg_attr(feature = "docs", doc(cfg(encryption)))]
+#[derive(Error, Debug)]
+pub enum RoomKeyImportError {
+    /// An error de/serializing type for the `StateStore`
+    #[error(transparent)]
+    SerdeJson(#[from] JsonError),
+
+    /// The cryptostore isn't yet open, logging in is required to open the
+    /// cryptostore.
+    #[error("The cryptostore hasn't been yet opened, can't import yet.")]
+    StoreClosed,
+
+    /// An IO error happened.
+    #[error(transparent)]
+    Io(#[from] IoError),
+
+    /// An error occurred in the crypto store.
+    #[error(transparent)]
+    CryptoStore(#[from] CryptoStoreError),
+
+    /// An error occurred while importing the key export.
+    #[error(transparent)]
+    Export(#[from] KeyExportError),
 }
 
 impl Error {
