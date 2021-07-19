@@ -33,6 +33,7 @@ mod qrcode;
 mod requests;
 mod sas;
 
+pub use matrix_sdk_base::crypto::{AcceptSettings, CancelInfo};
 pub use qrcode::QrVerification;
 pub use requests::VerificationRequest;
 pub use sas::SasVerification;
@@ -81,6 +82,15 @@ impl Verification {
         }
     }
 
+    /// Get info about the cancellation if the verification flow has been
+    /// cancelled.
+    pub fn cancel_info(&self) -> Option<CancelInfo> {
+        match self {
+            Verification::SasV1(s) => s.cancel_info(),
+            Verification::QrV1(q) => q.cancel_info(),
+        }
+    }
+
     /// Get our own user id.
     pub fn own_user_id(&self) -> &ruma::UserId {
         match self {
@@ -103,6 +113,14 @@ impl Verification {
         match self {
             Verification::SasV1(v) => v.is_self_verification(),
             Verification::QrV1(v) => v.is_self_verification(),
+        }
+    }
+
+    /// Did we initiate the verification flow.
+    pub fn we_started(&self) -> bool {
+        match self {
+            Verification::SasV1(s) => s.we_started(),
+            Verification::QrV1(q) => q.we_started(),
         }
     }
 }

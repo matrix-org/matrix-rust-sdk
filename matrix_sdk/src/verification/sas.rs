@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use matrix_sdk_base::crypto::{AcceptSettings, ReadOnlyDevice, Sas as BaseSas};
+use matrix_sdk_base::crypto::{AcceptSettings, CancelInfo, ReadOnlyDevice, Sas as BaseSas};
 use ruma::UserId;
 
 use crate::{error::Result, Client};
@@ -121,6 +121,17 @@ impl SasVerification {
         self.inner.can_be_presented()
     }
 
+    /// Did we initiate the verification flow.
+    pub fn we_started(&self) -> bool {
+        self.inner.we_started()
+    }
+
+    /// Get info about the cancellation if the verification flow has been
+    /// cancelled.
+    pub fn cancel_info(&self) -> Option<CancelInfo> {
+        self.inner.cancel_info()
+    }
+
     /// Is the verification process canceled.
     pub fn is_cancelled(&self) -> bool {
         self.inner.is_cancelled()
@@ -144,5 +155,11 @@ impl SasVerification {
     /// Get our own user id.
     pub fn own_user_id(&self) -> &UserId {
         self.inner.user_id()
+    }
+
+    /// Get the user id of the other user participating in this verification
+    /// flow.
+    pub fn other_user_id(&self) -> &UserId {
+        self.inner.other_user_id()
     }
 }
