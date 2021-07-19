@@ -465,7 +465,13 @@ impl VerificationRequest {
         if self.is_cancelled() || self.is_done() {
             None
         } else if self.timed_out() {
-            self.cancel_with_code(CancelCode::Timeout)
+            let request = self.cancel_with_code(CancelCode::Timeout);
+
+            if self.is_passive() {
+                None
+            } else {
+                request
+            }
         } else {
             None
         }
@@ -681,6 +687,12 @@ impl InnerRequest {
     }
 
     fn cancel(&mut self, cancelled_by_us: bool, cancel_code: &CancelCode) {
+        trace!(
+            cancelled_by_us = cancelled_by_us,
+            code = cancel_code.as_str(),
+            "Verification request going into the cancelled state"
+        );
+
         *self = InnerRequest::Cancelled(match self {
             InnerRequest::Created(s) => s.clone().into_canceled(cancelled_by_us, cancel_code),
             InnerRequest::Requested(s) => s.clone().into_canceled(cancelled_by_us, cancel_code),
