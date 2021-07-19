@@ -18,9 +18,13 @@ use matrix_sdk_base::crypto::{
     store::CryptoStoreError, Device as BaseDevice, LocalTrust, ReadOnlyDevice,
     UserDevices as BaseUserDevices,
 };
-use ruma::{DeviceId, DeviceIdBox};
+use ruma::{events::key::verification::VerificationMethod, DeviceId, DeviceIdBox};
 
-use crate::{error::Result, verification::SasVerification, Client};
+use crate::{
+    error::Result,
+    verification::{SasVerification, VerificationRequest},
+    Client,
+};
 
 #[derive(Clone, Debug)]
 /// A device represents a E2EE capable client of an user.
@@ -43,7 +47,10 @@ impl Device {
     /// Returns a `Sas` object that represents the interactive verification
     /// flow.
     ///
-    /// # Example
+    /// This method has been deprecated in the spec and the
+    /// [`request_verification()`] method should be used instead.
+    ///
+    /// # Examples
     ///
     /// ```no_run
     /// # use std::convert::TryFrom;
@@ -62,11 +69,100 @@ impl Device {
     /// let verification = device.start_verification().await.unwrap();
     /// # });
     /// ```
+    ///
+    /// [`request_verification()`]: #method.request_verification
     pub async fn start_verification(&self) -> Result<SasVerification> {
         let (sas, request) = self.inner.start_verification().await?;
         self.client.send_to_device(&request).await?;
 
         Ok(SasVerification { inner: sas, client: self.client.clone() })
+    }
+
+    /// Request an interacitve verification with this `Device`
+    ///
+    /// Returns a `VerificationRequest` object and a to-device request that
+    /// needs to be sent out.
+    ///
+    /// The default methods that are supported are `m.sas.v1` and
+    /// `m.qr_code.show.v1`, if this isn't desireable the
+    /// [`request_verification_with_methods()`] method can be used to override
+    /// this.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// # use std::convert::TryFrom;
+    /// # use matrix_sdk::{Client, ruma::UserId};
+    /// # use url::Url;
+    /// # use futures::executor::block_on;
+    /// # let alice = UserId::try_from("@alice:example.org").unwrap();
+    /// # let homeserver = Url::parse("http://example.com").unwrap();
+    /// # let client = Client::new(homeserver).unwrap();
+    /// # block_on(async {
+    /// let device = client.get_device(&alice, "DEVICEID".into())
+    ///     .await
+    ///     .unwrap()
+    ///     .unwrap();
+    ///
+    /// let verification = device.request_verification().await.unwrap();
+    /// # });
+    /// ```
+    ///
+    /// [`request_verification_with_methods()`]:
+    /// #method.request_verification_with_methods
+    pub async fn request_verification(&self) -> Result<VerificationRequest> {
+        let (verification, request) = self.inner.request_verification().await;
+        self.client.send_verification_request(request).await?;
+
+        Ok(VerificationRequest { inner: verification, client: self.client.clone() })
+    }
+
+    /// Request an interacitve verification with this `Device`
+    ///
+    /// Returns a `VerificationRequest` object and a to-device request that
+    /// needs to be sent out.
+    ///
+    /// # Arguments
+    ///
+    /// * `methods` - The verification methods that we want to support.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// # use std::convert::TryFrom;
+    /// # use matrix_sdk::{
+    /// #    Client,
+    /// #    ruma::{
+    /// #        UserId,
+    /// #        events::key::verification::VerificationMethod,
+    /// #    }
+    /// # };
+    /// # use url::Url;
+    /// # use futures::executor::block_on;
+    /// # let alice = UserId::try_from("@alice:example.org").unwrap();
+    /// # let homeserver = Url::parse("http://example.com").unwrap();
+    /// # let client = Client::new(homeserver).unwrap();
+    /// # block_on(async {
+    /// let device = client.get_device(&alice, "DEVICEID".into())
+    ///     .await
+    ///     .unwrap()
+    ///     .unwrap();
+    ///
+    /// // We don't want to support showing a QR code, we only support SAS
+    /// // verification
+    /// let methods = vec![VerificationMethod::SasV1];
+    ///
+    /// let verification = device.request_verification_with_methods(methods).await.unwrap();
+    /// # });
+    /// ```
+    pub async fn request_verification_with_methods(
+        &self,
+        methods: Vec<VerificationMethod>,
+    ) -> Result<VerificationRequest> {
+        let (verification, request) = self.inner.request_verification_with_methods(methods).await;
+        self.client.send_verification_request(request).await?;
+
+        Ok(VerificationRequest { inner: verification, client: self.client.clone() })
     }
 
     /// Is the device considered to be verified, either by locally trusting it
