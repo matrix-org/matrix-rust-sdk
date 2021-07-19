@@ -183,6 +183,7 @@ impl Sas {
     ///
     /// Returns the new `Sas` object and a `StartEventContent` that needs to be
     /// sent out through the server to the other device.
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn start(
         account: ReadOnlyAccount,
         private_identity: PrivateCrossSigningIdentity,

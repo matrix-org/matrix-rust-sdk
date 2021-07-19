@@ -104,6 +104,7 @@ impl From<Arc<Mutex<InnerRequest>>> for RequestHandle {
 }
 
 impl VerificationRequest {
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn new(
         cache: VerificationCache,
         account: ReadOnlyAccount,
