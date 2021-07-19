@@ -157,6 +157,8 @@ pub enum Error {
 #[cfg(feature = "encryption")]
 #[cfg_attr(feature = "docs", doc(cfg(encryption)))]
 #[derive(Error, Debug)]
+// This is allowed because key importing isn't enabled under wasm.
+#[allow(dead_code)]
 pub enum RoomKeyImportError {
     /// An error de/serializing type for the `StateStore`
     #[error(transparent)]
