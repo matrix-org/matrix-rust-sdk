@@ -35,7 +35,7 @@ use tracing::trace;
 use super::{
     event_enums::{AnyVerificationContent, OutgoingContent, OwnedAcceptContent, StartContent},
     requests::RequestHandle,
-    FlowId, IdentitiesBeingVerified, VerificationResult,
+    CancelInfo, FlowId, IdentitiesBeingVerified, VerificationResult,
 };
 use crate::{
     identities::{ReadOnlyDevice, ReadOnlyUserIdentities},
@@ -122,14 +122,14 @@ impl Sas {
         self.inner.lock().unwrap().has_been_accepted()
     }
 
-    /// Get the cancel code of this SAS verification if it has been cancelled
-    pub fn cancel_code(&self) -> Option<CancelCode> {
-        self.inner.lock().unwrap().cancel_code()
-    }
-
-    /// Has the verification flow been cancelled by us.
-    pub fn cancelled_by_us(&self) -> Option<bool> {
-        self.inner.lock().unwrap().cancelled_by_us()
+    /// Get info about the cancellation if the verification flow has been
+    /// cancelled.
+    pub fn cancel_info(&self) -> Option<CancelInfo> {
+        if let InnerSas::Cancelled(c) = &*self.inner.lock().unwrap() {
+            Some(c.state.as_ref().clone().into())
+        } else {
+            None
+        }
     }
 
     /// Did we initiate the verification flow.

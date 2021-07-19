@@ -41,7 +41,7 @@ use tracing::trace;
 use super::{
     event_enums::{CancelContent, DoneContent, OutgoingContent, OwnedStartContent, StartContent},
     requests::RequestHandle,
-    Cancelled, Done, FlowId, IdentitiesBeingVerified, VerificationResult,
+    CancelInfo, Cancelled, Done, FlowId, IdentitiesBeingVerified, VerificationResult,
 };
 use crate::{
     olm::{PrivateCrossSigningIdentity, ReadOnlyAccount},
@@ -134,19 +134,11 @@ impl QrVerification {
         self.we_started
     }
 
-    /// Get the `CancelCode` that cancelled this verification request.
-    pub fn cancel_code(&self) -> Option<CancelCode> {
+    /// Get info about the cancellation if the verification flow has been
+    /// cancelled.
+    pub fn cancel_info(&self) -> Option<CancelInfo> {
         if let InnerState::Cancelled(c) = &*self.state.lock().unwrap() {
-            Some(c.state.cancel_code.to_owned())
-        } else {
-            None
-        }
-    }
-
-    /// Has the verification flow been cancelled by us.
-    pub fn cancelled_by_us(&self) -> Option<bool> {
-        if let InnerState::Cancelled(c) = &*self.state.lock().unwrap() {
-            Some(c.state.cancelled_by_us)
+            Some(c.state.clone().into())
         } else {
             None
         }

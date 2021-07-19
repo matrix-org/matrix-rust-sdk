@@ -165,6 +165,38 @@ impl Done {
     }
 }
 
+/// Information about the cancellation of a verification request or verification
+/// flow.
+#[derive(Clone, Debug)]
+pub struct CancelInfo {
+    cancelled_by_us: bool,
+    cancel_code: CancelCode,
+    reason: &'static str,
+}
+
+impl CancelInfo {
+    /// Get the human readable reason of the cancellation.
+    pub fn reason(&self) -> &'static str {
+        &self.reason
+    }
+
+    /// Get the `CancelCode` that cancelled this verification.
+    pub fn cancel_code(&self) -> &CancelCode {
+        &self.cancel_code
+    }
+
+    /// Was the verification cancelled by us?
+    pub fn cancelled_by_us(&self) -> bool {
+        self.cancelled_by_us
+    }
+}
+
+impl From<Cancelled> for CancelInfo {
+    fn from(c: Cancelled) -> Self {
+        Self { cancelled_by_us: c.cancelled_by_us, cancel_code: c.cancel_code, reason: c.reason }
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct Cancelled {
     cancelled_by_us: bool,

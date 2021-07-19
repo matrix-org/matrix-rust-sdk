@@ -57,4 +57,6 @@ pub use requests::{
     OutgoingVerificationRequest, RoomMessageRequest, ToDeviceRequest,
 };
 pub use store::CryptoStoreError;
-pub use verification::{AcceptSettings, QrVerification, Sas, Verification, VerificationRequest};
+pub use verification::{
+    AcceptSettings, CancelInfo, QrVerification, Sas, Verification, VerificationRequest,
+};

@@ -42,7 +42,7 @@ use super::{
         CancelContent, DoneContent, OutgoingContent, ReadyContent, RequestContent, StartContent,
     },
     qrcode::{QrVerification, ScanError},
-    Cancelled, FlowId, IdentitiesBeingVerified,
+    CancelInfo, Cancelled, FlowId, IdentitiesBeingVerified,
 };
 use crate::{
     olm::{PrivateCrossSigningIdentity, ReadOnlyAccount},
@@ -219,11 +219,13 @@ impl VerificationRequest {
         }
     }
 
-    /// Get the `CancelCode` that cancelled this verification request.
-    pub fn cancel_code(&self) -> Option<CancelCode> {
-        match &*self.inner.lock().unwrap() {
-            InnerRequest::Cancelled(c) => Some(c.state.cancel_code.to_owned()),
-            _ => None,
+    /// Get info about the cancellation if the verification request has been
+    /// cancelled.
+    pub fn cancel_info(&self) -> Option<CancelInfo> {
+        if let InnerRequest::Cancelled(c) = &*self.inner.lock().unwrap() {
+            Some(c.state.clone().into())
+        } else {
+            None
         }
     }
 

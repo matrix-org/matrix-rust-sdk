@@ -350,22 +350,6 @@ impl InnerSas {
         matches!(self, InnerSas::Confirmed(_) | InnerSas::WaitingForDone(_) | InnerSas::Done(_))
     }
 
-    pub fn cancel_code(&self) -> Option<CancelCode> {
-        if let InnerSas::Cancelled(c) = self {
-            Some(c.state.cancel_code.clone())
-        } else {
-            None
-        }
-    }
-
-    pub fn cancelled_by_us(&self) -> Option<bool> {
-        if let InnerSas::Cancelled(c) = self {
-            Some(c.state.cancelled_by_us)
-        } else {
-            None
-        }
-    }
-
     pub fn timed_out(&self) -> bool {
         match self {
             InnerSas::Created(s) => s.timed_out(),
