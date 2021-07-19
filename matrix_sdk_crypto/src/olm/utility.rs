@@ -75,10 +75,11 @@ impl Utility {
             signature.get(key_id.to_string()).ok_or(SignatureError::NoSignatureFound)?;
         let signature = signature.as_str().ok_or(SignatureError::NoSignatureFound)?;
 
-        let ret = match self.inner.ed25519_verify(signing_key, &canonical_json, signature) {
-            Ok(_) => Ok(()),
-            Err(_) => Err(SignatureError::VerificationError),
-        };
+        let ret =
+            match self.inner.ed25519_verify(signing_key, &canonical_json, signature.to_owned()) {
+                Ok(_) => Ok(()),
+                Err(_) => Err(SignatureError::VerificationError),
+            };
 
         let json_object = json.as_object_mut().ok_or(SignatureError::NotAnObject)?;
 

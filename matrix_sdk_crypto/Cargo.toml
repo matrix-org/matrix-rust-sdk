@@ -24,7 +24,7 @@ matrix-qrcode = { version = "0.1.0", path = "../matrix_qrcode" }
 matrix-sdk-common = { version = "0.3.0", path = "../matrix_sdk_common" }
 ruma = { version = "0.3.0", features = ["client-api-c", "unstable-pre-spec"] }
 
-olm-rs = { version = "1.0.1", features = ["serde"] }
+olm-rs = { version = "2.0", features = ["serde"] }
 getrandom = "0.2.3"
 serde = { version = "1.0.126", features = ["derive", "rc"] }
 serde_json = "1.0.64"

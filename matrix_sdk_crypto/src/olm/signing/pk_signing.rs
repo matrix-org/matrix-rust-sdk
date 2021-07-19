@@ -108,13 +108,6 @@ pub struct PickledSelfSigning {
     public_key: CrossSigningKey,
 }
 
-impl Signature {
-    #[cfg(test)]
-    pub fn as_str(&self) -> &str {
-        &self.0
-    }
-}
-
 impl PickledSigning {
     pub fn as_str(&self) -> &str {
         &self.0
@@ -288,6 +281,12 @@ pub struct PickledSignings {
 #[derive(Debug, Clone)]
 pub struct Signature(String);
 
+impl std::fmt::Display for Signature {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.0.fmt(f)
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PickledSigning(String);
 
@@ -298,7 +297,7 @@ impl Signing {
     }
 
     pub fn from_seed(seed: Vec<u8>) -> Self {
-        let inner = OlmPkSigning::new(seed.clone()).expect("Unable to create pk signing object");
+        let inner = OlmPkSigning::new(&seed).expect("Unable to create pk signing object");
         let public_key = PublicSigningKey(inner.public_key().into());
 
         Signing {
@@ -366,7 +365,7 @@ impl Signing {
         signature: &Signature,
     ) -> Result<bool, OlmUtilityError> {
         let utility = OlmUtility::new();
-        utility.ed25519_verify(self.public_key.as_str(), message, signature.as_str())
+        utility.ed25519_verify(self.public_key.as_str(), message, signature.to_string())
     }
 
     pub async fn sign_json(&self, mut json: Value) -> Result<Signature, SignatureError> {

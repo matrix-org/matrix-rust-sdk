@@ -249,7 +249,7 @@ impl OutboundGroupSession {
     pub(crate) async fn encrypt_helper(&self, plaintext: String) -> String {
         let session = self.inner.lock().await;
         self.message_count.fetch_add(1, Ordering::SeqCst);
-        session.encrypt(plaintext)
+        session.encrypt(&plaintext)
     }
 
     /// Encrypt a room message for the given room.
