@@ -28,7 +28,8 @@ use ruma::{
     encryption::{DeviceKeys, SignedKey},
     events::{
         forwarded_room_key::ForwardedRoomKeyToDeviceEventContent,
-        room::encrypted::EncryptedEventContent, AnyToDeviceEventContent,
+        key::verification::VerificationMethod, room::encrypted::EncryptedEventContent,
+        AnyToDeviceEventContent,
     },
     DeviceId, DeviceIdBox, DeviceKeyAlgorithm, DeviceKeyId, EventEncryptionAlgorithm, UserId,
 };
@@ -43,7 +44,7 @@ use crate::{
     olm::{InboundGroupSession, PrivateCrossSigningIdentity, Session, Utility},
     store::{Changes, CryptoStore, DeviceChanges, Result as StoreResult},
     verification::VerificationMachine,
-    OutgoingVerificationRequest, Sas, ToDeviceRequest,
+    OutgoingVerificationRequest, Sas, ToDeviceRequest, VerificationRequest,
 };
 #[cfg(test)]
 use crate::{OlmMachine, ReadOnlyAccount};
@@ -125,7 +126,13 @@ impl Deref for Device {
 impl Device {
     /// Start a interactive verification with this `Device`
     ///
-    /// Returns a `Sas` object and to-device request that needs to be sent out.
+    /// Returns a `Sas` object and a to-device request that needs to be sent
+    /// out.
+    ///
+    /// This method has been deprecated in the spec and the
+    /// [`request_verification()`] method should be used instead.
+    ///
+    /// [`request_verification()`]: #method.request_verification
     pub async fn start_verification(&self) -> StoreResult<(Sas, ToDeviceRequest)> {
         let (sas, request) = self.verification_machine.start_sas(self.inner.clone()).await?;
 
@@ -134,6 +141,42 @@ impl Device {
         } else {
             panic!("Invalid verification request type");
         }
+    }
+
+    /// Request an interacitve verification with this `Device`
+    ///
+    /// Returns a `VerificationRequest` object and a to-device request that
+    /// needs to be sent out.
+    pub async fn request_verification(&self) -> (VerificationRequest, OutgoingVerificationRequest) {
+        self.request_verification_helper(None).await
+    }
+
+    /// Request an interacitve verification with this `Device`
+    ///
+    /// Returns a `VerificationRequest` object and a to-device request that
+    /// needs to be sent out.
+    ///
+    /// # Arguments
+    ///
+    /// * `methods` - The verification methods that we want to support.
+    pub async fn request_verification_with_methods(
+        &self,
+        methods: Vec<VerificationMethod>,
+    ) -> (VerificationRequest, OutgoingVerificationRequest) {
+        self.request_verification_helper(Some(methods)).await
+    }
+
+    async fn request_verification_helper(
+        &self,
+        methods: Option<Vec<VerificationMethod>>,
+    ) -> (VerificationRequest, OutgoingVerificationRequest) {
+        self.verification_machine
+            .request_to_device_verification(
+                self.user_id(),
+                vec![self.device_id().to_owned()],
+                methods,
+            )
+            .await
     }
 
     /// Get the Olm sessions that belong to this device.
