@@ -195,6 +195,7 @@ impl Sas {
         other_identity: Option<ReadOnlyUserIdentities>,
         transaction_id: Option<String>,
         we_started: bool,
+        request_handle: Option<RequestHandle>,
     ) -> (Sas, OutgoingContent) {
         let (inner, content) = InnerSas::start(
             account.clone(),
@@ -212,7 +213,7 @@ impl Sas {
                 store,
                 other_identity,
                 we_started,
-                None,
+                request_handle,
             ),
             content,
         )
@@ -627,6 +628,7 @@ mod test {
             None,
             None,
             true,
+            None,
         );
 
         let flow_id = alice.flow_id().to_owned();

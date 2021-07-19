@@ -142,6 +142,7 @@ impl VerificationMachine {
             identity,
             None,
             true,
+            None,
         );
 
         let request = match content {
@@ -565,6 +566,7 @@ mod test {
             None,
             None,
             true,
+            None,
         );
 
         machine

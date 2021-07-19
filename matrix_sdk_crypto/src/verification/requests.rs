@@ -1172,6 +1172,7 @@ impl RequestState<Ready> {
                     other_identity,
                     Some(t.to_owned()),
                     we_started,
+                    Some(request_handle),
                 );
                 (sas, content)
             }

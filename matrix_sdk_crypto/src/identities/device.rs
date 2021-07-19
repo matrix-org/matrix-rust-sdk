@@ -43,7 +43,7 @@ use crate::{
     olm::{InboundGroupSession, PrivateCrossSigningIdentity, Session, Utility},
     store::{Changes, CryptoStore, DeviceChanges, Result as StoreResult},
     verification::VerificationMachine,
-    OutgoingVerificationRequest, Sas, ToDeviceRequest, VerificationRequest,
+    OutgoingVerificationRequest, Sas, ToDeviceRequest,
 };
 #[cfg(test)]
 use crate::{OlmMachine, ReadOnlyAccount};
