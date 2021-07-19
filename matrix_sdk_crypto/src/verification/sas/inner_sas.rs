@@ -165,9 +165,12 @@ impl InnerSas {
         }
     }
 
-    pub fn accept(self) -> Option<(InnerSas, OwnedAcceptContent)> {
+    pub fn accept(
+        self,
+        methods: Vec<ShortAuthenticationString>,
+    ) -> Option<(InnerSas, OwnedAcceptContent)> {
         if let InnerSas::Started(s) = self {
-            let sas = s.into_accepted();
+            let sas = s.into_accepted(methods);
             let content = sas.as_content();
             Some((InnerSas::WeAccepted(sas), content))
         } else {

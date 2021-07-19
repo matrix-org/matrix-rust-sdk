@@ -25,11 +25,7 @@ use matrix_sdk_common::uuid::Uuid;
 use ruma::{
     api::client::r0::keys::upload_signatures::Request as SignatureUploadRequest,
     events::{
-        key::verification::{
-            accept::{AcceptEventContent, AcceptMethod, AcceptToDeviceEventContent},
-            cancel::CancelCode,
-            ShortAuthenticationString,
-        },
+        key::verification::{cancel::CancelCode, ShortAuthenticationString},
         AnyMessageEventContent, AnyToDeviceEventContent,
     },
     DeviceId, EventId, RoomId, UserId,
@@ -327,10 +323,10 @@ impl Sas {
     ) -> Option<OutgoingVerificationRequest> {
         let mut guard = self.inner.lock().unwrap();
         let sas: InnerSas = (*guard).clone();
+        let methods = settings.allowed_methods;
 
-        if let Some((sas, content)) = sas.accept() {
+        if let Some((sas, content)) = sas.accept(methods) {
             *guard = sas;
-            let content = settings.apply(content);
 
             Some(match content {
                 OwnedAcceptContent::ToDevice(c) => {
@@ -553,23 +549,6 @@ impl AcceptSettings {
     /// * `methods` - The methods this client allows at most
     pub fn with_allowed_methods(methods: Vec<ShortAuthenticationString>) -> Self {
         Self { allowed_methods: methods }
-    }
-
-    fn apply(self, mut content: OwnedAcceptContent) -> OwnedAcceptContent {
-        match &mut content {
-            OwnedAcceptContent::ToDevice(AcceptToDeviceEventContent {
-                method: AcceptMethod::SasV1(c),
-                ..
-            })
-            | OwnedAcceptContent::Room(
-                _,
-                AcceptEventContent { method: AcceptMethod::SasV1(c), .. },
-            ) => {
-                c.short_authentication_string.retain(|sas| self.allowed_methods.contains(sas));
-                content
-            }
-            _ => content,
-        }
     }
 }
 

@@ -557,7 +557,15 @@ impl SasState<Started> {
         }
     }
 
-    pub fn into_accepted(self) -> SasState<WeAccepted> {
+    pub fn into_accepted(self, methods: Vec<ShortAuthenticationString>) -> SasState<WeAccepted> {
+        let mut accepted_protocols = self.state.accepted_protocols.as_ref().to_owned();
+        accepted_protocols.short_auth_string = methods;
+
+        // Decimal is required per spec.
+        if !accepted_protocols.short_auth_string.contains(&ShortAuthenticationString::Decimal) {
+            accepted_protocols.short_auth_string.push(ShortAuthenticationString::Decimal);
+        }
+
         SasState {
             inner: self.inner,
             ids: self.ids,
@@ -567,7 +575,7 @@ impl SasState<Started> {
             started_from_request: self.started_from_request,
             state: Arc::new(WeAccepted {
                 we_started: false,
-                accepted_protocols: self.state.accepted_protocols.clone(),
+                accepted_protocols: accepted_protocols.into(),
                 commitment: self.state.commitment.clone(),
             }),
         }
@@ -1115,6 +1123,7 @@ mod test {
         events::key::verification::{
             accept::{AcceptMethod, AcceptToDeviceEventContent},
             start::{StartMethod, StartToDeviceEventContent},
+            ShortAuthenticationString,
         },
         DeviceId, UserId,
     };
@@ -1162,7 +1171,7 @@ mod test {
             &start_content.as_start_content(),
             false,
         );
-        let bob_sas = bob_sas.unwrap().into_accepted();
+        let bob_sas = bob_sas.unwrap().into_accepted(vec![ShortAuthenticationString::Emoji]);
 
         (alice_sas, bob_sas)
     }
