@@ -412,10 +412,7 @@ impl GroupSessionManager {
         users: impl Iterator<Item = &UserId>,
         encryption_settings: impl Into<EncryptionSettings>,
     ) -> OlmResult<Vec<Arc<ToDeviceRequest>>> {
-        debug!(
-            room_id = room_id.as_str(),
-            "Checking if a group session needs to be shared for room {}", room_id
-        );
+        debug!(room_id = room_id.as_str(), "Checking if a room key needs to be shared",);
 
         let encryption_settings = encryption_settings.into();
         let history_visibility = encryption_settings.history_visibility.clone();

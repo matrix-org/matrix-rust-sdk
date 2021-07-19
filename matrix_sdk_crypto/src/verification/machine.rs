@@ -12,11 +12,21 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{convert::TryFrom, sync::Arc};
+use std::{
+    convert::{TryFrom, TryInto},
+    sync::Arc,
+};
 
 use dashmap::DashMap;
 use matrix_sdk_common::{locks::Mutex, uuid::Uuid};
-use ruma::{DeviceId, MilliSecondsSinceUnixEpoch, UserId};
+use ruma::{
+    events::{
+        key::verification::VerificationMethod, AnyToDeviceEvent, AnyToDeviceEventContent,
+        ToDeviceEvent,
+    },
+    serde::Raw,
+    DeviceId, DeviceIdBox, EventId, MilliSecondsSinceUnixEpoch, RoomId, UserId,
+};
 use tracing::{info, trace, warn};
 
 use super::{
@@ -30,8 +40,8 @@ use crate::{
     olm::PrivateCrossSigningIdentity,
     requests::OutgoingRequest,
     store::{CryptoStore, CryptoStoreError},
-    OutgoingVerificationRequest, ReadOnlyAccount, ReadOnlyDevice, RoomMessageRequest,
-    ToDeviceRequest,
+    OutgoingVerificationRequest, ReadOnlyAccount, ReadOnlyDevice, ReadOnlyUserIdentity,
+    RoomMessageRequest, ToDeviceRequest,
 };
 
 #[derive(Clone, Debug)]
@@ -58,6 +68,65 @@ impl VerificationMachine {
         }
     }
 
+    pub(crate) fn own_user_id(&self) -> &UserId {
+        self.account.user_id()
+    }
+
+    pub(crate) fn own_device_id(&self) -> &DeviceId {
+        self.account.device_id()
+    }
+
+    pub(crate) async fn request_to_device_verification(
+        &self,
+        user_id: &UserId,
+        recipient_devices: Vec<DeviceIdBox>,
+        methods: Option<Vec<VerificationMethod>>,
+    ) -> (VerificationRequest, OutgoingVerificationRequest) {
+        let flow_id = FlowId::from(Uuid::new_v4().to_string());
+
+        let verification = VerificationRequest::new(
+            self.verifications.clone(),
+            self.account.clone(),
+            self.private_identity.lock().await.clone(),
+            self.store.clone(),
+            flow_id,
+            user_id,
+            recipient_devices,
+            methods,
+        );
+
+        self.insert_request(verification.clone());
+
+        let request = verification.request_to_device();
+
+        (verification, request.into())
+    }
+
+    pub async fn request_verification(
+        &self,
+        identity: &ReadOnlyUserIdentity,
+        room_id: &RoomId,
+        request_event_id: &EventId,
+        methods: Option<Vec<VerificationMethod>>,
+    ) -> VerificationRequest {
+        let flow_id = FlowId::InRoom(room_id.to_owned(), request_event_id.to_owned());
+
+        let request = VerificationRequest::new(
+            self.verifications.clone(),
+            self.account.clone(),
+            self.private_identity.lock().await.clone(),
+            self.store.clone(),
+            flow_id,
+            identity.user_id(),
+            vec![],
+            methods,
+        );
+
+        self.insert_request(request.clone());
+
+        request
+    }
+
     pub async fn start_sas(
         &self,
         device: ReadOnlyDevice,
@@ -71,6 +140,8 @@ impl VerificationMachine {
             device.clone(),
             self.store.clone(),
             identity,
+            None,
+            true,
             None,
         );
 
@@ -164,15 +235,40 @@ impl VerificationMachine {
         self.verifications.outgoing_requests()
     }
 
-    pub fn garbage_collect(&self) {
+    pub fn garbage_collect(&self) -> Vec<Raw<AnyToDeviceEvent>> {
+        let mut events = vec![];
+
         for user_verification in self.requests.iter() {
             user_verification.retain(|_, v| !(v.is_done() || v.is_cancelled()));
         }
         self.requests.retain(|_, v| !v.is_empty());
 
-        for request in self.verifications.garbage_collect() {
-            self.verifications.add_request(request)
+        let mut requests: Vec<OutgoingVerificationRequest> = self
+            .requests
+            .iter()
+            .flat_map(|v| {
+                let requests: Vec<OutgoingVerificationRequest> =
+                    v.value().iter().filter_map(|v| v.cancel_if_timed_out()).collect();
+                requests
+            })
+            .collect();
+
+        requests.extend(self.verifications.garbage_collect().into_iter());
+
+        for request in requests {
+            if let Ok(OutgoingContent::ToDevice(AnyToDeviceEventContent::KeyVerificationCancel(
+                content,
+            ))) = request.clone().try_into()
+            {
+                let event = ToDeviceEvent { content, sender: self.account.user_id().to_owned() };
+
+                events.push(AnyToDeviceEvent::KeyVerificationCancel(event).into());
+            }
+
+            self.verifications.add_verification_request(request)
         }
+
+        events
     }
 
     async fn mark_sas_as_done(
@@ -286,9 +382,16 @@ impl VerificationMachine {
                         verification.receive_cancel(event.sender(), c);
                     }
 
-                    if let Some(sas) = self.get_sas(event.sender(), flow_id.as_str()) {
-                        // This won't produce an outgoing content
-                        let _ = sas.receive_any_event(event.sender(), &content);
+                    if let Some(verification) =
+                        self.get_verification(event.sender(), flow_id.as_str())
+                    {
+                        match verification {
+                            Verification::SasV1(sas) => {
+                                // This won't produce an outgoing content
+                                let _ = sas.receive_any_event(event.sender(), &content);
+                            }
+                            Verification::QrV1(qr) => qr.receive_cancel(event.sender(), c),
+                        }
                     }
                 }
                 AnyVerificationContent::Ready(c) => {
@@ -324,6 +427,7 @@ impl VerificationMachine {
                                 private_identity,
                                 device,
                                 identity,
+                                None,
                                 false,
                             ) {
                                 Ok(sas) => {
@@ -460,6 +564,8 @@ mod test {
             alice_device,
             bob_store,
             None,
+            None,
+            true,
             None,
         );
 

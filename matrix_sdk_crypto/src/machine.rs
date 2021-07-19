@@ -46,7 +46,7 @@ use tracing::{debug, error, info, trace, warn};
 use crate::store::sled::SledStore;
 use crate::{
     error::{EventError, MegolmError, MegolmResult, OlmError, OlmResult},
-    identities::{Device, IdentityManager, UserDevices},
+    identities::{user::UserIdentities, Device, IdentityManager, UserDevices},
     key_request::KeyRequestMachine,
     olm::{
         Account, EncryptionSettings, ExportedRoomKey, GroupSessionKey, IdentityKeys,
@@ -789,7 +789,7 @@ impl OlmMachine {
         one_time_keys_counts: &BTreeMap<DeviceKeyAlgorithm, UInt>,
     ) -> OlmResult<ToDevice> {
         // Remove verification objects that have expired or are done.
-        self.verification_machine.garbage_collect();
+        let mut events = self.verification_machine.garbage_collect();
 
         // Always save the account, a new session might get created which also
         // touches the account.
@@ -803,8 +803,6 @@ impl OlmMachine {
                 error!("Error marking a tracked user as changed {:?}", e);
             }
         }
-
-        let mut events = Vec::new();
 
         for mut raw_event in to_device_events.events {
             let event = match raw_event.deserialize() {
@@ -928,7 +926,7 @@ impl OlmMachine {
                     .unwrap_or(false)
             }) {
             if (self.user_id() == device.user_id() && self.device_id() == device.device_id())
-                || device.is_trusted()
+                || device.verified()
             {
                 VerificationState::Trusted
             } else {
@@ -1052,6 +1050,18 @@ impl OlmMachine {
         device_id: &DeviceId,
     ) -> StoreResult<Option<Device>> {
         self.store.get_device(user_id, device_id).await
+    }
+
+    /// Get the cross signing user identity of a user.
+    ///
+    /// # Arguments
+    ///
+    /// * `user_id` - The unique id of the user that the identity belongs to
+    ///
+    /// Returns a `UserIdentities` enum if one is found and the crypto store
+    /// didn't throw an error.
+    pub async fn get_identity(&self, user_id: &UserId) -> StoreResult<Option<UserIdentities>> {
+        self.store.get_identity(user_id).await
     }
 
     /// Get a map holding all the devices of an user.
@@ -1771,7 +1781,7 @@ pub(crate) mod test {
 
         let bob_device = alice.get_device(bob.user_id(), bob.device_id()).await.unwrap().unwrap();
 
-        assert!(!bob_device.is_trusted());
+        assert!(!bob_device.verified());
 
         let (alice_sas, request) = bob_device.start_verification().await.unwrap();
 
@@ -1834,14 +1844,14 @@ pub(crate) mod test {
             .unwrap();
 
         assert!(alice_sas.is_done());
-        assert!(bob_device.is_trusted());
+        assert!(bob_device.verified());
 
         let alice_device =
             bob.get_device(alice.user_id(), alice.device_id()).await.unwrap().unwrap();
 
-        assert!(!alice_device.is_trusted());
+        assert!(!alice_device.verified());
         bob.handle_verification_event(&event).await;
         assert!(bob_sas.is_done());
-        assert!(alice_device.is_trusted());
+        assert!(alice_device.verified());
     }
 }

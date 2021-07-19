@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use matrix_sdk_base::crypto::VerificationRequest as BaseVerificationRequest;
+use matrix_sdk_base::crypto::{CancelInfo, VerificationRequest as BaseVerificationRequest};
 use ruma::events::key::verification::VerificationMethod;
 
 use super::{QrVerification, SasVerification};
@@ -36,6 +36,12 @@ impl VerificationRequest {
         self.inner.is_cancelled()
     }
 
+    /// Get info about the cancellation if the verification request has been
+    /// cancelled.
+    pub fn cancel_info(&self) -> Option<CancelInfo> {
+        self.inner.cancel_info()
+    }
+
     /// Get our own user id.
     pub fn own_user_id(&self) -> &ruma::UserId {
         self.inner.own_user_id()
@@ -49,6 +55,11 @@ impl VerificationRequest {
     /// Is the verification request ready to start a verification flow.
     pub fn is_ready(&self) -> bool {
         self.inner.is_ready()
+    }
+
+    /// Did we initiate the verification flow.
+    pub fn we_started(&self) -> bool {
+        self.inner.we_started()
     }
 
     /// Get the user id of the other user participating in this verification

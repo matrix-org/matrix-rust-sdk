@@ -129,6 +129,7 @@ use ruma::{
 #[cfg(feature = "encryption")]
 use crate::{
     device::{Device, UserDevices},
+    error::RoomKeyImportError,
     verification::{QrVerification, SasVerification, Verification, VerificationRequest},
 };
 use crate::{
@@ -2251,7 +2252,7 @@ impl Client {
     ///     .unwrap()
     ///     .unwrap();
     ///
-    /// println!("{:?}", device.is_trusted());
+    /// println!("{:?}", device.verified());
     ///
     /// let verification = device.start_verification().await.unwrap();
     /// # });
@@ -2491,8 +2492,12 @@ impl Client {
     /// ```
     #[cfg(all(feature = "encryption", not(target_arch = "wasm32")))]
     #[cfg_attr(feature = "docs", doc(cfg(all(encryption, not(target_arch = "wasm32")))))]
-    pub async fn import_keys(&self, path: PathBuf, passphrase: &str) -> Result<(usize, usize)> {
-        let olm = self.base_client.olm_machine().await.ok_or(Error::AuthenticationRequired)?;
+    pub async fn import_keys(
+        &self,
+        path: PathBuf,
+        passphrase: &str,
+    ) -> StdResult<(usize, usize), RoomKeyImportError> {
+        let olm = self.base_client.olm_machine().await.ok_or(RoomKeyImportError::StoreClosed)?;
         let passphrase = Zeroizing::new(passphrase.to_owned());
 
         let decrypt = move || {
@@ -2501,8 +2506,7 @@ impl Client {
         };
 
         let task = tokio::task::spawn_blocking(decrypt);
-        // TODO remove this unwrap.
-        let import = task.await.expect("Task join error").unwrap();
+        let import = task.await.expect("Task join error")?;
 
         Ok(olm.import_keys(import, |_, _| {}).await?)
     }

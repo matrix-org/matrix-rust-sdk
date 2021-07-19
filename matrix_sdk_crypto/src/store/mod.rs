@@ -66,7 +66,10 @@ use thiserror::Error;
 pub use self::sled::SledStore;
 use crate::{
     error::SessionUnpicklingError,
-    identities::{Device, ReadOnlyDevice, UserDevices, UserIdentities},
+    identities::{
+        user::{OwnUserIdentity, UserIdentities, UserIdentity},
+        Device, ReadOnlyDevice, ReadOnlyUserIdentities, UserDevices,
+    },
     key_request::OutgoingKeyRequest,
     olm::{
         InboundGroupSession, OlmMessageHash, OutboundGroupSession, PrivateCrossSigningIdentity,
@@ -109,8 +112,8 @@ pub struct Changes {
 #[derive(Debug, Clone, Default)]
 #[allow(missing_docs)]
 pub struct IdentityChanges {
-    pub new: Vec<UserIdentities>,
-    pub changed: Vec<UserIdentities>,
+    pub new: Vec<ReadOnlyUserIdentities>,
+    pub changed: Vec<ReadOnlyUserIdentities>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -215,8 +218,8 @@ impl Store {
         device_id: &DeviceId,
     ) -> Result<Option<Device>> {
         let own_identity =
-            self.get_user_identity(&self.user_id).await?.map(|i| i.own().cloned()).flatten();
-        let device_owner_identity = self.get_user_identity(user_id).await?;
+            self.inner.get_user_identity(&self.user_id).await?.map(|i| i.own().cloned()).flatten();
+        let device_owner_identity = self.inner.get_user_identity(user_id).await?;
 
         Ok(self.inner.get_device(user_id, device_id).await?.map(|d| Device {
             inner: d,
@@ -224,6 +227,20 @@ impl Store {
             verification_machine: self.verification_machine.clone(),
             own_identity,
             device_owner_identity,
+        }))
+    }
+
+    pub async fn get_identity(&self, user_id: &UserId) -> Result<Option<UserIdentities>> {
+        Ok(self.inner.get_user_identity(user_id).await?.map(|i| match i {
+            ReadOnlyUserIdentities::Own(i) => OwnUserIdentity {
+                inner: i,
+                verification_machine: self.verification_machine.clone(),
+            }
+            .into(),
+            ReadOnlyUserIdentities::Other(i) => {
+                UserIdentity { inner: i, verification_machine: self.verification_machine.clone() }
+                    .into()
+            }
         }))
     }
 }
@@ -388,7 +405,7 @@ pub trait CryptoStore: AsyncTraitDeps {
     /// # Arguments
     ///
     /// * `user_id` - The user for which we should get the identity.
-    async fn get_user_identity(&self, user_id: &UserId) -> Result<Option<UserIdentities>>;
+    async fn get_user_identity(&self, user_id: &UserId) -> Result<Option<ReadOnlyUserIdentities>>;
 
     /// Check if a hash for an Olm message stored in the database.
     async fn is_message_known(&self, message_hash: &OlmMessageHash) -> Result<bool>;

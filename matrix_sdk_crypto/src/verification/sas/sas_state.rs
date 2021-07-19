@@ -52,7 +52,7 @@ use super::{
     OutgoingContent,
 };
 use crate::{
-    identities::{ReadOnlyDevice, UserIdentities},
+    identities::{ReadOnlyDevice, ReadOnlyUserIdentities},
     verification::{
         event_enums::{
             AcceptContent, DoneContent, KeyContent, MacContent, OwnedAcceptContent,
@@ -241,6 +241,15 @@ pub struct Accepted {
     commitment: String,
 }
 
+/// The SAS state we're going to be in after we accepted our
+/// verification start event.
+#[derive(Clone, Debug)]
+pub struct WeAccepted {
+    we_started: bool,
+    pub accepted_protocols: Arc<AcceptedProtocols>,
+    commitment: String,
+}
+
 /// The SAS state we're going to be in after we received the public key of the
 /// other participant.
 ///
@@ -268,7 +277,7 @@ pub struct MacReceived {
     we_started: bool,
     their_pubkey: String,
     verified_devices: Arc<[ReadOnlyDevice]>,
-    verified_master_keys: Arc<[UserIdentities]>,
+    verified_master_keys: Arc<[ReadOnlyUserIdentities]>,
     pub accepted_protocols: Arc<AcceptedProtocols>,
 }
 
@@ -278,7 +287,7 @@ pub struct MacReceived {
 #[derive(Clone, Debug)]
 pub struct WaitingForDone {
     verified_devices: Arc<[ReadOnlyDevice]>,
-    verified_master_keys: Arc<[UserIdentities]>,
+    verified_master_keys: Arc<[ReadOnlyUserIdentities]>,
 }
 
 impl<S: Clone> SasState<S> {
@@ -298,14 +307,14 @@ impl<S: Clone> SasState<S> {
         self.ids.other_device.clone()
     }
 
-    pub fn cancel(self, cancel_code: CancelCode) -> SasState<Cancelled> {
+    pub fn cancel(self, cancelled_by_us: bool, cancel_code: CancelCode) -> SasState<Cancelled> {
         SasState {
             inner: self.inner,
             ids: self.ids,
             creation_time: self.creation_time,
             last_event_time: self.last_event_time,
             verification_flow_id: self.verification_flow_id,
-            state: Arc::new(Cancelled::new(cancel_code)),
+            state: Arc::new(Cancelled::new(cancelled_by_us, cancel_code)),
             started_from_request: self.started_from_request,
         }
     }
@@ -353,7 +362,7 @@ impl SasState<Created> {
     pub fn new(
         account: ReadOnlyAccount,
         other_device: ReadOnlyDevice,
-        other_identity: Option<UserIdentities>,
+        other_identity: Option<ReadOnlyUserIdentities>,
         transaction_id: Option<String>,
     ) -> SasState<Created> {
         let started_from_request = transaction_id.is_some();
@@ -379,7 +388,7 @@ impl SasState<Created> {
         event_id: EventId,
         account: ReadOnlyAccount,
         other_device: ReadOnlyDevice,
-        other_identity: Option<UserIdentities>,
+        other_identity: Option<ReadOnlyUserIdentities>,
     ) -> SasState<Created> {
         let flow_id = FlowId::InRoom(room_id, event_id);
         Self::new_helper(flow_id, account, other_device, other_identity, false)
@@ -389,7 +398,7 @@ impl SasState<Created> {
         flow_id: FlowId,
         account: ReadOnlyAccount,
         other_device: ReadOnlyDevice,
-        other_identity: Option<UserIdentities>,
+        other_identity: Option<ReadOnlyUserIdentities>,
         started_from_request: bool,
     ) -> SasState<Created> {
         SasState {
@@ -444,11 +453,11 @@ impl SasState<Created> {
         sender: &UserId,
         content: &AcceptContent,
     ) -> Result<SasState<Accepted>, SasState<Cancelled>> {
-        self.check_event(sender, content.flow_id()).map_err(|c| self.clone().cancel(c))?;
+        self.check_event(sender, content.flow_id()).map_err(|c| self.clone().cancel(true, c))?;
 
         if let AcceptMethod::SasV1(content) = content.method() {
-            let accepted_protocols =
-                AcceptedProtocols::try_from(content.clone()).map_err(|c| self.clone().cancel(c))?;
+            let accepted_protocols = AcceptedProtocols::try_from(content.clone())
+                .map_err(|c| self.clone().cancel(true, c))?;
 
             let start_content = self.as_content().into();
 
@@ -457,7 +466,7 @@ impl SasState<Created> {
                 ids: self.ids,
                 verification_flow_id: self.verification_flow_id,
                 creation_time: self.creation_time,
-                last_event_time: self.last_event_time,
+                last_event_time: Instant::now().into(),
                 started_from_request: self.started_from_request,
                 state: Arc::new(Accepted {
                     start_content,
@@ -466,7 +475,7 @@ impl SasState<Created> {
                 }),
             })
         } else {
-            Err(self.cancel(CancelCode::UnknownMethod))
+            Err(self.cancel(true, CancelCode::UnknownMethod))
         }
     }
 }
@@ -488,7 +497,7 @@ impl SasState<Started> {
     pub fn from_start_event(
         account: ReadOnlyAccount,
         other_device: ReadOnlyDevice,
-        other_identity: Option<UserIdentities>,
+        other_identity: Option<ReadOnlyUserIdentities>,
         flow_id: FlowId,
         content: &StartContent,
         started_from_request: bool,
@@ -509,7 +518,7 @@ impl SasState<Started> {
             },
 
             verification_flow_id: flow_id.clone(),
-            state: Arc::new(Cancelled::new(CancelCode::UnknownMethod)),
+            state: Arc::new(Cancelled::new(true, CancelCode::UnknownMethod)),
         };
 
         if let StartMethod::SasV1(method_content) = content.method() {
@@ -548,6 +557,32 @@ impl SasState<Started> {
         }
     }
 
+    pub fn into_accepted(self, methods: Vec<ShortAuthenticationString>) -> SasState<WeAccepted> {
+        let mut accepted_protocols = self.state.accepted_protocols.as_ref().to_owned();
+        accepted_protocols.short_auth_string = methods;
+
+        // Decimal is required per spec.
+        if !accepted_protocols.short_auth_string.contains(&ShortAuthenticationString::Decimal) {
+            accepted_protocols.short_auth_string.push(ShortAuthenticationString::Decimal);
+        }
+
+        SasState {
+            inner: self.inner,
+            ids: self.ids,
+            verification_flow_id: self.verification_flow_id,
+            creation_time: self.creation_time,
+            last_event_time: self.last_event_time,
+            started_from_request: self.started_from_request,
+            state: Arc::new(WeAccepted {
+                we_started: false,
+                accepted_protocols: accepted_protocols.into(),
+                commitment: self.state.commitment.clone(),
+            }),
+        }
+    }
+}
+
+impl SasState<WeAccepted> {
     /// Get the content for the accept event.
     ///
     /// The content needs to be sent to the other device.
@@ -600,7 +635,7 @@ impl SasState<Started> {
         sender: &UserId,
         content: &KeyContent,
     ) -> Result<SasState<KeyReceived>, SasState<Cancelled>> {
-        self.check_event(sender, content.flow_id()).map_err(|c| self.clone().cancel(c))?;
+        self.check_event(sender, content.flow_id()).map_err(|c| self.clone().cancel(true, c))?;
 
         let their_pubkey = content.public_key().to_owned();
 
@@ -615,7 +650,7 @@ impl SasState<Started> {
             ids: self.ids,
             verification_flow_id: self.verification_flow_id,
             creation_time: self.creation_time,
-            last_event_time: self.last_event_time,
+            last_event_time: Instant::now().into(),
             started_from_request: self.started_from_request,
             state: Arc::new(KeyReceived {
                 we_started: false,
@@ -640,7 +675,7 @@ impl SasState<Accepted> {
         sender: &UserId,
         content: &KeyContent,
     ) -> Result<SasState<KeyReceived>, SasState<Cancelled>> {
-        self.check_event(sender, content.flow_id()).map_err(|c| self.clone().cancel(c))?;
+        self.check_event(sender, content.flow_id()).map_err(|c| self.clone().cancel(true, c))?;
 
         let commitment = calculate_commitment(
             content.public_key(),
@@ -648,7 +683,7 @@ impl SasState<Accepted> {
         );
 
         if self.state.commitment != commitment {
-            Err(self.cancel(CancelCode::InvalidMessage))
+            Err(self.cancel(true, CancelCode::InvalidMessage))
         } else {
             let their_pubkey = content.public_key().to_owned();
 
@@ -663,7 +698,7 @@ impl SasState<Accepted> {
                 ids: self.ids,
                 verification_flow_id: self.verification_flow_id,
                 creation_time: self.creation_time,
-                last_event_time: self.last_event_time,
+                last_event_time: Instant::now().into(),
                 started_from_request: self.started_from_request,
                 state: Arc::new(KeyReceived {
                     their_pubkey,
@@ -777,7 +812,7 @@ impl SasState<KeyReceived> {
         sender: &UserId,
         content: &MacContent,
     ) -> Result<SasState<MacReceived>, SasState<Cancelled>> {
-        self.check_event(sender, content.flow_id()).map_err(|c| self.clone().cancel(c))?;
+        self.check_event(sender, content.flow_id()).map_err(|c| self.clone().cancel(true, c))?;
 
         let (devices, master_keys) = receive_mac_event(
             &self.inner.lock().unwrap(),
@@ -786,13 +821,13 @@ impl SasState<KeyReceived> {
             sender,
             content,
         )
-        .map_err(|c| self.clone().cancel(c))?;
+        .map_err(|c| self.clone().cancel(true, c))?;
 
         Ok(SasState {
             inner: self.inner,
             verification_flow_id: self.verification_flow_id,
             creation_time: self.creation_time,
-            last_event_time: self.last_event_time,
+            last_event_time: Instant::now().into(),
             ids: self.ids,
             started_from_request: self.started_from_request,
             state: Arc::new(MacReceived {
@@ -837,7 +872,7 @@ impl SasState<Confirmed> {
         sender: &UserId,
         content: &MacContent,
     ) -> Result<SasState<Done>, SasState<Cancelled>> {
-        self.check_event(sender, content.flow_id()).map_err(|c| self.clone().cancel(c))?;
+        self.check_event(sender, content.flow_id()).map_err(|c| self.clone().cancel(true, c))?;
 
         let (devices, master_keys) = receive_mac_event(
             &self.inner.lock().unwrap(),
@@ -846,12 +881,12 @@ impl SasState<Confirmed> {
             sender,
             content,
         )
-        .map_err(|c| self.clone().cancel(c))?;
+        .map_err(|c| self.clone().cancel(true, c))?;
 
         Ok(SasState {
             inner: self.inner,
             creation_time: self.creation_time,
-            last_event_time: self.last_event_time,
+            last_event_time: Instant::now().into(),
             verification_flow_id: self.verification_flow_id,
             started_from_request: self.started_from_request,
             ids: self.ids,
@@ -877,7 +912,7 @@ impl SasState<Confirmed> {
         sender: &UserId,
         content: &MacContent,
     ) -> Result<SasState<WaitingForDone>, SasState<Cancelled>> {
-        self.check_event(sender, content.flow_id()).map_err(|c| self.clone().cancel(c))?;
+        self.check_event(sender, content.flow_id()).map_err(|c| self.clone().cancel(true, c))?;
 
         let (devices, master_keys) = receive_mac_event(
             &self.inner.lock().unwrap(),
@@ -886,12 +921,12 @@ impl SasState<Confirmed> {
             sender,
             content,
         )
-        .map_err(|c| self.clone().cancel(c))?;
+        .map_err(|c| self.clone().cancel(true, c))?;
 
         Ok(SasState {
             inner: self.inner,
             creation_time: self.creation_time,
-            last_event_time: self.last_event_time,
+            last_event_time: Instant::now().into(),
             verification_flow_id: self.verification_flow_id,
             started_from_request: self.started_from_request,
             ids: self.ids,
@@ -1032,12 +1067,12 @@ impl SasState<WaitingForDone> {
         sender: &UserId,
         content: &DoneContent,
     ) -> Result<SasState<Done>, SasState<Cancelled>> {
-        self.check_event(sender, content.flow_id()).map_err(|c| self.clone().cancel(c))?;
+        self.check_event(sender, content.flow_id()).map_err(|c| self.clone().cancel(true, c))?;
 
         Ok(SasState {
             inner: self.inner,
             creation_time: self.creation_time,
-            last_event_time: self.last_event_time,
+            last_event_time: Instant::now().into(),
             verification_flow_id: self.verification_flow_id,
             started_from_request: self.started_from_request,
             ids: self.ids,
@@ -1069,7 +1104,7 @@ impl SasState<Done> {
     }
 
     /// Get the list of verified identities.
-    pub fn verified_identities(&self) -> Arc<[UserIdentities]> {
+    pub fn verified_identities(&self) -> Arc<[ReadOnlyUserIdentities]> {
         self.state.verified_master_keys.clone()
     }
 }
@@ -1088,12 +1123,13 @@ mod test {
         events::key::verification::{
             accept::{AcceptMethod, AcceptToDeviceEventContent},
             start::{StartMethod, StartToDeviceEventContent},
+            ShortAuthenticationString,
         },
         DeviceId, UserId,
     };
     use serde_json::json;
 
-    use super::{Accepted, Created, SasState, Started};
+    use super::{Accepted, Created, SasState, Started, WeAccepted};
     use crate::{
         verification::event_enums::{AcceptContent, KeyContent, MacContent, StartContent},
         ReadOnlyAccount, ReadOnlyDevice,
@@ -1115,7 +1151,7 @@ mod test {
         "BOBDEVCIE".into()
     }
 
-    async fn get_sas_pair() -> (SasState<Created>, SasState<Started>) {
+    async fn get_sas_pair() -> (SasState<Created>, SasState<WeAccepted>) {
         let alice = ReadOnlyAccount::new(&alice_id(), &alice_device_id());
         let alice_device = ReadOnlyDevice::from_account(&alice).await;
 
@@ -1135,8 +1171,9 @@ mod test {
             &start_content.as_start_content(),
             false,
         );
+        let bob_sas = bob_sas.unwrap().into_accepted(vec![ShortAuthenticationString::Emoji]);
 
-        (alice_sas, bob_sas.unwrap())
+        (alice_sas, bob_sas)
     }
 
     #[tokio::test]

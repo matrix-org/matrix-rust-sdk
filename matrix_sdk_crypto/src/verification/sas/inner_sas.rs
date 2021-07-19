@@ -24,11 +24,12 @@ use ruma::{
 use super::{
     sas_state::{
         Accepted, Confirmed, Created, KeyReceived, MacReceived, SasState, Started, WaitingForDone,
+        WeAccepted,
     },
     FlowId,
 };
 use crate::{
-    identities::{ReadOnlyDevice, UserIdentities},
+    identities::{ReadOnlyDevice, ReadOnlyUserIdentities},
     verification::{
         event_enums::{AnyVerificationContent, OutgoingContent, OwnedAcceptContent, StartContent},
         Cancelled, Done,
@@ -41,6 +42,7 @@ pub enum InnerSas {
     Created(SasState<Created>),
     Started(SasState<Started>),
     Accepted(SasState<Accepted>),
+    WeAccepted(SasState<WeAccepted>),
     KeyReceived(SasState<KeyReceived>),
     Confirmed(SasState<Confirmed>),
     MacReceived(SasState<MacReceived>),
@@ -53,7 +55,7 @@ impl InnerSas {
     pub fn start(
         account: ReadOnlyAccount,
         other_device: ReadOnlyDevice,
-        other_identity: Option<UserIdentities>,
+        other_identity: Option<ReadOnlyUserIdentities>,
         transaction_id: Option<String>,
     ) -> (InnerSas, OutgoingContent) {
         let sas = SasState::<Created>::new(account, other_device, other_identity, transaction_id);
@@ -65,6 +67,7 @@ impl InnerSas {
         match self {
             InnerSas::Created(s) => s.started_from_request,
             InnerSas::Started(s) => s.started_from_request,
+            InnerSas::WeAccepted(s) => s.started_from_request,
             InnerSas::Accepted(s) => s.started_from_request,
             InnerSas::KeyReceived(s) => s.started_from_request,
             InnerSas::Confirmed(s) => s.started_from_request,
@@ -75,10 +78,28 @@ impl InnerSas {
         }
     }
 
+    pub fn has_been_accepted(&self) -> bool {
+        match self {
+            InnerSas::Created(_) | InnerSas::Started(_) | InnerSas::Cancelled(_) => false,
+            InnerSas::Accepted(_)
+            | InnerSas::WeAccepted(_)
+            | InnerSas::KeyReceived(_)
+            | InnerSas::Confirmed(_)
+            | InnerSas::MacReceived(_)
+            | InnerSas::WaitingForDone(_)
+            | InnerSas::Done(_) => true,
+        }
+    }
+
     pub fn supports_emoji(&self) -> bool {
         match self {
             InnerSas::Created(_) => false,
             InnerSas::Started(s) => s
+                .state
+                .accepted_protocols
+                .short_auth_string
+                .contains(&ShortAuthenticationString::Emoji),
+            InnerSas::WeAccepted(s) => s
                 .state
                 .accepted_protocols
                 .short_auth_string
@@ -110,7 +131,7 @@ impl InnerSas {
         room_id: RoomId,
         account: ReadOnlyAccount,
         other_device: ReadOnlyDevice,
-        other_identity: Option<UserIdentities>,
+        other_identity: Option<ReadOnlyUserIdentities>,
     ) -> (InnerSas, OutgoingContent) {
         let sas = SasState::<Created>::new_in_room(
             room_id,
@@ -128,7 +149,7 @@ impl InnerSas {
         other_device: ReadOnlyDevice,
         flow_id: FlowId,
         content: &StartContent,
-        other_identity: Option<UserIdentities>,
+        other_identity: Option<ReadOnlyUserIdentities>,
         started_from_request: bool,
     ) -> Result<InnerSas, OutgoingContent> {
         match SasState::<Started>::from_start_event(
@@ -144,9 +165,14 @@ impl InnerSas {
         }
     }
 
-    pub fn accept(&self) -> Option<OwnedAcceptContent> {
+    pub fn accept(
+        self,
+        methods: Vec<ShortAuthenticationString>,
+    ) -> Option<(InnerSas, OwnedAcceptContent)> {
         if let InnerSas::Started(s) = self {
-            Some(s.as_content())
+            let sas = s.into_accepted(methods);
+            let content = sas.as_content();
+            Some((InnerSas::WeAccepted(sas), content))
         } else {
             None
         }
@@ -165,17 +191,25 @@ impl InnerSas {
             InnerSas::MacReceived(s) => s.set_creation_time(time),
             InnerSas::Done(s) => s.set_creation_time(time),
             InnerSas::WaitingForDone(s) => s.set_creation_time(time),
+            InnerSas::WeAccepted(s) => s.set_creation_time(time),
         }
     }
 
-    pub fn cancel(self, code: CancelCode) -> (InnerSas, Option<OutgoingContent>) {
+    pub fn cancel(
+        self,
+        cancelled_by_us: bool,
+        code: CancelCode,
+    ) -> (InnerSas, Option<OutgoingContent>) {
         let sas = match self {
-            InnerSas::Created(s) => s.cancel(code),
-            InnerSas::Started(s) => s.cancel(code),
-            InnerSas::Accepted(s) => s.cancel(code),
-            InnerSas::KeyReceived(s) => s.cancel(code),
-            InnerSas::MacReceived(s) => s.cancel(code),
-            _ => return (self, None),
+            InnerSas::Created(s) => s.cancel(cancelled_by_us, code),
+            InnerSas::Started(s) => s.cancel(cancelled_by_us, code),
+            InnerSas::Accepted(s) => s.cancel(cancelled_by_us, code),
+            InnerSas::WeAccepted(s) => s.cancel(cancelled_by_us, code),
+            InnerSas::KeyReceived(s) => s.cancel(cancelled_by_us, code),
+            InnerSas::MacReceived(s) => s.cancel(cancelled_by_us, code),
+            InnerSas::Confirmed(s) => s.cancel(cancelled_by_us, code),
+            InnerSas::WaitingForDone(s) => s.cancel(cancelled_by_us, code),
+            InnerSas::Done(_) | InnerSas::Cancelled(_) => return (self, None),
         };
 
         let content = sas.as_content();
@@ -230,7 +264,7 @@ impl InnerSas {
                 }
             }
             AnyVerificationContent::Cancel(c) => {
-                let (sas, _) = self.cancel(c.cancel_code().to_owned());
+                let (sas, _) = self.cancel(false, c.cancel_code().to_owned());
                 (sas, None)
             }
             AnyVerificationContent::Key(c) => match self {
@@ -241,7 +275,7 @@ impl InnerSas {
                         (InnerSas::Cancelled(s), Some(content))
                     }
                 },
-                InnerSas::Started(s) => match s.into_key_received(sender, c) {
+                InnerSas::WeAccepted(s) => match s.into_key_received(sender, c) {
                     Ok(s) => {
                         let content = s.as_content();
                         (InnerSas::KeyReceived(s), Some(content))
@@ -312,6 +346,10 @@ impl InnerSas {
         matches!(self, InnerSas::Cancelled(_))
     }
 
+    pub fn have_we_confirmed(&self) -> bool {
+        matches!(self, InnerSas::Confirmed(_) | InnerSas::WaitingForDone(_) | InnerSas::Done(_))
+    }
+
     pub fn timed_out(&self) -> bool {
         match self {
             InnerSas::Created(s) => s.timed_out(),
@@ -323,6 +361,7 @@ impl InnerSas {
             InnerSas::MacReceived(s) => s.timed_out(),
             InnerSas::WaitingForDone(s) => s.timed_out(),
             InnerSas::Done(s) => s.timed_out(),
+            InnerSas::WeAccepted(s) => s.timed_out(),
         }
     }
 
@@ -337,6 +376,7 @@ impl InnerSas {
             InnerSas::MacReceived(s) => s.verification_flow_id.clone(),
             InnerSas::WaitingForDone(s) => s.verification_flow_id.clone(),
             InnerSas::Done(s) => s.verification_flow_id.clone(),
+            InnerSas::WeAccepted(s) => s.verification_flow_id.clone(),
         }
     }
 
@@ -372,7 +412,7 @@ impl InnerSas {
         }
     }
 
-    pub fn verified_identities(&self) -> Option<Arc<[UserIdentities]>> {
+    pub fn verified_identities(&self) -> Option<Arc<[ReadOnlyUserIdentities]>> {
         if let InnerSas::Done(s) = self {
             Some(s.verified_identities())
         } else {

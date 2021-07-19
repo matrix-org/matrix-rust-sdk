@@ -14,7 +14,7 @@
 
 use matrix_sdk_base::crypto::{
     matrix_qrcode::{qrcode::QrCode, EncodingError},
-    QrVerification as BaseQrVerification,
+    CancelInfo, QrVerification as BaseQrVerification,
 };
 use ruma::UserId;
 
@@ -41,6 +41,23 @@ impl QrVerification {
     /// Has this verification finished.
     pub fn is_done(&self) -> bool {
         self.inner.is_done()
+    }
+
+    /// Did we initiate the verification flow.
+    pub fn we_started(&self) -> bool {
+        self.inner.we_started()
+    }
+
+    /// Get info about the cancellation if the verification flow has been
+    /// cancelled.
+    pub fn cancel_info(&self) -> Option<CancelInfo> {
+        self.inner.cancel_info()
+    }
+
+    /// Get the user id of the other user participating in this verification
+    /// flow.
+    pub fn other_user_id(&self) -> &UserId {
+        self.inner.other_user_id()
     }
 
     /// Has the verification been cancelled.

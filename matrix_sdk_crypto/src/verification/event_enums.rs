@@ -379,6 +379,33 @@ try_from_outgoing_content!(MacContent, KeyVerificationMac);
 try_from_outgoing_content!(CancelContent, KeyVerificationCancel);
 try_from_outgoing_content!(DoneContent, KeyVerificationDone);
 
+impl<'a> TryFrom<&'a OutgoingContent> for RequestContent<'a> {
+    type Error = ();
+
+    fn try_from(value: &'a OutgoingContent) -> Result<Self, Self::Error> {
+        match value {
+            OutgoingContent::Room(_, c) => {
+                if let AnyMessageEventContent::RoomMessage(m) = c {
+                    if let MessageType::VerificationRequest(c) = &m.msgtype {
+                        Ok(Self::Room(c))
+                    } else {
+                        Err(())
+                    }
+                } else {
+                    Err(())
+                }
+            }
+            OutgoingContent::ToDevice(c) => {
+                if let AnyToDeviceEventContent::KeyVerificationRequest(c) = c {
+                    Ok(Self::ToDevice(c))
+                } else {
+                    Err(())
+                }
+            }
+        }
+    }
+}
+
 #[derive(Debug)]
 pub enum StartContent<'a> {
     ToDevice(&'a StartToDeviceEventContent),
@@ -665,27 +692,25 @@ impl From<(RoomId, AnyMessageEventContent)> for OutgoingContent {
     }
 }
 
-#[cfg(test)]
 use crate::{OutgoingRequest, OutgoingVerificationRequest, RoomMessageRequest, ToDeviceRequest};
 
-#[cfg(test)]
-impl From<OutgoingVerificationRequest> for OutgoingContent {
-    fn from(request: OutgoingVerificationRequest) -> Self {
+impl TryFrom<OutgoingVerificationRequest> for OutgoingContent {
+    type Error = String;
+
+    fn try_from(request: OutgoingVerificationRequest) -> Result<Self, Self::Error> {
         match request {
-            OutgoingVerificationRequest::ToDevice(r) => Self::try_from(r).unwrap(),
-            OutgoingVerificationRequest::InRoom(r) => Self::from(r),
+            OutgoingVerificationRequest::ToDevice(r) => Self::try_from(r),
+            OutgoingVerificationRequest::InRoom(r) => Ok(Self::from(r)),
         }
     }
 }
 
-#[cfg(test)]
 impl From<RoomMessageRequest> for OutgoingContent {
     fn from(value: RoomMessageRequest) -> Self {
         (value.room_id, value.content).into()
     }
 }
 
-#[cfg(test)]
 impl TryFrom<ToDeviceRequest> for OutgoingContent {
     type Error = String;
 
@@ -736,7 +761,6 @@ impl TryFrom<ToDeviceRequest> for OutgoingContent {
     }
 }
 
-#[cfg(test)]
 impl TryFrom<OutgoingRequest> for OutgoingContent {
     type Error = String;
 

@@ -35,7 +35,7 @@ use super::{
     ReadOnlyAccount, Result, Session,
 };
 use crate::{
-    identities::{ReadOnlyDevice, UserIdentities},
+    identities::{ReadOnlyDevice, ReadOnlyUserIdentities},
     key_request::OutgoingKeyRequest,
     olm::{OutboundGroupSession, PickledInboundGroupSession, PrivateCrossSigningIdentity},
 };
@@ -669,7 +669,7 @@ impl CryptoStore for SledStore {
             .collect()
     }
 
-    async fn get_user_identity(&self, user_id: &UserId) -> Result<Option<UserIdentities>> {
+    async fn get_user_identity(&self, user_id: &UserId) -> Result<Option<ReadOnlyUserIdentities>> {
         Ok(self
             .identities
             .get(user_id.encode())?

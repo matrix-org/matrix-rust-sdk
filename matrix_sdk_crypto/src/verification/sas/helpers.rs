@@ -31,7 +31,7 @@ use tracing::{trace, warn};
 
 use super::{FlowId, OutgoingContent};
 use crate::{
-    identities::{ReadOnlyDevice, UserIdentities},
+    identities::{ReadOnlyDevice, ReadOnlyUserIdentities},
     utilities::encode,
     verification::event_enums::{MacContent, StartContent},
     ReadOnlyAccount,
@@ -41,7 +41,7 @@ use crate::{
 pub struct SasIds {
     pub account: ReadOnlyAccount,
     pub other_device: ReadOnlyDevice,
-    pub other_identity: Option<UserIdentities>,
+    pub other_identity: Option<ReadOnlyUserIdentities>,
 }
 
 /// Calculate the commitment for a accept event from the public key and the
@@ -182,7 +182,7 @@ pub fn receive_mac_event(
     flow_id: &str,
     sender: &UserId,
     content: &MacContent,
-) -> Result<(Vec<ReadOnlyDevice>, Vec<UserIdentities>), CancelCode> {
+) -> Result<(Vec<ReadOnlyDevice>, Vec<ReadOnlyUserIdentities>), CancelCode> {
     let mut verified_devices = Vec::new();
     let mut verified_identities = Vec::new();
 
