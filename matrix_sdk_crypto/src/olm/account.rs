@@ -14,11 +14,11 @@
 
 use std::{
     collections::BTreeMap,
-    convert::{TryFrom, TryInto},
+    convert::TryInto,
     fmt,
     ops::Deref,
     sync::{
-        atomic::{AtomicBool, AtomicI64, Ordering},
+        atomic::{AtomicBool, AtomicU64, Ordering},
         Arc,
     },
 };
@@ -181,9 +181,22 @@ impl Account {
         }
     }
 
-    pub async fn update_uploaded_key_count(&self, key_count: &BTreeMap<DeviceKeyAlgorithm, UInt>) {
+    pub fn update_uploaded_key_count(&self, key_count: &BTreeMap<DeviceKeyAlgorithm, UInt>) {
         if let Some(count) = key_count.get(&DeviceKeyAlgorithm::SignedCurve25519) {
             let count: u64 = (*count).into();
+            let old_count = self.inner.uploaded_key_count();
+
+            // Some servers might always return the key counts in the sync
+            // response, we don't want to the logs with noop changes if they do
+            // so.
+            if count != old_count {
+                debug!(
+                    "Updated uploaded one-time key count {} -> {}.",
+                    self.inner.uploaded_key_count(),
+                    count
+                );
+            }
+
             self.inner.update_uploaded_key_count(count);
         }
     }
@@ -197,16 +210,8 @@ impl Account {
         }
         self.inner.mark_as_shared();
 
-        let one_time_key_count =
-            response.one_time_key_counts.get(&DeviceKeyAlgorithm::SignedCurve25519);
-
-        let count: u64 = one_time_key_count.map_or(0, |c| (*c).into());
-        debug!(
-            "Updated uploaded one-time key count {} -> {}, marking keys as published",
-            self.inner.uploaded_key_count(),
-            count
-        );
-        self.inner.update_uploaded_key_count(count);
+        debug!("Marking one-time keys as published");
+        self.update_uploaded_key_count(&response.one_time_key_counts);
         self.inner.mark_keys_as_published().await;
         self.store.save_account(self.inner.clone()).await?;
 
@@ -432,7 +437,7 @@ pub struct ReadOnlyAccount {
     /// this is None, no action will be taken. After a sync request the client
     /// needs to set this for us, depending on the count we will suggest the
     /// client to upload new keys.
-    uploaded_signed_key_count: Arc<AtomicI64>,
+    uploaded_signed_key_count: Arc<AtomicU64>,
 }
 
 /// A typed representation of a base64 encoded string containing the account
@@ -468,7 +473,7 @@ pub struct PickledAccount {
     /// Was the account shared.
     pub shared: bool,
     /// The number of uploaded one-time keys we have on the server.
-    pub uploaded_signed_key_count: i64,
+    pub uploaded_signed_key_count: u64,
 }
 
 #[cfg(not(tarpaulin_include))]
@@ -499,7 +504,7 @@ impl ReadOnlyAccount {
             inner: Arc::new(Mutex::new(account)),
             identity_keys: Arc::new(identity_keys),
             shared: Arc::new(AtomicBool::new(false)),
-            uploaded_signed_key_count: Arc::new(AtomicI64::new(0)),
+            uploaded_signed_key_count: Arc::new(AtomicU64::new(0)),
         }
     }
 
@@ -524,18 +529,17 @@ impl ReadOnlyAccount {
     ///
     /// * `new_count` - The new count that was reported by the server.
     pub(crate) fn update_uploaded_key_count(&self, new_count: u64) {
-        let key_count = i64::try_from(new_count).unwrap_or(i64::MAX);
-        self.uploaded_signed_key_count.store(key_count, Ordering::Relaxed);
+        self.uploaded_signed_key_count.store(new_count, Ordering::SeqCst);
     }
 
     /// Get the currently known uploaded key count.
-    pub fn uploaded_key_count(&self) -> i64 {
-        self.uploaded_signed_key_count.load(Ordering::Relaxed)
+    pub fn uploaded_key_count(&self) -> u64 {
+        self.uploaded_signed_key_count.load(Ordering::SeqCst)
     }
 
     /// Has the account been shared with the server.
     pub fn shared(&self) -> bool {
-        self.shared.load(Ordering::Relaxed)
+        self.shared.load(Ordering::SeqCst)
     }
 
     /// Mark the account as shared.
@@ -543,7 +547,7 @@ impl ReadOnlyAccount {
     /// Messages shouldn't be encrypted with the session before it has been
     /// shared.
     pub(crate) fn mark_as_shared(&self) {
-        self.shared.store(true, Ordering::Relaxed);
+        self.shared.store(true, Ordering::SeqCst);
     }
 
     /// Get the one-time keys of the account.
@@ -567,7 +571,7 @@ impl ReadOnlyAccount {
     ///
     /// Returns an empty error if no keys need to be uploaded.
     pub(crate) async fn generate_one_time_keys(&self) -> Result<u64, ()> {
-        let count = self.uploaded_key_count() as u64;
+        let count = self.uploaded_key_count();
         let max_keys = self.max_one_time_keys().await;
         let max_on_server = (max_keys as u64) / 2;
 
@@ -588,7 +592,7 @@ impl ReadOnlyAccount {
             return true;
         }
 
-        let count = self.uploaded_key_count() as u64;
+        let count = self.uploaded_key_count();
 
         // If we have a known key count, check that we have more than
         // max_one_time_Keys() / 2, otherwise tell the client to upload more.
@@ -673,7 +677,7 @@ impl ReadOnlyAccount {
             inner: Arc::new(Mutex::new(account)),
             identity_keys: Arc::new(identity_keys),
             shared: Arc::new(AtomicBool::from(pickle.shared)),
-            uploaded_signed_key_count: Arc::new(AtomicI64::new(pickle.uploaded_signed_key_count)),
+            uploaded_signed_key_count: Arc::new(AtomicU64::new(pickle.uploaded_signed_key_count)),
         })
     }
 

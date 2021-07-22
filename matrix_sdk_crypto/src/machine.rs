@@ -736,8 +736,8 @@ impl OlmMachine {
         self.verification_machine.get_requests(user_id)
     }
 
-    async fn update_one_time_key_count(&self, key_count: &BTreeMap<DeviceKeyAlgorithm, UInt>) {
-        self.account.update_uploaded_key_count(key_count).await;
+    fn update_one_time_key_count(&self, key_count: &BTreeMap<DeviceKeyAlgorithm, UInt>) {
+        self.account.update_uploaded_key_count(key_count);
     }
 
     async fn handle_to_device_event(&self, event: &AnyToDeviceEvent) {
@@ -796,7 +796,7 @@ impl OlmMachine {
         let mut changes =
             Changes { account: Some(self.account.inner.clone()), ..Default::default() };
 
-        self.update_one_time_key_count(one_time_keys_counts).await;
+        self.update_one_time_key_count(one_time_keys_counts);
 
         for user_id in &changed_devices.changed {
             if let Err(e) = self.identity_manager.mark_user_as_changed(user_id).await {
@@ -1408,6 +1408,10 @@ pub(crate) mod test {
         assert!(machine.should_upload_keys().await);
 
         response.one_time_key_counts.insert(DeviceKeyAlgorithm::SignedCurve25519, uint!(50));
+        machine.receive_keys_upload_response(&response).await.unwrap();
+        assert!(!machine.should_upload_keys().await);
+
+        response.one_time_key_counts.remove(&DeviceKeyAlgorithm::SignedCurve25519);
         machine.receive_keys_upload_response(&response).await.unwrap();
         assert!(!machine.should_upload_keys().await);
     }
