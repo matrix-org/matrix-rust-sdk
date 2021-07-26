@@ -89,8 +89,8 @@ pub struct AdditionalUnsignedData {
     pub prev_content: Option<Raw<MemberEventContent>>,
 }
 
-/// Transform state event by hoisting `prev_content` field from `unsigned` to
-/// the top level.
+/// Transform an `AnySyncStateEvent` by hoisting `prev_content` field from
+/// `unsigned` to the top level.
 ///
 /// Due to a [bug in synapse][synapse-bug], `prev_content` often ends up in
 /// `unsigned` contrary to the C2S spec. Some more discussion can be found
@@ -129,7 +129,17 @@ fn hoist_member_event(
     Ok(e)
 }
 
-fn hoist_room_event_prev_content(
+/// Transform an `AnySyncRoomEvent` by hoisting `prev_content` field from
+/// `unsigned` to the top level.
+///
+/// Due to a [bug in synapse][synapse-bug], `prev_content` often ends up in
+/// `unsigned` contrary to the C2S spec. Some more discussion can be found
+/// [here][discussion]. Until this is fixed in synapse or handled in Ruma, we
+/// use this to hoist up `prev_content` to the top level.
+///
+/// [synapse-bug]: <https://github.com/matrix-org/matrix-doc/issues/684#issuecomment-641182668>
+/// [discussion]: <https://github.com/matrix-org/matrix-doc/issues/684#issuecomment-641182668>
+pub fn hoist_room_event_prev_content(
     event: &Raw<AnySyncRoomEvent>,
 ) -> StdResult<AnySyncRoomEvent, serde_json::Error> {
     let prev_content = event
