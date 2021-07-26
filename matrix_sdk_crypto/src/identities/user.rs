@@ -187,7 +187,7 @@ impl UserIdentity {
     /// user.
     ///
     /// After the content has been sent out a `VerificationRequest` can be
-    /// started with the [`request_verification`] method.
+    /// started with the [`request_verification()`] method.
     ///
     /// [`request_verification()`]: #method.request_verification
     pub async fn verification_request_content(
