@@ -24,8 +24,7 @@ use olm_rs::pk::OlmPkSigning;
 #[cfg(test)]
 use olm_rs::{errors::OlmUtilityError, utility::OlmUtility};
 use ruma::{
-    api::client::r0::keys::{CrossSigningKey, KeyUsage},
-    encryption::DeviceKeys,
+    encryption::{CrossSigningKey, DeviceKeys, KeyUsage},
     serde::CanonicalJsonValue,
     DeviceKeyAlgorithm, DeviceKeyId, UserId,
 };
@@ -38,7 +37,7 @@ use crate::{
     error::SignatureError,
     identities::{MasterPubkey, SelfSigningPubkey, UserSigningPubkey},
     utilities::{decode_url_safe as decode, encode_url_safe as encode, DecodeError},
-    UserIdentity,
+    ReadOnlyUserIdentity,
 };
 
 const NONCE_SIZE: usize = 12;
@@ -187,7 +186,7 @@ impl UserSigning {
 
     pub async fn sign_user(
         &self,
-        user: &UserIdentity,
+        user: &ReadOnlyUserIdentity,
     ) -> Result<BTreeMap<UserId, BTreeMap<String, Value>>, SignatureError> {
         let user_master: &CrossSigningKey = user.master_key().as_ref();
         let signature = self.inner.sign_json(serde_json::to_value(user_master)?).await?;

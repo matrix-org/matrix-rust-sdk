@@ -41,11 +41,11 @@
 //! # #[async_trait]
 //! # impl EventHandler for MyEventHandler {}
 //! #
-//! use matrix_sdk_appservice::{Appservice, AppserviceRegistration};
+//! use matrix_sdk_appservice::{AppService, AppServiceRegistration};
 //!
 //! let homeserver_url = "http://127.0.0.1:8008";
 //! let server_name = "localhost";
-//! let registration = AppserviceRegistration::try_from_yaml_str(
+//! let registration = AppServiceRegistration::try_from_yaml_str(
 //!     r"
 //!         id: appservice
 //!         url: http://127.0.0.1:9009
@@ -58,7 +58,7 @@
 //!             regex: '@_appservice_.*'
 //!     ")?;
 //!
-//! let mut appservice = Appservice::new(homeserver_url, server_name, registration).await?;
+//! let mut appservice = AppService::new(homeserver_url, server_name, registration).await?;
 //! appservice.set_event_handler(Box::new(MyEventHandler)).await?;
 //!
 //! let (host, port) = appservice.registration().get_host_and_port()?;
@@ -74,8 +74,8 @@
 //! [matrix-org/matrix-rust-sdk#228]: https://github.com/matrix-org/matrix-rust-sdk/issues/228
 //! [examples directory]: https://github.com/matrix-org/matrix-rust-sdk/tree/master/matrix_sdk_appservice/examples
 
-#[cfg(not(any(feature = "actix", feature = "warp")))]
-compile_error!("one webserver feature must be enabled. available ones: `actix`, `warp`");
+#[cfg(not(any(feature = "warp")))]
+compile_error!("one webserver feature must be enabled. available ones: `warp`");
 
 use std::{
     convert::{TryFrom, TryInto},
@@ -89,12 +89,15 @@ use dashmap::DashMap;
 pub use error::Error;
 use http::{uri::PathAndQuery, Uri};
 pub use matrix_sdk;
-use matrix_sdk::{reqwest::Url, Bytes, Client, ClientConfig, EventHandler, HttpError, Session};
+#[doc(no_inline)]
+pub use matrix_sdk::ruma;
+use matrix_sdk::{
+    bytes::Bytes, reqwest::Url, Client, ClientConfig, EventHandler, HttpError, Session,
+};
 use regex::Regex;
-#[doc(inline)]
-pub use ruma::api::{appservice as api, appservice::Registration};
 use ruma::{
     api::{
+        appservice::Registration,
         client::{
             error::ErrorKind,
             r0::{account::register, uiaa::UiaaResponse},
@@ -112,15 +115,15 @@ pub type Result<T> = std::result::Result<T, Error>;
 pub type Host = String;
 pub type Port = u16;
 
-/// Appservice Registration
+/// AppService Registration
 ///
 /// Wrapper around [`Registration`]
 #[derive(Debug, Clone)]
-pub struct AppserviceRegistration {
+pub struct AppServiceRegistration {
     inner: Registration,
 }
 
-impl AppserviceRegistration {
+impl AppServiceRegistration {
     /// Try to load registration from yaml string
     ///
     /// See the fields of [`Registration`] for the required format
@@ -158,13 +161,13 @@ impl AppserviceRegistration {
     }
 }
 
-impl From<Registration> for AppserviceRegistration {
+impl From<Registration> for AppServiceRegistration {
     fn from(value: Registration) -> Self {
         Self { inner: value }
     }
 }
 
-impl Deref for AppserviceRegistration {
+impl Deref for AppServiceRegistration {
     type Target = Registration;
 
     fn deref(&self) -> &Self::Target {
@@ -175,7 +178,7 @@ impl Deref for AppserviceRegistration {
 type Localpart = String;
 
 /// The `localpart` of the user associated with the application service via
-/// `sender_localpart` in [`AppserviceRegistration`].
+/// `sender_localpart` in [`AppServiceRegistration`].
 ///
 /// Dummy type for shared documentation
 #[allow(dead_code)]
@@ -183,23 +186,23 @@ pub type MainUser = ();
 
 /// The application service may specify the virtual user to act as through use
 /// of a user_id query string parameter on the request. The user specified in
-/// the query string must be covered by one of the [`AppserviceRegistration`]'s
+/// the query string must be covered by one of the [`AppServiceRegistration`]'s
 /// `users` namespaces.
 ///
 /// Dummy type for shared documentation
 pub type VirtualUser = ();
 
-/// Appservice
+/// AppService
 #[derive(Debug, Clone)]
-pub struct Appservice {
+pub struct AppService {
     homeserver_url: Url,
     server_name: ServerNameBox,
-    registration: Arc<AppserviceRegistration>,
+    registration: Arc<AppServiceRegistration>,
     clients: Arc<DashMap<Localpart, Client>>,
 }
 
-impl Appservice {
-    /// Create new Appservice
+impl AppService {
+    /// Create new AppService
     ///
     /// Also creates and caches a [`Client`] for the [`MainUser`].
     /// The default [`ClientConfig`] is used, if you want to customize it
@@ -210,14 +213,14 @@ impl Appservice {
     /// * `homeserver_url` - The homeserver that the client should connect to.
     /// * `server_name` - The server name to use when constructing user ids from
     ///   the localpart.
-    /// * `registration` - The [Appservice Registration] to use when interacting
+    /// * `registration` - The [AppService Registration] to use when interacting
     ///   with the homeserver.
     ///
-    /// [Appservice Registration]: https://matrix.org/docs/spec/application_service/r0.1.2#registration
+    /// [AppService Registration]: https://matrix.org/docs/spec/application_service/r0.1.2#registration
     pub async fn new(
         homeserver_url: impl TryInto<Url, Error = url::ParseError>,
         server_name: impl TryInto<ServerNameBox, Error = identifiers::Error>,
-        registration: AppserviceRegistration,
+        registration: AppServiceRegistration,
     ) -> Result<Self> {
         let appservice = Self::new_with_config(
             homeserver_url,
@@ -235,7 +238,7 @@ impl Appservice {
     pub async fn new_with_config(
         homeserver_url: impl TryInto<Url, Error = url::ParseError>,
         server_name: impl TryInto<ServerNameBox, Error = identifiers::Error>,
-        registration: AppserviceRegistration,
+        registration: AppServiceRegistration,
         client_config: ClientConfig,
     ) -> Result<Self> {
         let homeserver_url = homeserver_url.try_into()?;
@@ -244,7 +247,7 @@ impl Appservice {
         let clients = Arc::new(DashMap::new());
         let sender_localpart = registration.sender_localpart.clone();
 
-        let appservice = Appservice { homeserver_url, server_name, registration, clients };
+        let appservice = AppService { homeserver_url, server_name, registration, clients };
 
         // we create and cache the [`MainUser`] by default
         appservice.create_and_cache_client(&sender_localpart, client_config).await?;
@@ -354,12 +357,12 @@ impl Appservice {
     /// Convenience wrapper around [`Client::set_event_handler()`] that attaches
     /// the event handler to the [`MainUser`]'s [`Client`]
     ///
-    /// Note that the event handler in the [`Appservice`] context only triggers
+    /// Note that the event handler in the [`AppService`] context only triggers
     /// [`join` room `timeline` events], so no state events or events from the
     /// `invite`, `knock` or `leave` scope. The rationale behind that is
-    /// that incoming Appservice transactions from the homeserver are not
+    /// that incoming AppService transactions from the homeserver are not
     /// necessarily bound to a specific user but can cover a multitude of
-    /// namespaces, and as such the Appservice basically only "observes
+    /// namespaces, and as such the AppService basically only "observes
     /// joined rooms". Also currently homeservers only push PDUs to appservices,
     /// no EDUs. There's the open [MSC2409] regarding supporting EDUs in the
     /// future, though it seems to be planned to put EDUs into a different
@@ -410,10 +413,10 @@ impl Appservice {
         Ok(())
     }
 
-    /// Get the Appservice [registration]
+    /// Get the AppService [registration]
     ///
     /// [registration]: https://matrix.org/docs/spec/application_service/r0.1.2#registration
-    pub fn registration(&self) -> &AppserviceRegistration {
+    pub fn registration(&self) -> &AppServiceRegistration {
         &self.registration
     }
 
@@ -424,11 +427,11 @@ impl Appservice {
         self.registration.hs_token == hs_token.as_ref()
     }
 
-    /// Check if given `user_id` is in any of the [`AppserviceRegistration`]'s
+    /// Check if given `user_id` is in any of the [`AppServiceRegistration`]'s
     /// `users` namespaces
     pub fn user_id_is_in_namespace(&self, user_id: impl AsRef<str>) -> Result<bool> {
         for user in &self.registration.namespaces.users {
-            // TODO: precompile on Appservice construction
+            // TODO: precompile on AppService construction
             let re = Regex::new(&user.regex)?;
             if re.is_match(user_id.as_ref()) {
                 return Ok(true);
@@ -436,24 +439,6 @@ impl Appservice {
         }
 
         Ok(false)
-    }
-
-    /// Returns a closure to be used with [`actix_web::App::configure()`]
-    ///
-    /// Note that if you handle any of the [application-service-specific
-    /// routes], including the legacy routes, you will break the appservice
-    /// functionality.
-    ///
-    /// [application-service-specific routes]: https://spec.matrix.org/unstable/application-service-api/#legacy-routes
-    #[cfg(feature = "actix")]
-    #[cfg_attr(docs, doc(cfg(feature = "actix")))]
-    pub fn actix_configure(&self) -> impl FnOnce(&mut actix_web::web::ServiceConfig) {
-        let appservice = self.clone();
-
-        move |config| {
-            config.data(appservice);
-            webserver::actix::configure(config);
-        }
     }
 
     /// Returns a [`warp::Filter`] to be used as [`warp::serve()`] route
@@ -477,13 +462,7 @@ impl Appservice {
     pub async fn run(&self, host: impl Into<String>, port: impl Into<u16>) -> Result<()> {
         let host = host.into();
         let port = port.into();
-        info!("Starting Appservice on {}:{}", &host, &port);
-
-        #[cfg(feature = "actix")]
-        {
-            webserver::actix::run_server(self.clone(), host, port).await?;
-            Ok(())
-        }
+        info!("Starting AppService on {}:{}", &host, &port);
 
         #[cfg(feature = "warp")]
         {
@@ -491,7 +470,7 @@ impl Appservice {
             Ok(())
         }
 
-        #[cfg(not(any(feature = "actix", feature = "warp",)))]
+        #[cfg(not(any(feature = "warp",)))]
         unreachable!()
     }
 }

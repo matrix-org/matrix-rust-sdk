@@ -9,13 +9,18 @@ use std::{
 
 use matrix_sdk::{
     self,
-    events::{room::message::MessageType, AnySyncMessageEvent, AnySyncRoomEvent, AnyToDeviceEvent},
-    identifiers::UserId,
-    Client, LoopCtrl, Sas, SyncSettings,
+    ruma::{
+        events::{
+            room::message::MessageType, AnySyncMessageEvent, AnySyncRoomEvent, AnyToDeviceEvent,
+        },
+        UserId,
+    },
+    verification::{SasVerification, Verification},
+    Client, LoopCtrl, SyncSettings,
 };
 use url::Url;
 
-async fn wait_for_confirmation(client: Client, sas: Sas) {
+async fn wait_for_confirmation(client: Client, sas: SasVerification) {
     println!("Does the emoji match: {:?}", sas.emoji());
 
     let mut input = String::new();
@@ -34,7 +39,7 @@ async fn wait_for_confirmation(client: Client, sas: Sas) {
     }
 }
 
-fn print_result(sas: &Sas) {
+fn print_result(sas: &SasVerification) {
     let device = sas.other_device();
 
     println!(
@@ -53,7 +58,7 @@ async fn print_devices(user_id: &UserId, client: &Client) {
             "   {:<10} {:<30} {:<}",
             device.device_id(),
             device.display_name().as_deref().unwrap_or_default(),
-            device.is_trusted()
+            device.verified()
         );
     }
 }
@@ -80,37 +85,35 @@ async fn login(
             for event in response.to_device.events.iter().filter_map(|e| e.deserialize().ok()) {
                 match event {
                     AnyToDeviceEvent::KeyVerificationStart(e) => {
-                        let sas = client
-                            .get_verification(&e.content.transaction_id)
-                            .await
-                            .expect("Sas object wasn't created");
-                        println!(
-                            "Starting verification with {} {}",
-                            &sas.other_device().user_id(),
-                            &sas.other_device().device_id()
-                        );
-                        print_devices(&e.sender, client).await;
-                        sas.accept().await.unwrap();
+                        if let Some(Verification::SasV1(sas)) =
+                            client.get_verification(&e.sender, &e.content.transaction_id).await
+                        {
+                            println!(
+                                "Starting verification with {} {}",
+                                &sas.other_device().user_id(),
+                                &sas.other_device().device_id()
+                            );
+                            print_devices(&e.sender, client).await;
+                            sas.accept().await.unwrap();
+                        }
                     }
 
                     AnyToDeviceEvent::KeyVerificationKey(e) => {
-                        let sas = client
-                            .get_verification(&e.content.transaction_id)
-                            .await
-                            .expect("Sas object wasn't created");
-
-                        tokio::spawn(wait_for_confirmation((*client).clone(), sas));
+                        if let Some(Verification::SasV1(sas)) =
+                            client.get_verification(&e.sender, &e.content.transaction_id).await
+                        {
+                            tokio::spawn(wait_for_confirmation((*client).clone(), sas));
+                        }
                     }
 
                     AnyToDeviceEvent::KeyVerificationMac(e) => {
-                        let sas = client
-                            .get_verification(&e.content.transaction_id)
-                            .await
-                            .expect("Sas object wasn't created");
-
-                        if sas.is_done() {
-                            print_result(&sas);
-                            print_devices(&e.sender, client).await;
+                        if let Some(Verification::SasV1(sas)) =
+                            client.get_verification(&e.sender, &e.content.transaction_id).await
+                        {
+                            if sas.is_done() {
+                                print_result(&sas);
+                                print_devices(&e.sender, client).await;
+                            }
                         }
                     }
 
@@ -129,7 +132,7 @@ async fn login(
                                     if let MessageType::VerificationRequest(_) = &m.content.msgtype
                                     {
                                         let request = client
-                                            .get_verification_request(&m.event_id)
+                                            .get_verification_request(&m.sender, &m.event_id)
                                             .await
                                             .expect("Request object wasn't created");
 
@@ -140,22 +143,28 @@ async fn login(
                                     }
                                 }
                                 AnySyncMessageEvent::KeyVerificationKey(e) => {
-                                    let sas = client
-                                        .get_verification(e.content.relation.event_id.as_str())
+                                    if let Some(Verification::SasV1(sas)) = client
+                                        .get_verification(
+                                            &e.sender,
+                                            e.content.relates_to.event_id.as_str(),
+                                        )
                                         .await
-                                        .expect("Sas object wasn't created");
-
-                                    tokio::spawn(wait_for_confirmation((*client).clone(), sas));
+                                    {
+                                        tokio::spawn(wait_for_confirmation((*client).clone(), sas));
+                                    }
                                 }
                                 AnySyncMessageEvent::KeyVerificationMac(e) => {
-                                    let sas = client
-                                        .get_verification(e.content.relation.event_id.as_str())
+                                    if let Some(Verification::SasV1(sas)) = client
+                                        .get_verification(
+                                            &e.sender,
+                                            e.content.relates_to.event_id.as_str(),
+                                        )
                                         .await
-                                        .expect("Sas object wasn't created");
-
-                                    if sas.is_done() {
-                                        print_result(&sas);
-                                        print_devices(&e.sender, client).await;
+                                    {
+                                        if sas.is_done() {
+                                            print_result(&sas);
+                                            print_devices(&e.sender, client).await;
+                                        }
                                     }
                                 }
                                 _ => (),

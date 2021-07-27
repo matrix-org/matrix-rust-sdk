@@ -34,20 +34,20 @@ use olm_rs::{
     errors::OlmGroupSessionError, outbound_group_session::OlmOutboundGroupSession, PicklingMode,
 };
 use ruma::{
-    api::client::r0::to_device::DeviceIdOrAllDevices,
     events::{
         room::{
             encrypted::{EncryptedEventContent, EncryptedEventScheme, MegolmV1AesSha2ContentInit},
             encryption::EncryptionEventContent,
             history_visibility::HistoryVisibility,
-            message::Relation,
         },
-        AnyMessageEventContent, EventContent,
+        room_key::RoomKeyToDeviceEventContent,
+        AnyMessageEventContent, AnyToDeviceEventContent, EventContent,
     },
+    to_device::DeviceIdOrAllDevices,
     DeviceId, DeviceIdBox, EventEncryptionAlgorithm, RoomId, UserId,
 };
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
+use serde_json::json;
 use tracing::{debug, error, trace};
 
 use super::{
@@ -277,13 +277,8 @@ impl OutboundGroupSession {
             "type": content.event_type(),
         });
 
-        let relates_to: Option<Relation> = json_content
-            .get("content")
-            .map(|c| c.get("m.relates_to").cloned().map(|r| serde_json::from_value(r).ok()))
-            .flatten()
-            .flatten();
-
         let plaintext = json_content.to_string();
+        let relation = content.relation();
 
         let ciphertext = self.encrypt_helper(plaintext).await;
 
@@ -297,7 +292,7 @@ impl OutboundGroupSession {
 
         EncryptedEventContent::new(
             EncryptedEventScheme::MegolmV1AesSha2(encrypted_content),
-            relates_to,
+            relation,
         )
     }
 
@@ -361,16 +356,15 @@ impl OutboundGroupSession {
         session.session_message_index()
     }
 
-    /// Get the outbound group session key as a json value that can be sent as a
-    /// m.room_key.
-    pub async fn as_json(&self) -> Value {
-        json!({
-            "algorithm": EventEncryptionAlgorithm::MegolmV1AesSha2,
-            "room_id": &*self.room_id,
-            "session_id": &*self.session_id,
-            "session_key": self.session_key().await,
-            "chain_index": self.message_index().await,
-        })
+    pub(crate) async fn as_content(&self) -> AnyToDeviceEventContent {
+        let session_key = self.session_key().await;
+
+        AnyToDeviceEventContent::RoomKey(RoomKeyToDeviceEventContent::new(
+            EventEncryptionAlgorithm::MegolmV1AesSha2,
+            self.room_id().to_owned(),
+            self.session_id().to_owned(),
+            session_key.0.clone(),
+        ))
     }
 
     /// Has or will the session be shared with the given user/device pair.

@@ -732,6 +732,7 @@ impl SledStore {
             .map(|u| {
                 u.map_err(StoreError::Sled).and_then(|(key, value)| {
                     self.deserialize_event(&value)
+                        // TODO remove this unwrapping
                         .map(|receipt| {
                             (decode_key_value(&key, 3).unwrap().try_into().unwrap(), receipt)
                         })
@@ -922,6 +923,7 @@ mod test {
     use matrix_sdk_test::async_test;
     use ruma::{
         api::client::r0::media::get_content_thumbnail::Method,
+        event_id,
         events::{
             room::{
                 member::{MemberEventContent, MembershipState},
@@ -929,10 +931,11 @@ mod test {
             },
             AnySyncStateEvent, EventType, Unsigned,
         },
-        identifiers::{event_id, mxc_uri, room_id, user_id, EventId, UserId},
+        mxc_uri,
         receipt::ReceiptType,
+        room_id,
         serde::Raw,
-        uint, MilliSecondsSinceUnixEpoch,
+        uint, user_id, EventId, MilliSecondsSinceUnixEpoch, UserId,
     };
     use serde_json::json;
 

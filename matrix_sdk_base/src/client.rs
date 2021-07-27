@@ -36,7 +36,7 @@ use matrix_sdk_common::{locks::Mutex, uuid::Uuid};
 use matrix_sdk_crypto::{
     store::{CryptoStore, CryptoStoreError},
     Device, EncryptionSettings, IncomingResponse, MegolmError, OlmError, OlmMachine,
-    OutgoingRequest, Sas, ToDeviceRequest, UserDevices,
+    OutgoingRequest, ToDeviceRequest, UserDevices,
 };
 #[cfg(feature = "encryption")]
 use ruma::{
@@ -89,8 +89,8 @@ pub struct AdditionalUnsignedData {
     pub prev_content: Option<Raw<MemberEventContent>>,
 }
 
-/// Transform state event by hoisting `prev_content` field from `unsigned` to
-/// the top level.
+/// Transform an `AnySyncStateEvent` by hoisting `prev_content` field from
+/// `unsigned` to the top level.
 ///
 /// Due to a [bug in synapse][synapse-bug], `prev_content` often ends up in
 /// `unsigned` contrary to the C2S spec. Some more discussion can be found
@@ -129,7 +129,17 @@ fn hoist_member_event(
     Ok(e)
 }
 
-fn hoist_room_event_prev_content(
+/// Transform an `AnySyncRoomEvent` by hoisting `prev_content` field from
+/// `unsigned` to the top level.
+///
+/// Due to a [bug in synapse][synapse-bug], `prev_content` often ends up in
+/// `unsigned` contrary to the C2S spec. Some more discussion can be found
+/// [here][discussion]. Until this is fixed in synapse or handled in Ruma, we
+/// use this to hoist up `prev_content` to the top level.
+///
+/// [synapse-bug]: <https://github.com/matrix-org/matrix-doc/issues/684#issuecomment-641182668>
+/// [discussion]: <https://github.com/matrix-org/matrix-doc/issues/684#issuecomment-641182668>
+pub fn hoist_room_event_prev_content(
     event: &Raw<AnySyncRoomEvent>,
 ) -> StdResult<AnySyncRoomEvent, serde_json::Error> {
     let prev_content = event
@@ -1200,21 +1210,6 @@ impl BaseClient {
             Some(o) => o.invalidate_group_session(room_id).await,
             None => Ok(false),
         }
-    }
-
-    /// Get a `Sas` verification object with the given flow id.
-    ///
-    /// # Arguments
-    ///
-    /// * `flow_id` - The unique id that identifies a interactive verification
-    ///   flow. For in-room verifications this will be the event id of the
-    ///   *m.key.verification.request* event that started the flow, for the
-    ///   to-device verification flows this will be the transaction id of the
-    ///   *m.key.verification.start* event.
-    #[cfg(feature = "encryption")]
-    #[cfg_attr(feature = "docs", doc(cfg(encryption)))]
-    pub async fn get_verification(&self, flow_id: &str) -> Option<Sas> {
-        self.olm.lock().await.as_ref().and_then(|o| o.get_verification(flow_id))
     }
 
     /// Get a specific device of a user.

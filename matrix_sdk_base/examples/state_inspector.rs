@@ -6,10 +6,7 @@ use atty::Stream;
 use clap::{App as Argparse, AppSettings as ArgParseSettings, Arg, ArgMatches, SubCommand};
 use futures::executor::block_on;
 use matrix_sdk_base::{RoomInfo, Store};
-use ruma::{
-    events::EventType,
-    identifiers::{RoomId, UserId},
-};
+use ruma::{events::EventType, RoomId, UserId};
 #[cfg(not(target_arch = "wasm32"))]
 use rustyline::{
     completion::{Completer, Pair},

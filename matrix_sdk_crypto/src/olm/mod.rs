@@ -61,12 +61,19 @@ where
 pub(crate) mod test {
     use std::{collections::BTreeMap, convert::TryInto};
 
+    use matches::assert_matches;
     use olm_rs::session::OlmMessage;
     use ruma::{
-        api::client::r0::keys::SignedKey,
-        events::forwarded_room_key::ForwardedRoomKeyToDeviceEventContent, room_id, user_id,
-        DeviceId, UserId,
+        encryption::SignedKey,
+        event_id,
+        events::{
+            forwarded_room_key::ForwardedRoomKeyToDeviceEventContent,
+            room::message::{MessageEventContent, Relation, Replacement},
+            AnyMessageEventContent, AnySyncMessageEvent, AnySyncRoomEvent,
+        },
+        room_id, user_id, DeviceId, UserId,
     };
+    use serde_json::json;
 
     use crate::olm::{InboundGroupSession, ReadOnlyAccount, Session};
 
@@ -213,6 +220,71 @@ pub(crate) mod test {
         let ciphertext = outbound.encrypt_helper(plaintext.clone()).await;
 
         assert_eq!(plaintext, inbound.decrypt_helper(ciphertext).await.unwrap().0);
+    }
+
+    #[tokio::test]
+    async fn edit_decryption() {
+        let alice = ReadOnlyAccount::new(&alice_id(), &alice_device_id());
+        let room_id = room_id!("!test:localhost");
+        let event_id = event_id!("$1234adfad:asdf");
+
+        let (outbound, _) = alice.create_group_session_pair_with_defaults(&room_id).await.unwrap();
+
+        assert_eq!(0, outbound.message_index().await);
+        assert!(!outbound.shared());
+        outbound.mark_as_shared();
+        assert!(outbound.shared());
+
+        let mut content = MessageEventContent::text_plain("Hello");
+        content.relates_to = Some(Relation::Replacement(Replacement::new(
+            event_id.clone(),
+            MessageEventContent::text_plain("Hello edit").into(),
+        )));
+
+        let inbound = InboundGroupSession::new(
+            "test_key",
+            "test_key",
+            &room_id,
+            outbound.session_key().await,
+            None,
+        )
+        .unwrap();
+
+        assert_eq!(0, inbound.first_known_index());
+
+        assert_eq!(outbound.session_id(), inbound.session_id());
+
+        let encrypted_content =
+            outbound.encrypt(AnyMessageEventContent::RoomMessage(content)).await;
+
+        let event = json!({
+            "sender": alice.user_id(),
+            "event_id": event_id,
+            "origin_server_ts": 0,
+            "room_id": room_id,
+            "type": "m.room.encrypted",
+            "content": encrypted_content,
+        })
+        .to_string();
+
+        let event: AnySyncRoomEvent = serde_json::from_str(&event).expect("WHAAAT?!?!?");
+
+        let event =
+            if let AnySyncRoomEvent::Message(AnySyncMessageEvent::RoomEncrypted(event)) = event {
+                event
+            } else {
+                panic!("Invalid event type")
+            };
+
+        let decrypted = inbound.decrypt(&event).await.unwrap().0;
+
+        if let AnySyncRoomEvent::Message(AnySyncMessageEvent::RoomMessage(e)) =
+            decrypted.deserialize().unwrap()
+        {
+            assert_matches!(e.content.relates_to, Some(Relation::Replacement(_)));
+        } else {
+            panic!("Invalid event type")
+        }
     }
 
     #[tokio::test]

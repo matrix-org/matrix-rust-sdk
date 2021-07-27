@@ -8,24 +8,24 @@ license = "Apache-2.0"
 name = "matrix-sdk-common"
 readme = "README.md"
 repository = "https://github.com/matrix-org/matrix-rust-sdk"
-version = "0.2.0"
+version = "0.3.0"
 
 [dependencies]
-async-trait = "0.1.42"
+async-trait = "0.1.50"
 instant = { version = "0.1.9", features = ["wasm-bindgen", "now"] }
-ruma = { version = "0.1.2", features = ["client-api-c"] }
-serde = "1.0.122"
+ruma = { version = "0.2.0", features = ["client-api-c"] }
+serde = "1.0.126"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 uuid = { version = "0.8.2", default-features = false, features = ["v4", "serde"] }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies.tokio]
-version = "1.1.0"
+version = "1.7.1"
 default-features = false
 features = ["rt", "sync"]
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
-futures = "0.3.12"
+futures = "0.3.15"
 futures-locks = { version = "0.6.0", default-features = false }
-wasm-bindgen-futures = "0.4"
+wasm-bindgen-futures = "0.4.24"
 uuid = { version = "0.8.2", default-features = false, features = ["v4", "wasm-bindgen"] }

@@ -2,11 +2,11 @@ use std::{env, process::exit};
 
 use matrix_sdk::{
     self, async_trait,
-    events::{
+    room::Room,
+    ruma::events::{
         room::message::{MessageEventContent, MessageType, TextMessageEventContent},
         SyncMessageEvent,
     },
-    room::Room,
     Client, EventHandler, SyncSettings,
 };
 use url::Url;

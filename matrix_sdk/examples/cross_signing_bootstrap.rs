@@ -6,7 +6,8 @@ use std::{
 };
 
 use matrix_sdk::{
-    self, api::r0::uiaa::AuthData, identifiers::UserId, Client, LoopCtrl, SyncSettings,
+    ruma::{api::client::r0::uiaa::AuthData, UserId},
+    Client, LoopCtrl, SyncSettings,
 };
 use serde_json::json;
 use url::Url;

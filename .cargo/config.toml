@@ -1,0 +1,2 @@
+[doc.extern-map.registries]
+crates-io = "https://docs.rs/"

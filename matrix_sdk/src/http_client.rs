@@ -12,15 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#[cfg(all(not(target_arch = "wasm32")))]
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::{convert::TryFrom, fmt::Debug, sync::Arc};
 
-#[cfg(all(not(target_arch = "wasm32")))]
-use backoff::{future::retry, Error as RetryError, ExponentialBackoff};
-#[cfg(all(not(target_arch = "wasm32")))]
-use http::StatusCode;
-use http::{HeaderValue, Response as HttpResponse};
+use bytes::{Bytes, BytesMut};
+use http::Response as HttpResponse;
 use matrix_sdk_common::{async_trait, locks::RwLock, AsyncTraitDeps};
 use reqwest::{Client, Response};
 use ruma::api::{
@@ -30,7 +25,7 @@ use ruma::api::{
 use tracing::trace;
 use url::Url;
 
-use crate::{error::HttpError, Bytes, BytesMut, ClientConfig, RequestConfig, Session};
+use crate::{error::HttpError, ClientConfig, RequestConfig, Session};
 
 /// Abstraction around the http layer. The allows implementors to use different
 /// http libraries.
@@ -54,7 +49,7 @@ pub trait HttpSend: AsyncTraitDeps {
     ///
     /// ```
     /// use std::convert::TryFrom;
-    /// use matrix_sdk::{HttpSend, async_trait, HttpError, RequestConfig, Bytes};
+    /// use matrix_sdk::{HttpSend, async_trait, HttpError, RequestConfig, bytes::Bytes};
     ///
     /// #[derive(Debug)]
     /// struct Client(reqwest::Client);
@@ -235,6 +230,8 @@ pub(crate) fn client_with_config(config: &ClientConfig) -> Result<Client, HttpEr
 
     #[cfg(not(target_arch = "wasm32"))]
     let http_client = {
+        use http::HeaderValue;
+
         let http_client = if config.disable_ssl_verification {
             http_client.danger_accept_invalid_certs(true)
         } else {
@@ -303,6 +300,11 @@ async fn send_request(
     request: http::Request<Bytes>,
     config: RequestConfig,
 ) -> Result<http::Response<Bytes>, HttpError> {
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    use backoff::{future::retry, Error as RetryError, ExponentialBackoff};
+    use http::StatusCode;
+
     let mut backoff = ExponentialBackoff::default();
     let mut request = reqwest::Request::try_from(request)?;
     let retry_limit = config.retry_limit;

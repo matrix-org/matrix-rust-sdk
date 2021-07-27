@@ -12,25 +12,36 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{convert::TryFrom, sync::Arc};
+use std::{
+    convert::{TryFrom, TryInto},
+    sync::Arc,
+};
 
 use dashmap::DashMap;
 use matrix_sdk_common::{locks::Mutex, uuid::Uuid};
-use ruma::{DeviceId, UserId};
-use tracing::{info, warn};
+use ruma::{
+    events::{
+        key::verification::VerificationMethod, AnyToDeviceEvent, AnyToDeviceEventContent,
+        ToDeviceEvent,
+    },
+    serde::Raw,
+    DeviceId, DeviceIdBox, EventId, MilliSecondsSinceUnixEpoch, RoomId, UserId,
+};
+use tracing::{info, trace, warn};
 
 use super::{
     cache::VerificationCache,
     event_enums::{AnyEvent, AnyVerificationContent, OutgoingContent},
     requests::VerificationRequest,
-    sas::{content_to_request, Sas},
-    FlowId, VerificationResult,
+    sas::Sas,
+    FlowId, Verification, VerificationResult,
 };
 use crate::{
     olm::PrivateCrossSigningIdentity,
     requests::OutgoingRequest,
     store::{CryptoStore, CryptoStoreError},
-    OutgoingVerificationRequest, ReadOnlyAccount, ReadOnlyDevice, RoomMessageRequest,
+    OutgoingVerificationRequest, ReadOnlyAccount, ReadOnlyDevice, ReadOnlyUserIdentity,
+    RoomMessageRequest, ToDeviceRequest,
 };
 
 #[derive(Clone, Debug)]
@@ -39,7 +50,7 @@ pub struct VerificationMachine {
     private_identity: Arc<Mutex<PrivateCrossSigningIdentity>>,
     pub(crate) store: Arc<dyn CryptoStore>,
     verifications: VerificationCache,
-    requests: Arc<DashMap<String, VerificationRequest>>,
+    requests: Arc<DashMap<UserId, DashMap<String, VerificationRequest>>>,
 }
 
 impl VerificationMachine {
@@ -57,6 +68,65 @@ impl VerificationMachine {
         }
     }
 
+    pub(crate) fn own_user_id(&self) -> &UserId {
+        self.account.user_id()
+    }
+
+    pub(crate) fn own_device_id(&self) -> &DeviceId {
+        self.account.device_id()
+    }
+
+    pub(crate) async fn request_to_device_verification(
+        &self,
+        user_id: &UserId,
+        recipient_devices: Vec<DeviceIdBox>,
+        methods: Option<Vec<VerificationMethod>>,
+    ) -> (VerificationRequest, OutgoingVerificationRequest) {
+        let flow_id = FlowId::from(Uuid::new_v4().to_string());
+
+        let verification = VerificationRequest::new(
+            self.verifications.clone(),
+            self.account.clone(),
+            self.private_identity.lock().await.clone(),
+            self.store.clone(),
+            flow_id,
+            user_id,
+            recipient_devices,
+            methods,
+        );
+
+        self.insert_request(verification.clone());
+
+        let request = verification.request_to_device();
+
+        (verification, request.into())
+    }
+
+    pub async fn request_verification(
+        &self,
+        identity: &ReadOnlyUserIdentity,
+        room_id: &RoomId,
+        request_event_id: &EventId,
+        methods: Option<Vec<VerificationMethod>>,
+    ) -> VerificationRequest {
+        let flow_id = FlowId::InRoom(room_id.to_owned(), request_event_id.to_owned());
+
+        let request = VerificationRequest::new(
+            self.verifications.clone(),
+            self.account.clone(),
+            self.private_identity.lock().await.clone(),
+            self.store.clone(),
+            flow_id,
+            identity.user_id(),
+            vec![],
+            methods,
+        );
+
+        self.insert_request(request.clone());
+
+        request
+    }
+
     pub async fn start_sas(
         &self,
         device: ReadOnlyDevice,
@@ -71,6 +141,8 @@ impl VerificationMachine {
             self.store.clone(),
             identity,
             None,
+            true,
+            None,
         );
 
         let request = match content {
@@ -79,7 +151,7 @@ impl VerificationMachine {
             }
             OutgoingContent::ToDevice(c) => {
                 let request =
-                    content_to_request(device.user_id(), device.device_id().to_owned(), c);
+                    ToDeviceRequest::new(device.user_id(), device.device_id().to_owned(), c);
 
                 self.verifications.insert_sas(sas.clone());
 
@@ -90,12 +162,60 @@ impl VerificationMachine {
         Ok((sas, request))
     }
 
-    pub fn get_request(&self, flow_id: impl AsRef<str>) -> Option<VerificationRequest> {
-        self.requests.get(flow_id.as_ref()).map(|s| s.clone())
+    pub fn get_request(
+        &self,
+        user_id: &UserId,
+        flow_id: impl AsRef<str>,
+    ) -> Option<VerificationRequest> {
+        self.requests.get(user_id).and_then(|v| v.get(flow_id.as_ref()).map(|s| s.clone()))
     }
 
-    pub fn get_sas(&self, transaction_id: &str) -> Option<Sas> {
-        self.verifications.get_sas(transaction_id)
+    pub fn get_requests(&self, user_id: &UserId) -> Vec<VerificationRequest> {
+        self.requests
+            .get(user_id)
+            .map(|v| v.iter().map(|i| i.value().clone()).collect())
+            .unwrap_or_default()
+    }
+
+    fn insert_request(&self, request: VerificationRequest) {
+        self.requests
+            .entry(request.other_user().to_owned())
+            .or_insert_with(DashMap::new)
+            .insert(request.flow_id().as_str().to_owned(), request);
+    }
+
+    pub fn get_verification(&self, user_id: &UserId, flow_id: &str) -> Option<Verification> {
+        self.verifications.get(user_id, flow_id)
+    }
+
+    pub fn get_sas(&self, user_id: &UserId, flow_id: &str) -> Option<Sas> {
+        self.verifications.get_sas(user_id, flow_id)
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    fn is_timestamp_valid(timestamp: &MilliSecondsSinceUnixEpoch) -> bool {
+        use ruma::{uint, UInt};
+
+        // The event should be ignored if the event is older than 10 minutes
+        let old_timestamp_threshold: UInt = uint!(600);
+        // The event should be ignored if the event is 5 minutes or more into the
+        // future.
+        let timestamp_threshold: UInt = uint!(300);
+
+        let timestamp = timestamp.as_secs();
+        let now = MilliSecondsSinceUnixEpoch::now().as_secs();
+
+        !(now.saturating_sub(timestamp) > old_timestamp_threshold
+            || timestamp.saturating_sub(now) > timestamp_threshold)
+    }
+
+    #[cfg(target_arch = "wasm32")]
+    fn is_timestamp_valid(timestamp: &MilliSecondsSinceUnixEpoch) -> bool {
+        // TODO the non-wasm method with the same name uses
+        // `MilliSecondsSinceUnixEpoch::now()` which internally uses
+        // `SystemTime::now()` this panics under WASM, thus we're returning here
+        // true for now.
+        true
     }
 
     fn queue_up_content(
@@ -115,12 +235,40 @@ impl VerificationMachine {
         self.verifications.outgoing_requests()
     }
 
-    pub fn garbage_collect(&self) {
-        self.requests.retain(|_, r| !(r.is_done() || r.is_cancelled()));
+    pub fn garbage_collect(&self) -> Vec<Raw<AnyToDeviceEvent>> {
+        let mut events = vec![];
 
-        for request in self.verifications.garbage_collect() {
-            self.verifications.add_request(request)
+        for user_verification in self.requests.iter() {
+            user_verification.retain(|_, v| !(v.is_done() || v.is_cancelled()));
         }
+        self.requests.retain(|_, v| !v.is_empty());
+
+        let mut requests: Vec<OutgoingVerificationRequest> = self
+            .requests
+            .iter()
+            .flat_map(|v| {
+                let requests: Vec<OutgoingVerificationRequest> =
+                    v.value().iter().filter_map(|v| v.cancel_if_timed_out()).collect();
+                requests
+            })
+            .collect();
+
+        requests.extend(self.verifications.garbage_collect().into_iter());
+
+        for request in requests {
+            if let Ok(OutgoingContent::ToDevice(AnyToDeviceEventContent::KeyVerificationCancel(
+                content,
+            ))) = request.clone().try_into()
+            {
+                let event = ToDeviceEvent { content, sender: self.account.user_id().to_owned() };
+
+                events.push(AnyToDeviceEvent::KeyVerificationCancel(event).into());
+            }
+
+            self.verifications.add_verification_request(request)
+        }
+
+        events
     }
 
     async fn mark_sas_as_done(
@@ -175,6 +323,14 @@ impl VerificationMachine {
             );
         };
 
+        let event_sent_from_us = |event: &AnyEvent<'_>, from_device: &DeviceId| {
+            if event.sender() == self.account.user_id() {
+                from_device == self.account.device_id() || event.is_room_event()
+            } else {
+                false
+            }
+        };
+
         if let Some(content) = event.verification_content() {
             match &content {
                 AnyVerificationContent::Request(r) => {
@@ -184,40 +340,71 @@ impl VerificationMachine {
                         "Received a new verification request",
                     );
 
-                    let request = VerificationRequest::from_request(
-                        self.verifications.clone(),
-                        self.account.clone(),
-                        self.private_identity.lock().await.clone(),
-                        self.store.clone(),
-                        event.sender(),
-                        flow_id,
-                        r,
-                    );
+                    if let Some(timestamp) = event.timestamp() {
+                        if Self::is_timestamp_valid(timestamp) {
+                            if !event_sent_from_us(&event, r.from_device()) {
+                                let request = VerificationRequest::from_request(
+                                    self.verifications.clone(),
+                                    self.account.clone(),
+                                    self.private_identity.lock().await.clone(),
+                                    self.store.clone(),
+                                    event.sender(),
+                                    flow_id,
+                                    r,
+                                );
 
-                    self.requests.insert(request.flow_id().as_str().to_owned(), request);
+                                self.insert_request(request);
+                            } else {
+                                trace!(
+                                    sender = event.sender().as_str(),
+                                    from_device = r.from_device().as_str(),
+                                    "The received verification request was sent by us, ignoring it",
+                                );
+                            }
+                        } else {
+                            trace!(
+                                sender = event.sender().as_str(),
+                                from_device = r.from_device().as_str(),
+                                timestamp =? timestamp,
+                                "The received verification request was too old or too far into the future",
+                            );
+                        }
+                    } else {
+                        warn!(
+                            sender = event.sender().as_str(),
+                            from_device = r.from_device().as_str(),
+                            "The key verification request didn't contain a valid timestamp"
+                        );
+                    }
                 }
                 AnyVerificationContent::Cancel(c) => {
-                    if let Some(verification) = self.get_request(flow_id.as_str()) {
+                    if let Some(verification) = self.get_request(event.sender(), flow_id.as_str()) {
                         verification.receive_cancel(event.sender(), c);
                     }
 
-                    if let Some(sas) = self.verifications.get_sas(flow_id.as_str()) {
-                        // This won't produce an outgoing content
-                        let _ = sas.receive_any_event(event.sender(), &content);
+                    if let Some(verification) =
+                        self.get_verification(event.sender(), flow_id.as_str())
+                    {
+                        match verification {
+                            Verification::SasV1(sas) => {
+                                // This won't produce an outgoing content
+                                let _ = sas.receive_any_event(event.sender(), &content);
+                            }
+                            Verification::QrV1(qr) => qr.receive_cancel(event.sender(), c),
+                        }
                     }
                 }
                 AnyVerificationContent::Ready(c) => {
-                    if let Some(request) = self.requests.get(flow_id.as_str()) {
+                    if let Some(request) = self.get_request(event.sender(), flow_id.as_str()) {
                         if request.flow_id() == &flow_id {
-                            // TODO remove this unwrap.
-                            request.receive_ready(event.sender(), c).unwrap();
+                            request.receive_ready(event.sender(), c);
                         } else {
                             flow_id_mismatch();
                         }
                     }
                 }
                 AnyVerificationContent::Start(c) => {
-                    if let Some(request) = self.requests.get(flow_id.as_str()) {
+                    if let Some(request) = self.get_request(event.sender(), flow_id.as_str()) {
                         if request.flow_id() == &flow_id {
                             request.receive_start(event.sender(), c).await?
                         } else {
@@ -240,6 +427,7 @@ impl VerificationMachine {
                                 private_identity,
                                 device,
                                 identity,
+                                None,
                                 false,
                             ) {
                                 Ok(sas) => {
@@ -255,7 +443,7 @@ impl VerificationMachine {
                     }
                 }
                 AnyVerificationContent::Accept(_) | AnyVerificationContent::Key(_) => {
-                    if let Some(sas) = self.verifications.get_sas(flow_id.as_str()) {
+                    if let Some(sas) = self.get_sas(event.sender(), flow_id.as_str()) {
                         if sas.flow_id() == &flow_id {
                             if let Some(content) = sas.receive_any_event(event.sender(), &content) {
                                 self.queue_up_content(
@@ -270,7 +458,7 @@ impl VerificationMachine {
                     }
                 }
                 AnyVerificationContent::Mac(_) => {
-                    if let Some(s) = self.verifications.get_sas(flow_id.as_str()) {
+                    if let Some(s) = self.get_sas(event.sender(), flow_id.as_str()) {
                         if s.flow_id() == &flow_id {
                             let content = s.receive_any_event(event.sender(), &content);
 
@@ -283,16 +471,30 @@ impl VerificationMachine {
                     }
                 }
                 AnyVerificationContent::Done(c) => {
-                    if let Some(verification) = self.get_request(flow_id.as_str()) {
+                    if let Some(verification) = self.get_request(event.sender(), flow_id.as_str()) {
                         verification.receive_done(event.sender(), c);
                     }
 
-                    if let Some(s) = self.verifications.get_sas(flow_id.as_str()) {
-                        let content = s.receive_any_event(event.sender(), &content);
+                    match self.get_verification(event.sender(), flow_id.as_str()) {
+                        Some(Verification::SasV1(sas)) => {
+                            let content = sas.receive_any_event(event.sender(), &content);
 
-                        if s.is_done() {
-                            self.mark_sas_as_done(s, content).await?;
+                            if sas.is_done() {
+                                self.mark_sas_as_done(sas, content).await?;
+                            }
                         }
+                        Some(Verification::QrV1(qr)) => {
+                            let (cancellation, request) = qr.receive_done(&c).await?;
+
+                            if let Some(c) = cancellation {
+                                self.verifications.add_request(c.into())
+                            }
+
+                            if let Some(s) = request {
+                                self.verifications.add_request(s.into())
+                            }
+                        }
+                        None => (),
                     }
                 }
             }
@@ -363,6 +565,8 @@ mod test {
             bob_store,
             None,
             None,
+            true,
+            None,
         );
 
         machine
@@ -385,7 +589,7 @@ mod test {
     async fn full_flow() {
         let (alice_machine, bob) = setup_verification_machine().await;
 
-        let alice = alice_machine.get_sas(bob.flow_id().as_str()).unwrap();
+        let alice = alice_machine.get_sas(bob.user_id(), bob.flow_id().as_str()).unwrap();
 
         let request = alice.accept().unwrap();
 
@@ -431,7 +635,7 @@ mod test {
     #[tokio::test]
     async fn timing_out() {
         let (alice_machine, bob) = setup_verification_machine().await;
-        let alice = alice_machine.get_sas(bob.flow_id().as_str()).unwrap();
+        let alice = alice_machine.get_sas(bob.user_id(), bob.flow_id().as_str()).unwrap();
 
         assert!(!alice.timed_out());
         assert!(alice_machine.verifications.outgoing_requests().is_empty());

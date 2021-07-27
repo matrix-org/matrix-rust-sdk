@@ -17,13 +17,17 @@ use std::sync::Arc;
 use dashmap::DashMap;
 use matrix_sdk_common::uuid::Uuid;
 use ruma::{DeviceId, UserId};
+use tracing::trace;
 
-use super::{event_enums::OutgoingContent, sas::content_to_request, Sas, Verification};
-use crate::{OutgoingRequest, RoomMessageRequest};
+use super::{event_enums::OutgoingContent, Sas, Verification};
+use crate::{
+    OutgoingRequest, OutgoingVerificationRequest, QrVerification, RoomMessageRequest,
+    ToDeviceRequest,
+};
 
 #[derive(Clone, Debug)]
 pub struct VerificationCache {
-    verification: Arc<DashMap<String, Verification>>,
+    verification: Arc<DashMap<UserId, DashMap<String, Verification>>>,
     outgoing_requests: Arc<DashMap<Uuid, OutgoingRequest>>,
 }
 
@@ -35,41 +39,75 @@ impl VerificationCache {
     #[cfg(test)]
     #[allow(dead_code)]
     pub fn is_empty(&self) -> bool {
-        self.verification.is_empty()
+        self.verification.iter().all(|m| m.is_empty())
+    }
+
+    pub fn insert(&self, verification: impl Into<Verification>) {
+        let verification = verification.into();
+
+        self.verification
+            .entry(verification.other_user().to_owned())
+            .or_insert_with(DashMap::new)
+            .insert(verification.flow_id().to_owned(), verification);
     }
 
     pub fn insert_sas(&self, sas: Sas) {
-        self.verification.insert(sas.flow_id().as_str().to_string(), sas.into());
+        self.insert(sas);
+    }
+
+    pub fn insert_qr(&self, qr: QrVerification) {
+        self.insert(qr)
+    }
+
+    pub fn get_qr(&self, sender: &UserId, flow_id: &str) -> Option<QrVerification> {
+        self.get(sender, flow_id).and_then(|v| {
+            if let Verification::QrV1(qr) = v {
+                Some(qr)
+            } else {
+                None
+            }
+        })
+    }
+
+    pub fn get(&self, sender: &UserId, flow_id: &str) -> Option<Verification> {
+        self.verification.get(sender).and_then(|m| m.get(flow_id).map(|v| v.clone()))
     }
 
     pub fn outgoing_requests(&self) -> Vec<OutgoingRequest> {
         self.outgoing_requests.iter().map(|r| (*r).clone()).collect()
     }
 
-    pub fn garbage_collect(&self) -> Vec<OutgoingRequest> {
-        self.verification.retain(|_, s| !(s.is_done() || s.is_cancelled()));
+    pub fn garbage_collect(&self) -> Vec<OutgoingVerificationRequest> {
+        for user_verification in self.verification.iter() {
+            user_verification.retain(|_, s| !(s.is_done() || s.is_cancelled()));
+        }
+
+        self.verification.retain(|_, m| !m.is_empty());
 
         self.verification
             .iter()
-            .filter_map(|s| {
-                #[allow(irrefutable_let_patterns)]
-                if let Verification::SasV1(s) = s.value() {
-                    s.cancel_if_timed_out().map(|r| OutgoingRequest {
-                        request_id: r.request_id(),
-                        request: Arc::new(r.into()),
+            .flat_map(|v| {
+                let requests: Vec<OutgoingVerificationRequest> = v
+                    .value()
+                    .iter()
+                    .filter_map(|s| {
+                        if let Verification::SasV1(s) = s.value() {
+                            s.cancel_if_timed_out()
+                        } else {
+                            None
+                        }
                     })
-                } else {
-                    None
-                }
+                    .collect();
+
+                requests
             })
             .collect()
     }
 
-    pub fn get_sas(&self, transaction_id: &str) -> Option<Sas> {
-        self.verification.get(transaction_id).and_then(|v| {
-            #[allow(irrefutable_let_patterns)]
-            if let Verification::SasV1(sas) = v.value() {
-                Some(sas.clone())
+    pub fn get_sas(&self, user_id: &UserId, flow_id: &str) -> Option<Sas> {
+        self.get(user_id, flow_id).and_then(|v| {
+            if let Verification::SasV1(sas) = v {
+                Some(sas)
             } else {
                 None
             }
@@ -77,7 +115,14 @@ impl VerificationCache {
     }
 
     pub fn add_request(&self, request: OutgoingRequest) {
+        trace!("Adding an outgoing verification request {:?}", request);
         self.outgoing_requests.insert(request.request_id, request);
+    }
+
+    pub fn add_verification_request(&self, request: OutgoingVerificationRequest) {
+        let request =
+            OutgoingRequest { request_id: request.request_id(), request: Arc::new(request.into()) };
+        self.add_request(request);
     }
 
     pub fn queue_up_content(
@@ -88,7 +133,7 @@ impl VerificationCache {
     ) {
         match content {
             OutgoingContent::ToDevice(c) => {
-                let request = content_to_request(recipient, recipient_device.to_owned(), c);
+                let request = ToDeviceRequest::new(recipient, recipient_device.to_owned(), c);
                 let request_id = request.txn_id;
 
                 let request = OutgoingRequest { request_id, request: Arc::new(request.into()) };

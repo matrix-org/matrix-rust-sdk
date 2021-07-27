@@ -18,8 +18,10 @@ use std::io::Error as IoError;
 
 use http::StatusCode;
 #[cfg(feature = "encryption")]
-use matrix_sdk_base::crypto::{store::CryptoStoreError, DecryptorError};
-use matrix_sdk_base::{Error as MatrixError, StoreError};
+use matrix_sdk_base::crypto::{
+    CryptoStoreError, DecryptorError, KeyExportError, MegolmError, OlmError,
+};
+use matrix_sdk_base::{Error as SdkBaseError, StoreError};
 use reqwest::Error as ReqwestError;
 use ruma::{
     api::{
@@ -114,17 +116,27 @@ pub enum Error {
     #[error(transparent)]
     Io(#[from] IoError),
 
-    /// An error occurred in the Matrix client library.
-    #[error(transparent)]
-    MatrixError(#[from] MatrixError),
-
     /// An error occurred in the crypto store.
     #[cfg(feature = "encryption")]
+    #[cfg_attr(feature = "docs", doc(cfg(encryption)))]
     #[error(transparent)]
     CryptoStoreError(#[from] CryptoStoreError),
 
+    /// An error occurred during a E2EE operation.
+    #[cfg(feature = "encryption")]
+    #[cfg_attr(feature = "docs", doc(cfg(encryption)))]
+    #[error(transparent)]
+    OlmError(#[from] OlmError),
+
+    /// An error occurred during a E2EE group operation.
+    #[cfg(feature = "encryption")]
+    #[cfg_attr(feature = "docs", doc(cfg(encryption)))]
+    #[error(transparent)]
+    MegolmError(#[from] MegolmError),
+
     /// An error occurred during decryption.
     #[cfg(feature = "encryption")]
+    #[cfg_attr(feature = "docs", doc(cfg(encryption)))]
     #[error(transparent)]
     DecryptorError(#[from] DecryptorError),
 
@@ -139,6 +151,35 @@ pub enum Error {
     /// An error encountered when trying to parse a url.
     #[error(transparent)]
     Url(#[from] UrlParseError),
+}
+
+/// Error for the room key importing functionality.
+#[cfg(feature = "encryption")]
+#[cfg_attr(feature = "docs", doc(cfg(encryption)))]
+#[derive(Error, Debug)]
+// This is allowed because key importing isn't enabled under wasm.
+#[allow(dead_code)]
+pub enum RoomKeyImportError {
+    /// An error de/serializing type for the `StateStore`
+    #[error(transparent)]
+    SerdeJson(#[from] JsonError),
+
+    /// The cryptostore isn't yet open, logging in is required to open the
+    /// cryptostore.
+    #[error("The cryptostore hasn't been yet opened, can't import yet.")]
+    StoreClosed,
+
+    /// An IO error happened.
+    #[error(transparent)]
+    Io(#[from] IoError),
+
+    /// An error occurred in the crypto store.
+    #[error(transparent)]
+    CryptoStore(#[from] CryptoStoreError),
+
+    /// An error occurred while importing the key export.
+    #[error(transparent)]
+    Export(#[from] KeyExportError),
 }
 
 impl Error {
@@ -161,6 +202,23 @@ impl Error {
             Some(i)
         } else {
             None
+        }
+    }
+}
+
+impl From<SdkBaseError> for Error {
+    fn from(e: SdkBaseError) -> Self {
+        match e {
+            SdkBaseError::AuthenticationRequired => Self::AuthenticationRequired,
+            SdkBaseError::StateStore(e) => Self::StateStore(e),
+            SdkBaseError::SerdeJson(e) => Self::SerdeJson(e),
+            SdkBaseError::IoError(e) => Self::Io(e),
+            #[cfg(feature = "encryption")]
+            SdkBaseError::CryptoStore(e) => Self::CryptoStoreError(e),
+            #[cfg(feature = "encryption")]
+            SdkBaseError::OlmError(e) => Self::OlmError(e),
+            #[cfg(feature = "encryption")]
+            SdkBaseError::MegolmError(e) => Self::MegolmError(e),
         }
     }
 }

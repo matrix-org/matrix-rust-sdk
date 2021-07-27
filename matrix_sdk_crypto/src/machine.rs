@@ -46,7 +46,7 @@ use tracing::{debug, error, info, trace, warn};
 use crate::store::sled::SledStore;
 use crate::{
     error::{EventError, MegolmError, MegolmResult, OlmError, OlmResult},
-    identities::{Device, IdentityManager, UserDevices},
+    identities::{user::UserIdentities, Device, IdentityManager, UserDevices},
     key_request::KeyRequestMachine,
     olm::{
         Account, EncryptionSettings, ExportedRoomKey, GroupSessionKey, IdentityKeys,
@@ -59,7 +59,7 @@ use crate::{
         Changes, CryptoStore, DeviceChanges, IdentityChanges, MemoryStore, Result as StoreResult,
         Store,
     },
-    verification::{Sas, VerificationMachine, VerificationRequest},
+    verification::{Verification, VerificationMachine, VerificationRequest},
     ToDeviceRequest,
 };
 
@@ -379,7 +379,7 @@ impl OlmMachine {
 
             *identity = id;
 
-            let public = identity.as_public_identity().await.expect(
+            let public = identity.to_public_identity().await.expect(
                 "Couldn't create a public version of the identity from a new private identity",
             );
 
@@ -717,21 +717,27 @@ impl OlmMachine {
         Ok(())
     }
 
-    /// Get a `Sas` verification object with the given flow id.
-    pub fn get_verification(&self, flow_id: &str) -> Option<Sas> {
-        self.verification_machine.get_sas(flow_id)
+    /// Get a verification object for the given user id with the given flow id.
+    pub fn get_verification(&self, user_id: &UserId, flow_id: &str) -> Option<Verification> {
+        self.verification_machine.get_verification(user_id, flow_id)
     }
 
     /// Get a verification request object with the given flow id.
     pub fn get_verification_request(
         &self,
+        user_id: &UserId,
         flow_id: impl AsRef<str>,
     ) -> Option<VerificationRequest> {
-        self.verification_machine.get_request(flow_id)
+        self.verification_machine.get_request(user_id, flow_id)
     }
 
-    async fn update_one_time_key_count(&self, key_count: &BTreeMap<DeviceKeyAlgorithm, UInt>) {
-        self.account.update_uploaded_key_count(key_count).await;
+    /// Get all the verification requests of a given user.
+    pub fn get_verification_requests(&self, user_id: &UserId) -> Vec<VerificationRequest> {
+        self.verification_machine.get_requests(user_id)
+    }
+
+    fn update_one_time_key_count(&self, key_count: &BTreeMap<DeviceKeyAlgorithm, UInt>) {
+        self.account.update_uploaded_key_count(key_count);
     }
 
     async fn handle_to_device_event(&self, event: &AnyToDeviceEvent) {
@@ -749,11 +755,11 @@ impl OlmMachine {
             | AnyToDeviceEvent::KeyVerificationStart(..) => {
                 self.handle_verification_event(event).await;
             }
-            AnyToDeviceEvent::Dummy(_) => {}
-            AnyToDeviceEvent::RoomKey(_) => {}
-            AnyToDeviceEvent::ForwardedRoomKey(_) => {}
-            AnyToDeviceEvent::RoomEncrypted(_) => {}
-            AnyToDeviceEvent::Custom(_) => {}
+            AnyToDeviceEvent::Dummy(_)
+            | AnyToDeviceEvent::RoomKey(_)
+            | AnyToDeviceEvent::ForwardedRoomKey(_)
+            | AnyToDeviceEvent::RoomEncrypted(_) => {}
+            _ => {}
         }
     }
 
@@ -783,22 +789,20 @@ impl OlmMachine {
         one_time_keys_counts: &BTreeMap<DeviceKeyAlgorithm, UInt>,
     ) -> OlmResult<ToDevice> {
         // Remove verification objects that have expired or are done.
-        self.verification_machine.garbage_collect();
+        let mut events = self.verification_machine.garbage_collect();
 
         // Always save the account, a new session might get created which also
         // touches the account.
         let mut changes =
             Changes { account: Some(self.account.inner.clone()), ..Default::default() };
 
-        self.update_one_time_key_count(one_time_keys_counts).await;
+        self.update_one_time_key_count(one_time_keys_counts);
 
         for user_id in &changed_devices.changed {
             if let Err(e) = self.identity_manager.mark_user_as_changed(user_id).await {
                 error!("Error marking a tracked user as changed {:?}", e);
             }
         }
-
-        let mut events = Vec::new();
 
         for mut raw_event in to_device_events.events {
             let event = match raw_event.deserialize() {
@@ -922,7 +926,7 @@ impl OlmMachine {
                     .unwrap_or(false)
             }) {
             if (self.user_id() == device.user_id() && self.device_id() == device.device_id())
-                || device.is_trusted()
+                || device.verified()
             {
                 VerificationState::Trusted
             } else {
@@ -1046,6 +1050,18 @@ impl OlmMachine {
         device_id: &DeviceId,
     ) -> StoreResult<Option<Device>> {
         self.store.get_device(user_id, device_id).await
+    }
+
+    /// Get the cross signing user identity of a user.
+    ///
+    /// # Arguments
+    ///
+    /// * `user_id` - The unique id of the user that the identity belongs to
+    ///
+    /// Returns a `UserIdentities` enum if one is found and the crypto store
+    /// didn't throw an error.
+    pub async fn get_identity(&self, user_id: &UserId) -> StoreResult<Option<UserIdentities>> {
+        self.store.get_identity(user_id).await
     }
 
     /// Get a map holding all the devices of an user.
@@ -1225,22 +1241,22 @@ pub(crate) mod test {
     use matrix_sdk_test::test_json;
     use ruma::{
         api::{
-            client::r0::keys::{claim_keys, get_keys, upload_keys, OneTimeKey},
+            client::r0::keys::{claim_keys, get_keys, upload_keys},
             IncomingResponse,
         },
+        encryption::OneTimeKey,
+        event_id,
         events::{
+            dummy::DummyToDeviceEventContent,
             room::{
                 encrypted::EncryptedEventContent,
                 message::{MessageEventContent, MessageType},
             },
             AnyMessageEventContent, AnySyncMessageEvent, AnySyncRoomEvent, AnyToDeviceEvent,
-            EventType, SyncMessageEvent, ToDeviceEvent, Unsigned,
+            AnyToDeviceEventContent, SyncMessageEvent, ToDeviceEvent, Unsigned,
         },
-        identifiers::{
-            event_id, room_id, user_id, DeviceId, DeviceKeyAlgorithm, DeviceKeyId, UserId,
-        },
-        serde::Raw,
-        uint, MilliSecondsSinceUnixEpoch,
+        room_id, uint, user_id, DeviceId, DeviceKeyAlgorithm, DeviceKeyId,
+        MilliSecondsSinceUnixEpoch, UserId,
     };
     use serde_json::json;
 
@@ -1285,12 +1301,16 @@ pub(crate) mod test {
     fn to_device_requests_to_content(requests: Vec<Arc<ToDeviceRequest>>) -> EncryptedEventContent {
         let to_device_request = &requests[0];
 
-        let content: Raw<EncryptedEventContent> = serde_json::from_str(
-            to_device_request.messages.values().next().unwrap().values().next().unwrap().get(),
-        )
-        .unwrap();
-
-        content.deserialize().unwrap()
+        to_device_request
+            .messages
+            .values()
+            .next()
+            .unwrap()
+            .values()
+            .next()
+            .unwrap()
+            .deserialize_as()
+            .unwrap()
     }
 
     pub(crate) async fn get_prepared_machine() -> (OlmMachine, OneTimeKeys) {
@@ -1352,7 +1372,10 @@ pub(crate) mod test {
 
         let bob_device = alice.get_device(&bob.user_id, &bob.device_id).await.unwrap().unwrap();
 
-        let (session, content) = bob_device.encrypt(EventType::Dummy, json!({})).await.unwrap();
+        let (session, content) = bob_device
+            .encrypt(AnyToDeviceEventContent::Dummy(DummyToDeviceEventContent::new()))
+            .await
+            .unwrap();
         alice.store.save_sessions(&[session]).await.unwrap();
 
         let event = ToDeviceEvent { sender: alice.user_id().clone(), content };
@@ -1385,6 +1408,10 @@ pub(crate) mod test {
         assert!(machine.should_upload_keys().await);
 
         response.one_time_key_counts.insert(DeviceKeyAlgorithm::SignedCurve25519, uint!(50));
+        machine.receive_keys_upload_response(&response).await.unwrap();
+        assert!(!machine.should_upload_keys().await);
+
+        response.one_time_key_counts.remove(&DeviceKeyAlgorithm::SignedCurve25519);
         machine.receive_keys_upload_response(&response).await.unwrap();
         assert!(!machine.should_upload_keys().await);
     }
@@ -1587,7 +1614,11 @@ pub(crate) mod test {
 
         let event = ToDeviceEvent {
             sender: alice.user_id().clone(),
-            content: bob_device.encrypt(EventType::Dummy, json!({})).await.unwrap().1,
+            content: bob_device
+                .encrypt(AnyToDeviceEventContent::Dummy(DummyToDeviceEventContent::new()))
+                .await
+                .unwrap()
+                .1,
         };
 
         let event = bob.decrypt_to_device_event(&event).await.unwrap().event.deserialize().unwrap();
@@ -1754,14 +1785,18 @@ pub(crate) mod test {
 
         let bob_device = alice.get_device(bob.user_id(), bob.device_id()).await.unwrap().unwrap();
 
-        assert!(!bob_device.is_trusted());
+        assert!(!bob_device.verified());
 
         let (alice_sas, request) = bob_device.start_verification().await.unwrap();
 
         let event = request_to_event(alice.user_id(), &request.into());
         bob.handle_verification_event(&event).await;
 
-        let bob_sas = bob.get_verification(alice_sas.flow_id().as_str()).unwrap();
+        let bob_sas = bob
+            .get_verification(alice.user_id(), alice_sas.flow_id().as_str())
+            .unwrap()
+            .sas_v1()
+            .unwrap();
 
         assert!(alice_sas.emoji().is_none());
         assert!(bob_sas.emoji().is_none());
@@ -1813,14 +1848,14 @@ pub(crate) mod test {
             .unwrap();
 
         assert!(alice_sas.is_done());
-        assert!(bob_device.is_trusted());
+        assert!(bob_device.verified());
 
         let alice_device =
             bob.get_device(alice.user_id(), alice.device_id()).await.unwrap().unwrap();
 
-        assert!(!alice_device.is_trusted());
+        assert!(!alice_device.verified());
         bob.handle_verification_event(&event).await;
         assert!(bob_sas.is_done());
-        assert!(alice_device.is_trusted());
+        assert!(alice_device.verified());
     }
 }

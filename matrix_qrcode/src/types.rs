@@ -33,7 +33,7 @@ use crate::{
 
 /// An enum representing the different modes a QR verification can be in.
 #[derive(Clone, Debug, PartialEq)]
-pub enum QrVerification {
+pub enum QrVerificationData {
     /// The QR verification is verifying another user
     Verification(VerificationData),
     /// The QR verification is self-verifying and the current device trusts or
@@ -46,7 +46,7 @@ pub enum QrVerification {
 
 #[cfg(feature = "decode_image")]
 #[cfg_attr(feature = "docs", doc(cfg(decode_image)))]
-impl TryFrom<DynamicImage> for QrVerification {
+impl TryFrom<DynamicImage> for QrVerificationData {
     type Error = DecodingError;
 
     fn try_from(image: DynamicImage) -> Result<Self, Self::Error> {
@@ -56,7 +56,7 @@ impl TryFrom<DynamicImage> for QrVerification {
 
 #[cfg(feature = "decode_image")]
 #[cfg_attr(feature = "docs", doc(cfg(decode_image)))]
-impl TryFrom<ImageBuffer<Luma<u8>, Vec<u8>>> for QrVerification {
+impl TryFrom<ImageBuffer<Luma<u8>, Vec<u8>>> for QrVerificationData {
     type Error = DecodingError;
 
     fn try_from(image: ImageBuffer<Luma<u8>, Vec<u8>>) -> Result<Self, Self::Error> {
@@ -64,7 +64,7 @@ impl TryFrom<ImageBuffer<Luma<u8>, Vec<u8>>> for QrVerification {
     }
 }
 
-impl TryFrom<&[u8]> for QrVerification {
+impl TryFrom<&[u8]> for QrVerificationData {
     type Error = DecodingError;
 
     fn try_from(value: &[u8]) -> Result<Self, Self::Error> {
@@ -72,7 +72,7 @@ impl TryFrom<&[u8]> for QrVerification {
     }
 }
 
-impl TryFrom<Vec<u8>> for QrVerification {
+impl TryFrom<Vec<u8>> for QrVerificationData {
     type Error = DecodingError;
 
     fn try_from(value: Vec<u8>) -> Result<Self, Self::Error> {
@@ -80,8 +80,8 @@ impl TryFrom<Vec<u8>> for QrVerification {
     }
 }
 
-impl QrVerification {
-    /// Decode and parse an image of a QR code into a `QrVerification`
+impl QrVerificationData {
+    /// Decode and parse an image of a QR code into a `QrVerificationData`
     ///
     /// The image will be converted into a grey scale image before decoding is
     /// attempted
@@ -92,12 +92,12 @@ impl QrVerification {
     ///
     /// # Example
     /// ```no_run
-    /// # use matrix_qrcode::{QrVerification, DecodingError};
+    /// # use matrix_qrcode::{QrVerificationData, DecodingError};
     /// # fn main() -> Result<(), DecodingError> {
     /// use image;
     ///
     /// let image = image::open("/path/to/my/image.png").unwrap();
-    /// let result = QrVerification::from_image(image)?;
+    /// let result = QrVerificationData::from_image(image)?;
     /// # Ok(())
     /// # }
     /// ```
@@ -109,7 +109,7 @@ impl QrVerification {
     }
 
     /// Decode and parse an grey scale image of a QR code into a
-    /// `QrVerification`
+    /// `QrVerificationData`
     ///
     /// # Arguments
     ///
@@ -117,13 +117,13 @@ impl QrVerification {
     ///
     /// # Example
     /// ```no_run
-    /// # use matrix_qrcode::{QrVerification, DecodingError};
+    /// # use matrix_qrcode::{QrVerificationData, DecodingError};
     /// # fn main() -> Result<(), DecodingError> {
     /// use image;
     ///
     /// let image = image::open("/path/to/my/image.png").unwrap();
     /// let image = image.to_luma8();
-    /// let result = QrVerification::from_luma(image)?;
+    /// let result = QrVerificationData::from_luma(image)?;
     /// # Ok(())
     /// # }
     /// ```
@@ -134,7 +134,7 @@ impl QrVerification {
     }
 
     /// Parse the decoded payload of a QR code in byte slice form as a
-    /// `QrVerification`
+    /// `QrVerificationData`
     ///
     /// This method is useful if you would like to do your own custom QR code
     /// decoding.
@@ -145,7 +145,7 @@ impl QrVerification {
     ///
     /// # Example
     /// ```
-    /// # use matrix_qrcode::{QrVerification, DecodingError};
+    /// # use matrix_qrcode::{QrVerificationData, DecodingError};
     /// # fn main() -> Result<(), DecodingError> {
     /// let data = b"MATRIX\
     ///              \x02\x02\x00\x07\
@@ -154,7 +154,7 @@ impl QrVerification {
     ///              BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB\
     ///              SHARED_SECRET";
     ///
-    /// let result = QrVerification::from_bytes(data)?;
+    /// let result = QrVerificationData::from_bytes(data)?;
     /// # Ok(())
     /// # }
     /// ```
@@ -162,9 +162,9 @@ impl QrVerification {
         Self::decode_bytes(bytes)
     }
 
-    /// Encode the `QrVerification` into a `QrCode`.
+    /// Encode the `QrVerificationData` into a `QrCode`.
     ///
-    /// This method turns the `QrVerification` into a QR code that can be
+    /// This method turns the `QrVerificationData` into a QR code that can be
     /// rendered and presented to be scanned.
     ///
     /// The encoding can fail if the data doesn't fit into a QR code or if the
@@ -173,7 +173,7 @@ impl QrVerification {
     ///
     /// # Example
     /// ```
-    /// # use matrix_qrcode::{QrVerification, DecodingError};
+    /// # use matrix_qrcode::{QrVerificationData, DecodingError};
     /// # fn main() -> Result<(), DecodingError> {
     /// let data = b"MATRIX\
     ///              \x02\x02\x00\x07\
@@ -182,28 +182,28 @@ impl QrVerification {
     ///              BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB\
     ///              SHARED_SECRET";
     ///
-    /// let result = QrVerification::from_bytes(data)?;
+    /// let result = QrVerificationData::from_bytes(data)?;
     /// let encoded = result.to_qr_code().unwrap();
     /// # Ok(())
     /// # }
     /// ```
     pub fn to_qr_code(&self) -> Result<QrCode, EncodingError> {
         match self {
-            QrVerification::Verification(v) => v.to_qr_code(),
-            QrVerification::SelfVerification(v) => v.to_qr_code(),
-            QrVerification::SelfVerificationNoMasterKey(v) => v.to_qr_code(),
+            QrVerificationData::Verification(v) => v.to_qr_code(),
+            QrVerificationData::SelfVerification(v) => v.to_qr_code(),
+            QrVerificationData::SelfVerificationNoMasterKey(v) => v.to_qr_code(),
         }
     }
 
-    /// Encode the `QrVerification` into a vector of bytes that can be encoded
-    /// as a QR code.
+    /// Encode the `QrVerificationData` into a vector of bytes that can be
+    /// encoded as a QR code.
     ///
     /// The encoding can fail if the identity keys that should be encoded are
     /// not valid base64.
     ///
     /// # Example
     /// ```
-    /// # use matrix_qrcode::{QrVerification, DecodingError};
+    /// # use matrix_qrcode::{QrVerificationData, DecodingError};
     /// # fn main() -> Result<(), DecodingError> {
     /// let data = b"MATRIX\
     ///              \x02\x02\x00\x07\
@@ -212,7 +212,7 @@ impl QrVerification {
     ///              BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB\
     ///              SHARED_SECRET";
     ///
-    /// let result = QrVerification::from_bytes(data)?;
+    /// let result = QrVerificationData::from_bytes(data)?;
     /// let encoded = result.to_bytes().unwrap();
     ///
     /// assert_eq!(data.as_ref(), encoded.as_slice());
@@ -221,9 +221,9 @@ impl QrVerification {
     /// ```
     pub fn to_bytes(&self) -> Result<Vec<u8>, EncodingError> {
         match self {
-            QrVerification::Verification(v) => v.to_bytes(),
-            QrVerification::SelfVerification(v) => v.to_bytes(),
-            QrVerification::SelfVerificationNoMasterKey(v) => v.to_bytes(),
+            QrVerificationData::Verification(v) => v.to_bytes(),
+            QrVerificationData::SelfVerification(v) => v.to_bytes(),
+            QrVerificationData::SelfVerificationNoMasterKey(v) => v.to_bytes(),
         }
     }
 
@@ -289,13 +289,13 @@ impl QrVerification {
             return Err(DecodingError::SharedSecret(shared_secret.len()));
         }
 
-        QrVerification::new(mode, flow_id, first_key, second_key, shared_secret)
+        QrVerificationData::new(mode, flow_id, first_key, second_key, shared_secret)
     }
 
     /// Decode the given image of an QR code and if we find a valid code, try to
     /// decode it as a `QrVerification`.
     #[cfg(feature = "decode_image")]
-    fn decode(image: ImageBuffer<Luma<u8>, Vec<u8>>) -> Result<QrVerification, DecodingError> {
+    fn decode(image: ImageBuffer<Luma<u8>, Vec<u8>>) -> Result<QrVerificationData, DecodingError> {
         let decoded = decode_qr(image)?;
         Self::decode_bytes(decoded)
     }
@@ -328,41 +328,41 @@ impl QrVerification {
         }
     }
 
-    /// Get the flow id for this `QrVerification`.
+    /// Get the flow id for this `QrVerificationData`.
     ///
     /// This represents the ID as a string even if it is a `EventId`.
     pub fn flow_id(&self) -> &str {
         match self {
-            QrVerification::Verification(v) => v.event_id.as_str(),
-            QrVerification::SelfVerification(v) => &v.transaction_id,
-            QrVerification::SelfVerificationNoMasterKey(v) => &v.transaction_id,
+            QrVerificationData::Verification(v) => v.event_id.as_str(),
+            QrVerificationData::SelfVerification(v) => &v.transaction_id,
+            QrVerificationData::SelfVerificationNoMasterKey(v) => &v.transaction_id,
         }
     }
 
-    /// Get the first key of this `QrVerification`.
+    /// Get the first key of this `QrVerificationData`.
     pub fn first_key(&self) -> &str {
         match self {
-            QrVerification::Verification(v) => &v.first_master_key,
-            QrVerification::SelfVerification(v) => &v.master_key,
-            QrVerification::SelfVerificationNoMasterKey(v) => &v.device_key,
+            QrVerificationData::Verification(v) => &v.first_master_key,
+            QrVerificationData::SelfVerification(v) => &v.master_key,
+            QrVerificationData::SelfVerificationNoMasterKey(v) => &v.device_key,
         }
     }
 
-    /// Get the second key of this `QrVerification`.
+    /// Get the second key of this `QrVerificationData`.
     pub fn second_key(&self) -> &str {
         match self {
-            QrVerification::Verification(v) => &v.second_master_key,
-            QrVerification::SelfVerification(v) => &v.device_key,
-            QrVerification::SelfVerificationNoMasterKey(v) => &v.master_key,
+            QrVerificationData::Verification(v) => &v.second_master_key,
+            QrVerificationData::SelfVerification(v) => &v.device_key,
+            QrVerificationData::SelfVerificationNoMasterKey(v) => &v.master_key,
         }
     }
 
-    /// Get the secret of this `QrVerification`.
+    /// Get the secret of this `QrVerificationData`.
     pub fn secret(&self) -> &str {
         match self {
-            QrVerification::Verification(v) => &v.shared_secret,
-            QrVerification::SelfVerification(v) => &v.shared_secret,
-            QrVerification::SelfVerificationNoMasterKey(v) => &v.shared_secret,
+            QrVerificationData::Verification(v) => &v.shared_secret,
+            QrVerificationData::SelfVerification(v) => &v.shared_secret,
+            QrVerificationData::SelfVerificationNoMasterKey(v) => &v.shared_secret,
         }
     }
 }
@@ -412,7 +412,7 @@ impl VerificationData {
     ///
     /// # Example
     /// ```
-    /// # use matrix_qrcode::{QrVerification, DecodingError};
+    /// # use matrix_qrcode::{QrVerificationData, DecodingError};
     /// # fn main() -> Result<(), DecodingError> {
     /// let data = b"MATRIX\
     ///              \x02\x00\x00\x0f\
@@ -421,8 +421,8 @@ impl VerificationData {
     ///              BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB\
     ///              SHARED_SECRET";
     ///
-    /// let result = QrVerification::from_bytes(data)?;
-    /// if let QrVerification::Verification(decoded) = result {
+    /// let result = QrVerificationData::from_bytes(data)?;
+    /// if let QrVerificationData::Verification(decoded) = result {
     ///     let encoded = decoded.to_bytes().unwrap();
     ///     assert_eq!(data.as_ref(), encoded.as_slice());
     /// } else {
@@ -459,7 +459,7 @@ impl VerificationData {
     }
 }
 
-impl From<VerificationData> for QrVerification {
+impl From<VerificationData> for QrVerificationData {
     fn from(data: VerificationData) -> Self {
         Self::Verification(data)
     }
@@ -515,7 +515,7 @@ impl SelfVerificationData {
     ///
     /// # Example
     /// ```
-    /// # use matrix_qrcode::{QrVerification, DecodingError};
+    /// # use matrix_qrcode::{QrVerificationData, DecodingError};
     /// # fn main() -> Result<(), DecodingError> {
     /// let data = b"MATRIX\
     ///              \x02\x01\x00\x06\
@@ -524,8 +524,8 @@ impl SelfVerificationData {
     ///              BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB\
     ///              SHARED_SECRET";
     ///
-    /// let result = QrVerification::from_bytes(data)?;
-    /// if let QrVerification::SelfVerification(decoded) = result {
+    /// let result = QrVerificationData::from_bytes(data)?;
+    /// if let QrVerificationData::SelfVerification(decoded) = result {
     ///     let encoded = decoded.to_bytes().unwrap();
     ///     assert_eq!(data.as_ref(), encoded.as_slice());
     /// } else {
@@ -562,7 +562,7 @@ impl SelfVerificationData {
     }
 }
 
-impl From<SelfVerificationData> for QrVerification {
+impl From<SelfVerificationData> for QrVerificationData {
     fn from(data: SelfVerificationData) -> Self {
         Self::SelfVerification(data)
     }
@@ -618,7 +618,7 @@ impl SelfVerificationNoMasterKey {
     ///
     /// # Example
     /// ```
-    /// # use matrix_qrcode::{QrVerification, DecodingError};
+    /// # use matrix_qrcode::{QrVerificationData, DecodingError};
     /// # fn main() -> Result<(), DecodingError> {
     /// let data = b"MATRIX\
     ///              \x02\x02\x00\x06\
@@ -627,8 +627,8 @@ impl SelfVerificationNoMasterKey {
     ///              BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB\
     ///              SHARED_SECRET";
     ///
-    /// let result = QrVerification::from_bytes(data)?;
-    /// if let QrVerification::SelfVerificationNoMasterKey(decoded) = result {
+    /// let result = QrVerificationData::from_bytes(data)?;
+    /// if let QrVerificationData::SelfVerificationNoMasterKey(decoded) = result {
     ///     let encoded = decoded.to_bytes().unwrap();
     ///     assert_eq!(data.as_ref(), encoded.as_slice());
     /// } else {
@@ -665,7 +665,7 @@ impl SelfVerificationNoMasterKey {
     }
 }
 
-impl From<SelfVerificationNoMasterKey> for QrVerification {
+impl From<SelfVerificationNoMasterKey> for QrVerificationData {
     fn from(data: SelfVerificationNoMasterKey) -> Self {
         Self::SelfVerificationNoMasterKey(data)
     }

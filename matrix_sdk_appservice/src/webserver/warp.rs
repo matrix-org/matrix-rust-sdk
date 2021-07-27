@@ -15,14 +15,14 @@
 use std::{net::ToSocketAddrs, result::Result as StdResult};
 
 use futures::TryFutureExt;
-use matrix_sdk::Bytes;
+use matrix_sdk::{bytes::Bytes, ruma};
 use serde::Serialize;
 use warp::{filters::BoxedFilter, path::FullPath, Filter, Rejection, Reply};
 
-use crate::{Appservice, Error, Result};
+use crate::{AppService, Error, Result};
 
 pub async fn run_server(
-    appservice: Appservice,
+    appservice: AppService,
     host: impl Into<String>,
     port: impl Into<u16>,
 ) -> Result<()> {
@@ -37,7 +37,7 @@ pub async fn run_server(
     }
 }
 
-pub fn warp_filter(appservice: Appservice) -> BoxedFilter<(impl Reply,)> {
+pub fn warp_filter(appservice: AppService) -> BoxedFilter<(impl Reply,)> {
     // TODO: try to use a struct instead of needlessly cloning appservice multiple
     // times on every request
     warp::any()
@@ -51,7 +51,7 @@ pub fn warp_filter(appservice: Appservice) -> BoxedFilter<(impl Reply,)> {
 mod filters {
     use super::*;
 
-    pub fn users(appservice: Appservice) -> BoxedFilter<(impl Reply,)> {
+    pub fn users(appservice: AppService) -> BoxedFilter<(impl Reply,)> {
         warp::get()
             .and(
                 warp::path!("_matrix" / "app" / "v1" / "users" / String)
@@ -65,7 +65,7 @@ mod filters {
             .boxed()
     }
 
-    pub fn rooms(appservice: Appservice) -> BoxedFilter<(impl Reply,)> {
+    pub fn rooms(appservice: AppService) -> BoxedFilter<(impl Reply,)> {
         warp::get()
             .and(
                 warp::path!("_matrix" / "app" / "v1" / "rooms" / String)
@@ -79,7 +79,7 @@ mod filters {
             .boxed()
     }
 
-    pub fn transactions(appservice: Appservice) -> BoxedFilter<(impl Reply,)> {
+    pub fn transactions(appservice: AppService) -> BoxedFilter<(impl Reply,)> {
         warp::put()
             .and(
                 warp::path!("_matrix" / "app" / "v1" / "transactions" / String)
@@ -93,7 +93,7 @@ mod filters {
             .boxed()
     }
 
-    fn common(appservice: Appservice) -> BoxedFilter<(Appservice, http::Request<Bytes>)> {
+    fn common(appservice: AppService) -> BoxedFilter<(AppService, http::Request<Bytes>)> {
         warp::any()
             .and(filters::valid_access_token(appservice.registration().hs_token.clone()))
             .map(move || appservice.clone())
@@ -110,7 +110,7 @@ mod filters {
             .and(warp::query::raw())
             .and_then(|token: String, query: String| async move {
                 let query: Vec<(String, String)> =
-                    matrix_sdk::urlencoded::from_str(&query).map_err(Error::from)?;
+                    ruma::serde::urlencoded::from_str(&query).map_err(Error::from)?;
 
                 if query.into_iter().any(|(key, value)| key == "access_token" && value == token) {
                     Ok::<(), Rejection>(())
@@ -156,7 +156,7 @@ mod handlers {
 
     pub async fn user(
         _user_id: String,
-        _appservice: Appservice,
+        _appservice: AppService,
         _request: http::Request<Bytes>,
     ) -> StdResult<impl warp::Reply, Rejection> {
         Ok(warp::reply::json(&String::from("{}")))
@@ -164,7 +164,7 @@ mod handlers {
 
     pub async fn room(
         _room_id: String,
-        _appservice: Appservice,
+        _appservice: AppService,
         _request: http::Request<Bytes>,
     ) -> StdResult<impl warp::Reply, Rejection> {
         Ok(warp::reply::json(&String::from("{}")))
@@ -172,11 +172,11 @@ mod handlers {
 
     pub async fn transaction(
         _txn_id: String,
-        appservice: Appservice,
+        appservice: AppService,
         request: http::Request<Bytes>,
     ) -> StdResult<impl warp::Reply, Rejection> {
-        let incoming_transaction: matrix_sdk::api_appservice::event::push_events::v1::IncomingRequest =
-            matrix_sdk::IncomingRequest::try_from_http_request(request).map_err(Error::from)?;
+        let incoming_transaction: ruma::api::appservice::event::push_events::v1::IncomingRequest =
+            ruma::api::IncomingRequest::try_from_http_request(request).map_err(Error::from)?;
 
         let client = appservice.get_cached_client(None)?;
         client.receive_transaction(incoming_transaction).map_err(Error::from).await?;

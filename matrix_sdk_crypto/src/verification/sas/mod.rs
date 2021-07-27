@@ -20,17 +20,12 @@ use std::sync::{Arc, Mutex};
 #[cfg(test)]
 use std::time::Instant;
 
-pub use helpers::content_to_request;
 use inner_sas::InnerSas;
 use matrix_sdk_common::uuid::Uuid;
 use ruma::{
     api::client::r0::keys::upload_signatures::Request as SignatureUploadRequest,
     events::{
-        key::verification::{
-            accept::{AcceptEventContent, AcceptMethod, AcceptToDeviceEventContent},
-            cancel::CancelCode,
-            ShortAuthenticationString,
-        },
+        key::verification::{cancel::CancelCode, ShortAuthenticationString},
         AnyMessageEventContent, AnyToDeviceEventContent,
     },
     DeviceId, EventId, RoomId, UserId,
@@ -39,23 +34,26 @@ use tracing::trace;
 
 use super::{
     event_enums::{AnyVerificationContent, OutgoingContent, OwnedAcceptContent, StartContent},
-    FlowId, IdentitiesBeingVerified, VerificationResult,
+    requests::RequestHandle,
+    CancelInfo, FlowId, IdentitiesBeingVerified, VerificationResult,
 };
 use crate::{
-    identities::{ReadOnlyDevice, UserIdentities},
+    identities::{ReadOnlyDevice, ReadOnlyUserIdentities},
     olm::PrivateCrossSigningIdentity,
     requests::{OutgoingVerificationRequest, RoomMessageRequest},
     store::{CryptoStore, CryptoStoreError},
     ReadOnlyAccount, ToDeviceRequest,
 };
 
-#[derive(Clone, Debug)]
 /// Short authentication string object.
+#[derive(Clone, Debug)]
 pub struct Sas {
     inner: Arc<Mutex<InnerSas>>,
     account: ReadOnlyAccount,
     identities_being_verified: IdentitiesBeingVerified,
     flow_id: Arc<FlowId>,
+    we_started: bool,
+    request_handle: Option<RequestHandle>,
 }
 
 impl Sas {
@@ -89,10 +87,54 @@ impl Sas {
         &self.flow_id
     }
 
+    /// Get the room id if the verification is happening inside a room.
+    pub fn room_id(&self) -> Option<&RoomId> {
+        if let FlowId::InRoom(r, _) = self.flow_id() {
+            Some(r)
+        } else {
+            None
+        }
+    }
+
     /// Does this verification flow support displaying emoji for the short
     /// authentication string.
     pub fn supports_emoji(&self) -> bool {
         self.inner.lock().unwrap().supports_emoji()
+    }
+
+    /// Did this verification flow start from a verification request.
+    pub fn started_from_request(&self) -> bool {
+        self.inner.lock().unwrap().started_from_request()
+    }
+
+    /// Is this a verification that is veryfying one of our own devices.
+    pub fn is_self_verification(&self) -> bool {
+        self.identities_being_verified.is_self_verification()
+    }
+
+    /// Have we confirmed that the short auth string matches.
+    pub fn have_we_confirmed(&self) -> bool {
+        self.inner.lock().unwrap().have_we_confirmed()
+    }
+
+    /// Has the verification been accepted by both parties.
+    pub fn has_been_accepted(&self) -> bool {
+        self.inner.lock().unwrap().has_been_accepted()
+    }
+
+    /// Get info about the cancellation if the verification flow has been
+    /// cancelled.
+    pub fn cancel_info(&self) -> Option<CancelInfo> {
+        if let InnerSas::Cancelled(c) = &*self.inner.lock().unwrap() {
+            Some(c.state.as_ref().clone().into())
+        } else {
+            None
+        }
+    }
+
+    /// Did we initiate the verification flow.
+    pub fn we_started(&self) -> bool {
+        self.we_started
     }
 
     #[cfg(test)]
@@ -101,13 +143,16 @@ impl Sas {
         self.inner.lock().unwrap().set_creation_time(time)
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn start_helper(
         inner_sas: InnerSas,
         account: ReadOnlyAccount,
         private_identity: PrivateCrossSigningIdentity,
         other_device: ReadOnlyDevice,
         store: Arc<dyn CryptoStore>,
-        other_identity: Option<UserIdentities>,
+        other_identity: Option<ReadOnlyUserIdentities>,
+        we_started: bool,
+        request_handle: Option<RequestHandle>,
     ) -> Sas {
         let flow_id = inner_sas.verification_flow_id();
 
@@ -123,6 +168,8 @@ impl Sas {
             account,
             identities_being_verified: identities,
             flow_id,
+            we_started,
+            request_handle,
         }
     }
 
@@ -136,13 +183,16 @@ impl Sas {
     ///
     /// Returns the new `Sas` object and a `StartEventContent` that needs to be
     /// sent out through the server to the other device.
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn start(
         account: ReadOnlyAccount,
         private_identity: PrivateCrossSigningIdentity,
         other_device: ReadOnlyDevice,
         store: Arc<dyn CryptoStore>,
-        other_identity: Option<UserIdentities>,
+        other_identity: Option<ReadOnlyUserIdentities>,
         transaction_id: Option<String>,
+        we_started: bool,
+        request_handle: Option<RequestHandle>,
     ) -> (Sas, OutgoingContent) {
         let (inner, content) = InnerSas::start(
             account.clone(),
@@ -159,6 +209,8 @@ impl Sas {
                 other_device,
                 store,
                 other_identity,
+                we_started,
+                request_handle,
             ),
             content,
         )
@@ -174,6 +226,7 @@ impl Sas {
     ///
     /// Returns the new `Sas` object and a `StartEventContent` that needs to be
     /// sent out through the server to the other device.
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn start_in_room(
         flow_id: EventId,
         room_id: RoomId,
@@ -181,7 +234,9 @@ impl Sas {
         private_identity: PrivateCrossSigningIdentity,
         other_device: ReadOnlyDevice,
         store: Arc<dyn CryptoStore>,
-        other_identity: Option<UserIdentities>,
+        other_identity: Option<ReadOnlyUserIdentities>,
+        we_started: bool,
+        request_handle: RequestHandle,
     ) -> (Sas, OutgoingContent) {
         let (inner, content) = InnerSas::start_in_room(
             flow_id,
@@ -199,6 +254,8 @@ impl Sas {
                 other_device,
                 store,
                 other_identity,
+                we_started,
+                Some(request_handle),
             ),
             content,
         )
@@ -222,8 +279,9 @@ impl Sas {
         account: ReadOnlyAccount,
         private_identity: PrivateCrossSigningIdentity,
         other_device: ReadOnlyDevice,
-        other_identity: Option<UserIdentities>,
-        started_from_request: bool,
+        other_identity: Option<ReadOnlyUserIdentities>,
+        request_handle: Option<RequestHandle>,
+        we_started: bool,
     ) -> Result<Sas, OutgoingContent> {
         let inner = InnerSas::from_start_event(
             account.clone(),
@@ -231,7 +289,7 @@ impl Sas {
             flow_id,
             content,
             other_identity.clone(),
-            started_from_request,
+            request_handle.is_some(),
         )?;
 
         Ok(Self::start_helper(
@@ -241,6 +299,8 @@ impl Sas {
             other_device,
             store,
             other_identity,
+            we_started,
+            request_handle,
         ))
     }
 
@@ -262,18 +322,28 @@ impl Sas {
         &self,
         settings: AcceptSettings,
     ) -> Option<OutgoingVerificationRequest> {
-        self.inner.lock().unwrap().accept().map(|c| match settings.apply(c) {
-            OwnedAcceptContent::ToDevice(c) => {
-                let content = AnyToDeviceEventContent::KeyVerificationAccept(c);
-                self.content_to_request(content).into()
-            }
-            OwnedAcceptContent::Room(room_id, content) => RoomMessageRequest {
-                room_id,
-                txn_id: Uuid::new_v4(),
-                content: AnyMessageEventContent::KeyVerificationAccept(content),
-            }
-            .into(),
-        })
+        let mut guard = self.inner.lock().unwrap();
+        let sas: InnerSas = (*guard).clone();
+        let methods = settings.allowed_methods;
+
+        if let Some((sas, content)) = sas.accept(methods) {
+            *guard = sas;
+
+            Some(match content {
+                OwnedAcceptContent::ToDevice(c) => {
+                    let content = AnyToDeviceEventContent::KeyVerificationAccept(c);
+                    self.content_to_request(content).into()
+                }
+                OwnedAcceptContent::Room(room_id, content) => RoomMessageRequest {
+                    room_id,
+                    txn_id: Uuid::new_v4(),
+                    content: AnyMessageEventContent::KeyVerificationAccept(content),
+                }
+                .into(),
+            })
+        } else {
+            None
+        }
     }
 
     /// Confirm the Sas verification.
@@ -340,10 +410,28 @@ impl Sas {
         self.cancel_with_code(CancelCode::User)
     }
 
-    pub(crate) fn cancel_with_code(&self, code: CancelCode) -> Option<OutgoingVerificationRequest> {
+    /// Cancel the verification.
+    ///
+    /// This cancels the verification with given `CancelCode`.
+    ///
+    /// **Note**: This method should generally not be used, the [`cancel()`]
+    /// method should be preferred. The SDK will automatically cancel with the
+    /// approprate cancel code, user initiated cancellations should only cancel
+    /// with the `CancelCode::User`
+    ///
+    /// Returns None if the `Sas` object is already in a canceled state,
+    /// otherwise it returns a request that needs to be sent out.
+    ///
+    /// [`cancel()`]: #method.cancel
+    pub fn cancel_with_code(&self, code: CancelCode) -> Option<OutgoingVerificationRequest> {
         let mut guard = self.inner.lock().unwrap();
+
+        if let Some(request) = &self.request_handle {
+            request.cancel_with_code(&code)
+        }
+
         let sas: InnerSas = (*guard).clone();
-        let (sas, content) = sas.cancel(code);
+        let (sas, content) = sas.cancel(true, code);
         *guard = sas;
         content.map(|c| match c {
             OutgoingContent::Room(room_id, content) => {
@@ -427,12 +515,12 @@ impl Sas {
         self.inner.lock().unwrap().verified_devices()
     }
 
-    pub(crate) fn verified_identities(&self) -> Option<Arc<[UserIdentities]>> {
+    pub(crate) fn verified_identities(&self) -> Option<Arc<[ReadOnlyUserIdentities]>> {
         self.inner.lock().unwrap().verified_identities()
     }
 
     pub(crate) fn content_to_request(&self, content: AnyToDeviceEventContent) -> ToDeviceRequest {
-        content_to_request(self.other_user_id(), self.other_device_id().to_owned(), content)
+        ToDeviceRequest::new(self.other_user_id(), self.other_device_id().to_owned(), content)
     }
 }
 
@@ -462,23 +550,6 @@ impl AcceptSettings {
     /// * `methods` - The methods this client allows at most
     pub fn with_allowed_methods(methods: Vec<ShortAuthenticationString>) -> Self {
         Self { allowed_methods: methods }
-    }
-
-    fn apply(self, mut content: OwnedAcceptContent) -> OwnedAcceptContent {
-        match &mut content {
-            OwnedAcceptContent::ToDevice(AcceptToDeviceEventContent {
-                method: AcceptMethod::MSasV1(c),
-                ..
-            })
-            | OwnedAcceptContent::Room(
-                _,
-                AcceptEventContent { method: AcceptMethod::MSasV1(c), .. },
-            ) => {
-                c.short_authentication_string.retain(|sas| self.allowed_methods.contains(sas));
-                content
-            }
-            _ => content,
-        }
     }
 }
 
@@ -536,6 +607,8 @@ mod test {
             alice_store,
             None,
             None,
+            true,
+            None,
         );
 
         let flow_id = alice.flow_id().to_owned();
@@ -548,6 +621,7 @@ mod test {
             bob,
             PrivateCrossSigningIdentity::empty(bob_id()),
             alice_device,
+            None,
             None,
             false,
         )

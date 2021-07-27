@@ -12,9 +12,8 @@ use ruma::{
         room::member::MemberEventContent, AnySyncRoomEvent, StateEvent, StrippedStateEvent,
         SyncStateEvent, Unsigned,
     },
-    identifiers::{DeviceKeyAlgorithm, EventId, RoomId, UserId},
     serde::Raw,
-    DeviceIdBox, MilliSecondsSinceUnixEpoch,
+    DeviceIdBox, DeviceKeyAlgorithm, EventId, MilliSecondsSinceUnixEpoch, RoomId, UserId,
 };
 use serde::{Deserialize, Serialize};
 

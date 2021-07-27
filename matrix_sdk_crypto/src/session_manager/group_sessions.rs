@@ -21,14 +21,14 @@ use dashmap::DashMap;
 use futures::future::join_all;
 use matrix_sdk_common::{executor::spawn, uuid::Uuid};
 use ruma::{
-    api::client::r0::to_device::DeviceIdOrAllDevices,
     events::{
         room::{encrypted::EncryptedEventContent, history_visibility::HistoryVisibility},
-        AnyMessageEventContent, EventType,
+        AnyMessageEventContent, AnyToDeviceEventContent, EventType,
     },
+    serde::Raw,
+    to_device::DeviceIdOrAllDevices,
     DeviceId, DeviceIdBox, RoomId, UserId,
 };
-use serde_json::Value;
 use tracing::{debug, info, trace};
 
 use crate::{
@@ -146,11 +146,6 @@ impl GroupSessionManager {
             let mut changes = Changes::default();
             changes.outbound_group_sessions.push(s.clone());
             self.store.save_changes(changes).await?;
-        } else {
-            trace!(
-                request_id = request_id.to_string().as_str(),
-                "Marking room key share request as sent but session found that owns the given id"
-            )
         }
 
         Ok(())
@@ -229,22 +224,22 @@ impl GroupSessionManager {
     /// Encrypt the given content for the given devices and create a to-device
     /// requests that sends the encrypted content to them.
     async fn encrypt_session_for(
-        content: Value,
+        content: AnyToDeviceEventContent,
         devices: Vec<Device>,
     ) -> OlmResult<(Uuid, ToDeviceRequest, Vec<Session>)> {
         let mut messages = BTreeMap::new();
         let mut changed_sessions = Vec::new();
 
-        let encrypt = |device: Device, content: Value| async move {
+        let encrypt = |device: Device, content: AnyToDeviceEventContent| async move {
             let mut message = BTreeMap::new();
 
-            let encrypted = device.encrypt(EventType::RoomKey, content.clone()).await;
+            let encrypted = device.encrypt(content.clone()).await;
 
             let used_session = match encrypted {
                 Ok((session, encrypted)) => {
                     message.entry(device.user_id().clone()).or_insert_with(BTreeMap::new).insert(
                         DeviceIdOrAllDevices::DeviceId(device.device_id().into()),
-                        serde_json::value::to_raw_value(&encrypted)?,
+                        Raw::from(AnyToDeviceEventContent::RoomEncrypted(encrypted)),
                     );
                     Some(session)
                 }
@@ -380,7 +375,7 @@ impl GroupSessionManager {
 
     pub async fn encrypt_request(
         chunk: Vec<Device>,
-        content: Value,
+        content: AnyToDeviceEventContent,
         outbound: OutboundGroupSession,
         message_index: u32,
         being_shared: Arc<DashMap<Uuid, OutboundGroupSession>>,
@@ -417,10 +412,7 @@ impl GroupSessionManager {
         users: impl Iterator<Item = &UserId>,
         encryption_settings: impl Into<EncryptionSettings>,
     ) -> OlmResult<Vec<Arc<ToDeviceRequest>>> {
-        debug!(
-            room_id = room_id.as_str(),
-            "Checking if a group session needs to be shared for room {}", room_id
-        );
+        debug!(room_id = room_id.as_str(), "Checking if a room key needs to be shared",);
 
         let encryption_settings = encryption_settings.into();
         let history_visibility = encryption_settings.history_visibility.clone();
@@ -471,7 +463,7 @@ impl GroupSessionManager {
             .flatten()
             .collect();
 
-        let key_content = outbound.as_json().await;
+        let key_content = outbound.as_content().await;
         let message_index = outbound.message_index().await;
 
         if !devices.is_empty() {

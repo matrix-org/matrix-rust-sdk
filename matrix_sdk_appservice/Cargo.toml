@@ -9,13 +9,10 @@ version = "0.1.0"
 
 [features]
 default = ["warp"]
-actix = ["actix-rt", "actix-web"]
 
-docs = ["actix", "warp"]
+docs = ["warp"]
 
 [dependencies]
-actix-rt = { version = "2", optional = true }
-actix-web = { version = "4.0.0-beta.6", optional = true }
 dashmap = "4"
 futures = "0.3"
 futures-util = "0.3"
@@ -29,10 +26,10 @@ tracing = "0.1"
 url = "2"
 warp = { git = "https://github.com/seanmonstar/warp.git", rev = "629405", optional = true, default-features = false }
 
-matrix-sdk = { version = "0.2", path = "../matrix_sdk", default-features = false, features = ["appservice", "native-tls"] }
+matrix-sdk = { version = "0.3", path = "../matrix_sdk", default-features = false, features = ["appservice", "native-tls"] }
 
 [dependencies.ruma]
-version = "0.1.2"
+version = "0.2.0"
 features = ["client-api-c", "appservice-api-s", "unstable-pre-spec"]
 
 [dev-dependencies]
@@ -41,7 +38,7 @@ mockito = "0.30"
 tokio = { version = "1", default-features = false, features = ["rt-multi-thread", "macros"] }
 tracing-subscriber = "0.2"
 
-matrix-sdk-test = { version = "0.2", path = "../matrix_sdk_test", features = ["appservice"] }
+matrix-sdk-test = { version = "0.3", path = "../matrix_sdk_test", features = ["appservice"] }
 
 [[example]]
 name = "appservice_autojoin"

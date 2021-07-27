@@ -14,17 +14,15 @@
 
 use std::{collections::BTreeMap, convert::TryInto};
 
-use matrix_sdk_common::uuid::Uuid;
 use olm_rs::sas::OlmSas;
 use ruma::{
-    api::client::r0::to_device::DeviceIdOrAllDevices,
     events::{
         key::verification::{
             cancel::CancelCode,
             mac::{MacEventContent, MacToDeviceEventContent},
             Relation,
         },
-        AnyMessageEventContent, AnyToDeviceEventContent, EventType,
+        AnyMessageEventContent, AnyToDeviceEventContent,
     },
     DeviceKeyAlgorithm, DeviceKeyId, UserId,
 };
@@ -33,17 +31,17 @@ use tracing::{trace, warn};
 
 use super::{FlowId, OutgoingContent};
 use crate::{
-    identities::{ReadOnlyDevice, UserIdentities},
+    identities::{ReadOnlyDevice, ReadOnlyUserIdentities},
     utilities::encode,
     verification::event_enums::{MacContent, StartContent},
-    ReadOnlyAccount, ToDeviceRequest,
+    ReadOnlyAccount,
 };
 
 #[derive(Clone, Debug)]
 pub struct SasIds {
     pub account: ReadOnlyAccount,
     pub other_device: ReadOnlyDevice,
-    pub other_identity: Option<UserIdentities>,
+    pub other_identity: Option<ReadOnlyUserIdentities>,
 }
 
 /// Calculate the commitment for a accept event from the public key and the
@@ -184,7 +182,7 @@ pub fn receive_mac_event(
     flow_id: &str,
     sender: &UserId,
     content: &MacContent,
-) -> Result<(Vec<ReadOnlyDevice>, Vec<UserIdentities>), CancelCode> {
+) -> Result<(Vec<ReadOnlyDevice>, Vec<ReadOnlyUserIdentities>), CancelCode> {
     let mut verified_devices = Vec::new();
     let mut verified_identities = Vec::new();
 
@@ -525,34 +523,6 @@ fn bytes_to_decimal(bytes: Vec<u8>) -> (u16, u16, u16) {
     let third = (bytes[3] & 0x3F) << 7 | bytes[4] >> 1;
 
     (first + 1000, second + 1000, third + 1000)
-}
-
-pub fn content_to_request(
-    recipient: &UserId,
-    recipient_device: impl Into<DeviceIdOrAllDevices>,
-    content: AnyToDeviceEventContent,
-) -> ToDeviceRequest {
-    let mut messages = BTreeMap::new();
-    let mut user_messages = BTreeMap::new();
-
-    user_messages.insert(
-        recipient_device.into(),
-        serde_json::value::to_raw_value(&content).expect("Can't serialize to-device content"),
-    );
-    messages.insert(recipient.clone(), user_messages);
-
-    let event_type = match content {
-        AnyToDeviceEventContent::KeyVerificationAccept(_) => EventType::KeyVerificationAccept,
-        AnyToDeviceEventContent::KeyVerificationStart(_) => EventType::KeyVerificationStart,
-        AnyToDeviceEventContent::KeyVerificationKey(_) => EventType::KeyVerificationKey,
-        AnyToDeviceEventContent::KeyVerificationMac(_) => EventType::KeyVerificationMac,
-        AnyToDeviceEventContent::KeyVerificationCancel(_) => EventType::KeyVerificationCancel,
-        AnyToDeviceEventContent::KeyVerificationReady(_) => EventType::KeyVerificationReady,
-        AnyToDeviceEventContent::KeyVerificationDone(_) => EventType::KeyVerificationDone,
-        _ => unreachable!(),
-    };
-
-    ToDeviceRequest { txn_id: Uuid::new_v4(), event_type, messages }
 }
 
 #[cfg(test)]

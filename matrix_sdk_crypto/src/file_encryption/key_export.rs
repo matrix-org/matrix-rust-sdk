@@ -14,9 +14,9 @@
 
 use std::io::{Cursor, Read, Seek, SeekFrom};
 
-use aes_ctr::{
-    cipher::{NewStreamCipher, SyncStreamCipher},
-    Aes256Ctr,
+use aes::{
+    cipher::{generic_array::GenericArray, FromBlockCipher, NewBlockCipher, StreamCipher},
+    Aes256, Aes256Ctr,
 };
 use byteorder::{BigEndian, ReadBytesExt};
 use getrandom::getrandom;
@@ -161,7 +161,12 @@ fn encrypt_helper(mut plaintext: &mut [u8], passphrase: &str, rounds: u32) -> St
     pbkdf2::<Hmac<Sha512>>(passphrase.as_bytes(), &salt, rounds, &mut derived_keys);
     let (key, hmac_key) = derived_keys.split_at(KEY_SIZE);
 
-    let mut aes = Aes256Ctr::new_var(key, &iv.to_be_bytes()).expect("Can't create AES object");
+    let key = GenericArray::from_slice(key);
+    let iv = iv.to_be_bytes();
+    let iv = GenericArray::from_slice(&iv);
+
+    let aes = Aes256::new(key);
+    let mut aes = Aes256Ctr::from_block_cipher(aes, iv);
 
     aes.apply_keystream(&mut plaintext);
 
@@ -169,11 +174,11 @@ fn encrypt_helper(mut plaintext: &mut [u8], passphrase: &str, rounds: u32) -> St
 
     payload.extend(&VERSION.to_be_bytes());
     payload.extend(&salt);
-    payload.extend(&iv.to_be_bytes());
+    payload.extend(&*iv);
     payload.extend(&rounds.to_be_bytes());
     payload.extend_from_slice(plaintext);
 
-    let mut hmac = Hmac::<Sha256>::new_varkey(hmac_key).expect("Can't create HMAC object");
+    let mut hmac = Hmac::<Sha256>::new_from_slice(hmac_key).expect("Can't create HMAC object");
     hmac.update(&payload);
     let mac = hmac.finalize();
 
@@ -213,12 +218,16 @@ fn decrypt_helper(ciphertext: &str, passphrase: &str) -> Result<String, KeyExpor
     pbkdf2::<Hmac<Sha512>>(passphrase.as_bytes(), &salt, rounds, &mut derived_keys);
     let (key, hmac_key) = derived_keys.split_at(KEY_SIZE);
 
-    let mut hmac = Hmac::<Sha256>::new_varkey(hmac_key).expect("Can't create an HMAC object");
+    let mut hmac = Hmac::<Sha256>::new_from_slice(hmac_key).expect("Can't create an HMAC object");
     hmac.update(&decoded[0..ciphertext_end]);
     hmac.verify(&mac).map_err(|_| KeyExportError::InvalidMac)?;
 
+    let key = GenericArray::from_slice(key);
+    let iv = GenericArray::from_slice(&iv);
+
     let mut ciphertext = &mut decoded[ciphertext_start..ciphertext_end];
-    let mut aes = Aes256Ctr::new_var(key, &iv).expect("Can't create an AES object");
+    let aes = Aes256::new(key);
+    let mut aes = Aes256Ctr::from_block_cipher(aes, iv);
     aes.apply_keystream(&mut ciphertext);
 
     Ok(String::from_utf8(ciphertext.to_owned())?)

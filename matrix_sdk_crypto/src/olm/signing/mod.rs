@@ -25,16 +25,16 @@ use std::{
 use matrix_sdk_common::locks::Mutex;
 use pk_signing::{MasterSigning, PickledSignings, SelfSigning, Signing, SigningError, UserSigning};
 use ruma::{
-    api::client::r0::keys::{upload_signatures::Request as SignatureUploadRequest, KeyUsage},
-    encryption::DeviceKeys,
+    api::client::r0::keys::upload_signatures::Request as SignatureUploadRequest,
+    encryption::{DeviceKeys, KeyUsage},
     DeviceKeyAlgorithm, DeviceKeyId, UserId,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Error as JsonError;
 
 use crate::{
-    error::SignatureError, requests::UploadSigningKeysRequest, OwnUserIdentity, ReadOnlyAccount,
-    ReadOnlyDevice, UserIdentity,
+    error::SignatureError, identities::MasterPubkey, requests::UploadSigningKeysRequest,
+    ReadOnlyAccount, ReadOnlyDevice, ReadOnlyOwnUserIdentity, ReadOnlyUserIdentity,
 };
 
 /// Private cross signing identity.
@@ -91,6 +91,21 @@ impl PrivateCrossSigningIdentity {
         !(has_master && has_user && has_self)
     }
 
+    /// Can we sign our own devices, i.e. do we have a self signing key.
+    pub async fn can_sign_devices(&self) -> bool {
+        self.self_signing_key.lock().await.is_some()
+    }
+
+    /// Do we have the master key.
+    pub async fn has_master_key(&self) -> bool {
+        self.master_key.lock().await.is_some()
+    }
+
+    /// Get the public part of the master key, if we have one.
+    pub async fn master_public_key(&self) -> Option<MasterPubkey> {
+        self.master_key.lock().await.as_ref().map(|m| m.public_key.to_owned())
+    }
+
     /// Create a new empty identity.
     pub(crate) fn empty(user_id: UserId) -> Self {
         Self {
@@ -102,7 +117,9 @@ impl PrivateCrossSigningIdentity {
         }
     }
 
-    pub(crate) async fn as_public_identity(&self) -> Result<OwnUserIdentity, SignatureError> {
+    pub(crate) async fn to_public_identity(
+        &self,
+    ) -> Result<ReadOnlyOwnUserIdentity, SignatureError> {
         let master = self
             .master_key
             .lock()
@@ -127,7 +144,7 @@ impl PrivateCrossSigningIdentity {
             .ok_or(SignatureError::MissingSigningKey)?
             .public_key
             .clone();
-        let identity = OwnUserIdentity::new(master, self_signing, user_signing)?;
+        let identity = ReadOnlyOwnUserIdentity::new(master, self_signing, user_signing)?;
         identity.mark_as_verified();
 
         Ok(identity)
@@ -136,7 +153,7 @@ impl PrivateCrossSigningIdentity {
     /// Sign the given public user identity with this private identity.
     pub(crate) async fn sign_user(
         &self,
-        user_identity: &UserIdentity,
+        user_identity: &ReadOnlyUserIdentity,
     ) -> Result<SignatureUploadRequest, SignatureError> {
         let signed_keys = self
             .user_signing_key
@@ -388,11 +405,11 @@ mod test {
     use std::{collections::BTreeMap, sync::Arc};
 
     use matrix_sdk_test::async_test;
-    use ruma::{api::client::r0::keys::CrossSigningKey, user_id, UserId};
+    use ruma::{encryption::CrossSigningKey, user_id, UserId};
 
     use super::{PrivateCrossSigningIdentity, Signing};
     use crate::{
-        identities::{ReadOnlyDevice, UserIdentity},
+        identities::{ReadOnlyDevice, ReadOnlyUserIdentity},
         olm::ReadOnlyAccount,
     };
 
@@ -503,7 +520,7 @@ mod test {
 
         let bob_account = ReadOnlyAccount::new(&user_id!("@bob:localhost"), "DEVICEID".into());
         let (bob_private, _, _) = PrivateCrossSigningIdentity::new_with_account(&bob_account).await;
-        let mut bob_public = UserIdentity::from_private(&bob_private).await;
+        let mut bob_public = ReadOnlyUserIdentity::from_private(&bob_private).await;
 
         let user_signing = identity.user_signing_key.lock().await;
         let user_signing = user_signing.as_ref().unwrap();

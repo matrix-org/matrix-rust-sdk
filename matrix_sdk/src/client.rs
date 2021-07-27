@@ -13,11 +13,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#[cfg(all(feature = "encryption", not(target_arch = "wasm32")))]
+use std::path::PathBuf;
 #[cfg(feature = "encryption")]
 use std::{
     collections::BTreeMap,
     io::{Cursor, Write},
-    path::PathBuf,
 };
 #[cfg(feature = "sso_login")]
 use std::{
@@ -39,10 +40,12 @@ use futures_timer::Delay as sleep;
 use http::HeaderValue;
 #[cfg(feature = "sso_login")]
 use http::Response;
+#[cfg(all(feature = "encryption", not(target_arch = "wasm32")))]
+use matrix_sdk_base::crypto::{decrypt_key_export, encrypt_key_export, olm::InboundGroupSession};
 #[cfg(feature = "encryption")]
 use matrix_sdk_base::crypto::{
-    decrypt_key_export, encrypt_key_export, olm::InboundGroupSession, store::CryptoStoreError,
-    AttachmentDecryptor, OutgoingRequests, RoomMessageRequest, ToDeviceRequest,
+    store::CryptoStoreError, AttachmentDecryptor, OutgoingRequests, RoomMessageRequest,
+    ToDeviceRequest,
 };
 use matrix_sdk_base::{
     deserialized_responses::SyncResponse,
@@ -53,7 +56,7 @@ use mime::{self, Mime};
 #[cfg(feature = "sso_login")]
 use rand::{thread_rng, Rng};
 use reqwest::header::InvalidHeaderValue;
-use ruma::{api::SendAccessToken, events::AnyMessageEventContent, identifiers::MxcUri};
+use ruma::{api::SendAccessToken, events::AnyMessageEventContent, MxcUri};
 #[cfg(feature = "sso_login")]
 use tokio::{net::TcpListener, sync::oneshot};
 #[cfg(feature = "sso_login")]
@@ -64,7 +67,7 @@ use tracing::{error, info, instrument};
 use url::Url;
 #[cfg(feature = "sso_login")]
 use warp::Filter;
-#[cfg(feature = "encryption")]
+#[cfg(all(feature = "encryption", not(target_arch = "wasm32")))]
 use zeroize::Zeroizing;
 
 /// Enum controlling if a loop running callbacks should continue or abort.
@@ -126,8 +129,8 @@ use ruma::{
 #[cfg(feature = "encryption")]
 use crate::{
     device::{Device, UserDevices},
-    sas::Sas,
-    verification_request::VerificationRequest,
+    error::RoomKeyImportError,
+    verification::{QrVerification, SasVerification, Verification, VerificationRequest},
 };
 use crate::{
     error::HttpError,
@@ -501,7 +504,7 @@ impl RequestConfig {
     /// All outgoing http requests will have a GET query key-value appended with
     /// `user_id` being the key and the `user_id` from the `Session` being
     /// the value. Will error if there's no `Session`. This is called
-    /// [identity assertion] in the Matrix Appservice Spec
+    /// [identity assertion] in the Matrix Application Service Spec
     ///
     /// [identity assertion]: https://spec.matrix.org/unstable/application-service-api/#identity-assertion
     #[cfg(feature = "appservice")]
@@ -572,7 +575,7 @@ impl Client {
     /// # Example
     /// ```no_run
     /// # use std::convert::TryFrom;
-    /// # use matrix_sdk::{Client, identifiers::UserId};
+    /// # use matrix_sdk::{Client, ruma::UserId};
     /// # use futures::executor::block_on;
     /// let alice = UserId::try_from("@alice:example.org").unwrap();
     /// # block_on(async {
@@ -781,20 +784,20 @@ impl Client {
 
     /// Gets the avatar of the owner of the client, if set.
     ///
-    /// Returns the avatar. No guarantee on the size of the image is given.
-    /// If no size is given the full-sized avatar will be returned.
+    /// Returns the avatar.
+    /// If a thumbnail is requested no guarantee on the size of the image is
+    /// given.
     ///
     /// # Arguments
     ///
-    /// * `width` - The desired width of the avatar.
-    ///
-    /// * `height` - The desired height of the avatar.
+    /// * `format` - The desired format of the avatar.
     ///
     /// # Example
     /// ```no_run
     /// # use futures::executor::block_on;
     /// # use matrix_sdk::Client;
-    /// # use matrix_sdk::identifiers::room_id;
+    /// # use matrix_sdk::ruma::room_id;
+    /// # use matrix_sdk::media::MediaFormat;
     /// # use url::Url;
     /// # let homeserver = Url::parse("http://example.com").unwrap();
     /// # block_on(async {
@@ -802,24 +805,15 @@ impl Client {
     /// let client = Client::new(homeserver).unwrap();
     /// client.login(user, "password", None, None).await.unwrap();
     ///
-    /// if let Some(avatar) = client.avatar(Some(96), Some(96)).await.unwrap() {
+    /// if let Some(avatar) = client.avatar(MediaFormat::File).await.unwrap() {
     ///     std::fs::write("avatar.png", avatar);
     /// }
     /// # })
     /// ```
-    pub async fn avatar(&self, width: Option<u32>, height: Option<u32>) -> Result<Option<Vec<u8>>> {
-        // TODO: try to offer the avatar from cache, requires avatar cache
+    pub async fn avatar(&self, format: MediaFormat) -> Result<Option<Vec<u8>>> {
         if let Some(url) = self.avatar_url().await? {
-            if let (Some(width), Some(height)) = (width, height) {
-                let request =
-                    get_content_thumbnail::Request::from_url(&url, width.into(), height.into())?;
-                let response = self.send(request, None).await?;
-                Ok(Some(response.file))
-            } else {
-                let request = get_content::Request::from_url(&url)?;
-                let response = self.send(request, None).await?;
-                Ok(Some(response.file))
-            }
+            let request = MediaRequest { media_type: MediaType::Uri(url), format };
+            Ok(Some(self.get_media_content(&request, true).await?))
         } else {
             Ok(None)
         }
@@ -1011,8 +1005,7 @@ impl Client {
     /// ```no_run
     /// # use std::convert::TryFrom;
     /// # use matrix_sdk::Client;
-    /// # use matrix_sdk::identifiers::DeviceId;
-    /// # use matrix_sdk::assign;
+    /// # use matrix_sdk::ruma::{assign, DeviceId};
     /// # use futures::executor::block_on;
     /// # use url::Url;
     /// # let homeserver = Url::parse("http://example.com").unwrap();
@@ -1270,8 +1263,7 @@ impl Client {
     /// ```no_run
     /// # use std::convert::TryFrom;
     /// # use matrix_sdk::Client;
-    /// # use matrix_sdk::identifiers::DeviceId;
-    /// # use matrix_sdk::assign;
+    /// # use matrix_sdk::ruma::{assign, DeviceId};
     /// # use futures::executor::block_on;
     /// # use url::Url;
     /// # let homeserver = Url::parse("https://example.com").unwrap();
@@ -1350,10 +1342,13 @@ impl Client {
     /// ```no_run
     /// # use std::convert::TryFrom;
     /// # use matrix_sdk::Client;
-    /// # use matrix_sdk::api::r0::account::register::{Request as RegistrationRequest, RegistrationKind};
-    /// # use matrix_sdk::api::r0::uiaa::AuthData;
-    /// # use matrix_sdk::identifiers::DeviceId;
-    /// # use matrix_sdk::assign;
+    /// # use matrix_sdk::ruma::{
+    /// #     api::client::r0::{
+    /// #         account::register::{Request as RegistrationRequest, RegistrationKind},
+    /// #         uiaa::AuthData,
+    /// #     },
+    /// #     assign, DeviceId,
+    /// # };
     /// # use futures::executor::block_on;
     /// # use url::Url;
     /// # let homeserver = Url::parse("http://example.com").unwrap();
@@ -1403,7 +1398,7 @@ impl Client {
     /// ```no_run
     /// # use matrix_sdk::{
     /// #    Client, SyncSettings,
-    /// #    api::r0::{
+    /// #    ruma::api::client::r0::{
     /// #        filter::{
     /// #           FilterDefinition, LazyLoadOptions, RoomEventFilter, RoomFilter,
     /// #        },
@@ -1547,7 +1542,10 @@ impl Client {
     /// # Examples
     /// ```no_run
     /// use matrix_sdk::Client;
-    /// # use matrix_sdk::api::r0::room::{create_room::Request as CreateRoomRequest, Visibility};
+    /// # use matrix_sdk::ruma::api::client::r0::room::{
+    /// #     create_room::Request as CreateRoomRequest,
+    /// #     Visibility,
+    /// # };
     /// # use url::Url;
     ///
     /// # let homeserver = Url::parse("http://example.com").unwrap();
@@ -1580,9 +1578,11 @@ impl Client {
     /// ```no_run
     /// # use std::convert::TryFrom;
     /// # use matrix_sdk::Client;
-    /// # use matrix_sdk::directory::{Filter, RoomNetwork};
-    /// # use matrix_sdk::api::r0::directory::get_public_rooms_filtered::Request as PublicRoomsFilterRequest;
-    /// # use matrix_sdk::assign;
+    /// # use matrix_sdk::ruma::{
+    /// #     api::client::r0::directory::get_public_rooms_filtered::Request as PublicRoomsFilterRequest,
+    /// #     directory::{Filter, RoomNetwork},
+    /// #     assign,
+    /// # };
     /// # use url::Url;
     /// # use futures::executor::block_on;
     /// # let homeserver = Url::parse("http://example.com").unwrap();
@@ -1633,7 +1633,7 @@ impl Client {
     ///
     /// ```no_run
     /// # use std::{path::PathBuf, fs::File, io::Read};
-    /// # use matrix_sdk::{Client, identifiers::room_id};
+    /// # use matrix_sdk::{Client, ruma::room_id};
     /// # use url::Url;
     /// # use futures::executor::block_on;
     /// # use mime;
@@ -1700,9 +1700,9 @@ impl Client {
     /// # use matrix_sdk::{Client, SyncSettings};
     /// # use url::Url;
     /// # use futures::executor::block_on;
-    /// # use matrix_sdk::identifiers::room_id;
+    /// # use matrix_sdk::ruma::room_id;
     /// # use std::convert::TryFrom;
-    /// use matrix_sdk::events::{
+    /// use matrix_sdk::ruma::events::{
     ///     AnyMessageEventContent,
     ///     room::message::{MessageEventContent, TextMessageEventContent},
     /// };
@@ -1762,8 +1762,7 @@ impl Client {
     /// # block_on(async {
     /// # let homeserver = Url::parse("http://localhost:8080").unwrap();
     /// # let mut client = Client::new(homeserver).unwrap();
-    /// use matrix_sdk::api::r0::profile;
-    /// use matrix_sdk::identifiers::user_id;
+    /// use matrix_sdk::ruma::{api::client::r0::profile, user_id};
     ///
     /// // First construct the request you want to make
     /// // See https://docs.rs/ruma-client-api/latest/ruma_client_api/index.html
@@ -1796,8 +1795,8 @@ impl Client {
         request: &ToDeviceRequest,
     ) -> Result<ToDeviceResponse> {
         let txn_id_string = request.txn_id_string();
-        let request = RumaToDeviceRequest::new(
-            request.event_type.clone(),
+        let request = RumaToDeviceRequest::new_raw(
+            request.event_type.as_str(),
             &txn_id_string,
             request.messages.clone(),
         );
@@ -1849,8 +1848,11 @@ impl Client {
     ///
     /// ```no_run
     /// # use matrix_sdk::{
-    /// #    api::r0::uiaa::{UiaaResponse, AuthData},
-    /// #    Client, SyncSettings, Error, FromHttpResponseError, ServerError,
+    /// #    ruma::api::{
+    /// #        client::r0::uiaa::{UiaaResponse, AuthData},
+    /// #        error::{FromHttpResponseError, ServerError},
+    /// #    },
+    /// #    Client, Error, SyncSettings,
     /// # };
     /// # use futures::executor::block_on;
     /// # use serde_json::json;
@@ -1969,7 +1971,7 @@ impl Client {
     /// UI thread.
     ///
     /// ```no_run
-    /// # use matrix_sdk::events::{
+    /// # use matrix_sdk::ruma::events::{
     /// #     room::message::{MessageEvent, MessageEventContent, TextMessageEventContent},
     /// # };
     /// # use std::sync::{Arc, RwLock};
@@ -2191,26 +2193,33 @@ impl Client {
         Ok(response)
     }
 
-    /// Get a `Sas` verification object with the given flow id.
+    /// Get a verification object with the given flow id.
     #[cfg(feature = "encryption")]
     #[cfg_attr(feature = "docs", doc(cfg(encryption)))]
-    pub async fn get_verification(&self, flow_id: &str) -> Option<Sas> {
-        self.base_client
-            .get_verification(flow_id)
-            .await
-            .map(|sas| Sas { inner: sas, client: self.clone() })
+    pub async fn get_verification(&self, user_id: &UserId, flow_id: &str) -> Option<Verification> {
+        let olm = self.base_client.olm_machine().await?;
+        olm.get_verification(user_id, flow_id).map(|v| match v {
+            matrix_sdk_base::crypto::Verification::SasV1(s) => {
+                SasVerification { inner: s, client: self.clone() }.into()
+            }
+            matrix_sdk_base::crypto::Verification::QrV1(qr) => {
+                QrVerification { inner: qr, client: self.clone() }.into()
+            }
+        })
     }
 
-    /// Get a `VerificationRequest` object with the given flow id.
+    /// Get a `VerificationRequest` object for the given user with the given
+    /// flow id.
     #[cfg(feature = "encryption")]
     #[cfg_attr(feature = "docs", doc(cfg(encryption)))]
     pub async fn get_verification_request(
         &self,
+        user_id: &UserId,
         flow_id: impl AsRef<str>,
     ) -> Option<VerificationRequest> {
         let olm = self.base_client.olm_machine().await?;
 
-        olm.get_verification_request(flow_id)
+        olm.get_verification_request(user_id, flow_id)
             .map(|r| VerificationRequest { inner: r, client: self.clone() })
     }
 
@@ -2231,7 +2240,7 @@ impl Client {
     ///
     /// ```no_run
     /// # use std::convert::TryFrom;
-    /// # use matrix_sdk::{Client, identifiers::UserId};
+    /// # use matrix_sdk::{Client, ruma::UserId};
     /// # use url::Url;
     /// # use futures::executor::block_on;
     /// # let alice = UserId::try_from("@alice:example.org").unwrap();
@@ -2243,7 +2252,7 @@ impl Client {
     ///     .unwrap()
     ///     .unwrap();
     ///
-    /// println!("{:?}", device.is_trusted());
+    /// println!("{:?}", device.verified());
     ///
     /// let verification = device.start_verification().await.unwrap();
     /// # });
@@ -2273,8 +2282,8 @@ impl Client {
     /// # Examples
     /// ```no_run
     /// # use std::{convert::TryFrom, collections::BTreeMap};
-    /// # use matrix_sdk::{Client, identifiers::UserId};
-    /// # use matrix_sdk::api::r0::uiaa::AuthData;
+    /// # use matrix_sdk::{Client, ruma::UserId};
+    /// # use matrix_sdk::ruma::api::client::r0::uiaa::AuthData;
     /// # use url::Url;
     /// # use futures::executor::block_on;
     /// # use serde_json::json;
@@ -2344,7 +2353,7 @@ impl Client {
     ///
     /// ```no_run
     /// # use std::convert::TryFrom;
-    /// # use matrix_sdk::{Client, identifiers::UserId};
+    /// # use matrix_sdk::{Client, ruma::UserId};
     /// # use url::Url;
     /// # use futures::executor::block_on;
     /// # let alice = UserId::try_from("@alice:example.org").unwrap();
@@ -2398,7 +2407,7 @@ impl Client {
     /// # use std::{path::PathBuf, time::Duration};
     /// # use matrix_sdk::{
     /// #     Client, SyncSettings,
-    /// #     identifiers::room_id,
+    /// #     ruma::room_id,
     /// # };
     /// # use futures::executor::block_on;
     /// # use url::Url;
@@ -2422,8 +2431,7 @@ impl Client {
     ///     .expect("Can't export keys.");
     /// # });
     /// ```
-    #[cfg(feature = "encryption")]
-    #[cfg(not(target_arch = "wasm32"))]
+    #[cfg(all(feature = "encryption", not(target_arch = "wasm32")))]
     #[cfg_attr(feature = "docs", doc(cfg(all(encryption, not(target_arch = "wasm32")))))]
     pub async fn export_keys(
         &self,
@@ -2468,7 +2476,7 @@ impl Client {
     /// # use std::{path::PathBuf, time::Duration};
     /// # use matrix_sdk::{
     /// #     Client, SyncSettings,
-    /// #     identifiers::room_id,
+    /// #     ruma::room_id,
     /// # };
     /// # use futures::executor::block_on;
     /// # use url::Url;
@@ -2482,11 +2490,14 @@ impl Client {
     ///     .expect("Can't import keys");
     /// # });
     /// ```
-    #[cfg(feature = "encryption")]
-    #[cfg(not(target_arch = "wasm32"))]
+    #[cfg(all(feature = "encryption", not(target_arch = "wasm32")))]
     #[cfg_attr(feature = "docs", doc(cfg(all(encryption, not(target_arch = "wasm32")))))]
-    pub async fn import_keys(&self, path: PathBuf, passphrase: &str) -> Result<(usize, usize)> {
-        let olm = self.base_client.olm_machine().await.ok_or(Error::AuthenticationRequired)?;
+    pub async fn import_keys(
+        &self,
+        path: PathBuf,
+        passphrase: &str,
+    ) -> StdResult<(usize, usize), RoomKeyImportError> {
+        let olm = self.base_client.olm_machine().await.ok_or(RoomKeyImportError::StoreClosed)?;
         let passphrase = Zeroizing::new(passphrase.to_owned());
 
         let decrypt = move || {
@@ -2495,8 +2506,7 @@ impl Client {
         };
 
         let task = tokio::task::spawn_blocking(decrypt);
-        // TODO remove this unwrap.
-        let import = task.await.expect("Task join error").unwrap();
+        let import = task.await.expect("Task join error")?;
 
         Ok(olm.import_keys(import, |_, _| {}).await?)
     }
@@ -2703,6 +2713,23 @@ impl Client {
     pub async fn whoami(&self) -> Result<whoami::Response> {
         let request = whoami::Request::new();
         self.send(request, None).await
+    }
+
+    #[cfg(feature = "encryption")]
+    pub(crate) async fn send_verification_request(
+        &self,
+        request: matrix_sdk_base::crypto::OutgoingVerificationRequest,
+    ) -> Result<()> {
+        match request {
+            matrix_sdk_base::crypto::OutgoingVerificationRequest::ToDevice(t) => {
+                self.send_to_device(&t).await?;
+            }
+            matrix_sdk_base::crypto::OutgoingVerificationRequest::InRoom(r) => {
+                self.room_send_helper(&r).await?;
+            }
+        }
+
+        Ok(())
     }
 }
 

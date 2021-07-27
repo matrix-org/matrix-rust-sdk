@@ -15,6 +15,7 @@
 mod cache;
 mod event_enums;
 mod machine;
+mod qrcode;
 mod requests;
 mod sas;
 
@@ -22,6 +23,7 @@ use std::sync::Arc;
 
 use event_enums::OutgoingContent;
 pub use machine::VerificationMachine;
+pub use qrcode::QrVerification;
 pub use requests::VerificationRequest;
 use ruma::{
     api::client::r0::keys::upload_signatures::Request as SignatureUploadRequest,
@@ -41,25 +43,83 @@ use tracing::{error, info, trace, warn};
 use crate::{
     error::SignatureError,
     olm::PrivateCrossSigningIdentity,
-    store::{Changes, CryptoStore, DeviceChanges},
-    CryptoStoreError, LocalTrust, ReadOnlyDevice, UserIdentities,
+    store::{Changes, CryptoStore},
+    CryptoStoreError, LocalTrust, ReadOnlyDevice, ReadOnlyUserIdentities,
 };
 
+/// An enum over the different verification types the SDK supports.
 #[derive(Clone, Debug)]
 pub enum Verification {
+    /// The `m.sas.v1` verification variant.
     SasV1(Sas),
+    /// The `m.qr_code.*.v1` verification variant.
+    QrV1(QrVerification),
 }
 
 impl Verification {
-    pub fn is_done(&self) -> bool {
-        match self {
-            Verification::SasV1(s) => s.is_done(),
+    /// Try to deconstruct this verification enum into a SAS verification.
+    pub fn sas_v1(self) -> Option<Sas> {
+        if let Verification::SasV1(sas) = self {
+            Some(sas)
+        } else {
+            None
         }
     }
 
+    /// Try to deconstruct this verification enum into a QR code verification.
+    pub fn qr_v1(self) -> Option<QrVerification> {
+        if let Verification::QrV1(qr) = self {
+            Some(qr)
+        } else {
+            None
+        }
+    }
+
+    /// Has this verification finished.
+    pub fn is_done(&self) -> bool {
+        match self {
+            Verification::SasV1(s) => s.is_done(),
+            Verification::QrV1(qr) => qr.is_done(),
+        }
+    }
+
+    /// Get the ID that uniquely identifies this verification flow.
+    pub fn flow_id(&self) -> &str {
+        match self {
+            Verification::SasV1(s) => s.flow_id().as_str(),
+            Verification::QrV1(qr) => qr.flow_id().as_str(),
+        }
+    }
+
+    /// Has the verification been cancelled.
     pub fn is_cancelled(&self) -> bool {
         match self {
             Verification::SasV1(s) => s.is_cancelled(),
+            Verification::QrV1(qr) => qr.is_cancelled(),
+        }
+    }
+
+    /// Get our own user id that is participating in this verification.
+    pub fn user_id(&self) -> &UserId {
+        match self {
+            Verification::SasV1(v) => v.user_id(),
+            Verification::QrV1(v) => v.user_id(),
+        }
+    }
+
+    /// Get the other user id that is participating in this verification.
+    pub fn other_user(&self) -> &UserId {
+        match self {
+            Verification::SasV1(s) => s.other_user_id(),
+            Verification::QrV1(qr) => qr.other_user_id(),
+        }
+    }
+
+    /// Is this a verification verifying a device that belongs to us.
+    pub fn is_self_verification(&self) -> bool {
+        match self {
+            Verification::SasV1(v) => v.is_self_verification(),
+            Verification::QrV1(v) => v.is_self_verification(),
         }
     }
 }
@@ -67,6 +127,12 @@ impl Verification {
 impl From<Sas> for Verification {
     fn from(sas: Sas) -> Self {
         Self::SasV1(sas)
+    }
+}
+
+impl From<QrVerification> for Verification {
+    fn from(qr: QrVerification) -> Self {
+        Self::QrV1(qr)
     }
 }
 
@@ -78,7 +144,7 @@ impl From<Sas> for Verification {
 #[derive(Clone, Debug)]
 pub struct Done {
     verified_devices: Arc<[ReadOnlyDevice]>,
-    verified_master_keys: Arc<[UserIdentities]>,
+    verified_master_keys: Arc<[ReadOnlyUserIdentities]>,
 }
 
 impl Done {
@@ -99,14 +165,47 @@ impl Done {
     }
 }
 
+/// Information about the cancellation of a verification request or verification
+/// flow.
+#[derive(Clone, Debug)]
+pub struct CancelInfo {
+    cancelled_by_us: bool,
+    cancel_code: CancelCode,
+    reason: &'static str,
+}
+
+impl CancelInfo {
+    /// Get the human readable reason of the cancellation.
+    pub fn reason(&self) -> &'static str {
+        &self.reason
+    }
+
+    /// Get the `CancelCode` that cancelled this verification.
+    pub fn cancel_code(&self) -> &CancelCode {
+        &self.cancel_code
+    }
+
+    /// Was the verification cancelled by us?
+    pub fn cancelled_by_us(&self) -> bool {
+        self.cancelled_by_us
+    }
+}
+
+impl From<Cancelled> for CancelInfo {
+    fn from(c: Cancelled) -> Self {
+        Self { cancelled_by_us: c.cancelled_by_us, cancel_code: c.cancel_code, reason: c.reason }
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct Cancelled {
+    cancelled_by_us: bool,
     cancel_code: CancelCode,
     reason: &'static str,
 }
 
 impl Cancelled {
-    fn new(code: CancelCode) -> Self {
+    fn new(cancelled_by_us: bool, code: CancelCode) -> Self {
         let reason = match code {
             CancelCode::Accepted => {
                 "A m.key.verification.request was accepted by a different device."
@@ -126,7 +225,7 @@ impl Cancelled {
             _ => "Unknown cancel reason",
         };
 
-        Self { cancel_code: code, reason }
+        Self { cancelled_by_us, cancel_code: code, reason }
     }
 
     pub fn as_content(&self, flow_id: &FlowId) -> OutgoingContent {
@@ -210,12 +309,20 @@ pub struct IdentitiesBeingVerified {
     private_identity: PrivateCrossSigningIdentity,
     store: Arc<dyn CryptoStore>,
     device_being_verified: ReadOnlyDevice,
-    identity_being_verified: Option<UserIdentities>,
+    identity_being_verified: Option<ReadOnlyUserIdentities>,
 }
 
 impl IdentitiesBeingVerified {
+    async fn can_sign_devices(&self) -> bool {
+        self.private_identity.can_sign_devices().await
+    }
+
     fn user_id(&self) -> &UserId {
         self.private_identity.user_id()
+    }
+
+    fn is_self_verification(&self) -> bool {
+        self.user_id() == self.other_user_id()
     }
 
     fn other_user_id(&self) -> &UserId {
@@ -233,11 +340,20 @@ impl IdentitiesBeingVerified {
     pub async fn mark_as_done(
         &self,
         verified_devices: Option<&[ReadOnlyDevice]>,
-        verified_identities: Option<&[UserIdentities]>,
+        verified_identities: Option<&[ReadOnlyUserIdentities]>,
     ) -> Result<VerificationResult, CryptoStoreError> {
-        if let Some(device) = self.mark_device_as_verified(verified_devices).await? {
-            let identity = self.mark_identity_as_verified(verified_identities).await?;
+        let device = self.mark_device_as_verified(verified_devices).await?;
+        let identity = self.mark_identity_as_verified(verified_identities).await?;
 
+        if device.is_none() && identity.is_none() {
+            // Something wen't wrong if nothing was verified, we use key
+            // mismatch here, since it's the closest to nothing was verified
+            return Ok(VerificationResult::Cancel(CancelCode::KeyMismatch));
+        }
+
+        let mut changes = Changes::default();
+
+        let signature_request = if let Some(device) = device {
             // We only sign devices of our own user here.
             let signature_request = if device.user_id() == self.user_id() {
                 match self.private_identity.sign_device(&device).await {
@@ -266,83 +382,79 @@ impl IdentitiesBeingVerified {
                 None
             };
 
-            let mut changes = Changes {
-                devices: DeviceChanges { changed: vec![device], ..Default::default() },
-                ..Default::default()
-            };
+            changes.devices.changed.push(device);
+            signature_request
+        } else {
+            None
+        };
 
-            let identity_signature_request = if let Some(i) = identity {
-                // We only sign other users here.
-                let request = if let Some(i) = i.other() {
-                    // Signing can fail if the user signing key is missing.
-                    match self.private_identity.sign_user(i).await {
-                        Ok(r) => Some(r),
-                        Err(SignatureError::MissingSigningKey) => {
-                            warn!(
-                                "Can't sign the public cross signing keys for {}, \
-                                  no private user signing key found",
-                                i.user_id()
-                            );
-                            None
-                        }
-                        Err(e) => {
-                            error!(
-                                "Error signing the public cross signing keys for {} {:?}",
-                                i.user_id(),
-                                e
-                            );
-                            None
-                        }
+        let identity_signature_request = if let Some(i) = identity {
+            // We only sign other users here.
+            let request = if let Some(i) = i.other() {
+                // Signing can fail if the user signing key is missing.
+                match self.private_identity.sign_user(i).await {
+                    Ok(r) => Some(r),
+                    Err(SignatureError::MissingSigningKey) => {
+                        warn!(
+                            "Can't sign the public cross signing keys for {}, \
+                              no private user signing key found",
+                            i.user_id()
+                        );
+                        None
                     }
-                } else {
-                    None
-                };
-
-                changes.identities.changed.push(i);
-
-                request
+                    Err(e) => {
+                        error!(
+                            "Error signing the public cross signing keys for {} {:?}",
+                            i.user_id(),
+                            e
+                        );
+                        None
+                    }
+                }
             } else {
                 None
             };
 
-            // If there are two signature upload requests, merge them. Otherwise
-            // use the one we have or None.
-            //
-            // Realistically at most one request will be used but let's make
-            // this future proof.
-            let merged_request = if let Some(mut r) = signature_request {
-                if let Some(user_request) = identity_signature_request {
-                    r.signed_keys.extend(user_request.signed_keys);
-                    Some(r)
-                } else {
-                    Some(r)
-                }
-            } else {
-                identity_signature_request
-            };
-
-            // TODO store the signature upload request as well.
-            self.store.save_changes(changes).await?;
-            Ok(merged_request
-                .map(VerificationResult::SignatureUpload)
-                .unwrap_or(VerificationResult::Ok))
+            changes.identities.changed.push(i);
+            request
         } else {
-            Ok(VerificationResult::Cancel(CancelCode::UserMismatch))
-        }
+            None
+        };
+
+        // If there are two signature upload requests, merge them. Otherwise
+        // use the one we have or None.
+        //
+        // Realistically at most one request will be used but let's make
+        // this future proof.
+        let merged_request = if let Some(mut r) = signature_request {
+            if let Some(user_request) = identity_signature_request {
+                r.signed_keys.extend(user_request.signed_keys);
+                Some(r)
+            } else {
+                Some(r)
+            }
+        } else {
+            identity_signature_request
+        };
+
+        // TODO store the signature upload request as well.
+        self.store.save_changes(changes).await?;
+
+        Ok(merged_request
+            .map(VerificationResult::SignatureUpload)
+            .unwrap_or(VerificationResult::Ok))
     }
 
     async fn mark_identity_as_verified(
         &self,
-        verified_identities: Option<&[UserIdentities]>,
-    ) -> Result<Option<UserIdentities>, CryptoStoreError> {
+        verified_identities: Option<&[ReadOnlyUserIdentities]>,
+    ) -> Result<Option<ReadOnlyUserIdentities>, CryptoStoreError> {
         // If there wasn't an identity available during the verification flow
         // return early as there's nothing to do.
         if self.identity_being_verified.is_none() {
             return Ok(None);
         }
 
-        // TODO signal an error, e.g. when the identity got deleted so we don't
-        // verify/save the device either.
         let identity = self.store.get_user_identity(self.other_user_id()).await?;
 
         if let Some(identity) = identity {
@@ -357,7 +469,7 @@ impl IdentitiesBeingVerified {
                         "Marking the user identity of as verified."
                     );
 
-                    if let UserIdentities::Own(i) = &identity {
+                    if let ReadOnlyUserIdentities::Own(i) = &identity {
                         i.mark_as_verified();
                     }
 
@@ -445,11 +557,12 @@ impl IdentitiesBeingVerified {
 
 #[cfg(test)]
 pub(crate) mod test {
+    use std::convert::TryInto;
+
     use ruma::{
-        events::{AnyToDeviceEvent, AnyToDeviceEventContent, EventType, ToDeviceEvent},
+        events::{AnyToDeviceEvent, AnyToDeviceEventContent, ToDeviceEvent},
         UserId,
     };
-    use serde_json::Value;
 
     use super::event_enums::OutgoingContent;
     use crate::{
@@ -461,7 +574,8 @@ pub(crate) mod test {
         sender: &UserId,
         request: &OutgoingVerificationRequest,
     ) -> AnyToDeviceEvent {
-        let content = get_content_from_request(request);
+        let content =
+            request.to_owned().try_into().expect("Can't fetch content out of the request");
         wrap_any_to_device_content(sender, content)
     }
 
@@ -509,37 +623,5 @@ pub(crate) mod test {
 
             _ => unreachable!(),
         }
-    }
-
-    pub(crate) fn get_content_from_request(
-        request: &OutgoingVerificationRequest,
-    ) -> OutgoingContent {
-        let request =
-            if let OutgoingVerificationRequest::ToDevice(r) = request { r } else { unreachable!() };
-
-        let json: Value = serde_json::from_str(
-            request.messages.values().next().unwrap().values().next().unwrap().get(),
-        )
-        .unwrap();
-
-        match request.event_type {
-            EventType::KeyVerificationStart => {
-                AnyToDeviceEventContent::KeyVerificationStart(serde_json::from_value(json).unwrap())
-            }
-            EventType::KeyVerificationKey => {
-                AnyToDeviceEventContent::KeyVerificationKey(serde_json::from_value(json).unwrap())
-            }
-            EventType::KeyVerificationAccept => AnyToDeviceEventContent::KeyVerificationAccept(
-                serde_json::from_value(json).unwrap(),
-            ),
-            EventType::KeyVerificationMac => {
-                AnyToDeviceEventContent::KeyVerificationMac(serde_json::from_value(json).unwrap())
-            }
-            EventType::KeyVerificationCancel => AnyToDeviceEventContent::KeyVerificationCancel(
-                serde_json::from_value(json).unwrap(),
-            ),
-            _ => unreachable!(),
-        }
-        .into()
     }
 }

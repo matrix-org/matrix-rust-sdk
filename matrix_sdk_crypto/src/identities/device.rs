@@ -25,15 +25,13 @@ use std::{
 use atomic::Atomic;
 use matrix_sdk_common::locks::Mutex;
 use ruma::{
-    api::client::r0::keys::SignedKey,
-    encryption::DeviceKeys,
+    encryption::{DeviceKeys, SignedKey},
     events::{
         forwarded_room_key::ForwardedRoomKeyToDeviceEventContent,
-        room::encrypted::EncryptedEventContent, EventType,
+        key::verification::VerificationMethod, room::encrypted::EncryptedEventContent,
+        AnyToDeviceEventContent,
     },
-    identifiers::{
-        DeviceId, DeviceIdBox, DeviceKeyAlgorithm, DeviceKeyId, EventEncryptionAlgorithm, UserId,
-    },
+    DeviceId, DeviceIdBox, DeviceKeyAlgorithm, DeviceKeyId, EventEncryptionAlgorithm, UserId,
 };
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use serde_json::{json, Value};
@@ -42,11 +40,11 @@ use tracing::warn;
 use super::{atomic_bool_deserializer, atomic_bool_serializer};
 use crate::{
     error::{EventError, OlmError, OlmResult, SignatureError},
-    identities::{OwnUserIdentity, UserIdentities},
+    identities::{ReadOnlyOwnUserIdentity, ReadOnlyUserIdentities},
     olm::{InboundGroupSession, PrivateCrossSigningIdentity, Session, Utility},
     store::{Changes, CryptoStore, DeviceChanges, Result as StoreResult},
     verification::VerificationMachine,
-    OutgoingVerificationRequest, Sas, ToDeviceRequest,
+    OutgoingVerificationRequest, Sas, ToDeviceRequest, VerificationRequest,
 };
 #[cfg(test)]
 use crate::{OlmMachine, ReadOnlyAccount};
@@ -107,8 +105,8 @@ pub struct Device {
     pub(crate) inner: ReadOnlyDevice,
     pub(crate) private_identity: Arc<Mutex<PrivateCrossSigningIdentity>>,
     pub(crate) verification_machine: VerificationMachine,
-    pub(crate) own_identity: Option<OwnUserIdentity>,
-    pub(crate) device_owner_identity: Option<UserIdentities>,
+    pub(crate) own_identity: Option<ReadOnlyOwnUserIdentity>,
+    pub(crate) device_owner_identity: Option<ReadOnlyUserIdentities>,
 }
 
 impl std::fmt::Debug for Device {
@@ -128,7 +126,13 @@ impl Deref for Device {
 impl Device {
     /// Start a interactive verification with this `Device`
     ///
-    /// Returns a `Sas` object and to-device request that needs to be sent out.
+    /// Returns a `Sas` object and a to-device request that needs to be sent
+    /// out.
+    ///
+    /// This method has been deprecated in the spec and the
+    /// [`request_verification()`] method should be used instead.
+    ///
+    /// [`request_verification()`]: #method.request_verification
     pub async fn start_verification(&self) -> StoreResult<(Sas, ToDeviceRequest)> {
         let (sas, request) = self.verification_machine.start_sas(self.inner.clone()).await?;
 
@@ -137,6 +141,42 @@ impl Device {
         } else {
             panic!("Invalid verification request type");
         }
+    }
+
+    /// Request an interacitve verification with this `Device`
+    ///
+    /// Returns a `VerificationRequest` object and a to-device request that
+    /// needs to be sent out.
+    pub async fn request_verification(&self) -> (VerificationRequest, OutgoingVerificationRequest) {
+        self.request_verification_helper(None).await
+    }
+
+    /// Request an interacitve verification with this `Device`
+    ///
+    /// Returns a `VerificationRequest` object and a to-device request that
+    /// needs to be sent out.
+    ///
+    /// # Arguments
+    ///
+    /// * `methods` - The verification methods that we want to support.
+    pub async fn request_verification_with_methods(
+        &self,
+        methods: Vec<VerificationMethod>,
+    ) -> (VerificationRequest, OutgoingVerificationRequest) {
+        self.request_verification_helper(Some(methods)).await
+    }
+
+    async fn request_verification_helper(
+        &self,
+        methods: Option<Vec<VerificationMethod>>,
+    ) -> (VerificationRequest, OutgoingVerificationRequest) {
+        self.verification_machine
+            .request_to_device_verification(
+                self.user_id(),
+                vec![self.device_id().to_owned()],
+                methods,
+            )
+            .await
     }
 
     /// Get the Olm sessions that belong to this device.
@@ -148,9 +188,20 @@ impl Device {
         }
     }
 
-    /// Get the trust state of the device.
-    pub fn trust_state(&self) -> bool {
-        self.inner.trust_state(&self.own_identity, &self.device_owner_identity)
+    /// Is this device considered to be verified.
+    ///
+    /// This method returns true if either [`is_locally_trusted()`] returns true
+    /// or if [`is_cross_signing_trusted()`] returns true.
+    ///
+    /// [`is_locally_trusted()`]: #method.is_locally_trusted
+    /// [`is_cross_signing_trusted()`]: #method.is_cross_signing_trusted
+    pub fn verified(&self) -> bool {
+        self.inner.verified(&self.own_identity, &self.device_owner_identity)
+    }
+
+    /// Is this device considered to be verified using cross signing.
+    pub fn is_cross_signing_trusted(&self) -> bool {
+        self.inner.is_cross_signing_trusted(&self.own_identity, &self.device_owner_identity)
     }
 
     /// Set the local trust state of the device to the given state.
@@ -176,15 +227,12 @@ impl Device {
     ///
     /// # Arguments
     ///
-    /// * `event_type` - The type of the event.
-    ///
     /// * `content` - The content of the event that should be encrypted.
     pub(crate) async fn encrypt(
         &self,
-        event_type: EventType,
-        content: Value,
+        content: AnyToDeviceEventContent,
     ) -> OlmResult<(Session, EncryptedEventContent)> {
-        self.inner.encrypt(&*self.verification_machine.store, event_type, content).await
+        self.inner.encrypt(&*self.verification_machine.store, content).await
     }
 
     /// Encrypt the given inbound group session as a forwarded room key for this
@@ -213,8 +261,7 @@ impl Device {
             );
         };
 
-        let content = serde_json::to_value(content)?;
-        self.encrypt(EventType::ForwardedRoomKey, content).await
+        self.encrypt(AnyToDeviceEventContent::ForwardedRoomKey(content)).await
     }
 }
 
@@ -224,8 +271,8 @@ pub struct UserDevices {
     pub(crate) inner: HashMap<DeviceIdBox, ReadOnlyDevice>,
     pub(crate) private_identity: Arc<Mutex<PrivateCrossSigningIdentity>>,
     pub(crate) verification_machine: VerificationMachine,
-    pub(crate) own_identity: Option<OwnUserIdentity>,
-    pub(crate) device_owner_identity: Option<UserIdentities>,
+    pub(crate) own_identity: Option<ReadOnlyOwnUserIdentity>,
+    pub(crate) device_owner_identity: Option<ReadOnlyUserIdentities>,
 }
 
 impl UserDevices {
@@ -243,7 +290,7 @@ impl UserDevices {
     /// Returns true if there is at least one devices of this user that is
     /// considered to be verified, false otherwise.
     pub fn is_any_verified(&self) -> bool {
-        self.inner.values().any(|d| d.trust_state(&self.own_identity, &self.device_owner_identity))
+        self.inner.values().any(|d| d.verified(&self.own_identity, &self.device_owner_identity))
     }
 
     /// Iterator over all the device ids of the user devices.
@@ -347,7 +394,7 @@ impl ReadOnlyDevice {
     }
 
     /// Is the device locally marked as trusted.
-    pub fn is_trusted(&self) -> bool {
+    pub fn is_locally_trusted(&self) -> bool {
         self.local_trust_state() == LocalTrust::Verified
     }
 
@@ -376,53 +423,47 @@ impl ReadOnlyDevice {
         self.deleted.load(Ordering::Relaxed)
     }
 
-    pub(crate) fn trust_state(
+    pub(crate) fn verified(
         &self,
-        own_identity: &Option<OwnUserIdentity>,
-        device_owner: &Option<UserIdentities>,
+        own_identity: &Option<ReadOnlyOwnUserIdentity>,
+        device_owner: &Option<ReadOnlyUserIdentities>,
     ) -> bool {
-        // TODO we want to return an enum mentioning if the trust is local, if
-        // only the identity is trusted, if the identity and the device are
-        // trusted.
-        if self.is_trusted() {
-            // If the device is locally marked as verified just return so, no
-            // need to check signatures.
-            true
-        } else {
-            own_identity.as_ref().map_or(false, |own_identity| {
-                // Our own identity needs to be marked as verified.
-                own_identity.is_verified()
-                    && device_owner
-                        .as_ref()
-                        .map(|device_identity| match device_identity {
-                            // If it's one of our own devices, just check that
-                            // we signed the device.
-                            UserIdentities::Own(_) => {
-                                own_identity.is_device_signed(self).map_or(false, |_| true)
-                            }
+        self.is_locally_trusted() || self.is_cross_signing_trusted(own_identity, device_owner)
+    }
 
-                            // If it's a device from someone else, first check
-                            // that our user has signed the other user and then
-                            // check if the other user has signed this device.
-                            UserIdentities::Other(device_identity) => {
-                                own_identity
-                                    .is_identity_signed(device_identity)
-                                    .map_or(false, |_| true)
-                                    && device_identity
-                                        .is_device_signed(self)
-                                        .map_or(false, |_| true)
-                            }
-                        })
-                        .unwrap_or(false)
-            })
-        }
+    pub(crate) fn is_cross_signing_trusted(
+        &self,
+        own_identity: &Option<ReadOnlyOwnUserIdentity>,
+        device_owner: &Option<ReadOnlyUserIdentities>,
+    ) -> bool {
+        own_identity.as_ref().map_or(false, |own_identity| {
+            // Our own identity needs to be marked as verified.
+            own_identity.is_verified()
+                && device_owner
+                    .as_ref()
+                    .map(|device_identity| match device_identity {
+                        // If it's one of our own devices, just check that
+                        // we signed the device.
+                        ReadOnlyUserIdentities::Own(_) => {
+                            own_identity.is_device_signed(self).map_or(false, |_| true)
+                        }
+
+                        // If it's a device from someone else, first check
+                        // that our user has signed the other user and then
+                        // check if the other user has signed this device.
+                        ReadOnlyUserIdentities::Other(device_identity) => {
+                            own_identity.is_identity_signed(device_identity).map_or(false, |_| true)
+                                && device_identity.is_device_signed(self).map_or(false, |_| true)
+                        }
+                    })
+                    .unwrap_or(false)
+        })
     }
 
     pub(crate) async fn encrypt(
         &self,
         store: &dyn CryptoStore,
-        event_type: EventType,
-        content: Value,
+        content: AnyToDeviceEventContent,
     ) -> OlmResult<(Session, EncryptedEventContent)> {
         let sender_key = if let Some(k) = self.get_key(DeviceKeyAlgorithm::Curve25519) {
             k
@@ -455,7 +496,7 @@ impl ReadOnlyDevice {
             return Err(OlmError::MissingSession);
         };
 
-        let message = session.encrypt(self, event_type, content).await?;
+        let message = session.encrypt(self, content).await?;
 
         Ok((session, message))
     }

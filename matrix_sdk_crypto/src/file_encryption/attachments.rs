@@ -17,9 +17,9 @@ use std::{
     io::{Error as IoError, ErrorKind, Read},
 };
 
-use aes_ctr::{
-    cipher::{NewStreamCipher, SyncStreamCipher},
-    Aes256Ctr,
+use aes::{
+    cipher::{generic_array::GenericArray, FromBlockCipher, NewBlockCipher, StreamCipher},
+    Aes256, Aes256Ctr,
 };
 use base64::DecodeError;
 use getrandom::getrandom;
@@ -37,17 +37,25 @@ const VERSION: &str = "v2";
 
 /// A wrapper that transparently encrypts anything that implements `Read` as an
 /// Matrix attachment.
-#[derive(Debug)]
 pub struct AttachmentDecryptor<'a, R: 'a + Read> {
-    inner_reader: &'a mut R,
+    inner: &'a mut R,
     expected_hash: Vec<u8>,
     sha: Sha256,
     aes: Aes256Ctr,
 }
 
+impl<'a, R: 'a + Read + std::fmt::Debug> std::fmt::Debug for AttachmentDecryptor<'a, R> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("AttachmentDecryptor")
+            .field("inner", &self.inner)
+            .field("expected_hash", &self.expected_hash)
+            .finish()
+    }
+}
+
 impl<'a, R: Read> Read for AttachmentDecryptor<'a, R> {
     fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
-        let read_bytes = self.inner_reader.read(buf)?;
+        let read_bytes = self.inner.read(buf)?;
 
         if read_bytes == 0 {
             let hash = self.sha.finalize_reset();
@@ -126,19 +134,20 @@ impl<'a, R: Read + 'a> AttachmentDecryptor<'a, R> {
         let hash = decode(info.hashes.get("sha256").ok_or(DecryptorError::MissingHash)?)?;
         let key = Zeroizing::from(decode_url_safe(info.web_key.k)?);
         let iv = decode(info.iv)?;
+        let iv = GenericArray::from_exact_iter(iv).ok_or(DecryptorError::KeyNonceLength)?;
 
         let sha = Sha256::default();
-        let aes = Aes256Ctr::new_var(&key, &iv).map_err(|_| DecryptorError::KeyNonceLength)?;
+        let aes = Aes256::new_from_slice(&key).map_err(|_| DecryptorError::KeyNonceLength)?;
+        let aes = Aes256Ctr::from_block_cipher(aes, &iv);
 
-        Ok(AttachmentDecryptor { inner_reader: input, expected_hash: hash, sha, aes })
+        Ok(AttachmentDecryptor { inner: input, expected_hash: hash, sha, aes })
     }
 }
 
 /// A wrapper that transparently encrypts anything that implements `Read`.
-#[derive(Debug)]
 pub struct AttachmentEncryptor<'a, R: Read + 'a> {
     finished: bool,
-    inner_reader: &'a mut R,
+    inner: &'a mut R,
     web_key: JsonWebKey,
     iv: String,
     hashes: BTreeMap<String, String>,
@@ -146,9 +155,18 @@ pub struct AttachmentEncryptor<'a, R: Read + 'a> {
     sha: Sha256,
 }
 
+impl<'a, R: 'a + Read + std::fmt::Debug> std::fmt::Debug for AttachmentEncryptor<'a, R> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("AttachmentEncryptor")
+            .field("inner", &self.inner)
+            .field("finished", &self.finished)
+            .finish()
+    }
+}
+
 impl<'a, R: Read + 'a> Read for AttachmentEncryptor<'a, R> {
     fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
-        let read_bytes = self.inner_reader.read(buf)?;
+        let read_bytes = self.inner.read(buf)?;
 
         if read_bytes == 0 {
             let hash = self.sha.finalize_reset();
@@ -209,12 +227,15 @@ impl<'a, R: Read + 'a> AttachmentEncryptor<'a, R> {
             ext: true,
         });
         let encoded_iv = encode(&*iv);
+        let iv = GenericArray::from_slice(&*iv);
+        let key = GenericArray::from_slice(&*key);
 
-        let aes = Aes256Ctr::new_var(&*key, &*iv).expect("Cannot create AES encryption object.");
+        let aes = Aes256::new(key);
+        let aes = Aes256Ctr::from_block_cipher(aes, iv);
 
         AttachmentEncryptor {
             finished: false,
-            inner_reader: reader,
+            inner: reader,
             iv: encoded_iv,
             web_key,
             hashes: BTreeMap::new(),

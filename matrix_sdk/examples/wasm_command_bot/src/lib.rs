@@ -1,10 +1,12 @@
 use matrix_sdk::{
     deserialized_responses::SyncResponse,
-    events::{
-        room::message::{MessageEventContent, MessageType, TextMessageEventContent},
-        AnyMessageEventContent, AnySyncMessageEvent, AnySyncRoomEvent, SyncMessageEvent,
+    ruma::{
+        events::{
+            room::message::{MessageEventContent, MessageType, TextMessageEventContent},
+            AnyMessageEventContent, AnySyncMessageEvent, AnySyncRoomEvent, SyncMessageEvent,
+        },
+        RoomId,
     },
-    identifiers::RoomId,
     Client, LoopCtrl, SyncSettings,
 };
 use url::Url;
@@ -58,7 +60,9 @@ impl WasmBot {
 
         for (room_id, room) in response.rooms.join {
             for event in room.timeline.events {
-                if let Ok(AnySyncRoomEvent::Message(AnySyncMessageEvent::RoomMessage(ev))) = event.event.deserialize() {
+                if let Ok(AnySyncRoomEvent::Message(AnySyncMessageEvent::RoomMessage(ev))) =
+                    event.event.deserialize()
+                {
                     self.on_room_message(&room_id, &ev).await
                 }
             }
@@ -79,19 +83,14 @@ pub async fn run() -> Result<JsValue, JsValue> {
     let homeserver_url = Url::parse(&homeserver_url).unwrap();
     let client = Client::new(homeserver_url).unwrap();
 
-    client
-        .login(username, password, None, Some("rust-sdk-wasm"))
-        .await
-        .unwrap();
+    client.login(username, password, None, Some("rust-sdk-wasm")).await.unwrap();
 
     let bot = WasmBot(client.clone());
 
     client.sync_once(SyncSettings::default()).await.unwrap();
 
     let settings = SyncSettings::default().token(client.sync_token().await.unwrap());
-    client
-        .sync_with_callback(settings, |response| bot.on_sync_response(response))
-        .await;
+    client.sync_with_callback(settings, |response| bot.on_sync_response(response)).await;
 
     Ok(JsValue::NULL)
 }

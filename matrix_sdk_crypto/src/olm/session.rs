@@ -26,12 +26,12 @@ use ruma::{
             CiphertextInfo, EncryptedEventContent, EncryptedEventScheme,
             OlmV1Curve25519AesSha2Content,
         },
-        EventType,
+        AnyToDeviceEventContent, EventContent,
     },
-    identifiers::{DeviceId, DeviceKeyAlgorithm, UserId},
+    DeviceId, DeviceKeyAlgorithm, UserId,
 };
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
+use serde_json::json;
 
 use super::{deserialize_instant, serialize_instant, IdentityKeys};
 use crate::{
@@ -105,21 +105,17 @@ impl Session {
     ///   encrypted, this needs to be the device that was used to create this
     ///   session with.
     ///
-    /// * `event_type` - The type of the event.
-    ///
     /// * `content` - The content of the event.
     pub async fn encrypt(
         &mut self,
         recipient_device: &ReadOnlyDevice,
-        event_type: EventType,
-        content: Value,
+        content: AnyToDeviceEventContent,
     ) -> OlmResult<EncryptedEventContent> {
         let recipient_signing_key = recipient_device
             .get_key(DeviceKeyAlgorithm::Ed25519)
             .ok_or(EventError::MissingSigningKey)?;
 
-        let relates_to =
-            content.get("m.relates_to").cloned().and_then(|v| serde_json::from_value(v).ok());
+        let event_type = content.event_type();
 
         let payload = json!({
             "sender": self.user_id.as_str(),
@@ -149,7 +145,7 @@ impl Session {
                 content,
                 self.our_identity_keys.curve25519().to_string(),
             )),
-            relates_to,
+            None,
         ))
     }
 

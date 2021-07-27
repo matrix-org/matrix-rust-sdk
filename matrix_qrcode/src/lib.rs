@@ -20,12 +20,12 @@
 //! [spec]: https://spec.matrix.org/unstable/client-server-api/#qr-code-format
 //!
 //! ```no_run
-//! # use matrix_qrcode::{QrVerification, DecodingError};
+//! # use matrix_qrcode::{QrVerificationData, DecodingError};
 //! # fn main() -> Result<(), DecodingError> {
 //! use image;
 //!
 //! let image = image::open("/path/to/my/image.png").unwrap();
-//! let result = QrVerification::from_image(image)?;
+//! let result = QrVerificationData::from_image(image)?;
 //! # Ok(())
 //! # }
 //! ```
@@ -55,7 +55,7 @@ pub use qrcode;
 #[cfg_attr(feature = "docs", doc(cfg(decode_image)))]
 pub use rqrr;
 pub use types::{
-    QrVerification, SelfVerificationData, SelfVerificationNoMasterKey, VerificationData,
+    QrVerificationData, SelfVerificationData, SelfVerificationNoMasterKey, VerificationData,
 };
 
 #[cfg(test)]
@@ -70,7 +70,7 @@ mod test {
 
     #[cfg(feature = "decode_image")]
     use crate::utils::decode_qr;
-    use crate::{DecodingError, QrVerification};
+    use crate::{DecodingError, QrVerificationData};
 
     #[cfg(feature = "decode_image")]
     static VERIFICATION: &[u8; 4277] = include_bytes!("../data/verification.png");
@@ -92,9 +92,9 @@ mod test {
     fn decode_test() {
         let image = Cursor::new(VERIFICATION);
         let image = image::load(image, ImageFormat::Png).unwrap().to_luma8();
-        let result = QrVerification::try_from(image).unwrap();
+        let result = QrVerificationData::try_from(image).unwrap();
 
-        assert!(matches!(result, QrVerification::Verification(_)));
+        assert!(matches!(result, QrVerificationData::Verification(_)));
     }
 
     #[test]
@@ -102,18 +102,18 @@ mod test {
     fn decode_encode_cycle() {
         let image = Cursor::new(VERIFICATION);
         let image = image::load(image, ImageFormat::Png).unwrap();
-        let result = QrVerification::from_image(image).unwrap();
+        let result = QrVerificationData::from_image(image).unwrap();
 
-        assert!(matches!(result, QrVerification::Verification(_)));
+        assert!(matches!(result, QrVerificationData::Verification(_)));
 
         let encoded = result.to_qr_code().unwrap();
         let image = encoded.render::<Luma<u8>>().build();
-        let second_result = QrVerification::try_from(image).unwrap();
+        let second_result = QrVerificationData::try_from(image).unwrap();
 
         assert_eq!(result, second_result);
 
         let bytes = result.to_bytes().unwrap();
-        let third_result = QrVerification::from_bytes(bytes).unwrap();
+        let third_result = QrVerificationData::from_bytes(bytes).unwrap();
 
         assert_eq!(result, third_result);
     }
@@ -123,18 +123,18 @@ mod test {
     fn decode_encode_cycle_self() {
         let image = Cursor::new(SELF_VERIFICATION);
         let image = image::load(image, ImageFormat::Png).unwrap();
-        let result = QrVerification::try_from(image).unwrap();
+        let result = QrVerificationData::try_from(image).unwrap();
 
-        assert!(matches!(result, QrVerification::SelfVerification(_)));
+        assert!(matches!(result, QrVerificationData::SelfVerification(_)));
 
         let encoded = result.to_qr_code().unwrap();
         let image = encoded.render::<Luma<u8>>().build();
-        let second_result = QrVerification::from_luma(image).unwrap();
+        let second_result = QrVerificationData::from_luma(image).unwrap();
 
         assert_eq!(result, second_result);
 
         let bytes = result.to_bytes().unwrap();
-        let third_result = QrVerification::from_bytes(bytes).unwrap();
+        let third_result = QrVerificationData::from_bytes(bytes).unwrap();
 
         assert_eq!(result, third_result);
     }
@@ -144,18 +144,18 @@ mod test {
     fn decode_encode_cycle_self_no_master() {
         let image = Cursor::new(SELF_NO_MASTER);
         let image = image::load(image, ImageFormat::Png).unwrap();
-        let result = QrVerification::from_image(image).unwrap();
+        let result = QrVerificationData::from_image(image).unwrap();
 
-        assert!(matches!(result, QrVerification::SelfVerificationNoMasterKey(_)));
+        assert!(matches!(result, QrVerificationData::SelfVerificationNoMasterKey(_)));
 
         let encoded = result.to_qr_code().unwrap();
         let image = encoded.render::<Luma<u8>>().build();
-        let second_result = QrVerification::try_from(image).unwrap();
+        let second_result = QrVerificationData::try_from(image).unwrap();
 
         assert_eq!(result, second_result);
 
         let bytes = result.to_bytes().unwrap();
-        let third_result = QrVerification::try_from(bytes).unwrap();
+        let third_result = QrVerificationData::try_from(bytes).unwrap();
 
         assert_eq!(result, third_result);
     }
@@ -165,35 +165,35 @@ mod test {
     fn decode_invalid_qr() {
         let qr = QrCode::new(b"NonMatrixCode").expect("Can't build a simple QR code");
         let image = qr.render::<Luma<u8>>().build();
-        let result = QrVerification::try_from(image);
+        let result = QrVerificationData::try_from(image);
         assert!(matches!(result, Err(DecodingError::Header)))
     }
 
     #[test]
     fn decode_invalid_header() {
         let data = b"NonMatrixCode";
-        let result = QrVerification::from_bytes(data);
+        let result = QrVerificationData::from_bytes(data);
         assert!(matches!(result, Err(DecodingError::Header)))
     }
 
     #[test]
     fn decode_invalid_mode() {
         let data = b"MATRIX\x02\x03";
-        let result = QrVerification::from_bytes(data);
+        let result = QrVerificationData::from_bytes(data);
         assert!(matches!(result, Err(DecodingError::Mode(3))))
     }
 
     #[test]
     fn decode_invalid_version() {
         let data = b"MATRIX\x01\x03";
-        let result = QrVerification::from_bytes(data);
+        let result = QrVerificationData::from_bytes(data);
         assert!(matches!(result, Err(DecodingError::Version(1))))
     }
 
     #[test]
     fn decode_missing_data() {
         let data = b"MATRIX\x02\x02";
-        let result = QrVerification::from_bytes(data);
+        let result = QrVerificationData::from_bytes(data);
         assert!(matches!(result, Err(DecodingError::Read(_))))
     }
 
@@ -206,7 +206,7 @@ mod test {
                    BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB\
                    SECRET";
 
-        let result = QrVerification::from_bytes(data);
+        let result = QrVerificationData::from_bytes(data);
         assert!(matches!(result, Err(DecodingError::SharedSecret(_))))
     }
 
@@ -219,7 +219,7 @@ mod test {
                    BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB\
                    SECRETISLONGENOUGH";
 
-        let result = QrVerification::from_bytes(data);
+        let result = QrVerificationData::from_bytes(data);
         assert!(matches!(result, Err(DecodingError::Identifier(_))))
     }
 }

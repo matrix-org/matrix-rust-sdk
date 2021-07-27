@@ -75,33 +75,18 @@ compile_error!("only one of 'native-tls' or 'rustls-tls' features can be enabled
 #[cfg(all(feature = "sso_login", target_arch = "wasm32"))]
 compile_error!("'sso_login' cannot be enabled on 'wasm32' arch");
 
-pub use bytes::{Bytes, BytesMut};
+pub use bytes;
 #[cfg(feature = "encryption")]
 #[cfg_attr(feature = "docs", doc(cfg(encryption)))]
 pub use matrix_sdk_base::crypto::{EncryptionInfo, LocalTrust};
 pub use matrix_sdk_base::{
-    media, Error as BaseError, Room as BaseRoom, RoomInfo, RoomMember as BaseRoomMember, RoomType,
-    Session, StateChanges, StoreError,
+    media, Room as BaseRoom, RoomInfo, RoomMember as BaseRoomMember, RoomType, Session,
+    StateChanges, StoreError,
 };
 pub use matrix_sdk_common::*;
 pub use reqwest;
-#[cfg(feature = "appservice")]
-pub use ruma::{
-    api::{appservice as api_appservice, IncomingRequest, OutgoingRequestAppserviceExt},
-    serde::{exports::serde::de::value::Error as SerdeError, urlencoded},
-};
-pub use ruma::{
-    api::{
-        client as api,
-        error::{
-            FromHttpRequestError, FromHttpResponseError, IntoHttpError, MatrixError, ServerError,
-        },
-        AuthScheme, EndpointError, IncomingResponse, OutgoingRequest, SendAccessToken,
-    },
-    assign, directory, encryption, events, identifiers, int, presence, push, receipt,
-    serde::{CanonicalJsonValue, Raw},
-    thirdparty, uint, Int, MilliSecondsSinceUnixEpoch, Outgoing, SecondsSinceUnixEpoch, UInt,
-};
+#[doc(no_inline)]
+pub use ruma;
 
 mod client;
 mod error;
@@ -115,9 +100,7 @@ mod room_member;
 #[cfg(feature = "encryption")]
 mod device;
 #[cfg(feature = "encryption")]
-mod sas;
-#[cfg(feature = "encryption")]
-mod verification_request;
+pub mod verification;
 
 pub use client::{Client, ClientConfig, LoopCtrl, RequestConfig, SyncSettings};
 #[cfg(feature = "encryption")]
@@ -127,12 +110,5 @@ pub use error::{Error, HttpError, Result};
 pub use event_handler::{CustomEvent, EventHandler};
 pub use http_client::HttpSend;
 pub use room_member::RoomMember;
-#[cfg(feature = "encryption")]
-#[cfg_attr(feature = "docs", doc(cfg(encryption)))]
-pub use sas::Sas;
-#[cfg(feature = "encryption")]
-#[cfg_attr(feature = "docs", doc(cfg(encryption)))]
-pub use verification_request::VerificationRequest;
-
 #[cfg(not(target_arch = "wasm32"))]
 pub(crate) const VERSION: &str = env!("CARGO_PKG_VERSION");

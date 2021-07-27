@@ -45,9 +45,11 @@ pub use file_encryption::{
     DecryptorError, EncryptionInfo, KeyExportError,
 };
 pub use identities::{
-    Device, LocalTrust, OwnUserIdentity, ReadOnlyDevice, UserDevices, UserIdentities, UserIdentity,
+    Device, LocalTrust, OwnUserIdentity, ReadOnlyDevice, ReadOnlyOwnUserIdentity,
+    ReadOnlyUserIdentities, ReadOnlyUserIdentity, UserDevices, UserIdentities, UserIdentity,
 };
 pub use machine::OlmMachine;
+pub use matrix_qrcode;
 pub use olm::EncryptionSettings;
 pub(crate) use olm::ReadOnlyAccount;
 pub use requests::{
@@ -55,4 +57,6 @@ pub use requests::{
     OutgoingVerificationRequest, RoomMessageRequest, ToDeviceRequest,
 };
 pub use store::CryptoStoreError;
-pub use verification::{AcceptSettings, Sas, VerificationRequest};
+pub use verification::{
+    AcceptSettings, CancelInfo, QrVerification, Sas, Verification, VerificationRequest,
+};

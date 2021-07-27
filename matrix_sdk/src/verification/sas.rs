@@ -12,20 +12,19 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use matrix_sdk_base::crypto::{
-    AcceptSettings, OutgoingVerificationRequest, ReadOnlyDevice, Sas as BaseSas,
-};
+use matrix_sdk_base::crypto::{AcceptSettings, CancelInfo, ReadOnlyDevice, Sas as BaseSas};
+use ruma::UserId;
 
 use crate::{error::Result, Client};
 
 /// An object controlling the interactive verification flow.
 #[derive(Debug, Clone)]
-pub struct Sas {
+pub struct SasVerification {
     pub(crate) inner: BaseSas,
     pub(crate) client: Client,
 }
 
-impl Sas {
+impl SasVerification {
     /// Accept the interactive verification flow.
     pub async fn accept(&self) -> Result<()> {
         self.accept_with_settings(Default::default()).await
@@ -43,14 +42,21 @@ impl Sas {
     /// # use matrix_sdk::Client;
     /// # use futures::executor::block_on;
     /// # use url::Url;
-    /// use matrix_sdk::Sas;
+    /// # use ruma::user_id;
+    /// use matrix_sdk::verification::SasVerification;
     /// use matrix_sdk_base::crypto::AcceptSettings;
-    /// use matrix_sdk::events::key::verification::ShortAuthenticationString;
+    /// use matrix_sdk::ruma::events::key::verification::ShortAuthenticationString;
     /// # let homeserver = Url::parse("http://example.com").unwrap();
     /// # let client = Client::new(homeserver).unwrap();
     /// # let flow_id = "someID";
+    /// # let user_id = user_id!("@alice:example");
     /// # block_on(async {
-    /// let sas = client.get_verification(flow_id).await.unwrap();
+    /// let sas = client
+    ///     .get_verification(&user_id, flow_id)
+    ///     .await
+    ///     .unwrap()
+    ///     .sas()
+    ///     .unwrap();
     ///
     /// let only_decimal = AcceptSettings::with_allowed_methods(
     ///     vec![ShortAuthenticationString::Decimal]
@@ -59,15 +65,8 @@ impl Sas {
     /// # });
     /// ```
     pub async fn accept_with_settings(&self, settings: AcceptSettings) -> Result<()> {
-        if let Some(req) = self.inner.accept_with_settings(settings) {
-            match req {
-                OutgoingVerificationRequest::ToDevice(r) => {
-                    self.client.send_to_device(&r).await?;
-                }
-                OutgoingVerificationRequest::InRoom(r) => {
-                    self.client.room_send_helper(&r).await?;
-                }
-            }
+        if let Some(request) = self.inner.accept_with_settings(settings) {
+            self.client.send_verification_request(request).await?;
         }
         Ok(())
     }
@@ -76,16 +75,8 @@ impl Sas {
     pub async fn confirm(&self) -> Result<()> {
         let (request, signature) = self.inner.confirm().await?;
 
-        match request {
-            Some(OutgoingVerificationRequest::InRoom(r)) => {
-                self.client.room_send_helper(&r).await?;
-            }
-
-            Some(OutgoingVerificationRequest::ToDevice(r)) => {
-                self.client.send_to_device(&r).await?;
-            }
-
-            None => (),
+        if let Some(request) = request {
+            self.client.send_verification_request(request).await?;
         }
 
         if let Some(s) = signature {
@@ -98,14 +89,7 @@ impl Sas {
     /// Cancel the interactive verification flow.
     pub async fn cancel(&self) -> Result<()> {
         if let Some(request) = self.inner.cancel() {
-            match request {
-                OutgoingVerificationRequest::ToDevice(r) => {
-                    self.client.send_to_device(&r).await?;
-                }
-                OutgoingVerificationRequest::InRoom(r) => {
-                    self.client.room_send_helper(&r).await?;
-                }
-            }
+            self.client.send_verification_request(request).await?;
         }
 
         Ok(())
@@ -132,6 +116,22 @@ impl Sas {
         self.inner.is_done()
     }
 
+    /// Are we in a state where we can show the short auth string.
+    pub fn can_be_presented(&self) -> bool {
+        self.inner.can_be_presented()
+    }
+
+    /// Did we initiate the verification flow.
+    pub fn we_started(&self) -> bool {
+        self.inner.we_started()
+    }
+
+    /// Get info about the cancellation if the verification flow has been
+    /// cancelled.
+    pub fn cancel_info(&self) -> Option<CancelInfo> {
+        self.inner.cancel_info()
+    }
+
     /// Is the verification process canceled.
     pub fn is_cancelled(&self) -> bool {
         self.inner.is_cancelled()
@@ -140,5 +140,26 @@ impl Sas {
     /// Get the other users device that we're verifying.
     pub fn other_device(&self) -> &ReadOnlyDevice {
         self.inner.other_device()
+    }
+
+    /// Did this verification flow start from a verification request.
+    pub fn started_from_request(&self) -> bool {
+        self.inner.started_from_request()
+    }
+
+    /// Is this a verification that is veryfying one of our own devices.
+    pub fn is_self_verification(&self) -> bool {
+        self.inner.is_self_verification()
+    }
+
+    /// Get our own user id.
+    pub fn own_user_id(&self) -> &UserId {
+        self.inner.user_id()
+    }
+
+    /// Get the user id of the other user participating in this verification
+    /// flow.
+    pub fn other_user_id(&self) -> &UserId {
+        self.inner.other_user_id()
     }
 }

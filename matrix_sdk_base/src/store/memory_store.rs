@@ -28,9 +28,9 @@ use ruma::{
         AnyGlobalAccountDataEvent, AnyRoomAccountDataEvent, AnyStrippedStateEvent,
         AnySyncStateEvent, EventType,
     },
-    identifiers::{EventId, MxcUri, RoomId, UserId},
     receipt::ReceiptType,
     serde::Raw,
+    EventId, MxcUri, RoomId, UserId,
 };
 use tracing::info;
 
@@ -69,7 +69,7 @@ pub struct MemoryStore {
 }
 
 impl MemoryStore {
-    #[cfg(not(feature = "sled_state_store"))]
+    #[allow(dead_code)]
     pub fn new() -> Self {
         Self {
             sync_token: Arc::new(RwLock::new(None)),
@@ -581,15 +581,12 @@ impl StateStore for MemoryStore {
 }
 
 #[cfg(test)]
-#[cfg(not(feature = "sled_state_store"))]
 mod test {
-    use matrix_sdk_common::{
-        api::client::r0::media::get_content_thumbnail::Method,
-        identifiers::{event_id, mxc_uri, room_id, user_id, UserId},
-        receipt::ReceiptType,
-        uint,
-    };
     use matrix_sdk_test::async_test;
+    use ruma::{
+        api::client::r0::media::get_content_thumbnail::Method, event_id, mxc_uri,
+        receipt::ReceiptType, room_id, uint, user_id, UserId,
+    };
     use serde_json::json;
 
     use super::{MemoryStore, StateChanges};

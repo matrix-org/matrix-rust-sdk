@@ -1,12 +1,12 @@
 use std::sync::{Arc, Mutex};
 
-#[cfg(feature = "actix")]
-use actix_web::{test as actix_test, App as ActixApp, HttpResponse};
 use matrix_sdk::{
-    api_appservice::Registration,
     async_trait,
-    events::{room::member::MemberEventContent, SyncStateEvent},
     room::Room,
+    ruma::{
+        api::appservice::Registration,
+        events::{room::member::MemberEventContent, SyncStateEvent},
+    },
     ClientConfig, EventHandler, RequestConfig,
 };
 use matrix_sdk_appservice::*;
@@ -19,16 +19,16 @@ fn registration_string() -> String {
     include_str!("../tests/registration.yaml").to_owned()
 }
 
-async fn appservice(registration: Option<Registration>) -> Result<Appservice> {
+async fn appservice(registration: Option<Registration>) -> Result<AppService> {
     // env::set_var(
     //     "RUST_LOG",
-    //     "mockito=debug,matrix_sdk=debug,ruma=debug,actix_web=debug,warp=debug",
+    //     "mockito=debug,matrix_sdk=debug,ruma=debug,warp=debug",
     // );
     let _ = tracing_subscriber::fmt::try_init();
 
     let registration = match registration {
         Some(registration) => registration.into(),
-        None => AppserviceRegistration::try_from_yaml_str(registration_string()).unwrap(),
+        None => AppServiceRegistration::try_from_yaml_str(registration_string()).unwrap(),
     };
 
     let homeserver_url = mockito::server_url();
@@ -37,7 +37,7 @@ async fn appservice(registration: Option<Registration>) -> Result<Appservice> {
     let client_config =
         ClientConfig::default().request_config(RequestConfig::default().disable_retry());
 
-    Ok(Appservice::new_with_config(
+    Ok(AppService::new_with_config(
         homeserver_url.as_ref(),
         server_name,
         registration,
@@ -97,16 +97,6 @@ async fn test_put_transaction() -> Result<()> {
         .into_response()
         .status();
 
-    #[cfg(feature = "actix")]
-    let status = {
-        let app =
-            actix_test::init_service(ActixApp::new().configure(appservice.actix_configure())).await;
-
-        let req = actix_test::TestRequest::put().uri(uri).set_json(&transaction).to_request();
-
-        actix_test::call_service(&app, req).await.status()
-    };
-
     assert_eq!(status, 200);
 
     Ok(())
@@ -128,16 +118,6 @@ async fn test_get_user() -> Result<()> {
         .into_response()
         .status();
 
-    #[cfg(feature = "actix")]
-    let status = {
-        let app =
-            actix_test::init_service(ActixApp::new().configure(appservice.actix_configure())).await;
-
-        let req = actix_test::TestRequest::get().uri(uri).to_request();
-
-        actix_test::call_service(&app, req).await.status()
-    };
-
     assert_eq!(status, 200);
 
     Ok(())
@@ -158,16 +138,6 @@ async fn test_get_room() -> Result<()> {
         .unwrap()
         .into_response()
         .status();
-
-    #[cfg(feature = "actix")]
-    let status = {
-        let app =
-            actix_test::init_service(ActixApp::new().configure(appservice.actix_configure())).await;
-
-        let req = actix_test::TestRequest::get().uri(uri).to_request();
-
-        actix_test::call_service(&app, req).await.status()
-    };
 
     assert_eq!(status, 200);
 
@@ -194,16 +164,6 @@ async fn test_invalid_access_token() -> Result<()> {
         .unwrap()
         .into_response()
         .status();
-
-    #[cfg(feature = "actix")]
-    let status = {
-        let app =
-            actix_test::init_service(ActixApp::new().configure(appservice.actix_configure())).await;
-
-        let req = actix_test::TestRequest::put().uri(uri).set_json(&transaction).to_request();
-
-        actix_test::call_service(&app, req).await.status()
-    };
 
     assert_eq!(status, 401);
 
@@ -233,20 +193,6 @@ async fn test_no_access_token() -> Result<()> {
             .status();
 
         assert_eq!(status, 401);
-    }
-
-    #[cfg(feature = "actix")]
-    {
-        let app =
-            actix_test::init_service(ActixApp::new().configure(appservice.actix_configure())).await;
-
-        let req = actix_test::TestRequest::put().uri(uri).set_json(&transaction).to_request();
-
-        let resp = actix_test::call_service(&app, req).await;
-
-        // TODO: this should actually return a 401 but is 500 because something in the
-        // extractor fails
-        assert_eq!(resp.status(), 500);
     }
 
     Ok(())
@@ -294,16 +240,6 @@ async fn test_event_handler() -> Result<()> {
         .await
         .unwrap();
 
-    #[cfg(feature = "actix")]
-    {
-        let app =
-            actix_test::init_service(ActixApp::new().configure(appservice.actix_configure())).await;
-
-        let req = actix_test::TestRequest::put().uri(uri).set_json(&transaction).to_request();
-
-        actix_test::call_service(&app, req).await;
-    };
-
     let on_room_member_called = *example.on_state_member.lock().unwrap();
     assert!(on_room_member_called);
 
@@ -330,20 +266,6 @@ async fn test_unrelated_path() -> Result<()> {
         response.status()
     };
 
-    #[cfg(feature = "actix")]
-    let status = {
-        let app = actix_test::init_service(
-            ActixApp::new()
-                .configure(appservice.actix_configure())
-                .route("/unrelated", actix_web::web::get().to(HttpResponse::Ok)),
-        )
-        .await;
-
-        let req = actix_test::TestRequest::get().uri("/unrelated").to_request();
-
-        actix_test::call_service(&app, req).await.status()
-    };
-
     assert_eq!(status, 200);
 
     Ok(())
@@ -355,7 +277,7 @@ mod registration {
     #[test]
     fn test_registration() -> Result<()> {
         let registration: Registration = serde_yaml::from_str(&registration_string())?;
-        let registration: AppserviceRegistration = registration.into();
+        let registration: AppServiceRegistration = registration.into();
 
         assert_eq!(registration.id, "appservice");
 
@@ -364,7 +286,7 @@ mod registration {
 
     #[test]
     fn test_registration_from_yaml_file() -> Result<()> {
-        let registration = AppserviceRegistration::try_from_yaml_file("./tests/registration.yaml")?;
+        let registration = AppServiceRegistration::try_from_yaml_file("./tests/registration.yaml")?;
 
         assert_eq!(registration.id, "appservice");
 
@@ -373,7 +295,7 @@ mod registration {
 
     #[test]
     fn test_registration_from_yaml_str() -> Result<()> {
-        let registration = AppserviceRegistration::try_from_yaml_str(registration_string())?;
+        let registration = AppServiceRegistration::try_from_yaml_str(registration_string())?;
 
         assert_eq!(registration.id, "appservice");
 

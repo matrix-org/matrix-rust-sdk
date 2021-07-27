@@ -35,7 +35,7 @@ use super::{
     ReadOnlyAccount, Result, Session,
 };
 use crate::{
-    identities::{ReadOnlyDevice, UserIdentities},
+    identities::{ReadOnlyDevice, ReadOnlyUserIdentities},
     key_request::OutgoingKeyRequest,
     olm::{OutboundGroupSession, PickledInboundGroupSession, PrivateCrossSigningIdentity},
 };
@@ -669,7 +669,7 @@ impl CryptoStore for SledStore {
             .collect()
     }
 
-    async fn get_user_identity(&self, user_id: &UserId) -> Result<Option<UserIdentities>> {
+    async fn get_user_identity(&self, user_id: &UserId) -> Result<Option<ReadOnlyUserIdentities>> {
         Ok(self
             .identities
             .get(user_id.encode())?
@@ -757,9 +757,8 @@ mod test {
     use matrix_sdk_test::async_test;
     use olm_rs::outbound_group_session::OlmOutboundGroupSession;
     use ruma::{
-        api::client::r0::keys::SignedKey,
-        events::room_key_request::RequestedKeyInfo,
-        identifiers::{room_id, user_id, DeviceId, EventEncryptionAlgorithm, UserId},
+        encryption::SignedKey, events::room_key_request::RequestedKeyInfo, room_id, user_id,
+        DeviceId, EventEncryptionAlgorithm, UserId,
     };
     use tempfile::tempdir;
 
