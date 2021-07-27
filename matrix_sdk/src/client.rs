@@ -2745,7 +2745,7 @@ mod test {
                 message::{ImageMessageEventContent, MessageEventContent},
                 ImageInfo,
             },
-            AnyMessageEventContent,
+            AnyMessageEventContent, AnySyncStateEvent, EventType,
         },
         mxc_uri, room_id, thirdparty, uint, user_id, UserId,
     };
@@ -3894,5 +3894,103 @@ mod test {
         let user_id = user_id!("@joe:example.org");
 
         assert_eq!(client.whoami().await.unwrap().user_id, user_id);
+    }
+
+    #[tokio::test]
+    async fn test_state_event_getting() {
+        let homeserver = Url::from_str(&mockito::server_url()).unwrap();
+        let room_id = room_id!("!SVkFJHzfwvuaIEawgC:localhost");
+
+        let session = Session {
+            access_token: "1234".to_owned(),
+            user_id: user_id!("@example:localhost"),
+            device_id: "DEVICEID".into(),
+        };
+
+        let sync = json!({
+            "next_batch": "1234",
+            "rooms": {
+                "join": {
+                    "!SVkFJHzfwvuaIEawgC:localhost": {
+                        "state": {
+                          "events": [
+                            {
+                              "type": "m.custom.note",
+                              "sender": "@example:localhost",
+                              "content": {
+                                "body": "Note 1",
+                              },
+                              "state_key": "note.1",
+                              "origin_server_ts": 1611853078727u64,
+                              "unsigned": {
+                                "replaces_state": "$2s9GcbVxbbFS3EZY9vN1zhavaDJnF32cAIGAxi99NuQ",
+                                "age": 15458166523u64
+                              },
+                              "event_id": "$NVCTvrlxodf3ZGjJ6foxepEq8ysSkTq8wG0wKeQBVZg"
+                            },
+                            {
+                              "type": "m.custom.note",
+                              "sender": "@example2:localhost",
+                              "content": {
+                                "body": "Note 2",
+                              },
+                              "state_key": "note.2",
+                              "origin_server_ts": 1611853078727u64,
+                              "unsigned": {
+                                "replaces_state": "$2s9GcbVxbbFS3EZY9vN1zhavaDJnF32cAIGAxi99NuQ",
+                                "age": 15458166523u64
+                              },
+                              "event_id": "$NVCTvrlxodf3ZGjJ6foxepEq8ysSkTq8wG0wKeQBVZg"
+                            },
+                            {
+                              "type": "m.room.encryption",
+                              "sender": "@example:localhost",
+                              "content": {
+                                "algorithm": "m.megolm.v1.aes-sha2"
+                              },
+                              "state_key": "",
+                              "origin_server_ts": 1586437448151u64,
+                              "unsigned": {
+                                "age": 40873797099u64
+                              },
+                              "event_id": "$vyG3wu1QdJSh5gc-09SwjXBXlXo8gS7s4QV_Yxha0Xw"
+                            },
+                          ]
+                        }
+                    }
+                }
+            }
+        });
+
+        let _m = mock("GET", Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_string()))
+            .with_status(200)
+            .with_body(sync.to_string())
+            .create();
+
+        let client = Client::new(homeserver.clone()).unwrap();
+        client.restore_login(session.clone()).await.unwrap();
+
+        let room = client.get_joined_room(&room_id);
+        assert!(room.is_none());
+
+        client.sync_once(SyncSettings::default()).await.unwrap();
+
+        let room = client.get_joined_room(&room_id).unwrap();
+
+        let state_events = room.get_state_events(EventType::RoomEncryption).await.unwrap();
+        assert_eq!(state_events.len(), 1);
+
+        let state_events = room.get_state_events("m.custom.note".into()).await.unwrap();
+        assert_eq!(state_events.len(), 2);
+
+        let encryption_event = room
+            .get_state_event(EventType::RoomEncryption, "")
+            .await
+            .unwrap()
+            .unwrap()
+            .deserialize()
+            .unwrap();
+
+        matches::assert_matches!(encryption_event, AnySyncStateEvent::RoomEncryption(_));
     }
 }
