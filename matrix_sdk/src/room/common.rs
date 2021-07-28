@@ -1,6 +1,6 @@
 use std::{ops::Deref, sync::Arc};
 
-use matrix_sdk_base::deserialized_responses::MembersResponse;
+use matrix_sdk_base::deserialized_responses::{MembersResponse, RoomEvent};
 use matrix_sdk_common::locks::Mutex;
 use ruma::{
     api::client::r0::{
@@ -153,9 +153,15 @@ impl Common {
     pub async fn event(
         &self,
         request: impl Into<get_room_event::Request<'_>>,
-    ) -> Result<get_room_event::Response> {
+    ) -> Result<RoomEvent> {
         let request = request.into();
-        self.client.send(request, None).await
+        let event = self.client.send(request, None).await?.event.deserialize()?;
+
+        #[cfg(feature = "encryption")]
+        return Ok(self.client.decrypt_room_event(&event).await);
+
+        #[cfg(not(feature = "encryption"))]
+        return Ok(RoomEvent { event: event.into(), encryption_info: None });
     }
 
     pub(crate) async fn request_members(&self) -> Result<Option<MembersResponse>> {

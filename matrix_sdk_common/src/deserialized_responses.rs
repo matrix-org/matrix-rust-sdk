@@ -133,6 +133,14 @@ impl SyncResponse {
     }
 }
 
+pub struct RoomEvent {
+    /// The actual event.
+    pub event: Raw<ruma::events::AnyRoomEvent>,
+    /// The encryption info about the event. Will be `None` if the event was not
+    /// encrypted.
+    pub encryption_info: Option<EncryptionInfo>,
+}
+
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
 pub struct Rooms {
     /// The rooms that the user has left or been banned from.

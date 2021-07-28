@@ -47,6 +47,8 @@ use matrix_sdk_base::crypto::{
     store::CryptoStoreError, AttachmentDecryptor, OutgoingRequests, RoomMessageRequest,
     ToDeviceRequest,
 };
+#[cfg(feature = "encryption")]
+use matrix_sdk_base::deserialized_responses::RoomEvent;
 use matrix_sdk_base::{
     deserialized_responses::SyncResponse,
     media::{MediaEventContent, MediaFormat, MediaRequest, MediaThumbnailSize, MediaType},
@@ -56,6 +58,8 @@ use mime::{self, Mime};
 #[cfg(feature = "sso_login")]
 use rand::{thread_rng, Rng};
 use reqwest::header::InvalidHeaderValue;
+#[cfg(feature = "encryption")]
+use ruma::events::{AnyMessageEvent, AnyRoomEvent, AnySyncMessageEvent};
 use ruma::{api::SendAccessToken, events::AnyMessageEventContent, MxcUri};
 #[cfg(feature = "sso_login")]
 use tokio::{net::TcpListener, sync::oneshot};
@@ -944,6 +948,40 @@ impl Client {
     /// `room_id` - The unique id of the room that should be fetched.
     pub fn get_left_room(&self, room_id: &RoomId) -> Option<room::Left> {
         self.store().get_room(room_id).and_then(|room| room::Left::new(self.clone(), room))
+    }
+
+    /// Tries to decrypt a `AnyRoomEvent`. Returns unencrypted room event when
+    /// decryption fails.
+    #[cfg(feature = "encryption")]
+    #[cfg_attr(feature = "docs", doc(cfg(encryption)))]
+    pub(crate) async fn decrypt_room_event(&self, event: &AnyRoomEvent) -> RoomEvent {
+        if let Some(machine) = self.base_client.olm_machine().await {
+            if let AnyRoomEvent::Message(event) = event {
+                if let AnyMessageEvent::RoomEncrypted(_) = event {
+                    let room_id = event.room_id();
+                    // Turn the AnyMessageEvent into a AnySyncMessageEvent
+                    let event = event.clone().into();
+
+                    if let AnySyncMessageEvent::RoomEncrypted(e) = event {
+                        if let Ok(decrypted) = machine.decrypt_room_event(&e, &room_id).await {
+                            let event = decrypted
+                                .event
+                                .deserialize()
+                                .unwrap()
+                                .into_full_event(room_id.clone())
+                                .into();
+                            let encryption_info = decrypted.encryption_info;
+
+                            // Return decrytped room event
+                            return RoomEvent { event, encryption_info };
+                        }
+                    }
+                }
+            }
+        }
+
+        // Fallback to unencrypted room event
+        RoomEvent { event: event.into(), encryption_info: None }
     }
 
     /// Gets the homeserver’s supported login types.
