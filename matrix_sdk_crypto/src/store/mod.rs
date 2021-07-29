@@ -56,11 +56,13 @@ pub use memorystore::MemoryStore;
 use olm_rs::errors::{OlmAccountError, OlmGroupSessionError, OlmSessionError};
 pub use pickle_key::{EncryptedPickleKey, PickleKey};
 use ruma::{
-    events::room_key_request::RequestedKeyInfo, identifiers::Error as IdentifierValidationError,
+    events::{room_key_request::RequestedKeyInfo, secret::request::SecretName},
+    identifiers::Error as IdentifierValidationError,
     DeviceId, DeviceIdBox, DeviceKeyAlgorithm, RoomId, UserId,
 };
 use serde_json::Error as SerdeError;
 use thiserror::Error;
+use tracing::warn;
 
 #[cfg(feature = "sled_cryptostore")]
 pub use self::sled::SledStore;
@@ -141,6 +143,11 @@ impl Store {
         verification_machine: VerificationMachine,
     ) -> Self {
         Self { user_id, identity, inner: store, verification_machine }
+    }
+
+    #[cfg(test)]
+    pub async fn reset_cross_signing_identity(&self) {
+        self.identity.lock().await.reset().await;
     }
 
     pub async fn get_readonly_device(
@@ -242,6 +249,29 @@ impl Store {
                     .into()
             }
         }))
+    }
+
+    /// Try to export the secret with the given secret name.
+    ///
+    /// The exported secret will be encoded as unpadded base64. Returns `Null`
+    /// if the secret can't be found.
+    ///
+    /// # Arguments
+    ///
+    /// * `secret_name` - The name of the secret that should be exported.
+    pub async fn export_secret(&self, secret_name: &SecretName) -> Option<String> {
+        match secret_name {
+            SecretName::CrossSigningMasterKey
+            | SecretName::CrossSigningUserSigningKey
+            | SecretName::CrossSigningSelfSigningKey => {
+                self.identity.lock().await.export_secret(secret_name).await
+            }
+            SecretName::RecoveryKey => None,
+            name => {
+                warn!(secret =? name, "Unknown secret was requested");
+                None
+            }
+        }
     }
 }
 

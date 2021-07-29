@@ -36,7 +36,7 @@ use zeroize::Zeroizing;
 use crate::{
     error::SignatureError,
     identities::{MasterPubkey, SelfSigningPubkey, UserSigningPubkey},
-    utilities::{decode_url_safe as decode, encode_url_safe as encode, DecodeError},
+    utilities::{decode_url_safe, encode, encode_url_safe, DecodeError},
     ReadOnlyUserIdentity,
 };
 
@@ -142,6 +142,10 @@ impl MasterSigning {
         PickledMasterSigning { pickle, public_key }
     }
 
+    pub fn export_seed(&self) -> String {
+        encode(self.inner.seed.as_slice())
+    }
+
     pub fn from_pickle(
         pickle: PickledMasterSigning,
         pickle_key: &[u8],
@@ -184,6 +188,10 @@ impl UserSigning {
         PickledUserSigning { pickle, public_key }
     }
 
+    pub fn export_seed(&self) -> String {
+        encode(self.inner.seed.as_slice())
+    }
+
     pub async fn sign_user(
         &self,
         user: &ReadOnlyUserIdentity,
@@ -223,6 +231,10 @@ impl SelfSigning {
         let pickle = self.inner.pickle(pickle_key).await;
         let public_key = self.public_key.clone().into();
         PickledSelfSigning { pickle, public_key }
+    }
+
+    pub fn export_seed(&self) -> String {
+        encode(self.inner.seed.as_slice())
     }
 
     pub async fn sign_device_helper(&self, value: Value) -> Result<Signature, SignatureError> {
@@ -314,9 +326,9 @@ impl Signing {
         let key = GenericArray::from_slice(pickle_key);
         let cipher = Aes256Gcm::new(key);
 
-        let nonce = decode(pickled.nonce)?;
+        let nonce = decode_url_safe(pickled.nonce)?;
         let nonce = GenericArray::from_slice(&nonce);
-        let ciphertext = &decode(pickled.ciphertext)?;
+        let ciphertext = &decode_url_safe(pickled.ciphertext)?;
 
         let seed = cipher
             .decrypt(nonce, ciphertext.as_slice())
@@ -336,9 +348,10 @@ impl Signing {
         let ciphertext =
             cipher.encrypt(nonce, self.seed.as_slice()).expect("Can't encrypt signing pickle");
 
-        let ciphertext = encode(ciphertext);
+        let ciphertext = encode_url_safe(ciphertext);
 
-        let pickle = InnerPickle { version: 1, nonce: encode(nonce.as_slice()), ciphertext };
+        let pickle =
+            InnerPickle { version: 1, nonce: encode_url_safe(nonce.as_slice()), ciphertext };
 
         PickledSigning(serde_json::to_string(&pickle).expect("Can't encode pickled signing"))
     }

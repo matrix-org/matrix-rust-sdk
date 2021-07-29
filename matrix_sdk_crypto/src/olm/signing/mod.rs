@@ -27,6 +27,7 @@ use pk_signing::{MasterSigning, PickledSignings, SelfSigning, Signing, SigningEr
 use ruma::{
     api::client::r0::keys::upload_signatures::Request as SignatureUploadRequest,
     encryption::{DeviceKeys, KeyUsage},
+    events::secret::request::SecretName,
     DeviceKeyAlgorithm, DeviceKeyId, UserId,
 };
 use serde::{Deserialize, Serialize};
@@ -104,6 +105,29 @@ impl PrivateCrossSigningIdentity {
     /// Get the public part of the master key, if we have one.
     pub async fn master_public_key(&self) -> Option<MasterPubkey> {
         self.master_key.lock().await.as_ref().map(|m| m.public_key.to_owned())
+    }
+
+    /// Export the seed of the private cross signing key
+    ///
+    /// The exported seed will be encoded as unpadded base64.
+    ///
+    /// # Arguments
+    ///
+    /// * `secret_name` - The type of the cross signing key that should be
+    /// exported.
+    pub async fn export_secret(&self, secret_name: &SecretName) -> Option<String> {
+        match secret_name {
+            SecretName::CrossSigningMasterKey => {
+                self.master_key.lock().await.as_ref().map(|m| m.export_seed())
+            }
+            SecretName::CrossSigningUserSigningKey => {
+                self.user_signing_key.lock().await.as_ref().map(|m| m.export_seed())
+            }
+            SecretName::CrossSigningSelfSigningKey => {
+                self.self_signing_key.lock().await.as_ref().map(|m| m.export_seed())
+            }
+            _ => None,
+        }
     }
 
     /// Create a new empty identity.
@@ -288,6 +312,12 @@ impl PrivateCrossSigningIdentity {
         let master = MasterSigning { inner: master, public_key: public_key.into() };
 
         Self::new_helper(&user_id, master).await
+    }
+
+    #[cfg(test)]
+    pub(crate) async fn reset(&mut self) {
+        let new = Self::new(self.user_id().to_owned()).await;
+        *self = new
     }
 
     /// Mark the identity as shared.

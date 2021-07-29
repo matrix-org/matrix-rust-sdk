@@ -28,6 +28,10 @@ use ruma::{
     events::{
         forwarded_room_key::ForwardedRoomKeyToDeviceEventContent,
         room_key_request::{Action, RequestedKeyInfo, RoomKeyRequestToDeviceEventContent},
+        secret::{
+            request::{RequestAction, RequestToDeviceEventContent as SecretRequestEventContent},
+            send::SendToDeviceEventContent as SecretSendEventContent,
+        },
         AnyToDeviceEvent, AnyToDeviceEventContent, ToDeviceEvent,
     },
     to_device::DeviceIdOrAllDevices,
@@ -62,13 +66,73 @@ pub enum KeyshareDecision {
     UntrustedDevice,
 }
 
+#[derive(Debug, Clone)]
+enum RequestEvent {
+    KeyShare(ToDeviceEvent<RoomKeyRequestToDeviceEventContent>),
+    Secret(ToDeviceEvent<SecretRequestEventContent>),
+}
+
+impl From<ToDeviceEvent<SecretRequestEventContent>> for RequestEvent {
+    fn from(e: ToDeviceEvent<SecretRequestEventContent>) -> Self {
+        Self::Secret(e)
+    }
+}
+
+impl From<ToDeviceEvent<RoomKeyRequestToDeviceEventContent>> for RequestEvent {
+    fn from(e: ToDeviceEvent<RoomKeyRequestToDeviceEventContent>) -> Self {
+        Self::KeyShare(e)
+    }
+}
+
+impl RequestEvent {
+    fn to_request_info(&self) -> RequestInfo {
+        RequestInfo::new(
+            self.sender().to_owned(),
+            self.requesting_device_id().into(),
+            self.request_id().to_owned(),
+        )
+    }
+
+    fn sender(&self) -> &UserId {
+        match self {
+            RequestEvent::KeyShare(e) => &e.sender,
+            RequestEvent::Secret(e) => &e.sender,
+        }
+    }
+
+    fn requesting_device_id(&self) -> &DeviceId {
+        match self {
+            RequestEvent::KeyShare(e) => &e.content.requesting_device_id,
+            RequestEvent::Secret(e) => &e.content.requesting_device_id,
+        }
+    }
+
+    fn request_id(&self) -> &str {
+        match self {
+            RequestEvent::KeyShare(e) => &e.content.request_id,
+            RequestEvent::Secret(e) => &e.content.request_id,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+struct RequestInfo {
+    sender: UserId,
+    requesting_device_id: DeviceIdBox,
+    request_id: String,
+}
+
+impl RequestInfo {
+    fn new(sender: UserId, requesting_device_id: DeviceIdBox, request_id: String) -> Self {
+        Self { sender, requesting_device_id, request_id }
+    }
+}
+
 /// A queue where we store room key requests that we want to serve but the
 /// device that requested the key doesn't share an Olm session with us.
 #[derive(Debug, Clone)]
 struct WaitQueue {
-    requests_waiting_for_session: Arc<
-        DashMap<(UserId, DeviceIdBox, String), ToDeviceEvent<RoomKeyRequestToDeviceEventContent>>,
-    >,
+    requests_waiting_for_session: Arc<DashMap<RequestInfo, RequestEvent>>,
     requests_ids_waiting: Arc<DashMap<(UserId, DeviceIdBox), DashSet<String>>>,
 }
 
@@ -86,12 +150,12 @@ impl WaitQueue {
     }
 
     fn insert(&self, device: &Device, event: &ToDeviceEvent<RoomKeyRequestToDeviceEventContent>) {
-        let key = (
+        let key = RequestInfo::new(
             device.user_id().to_owned(),
             device.device_id().into(),
             event.content.request_id.to_owned(),
         );
-        self.requests_waiting_for_session.insert(key, event.clone());
+        self.requests_waiting_for_session.insert(key, event.clone().into());
 
         let key = (device.user_id().to_owned(), device.device_id().into());
         self.requests_ids_waiting
@@ -100,19 +164,15 @@ impl WaitQueue {
             .insert(event.content.request_id.clone());
     }
 
-    fn remove(
-        &self,
-        user_id: &UserId,
-        device_id: &DeviceId,
-    ) -> Vec<((UserId, DeviceIdBox, String), ToDeviceEvent<RoomKeyRequestToDeviceEventContent>)>
-    {
+    fn remove(&self, user_id: &UserId, device_id: &DeviceId) -> Vec<(RequestInfo, RequestEvent)> {
         self.requests_ids_waiting
             .remove(&(user_id.to_owned(), device_id.into()))
             .map(|(_, request_ids)| {
                 request_ids
                     .iter()
                     .filter_map(|id| {
-                        let key = (user_id.to_owned(), device_id.into(), id.to_owned());
+                        let key =
+                            RequestInfo::new(user_id.to_owned(), device_id.into(), id.to_owned());
                         self.requests_waiting_for_session.remove(&key)
                     })
                     .collect()
@@ -127,10 +187,8 @@ pub(crate) struct KeyRequestMachine {
     device_id: Arc<DeviceId>,
     store: Store,
     outbound_group_sessions: GroupSessionCache,
-    outgoing_to_device_requests: Arc<DashMap<Uuid, OutgoingRequest>>,
-    incoming_key_requests: Arc<
-        DashMap<(UserId, DeviceIdBox, String), ToDeviceEvent<RoomKeyRequestToDeviceEventContent>>,
-    >,
+    outgoing_requests: Arc<DashMap<Uuid, OutgoingRequest>>,
+    incoming_key_requests: Arc<DashMap<RequestInfo, RequestEvent>>,
     wait_queue: WaitQueue,
     users_for_key_claim: Arc<DashMap<UserId, DashSet<DeviceIdBox>>>,
 }
@@ -208,7 +266,7 @@ impl KeyRequestMachine {
             device_id,
             store,
             outbound_group_sessions,
-            outgoing_to_device_requests: DashMap::new().into(),
+            outgoing_requests: DashMap::new().into(),
             incoming_key_requests: DashMap::new().into(),
             wait_queue: WaitQueue::new(),
             users_for_key_claim,
@@ -242,7 +300,7 @@ impl KeyRequestMachine {
     ) -> Result<Vec<OutgoingRequest>, CryptoStoreError> {
         let mut key_requests = self.load_outgoing_requests().await?;
         let key_forwards: Vec<OutgoingRequest> =
-            self.outgoing_to_device_requests.iter().map(|i| i.value().clone()).collect();
+            self.outgoing_requests.iter().map(|i| i.value().clone()).collect();
         key_requests.extend(key_forwards);
 
         Ok(key_requests)
@@ -253,11 +311,29 @@ impl KeyRequestMachine {
         &self,
         event: &ToDeviceEvent<RoomKeyRequestToDeviceEventContent>,
     ) {
-        let sender = event.sender.clone();
-        let device_id = event.content.requesting_device_id.clone();
-        let request_id = event.content.request_id.clone();
+        self.receive_event(event.clone().into())
+    }
 
-        self.incoming_key_requests.insert((sender, device_id, request_id), event.clone());
+    fn receive_event(&self, event: RequestEvent) {
+        // Some servers might send to-device events to ourselves if we send one
+        // out using a wildcard instead of a specific device as a recipient.
+        //
+        // Check if we're the sender of this request event and ignore it if
+        // so.
+        if event.sender() == self.user_id() && event.requesting_device_id() == self.device_id() {
+            trace!("Received a secret request event from ourselves, ignoring")
+        } else {
+            let request_info = event.to_request_info();
+            self.incoming_key_requests.insert(request_info, event);
+        }
+    }
+
+    #[allow(dead_code)]
+    pub fn receive_incoming_secret_request(
+        &self,
+        event: &ToDeviceEvent<SecretRequestEventContent>,
+    ) {
+        self.receive_event(event.clone().into())
     }
 
     /// Handle all the incoming key requests that are queued up and empty our
@@ -267,7 +343,11 @@ impl KeyRequestMachine {
 
         for item in self.incoming_key_requests.iter() {
             let event = item.value();
-            if let Some(s) = self.handle_key_request(event).await? {
+
+            if let Some(s) = match event {
+                RequestEvent::KeyShare(e) => self.handle_key_request(e).await?,
+                RequestEvent::Secret(e) => self.handle_secret_request(e).await?,
+            } {
                 changed_sessions.push(s);
             }
         }
@@ -320,22 +400,79 @@ impl KeyRequestMachine {
         }
     }
 
+    async fn handle_secret_request(
+        &self,
+        event: &ToDeviceEvent<SecretRequestEventContent>,
+    ) -> OlmResult<Option<Session>> {
+        let secret_name = match &event.content.action {
+            RequestAction::Request(s) => s,
+            // We ignore cancellations here since there's nothing to serve.
+            RequestAction::RequestCancellation => return Ok(None),
+            action => {
+                warn!(action =? action, "Unknown secret request action");
+                return Ok(None);
+            }
+        };
+
+        let content = if let Some(secret) = self.store.export_secret(secret_name).await {
+            SecretSendEventContent::new(event.content.request_id.to_owned(), secret)
+        } else {
+            info!(secret_name =? secret_name, "Can't server a secret request, secret isn't found");
+            return Ok(None);
+        };
+
+        let device =
+            self.store.get_device(&event.sender, &event.content.requesting_device_id).await?;
+
+        Ok(if let Some(device) = device {
+            if device.user_id() == self.user_id() {
+                if device.verified() {
+                    info!(
+                        user_id = device.user_id().as_str(),
+                        device_id = device.device_id().as_str(),
+                        secret_name =? secret_name,
+                        "Sharing a secret with a device",
+                    );
+
+                    Some(self.share_secret(&device, content).await?)
+                } else {
+                    info!(
+                        user_id = device.user_id().as_str(),
+                        device_id = device.device_id().as_str(),
+                        secret_name =? secret_name,
+                        "Received a secret request that we won't serve, the device isn't trusted",
+                    );
+
+                    None
+                }
+            } else {
+                info!(
+                    user_id = device.user_id().as_str(),
+                    device_id = device.device_id().as_str(),
+                    secret_name =? secret_name,
+                    "Received a secret request that we won't serve, the device doesn't belong to us",
+                );
+
+                None
+            }
+        } else {
+            warn!(
+                user_id = event.sender.as_str(),
+                device_id = event.content.requesting_device_id.as_str(),
+                secret_name =? secret_name,
+                "Received a secret request form an unknown device",
+            );
+            self.store.update_tracked_user(&event.sender, true).await?;
+
+            None
+        })
+    }
+
     /// Handle a single incoming key request.
     async fn handle_key_request(
         &self,
         event: &ToDeviceEvent<RoomKeyRequestToDeviceEventContent>,
     ) -> OlmResult<Option<Session>> {
-        // Some servers might send to-device events to ourselves if we send one
-        // out using a wildcard instead of a specific device as a recipient.
-        //
-        // Check if we're the sender of this key request event and ignore it if
-        // so.
-        if &event.sender == self.user_id()
-            && &*event.content.requesting_device_id == self.device_id()
-        {
-            return Ok(None);
-        }
-
         let key_info = match &event.content.action {
             Action::Request => {
                 if let Some(info) = &event.content.body {
@@ -428,6 +565,27 @@ impl KeyRequestMachine {
         }
     }
 
+    async fn share_secret(
+        &self,
+        device: &Device,
+        content: SecretSendEventContent,
+    ) -> OlmResult<Session> {
+        let (used_session, content) =
+            device.encrypt(AnyToDeviceEventContent::SecretSend(content)).await?;
+
+        let request = ToDeviceRequest::new(
+            device.user_id(),
+            device.device_id().to_owned(),
+            AnyToDeviceEventContent::RoomEncrypted(content),
+        );
+
+        let request =
+            OutgoingRequest { request_id: request.txn_id, request: Arc::new(request.into()) };
+        self.outgoing_requests.insert(request.request_id, request);
+
+        Ok(used_session)
+    }
+
     async fn share_session(
         &self,
         session: &InboundGroupSession,
@@ -445,7 +603,7 @@ impl KeyRequestMachine {
 
         let request =
             OutgoingRequest { request_id: request.txn_id, request: Arc::new(request.into()) };
-        self.outgoing_to_device_requests.insert(request.request_id, request);
+        self.outgoing_requests.insert(request.request_id, request);
 
         Ok(used_session)
     }
@@ -681,7 +839,7 @@ impl KeyRequestMachine {
             self.save_outgoing_key_info(info).await?;
         }
 
-        self.outgoing_to_device_requests.remove(&id);
+        self.outgoing_requests.remove(&id);
 
         Ok(())
     }
@@ -693,13 +851,13 @@ impl KeyRequestMachine {
         // TODO perhaps only remove the key info if the first known index is 0.
         trace!("Successfully received a forwarded room key for {:#?}", key_info);
 
-        self.outgoing_to_device_requests.remove(&key_info.request_id);
+        self.outgoing_requests.remove(&key_info.request_id);
         // TODO return the key info instead of deleting it so the sync handler
         // can delete it in one transaction.
         self.delete_key_info(&key_info).await?;
 
         let request = key_info.to_cancellation(self.device_id());
-        self.outgoing_to_device_requests.insert(request.request_id, request);
+        self.outgoing_requests.insert(request.request_id, request);
 
         Ok(())
     }
@@ -774,6 +932,7 @@ mod test {
             forwarded_room_key::ForwardedRoomKeyToDeviceEventContent,
             room::encrypted::EncryptedToDeviceEventContent,
             room_key_request::RoomKeyRequestToDeviceEventContent, AnyToDeviceEvent, ToDeviceEvent,
+            secret::request::{RequestAction, RequestToDeviceEventContent, SecretName},
         },
         room_id,
         to_device::DeviceIdOrAllDevices,
@@ -997,7 +1156,7 @@ mod test {
         machine.store.save_inbound_group_sessions(&[first_session.clone()]).await.unwrap();
 
         // Get the cancel request.
-        let request = machine.outgoing_to_device_requests.iter().next().unwrap();
+        let request = machine.outgoing_requests.iter().next().unwrap();
         let id = request.request_id;
         drop(request);
         machine.mark_outgoing_request_as_sent(id).await.unwrap();
@@ -1192,13 +1351,13 @@ mod test {
         let event = ToDeviceEvent { sender: alice_id(), content };
 
         // Bob doesn't have any outgoing requests.
-        assert!(bob_machine.outgoing_to_device_requests.is_empty());
+        assert!(bob_machine.outgoing_requests.is_empty());
 
         // Receive the room key request from alice.
         bob_machine.receive_incoming_key_request(&event);
         bob_machine.collect_incoming_key_requests().await.unwrap();
         // Now bob does have an outgoing request.
-        assert!(!bob_machine.outgoing_to_device_requests.is_empty());
+        assert!(!bob_machine.outgoing_requests.is_empty());
 
         // Get the request and convert it to a encrypted to-device event.
         let requests = bob_machine.outgoing_to_device_requests().await.unwrap();
@@ -1257,6 +1416,76 @@ mod test {
             .unwrap();
 
         assert_eq!(session.session_id(), group_session.session_id())
+    }
+
+    #[async_test]
+    async fn secret_share_cycle() {
+        let alice_machine = get_machine().await;
+        let alice_account = Account { inner: account(), store: alice_machine.store.clone() };
+
+        let second_account = alice_2_account();
+        let alice_device = ReadOnlyDevice::from_account(&second_account).await;
+
+        let bob_account = bob_account();
+        let bob_device = ReadOnlyDevice::from_account(&bob_account).await;
+
+        alice_machine.store.save_devices(&[alice_device.clone()]).await.unwrap();
+
+        // Create Olm sessions for our two accounts.
+        let (alice_session, _) = alice_account.create_session_for(&second_account).await;
+
+        alice_machine.store.save_sessions(&[alice_session]).await.unwrap();
+
+        let event = ToDeviceEvent {
+            sender: bob_account.user_id().to_owned(),
+            content: RequestToDeviceEventContent::new(
+                RequestAction::Request(SecretName::CrossSigningMasterKey),
+                bob_account.device_id().to_owned(),
+                "request_id".to_owned(),
+            ),
+        };
+
+        // No secret found
+        assert!(alice_machine.outgoing_requests.is_empty());
+        alice_machine.receive_incoming_secret_request(&event);
+        alice_machine.collect_incoming_key_requests().await.unwrap();
+        assert!(alice_machine.outgoing_requests.is_empty());
+
+        // No device found
+        alice_machine.store.reset_cross_signing_identity().await;
+        alice_machine.receive_incoming_secret_request(&event);
+        alice_machine.collect_incoming_key_requests().await.unwrap();
+        assert!(alice_machine.outgoing_requests.is_empty());
+
+        alice_machine.store.save_devices(&[bob_device]).await.unwrap();
+
+        // The device doesn't belong to us
+        alice_machine.store.reset_cross_signing_identity().await;
+        alice_machine.receive_incoming_secret_request(&event);
+        alice_machine.collect_incoming_key_requests().await.unwrap();
+        assert!(alice_machine.outgoing_requests.is_empty());
+
+        let event = ToDeviceEvent {
+            sender: alice_id(),
+            content: RequestToDeviceEventContent::new(
+                RequestAction::Request(SecretName::CrossSigningMasterKey),
+                second_account.device_id().into(),
+                "request_id".to_owned(),
+            ),
+        };
+
+        // The device isn't trusted
+        alice_machine.receive_incoming_secret_request(&event);
+        alice_machine.collect_incoming_key_requests().await.unwrap();
+        assert!(alice_machine.outgoing_requests.is_empty());
+
+        // We need a trusted device, otherwise we won't serve secrets
+        alice_device.set_trust_state(LocalTrust::Verified);
+        alice_machine.store.save_devices(&[alice_device.clone()]).await.unwrap();
+
+        alice_machine.receive_incoming_secret_request(&event);
+        alice_machine.collect_incoming_key_requests().await.unwrap();
+        assert!(!alice_machine.outgoing_requests.is_empty());
     }
 
     #[async_test]
