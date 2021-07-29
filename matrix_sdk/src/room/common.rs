@@ -1,11 +1,12 @@
 use std::{ops::Deref, sync::Arc};
 
-use matrix_sdk_base::deserialized_responses::MembersResponse;
+use matrix_sdk_base::deserialized_responses::{MembersResponse, RoomEvent};
 use matrix_sdk_common::locks::Mutex;
 use ruma::{
     api::client::r0::{
         membership::{get_member_events, join_room_by_id, leave_room},
         message::get_message_events,
+        room::get_room_event,
     },
     events::{room::history_visibility::HistoryVisibility, AnySyncStateEvent, EventType},
     serde::Raw,
@@ -145,6 +146,23 @@ impl Common {
     ) -> Result<get_message_events::Response> {
         let request = request.into();
         self.client.send(request, None).await
+    }
+
+    /// Sends a request to `/_matrix/client/r0/rooms/{roomId}/event/{eventId}`
+    /// and returns a `get_room_event::Response` that contains a event
+    /// (`AnyRoomEvent`).
+    pub async fn event(
+        &self,
+        request: impl Into<get_room_event::Request<'_>>,
+    ) -> Result<RoomEvent> {
+        let request = request.into();
+        let event = self.client.send(request, None).await?.event.deserialize()?;
+
+        #[cfg(feature = "encryption")]
+        return Ok(self.client.decrypt_room_event(&event).await);
+
+        #[cfg(not(feature = "encryption"))]
+        return Ok(RoomEvent { event: event.into(), encryption_info: None });
     }
 
     pub(crate) async fn request_members(&self) -> Result<Option<MembersResponse>> {
