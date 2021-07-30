@@ -56,9 +56,8 @@ pub use memorystore::MemoryStore;
 use olm_rs::errors::{OlmAccountError, OlmGroupSessionError, OlmSessionError};
 pub use pickle_key::{EncryptedPickleKey, PickleKey};
 use ruma::{
-    events::{room_key_request::RequestedKeyInfo, secret::request::SecretName},
-    identifiers::Error as IdentifierValidationError,
-    DeviceId, DeviceIdBox, DeviceKeyAlgorithm, RoomId, UserId,
+    events::secret::request::SecretName, identifiers::Error as IdentifierValidationError, DeviceId,
+    DeviceIdBox, DeviceKeyAlgorithm, RoomId, UserId,
 };
 use serde_json::Error as SerdeError;
 use thiserror::Error;
@@ -72,7 +71,7 @@ use crate::{
         user::{OwnUserIdentity, UserIdentities, UserIdentity},
         Device, ReadOnlyDevice, ReadOnlyUserIdentities, UserDevices,
     },
-    key_request::OutgoingKeyRequest,
+    key_request::{OutgoingKeyRequest, SecretInfo},
     olm::{
         InboundGroupSession, OlmMessageHash, OutboundGroupSession, PrivateCrossSigningIdentity,
         ReadOnlyAccount, Session,
@@ -273,6 +272,11 @@ impl Store {
             }
         }
     }
+
+    pub async fn get_missing_secrets(&self) -> Vec<SecretName> {
+        // TODO add the backup key to our missing secrets
+        self.identity.lock().await.get_missing_secrets().await
+    }
 }
 
 impl Deref for Store {
@@ -440,14 +444,14 @@ pub trait CryptoStore: AsyncTraitDeps {
     /// Check if a hash for an Olm message stored in the database.
     async fn is_message_known(&self, message_hash: &OlmMessageHash) -> Result<bool>;
 
-    /// Get an outgoing key request that we created that matches the given
+    /// Get an outgoing secret request that we created that matches the given
     /// request id.
     ///
     /// # Arguments
     ///
-    /// * `request_id` - The unique request id that identifies this outgoing key
-    /// request.
-    async fn get_outgoing_key_request(
+    /// * `request_id` - The unique request id that identifies this outgoing
+    /// secret request.
+    async fn get_outgoing_secret_requests(
         &self,
         request_id: Uuid,
     ) -> Result<Option<OutgoingKeyRequest>>;
@@ -457,14 +461,14 @@ pub trait CryptoStore: AsyncTraitDeps {
     ///
     /// # Arguments
     ///
-    /// * `key_info` - The key info of an outgoing key request.
-    async fn get_key_request_by_info(
+    /// * `key_info` - The key info of an outgoing secret request.
+    async fn get_secret_request_by_info(
         &self,
-        key_info: &RequestedKeyInfo,
+        secret_info: &SecretInfo,
     ) -> Result<Option<OutgoingKeyRequest>>;
 
-    /// Get all outgoing key requests that we have in the store.
-    async fn get_unsent_key_requests(&self) -> Result<Vec<OutgoingKeyRequest>>;
+    /// Get all outgoing secret requests that we have in the store.
+    async fn get_unsent_secret_requests(&self) -> Result<Vec<OutgoingKeyRequest>>;
 
     /// Delete an outgoing key request that we created that matches the given
     /// request id.
@@ -473,5 +477,5 @@ pub trait CryptoStore: AsyncTraitDeps {
     ///
     /// * `request_id` - The unique request id that identifies this outgoing key
     /// request.
-    async fn delete_outgoing_key_request(&self, request_id: Uuid) -> Result<()>;
+    async fn delete_outgoing_secret_requests(&self, request_id: Uuid) -> Result<()>;
 }

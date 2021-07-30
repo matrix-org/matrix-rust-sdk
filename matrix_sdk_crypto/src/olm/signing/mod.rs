@@ -97,6 +97,11 @@ impl PrivateCrossSigningIdentity {
         self.self_signing_key.lock().await.is_some()
     }
 
+    /// Can we sign other users, i.e. do we have a user signing key.
+    pub async fn can_sign_users(&self) -> bool {
+        self.user_signing_key.lock().await.is_some()
+    }
+
     /// Do we have the master key.
     pub async fn has_master_key(&self) -> bool {
         self.master_key.lock().await.is_some()
@@ -128,6 +133,25 @@ impl PrivateCrossSigningIdentity {
             }
             _ => None,
         }
+    }
+
+    /// Get the names of the secrets we are missing.
+    pub(crate) async fn get_missing_secrets(&self) -> Vec<SecretName> {
+        let mut missing = Vec::new();
+
+        if !self.has_master_key().await {
+            missing.push(SecretName::CrossSigningMasterKey);
+        }
+
+        if !self.can_sign_devices().await {
+            missing.push(SecretName::CrossSigningSelfSigningKey);
+        }
+
+        if !self.can_sign_users().await {
+            missing.push(SecretName::CrossSigningUserSigningKey);
+        }
+
+        missing
     }
 
     /// Create a new empty identity.

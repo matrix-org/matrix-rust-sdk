@@ -19,7 +19,7 @@ use std::{
 
 use dashmap::{DashMap, DashSet};
 use matrix_sdk_common::{async_trait, locks::Mutex, uuid::Uuid};
-use ruma::{events::room_key_request::RequestedKeyInfo, DeviceId, DeviceIdBox, RoomId, UserId};
+use ruma::{DeviceId, DeviceIdBox, RoomId, UserId};
 
 use super::{
     caches::{DeviceStore, GroupSessionStore, SessionStore},
@@ -27,12 +27,21 @@ use super::{
 };
 use crate::{
     identities::{ReadOnlyDevice, ReadOnlyUserIdentities},
-    key_request::OutgoingKeyRequest,
+    key_request::{OutgoingKeyRequest, SecretInfo},
     olm::{OutboundGroupSession, PrivateCrossSigningIdentity},
 };
 
-fn encode_key_info(info: &RequestedKeyInfo) -> String {
-    format!("{}{}{}{}", info.room_id, info.sender_key, info.algorithm, info.session_id)
+fn encode_key_info(info: &SecretInfo) -> String {
+    match info {
+        SecretInfo::KeyRequest(info) => {
+            format!("{}{}{}{}", info.room_id, info.sender_key, info.algorithm, info.session_id)
+        }
+        SecretInfo::SecretRequest(i) => {
+            // TODO don't use serde here, use `as_ref()` when it becomes
+            // available
+            serde_json::to_string(i).expect("Can't serialize secret name")
+        }
+    }
 }
 
 /// An in-memory only store that will forget all the E2EE key once it's dropped.
@@ -228,16 +237,16 @@ impl CryptoStore for MemoryStore {
             .contains(&message_hash.hash))
     }
 
-    async fn get_outgoing_key_request(
+    async fn get_outgoing_secret_requests(
         &self,
         request_id: Uuid,
     ) -> Result<Option<OutgoingKeyRequest>> {
         Ok(self.outgoing_key_requests.get(&request_id).map(|r| r.clone()))
     }
 
-    async fn get_key_request_by_info(
+    async fn get_secret_request_by_info(
         &self,
-        key_info: &RequestedKeyInfo,
+        key_info: &SecretInfo,
     ) -> Result<Option<OutgoingKeyRequest>> {
         let key_info_string = encode_key_info(key_info);
 
@@ -247,7 +256,7 @@ impl CryptoStore for MemoryStore {
             .and_then(|i| self.outgoing_key_requests.get(&i).map(|r| r.clone())))
     }
 
-    async fn get_unsent_key_requests(&self) -> Result<Vec<OutgoingKeyRequest>> {
+    async fn get_unsent_secret_requests(&self) -> Result<Vec<OutgoingKeyRequest>> {
         Ok(self
             .outgoing_key_requests
             .iter()
@@ -256,7 +265,7 @@ impl CryptoStore for MemoryStore {
             .collect())
     }
 
-    async fn delete_outgoing_key_request(&self, request_id: Uuid) -> Result<()> {
+    async fn delete_outgoing_secret_requests(&self, request_id: Uuid) -> Result<()> {
         self.outgoing_key_requests.remove(&request_id).and_then(|(_, i)| {
             let key_info_string = encode_key_info(&i.info);
             self.key_requests_by_info.remove(&key_info_string)

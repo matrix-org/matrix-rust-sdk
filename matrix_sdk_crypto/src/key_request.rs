@@ -29,7 +29,9 @@ use ruma::{
         forwarded_room_key::ForwardedRoomKeyToDeviceEventContent,
         room_key_request::{Action, RequestedKeyInfo, RoomKeyRequestToDeviceEventContent},
         secret::{
-            request::{RequestAction, RequestToDeviceEventContent as SecretRequestEventContent},
+            request::{
+                RequestAction, RequestToDeviceEventContent as SecretRequestEventContent, SecretName,
+            },
             send::SendToDeviceEventContent as SecretSendEventContent,
         },
         AnyToDeviceEvent, AnyToDeviceEventContent, ToDeviceEvent,
@@ -201,24 +203,56 @@ pub struct OutgoingKeyRequest {
     /// The unique id of the key request.
     pub request_id: Uuid,
     /// The info of the requested key.
-    pub info: RequestedKeyInfo,
+    pub info: SecretInfo,
     /// Has the request been sent out.
     pub sent_out: bool,
 }
 
+/// An enum over the various secret request types we can have.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum SecretInfo {
+    // Info for the `m.room_key_request` variant
+    KeyRequest(RequestedKeyInfo),
+    // Info for the `m.secret.request` variant
+    SecretRequest(SecretName),
+}
+
+impl From<RequestedKeyInfo> for SecretInfo {
+    fn from(i: RequestedKeyInfo) -> Self {
+        Self::KeyRequest(i)
+    }
+}
+
+impl From<SecretName> for SecretInfo {
+    fn from(i: SecretName) -> Self {
+        Self::SecretRequest(i)
+    }
+}
+
 impl OutgoingKeyRequest {
     fn to_request(&self, own_device_id: &DeviceId) -> OutgoingRequest {
-        let content = RoomKeyRequestToDeviceEventContent::new(
-            Action::Request,
-            Some(self.info.clone()),
-            own_device_id.to_owned(),
-            self.request_id.to_string(),
-        );
+        let content = match &self.info {
+            SecretInfo::KeyRequest(r) => {
+                AnyToDeviceEventContent::RoomKeyRequest(RoomKeyRequestToDeviceEventContent::new(
+                    Action::Request,
+                    Some(r.clone()),
+                    own_device_id.to_owned(),
+                    self.request_id.to_string(),
+                ))
+            }
+            SecretInfo::SecretRequest(s) => {
+                AnyToDeviceEventContent::SecretRequest(SecretRequestEventContent::new(
+                    RequestAction::Request(s.clone()),
+                    own_device_id.to_owned(),
+                    self.request_id.to_string(),
+                ))
+            }
+        };
 
         let request = ToDeviceRequest::new_with_id(
             &self.request_recipient,
             DeviceIdOrAllDevices::AllDevices,
-            AnyToDeviceEventContent::RoomKeyRequest(content),
+            content,
             self.request_id,
         );
 
@@ -226,17 +260,28 @@ impl OutgoingKeyRequest {
     }
 
     fn to_cancellation(&self, own_device_id: &DeviceId) -> OutgoingRequest {
-        let content = RoomKeyRequestToDeviceEventContent::new(
-            Action::CancelRequest,
-            None,
-            own_device_id.to_owned(),
-            self.request_id.to_string(),
-        );
+        let content = match self.info {
+            SecretInfo::KeyRequest(_) => {
+                AnyToDeviceEventContent::RoomKeyRequest(RoomKeyRequestToDeviceEventContent::new(
+                    Action::CancelRequest,
+                    None,
+                    own_device_id.to_owned(),
+                    self.request_id.to_string(),
+                ))
+            }
+            SecretInfo::SecretRequest(_) => {
+                AnyToDeviceEventContent::SecretRequest(SecretRequestEventContent::new(
+                    RequestAction::RequestCancellation,
+                    own_device_id.to_owned(),
+                    self.request_id.to_string(),
+                ))
+            }
+        };
 
         let request = ToDeviceRequest::new(
             &self.request_recipient,
             DeviceIdOrAllDevices::AllDevices,
-            AnyToDeviceEventContent::RoomKeyRequest(content),
+            content,
         );
 
         OutgoingRequest { request_id: request.txn_id, request: Arc::new(request.into()) }
@@ -245,11 +290,20 @@ impl OutgoingKeyRequest {
 
 impl PartialEq for OutgoingKeyRequest {
     fn eq(&self, other: &Self) -> bool {
-        self.request_id == other.request_id
-            && self.info.algorithm == other.info.algorithm
-            && self.info.room_id == other.info.room_id
-            && self.info.session_id == other.info.session_id
-            && self.info.sender_key == other.info.sender_key
+        let is_info_equal = match (&self.info, &other.info) {
+            (SecretInfo::KeyRequest(first), SecretInfo::KeyRequest(second)) => {
+                first.algorithm == second.algorithm
+                    && first.room_id == second.room_id
+                    && first.session_id == second.session_id
+            }
+            (SecretInfo::SecretRequest(first), SecretInfo::SecretRequest(second)) => {
+                first == second
+            }
+            (SecretInfo::KeyRequest(_), SecretInfo::SecretRequest(_))
+            | (SecretInfo::SecretRequest(_), SecretInfo::KeyRequest(_)) => false,
+        };
+
+        self.request_id == other.request_id && is_info_equal
     }
 }
 
@@ -277,7 +331,7 @@ impl KeyRequestMachine {
     async fn load_outgoing_requests(&self) -> Result<Vec<OutgoingRequest>, CryptoStoreError> {
         Ok(self
             .store
-            .get_unsent_key_requests()
+            .get_unsent_secret_requests()
             .await?
             .into_iter()
             .filter(|i| !i.sent_out)
@@ -675,11 +729,8 @@ impl KeyRequestMachine {
     ///
     /// * `key_info` - The info of our key request containing information about
     /// the key we wish to request.
-    async fn should_request_key(
-        &self,
-        key_info: &RequestedKeyInfo,
-    ) -> Result<bool, CryptoStoreError> {
-        let request = self.store.get_key_request_by_info(key_info).await?;
+    async fn should_request_key(&self, key_info: &SecretInfo) -> Result<bool, CryptoStoreError> {
+        let request = self.store.get_secret_request_by_info(key_info).await?;
 
         // Don't send out duplicate requests, users can re-request them if they
         // think a second request might succeed.
@@ -728,9 +779,10 @@ impl KeyRequestMachine {
             room_id.to_owned(),
             sender_key.to_owned(),
             session_id.to_owned(),
-        );
+        )
+        .into();
 
-        let request = self.store.get_key_request_by_info(&key_info).await?;
+        let request = self.store.get_secret_request_by_info(&key_info).await?;
 
         if let Some(request) = request {
             let cancel = request.to_cancellation(self.device_id());
@@ -744,9 +796,39 @@ impl KeyRequestMachine {
         }
     }
 
+    #[allow(dead_code)]
+    pub async fn request_missing_secrets(&self) -> Result<Vec<OutgoingRequest>, CryptoStoreError> {
+        let secret_names = self.store.get_missing_secrets().await;
+
+        Ok(if secret_names.is_empty() {
+            info!(secret_names =? secret_names, "Creating new outgoing secret requests");
+
+            let requests: Vec<OutgoingKeyRequest> = secret_names
+                .into_iter()
+                .map(|n| OutgoingKeyRequest {
+                    request_recipient: self.user_id().to_owned(),
+                    request_id: Uuid::new_v4(),
+                    info: n.into(),
+                    sent_out: false,
+                })
+                .collect();
+
+            let outgoing_requests =
+                requests.iter().map(|r| r.to_request(self.device_id())).collect();
+
+            let changes = Changes { key_requests: requests, ..Default::default() };
+            self.store.save_changes(changes).await?;
+
+            outgoing_requests
+        } else {
+            trace!("No secrets are missing from our store, not requesting them");
+            vec![]
+        })
+    }
+
     async fn request_key_helper(
         &self,
-        key_info: RequestedKeyInfo,
+        key_info: SecretInfo,
     ) -> Result<OutgoingRequest, CryptoStoreError> {
         info!("Creating new outgoing room key request {:#?}", key_info);
 
@@ -788,7 +870,8 @@ impl KeyRequestMachine {
             room_id.to_owned(),
             sender_key.to_owned(),
             session_id.to_owned(),
-        );
+        )
+        .into();
 
         if self.should_request_key(&key_info).await? {
             self.request_key_helper(key_info).await?;
@@ -819,19 +902,20 @@ impl KeyRequestMachine {
             content.room_id.clone(),
             content.sender_key.clone(),
             content.session_id.clone(),
-        );
+        )
+        .into();
 
-        self.store.get_key_request_by_info(&info).await
+        self.store.get_secret_request_by_info(&info).await
     }
 
     /// Delete the given outgoing key info.
     async fn delete_key_info(&self, info: &OutgoingKeyRequest) -> Result<(), CryptoStoreError> {
-        self.store.delete_outgoing_key_request(info.request_id).await
+        self.store.delete_outgoing_secret_requests(info.request_id).await
     }
 
     /// Mark the outgoing request as sent.
     pub async fn mark_outgoing_request_as_sent(&self, id: Uuid) -> Result<(), CryptoStoreError> {
-        let info = self.store.get_outgoing_key_request(id).await?;
+        let info = self.store.get_outgoing_secret_requests(id).await?;
 
         if let Some(mut info) = info {
             trace!("Marking outgoing key request as sent {:#?}", info);

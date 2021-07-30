@@ -267,7 +267,7 @@ pub(crate) mod test {
         })
         .to_string();
 
-        let event: AnySyncRoomEvent = serde_json::from_str(&event).expect("WHAAAT?!?!?");
+        let event: AnySyncRoomEvent = serde_json::from_str(&event).unwrap();
 
         let event =
             if let AnySyncRoomEvent::Message(AnySyncMessageEvent::RoomEncrypted(event)) = event {
