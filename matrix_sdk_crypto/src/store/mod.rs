@@ -311,8 +311,8 @@ impl Store {
                         "Successfully imported a private cross signing key"
                     );
 
-                    let mut changes = Changes::default();
-                    changes.private_identity = Some(identity.clone());
+                    let changes =
+                        Changes { private_identity: Some(identity.clone()), ..Default::default() };
 
                     self.save_changes(changes).await?;
                 }

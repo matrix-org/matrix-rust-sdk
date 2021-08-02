@@ -1012,7 +1012,7 @@ impl KeyRequestMachine {
                             match self
                                 .store
                                 .import_secret(
-                                    &secret_name,
+                                    secret_name,
                                     std::mem::take(&mut event.content.secret),
                                 )
                                 .await
