@@ -471,6 +471,11 @@ impl VerificationRequest {
             if self.is_passive() {
                 None
             } else {
+                trace!(
+                    other_user = self.other_user().as_str(),
+                    flow_id = self.flow_id().as_str(),
+                    "Timing a verification request out"
+                );
                 request
             }
         } else {
@@ -573,7 +578,13 @@ impl VerificationRequest {
 
     pub(crate) fn receive_done(&self, sender: &UserId, content: &DoneContent<'_>) {
         if sender == self.other_user() {
-            let mut inner = self.inner.lock().unwrap().clone();
+            trace!(
+                other_user = self.other_user().as_str(),
+                flow_id = self.flow_id().as_str(),
+                "Marking a verification request as done"
+            );
+
+            let mut inner = self.inner.lock().unwrap();
             inner.receive_done(content);
         }
     }
@@ -688,16 +699,27 @@ impl InnerRequest {
     }
 
     fn cancel(&mut self, cancelled_by_us: bool, cancel_code: &CancelCode) {
-        trace!(
-            cancelled_by_us = cancelled_by_us,
-            code = cancel_code.as_str(),
-            "Verification request going into the cancelled state"
-        );
+        let print_info = || {
+            trace!(
+                cancelled_by_us = cancelled_by_us,
+                code = cancel_code.as_str(),
+                "Verification request going into the cancelled state"
+            );
+        };
 
         *self = InnerRequest::Cancelled(match self {
-            InnerRequest::Created(s) => s.clone().into_canceled(cancelled_by_us, cancel_code),
-            InnerRequest::Requested(s) => s.clone().into_canceled(cancelled_by_us, cancel_code),
-            InnerRequest::Ready(s) => s.clone().into_canceled(cancelled_by_us, cancel_code),
+            InnerRequest::Created(s) => {
+                print_info();
+                s.clone().into_canceled(cancelled_by_us, cancel_code)
+            }
+            InnerRequest::Requested(s) => {
+                print_info();
+                s.clone().into_canceled(cancelled_by_us, cancel_code)
+            }
+            InnerRequest::Ready(s) => {
+                print_info();
+                s.clone().into_canceled(cancelled_by_us, cancel_code)
+            }
             InnerRequest::Passive(_) | InnerRequest::Done(_) | InnerRequest::Cancelled(_) => return,
         });
     }
