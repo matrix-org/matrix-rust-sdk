@@ -41,7 +41,7 @@ use ruma::{
 };
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
-use tracing::{error, info, trace, warn};
+use tracing::{debug, error, info, trace, warn};
 
 use crate::{
     error::{OlmError, OlmResult},
@@ -230,6 +230,13 @@ impl From<SecretName> for SecretInfo {
 }
 
 impl OutgoingKeyRequest {
+    fn request_type(&self) -> &str {
+        match &self.info {
+            SecretInfo::KeyRequest(_) => "m.room_key_request",
+            SecretInfo::SecretRequest(s) => s.as_ref(),
+        }
+    }
+
     fn to_request(&self, own_device_id: &DeviceId) -> OutgoingRequest {
         let content = match &self.info {
             SecretInfo::KeyRequest(r) => {
@@ -533,9 +540,10 @@ impl KeyRequestMachine {
                     info
                 } else {
                     warn!(
-                        "Received a key request from {} {} with a request \
-                          action, but no key info was found",
-                        event.sender, event.content.requesting_device_id
+                        sender = event.sender.as_str(),
+                        requesting_device_id = event.content.requesting_device_id.as_str(),
+                        "Received a key request with a request of action, but
+                        no key info was found",
                     );
                     return Ok(None);
                 }
@@ -543,7 +551,12 @@ impl KeyRequestMachine {
             // We ignore cancellations here since there's nothing to serve.
             Action::CancelRequest => return Ok(None),
             action => {
-                warn!("Unknown room key request action: {:?}", action);
+                warn!(
+                    sender = event.sender.as_str(),
+                    requesting_device_id = event.content.requesting_device_id.as_str(),
+                    action = action.as_ref(),
+                    "Received a room key request with an unknown action",
+                );
                 return Ok(None);
             }
         };
@@ -560,9 +573,12 @@ impl KeyRequestMachine {
         let session = if let Some(s) = session {
             s
         } else {
-            info!(
-                "Received a key request from {} {} for an unknown inbound group session {}.",
-                &event.sender, &event.content.requesting_device_id, &key_info.session_id
+            debug!(
+                user_id = event.sender.as_str(),
+                device_id = event.content.requesting_device_id.as_str(),
+                session_id = key_info.session_id.as_str(),
+                room_id = key_info.room_id.as_str(),
+                "Received a room key request for an unknown inbound group session",
             );
             return Ok(None);
         };
@@ -573,32 +589,34 @@ impl KeyRequestMachine {
         if let Some(device) = device {
             match self.should_share_key(&device, &session).await {
                 Err(e) => {
-                    info!(
-                        "Received a key request from {} {} that we won't serve: {}",
-                        device.user_id(),
-                        device.device_id(),
-                        e
+                    debug!(
+                        user_id = device.user_id().as_str(),
+                        device_id = device.device_id().as_str(),
+                        reason =? e,
+                        "Received a key request that we won't serve",
                     );
 
                     Ok(None)
                 }
                 Ok(message_index) => {
                     info!(
-                        "Serving a key request for {} from {} {} with message_index {:?}.",
-                        key_info.session_id,
-                        device.user_id(),
-                        device.device_id(),
-                        message_index,
+                        user_id = device.user_id().as_str(),
+                        device_id = device.device_id().as_str(),
+                        session_id = key_info.session_id.as_str(),
+                        room_id = key_info.room_id.as_str(),
+                        message_index =? message_index,
+                        "Serving a room key request",
                     );
 
                     match self.share_session(&session, &device, message_index).await {
                         Ok(s) => Ok(Some(s)),
                         Err(OlmError::MissingSession) => {
                             info!(
-                                "Key request from {} {} is missing an Olm session, \
-                             putting the request in the wait queue",
-                                device.user_id(),
-                                device.device_id()
+                                user_id = device.user_id().as_str(),
+                                device_id = device.device_id().as_str(),
+                                session_id = key_info.session_id.as_str(),
+                                "Key request is missing an Olm session, \
+                                putting the request in the wait queue",
                             );
                             self.handle_key_share_without_session(device, event);
 
@@ -610,8 +628,9 @@ impl KeyRequestMachine {
             }
         } else {
             warn!(
-                "Received a key request from an unknown device {} {}.",
-                &event.sender, &event.content.requesting_device_id
+                user_id = event.sender.as_str(),
+                device_id = event.content.requesting_device_id.as_str(),
+                "Received a key request from an unknown device",
             );
             self.store.update_tracked_user(&event.sender, true).await?;
 
@@ -830,8 +849,6 @@ impl KeyRequestMachine {
         &self,
         key_info: SecretInfo,
     ) -> Result<OutgoingRequest, CryptoStoreError> {
-        info!("Creating new outgoing room key request {:#?}", key_info);
-
         let request = OutgoingKeyRequest {
             request_recipient: self.user_id().to_owned(),
             request_id: Uuid::new_v4(),
@@ -918,7 +935,12 @@ impl KeyRequestMachine {
         let info = self.store.get_outgoing_secret_requests(id).await?;
 
         if let Some(mut info) = info {
-            trace!("Marking outgoing key request as sent {:#?}", info);
+            trace!(
+                recipient = info.request_recipient.as_str(),
+                request_type = info.request_type(),
+                request_id = info.request_id.to_string().as_str(),
+                "Marking outgoing key request as sent"
+            );
             info.sent_out = true;
             self.save_outgoing_key_info(info).await?;
         }
@@ -932,8 +954,12 @@ impl KeyRequestMachine {
     ///
     /// This will queue up a request cancellation.
     async fn mark_as_done(&self, key_info: OutgoingKeyRequest) -> Result<(), CryptoStoreError> {
-        // TODO perhaps only remove the key info if the first known index is 0.
-        trace!("Successfully received a forwarded room key for {:#?}", key_info);
+        trace!(
+            recipient = key_info.request_recipient.as_str(),
+            request_type = key_info.request_type(),
+            request_id = key_info.request_id.to_string().as_str(),
+            "Successfully received a secret, removing the request"
+        );
 
         self.outgoing_requests.remove(&key_info.request_id);
         // TODO return the key info instead of deleting it so the sync handler
@@ -986,18 +1012,18 @@ impl KeyRequestMachine {
 
             if let Some(s) = &session {
                 info!(
-                    "Received a forwarded room key from {} for room {} with session id {}",
-                    event.sender,
-                    s.room_id(),
-                    s.session_id()
+                    sender = event.sender.as_str(),
+                    room_id = s.room_id().as_str(),
+                    session_id = s.session_id(),
+                    "Received a forwarded room key",
                 );
             }
 
             Ok((Some(AnyToDeviceEvent::ForwardedRoomKey(event.clone())), session))
         } else {
             info!(
-                "Received a forwarded room key from {}, but no key info was found.",
-                event.sender,
+                sender = event.sender.as_str(),
+                "Received a forwarded room key but no key info was found.",
             );
             Ok((None, None))
         }

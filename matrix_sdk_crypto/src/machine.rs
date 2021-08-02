@@ -215,12 +215,15 @@ impl OlmMachine {
     ) -> StoreResult<Self> {
         let account = match store.load_account().await? {
             Some(a) => {
-                debug!("Restored account");
+                debug!(ed25519_key = a.identity_keys().ed25519(), "Restored an Olm account");
                 a
             }
             None => {
-                debug!("Creating a new account");
                 let account = ReadOnlyAccount::new(&user_id, &device_id);
+                debug!(
+                    ed25519_key = account.identity_keys().ed25519(),
+                    "Created a new Olm account"
+                );
                 store.save_account(account.clone()).await?;
                 account
             }
@@ -228,7 +231,14 @@ impl OlmMachine {
 
         let identity = match store.load_identity().await? {
             Some(i) => {
-                debug!("Restored the cross signing identity");
+                let master_key = i
+                    .master_public_key()
+                    .await
+                    .and_then(|m| m.get_first_key().map(|m| m.to_string()));
+                debug!(
+                    master_key =? master_key,
+                    "Restored the cross signing identity"
+                );
                 i
             }
             None => {
@@ -697,7 +707,7 @@ impl OlmMachine {
                 .receive_forwarded_room_key(&decrypted.sender_key, &mut e)
                 .await?),
             _ => {
-                warn!("Received an unexpected encrypted to-device event");
+                warn!(event_type =? event.event_type(), "Received an unexpected encrypted to-device event");
                 Ok((Some(event), None))
             }
         }
@@ -811,19 +821,26 @@ impl OlmMachine {
                 Ok(e) => e,
                 Err(e) => {
                     // Skip invalid events.
-                    warn!("Received an invalid to-device event {:?} {:?}", e, raw_event);
+                    warn!(
+                        error =? e,
+                        "Received an invalid to-device event"
+                    );
                     continue;
                 }
             };
 
-            info!("Received a to-device event {:?}", event);
+            info!(
+                sender = event.sender().as_str(),
+                event_type = event.event_type(),
+                "Received a to-device event"
+            );
 
             match event {
                 AnyToDeviceEvent::RoomEncrypted(e) => {
                     let decrypted = match self.decrypt_to_device_event(&e).await {
                         Ok(e) => e,
                         Err(err) => {
-                            warn!("Failed to decrypt to-device event from {} {}", e.sender, err);
+                            warn!(sender = e.sender.as_str(), error =? e, "Failed to decrypt to-device event");
 
                             if let OlmError::SessionWedged(sender, curve_key) = err {
                                 if let Err(e) = self
@@ -832,8 +849,9 @@ impl OlmMachine {
                                     .await
                                 {
                                     error!(
-                                        "Couldn't mark device from {} to be unwedged {:?}",
-                                        sender, e
+                                        sender = sender.as_str(),
+                                        error =? e,
+                                        "Couldn't mark device from to be unwedged",
                                     );
                                 }
                             }
