@@ -332,7 +332,7 @@ impl SledStore {
         };
 
         let private_identity_pickle = if let Some(i) = changes.private_identity {
-            Some(i.pickle(DEFAULT_PICKLE.as_bytes()).await?)
+            Some(i.pickle(self.get_pickle_key()).await?)
         } else {
             None
         };
