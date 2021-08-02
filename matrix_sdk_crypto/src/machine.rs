@@ -706,6 +706,10 @@ impl OlmMachine {
                 .key_request_machine
                 .receive_forwarded_room_key(&decrypted.sender_key, &mut e)
                 .await?),
+            AnyToDeviceEvent::SecretSend(mut e) => Ok((
+                self.key_request_machine.receive_secret(&decrypted.sender_key, &mut e).await?,
+                None,
+            )),
             _ => {
                 warn!(event_type =? event.event_type(), "Received an unexpected encrypted to-device event");
                 Ok((Some(event), None))

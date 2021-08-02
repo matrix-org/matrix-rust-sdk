@@ -35,7 +35,8 @@ use serde_json::Error as JsonError;
 
 use crate::{
     error::SignatureError, identities::MasterPubkey, requests::UploadSigningKeysRequest,
-    ReadOnlyAccount, ReadOnlyDevice, ReadOnlyOwnUserIdentity, ReadOnlyUserIdentity,
+    store::SecretImportError, utilities::decode, OwnUserIdentity, ReadOnlyAccount, ReadOnlyDevice,
+    ReadOnlyOwnUserIdentity, ReadOnlyUserIdentity,
 };
 
 /// Private cross signing identity.
@@ -132,6 +133,49 @@ impl PrivateCrossSigningIdentity {
                 self.self_signing_key.lock().await.as_ref().map(|m| m.export_seed())
             }
             _ => None,
+        }
+    }
+
+    pub(crate) async fn import_secret(
+        &self,
+        public_identity: OwnUserIdentity,
+        secret_name: &SecretName,
+        seed: String,
+    ) -> Result<(), SecretImportError> {
+        let seed = decode(seed)?;
+
+        match secret_name {
+            SecretName::CrossSigningMasterKey => {
+                let master = MasterSigning::from_seed(self.user_id().clone(), seed);
+
+                if public_identity.master_key() == &master.public_key {
+                    *self.master_key.lock().await = Some(master);
+                    Ok(())
+                } else {
+                    Err(SecretImportError::MissmatchedPublicKeys)
+                }
+            }
+            SecretName::CrossSigningUserSigningKey => {
+                let subkey = UserSigning::from_seed(self.user_id().clone(), seed);
+
+                if public_identity.user_signing_key() == &subkey.public_key {
+                    *self.user_signing_key.lock().await = Some(subkey);
+                    Ok(())
+                } else {
+                    Err(SecretImportError::MissmatchedPublicKeys)
+                }
+            }
+            SecretName::CrossSigningSelfSigningKey => {
+                let subkey = SelfSigning::from_seed(self.user_id().clone(), seed);
+
+                if public_identity.self_signing_key() == &subkey.public_key {
+                    *self.self_signing_key.lock().await = Some(subkey);
+                    Ok(())
+                } else {
+                    Err(SecretImportError::MissmatchedPublicKeys)
+                }
+            }
+            _ => Ok(()),
         }
     }
 

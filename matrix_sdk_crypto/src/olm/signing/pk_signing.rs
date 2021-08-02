@@ -146,6 +146,13 @@ impl MasterSigning {
         encode(self.inner.seed.as_slice())
     }
 
+    pub fn from_seed(user_id: UserId, seed: Vec<u8>) -> Self {
+        let inner = Signing::from_seed(seed);
+        let public_key = inner.cross_signing_key(user_id, KeyUsage::Master).into();
+
+        Self { inner, public_key }
+    }
+
     pub fn from_pickle(
         pickle: PickledMasterSigning,
         pickle_key: &[u8],
@@ -192,6 +199,13 @@ impl UserSigning {
         encode(self.inner.seed.as_slice())
     }
 
+    pub fn from_seed(user_id: UserId, seed: Vec<u8>) -> Self {
+        let inner = Signing::from_seed(seed);
+        let public_key = inner.cross_signing_key(user_id, KeyUsage::UserSigning).into();
+
+        Self { inner, public_key }
+    }
+
     pub async fn sign_user(
         &self,
         user: &ReadOnlyUserIdentity,
@@ -235,6 +249,13 @@ impl SelfSigning {
 
     pub fn export_seed(&self) -> String {
         encode(self.inner.seed.as_slice())
+    }
+
+    pub fn from_seed(user_id: UserId, seed: Vec<u8>) -> Self {
+        let inner = Signing::from_seed(seed);
+        let public_key = inner.cross_signing_key(user_id, KeyUsage::SelfSigning).into();
+
+        Self { inner, public_key }
     }
 
     pub async fn sign_device_helper(&self, value: Value) -> Result<Signature, SignatureError> {

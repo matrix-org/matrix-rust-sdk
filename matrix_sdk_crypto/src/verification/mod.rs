@@ -42,6 +42,7 @@ use tracing::{error, info, trace, warn};
 
 use crate::{
     error::SignatureError,
+    key_request::{KeyRequestMachine, OutgoingKeyRequest},
     olm::PrivateCrossSigningIdentity,
     store::{Changes, CryptoStore},
     CryptoStoreError, LocalTrust, ReadOnlyDevice, ReadOnlyUserIdentities,
@@ -351,6 +352,10 @@ impl IdentitiesBeingVerified {
             return Ok(VerificationResult::Cancel(CancelCode::KeyMismatch));
         }
 
+        let is_self_verification =
+            device.as_ref().map(|d| d.user_id() == self.user_id()).unwrap_or_default()
+                || identity.as_ref().map(|i| i.own().is_some()).unwrap_or_default();
+
         let mut changes = Changes::default();
 
         let signature_request = if let Some(device) = device {
@@ -361,7 +366,7 @@ impl IdentitiesBeingVerified {
                     Err(SignatureError::MissingSigningKey) => {
                         warn!(
                             "Can't sign the device keys for {} {}, \
-                                  no private user signing key found",
+                                  no private device signing key found",
                             device.user_id(),
                             device.device_id(),
                         );
@@ -437,12 +442,22 @@ impl IdentitiesBeingVerified {
             identity_signature_request
         };
 
+        if is_self_verification {
+            let secret_requests = self.request_missing_secrets().await;
+            changes.key_requests = secret_requests;
+        }
+
         // TODO store the signature upload request as well.
         self.store.save_changes(changes).await?;
 
         Ok(merged_request
             .map(VerificationResult::SignatureUpload)
             .unwrap_or(VerificationResult::Ok))
+    }
+
+    async fn request_missing_secrets(&self) -> Vec<OutgoingKeyRequest> {
+        let secrets = self.private_identity.get_missing_secrets().await;
+        KeyRequestMachine::request_missing_secrets(self.user_id(), secrets)
     }
 
     async fn mark_identity_as_verified(

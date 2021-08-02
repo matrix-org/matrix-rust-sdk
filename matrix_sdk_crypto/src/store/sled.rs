@@ -60,13 +60,7 @@ impl EncodeKey for Uuid {
 
 impl EncodeKey for SecretName {
     fn encode(&self) -> Vec<u8> {
-        [
-            // TODO don't use serde here, use `as_ref()` when it becomes
-            // available
-            serde_json::to_string(self).expect("Can't serialize secret name").as_bytes(),
-            &[Self::SEPARATOR],
-        ]
-        .concat()
+        [self.as_ref().as_bytes(), &[Self::SEPARATOR]].concat()
     }
 }
 

@@ -51,6 +51,7 @@ use std::{
     sync::Arc,
 };
 
+use base64::DecodeError;
 use matrix_sdk_common::{async_trait, locks::Mutex, uuid::Uuid, AsyncTraitDeps};
 pub use memorystore::MemoryStore;
 use olm_rs::errors::{OlmAccountError, OlmGroupSessionError, OlmSessionError};
@@ -61,7 +62,7 @@ use ruma::{
 };
 use serde_json::Error as SerdeError;
 use thiserror::Error;
-use tracing::warn;
+use tracing::{info, warn};
 
 #[cfg(feature = "sled_cryptostore")]
 pub use self::sled::SledStore;
@@ -132,6 +133,23 @@ impl DeviceChanges {
         self.changed.extend(other.changed);
         self.deleted.extend(other.deleted);
     }
+}
+
+#[derive(Debug, Error)]
+pub(crate) enum SecretImportError {
+    /// The seed for the private key wasn't valid base64.
+    #[error(transparent)]
+    Base64(#[from] DecodeError),
+    /// The public key of the imported private key doesn't match to the public
+    /// key that was uploaded to the server.
+    #[error(
+        "The public key of the imported private key doesn't match to the \
+            public key that was uploaded to the server"
+    )]
+    MissmatchedPublicKeys,
+    /// The new version of the identity couldn't be stored.
+    #[error(transparent)]
+    Store(#[from] CryptoStoreError),
 }
 
 impl Store {
@@ -273,9 +291,39 @@ impl Store {
         }
     }
 
-    pub async fn get_missing_secrets(&self) -> Vec<SecretName> {
-        // TODO add the backup key to our missing secrets
-        self.identity.lock().await.get_missing_secrets().await
+    pub async fn import_secret(
+        &self,
+        secret_name: &SecretName,
+        secret: String,
+    ) -> Result<(), SecretImportError> {
+        match secret_name {
+            SecretName::CrossSigningMasterKey
+            | SecretName::CrossSigningUserSigningKey
+            | SecretName::CrossSigningSelfSigningKey => {
+                if let Some(public_identity) =
+                    self.get_identity(&self.user_id).await?.and_then(|i| i.own())
+                {
+                    let identity = self.identity.lock().await;
+
+                    identity.import_secret(public_identity, secret_name, secret).await?;
+                    info!(
+                        secret_name = secret_name.as_ref(),
+                        "Successfully imported a private cross signing key"
+                    );
+
+                    let mut changes = Changes::default();
+                    changes.private_identity = Some(identity.clone());
+
+                    self.save_changes(changes).await?;
+                }
+            }
+            SecretName::RecoveryKey => (),
+            name => {
+                warn!(secret =? name, "Tried to import an unknown secret");
+            }
+        }
+
+        Ok(())
     }
 }
 

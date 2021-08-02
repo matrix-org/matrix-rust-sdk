@@ -48,7 +48,7 @@ use crate::{
     olm::{InboundGroupSession, Session, ShareState},
     requests::{OutgoingRequest, ToDeviceRequest},
     session_manager::GroupSessionCache,
-    store::{Changes, CryptoStoreError, Store},
+    store::{Changes, CryptoStoreError, SecretImportError, Store},
     Device,
 };
 
@@ -230,6 +230,16 @@ impl From<SecretName> for SecretInfo {
 }
 
 impl OutgoingKeyRequest {
+    /// Create an ougoing secret request for the given secret.
+    pub(crate) fn from_secret_name(own_user_id: UserId, secret_name: SecretName) -> Self {
+        Self {
+            request_recipient: own_user_id,
+            request_id: Uuid::new_v4(),
+            info: secret_name.into(),
+            sent_out: false,
+        }
+    }
+
     fn request_type(&self) -> &str {
         match &self.info {
             SecretInfo::KeyRequest(_) => "m.room_key_request",
@@ -815,34 +825,22 @@ impl KeyRequestMachine {
         }
     }
 
-    #[allow(dead_code)]
-    pub async fn request_missing_secrets(&self) -> Result<Vec<OutgoingRequest>, CryptoStoreError> {
-        let secret_names = self.store.get_missing_secrets().await;
-
-        Ok(if secret_names.is_empty() {
+    /// Create outgoing secret requests for the given
+    pub fn request_missing_secrets(
+        own_user_id: &UserId,
+        secret_names: Vec<SecretName>,
+    ) -> Vec<OutgoingKeyRequest> {
+        if !secret_names.is_empty() {
             info!(secret_names =? secret_names, "Creating new outgoing secret requests");
 
-            let requests: Vec<OutgoingKeyRequest> = secret_names
+            secret_names
                 .into_iter()
-                .map(|n| OutgoingKeyRequest {
-                    request_recipient: self.user_id().to_owned(),
-                    request_id: Uuid::new_v4(),
-                    info: n.into(),
-                    sent_out: false,
-                })
-                .collect();
-
-            let outgoing_requests =
-                requests.iter().map(|r| r.to_request(self.device_id())).collect();
-
-            let changes = Changes { key_requests: requests, ..Default::default() };
-            self.store.save_changes(changes).await?;
-
-            outgoing_requests
+                .map(|n| OutgoingKeyRequest::from_secret_name(own_user_id.to_owned(), n))
+                .collect()
         } else {
             trace!("No secrets are missing from our store, not requesting them");
             vec![]
-        })
+        }
     }
 
     async fn request_key_helper(
@@ -970,6 +968,94 @@ impl KeyRequestMachine {
         self.outgoing_requests.insert(request.request_id, request);
 
         Ok(())
+    }
+
+    pub async fn receive_secret(
+        &self,
+        sender_key: &str,
+        event: &mut ToDeviceEvent<SecretSendEventContent>,
+    ) -> Result<Option<AnyToDeviceEvent>, CryptoStoreError> {
+        debug!(
+            sender = event.sender.as_str(),
+            request_id = event.content.request_id.as_str(),
+            "Received a m.secret.send event"
+        );
+
+        let request_id = if let Ok(r) = Uuid::parse_str(&event.content.request_id) {
+            r
+        } else {
+            warn!("Received a m.secret.send event but the request ID is invalid");
+            return Ok(None);
+        };
+
+        if let Some(request) = self.store.get_outgoing_secret_requests(request_id).await? {
+            match &request.info {
+                SecretInfo::KeyRequest(_) => {
+                    warn!(
+                        sender = event.sender.as_str(),
+                        request_id = event.content.request_id.as_str(),
+                        "Received a m.secret.send event but the request was for a room key"
+                    );
+                }
+                SecretInfo::SecretRequest(secret_name) => {
+                    debug!(
+                        sender = event.sender.as_str(),
+                        request_id = event.content.request_id.as_str(),
+                        secret_name = secret_name.as_ref(),
+                        "Received a m.secret.send event with a matching request"
+                    );
+
+                    if let Some(device) =
+                        self.store.get_device_from_curve_key(&event.sender, sender_key).await?
+                    {
+                        if device.verified() {
+                            match self
+                                .store
+                                .import_secret(
+                                    &secret_name,
+                                    std::mem::take(&mut event.content.secret),
+                                )
+                                .await
+                            {
+                                Ok(_) => self.mark_as_done(request).await?,
+                                Err(e) => {
+                                    // If this is a store error propagate it up
+                                    // the call stack.
+                                    if let SecretImportError::Store(e) = e {
+                                        return Err(e);
+                                    } else {
+                                        // Otherwise warn that there was
+                                        // something wrong with the secret.
+                                        warn!(
+                                            secret_name = secret_name.as_ref(),
+                                            error =? e,
+                                            "Error while importing a secret"
+                                        )
+                                    }
+                                }
+                            }
+                        } else {
+                            warn!(
+                                sender = event.sender.as_str(),
+                                request_id = event.content.request_id.as_str(),
+                                secret_name = secret_name.as_ref(),
+                                "Received a m.secret.send event from an unverified device"
+                            );
+                        }
+                    } else {
+                        warn!(
+                            sender = event.sender.as_str(),
+                            request_id = event.content.request_id.as_str(),
+                            secret_name = secret_name.as_ref(),
+                            "Received a m.secret.send event from an unknown device"
+                        );
+                        self.store.update_tracked_user(&event.sender, true).await?;
+                    }
+                }
+            }
+        }
+
+        Ok(Some(AnyToDeviceEvent::SecretSend(event.clone())))
     }
 
     /// Receive a forwarded room key event.

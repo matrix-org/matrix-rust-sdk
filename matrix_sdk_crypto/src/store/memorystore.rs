@@ -36,11 +36,7 @@ fn encode_key_info(info: &SecretInfo) -> String {
         SecretInfo::KeyRequest(info) => {
             format!("{}{}{}{}", info.room_id, info.sender_key, info.algorithm, info.session_id)
         }
-        SecretInfo::SecretRequest(i) => {
-            // TODO don't use serde here, use `as_ref()` when it becomes
-            // available
-            serde_json::to_string(i).expect("Can't serialize secret name")
-        }
+        SecretInfo::SecretRequest(i) => i.as_ref().to_owned(),
     }
 }
 
