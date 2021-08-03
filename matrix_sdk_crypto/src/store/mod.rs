@@ -68,11 +68,11 @@ use tracing::{info, warn};
 pub use self::sled::SledStore;
 use crate::{
     error::SessionUnpicklingError,
+    gossiping::{GossipRequest, SecretInfo},
     identities::{
         user::{OwnUserIdentity, UserIdentities, UserIdentity},
         Device, ReadOnlyDevice, ReadOnlyUserIdentities, UserDevices,
     },
-    key_request::{OutgoingKeyRequest, SecretInfo},
     olm::{
         InboundGroupSession, OlmMessageHash, OutboundGroupSession, PrivateCrossSigningIdentity,
         ReadOnlyAccount, Session,
@@ -107,7 +107,7 @@ pub struct Changes {
     pub inbound_group_sessions: Vec<InboundGroupSession>,
     pub outbound_group_sessions: Vec<OutboundGroupSession>,
     pub identities: IdentityChanges,
-    pub key_requests: Vec<OutgoingKeyRequest>,
+    pub key_requests: Vec<GossipRequest>,
     pub devices: DeviceChanges,
 }
 
@@ -499,10 +499,8 @@ pub trait CryptoStore: AsyncTraitDeps {
     ///
     /// * `request_id` - The unique request id that identifies this outgoing
     /// secret request.
-    async fn get_outgoing_secret_requests(
-        &self,
-        request_id: Uuid,
-    ) -> Result<Option<OutgoingKeyRequest>>;
+    async fn get_outgoing_secret_requests(&self, request_id: Uuid)
+        -> Result<Option<GossipRequest>>;
 
     /// Get an outgoing key request that we created that matches the given
     /// requested key info.
@@ -513,10 +511,10 @@ pub trait CryptoStore: AsyncTraitDeps {
     async fn get_secret_request_by_info(
         &self,
         secret_info: &SecretInfo,
-    ) -> Result<Option<OutgoingKeyRequest>>;
+    ) -> Result<Option<GossipRequest>>;
 
     /// Get all outgoing secret requests that we have in the store.
-    async fn get_unsent_secret_requests(&self) -> Result<Vec<OutgoingKeyRequest>>;
+    async fn get_unsent_secret_requests(&self) -> Result<Vec<GossipRequest>>;
 
     /// Delete an outgoing key request that we created that matches the given
     /// request id.

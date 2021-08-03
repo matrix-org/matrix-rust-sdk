@@ -38,8 +38,8 @@ use super::{
     ReadOnlyAccount, Result, Session,
 };
 use crate::{
+    gossiping::{GossipRequest, SecretInfo},
     identities::{ReadOnlyDevice, ReadOnlyUserIdentities},
-    key_request::{OutgoingKeyRequest, SecretInfo},
     olm::{OutboundGroupSession, PickledInboundGroupSession, PrivateCrossSigningIdentity},
 };
 
@@ -498,10 +498,7 @@ impl SledStore {
         Ok(())
     }
 
-    async fn get_outgoing_key_request_helper(
-        &self,
-        id: &[u8],
-    ) -> Result<Option<OutgoingKeyRequest>> {
+    async fn get_outgoing_key_request_helper(&self, id: &[u8]) -> Result<Option<GossipRequest>> {
         let request = self
             .outgoing_secret_requests
             .get(id)?
@@ -705,7 +702,7 @@ impl CryptoStore for SledStore {
     async fn get_outgoing_secret_requests(
         &self,
         request_id: Uuid,
-    ) -> Result<Option<OutgoingKeyRequest>> {
+    ) -> Result<Option<GossipRequest>> {
         let request_id = request_id.encode();
 
         self.get_outgoing_key_request_helper(&request_id).await
@@ -714,7 +711,7 @@ impl CryptoStore for SledStore {
     async fn get_secret_request_by_info(
         &self,
         key_info: &SecretInfo,
-    ) -> Result<Option<OutgoingKeyRequest>> {
+    ) -> Result<Option<GossipRequest>> {
         let id = self.secret_requests_by_info.get(key_info.encode())?;
 
         if let Some(id) = id {
@@ -724,8 +721,8 @@ impl CryptoStore for SledStore {
         }
     }
 
-    async fn get_unsent_secret_requests(&self) -> Result<Vec<OutgoingKeyRequest>> {
-        let requests: Result<Vec<OutgoingKeyRequest>> = self
+    async fn get_unsent_secret_requests(&self) -> Result<Vec<GossipRequest>> {
+        let requests: Result<Vec<GossipRequest>> = self
             .unsent_secret_requests
             .iter()
             .map(|i| serde_json::from_slice(&i?.1).map_err(CryptoStoreError::from))
@@ -742,13 +739,13 @@ impl CryptoStore for SledStore {
         )
             .transaction(
                 |(outgoing_key_requests, unsent_key_requests, key_requests_by_info)| {
-                    let sent_request: Option<OutgoingKeyRequest> = outgoing_key_requests
+                    let sent_request: Option<GossipRequest> = outgoing_key_requests
                         .remove(request_id.encode())?
                         .map(|r| serde_json::from_slice(&r))
                         .transpose()
                         .map_err(ConflictableTransactionError::Abort)?;
 
-                    let unsent_request: Option<OutgoingKeyRequest> = unsent_key_requests
+                    let unsent_request: Option<GossipRequest> = unsent_key_requests
                         .remove(request_id.encode())?
                         .map(|r| serde_json::from_slice(&r))
                         .transpose()
@@ -786,13 +783,13 @@ mod test {
     };
     use tempfile::tempdir;
 
-    use super::{CryptoStore, OutgoingKeyRequest, SledStore};
+    use super::{CryptoStore, GossipRequest, SledStore};
     use crate::{
+        gossiping::SecretInfo,
         identities::{
             device::test::get_device,
             user::test::{get_other_identity, get_own_identity},
         },
-        key_request::SecretInfo,
         olm::{
             GroupSessionKey, InboundGroupSession, OlmMessageHash, PrivateCrossSigningIdentity,
             ReadOnlyAccount, Session,
@@ -1232,7 +1229,7 @@ mod test {
         )
         .into();
 
-        let request = OutgoingKeyRequest {
+        let request = GossipRequest {
             request_recipient: account.user_id().to_owned(),
             request_id: id,
             info: info.clone(),
@@ -1254,7 +1251,7 @@ mod test {
         assert_eq!(request, stored_request);
         assert!(!store.get_unsent_secret_requests().await.unwrap().is_empty());
 
-        let request = OutgoingKeyRequest {
+        let request = GossipRequest {
             request_recipient: account.user_id().to_owned(),
             request_id: id,
             info: info.clone(),

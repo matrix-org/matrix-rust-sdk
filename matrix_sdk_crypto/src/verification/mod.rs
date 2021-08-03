@@ -42,7 +42,7 @@ use tracing::{error, info, trace, warn};
 
 use crate::{
     error::SignatureError,
-    key_request::{KeyRequestMachine, OutgoingKeyRequest},
+    gossiping::{GossipMachine, GossipRequest},
     olm::PrivateCrossSigningIdentity,
     store::{Changes, CryptoStore},
     CryptoStoreError, LocalTrust, ReadOnlyDevice, ReadOnlyUserIdentities,
@@ -455,9 +455,9 @@ impl IdentitiesBeingVerified {
             .unwrap_or(VerificationResult::Ok))
     }
 
-    async fn request_missing_secrets(&self) -> Vec<OutgoingKeyRequest> {
+    async fn request_missing_secrets(&self) -> Vec<GossipRequest> {
         let secrets = self.private_identity.get_missing_secrets().await;
-        KeyRequestMachine::request_missing_secrets(self.user_id(), secrets)
+        GossipMachine::request_missing_secrets(self.user_id(), secrets)
     }
 
     async fn mark_identity_as_verified(

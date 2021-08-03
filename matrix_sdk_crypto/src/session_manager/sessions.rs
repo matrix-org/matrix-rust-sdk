@@ -28,7 +28,7 @@ use tracing::{error, info, warn};
 
 use crate::{
     error::OlmResult,
-    key_request::KeyRequestMachine,
+    gossiping::GossipMachine,
     olm::Account,
     requests::{OutgoingRequest, ToDeviceRequest},
     store::{Changes, Result as StoreResult, Store},
@@ -45,7 +45,7 @@ pub(crate) struct SessionManager {
     /// [`get_missing_sessions`](#method.get_missing_sessions) is called.
     users_for_key_claim: Arc<DashMap<UserId, DashSet<DeviceIdBox>>>,
     wedged_devices: Arc<DashMap<UserId, DashSet<DeviceIdBox>>>,
-    key_request_machine: KeyRequestMachine,
+    key_request_machine: GossipMachine,
     outgoing_to_device_requests: Arc<DashMap<Uuid, OutgoingRequest>>,
 }
 
@@ -56,7 +56,7 @@ impl SessionManager {
     pub fn new(
         account: Account,
         users_for_key_claim: Arc<DashMap<UserId, DashSet<DeviceIdBox>>>,
-        key_request_machine: KeyRequestMachine,
+        key_request_machine: GossipMachine,
         store: Store,
     ) -> Self {
         Self {
@@ -297,8 +297,8 @@ mod test {
 
     use super::SessionManager;
     use crate::{
+        gossiping::GossipMachine,
         identities::ReadOnlyDevice,
-        key_request::KeyRequestMachine,
         olm::{Account, PrivateCrossSigningIdentity, ReadOnlyAccount},
         session_manager::GroupSessionCache,
         store::{CryptoStore, MemoryStore, Store},
@@ -338,7 +338,7 @@ mod test {
 
         let session_cache = GroupSessionCache::new(store.clone());
 
-        let key_request = KeyRequestMachine::new(
+        let key_request = GossipMachine::new(
             user_id,
             device_id,
             store.clone(),

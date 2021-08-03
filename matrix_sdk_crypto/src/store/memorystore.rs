@@ -26,8 +26,8 @@ use super::{
     Changes, CryptoStore, InboundGroupSession, ReadOnlyAccount, Result, Session,
 };
 use crate::{
+    gossiping::{GossipRequest, SecretInfo},
     identities::{ReadOnlyDevice, ReadOnlyUserIdentities},
-    key_request::{OutgoingKeyRequest, SecretInfo},
     olm::{OutboundGroupSession, PrivateCrossSigningIdentity},
 };
 
@@ -50,7 +50,7 @@ pub struct MemoryStore {
     olm_hashes: Arc<DashMap<String, DashSet<String>>>,
     devices: DeviceStore,
     identities: Arc<DashMap<UserId, ReadOnlyUserIdentities>>,
-    outgoing_key_requests: Arc<DashMap<Uuid, OutgoingKeyRequest>>,
+    outgoing_key_requests: Arc<DashMap<Uuid, GossipRequest>>,
     key_requests_by_info: Arc<DashMap<String, Uuid>>,
 }
 
@@ -236,14 +236,14 @@ impl CryptoStore for MemoryStore {
     async fn get_outgoing_secret_requests(
         &self,
         request_id: Uuid,
-    ) -> Result<Option<OutgoingKeyRequest>> {
+    ) -> Result<Option<GossipRequest>> {
         Ok(self.outgoing_key_requests.get(&request_id).map(|r| r.clone()))
     }
 
     async fn get_secret_request_by_info(
         &self,
         key_info: &SecretInfo,
-    ) -> Result<Option<OutgoingKeyRequest>> {
+    ) -> Result<Option<GossipRequest>> {
         let key_info_string = encode_key_info(key_info);
 
         Ok(self
@@ -252,7 +252,7 @@ impl CryptoStore for MemoryStore {
             .and_then(|i| self.outgoing_key_requests.get(&i).map(|r| r.clone())))
     }
 
-    async fn get_unsent_secret_requests(&self) -> Result<Vec<OutgoingKeyRequest>> {
+    async fn get_unsent_secret_requests(&self) -> Result<Vec<GossipRequest>> {
         Ok(self
             .outgoing_key_requests
             .iter()

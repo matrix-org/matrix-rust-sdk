@@ -29,8 +29,8 @@
 
 mod error;
 mod file_encryption;
+mod gossiping;
 mod identities;
-mod key_request;
 mod machine;
 pub mod olm;
 mod requests;

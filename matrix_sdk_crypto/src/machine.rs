@@ -48,8 +48,8 @@ use tracing::{debug, error, info, trace, warn};
 use crate::store::sled::SledStore;
 use crate::{
     error::{EventError, MegolmError, MegolmResult, OlmError, OlmResult},
+    gossiping::GossipMachine,
     identities::{user::UserIdentities, Device, IdentityManager, UserDevices},
-    key_request::KeyRequestMachine,
     olm::{
         Account, EncryptionSettings, ExportedRoomKey, GroupSessionKey, IdentityKeys,
         InboundGroupSession, OlmDecryptionInfo, PrivateCrossSigningIdentity, ReadOnlyAccount,
@@ -93,7 +93,7 @@ pub struct OlmMachine {
     verification_machine: VerificationMachine,
     /// The state machine that is responsible to handle outgoing and incoming
     /// key requests.
-    key_request_machine: KeyRequestMachine,
+    key_request_machine: GossipMachine,
     /// State machine handling public user identities and devices, keeping track
     /// of when a key query needs to be done and handling one.
     identity_manager: IdentityManager,
@@ -157,7 +157,7 @@ impl OlmMachine {
 
         let group_session_manager = GroupSessionManager::new(account.clone(), store.clone());
 
-        let key_request_machine = KeyRequestMachine::new(
+        let key_request_machine = GossipMachine::new(
             user_id.clone(),
             device_id.clone(),
             store.clone(),
