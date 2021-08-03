@@ -1,23 +1,10 @@
-use std::convert::TryFrom;
-
-use ruma::{events::AnyRoomEvent, room_id};
+use ruma::{
+    events::{AnyRoomEvent, AnySyncRoomEvent},
+    room_id,
+};
 use serde_json::Value;
 
 use crate::{test_json, EventsJson};
-
-/// Clones the given [`Value`] and adds a `room_id` to it
-///
-/// Adding the `room_id` conditionally with `cfg` directly to the lazy_static
-/// test_json values is blocked by "experimental attributes on expressions, see
-/// issue #15701 <https://github.com/rust-lang/rust/issues/15701> for more information"
-pub fn value_with_room_id(value: &Value) -> Value {
-    let mut val = value.clone();
-    let room_id =
-        Value::try_from(room_id!("!SVkFJHzfwvuaIEawgC:localhost").to_string()).expect("room_id");
-    val.as_object_mut().expect("mutable test_json").insert("room_id".to_owned(), room_id);
-
-    val
-}
 
 /// The `TransactionBuilder` struct can be used to easily generate valid
 /// incoming appservice transactions in json value format for testing.
@@ -42,9 +29,9 @@ impl TransactionBuilder {
             _ => panic!("unknown event json {:?}", json),
         };
 
-        let val = value_with_room_id(val);
-
-        let event = serde_json::from_value::<AnyRoomEvent>(val).unwrap();
+        let event = serde_json::from_value::<AnySyncRoomEvent>(val.to_owned())
+            .unwrap()
+            .into_full_event(room_id!("!SVkFJHzfwvuaIEawgC:localhost"));
 
         self.events.push(event);
         self

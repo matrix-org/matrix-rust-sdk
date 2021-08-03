@@ -15,7 +15,7 @@
 //! Matrix [Application Service] library
 //!
 //! The appservice crate aims to provide a batteries-included experience by
-//! being a thin wrapper around the [`matrix_sdk`]. That means that we
+//! being a thin wrapper around the [matrix_sdk]. That means that we
 //!
 //! * ship with functionality to configure your webserver crate or simply run
 //!   the webserver for you
@@ -70,14 +70,72 @@
 //!
 //! Check the [examples directory] for fully working examples.
 //!
+//! # State handling
+//!
+//! All incoming [transaction](index.html#transaction)s are stored in the
+//! same [state store](index.html#state-store), by default the [main
+//! user](index.html#main-user)'s. The advantage here is that if multiple
+//! [user](index.html#user)s join the same room you won't end up with duplicated
+//! state. It also allows to register one event handler compared to having to
+//! manage multiple event handlers for multiple [user](index.html#user)s.
+//!
+//! ## Caveat
+//!
+//! Currently incoming [transaction](index.html#transaction)s will put all PDUs
+//! into the [`join` room `timeline`], so no state events or events from the
+//! `invite`, `knock` or `leave` scope. Compared to the regular
+//! [`matrix_sdk::Client`] the event handler will always fire as if the user
+//! is still in the room.  This is because currently there is no way to know
+//! which [user](index.html#user) triggered a specific event and hence the
+//! application service can't reliably know whether an invite or leaving a room
+//! belongs to it.
+//!
+//! # Terminology
+//!
+//! ## User
+//!
+//! An user managed by the application service, so either the [main
+//! user](index.html#main-user) or one of the [virtual
+//! user](index.html#virtual-user)s.
+//!
+//! ## Main User
+//!
+//! The user associated with the application service via `sender_localpart` in
+//! [`AppServiceRegistration`].
+//!
+//! ## Virtual User
+//!
+//! The application service may specify the virtual user to act as through use
+//! of a user_id query string parameter on the request. The user specified in
+//! the query string must be covered by one of the [`AppServiceRegistration`]'s
+//! `users` namespaces.
+//!
+//! ## Transactions
+//!
+//! PDUs pushed to the application service webserver. Also see the spec
+//! regarding [pushing events].
+//!
+//! EDUs are not pushed, but there's the open [MSC2409] regarding supporting
+//! EDUs in the future, though it seems to be planned to put EDUs into a
+//! different JSON key than `events` to stay backwards compatible.
+//!
+//! ## State Store
+//!
+//! Implementation of storage for room state in [`matrix_sdk_base::Store`].
+//!
 //! [Application Service]: https://matrix.org/docs/spec/application_service/r0.1.2
 //! [matrix-org/matrix-rust-sdk#228]: https://github.com/matrix-org/matrix-rust-sdk/issues/228
 //! [examples directory]: https://github.com/matrix-org/matrix-rust-sdk/tree/master/matrix_sdk_appservice/examples
+//! [`join` room `timeline`]: https://spec.matrix.org/unstable/client-server-api/#get_matrixclientr0sync
+//! [MSC2409]: https://github.com/matrix-org/matrix-doc/pull/2409
+//! [`matrix_sdk_base::Store`]: https://docs.rs/matrix-sdk-base/latest/matrix_sdk_base/struct.Store.html
+//! [pushing events]: https://spec.matrix.org/unstable/application-service-api/#pushing-events
 
 #[cfg(not(any(feature = "warp")))]
 compile_error!("one webserver feature must be enabled. available ones: `warp`");
 
 use std::{
+    collections::HashMap,
     convert::{TryFrom, TryInto},
     fs::File,
     ops::Deref,
@@ -92,21 +150,28 @@ pub use matrix_sdk;
 #[doc(no_inline)]
 pub use matrix_sdk::ruma;
 use matrix_sdk::{
-    bytes::Bytes, reqwest::Url, Client, ClientConfig, EventHandler, HttpError, Session,
+    bytes::Bytes, locks::RwLock, reqwest::Url, Client, ClientConfig, EventHandler, HttpError,
+    Session,
 };
 use regex::Regex;
 use ruma::{
     api::{
-        appservice::Registration,
+        appservice::{event::push_events, Registration},
         client::{
             error::ErrorKind,
-            r0::{account::register, uiaa::UiaaResponse},
+            r0::{
+                account::register, state::get_state_events, sync::sync_events, uiaa::UiaaResponse,
+            },
         },
         error::{FromHttpResponseError, ServerError},
     },
-    assign, identifiers, DeviceId, ServerNameBox, UserId,
+    assign, identifiers,
+    serde::Raw,
+    DeviceId, RoomId, ServerNameBox, UserId,
 };
-use tracing::{info, warn};
+use serde::Deserialize;
+use serde_json::{json, Value};
+use tracing::{info, trace, warn};
 
 mod error;
 mod webserver;
@@ -177,21 +242,6 @@ impl Deref for AppServiceRegistration {
 
 type Localpart = String;
 
-/// The `localpart` of the user associated with the application service via
-/// `sender_localpart` in [`AppServiceRegistration`].
-///
-/// Dummy type for shared documentation
-#[allow(dead_code)]
-pub type MainUser = ();
-
-/// The application service may specify the virtual user to act as through use
-/// of a user_id query string parameter on the request. The user specified in
-/// the query string must be covered by one of the [`AppServiceRegistration`]'s
-/// `users` namespaces.
-///
-/// Dummy type for shared documentation
-pub type VirtualUser = ();
-
 /// AppService
 #[derive(Debug, Clone)]
 pub struct AppService {
@@ -199,14 +249,15 @@ pub struct AppService {
     server_name: ServerNameBox,
     registration: Arc<AppServiceRegistration>,
     clients: Arc<DashMap<Localpart, Client>>,
+    transaction_lock: Arc<RwLock<HashMap<RoomId, bool>>>,
 }
 
 impl AppService {
     /// Create new AppService
     ///
-    /// Also creates and caches a [`Client`] for the [`MainUser`].
-    /// The default [`ClientConfig`] is used, if you want to customize it
-    /// use [`Self::new_with_config()`] instead.
+    /// Also creates and caches a [`Client`] for the [main
+    /// user](index.html#main-user). The default [`ClientConfig`] is used,
+    /// if you want to customize it use [`Self::new_with_config()`] instead.
     ///
     /// # Arguments
     ///
@@ -246,16 +297,19 @@ impl AppService {
         let registration = Arc::new(registration);
         let clients = Arc::new(DashMap::new());
         let sender_localpart = registration.sender_localpart.clone();
+        let transaction_lock = Arc::new(RwLock::new(HashMap::new()));
 
-        let appservice = AppService { homeserver_url, server_name, registration, clients };
+        let appservice =
+            AppService { homeserver_url, server_name, registration, clients, transaction_lock };
 
-        // we create and cache the [`MainUser`] by default
+        // we create and cache t he [main user](index.html#main-user) by default
         appservice.create_and_cache_client(&sender_localpart, client_config).await?;
 
         Ok(appservice)
     }
 
-    /// Create a [`Client`] for the given [`VirtualUser`]'s `localpart`
+    /// Create a [`Client`] for the given [virtual
+    /// user](index.html#virtual-user)'s `localpart`
     ///
     /// Will create and return a [`Client`] that's configured to [assert the
     /// identity] on all outgoing homeserver requests if `localpart` is
@@ -263,11 +317,11 @@ impl AppService {
     ///
     /// This method is a singleton that saves the client internally for re-use
     /// based on the `localpart`. The cached [`Client`] can be retrieved either
-    /// by calling this method again or by calling [`Self::get_cached_client()`]
+    /// by calling this method again or by calling [`Self::get_client()`]
     /// which is non-async convenience wrapper.
     ///
     /// Note that if you want to do actions like joining rooms with a virtual
-    /// user it needs to be registered first. `Self::register_virtual_user()`
+    /// user it needs to be registered first. [`Self::register_virtual_user()`]
     /// can be used for that purpose.
     ///
     /// # Arguments
@@ -312,7 +366,7 @@ impl AppService {
     ) -> Result<Client> {
         let user_id = UserId::parse_with_server_name(localpart, &self.server_name)?;
 
-        // The `as_token` in the `Session` maps to the [`MainUser`]
+        // The `as_token` in the `Session` maps to the [main user](index.html#main-user)
         // (`sender_localpart`) by default, so we don't need to assert identity
         // in that case
         let config = if localpart != self.registration.sender_localpart {
@@ -344,9 +398,10 @@ impl AppService {
     /// constructed with [`Self::virtual_user_client()`] or
     /// [`Self::virtual_user_client_with_config()`].
     ///
-    /// If no `localpart` is given it assumes the [`MainUser`]'s `localpart`. If
-    /// no client for `localpart` is found it will return an Error.
-    pub fn get_cached_client(&self, localpart: Option<&str>) -> Result<Client> {
+    /// If no `localpart` is given it assumes the [main
+    /// user](index.html#main-user)'s `localpart`. If no client for
+    /// `localpart` is found it will return an Error.
+    pub fn get_client(&self, localpart: Option<&str>) -> Result<Client> {
         let localpart = localpart.unwrap_or_else(|| self.registration.sender_localpart.as_ref());
 
         let entry = self.clients.get(localpart).ok_or(Error::NoClientForLocalpart)?;
@@ -354,24 +409,10 @@ impl AppService {
         Ok(entry.value().clone())
     }
 
-    /// Convenience wrapper around [`Client::set_event_handler()`] that attaches
-    /// the event handler to the [`MainUser`]'s [`Client`]
-    ///
-    /// Note that the event handler in the [`AppService`] context only triggers
-    /// [`join` room `timeline` events], so no state events or events from the
-    /// `invite`, `knock` or `leave` scope. The rationale behind that is
-    /// that incoming AppService transactions from the homeserver are not
-    /// necessarily bound to a specific user but can cover a multitude of
-    /// namespaces, and as such the AppService basically only "observes
-    /// joined rooms". Also currently homeservers only push PDUs to appservices,
-    /// no EDUs. There's the open [MSC2409] regarding supporting EDUs in the
-    /// future, though it seems to be planned to put EDUs into a different
-    /// JSON key than `events` to stay backwards compatible.
-    ///
-    /// [`join` room `timeline` events]: https://spec.matrix.org/unstable/client-server-api/#get_matrixclientr0sync
-    /// [MSC2409]: https://github.com/matrix-org/matrix-doc/pull/2409
+    /// Convenience wrapper around [Client::set_event_handler()] that attaches
+    /// the event handler to the [main user](index.html#main-user)'s [`Client`]
     pub async fn set_event_handler(&mut self, handler: Box<dyn EventHandler>) -> Result<()> {
-        let client = self.get_cached_client(None)?;
+        let client = self.get_client(None)?;
 
         client.set_event_handler(handler).await;
 
@@ -391,7 +432,7 @@ impl AppService {
             login_type: Some(&register::LoginType::ApplicationService),
         });
 
-        let client = self.get_cached_client(None)?;
+        let client = self.get_client(None)?;
         match client.register(request).await {
             Ok(_) => (),
             Err(error) => match error {
@@ -472,6 +513,79 @@ impl AppService {
 
         #[cfg(not(any(feature = "warp",)))]
         unreachable!()
+    }
+
+    pub(crate) async fn receive_transaction(&self, request: http::Request<Bytes>) -> Result<Value> {
+        let client = self.get_client(None)?;
+        let incoming_transaction: push_events::v1::IncomingRequest =
+            ruma::api::IncomingRequest::try_from_http_request(request)?;
+
+        #[derive(Debug, Deserialize)]
+        struct EventDeHelper {
+            room_id: Option<RoomId>,
+        }
+
+        let txn_id = incoming_transaction.txn_id.clone();
+
+        let mut response = sync_events::Response::new(txn_id);
+
+        for raw_event in incoming_transaction.events {
+            let helper = raw_event.deserialize_as::<EventDeHelper>()?;
+            let event_json = Raw::into_json(raw_event);
+
+            if let Some(room_id) = helper.room_id {
+                if client.get_room(&room_id).is_none() {
+                    let mut transaction_lock = self.transaction_lock.write().await;
+                    let initialized = transaction_lock.entry(room_id.clone()).or_default();
+                    if !*initialized {
+                        trace!(
+                            "Received transaction event for unknown room, fetching initial state"
+                        );
+                        self.fetch_initial_room_state(room_id.clone(), &client).await?;
+                        *initialized = true;
+                    }
+                }
+
+                let join = response.rooms.join.entry(room_id).or_default();
+                join.timeline.events.push(Raw::from_json(event_json));
+            } else {
+                warn!("Event without room_id: {}", event_json);
+            }
+        }
+
+        client.receive_sync_response(response).await?;
+
+        Ok(json!({}))
+    }
+
+    async fn fetch_initial_room_state(&self, room_id: RoomId, client: &Client) -> Result<()> {
+        let state_request = get_state_events::Request::new(&room_id);
+        let state_response = client.send(state_request, None).await?;
+
+        #[derive(Debug, Deserialize)]
+        struct EventDeHelper {
+            room_id: Option<RoomId>,
+        }
+
+        let mut response = sync_events::Response::new("batch".to_owned());
+
+        for raw_event in state_response.room_state {
+            let helper = raw_event.deserialize_as::<EventDeHelper>()?;
+            let event_json = Raw::into_json(raw_event);
+
+            if let Some(room_id) = helper.room_id {
+                let join = response.rooms.join.entry(room_id).or_default();
+                join.state.events.push(Raw::from_json(event_json));
+            } else {
+                warn!("Event without room_id: {}", event_json);
+            }
+        }
+
+        trace!("Updating state with sync_response: {:?}", &response);
+
+        client.receive_sync_response(response).await?;
+
+        Ok(())
     }
 }
 

@@ -10,8 +10,9 @@ use matrix_sdk::{
     ClientConfig, EventHandler, RequestConfig,
 };
 use matrix_sdk_appservice::*;
-use matrix_sdk_test::{appservice::TransactionBuilder, async_test, EventsJson};
-use ruma::room_id;
+use matrix_sdk_test::{appservice::TransactionBuilder, async_test, test_json, EventsJson};
+use mockito::Matcher;
+use ruma::{events::EventType, room_id};
 use serde_json::json;
 #[cfg(feature = "warp")]
 use warp::{Filter, Reply};
@@ -21,9 +22,16 @@ fn registration_string() -> String {
 }
 
 async fn appservice(registration: Option<Registration>) -> Result<AppService> {
-    // env::set_var(
+    // std::env::set_var(
     //     "RUST_LOG",
-    //     "mockito=debug,matrix_sdk=debug,ruma=debug,warp=debug",
+    //     vec![
+    //         "matrix_sdk_appservice=trace",
+    //         "matrix_sdk=debug",
+    //         "mockito=debug",
+    //         "ruma=debug",
+    //         "warp=debug",
+    //     ]
+    //     .join(","),
     // );
     let _ = tracing_subscriber::fmt::try_init();
 
@@ -99,6 +107,102 @@ async fn test_put_transaction() -> Result<()> {
         .status();
 
     assert_eq!(status, 200);
+
+    Ok(())
+}
+
+#[async_test]
+async fn test_put_transaction_state() -> Result<()> {
+    let room_id = room_id!("!SVkFJHzfwvuaIEawgC:localhost");
+    let uri = "/_matrix/app/v1/transactions/1?access_token=hs_token";
+
+    let state_mock =
+        mockito::mock("GET", Matcher::Regex(r"^/_matrix/client/r0/rooms/.*/state$".to_string()))
+            .with_status(200)
+            .match_header("authorization", "Bearer as_token")
+            .with_body(test_json::ROOM_STATE.to_string())
+            .create();
+
+    let mut transaction_builder = TransactionBuilder::new();
+    transaction_builder.add_room_event(EventsJson::Member);
+    let transaction = transaction_builder.build_json_transaction();
+
+    let appservice = appservice(None).await?;
+
+    #[cfg(feature = "warp")]
+    let status = warp::test::request()
+        .method("PUT")
+        .path(uri)
+        .json(&transaction)
+        .filter(&appservice.warp_filter())
+        .await
+        .unwrap()
+        .into_response()
+        .status();
+
+    assert_eq!(status, 200);
+    state_mock.assert();
+
+    let room =
+        appservice.get_client(None)?.get_room(&room_id).expect("Expected room to be available");
+
+    assert_eq!(room.get_state_events(EventType::RoomCreate).await?.len(), 1);
+    assert_eq!(room.get_state_events(EventType::RoomJoinRules).await?.len(), 1);
+    assert_eq!(room.get_state_events(EventType::RoomPowerLevels).await?.len(), 1);
+
+    Ok(())
+}
+
+#[async_test]
+async fn test_put_transaction_state_multiple_requests() -> Result<()> {
+    let room_id = room_id!("!SVkFJHzfwvuaIEawgC:localhost");
+    let uri_transaction_1 = "/_matrix/app/v1/transactions/1?access_token=hs_token";
+    let uri_transaction_2 = "/_matrix/app/v1/transactions/2?access_token=hs_token";
+
+    let state_mock =
+        mockito::mock("GET", Matcher::Regex(r"^/_matrix/client/r0/rooms/.*/state$".to_string()))
+            .with_status(200)
+            .match_header("authorization", "Bearer as_token")
+            .with_body(test_json::ROOM_STATE.to_string())
+            .create();
+
+    let mut transaction_builder = TransactionBuilder::new();
+    transaction_builder.add_room_event(EventsJson::Member);
+    let transaction_1 = transaction_builder.build_json_transaction();
+
+    let mut transaction_builder = TransactionBuilder::new();
+    transaction_builder.add_room_event(EventsJson::MemberNameChange);
+    let transaction_2 = transaction_builder.build_json_transaction();
+
+    let appservice = appservice(None).await?;
+
+    #[cfg(feature = "warp")]
+    let results = {
+        let filter = &appservice.warp_filter();
+        tokio::join!(
+            warp::test::request()
+                .method("PUT")
+                .path(uri_transaction_1)
+                .json(&transaction_1)
+                .filter(filter),
+            warp::test::request()
+                .method("PUT")
+                .path(uri_transaction_2)
+                .json(&transaction_2)
+                .filter(filter)
+        )
+    };
+
+    assert_eq!(results.0.unwrap().into_response().status(), 200);
+    assert_eq!(results.1.unwrap().into_response().status(), 200);
+    state_mock.assert();
+
+    let room =
+        appservice.get_client(None)?.get_room(&room_id).expect("Expected room to be available");
+
+    assert_eq!(room.get_state_events(EventType::RoomCreate).await?.len(), 1);
+    assert_eq!(room.get_state_events(EventType::RoomJoinRules).await?.len(), 1);
+    assert_eq!(room.get_state_events(EventType::RoomPowerLevels).await?.len(), 1);
 
     Ok(())
 }
@@ -306,7 +410,7 @@ async fn test_appservice_on_sub_path() -> Result<()> {
     };
 
     let members = appservice
-        .get_cached_client(None)?
+        .get_client(None)?
         .get_room(&room_id)
         .expect("Expected room to be availabe")
         .members_no_sync()

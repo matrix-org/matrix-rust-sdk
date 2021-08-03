@@ -30,7 +30,7 @@ matrix-sdk = { version = "0.3", path = "../matrix_sdk", default-features = false
 
 [dependencies.ruma]
 version = "0.2.0"
-features = ["client-api-c", "appservice-api-s", "unstable-pre-spec"]
+features = ["client-api-c", "appservice-api-s", "compat", "unstable-pre-spec"]
 
 [dev-dependencies]
 env_logger = "0.8"

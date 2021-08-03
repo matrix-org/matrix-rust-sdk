@@ -9,6 +9,7 @@ use serde_json::{json, Value as JsonValue};
 
 pub mod events;
 pub mod members;
+pub mod state;
 pub mod sync;
 
 pub use events::{
@@ -18,6 +19,7 @@ pub use events::{
     REGISTRATION_RESPONSE_ERR, ROOM_ID, ROOM_MESSAGES, TYPING,
 };
 pub use members::MEMBERS;
+pub use state::ROOM_STATE;
 pub use sync::{
     DEFAULT_SYNC_SUMMARY, INVITE_SYNC, LEAVE_SYNC, LEAVE_SYNC_EVENT, MORE_SYNC, SYNC, VOIP_SYNC,
 };

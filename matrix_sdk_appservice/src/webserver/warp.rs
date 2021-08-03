@@ -14,7 +14,6 @@
 
 use std::{net::ToSocketAddrs, result::Result as StdResult};
 
-use futures::TryFutureExt;
 use matrix_sdk::{bytes::Bytes, ruma};
 use serde::Serialize;
 use warp::{filters::BoxedFilter, path::FullPath, Filter, Rejection, Reply};
@@ -175,13 +174,10 @@ mod handlers {
         appservice: AppService,
         request: http::Request<Bytes>,
     ) -> StdResult<impl warp::Reply, Rejection> {
-        let incoming_transaction: ruma::api::appservice::event::push_events::v1::IncomingRequest =
-            ruma::api::IncomingRequest::try_from_http_request(request).map_err(Error::from)?;
-
-        let client = appservice.get_cached_client(None)?;
-        client.receive_transaction(incoming_transaction).map_err(Error::from).await?;
-
-        Ok(warp::reply::json(&String::from("{}")))
+        match appservice.receive_transaction(request).await {
+            Ok(res) => Ok(warp::reply::json(&res)),
+            Err(err) => Err(warp::reject::custom(err)),
+        }
     }
 }
 
