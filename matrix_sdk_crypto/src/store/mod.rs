@@ -162,17 +162,17 @@ impl Store {
         Self { user_id, identity, inner: store, verification_machine }
     }
 
+    pub fn user_id(&self) -> &UserId {
+        &self.user_id
+    }
+
+    pub fn device_id(&self) -> &DeviceId {
+        self.verification_machine.own_device_id()
+    }
+
     #[cfg(test)]
     pub async fn reset_cross_signing_identity(&self) {
         self.identity.lock().await.reset().await;
-    }
-
-    pub async fn get_readonly_device(
-        &self,
-        user_id: &UserId,
-        device_id: &DeviceId,
-    ) -> Result<Option<ReadOnlyDevice>> {
-        self.inner.get_device(user_id, device_id).await
     }
 
     pub async fn save_sessions(&self, sessions: &[Session]) -> Result<()> {
@@ -201,13 +201,58 @@ impl Store {
         self.save_changes(changes).await
     }
 
+    /// Get the display name of our own device.
+    pub async fn device_display_name(&self) -> Result<Option<String>, CryptoStoreError> {
+        Ok(self
+            .inner
+            .get_device(self.user_id(), self.device_id())
+            .await?
+            .and_then(|d| d.display_name().to_owned()))
+    }
+
+    /// Get the read-only version of all the devices that the given user has.
+    ///
+    /// *Note*: This doesn't return our own device.
+    pub async fn get_readonly_device(
+        &self,
+        user_id: &UserId,
+        device_id: &DeviceId,
+    ) -> Result<Option<ReadOnlyDevice>> {
+        if user_id == self.user_id() && device_id == self.device_id() {
+            Ok(None)
+        } else {
+            self.inner.get_device(user_id, device_id).await
+        }
+    }
+
+    /// Get the read-only version of all the devices that the given user has.
+    ///
+    /// *Note*: This doesn't return our own device.
     pub async fn get_readonly_devices(
+        &self,
+        user_id: &UserId,
+    ) -> Result<HashMap<DeviceIdBox, ReadOnlyDevice>> {
+        self.inner.get_user_devices(user_id).await.map(|mut d| {
+            if user_id == self.user_id() {
+                d.remove(self.device_id());
+            }
+            d
+        })
+    }
+
+    /// Get the read-only version of all the devices that the given user has.
+    ///
+    /// *Note*: This does also return our own device.
+    pub async fn get_readonly_devices_unfiltered(
         &self,
         user_id: &UserId,
     ) -> Result<HashMap<DeviceIdBox, ReadOnlyDevice>> {
         self.inner.get_user_devices(user_id).await
     }
 
+    /// Get a device for the given user with the given curve25519 key.
+    ///
+    /// *Note*: This doesn't return our own device.
     pub async fn get_device_from_curve_key(
         &self,
         user_id: &UserId,
@@ -221,7 +266,11 @@ impl Store {
     }
 
     pub async fn get_user_devices(&self, user_id: &UserId) -> Result<UserDevices> {
-        let devices = self.inner.get_user_devices(user_id).await?;
+        let mut devices = self.inner.get_user_devices(user_id).await?;
+
+        if user_id == self.user_id() {
+            devices.remove(self.device_id());
+        }
 
         let own_identity =
             self.inner.get_user_identity(&self.user_id).await?.map(|i| i.own().cloned()).flatten();

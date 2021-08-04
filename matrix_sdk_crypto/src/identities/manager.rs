@@ -137,18 +137,20 @@ impl IdentityManager {
         user_id: UserId,
         device_map: BTreeMap<DeviceIdBox, DeviceKeys>,
     ) -> StoreResult<DeviceChanges> {
+        let own_device_id = (&*own_device_id).to_owned();
+
         let mut changes = DeviceChanges::default();
 
         let current_devices: HashSet<DeviceIdBox> = device_map.keys().cloned().collect();
 
         let tasks = device_map.into_iter().filter_map(|(device_id, device_keys)| {
-            // We don't need our own device in the device store.
-            if user_id == *own_user_id && *device_id == *own_device_id {
-                None
-            } else if user_id != device_keys.user_id || device_id != device_keys.device_id {
+            if user_id != device_keys.user_id || device_id != device_keys.device_id {
                 warn!(
-                    "Mismatch in device keys payload of device {}|{} from user {}|{}",
-                    device_id, device_keys.device_id, user_id, device_keys.user_id
+                    user_id = user_id.as_str(),
+                    device_id = device_id.as_str(),
+                    device_key_user = device_keys.user_id.as_str(),
+                    device_key_device_id = device_keys.device_id.as_str(),
+                    "Mismatch in the device keys payload",
                 );
                 None
             } else {
@@ -169,13 +171,14 @@ impl IdentityManager {
         }
 
         let current_devices: HashSet<&DeviceIdBox> = current_devices.iter().collect();
-        let stored_devices = store.get_readonly_devices(&user_id).await?;
+        let stored_devices = store.get_readonly_devices_unfiltered(&user_id).await?;
         let stored_devices_set: HashSet<&DeviceIdBox> = stored_devices.keys().collect();
-
         let deleted_devices_set = stored_devices_set.difference(&current_devices);
 
         for device_id in deleted_devices_set {
-            if let Some(device) = stored_devices.get(*device_id) {
+            if user_id == *own_user_id && *device_id == &own_device_id {
+                warn!("Our own device has been deleted");
+            } else if let Some(device) = stored_devices.get(*device_id) {
                 device.mark_as_deleted();
                 changes.deleted.push(device.clone());
             }

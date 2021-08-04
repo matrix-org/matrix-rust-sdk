@@ -287,6 +287,11 @@ impl OlmMachine {
         self.account.identity_keys()
     }
 
+    /// Get the display name of our own device
+    pub async fn dislpay_name(&self) -> StoreResult<Option<String>> {
+        self.store.device_display_name().await
+    }
+
     /// Get the outgoing requests that need to be sent out.
     ///
     /// This returns a list of `OutGoingRequest`, those requests need to be sent

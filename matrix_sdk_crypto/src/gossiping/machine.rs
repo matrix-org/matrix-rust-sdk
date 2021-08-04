@@ -938,11 +938,16 @@ mod test {
         let user_id: Arc<UserId> = alice_id().into();
         let account = ReadOnlyAccount::new(&user_id, &alice_device_id());
         let device = ReadOnlyDevice::from_account(&account).await;
+        let another_device =
+            ReadOnlyDevice::from_account(&ReadOnlyAccount::new(&user_id, &alice2_device_id()))
+                .await;
+
         let store: Arc<dyn CryptoStore> = Arc::new(MemoryStore::new());
         let identity = Arc::new(Mutex::new(PrivateCrossSigningIdentity::empty(alice_id())));
         let verification = VerificationMachine::new(account, identity.clone(), store.clone());
+
         let store = Store::new(user_id.clone(), identity, store, verification);
-        store.save_devices(&[device]).await.unwrap();
+        store.save_devices(&[device, another_device]).await.unwrap();
         let session_cache = GroupSessionCache::new(store.clone());
 
         GossipMachine::new(
@@ -1136,7 +1141,7 @@ mod test {
         let account = account();
 
         let own_device =
-            machine.store.get_device(&alice_id(), &alice_device_id()).await.unwrap().unwrap();
+            machine.store.get_device(&alice_id(), &alice2_device_id()).await.unwrap().unwrap();
 
         let (outbound, inbound) =
             account.create_group_session_pair_with_defaults(&room_id()).await.unwrap();
