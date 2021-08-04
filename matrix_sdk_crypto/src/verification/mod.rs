@@ -19,7 +19,10 @@ mod qrcode;
 mod requests;
 mod sas;
 
-use std::{collections::HashMap, sync::Arc};
+use std::{
+    collections::{BTreeMap, HashMap},
+    sync::Arc,
+};
 
 use event_enums::OutgoingContent;
 pub use machine::VerificationMachine;
@@ -36,7 +39,7 @@ use ruma::{
         },
         AnyMessageEventContent, AnyToDeviceEventContent,
     },
-    DeviceId, DeviceIdBox, EventId, RoomId, UserId,
+    DeviceId, DeviceIdBox, DeviceKeyId, EventId, RoomId, UserId,
 };
 pub use sas::{AcceptSettings, Sas};
 use tracing::{error, info, trace, warn};
@@ -89,6 +92,17 @@ impl VerificationStore {
         sender_key: &str,
     ) -> Result<Option<Arc<Mutex<Vec<Session>>>>, CryptoStoreError> {
         self.inner.get_sessions(sender_key).await
+    }
+
+    /// Get the signatures that have signed our own device.
+    pub async fn device_signatures(
+        &self,
+    ) -> Result<Option<BTreeMap<UserId, BTreeMap<DeviceKeyId, String>>>, CryptoStoreError> {
+        Ok(self
+            .inner
+            .get_device(self.account.user_id(), self.account.device_id())
+            .await?
+            .map(|d| d.signatures().to_owned()))
     }
 
     pub fn inner(&self) -> &dyn CryptoStore {
