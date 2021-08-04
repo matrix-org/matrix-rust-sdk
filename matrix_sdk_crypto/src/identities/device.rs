@@ -539,21 +539,11 @@ impl ReadOnlyDevice {
         )
     }
 
-    pub(crate) fn as_signature_message(&self) -> Value {
-        json!({
-            "user_id": &*self.user_id,
-            "device_id": &*self.device_id,
-            "keys": &*self.keys,
-            "algorithms": &*self.algorithms,
-            "signatures": &*self.signatures,
-        })
-    }
-
     pub(crate) fn verify_device_keys(
         &self,
         device_keys: &DeviceKeys,
     ) -> Result<(), SignatureError> {
-        let mut device_keys = serde_json::to_value(device_keys).unwrap();
+        let mut device_keys = serde_json::to_value(device_keys)?;
         self.is_signed_by_device(&mut device_keys)
     }
 

@@ -23,7 +23,7 @@ use std::{
 };
 
 use ruma::{
-    encryption::{CrossSigningKey, KeyUsage},
+    encryption::{CrossSigningKey, DeviceKeys, KeyUsage},
     events::{
         key::verification::VerificationMethod, room::message::KeyVerificationRequestEventContent,
     },
@@ -494,6 +494,22 @@ impl SelfSigningPubkey {
         &self.0.keys
     }
 
+    pub(crate) fn verify_device_keys(&self, device_keys: DeviceKeys) -> Result<(), SignatureError> {
+        let (key_id, key) = self.0.keys.iter().next().ok_or(SignatureError::MissingSigningKey)?;
+        // TODO check that the usage is OK.
+
+        let mut device = to_value(device_keys)?;
+
+        let utility = Utility::new();
+
+        utility.verify_json(
+            &self.0.user_id,
+            &DeviceKeyId::try_from(key_id.as_str())?,
+            key,
+            &mut device,
+        )
+    }
+
     /// Check if the given device is signed by this self signing key.
     ///
     /// # Arguments
@@ -503,17 +519,7 @@ impl SelfSigningPubkey {
     /// Returns an empty result if the signature check succeeded, otherwise a
     /// SignatureError indicating why the check failed.
     pub(crate) fn verify_device(&self, device: &ReadOnlyDevice) -> Result<(), SignatureError> {
-        let (key_id, key) = self.0.keys.iter().next().ok_or(SignatureError::MissingSigningKey)?;
-
-        // TODO check that the usage is OK.
-
-        let utility = Utility::new();
-        utility.verify_json(
-            &self.0.user_id,
-            &DeviceKeyId::try_from(key_id.as_str())?,
-            key,
-            &mut device.as_signature_message(),
-        )
+        self.verify_device_keys(device.as_device_keys())
     }
 }
 
