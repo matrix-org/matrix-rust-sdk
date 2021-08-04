@@ -290,31 +290,57 @@ impl Store {
         user_id: &UserId,
         device_id: &DeviceId,
     ) -> Result<Option<Device>> {
-        let own_identity =
-            self.inner.get_user_identity(&self.user_id).await?.map(|i| i.own().cloned()).flatten();
-        let device_owner_identity = self.inner.get_user_identity(user_id).await?;
+        if user_id == self.user_id() && device_id == self.device_id() {
+            Ok(None)
+        } else {
+            let own_identity = self
+                .inner
+                .get_user_identity(&self.user_id)
+                .await?
+                .map(|i| i.own().cloned())
+                .flatten();
+            let device_owner_identity = self.inner.get_user_identity(user_id).await?;
 
-        Ok(self.inner.get_device(user_id, device_id).await?.map(|d| Device {
-            inner: d,
-            private_identity: self.identity.clone(),
-            verification_machine: self.verification_machine.clone(),
-            own_identity,
-            device_owner_identity,
-        }))
+            Ok(self.inner.get_device(user_id, device_id).await?.map(|d| Device {
+                inner: d,
+                private_identity: self.identity.clone(),
+                verification_machine: self.verification_machine.clone(),
+                own_identity,
+                device_owner_identity,
+            }))
+        }
     }
 
     pub async fn get_identity(&self, user_id: &UserId) -> Result<Option<UserIdentities>> {
-        Ok(self.inner.get_user_identity(user_id).await?.map(|i| match i {
-            ReadOnlyUserIdentities::Own(i) => OwnUserIdentity {
-                inner: i,
-                verification_machine: self.verification_machine.clone(),
-            }
-            .into(),
-            ReadOnlyUserIdentities::Other(i) => {
-                UserIdentity { inner: i, verification_machine: self.verification_machine.clone() }
+        // let own_identity =
+        // self.inner.get_user_identity(self.user_id()).await?.and_then(|i| i.own());
+        Ok(if let Some(identity) = self.inner.get_user_identity(user_id).await? {
+            Some(match identity {
+                ReadOnlyUserIdentities::Own(i) => OwnUserIdentity {
+                    inner: i,
+                    verification_machine: self.verification_machine.clone(),
+                }
+                .into(),
+                ReadOnlyUserIdentities::Other(i) => {
+                    let own_identity =
+                        self.inner.get_user_identity(self.user_id()).await?.and_then(|i| {
+                            if let ReadOnlyUserIdentities::Own(i) = i {
+                                Some(i)
+                            } else {
+                                None
+                            }
+                        });
+                    UserIdentity {
+                        inner: i,
+                        verification_machine: self.verification_machine.clone(),
+                        own_identity,
+                    }
                     .into()
-            }
-        }))
+                }
+            })
+        } else {
+            None
+        })
     }
 
     /// Try to export the secret with the given secret name.

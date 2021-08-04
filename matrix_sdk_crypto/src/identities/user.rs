@@ -169,6 +169,7 @@ impl OwnUserIdentity {
 #[derive(Debug, Clone)]
 pub struct UserIdentity {
     pub(crate) inner: ReadOnlyUserIdentity,
+    pub(crate) own_identity: Option<ReadOnlyOwnUserIdentity>,
     pub(crate) verification_machine: VerificationMachine,
 }
 
@@ -181,6 +182,14 @@ impl Deref for UserIdentity {
 }
 
 impl UserIdentity {
+    /// Is this user identity verified.
+    pub fn verified(&self) -> bool {
+        self.own_identity
+            .as_ref()
+            .map(|o| o.is_identity_signed(&self.inner).is_ok())
+            .unwrap_or(false)
+    }
+
     /// Create a `VerificationRequest` object after the verification request
     /// content has been sent out.
     pub async fn request_verification(

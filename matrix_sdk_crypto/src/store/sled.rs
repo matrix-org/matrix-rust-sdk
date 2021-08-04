@@ -665,12 +665,7 @@ impl CryptoStore for SledStore {
         device_id: &DeviceId,
     ) -> Result<Option<ReadOnlyDevice>> {
         let key = (user_id.as_str(), device_id.as_str()).encode();
-
-        if let Some(d) = self.devices.get(key)? {
-            Ok(Some(serde_json::from_slice(&d)?))
-        } else {
-            Ok(None)
-        }
+        Ok(self.devices.get(key)?.map(|d| serde_json::from_slice(&d)).transpose()?)
     }
 
     async fn get_user_devices(
