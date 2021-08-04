@@ -98,7 +98,7 @@ mod filters {
             .and(filters::valid_access_token(appservice.registration().hs_token.clone()))
             .map(move || appservice.clone())
             .and(http_request().and_then(|request| async move {
-                let request = crate::transform_legacy_route(request).map_err(Error::from)?;
+                let request = crate::transform_request_path(request).map_err(Error::from)?;
                 Ok::<http::Request<Bytes>, Rejection>(request)
             }))
             .boxed()
