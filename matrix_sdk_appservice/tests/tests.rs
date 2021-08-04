@@ -11,6 +11,7 @@ use matrix_sdk::{
 };
 use matrix_sdk_appservice::*;
 use matrix_sdk_test::{appservice::TransactionBuilder, async_test, EventsJson};
+use ruma::room_id;
 use serde_json::json;
 #[cfg(feature = "warp")]
 use warp::{Filter, Reply};
@@ -267,6 +268,51 @@ async fn test_unrelated_path() -> Result<()> {
     };
 
     assert_eq!(status, 200);
+
+    Ok(())
+}
+
+#[async_test]
+async fn test_appservice_on_sub_path() -> Result<()> {
+    let room_id = room_id!("!SVkFJHzfwvuaIEawgC:localhost");
+    let uri_1 = "/sub_path/_matrix/app/v1/transactions/1?access_token=hs_token";
+    let uri_2 = "/sub_path/_matrix/app/v1/transactions/2?access_token=hs_token";
+
+    let mut transaction_builder = TransactionBuilder::new();
+    transaction_builder.add_room_event(EventsJson::Member);
+    let transaction_1 = transaction_builder.build_json_transaction();
+
+    let mut transaction_builder = TransactionBuilder::new();
+    transaction_builder.add_room_event(EventsJson::MemberNameChange);
+    let transaction_2 = transaction_builder.build_json_transaction();
+
+    let appservice = appservice(None).await?;
+
+    #[cfg(feature = "warp")]
+    {
+        warp::test::request()
+            .method("PUT")
+            .path(uri_1)
+            .json(&transaction_1)
+            .filter(&warp::path("sub_path").and(appservice.warp_filter()))
+            .await?;
+
+        warp::test::request()
+            .method("PUT")
+            .path(uri_2)
+            .json(&transaction_2)
+            .filter(&warp::path("sub_path").and(appservice.warp_filter()))
+            .await?;
+    };
+
+    let members = appservice
+        .get_cached_client(None)?
+        .get_room(&room_id)
+        .expect("Expected room to be availabe")
+        .members_no_sync()
+        .await?;
+
+    assert_eq!(members[0].display_name().unwrap(), "changed");
 
     Ok(())
 }

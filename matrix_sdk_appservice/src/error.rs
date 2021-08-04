@@ -34,6 +34,12 @@ pub enum Error {
     #[error("could not convert host:port to socket addr")]
     HostPortToSocketAddrs,
 
+    #[error("uri has empty path")]
+    UriEmptyPath,
+
+    #[error("uri path is unknown")]
+    UriPathUnknown,
+
     #[error(transparent)]
     HttpRequest(#[from] ruma::api::error::FromHttpRequestError),
 

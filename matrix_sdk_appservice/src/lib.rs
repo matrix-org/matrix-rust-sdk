@@ -87,7 +87,7 @@ use std::{
 
 use dashmap::DashMap;
 pub use error::Error;
-use http::{uri::PathAndQuery, Uri};
+use http::Uri;
 pub use matrix_sdk;
 #[doc(no_inline)]
 pub use matrix_sdk::ruma;
@@ -475,26 +475,63 @@ impl AppService {
     }
 }
 
-/// Transforms [legacy routes] to the correct route so ruma can parse them
-/// properly
+/// Ruma always expects the path to start with `/_matrix`, so we transform
+/// accordingly. Handles [legacy routes] and appservice being located on a sub
+/// path.
 ///
 /// [legacy routes]: https://matrix.org/docs/spec/application_service/r0.1.2#legacy-routes
-pub(crate) fn transform_legacy_route(
+// TODO: consider ruma PR
+pub(crate) fn transform_request_path(
     mut request: http::Request<Bytes>,
 ) -> Result<http::Request<Bytes>> {
-    let uri = request.uri().to_owned();
+    let uri = request.uri();
+    // remove trailing slash from path
+    let path = uri.path().trim_end_matches('/').to_string();
 
-    if !uri.path().starts_with("/_matrix/app/v1") {
-        // rename legacy routes
-        let mut parts = uri.into_parts();
-        let path_and_query = match parts.path_and_query {
-            Some(path_and_query) => format!("/_matrix/app/v1{}", path_and_query),
-            None => "/_matrix/app/v1".to_owned(),
+    if !path.starts_with("/_matrix/app/v1/") {
+        let path = match path {
+            // special-case paths without value at the end
+            _ if path.ends_with("/_matrix/app/unstable/thirdparty/user") => {
+                "/_matrix/app/v1/thirdparty/user".to_owned()
+            }
+            _ if path.ends_with("/_matrix/app/unstable/thirdparty/location") => {
+                "/_matrix/app/v1/thirdparty/location".to_owned()
+            }
+            // regular paths with values at the end
+            _ => {
+                let mut path = path.split('/').into_iter().rev();
+                let value = match path.next() {
+                    Some(value) => value,
+                    None => return Err(Error::UriEmptyPath),
+                };
+
+                let mut path = match path.next() {
+                    Some(path_segment)
+                        if ["transactions", "users", "rooms"].contains(&path_segment) =>
+                    {
+                        format!("/_matrix/app/v1/{}/{}", path_segment, value)
+                    }
+                    Some(path_segment) => match path.next() {
+                        Some(path_segment2) if path_segment2 == "thirdparty" => {
+                            format!("/_matrix/app/v1/thirdparty/{}/{}", path_segment, value)
+                        }
+                        _ => return Err(Error::UriPathUnknown),
+                    },
+                    None => return Err(Error::UriEmptyPath),
+                };
+
+                if let Some(query) = uri.query() {
+                    path.push_str(&format!("?{}", query));
+                }
+
+                path
+            }
         };
-        parts.path_and_query =
-            Some(PathAndQuery::try_from(path_and_query).map_err(http::Error::from)?);
-        let uri = parts.try_into().map_err(http::Error::from)?;
 
+        let mut parts = uri.clone().into_parts();
+        parts.path_and_query = Some(path.parse()?);
+
+        let uri = parts.try_into().map_err(http::Error::from)?;
         *request.uri_mut() = uri;
     }
 
