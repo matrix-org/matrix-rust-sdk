@@ -19,10 +19,11 @@ mod qrcode;
 mod requests;
 mod sas;
 
-use std::sync::Arc;
+use std::{collections::HashMap, sync::Arc};
 
 use event_enums::OutgoingContent;
 pub use machine::VerificationMachine;
+use matrix_sdk_common::locks::Mutex;
 pub use qrcode::QrVerification;
 pub use requests::VerificationRequest;
 use ruma::{
@@ -35,7 +36,7 @@ use ruma::{
         },
         AnyMessageEventContent, AnyToDeviceEventContent,
     },
-    DeviceId, EventId, RoomId, UserId,
+    DeviceId, DeviceIdBox, EventId, RoomId, UserId,
 };
 pub use sas::{AcceptSettings, Sas};
 use tracing::{error, info, trace, warn};
@@ -43,10 +44,57 @@ use tracing::{error, info, trace, warn};
 use crate::{
     error::SignatureError,
     gossiping::{GossipMachine, GossipRequest},
-    olm::PrivateCrossSigningIdentity,
+    olm::{PrivateCrossSigningIdentity, ReadOnlyAccount, Session},
     store::{Changes, CryptoStore},
     CryptoStoreError, LocalTrust, ReadOnlyDevice, ReadOnlyUserIdentities,
 };
+
+#[derive(Clone, Debug)]
+pub(crate) struct VerificationStore {
+    pub account: ReadOnlyAccount,
+    inner: Arc<dyn CryptoStore>,
+}
+
+impl VerificationStore {
+    pub async fn get_device(
+        &self,
+        user_id: &UserId,
+        device_id: &DeviceId,
+    ) -> Result<Option<ReadOnlyDevice>, CryptoStoreError> {
+        Ok(self.inner.get_device(user_id, device_id).await?.filter(|d| {
+            !(d.user_id() == self.account.user_id() && d.device_id() == self.account.device_id())
+        }))
+    }
+
+    pub async fn get_user_identity(
+        &self,
+        user_id: &UserId,
+    ) -> Result<Option<ReadOnlyUserIdentities>, CryptoStoreError> {
+        self.inner.get_user_identity(user_id).await
+    }
+
+    pub async fn save_changes(&self, changes: Changes) -> Result<(), CryptoStoreError> {
+        self.inner.save_changes(changes).await
+    }
+
+    pub async fn get_user_devices(
+        &self,
+        user_id: &UserId,
+    ) -> Result<HashMap<DeviceIdBox, ReadOnlyDevice>, CryptoStoreError> {
+        self.inner.get_user_devices(user_id).await
+    }
+
+    pub async fn get_sessions(
+        &self,
+        sender_key: &str,
+    ) -> Result<Option<Arc<Mutex<Vec<Session>>>>, CryptoStoreError> {
+        self.inner.get_sessions(sender_key).await
+    }
+
+    pub fn inner(&self) -> &dyn CryptoStore {
+        &*self.inner
+    }
+}
 
 /// An enum over the different verification types the SDK supports.
 #[derive(Clone, Debug)]
@@ -308,7 +356,7 @@ pub enum VerificationResult {
 #[derive(Clone, Debug)]
 pub struct IdentitiesBeingVerified {
     private_identity: PrivateCrossSigningIdentity,
-    store: Arc<dyn CryptoStore>,
+    store: VerificationStore,
     device_being_verified: ReadOnlyDevice,
     identity_being_verified: Option<ReadOnlyUserIdentities>,
 }

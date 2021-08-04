@@ -34,7 +34,7 @@ use super::{
     event_enums::{AnyEvent, AnyVerificationContent, OutgoingContent},
     requests::VerificationRequest,
     sas::Sas,
-    FlowId, Verification, VerificationResult,
+    FlowId, Verification, VerificationResult, VerificationStore,
 };
 use crate::{
     olm::PrivateCrossSigningIdentity,
@@ -46,9 +46,8 @@ use crate::{
 
 #[derive(Clone, Debug)]
 pub struct VerificationMachine {
-    account: ReadOnlyAccount,
     private_identity: Arc<Mutex<PrivateCrossSigningIdentity>>,
-    pub(crate) store: Arc<dyn CryptoStore>,
+    pub(crate) store: VerificationStore,
     verifications: VerificationCache,
     requests: Arc<DashMap<UserId, DashMap<String, VerificationRequest>>>,
 }
@@ -60,20 +59,19 @@ impl VerificationMachine {
         store: Arc<dyn CryptoStore>,
     ) -> Self {
         Self {
-            account,
             private_identity: identity,
-            store,
+            store: VerificationStore { account, inner: store },
             verifications: VerificationCache::new(),
             requests: DashMap::new().into(),
         }
     }
 
     pub(crate) fn own_user_id(&self) -> &UserId {
-        self.account.user_id()
+        self.store.account.user_id()
     }
 
     pub(crate) fn own_device_id(&self) -> &DeviceId {
-        self.account.device_id()
+        self.store.account.device_id()
     }
 
     pub(crate) async fn request_to_device_verification(
@@ -86,7 +84,6 @@ impl VerificationMachine {
 
         let verification = VerificationRequest::new(
             self.verifications.clone(),
-            self.account.clone(),
             self.private_identity.lock().await.clone(),
             self.store.clone(),
             flow_id,
@@ -113,7 +110,6 @@ impl VerificationMachine {
 
         let request = VerificationRequest::new(
             self.verifications.clone(),
-            self.account.clone(),
             self.private_identity.lock().await.clone(),
             self.store.clone(),
             flow_id,
@@ -135,7 +131,6 @@ impl VerificationMachine {
         let private_identity = self.private_identity.lock().await.clone();
 
         let (sas, content) = Sas::start(
-            self.account.clone(),
             private_identity,
             device.clone(),
             self.store.clone(),
@@ -260,7 +255,7 @@ impl VerificationMachine {
                 content,
             ))) = request.clone().try_into()
             {
-                let event = ToDeviceEvent { content, sender: self.account.user_id().to_owned() };
+                let event = ToDeviceEvent { content, sender: self.own_user_id().to_owned() };
 
                 events.push(AnyToDeviceEvent::KeyVerificationCancel(event).into());
             }
@@ -324,8 +319,8 @@ impl VerificationMachine {
         };
 
         let event_sent_from_us = |event: &AnyEvent<'_>, from_device: &DeviceId| {
-            if event.sender() == self.account.user_id() {
-                from_device == self.account.device_id() || event.is_room_event()
+            if event.sender() == self.store.account.user_id() {
+                from_device == self.store.account.device_id() || event.is_room_event()
             } else {
                 false
             }
@@ -345,7 +340,6 @@ impl VerificationMachine {
                             if !event_sent_from_us(&event, r.from_device()) {
                                 let request = VerificationRequest::from_request(
                                     self.verifications.clone(),
-                                    self.account.clone(),
                                     self.private_identity.lock().await.clone(),
                                     self.store.clone(),
                                     event.sender(),
@@ -423,7 +417,6 @@ impl VerificationMachine {
                                 flow_id,
                                 c,
                                 self.store.clone(),
-                                self.account.clone(),
                                 private_identity,
                                 device,
                                 identity,
@@ -519,10 +512,11 @@ mod test {
     use super::{Sas, VerificationMachine};
     use crate::{
         olm::PrivateCrossSigningIdentity,
-        store::{CryptoStore, MemoryStore},
+        store::MemoryStore,
         verification::{
             event_enums::{AcceptContent, KeyContent, MacContent, OutgoingContent},
             test::wrap_any_to_device_content,
+            VerificationStore,
         },
         ReadOnlyAccount, ReadOnlyDevice,
     };
@@ -555,11 +549,11 @@ mod test {
         store.save_devices(vec![bob_device]).await;
         bob_store.save_devices(vec![alice_device.clone()]).await;
 
-        let bob_store: Arc<dyn CryptoStore> = Arc::new(bob_store);
+        let bob_store = VerificationStore { account: bob, inner: Arc::new(bob_store) };
+
         let identity = Arc::new(Mutex::new(PrivateCrossSigningIdentity::empty(alice_id())));
         let machine = VerificationMachine::new(alice, identity, Arc::new(store));
         let (bob_sas, start_content) = Sas::start(
-            bob,
             PrivateCrossSigningIdentity::empty(bob_id()),
             alice_device,
             bob_store,
