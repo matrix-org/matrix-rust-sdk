@@ -461,9 +461,9 @@ impl Joined {
             #[cfg(feature = "encryption")]
             let mut reader = AttachmentEncryptor::new(reader);
             #[cfg(feature = "encryption")]
-            let content_type = mime::APPLICATION_OCTET_STREAM;
+            let content_type = &mime::APPLICATION_OCTET_STREAM;
 
-            let response = self.client.upload(&content_type, &mut reader).await?;
+            let response = self.client.upload(content_type, &mut reader).await?;
 
             #[cfg(feature = "encryption")]
             let keys: Option<Box<EncryptedFile>> = {

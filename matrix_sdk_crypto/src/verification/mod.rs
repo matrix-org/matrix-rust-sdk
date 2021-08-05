@@ -177,7 +177,7 @@ pub struct CancelInfo {
 impl CancelInfo {
     /// Get the human readable reason of the cancellation.
     pub fn reason(&self) -> &'static str {
-        &self.reason
+        self.reason
     }
 
     /// Get the `CancelCode` that cancelled this verification.

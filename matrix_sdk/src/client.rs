@@ -963,7 +963,7 @@ impl Client {
                     let event = event.clone().into();
 
                     if let AnySyncMessageEvent::RoomEncrypted(e) = event {
-                        if let Ok(decrypted) = machine.decrypt_room_event(&e, &room_id).await {
+                        if let Ok(decrypted) = machine.decrypt_room_event(&e, room_id).await {
                             let event = decrypted
                                 .event
                                 .deserialize()

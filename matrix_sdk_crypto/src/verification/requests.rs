@@ -389,7 +389,7 @@ impl VerificationRequest {
 
         inner.accept(methods).map(|c| match c {
             OutgoingContent::ToDevice(content) => {
-                ToDeviceRequest::new(&self.other_user(), inner.other_device_id(), content).into()
+                ToDeviceRequest::new(self.other_user(), inner.other_device_id(), content).into()
             }
             OutgoingContent::Room(room_id, content) => {
                 RoomMessageRequest { room_id, txn_id: Uuid::new_v4(), content }.into()
@@ -433,14 +433,14 @@ impl VerificationRequest {
             OutgoingContent::ToDevice(content) => {
                 if send_to_everyone {
                     ToDeviceRequest::new_for_recipients(
-                        &self.other_user(),
+                        self.other_user(),
                         self.recipient_devices.to_vec(),
                         content,
                         Uuid::new_v4(),
                     )
                     .into()
                 } else {
-                    ToDeviceRequest::new(&self.other_user(), other_device, content).into()
+                    ToDeviceRequest::new(self.other_user(), other_device, content).into()
                 }
             }
             OutgoingContent::Room(room_id, content) => {
@@ -621,7 +621,7 @@ impl VerificationRequest {
 
                     let request = match content {
                         OutgoingContent::ToDevice(content) => ToDeviceRequest::new(
-                            &self.other_user(),
+                            self.other_user(),
                             inner.other_device_id(),
                             content,
                         )

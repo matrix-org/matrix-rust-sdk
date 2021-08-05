@@ -484,7 +484,7 @@ impl VerificationMachine {
                             }
                         }
                         Some(Verification::QrV1(qr)) => {
-                            let (cancellation, request) = qr.receive_done(&c).await?;
+                            let (cancellation, request) = qr.receive_done(c).await?;
 
                             if let Some(c) = cancellation {
                                 self.verifications.add_request(c.into())
