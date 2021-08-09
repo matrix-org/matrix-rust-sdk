@@ -164,43 +164,81 @@ impl PrivateCrossSigningIdentity {
         &self,
         public_identity: OwnUserIdentity,
         secret_name: &SecretName,
-        seed: String,
+        seed: &str,
     ) -> Result<(), SecretImportError> {
-        let seed = decode(seed)?;
+        let (master, self_signing, user_signing) = match secret_name {
+            SecretName::CrossSigningMasterKey => (Some(seed), None, None),
+            SecretName::CrossSigningSelfSigningKey => (None, Some(seed), None),
+            SecretName::CrossSigningUserSigningKey => (None, None, Some(seed)),
+            _ => return Ok(()),
+        };
 
-        match secret_name {
-            SecretName::CrossSigningMasterKey => {
-                let master = MasterSigning::from_seed(self.user_id().clone(), seed);
+        self.import_secrets(public_identity, master, self_signing, user_signing).await
+    }
 
-                if public_identity.master_key() == &master.public_key {
-                    *self.master_key.lock().await = Some(master);
-                    Ok(())
-                } else {
-                    Err(SecretImportError::MissmatchedPublicKeys)
-                }
+    pub(crate) async fn import_secrets(
+        &self,
+        public_identity: OwnUserIdentity,
+        master_key: Option<&str>,
+        self_signing_key: Option<&str>,
+        user_signing_key: Option<&str>,
+    ) -> Result<(), SecretImportError> {
+        let master = if let Some(master_key) = master_key {
+            let seed = decode(master_key)?;
+
+            let master = MasterSigning::from_seed(self.user_id().clone(), seed);
+
+            if public_identity.master_key() == &master.public_key {
+                Ok(Some(master))
+                // *self.master_key.lock().await = Some(master);
+            } else {
+                Err(SecretImportError::MissmatchedPublicKeys)
             }
-            SecretName::CrossSigningUserSigningKey => {
-                let subkey = UserSigning::from_seed(self.user_id().clone(), seed);
+        } else {
+            Ok(None)
+        }?;
 
-                if public_identity.user_signing_key() == &subkey.public_key {
-                    *self.user_signing_key.lock().await = Some(subkey);
-                    Ok(())
-                } else {
-                    Err(SecretImportError::MissmatchedPublicKeys)
-                }
-            }
-            SecretName::CrossSigningSelfSigningKey => {
-                let subkey = SelfSigning::from_seed(self.user_id().clone(), seed);
+        let user_signing = if let Some(user_signing_key) = user_signing_key {
+            let seed = decode(user_signing_key)?;
+            let subkey = UserSigning::from_seed(self.user_id().clone(), seed);
 
-                if public_identity.self_signing_key() == &subkey.public_key {
-                    *self.self_signing_key.lock().await = Some(subkey);
-                    Ok(())
-                } else {
-                    Err(SecretImportError::MissmatchedPublicKeys)
-                }
+            if public_identity.user_signing_key() == &subkey.public_key {
+                // *self.user_signing_key.lock().await = Some(subkey);
+                Ok(Some(subkey))
+            } else {
+                Err(SecretImportError::MissmatchedPublicKeys)
             }
-            _ => Ok(()),
+        } else {
+            Ok(None)
+        }?;
+
+        let self_signing = if let Some(self_signing_key) = self_signing_key {
+            let seed = decode(self_signing_key)?;
+            let subkey = SelfSigning::from_seed(self.user_id().clone(), seed);
+
+            if public_identity.self_signing_key() == &subkey.public_key {
+                // *self.self_signing_key.lock().await = Some(subkey);
+                Ok(Some(subkey))
+            } else {
+                Err(SecretImportError::MissmatchedPublicKeys)
+            }
+        } else {
+            Ok(None)
+        }?;
+
+        if let Some(master) = master {
+            *self.master_key.lock().await = Some(master);
         }
+
+        if let Some(self_signing) = self_signing {
+            *self.self_signing_key.lock().await = Some(self_signing);
+        }
+
+        if let Some(user_signing) = user_signing {
+            *self.user_signing_key.lock().await = Some(user_signing);
+        }
+
+        Ok(())
     }
 
     /// Get the names of the secrets we are missing.

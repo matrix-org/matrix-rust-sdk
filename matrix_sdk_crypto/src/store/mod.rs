@@ -63,6 +63,7 @@ use ruma::{
 use serde_json::Error as SerdeError;
 use thiserror::Error;
 use tracing::{info, warn};
+use zeroize::Zeroize;
 
 #[cfg(feature = "sled_cryptostore")]
 pub use self::sled::SledStore;
@@ -136,8 +137,33 @@ impl DeviceChanges {
     }
 }
 
+/// A struct containing private cross signing keys that can be backed up or
+/// uploaded to the secret store.
+#[derive(Zeroize)]
+#[zeroize(drop)]
+pub struct CrossSigningKeyExport {
+    /// The seed of the master key encoded as unpadded base64.
+    pub master_key: Option<String>,
+    /// The seed of the self signing key encoded as unpadded base64.
+    pub self_signing_key: Option<String>,
+    /// The seed of the user signing key encoded as unpadded base64.
+    pub user_signing_key: Option<String>,
+}
+
+impl Debug for CrossSigningKeyExport {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("CrossSigningKeyExport")
+            .field("master_key", &self.master_key.is_some())
+            .field("self_signing_key", &self.self_signing_key.is_some())
+            .field("user_signing_key", &self.user_signing_key.is_some())
+            .finish_non_exhaustive()
+    }
+}
+
+/// Error describing what went wrong when importing private cross signing keys
+/// or the key backup key.
 #[derive(Debug, Error)]
-pub(crate) enum SecretImportError {
+pub enum SecretImportError {
     /// The seed for the private key wasn't valid base64.
     #[error(transparent)]
     Base64(#[from] DecodeError),
@@ -367,11 +393,42 @@ impl Store {
         }
     }
 
+    pub async fn import_cross_signing_keys(
+        &self,
+        export: CrossSigningKeyExport,
+    ) -> Result<CrossSigningStatus, SecretImportError> {
+        if let Some(public_identity) = self.get_identity(&self.user_id).await?.and_then(|i| i.own())
+        {
+            let identity = self.identity.lock().await;
+
+            identity
+                .import_secrets(
+                    public_identity,
+                    export.master_key.as_deref(),
+                    export.self_signing_key.as_deref(),
+                    export.user_signing_key.as_deref(),
+                )
+                .await?;
+
+            let status = identity.status().await;
+            info!(status =? status, "Successfully imported the private cross signing keys");
+
+            let changes =
+                Changes { private_identity: Some(identity.clone()), ..Default::default() };
+
+            self.save_changes(changes).await?;
+        }
+
+        Ok(self.identity.lock().await.status().await)
+    }
+
     pub async fn import_secret(
         &self,
         secret_name: &SecretName,
         secret: String,
     ) -> Result<(), SecretImportError> {
+        let secret = zeroize::Zeroizing::new(secret);
+
         match secret_name {
             SecretName::CrossSigningMasterKey
             | SecretName::CrossSigningUserSigningKey
@@ -381,7 +438,7 @@ impl Store {
                 {
                     let identity = self.identity.lock().await;
 
-                    identity.import_secret(public_identity, secret_name, secret).await?;
+                    identity.import_secret(public_identity, secret_name, &secret).await?;
                     info!(
                         secret_name = secret_name.as_ref(),
                         "Successfully imported a private cross signing key"

@@ -56,7 +56,7 @@ pub use requests::{
     IncomingResponse, KeysQueryRequest, OutgoingRequest, OutgoingRequests,
     OutgoingVerificationRequest, RoomMessageRequest, ToDeviceRequest,
 };
-pub use store::CryptoStoreError;
+pub use store::{CrossSigningKeyExport, CryptoStoreError, SecretImportError};
 pub use verification::{
     AcceptSettings, CancelInfo, QrVerification, Sas, Verification, VerificationRequest,
 };
