@@ -781,6 +781,24 @@ impl SledStore {
 
         Ok(self.media.apply_batch(batch)?)
     }
+
+    async fn remove_room(&self, room_id: &RoomId) -> Result<()> {
+        self.members.remove(&room_id.as_bytes())?;
+        self.profiles.remove(&room_id.as_bytes())?;
+        self.display_names.remove(&room_id.as_bytes())?;
+        self.joined_user_ids.remove(&room_id.as_bytes())?;
+        self.invited_user_ids.remove(&room_id.as_bytes())?;
+        self.room_info.remove(&room_id.as_bytes())?;
+        self.room_state.remove(&room_id.as_bytes())?;
+        self.room_account_data.remove(&room_id.as_bytes())?;
+        self.stripped_room_info.remove(&room_id.as_bytes())?;
+        self.stripped_room_state.remove(&room_id.as_bytes())?;
+        self.stripped_members.remove(&room_id.as_bytes())?;
+        self.room_user_receipts.remove(&room_id.as_bytes())?;
+        self.room_event_receipts.remove(&room_id.as_bytes())?;
+
+        Ok(())
+    }
 }
 
 #[async_trait]
@@ -913,6 +931,10 @@ impl StateStore for SledStore {
 
     async fn remove_media_content_for_uri(&self, uri: &MxcUri) -> Result<()> {
         self.remove_media_content_for_uri(uri).await
+    }
+
+    async fn remove_room(&self, room_id: &RoomId) -> Result<()> {
+        self.remove_room(room_id).await
     }
 }
 

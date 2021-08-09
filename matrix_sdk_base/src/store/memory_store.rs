@@ -439,6 +439,24 @@ impl MemoryStore {
 
         Ok(())
     }
+
+    async fn remove_room(&self, room_id: &RoomId) -> Result<()> {
+        self.members.remove(room_id);
+        self.profiles.remove(room_id);
+        self.display_names.remove(room_id);
+        self.joined_user_ids.remove(room_id);
+        self.invited_user_ids.remove(room_id);
+        self.room_info.remove(room_id);
+        self.room_state.remove(room_id);
+        self.room_account_data.remove(room_id);
+        self.stripped_room_info.remove(room_id);
+        self.stripped_room_state.remove(room_id);
+        self.stripped_members.remove(room_id);
+        self.room_user_receipts.remove(room_id);
+        self.room_event_receipts.remove(room_id);
+
+        Ok(())
+    }
 }
 
 #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
@@ -577,6 +595,10 @@ impl StateStore for MemoryStore {
 
     async fn remove_media_content_for_uri(&self, uri: &MxcUri) -> Result<()> {
         self.remove_media_content_for_uri(uri).await
+    }
+
+    async fn remove_room(&self, room_id: &RoomId) -> Result<()> {
+        self.remove_room(room_id).await
     }
 }
 
