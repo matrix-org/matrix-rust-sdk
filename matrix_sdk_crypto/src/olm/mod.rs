@@ -34,7 +34,7 @@ use matrix_sdk_common::instant::{Duration, Instant};
 pub use olm_rs::{account::IdentityKeys, PicklingMode};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 pub use session::{PickledSession, Session, SessionPickle};
-pub use signing::{PickledCrossSigningIdentity, PrivateCrossSigningIdentity};
+pub use signing::{CrossSigningStatus, PickledCrossSigningIdentity, PrivateCrossSigningIdentity};
 pub(crate) use utility::Utility;
 
 pub(crate) fn serialize_instant<S>(instant: &Instant, serializer: S) -> Result<S::Ok, S::Error>

@@ -50,8 +50,8 @@ pub use identities::{
 };
 pub use machine::OlmMachine;
 pub use matrix_qrcode;
-pub use olm::EncryptionSettings;
 pub(crate) use olm::ReadOnlyAccount;
+pub use olm::{CrossSigningStatus, EncryptionSettings};
 pub use requests::{
     IncomingResponse, KeysQueryRequest, OutgoingRequest, OutgoingRequests,
     OutgoingVerificationRequest, RoomMessageRequest, ToDeviceRequest,

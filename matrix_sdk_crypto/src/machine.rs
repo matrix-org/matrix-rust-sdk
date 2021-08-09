@@ -51,9 +51,9 @@ use crate::{
     gossiping::GossipMachine,
     identities::{user::UserIdentities, Device, IdentityManager, UserDevices},
     olm::{
-        Account, EncryptionSettings, ExportedRoomKey, GroupSessionKey, IdentityKeys,
-        InboundGroupSession, OlmDecryptionInfo, PrivateCrossSigningIdentity, ReadOnlyAccount,
-        SessionType,
+        Account, CrossSigningStatus, EncryptionSettings, ExportedRoomKey, GroupSessionKey,
+        IdentityKeys, InboundGroupSession, OlmDecryptionInfo, PrivateCrossSigningIdentity,
+        ReadOnlyAccount, SessionType,
     },
     requests::{IncomingResponse, OutgoingRequest, UploadSigningKeysRequest},
     session_manager::{GroupSessionManager, SessionManager},
@@ -1253,6 +1253,14 @@ impl OlmMachine {
         }
 
         Ok(exported)
+    }
+
+    /// Get the status of the private cross signing keys.
+    ///
+    /// This can be used to check which private cross signing keys we have
+    /// stored locally.
+    pub async fn cross_signing_status(&self) -> CrossSigningStatus {
+        self.user_identity.lock().await.status().await
     }
 }
 

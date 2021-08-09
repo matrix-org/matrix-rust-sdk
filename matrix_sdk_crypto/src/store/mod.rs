@@ -78,6 +78,7 @@ use crate::{
         ReadOnlyAccount, Session,
     },
     verification::VerificationMachine,
+    CrossSigningStatus,
 };
 
 /// A `CryptoStore` specific result type.

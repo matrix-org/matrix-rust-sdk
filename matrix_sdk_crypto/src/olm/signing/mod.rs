@@ -70,6 +70,20 @@ pub struct PickledCrossSigningIdentity {
     pub pickle: String,
 }
 
+/// Struct representing the state of our private cross signing keys, it shows
+/// which private cross signing keys we have locally stored.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CrossSigningStatus {
+    /// Do we have the master key.
+    pub has_master: bool,
+    /// Do we have the self signing key, this one is necessary to sign our own
+    /// devices.
+    pub has_self_signing: bool,
+    /// Do we have the user signing key, this one is necessary to sign other
+    /// users.
+    pub has_user_signing: bool,
+}
+
 impl PrivateCrossSigningIdentity {
     /// Get the user id that this identity belongs to.
     pub fn user_id(&self) -> &UserId {
@@ -106,6 +120,16 @@ impl PrivateCrossSigningIdentity {
     /// Do we have the master key.
     pub async fn has_master_key(&self) -> bool {
         self.master_key.lock().await.is_some()
+    }
+
+    /// Get the status of our private cross signing keys, i.e. if we have the
+    /// master key and the subkeys.
+    pub async fn status(&self) -> CrossSigningStatus {
+        CrossSigningStatus {
+            has_master: self.has_master_key().await,
+            has_self_signing: self.can_sign_devices().await,
+            has_user_signing: self.can_sign_users().await,
+        }
     }
 
     /// Get the public part of the master key, if we have one.
