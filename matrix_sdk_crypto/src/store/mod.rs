@@ -330,7 +330,6 @@ impl Store {
 
             Ok(self.inner.get_device(user_id, device_id).await?.map(|d| Device {
                 inner: d,
-                private_identity: self.identity.clone(),
                 verification_machine: self.verification_machine.clone(),
                 own_identity,
                 device_owner_identity,

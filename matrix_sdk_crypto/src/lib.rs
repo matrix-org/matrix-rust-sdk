@@ -39,7 +39,7 @@ pub mod store;
 mod utilities;
 mod verification;
 
-pub use error::{MegolmError, OlmError};
+pub use error::{MegolmError, OlmError, SignatureError};
 pub use file_encryption::{
     decrypt_key_export, encrypt_key_export, AttachmentDecryptor, AttachmentEncryptor,
     DecryptorError, EncryptionInfo, KeyExportError,

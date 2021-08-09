@@ -25,6 +25,7 @@ use std::{
 use atomic::Atomic;
 use matrix_sdk_common::locks::Mutex;
 use ruma::{
+    api::client::r0::keys::upload_signatures::Request as SignatureUploadRequest,
     encryption::{DeviceKeys, SignedKey},
     events::{
         forwarded_room_key::ForwardedRoomKeyToDeviceEventContent,
@@ -103,7 +104,6 @@ where
 /// A device represents a E2EE capable client of an user.
 pub struct Device {
     pub(crate) inner: ReadOnlyDevice,
-    pub(crate) private_identity: Arc<Mutex<PrivateCrossSigningIdentity>>,
     pub(crate) verification_machine: VerificationMachine,
     pub(crate) own_identity: Option<ReadOnlyOwnUserIdentity>,
     pub(crate) device_owner_identity: Option<ReadOnlyUserIdentities>,
@@ -204,6 +204,33 @@ impl Device {
         self.inner.is_cross_signing_trusted(&self.own_identity, &self.device_owner_identity)
     }
 
+    /// Manually verify this device.
+    ///
+    /// This method will attempt to sign the device using our private cross
+    /// signing key.
+    ///
+    /// This method will always fail if the device belongs to someone else, we
+    /// can only sign our own devices.
+    ///
+    /// It can also fail if we don't have the private part of our self-signing
+    /// key.
+    ///
+    /// Returns a request that needs to be sent out for the device to be marked
+    /// as verified.
+    pub async fn verify(&self) -> Result<SignatureUploadRequest, SignatureError> {
+        if self.user_id() == self.verification_machine.own_user_id() {
+            Ok(self
+                .verification_machine
+                .private_identity
+                .lock()
+                .await
+                .sign_device(&self.inner)
+                .await?)
+        } else {
+            Err(SignatureError::UserIdMissmatch)
+        }
+    }
+
     /// Set the local trust state of the device to the given state.
     ///
     /// This won't affect any cross signing trust state, this only sets a flag
@@ -280,7 +307,6 @@ impl UserDevices {
     pub fn get(&self, device_id: &DeviceId) -> Option<Device> {
         self.inner.get(device_id).map(|d| Device {
             inner: d.clone(),
-            private_identity: self.private_identity.clone(),
             verification_machine: self.verification_machine.clone(),
             own_identity: self.own_identity.clone(),
             device_owner_identity: self.device_owner_identity.clone(),
@@ -302,7 +328,6 @@ impl UserDevices {
     pub fn devices(&self) -> impl Iterator<Item = Device> + '_ {
         self.inner.values().map(move |d| Device {
             inner: d.clone(),
-            private_identity: self.private_identity.clone(),
             verification_machine: self.verification_machine.clone(),
             own_identity: self.own_identity.clone(),
             device_owner_identity: self.device_owner_identity.clone(),

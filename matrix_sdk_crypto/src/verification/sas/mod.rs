@@ -143,7 +143,6 @@ impl Sas {
         self.inner.lock().unwrap().set_creation_time(time)
     }
 
-    #[allow(clippy::too_many_arguments)]
     fn start_helper(
         inner_sas: InnerSas,
         private_identity: PrivateCrossSigningIdentity,
@@ -159,7 +158,7 @@ impl Sas {
 
         let identities = IdentitiesBeingVerified {
             private_identity,
-            store: store.clone(),
+            store,
             device_being_verified: other_device,
             identity_being_verified: other_identity,
         };
@@ -184,7 +183,6 @@ impl Sas {
     ///
     /// Returns the new `Sas` object and a `StartEventContent` that needs to be
     /// sent out through the server to the other device.
-    #[allow(clippy::too_many_arguments)]
     pub(crate) fn start(
         private_identity: PrivateCrossSigningIdentity,
         other_device: ReadOnlyDevice,

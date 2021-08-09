@@ -46,7 +46,7 @@ use crate::{
 
 #[derive(Clone, Debug)]
 pub struct VerificationMachine {
-    private_identity: Arc<Mutex<PrivateCrossSigningIdentity>>,
+    pub(crate) private_identity: Arc<Mutex<PrivateCrossSigningIdentity>>,
     pub(crate) store: VerificationStore,
     verifications: VerificationCache,
     requests: Arc<DashMap<UserId, DashMap<String, VerificationRequest>>>,
