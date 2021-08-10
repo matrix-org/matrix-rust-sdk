@@ -406,17 +406,14 @@ impl IdentitiesBeingVerified {
         verified_identities: Option<&[ReadOnlyUserIdentities]>,
     ) -> Result<VerificationResult, CryptoStoreError> {
         let device = self.mark_device_as_verified(verified_devices).await?;
-        let identity = self.mark_identity_as_verified(verified_identities).await?;
+        let (identity, should_request_secrets) =
+            self.mark_identity_as_verified(verified_identities).await?;
 
         if device.is_none() && identity.is_none() {
             // Something wen't wrong if nothing was verified, we use key
             // mismatch here, since it's the closest to nothing was verified
             return Ok(VerificationResult::Cancel(CancelCode::KeyMismatch));
         }
-
-        let is_self_verification =
-            device.as_ref().map(|d| d.user_id() == self.user_id()).unwrap_or_default()
-                || identity.as_ref().map(|i| i.own().is_some()).unwrap_or_default();
 
         let mut changes = Changes::default();
 
@@ -504,7 +501,7 @@ impl IdentitiesBeingVerified {
             identity_signature_request
         };
 
-        if is_self_verification {
+        if should_request_secrets {
             let secret_requests = self.request_missing_secrets().await;
             changes.key_requests = secret_requests;
         }
@@ -525,16 +522,16 @@ impl IdentitiesBeingVerified {
     async fn mark_identity_as_verified(
         &self,
         verified_identities: Option<&[ReadOnlyUserIdentities]>,
-    ) -> Result<Option<ReadOnlyUserIdentities>, CryptoStoreError> {
+    ) -> Result<(Option<ReadOnlyUserIdentities>, bool), CryptoStoreError> {
         // If there wasn't an identity available during the verification flow
         // return early as there's nothing to do.
         if self.identity_being_verified.is_none() {
-            return Ok(None);
+            return Ok((None, false));
         }
 
         let identity = self.store.get_user_identity(self.other_user_id()).await?;
 
-        if let Some(identity) = identity {
+        Ok(if let Some(identity) = identity {
             if self
                 .identity_being_verified
                 .as_ref()
@@ -546,11 +543,14 @@ impl IdentitiesBeingVerified {
                         "Marking the user identity of as verified."
                     );
 
-                    if let ReadOnlyUserIdentities::Own(i) = &identity {
+                    let should_request_secrets = if let ReadOnlyUserIdentities::Own(i) = &identity {
                         i.mark_as_verified();
-                    }
+                        true
+                    } else {
+                        false
+                    };
 
-                    Ok(Some(identity))
+                    (Some(identity), should_request_secrets)
                 } else {
                     info!(
                         user_id = self.other_user_id().as_str(),
@@ -559,7 +559,7 @@ impl IdentitiesBeingVerified {
                          the interactive verification",
                     );
 
-                    Ok(None)
+                    (None, false)
                 }
             } else {
                 warn!(
@@ -568,7 +568,7 @@ impl IdentitiesBeingVerified {
                       verification was going on, not marking the identity as verified.",
                 );
 
-                Ok(None)
+                (None, false)
             }
         } else {
             info!(
@@ -576,8 +576,8 @@ impl IdentitiesBeingVerified {
                 "The identity of the user was deleted while an interactive \
                  verification was going on.",
             );
-            Ok(None)
-        }
+            (None, false)
+        })
     }
 
     async fn mark_device_as_verified(
