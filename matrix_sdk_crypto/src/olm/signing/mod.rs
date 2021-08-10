@@ -28,7 +28,7 @@ use ruma::{
     api::client::r0::keys::upload_signatures::Request as SignatureUploadRequest,
     encryption::{DeviceKeys, KeyUsage},
     events::secret::request::SecretName,
-    DeviceKeyAlgorithm, DeviceKeyId, UserId,
+    UserId,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Error as JsonError;
@@ -379,22 +379,11 @@ impl PrivateCrossSigningIdentity {
 
         let mut public_key =
             master.cross_signing_key(account.user_id().to_owned(), KeyUsage::Master);
-        let signature = account
-            .sign_json(
-                serde_json::to_value(&public_key)
-                    .expect("Can't convert own public master key to json"),
-            )
-            .await;
 
-        public_key
-            .signatures
-            .entry(account.user_id().to_owned())
-            .or_insert_with(BTreeMap::new)
-            .insert(
-                DeviceKeyId::from_parts(DeviceKeyAlgorithm::Ed25519, account.device_id())
-                    .to_string(),
-                signature,
-            );
+        account
+            .sign_cross_signing_key(&mut public_key)
+            .await
+            .expect("Can't sign our freshly created master key with our account");
 
         let master = MasterSigning { inner: master, public_key: public_key.into() };
 

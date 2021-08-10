@@ -32,7 +32,7 @@ use olm_rs::{
 };
 use ruma::{
     api::client::r0::keys::{upload_keys, upload_signatures::Request as SignatureUploadRequest},
-    encryption::{DeviceKeys, OneTimeKey, SignedKey},
+    encryption::{CrossSigningKey, DeviceKeys, OneTimeKey, SignedKey},
     events::{
         room::encrypted::{EncryptedEventScheme, EncryptedToDeviceEventContent},
         AnyToDeviceEvent, ToDeviceEvent,
@@ -52,11 +52,11 @@ use super::{
 };
 use crate::{
     error::{EventError, OlmResult, SessionCreationError},
-    identities::ReadOnlyDevice,
+    identities::{MasterPubkey, ReadOnlyDevice},
     requests::UploadSigningKeysRequest,
     store::{Changes, Store},
     utilities::encode,
-    OlmError,
+    OlmError, SignatureError,
 };
 
 #[derive(Debug, Clone)]
@@ -759,6 +759,42 @@ impl ReadOnlyAccount {
         &self,
     ) -> (PrivateCrossSigningIdentity, UploadSigningKeysRequest, SignatureUploadRequest) {
         PrivateCrossSigningIdentity::new_with_account(self).await
+    }
+
+    pub(crate) async fn sign_cross_signing_key(
+        &self,
+        cross_signing_key: &mut CrossSigningKey,
+    ) -> Result<(), SignatureError> {
+        let signature = self.sign_json(serde_json::to_value(&cross_signing_key)?).await;
+
+        cross_signing_key
+            .signatures
+            .entry(self.user_id().to_owned())
+            .or_insert_with(BTreeMap::new)
+            .insert(
+                DeviceKeyId::from_parts(DeviceKeyAlgorithm::Ed25519, self.device_id()).to_string(),
+                signature,
+            );
+
+        Ok(())
+    }
+
+    pub(crate) async fn sign_master_key(
+        &self,
+        master_key: MasterPubkey,
+    ) -> Result<SignatureUploadRequest, SignatureError> {
+        let public_key =
+            master_key.get_first_key().ok_or(SignatureError::MissingSigningKey)?.to_string();
+        let mut cross_signing_key = master_key.into();
+        self.sign_cross_signing_key(&mut cross_signing_key).await?;
+
+        let mut signed_keys = BTreeMap::new();
+        signed_keys
+            .entry(self.user_id().to_owned())
+            .or_insert_with(BTreeMap::new)
+            .insert(public_key, serde_json::to_value(cross_signing_key)?);
+
+        Ok(SignatureUploadRequest::new(signed_keys))
     }
 
     /// Convert a JSON value to the canonical representation and sign the JSON

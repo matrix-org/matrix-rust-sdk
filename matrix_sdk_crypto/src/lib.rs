@@ -54,7 +54,7 @@ pub(crate) use olm::ReadOnlyAccount;
 pub use olm::{CrossSigningStatus, EncryptionSettings};
 pub use requests::{
     IncomingResponse, KeysQueryRequest, OutgoingRequest, OutgoingRequests,
-    OutgoingVerificationRequest, RoomMessageRequest, ToDeviceRequest,
+    OutgoingVerificationRequest, RoomMessageRequest, ToDeviceRequest, UploadSigningKeysRequest,
 };
 pub use store::{CrossSigningKeyExport, CryptoStoreError, SecretImportError};
 pub use verification::{

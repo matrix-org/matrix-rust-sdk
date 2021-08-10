@@ -32,11 +32,15 @@ use ruma::{
 };
 use serde::{Deserialize, Serialize};
 use serde_json::to_value;
+use tracing::error;
 
 use super::{atomic_bool_deserializer, atomic_bool_serializer};
 use crate::{
-    error::SignatureError, olm::Utility, verification::VerificationMachine, CryptoStoreError,
-    OutgoingVerificationRequest, ReadOnlyDevice, VerificationRequest,
+    error::SignatureError,
+    olm::Utility,
+    store::{Changes, IdentityChanges},
+    verification::VerificationMachine,
+    CryptoStoreError, OutgoingVerificationRequest, ReadOnlyDevice, VerificationRequest,
 };
 
 /// Enum over the different user identity types we can have.
@@ -103,6 +107,27 @@ impl Deref for OwnUserIdentity {
 }
 
 impl OwnUserIdentity {
+    /// Mark our user identity as verified.
+    ///
+    /// This will mark the identity locally as verified and sign it with our own
+    /// device.
+    ///
+    /// Returns a signature upload request that needs to be sent out.
+    pub async fn verify(&self) -> Result<SignatureUploadRequest, SignatureError> {
+        self.mark_as_verified();
+
+        let changes = Changes {
+            identities: IdentityChanges { changed: vec![self.inner.clone().into()], new: vec![] },
+            ..Default::default()
+        };
+
+        if let Err(e) = self.verification_machine.store.save_changes(changes).await {
+            error!(error =? e, "Couldn't store our own user identity after marking it as verified");
+        }
+
+        self.verification_machine.store.account.sign_master_key(self.master_key.clone()).await
+    }
+
     /// Send a verification request to our other devices.
     pub async fn request_verification(
         &self,
@@ -680,7 +705,7 @@ impl ReadOnlyUserIdentity {
     ///
     /// Returns a `SignatureError` if the self signing key fails to be correctly
     /// verified by the given master key.
-    pub fn new(
+    pub(crate) fn new(
         master_key: MasterPubkey,
         self_signing_key: SelfSigningPubkey,
     ) -> Result<Self, SignatureError> {
@@ -690,7 +715,7 @@ impl ReadOnlyUserIdentity {
     }
 
     #[cfg(test)]
-    pub async fn from_private(identity: &crate::olm::PrivateCrossSigningIdentity) -> Self {
+    pub(crate) async fn from_private(identity: &crate::olm::PrivateCrossSigningIdentity) -> Self {
         let master_key = identity.master_key.lock().await.as_ref().unwrap().public_key.clone();
         let self_signing_key =
             identity.self_signing_key.lock().await.as_ref().unwrap().public_key.clone();
@@ -747,7 +772,7 @@ impl ReadOnlyUserIdentity {
     ///
     /// Returns an empty result if the signature check succeeded, otherwise a
     /// SignatureError indicating why the check failed.
-    pub fn is_device_signed(&self, device: &ReadOnlyDevice) -> Result<(), SignatureError> {
+    pub(crate) fn is_device_signed(&self, device: &ReadOnlyDevice) -> Result<(), SignatureError> {
         if self.user_id() != device.user_id() {
             return Err(SignatureError::UserIdMissmatch);
         }
@@ -790,7 +815,7 @@ impl ReadOnlyOwnUserIdentity {
     ///
     /// Returns a `SignatureError` if the self signing key fails to be correctly
     /// verified by the given master key.
-    pub fn new(
+    pub(crate) fn new(
         master_key: MasterPubkey,
         self_signing_key: SelfSigningPubkey,
         user_signing_key: UserSigningPubkey,
@@ -836,7 +861,7 @@ impl ReadOnlyOwnUserIdentity {
     ///
     /// Returns an empty result if the signature check succeeded, otherwise a
     /// SignatureError indicating why the check failed.
-    pub fn is_identity_signed(
+    pub(crate) fn is_identity_signed(
         &self,
         identity: &ReadOnlyUserIdentity,
     ) -> Result<(), SignatureError> {
@@ -855,7 +880,7 @@ impl ReadOnlyOwnUserIdentity {
     ///
     /// Returns an empty result if the signature check succeeded, otherwise a
     /// SignatureError indicating why the check failed.
-    pub fn is_device_signed(&self, device: &ReadOnlyDevice) -> Result<(), SignatureError> {
+    pub(crate) fn is_device_signed(&self, device: &ReadOnlyDevice) -> Result<(), SignatureError> {
         if self.user_id() != device.user_id() {
             return Err(SignatureError::UserIdMissmatch);
         }
@@ -886,7 +911,7 @@ impl ReadOnlyOwnUserIdentity {
     /// * `user_signing_key` - The new user signing key of user identity.
     ///
     /// Returns a `SignatureError` if we failed to update the identity.
-    pub fn update(
+    pub(crate) fn update(
         &mut self,
         master_key: MasterPubkey,
         self_signing_key: SelfSigningPubkey,
