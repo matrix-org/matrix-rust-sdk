@@ -790,30 +790,22 @@ impl SledStore {
                             }
                         };
 
-                        let final_events: Vec<_> = events
-                            .iter()
-                            .filter(|e| {
-                                event_id_to_position
-                                    .get((room.as_str(), e.event_id().unwrap().as_str()).encode())
-                                    .transpose()
-                                    .is_none()
-                            })
-                            .collect();
+                        // Remove events already known from the store
+                        for event in &events {
+                            if let Some(batch) = event_id_to_position
+                                .remove(
+                                    (room.as_str(), event.event_id().unwrap().as_str()).encode(),
+                                )?
+                                .map(EventPosition::from)
+                            {
+                                timeline_events.remove(
+                                    (room.as_str(), batch.batch_idx, batch.position).encode(),
+                                )?;
+                            }
+                        }
 
-                        let duplicated = events.len() - final_events.len();
-
-                        let current_position = if expandable.start_token_changed
-                            && !expandable.end_token_changed
-                        {
-                            expandable.current_position - duplicated
-                        } else if expandable.end_token_changed && !expandable.start_token_changed {
-                            expandable.current_position + duplicated
-                        } else {
-                            expandable.current_position
-                        };
-
-                        for (position, event) in final_events.iter().enumerate() {
-                            let position = position + current_position;
+                        for (position, event) in events.iter().enumerate() {
+                            let position = position + expandable.current_position;
 
                             let old_event = timeline_events.insert(
                                 (room.as_str(), expandable.batch_idx, position).encode(),
@@ -888,7 +880,7 @@ impl SledStore {
                                 (room.as_str(), timeline.start.as_str()).encode(),
                                 EventPosition {
                                     batch_idx: expandable.batch_idx,
-                                    position: current_position,
+                                    position: expandable.current_position,
                                 },
                             )?;
                         }
@@ -904,7 +896,7 @@ impl SledStore {
                                     (room.as_str(), end.as_str()).encode(),
                                     EventPosition {
                                         batch_idx: expandable.batch_idx,
-                                        position: current_position + final_events.len(),
+                                        position: expandable.current_position + events.len(),
                                     },
                                 )?;
                             }
@@ -1980,6 +1972,7 @@ mod test {
             .await
             .unwrap()
             .unwrap();
+
         assert_eq!(backward_events.events.len(), 9);
         assert_eq!(backward_events.token, messages.end.clone());
 
