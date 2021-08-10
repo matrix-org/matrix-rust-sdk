@@ -2120,6 +2120,14 @@ impl Client {
                                     .unwrap();
                             }
                         }
+                        OutgoingRequests::KeysClaim(request) => {
+                            if let Ok(resp) = self.send(request.clone(), None).await {
+                                self.base_client
+                                    .mark_request_as_sent(r.request_id(), &resp)
+                                    .await
+                                    .unwrap();
+                            }
+                        }
                     }
                 }
             }

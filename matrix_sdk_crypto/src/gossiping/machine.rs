@@ -20,11 +20,12 @@
 // If we don't trust the device store an object that remembers the request and
 // let the users introspect that object.
 
-use std::sync::Arc;
+use std::{collections::BTreeMap, sync::Arc};
 
 use dashmap::{mapref::entry::Entry, DashMap, DashSet};
 use matrix_sdk_common::uuid::Uuid;
 use ruma::{
+    api::client::r0::keys::claim_keys::Request as KeysClaimRequest,
     events::{
         forwarded_room_key::ForwardedRoomKeyToDeviceEventContent,
         room_key_request::{Action, RequestedKeyInfo, RoomKeyRequestToDeviceEventContent},
@@ -36,7 +37,7 @@ use ruma::{
         },
         AnyToDeviceEvent, AnyToDeviceEventContent, ToDeviceEvent,
     },
-    DeviceId, DeviceIdBox, EventEncryptionAlgorithm, RoomId, UserId,
+    DeviceId, DeviceIdBox, DeviceKeyAlgorithm, EventEncryptionAlgorithm, RoomId, UserId,
 };
 use tracing::{debug, info, trace, warn};
 
@@ -111,6 +112,28 @@ impl GossipMachine {
         let key_forwards: Vec<OutgoingRequest> =
             self.outgoing_requests.iter().map(|i| i.value().clone()).collect();
         key_requests.extend(key_forwards);
+
+        let users_for_key_claim: BTreeMap<_, _> = self
+            .users_for_key_claim
+            .iter()
+            .map(|i| {
+                let device_map = i
+                    .value()
+                    .iter()
+                    .map(|d| (d.key().to_owned(), DeviceKeyAlgorithm::SignedCurve25519))
+                    .collect();
+
+                (i.key().to_owned(), device_map)
+            })
+            .collect();
+
+        if !users_for_key_claim.is_empty() {
+            let key_claim_request = KeysClaimRequest::new(users_for_key_claim);
+            key_requests.push(OutgoingRequest {
+                request_id: Uuid::new_v4(),
+                request: Arc::new(key_claim_request.into()),
+            });
+        }
 
         Ok(key_requests)
     }
@@ -866,6 +889,7 @@ mod test {
     use std::{convert::TryInto, sync::Arc};
 
     use dashmap::DashMap;
+    use matches::assert_matches;
     use matrix_sdk_common::locks::Mutex;
     use matrix_sdk_test::async_test;
     use ruma::{
@@ -888,6 +912,7 @@ mod test {
         session_manager::GroupSessionCache,
         store::{Changes, CryptoStore, MemoryStore, Store},
         verification::VerificationMachine,
+        OutgoingRequests,
     };
 
     fn alice_id() -> UserId {
@@ -1507,8 +1532,12 @@ mod test {
         // Receive the room key request from alice.
         bob_machine.receive_incoming_key_request(&event);
         bob_machine.collect_incoming_key_requests().await.unwrap();
-        // Bob doesn't have an outgoing requests since we're lacking a session.
-        assert!(bob_machine.outgoing_to_device_requests().await.unwrap().is_empty());
+        // Bob only has a keys claim request, since we're lacking a session
+        assert_eq!(bob_machine.outgoing_to_device_requests().await.unwrap().len(), 1);
+        assert_matches!(
+            bob_machine.outgoing_to_device_requests().await.unwrap().first().unwrap().request(),
+            OutgoingRequests::KeysClaim(_)
+        );
         assert!(!bob_machine.users_for_key_claim.is_empty());
         assert!(!bob_machine.wait_queue.is_empty());
 

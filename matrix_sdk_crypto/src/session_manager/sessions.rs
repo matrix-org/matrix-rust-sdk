@@ -279,7 +279,22 @@ impl SessionManager {
             }
         }
 
-        Ok(self.store.save_changes(changes).await?)
+        // TODO turn this into a single save_changes() call.
+        self.store.save_changes(changes).await?;
+
+        match self.key_request_machine.collect_incoming_key_requests().await {
+            Ok(sessions) => {
+                let changes = Changes { sessions, ..Default::default() };
+                self.store.save_changes(changes).await?
+            }
+            // We don't propagate the error here since the next sync will retry
+            // this.
+            Err(e) => {
+                warn!(error =? e, "Error while trying to collect the incoming secret requests")
+            }
+        }
+
+        Ok(())
     }
 }
 
