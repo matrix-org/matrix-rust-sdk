@@ -137,7 +137,6 @@ impl GossipMachine {
         }
     }
 
-    #[allow(dead_code)]
     pub fn receive_incoming_secret_request(
         &self,
         event: &ToDeviceEvent<SecretRequestEventContent>,
@@ -169,11 +168,7 @@ impl GossipMachine {
     /// Store the key share request for later, once we get an Olm session with
     /// the given device [`retry_keyshare`](#method.retry_keyshare) should be
     /// called.
-    fn handle_key_share_without_session(
-        &self,
-        device: Device,
-        event: &ToDeviceEvent<RoomKeyRequestToDeviceEventContent>,
-    ) {
+    fn handle_key_share_without_session(&self, device: Device, event: RequestEvent) {
         self.users_for_key_claim
             .entry(device.user_id().to_owned())
             .or_insert_with(DashSet::new)
@@ -226,7 +221,7 @@ impl GossipMachine {
         let content = if let Some(secret) = self.store.export_secret(secret_name).await {
             SecretSendEventContent::new(event.content.request_id.to_owned(), secret)
         } else {
-            info!(secret_name =? secret_name, "Can't server a secret request, secret isn't found");
+            info!(secret_name =? secret_name, "Can't serve a secret request, secret isn't found");
             return Ok(None);
         };
 
@@ -243,7 +238,22 @@ impl GossipMachine {
                         "Sharing a secret with a device",
                     );
 
-                    Some(self.share_secret(&device, content).await?)
+                    match self.share_secret(&device, content).await {
+                        Ok(s) => Ok(Some(s)),
+                        Err(OlmError::MissingSession) => {
+                            info!(
+                                user_id = device.user_id().as_str(),
+                                device_id = device.device_id().as_str(),
+                                secret_name = secret_name.as_ref(),
+                                "Secret request is missing an Olm session, \
+                                putting the request in the wait queue",
+                            );
+                            self.handle_key_share_without_session(device, event.clone().into());
+
+                            Ok(None)
+                        }
+                        Err(e) => Err(e),
+                    }?
                 } else {
                     info!(
                         user_id = device.user_id().as_str(),
@@ -366,7 +376,7 @@ impl GossipMachine {
                                 "Key request is missing an Olm session, \
                                 putting the request in the wait queue",
                             );
-                            self.handle_key_share_without_session(device, event);
+                            self.handle_key_share_without_session(device, event.to_owned().into());
 
                             Ok(None)
                         }

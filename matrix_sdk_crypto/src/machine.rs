@@ -767,6 +767,9 @@ impl OlmMachine {
             AnyToDeviceEvent::RoomKeyRequest(e) => {
                 self.key_request_machine.receive_incoming_key_request(e)
             }
+            AnyToDeviceEvent::SecretRequest(e) => {
+                self.key_request_machine.receive_incoming_secret_request(e)
+            }
             AnyToDeviceEvent::KeyVerificationAccept(..)
             | AnyToDeviceEvent::KeyVerificationCancel(..)
             | AnyToDeviceEvent::KeyVerificationKey(..)

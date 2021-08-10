@@ -267,19 +267,18 @@ impl WaitQueue {
         self.requests_ids_waiting.is_empty() && self.requests_waiting_for_session.is_empty()
     }
 
-    fn insert(&self, device: &Device, event: &ToDeviceEvent<RoomKeyRequestToDeviceEventContent>) {
+    fn insert(&self, device: &Device, event: RequestEvent) {
+        let request_id = event.request_id().to_owned();
+
         let key = RequestInfo::new(
             device.user_id().to_owned(),
             device.device_id().into(),
-            event.content.request_id.to_owned(),
+            request_id.clone(),
         );
-        self.requests_waiting_for_session.insert(key, event.clone().into());
+        self.requests_waiting_for_session.insert(key, event);
 
         let key = (device.user_id().to_owned(), device.device_id().into());
-        self.requests_ids_waiting
-            .entry(key)
-            .or_insert_with(DashSet::new)
-            .insert(event.content.request_id.clone());
+        self.requests_ids_waiting.entry(key).or_insert_with(DashSet::new).insert(request_id);
     }
 
     fn remove(&self, user_id: &UserId, device_id: &DeviceId) -> Vec<(RequestInfo, RequestEvent)> {
