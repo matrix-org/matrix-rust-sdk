@@ -41,7 +41,7 @@ use ruma::{
 };
 use tracing::{debug, info, trace, warn};
 
-use super::{GossipRequest, KeyforwardDecision, RequestEvent, RequestInfo, SecretInfo, WaitQueue};
+use super::{GossipRequest, KeyForwardDecision, RequestEvent, RequestInfo, SecretInfo, WaitQueue};
 use crate::{
     error::{OlmError, OlmResult},
     olm::{InboundGroupSession, Session, ShareState},
@@ -370,12 +370,21 @@ impl GossipMachine {
         if let Some(device) = device {
             match self.should_share_key(&device, &session).await {
                 Err(e) => {
-                    debug!(
-                        user_id = device.user_id().as_str(),
-                        device_id = device.device_id().as_str(),
-                        reason =? e,
-                        "Received a key request that we won't serve",
-                    );
+                    if let KeyForwardDecision::ChangedSenderKey = e {
+                        warn!(
+                            user_id = device.user_id().as_str(),
+                            device_id = device.device_id().as_str(),
+                            "Received a key request from a device that changed \
+                            their curve25519 sender key"
+                        );
+                    } else {
+                        debug!(
+                            user_id = device.user_id().as_str(),
+                            device_id = device.device_id().as_str(),
+                            reason =? e,
+                            "Received a key request that we won't serve",
+                        );
+                    }
 
                     Ok(None)
                 }
@@ -482,7 +491,7 @@ impl GossipMachine {
         &self,
         device: &Device,
         session: &InboundGroupSession,
-    ) -> Result<Option<u32>, KeyforwardDecision> {
+    ) -> Result<Option<u32>, KeyForwardDecision> {
         let outbound_session = self
             .outbound_group_sessions
             .get_with_id(session.room_id(), session.session_id())
@@ -494,7 +503,7 @@ impl GossipMachine {
             if device.verified() {
                 Ok(None)
             } else {
-                Err(KeyforwardDecision::UntrustedDevice)
+                Err(KeyForwardDecision::UntrustedDevice)
             }
         };
 
@@ -502,14 +511,11 @@ impl GossipMachine {
         // users/devices that received the session, if it wasn't shared check if
         // it's our own device and if it's trusted.
         if let Some(outbound) = outbound_session {
-            if let ShareState::Shared(message_index) =
-                outbound.is_shared_with(device.user_id(), device.device_id())
-            {
-                Ok(Some(message_index))
-            } else if device.user_id() == self.user_id() {
-                own_device_check()
-            } else {
-                Err(KeyforwardDecision::OutboundSessionNotShared)
+            match outbound.is_shared_with(device) {
+                ShareState::Shared(message_index) => Ok(Some(message_index)),
+                _ if device.user_id() == self.user_id() => own_device_check(),
+                ShareState::SharedButChangedSenderKey => Err(KeyForwardDecision::ChangedSenderKey),
+                ShareState::NotShared => Err(KeyForwardDecision::OutboundSessionNotShared),
             }
         // Else just check if it's one of our own devices that requested the key
         // and check if the device is trusted.
@@ -518,7 +524,7 @@ impl GossipMachine {
         // Otherwise, there's not enough info to decide if we can safely share
         // the session.
         } else {
-            Err(KeyforwardDecision::MissingOutboundSession)
+            Err(KeyForwardDecision::MissingOutboundSession)
         }
     }
 
@@ -902,10 +908,10 @@ mod test {
         },
         room_id,
         to_device::DeviceIdOrAllDevices,
-        user_id, DeviceIdBox, RoomId, UserId,
+        user_id, DeviceIdBox, DeviceKeyAlgorithm, RoomId, UserId,
     };
 
-    use super::{GossipMachine, KeyforwardDecision};
+    use super::{GossipMachine, KeyForwardDecision};
     use crate::{
         identities::{LocalTrust, ReadOnlyDevice},
         olm::{Account, PrivateCrossSigningIdentity, ReadOnlyAccount},
@@ -1182,12 +1188,9 @@ mod test {
             account.create_group_session_pair_with_defaults(&room_id()).await.unwrap();
 
         // We don't share keys with untrusted devices.
-        assert_eq!(
-            machine
-                .should_share_key(&own_device, &inbound)
-                .await
-                .expect_err("Should not share with untrusted"),
-            KeyforwardDecision::UntrustedDevice
+        assert_matches!(
+            machine.should_share_key(&own_device, &inbound).await,
+            Err(KeyForwardDecision::UntrustedDevice)
         );
         own_device.set_trust_state(LocalTrust::Verified);
         // Now we do want to share the keys.
@@ -1201,12 +1204,9 @@ mod test {
 
         // We don't share sessions with other user's devices if no outbound
         // session was provided.
-        assert_eq!(
-            machine
-                .should_share_key(&bob_device, &inbound)
-                .await
-                .expect_err("Should not share with other."),
-            KeyforwardDecision::MissingOutboundSession
+        assert_matches!(
+            machine.should_share_key(&bob_device, &inbound).await,
+            Err(KeyForwardDecision::MissingOutboundSession)
         );
 
         let mut changes = Changes::default();
@@ -1218,28 +1218,26 @@ mod test {
 
         // We don't share sessions with other user's devices if the session
         // wasn't shared in the first place.
-        assert_eq!(
-            machine
-                .should_share_key(&bob_device, &inbound)
-                .await
-                .expect_err("Should not share with other unless shared."),
-            KeyforwardDecision::OutboundSessionNotShared
+        assert_matches!(
+            machine.should_share_key(&bob_device, &inbound).await,
+            Err(KeyForwardDecision::OutboundSessionNotShared)
         );
 
         bob_device.set_trust_state(LocalTrust::Verified);
 
         // We don't share sessions with other user's devices if the session
         // wasn't shared in the first place even if the device is trusted.
-        assert_eq!(
-            machine
-                .should_share_key(&bob_device, &inbound)
-                .await
-                .expect_err("Should not share with other unless shared."),
-            KeyforwardDecision::OutboundSessionNotShared
+        assert_matches!(
+            machine.should_share_key(&bob_device, &inbound).await,
+            Err(KeyForwardDecision::OutboundSessionNotShared)
         );
 
         // We now share the session, since it was shared before.
-        outbound.mark_shared_with(bob_device.user_id(), bob_device.device_id());
+        outbound.mark_shared_with(
+            bob_device.user_id(),
+            bob_device.device_id(),
+            bob_device.get_key(DeviceKeyAlgorithm::Curve25519).unwrap(),
+        );
         assert!(machine.should_share_key(&bob_device, &inbound).await.is_ok());
 
         // But we don't share some other session that doesn't match our outbound
@@ -1247,12 +1245,21 @@ mod test {
         let (_, other_inbound) =
             account.create_group_session_pair_with_defaults(&room_id()).await.unwrap();
 
-        assert_eq!(
-            machine
-                .should_share_key(&bob_device, &other_inbound)
-                .await
-                .expect_err("Should not share with other unless shared."),
-            KeyforwardDecision::MissingOutboundSession
+        assert_matches!(
+            machine.should_share_key(&bob_device, &other_inbound).await,
+            Err(KeyForwardDecision::MissingOutboundSession)
+        );
+
+        // And we don't share the session with a device that rotated its
+        // curve25519 key.
+        let bob_device = ReadOnlyDevice::from_account(&bob_account()).await;
+        machine.store.save_devices(&[bob_device]).await.unwrap();
+
+        let bob_device =
+            machine.store.get_device(&bob_id(), &bob_device_id()).await.unwrap().unwrap();
+        assert_matches!(
+            machine.should_share_key(&bob_device, &inbound).await,
+            Err(KeyForwardDecision::ChangedSenderKey)
         );
     }
 
@@ -1282,7 +1289,7 @@ mod test {
         alice_machine.store.save_sessions(&[alice_session]).await.unwrap();
         alice_machine.store.save_devices(&[bob_device]).await.unwrap();
         bob_machine.store.save_sessions(&[bob_session]).await.unwrap();
-        bob_machine.store.save_devices(&[alice_device]).await.unwrap();
+        bob_machine.store.save_devices(&[alice_device.clone()]).await.unwrap();
 
         let (group_session, inbound_group_session) =
             bob_account.create_group_session_pair_with_defaults(&room_id()).await.unwrap();
@@ -1298,7 +1305,11 @@ mod test {
             )
             .await
             .unwrap();
-        group_session.mark_shared_with(&alice_id(), &alice_device_id());
+        group_session.mark_shared_with(
+            &alice_device.user_id(),
+            &alice_device.device_id(),
+            alice_device.get_key(DeviceKeyAlgorithm::Curve25519).unwrap(),
+        );
 
         // Put the outbound session into bobs store.
         bob_machine.outbound_group_sessions.insert(group_session.clone());
@@ -1484,7 +1495,7 @@ mod test {
         // Populate our stores with Olm sessions and a Megolm session.
 
         alice_machine.store.save_devices(&[bob_device]).await.unwrap();
-        bob_machine.store.save_devices(&[alice_device]).await.unwrap();
+        bob_machine.store.save_devices(&[alice_device.clone()]).await.unwrap();
 
         let (group_session, inbound_group_session) =
             bob_account.create_group_session_pair_with_defaults(&room_id()).await.unwrap();
@@ -1500,7 +1511,11 @@ mod test {
             )
             .await
             .unwrap();
-        group_session.mark_shared_with(&alice_id(), &alice_device_id());
+        group_session.mark_shared_with(
+            alice_device.user_id(),
+            alice_device.device_id(),
+            alice_device.get_key(DeviceKeyAlgorithm::Curve25519).unwrap(),
+        );
 
         // Put the outbound session into bobs store.
         bob_machine.outbound_group_sessions.insert(group_session.clone());

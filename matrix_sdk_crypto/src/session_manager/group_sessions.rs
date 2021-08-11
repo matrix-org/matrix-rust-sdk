@@ -33,7 +33,7 @@ use tracing::{debug, info, trace};
 
 use crate::{
     error::{EventError, MegolmResult, OlmResult},
-    olm::{Account, InboundGroupSession, OutboundGroupSession, Session, ShareState},
+    olm::{Account, InboundGroupSession, OutboundGroupSession, Session, ShareInfo, ShareState},
     store::{Changes, Result as StoreResult, Store},
     Device, EncryptionSettings, OlmError, ToDeviceRequest,
 };
@@ -226,21 +226,43 @@ impl GroupSessionManager {
     async fn encrypt_session_for(
         content: AnyToDeviceEventContent,
         devices: Vec<Device>,
-    ) -> OlmResult<(Uuid, ToDeviceRequest, Vec<Session>)> {
+        message_index: u32,
+    ) -> OlmResult<(
+        Uuid,
+        ToDeviceRequest,
+        BTreeMap<UserId, BTreeMap<DeviceIdBox, ShareInfo>>,
+        Vec<Session>,
+    )> {
         let mut messages = BTreeMap::new();
         let mut changed_sessions = Vec::new();
+        let mut share_infos = BTreeMap::new();
 
         let encrypt = |device: Device, content: AnyToDeviceEventContent| async move {
             let mut message = BTreeMap::new();
+            let mut share_infos = BTreeMap::new();
 
             let encrypted = device.encrypt(content.clone()).await;
 
             let used_session = match encrypted {
                 Ok((session, encrypted)) => {
-                    message.entry(device.user_id().clone()).or_insert_with(BTreeMap::new).insert(
-                        DeviceIdOrAllDevices::DeviceId(device.device_id().into()),
-                        Raw::from(AnyToDeviceEventContent::RoomEncrypted(encrypted)),
-                    );
+                    message
+                        .entry(device.user_id().to_owned())
+                        .or_insert_with(BTreeMap::new)
+                        .insert(
+                            DeviceIdOrAllDevices::DeviceId(device.device_id().into()),
+                            Raw::from(AnyToDeviceEventContent::RoomEncrypted(encrypted)),
+                        );
+                    share_infos
+                        .entry(device.user_id().to_owned())
+                        .or_insert_with(BTreeMap::new)
+                        .insert(
+                            device.device_id().to_owned(),
+                            ShareInfo {
+                                sender_key: session.sender_key().to_owned(),
+                                message_index,
+                            },
+                        );
+
                     Some(session)
                 }
                 // TODO we'll want to create m.room_key.withheld here.
@@ -249,7 +271,7 @@ impl GroupSessionManager {
                 Err(e) => return Err(e),
             };
 
-            Ok((used_session, message))
+            Ok((used_session, share_infos, message))
         };
 
         let tasks: Vec<_> =
@@ -258,7 +280,7 @@ impl GroupSessionManager {
         let results = join_all(tasks).await;
 
         for result in results {
-            let (used_session, message) = result.expect("Encryption task panicked")?;
+            let (used_session, infos, message) = result.expect("Encryption task panicked")?;
 
             if let Some(session) = used_session {
                 changed_sessions.push(session);
@@ -266,6 +288,10 @@ impl GroupSessionManager {
 
             for (user, device_messages) in message.into_iter() {
                 messages.entry(user).or_insert_with(BTreeMap::new).extend(device_messages);
+            }
+
+            for (user, infos) in infos.into_iter() {
+                share_infos.entry(user).or_insert_with(BTreeMap::new).extend(infos);
             }
         }
 
@@ -280,7 +306,7 @@ impl GroupSessionManager {
             "Created a to-device request carrying a room_key"
         );
 
-        Ok((id, request, changed_sessions))
+        Ok((id, request, share_infos, changed_sessions))
     }
 
     /// Given a list of user and an outbound session, return the list of users
@@ -380,11 +406,11 @@ impl GroupSessionManager {
         message_index: u32,
         being_shared: Arc<DashMap<Uuid, OutboundGroupSession>>,
     ) -> OlmResult<Vec<Session>> {
-        let (id, request, used_sessions) =
-            Self::encrypt_session_for(content.clone(), chunk).await?;
+        let (id, request, share_infos, used_sessions) =
+            Self::encrypt_session_for(content.clone(), chunk, message_index).await?;
 
         if !request.messages.is_empty() {
-            outbound.add_request(id, request.into(), message_index);
+            outbound.add_request(id, request.into(), share_infos);
             being_shared.insert(id, outbound.clone());
         }
 
@@ -453,12 +479,8 @@ impl GroupSessionManager {
         let devices: Vec<Device> = devices
             .into_iter()
             .map(|(_, d)| {
-                d.into_iter().filter(|d| {
-                    matches!(
-                        outbound.is_shared_with(d.user_id(), d.device_id()),
-                        ShareState::NotShared
-                    )
-                })
+                d.into_iter()
+                    .filter(|d| matches!(outbound.is_shared_with(d), ShareState::NotShared))
             })
             .flatten()
             .collect();

@@ -41,7 +41,7 @@ use crate::{
 
 /// An error describing why a key share request won't be honored.
 #[derive(Debug, Clone, Error, PartialEq)]
-pub enum KeyforwardDecision {
+pub enum KeyForwardDecision {
     /// The key request is from a device that we don't own, we're only sharing
     /// sessions that we know the requesting device already was supposed to get.
     #[error("can't find an active outbound group session")]
@@ -53,6 +53,10 @@ pub enum KeyforwardDecision {
     /// The key request is from a device we own, yet we don't trust it.
     #[error("requesting device isn't trusted")]
     UntrustedDevice,
+    /// The outbound session was shared with the device, but the device either
+    /// accidentally or maliciously changed their curve25519 sender key.
+    #[error("the device has changed their curve25519 sender key")]
+    ChangedSenderKey,
 }
 
 /// A struct describing an outgoing key request.

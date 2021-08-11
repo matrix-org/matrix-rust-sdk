@@ -14,7 +14,7 @@
 
 use std::{
     collections::{HashMap, HashSet},
-    convert::TryFrom,
+    convert::{TryFrom, TryInto},
     path::{Path, PathBuf},
     sync::{Arc, RwLock},
 };
@@ -31,6 +31,7 @@ use sled::{
     transaction::{ConflictableTransactionError, TransactionError},
     Config, Db, Transactional, Tree,
 };
+use tracing::trace;
 use uuid::Uuid;
 
 use super::{
@@ -46,6 +47,7 @@ use crate::{
 /// This needs to be 32 bytes long since AES-GCM requires it, otherwise we will
 /// panic once we try to pickle a Signing object.
 const DEFAULT_PICKLE: &str = "DEFAULT_PICKLE_PASSPHRASE_123456";
+const DATABASE_VERSION: u8 = 1;
 
 trait EncodeKey {
     const SEPARATOR: u8 = 0xff;
@@ -204,12 +206,43 @@ impl SledStore {
         self.account_info.read().unwrap().clone()
     }
 
+    fn upgrade_databse(db: &Db) -> Result<()> {
+        let version = db
+            .get("version")?
+            .map(|v| {
+                let (version_bytes, _) = v.split_at(std::mem::size_of::<u8>());
+                u8::from_be_bytes(version_bytes.try_into().unwrap_or_default())
+            })
+            .unwrap_or_default();
+
+        if version != DATABASE_VERSION {
+            trace!(
+                version = version,
+                new_version = DATABASE_VERSION,
+                "Upgrading the Sled crypto store"
+            );
+        }
+
+        if version == 0 {
+            // We changed the schema but migrating this isn't important since we
+            // rotate the group sessions relatively often anyways so we just
+            // drop it.
+            db.drop_tree("outbound_group_sessions")?;
+        }
+
+        db.insert("version", DATABASE_VERSION.to_be_bytes().as_ref())?;
+
+        Ok(())
+    }
+
     fn open_helper(db: Db, path: Option<PathBuf>, passphrase: Option<&str>) -> Result<Self> {
+        Self::upgrade_databse(&db)?;
         let account = db.open_tree("account")?;
         let private_identity = db.open_tree("private_identity")?;
 
         let sessions = db.open_tree("session")?;
         let inbound_group_sessions = db.open_tree("inbound_group_sessions")?;
+
         let outbound_group_sessions = db.open_tree("outbound_group_sessions")?;
 
         let tracked_users = db.open_tree("tracked_users")?;

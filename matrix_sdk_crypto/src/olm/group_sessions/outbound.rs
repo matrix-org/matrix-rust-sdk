@@ -43,8 +43,7 @@ use ruma::{
         room_key::RoomKeyToDeviceEventContent,
         AnyMessageEventContent, AnyToDeviceEventContent, EventContent,
     },
-    to_device::DeviceIdOrAllDevices,
-    DeviceId, DeviceIdBox, EventEncryptionAlgorithm, RoomId, UserId,
+    DeviceId, DeviceIdBox, DeviceKeyAlgorithm, EventEncryptionAlgorithm, RoomId, UserId,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -54,13 +53,15 @@ use super::{
     super::{deserialize_instant, serialize_instant},
     GroupSessionKey,
 };
-use crate::ToDeviceRequest;
+use crate::{Device, ToDeviceRequest};
 
 const ROTATION_PERIOD: Duration = Duration::from_millis(604800000);
 const ROTATION_MESSAGES: u64 = 100;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ShareState {
     NotShared,
+    SharedButChangedSenderKey,
     Shared(u32),
 }
 
@@ -125,8 +126,23 @@ pub struct OutboundGroupSession {
     shared: Arc<AtomicBool>,
     invalidated: Arc<AtomicBool>,
     settings: Arc<EncryptionSettings>,
-    pub(crate) shared_with_set: Arc<DashMap<UserId, DashMap<DeviceIdBox, u32>>>,
-    to_share_with_set: Arc<DashMap<Uuid, (Arc<ToDeviceRequest>, u32)>>,
+    pub(crate) shared_with_set: Arc<DashMap<UserId, DashMap<DeviceIdBox, ShareInfo>>>,
+    to_share_with_set: Arc<DashMap<Uuid, (Arc<ToDeviceRequest>, ShareInfoSet)>>,
+}
+
+/// A a map of userid/device it to a `ShareInfo`.
+///
+/// Holds the `ShareInfo` for all the user/device pairs that will receive the
+/// room key.
+pub type ShareInfoSet = BTreeMap<UserId, BTreeMap<DeviceIdBox, ShareInfo>>;
+
+/// Struct holding info about the share state of a outbound group session.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ShareInfo {
+    /// The sender key of the device that was used to encrypt the room key.
+    pub sender_key: String,
+    /// The message index that the device received.
+    pub message_index: u32,
 }
 
 impl OutboundGroupSession {
@@ -174,9 +190,9 @@ impl OutboundGroupSession {
         &self,
         request_id: Uuid,
         request: Arc<ToDeviceRequest>,
-        message_index: u32,
+        share_infos: ShareInfoSet,
     ) {
-        self.to_share_with_set.insert(request_id, (request, message_index));
+        self.to_share_with_set.insert(request_id, (request, share_infos));
     }
 
     /// This should be called if an the user wishes to rotate this session.
@@ -194,28 +210,15 @@ impl OutboundGroupSession {
     /// This removes the request from the queue and marks the set of
     /// users/devices that received the session.
     pub fn mark_request_as_sent(&self, request_id: &Uuid) {
-        if let Some((_, r)) = self.to_share_with_set.remove(request_id) {
+        if let Some((_, (_, r))) = self.to_share_with_set.remove(request_id) {
             trace!(
                 request_id = request_id.to_string().as_str(),
                 "Marking to-device request carrying a room key as sent"
             );
 
-            let user_pairs = r.0.messages.iter().map(|(u, v)| {
-                (
-                    u.clone(),
-                    v.iter().filter_map(|d| {
-                        if let DeviceIdOrAllDevices::DeviceId(d) = d.0 {
-                            Some((d.clone(), r.1))
-                        } else {
-                            None
-                        }
-                    }),
-                )
-            });
-
-            user_pairs.for_each(|(u, d)| {
-                self.shared_with_set.entry(u).or_insert_with(DashMap::new).extend(d);
-            });
+            for (user_id, info) in r.into_iter() {
+                self.shared_with_set.entry(user_id).or_insert_with(DashMap::new).extend(info)
+            }
 
             if self.to_share_with_set.is_empty() {
                 debug!(
@@ -368,36 +371,39 @@ impl OutboundGroupSession {
     }
 
     /// Has or will the session be shared with the given user/device pair.
-    pub(crate) fn is_shared_with(&self, user_id: &UserId, device_id: &DeviceId) -> ShareState {
+    pub(crate) fn is_shared_with(&self, device: &Device) -> ShareState {
         // Check if we shared the session.
-        let shared_state = self
-            .shared_with_set
-            .get(user_id)
-            .and_then(|d| d.get(device_id).map(|m| ShareState::Shared(*m.value())));
+        let shared_state = self.shared_with_set.get(device.user_id()).and_then(|d| {
+            d.get(device.device_id()).map(|s| {
+                if Some(&s.sender_key) == device.get_key(DeviceKeyAlgorithm::Curve25519) {
+                    ShareState::Shared(s.message_index)
+                } else {
+                    ShareState::SharedButChangedSenderKey
+                }
+            })
+        });
 
         if let Some(state) = shared_state {
             state
         } else {
             // If we haven't shared the session, check if we're going to share
             // the session.
-            let device_id = DeviceIdOrAllDevices::DeviceId(device_id.into());
 
             // Find the first request that contains the given user id and
             // device id.
             let shared = self.to_share_with_set.iter().find_map(|item| {
-                let request = &item.value().0;
-                let message_index = item.value().1;
+                let share_info = &item.value().1;
 
-                if request
-                    .messages
-                    .get(user_id)
-                    .map(|e| e.contains_key(&device_id))
-                    .unwrap_or(false)
-                {
-                    Some(ShareState::Shared(message_index))
-                } else {
-                    None
-                }
+                share_info.get(device.user_id()).and_then(|d| {
+                    d.get(device.device_id()).map(|info| {
+                        if Some(&info.sender_key) == device.get_key(DeviceKeyAlgorithm::Curve25519)
+                        {
+                            ShareState::Shared(info.message_index)
+                        } else {
+                            ShareState::SharedButChangedSenderKey
+                        }
+                    })
+                })
             });
 
             shared.unwrap_or(ShareState::NotShared)
@@ -406,11 +412,11 @@ impl OutboundGroupSession {
 
     /// Mark that the session was shared with the given user/device pair.
     #[cfg(test)]
-    pub fn mark_shared_with(&self, user_id: &UserId, device_id: &DeviceId) {
-        self.shared_with_set
-            .entry(user_id.to_owned())
-            .or_insert_with(DashMap::new)
-            .insert(device_id.to_owned(), 0);
+    pub fn mark_shared_with(&self, user_id: &UserId, device_id: &DeviceId, sender_key: &str) {
+        self.shared_with_set.entry(user_id.to_owned()).or_insert_with(DashMap::new).insert(
+            device_id.to_owned(),
+            ShareInfo { sender_key: sender_key.to_owned(), message_index: 0 },
+        );
     }
 
     /// Get the list of requests that need to be sent out for this session to be
@@ -498,8 +504,7 @@ impl OutboundGroupSession {
                 .map(|u| {
                     (
                         u.key().clone(),
-                        #[allow(clippy::map_clone)]
-                        u.value().iter().map(|d| (d.key().clone(), *d.value())).collect(),
+                        u.value().iter().map(|d| (d.key().clone(), d.value().clone())).collect(),
                     )
                 })
                 .collect(),
@@ -555,9 +560,9 @@ pub struct PickledOutboundGroupSession {
     /// Has the session been invalidated.
     pub invalidated: bool,
     /// The set of users the session has been already shared with.
-    pub shared_with_set: BTreeMap<UserId, BTreeMap<DeviceIdBox, u32>>,
+    pub shared_with_set: BTreeMap<UserId, BTreeMap<DeviceIdBox, ShareInfo>>,
     /// Requests that need to be sent out to share the session.
-    pub requests: BTreeMap<Uuid, (Arc<ToDeviceRequest>, u32)>,
+    pub requests: BTreeMap<Uuid, (Arc<ToDeviceRequest>, ShareInfoSet)>,
 }
 
 #[cfg(test)]
