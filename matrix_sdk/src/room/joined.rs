@@ -25,6 +25,7 @@ use ruma::{
         receipt::create_receipt,
         redact::redact_event,
         state::send_state_event,
+        tag::{create_tag, delete_tag},
         typing::create_typing_event::{Request as TypingRequest, Typing},
     },
     assign,
@@ -36,6 +37,7 @@ use ruma::{
             },
             EncryptedFile,
         },
+        tag::TagInfo,
         AnyMessageEventContent, AnyStateEventContent,
     },
     receipt::ReceiptType,
@@ -44,7 +46,7 @@ use ruma::{
 #[cfg(feature = "encryption")]
 use tracing::instrument;
 
-use crate::{room::Common, BaseRoom, Client, Result, RoomType};
+use crate::{room::Common, BaseRoom, Client, Error, Result, RoomType};
 
 const TYPING_NOTICE_TIMEOUT: Duration = Duration::from_secs(4);
 const TYPING_NOTICE_RESEND_TIMEOUT: Duration = Duration::from_secs(3);
@@ -611,6 +613,50 @@ impl Joined {
                 reason
             });
 
+        self.client.send(request, None).await
+    }
+
+    /// Adds a tag to the room, or updates it if it already exists.
+    ///
+    /// Returns the `[create_tag::Response]` from the server.
+    ///
+    /// # Arguments
+    /// * `tag` - The tag to add or update.
+    ///
+    /// * `tag_info` - Information about the tag, generally containing the
+    ///   `order` parameter.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// # use ruma::events::tag::TagInfo;
+    /// # futures::executor::block_on(async {
+    /// # let homeserver = url::Url::parse("http://localhost:8080").unwrap();
+    /// # let mut client = matrix_sdk::Client::new(homeserver).unwrap();
+    /// # let room_id = matrix_sdk::ruma::room_id!("!test:localhost");
+    /// # let room = client
+    /// #   .get_joined_room(&room_id)
+    /// #   .unwrap();
+    /// let mut tag_info = TagInfo::new();
+    /// tag_info.order = Some(0.9);
+    /// room.set_tag("u.work", tag_info );
+    /// # })
+    /// ```
+    pub async fn set_tag(&self, tag: &str, tag_info: TagInfo) -> Result<create_tag::Response> {
+        let user_id = self.client.user_id().await.ok_or(Error::AuthenticationRequired)?;
+        let request = create_tag::Request::new(&user_id, self.inner.room_id(), tag, tag_info);
+        self.client.send(request, None).await
+    }
+
+    /// Removes a tag from the room.
+    ///
+    /// Returns the `[delete_tag::Response]` from the server.
+    ///
+    /// # Arguments
+    /// * `tag` - The tag to remove.
+    pub async fn remove_tag(&self, tag: &str) -> Result<delete_tag::Response> {
+        let user_id = self.client.user_id().await.ok_or(Error::AuthenticationRequired)?;
+        let request = delete_tag::Request::new(&user_id, self.inner.room_id(), tag);
         self.client.send(request, None).await
     }
 }
