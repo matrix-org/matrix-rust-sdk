@@ -34,12 +34,13 @@ use crate::{
     identities::{ReadOnlyDevice, ReadOnlyUserIdentities},
     utilities::encode,
     verification::event_enums::{MacContent, StartContent},
-    ReadOnlyAccount,
+    ReadOnlyAccount, ReadOnlyOwnUserIdentity,
 };
 
 #[derive(Clone, Debug)]
 pub struct SasIds {
     pub account: ReadOnlyAccount,
+    pub own_identity: Option<ReadOnlyOwnUserIdentity>,
     pub other_device: ReadOnlyDevice,
     pub other_identity: Option<ReadOnlyUserIdentities>,
 }
@@ -303,6 +304,20 @@ pub fn get_mac_content(sas: &OlmSas, ids: &SasIds, flow_id: &FlowId) -> Outgoing
         key_id.to_string(),
         sas.calculate_mac(key, &format!("{}{}", info, key_id)).expect("Can't calculate SAS MAC"),
     );
+
+    if let Some(own_identity) = &ids.own_identity {
+        if own_identity.is_verified() {
+            if let Some(key) = own_identity.master_key().get_first_key() {
+                let key_id = format!("{}:{}", DeviceKeyAlgorithm::Ed25519, &key);
+
+                let calculated_mac = sas
+                    .calculate_mac(key, &format!("{}{}", info, &key_id))
+                    .expect("Can't calculate SAS Master key MAC");
+
+                mac.insert(key_id, calculated_mac);
+            }
+        }
+    }
 
     // TODO Add the cross signing master key here if we trust/have it.
 

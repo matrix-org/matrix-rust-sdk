@@ -42,7 +42,7 @@ use crate::{
     olm::PrivateCrossSigningIdentity,
     requests::{OutgoingVerificationRequest, RoomMessageRequest},
     store::CryptoStoreError,
-    ReadOnlyAccount, ToDeviceRequest,
+    ReadOnlyAccount, ReadOnlyOwnUserIdentity, ToDeviceRequest,
 };
 
 /// Short authentication string object.
@@ -183,10 +183,12 @@ impl Sas {
     ///
     /// Returns the new `Sas` object and a `StartEventContent` that needs to be
     /// sent out through the server to the other device.
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn start(
         private_identity: PrivateCrossSigningIdentity,
         other_device: ReadOnlyDevice,
         store: VerificationStore,
+        own_identity: Option<ReadOnlyOwnUserIdentity>,
         other_identity: Option<ReadOnlyUserIdentities>,
         transaction_id: Option<String>,
         we_started: bool,
@@ -195,6 +197,7 @@ impl Sas {
         let (inner, content) = InnerSas::start(
             store.account.clone(),
             other_device.clone(),
+            own_identity,
             other_identity.clone(),
             transaction_id,
         );
@@ -230,6 +233,7 @@ impl Sas {
         private_identity: PrivateCrossSigningIdentity,
         other_device: ReadOnlyDevice,
         store: VerificationStore,
+        own_identity: Option<ReadOnlyOwnUserIdentity>,
         other_identity: Option<ReadOnlyUserIdentities>,
         we_started: bool,
         request_handle: RequestHandle,
@@ -239,6 +243,7 @@ impl Sas {
             room_id,
             store.account.clone(),
             other_device.clone(),
+            own_identity,
             other_identity.clone(),
         );
 
@@ -273,6 +278,7 @@ impl Sas {
         store: VerificationStore,
         private_identity: PrivateCrossSigningIdentity,
         other_device: ReadOnlyDevice,
+        own_identity: Option<ReadOnlyOwnUserIdentity>,
         other_identity: Option<ReadOnlyUserIdentities>,
         request_handle: Option<RequestHandle>,
         we_started: bool,
@@ -282,6 +288,7 @@ impl Sas {
             other_device.clone(),
             flow_id,
             content,
+            own_identity,
             other_identity.clone(),
             request_handle.is_some(),
         )?;
@@ -601,6 +608,7 @@ mod test {
             alice_store,
             None,
             None,
+            None,
             true,
             None,
         );
@@ -614,6 +622,7 @@ mod test {
             bob_store,
             PrivateCrossSigningIdentity::empty(bob_id()),
             alice_device,
+            None,
             None,
             None,
             false,

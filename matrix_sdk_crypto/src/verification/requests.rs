@@ -46,8 +46,8 @@ use super::{
 };
 use crate::{
     olm::{PrivateCrossSigningIdentity, ReadOnlyAccount},
-    CryptoStoreError, OutgoingVerificationRequest, ReadOnlyDevice, ReadOnlyUserIdentities,
-    RoomMessageRequest, Sas, ToDeviceRequest,
+    CryptoStoreError, OutgoingVerificationRequest, ReadOnlyDevice, ReadOnlyOwnUserIdentity,
+    ReadOnlyUserIdentities, RoomMessageRequest, Sas, ToDeviceRequest,
 };
 
 const SUPPORTED_METHODS: &[VerificationMethod] = &[
@@ -920,6 +920,7 @@ impl RequestState<Ready> {
         &self,
         content: &StartContent<'a>,
         other_device: ReadOnlyDevice,
+        own_identity: Option<ReadOnlyOwnUserIdentity>,
         other_identity: Option<ReadOnlyUserIdentities>,
         we_started: bool,
         request_handle: RequestHandle,
@@ -930,6 +931,7 @@ impl RequestState<Ready> {
             self.store.clone(),
             self.private_cross_signing_identity.clone(),
             other_device,
+            own_identity,
             other_identity,
             Some(request_handle),
             we_started,
@@ -1100,12 +1102,18 @@ impl RequestState<Ready> {
         };
 
         let identity = self.store.get_user_identity(sender).await?;
+        let own_identity = self
+            .store
+            .get_user_identity(self.store.account.user_id())
+            .await?
+            .and_then(|i| i.into_own());
 
         match content.method() {
             StartMethod::SasV1(_) => {
                 match self.to_started_sas(
                     content,
                     device.clone(),
+                    own_identity,
                     identity,
                     we_started,
                     request_handle,
@@ -1169,6 +1177,11 @@ impl RequestState<Ready> {
 
         // TODO signal why starting the sas flow doesn't work?
         let other_identity = store.get_user_identity(&self.other_user_id).await?;
+        let own_identity = self
+            .store
+            .get_user_identity(self.store.account.user_id())
+            .await?
+            .and_then(|i| i.into_own());
 
         let device = if let Some(device) =
             self.store.get_device(&self.other_user_id, &self.state.other_device_id).await?
@@ -1190,6 +1203,7 @@ impl RequestState<Ready> {
                     private_identity,
                     device,
                     store,
+                    own_identity,
                     other_identity,
                     Some(t.to_owned()),
                     we_started,
@@ -1204,6 +1218,7 @@ impl RequestState<Ready> {
                     private_identity,
                     device,
                     store,
+                    own_identity,
                     other_identity,
                     we_started,
                     request_handle,

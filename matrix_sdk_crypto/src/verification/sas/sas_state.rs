@@ -60,7 +60,7 @@ use crate::{
         },
         Cancelled, Done, FlowId,
     },
-    ReadOnlyAccount,
+    ReadOnlyAccount, ReadOnlyOwnUserIdentity,
 };
 
 const KEY_AGREEMENT_PROTOCOLS: &[KeyAgreementProtocol] =
@@ -362,13 +362,21 @@ impl SasState<Created> {
     pub fn new(
         account: ReadOnlyAccount,
         other_device: ReadOnlyDevice,
+        own_identity: Option<ReadOnlyOwnUserIdentity>,
         other_identity: Option<ReadOnlyUserIdentities>,
         transaction_id: Option<String>,
     ) -> SasState<Created> {
         let started_from_request = transaction_id.is_some();
         let flow_id =
             FlowId::ToDevice(transaction_id.unwrap_or_else(|| Uuid::new_v4().to_string()));
-        Self::new_helper(flow_id, account, other_device, other_identity, started_from_request)
+        Self::new_helper(
+            flow_id,
+            account,
+            other_device,
+            own_identity,
+            other_identity,
+            started_from_request,
+        )
     }
 
     /// Create a new SAS in-room verification flow.
@@ -388,22 +396,24 @@ impl SasState<Created> {
         event_id: EventId,
         account: ReadOnlyAccount,
         other_device: ReadOnlyDevice,
+        own_identity: Option<ReadOnlyOwnUserIdentity>,
         other_identity: Option<ReadOnlyUserIdentities>,
     ) -> SasState<Created> {
         let flow_id = FlowId::InRoom(room_id, event_id);
-        Self::new_helper(flow_id, account, other_device, other_identity, false)
+        Self::new_helper(flow_id, account, other_device, own_identity, other_identity, false)
     }
 
     fn new_helper(
         flow_id: FlowId,
         account: ReadOnlyAccount,
         other_device: ReadOnlyDevice,
+        own_identity: Option<ReadOnlyOwnUserIdentity>,
         other_identity: Option<ReadOnlyUserIdentities>,
         started_from_request: bool,
     ) -> SasState<Created> {
         SasState {
             inner: Arc::new(Mutex::new(OlmSas::new())),
-            ids: SasIds { account, other_device, other_identity },
+            ids: SasIds { account, other_device, other_identity, own_identity },
             verification_flow_id: flow_id.into(),
 
             creation_time: Arc::new(Instant::now()),
@@ -497,6 +507,7 @@ impl SasState<Started> {
     pub fn from_start_event(
         account: ReadOnlyAccount,
         other_device: ReadOnlyDevice,
+        own_identity: Option<ReadOnlyOwnUserIdentity>,
         other_identity: Option<ReadOnlyUserIdentities>,
         flow_id: FlowId,
         content: &StartContent,
@@ -514,6 +525,7 @@ impl SasState<Started> {
             ids: SasIds {
                 account: account.clone(),
                 other_device: other_device.clone(),
+                own_identity: own_identity.clone(),
                 other_identity: other_identity.clone(),
             },
 
@@ -536,7 +548,7 @@ impl SasState<Started> {
                 Ok(SasState {
                     inner: Arc::new(Mutex::new(sas)),
 
-                    ids: SasIds { account, other_device, other_identity },
+                    ids: SasIds { account, other_device, other_identity, own_identity },
 
                     creation_time: Arc::new(Instant::now()),
                     last_event_time: Arc::new(Instant::now()),
@@ -1158,7 +1170,7 @@ mod test {
         let bob = ReadOnlyAccount::new(&bob_id(), &bob_device_id());
         let bob_device = ReadOnlyDevice::from_account(&bob).await;
 
-        let alice_sas = SasState::<Created>::new(alice.clone(), bob_device, None, None);
+        let alice_sas = SasState::<Created>::new(alice.clone(), bob_device, None, None, None);
 
         let start_content = alice_sas.as_content();
         let flow_id = start_content.flow_id();
@@ -1166,6 +1178,7 @@ mod test {
         let bob_sas = SasState::<Started>::from_start_event(
             bob.clone(),
             alice_device,
+            None,
             None,
             flow_id,
             &start_content.as_start_content(),
@@ -1339,7 +1352,7 @@ mod test {
         let bob = ReadOnlyAccount::new(&bob_id(), &bob_device_id());
         let bob_device = ReadOnlyDevice::from_account(&bob).await;
 
-        let alice_sas = SasState::<Created>::new(alice.clone(), bob_device, None, None);
+        let alice_sas = SasState::<Created>::new(alice.clone(), bob_device, None, None, None);
 
         let mut start_content = alice_sas.as_content();
         let method = start_content.method_mut();
@@ -1357,6 +1370,7 @@ mod test {
         SasState::<Started>::from_start_event(
             bob.clone(),
             alice_device.clone(),
+            None,
             None,
             flow_id,
             &content,
@@ -1378,6 +1392,7 @@ mod test {
         SasState::<Started>::from_start_event(
             bob.clone(),
             alice_device,
+            None,
             None,
             flow_id.into(),
             &content,

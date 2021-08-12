@@ -128,12 +128,15 @@ impl VerificationMachine {
         device: ReadOnlyDevice,
     ) -> Result<(Sas, OutgoingVerificationRequest), CryptoStoreError> {
         let identity = self.store.get_user_identity(device.user_id()).await?;
+        let own_identity =
+            self.store.get_user_identity(self.own_user_id()).await?.and_then(|i| i.into_own());
         let private_identity = self.private_identity.lock().await.clone();
 
         let (sas, content) = Sas::start(
             private_identity,
             device.clone(),
             self.store.clone(),
+            own_identity,
             identity,
             None,
             true,
@@ -411,6 +414,11 @@ impl VerificationMachine {
                             self.store.get_device(event.sender(), c.from_device()).await?
                         {
                             let private_identity = self.private_identity.lock().await.clone();
+                            let own_identity = self
+                                .store
+                                .get_user_identity(self.own_user_id())
+                                .await?
+                                .and_then(|i| i.into_own());
                             let identity = self.store.get_user_identity(event.sender()).await?;
 
                             match Sas::from_start_event(
@@ -419,6 +427,7 @@ impl VerificationMachine {
                                 self.store.clone(),
                                 private_identity,
                                 device,
+                                own_identity,
                                 identity,
                                 None,
                                 false,
@@ -557,6 +566,7 @@ mod test {
             PrivateCrossSigningIdentity::empty(bob_id()),
             alice_device,
             bob_store,
+            None,
             None,
             None,
             true,

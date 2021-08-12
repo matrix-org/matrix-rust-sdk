@@ -666,6 +666,13 @@ impl ReadOnlyUserIdentities {
         }
     }
 
+    pub(crate) fn into_own(self) -> Option<ReadOnlyOwnUserIdentity> {
+        match self {
+            ReadOnlyUserIdentities::Own(i) => Some(i),
+            _ => None,
+        }
+    }
+
     /// Destructure the enum into an `UserIdentity` if it's of the correct
     /// type.
     pub fn other(&self) -> Option<&ReadOnlyUserIdentity> {
