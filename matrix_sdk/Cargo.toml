@@ -55,7 +55,7 @@ version = "0.11.3"
 default_features = false
 
 [dependencies.ruma]
-version = "0.2.0"
+version = "0.3.0"
 features = ["client-api-c", "compat", "unstable-pre-spec"]
 
 [dependencies.tokio-stream]

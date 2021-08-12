@@ -28,7 +28,7 @@ use ruma::{
     encryption::{DeviceKeys, SignedKey},
     events::{
         forwarded_room_key::ForwardedRoomKeyToDeviceEventContent,
-        key::verification::VerificationMethod, room::encrypted::EncryptedEventContent,
+        key::verification::VerificationMethod, room::encrypted::EncryptedToDeviceEventContent,
         AnyToDeviceEventContent,
     },
     DeviceId, DeviceIdBox, DeviceKeyAlgorithm, DeviceKeyId, EventEncryptionAlgorithm, UserId,
@@ -231,7 +231,7 @@ impl Device {
     pub(crate) async fn encrypt(
         &self,
         content: AnyToDeviceEventContent,
-    ) -> OlmResult<(Session, EncryptedEventContent)> {
+    ) -> OlmResult<(Session, EncryptedToDeviceEventContent)> {
         self.inner.encrypt(&*self.verification_machine.store, content).await
     }
 
@@ -241,7 +241,7 @@ impl Device {
         &self,
         session: InboundGroupSession,
         message_index: Option<u32>,
-    ) -> OlmResult<(Session, EncryptedEventContent)> {
+    ) -> OlmResult<(Session, EncryptedToDeviceEventContent)> {
         let export = if let Some(index) = message_index {
             session.export_at_index(index).await
         } else {
@@ -464,7 +464,7 @@ impl ReadOnlyDevice {
         &self,
         store: &dyn CryptoStore,
         content: AnyToDeviceEventContent,
-    ) -> OlmResult<(Session, EncryptedEventContent)> {
+    ) -> OlmResult<(Session, EncryptedToDeviceEventContent)> {
         let sender_key = if let Some(k) = self.get_key(DeviceKeyAlgorithm::Curve25519) {
             k
         } else {
