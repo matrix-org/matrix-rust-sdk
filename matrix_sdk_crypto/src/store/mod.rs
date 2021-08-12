@@ -202,6 +202,10 @@ impl Store {
         self.identity.lock().await.reset().await;
     }
 
+    pub fn private_identity(&self) -> Arc<Mutex<PrivateCrossSigningIdentity>> {
+        self.identity.clone()
+    }
+
     pub async fn save_sessions(&self, sessions: &[Session]) -> Result<()> {
         let changes = Changes { sessions: sessions.to_vec(), ..Default::default() };
 

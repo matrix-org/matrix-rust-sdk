@@ -24,7 +24,7 @@ use ruma::{
     api::client::r0::keys::get_keys::Response as KeysQueryResponse, encryption::DeviceKeys,
     DeviceId, DeviceIdBox, UserId,
 };
-use tracing::{trace, warn};
+use tracing::{info, trace, warn};
 
 use crate::{
     error::OlmResult,
@@ -32,6 +32,7 @@ use crate::{
         MasterPubkey, ReadOnlyDevice, ReadOnlyOwnUserIdentity, ReadOnlyUserIdentities,
         ReadOnlyUserIdentity, SelfSigningPubkey, UserSigningPubkey,
     },
+    olm::PrivateCrossSigningIdentity,
     requests::KeysQueryRequest,
     store::{Changes, DeviceChanges, IdentityChanges, Result as StoreResult, Store},
 };
@@ -75,11 +76,13 @@ impl IdentityManager {
     ) -> OlmResult<(DeviceChanges, IdentityChanges)> {
         let changed_devices =
             self.handle_devices_from_key_query(response.device_keys.clone()).await?;
-        let changed_identities = self.handle_cross_singing_keys(response).await?;
+        let (changed_identities, cross_signing_identity) =
+            self.handle_cross_singing_keys(response).await?;
 
         let changes = Changes {
             identities: changed_identities.clone(),
             devices: changed_devices.clone(),
+            private_identity: cross_signing_identity,
             ..Default::default()
         };
 
@@ -234,8 +237,9 @@ impl IdentityManager {
     async fn handle_cross_singing_keys(
         &self,
         response: &KeysQueryResponse,
-    ) -> StoreResult<IdentityChanges> {
+    ) -> StoreResult<(IdentityChanges, Option<PrivateCrossSigningIdentity>)> {
         let mut changes = IdentityChanges::default();
+        let mut changed_identity = None;
 
         for (user_id, master_key) in &response.master_keys {
             let master_key = MasterPubkey::from(master_key);
@@ -243,7 +247,10 @@ impl IdentityManager {
             let self_signing = if let Some(s) = response.self_signing_keys.get(user_id) {
                 SelfSigningPubkey::from(s)
             } else {
-                warn!("User identity for user {} didn't contain a self signing pubkey", user_id);
+                warn!(
+                    user_id = user_id.as_str(),
+                    "A user identity didn't contain a self signing pubkey"
+                );
                 continue;
             };
 
@@ -255,9 +262,9 @@ impl IdentityManager {
                             UserSigningPubkey::from(s)
                         } else {
                             warn!(
-                                "User identity for our own user {} didn't \
-                                  contain a user signing pubkey",
-                                user_id
+                                user_id = user_id.as_str(),
+                                "User identity for our own user didn't \
+                                contain a user signing pubkey",
                             );
                             continue;
                         };
@@ -277,8 +284,8 @@ impl IdentityManager {
                         || user_signing.user_id() != user_id
                     {
                         warn!(
-                            "User id mismatch in one of the cross signing keys for user {}",
-                            user_id
+                            user_id = user_id.as_str(),
+                            "User ID mismatch in one of the cross signing keys",
                         );
                         continue;
                     }
@@ -287,14 +294,14 @@ impl IdentityManager {
                         .map(|i| (ReadOnlyUserIdentities::Own(i), true))
                 } else {
                     warn!(
-                        "User identity for our own user {} didn't contain a \
+                        user_id = user_id.as_str(),
+                        "User identity for our own user didn't contain a \
                         user signing pubkey",
-                        user_id
                     );
                     continue;
                 }
             } else if master_key.user_id() != user_id || self_signing.user_id() != user_id {
-                warn!("User id mismatch in one of the cross signing keys for user {}", user_id);
+                warn!(user = user_id.as_str(), "User ID mismatch in one of the cross signing keys",);
                 continue;
             } else {
                 ReadOnlyUserIdentity::new(master_key, self_signing)
@@ -303,21 +310,38 @@ impl IdentityManager {
 
             match result {
                 Ok((i, new)) => {
-                    trace!("Updated or created new user identity for {}: {:?}", user_id, i);
+                    if let Some(identity) = i.own() {
+                        let private_identity = self.store.private_identity();
+                        let private_identity = private_identity.lock().await;
+
+                        let result = private_identity.clear_if_differs(identity).await;
+
+                        if result.any_cleared() {
+                            changed_identity = Some((&*private_identity).clone());
+                            info!(cleared =? result, "Removed some or all of our private cross signing keys");
+                        }
+                    }
+
                     if new {
+                        trace!(user_id = user_id.as_str(), identity =? i, "Created new user identity");
                         changes.new.push(i);
                     } else {
+                        trace!(user_id = user_id.as_str(), identity =? i, "Updated a user identity");
                         changes.changed.push(i);
                     }
                 }
                 Err(e) => {
-                    warn!("Couldn't update or create new user identity for {}: {:?}", user_id, e);
+                    warn!(
+                        user_id = user_id.as_str(),
+                        error =? e,
+                        "Couldn't update or create new user identity for"
+                    );
                     continue;
                 }
             }
         }
 
-        Ok(changes)
+        Ok((changes, changed_identity))
     }
 
     /// Get a key query request if one is needed.
