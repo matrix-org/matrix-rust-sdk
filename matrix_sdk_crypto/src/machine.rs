@@ -34,7 +34,9 @@ use ruma::{
     },
     assign,
     events::{
-        room::encrypted::{EncryptedEventContent, EncryptedEventScheme},
+        room::encrypted::{
+            EncryptedEventContent, EncryptedEventScheme, EncryptedToDeviceEventContent,
+        },
         room_key::RoomKeyToDeviceEventContent,
         AnyMessageEventContent, AnyRoomEvent, AnyToDeviceEvent, SyncMessageEvent, ToDeviceEvent,
     },
@@ -534,7 +536,7 @@ impl OlmMachine {
     /// * `event` - The to-device event that should be decrypted.
     async fn decrypt_to_device_event(
         &self,
-        event: &ToDeviceEvent<EncryptedEventContent>,
+        event: &ToDeviceEvent<EncryptedToDeviceEventContent>,
     ) -> OlmResult<OlmDecryptionInfo> {
         let mut decrypted = self.account.decrypt_to_device_event(event).await?;
         // Handle the decrypted event, e.g. fetch out Megolm sessions out of
@@ -1249,7 +1251,7 @@ pub(crate) mod test {
         events::{
             dummy::DummyToDeviceEventContent,
             room::{
-                encrypted::EncryptedEventContent,
+                encrypted::EncryptedToDeviceEventContent,
                 message::{MessageEventContent, MessageType},
             },
             AnyMessageEventContent, AnySyncMessageEvent, AnySyncRoomEvent, AnyToDeviceEvent,
@@ -1298,7 +1300,9 @@ pub(crate) mod test {
             .expect("Can't parse the keys upload response")
     }
 
-    fn to_device_requests_to_content(requests: Vec<Arc<ToDeviceRequest>>) -> EncryptedEventContent {
+    fn to_device_requests_to_content(
+        requests: Vec<Arc<ToDeviceRequest>>,
+    ) -> EncryptedToDeviceEventContent {
         let to_device_request = &requests[0];
 
         to_device_request

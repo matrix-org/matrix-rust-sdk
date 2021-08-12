@@ -772,7 +772,7 @@ mod test {
     use ruma::{
         events::{
             forwarded_room_key::ForwardedRoomKeyToDeviceEventContent,
-            room::encrypted::EncryptedEventContent,
+            room::encrypted::EncryptedToDeviceEventContent,
             room_key_request::RoomKeyRequestToDeviceEventContent, AnyToDeviceEvent, ToDeviceEvent,
         },
         room_id,
@@ -1214,7 +1214,7 @@ mod test {
             .unwrap()
             .get(&DeviceIdOrAllDevices::DeviceId(alice_device_id()))
             .unwrap();
-        let content: EncryptedEventContent = content.deserialize_as().unwrap();
+        let content: EncryptedToDeviceEventContent = content.deserialize_as().unwrap();
 
         bob_machine.mark_outgoing_request_as_sent(id).await.unwrap();
 
@@ -1362,7 +1362,7 @@ mod test {
             .unwrap()
             .get(&DeviceIdOrAllDevices::DeviceId(alice_device_id()))
             .unwrap();
-        let content: EncryptedEventContent = content.deserialize_as().unwrap();
+        let content: EncryptedToDeviceEventContent = content.deserialize_as().unwrap();
 
         bob_machine.mark_outgoing_request_as_sent(id).await.unwrap();
 

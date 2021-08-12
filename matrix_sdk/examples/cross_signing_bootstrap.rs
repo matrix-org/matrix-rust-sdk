@@ -1,29 +1,11 @@
 use std::{
-    collections::BTreeMap,
     env, io,
     process::exit,
     sync::atomic::{AtomicBool, Ordering},
 };
 
-use matrix_sdk::{
-    ruma::{api::client::r0::uiaa::AuthData, UserId},
-    Client, LoopCtrl, SyncSettings,
-};
-use serde_json::json;
+use matrix_sdk::{ruma::UserId, Client, LoopCtrl, SyncSettings};
 use url::Url;
-
-fn auth_data<'a>(user: &UserId, password: &str, session: Option<&'a str>) -> AuthData<'a> {
-    let mut auth_parameters = BTreeMap::new();
-    let identifier = json!({
-        "type": "m.id.user",
-        "user": user,
-    });
-
-    auth_parameters.insert("identifier".to_owned(), identifier);
-    auth_parameters.insert("password".to_owned(), password.to_owned().into());
-
-    AuthData::DirectRequest { kind: "m.login.password", auth_parameters, session }
-}
 
 async fn bootstrap(client: Client, user_id: UserId, password: String) {
     println!("Bootstrapping a new cross signing identity, press enter to continue.");
@@ -34,8 +16,14 @@ async fn bootstrap(client: Client, user_id: UserId, password: String) {
 
     #[cfg(feature = "encryption")]
     if let Err(e) = client.bootstrap_cross_signing(None).await {
+        use matrix_sdk::ruma::{api::client::r0::uiaa, assign};
+
         if let Some(response) = e.uiaa_response() {
-            let auth_data = auth_data(&user_id, &password, response.session.as_deref());
+            let auth_data = uiaa::AuthData::Password(assign!(
+                uiaa::Password::new(uiaa::UserIdentifier::MatrixId(user_id.as_str()), &password),
+                { session: response.session.as_deref() }
+            ));
+
             client
                 .bootstrap_cross_signing(Some(auth_data))
                 .await

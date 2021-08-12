@@ -83,7 +83,7 @@ impl BaseRoomInfo {
                 true
             }
             AnyStateEventContent::RoomName(n) => {
-                self.name = n.name().map(|n| n.to_string());
+                self.name = n.name.as_ref().map(|n| n.to_string());
                 true
             }
             AnyStateEventContent::RoomCreate(c) => {

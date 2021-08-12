@@ -118,7 +118,7 @@ use ruma::{
                 room::create_room,
                 session::{get_login_types, login, sso_login},
                 sync::sync_events,
-                uiaa::AuthData,
+                uiaa::{AuthData, UserIdentifier},
             },
             unversioned::{discover_homeserver, get_supported_versions},
         },
@@ -1070,14 +1070,12 @@ impl Client {
     ) -> Result<login::Response> {
         info!("Logging in to {} as {:?}", self.homeserver().await, user);
 
-        let request = assign!(
-            login::Request::new(
-                login::LoginInfo::Password { identifier: login::UserIdentifier::MatrixId(user), password },
-            ), {
-                device_id: device_id.map(|d| d.into()),
-                initial_device_display_name,
-            }
-        );
+        let login_info =
+            login::LoginInfo::Password { identifier: UserIdentifier::MatrixId(user), password };
+        let request = assign!(login::Request::new(login_info), {
+            device_id: device_id.map(|d| d.into()),
+            initial_device_display_name,
+        });
 
         let response = self.send(request, None).await?;
         self.base_client.receive_login_response(&response).await?;
@@ -1383,7 +1381,7 @@ impl Client {
     /// # use matrix_sdk::ruma::{
     /// #     api::client::r0::{
     /// #         account::register::{Request as RegistrationRequest, RegistrationKind},
-    /// #         uiaa::AuthData,
+    /// #         uiaa,
     /// #     },
     /// #     assign, DeviceId,
     /// # };
@@ -1395,7 +1393,9 @@ impl Client {
     /// let request = assign!(RegistrationRequest::new(), {
     ///     username: Some("user"),
     ///     password: Some("password"),
-    ///     auth: Some(AuthData::FallbackAcknowledgement { session: "foobar" }),
+    ///     auth: Some(uiaa::AuthData::FallbackAcknowledgement(
+    ///         uiaa::FallbackAcknowledgement::new("foobar"),
+    ///     )),
     /// });
     /// let client = Client::new(homeserver).unwrap();
     /// client.register(request).await;
@@ -1886,9 +1886,12 @@ impl Client {
     ///
     /// ```no_run
     /// # use matrix_sdk::{
-    /// #    ruma::api::{
-    /// #        client::r0::uiaa::{UiaaResponse, AuthData},
-    /// #        error::{FromHttpResponseError, ServerError},
+    /// #    ruma::{
+    /// #        api::{
+    /// #            client::r0::uiaa,
+    /// #            error::{FromHttpResponseError, ServerError},
+    /// #        },
+    /// #        assign,
     /// #    },
     /// #    Client, Error, SyncSettings,
     /// # };
@@ -1903,20 +1906,10 @@ impl Client {
     ///
     /// if let Err(e) = client.delete_devices(devices, None).await {
     ///     if let Some(info) = e.uiaa_response() {
-    ///         let mut auth_parameters = BTreeMap::new();
-    ///
-    ///         let identifier = json!({
-    ///             "type": "m.id.user",
-    ///             "user": "example",
-    ///         });
-    ///         auth_parameters.insert("identifier".to_owned(), identifier);
-    ///         auth_parameters.insert("password".to_owned(), "wordpass".into());
-    ///
-    ///         let auth_data = AuthData::DirectRequest {
-    ///             kind: "m.login.password",
-    ///             auth_parameters,
-    ///             session: info.session.as_deref(),
-    ///         };
+    ///         let auth_data = uiaa::AuthData::Password(assign!(
+    ///             uiaa::Password::new(uiaa::UserIdentifier::MatrixId("example"), "wordpass"),
+    ///             { session: info.session.as_deref() }
+    ///         ));
     ///
     ///         client
     ///             .delete_devices(devices, Some(auth_data))
@@ -2320,8 +2313,10 @@ impl Client {
     /// # Examples
     /// ```no_run
     /// # use std::{convert::TryFrom, collections::BTreeMap};
-    /// # use matrix_sdk::{Client, ruma::UserId};
-    /// # use matrix_sdk::ruma::api::client::r0::uiaa::AuthData;
+    /// # use matrix_sdk::{
+    /// #     ruma::{api::client::r0::uiaa, assign, UserId},
+    /// #     Client,
+    /// # };
     /// # use url::Url;
     /// # use futures::executor::block_on;
     /// # use serde_json::json;
@@ -2329,30 +2324,17 @@ impl Client {
     /// # let homeserver = Url::parse("http://example.com").unwrap();
     /// # let client = Client::new(homeserver).unwrap();
     /// # block_on(async {
-    ///
-    /// fn auth_data<'a>(user: &UserId, password: &str, session: Option<&'a str>) -> AuthData<'a> {
-    ///     let mut auth_parameters = BTreeMap::new();
-    ///     let identifier = json!({
-    ///         "type": "m.id.user",
-    ///         "user": user,
-    ///     });
-    ///     auth_parameters.insert("identifier".to_owned(), identifier);
-    ///     auth_parameters.insert("password".to_owned(), password.to_owned().into());
-    ///
-    ///     AuthData::DirectRequest {
-    ///         kind: "m.login.password",
-    ///         auth_parameters,
-    ///         session,
-    ///     }
-    /// }
-    ///
     /// if let Err(e) = client.bootstrap_cross_signing(None).await {
     ///     if let Some(response) = e.uiaa_response() {
-    ///         let auth_data = auth_data(&user_id, "wordpass", response.session.as_deref());
-    ///            client
-    ///                .bootstrap_cross_signing(Some(auth_data))
-    ///                .await
-    ///                .expect("Couldn't bootstrap cross signing")
+    ///         let auth_data = uiaa::AuthData::Password(assign!(
+    ///             uiaa::Password::new(uiaa::UserIdentifier::MatrixId("example"), "wordpass"),
+    ///             { session: response.session.as_deref() }
+    ///         ));
+    ///
+    ///         client
+    ///             .bootstrap_cross_signing(Some(auth_data))
+    ///             .await
+    ///             .expect("Couldn't bootstrap cross signing")
     ///     } else {
     ///         panic!("Error durign cross signing bootstrap {:#?}", e);
     ///     }
@@ -2797,7 +2779,7 @@ mod test {
                     media::get_content_thumbnail::Method,
                     membership::Invite3pidInit,
                     session::get_login_types::LoginType,
-                    uiaa::{AuthData, UiaaResponse},
+                    uiaa::{self, UiaaResponse},
                 },
             },
             error::{FromHttpResponseError, ServerError},
@@ -3137,7 +3119,9 @@ mod test {
         let user = assign!(RegistrationRequest::new(), {
             username: Some("user"),
             password: Some("password"),
-            auth: Some(AuthData::FallbackAcknowledgement { session: "foobar" }),
+            auth: Some(uiaa::AuthData::FallbackAcknowledgement(
+                uiaa::FallbackAcknowledgement::new("foobar"),
+            )),
             kind: RegistrationKind::User,
         });
 
@@ -3813,11 +3797,10 @@ mod test {
                 auth_parameters.insert("identifier".to_owned(), identifier);
                 auth_parameters.insert("password".to_owned(), "wordpass".into());
 
-                let auth_data = AuthData::DirectRequest {
-                    kind: "m.login.password",
-                    auth_parameters,
-                    session: info.session.as_deref(),
-                };
+                let auth_data = uiaa::AuthData::Password(assign!(
+                    uiaa::Password::new(uiaa::UserIdentifier::MatrixId("example"), "wordpass"),
+                    { session: info.session.as_deref() }
+                ));
 
                 client.delete_devices(devices, Some(auth_data)).await.unwrap();
             }
