@@ -1282,7 +1282,7 @@ mod test {
         let alice_store: Box<dyn CryptoStore> = Box::new(MemoryStore::new());
         let alice_identity = PrivateCrossSigningIdentity::empty(alice_id());
 
-        let alice_store = VerificationStore { account: alice.clone(), inner: alice_store.into() };
+        let alice_store = VerificationStore { account: alice, inner: alice_store.into() };
 
         let bob = ReadOnlyAccount::new(&bob_id(), &bob_device_id());
         let bob_store: Box<dyn CryptoStore> = Box::new(MemoryStore::new());
@@ -1308,7 +1308,7 @@ mod test {
         let alice_request = VerificationRequest::from_request(
             VerificationCache::new(),
             alice_identity,
-            alice_store.into(),
+            alice_store,
             &bob_id(),
             flow_id,
             &(&content).into(),
@@ -1358,7 +1358,7 @@ mod test {
         let bob_request = VerificationRequest::new(
             VerificationCache::new(),
             bob_identity,
-            bob_store.into(),
+            bob_store,
             flow_id.clone(),
             &alice_id(),
             vec![],
@@ -1368,7 +1368,7 @@ mod test {
         let alice_request = VerificationRequest::from_request(
             VerificationCache::new(),
             alice_identity,
-            alice_store.into(),
+            alice_store,
             &bob_id(),
             flow_id,
             &(&content).into(),
@@ -1425,7 +1425,7 @@ mod test {
         let bob_request = VerificationRequest::new(
             VerificationCache::new(),
             bob_identity,
-            bob_store.into(),
+            bob_store,
             flow_id,
             &alice_id(),
             vec![],
@@ -1440,7 +1440,7 @@ mod test {
         let alice_request = VerificationRequest::from_request(
             VerificationCache::new(),
             alice_identity,
-            alice_store.into(),
+            alice_store,
             &bob_id(),
             flow_id,
             &content,

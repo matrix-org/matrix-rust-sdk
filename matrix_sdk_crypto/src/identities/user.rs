@@ -1022,7 +1022,7 @@ pub(crate) mod test {
             Arc::new(Mutex::new(PrivateCrossSigningIdentity::empty(second.user_id().clone())));
         let verification_machine = VerificationMachine::new(
             ReadOnlyAccount::new(second.user_id(), second.device_id()),
-            private_identity.clone(),
+            private_identity,
             Arc::new(MemoryStore::new()),
         );
 

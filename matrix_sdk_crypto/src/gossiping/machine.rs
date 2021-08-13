@@ -1306,8 +1306,8 @@ mod test {
             .await
             .unwrap();
         group_session.mark_shared_with(
-            &alice_device.user_id(),
-            &alice_device.device_id(),
+            alice_device.user_id(),
+            alice_device.device_id(),
             alice_device.get_key(DeviceKeyAlgorithm::Curve25519).unwrap(),
         );
 
