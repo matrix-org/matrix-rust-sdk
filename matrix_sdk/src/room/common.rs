@@ -376,4 +376,25 @@ impl Common {
             .await
             .map_err(Into::into)
     }
+
+    /// Check if all members of this room are verified and all their devices are
+    /// verified.
+    ///
+    /// Returns true if all devices in the room are verified, otherwise false.
+    #[cfg(feature = "encryption")]
+    #[cfg_attr(feature = "docs", doc(cfg(encryption)))]
+    pub async fn contains_only_verified_devices(&self) -> Result<bool> {
+        let user_ids = self.client.store().get_user_ids(self.room_id()).await?;
+
+        for user_id in user_ids {
+            let devices = self.client.get_user_devices(&user_id).await?;
+            let any_unverified = devices.devices().any(|d| !d.verified());
+
+            if any_unverified {
+                return Ok(false);
+            }
+        }
+
+        Ok(true)
+    }
 }
