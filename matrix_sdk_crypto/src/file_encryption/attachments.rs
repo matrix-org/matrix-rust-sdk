@@ -215,8 +215,8 @@ impl<'a, R: Read + 'a> AttachmentEncryptor<'a, R> {
         let mut iv = Zeroizing::new([0u8; IV_SIZE]);
 
         getrandom(&mut *key).expect("Can't generate randomness");
-        // Only populate the first 8 bits with randomness, the rest is 0
-        // initialized.
+        // Only populate the first 8 bytes with randomness, the rest is 0
+        // initialized for the counter.
         getrandom(&mut iv[0..8]).expect("Can't generate randomness");
 
         let web_key = JsonWebKey::from(JsonWebKeyInit {

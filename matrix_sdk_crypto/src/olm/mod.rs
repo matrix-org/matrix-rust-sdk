@@ -27,14 +27,14 @@ pub(crate) use account::{Account, OlmDecryptionInfo, SessionType};
 pub use account::{AccountPickle, OlmMessageHash, PickledAccount, ReadOnlyAccount};
 pub use group_sessions::{
     EncryptionSettings, ExportedRoomKey, InboundGroupSession, InboundGroupSessionPickle,
-    OutboundGroupSession, PickledInboundGroupSession, PickledOutboundGroupSession,
+    OutboundGroupSession, PickledInboundGroupSession, PickledOutboundGroupSession, ShareInfo,
 };
 pub(crate) use group_sessions::{GroupSessionKey, ShareState};
 use matrix_sdk_common::instant::{Duration, Instant};
 pub use olm_rs::{account::IdentityKeys, PicklingMode};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 pub use session::{PickledSession, Session, SessionPickle};
-pub use signing::{PickledCrossSigningIdentity, PrivateCrossSigningIdentity};
+pub use signing::{CrossSigningStatus, PickledCrossSigningIdentity, PrivateCrossSigningIdentity};
 pub(crate) use utility::Utility;
 
 pub(crate) fn serialize_instant<S>(instant: &Instant, serializer: S) -> Result<S::Ok, S::Error>
@@ -267,7 +267,7 @@ pub(crate) mod test {
         })
         .to_string();
 
-        let event: AnySyncRoomEvent = serde_json::from_str(&event).expect("WHAAAT?!?!?");
+        let event: AnySyncRoomEvent = serde_json::from_str(&event).unwrap();
 
         let event =
             if let AnySyncRoomEvent::Message(AnySyncMessageEvent::RoomEncrypted(event)) = event {

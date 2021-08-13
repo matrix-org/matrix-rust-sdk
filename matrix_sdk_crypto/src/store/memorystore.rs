@@ -19,20 +19,25 @@ use std::{
 
 use dashmap::{DashMap, DashSet};
 use matrix_sdk_common::{async_trait, locks::Mutex, uuid::Uuid};
-use ruma::{events::room_key_request::RequestedKeyInfo, DeviceId, DeviceIdBox, RoomId, UserId};
+use ruma::{DeviceId, DeviceIdBox, RoomId, UserId};
 
 use super::{
     caches::{DeviceStore, GroupSessionStore, SessionStore},
     Changes, CryptoStore, InboundGroupSession, ReadOnlyAccount, Result, Session,
 };
 use crate::{
+    gossiping::{GossipRequest, SecretInfo},
     identities::{ReadOnlyDevice, ReadOnlyUserIdentities},
-    key_request::OutgoingKeyRequest,
     olm::{OutboundGroupSession, PrivateCrossSigningIdentity},
 };
 
-fn encode_key_info(info: &RequestedKeyInfo) -> String {
-    format!("{}{}{}{}", info.room_id, info.sender_key, info.algorithm, info.session_id)
+fn encode_key_info(info: &SecretInfo) -> String {
+    match info {
+        SecretInfo::KeyRequest(info) => {
+            format!("{}{}{}{}", info.room_id, info.sender_key, info.algorithm, info.session_id)
+        }
+        SecretInfo::SecretRequest(i) => i.as_ref().to_owned(),
+    }
 }
 
 /// An in-memory only store that will forget all the E2EE key once it's dropped.
@@ -45,7 +50,7 @@ pub struct MemoryStore {
     olm_hashes: Arc<DashMap<String, DashSet<String>>>,
     devices: DeviceStore,
     identities: Arc<DashMap<UserId, ReadOnlyUserIdentities>>,
-    outgoing_key_requests: Arc<DashMap<Uuid, OutgoingKeyRequest>>,
+    outgoing_key_requests: Arc<DashMap<Uuid, GossipRequest>>,
     key_requests_by_info: Arc<DashMap<String, Uuid>>,
 }
 
@@ -228,17 +233,17 @@ impl CryptoStore for MemoryStore {
             .contains(&message_hash.hash))
     }
 
-    async fn get_outgoing_key_request(
+    async fn get_outgoing_secret_requests(
         &self,
         request_id: Uuid,
-    ) -> Result<Option<OutgoingKeyRequest>> {
+    ) -> Result<Option<GossipRequest>> {
         Ok(self.outgoing_key_requests.get(&request_id).map(|r| r.clone()))
     }
 
-    async fn get_key_request_by_info(
+    async fn get_secret_request_by_info(
         &self,
-        key_info: &RequestedKeyInfo,
-    ) -> Result<Option<OutgoingKeyRequest>> {
+        key_info: &SecretInfo,
+    ) -> Result<Option<GossipRequest>> {
         let key_info_string = encode_key_info(key_info);
 
         Ok(self
@@ -247,7 +252,7 @@ impl CryptoStore for MemoryStore {
             .and_then(|i| self.outgoing_key_requests.get(&i).map(|r| r.clone())))
     }
 
-    async fn get_unsent_key_requests(&self) -> Result<Vec<OutgoingKeyRequest>> {
+    async fn get_unsent_secret_requests(&self) -> Result<Vec<GossipRequest>> {
         Ok(self
             .outgoing_key_requests
             .iter()
@@ -256,7 +261,7 @@ impl CryptoStore for MemoryStore {
             .collect())
     }
 
-    async fn delete_outgoing_key_request(&self, request_id: Uuid) -> Result<()> {
+    async fn delete_outgoing_secret_requests(&self, request_id: Uuid) -> Result<()> {
         self.outgoing_key_requests.remove(&request_id).and_then(|(_, i)| {
             let key_info_string = encode_key_info(&i.info);
             self.key_requests_by_info.remove(&key_info_string)

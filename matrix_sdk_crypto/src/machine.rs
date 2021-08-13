@@ -38,6 +38,7 @@ use ruma::{
             EncryptedEventContent, EncryptedEventScheme, EncryptedToDeviceEventContent,
         },
         room_key::RoomKeyToDeviceEventContent,
+        secret::request::SecretName,
         AnyMessageEventContent, AnyRoomEvent, AnyToDeviceEvent, SyncMessageEvent, ToDeviceEvent,
     },
     DeviceId, DeviceIdBox, DeviceKeyAlgorithm, EventEncryptionAlgorithm, RoomId, UInt, UserId,
@@ -48,21 +49,21 @@ use tracing::{debug, error, info, trace, warn};
 use crate::store::sled::SledStore;
 use crate::{
     error::{EventError, MegolmError, MegolmResult, OlmError, OlmResult},
+    gossiping::GossipMachine,
     identities::{user::UserIdentities, Device, IdentityManager, UserDevices},
-    key_request::KeyRequestMachine,
     olm::{
-        Account, EncryptionSettings, ExportedRoomKey, GroupSessionKey, IdentityKeys,
-        InboundGroupSession, OlmDecryptionInfo, PrivateCrossSigningIdentity, ReadOnlyAccount,
-        SessionType,
+        Account, CrossSigningStatus, EncryptionSettings, ExportedRoomKey, GroupSessionKey,
+        IdentityKeys, InboundGroupSession, OlmDecryptionInfo, PrivateCrossSigningIdentity,
+        ReadOnlyAccount, SessionType,
     },
     requests::{IncomingResponse, OutgoingRequest, UploadSigningKeysRequest},
     session_manager::{GroupSessionManager, SessionManager},
     store::{
         Changes, CryptoStore, DeviceChanges, IdentityChanges, MemoryStore, Result as StoreResult,
-        Store,
+        SecretImportError, Store,
     },
     verification::{Verification, VerificationMachine, VerificationRequest},
-    ToDeviceRequest,
+    CrossSigningKeyExport, ToDeviceRequest,
 };
 
 /// State machine implementation of the Olm/Megolm encryption protocol used for
@@ -93,7 +94,7 @@ pub struct OlmMachine {
     verification_machine: VerificationMachine,
     /// The state machine that is responsible to handle outgoing and incoming
     /// key requests.
-    key_request_machine: KeyRequestMachine,
+    key_request_machine: GossipMachine,
     /// State machine handling public user identities and devices, keeping track
     /// of when a key query needs to be done and handling one.
     identity_manager: IdentityManager,
@@ -157,7 +158,7 @@ impl OlmMachine {
 
         let group_session_manager = GroupSessionManager::new(account.clone(), store.clone());
 
-        let key_request_machine = KeyRequestMachine::new(
+        let key_request_machine = GossipMachine::new(
             user_id.clone(),
             device_id.clone(),
             store.clone(),
@@ -215,12 +216,15 @@ impl OlmMachine {
     ) -> StoreResult<Self> {
         let account = match store.load_account().await? {
             Some(a) => {
-                debug!("Restored account");
+                debug!(ed25519_key = a.identity_keys().ed25519(), "Restored an Olm account");
                 a
             }
             None => {
-                debug!("Creating a new account");
                 let account = ReadOnlyAccount::new(&user_id, &device_id);
+                debug!(
+                    ed25519_key = account.identity_keys().ed25519(),
+                    "Created a new Olm account"
+                );
                 store.save_account(account.clone()).await?;
                 account
             }
@@ -228,7 +232,14 @@ impl OlmMachine {
 
         let identity = match store.load_identity().await? {
             Some(i) => {
-                debug!("Restored the cross signing identity");
+                let master_key = i
+                    .master_public_key()
+                    .await
+                    .and_then(|m| m.get_first_key().map(|m| m.to_string()));
+                debug!(
+                    master_key =? master_key,
+                    "Restored the cross signing identity"
+                );
                 i
             }
             None => {
@@ -275,6 +286,11 @@ impl OlmMachine {
     /// Get the public parts of our Olm identity keys.
     pub fn identity_keys(&self) -> &IdentityKeys {
         self.account.identity_keys()
+    }
+
+    /// Get the display name of our own device
+    pub async fn dislpay_name(&self) -> StoreResult<Option<String>> {
+        self.store.device_display_name().await
     }
 
     /// Get the outgoing requests that need to be sent out.
@@ -696,8 +712,12 @@ impl OlmMachine {
                 .key_request_machine
                 .receive_forwarded_room_key(&decrypted.sender_key, &mut e)
                 .await?),
+            AnyToDeviceEvent::SecretSend(mut e) => Ok((
+                self.key_request_machine.receive_secret(&decrypted.sender_key, &mut e).await?,
+                None,
+            )),
             _ => {
-                warn!("Received an unexpected encrypted to-device event");
+                warn!(event_type =? event.event_type(), "Received an unexpected encrypted to-device event");
                 Ok((Some(event), None))
             }
         }
@@ -746,6 +766,9 @@ impl OlmMachine {
         match event {
             AnyToDeviceEvent::RoomKeyRequest(e) => {
                 self.key_request_machine.receive_incoming_key_request(e)
+            }
+            AnyToDeviceEvent::SecretRequest(e) => {
+                self.key_request_machine.receive_incoming_secret_request(e)
             }
             AnyToDeviceEvent::KeyVerificationAccept(..)
             | AnyToDeviceEvent::KeyVerificationCancel(..)
@@ -811,19 +834,26 @@ impl OlmMachine {
                 Ok(e) => e,
                 Err(e) => {
                     // Skip invalid events.
-                    warn!("Received an invalid to-device event {:?} {:?}", e, raw_event);
+                    warn!(
+                        error =? e,
+                        "Received an invalid to-device event"
+                    );
                     continue;
                 }
             };
 
-            info!("Received a to-device event {:?}", event);
+            info!(
+                sender = event.sender().as_str(),
+                event_type = event.event_type(),
+                "Received a to-device event"
+            );
 
             match event {
                 AnyToDeviceEvent::RoomEncrypted(e) => {
                     let decrypted = match self.decrypt_to_device_event(&e).await {
                         Ok(e) => e,
                         Err(err) => {
-                            warn!("Failed to decrypt to-device event from {} {}", e.sender, err);
+                            warn!(sender = e.sender.as_str(), error =? e, "Failed to decrypt to-device event");
 
                             if let OlmError::SessionWedged(sender, curve_key) = err {
                                 if let Err(e) = self
@@ -832,8 +862,9 @@ impl OlmMachine {
                                     .await
                                 {
                                     error!(
-                                        "Couldn't mark device from {} to be unwedged {:?}",
-                                        sender, e
+                                        sender = sender.as_str(),
+                                        error =? e,
+                                        "Couldn't mark device from to be unwedged",
                                     );
                                 }
                             }
@@ -1226,6 +1257,46 @@ impl OlmMachine {
         }
 
         Ok(exported)
+    }
+
+    /// Get the status of the private cross signing keys.
+    ///
+    /// This can be used to check which private cross signing keys we have
+    /// stored locally.
+    pub async fn cross_signing_status(&self) -> CrossSigningStatus {
+        self.user_identity.lock().await.status().await
+    }
+
+    /// Export all the private cross signing keys we have.
+    ///
+    /// The export will contain the seed for the ed25519 keys as a unpadded
+    /// base64 encoded string.
+    ///
+    /// This method returns `None` if we don't have any private cross signing
+    /// keys.
+    pub async fn export_cross_signing_keys(&self) -> Option<CrossSigningKeyExport> {
+        let master_key = self.store.export_secret(&SecretName::CrossSigningMasterKey).await;
+        let self_signing_key =
+            self.store.export_secret(&SecretName::CrossSigningSelfSigningKey).await;
+        let user_signing_key =
+            self.store.export_secret(&SecretName::CrossSigningUserSigningKey).await;
+
+        if master_key.is_none() && self_signing_key.is_none() && user_signing_key.is_none() {
+            None
+        } else {
+            Some(CrossSigningKeyExport { master_key, self_signing_key, user_signing_key })
+        }
+    }
+
+    /// Import our private cross signing keys.
+    ///
+    /// The export needs to contain the seed for the ed25519 keys as an unpadded
+    /// base64 encoded string.
+    pub async fn import_cross_signing_keys(
+        &self,
+        export: CrossSigningKeyExport,
+    ) -> Result<CrossSigningStatus, SecretImportError> {
+        self.store.import_cross_signing_keys(export).await
     }
 }
 

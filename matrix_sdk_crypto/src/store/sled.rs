@@ -14,7 +14,7 @@
 
 use std::{
     collections::{HashMap, HashSet},
-    convert::TryFrom,
+    convert::{TryFrom, TryInto},
     path::{Path, PathBuf},
     sync::{Arc, RwLock},
 };
@@ -22,12 +22,16 @@ use std::{
 use dashmap::DashSet;
 use matrix_sdk_common::{async_trait, locks::Mutex, uuid};
 use olm_rs::{account::IdentityKeys, PicklingMode};
-use ruma::{events::room_key_request::RequestedKeyInfo, DeviceId, DeviceIdBox, RoomId, UserId};
+use ruma::{
+    events::{room_key_request::RequestedKeyInfo, secret::request::SecretName},
+    DeviceId, DeviceIdBox, RoomId, UserId,
+};
 pub use sled::Error;
 use sled::{
     transaction::{ConflictableTransactionError, TransactionError},
     Config, Db, Transactional, Tree,
 };
+use tracing::trace;
 use uuid::Uuid;
 
 use super::{
@@ -35,14 +39,15 @@ use super::{
     ReadOnlyAccount, Result, Session,
 };
 use crate::{
+    gossiping::{GossipRequest, SecretInfo},
     identities::{ReadOnlyDevice, ReadOnlyUserIdentities},
-    key_request::OutgoingKeyRequest,
     olm::{OutboundGroupSession, PickledInboundGroupSession, PrivateCrossSigningIdentity},
 };
 
 /// This needs to be 32 bytes long since AES-GCM requires it, otherwise we will
 /// panic once we try to pickle a Signing object.
 const DEFAULT_PICKLE: &str = "DEFAULT_PICKLE_PASSPHRASE_123456";
+const DATABASE_VERSION: u8 = 1;
 
 trait EncodeKey {
     const SEPARATOR: u8 = 0xff;
@@ -52,6 +57,21 @@ trait EncodeKey {
 impl EncodeKey for Uuid {
     fn encode(&self) -> Vec<u8> {
         self.as_u128().to_be_bytes().to_vec()
+    }
+}
+
+impl EncodeKey for SecretName {
+    fn encode(&self) -> Vec<u8> {
+        [self.as_ref().as_bytes(), &[Self::SEPARATOR]].concat()
+    }
+}
+
+impl EncodeKey for SecretInfo {
+    fn encode(&self) -> Vec<u8> {
+        match self {
+            SecretInfo::KeyRequest(k) => k.encode(),
+            SecretInfo::SecretRequest(s) => s.encode(),
+        }
     }
 }
 
@@ -136,9 +156,9 @@ pub struct SledStore {
     inbound_group_sessions: Tree,
     outbound_group_sessions: Tree,
 
-    outgoing_key_requests: Tree,
-    unsent_key_requests: Tree,
-    key_requests_by_info: Tree,
+    outgoing_secret_requests: Tree,
+    unsent_secret_requests: Tree,
+    secret_requests_by_info: Tree,
 
     devices: Tree,
     identities: Tree,
@@ -186,12 +206,43 @@ impl SledStore {
         self.account_info.read().unwrap().clone()
     }
 
+    fn upgrade_databse(db: &Db) -> Result<()> {
+        let version = db
+            .get("version")?
+            .map(|v| {
+                let (version_bytes, _) = v.split_at(std::mem::size_of::<u8>());
+                u8::from_be_bytes(version_bytes.try_into().unwrap_or_default())
+            })
+            .unwrap_or_default();
+
+        if version != DATABASE_VERSION {
+            trace!(
+                version = version,
+                new_version = DATABASE_VERSION,
+                "Upgrading the Sled crypto store"
+            );
+        }
+
+        if version == 0 {
+            // We changed the schema but migrating this isn't important since we
+            // rotate the group sessions relatively often anyways so we just
+            // drop it.
+            db.drop_tree("outbound_group_sessions")?;
+        }
+
+        db.insert("version", DATABASE_VERSION.to_be_bytes().as_ref())?;
+
+        Ok(())
+    }
+
     fn open_helper(db: Db, path: Option<PathBuf>, passphrase: Option<&str>) -> Result<Self> {
+        Self::upgrade_databse(&db)?;
         let account = db.open_tree("account")?;
         let private_identity = db.open_tree("private_identity")?;
 
         let sessions = db.open_tree("session")?;
         let inbound_group_sessions = db.open_tree("inbound_group_sessions")?;
+
         let outbound_group_sessions = db.open_tree("outbound_group_sessions")?;
 
         let tracked_users = db.open_tree("tracked_users")?;
@@ -201,9 +252,9 @@ impl SledStore {
         let devices = db.open_tree("devices")?;
         let identities = db.open_tree("identities")?;
 
-        let outgoing_key_requests = db.open_tree("outgoing_key_requests")?;
-        let unsent_key_requests = db.open_tree("unsent_key_requests")?;
-        let key_requests_by_info = db.open_tree("key_requests_by_info")?;
+        let outgoing_secret_requests = db.open_tree("outgoing_secret_requests")?;
+        let unsent_secret_requests = db.open_tree("unsent_secret_requests")?;
+        let secret_requests_by_info = db.open_tree("secret_requests_by_info")?;
 
         let session_cache = SessionStore::new();
 
@@ -227,9 +278,9 @@ impl SledStore {
             users_for_key_query_cache: DashSet::new().into(),
             inbound_group_sessions,
             outbound_group_sessions,
-            outgoing_key_requests,
-            unsent_key_requests,
-            key_requests_by_info,
+            outgoing_secret_requests,
+            unsent_secret_requests,
+            secret_requests_by_info,
             devices,
             tracked_users,
             users_for_key_query,
@@ -308,7 +359,7 @@ impl SledStore {
         };
 
         let private_identity_pickle = if let Some(i) = changes.private_identity {
-            Some(i.pickle(DEFAULT_PICKLE.as_bytes()).await?)
+            Some(i.pickle(self.get_pickle_key()).await?)
         } else {
             None
         };
@@ -361,9 +412,9 @@ impl SledStore {
             &self.inbound_group_sessions,
             &self.outbound_group_sessions,
             &self.olm_hashes,
-            &self.outgoing_key_requests,
-            &self.unsent_key_requests,
-            &self.key_requests_by_info,
+            &self.outgoing_secret_requests,
+            &self.unsent_secret_requests,
+            &self.secret_requests_by_info,
         )
             .transaction(
                 |(
@@ -375,9 +426,9 @@ impl SledStore {
                     inbound_sessions,
                     outbound_sessions,
                     hashes,
-                    outgoing_key_requests,
-                    unsent_key_requests,
-                    key_requests_by_info,
+                    outgoing_secret_requests,
+                    unsent_secret_requests,
+                    secret_requests_by_info,
                 )| {
                     if let Some(a) = &account_pickle {
                         account.insert(
@@ -446,7 +497,7 @@ impl SledStore {
                     }
 
                     for key_request in &key_requests {
-                        key_requests_by_info.insert(
+                        secret_requests_by_info.insert(
                             (&key_request.info).encode(),
                             key_request.request_id.encode(),
                         )?;
@@ -454,15 +505,15 @@ impl SledStore {
                         let key_request_id = key_request.request_id.encode();
 
                         if key_request.sent_out {
-                            unsent_key_requests.remove(key_request_id.clone())?;
-                            outgoing_key_requests.insert(
+                            unsent_secret_requests.remove(key_request_id.clone())?;
+                            outgoing_secret_requests.insert(
                                 key_request_id,
                                 serde_json::to_vec(&key_request)
                                     .map_err(ConflictableTransactionError::Abort)?,
                             )?;
                         } else {
-                            outgoing_key_requests.remove(key_request_id.clone())?;
-                            unsent_key_requests.insert(
+                            outgoing_secret_requests.remove(key_request_id.clone())?;
+                            unsent_secret_requests.insert(
                                 key_request_id,
                                 serde_json::to_vec(&key_request)
                                     .map_err(ConflictableTransactionError::Abort)?,
@@ -480,15 +531,15 @@ impl SledStore {
         Ok(())
     }
 
-    async fn get_outgoing_key_request_helper(
-        &self,
-        id: &[u8],
-    ) -> Result<Option<OutgoingKeyRequest>> {
-        let request =
-            self.outgoing_key_requests.get(id)?.map(|r| serde_json::from_slice(&r)).transpose()?;
+    async fn get_outgoing_key_request_helper(&self, id: &[u8]) -> Result<Option<GossipRequest>> {
+        let request = self
+            .outgoing_secret_requests
+            .get(id)?
+            .map(|r| serde_json::from_slice(&r))
+            .transpose()?;
 
         let request = if request.is_none() {
-            self.unsent_key_requests.get(id)?.map(|r| serde_json::from_slice(&r)).transpose()?
+            self.unsent_secret_requests.get(id)?.map(|r| serde_json::from_slice(&r)).transpose()?
         } else {
             request
         };
@@ -647,12 +698,7 @@ impl CryptoStore for SledStore {
         device_id: &DeviceId,
     ) -> Result<Option<ReadOnlyDevice>> {
         let key = (user_id.as_str(), device_id.as_str()).encode();
-
-        if let Some(d) = self.devices.get(key)? {
-            Ok(Some(serde_json::from_slice(&d)?))
-        } else {
-            Ok(None)
-        }
+        Ok(self.devices.get(key)?.map(|d| serde_json::from_slice(&d)).transpose()?)
     }
 
     async fn get_user_devices(
@@ -681,20 +727,20 @@ impl CryptoStore for SledStore {
         Ok(self.olm_hashes.contains_key(serde_json::to_vec(message_hash)?)?)
     }
 
-    async fn get_outgoing_key_request(
+    async fn get_outgoing_secret_requests(
         &self,
         request_id: Uuid,
-    ) -> Result<Option<OutgoingKeyRequest>> {
+    ) -> Result<Option<GossipRequest>> {
         let request_id = request_id.encode();
 
         self.get_outgoing_key_request_helper(&request_id).await
     }
 
-    async fn get_key_request_by_info(
+    async fn get_secret_request_by_info(
         &self,
-        key_info: &RequestedKeyInfo,
-    ) -> Result<Option<OutgoingKeyRequest>> {
-        let id = self.key_requests_by_info.get(key_info.encode())?;
+        key_info: &SecretInfo,
+    ) -> Result<Option<GossipRequest>> {
+        let id = self.secret_requests_by_info.get(key_info.encode())?;
 
         if let Some(id) = id {
             self.get_outgoing_key_request_helper(&id).await
@@ -703,9 +749,9 @@ impl CryptoStore for SledStore {
         }
     }
 
-    async fn get_unsent_key_requests(&self) -> Result<Vec<OutgoingKeyRequest>> {
-        let requests: Result<Vec<OutgoingKeyRequest>> = self
-            .unsent_key_requests
+    async fn get_unsent_secret_requests(&self) -> Result<Vec<GossipRequest>> {
+        let requests: Result<Vec<GossipRequest>> = self
+            .unsent_secret_requests
             .iter()
             .map(|i| serde_json::from_slice(&i?.1).map_err(CryptoStoreError::from))
             .collect();
@@ -713,34 +759,37 @@ impl CryptoStore for SledStore {
         requests
     }
 
-    async fn delete_outgoing_key_request(&self, request_id: Uuid) -> Result<()> {
-        let ret: Result<(), TransactionError<serde_json::Error>> =
-            (&self.outgoing_key_requests, &self.unsent_key_requests, &self.key_requests_by_info)
-                .transaction(
-                    |(outgoing_key_requests, unsent_key_requests, key_requests_by_info)| {
-                        let sent_request: Option<OutgoingKeyRequest> = outgoing_key_requests
-                            .remove(request_id.encode())?
-                            .map(|r| serde_json::from_slice(&r))
-                            .transpose()
-                            .map_err(ConflictableTransactionError::Abort)?;
+    async fn delete_outgoing_secret_requests(&self, request_id: Uuid) -> Result<()> {
+        let ret: Result<(), TransactionError<serde_json::Error>> = (
+            &self.outgoing_secret_requests,
+            &self.unsent_secret_requests,
+            &self.secret_requests_by_info,
+        )
+            .transaction(
+                |(outgoing_key_requests, unsent_key_requests, key_requests_by_info)| {
+                    let sent_request: Option<GossipRequest> = outgoing_key_requests
+                        .remove(request_id.encode())?
+                        .map(|r| serde_json::from_slice(&r))
+                        .transpose()
+                        .map_err(ConflictableTransactionError::Abort)?;
 
-                        let unsent_request: Option<OutgoingKeyRequest> = unsent_key_requests
-                            .remove(request_id.encode())?
-                            .map(|r| serde_json::from_slice(&r))
-                            .transpose()
-                            .map_err(ConflictableTransactionError::Abort)?;
+                    let unsent_request: Option<GossipRequest> = unsent_key_requests
+                        .remove(request_id.encode())?
+                        .map(|r| serde_json::from_slice(&r))
+                        .transpose()
+                        .map_err(ConflictableTransactionError::Abort)?;
 
-                        if let Some(request) = sent_request {
-                            key_requests_by_info.remove((&request.info).encode())?;
-                        }
+                    if let Some(request) = sent_request {
+                        key_requests_by_info.remove((&request.info).encode())?;
+                    }
 
-                        if let Some(request) = unsent_request {
-                            key_requests_by_info.remove((&request.info).encode())?;
-                        }
+                    if let Some(request) = unsent_request {
+                        key_requests_by_info.remove((&request.info).encode())?;
+                    }
 
-                        Ok(())
-                    },
-                );
+                    Ok(())
+                },
+            );
 
         ret?;
         self.inner.flush_async().await?;
@@ -762,8 +811,9 @@ mod test {
     };
     use tempfile::tempdir;
 
-    use super::{CryptoStore, OutgoingKeyRequest, SledStore};
+    use super::{CryptoStore, GossipRequest, SledStore};
     use crate::{
+        gossiping::SecretInfo,
         identities::{
             device::test::get_device,
             user::test::{get_other_identity, get_own_identity},
@@ -1199,21 +1249,22 @@ mod test {
         let (account, store, _dir) = get_loaded_store().await;
 
         let id = Uuid::new_v4();
-        let info = RequestedKeyInfo::new(
+        let info: SecretInfo = RequestedKeyInfo::new(
             EventEncryptionAlgorithm::MegolmV1AesSha2,
             room_id!("!test:localhost"),
             "test_sender_key".to_string(),
             "test_session_id".to_string(),
-        );
+        )
+        .into();
 
-        let request = OutgoingKeyRequest {
+        let request = GossipRequest {
             request_recipient: account.user_id().to_owned(),
             request_id: id,
             info: info.clone(),
             sent_out: false,
         };
 
-        assert!(store.get_outgoing_key_request(id).await.unwrap().is_none());
+        assert!(store.get_outgoing_secret_requests(id).await.unwrap().is_none());
 
         let mut changes = Changes::default();
         changes.key_requests.push(request.clone());
@@ -1221,14 +1272,14 @@ mod test {
 
         let request = Some(request);
 
-        let stored_request = store.get_outgoing_key_request(id).await.unwrap();
+        let stored_request = store.get_outgoing_secret_requests(id).await.unwrap();
         assert_eq!(request, stored_request);
 
-        let stored_request = store.get_key_request_by_info(&info).await.unwrap();
+        let stored_request = store.get_secret_request_by_info(&info).await.unwrap();
         assert_eq!(request, stored_request);
-        assert!(!store.get_unsent_key_requests().await.unwrap().is_empty());
+        assert!(!store.get_unsent_secret_requests().await.unwrap().is_empty());
 
-        let request = OutgoingKeyRequest {
+        let request = GossipRequest {
             request_recipient: account.user_id().to_owned(),
             request_id: id,
             info: info.clone(),
@@ -1239,17 +1290,17 @@ mod test {
         changes.key_requests.push(request.clone());
         store.save_changes(changes).await.unwrap();
 
-        assert!(store.get_unsent_key_requests().await.unwrap().is_empty());
-        let stored_request = store.get_outgoing_key_request(id).await.unwrap();
+        assert!(store.get_unsent_secret_requests().await.unwrap().is_empty());
+        let stored_request = store.get_outgoing_secret_requests(id).await.unwrap();
         assert_eq!(Some(request), stored_request);
 
-        store.delete_outgoing_key_request(id).await.unwrap();
+        store.delete_outgoing_secret_requests(id).await.unwrap();
 
-        let stored_request = store.get_outgoing_key_request(id).await.unwrap();
+        let stored_request = store.get_outgoing_secret_requests(id).await.unwrap();
         assert_eq!(None, stored_request);
 
-        let stored_request = store.get_key_request_by_info(&info).await.unwrap();
+        let stored_request = store.get_secret_request_by_info(&info).await.unwrap();
         assert_eq!(None, stored_request);
-        assert!(store.get_unsent_key_requests().await.unwrap().is_empty());
+        assert!(store.get_unsent_secret_requests().await.unwrap().is_empty());
     }
 }

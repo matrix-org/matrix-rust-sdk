@@ -24,7 +24,7 @@ use ruma::{
     api::client::r0::keys::get_keys::Response as KeysQueryResponse, encryption::DeviceKeys,
     DeviceId, DeviceIdBox, UserId,
 };
-use tracing::{trace, warn};
+use tracing::{info, trace, warn};
 
 use crate::{
     error::OlmResult,
@@ -32,6 +32,7 @@ use crate::{
         MasterPubkey, ReadOnlyDevice, ReadOnlyOwnUserIdentity, ReadOnlyUserIdentities,
         ReadOnlyUserIdentity, SelfSigningPubkey, UserSigningPubkey,
     },
+    olm::PrivateCrossSigningIdentity,
     requests::KeysQueryRequest,
     store::{Changes, DeviceChanges, IdentityChanges, Result as StoreResult, Store},
 };
@@ -75,11 +76,13 @@ impl IdentityManager {
     ) -> OlmResult<(DeviceChanges, IdentityChanges)> {
         let changed_devices =
             self.handle_devices_from_key_query(response.device_keys.clone()).await?;
-        let changed_identities = self.handle_cross_singing_keys(response).await?;
+        let (changed_identities, cross_signing_identity) =
+            self.handle_cross_singing_keys(response).await?;
 
         let changes = Changes {
             identities: changed_identities.clone(),
             devices: changed_devices.clone(),
+            private_identity: cross_signing_identity,
             ..Default::default()
         };
 
@@ -137,18 +140,20 @@ impl IdentityManager {
         user_id: UserId,
         device_map: BTreeMap<DeviceIdBox, DeviceKeys>,
     ) -> StoreResult<DeviceChanges> {
+        let own_device_id = (&*own_device_id).to_owned();
+
         let mut changes = DeviceChanges::default();
 
         let current_devices: HashSet<DeviceIdBox> = device_map.keys().cloned().collect();
 
         let tasks = device_map.into_iter().filter_map(|(device_id, device_keys)| {
-            // We don't need our own device in the device store.
-            if user_id == *own_user_id && *device_id == *own_device_id {
-                None
-            } else if user_id != device_keys.user_id || device_id != device_keys.device_id {
+            if user_id != device_keys.user_id || device_id != device_keys.device_id {
                 warn!(
-                    "Mismatch in device keys payload of device {}|{} from user {}|{}",
-                    device_id, device_keys.device_id, user_id, device_keys.user_id
+                    user_id = user_id.as_str(),
+                    device_id = device_id.as_str(),
+                    device_key_user = device_keys.user_id.as_str(),
+                    device_key_device_id = device_keys.device_id.as_str(),
+                    "Mismatch in the device keys payload",
                 );
                 None
             } else {
@@ -169,13 +174,14 @@ impl IdentityManager {
         }
 
         let current_devices: HashSet<&DeviceIdBox> = current_devices.iter().collect();
-        let stored_devices = store.get_readonly_devices(&user_id).await?;
+        let stored_devices = store.get_readonly_devices_unfiltered(&user_id).await?;
         let stored_devices_set: HashSet<&DeviceIdBox> = stored_devices.keys().collect();
-
         let deleted_devices_set = stored_devices_set.difference(&current_devices);
 
         for device_id in deleted_devices_set {
-            if let Some(device) = stored_devices.get(*device_id) {
+            if user_id == *own_user_id && *device_id == &own_device_id {
+                warn!("Our own device has been deleted");
+            } else if let Some(device) = stored_devices.get(*device_id) {
                 device.mark_as_deleted();
                 changes.deleted.push(device.clone());
             }
@@ -231,8 +237,9 @@ impl IdentityManager {
     async fn handle_cross_singing_keys(
         &self,
         response: &KeysQueryResponse,
-    ) -> StoreResult<IdentityChanges> {
+    ) -> StoreResult<(IdentityChanges, Option<PrivateCrossSigningIdentity>)> {
         let mut changes = IdentityChanges::default();
+        let mut changed_identity = None;
 
         for (user_id, master_key) in &response.master_keys {
             let master_key = MasterPubkey::from(master_key);
@@ -240,7 +247,10 @@ impl IdentityManager {
             let self_signing = if let Some(s) = response.self_signing_keys.get(user_id) {
                 SelfSigningPubkey::from(s)
             } else {
-                warn!("User identity for user {} didn't contain a self signing pubkey", user_id);
+                warn!(
+                    user_id = user_id.as_str(),
+                    "A user identity didn't contain a self signing pubkey"
+                );
                 continue;
             };
 
@@ -252,9 +262,9 @@ impl IdentityManager {
                             UserSigningPubkey::from(s)
                         } else {
                             warn!(
-                                "User identity for our own user {} didn't \
-                                  contain a user signing pubkey",
-                                user_id
+                                user_id = user_id.as_str(),
+                                "User identity for our own user didn't \
+                                contain a user signing pubkey",
                             );
                             continue;
                         };
@@ -274,8 +284,8 @@ impl IdentityManager {
                         || user_signing.user_id() != user_id
                     {
                         warn!(
-                            "User id mismatch in one of the cross signing keys for user {}",
-                            user_id
+                            user_id = user_id.as_str(),
+                            "User ID mismatch in one of the cross signing keys",
                         );
                         continue;
                     }
@@ -284,14 +294,14 @@ impl IdentityManager {
                         .map(|i| (ReadOnlyUserIdentities::Own(i), true))
                 } else {
                     warn!(
-                        "User identity for our own user {} didn't contain a \
+                        user_id = user_id.as_str(),
+                        "User identity for our own user didn't contain a \
                         user signing pubkey",
-                        user_id
                     );
                     continue;
                 }
             } else if master_key.user_id() != user_id || self_signing.user_id() != user_id {
-                warn!("User id mismatch in one of the cross signing keys for user {}", user_id);
+                warn!(user = user_id.as_str(), "User ID mismatch in one of the cross signing keys",);
                 continue;
             } else {
                 ReadOnlyUserIdentity::new(master_key, self_signing)
@@ -300,21 +310,38 @@ impl IdentityManager {
 
             match result {
                 Ok((i, new)) => {
-                    trace!("Updated or created new user identity for {}: {:?}", user_id, i);
+                    if let Some(identity) = i.own() {
+                        let private_identity = self.store.private_identity();
+                        let private_identity = private_identity.lock().await;
+
+                        let result = private_identity.clear_if_differs(identity).await;
+
+                        if result.any_cleared() {
+                            changed_identity = Some((&*private_identity).clone());
+                            info!(cleared =? result, "Removed some or all of our private cross signing keys");
+                        }
+                    }
+
                     if new {
+                        trace!(user_id = user_id.as_str(), identity =? i, "Created new user identity");
                         changes.new.push(i);
                     } else {
+                        trace!(user_id = user_id.as_str(), identity =? i, "Updated a user identity");
                         changes.changed.push(i);
                     }
                 }
                 Err(e) => {
-                    warn!("Couldn't update or create new user identity for {}: {:?}", user_id, e);
+                    warn!(
+                        user_id = user_id.as_str(),
+                        error =? e,
+                        "Couldn't update or create new user identity for"
+                    );
                     continue;
                 }
             }
         }
 
-        Ok(changes)
+        Ok((changes, changed_identity))
     }
 
     /// Get a key query request if one is needed.

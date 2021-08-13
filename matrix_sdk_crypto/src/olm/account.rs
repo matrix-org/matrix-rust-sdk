@@ -32,7 +32,7 @@ use olm_rs::{
 };
 use ruma::{
     api::client::r0::keys::{upload_keys, upload_signatures::Request as SignatureUploadRequest},
-    encryption::{DeviceKeys, OneTimeKey, SignedKey},
+    encryption::{CrossSigningKey, DeviceKeys, OneTimeKey, SignedKey},
     events::{
         room::encrypted::{EncryptedEventScheme, EncryptedToDeviceEventContent},
         AnyToDeviceEvent, ToDeviceEvent,
@@ -52,11 +52,11 @@ use super::{
 };
 use crate::{
     error::{EventError, OlmResult, SessionCreationError},
-    identities::ReadOnlyDevice,
+    identities::{MasterPubkey, ReadOnlyDevice},
     requests::UploadSigningKeysRequest,
     store::{Changes, Store},
     utilities::encode,
-    OlmError,
+    OlmError, SignatureError,
 };
 
 #[derive(Debug, Clone)]
@@ -116,13 +116,17 @@ impl Account {
         &self,
         event: &ToDeviceEvent<EncryptedToDeviceEventContent>,
     ) -> OlmResult<OlmDecryptionInfo> {
-        debug!("Decrypting to-device event");
+        debug!(sender = event.sender.as_str(), "Decrypting a to-device event");
 
         let content = if let EncryptedEventScheme::OlmV1Curve25519AesSha2(c) = &event.content.scheme
         {
             c
         } else {
-            warn!("Error, unsupported encryption algorithm");
+            warn!(
+                sender = event.sender.as_str(),
+                algorithm =? event.content.scheme,
+                "Error, unsupported encryption algorithm"
+            );
             return Err(EventError::UnsupportedAlgorithm.into());
         };
 
@@ -156,6 +160,10 @@ impl Account {
                     Ok(d) => d,
                     Err(OlmError::SessionWedged(user_id, sender_key)) => {
                         if self.store.is_message_known(&message_hash).await? {
+                            warn!(
+                                sender = event.sender.as_str(),
+                                "An Olm message got replayed, decryption failed"
+                            );
                             return Err(OlmError::ReplayedMessage(user_id, sender_key));
                         } else {
                             return Err(OlmError::SessionWedged(user_id, sender_key));
@@ -163,8 +171,6 @@ impl Account {
                     }
                     Err(e) => return Err(e),
                 };
-
-            debug!("Decrypted a to-device event {:?}", event);
 
             Ok(OlmDecryptionInfo {
                 session,
@@ -176,7 +182,10 @@ impl Account {
                 inbound_group_session: None,
             })
         } else {
-            warn!("Olm event doesn't contain a ciphertext for our key");
+            warn!(
+                sender = event.sender.as_str(),
+                "Olm event doesn't contain a ciphertext for our key"
+            );
             Err(EventError::MissingCiphertext.into())
         }
     }
@@ -264,9 +273,10 @@ impl Account {
                     // likely wedged and needs to be rotated.
                     if matches {
                         warn!(
-                            "Found a matching Olm session yet decryption failed
-                              for sender {} and sender_key {} {:?}",
-                            sender, sender_key, e
+                            sender = sender.as_str(),
+                            sender_key = sender_key,
+                            error =? e,
+                            "Found a matching Olm session yet decryption failed",
                         );
                         return Err(OlmError::SessionWedged(
                             sender.to_owned(),
@@ -302,9 +312,10 @@ impl Account {
                 // return with an error if it isn't one.
                 OlmMessage::Message(_) => {
                     warn!(
+                        sender = sender.as_str(),
+                        sender_key = sender_key,
                         "Failed to decrypt a non-pre-key message with all \
-                          available sessions {} {}",
-                        sender, sender_key
+                        available sessions",
                     );
                     return Err(OlmError::SessionWedged(sender.to_owned(), sender_key.to_owned()));
                 }
@@ -316,9 +327,11 @@ impl Account {
                             Ok(s) => s,
                             Err(e) => {
                                 warn!(
-                                    "Failed to create a new Olm session for {} {}
-                                      from a prekey message: {}",
-                                    sender, sender_key, e
+                                    sender = sender.as_str(),
+                                    sender_key = sender_key,
+                                    error =? e,
+                                    "Failed to create a new Olm session from a \
+                                    prekey message",
                                 );
                                 return Err(OlmError::SessionWedged(
                                     sender.to_owned(),
@@ -334,10 +347,26 @@ impl Account {
             // Decrypt our message, this shouldn't fail since we're using a
             // newly created Session.
             let plaintext = session.decrypt(message).await?;
+
+            // We need to add the new session to the session cache, otherwise
+            // we might try to create the same session again.
+            // TODO separate the session cache from the storage so we only add
+            // it to the cache but don't store it.
+            let changes = Changes {
+                account: Some(self.inner.clone()),
+                sessions: vec![session.clone()],
+                ..Default::default()
+            };
+            self.store.save_changes(changes).await?;
+
             (SessionType::New(session), plaintext)
         };
 
-        trace!("Successfully decrypted an Olm message: {}", plaintext);
+        trace!(
+            sender = sender.as_str(),
+            sender_key = sender_key,
+            "Successfully decrypted an Olm message"
+        );
 
         let (event, signing_key) = match self.parse_decrypted_to_device_event(sender, &plaintext) {
             Ok(r) => r,
@@ -730,6 +759,42 @@ impl ReadOnlyAccount {
         &self,
     ) -> (PrivateCrossSigningIdentity, UploadSigningKeysRequest, SignatureUploadRequest) {
         PrivateCrossSigningIdentity::new_with_account(self).await
+    }
+
+    pub(crate) async fn sign_cross_signing_key(
+        &self,
+        cross_signing_key: &mut CrossSigningKey,
+    ) -> Result<(), SignatureError> {
+        let signature = self.sign_json(serde_json::to_value(&cross_signing_key)?).await;
+
+        cross_signing_key
+            .signatures
+            .entry(self.user_id().to_owned())
+            .or_insert_with(BTreeMap::new)
+            .insert(
+                DeviceKeyId::from_parts(DeviceKeyAlgorithm::Ed25519, self.device_id()).to_string(),
+                signature,
+            );
+
+        Ok(())
+    }
+
+    pub(crate) async fn sign_master_key(
+        &self,
+        master_key: MasterPubkey,
+    ) -> Result<SignatureUploadRequest, SignatureError> {
+        let public_key =
+            master_key.get_first_key().ok_or(SignatureError::MissingSigningKey)?.to_string();
+        let mut cross_signing_key = master_key.into();
+        self.sign_cross_signing_key(&mut cross_signing_key).await?;
+
+        let mut signed_keys = BTreeMap::new();
+        signed_keys
+            .entry(self.user_id().to_owned())
+            .or_insert_with(BTreeMap::new)
+            .insert(public_key, serde_json::to_value(cross_signing_key)?);
+
+        Ok(SignatureUploadRequest::new(signed_keys))
     }
 
     /// Convert a JSON value to the canonical representation and sign the JSON

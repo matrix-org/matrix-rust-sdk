@@ -18,7 +18,7 @@ use matrix_sdk_common::uuid::Uuid;
 use ruma::{
     api::client::r0::{
         keys::{
-            claim_keys::Response as KeysClaimResponse,
+            claim_keys::{Request as KeysClaimRequest, Response as KeysClaimResponse},
             get_keys::Response as KeysQueryResponse,
             upload_keys::{Request as KeysUploadRequest, Response as KeysUploadResponse},
             upload_signatures::{
@@ -183,6 +183,10 @@ pub enum OutgoingRequests {
     /// The keys query request, fetching the device and cross singing keys of
     /// other users.
     KeysQuery(KeysQueryRequest),
+    /// The request to claim one-time keys for a user/device pair from the
+    /// server, after the response is received an 1-to-1 Olm session will be
+    /// established with the user/device pair.
+    KeysClaim(KeysClaimRequest),
     /// The to-device requests, this request is used for a couple of different
     /// things, the main use is key requests/forwards and interactive device
     /// verification.
@@ -208,6 +212,12 @@ impl OutgoingRequests {
 impl From<KeysQueryRequest> for OutgoingRequests {
     fn from(request: KeysQueryRequest) -> Self {
         OutgoingRequests::KeysQuery(request)
+    }
+}
+
+impl From<KeysClaimRequest> for OutgoingRequests {
+    fn from(r: KeysClaimRequest) -> Self {
+        Self::KeysClaim(r)
     }
 }
 

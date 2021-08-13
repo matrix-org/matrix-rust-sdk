@@ -60,7 +60,8 @@ pub struct InboundGroupSession {
     pub(crate) signing_keys: Arc<BTreeMap<DeviceKeyAlgorithm, String>>,
     pub(crate) room_id: Arc<RoomId>,
     forwarding_chains: Arc<Vec<String>>,
-    imported: Arc<bool>,
+    imported: bool,
+    backed_up: bool,
 }
 
 impl InboundGroupSession {
@@ -103,7 +104,8 @@ impl InboundGroupSession {
             signing_keys: keys.into(),
             room_id: room_id.clone().into(),
             forwarding_chains: Vec::new().into(),
-            imported: false.into(),
+            imported: false,
+            backed_up: false,
         })
     }
 
@@ -154,7 +156,8 @@ impl InboundGroupSession {
             signing_keys: sender_claimed_key.into(),
             room_id: content.room_id.clone().into(),
             forwarding_chains: forwarding_chains.into(),
-            imported: true.into(),
+            imported: true,
+            backed_up: false,
         })
     }
 
@@ -173,7 +176,8 @@ impl InboundGroupSession {
             signing_key: (&*self.signing_keys).clone(),
             room_id: (&*self.room_id).clone(),
             forwarding_chains: self.forwarding_key_chain().to_vec(),
-            imported: *self.imported,
+            imported: self.imported,
+            backed_up: self.backed_up,
             history_visibility: self.history_visibility.as_ref().clone(),
         }
     }
@@ -252,7 +256,8 @@ impl InboundGroupSession {
             signing_keys: pickle.signing_key.into(),
             room_id: pickle.room_id.into(),
             forwarding_chains: pickle.forwarding_chains.into(),
-            imported: pickle.imported.into(),
+            backed_up: pickle.backed_up,
+            imported: pickle.imported,
         })
     }
 
@@ -365,6 +370,9 @@ pub struct PickledInboundGroupSession {
     /// Flag remembering if the session was directly sent to us by the sender
     /// or if it was imported.
     pub imported: bool,
+    /// Flag remembering if the session has been backed up.
+    #[serde(default)]
+    pub backed_up: bool,
     /// History visibility of the room when the session was created.
     pub history_visibility: Option<HistoryVisibility>,
 }
@@ -403,7 +411,8 @@ impl TryFrom<ExportedRoomKey> for InboundGroupSession {
             signing_keys: Arc::new(key.sender_claimed_keys),
             room_id: Arc::new(key.room_id),
             forwarding_chains: Arc::new(key.forwarding_curve25519_key_chain),
-            imported: Arc::new(true),
+            imported: true,
+            backed_up: false,
         })
     }
 }

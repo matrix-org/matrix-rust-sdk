@@ -51,31 +51,35 @@ use std::{
     sync::Arc,
 };
 
+use base64::DecodeError;
 use matrix_sdk_common::{async_trait, locks::Mutex, uuid::Uuid, AsyncTraitDeps};
 pub use memorystore::MemoryStore;
 use olm_rs::errors::{OlmAccountError, OlmGroupSessionError, OlmSessionError};
 pub use pickle_key::{EncryptedPickleKey, PickleKey};
 use ruma::{
-    events::room_key_request::RequestedKeyInfo, identifiers::Error as IdentifierValidationError,
-    DeviceId, DeviceIdBox, DeviceKeyAlgorithm, RoomId, UserId,
+    events::secret::request::SecretName, identifiers::Error as IdentifierValidationError, DeviceId,
+    DeviceIdBox, DeviceKeyAlgorithm, RoomId, UserId,
 };
 use serde_json::Error as SerdeError;
 use thiserror::Error;
+use tracing::{info, warn};
+use zeroize::Zeroize;
 
 #[cfg(feature = "sled_cryptostore")]
 pub use self::sled::SledStore;
 use crate::{
     error::SessionUnpicklingError,
+    gossiping::{GossipRequest, SecretInfo},
     identities::{
         user::{OwnUserIdentity, UserIdentities, UserIdentity},
         Device, ReadOnlyDevice, ReadOnlyUserIdentities, UserDevices,
     },
-    key_request::OutgoingKeyRequest,
     olm::{
         InboundGroupSession, OlmMessageHash, OutboundGroupSession, PrivateCrossSigningIdentity,
         ReadOnlyAccount, Session,
     },
     verification::VerificationMachine,
+    CrossSigningStatus,
 };
 
 /// A `CryptoStore` specific result type.
@@ -105,7 +109,7 @@ pub struct Changes {
     pub inbound_group_sessions: Vec<InboundGroupSession>,
     pub outbound_group_sessions: Vec<OutboundGroupSession>,
     pub identities: IdentityChanges,
-    pub key_requests: Vec<OutgoingKeyRequest>,
+    pub key_requests: Vec<GossipRequest>,
     pub devices: DeviceChanges,
 }
 
@@ -133,6 +137,48 @@ impl DeviceChanges {
     }
 }
 
+/// A struct containing private cross signing keys that can be backed up or
+/// uploaded to the secret store.
+#[derive(Zeroize)]
+#[zeroize(drop)]
+pub struct CrossSigningKeyExport {
+    /// The seed of the master key encoded as unpadded base64.
+    pub master_key: Option<String>,
+    /// The seed of the self signing key encoded as unpadded base64.
+    pub self_signing_key: Option<String>,
+    /// The seed of the user signing key encoded as unpadded base64.
+    pub user_signing_key: Option<String>,
+}
+
+impl Debug for CrossSigningKeyExport {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("CrossSigningKeyExport")
+            .field("master_key", &self.master_key.is_some())
+            .field("self_signing_key", &self.self_signing_key.is_some())
+            .field("user_signing_key", &self.user_signing_key.is_some())
+            .finish_non_exhaustive()
+    }
+}
+
+/// Error describing what went wrong when importing private cross signing keys
+/// or the key backup key.
+#[derive(Debug, Error)]
+pub enum SecretImportError {
+    /// The seed for the private key wasn't valid base64.
+    #[error(transparent)]
+    Base64(#[from] DecodeError),
+    /// The public key of the imported private key doesn't match to the public
+    /// key that was uploaded to the server.
+    #[error(
+        "The public key of the imported private key doesn't match to the \
+            public key that was uploaded to the server"
+    )]
+    MissmatchedPublicKeys,
+    /// The new version of the identity couldn't be stored.
+    #[error(transparent)]
+    Store(#[from] CryptoStoreError),
+}
+
 impl Store {
     pub fn new(
         user_id: Arc<UserId>,
@@ -143,12 +189,21 @@ impl Store {
         Self { user_id, identity, inner: store, verification_machine }
     }
 
-    pub async fn get_readonly_device(
-        &self,
-        user_id: &UserId,
-        device_id: &DeviceId,
-    ) -> Result<Option<ReadOnlyDevice>> {
-        self.inner.get_device(user_id, device_id).await
+    pub fn user_id(&self) -> &UserId {
+        &self.user_id
+    }
+
+    pub fn device_id(&self) -> &DeviceId {
+        self.verification_machine.own_device_id()
+    }
+
+    #[cfg(test)]
+    pub async fn reset_cross_signing_identity(&self) {
+        self.identity.lock().await.reset().await;
+    }
+
+    pub fn private_identity(&self) -> Arc<Mutex<PrivateCrossSigningIdentity>> {
+        self.identity.clone()
     }
 
     pub async fn save_sessions(&self, sessions: &[Session]) -> Result<()> {
@@ -177,13 +232,58 @@ impl Store {
         self.save_changes(changes).await
     }
 
+    /// Get the display name of our own device.
+    pub async fn device_display_name(&self) -> Result<Option<String>, CryptoStoreError> {
+        Ok(self
+            .inner
+            .get_device(self.user_id(), self.device_id())
+            .await?
+            .and_then(|d| d.display_name().to_owned()))
+    }
+
+    /// Get the read-only version of all the devices that the given user has.
+    ///
+    /// *Note*: This doesn't return our own device.
+    pub async fn get_readonly_device(
+        &self,
+        user_id: &UserId,
+        device_id: &DeviceId,
+    ) -> Result<Option<ReadOnlyDevice>> {
+        if user_id == self.user_id() && device_id == self.device_id() {
+            Ok(None)
+        } else {
+            self.inner.get_device(user_id, device_id).await
+        }
+    }
+
+    /// Get the read-only version of all the devices that the given user has.
+    ///
+    /// *Note*: This doesn't return our own device.
     pub async fn get_readonly_devices(
+        &self,
+        user_id: &UserId,
+    ) -> Result<HashMap<DeviceIdBox, ReadOnlyDevice>> {
+        self.inner.get_user_devices(user_id).await.map(|mut d| {
+            if user_id == self.user_id() {
+                d.remove(self.device_id());
+            }
+            d
+        })
+    }
+
+    /// Get the read-only version of all the devices that the given user has.
+    ///
+    /// *Note*: This does also return our own device.
+    pub async fn get_readonly_devices_unfiltered(
         &self,
         user_id: &UserId,
     ) -> Result<HashMap<DeviceIdBox, ReadOnlyDevice>> {
         self.inner.get_user_devices(user_id).await
     }
 
+    /// Get a device for the given user with the given curve25519 key.
+    ///
+    /// *Note*: This doesn't return our own device.
     pub async fn get_device_from_curve_key(
         &self,
         user_id: &UserId,
@@ -197,7 +297,11 @@ impl Store {
     }
 
     pub async fn get_user_devices(&self, user_id: &UserId) -> Result<UserDevices> {
-        let devices = self.inner.get_user_devices(user_id).await?;
+        let mut devices = self.inner.get_user_devices(user_id).await?;
+
+        if user_id == self.user_id() {
+            devices.remove(self.device_id());
+        }
 
         let own_identity =
             self.inner.get_user_identity(&self.user_id).await?.map(|i| i.own().cloned()).flatten();
@@ -217,31 +321,145 @@ impl Store {
         user_id: &UserId,
         device_id: &DeviceId,
     ) -> Result<Option<Device>> {
-        let own_identity =
-            self.inner.get_user_identity(&self.user_id).await?.map(|i| i.own().cloned()).flatten();
-        let device_owner_identity = self.inner.get_user_identity(user_id).await?;
+        if user_id == self.user_id() && device_id == self.device_id() {
+            Ok(None)
+        } else {
+            let own_identity = self
+                .inner
+                .get_user_identity(&self.user_id)
+                .await?
+                .map(|i| i.own().cloned())
+                .flatten();
+            let device_owner_identity = self.inner.get_user_identity(user_id).await?;
 
-        Ok(self.inner.get_device(user_id, device_id).await?.map(|d| Device {
-            inner: d,
-            private_identity: self.identity.clone(),
-            verification_machine: self.verification_machine.clone(),
-            own_identity,
-            device_owner_identity,
-        }))
+            Ok(self.inner.get_device(user_id, device_id).await?.map(|d| Device {
+                inner: d,
+                verification_machine: self.verification_machine.clone(),
+                own_identity,
+                device_owner_identity,
+            }))
+        }
     }
 
     pub async fn get_identity(&self, user_id: &UserId) -> Result<Option<UserIdentities>> {
-        Ok(self.inner.get_user_identity(user_id).await?.map(|i| match i {
-            ReadOnlyUserIdentities::Own(i) => OwnUserIdentity {
-                inner: i,
-                verification_machine: self.verification_machine.clone(),
-            }
-            .into(),
-            ReadOnlyUserIdentities::Other(i) => {
-                UserIdentity { inner: i, verification_machine: self.verification_machine.clone() }
+        // let own_identity =
+        // self.inner.get_user_identity(self.user_id()).await?.and_then(|i| i.own());
+        Ok(if let Some(identity) = self.inner.get_user_identity(user_id).await? {
+            Some(match identity {
+                ReadOnlyUserIdentities::Own(i) => OwnUserIdentity {
+                    inner: i,
+                    verification_machine: self.verification_machine.clone(),
+                }
+                .into(),
+                ReadOnlyUserIdentities::Other(i) => {
+                    let own_identity =
+                        self.inner.get_user_identity(self.user_id()).await?.and_then(|i| {
+                            if let ReadOnlyUserIdentities::Own(i) = i {
+                                Some(i)
+                            } else {
+                                None
+                            }
+                        });
+                    UserIdentity {
+                        inner: i,
+                        verification_machine: self.verification_machine.clone(),
+                        own_identity,
+                    }
                     .into()
+                }
+            })
+        } else {
+            None
+        })
+    }
+
+    /// Try to export the secret with the given secret name.
+    ///
+    /// The exported secret will be encoded as unpadded base64. Returns `Null`
+    /// if the secret can't be found.
+    ///
+    /// # Arguments
+    ///
+    /// * `secret_name` - The name of the secret that should be exported.
+    pub async fn export_secret(&self, secret_name: &SecretName) -> Option<String> {
+        match secret_name {
+            SecretName::CrossSigningMasterKey
+            | SecretName::CrossSigningUserSigningKey
+            | SecretName::CrossSigningSelfSigningKey => {
+                self.identity.lock().await.export_secret(secret_name).await
             }
-        }))
+            SecretName::RecoveryKey => None,
+            name => {
+                warn!(secret =? name, "Unknown secret was requested");
+                None
+            }
+        }
+    }
+
+    pub async fn import_cross_signing_keys(
+        &self,
+        export: CrossSigningKeyExport,
+    ) -> Result<CrossSigningStatus, SecretImportError> {
+        if let Some(public_identity) = self.get_identity(&self.user_id).await?.and_then(|i| i.own())
+        {
+            let identity = self.identity.lock().await;
+
+            identity
+                .import_secrets(
+                    public_identity,
+                    export.master_key.as_deref(),
+                    export.self_signing_key.as_deref(),
+                    export.user_signing_key.as_deref(),
+                )
+                .await?;
+
+            let status = identity.status().await;
+            info!(status =? status, "Successfully imported the private cross signing keys");
+
+            let changes =
+                Changes { private_identity: Some(identity.clone()), ..Default::default() };
+
+            self.save_changes(changes).await?;
+        }
+
+        Ok(self.identity.lock().await.status().await)
+    }
+
+    pub async fn import_secret(
+        &self,
+        secret_name: &SecretName,
+        secret: String,
+    ) -> Result<(), SecretImportError> {
+        let secret = zeroize::Zeroizing::new(secret);
+
+        match secret_name {
+            SecretName::CrossSigningMasterKey
+            | SecretName::CrossSigningUserSigningKey
+            | SecretName::CrossSigningSelfSigningKey => {
+                if let Some(public_identity) =
+                    self.get_identity(&self.user_id).await?.and_then(|i| i.own())
+                {
+                    let identity = self.identity.lock().await;
+
+                    identity.import_secret(public_identity, secret_name, &secret).await?;
+                    info!(
+                        secret_name = secret_name.as_ref(),
+                        "Successfully imported a private cross signing key"
+                    );
+
+                    let changes =
+                        Changes { private_identity: Some(identity.clone()), ..Default::default() };
+
+                    self.save_changes(changes).await?;
+                }
+            }
+            SecretName::RecoveryKey => (),
+            name => {
+                warn!(secret =? name, "Tried to import an unknown secret");
+            }
+        }
+
+        Ok(())
     }
 }
 
@@ -410,31 +628,29 @@ pub trait CryptoStore: AsyncTraitDeps {
     /// Check if a hash for an Olm message stored in the database.
     async fn is_message_known(&self, message_hash: &OlmMessageHash) -> Result<bool>;
 
-    /// Get an outgoing key request that we created that matches the given
+    /// Get an outgoing secret request that we created that matches the given
     /// request id.
     ///
     /// # Arguments
     ///
-    /// * `request_id` - The unique request id that identifies this outgoing key
-    /// request.
-    async fn get_outgoing_key_request(
-        &self,
-        request_id: Uuid,
-    ) -> Result<Option<OutgoingKeyRequest>>;
+    /// * `request_id` - The unique request id that identifies this outgoing
+    /// secret request.
+    async fn get_outgoing_secret_requests(&self, request_id: Uuid)
+        -> Result<Option<GossipRequest>>;
 
     /// Get an outgoing key request that we created that matches the given
     /// requested key info.
     ///
     /// # Arguments
     ///
-    /// * `key_info` - The key info of an outgoing key request.
-    async fn get_key_request_by_info(
+    /// * `key_info` - The key info of an outgoing secret request.
+    async fn get_secret_request_by_info(
         &self,
-        key_info: &RequestedKeyInfo,
-    ) -> Result<Option<OutgoingKeyRequest>>;
+        secret_info: &SecretInfo,
+    ) -> Result<Option<GossipRequest>>;
 
-    /// Get all outgoing key requests that we have in the store.
-    async fn get_unsent_key_requests(&self) -> Result<Vec<OutgoingKeyRequest>>;
+    /// Get all outgoing secret requests that we have in the store.
+    async fn get_unsent_secret_requests(&self) -> Result<Vec<GossipRequest>>;
 
     /// Delete an outgoing key request that we created that matches the given
     /// request id.
@@ -443,5 +659,5 @@ pub trait CryptoStore: AsyncTraitDeps {
     ///
     /// * `request_id` - The unique request id that identifies this outgoing key
     /// request.
-    async fn delete_outgoing_key_request(&self, request_id: Uuid) -> Result<()>;
+    async fn delete_outgoing_secret_requests(&self, request_id: Uuid) -> Result<()>;
 }

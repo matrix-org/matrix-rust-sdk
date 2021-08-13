@@ -770,6 +770,7 @@ impl TryFrom<OutgoingRequest> for OutgoingContent {
             crate::OutgoingRequests::KeysQuery(_) => Err("Invalid request type".to_owned()),
             crate::OutgoingRequests::ToDeviceRequest(r) => Self::try_from(r.clone()),
             crate::OutgoingRequests::SignatureUpload(_) => Err("Invalid request type".to_owned()),
+            crate::OutgoingRequests::KeysClaim(_) => Err("Invalid request type".to_owned()),
             crate::OutgoingRequests::RoomMessage(r) => Ok(Self::from(r.clone())),
         }
     }

@@ -34,7 +34,7 @@ use crate::{
         event_enums::{AnyVerificationContent, OutgoingContent, OwnedAcceptContent, StartContent},
         Cancelled, Done,
     },
-    ReadOnlyAccount,
+    ReadOnlyAccount, ReadOnlyOwnUserIdentity,
 };
 
 #[derive(Clone, Debug)]
@@ -55,10 +55,17 @@ impl InnerSas {
     pub fn start(
         account: ReadOnlyAccount,
         other_device: ReadOnlyDevice,
+        own_identity: Option<ReadOnlyOwnUserIdentity>,
         other_identity: Option<ReadOnlyUserIdentities>,
         transaction_id: Option<String>,
     ) -> (InnerSas, OutgoingContent) {
-        let sas = SasState::<Created>::new(account, other_device, other_identity, transaction_id);
+        let sas = SasState::<Created>::new(
+            account,
+            other_device,
+            own_identity,
+            other_identity,
+            transaction_id,
+        );
         let content = sas.as_content();
         (InnerSas::Created(sas), content.into())
     }
@@ -131,6 +138,7 @@ impl InnerSas {
         room_id: RoomId,
         account: ReadOnlyAccount,
         other_device: ReadOnlyDevice,
+        own_identity: Option<ReadOnlyOwnUserIdentity>,
         other_identity: Option<ReadOnlyUserIdentities>,
     ) -> (InnerSas, OutgoingContent) {
         let sas = SasState::<Created>::new_in_room(
@@ -138,6 +146,7 @@ impl InnerSas {
             event_id,
             account,
             other_device,
+            own_identity,
             other_identity,
         );
         let content = sas.as_content();
@@ -149,12 +158,14 @@ impl InnerSas {
         other_device: ReadOnlyDevice,
         flow_id: FlowId,
         content: &StartContent,
+        own_identity: Option<ReadOnlyOwnUserIdentity>,
         other_identity: Option<ReadOnlyUserIdentities>,
         started_from_request: bool,
     ) -> Result<InnerSas, OutgoingContent> {
         match SasState::<Started>::from_start_event(
             account,
             other_device,
+            own_identity,
             other_identity,
             flow_id,
             content,

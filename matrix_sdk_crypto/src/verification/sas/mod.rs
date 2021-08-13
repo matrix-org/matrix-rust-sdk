@@ -35,14 +35,14 @@ use tracing::trace;
 use super::{
     event_enums::{AnyVerificationContent, OutgoingContent, OwnedAcceptContent, StartContent},
     requests::RequestHandle,
-    CancelInfo, FlowId, IdentitiesBeingVerified, VerificationResult,
+    CancelInfo, FlowId, IdentitiesBeingVerified, VerificationResult, VerificationStore,
 };
 use crate::{
     identities::{ReadOnlyDevice, ReadOnlyUserIdentities},
     olm::PrivateCrossSigningIdentity,
     requests::{OutgoingVerificationRequest, RoomMessageRequest},
-    store::{CryptoStore, CryptoStoreError},
-    ReadOnlyAccount, ToDeviceRequest,
+    store::CryptoStoreError,
+    ReadOnlyAccount, ReadOnlyOwnUserIdentity, ToDeviceRequest,
 };
 
 /// Short authentication string object.
@@ -143,22 +143,22 @@ impl Sas {
         self.inner.lock().unwrap().set_creation_time(time)
     }
 
-    #[allow(clippy::too_many_arguments)]
     fn start_helper(
         inner_sas: InnerSas,
-        account: ReadOnlyAccount,
         private_identity: PrivateCrossSigningIdentity,
         other_device: ReadOnlyDevice,
-        store: Arc<dyn CryptoStore>,
+        store: VerificationStore,
         other_identity: Option<ReadOnlyUserIdentities>,
         we_started: bool,
         request_handle: Option<RequestHandle>,
     ) -> Sas {
         let flow_id = inner_sas.verification_flow_id();
 
+        let account = store.account.clone();
+
         let identities = IdentitiesBeingVerified {
             private_identity,
-            store: store.clone(),
+            store,
             device_being_verified: other_device,
             identity_being_verified: other_identity,
         };
@@ -185,18 +185,19 @@ impl Sas {
     /// sent out through the server to the other device.
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn start(
-        account: ReadOnlyAccount,
         private_identity: PrivateCrossSigningIdentity,
         other_device: ReadOnlyDevice,
-        store: Arc<dyn CryptoStore>,
+        store: VerificationStore,
+        own_identity: Option<ReadOnlyOwnUserIdentity>,
         other_identity: Option<ReadOnlyUserIdentities>,
         transaction_id: Option<String>,
         we_started: bool,
         request_handle: Option<RequestHandle>,
     ) -> (Sas, OutgoingContent) {
         let (inner, content) = InnerSas::start(
-            account.clone(),
+            store.account.clone(),
             other_device.clone(),
+            own_identity,
             other_identity.clone(),
             transaction_id,
         );
@@ -204,7 +205,6 @@ impl Sas {
         (
             Self::start_helper(
                 inner,
-                account,
                 private_identity,
                 other_device,
                 store,
@@ -230,10 +230,10 @@ impl Sas {
     pub(crate) fn start_in_room(
         flow_id: EventId,
         room_id: RoomId,
-        account: ReadOnlyAccount,
         private_identity: PrivateCrossSigningIdentity,
         other_device: ReadOnlyDevice,
-        store: Arc<dyn CryptoStore>,
+        store: VerificationStore,
+        own_identity: Option<ReadOnlyOwnUserIdentity>,
         other_identity: Option<ReadOnlyUserIdentities>,
         we_started: bool,
         request_handle: RequestHandle,
@@ -241,15 +241,15 @@ impl Sas {
         let (inner, content) = InnerSas::start_in_room(
             flow_id,
             room_id,
-            account.clone(),
+            store.account.clone(),
             other_device.clone(),
+            own_identity,
             other_identity.clone(),
         );
 
         (
             Self::start_helper(
                 inner,
-                account,
                 private_identity,
                 other_device,
                 store,
@@ -275,26 +275,26 @@ impl Sas {
     pub(crate) fn from_start_event(
         flow_id: FlowId,
         content: &StartContent,
-        store: Arc<dyn CryptoStore>,
-        account: ReadOnlyAccount,
+        store: VerificationStore,
         private_identity: PrivateCrossSigningIdentity,
         other_device: ReadOnlyDevice,
+        own_identity: Option<ReadOnlyOwnUserIdentity>,
         other_identity: Option<ReadOnlyUserIdentities>,
         request_handle: Option<RequestHandle>,
         we_started: bool,
     ) -> Result<Sas, OutgoingContent> {
         let inner = InnerSas::from_start_event(
-            account.clone(),
+            store.account.clone(),
             other_device.clone(),
             flow_id,
             content,
+            own_identity,
             other_identity.clone(),
             request_handle.is_some(),
         )?;
 
         Ok(Self::start_helper(
             inner,
-            account,
             private_identity,
             other_device,
             store,
@@ -562,9 +562,10 @@ mod test {
     use super::Sas;
     use crate::{
         olm::PrivateCrossSigningIdentity,
-        store::{CryptoStore, MemoryStore},
-        verification::event_enums::{
-            AcceptContent, KeyContent, MacContent, OutgoingContent, StartContent,
+        store::MemoryStore,
+        verification::{
+            event_enums::{AcceptContent, KeyContent, MacContent, OutgoingContent, StartContent},
+            VerificationStore,
         },
         ReadOnlyAccount, ReadOnlyDevice,
     };
@@ -593,18 +594,19 @@ mod test {
         let bob = ReadOnlyAccount::new(&bob_id(), &bob_device_id());
         let bob_device = ReadOnlyDevice::from_account(&bob).await;
 
-        let alice_store: Arc<dyn CryptoStore> = Arc::new(MemoryStore::new());
-        let bob_store = MemoryStore::new();
+        let alice_store =
+            VerificationStore { account: alice.clone(), inner: Arc::new(MemoryStore::new()) };
 
+        let bob_store = MemoryStore::new();
         bob_store.save_devices(vec![alice_device.clone()]).await;
 
-        let bob_store: Arc<dyn CryptoStore> = Arc::new(bob_store);
+        let bob_store = VerificationStore { account: bob.clone(), inner: Arc::new(bob_store) };
 
         let (alice, content) = Sas::start(
-            alice,
             PrivateCrossSigningIdentity::empty(alice_id()),
             bob_device,
             alice_store,
+            None,
             None,
             None,
             true,
@@ -618,9 +620,9 @@ mod test {
             flow_id,
             &content,
             bob_store,
-            bob,
             PrivateCrossSigningIdentity::empty(bob_id()),
             alice_device,
+            None,
             None,
             None,
             false,

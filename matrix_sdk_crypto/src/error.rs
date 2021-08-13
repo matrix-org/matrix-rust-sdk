@@ -135,29 +135,42 @@ pub enum SessionUnpicklingError {
     SessionTimestampError,
 }
 
+/// Error type describin different errors that happen when we check or create
+/// signatures for a Matrix JSON object.
 #[derive(Error, Debug)]
 pub enum SignatureError {
-    #[error("the signature used a unsupported algorithm")]
+    /// The signature was made using an unsupported algorithm.
+    #[error("the signature used an unsupported algorithm")]
     UnsupportedAlgorithm,
 
-    #[error("the key id of the signing key is invalid")]
+    /// The ID of the signing key isn't a valid key ID.
+    #[error("the ID of the signing key is invalid")]
     InvalidKeyId(#[from] IdentifierError),
 
+    /// The signing key that should create or check a signature is missing.
     #[error("the signing key is missing from the object that signed the message")]
     MissingSigningKey,
 
-    #[error("the user id of the signing differs from the subkey user id")]
+    /// The user id of signing key differs from the user id that provided the
+    /// signature.
+    #[error("the user id of the signing key differs user id that provided the signature")]
     UserIdMissmatch,
 
+    /// The provided JSON value that was signed and the signature should be
+    /// checked isn't a valid JSON object.
     #[error("the provided JSON value isn't an object")]
     NotAnObject,
 
+    /// The provided JSON value that was signed and the signature should be
+    /// checked isn't a valid JSON object.
     #[error("the provided JSON object doesn't contain a signatures field")]
     NoSignatureFound,
 
+    /// The signature couldn't be verified.
     #[error("the signature didn't match the provided key")]
     VerificationError,
 
+    /// The signed object couldn't be deserialized.
     #[error(transparent)]
     JsonError(#[from] SerdeError),
 }

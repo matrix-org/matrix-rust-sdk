@@ -19,10 +19,14 @@ mod qrcode;
 mod requests;
 mod sas;
 
-use std::sync::Arc;
+use std::{
+    collections::{BTreeMap, HashMap},
+    sync::Arc,
+};
 
 use event_enums::OutgoingContent;
 pub use machine::VerificationMachine;
+use matrix_sdk_common::locks::Mutex;
 pub use qrcode::QrVerification;
 pub use requests::VerificationRequest;
 use ruma::{
@@ -35,17 +39,76 @@ use ruma::{
         },
         AnyMessageEventContent, AnyToDeviceEventContent,
     },
-    DeviceId, EventId, RoomId, UserId,
+    DeviceId, DeviceIdBox, DeviceKeyId, EventId, RoomId, UserId,
 };
 pub use sas::{AcceptSettings, Sas};
 use tracing::{error, info, trace, warn};
 
 use crate::{
     error::SignatureError,
-    olm::PrivateCrossSigningIdentity,
+    gossiping::{GossipMachine, GossipRequest},
+    olm::{PrivateCrossSigningIdentity, ReadOnlyAccount, Session},
     store::{Changes, CryptoStore},
     CryptoStoreError, LocalTrust, ReadOnlyDevice, ReadOnlyUserIdentities,
 };
+
+#[derive(Clone, Debug)]
+pub(crate) struct VerificationStore {
+    pub account: ReadOnlyAccount,
+    inner: Arc<dyn CryptoStore>,
+}
+
+impl VerificationStore {
+    pub async fn get_device(
+        &self,
+        user_id: &UserId,
+        device_id: &DeviceId,
+    ) -> Result<Option<ReadOnlyDevice>, CryptoStoreError> {
+        Ok(self.inner.get_device(user_id, device_id).await?.filter(|d| {
+            !(d.user_id() == self.account.user_id() && d.device_id() == self.account.device_id())
+        }))
+    }
+
+    pub async fn get_user_identity(
+        &self,
+        user_id: &UserId,
+    ) -> Result<Option<ReadOnlyUserIdentities>, CryptoStoreError> {
+        self.inner.get_user_identity(user_id).await
+    }
+
+    pub async fn save_changes(&self, changes: Changes) -> Result<(), CryptoStoreError> {
+        self.inner.save_changes(changes).await
+    }
+
+    pub async fn get_user_devices(
+        &self,
+        user_id: &UserId,
+    ) -> Result<HashMap<DeviceIdBox, ReadOnlyDevice>, CryptoStoreError> {
+        self.inner.get_user_devices(user_id).await
+    }
+
+    pub async fn get_sessions(
+        &self,
+        sender_key: &str,
+    ) -> Result<Option<Arc<Mutex<Vec<Session>>>>, CryptoStoreError> {
+        self.inner.get_sessions(sender_key).await
+    }
+
+    /// Get the signatures that have signed our own device.
+    pub async fn device_signatures(
+        &self,
+    ) -> Result<Option<BTreeMap<UserId, BTreeMap<DeviceKeyId, String>>>, CryptoStoreError> {
+        Ok(self
+            .inner
+            .get_device(self.account.user_id(), self.account.device_id())
+            .await?
+            .map(|d| d.signatures().to_owned()))
+    }
+
+    pub fn inner(&self) -> &dyn CryptoStore {
+        &*self.inner
+    }
+}
 
 /// An enum over the different verification types the SDK supports.
 #[derive(Clone, Debug)]
@@ -307,7 +370,7 @@ pub enum VerificationResult {
 #[derive(Clone, Debug)]
 pub struct IdentitiesBeingVerified {
     private_identity: PrivateCrossSigningIdentity,
-    store: Arc<dyn CryptoStore>,
+    store: VerificationStore,
     device_being_verified: ReadOnlyDevice,
     identity_being_verified: Option<ReadOnlyUserIdentities>,
 }
@@ -343,7 +406,8 @@ impl IdentitiesBeingVerified {
         verified_identities: Option<&[ReadOnlyUserIdentities]>,
     ) -> Result<VerificationResult, CryptoStoreError> {
         let device = self.mark_device_as_verified(verified_devices).await?;
-        let identity = self.mark_identity_as_verified(verified_identities).await?;
+        let (identity, should_request_secrets) =
+            self.mark_identity_as_verified(verified_identities).await?;
 
         if device.is_none() && identity.is_none() {
             // Something wen't wrong if nothing was verified, we use key
@@ -361,7 +425,7 @@ impl IdentitiesBeingVerified {
                     Err(SignatureError::MissingSigningKey) => {
                         warn!(
                             "Can't sign the device keys for {} {}, \
-                                  no private user signing key found",
+                                  no private device signing key found",
                             device.user_id(),
                             device.device_id(),
                         );
@@ -437,6 +501,11 @@ impl IdentitiesBeingVerified {
             identity_signature_request
         };
 
+        if should_request_secrets {
+            let secret_requests = self.request_missing_secrets().await;
+            changes.key_requests = secret_requests;
+        }
+
         // TODO store the signature upload request as well.
         self.store.save_changes(changes).await?;
 
@@ -445,19 +514,24 @@ impl IdentitiesBeingVerified {
             .unwrap_or(VerificationResult::Ok))
     }
 
+    async fn request_missing_secrets(&self) -> Vec<GossipRequest> {
+        let secrets = self.private_identity.get_missing_secrets().await;
+        GossipMachine::request_missing_secrets(self.user_id(), secrets)
+    }
+
     async fn mark_identity_as_verified(
         &self,
         verified_identities: Option<&[ReadOnlyUserIdentities]>,
-    ) -> Result<Option<ReadOnlyUserIdentities>, CryptoStoreError> {
+    ) -> Result<(Option<ReadOnlyUserIdentities>, bool), CryptoStoreError> {
         // If there wasn't an identity available during the verification flow
         // return early as there's nothing to do.
         if self.identity_being_verified.is_none() {
-            return Ok(None);
+            return Ok((None, false));
         }
 
         let identity = self.store.get_user_identity(self.other_user_id()).await?;
 
-        if let Some(identity) = identity {
+        Ok(if let Some(identity) = identity {
             if self
                 .identity_being_verified
                 .as_ref()
@@ -469,11 +543,14 @@ impl IdentitiesBeingVerified {
                         "Marking the user identity of as verified."
                     );
 
-                    if let ReadOnlyUserIdentities::Own(i) = &identity {
+                    let should_request_secrets = if let ReadOnlyUserIdentities::Own(i) = &identity {
                         i.mark_as_verified();
-                    }
+                        true
+                    } else {
+                        false
+                    };
 
-                    Ok(Some(identity))
+                    (Some(identity), should_request_secrets)
                 } else {
                     info!(
                         user_id = self.other_user_id().as_str(),
@@ -482,7 +559,7 @@ impl IdentitiesBeingVerified {
                          the interactive verification",
                     );
 
-                    Ok(None)
+                    (None, false)
                 }
             } else {
                 warn!(
@@ -491,7 +568,7 @@ impl IdentitiesBeingVerified {
                       verification was going on, not marking the identity as verified.",
                 );
 
-                Ok(None)
+                (None, false)
             }
         } else {
             info!(
@@ -499,8 +576,8 @@ impl IdentitiesBeingVerified {
                 "The identity of the user was deleted while an interactive \
                  verification was going on.",
             );
-            Ok(None)
-        }
+            (None, false)
+        })
     }
 
     async fn mark_device_as_verified(

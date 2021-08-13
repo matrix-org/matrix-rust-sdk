@@ -29,8 +29,8 @@
 
 mod error;
 mod file_encryption;
+mod gossiping;
 mod identities;
-mod key_request;
 mod machine;
 pub mod olm;
 mod requests;
@@ -39,7 +39,7 @@ pub mod store;
 mod utilities;
 mod verification;
 
-pub use error::{MegolmError, OlmError};
+pub use error::{MegolmError, OlmError, SignatureError};
 pub use file_encryption::{
     decrypt_key_export, encrypt_key_export, AttachmentDecryptor, AttachmentEncryptor,
     DecryptorError, EncryptionInfo, KeyExportError,
@@ -50,13 +50,13 @@ pub use identities::{
 };
 pub use machine::OlmMachine;
 pub use matrix_qrcode;
-pub use olm::EncryptionSettings;
 pub(crate) use olm::ReadOnlyAccount;
+pub use olm::{CrossSigningStatus, EncryptionSettings};
 pub use requests::{
     IncomingResponse, KeysQueryRequest, OutgoingRequest, OutgoingRequests,
-    OutgoingVerificationRequest, RoomMessageRequest, ToDeviceRequest,
+    OutgoingVerificationRequest, RoomMessageRequest, ToDeviceRequest, UploadSigningKeysRequest,
 };
-pub use store::CryptoStoreError;
+pub use store::{CrossSigningKeyExport, CryptoStoreError, SecretImportError};
 pub use verification::{
     AcceptSettings, CancelInfo, QrVerification, Sas, Verification, VerificationRequest,
 };
