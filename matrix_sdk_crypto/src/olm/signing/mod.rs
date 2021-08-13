@@ -395,7 +395,7 @@ impl PrivateCrossSigningIdentity {
         &self,
         user_identity: &ReadOnlyUserIdentity,
     ) -> Result<SignatureUploadRequest, SignatureError> {
-        let signed_keys = self
+        let master_key = self
             .user_signing_key
             .lock()
             .await
@@ -403,6 +403,17 @@ impl PrivateCrossSigningIdentity {
             .ok_or(SignatureError::MissingSigningKey)?
             .sign_user(user_identity)
             .await?;
+
+        let mut signed_keys = BTreeMap::new();
+
+        signed_keys.entry(user_identity.user_id().to_owned()).or_insert_with(BTreeMap::new).insert(
+            user_identity
+                .master_key()
+                .get_first_key()
+                .ok_or(SignatureError::MissingSigningKey)?
+                .to_owned(),
+            serde_json::to_value(master_key)?,
+        );
 
         Ok(SignatureUploadRequest::new(signed_keys))
     }
@@ -632,10 +643,10 @@ impl PrivateCrossSigningIdentity {
 
 #[cfg(test)]
 mod test {
-    use std::{collections::BTreeMap, sync::Arc};
+    use std::sync::Arc;
 
     use matrix_sdk_test::async_test;
-    use ruma::{encryption::CrossSigningKey, user_id, UserId};
+    use ruma::{user_id, UserId};
 
     use super::{PrivateCrossSigningIdentity, Signing};
     use crate::{
@@ -755,24 +766,7 @@ mod test {
         let user_signing = identity.user_signing_key.lock().await;
         let user_signing = user_signing.as_ref().unwrap();
 
-        let signatures = user_signing.sign_user(&bob_public).await.unwrap();
-
-        let (key_id, signature) = signatures
-            .iter()
-            .next()
-            .unwrap()
-            .1
-            .iter()
-            .next()
-            .map(|(k, s)| (k.to_string(), serde_json::from_value(s.to_owned()).unwrap()))
-            .unwrap();
-
-        let mut master: CrossSigningKey = bob_public.master_key.as_ref().clone();
-        master
-            .signatures
-            .entry(identity.user_id().to_owned())
-            .or_insert_with(BTreeMap::new)
-            .insert(key_id, signature);
+        let master = user_signing.sign_user(&bob_public).await.unwrap();
 
         bob_public.master_key = master.into();
 

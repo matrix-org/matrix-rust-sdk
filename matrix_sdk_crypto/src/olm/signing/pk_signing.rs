@@ -24,7 +24,7 @@ use olm_rs::pk::OlmPkSigning;
 #[cfg(test)]
 use olm_rs::{errors::OlmUtilityError, utility::OlmUtility};
 use ruma::{
-    encryption::{CrossSigningKey, DeviceKeys, KeyUsage},
+    encryption::{CrossSigningKey, CrossSigningKeySignatures, DeviceKeys, KeyUsage},
     serde::CanonicalJsonValue,
     DeviceKeyAlgorithm, DeviceKeyId, UserId,
 };
@@ -209,7 +209,19 @@ impl UserSigning {
     pub async fn sign_user(
         &self,
         user: &ReadOnlyUserIdentity,
-    ) -> Result<BTreeMap<UserId, BTreeMap<String, Value>>, SignatureError> {
+    ) -> Result<CrossSigningKey, SignatureError> {
+        let signature = self.sign_user_helper(user).await?;
+        let mut master_key: CrossSigningKey = user.master_key().to_owned().into();
+
+        master_key.signatures.extend(signature);
+
+        Ok(master_key)
+    }
+
+    pub async fn sign_user_helper(
+        &self,
+        user: &ReadOnlyUserIdentity,
+    ) -> Result<CrossSigningKeySignatures, SignatureError> {
         let user_master: &CrossSigningKey = user.master_key().as_ref();
         let signature = self.inner.sign_json(serde_json::to_value(user_master)?).await?;
 
@@ -224,7 +236,7 @@ impl UserSigning {
                     self.inner.public_key.as_str().into(),
                 )
                 .to_string(),
-                serde_json::to_value(signature.0)?,
+                signature.0,
             );
 
         Ok(signatures)
