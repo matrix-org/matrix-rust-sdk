@@ -64,8 +64,8 @@ impl SessionManager {
             store,
             key_request_machine,
             users_for_key_claim,
-            wedged_devices: Arc::new(DashMap::new()),
-            outgoing_to_device_requests: Arc::new(DashMap::new()),
+            wedged_devices: Default::default(),
+            outgoing_to_device_requests: Default::default(),
         }
     }
 

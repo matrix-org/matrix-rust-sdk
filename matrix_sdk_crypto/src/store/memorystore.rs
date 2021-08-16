@@ -59,13 +59,13 @@ impl Default for MemoryStore {
         MemoryStore {
             sessions: SessionStore::new(),
             inbound_group_sessions: GroupSessionStore::new(),
-            tracked_users: Arc::new(DashSet::new()),
-            users_for_key_query: Arc::new(DashSet::new()),
-            olm_hashes: Arc::new(DashMap::new()),
+            tracked_users: Default::default(),
+            users_for_key_query: Default::default(),
+            olm_hashes: Default::default(),
             devices: DeviceStore::new(),
-            identities: Arc::new(DashMap::new()),
-            outgoing_key_requests: Arc::new(DashMap::new()),
-            key_requests_by_info: Arc::new(DashMap::new()),
+            identities: Default::default(),
+            outgoing_key_requests: Default::default(),
+            key_requests_by_info: Default::default(),
         }
     }
 }

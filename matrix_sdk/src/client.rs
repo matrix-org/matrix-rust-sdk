@@ -571,13 +571,13 @@ impl Client {
             http_client,
             base_client,
             #[cfg(feature = "encryption")]
-            group_session_locks: Arc::new(DashMap::new()),
+            group_session_locks: Default::default(),
             #[cfg(feature = "encryption")]
-            key_claim_lock: Arc::new(Mutex::new(())),
-            members_request_locks: Arc::new(DashMap::new()),
-            typing_notice_times: Arc::new(DashMap::new()),
-            event_handlers: Arc::new(RwLock::new(BTreeMap::new())),
-            notification_handlers: Arc::new(RwLock::new(Vec::new())),
+            key_claim_lock: Default::default(),
+            members_request_locks: Default::default(),
+            typing_notice_times: Default::default(),
+            event_handlers: Default::default(),
+            notification_handlers: Default::default(),
             appservice_mode: config.appservice_mode,
         })
     }

@@ -33,7 +33,7 @@ pub struct VerificationCache {
 
 impl VerificationCache {
     pub fn new() -> Self {
-        Self { verification: DashMap::new().into(), outgoing_requests: DashMap::new().into() }
+        Self { verification: Default::default(), outgoing_requests: Default::default() }
     }
 
     #[cfg(test)]

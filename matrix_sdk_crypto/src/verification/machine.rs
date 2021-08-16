@@ -62,7 +62,7 @@ impl VerificationMachine {
             private_identity: identity,
             store: VerificationStore { account, inner: store },
             verifications: VerificationCache::new(),
-            requests: DashMap::new().into(),
+            requests: Default::default(),
         }
     }
 
