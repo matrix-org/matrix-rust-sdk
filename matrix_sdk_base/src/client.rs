@@ -50,10 +50,9 @@ use ruma::{
 use ruma::{
     api::client::r0::{self as api, push::get_notifications::Notification},
     events::{
-        room::member::{MemberEventContent, MembershipState},
-        AnyGlobalAccountDataEvent, AnyRoomAccountDataEvent, AnyStrippedStateEvent,
-        AnySyncEphemeralRoomEvent, AnySyncRoomEvent, AnySyncStateEvent, EventContent, EventType,
-        StateEvent,
+        room::member::MembershipState, AnyGlobalAccountDataEvent, AnyRoomAccountDataEvent,
+        AnyStrippedStateEvent, AnySyncEphemeralRoomEvent, AnySyncRoomEvent, AnySyncStateEvent,
+        EventContent, EventType,
     },
     push::{Action, PushConditionRoomCtx, Ruleset},
     serde::Raw,
@@ -70,97 +69,6 @@ use crate::{
 };
 
 pub type Token = String;
-
-/// A deserialization wrapper for extracting the prev_content field when
-/// found in an `unsigned` field.
-///
-/// Represents the outer `unsigned` field
-#[derive(serde::Deserialize)]
-pub struct AdditionalEventData {
-    unsigned: AdditionalUnsignedData,
-}
-
-/// A deserialization wrapper for extracting the prev_content field when
-/// found in an `unsigned` field.
-///
-/// Represents the inner `prev_content` field
-#[derive(serde::Deserialize)]
-pub struct AdditionalUnsignedData {
-    pub prev_content: Option<Raw<MemberEventContent>>,
-}
-
-/// Transform an `AnySyncStateEvent` by hoisting `prev_content` field from
-/// `unsigned` to the top level.
-///
-/// Due to a [bug in synapse][synapse-bug], `prev_content` often ends up in
-/// `unsigned` contrary to the C2S spec. Some more discussion can be found
-/// [here][discussion]. Until this is fixed in synapse or handled in Ruma, we
-/// use this to hoist up `prev_content` to the top level.
-///
-/// [synapse-bug]: <https://github.com/matrix-org/matrix-doc/issues/684#issuecomment-641182668>
-/// [discussion]: <https://github.com/matrix-org/matrix-doc/issues/684#issuecomment-641182668>
-pub fn hoist_and_deserialize_state_event(
-    event: &Raw<AnySyncStateEvent>,
-) -> StdResult<AnySyncStateEvent, serde_json::Error> {
-    let prev_content = event.deserialize_as::<AdditionalEventData>()?.unsigned.prev_content;
-
-    let mut ev = event.deserialize()?;
-
-    if let AnySyncStateEvent::RoomMember(ref mut member) = ev {
-        if member.prev_content.is_none() {
-            member.prev_content = prev_content.and_then(|e| e.deserialize().ok());
-        }
-    }
-
-    Ok(ev)
-}
-
-fn hoist_member_event(
-    event: &Raw<StateEvent<MemberEventContent>>,
-) -> StdResult<StateEvent<MemberEventContent>, serde_json::Error> {
-    let prev_content = event.deserialize_as::<AdditionalEventData>()?.unsigned.prev_content;
-
-    let mut e = event.deserialize()?;
-
-    if e.prev_content.is_none() {
-        e.prev_content = prev_content.and_then(|e| e.deserialize().ok());
-    }
-
-    Ok(e)
-}
-
-/// Transform an `AnySyncRoomEvent` by hoisting `prev_content` field from
-/// `unsigned` to the top level.
-///
-/// Due to a [bug in synapse][synapse-bug], `prev_content` often ends up in
-/// `unsigned` contrary to the C2S spec. Some more discussion can be found
-/// [here][discussion]. Until this is fixed in synapse or handled in Ruma, we
-/// use this to hoist up `prev_content` to the top level.
-///
-/// [synapse-bug]: <https://github.com/matrix-org/matrix-doc/issues/684#issuecomment-641182668>
-/// [discussion]: <https://github.com/matrix-org/matrix-doc/issues/684#issuecomment-641182668>
-pub fn hoist_room_event_prev_content(
-    event: &Raw<AnySyncRoomEvent>,
-) -> StdResult<AnySyncRoomEvent, serde_json::Error> {
-    let prev_content = event
-        .deserialize_as::<AdditionalEventData>()
-        .map(|more_unsigned| more_unsigned.unsigned)
-        .map(|additional| additional.prev_content)?
-        .and_then(|p| p.deserialize().ok());
-
-    let mut ev = event.deserialize()?;
-
-    match &mut ev {
-        AnySyncRoomEvent::State(AnySyncStateEvent::RoomMember(ref mut member))
-            if member.prev_content.is_none() =>
-        {
-            member.prev_content = prev_content;
-        }
-        _ => (),
-    }
-
-    Ok(ev)
-}
 
 /// A no IO Client implementation.
 ///
@@ -445,7 +353,7 @@ impl BaseClient {
             #[allow(unused_mut)]
             let mut event: SyncRoomEvent = event.into();
 
-            match hoist_room_event_prev_content(&event.event) {
+            match event.event.deserialize() {
                 Ok(e) => {
                     #[allow(clippy::single_match)]
                     match &e {
@@ -611,7 +519,7 @@ impl BaseClient {
         let room_id = room_info.room_id.clone();
 
         for raw_event in events {
-            let event = match hoist_and_deserialize_state_event(raw_event) {
+            let event = match raw_event.deserialize() {
                 Ok(e) => e,
                 Err(e) => {
                     warn!(
@@ -976,7 +884,7 @@ impl BaseClient {
         let members: Vec<MemberEvent> = response
             .chunk
             .iter()
-            .filter_map(|e| hoist_member_event(e).ok().and_then(|e| MemberEvent::try_from(e).ok()))
+            .filter_map(|e| e.deserialize().ok().and_then(|e| MemberEvent::try_from(e).ok()))
             .collect();
         let mut ambiguity_cache = AmbiguityCache::new(self.store.clone());
 
