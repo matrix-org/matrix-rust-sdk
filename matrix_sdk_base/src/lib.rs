@@ -15,7 +15,7 @@
 
 //! This crate implements a [Matrix](https://matrix.org/) client library.
 //!
-//! ##  Crate Feature Flags
+//! ## Crate Feature Flags
 //!
 //! The following crate feature flags are available:
 //!
