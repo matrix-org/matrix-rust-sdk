@@ -189,6 +189,7 @@ pub struct SledStore {
     room_user_receipts: Tree,
     room_event_receipts: Tree,
     media: Tree,
+    custom: Tree,
 }
 
 impl std::fmt::Debug for SledStore {
@@ -226,6 +227,8 @@ impl SledStore {
 
         let media = db.open_tree("media")?;
 
+        let custom = db.open_tree("custom")?;
+
         Ok(Self {
             path,
             inner: db,
@@ -247,6 +250,7 @@ impl SledStore {
             room_user_receipts,
             room_event_receipts,
             media,
+            custom,
         })
     }
 
@@ -762,6 +766,14 @@ impl SledStore {
             .map(|m| m.to_vec()))
     }
 
+    async fn get_custom_value(&self, key: &[u8]) -> Result<Option<Vec<u8>>> {
+        Ok(self.custom.get(key)?.map(|v| v.to_vec()))
+    }
+
+    async fn set_custom_value(&self, key: &[u8], value: Vec<u8>) -> Result<Option<Vec<u8>>> {
+        Ok(self.custom.insert(key, value)?.map(|v| v.to_vec()))
+    }
+
     async fn remove_media_content(&self, request: &MediaRequest) -> Result<()> {
         self.media.remove(
             (request.media_type.unique_key().as_str(), request.format.unique_key().as_str())
@@ -897,6 +909,14 @@ impl StateStore for SledStore {
         event_id: &EventId,
     ) -> Result<Vec<(UserId, Receipt)>> {
         self.get_event_room_receipt_events(room_id, receipt_type, event_id).await
+    }
+
+    async fn get_custom_value(&self, key: &[u8]) -> Result<Option<Vec<u8>>> {
+        self.get_custom_value(key).await
+    }
+
+    async fn set_custom_value(&self, key: &[u8], value: Vec<u8>) -> Result<Option<Vec<u8>>> {
+        self.set_custom_value(key, value).await
     }
 
     async fn add_media_content(&self, request: &MediaRequest, data: Vec<u8>) -> Result<()> {

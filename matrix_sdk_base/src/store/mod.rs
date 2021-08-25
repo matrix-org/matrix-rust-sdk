@@ -263,6 +263,22 @@ pub trait StateStore: AsyncTraitDeps {
         event_id: &EventId,
     ) -> Result<Vec<(UserId, Receipt)>>;
 
+    /// Get arbitrary data from the custom store
+    ///
+    /// # Arguments
+    ///
+    /// * `key` - The key to fetch data for
+    async fn get_custom_value(&self, key: &[u8]) -> Result<Option<Vec<u8>>>;
+
+    /// Put arbitrary data into the custom store
+    ///
+    /// # Arguments
+    ///
+    /// * `key` - The key to insert data into
+    ///
+    /// * `value` - The value to insert
+    async fn set_custom_value(&self, key: &[u8], value: Vec<u8>) -> Result<Option<Vec<u8>>>;
+
     /// Add a media file's content in the media store.
     ///
     /// # Arguments

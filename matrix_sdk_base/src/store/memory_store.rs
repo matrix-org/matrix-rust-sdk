@@ -66,6 +66,7 @@ pub struct MemoryStore {
     room_event_receipts:
         Arc<DashMap<RoomId, DashMap<String, DashMap<EventId, DashMap<UserId, Receipt>>>>>,
     media: Arc<Mutex<LruCache<String, Vec<u8>>>>,
+    custom: Arc<DashMap<Vec<u8>, Vec<u8>>>,
 }
 
 impl MemoryStore {
@@ -90,6 +91,7 @@ impl MemoryStore {
             room_user_receipts: DashMap::new().into(),
             room_event_receipts: DashMap::new().into(),
             media: Arc::new(Mutex::new(LruCache::new(100))),
+            custom: DashMap::new().into(),
         }
     }
 
@@ -407,6 +409,14 @@ impl MemoryStore {
             .unwrap_or_else(Vec::new))
     }
 
+    async fn get_custom_value(&self, key: &[u8]) -> Result<Option<Vec<u8>>> {
+        Ok(self.custom.get(key).map(|e| e.value().clone()))
+    }
+
+    async fn set_custom_value(&self, key: &[u8], value: Vec<u8>) -> Result<Option<Vec<u8>>> {
+        Ok(self.custom.insert(key.to_vec(), value))
+    }
+
     async fn add_media_content(&self, request: &MediaRequest, data: Vec<u8>) -> Result<()> {
         self.media.lock().await.put(request.unique_key(), data);
 
@@ -561,6 +571,14 @@ impl StateStore for MemoryStore {
         event_id: &EventId,
     ) -> Result<Vec<(UserId, Receipt)>> {
         self.get_event_room_receipt_events(room_id, receipt_type, event_id).await
+    }
+
+    async fn get_custom_value(&self, key: &[u8]) -> Result<Option<Vec<u8>>> {
+        self.get_custom_value(key).await
+    }
+
+    async fn set_custom_value(&self, key: &[u8], value: Vec<u8>) -> Result<Option<Vec<u8>>> {
+        self.set_custom_value(key, value).await
     }
 
     async fn add_media_content(&self, request: &MediaRequest, data: Vec<u8>) -> Result<()> {

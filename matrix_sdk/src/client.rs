@@ -828,6 +828,16 @@ impl Client {
         self.base_client.store()
     }
 
+    /// Store a value in the custom tree on the store
+    pub async fn store_save_value(&self, key: &[u8], value: Vec<u8>) -> Result<Option<Vec<u8>>> {
+        Ok(self.store().set_custom_value(key, value).await?)
+    }
+
+    /// Get a value in the custom tree in the store
+    pub async fn store_get_value(&self, key: &[u8]) -> Result<Option<Vec<u8>>> {
+        Ok(self.store().get_custom_value(key).await?)
+    }
+
     /// Sets the mxc avatar url of the client's owner. The avatar gets unset if
     /// `url` is `None`.
     pub async fn set_avatar_url(&self, url: Option<&MxcUri>) -> Result<()> {
