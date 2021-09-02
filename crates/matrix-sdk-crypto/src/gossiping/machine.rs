@@ -473,14 +473,19 @@ impl GossipMachine {
 
     /// Check if it's ok to share a session with the given device.
     ///
-    /// The logic for this currently is as follows:
+    /// The logic for this is currently as follows:
     ///
-    /// * Share any session with our own devices as long as they are trusted.
+    /// * Share the session in full, starting from the earliest known index, if
+    /// the requesting device is our own, trusted (verified) device.
     ///
-    /// * Share with devices of other users only sessions that were meant to be
-    /// shared with them in the first place, in other words if an outbound
-    /// session still exists and the session was shared with that user/device
-    /// pair.
+    /// * For other requesting devices, share only a limited session and only if
+    /// we originally shared with that device because it was present when the
+    /// message was initially sent. By limited, we mean that the session will
+    /// not be shared in full, but only from the message index at that moment.
+    /// Since this information is recorded in the outbound session, we need to
+    /// have it for this to work.
+    ///
+    /// * In all other cases, refuse to share the session.
     ///
     /// # Arguments
     ///
@@ -499,32 +504,27 @@ impl GossipMachine {
             .ok()
             .flatten();
 
-        let own_device_check = || {
-            if device.verified() {
-                Ok(None)
-            } else {
-                Err(KeyForwardDecision::UntrustedDevice)
-            }
-        };
-
-        // If we have a matching outbound session we can check the list of
-        // users/devices that received the session, if it wasn't shared check if
-        // it's our own device and if it's trusted.
-        if let Some(outbound) = outbound_session {
+        // If this is our own, verified device, we share the entire session from the earliest known
+        // index.
+        if device.user_id() == self.user_id() && device.verified() {
+            Ok(None)
+        // Otherwise, if the records show we previously shared with this device, we'll reshare the
+        // session from the index we previously shared at. For this, we need an outbound session
+        // because this information is recorded there.
+        } else if let Some(outbound) = outbound_session {
             match outbound.is_shared_with(device) {
                 ShareState::Shared(message_index) => Ok(Some(message_index)),
-                _ if device.user_id() == self.user_id() => own_device_check(),
                 ShareState::SharedButChangedSenderKey => Err(KeyForwardDecision::ChangedSenderKey),
                 ShareState::NotShared => Err(KeyForwardDecision::OutboundSessionNotShared),
             }
-        // Else just check if it's one of our own devices that requested the key
-        // and check if the device is trusted.
-        } else if device.user_id() == self.user_id() {
-            own_device_check()
         // Otherwise, there's not enough info to decide if we can safely share
         // the session.
         } else {
-            Err(KeyForwardDecision::MissingOutboundSession)
+            if device.user_id() == self.user_id() {
+                Err(KeyForwardDecision::UntrustedDevice)
+            } else {
+                Err(KeyForwardDecision::MissingOutboundSession)
+            }
         }
     }
 
