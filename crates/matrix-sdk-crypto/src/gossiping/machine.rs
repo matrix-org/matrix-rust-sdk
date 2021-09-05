@@ -492,6 +492,14 @@ impl GossipMachine {
     /// * `device` - The device that is requesting a session from us.
     ///
     /// * `session` - The session that was requested to be shared.
+    ///
+    /// # Return value
+    ///
+    /// A `Result` representing whether we should share the session:
+    ///
+    /// - `Ok(None)`: Should share the entire session, starting with the earliest known index.
+    /// - `Ok(Some(i))`: Should share the session, but only starting from index i.
+    /// - `Err(x)`: Should *refuse* to share the session. `x` is the reason for the refusal.
     async fn should_share_key(
         &self,
         device: &Device,
