@@ -917,14 +917,17 @@ impl Client {
     /// };
     /// use serde::{Deserialize, Serialize};
     ///
-    /// client.register_event_handler(
-    ///     |ev: SyncMessageEvent<MessageEventContent>, room: Room, client: Client| async move {
-    ///         // Common usage: Room event plus room and client.
-    ///     },
-    /// ).await;
-    /// client.register_event_handler(|ev: SyncStateEvent<TopicEventContent>| async move {
-    ///     // Also possible: Omit any or all arguments after the first.
-    /// }).await;
+    /// client
+    ///     .register_event_handler(
+    ///         |ev: SyncMessageEvent<MessageEventContent>, room: Room, client: Client| async move {
+    ///             // Common usage: Room event plus room and client.
+    ///         },
+    ///     )
+    ///     .await
+    ///     .register_event_handler(|ev: SyncStateEvent<TopicEventContent>| async move {
+    ///         // Also possible: Omit any or all arguments after the first.
+    ///     })
+    ///     .await;
     ///
     /// // Custom events work exactly the same way, you just need to declare the content struct and
     /// // use the EventContent derive macro on it.
@@ -942,7 +945,7 @@ impl Client {
     ///     },
     /// ).await;
     /// ```
-    pub async fn register_event_handler<Ev, Ctx, H>(&self, handler: H)
+    pub async fn register_event_handler<Ev, Ctx, H>(&self, handler: H) -> &Self
     where
         Ev: SyncEvent + DeserializeOwned + Send + 'static,
         H: EventHandler<Ev, Ctx>,
@@ -972,6 +975,8 @@ impl Client {
             }
             .boxed()
         }));
+
+        self
     }
 
     /// Get all the rooms the client knows about.
