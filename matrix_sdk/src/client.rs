@@ -921,10 +921,10 @@ impl Client {
     ///     |ev: SyncMessageEvent<MessageEventContent>, room: Room, client: Client| async move {
     ///         // Common usage: Room event plus room and client.
     ///     },
-    /// );
+    /// ).await;
     /// client.register_event_handler(|ev: SyncStateEvent<TopicEventContent>| async move {
     ///     // Also possible: Omit any or all arguments after the first.
-    /// });
+    /// }).await;
     ///
     /// // Custom events work exactly the same way, you just need to declare the content struct and
     /// // use the EventContent derive macro on it.
@@ -940,7 +940,7 @@ impl Client {
     ///     |ev: SyncMessageEvent<TokenEventContent>, room: Room| async move {
     ///         todo!("Display the token");
     ///     },
-    /// );
+    /// ).await;
     /// ```
     pub async fn register_event_handler<Ev, Ctx, H>(&self, handler: H)
     where
