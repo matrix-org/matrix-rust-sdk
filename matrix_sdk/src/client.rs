@@ -62,7 +62,7 @@ use mime::{self, Mime};
 use rand::{thread_rng, Rng};
 use reqwest::header::InvalidHeaderValue;
 #[cfg(feature = "encryption")]
-use ruma::events::{AnyMessageEvent, AnyRoomEvent, AnySyncMessageEvent};
+use ruma::events::{AnyMessageEvent, AnyRoomEvent, AnySyncMessageEvent, EventType};
 use ruma::{
     api::{client::r0::push::get_notifications::Notification, SendAccessToken},
     events::AnyMessageEventContent,
@@ -74,7 +74,7 @@ use tokio::{net::TcpListener, sync::oneshot};
 #[cfg(feature = "sso_login")]
 use tokio_stream::wrappers::TcpListenerStream;
 #[cfg(feature = "encryption")]
-use tracing::debug;
+use tracing::{debug, trace};
 use tracing::{error, info, instrument, warn};
 use url::Url;
 #[cfg(feature = "sso_login")]
@@ -140,8 +140,8 @@ use ruma::{
 
 #[cfg(feature = "encryption")]
 use crate::{
-    device::{Device, UserDevices},
     error::RoomKeyImportError,
+    identities::{Device, UserDevices},
     verification::{QrVerification, SasVerification, Verification, VerificationRequest},
 };
 use crate::{
@@ -2377,6 +2377,85 @@ impl Client {
         }
     }
 
+    #[cfg(feature = "encryption")]
+    #[cfg_attr(feature = "docs", doc(cfg(encryption)))]
+    async fn send_account_data(
+        &self,
+        content: ruma::events::AnyGlobalAccountDataEventContent,
+    ) -> Result<ruma::api::client::r0::config::set_global_account_data::Response> {
+        let own_user =
+            self.user_id().await.ok_or_else(|| Error::from(HttpError::AuthenticationRequired))?;
+        let data = serde_json::value::to_raw_value(&content)?;
+
+        let request = ruma::api::client::r0::config::set_global_account_data::Request::new(
+            &data,
+            ruma::events::EventContent::event_type(&content),
+            &own_user,
+        );
+
+        Ok(self.send(request, None).await?)
+    }
+
+    #[cfg(feature = "encryption")]
+    #[cfg_attr(feature = "docs", doc(cfg(encryption)))]
+    pub(crate) async fn create_dm_room(&self, user_id: UserId) -> Result<Option<room::Joined>> {
+        use ruma::{
+            api::client::r0::room::create_room::RoomPreset,
+            events::AnyGlobalAccountDataEventContent,
+        };
+
+        const SYNC_WAIT_TIME: Duration = Duration::from_secs(3);
+
+        // First we create the DM room, where we invite the user and tell the
+        // invitee that the room should be a DM.
+        let invite = &[user_id.clone()];
+
+        let request = assign!(
+            ruma::api::client::r0::room::create_room::Request::new(),
+            {
+                invite,
+                is_direct: true,
+                preset: Some(RoomPreset::TrustedPrivateChat),
+            }
+        );
+
+        let response = self.send(request, None).await?;
+
+        // Now we need to mark the room as a DM for ourselves, we fetch the
+        // existing `m.direct` event and append the room to the list of DMs we
+        // have with this user.
+        let mut content = self
+            .store()
+            .get_account_data_event(EventType::Direct)
+            .await?
+            .map(|e| e.deserialize())
+            .transpose()?
+            .and_then(|e| {
+                if let AnyGlobalAccountDataEventContent::Direct(c) = e.content() {
+                    Some(c)
+                } else {
+                    None
+                }
+            })
+            .unwrap_or_else(|| ruma::events::direct::DirectEventContent(BTreeMap::new()));
+
+        content.entry(user_id.to_owned()).or_default().push(response.room_id.to_owned());
+
+        // TODO We should probably save the fact that we need to send this out
+        // because otherwise we might end up in a state where we have a DM that
+        // isn't marked as one.
+        self.send_account_data(AnyGlobalAccountDataEventContent::Direct(content)).await?;
+
+        // If the room is already in our store, fetch it, otherwise wait for a
+        // sync to be done which should put the room into our store.
+        if let Some(room) = self.get_joined_room(&response.room_id) {
+            Ok(Some(room))
+        } else {
+            self.sync_beat.listen().wait_timeout(SYNC_WAIT_TIME);
+            Ok(self.get_joined_room(&response.room_id))
+        }
+    }
+
     /// Claim one-time keys creating new Olm sessions.
     ///
     /// # Arguments
@@ -2516,7 +2595,7 @@ impl Client {
     ///
     /// println!("{:?}", device.verified());
     ///
-    /// let verification = device.start_verification().await.unwrap();
+    /// let verification = device.request_verification().await.unwrap();
     /// # });
     /// ```
     #[cfg(feature = "encryption")]
@@ -2531,6 +2610,61 @@ impl Client {
         Ok(device.map(|d| Device { inner: d, client: self.clone() }))
     }
 
+    /// Get a E2EE identity of an user.
+    ///
+    /// # Arguments
+    ///
+    /// * `user_id` - The unique id of the user that the identity belongs to.
+    ///
+    /// Returns a `UserIdentity` if one is found and the crypto store
+    /// didn't throw an error.
+    ///
+    /// This will always return None if the client hasn't been logged in.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// # use std::convert::TryFrom;
+    /// # use matrix_sdk::{Client, ruma::UserId};
+    /// # use url::Url;
+    /// # use futures::executor::block_on;
+    /// # let alice = UserId::try_from("@alice:example.org").unwrap();
+    /// # let homeserver = Url::parse("http://example.com").unwrap();
+    /// # let client = Client::new(homeserver).unwrap();
+    /// # block_on(async {
+    /// let user = client.get_user_identity(&alice).await?;
+    ///
+    /// if let Some(user) = user {
+    ///     println!("{:?}", user.verified());
+    ///
+    ///     let verification = user.request_verification().await?;
+    /// }
+    /// # anyhow::Result::<()>::Ok(()) });
+    /// ```
+    #[cfg(feature = "encryption")]
+    #[cfg_attr(feature = "docs", doc(cfg(encryption)))]
+    pub async fn get_user_identity(
+        &self,
+        user_id: &UserId,
+    ) -> StdResult<Option<crate::identities::UserIdentity>, CryptoStoreError> {
+        use crate::identities::UserIdentity;
+
+        if let Some(olm) = self.base_client.olm_machine().await {
+            let identity = olm.get_identity(user_id).await?;
+
+            Ok(identity.map(|i| match i {
+                matrix_sdk_base::crypto::UserIdentities::Own(i) => {
+                    UserIdentity::new_own(self.clone(), i)
+                }
+                matrix_sdk_base::crypto::UserIdentities::Other(i) => {
+                    UserIdentity::new(self.clone(), i, self.get_dm_room(user_id))
+                }
+            }))
+        } else {
+            Ok(None)
+        }
+    }
+
     /// Get the status of the private cross signing keys.
     ///
     /// This can be used to check which private cross signing keys we have
@@ -2543,6 +2677,20 @@ impl Client {
         } else {
             None
         }
+    }
+
+    #[cfg(feature = "encryption")]
+    #[cfg_attr(feature = "docs", doc(cfg(encryption)))]
+    fn get_dm_room(&self, user_id: &UserId) -> Option<room::Joined> {
+        let rooms = self.joined_rooms();
+        let room_pairs: Vec<_> =
+            rooms.iter().map(|r| (r.room_id().to_owned(), r.direct_target())).collect();
+        trace!(rooms =? room_pairs, "Finding direct room");
+
+        let room = rooms.into_iter().find(|r| r.direct_target().as_ref() == Some(user_id));
+
+        trace!(room =? room, "Found room");
+        room
     }
 
     /// Create and upload a new cross signing identity.

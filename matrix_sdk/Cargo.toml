@@ -93,6 +93,7 @@ version = "3.0.2"
 features = ["wasm-bindgen"]
 
 [dev-dependencies]
+anyhow = "1.0"
 dirs = "3.0.2"
 matches = "0.1.8"
 matrix-sdk-test = { version = "0.3.0", path = "../matrix_sdk_test" }
