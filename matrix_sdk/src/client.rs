@@ -51,7 +51,7 @@ use matrix_sdk_base::crypto::{
     ToDeviceRequest,
 };
 #[cfg(feature = "encryption")]
-use matrix_sdk_base::deserialized_responses::RoomEvent;
+use matrix_sdk_base::{crypto::CrossSigningStatus, deserialized_responses::RoomEvent};
 use matrix_sdk_base::{
     deserialized_responses::{JoinedRoom, LeftRoom, SyncResponse},
     media::{MediaEventContent, MediaFormat, MediaRequest, MediaThumbnailSize, MediaType},
@@ -2519,6 +2519,20 @@ impl Client {
         let device = self.base_client.get_device(user_id, device_id).await?;
 
         Ok(device.map(|d| Device { inner: d, client: self.clone() }))
+    }
+
+    /// Get the status of the private cross signing keys.
+    ///
+    /// This can be used to check which private cross signing keys we have
+    /// stored locally.
+    #[cfg(feature = "encryption")]
+    #[cfg_attr(feature = "docs", doc(cfg(encryption)))]
+    pub async fn cross_signing_status(&self) -> Option<CrossSigningStatus> {
+        if let Some(machine) = self.base_client.olm_machine().await {
+            Some(machine.cross_signing_status().await)
+        } else {
+            None
+        }
     }
 
     /// Create and upload a new cross signing identity.
