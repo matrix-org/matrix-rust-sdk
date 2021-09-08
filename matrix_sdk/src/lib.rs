@@ -39,18 +39,17 @@
 //! The following crate feature flags are available:
 //!
 //! * `encryption`: Enables end-to-end encryption support in the library.
-//! * `sled_cryptostore`: Enables a Sled based store for the encryption
-//! keys. If this is disabled and `encryption` support is enabled the keys will
-//! by default be stored only in memory and thus lost after the client is
-//! destroyed.
+//! * `sled_cryptostore`: Enables a Sled based store for the encryption keys.
+//!   If this is disabled and `encryption` support is enabled the keys will by
+//!   default be stored only in memory and thus lost after the client is
+//!   destroyed.
 //! * `markdown`: Support for sending markdown formatted messages.
 //! * `socks`: Enables SOCKS support in reqwest, the default HTTP client.
 //! * `sso_login`: Enables SSO login with a local http server.
 //! * `require_auth_for_profile_requests`: Whether to send the access token in
-//!   the authentication
-//! header when calling endpoints that retrieve profile data. This matches the
-//! synapse configuration `require_auth_for_profile_requests`. Enabled by
-//! default.
+//!   the authentication header when calling endpoints that retrieve profile
+//!   data. This matches the synapse configuration
+//!   `require_auth_for_profile_requests`. Enabled by default.
 //! * `appservice`: Enables low-level appservice functionality. For an
 //!   high-level API there's the `matrix-sdk-appservice` crate
 
