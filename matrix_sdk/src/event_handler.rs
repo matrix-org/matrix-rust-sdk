@@ -14,6 +14,21 @@
 
 //! Types and traits related for event handlers. For usage, see
 //! [`Client::register_event_handler`].
+//!
+//! ### How it works
+//!
+//! The `register_event_handler` method registers event handlers of different
+//! signatures by actually storing boxed closures that all have the same
+//! signature of `async (EventHandlerData) -> ()` where `EventHandlerData` is a
+//! private type that contains all of the data an event handler *might* need.
+//!
+//! The stored closure takes care of deserializing the event which the
+//! `EventHandlerData` contains as a (borrowed) [`serde_json::value::RawValue`],
+//! extracing the context arguments from other fields of `EventHandlerData` and
+//! calling / `.await`ing the event handler if the previous steps succeeded.
+//! It also logs any errors from the above chain of function calls.
+//!
+//! For more details, see the [`EventHandler`] trait.
 
 use std::{borrow::Cow, future::Future, ops::Deref};
 
@@ -55,6 +70,27 @@ pub trait SyncEvent {
 /// * Their return type has to be one of: `()`, `Result<(), impl
 ///   std::error::Error>` or `anyhow::Result<()>` (requires the `anyhow` Cargo
 ///   feature to be enabled)
+///
+/// ### How it works
+///
+/// This trait is basically a very constrained version of `Fn`: It requires at
+/// least one argument, which is represented as its own generic parameter `Ev`
+/// with the remaining parameter types being represented by the second generic
+/// parameter `Ctx`; they have to be stuffed into one generic parameter as a
+/// tuple because Rust doesn't have variadic generics.
+///
+/// `Ev` and `Ctx` are generic parameters rather than associated types because
+/// the argument list is a generic parameter for the `Fn` traits too, so a
+/// single type could implement `Fn` multiple times with different argument
+/// lists¹. Luckily, when calling [`Client::register_event_handler`] with a
+/// closure argument the trait solver takes into account that only a single one
+/// of the implementations applies (even though this could theoretically change
+/// through a dependency upgrade) and uses that rather than raising an ambiguity
+/// error. This is the same trick used by web frameworks like actix-web and
+/// axum.
+///
+/// ¹ the only thing stopping such types from existing in stable Rust is that
+/// all manual implementations of the `Fn` traits require a Nightly feature
 pub trait EventHandler<Ev, Ctx>: Clone + Send + Sync + 'static {
     /// The future returned by `handle_event`.
     #[doc(hidden)]
@@ -161,6 +197,7 @@ struct UnsignedDetails {
     redacted_because: Option<serde::de::IgnoredAny>,
 }
 
+/// Event handling internals.
 impl Client {
     pub(crate) async fn handle_sync_events<T>(
         &self,
