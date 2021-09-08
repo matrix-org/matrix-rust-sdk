@@ -979,6 +979,23 @@ impl Client {
         self
     }
 
+    /// Register a handler for a notification.
+    ///
+    /// Similar to `.register_event_handler`, but only allows functions or
+    /// closures with exactly the three arguments `Notification`, `room::Room`,
+    /// `Client` for now.
+    pub async fn register_notification_handler<H, Fut>(&self, handler: H) -> &Self
+    where
+        H: Fn(Notification, room::Room, Client) -> Fut + Send + Sync + 'static,
+        Fut: Future<Output = ()> + Send + 'static,
+    {
+        self.notification_handlers.write().await.push(Box::new(
+            move |notification, room, client| (handler)(notification, room, client).boxed(),
+        ));
+
+        self
+    }
+
     /// Get all the rooms the client knows about.
     ///
     /// This will return the list of joined, invited, and left rooms.
