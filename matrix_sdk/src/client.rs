@@ -2123,7 +2123,7 @@ impl Client {
                 };
 
                 for notification in room_notifications {
-                    (handler)(notification.clone(), room.clone(), self.clone()).await;
+                    tokio::spawn((handler)(notification.clone(), room.clone(), self.clone()));
                 }
             }
         }

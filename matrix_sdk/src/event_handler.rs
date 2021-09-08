@@ -300,7 +300,7 @@ impl Client {
                         room: room.clone(),
                         raw: event.json(),
                     };
-                    (handler)(data).await;
+                    tokio::spawn((handler)(data));
                 }
             }
         }
