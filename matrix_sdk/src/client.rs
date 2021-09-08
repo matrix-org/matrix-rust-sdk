@@ -2964,8 +2964,10 @@ mod test {
     use std::{
         collections::BTreeMap,
         convert::{TryFrom, TryInto},
+        future,
         io::Cursor,
         str::FromStr,
+        sync::Arc,
         time::Duration,
     };
 
@@ -2995,17 +2997,18 @@ mod test {
         event_id,
         events::{
             room::{
+                member::MemberEventContent,
                 message::{ImageMessageEventContent, MessageEventContent},
                 ImageInfo,
             },
-            AnyMessageEventContent, AnySyncStateEvent, EventType,
+            AnyMessageEventContent, AnySyncStateEvent, EventType, SyncStateEvent,
         },
         mxc_uri, room_id, thirdparty, uint, user_id, UserId,
     };
     use serde_json::json;
 
     use super::{Client, Session, SyncSettings, Url};
-    use crate::{ClientConfig, HttpError, RequestConfig, RoomMember};
+    use crate::{room, ClientConfig, HttpError, RequestConfig, RoomMember};
 
     async fn logged_in_client() -> Client {
         let session = Session {
@@ -3263,6 +3266,56 @@ mod test {
         // let bc = &client.base_client;
         // let ignored_users = bc.ignored_users.read().await;
         // assert_eq!(1, ignored_users.len())
+    }
+
+    #[tokio::test]
+    async fn event_handler() {
+        use std::sync::atomic::{AtomicU8, Ordering::SeqCst};
+
+        let client = logged_in_client().await;
+
+        let member_count = Arc::new(AtomicU8::new(0));
+        let typing_count = Arc::new(AtomicU8::new(0));
+        let power_levels_count = Arc::new(AtomicU8::new(0));
+
+        client
+            .register_event_handler({
+                let member_count = member_count.clone();
+                move |_ev: SyncStateEvent<MemberEventContent>, _room: room::Room| {
+                    member_count.fetch_add(1, SeqCst);
+                    future::ready(())
+                }
+            })
+            .await
+            .register_event_handler({
+                let typing_count = typing_count.clone();
+                move |_ev: SyncStateEvent<MemberEventContent>| {
+                    typing_count.fetch_add(1, SeqCst);
+                    future::ready(())
+                }
+            })
+            .await
+            .register_event_handler({
+                let power_levels_count = power_levels_count.clone();
+                move |_ev: SyncStateEvent<MemberEventContent>,
+                      _client: Client,
+                      _room: room::Room| {
+                    power_levels_count.fetch_add(1, SeqCst);
+                    future::ready(())
+                }
+            })
+            .await;
+
+        let response = EventBuilder::default()
+            .add_room_event(EventsJson::Member)
+            .add_ephemeral(EventsJson::Typing)
+            .add_state_event(EventsJson::PowerLevels)
+            .build_sync_response();
+        client.process_sync(response).await.unwrap();
+
+        assert_eq!(member_count.load(SeqCst), 1);
+        assert_eq!(typing_count.load(SeqCst), 1);
+        assert_eq!(power_levels_count.load(SeqCst), 1);
     }
 
     #[tokio::test]
