@@ -2130,7 +2130,11 @@ impl Client {
                 };
 
                 for notification in room_notifications {
-                    tokio::spawn((handler)(notification.clone(), room.clone(), self.clone()));
+                    matrix_sdk_common::executor::spawn((handler)(
+                        notification.clone(),
+                        room.clone(),
+                        self.clone(),
+                    ));
                 }
             }
         }

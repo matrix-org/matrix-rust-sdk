@@ -306,7 +306,7 @@ impl Client {
                         room: room.clone(),
                         raw: event.json(),
                     };
-                    tokio::spawn((handler)(data));
+                    matrix_sdk_common::executor::spawn((handler)(data));
                 }
             }
         }
