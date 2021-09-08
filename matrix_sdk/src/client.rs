@@ -2053,7 +2053,7 @@ impl Client {
         for (room_id, room_info) in &rooms.join {
             let room = self.get_room(room_id);
             if room.is_none() {
-                // raise warning?
+                error!("Can't call event handler, room {} not found", room_id);
                 continue;
             }
 
@@ -2070,7 +2070,7 @@ impl Client {
         for (room_id, room_info) in &rooms.leave {
             let room = self.get_room(room_id);
             if room.is_none() {
-                // raise warning?
+                error!("Can't call event handler, room {} not found", room_id);
                 continue;
             }
 
@@ -2085,7 +2085,7 @@ impl Client {
         for (room_id, room_info) in &rooms.invite {
             let room = self.get_room(room_id);
             if room.is_none() {
-                // raise warning?
+                error!("Can't call event handler, room {} not found", room_id);
                 continue;
             }
 
@@ -2099,7 +2099,7 @@ impl Client {
                 let room = match self.get_room(room_id) {
                     Some(room) => room,
                     None => {
-                        // raise warning?
+                        warn!("Can't call notification handler, room {} not found", room_id);
                         continue;
                     }
                 };
