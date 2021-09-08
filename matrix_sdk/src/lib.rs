@@ -52,6 +52,7 @@
 //!   `require_auth_for_profile_requests`. Enabled by default.
 //! * `appservice`: Enables low-level appservice functionality. For an
 //!   high-level API there's the `matrix-sdk-appservice` crate
+//! * `anyhow`: Support for returning `anyhow::Result<()>` from event handlers.
 
 #![deny(
     missing_debug_implementations,

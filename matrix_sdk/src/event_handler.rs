@@ -50,7 +50,7 @@ pub trait SyncEvent {
 /// specifically:
 ///
 /// * They must have at least one argument, which is the event itself, a type
-///   that implements [`StaticEvent`]. Any additional arguments need to
+///   that implements [`SyncEvent`]. Any additional arguments need to
 ///   implement the [`EventHandlerContext`] trait.
 /// * Their return type has to be one of: `()`, `Result<(), impl
 ///   std::error::Error>` or `anyhow::Result<()>` (requires the `anyhow` Cargo

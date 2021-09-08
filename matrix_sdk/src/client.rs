@@ -879,13 +879,13 @@ impl Client {
 
     /// Register a handler for a specific event type.
     ///
-    /// The handler is a function or closue with one or more arguments. The
+    /// The handler is a function or closure with one or more arguments. The
     /// first argument is the event itself. All additional arguments are
-    /// "context" arguments: They have to implement [`EventHandlerContext`][].
+    /// "context" arguments: They have to implement [`EventHandlerContext`].
     /// This trait is named that way because most of the types implementing it
     /// give additional context about an event: The room it was in, its raw form
     /// and other similar things. As an exception to this,
-    /// [`matrix_sdk::Client`] also implements the `EventHandlerContext` trait
+    /// [`Client`] also implements the `EventHandlerContext` trait
     /// so you don't have to clone your client into the event handler manually.
     ///
     /// Invalid context arguments, for example a [`Room`][room::Room] as an
@@ -901,21 +901,39 @@ impl Client {
     /// use matrix_sdk::{
     ///     room::Room,
     ///     ruma::events::{
+    ///         macros::EventContent,
     ///         push_rules::PushRulesEvent,
     ///         room::{message::MessageEventContent, topic::TopicEventContent},
-    ///         SyncMessageEvent, SyncStateEvent,
+    ///         Int, MilliSecondsSinceUnixEpoch, SyncMessageEvent, SyncStateEvent,
     ///     },
     ///     Client,
     /// };
+    /// use serde::{Deserialize, Serialize};
     ///
     /// client.register_event_handler(
-    ///     |msg: SyncMessageEvent<MessageEventContent>, room: Room, client: Client| async move {
+    ///     |ev: SyncMessageEvent<MessageEventContent>, room: Room, client: Client| async move {
     ///         // Common usage: Room event plus room and client.
     ///     },
     /// );
     /// client.register_event_handler(|ev: SyncStateEvent<TopicEventContent>| async move {
     ///     // Also possible: Omit any or all arguments after the first.
     /// });
+    ///
+    /// // Custom events work exactly the same way, you just need to declare the content struct and
+    /// // use the EventContent derive macro on it.
+    /// #[derive(Clone, Debug, Deserialize, Serialize, EventContent)]
+    /// #[ruma_event(type = "org.shiny_new_2fa.token", kind = Message)]
+    /// struct TokenEventContent {
+    ///     token: String,
+    ///     #[serde(rename = "exp")]
+    ///     expires_at: MilliSecondsSinceUnixEpoch,
+    /// }
+    ///
+    /// client.register_event_handler(
+    ///     |ev: SyncMessageEvent<TokenEventContent>, room: Room| async move {
+    ///         todo!("Display the token");
+    ///     },
+    /// );
     /// ```
     pub async fn register_event_handler<Ev, Ctx, H>(&self, handler: H)
     where
