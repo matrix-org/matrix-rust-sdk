@@ -15,7 +15,9 @@
 use matrix_sdk_base::crypto::{CancelInfo, VerificationRequest as BaseVerificationRequest};
 use ruma::events::key::verification::VerificationMethod;
 
-use super::{QrVerification, SasVerification};
+#[cfg(feature = "qrcode")]
+use super::QrVerification;
+use super::SasVerification;
 use crate::{Client, Result};
 
 /// An object controlling the interactive verification flow.
@@ -112,6 +114,7 @@ impl VerificationRequest {
         Ok(())
     }
 
+    #[cfg(feature = "qrcode")]
     /// Generate a QR code
     pub async fn generate_qr_code(&self) -> Result<Option<QrVerification>> {
         Ok(self

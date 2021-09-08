@@ -130,11 +130,13 @@ use ruma::{
     DeviceIdBox, RoomId, RoomIdOrAliasId, ServerName, UInt, UserId,
 };
 
+#[cfg(all(feature = "qrcode", feature = "encryption"))]
+use crate::verification::QrVerification;
 #[cfg(feature = "encryption")]
 use crate::{
     device::{Device, UserDevices},
     error::RoomKeyImportError,
-    verification::{QrVerification, SasVerification, Verification, VerificationRequest},
+    verification::{SasVerification, Verification, VerificationRequest},
 };
 use crate::{
     error::HttpError,
@@ -2241,6 +2243,7 @@ impl Client {
             matrix_sdk_base::crypto::Verification::SasV1(s) => {
                 SasVerification { inner: s, client: self.clone() }.into()
             }
+            #[cfg(feature = "qrcode")]
             matrix_sdk_base::crypto::Verification::QrV1(qr) => {
                 QrVerification { inner: qr, client: self.clone() }.into()
             }

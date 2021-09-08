@@ -17,8 +17,12 @@ use std::{
     time::Duration,
 };
 
+#[cfg(feature = "qrcode")]
 use matrix_qrcode::QrVerificationData;
 use matrix_sdk_common::{instant::Instant, uuid::Uuid};
+#[cfg(feature = "qrcode")]
+use ruma::DeviceKeyAlgorithm;
+
 use ruma::{
     events::{
         key::verification::{
@@ -32,7 +36,7 @@ use ruma::{
         AnyMessageEventContent, AnyToDeviceEventContent,
     },
     to_device::DeviceIdOrAllDevices,
-    DeviceId, DeviceIdBox, DeviceKeyAlgorithm, MilliSecondsSinceUnixEpoch, RoomId, UserId,
+    DeviceId, DeviceIdBox, MilliSecondsSinceUnixEpoch, RoomId, UserId,
 };
 use tracing::{info, trace, warn};
 
@@ -41,8 +45,12 @@ use super::{
     event_enums::{
         CancelContent, DoneContent, OutgoingContent, ReadyContent, RequestContent, StartContent,
     },
+    CancelInfo, Cancelled, FlowId, VerificationStore,
+};
+#[cfg(feature = "qrcode")]
+use super::{
     qrcode::{QrVerification, ScanError},
-    CancelInfo, Cancelled, FlowId, IdentitiesBeingVerified, VerificationStore,
+    IdentitiesBeingVerified,
 };
 use crate::{
     olm::{PrivateCrossSigningIdentity, ReadOnlyAccount},
@@ -299,6 +307,7 @@ impl VerificationRequest {
         matches!(&*self.inner.lock().unwrap(), InnerRequest::Cancelled(_))
     }
 
+    #[cfg(feature = "qrcode")]
     /// Generate a QR code that can be used by another client to start a QR code
     /// based verification.
     pub async fn generate_qr_code(&self) -> Result<Option<QrVerification>, CryptoStoreError> {
@@ -308,7 +317,8 @@ impl VerificationRequest {
             .generate_qr_code(self.we_started, self.inner.clone().into())
             .await
     }
-
+    ///
+    #[cfg(feature = "qrcode")]
     /// Start a QR code verification by providing a scanned QR code for this
     /// verification flow.
     ///
@@ -452,6 +462,7 @@ impl VerificationRequest {
         {
             match verification {
                 crate::Verification::SasV1(s) => s.cancel_with_code(cancel_code),
+                #[cfg(feature = "qrcode")]
                 crate::Verification::QrV1(q) => q.cancel_with_code(cancel_code),
             };
         }
@@ -720,6 +731,7 @@ impl InnerRequest {
         });
     }
 
+    #[cfg(feature = "qrcode")]
     async fn generate_qr_code(
         &self,
         we_started: bool,
@@ -938,6 +950,7 @@ impl RequestState<Ready> {
         )
     }
 
+    #[cfg(feature = "qrcode")]
     async fn generate_qr_code(
         &self,
         we_started: bool,
@@ -1141,6 +1154,7 @@ impl RequestState<Ready> {
                     }
                 }
             }
+            #[cfg(feature = "qrcode")]
             StartMethod::ReciprocateV1(_) => {
                 if let Some(qr_verification) =
                     self.verification_cache.get_qr(sender, content.flow_id())

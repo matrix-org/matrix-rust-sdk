@@ -387,6 +387,7 @@ impl VerificationMachine {
                                 // This won't produce an outgoing content
                                 let _ = sas.receive_any_event(event.sender(), &content);
                             }
+                            #[cfg(feature = "qrcode")]
                             Verification::QrV1(qr) => qr.receive_cancel(event.sender(), c),
                         }
                     }
@@ -485,6 +486,7 @@ impl VerificationMachine {
                                 self.mark_sas_as_done(sas, content).await?;
                             }
                         }
+                        #[cfg(feature = "qrcode")]
                         Some(Verification::QrV1(qr)) => {
                             let (cancellation, request) = qr.receive_done(c).await?;
 

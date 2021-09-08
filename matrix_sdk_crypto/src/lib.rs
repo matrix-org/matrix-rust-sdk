@@ -49,6 +49,7 @@ pub use identities::{
     ReadOnlyUserIdentities, ReadOnlyUserIdentity, UserDevices, UserIdentities, UserIdentity,
 };
 pub use machine::OlmMachine;
+#[cfg(feature = "qrcode")]
 pub use matrix_qrcode;
 pub(crate) use olm::ReadOnlyAccount;
 pub use olm::{CrossSigningStatus, EncryptionSettings};
@@ -57,6 +58,6 @@ pub use requests::{
     OutgoingVerificationRequest, RoomMessageRequest, ToDeviceRequest, UploadSigningKeysRequest,
 };
 pub use store::{CrossSigningKeyExport, CryptoStoreError, SecretImportError};
-pub use verification::{
-    AcceptSettings, CancelInfo, QrVerification, Sas, Verification, VerificationRequest,
-};
+#[cfg(feature = "qrcode")]
+pub use verification::QrVerification;
+pub use verification::{AcceptSettings, CancelInfo, Sas, Verification, VerificationRequest};

@@ -75,6 +75,9 @@ compile_error!("only one of 'native-tls' or 'rustls-tls' features can be enabled
 #[cfg(all(feature = "sso_login", target_arch = "wasm32"))]
 compile_error!("'sso_login' cannot be enabled on 'wasm32' arch");
 
+#[cfg(all(not(feature = "encryption"), feature = "qrcode"))]
+compile_error!("'qrcode' cannot be enabled without 'encryption'");
+
 pub use bytes;
 #[cfg(feature = "encryption")]
 #[cfg_attr(feature = "docs", doc(cfg(encryption)))]
