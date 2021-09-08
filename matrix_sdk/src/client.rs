@@ -917,6 +917,7 @@ impl Client {
     /// };
     /// use serde::{Deserialize, Serialize};
     ///
+    /// # let _ = async {
     /// client
     ///     .register_event_handler(
     ///         |ev: SyncMessageEvent<MessageEventContent>, room: Room, client: Client| async move {
@@ -944,6 +945,7 @@ impl Client {
     ///         todo!("Display the token");
     ///     },
     /// ).await;
+    /// # };
     /// ```
     pub async fn register_event_handler<Ev, Ctx, H>(&self, handler: H) -> &Self
     where
