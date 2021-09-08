@@ -200,6 +200,12 @@ pub struct Client {
     /// This is low-level functionality. For an high-level API check the
     /// `matrix_sdk_appservice` crate.
     appservice_mode: bool,
+    /// An event that can be listened on to wait for a successful sync. The
+    /// event will only be fired if a sync loop is running. Can be used for
+    /// synchronization, e.g. if we send out a request to create a room, we can
+    /// wait for the sync to get the data to fetch a room object from the state
+    /// store.
+    sync_beat: Arc<event_listener::Event>,
 }
 
 #[cfg(not(tarpaulin_include))]
@@ -582,6 +588,7 @@ impl Client {
             event_handlers: Default::default(),
             notification_handlers: Default::default(),
             appservice_mode: config.appservice_mode,
+            sync_beat: event_listener::Event::new().into(),
         })
     }
 
@@ -2365,6 +2372,8 @@ impl Client {
 
             sync_settings.token =
                 Some(self.sync_token().await.expect("No sync token found after initial sync"));
+
+            self.sync_beat.notify(usize::MAX);
         }
     }
 
