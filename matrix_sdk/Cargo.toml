@@ -18,7 +18,7 @@ rustdoc-args = ["--cfg", "feature=\"docs\""]
 default = ["encryption", "qrcode", "sled_cryptostore", "sled_state_store", "require_auth_for_profile_requests", "native-tls"]
 
 encryption = ["matrix-sdk-base/encryption"]
-qrcode = ["matrix-sdk-base/qrcode"]
+qrcode = ["encryption", "matrix-sdk-base/qrcode"]
 sled_state_store = ["matrix-sdk-base/sled_state_store"]
 sled_cryptostore = ["matrix-sdk-base/sled_cryptostore"]
 markdown = ["matrix-sdk-base/markdown"]
