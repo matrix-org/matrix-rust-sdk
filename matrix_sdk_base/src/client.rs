@@ -58,7 +58,7 @@ use ruma::{
     serde::Raw,
     MilliSecondsSinceUnixEpoch, RoomId, UInt, UserId,
 };
-use tracing::{info, warn};
+use tracing::{info, trace, warn};
 use zeroize::Zeroizing;
 
 use crate::{
@@ -595,15 +595,23 @@ impl BaseClient {
         let mut account_data = BTreeMap::new();
 
         for raw_event in events {
-            let event = if let Ok(e) = raw_event.deserialize() {
-                e
-            } else {
-                continue;
+            let event = match raw_event.deserialize() {
+                Ok(e) => e,
+                Err(e) => {
+                    warn!(error =? e, "Failed to deserialize a global account data event");
+                    continue;
+                }
             };
 
             if let AnyGlobalAccountDataEvent::Direct(e) = &event {
                 for (user_id, rooms) in e.content.iter() {
                     for room_id in rooms {
+                        trace!(
+                            room_id = room_id.as_str(),
+                            target = user_id.as_str(),
+                            "Marking room as direct room"
+                        );
+
                         if let Some(room) = changes.room_infos.get_mut(room_id) {
                             room.base_info.dm_target = Some(user_id.clone());
                         } else if let Some(room) = self.store.get_room(room_id) {
@@ -823,6 +831,12 @@ impl BaseClient {
 
             new_rooms.invite.insert(room_id, new_info);
         }
+
+        // TODO remove this, we're processing account data events here again
+        // because we want to have the push rules in place before we process
+        // rooms and their events, but we want to create the rooms before we
+        // process the `m.direct` account data event.
+        self.handle_account_data(&account_data.events, &mut changes).await;
 
         changes.presence = presence
             .events
