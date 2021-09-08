@@ -134,6 +134,12 @@ impl EventHandlerContext for Client {
     }
 }
 
+/// This event handler context argument is only applicable to room-specific
+/// events.
+///
+/// Trying to use it in the event handler for another event, for example a
+/// global account data or presence event, will result in the event handler
+/// being skipped and an error getting logged.
 impl EventHandlerContext for room::Room {
     fn from_data(data: &EventHandlerData<'_>) -> Option<Self> {
         data.room.clone()

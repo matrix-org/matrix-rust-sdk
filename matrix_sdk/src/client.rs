@@ -888,9 +888,13 @@ impl Client {
     /// [`Client`] also implements the `EventHandlerContext` trait
     /// so you don't have to clone your client into the event handler manually.
     ///
-    /// Invalid context arguments, for example a [`Room`][room::Room] as an
-    /// argument to an account data event handler, will result in the event
-    /// handler being skipped and an error logged.
+    /// Some context arguments are not universally applicable. A context
+    /// argument that isn't available for the given event type will result in
+    /// the event handler being skipped and an error being logged. The following
+    /// context argument types are only available for a subset of event types:
+    ///
+    /// * [`Room`][room::Room] is only available for room-specific events, i.e.
+    ///   not for events like global account data events or presence events
     ///
     /// [`EventHandlerContext`]: crate::event_handler::EventHandlerContext
     ///
