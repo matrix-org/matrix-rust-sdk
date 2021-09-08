@@ -25,9 +25,10 @@
 //! [VerificationRequest::is_ready()] method returns true, the verification can
 //! transition into one of the supported verification flows:
 //!
-//! * [SasVerification] - Interactive verification using a short authentication
+//! * [`SasVerification`] - Interactive verification using a short
+//!   authentication
 //! string.
-//! * [QrVerification] - Interactive verification using QR codes.
+//! * [`QrVerification`] - Interactive verification using QR codes.
 
 mod qrcode;
 mod requests;
