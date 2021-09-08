@@ -904,11 +904,14 @@ impl Client {
     /// # let client: matrix_sdk::Client = unimplemented!();
     /// use matrix_sdk::{
     ///     room::Room,
-    ///     ruma::events::{
-    ///         macros::EventContent,
-    ///         push_rules::PushRulesEvent,
-    ///         room::{message::MessageEventContent, topic::TopicEventContent},
-    ///         Int, MilliSecondsSinceUnixEpoch, SyncMessageEvent, SyncStateEvent,
+    ///     ruma::{
+    ///         events::{
+    ///             macros::EventContent,
+    ///             push_rules::PushRulesEvent,
+    ///             room::{message::MessageEventContent, topic::TopicEventContent},
+    ///             SyncMessageEvent, SyncStateEvent,
+    ///         },
+    ///         Int, MilliSecondsSinceUnixEpoch,
     ///     },
     ///     Client,
     /// };
