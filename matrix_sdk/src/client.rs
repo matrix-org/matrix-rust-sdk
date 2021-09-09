@@ -970,6 +970,19 @@ impl Client {
     ///         todo!("Display the token");
     ///     },
     /// ).await;
+    ///
+    /// // Adding your custom data to the handler can be done as well
+    /// let data = "MyCustomIdentifier".to_string();
+    ///
+    /// client.register_event_handler({
+    ///     let data = data.clone();
+    ///     move |ev: SyncMessageEvent<MessageEventContent> | {
+    ///         let data = data.clone();
+    ///         async move {
+    ///             println!("Calling the handler with identifier {}", data);
+    ///         }
+    ///     }
+    /// }).await;
     /// # };
     /// ```
     pub async fn register_event_handler<Ev, Ctx, H>(&self, handler: H) -> &Self
