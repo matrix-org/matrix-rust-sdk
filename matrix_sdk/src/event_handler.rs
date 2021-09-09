@@ -211,7 +211,16 @@ impl Client {
         room: &Option<room::Room>,
         events: &[Raw<T>],
     ) -> serde_json::Result<()> {
-        self.handle_sync_events_wrapped(kind, room, events, |x| x).await
+        #[derive(Deserialize)]
+        struct ExtractType<'a> {
+            #[serde(borrow, rename = "type")]
+            event_type: Cow<'a, str>,
+        }
+
+        self.handle_sync_events_wrapped_with(room, events, std::convert::identity, |raw| {
+            Ok((kind, raw.deserialize_as::<ExtractType>()?.event_type))
+        })
+        .await
     }
 
     pub(crate) async fn handle_sync_state_events(
@@ -265,25 +274,6 @@ impl Client {
                 Ok((kind, event_type))
             },
         )
-        .await
-    }
-
-    async fn handle_sync_events_wrapped<'a, T: 'a, U: 'a>(
-        &self,
-        kind: EventKind,
-        room: &Option<room::Room>,
-        events: &'a [U],
-        get_event: impl Fn(&'a U) -> &'a Raw<T>,
-    ) -> Result<(), serde_json::Error> {
-        #[derive(Deserialize)]
-        struct ExtractType<'a> {
-            #[serde(borrow, rename = "type")]
-            event_type: Cow<'a, str>,
-        }
-
-        self.handle_sync_events_wrapped_with(room, events, get_event, |raw| {
-            Ok((kind, raw.deserialize_as::<ExtractType>()?.event_type))
-        })
         .await
     }
 
