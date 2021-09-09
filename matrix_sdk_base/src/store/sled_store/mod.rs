@@ -1183,7 +1183,7 @@ mod test {
     async fn test_custom_storage() -> Result<()> {
         let key = "my_key";
         let value = &[0, 1, 2, 3];
-        let store = SledStore::open().unwrap();
+        let store = SledStore::open()?;
 
         store.set_custom_value(key.as_bytes(), value.to_vec()).await?;
 
