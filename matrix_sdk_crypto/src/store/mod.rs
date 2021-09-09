@@ -584,6 +584,9 @@ pub trait CryptoStore: AsyncTraitDeps {
     /// the tracked users.
     fn users_for_key_query(&self) -> HashSet<UserId>;
 
+    /// Get all tracked users we know about.
+    fn tracked_users(&self) -> HashSet<UserId>;
+
     /// Add an user for tracking.
     ///
     /// Returns true if the user wasn't already tracked, false otherwise.

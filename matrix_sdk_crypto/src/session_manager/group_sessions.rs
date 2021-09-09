@@ -49,11 +49,7 @@ pub(crate) struct GroupSessionCache {
 
 impl GroupSessionCache {
     pub(crate) fn new(store: Store) -> Self {
-        Self {
-            store,
-            sessions: DashMap::new().into(),
-            sessions_being_shared: Arc::new(DashMap::new()),
-        }
+        Self { store, sessions: Default::default(), sessions_being_shared: Default::default() }
     }
 
     pub(crate) fn insert(&self, session: OutboundGroupSession) {

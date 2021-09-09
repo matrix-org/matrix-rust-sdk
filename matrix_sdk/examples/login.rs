@@ -1,36 +1,31 @@
 use std::{env, process::exit};
 
 use matrix_sdk::{
-    self, async_trait,
+    self,
     room::Room,
     ruma::events::{
         room::message::{MessageEventContent, MessageType, TextMessageEventContent},
         SyncMessageEvent,
     },
-    Client, EventHandler, SyncSettings,
+    Client, SyncSettings,
 };
 use url::Url;
 
-struct EventCallback;
-
-#[async_trait]
-impl EventHandler for EventCallback {
-    async fn on_room_message(&self, room: Room, event: &SyncMessageEvent<MessageEventContent>) {
-        if let Room::Joined(room) = room {
-            if let SyncMessageEvent {
-                content:
-                    MessageEventContent {
-                        msgtype: MessageType::Text(TextMessageEventContent { body: msg_body, .. }),
-                        ..
-                    },
-                sender,
-                ..
-            } = event
-            {
-                let member = room.get_member(sender).await.unwrap().unwrap();
-                let name = member.display_name().unwrap_or_else(|| member.user_id().as_str());
-                println!("{}: {}", name, msg_body);
-            }
+async fn on_room_message(event: SyncMessageEvent<MessageEventContent>, room: Room) {
+    if let Room::Joined(room) = room {
+        if let SyncMessageEvent {
+            content:
+                MessageEventContent {
+                    msgtype: MessageType::Text(TextMessageEventContent { body: msg_body, .. }),
+                    ..
+                },
+            sender,
+            ..
+        } = event
+        {
+            let member = room.get_member(&sender).await.unwrap().unwrap();
+            let name = member.display_name().unwrap_or_else(|| member.user_id().as_str());
+            println!("{}: {}", name, msg_body);
         }
     }
 }
@@ -43,7 +38,7 @@ async fn login(
     let homeserver_url = Url::parse(&homeserver_url).expect("Couldn't parse the homeserver URL");
     let client = Client::new(homeserver_url).unwrap();
 
-    client.set_event_handler(Box::new(EventCallback)).await;
+    client.register_event_handler(on_room_message).await;
 
     client.login(username, password, None, Some("rust-sdk")).await?;
     client.sync(SyncSettings::new()).await;

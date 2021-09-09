@@ -673,6 +673,10 @@ impl CryptoStore for SledStore {
         !self.users_for_key_query_cache.is_empty()
     }
 
+    fn tracked_users(&self) -> HashSet<UserId> {
+        self.tracked_users_cache.to_owned().iter().map(|u| u.clone()).collect()
+    }
+
     fn users_for_key_query(&self) -> HashSet<UserId> {
         #[allow(clippy::map_clone)]
         self.users_for_key_query_cache.iter().map(|u| u.clone()).collect()

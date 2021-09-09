@@ -15,10 +15,15 @@
 
 #[cfg(all(feature = "encryption", not(target_arch = "wasm32")))]
 use std::path::PathBuf;
-#[cfg(feature = "encryption")]
 use std::{
     collections::BTreeMap,
-    io::{Cursor, Write},
+    fmt::{self, Debug},
+    future::Future,
+    io::Read,
+    path::Path,
+    pin::Pin,
+    result::Result as StdResult,
+    sync::Arc,
 };
 #[cfg(feature = "sso_login")]
 use std::{
@@ -26,16 +31,14 @@ use std::{
     io::{Error as IoError, ErrorKind as IoErrorKind},
     ops::Range,
 };
+#[cfg(feature = "encryption")]
 use std::{
-    fmt::{self, Debug},
-    future::Future,
-    io::Read,
-    path::Path,
-    result::Result as StdResult,
-    sync::Arc,
+    collections::HashSet,
+    io::{Cursor, Write},
 };
 
 use dashmap::DashMap;
+use futures::FutureExt;
 use futures_timer::Delay as sleep;
 use http::HeaderValue;
 #[cfg(feature = "sso_login")]
@@ -48,9 +51,9 @@ use matrix_sdk_base::crypto::{
     ToDeviceRequest,
 };
 #[cfg(feature = "encryption")]
-use matrix_sdk_base::deserialized_responses::RoomEvent;
+use matrix_sdk_base::{crypto::CrossSigningStatus, deserialized_responses::RoomEvent};
 use matrix_sdk_base::{
-    deserialized_responses::SyncResponse,
+    deserialized_responses::{JoinedRoom, LeftRoom, SyncResponse},
     media::{MediaEventContent, MediaFormat, MediaRequest, MediaThumbnailSize, MediaType},
     BaseClient, BaseClientConfig, Session, Store,
 };
@@ -59,15 +62,20 @@ use mime::{self, Mime};
 use rand::{thread_rng, Rng};
 use reqwest::header::InvalidHeaderValue;
 #[cfg(feature = "encryption")]
-use ruma::events::{AnyMessageEvent, AnyRoomEvent, AnySyncMessageEvent};
-use ruma::{api::SendAccessToken, events::AnyMessageEventContent, MxcUri};
+use ruma::events::{AnyMessageEvent, AnyRoomEvent, AnySyncMessageEvent, EventType};
+use ruma::{
+    api::{client::r0::push::get_notifications::Notification, SendAccessToken},
+    events::AnyMessageEventContent,
+    MxcUri,
+};
+use serde::de::DeserializeOwned;
 #[cfg(feature = "sso_login")]
 use tokio::{net::TcpListener, sync::oneshot};
 #[cfg(feature = "sso_login")]
 use tokio_stream::wrappers::TcpListenerStream;
 #[cfg(feature = "encryption")]
-use tracing::{debug, warn};
-use tracing::{error, info, instrument};
+use tracing::{debug, trace};
+use tracing::{error, info, instrument, warn};
 use url::Url;
 #[cfg(feature = "sso_login")]
 use warp::Filter;
@@ -134,15 +142,15 @@ use ruma::{
 use crate::verification::QrVerification;
 #[cfg(feature = "encryption")]
 use crate::{
-    device::{Device, UserDevices},
     error::RoomKeyImportError,
+    identities::{Device, UserDevices},
     verification::{SasVerification, Verification, VerificationRequest},
 };
 use crate::{
-    error::HttpError,
-    event_handler::Handler,
+    error::{HttpError, HttpResult},
+    event_handler::{EventHandler, EventHandlerData, EventHandlerResult, EventKind, SyncEvent},
     http_client::{client_with_config, HttpClient, HttpSend},
-    room, Error, EventHandler, Result,
+    room, Error, Result,
 };
 
 const DEFAULT_REQUEST_TIMEOUT: Duration = Duration::from_secs(10);
@@ -157,6 +165,14 @@ const SSO_SERVER_BIND_RANGE: Range<u16> = 20000..30000;
 /// The number of times the SSO server will try to bind to a random port
 #[cfg(feature = "sso_login")]
 const SSO_SERVER_BIND_TRIES: u8 = 10;
+
+type EventHandlerFut = Pin<Box<dyn Future<Output = ()> + Send>>;
+type EventHandlerFn = Box<dyn Fn(EventHandlerData<'_>) -> EventHandlerFut + Send + Sync>;
+type EventHandlerMap = BTreeMap<(EventKind, &'static str), Vec<EventHandlerFn>>;
+
+type NotificationHandlerFut = EventHandlerFut;
+type NotificationHandlerFn =
+    Box<dyn Fn(Notification, room::Room, Client) -> NotificationHandlerFut + Send + Sync>;
 
 /// An async/await enabled Matrix client.
 ///
@@ -178,13 +194,20 @@ pub struct Client {
     key_claim_lock: Arc<Mutex<()>>,
     pub(crate) members_request_locks: Arc<DashMap<RoomId, Arc<Mutex<()>>>>,
     pub(crate) typing_notice_times: Arc<DashMap<RoomId, Instant>>,
-    /// Any implementor of EventHandler will act as the callbacks for various
-    /// events.
-    event_handler: Arc<RwLock<Option<Handler>>>,
+    /// Event handlers. See `register_event_handler`.
+    pub(crate) event_handlers: Arc<RwLock<EventHandlerMap>>,
+    /// Notification handlers. See `register_notification_handler`.
+    notification_handlers: Arc<RwLock<Vec<NotificationHandlerFn>>>,
     /// Whether the client should operate in application service style mode.
     /// This is low-level functionality. For an high-level API check the
     /// `matrix_sdk_appservice` crate.
     appservice_mode: bool,
+    /// An event that can be listened on to wait for a successful sync. The
+    /// event will only be fired if a sync loop is running. Can be used for
+    /// synchronization, e.g. if we send out a request to create a room, we can
+    /// wait for the sync to get the data to fetch a room object from the state
+    /// store.
+    sync_beat: Arc<event_listener::Event>,
 }
 
 #[cfg(not(tarpaulin_include))]
@@ -559,13 +582,15 @@ impl Client {
             http_client,
             base_client,
             #[cfg(feature = "encryption")]
-            group_session_locks: Arc::new(DashMap::new()),
+            group_session_locks: Default::default(),
             #[cfg(feature = "encryption")]
-            key_claim_lock: Arc::new(Mutex::new(())),
-            members_request_locks: Arc::new(DashMap::new()),
-            typing_notice_times: Arc::new(DashMap::new()),
-            event_handler: Arc::new(RwLock::new(None)),
+            key_claim_lock: Default::default(),
+            members_request_locks: Default::default(),
+            typing_notice_times: Default::default(),
+            event_handlers: Default::default(),
+            notification_handlers: Default::default(),
             appservice_mode: config.appservice_mode,
+            sync_beat: event_listener::Event::new().into(),
         })
     }
 
@@ -629,7 +654,7 @@ impl Client {
         Ok(result)
     }
 
-    async fn discover_homeserver(&self) -> Result<discover_homeserver::Response> {
+    async fn discover_homeserver(&self) -> HttpResult<discover_homeserver::Response> {
         self.send(discover_homeserver::Request::new(), Some(RequestConfig::new().disable_retry()))
             .await
     }
@@ -644,7 +669,7 @@ impl Client {
         *homeserver = homeserver_url;
     }
 
-    async fn get_supported_versions(&self) -> Result<get_supported_versions::Response> {
+    async fn get_supported_versions(&self) -> HttpResult<get_supported_versions::Response> {
         self.send(
             get_supported_versions::Request::new(),
             Some(RequestConfig::new().disable_retry()),
@@ -668,12 +693,7 @@ impl Client {
     ) -> Result<()> {
         let txn_id = incoming_transaction.txn_id.clone();
         let response = incoming_transaction.try_into_sync_response(txn_id)?;
-        let base_client = self.base_client.clone();
-        let sync_response = base_client.receive_sync_response(response).await?;
-
-        if let Some(handler) = self.event_handler.read().await.as_ref() {
-            handler.handle_sync(&sync_response).await;
-        }
+        self.process_sync(response).await?;
 
         Ok(())
     }
@@ -706,6 +726,16 @@ impl Client {
     #[cfg_attr(feature = "docs", doc(cfg(encryption)))]
     pub async fn ed25519_key(&self) -> Option<String> {
         self.base_client.olm_machine().await.map(|o| o.identity_keys().ed25519().to_owned())
+    }
+
+    /// Get all the tracked users we know about
+    ///
+    /// Tracked users are users for which we keep the device list of E2EE
+    /// capable devices up to date.
+    #[cfg(feature = "encryption")]
+    #[cfg_attr(feature = "docs", doc(cfg(encryption)))]
+    pub async fn tracked_users(&self) -> HashSet<UserId> {
+        self.base_client.olm_machine().await.map(|o| o.tracked_users()).unwrap_or_default()
     }
 
     /// Fetches the display name of the owner of the client.
@@ -869,13 +899,125 @@ impl Client {
         Ok(())
     }
 
-    /// Add `EventHandler` to `Client`.
+    /// Register a handler for a specific event type.
     ///
-    /// The methods of `EventHandler` are called when the respective
-    /// `RoomEvents` occur.
-    pub async fn set_event_handler(&self, handler: Box<dyn EventHandler>) {
-        let handler = Handler { inner: handler, client: self.clone() };
-        *self.event_handler.write().await = Some(handler);
+    /// The handler is a function or closure with one or more arguments. The
+    /// first argument is the event itself. All additional arguments are
+    /// "context" arguments: They have to implement [`EventHandlerContext`].
+    /// This trait is named that way because most of the types implementing it
+    /// give additional context about an event: The room it was in, its raw form
+    /// and other similar things. As an exception to this,
+    /// [`Client`] also implements the `EventHandlerContext` trait
+    /// so you don't have to clone your client into the event handler manually.
+    ///
+    /// Some context arguments are not universally applicable. A context
+    /// argument that isn't available for the given event type will result in
+    /// the event handler being skipped and an error being logged. The following
+    /// context argument types are only available for a subset of event types:
+    ///
+    /// * [`Room`][room::Room] is only available for room-specific events, i.e.
+    ///   not for events like global account data events or presence events
+    ///
+    /// [`EventHandlerContext`]: crate::event_handler::EventHandlerContext
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// # let client: matrix_sdk::Client = unimplemented!();
+    /// use matrix_sdk::{
+    ///     room::Room,
+    ///     ruma::{
+    ///         events::{
+    ///             macros::EventContent,
+    ///             push_rules::PushRulesEvent,
+    ///             room::{message::MessageEventContent, topic::TopicEventContent},
+    ///             SyncMessageEvent, SyncStateEvent,
+    ///         },
+    ///         Int, MilliSecondsSinceUnixEpoch,
+    ///     },
+    ///     Client,
+    /// };
+    /// use serde::{Deserialize, Serialize};
+    ///
+    /// # let _ = async {
+    /// client
+    ///     .register_event_handler(
+    ///         |ev: SyncMessageEvent<MessageEventContent>, room: Room, client: Client| async move {
+    ///             // Common usage: Room event plus room and client.
+    ///         },
+    ///     )
+    ///     .await
+    ///     .register_event_handler(|ev: SyncStateEvent<TopicEventContent>| async move {
+    ///         // Also possible: Omit any or all arguments after the first.
+    ///     })
+    ///     .await;
+    ///
+    /// // Custom events work exactly the same way, you just need to declare the content struct and
+    /// // use the EventContent derive macro on it.
+    /// #[derive(Clone, Debug, Deserialize, Serialize, EventContent)]
+    /// #[ruma_event(type = "org.shiny_new_2fa.token", kind = Message)]
+    /// struct TokenEventContent {
+    ///     token: String,
+    ///     #[serde(rename = "exp")]
+    ///     expires_at: MilliSecondsSinceUnixEpoch,
+    /// }
+    ///
+    /// client.register_event_handler(
+    ///     |ev: SyncMessageEvent<TokenEventContent>, room: Room| async move {
+    ///         todo!("Display the token");
+    ///     },
+    /// ).await;
+    /// # };
+    /// ```
+    pub async fn register_event_handler<Ev, Ctx, H>(&self, handler: H) -> &Self
+    where
+        Ev: SyncEvent + DeserializeOwned + Send + 'static,
+        H: EventHandler<Ev, Ctx>,
+        <H::Future as Future>::Output: EventHandlerResult,
+    {
+        let event_type = H::ID.1;
+        self.event_handlers.write().await.entry(H::ID).or_default().push(Box::new(move |data| {
+            let maybe_fut = serde_json::from_str(data.raw.get())
+                .map(|ev| handler.clone().handle_event(ev, data));
+
+            async move {
+                match maybe_fut {
+                    Ok(Some(fut)) => {
+                        fut.await.print_error(event_type);
+                    }
+                    Ok(None) => {
+                        error!("Event handler for {} has an invalid context argument", event_type);
+                    }
+                    Err(e) => {
+                        warn!(
+                            "Failed to deserialize `{}` event, skipping event handler.\n\
+                                 Deserialization error: {}",
+                            event_type, e,
+                        );
+                    }
+                }
+            }
+            .boxed()
+        }));
+
+        self
+    }
+
+    /// Register a handler for a notification.
+    ///
+    /// Similar to `.register_event_handler`, but only allows functions or
+    /// closures with exactly the three arguments `Notification`, `room::Room`,
+    /// `Client` for now.
+    pub async fn register_notification_handler<H, Fut>(&self, handler: H) -> &Self
+    where
+        H: Fn(Notification, room::Room, Client) -> Fut + Send + Sync + 'static,
+        Fut: Future<Output = ()> + Send + 'static,
+    {
+        self.notification_handlers.write().await.push(Box::new(
+            move |notification, room, client| (handler)(notification, room, client).boxed(),
+        ));
+
+        self
     }
 
     /// Get all the rooms the client knows about.
@@ -990,7 +1132,7 @@ impl Client {
     ///
     /// This should be the first step when trying to login so you can call the
     /// appropriate method for the next step.
-    pub async fn get_login_types(&self) -> Result<get_login_types::Response> {
+    pub async fn get_login_types(&self) -> HttpResult<get_login_types::Response> {
         let request = get_login_types::Request::new();
         self.send(request, None).await
     }
@@ -1407,7 +1549,7 @@ impl Client {
     pub async fn register(
         &self,
         registration: impl Into<register::Request<'_>>,
-    ) -> Result<register::Response> {
+    ) -> HttpResult<register::Response> {
         info!("Registering to {}", self.homeserver().await);
 
         let config = if self.appservice_mode {
@@ -1497,7 +1639,7 @@ impl Client {
     /// # Arguments
     ///
     /// * `room_id` - The `RoomId` of the room to be joined.
-    pub async fn join_room_by_id(&self, room_id: &RoomId) -> Result<join_room_by_id::Response> {
+    pub async fn join_room_by_id(&self, room_id: &RoomId) -> HttpResult<join_room_by_id::Response> {
         let request = join_room_by_id::Request::new(room_id);
         self.send(request, None).await
     }
@@ -1515,7 +1657,7 @@ impl Client {
         &self,
         alias: &RoomIdOrAliasId,
         server_names: &[Box<ServerName>],
-    ) -> Result<join_room_by_id_or_alias::Response> {
+    ) -> HttpResult<join_room_by_id_or_alias::Response> {
         let request = assign!(join_room_by_id_or_alias::Request::new(alias), {
             server_name: server_names,
         });
@@ -1558,7 +1700,7 @@ impl Client {
         limit: Option<u32>,
         since: Option<&str>,
         server: Option<&ServerName>,
-    ) -> Result<get_public_rooms::Response> {
+    ) -> HttpResult<get_public_rooms::Response> {
         let limit = limit.map(UInt::from);
 
         let request = assign!(get_public_rooms::Request::new(), {
@@ -1599,7 +1741,7 @@ impl Client {
     pub async fn create_room(
         &self,
         room: impl Into<create_room::Request<'_>>,
-    ) -> Result<create_room::Response> {
+    ) -> HttpResult<create_room::Response> {
         let request = room.into();
         self.send(request, None).await
     }
@@ -1639,7 +1781,7 @@ impl Client {
     pub async fn public_rooms_filtered(
         &self,
         room_search: impl Into<get_public_rooms_filtered::Request<'_>>,
-    ) -> Result<get_public_rooms_filtered::Response> {
+    ) -> HttpResult<get_public_rooms_filtered::Response> {
         let request = room_search.into();
         self.send(request, None).await
     }
@@ -1773,7 +1915,7 @@ impl Client {
             let txn_id = txn_id.unwrap_or_else(Uuid::new_v4).to_string();
             let request = send_message_event::Request::new(room_id, &txn_id, &content);
 
-            self.send(request, None).await
+            Ok(self.send(request, None).await?)
         }
     }
 
@@ -1821,7 +1963,7 @@ impl Client {
         &self,
         request: Request,
         config: Option<RequestConfig>,
-    ) -> Result<Request::IncomingResponse>
+    ) -> HttpResult<Request::IncomingResponse>
     where
         Request: OutgoingRequest + Debug,
         HttpError: From<FromHttpResponseError<Request::EndpointError>>,
@@ -1833,8 +1975,9 @@ impl Client {
     pub(crate) async fn send_to_device(
         &self,
         request: &ToDeviceRequest,
-    ) -> Result<ToDeviceResponse> {
+    ) -> HttpResult<ToDeviceResponse> {
         let txn_id_string = request.txn_id_string();
+
         let request = RumaToDeviceRequest::new_raw(
             request.event_type.as_str(),
             &txn_id_string,
@@ -1867,7 +2010,7 @@ impl Client {
     /// }
     /// # });
     /// ```
-    pub async fn devices(&self) -> Result<get_devices::Response> {
+    pub async fn devices(&self) -> HttpResult<get_devices::Response> {
         let request = get_devices::Request::new();
 
         self.send(request, None).await
@@ -1924,7 +2067,7 @@ impl Client {
         &self,
         devices: &[DeviceIdBox],
         auth_data: Option<AuthData<'_>>,
-    ) -> Result<delete_devices::Response> {
+    ) -> HttpResult<delete_devices::Response> {
         let mut request = delete_devices::Request::new(devices);
         request.auth = auth_data;
 
@@ -1959,13 +2102,91 @@ impl Client {
         );
 
         let response = self.send(request, Some(request_config)).await?;
-        let sync_response = self.base_client.receive_sync_response(response).await?;
+        self.process_sync(response).await
+    }
 
-        if let Some(handler) = self.event_handler.read().await.as_ref() {
-            handler.handle_sync(&sync_response).await;
+    async fn process_sync(&self, response: sync_events::Response) -> Result<SyncResponse> {
+        let response = self.base_client.receive_sync_response(response).await?;
+        let SyncResponse {
+            next_batch: _,
+            rooms,
+            presence,
+            account_data,
+            to_device: _,
+            device_lists: _,
+            device_one_time_keys_count: _,
+            ambiguity_changes: _,
+            notifications,
+        } = &response;
+
+        self.handle_sync_events(EventKind::GlobalAccountData, &None, &account_data.events).await?;
+        self.handle_sync_events(EventKind::Presence, &None, &presence.events).await?;
+
+        for (room_id, room_info) in &rooms.join {
+            let room = self.get_room(room_id);
+            if room.is_none() {
+                error!("Can't call event handler, room {} not found", room_id);
+                continue;
+            }
+
+            let JoinedRoom { unread_notifications: _, timeline, state, account_data, ephemeral } =
+                room_info;
+
+            self.handle_sync_events(EventKind::EphemeralRoomData, &room, &ephemeral.events).await?;
+            self.handle_sync_events(EventKind::RoomAccountData, &room, &account_data.events)
+                .await?;
+            self.handle_sync_state_events(&room, &state.events).await?;
+            self.handle_sync_timeline_events(&room, &timeline.events).await?;
         }
 
-        Ok(sync_response)
+        for (room_id, room_info) in &rooms.leave {
+            let room = self.get_room(room_id);
+            if room.is_none() {
+                error!("Can't call event handler, room {} not found", room_id);
+                continue;
+            }
+
+            let LeftRoom { timeline, state, account_data } = room_info;
+
+            self.handle_sync_events(EventKind::RoomAccountData, &room, &account_data.events)
+                .await?;
+            self.handle_sync_state_events(&room, &state.events).await?;
+            self.handle_sync_timeline_events(&room, &timeline.events).await?;
+        }
+
+        for (room_id, room_info) in &rooms.invite {
+            let room = self.get_room(room_id);
+            if room.is_none() {
+                error!("Can't call event handler, room {} not found", room_id);
+                continue;
+            }
+
+            // FIXME: Destructure room_info
+            self.handle_sync_events(EventKind::InitialState, &room, &room_info.invite_state.events)
+                .await?;
+        }
+
+        for handler in &*self.notification_handlers.read().await {
+            for (room_id, room_notifications) in notifications {
+                let room = match self.get_room(room_id) {
+                    Some(room) => room,
+                    None => {
+                        warn!("Can't call notification handler, room {} not found", room_id);
+                        continue;
+                    }
+                };
+
+                for notification in room_notifications {
+                    matrix_sdk_common::executor::spawn((handler)(
+                        notification.clone(),
+                        room.clone(),
+                        self.clone(),
+                    ));
+                }
+            }
+        }
+
+        Ok(response)
     }
 
     /// Repeatedly call sync to synchronize the client state with the server.
@@ -2153,6 +2374,87 @@ impl Client {
 
             sync_settings.token =
                 Some(self.sync_token().await.expect("No sync token found after initial sync"));
+
+            self.sync_beat.notify(usize::MAX);
+        }
+    }
+
+    #[cfg(feature = "encryption")]
+    #[cfg_attr(feature = "docs", doc(cfg(encryption)))]
+    async fn send_account_data(
+        &self,
+        content: ruma::events::AnyGlobalAccountDataEventContent,
+    ) -> Result<ruma::api::client::r0::config::set_global_account_data::Response> {
+        let own_user =
+            self.user_id().await.ok_or_else(|| Error::from(HttpError::AuthenticationRequired))?;
+        let data = serde_json::value::to_raw_value(&content)?;
+
+        let request = ruma::api::client::r0::config::set_global_account_data::Request::new(
+            &data,
+            ruma::events::EventContent::event_type(&content),
+            &own_user,
+        );
+
+        Ok(self.send(request, None).await?)
+    }
+
+    #[cfg(feature = "encryption")]
+    #[cfg_attr(feature = "docs", doc(cfg(encryption)))]
+    pub(crate) async fn create_dm_room(&self, user_id: UserId) -> Result<Option<room::Joined>> {
+        use ruma::{
+            api::client::r0::room::create_room::RoomPreset,
+            events::AnyGlobalAccountDataEventContent,
+        };
+
+        const SYNC_WAIT_TIME: Duration = Duration::from_secs(3);
+
+        // First we create the DM room, where we invite the user and tell the
+        // invitee that the room should be a DM.
+        let invite = &[user_id.clone()];
+
+        let request = assign!(
+            ruma::api::client::r0::room::create_room::Request::new(),
+            {
+                invite,
+                is_direct: true,
+                preset: Some(RoomPreset::TrustedPrivateChat),
+            }
+        );
+
+        let response = self.send(request, None).await?;
+
+        // Now we need to mark the room as a DM for ourselves, we fetch the
+        // existing `m.direct` event and append the room to the list of DMs we
+        // have with this user.
+        let mut content = self
+            .store()
+            .get_account_data_event(EventType::Direct)
+            .await?
+            .map(|e| e.deserialize())
+            .transpose()?
+            .and_then(|e| {
+                if let AnyGlobalAccountDataEventContent::Direct(c) = e.content() {
+                    Some(c)
+                } else {
+                    None
+                }
+            })
+            .unwrap_or_else(|| ruma::events::direct::DirectEventContent(BTreeMap::new()));
+
+        content.entry(user_id.to_owned()).or_default().push(response.room_id.to_owned());
+
+        // TODO We should probably save the fact that we need to send this out
+        // because otherwise we might end up in a state where we have a DM that
+        // isn't marked as one.
+        self.send_account_data(AnyGlobalAccountDataEventContent::Direct(content)).await?;
+
+        // If the room is already in our store, fetch it, otherwise wait for a
+        // sync to be done which should put the room into our store.
+        if let Some(room) = self.get_joined_room(&response.room_id) {
+            Ok(Some(room))
+        } else {
+            self.sync_beat.listen().wait_timeout(SYNC_WAIT_TIME);
+            Ok(self.get_joined_room(&response.room_id))
         }
     }
 
@@ -2296,7 +2598,7 @@ impl Client {
     ///
     /// println!("{:?}", device.verified());
     ///
-    /// let verification = device.start_verification().await.unwrap();
+    /// let verification = device.request_verification().await.unwrap();
     /// # });
     /// ```
     #[cfg(feature = "encryption")]
@@ -2309,6 +2611,89 @@ impl Client {
         let device = self.base_client.get_device(user_id, device_id).await?;
 
         Ok(device.map(|d| Device { inner: d, client: self.clone() }))
+    }
+
+    /// Get a E2EE identity of an user.
+    ///
+    /// # Arguments
+    ///
+    /// * `user_id` - The unique id of the user that the identity belongs to.
+    ///
+    /// Returns a `UserIdentity` if one is found and the crypto store
+    /// didn't throw an error.
+    ///
+    /// This will always return None if the client hasn't been logged in.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// # use std::convert::TryFrom;
+    /// # use matrix_sdk::{Client, ruma::UserId};
+    /// # use url::Url;
+    /// # use futures::executor::block_on;
+    /// # let alice = UserId::try_from("@alice:example.org").unwrap();
+    /// # let homeserver = Url::parse("http://example.com").unwrap();
+    /// # let client = Client::new(homeserver).unwrap();
+    /// # block_on(async {
+    /// let user = client.get_user_identity(&alice).await?;
+    ///
+    /// if let Some(user) = user {
+    ///     println!("{:?}", user.verified());
+    ///
+    ///     let verification = user.request_verification().await?;
+    /// }
+    /// # anyhow::Result::<()>::Ok(()) });
+    /// ```
+    #[cfg(feature = "encryption")]
+    #[cfg_attr(feature = "docs", doc(cfg(encryption)))]
+    pub async fn get_user_identity(
+        &self,
+        user_id: &UserId,
+    ) -> StdResult<Option<crate::identities::UserIdentity>, CryptoStoreError> {
+        use crate::identities::UserIdentity;
+
+        if let Some(olm) = self.base_client.olm_machine().await {
+            let identity = olm.get_identity(user_id).await?;
+
+            Ok(identity.map(|i| match i {
+                matrix_sdk_base::crypto::UserIdentities::Own(i) => {
+                    UserIdentity::new_own(self.clone(), i)
+                }
+                matrix_sdk_base::crypto::UserIdentities::Other(i) => {
+                    UserIdentity::new(self.clone(), i, self.get_dm_room(user_id))
+                }
+            }))
+        } else {
+            Ok(None)
+        }
+    }
+
+    /// Get the status of the private cross signing keys.
+    ///
+    /// This can be used to check which private cross signing keys we have
+    /// stored locally.
+    #[cfg(feature = "encryption")]
+    #[cfg_attr(feature = "docs", doc(cfg(encryption)))]
+    pub async fn cross_signing_status(&self) -> Option<CrossSigningStatus> {
+        if let Some(machine) = self.base_client.olm_machine().await {
+            Some(machine.cross_signing_status().await)
+        } else {
+            None
+        }
+    }
+
+    #[cfg(feature = "encryption")]
+    #[cfg_attr(feature = "docs", doc(cfg(encryption)))]
+    fn get_dm_room(&self, user_id: &UserId) -> Option<room::Joined> {
+        let rooms = self.joined_rooms();
+        let room_pairs: Vec<_> =
+            rooms.iter().map(|r| (r.room_id().to_owned(), r.direct_target())).collect();
+        trace!(rooms =? room_pairs, "Finding direct room");
+
+        let room = rooms.into_iter().find(|r| r.direct_target().as_ref() == Some(user_id));
+
+        trace!(room =? room, "Found room");
+        room
     }
 
     /// Create and upload a new cross signing identity.
@@ -2741,7 +3126,7 @@ impl Client {
     }
 
     /// Gets information about the owner of a given access token.
-    pub async fn whoami(&self) -> Result<whoami::Response> {
+    pub async fn whoami(&self) -> HttpResult<whoami::Response> {
         let request = whoami::Request::new();
         self.send(request, None).await
     }
@@ -2769,8 +3154,10 @@ mod test {
     use std::{
         collections::BTreeMap,
         convert::{TryFrom, TryInto},
+        future,
         io::Cursor,
         str::FromStr,
+        sync::Arc,
         time::Duration,
     };
 
@@ -2800,17 +3187,18 @@ mod test {
         event_id,
         events::{
             room::{
+                member::MemberEventContent,
                 message::{ImageMessageEventContent, MessageEventContent},
                 ImageInfo,
             },
-            AnyMessageEventContent, AnySyncStateEvent, EventType,
+            AnyMessageEventContent, AnySyncStateEvent, EventType, SyncStateEvent,
         },
         mxc_uri, room_id, thirdparty, uint, user_id, UserId,
     };
     use serde_json::json;
 
     use super::{Client, Session, SyncSettings, Url};
-    use crate::{ClientConfig, HttpError, RequestConfig, RoomMember};
+    use crate::{room, ClientConfig, HttpError, RequestConfig, RoomMember};
 
     async fn logged_in_client() -> Client {
         let session = Session {
@@ -3071,6 +3459,56 @@ mod test {
     }
 
     #[tokio::test]
+    async fn event_handler() {
+        use std::sync::atomic::{AtomicU8, Ordering::SeqCst};
+
+        let client = logged_in_client().await;
+
+        let member_count = Arc::new(AtomicU8::new(0));
+        let typing_count = Arc::new(AtomicU8::new(0));
+        let power_levels_count = Arc::new(AtomicU8::new(0));
+
+        client
+            .register_event_handler({
+                let member_count = member_count.clone();
+                move |_ev: SyncStateEvent<MemberEventContent>, _room: room::Room| {
+                    member_count.fetch_add(1, SeqCst);
+                    future::ready(())
+                }
+            })
+            .await
+            .register_event_handler({
+                let typing_count = typing_count.clone();
+                move |_ev: SyncStateEvent<MemberEventContent>| {
+                    typing_count.fetch_add(1, SeqCst);
+                    future::ready(())
+                }
+            })
+            .await
+            .register_event_handler({
+                let power_levels_count = power_levels_count.clone();
+                move |_ev: SyncStateEvent<MemberEventContent>,
+                      _client: Client,
+                      _room: room::Room| {
+                    power_levels_count.fetch_add(1, SeqCst);
+                    future::ready(())
+                }
+            })
+            .await;
+
+        let response = EventBuilder::default()
+            .add_room_event(EventsJson::Member)
+            .add_ephemeral(EventsJson::Typing)
+            .add_state_event(EventsJson::PowerLevels)
+            .build_sync_response();
+        client.process_sync(response).await.unwrap();
+
+        assert_eq!(member_count.load(SeqCst), 1);
+        assert_eq!(typing_count.load(SeqCst), 1);
+        assert_eq!(power_levels_count.load(SeqCst), 1);
+    }
+
+    #[tokio::test]
     async fn room_creation() {
         let client = logged_in_client().await;
 
@@ -3137,12 +3575,8 @@ mod test {
         });
 
         if let Err(err) = client.register(user).await {
-            if let crate::Error::Http(HttpError::UiaaError(FromHttpResponseError::Http(
-                ServerError::Known(UiaaResponse::MatrixError(client_api::Error {
-                    kind,
-                    message,
-                    status_code,
-                })),
+            if let HttpError::UiaaError(FromHttpResponseError::Http(ServerError::Known(
+                UiaaResponse::MatrixError(client_api::Error { kind, message, status_code }),
             ))) = err
             {
                 if let client_api::error::ErrorKind::Forbidden = kind {

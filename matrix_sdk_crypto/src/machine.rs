@@ -14,7 +14,11 @@
 
 #[cfg(feature = "sled_cryptostore")]
 use std::path::Path;
-use std::{collections::BTreeMap, mem, sync::Arc};
+use std::{
+    collections::{BTreeMap, HashSet},
+    mem,
+    sync::Arc,
+};
 
 use dashmap::DashMap;
 use matrix_sdk_common::{
@@ -291,6 +295,11 @@ impl OlmMachine {
     /// Get the display name of our own device
     pub async fn dislpay_name(&self) -> StoreResult<Option<String>> {
         self.store.device_display_name().await
+    }
+
+    /// Get all the tracked users we know about
+    pub fn tracked_users(&self) -> HashSet<UserId> {
+        self.store.tracked_users()
     }
 
     /// Get the outgoing requests that need to be sent out.

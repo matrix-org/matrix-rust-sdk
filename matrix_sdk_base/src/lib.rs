@@ -15,7 +15,7 @@
 
 //! This crate implements a [Matrix](https://matrix.org/) client library.
 //!
-//! ##  Crate Feature Flags
+//! ## Crate Feature Flags
 //!
 //! The following crate feature flags are available:
 //!
@@ -50,9 +50,7 @@ mod rooms;
 mod session;
 mod store;
 
-pub use client::{
-    hoist_and_deserialize_state_event, hoist_room_event_prev_content, BaseClient, BaseClientConfig,
-};
+pub use client::{BaseClient, BaseClientConfig};
 #[cfg(feature = "encryption")]
 #[cfg_attr(feature = "docs", doc(cfg(encryption)))]
 pub use matrix_sdk_crypto as crypto;

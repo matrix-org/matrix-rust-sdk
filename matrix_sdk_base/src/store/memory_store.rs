@@ -66,30 +66,32 @@ pub struct MemoryStore {
     room_event_receipts:
         Arc<DashMap<RoomId, DashMap<String, DashMap<EventId, DashMap<UserId, Receipt>>>>>,
     media: Arc<Mutex<LruCache<String, Vec<u8>>>>,
+    custom: Arc<DashMap<Vec<u8>, Vec<u8>>>,
 }
 
 impl MemoryStore {
     #[allow(dead_code)]
     pub fn new() -> Self {
         Self {
-            sync_token: Arc::new(RwLock::new(None)),
-            filters: DashMap::new().into(),
-            account_data: DashMap::new().into(),
-            members: DashMap::new().into(),
-            profiles: DashMap::new().into(),
-            display_names: DashMap::new().into(),
-            joined_user_ids: DashMap::new().into(),
-            invited_user_ids: DashMap::new().into(),
-            room_info: DashMap::new().into(),
-            room_state: DashMap::new().into(),
-            room_account_data: DashMap::new().into(),
-            stripped_room_info: DashMap::new().into(),
-            stripped_room_state: DashMap::new().into(),
-            stripped_members: DashMap::new().into(),
-            presence: DashMap::new().into(),
-            room_user_receipts: DashMap::new().into(),
-            room_event_receipts: DashMap::new().into(),
+            sync_token: Default::default(),
+            filters: Default::default(),
+            account_data: Default::default(),
+            members: Default::default(),
+            profiles: Default::default(),
+            display_names: Default::default(),
+            joined_user_ids: Default::default(),
+            invited_user_ids: Default::default(),
+            room_info: Default::default(),
+            room_state: Default::default(),
+            room_account_data: Default::default(),
+            stripped_room_info: Default::default(),
+            stripped_room_state: Default::default(),
+            stripped_members: Default::default(),
+            presence: Default::default(),
+            room_user_receipts: Default::default(),
+            room_event_receipts: Default::default(),
             media: Arc::new(Mutex::new(LruCache::new(100))),
+            custom: DashMap::new().into(),
         }
     }
 
@@ -407,6 +409,14 @@ impl MemoryStore {
             .unwrap_or_else(Vec::new))
     }
 
+    async fn get_custom_value(&self, key: &[u8]) -> Result<Option<Vec<u8>>> {
+        Ok(self.custom.get(key).map(|e| e.value().clone()))
+    }
+
+    async fn set_custom_value(&self, key: &[u8], value: Vec<u8>) -> Result<Option<Vec<u8>>> {
+        Ok(self.custom.insert(key.to_vec(), value))
+    }
+
     async fn add_media_content(&self, request: &MediaRequest, data: Vec<u8>) -> Result<()> {
         self.media.lock().await.put(request.unique_key(), data);
 
@@ -561,6 +571,14 @@ impl StateStore for MemoryStore {
         event_id: &EventId,
     ) -> Result<Vec<(UserId, Receipt)>> {
         self.get_event_room_receipt_events(room_id, receipt_type, event_id).await
+    }
+
+    async fn get_custom_value(&self, key: &[u8]) -> Result<Option<Vec<u8>>> {
+        self.get_custom_value(key).await
+    }
+
+    async fn set_custom_value(&self, key: &[u8], value: Vec<u8>) -> Result<Option<Vec<u8>>> {
+        self.set_custom_value(key, value).await
     }
 
     async fn add_media_content(&self, request: &MediaRequest, data: Vec<u8>) -> Result<()> {

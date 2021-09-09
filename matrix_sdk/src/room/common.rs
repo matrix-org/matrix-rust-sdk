@@ -14,6 +14,7 @@ use ruma::{
 };
 
 use crate::{
+    error::HttpResult,
     media::{MediaFormat, MediaRequest, MediaType},
     room::RoomType,
     BaseRoom, Client, Result, RoomMember,
@@ -143,7 +144,7 @@ impl Common {
     pub async fn messages(
         &self,
         request: impl Into<get_message_events::Request<'_>>,
-    ) -> Result<get_message_events::Response> {
+    ) -> HttpResult<get_message_events::Response> {
         let request = request.into();
         self.client.send(request, None).await
     }
@@ -375,5 +376,26 @@ impl Common {
             .get_state_event(self.room_id(), event_type, state_key)
             .await
             .map_err(Into::into)
+    }
+
+    /// Check if all members of this room are verified and all their devices are
+    /// verified.
+    ///
+    /// Returns true if all devices in the room are verified, otherwise false.
+    #[cfg(feature = "encryption")]
+    #[cfg_attr(feature = "docs", doc(cfg(encryption)))]
+    pub async fn contains_only_verified_devices(&self) -> Result<bool> {
+        let user_ids = self.client.store().get_user_ids(self.room_id()).await?;
+
+        for user_id in user_ids {
+            let devices = self.client.get_user_devices(&user_id).await?;
+            let any_unverified = devices.devices().any(|d| !d.verified());
+
+            if any_unverified {
+                return Ok(false);
+            }
+        }
+
+        Ok(true)
     }
 }

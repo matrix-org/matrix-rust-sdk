@@ -8,7 +8,17 @@ name = "matrix-sdk-appservice"
 version = "0.1.0"
 
 [features]
-default = ["warp"]
+default = ["warp", "native-tls"]
+
+encryption = ["matrix-sdk/encryption"]
+sled_state_store = ["matrix-sdk/sled_state_store"]
+sled_cryptostore = ["matrix-sdk/sled_cryptostore"]
+markdown = ["matrix-sdk/markdown"]
+native-tls = ["matrix-sdk/native-tls"]
+rustls-tls = ["matrix-sdk/rustls-tls"]
+socks = ["matrix-sdk/socks"]
+sso_login = ["matrix-sdk/sso_login"]
+require_auth_for_profile_requests = ["matrix-sdk/require_auth_for_profile_requests"]
 
 docs = ["warp"]
 
@@ -26,7 +36,7 @@ tracing = "0.1"
 url = "2"
 warp = { git = "https://github.com/seanmonstar/warp.git", rev = "629405", optional = true, default-features = false }
 
-matrix-sdk = { version = "0.3", path = "../matrix_sdk", default-features = false, features = ["appservice", "native-tls"] }
+matrix-sdk = { version = "0.3", path = "../matrix_sdk", default-features = false, features = ["appservice"] }
 
 [dependencies.ruma]
 version = "0.3.0"

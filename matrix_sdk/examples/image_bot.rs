@@ -8,56 +8,46 @@ use std::{
 };
 
 use matrix_sdk::{
-    self, async_trait,
+    self,
     room::Room,
     ruma::events::{
         room::message::{MessageEventContent, MessageType, TextMessageEventContent},
         SyncMessageEvent,
     },
-    Client, EventHandler, SyncSettings,
+    Client, SyncSettings,
 };
 use tokio::sync::Mutex;
 use url::Url;
 
-struct ImageBot {
+async fn on_room_message(
+    event: SyncMessageEvent<MessageEventContent>,
+    room: Room,
     image: Arc<Mutex<File>>,
-}
+) {
+    if let Room::Joined(room) = room {
+        let msg_body = if let SyncMessageEvent {
+            content:
+                MessageEventContent {
+                    msgtype: MessageType::Text(TextMessageEventContent { body: msg_body, .. }),
+                    ..
+                },
+            ..
+        } = event
+        {
+            msg_body
+        } else {
+            return;
+        };
 
-impl ImageBot {
-    pub fn new(image: File) -> Self {
-        let image = Arc::new(Mutex::new(image));
-        Self { image }
-    }
-}
+        if msg_body.contains("!image") {
+            println!("sending image");
+            let mut image = image.lock().await;
 
-#[async_trait]
-impl EventHandler for ImageBot {
-    async fn on_room_message(&self, room: Room, event: &SyncMessageEvent<MessageEventContent>) {
-        if let Room::Joined(room) = room {
-            let msg_body = if let SyncMessageEvent {
-                content:
-                    MessageEventContent {
-                        msgtype: MessageType::Text(TextMessageEventContent { body: msg_body, .. }),
-                        ..
-                    },
-                ..
-            } = event
-            {
-                msg_body
-            } else {
-                return;
-            };
+            room.send_attachment("cat", &mime::IMAGE_JPEG, &mut *image, None).await.unwrap();
 
-            if msg_body.contains("!image") {
-                println!("sending image");
-                let mut image = self.image.lock().await;
+            image.seek(SeekFrom::Start(0)).unwrap();
 
-                room.send_attachment("cat", &mime::IMAGE_JPEG, &mut *image, None).await.unwrap();
-
-                image.seek(SeekFrom::Start(0)).unwrap();
-
-                println!("message sent");
-            }
+            println!("message sent");
         }
     }
 }
@@ -74,7 +64,9 @@ async fn login_and_sync(
     client.login(&username, &password, None, Some("command bot")).await?;
 
     client.sync_once(SyncSettings::default()).await.unwrap();
-    client.set_event_handler(Box::new(ImageBot::new(image))).await;
+
+    let image = Arc::new(Mutex::new(image));
+    client.register_event_handler(move |ev, room| on_room_message(ev, room, image.clone())).await;
 
     let settings = SyncSettings::default().token(client.sync_token().await.unwrap());
     client.sync(settings).await;
