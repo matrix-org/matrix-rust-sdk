@@ -57,7 +57,7 @@ indoc = "1.0.3"
 criterion = { version = "0.3.4", features = ["async", "async_tokio", "html_reports"] }
 
 [target.'cfg(target_os = "linux")'.dev-dependencies]
-pprof = { version = "0.4.3", features = ["flamegraph"] }
+pprof = { version = "0.5.0", features = ["flamegraph", "criterion"] }
 
 [[bench]]
 name = "crypto_bench"
