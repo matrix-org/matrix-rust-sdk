@@ -1,14 +1,46 @@
-[![Build Status](https://img.shields.io/travis/matrix-org/matrix-rust-sdk.svg?style=flat-square)](https://travis-ci.org/matrix-org/matrix-rust-sdk)
-[![codecov](https://img.shields.io/codecov/c/github/matrix-org/matrix-rust-sdk/master.svg?style=flat-square)](https://codecov.io/gh/matrix-org/matrix-rust-sdk)
-[![License](https://img.shields.io/badge/License-Apache%202.0-yellowgreen.svg?style=flat-square)](https://opensource.org/licenses/Apache-2.0)
-[![#matrix-rust-sdk](https://img.shields.io/badge/matrix-%23matrix--rust--sdk-blue?style=flat-square)](https://matrix.to/#/#matrix-rust-sdk:matrix.org)
+A no-io implementation of a state machine that handles E2EE for [Matrix] clients.
 
-# matrix-sdk-crypto
+# Usage
 
-**matrix-rust-sdk** is an implementation of a [Matrix][] client-server library in [Rust][].
+This is probably not the crate you are looking for, it’s used internally in the [matrix-sdk].
 
-**NOTE:** This is a E2EE implementation for Matrix, you are probably interested in the main
-[rust-sdk](https://github.com/matrix-org/matrix-rust-sdk/) crate.
+If you're still interested in this crate it can be used to introduce E2EE
+support into your client or client library.
+
+The state machine works in a push/pull manner, you push state changes and events
+that we receive from a sync response from the server, and we pull requests that
+we need to send to the server out of the state machine.
+
+```rust,no_run
+use std::{collections::BTreeMap, convert::TryFrom};
+
+use matrix_sdk_crypto::{OlmMachine, OlmError};
+use ruma::{UserId, api::client::r0::sync::sync_events::{ToDevice, DeviceLists}};
+
+#[tokio::main]
+async fn main() -> Result<(), OlmError> {
+    let alice = UserId::try_from("@alice:example.org").unwrap();
+    let machine = OlmMachine::new(&alice, "DEVICEID".into());
+
+    let to_device_events = ToDevice::default();
+    let changed_devices = DeviceLists::default();
+    let one_time_key_counts = BTreeMap::default();
+
+    // Push changes that the server sent to us in a sync response.
+    let decrypted_to_device = machine.receive_sync_changes(
+        to_device_events,
+        &changed_devices,
+        &one_time_key_counts
+    ).await?;
+
+    // Pull requests that we need to send out.
+    let outgoing_requests = machine.outgoing_requests().await?;
+
+    // Send the requests here out and call machine.mark_request_as_sent().
+
+    Ok(())
+}
+```
 
 [Matrix]: https://matrix.org/
-[Rust]: https://www.rust-lang.org/
+[matrix-sdk]: https://github.com/matrix-org/matrix-rust-sdk/
