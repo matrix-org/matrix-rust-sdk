@@ -1,28 +1,16 @@
-[![Build Status](https://img.shields.io/travis/matrix-org/matrix-rust-sdk.svg?style=flat-square)](https://travis-ci.org/matrix-org/matrix-rust-sdk)
-[![codecov](https://img.shields.io/codecov/c/github/matrix-org/matrix-rust-sdk/master.svg?style=flat-square)](https://codecov.io/gh/matrix-org/matrix-rust-sdk)
-[![License](https://img.shields.io/badge/License-Apache%202.0-yellowgreen.svg?style=flat-square)](https://opensource.org/licenses/Apache-2.0)
-[![#matrix-rust-sdk](https://img.shields.io/badge/matrix-%23matrix--rust--sdk-blue?style=flat-square)](https://matrix.to/#/#matrix-rust-sdk:matrix.org)
-
-# matrix-qrcode
-
 **matrix-qrcode** is a crate to easily generate and parse QR codes for
 interactive verification using [QR codes] in Matrix.
-
-[Matrix]: https://matrix.org/
-[Rust]: https://www.rust-lang.org/
-[QR codes]: https://spec.matrix.org/unstable/client-server-api/#qr-codes
 
 ## Usage
 
 This is probably not the crate you are looking for, it's used internally in the
-matrix-rust-sdk.
+[matrix-sdk].
 
 If you still want to play with QR codes, here are a couple of helpful examples.
 
-
 ### Decode an image
 
-```rust
+```rust,no_run
 use image;
 use matrix_qrcode::{QrVerificationData, DecodingError};
 
@@ -36,7 +24,7 @@ fn main() -> Result<(), DecodingError> {
 
 ### Encode into a QR code
 
-```rust
+```rust,no_run
 use matrix_qrcode::{QrVerificationData, DecodingError};
 use image::Luma;
 
@@ -56,7 +44,5 @@ fn main() -> Result<(), DecodingError> {
 }
 ```
 
-
-## License
-
-[Apache-2.0](https://www.apache.org/licenses/LICENSE-2.0)
+[matrix-sdk]: https://github.com/matrix-org/matrix-rust-sdk/
+[QR codes]: https://spec.matrix.org/unstable/client-server-api/#qr-codes
