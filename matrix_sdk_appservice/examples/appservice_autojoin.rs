@@ -2,7 +2,6 @@ use std::{convert::TryFrom, env};
 
 use matrix_sdk_appservice::{
     matrix_sdk::{
-        async_trait,
         room::Room,
         ruma::{
             events::{
@@ -11,51 +10,27 @@ use matrix_sdk_appservice::{
             },
             UserId,
         },
-        EventHandler,
     },
-    AppService, AppServiceRegistration,
+    AppService, AppServiceRegistration, Result,
 };
-use tracing::{error, trace};
+use tracing::trace;
 
-struct AppServiceEventHandler {
+pub async fn handle_room_member(
     appservice: AppService,
-}
+    room: Room,
+    event: SyncStateEvent<MemberEventContent>,
+) -> Result<()> {
+    if !appservice.user_id_is_in_namespace(&event.state_key)? {
+        trace!("not an appservice user: {}", event.state_key);
+    } else if let MembershipState::Invite = event.content.membership {
+        let user_id = UserId::try_from(event.state_key.as_str())?;
+        appservice.register_virtual_user(user_id.localpart()).await?;
 
-impl AppServiceEventHandler {
-    pub fn new(appservice: AppService) -> Self {
-        Self { appservice }
+        let client = appservice.virtual_user_client(user_id.localpart()).await?;
+        client.join_room_by_id(room.room_id()).await?;
     }
 
-    pub async fn handle_room_member(
-        &self,
-        room: Room,
-        event: &SyncStateEvent<MemberEventContent>,
-    ) -> Result<(), Box<dyn std::error::Error>> {
-        if !self.appservice.user_id_is_in_namespace(&event.state_key)? {
-            trace!("not an appservice user: {}", event.state_key);
-        } else if let MembershipState::Invite = event.content.membership {
-            let user_id = UserId::try_from(event.state_key.clone())?;
-
-            let appservice = self.appservice.clone();
-            appservice.register_virtual_user(user_id.localpart()).await?;
-
-            let client = appservice.virtual_user_client(user_id.localpart()).await?;
-
-            client.join_room_by_id(room.room_id()).await?;
-        }
-
-        Ok(())
-    }
-}
-
-#[async_trait]
-impl EventHandler for AppServiceEventHandler {
-    async fn on_room_member(&self, room: Room, event: &SyncStateEvent<MemberEventContent>) {
-        match self.handle_room_member(room, event).await {
-            Ok(_) => (),
-            Err(error) => error!("{:?}", error),
-        }
-    }
+    Ok(())
 }
 
 #[tokio::main]
@@ -68,7 +43,14 @@ pub async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let registration = AppServiceRegistration::try_from_yaml_file("./tests/registration.yaml")?;
 
     let mut appservice = AppService::new(homeserver_url, server_name, registration).await?;
-    appservice.set_event_handler(Box::new(AppServiceEventHandler::new(appservice.clone()))).await?;
+    appservice
+        .register_event_handler({
+            let appservice = appservice.clone();
+            move |event: SyncStateEvent<MemberEventContent>, room: Room| {
+                handle_room_member(appservice.clone(), room, event)
+            }
+        })
+        .await?;
 
     let (host, port) = appservice.registration().get_host_and_port()?;
     appservice.run(host, port).await?;

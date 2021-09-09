@@ -76,8 +76,8 @@ impl GossipMachine {
             device_id,
             store,
             outbound_group_sessions,
-            outgoing_requests: DashMap::new().into(),
-            incoming_key_requests: DashMap::new().into(),
+            outgoing_requests: Default::default(),
+            incoming_key_requests: Default::default(),
             wait_queue: WaitQueue::new(),
             users_for_key_claim,
         }

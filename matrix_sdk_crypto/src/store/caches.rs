@@ -37,7 +37,7 @@ pub struct SessionStore {
 impl SessionStore {
     /// Create a new empty Session store.
     pub fn new() -> Self {
-        SessionStore { entries: Arc::new(DashMap::new()) }
+        Self::default()
     }
 
     /// Add a session to the store.
@@ -82,7 +82,7 @@ pub struct GroupSessionStore {
 impl GroupSessionStore {
     /// Create a new empty store.
     pub fn new() -> Self {
-        GroupSessionStore { entries: Arc::new(DashMap::new()) }
+        Self::default()
     }
 
     /// Add an inbound group session to the store.
@@ -141,7 +141,7 @@ pub struct DeviceStore {
 impl DeviceStore {
     /// Create a new empty device store.
     pub fn new() -> Self {
-        DeviceStore { entries: Arc::new(DashMap::new()) }
+        Self::default()
     }
 
     /// Add a device to the store.

@@ -310,15 +310,12 @@ pub struct Store {
 
 impl Store {
     fn new(inner: Box<dyn StateStore>) -> Self {
-        let session = Arc::new(RwLock::new(None));
-        let sync_token = Arc::new(RwLock::new(None));
-
         Self {
             inner: inner.into(),
-            session,
-            sync_token,
-            rooms: DashMap::new().into(),
-            stripped_rooms: DashMap::new().into(),
+            session: Default::default(),
+            sync_token: Default::default(),
+            rooms: Default::default(),
+            stripped_rooms: Default::default(),
         }
     }
 

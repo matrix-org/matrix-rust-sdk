@@ -1,13 +1,14 @@
-use std::sync::{Arc, Mutex};
+use std::{
+    future,
+    sync::{Arc, Mutex},
+};
 
 use matrix_sdk::{
-    async_trait,
-    room::Room,
     ruma::{
         api::appservice::Registration,
         events::{room::member::MemberEventContent, SyncStateEvent},
     },
-    ClientConfig, EventHandler, RequestConfig,
+    ClientConfig, RequestConfig,
 };
 use matrix_sdk_appservice::*;
 use matrix_sdk_test::{appservice::TransactionBuilder, async_test, EventsJson};
@@ -203,28 +204,17 @@ async fn test_no_access_token() -> Result<()> {
 async fn test_event_handler() -> Result<()> {
     let mut appservice = appservice(None).await?;
 
-    #[derive(Clone)]
-    struct Example {
-        pub on_state_member: Arc<Mutex<bool>>,
-    }
-
-    impl Example {
-        pub fn new() -> Self {
-            #[allow(clippy::mutex_atomic)]
-            Self { on_state_member: Arc::new(Mutex::new(false)) }
-        }
-    }
-
-    #[async_trait]
-    impl EventHandler for Example {
-        async fn on_room_member(&self, _: Room, _: &SyncStateEvent<MemberEventContent>) {
-            let on_state_member = self.on_state_member.clone();
-            *on_state_member.lock().unwrap() = true;
-        }
-    }
-
-    let example = Example::new();
-    appservice.set_event_handler(Box::new(example.clone())).await?;
+    #[allow(clippy::mutex_atomic)]
+    let on_state_member = Arc::new(Mutex::new(false));
+    appservice
+        .register_event_handler({
+            let on_state_member = on_state_member.clone();
+            move |_ev: SyncStateEvent<MemberEventContent>| {
+                *on_state_member.lock().unwrap() = true;
+                future::ready(())
+            }
+        })
+        .await?;
 
     let uri = "/_matrix/app/v1/transactions/1?access_token=hs_token";
 
@@ -241,7 +231,7 @@ async fn test_event_handler() -> Result<()> {
         .await
         .unwrap();
 
-    let on_room_member_called = *example.on_state_member.lock().unwrap();
+    let on_room_member_called = *on_state_member.lock().unwrap();
     assert!(on_room_member_called);
 
     Ok(())

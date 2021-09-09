@@ -39,23 +39,24 @@
 //! The following crate feature flags are available:
 //!
 //! * `encryption`: Enables end-to-end encryption support in the library.
-//! * `sled_cryptostore`: Enables a Sled based store for the encryption
-//! keys. If this is disabled and `encryption` support is enabled the keys will
-//! by default be stored only in memory and thus lost after the client is
-//! destroyed.
+//! * `sled_cryptostore`: Enables a Sled based store for the encryption keys. If
+//!   this is disabled and `encryption` support is enabled the keys will by
+//!   default be stored only in memory and thus lost after the client is
+//!   destroyed.
 //! * `markdown`: Support for sending markdown formatted messages.
 //! * `socks`: Enables SOCKS support in reqwest, the default HTTP client.
 //! * `sso_login`: Enables SSO login with a local http server.
 //! * `require_auth_for_profile_requests`: Whether to send the access token in
-//!   the authentication
-//! header when calling endpoints that retrieve profile data. This matches the
-//! synapse configuration `require_auth_for_profile_requests`. Enabled by
-//! default.
+//!   the authentication header when calling endpoints that retrieve profile
+//!   data. This matches the synapse configuration
+//!   `require_auth_for_profile_requests`. Enabled by default.
 //! * `appservice`: Enables low-level appservice functionality. For an
 //!   high-level API there's the `matrix-sdk-appservice` crate
+//! * `anyhow`: Support for returning `anyhow::Result<()>` from event handlers.
 
 #![deny(
     missing_debug_implementations,
+    missing_docs,
     dead_code,
     missing_docs,
     trivial_casts,
@@ -90,7 +91,7 @@ pub use ruma;
 
 mod client;
 mod error;
-mod event_handler;
+pub mod event_handler;
 mod http_client;
 /// High-level room API
 pub mod room;
@@ -107,7 +108,6 @@ pub use client::{Client, ClientConfig, LoopCtrl, RequestConfig, SyncSettings};
 #[cfg_attr(feature = "docs", doc(cfg(encryption)))]
 pub use device::Device;
 pub use error::{Error, HttpError, Result};
-pub use event_handler::{CustomEvent, EventHandler};
 pub use http_client::HttpSend;
 pub use room_member::RoomMember;
 #[cfg(not(target_arch = "wasm32"))]
