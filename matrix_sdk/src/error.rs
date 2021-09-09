@@ -40,6 +40,9 @@ use url::ParseError as UrlParseError;
 /// Result type of the rust-sdk.
 pub type Result<T> = std::result::Result<T, Error>;
 
+/// Result type of a pure HTTP request.
+pub type HttpResult<T> = std::result::Result<T, HttpError>;
+
 /// An HTTP error, representing either a connection error or an error while
 /// converting the raw HTTP response into a Matrix response.
 #[derive(Error, Debug)]
@@ -180,6 +183,30 @@ pub enum RoomKeyImportError {
     /// An error occurred while importing the key export.
     #[error(transparent)]
     Export(#[from] KeyExportError),
+}
+
+impl HttpError {
+    /// Try to destructure the error into an universal interactive auth info.
+    ///
+    /// Some requests require universal interactive auth, doing such a request
+    /// will always fail the first time with a 401 status code, the response
+    /// body will contain info how the client can authenticate.
+    ///
+    /// The request will need to be retried, this time containing additional
+    /// authentication data.
+    ///
+    /// This method is an convenience method to get to the info the server
+    /// returned on the first, failed request.
+    pub fn uiaa_response(&self) -> Option<&UiaaInfo> {
+        if let HttpError::UiaaError(FromHttpResponseError::Http(ServerError::Known(
+            UiaaError::AuthResponse(i),
+        ))) = self
+        {
+            Some(i)
+        } else {
+            None
+        }
+    }
 }
 
 impl Error {

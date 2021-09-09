@@ -94,7 +94,7 @@ use matrix_sdk::{
     bytes::Bytes,
     event_handler::{EventHandler, EventHandlerResult, SyncEvent},
     reqwest::Url,
-    Client, ClientConfig, HttpError, Session,
+    Client, ClientConfig, Session,
 };
 use regex::Regex;
 use ruma::{
@@ -402,9 +402,9 @@ impl AppService {
         match client.register(request).await {
             Ok(_) => (),
             Err(error) => match error {
-                matrix_sdk::Error::Http(HttpError::UiaaError(FromHttpResponseError::Http(
+                matrix_sdk::HttpError::UiaaError(FromHttpResponseError::Http(
                     ServerError::Known(UiaaResponse::MatrixError(ref matrix_error)),
-                ))) => {
+                )) => {
                     match matrix_error.kind {
                         ErrorKind::UserInUse => {
                             // TODO: persist the fact that we registered that user

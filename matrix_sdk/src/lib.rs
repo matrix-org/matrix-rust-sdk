@@ -107,7 +107,7 @@ pub use client::{Client, ClientConfig, LoopCtrl, RequestConfig, SyncSettings};
 #[cfg(feature = "encryption")]
 #[cfg_attr(feature = "docs", doc(cfg(encryption)))]
 pub use device::Device;
-pub use error::{Error, HttpError, Result};
+pub use error::{Error, HttpError, HttpResult, Result};
 pub use http_client::HttpSend;
 pub use room_member::RoomMember;
 #[cfg(not(target_arch = "wasm32"))]

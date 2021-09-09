@@ -87,3 +87,9 @@ impl From<warp::Rejection> for Error {
         Self::WarpRejection(format!("{:?}", rejection))
     }
 }
+
+impl From<matrix_sdk::HttpError> for Error {
+    fn from(e: matrix_sdk::HttpError) -> Self {
+        matrix_sdk::Error::from(e).into()
+    }
+}

@@ -145,7 +145,7 @@ use crate::{
     verification::{QrVerification, SasVerification, Verification, VerificationRequest},
 };
 use crate::{
-    error::HttpError,
+    error::{HttpError, HttpResult},
     event_handler::{EventHandler, EventHandlerData, EventHandlerResult, EventKind, SyncEvent},
     http_client::{client_with_config, HttpClient, HttpSend},
     room, Error, Result,
@@ -645,7 +645,7 @@ impl Client {
         Ok(result)
     }
 
-    async fn discover_homeserver(&self) -> Result<discover_homeserver::Response> {
+    async fn discover_homeserver(&self) -> HttpResult<discover_homeserver::Response> {
         self.send(discover_homeserver::Request::new(), Some(RequestConfig::new().disable_retry()))
             .await
     }
@@ -660,7 +660,7 @@ impl Client {
         *homeserver = homeserver_url;
     }
 
-    async fn get_supported_versions(&self) -> Result<get_supported_versions::Response> {
+    async fn get_supported_versions(&self) -> HttpResult<get_supported_versions::Response> {
         self.send(
             get_supported_versions::Request::new(),
             Some(RequestConfig::new().disable_retry()),
@@ -1123,7 +1123,7 @@ impl Client {
     ///
     /// This should be the first step when trying to login so you can call the
     /// appropriate method for the next step.
-    pub async fn get_login_types(&self) -> Result<get_login_types::Response> {
+    pub async fn get_login_types(&self) -> HttpResult<get_login_types::Response> {
         let request = get_login_types::Request::new();
         self.send(request, None).await
     }
@@ -1540,7 +1540,7 @@ impl Client {
     pub async fn register(
         &self,
         registration: impl Into<register::Request<'_>>,
-    ) -> Result<register::Response> {
+    ) -> HttpResult<register::Response> {
         info!("Registering to {}", self.homeserver().await);
 
         let config = if self.appservice_mode {
@@ -1630,7 +1630,7 @@ impl Client {
     /// # Arguments
     ///
     /// * `room_id` - The `RoomId` of the room to be joined.
-    pub async fn join_room_by_id(&self, room_id: &RoomId) -> Result<join_room_by_id::Response> {
+    pub async fn join_room_by_id(&self, room_id: &RoomId) -> HttpResult<join_room_by_id::Response> {
         let request = join_room_by_id::Request::new(room_id);
         self.send(request, None).await
     }
@@ -1648,7 +1648,7 @@ impl Client {
         &self,
         alias: &RoomIdOrAliasId,
         server_names: &[Box<ServerName>],
-    ) -> Result<join_room_by_id_or_alias::Response> {
+    ) -> HttpResult<join_room_by_id_or_alias::Response> {
         let request = assign!(join_room_by_id_or_alias::Request::new(alias), {
             server_name: server_names,
         });
@@ -1691,7 +1691,7 @@ impl Client {
         limit: Option<u32>,
         since: Option<&str>,
         server: Option<&ServerName>,
-    ) -> Result<get_public_rooms::Response> {
+    ) -> HttpResult<get_public_rooms::Response> {
         let limit = limit.map(UInt::from);
 
         let request = assign!(get_public_rooms::Request::new(), {
@@ -1732,7 +1732,7 @@ impl Client {
     pub async fn create_room(
         &self,
         room: impl Into<create_room::Request<'_>>,
-    ) -> Result<create_room::Response> {
+    ) -> HttpResult<create_room::Response> {
         let request = room.into();
         self.send(request, None).await
     }
@@ -1772,7 +1772,7 @@ impl Client {
     pub async fn public_rooms_filtered(
         &self,
         room_search: impl Into<get_public_rooms_filtered::Request<'_>>,
-    ) -> Result<get_public_rooms_filtered::Response> {
+    ) -> HttpResult<get_public_rooms_filtered::Response> {
         let request = room_search.into();
         self.send(request, None).await
     }
@@ -1906,7 +1906,7 @@ impl Client {
             let txn_id = txn_id.unwrap_or_else(Uuid::new_v4).to_string();
             let request = send_message_event::Request::new(room_id, &txn_id, &content);
 
-            self.send(request, None).await
+            Ok(self.send(request, None).await?)
         }
     }
 
@@ -1954,7 +1954,7 @@ impl Client {
         &self,
         request: Request,
         config: Option<RequestConfig>,
-    ) -> Result<Request::IncomingResponse>
+    ) -> HttpResult<Request::IncomingResponse>
     where
         Request: OutgoingRequest + Debug,
         HttpError: From<FromHttpResponseError<Request::EndpointError>>,
@@ -1966,8 +1966,9 @@ impl Client {
     pub(crate) async fn send_to_device(
         &self,
         request: &ToDeviceRequest,
-    ) -> Result<ToDeviceResponse> {
+    ) -> HttpResult<ToDeviceResponse> {
         let txn_id_string = request.txn_id_string();
+
         let request = RumaToDeviceRequest::new_raw(
             request.event_type.as_str(),
             &txn_id_string,
@@ -2000,7 +2001,7 @@ impl Client {
     /// }
     /// # });
     /// ```
-    pub async fn devices(&self) -> Result<get_devices::Response> {
+    pub async fn devices(&self) -> HttpResult<get_devices::Response> {
         let request = get_devices::Request::new();
 
         self.send(request, None).await
@@ -2057,7 +2058,7 @@ impl Client {
         &self,
         devices: &[DeviceIdBox],
         auth_data: Option<AuthData<'_>>,
-    ) -> Result<delete_devices::Response> {
+    ) -> HttpResult<delete_devices::Response> {
         let mut request = delete_devices::Request::new(devices);
         request.auth = auth_data;
 
@@ -2965,7 +2966,7 @@ impl Client {
     }
 
     /// Gets information about the owner of a given access token.
-    pub async fn whoami(&self) -> Result<whoami::Response> {
+    pub async fn whoami(&self) -> HttpResult<whoami::Response> {
         let request = whoami::Request::new();
         self.send(request, None).await
     }
@@ -3414,12 +3415,8 @@ mod test {
         });
 
         if let Err(err) = client.register(user).await {
-            if let crate::Error::Http(HttpError::UiaaError(FromHttpResponseError::Http(
-                ServerError::Known(UiaaResponse::MatrixError(client_api::Error {
-                    kind,
-                    message,
-                    status_code,
-                })),
+            if let HttpError::UiaaError(FromHttpResponseError::Http(ServerError::Known(
+                UiaaResponse::MatrixError(client_api::Error { kind, message, status_code }),
             ))) = err
             {
                 if let client_api::error::ErrorKind::Forbidden = kind {

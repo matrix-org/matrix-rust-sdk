@@ -46,7 +46,7 @@ use ruma::{
 #[cfg(feature = "encryption")]
 use tracing::instrument;
 
-use crate::{room::Common, BaseRoom, Client, Error, Result, RoomType};
+use crate::{error::HttpResult, room::Common, BaseRoom, Client, HttpError, Result, RoomType};
 
 const TYPING_NOTICE_TIMEOUT: Duration = Duration::from_secs(4);
 const TYPING_NOTICE_RESEND_TIMEOUT: Duration = Duration::from_secs(3);
@@ -562,7 +562,7 @@ impl Joined {
         &self,
         content: impl Into<AnyStateEventContent>,
         state_key: &str,
-    ) -> Result<send_state_event::Response> {
+    ) -> HttpResult<send_state_event::Response> {
         let content = content.into();
         let request = send_state_event::Request::new(self.inner.room_id(), state_key, &content);
 
@@ -606,7 +606,7 @@ impl Joined {
         event_id: &EventId,
         reason: Option<&str>,
         txn_id: Option<Uuid>,
-    ) -> Result<redact_event::Response> {
+    ) -> HttpResult<redact_event::Response> {
         let txn_id = txn_id.unwrap_or_else(Uuid::new_v4).to_string();
         let request =
             assign!(redact_event::Request::new(self.inner.room_id(), event_id, &txn_id), {
@@ -642,8 +642,8 @@ impl Joined {
     /// room.set_tag("u.work", tag_info );
     /// # })
     /// ```
-    pub async fn set_tag(&self, tag: &str, tag_info: TagInfo) -> Result<create_tag::Response> {
-        let user_id = self.client.user_id().await.ok_or(Error::AuthenticationRequired)?;
+    pub async fn set_tag(&self, tag: &str, tag_info: TagInfo) -> HttpResult<create_tag::Response> {
+        let user_id = self.client.user_id().await.ok_or(HttpError::AuthenticationRequired)?;
         let request = create_tag::Request::new(&user_id, self.inner.room_id(), tag, tag_info);
         self.client.send(request, None).await
     }
@@ -654,8 +654,8 @@ impl Joined {
     ///
     /// # Arguments
     /// * `tag` - The tag to remove.
-    pub async fn remove_tag(&self, tag: &str) -> Result<delete_tag::Response> {
-        let user_id = self.client.user_id().await.ok_or(Error::AuthenticationRequired)?;
+    pub async fn remove_tag(&self, tag: &str) -> HttpResult<delete_tag::Response> {
+        let user_id = self.client.user_id().await.ok_or(HttpError::AuthenticationRequired)?;
         let request = delete_tag::Request::new(&user_id, self.inner.room_id(), tag);
         self.client.send(request, None).await
     }

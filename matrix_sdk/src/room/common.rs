@@ -14,6 +14,7 @@ use ruma::{
 };
 
 use crate::{
+    error::HttpResult,
     media::{MediaFormat, MediaRequest, MediaType},
     room::RoomType,
     BaseRoom, Client, Result, RoomMember,
@@ -143,7 +144,7 @@ impl Common {
     pub async fn messages(
         &self,
         request: impl Into<get_message_events::Request<'_>>,
-    ) -> Result<get_message_events::Response> {
+    ) -> HttpResult<get_message_events::Response> {
         let request = request.into();
         self.client.send(request, None).await
     }
