@@ -183,6 +183,10 @@ impl CryptoStore for MemoryStore {
         self.users_for_key_query.iter().map(|u| u.clone()).collect()
     }
 
+    fn tracked_users(&self) -> HashSet<UserId> {
+        self.tracked_users.iter().map(|u| u.to_owned()).collect()
+    }
+
     async fn update_tracked_user(&self, user: &UserId, dirty: bool) -> Result<bool> {
         // TODO to prevent a race between the sync and a key query in flight we
         // need to have an additional state to mention that the user changed.
