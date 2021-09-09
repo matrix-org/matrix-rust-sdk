@@ -13,11 +13,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#[cfg(feature = "encryption")]
-use std::{
-    collections::HashSet,
-    io::{Cursor, Write},
-};
 #[cfg(all(feature = "encryption", not(target_arch = "wasm32")))]
 use std::path::PathBuf;
 use std::{
@@ -35,6 +30,11 @@ use std::{
     collections::HashMap,
     io::{Error as IoError, ErrorKind as IoErrorKind},
     ops::Range,
+};
+#[cfg(feature = "encryption")]
+use std::{
+    collections::HashSet,
+    io::{Cursor, Write},
 };
 
 use dashmap::DashMap;
