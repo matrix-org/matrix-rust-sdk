@@ -478,6 +478,7 @@ impl VerificationMachine {
                         verification.receive_done(event.sender(), c);
                     }
 
+                    #[allow(clippy::single_match)]
                     match self.get_verification(event.sender(), flow_id.as_str()) {
                         Some(Verification::SasV1(sas)) => {
                             let content = sas.receive_any_event(event.sender(), &content);
