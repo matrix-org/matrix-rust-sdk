@@ -771,7 +771,10 @@ impl SledStore {
     }
 
     async fn set_custom_value(&self, key: &[u8], value: Vec<u8>) -> Result<Option<Vec<u8>>> {
-        Ok(self.custom.insert(key, value)?.map(|v| v.to_vec()))
+        let ret = self.custom.insert(key, value)?.map(|v| v.to_vec());
+        self.inner.flush_async().await?;
+
+        Ok(ret)
     }
 
     async fn remove_media_content(&self, request: &MediaRequest) -> Result<()> {
@@ -959,7 +962,7 @@ mod test {
     };
     use serde_json::json;
 
-    use super::{SledStore, StateChanges};
+    use super::{Result, SledStore, StateChanges};
     use crate::{
         deserialized_responses::MemberEvent,
         media::{MediaFormat, MediaRequest, MediaThumbnailSize, MediaType},
@@ -1174,5 +1177,20 @@ mod test {
         store.remove_media_content_for_uri(&uri).await.unwrap();
         assert!(store.get_media_content(&request_file).await.unwrap().is_none());
         assert!(store.get_media_content(&request_thumbnail).await.unwrap().is_none());
+    }
+
+    #[async_test]
+    async fn test_custom_storage() -> Result<()> {
+        let key = "my_key";
+        let value = &[0, 1, 2, 3];
+        let store = SledStore::open().unwrap();
+
+        store.set_custom_value(key.as_bytes(), value.to_vec()).await?;
+
+        let read = store.get_custom_value(key.as_bytes()).await?;
+
+        assert_eq!(Some(value.as_ref()), read.as_deref());
+
+        Ok(())
     }
 }
