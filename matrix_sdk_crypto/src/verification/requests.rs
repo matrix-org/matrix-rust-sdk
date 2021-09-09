@@ -22,7 +22,6 @@ use matrix_qrcode::QrVerificationData;
 use matrix_sdk_common::{instant::Instant, uuid::Uuid};
 #[cfg(feature = "qrcode")]
 use ruma::DeviceKeyAlgorithm;
-
 use ruma::{
     events::{
         key::verification::{
