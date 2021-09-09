@@ -32,7 +32,7 @@
 
 use std::{borrow::Cow, future::Future, ops::Deref};
 
-use matrix_sdk_base::deserialized_responses::SyncRoomEvent;
+use matrix_sdk_base::deserialized_responses::{EncryptionInfo, SyncRoomEvent};
 use ruma::{events::AnySyncStateEvent, serde::Raw};
 use serde::Deserialize;
 use serde_json::value::RawValue as RawJsonValue;
@@ -117,6 +117,7 @@ pub struct EventHandlerData<'a> {
     pub client: Client,
     pub room: Option<room::Room>,
     pub raw: &'a RawJsonValue,
+    pub encryption_info: Option<&'a EncryptionInfo>,
 }
 
 /// Context for an event handler.
@@ -169,6 +170,12 @@ impl EventHandlerContext for RawEvent {
     }
 }
 
+impl EventHandlerContext for Option<EncryptionInfo> {
+    fn from_data(data: &EventHandlerData<'_>) -> Option<Self> {
+        Some(data.encryption_info.cloned())
+    }
+}
+
 /// Return types supported for event handlers implement this trait.
 ///
 /// It is not meant to be implemented outside of matrix-sdk.
@@ -217,9 +224,12 @@ impl Client {
             event_type: Cow<'a, str>,
         }
 
-        self.handle_sync_events_wrapped_with(room, events, std::convert::identity, |raw| {
-            Ok((kind, raw.deserialize_as::<ExtractType>()?.event_type))
-        })
+        self.handle_sync_events_wrapped_with(
+            room,
+            events,
+            |ev| (ev, None),
+            |raw| Ok((kind, raw.deserialize_as::<ExtractType>()?.event_type)),
+        )
         .await
     }
 
@@ -235,11 +245,16 @@ impl Client {
             unsigned: Option<UnsignedDetails>,
         }
 
-        self.handle_sync_events_wrapped_with(room, state_events, std::convert::identity, |raw| {
-            let StateEventDetails { event_type, unsigned } = raw.deserialize_as()?;
-            let redacted = unsigned.and_then(|u| u.redacted_because).is_some();
-            Ok((EventKind::State { redacted }, event_type))
-        })
+        self.handle_sync_events_wrapped_with(
+            room,
+            state_events,
+            |ev| (ev, None),
+            |raw| {
+                let StateEventDetails { event_type, unsigned } = raw.deserialize_as()?;
+                let redacted = unsigned.and_then(|u| u.redacted_because).is_some();
+                Ok((EventKind::State { redacted }, event_type))
+            },
+        )
         .await
     }
 
@@ -248,7 +263,6 @@ impl Client {
         room: &Option<room::Room>,
         timeline_events: &[SyncRoomEvent],
     ) -> serde_json::Result<()> {
-        // FIXME: add EncryptionInfo to context
         #[derive(Deserialize)]
         struct TimelineEventDetails<'a> {
             #[serde(borrow, rename = "type")]
@@ -260,7 +274,7 @@ impl Client {
         self.handle_sync_events_wrapped_with(
             room,
             timeline_events,
-            |e| &e.event,
+            |e| (&e.event, e.encryption_info.as_ref()),
             |raw| {
                 let TimelineEventDetails { event_type, state_key, unsigned } =
                     raw.deserialize_as()?;
@@ -281,12 +295,12 @@ impl Client {
         &self,
         room: &Option<room::Room>,
         list: &'a [U],
-        get_event: impl Fn(&'a U) -> &'a Raw<T>,
+        get_event_details: impl Fn(&'a U) -> (&'a Raw<T>, Option<&'a EncryptionInfo>),
         get_id: impl Fn(&Raw<T>) -> serde_json::Result<(EventKind, Cow<'_, str>)>,
     ) -> serde_json::Result<()> {
         for x in list {
-            let event = get_event(x);
-            let (ev_kind, ev_type) = get_id(event)?;
+            let (raw_event, encryption_info) = get_event_details(x);
+            let (ev_kind, ev_type) = get_id(raw_event)?;
             let event_handler_id = (ev_kind, &*ev_type);
 
             if let Some(handlers) = self.event_handlers.read().await.get(&event_handler_id) {
@@ -294,7 +308,8 @@ impl Client {
                     let data = EventHandlerData {
                         client: self.clone(),
                         room: room.clone(),
-                        raw: event.json(),
+                        raw: raw_event.json(),
+                        encryption_info,
                     };
                     matrix_sdk_common::executor::spawn((handler)(data));
                 }
