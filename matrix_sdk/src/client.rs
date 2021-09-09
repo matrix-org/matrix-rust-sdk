@@ -920,8 +920,10 @@ impl Client {
     ///
     /// # Examples
     ///
-    /// ```no_run
-    /// # let client: matrix_sdk::Client = unimplemented!();
+    /// ```
+    /// # use url::Url;
+    /// # let homeserver = Url::parse("http://localhost:8080").unwrap();
+    /// # let client = Client::new(homeserver).unwrap();
     /// use matrix_sdk::{
     ///     room::Room,
     ///     ruma::{
@@ -940,18 +942,21 @@ impl Client {
     /// # let _ = async {
     /// client
     ///     .register_event_handler(
-    ///         |ev: SyncMessageEvent<MessageEventContent>, room: Room, client: Client| async move {
+    ///         |ev: SyncMessageEvent<MessageEventContent>,
+    ///          room: Room,
+    ///          client: Client| async move {
     ///             // Common usage: Room event plus room and client.
     ///         },
     ///     )
     ///     .await
-    ///     .register_event_handler(|ev: SyncStateEvent<TopicEventContent>| async move {
-    ///         // Also possible: Omit any or all arguments after the first.
-    ///     })
-    ///     .await;
+    ///     .register_event_handler(
+    ///         |ev: SyncStateEvent<TopicEventContent>| async move {
+    ///             // Also possible: Omit any or all arguments after the first.
+    ///         }
+    ///     ).await;
     ///
-    /// // Custom events work exactly the same way, you just need to declare the content struct and
-    /// // use the EventContent derive macro on it.
+    /// // Custom events work exactly the same way, you just need to declare
+    /// // the content struct and use the EventContent derive macro on it.
     /// #[derive(Clone, Debug, Deserialize, Serialize, EventContent)]
     /// #[ruma_event(type = "org.shiny_new_2fa.token", kind = Message)]
     /// struct TokenEventContent {
