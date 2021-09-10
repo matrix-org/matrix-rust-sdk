@@ -52,7 +52,7 @@ default-features = false
 features = ["sync", "fs"]
 
 [dev-dependencies]
-matrix-sdk-test = { version = "0.3.0", path = "../matrix_sdk_test" }
+matrix-sdk-test = { version = "0.4.0", path = "../matrix_sdk_test" }
 http = "0.2.4"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
