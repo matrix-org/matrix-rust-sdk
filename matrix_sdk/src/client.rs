@@ -927,6 +927,7 @@ impl Client {
     /// # let homeserver = Url::parse("http://localhost:8080").unwrap();
     /// # let client = Client::new(homeserver).unwrap();
     /// use matrix_sdk::{
+    ///     deserialized_responses::EncryptionInfo,
     ///     room::Room,
     ///     ruma::{
     ///         events::{
@@ -952,10 +953,20 @@ impl Client {
     ///     )
     ///     .await
     ///     .register_event_handler(
+    ///         |ev: SyncMessageEvent<MessageEventContent>,
+    ///          room: Room,
+    ///          encryption_info: Option<EncryptionInfo>| async move {
+    ///             // An `Option<EncryptionInfo>` parameter lets you distinguish between
+    ///             // unencrypted events and events that were decrypted by the SDK.
+    ///         },
+    ///     )
+    ///     .await
+    ///     .register_event_handler(
     ///         |ev: SyncStateEvent<TopicEventContent>| async move {
-    ///             // Also possible: Omit any or all arguments after the first.
+    ///             // You can omit any or all arguments after the first.
     ///         }
-    ///     ).await;
+    ///     )
+    ///     .await;
     ///
     /// // Custom events work exactly the same way, you just need to declare
     /// // the content struct and use the EventContent derive macro on it.
