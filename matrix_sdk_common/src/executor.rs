@@ -26,6 +26,7 @@ where
 }
 
 #[cfg(target_arch = "wasm32")]
+#[derive(Debug)]
 pub struct JoinHandle<T> {
     handle: RemoteHandle<Result<T, ()>>,
 }

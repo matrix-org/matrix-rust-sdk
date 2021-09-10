@@ -46,7 +46,7 @@ mime = "0.3.16"
 rand = { version = "0.8.4", optional = true }
 bytes = "1.0.1"
 
-matrix-sdk-common = { version = "0.3.0", path = "../matrix_sdk_common" }
+matrix-sdk-common = { version = "0.4.0", path = "../matrix_sdk_common" }
 
 [dependencies.matrix-sdk-base]
 version = "0.3.0"
