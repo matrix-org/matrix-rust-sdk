@@ -85,8 +85,10 @@ impl VerificationRequest {
 
     /// Accept the verification request.
     ///
-    /// This method will accept the request and signal that it supports the
-    /// `m.sas.v1`, the `m.qr_code.show.v1`, and `m.reciprocate.v1` method.
+    /// This method will accept the request and signal by default that it
+    /// supports the `m.sas.v1`, the `m.qr_code.show.v1`, and `m.reciprocate.v1`
+    /// method. If the `qrcode` feature is disabled it will only signal that it
+    /// supports the `m.sas.v1` method.
     ///
     /// If QR code scanning should be supported or QR code showing shouldn't be
     /// supported the [`accept_with_methods()`] method should be used instead.
@@ -114,8 +116,9 @@ impl VerificationRequest {
         Ok(())
     }
 
-    #[cfg(feature = "qrcode")]
     /// Generate a QR code
+    #[cfg(feature = "qrcode")]
+    #[cfg_attr(feature = "docs", doc(cfg(qrcode)))]
     pub async fn generate_qr_code(&self) -> Result<Option<QrVerification>> {
         Ok(self
             .inner

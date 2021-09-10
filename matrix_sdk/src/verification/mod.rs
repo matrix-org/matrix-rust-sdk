@@ -37,6 +37,7 @@ mod sas;
 
 pub use matrix_sdk_base::crypto::{AcceptSettings, CancelInfo};
 #[cfg(feature = "qrcode")]
+#[cfg_attr(feature = "docs", doc(cfg(qrcode)))]
 pub use qrcode::QrVerification;
 pub use requests::VerificationRequest;
 pub use sas::SasVerification;
@@ -47,6 +48,7 @@ pub enum Verification {
     /// The `m.sas.v1` verification variant.
     SasV1(SasVerification),
     #[cfg(feature = "qrcode")]
+    #[cfg_attr(feature = "docs", doc(cfg(qrcode)))]
     /// The `m.qr_code.*.v1` verification variant.
     QrV1(QrVerification),
 }
