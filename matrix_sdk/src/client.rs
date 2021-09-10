@@ -923,6 +923,7 @@ impl Client {
     /// ```no_run
     /// # let client: matrix_sdk::Client = unimplemented!();
     /// use matrix_sdk::{
+    ///     deserialized_responses::EncryptionInfo,
     ///     room::Room,
     ///     ruma::{
     ///         events::{
@@ -940,13 +941,22 @@ impl Client {
     /// # let _ = async {
     /// client
     ///     .register_event_handler(
-    ///         |ev: SyncMessageEvent<MessageEventContent>, room: Room, client: Client| async move {
+    ///         |ev: SyncStateEvent<TopicEventContent>, room: Room, client: Client| async move {
     ///             // Common usage: Room event plus room and client.
     ///         },
     ///     )
     ///     .await
+    ///     .register_event_handler(
+    ///         |ev: SyncMessageEvent<MessageEventContent>,
+    ///          room: Room,
+    ///          encryption_info: Option<EncryptionInfo>| async move {
+    ///             // An `Option<EncryptionInfo>` parameter lets you distinguish between
+    ///             // unencrypted events and events that were decrypted by the SDK.
+    ///         },
+    ///     )
+    ///     .await
     ///     .register_event_handler(|ev: SyncStateEvent<TopicEventContent>| async move {
-    ///         // Also possible: Omit any or all arguments after the first.
+    ///         // You can omit any or all arguments after the first.
     ///     })
     ///     .await;
     ///
