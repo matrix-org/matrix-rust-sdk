@@ -133,6 +133,7 @@ impl SyncResponse {
     }
 }
 
+#[derive(Clone, Debug)]
 pub struct RoomEvent {
     /// The actual event.
     pub event: Raw<ruma::events::AnyRoomEvent>,
