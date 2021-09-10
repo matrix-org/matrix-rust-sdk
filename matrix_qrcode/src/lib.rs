@@ -12,24 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! This crate implements methods to parse and generate QR codes that are used
-//! for interactive verification in [Matrix](https://matrix.org/).
-//!
-//! It implements the QR format defined in the Matrix [spec].
-//!
-//! [spec]: https://spec.matrix.org/unstable/client-server-api/#qr-code-format
-//!
-//! ```no_run
-//! # use matrix_qrcode::{QrVerificationData, DecodingError};
-//! # fn main() -> Result<(), DecodingError> {
-//! use image;
-//!
-//! let image = image::open("/path/to/my/image.png").unwrap();
-//! let result = QrVerificationData::from_image(image)?;
-//! # Ok(())
-//! # }
-//! ```
-
+#![doc = include_str!("../README.md")]
 #![cfg_attr(feature = "docs", feature(doc_cfg))]
 #![deny(
     missing_debug_implementations,

@@ -12,9 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! This is the encryption part of the matrix-sdk. It contains a state machine
-//! that will aid in adding encryption support to a client library.
-
+#![doc = include_str!("../README.md")]
+#![cfg_attr(feature = "docs", feature(doc_cfg))]
 #![deny(
     missing_debug_implementations,
     dead_code,
@@ -25,7 +24,6 @@
     unused_import_braces,
     unused_qualifications
 )]
-#![cfg_attr(feature = "docs", feature(doc_cfg))]
 
 mod error;
 mod file_encryption;

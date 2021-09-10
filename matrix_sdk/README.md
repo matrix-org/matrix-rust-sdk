@@ -1,16 +1,82 @@
-[![Build Status](https://img.shields.io/travis/matrix-org/matrix-rust-sdk.svg?style=flat-square)](https://travis-ci.org/matrix-org/matrix-rust-sdk)
-[![codecov](https://img.shields.io/codecov/c/github/matrix-org/matrix-rust-sdk/master.svg?style=flat-square)](https://codecov.io/gh/matrix-org/matrix-rust-sdk)
-[![License](https://img.shields.io/badge/License-Apache%202.0-yellowgreen.svg?style=flat-square)](https://opensource.org/licenses/Apache-2.0)
-[![#matrix-rust-sdk](https://img.shields.io/badge/matrix-%23matrix--rust--sdk-blue?style=flat-square)](https://matrix.to/#/#matrix-rust-sdk:matrix.org)
+A [Matrix](https://matrix.org/) client library written in Rust.
 
-# matrix-sdk
+The matrix-sdk aims to be a general purpose client library for writing Matrix
+clients, bots, and other Matrix related things that use the client-server API to
+communicate with a Matrix homeserver.
 
-**matrix-sdk** is an implementation of a [Matrix][] client-server library in [Rust][].
+# Examples
+Connecting and logging in to a homeserver is pretty starightforward:
 
-[Matrix]: https://matrix.org/
-[Rust]: https://www.rust-lang.org/
+```rust,no_run
+use std::convert::TryFrom;
+use matrix_sdk::{
+    Client, SyncSettings, Result,
+    ruma::{UserId, events::{SyncMessageEvent, room::message::MessageEventContent}},
+};
 
+#[tokio::main]
+async fn main() -> Result<()> {
+    let alice = UserId::try_from("@alice:example.org")?;
+    let client = Client::new_from_user_id(alice.clone()).await?;
 
-## License
+    // First we need to log in.
+    client.login(alice.localpart(), "password", None, None).await?;
 
-[Apache-2.0](https://www.apache.org/licenses/LICENSE-2.0)
+    client
+        .register_event_handler(
+            |ev: SyncMessageEvent<MessageEventContent>| async move {
+                println!("Received a message {:?}", ev);
+            },
+        )
+        .await;
+
+    // Syncing is important to synchronize the client state with the server.
+    // This method will never return.
+    client.sync(SyncSettings::default()).await;
+
+    Ok(())
+}
+```
+
+More examples can be found in the [examples] directory.
+
+# Crate Feature Flags
+
+The following crate feature flags are available:
+
+* `encryption`: Enables end-to-end encryption support in the library.
+* `sled_cryptostore`: Enables a Sled based store for the encryption keys. If
+  this is disabled and `encryption` support is enabled the keys will by
+  default be stored only in memory and thus lost after the client is
+  destroyed.
+* `markdown`: Support for sending markdown formatted messages.
+* `socks`: Enables SOCKS support in reqwest, the default HTTP client.
+* `sso_login`: Enables SSO login with a local http server.
+* `require_auth_for_profile_requests`: Whether to send the access token in
+  the authentication header when calling endpoints that retrieve profile
+  data. This matches the synapse configuration
+  `require_auth_for_profile_requests`. Enabled by default.
+* `appservice`: Enables low-level appservice functionality. For an
+  high-level API there's the `matrix-sdk-appservice` crate
+* `anyhow`: Support for returning `anyhow::Result<()>` from event handlers.
+
+# Enabling logging
+
+Users of the matrix-sdk crate can enable log output by depending on the
+`tracing-subscriber` crate and including the following line in their
+application (e.g. at the start of `main`):
+
+```rust
+tracing_subscriber::fmt::init();
+```
+
+The log output is controlled via the `RUST_LOG` environment variable by
+setting it to one of the `error`, `warn`, `info`, `debug` or `trace` levels.
+The output is printed to stdout.
+
+The `RUST_LOG` variable also supports a more advanced syntax for filtering
+log output more precisely, for instance with crate-level granularity. For
+more information on this, check out the [tracing_subscriber documentation].
+
+[examples]: https://github.com/matrix-org/matrix-rust-sdk/tree/master/matrix_sdk/examples
+[tracing_subscriber documentation]: https://tracing.rs/tracing_subscriber/filter/struct.envfilter

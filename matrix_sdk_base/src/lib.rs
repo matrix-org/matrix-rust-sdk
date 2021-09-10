@@ -13,18 +13,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! This crate implements a [Matrix](https://matrix.org/) client library.
-//!
-//! ## Crate Feature Flags
-//!
-//! The following crate feature flags are available:
-//!
-//! * `encryption`: Enables end-to-end encryption support in the library.
-//! * `sled_cryptostore`: Enables a Sled based store for the encryption
-//! keys. If this is disabled and `encryption` support is enabled the keys will
-//! by default be stored only in memory and thus lost after the client is
-//! destroyed.
-//! * `markdown`: Support for sending markdown formatted messages.
+#![doc = include_str!("../README.md")]
+#![cfg_attr(feature = "docs", feature(doc_cfg))]
 #![deny(
     missing_debug_implementations,
     missing_docs,
@@ -34,7 +24,6 @@
     unused_import_braces,
     unused_qualifications
 )]
-#![cfg_attr(feature = "docs", feature(doc_cfg))]
 
 pub use matrix_sdk_common::*;
 

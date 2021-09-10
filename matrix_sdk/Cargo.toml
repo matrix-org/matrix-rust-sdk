@@ -21,7 +21,7 @@ encryption = ["matrix-sdk-base/encryption"]
 qrcode = ["encryption", "matrix-sdk-base/qrcode"]
 sled_state_store = ["matrix-sdk-base/sled_state_store"]
 sled_cryptostore = ["matrix-sdk-base/sled_cryptostore"]
-markdown = ["matrix-sdk-base/markdown"]
+markdown = ["ruma/markdown"]
 native-tls = ["reqwest/native-tls"]
 rustls-tls = ["reqwest/rustls-tls"]
 socks = ["reqwest/socks"]
@@ -59,7 +59,7 @@ version = "0.11.3"
 default_features = false
 
 [dependencies.ruma]
-version = "0.3.0"
+version = "0.4.0"
 features = ["client-api-c", "compat", "unstable-pre-spec"]
 
 [dependencies.tokio-stream]

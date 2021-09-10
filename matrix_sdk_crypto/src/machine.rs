@@ -102,7 +102,6 @@ pub struct OlmMachine {
     /// State machine handling public user identities and devices, keeping track
     /// of when a key query needs to be done and handling one.
     identity_manager: IdentityManager,
-    cross_signing_request: Arc<Mutex<Option<UploadSignaturesRequest>>>,
 }
 
 #[cfg(not(tarpaulin_include))]
@@ -190,7 +189,6 @@ impl OlmMachine {
             verification_machine,
             key_request_machine,
             identity_manager,
-            cross_signing_request: Arc::new(Mutex::new(None)),
         }
     }
 
