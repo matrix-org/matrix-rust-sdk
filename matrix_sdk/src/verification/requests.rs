@@ -15,7 +15,9 @@
 use matrix_sdk_base::crypto::{CancelInfo, VerificationRequest as BaseVerificationRequest};
 use ruma::events::key::verification::VerificationMethod;
 
-use super::{QrVerification, SasVerification};
+#[cfg(feature = "qrcode")]
+use super::QrVerification;
+use super::SasVerification;
 use crate::{Client, Result};
 
 /// An object controlling the interactive verification flow.
@@ -83,8 +85,10 @@ impl VerificationRequest {
 
     /// Accept the verification request.
     ///
-    /// This method will accept the request and signal that it supports the
-    /// `m.sas.v1`, the `m.qr_code.show.v1`, and `m.reciprocate.v1` method.
+    /// This method will accept the request and signal by default that it
+    /// supports the `m.sas.v1`, the `m.qr_code.show.v1`, and `m.reciprocate.v1`
+    /// method. If the `qrcode` feature is disabled it will only signal that it
+    /// supports the `m.sas.v1` method.
     ///
     /// If QR code scanning should be supported or QR code showing shouldn't be
     /// supported the [`accept_with_methods()`] method should be used instead.
@@ -113,6 +117,8 @@ impl VerificationRequest {
     }
 
     /// Generate a QR code
+    #[cfg(feature = "qrcode")]
+    #[cfg_attr(feature = "docs", doc(cfg(qrcode)))]
     pub async fn generate_qr_code(&self) -> Result<Option<QrVerification>> {
         Ok(self
             .inner

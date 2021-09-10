@@ -20,10 +20,9 @@ use ruma::{DeviceId, UserId};
 use tracing::trace;
 
 use super::{event_enums::OutgoingContent, Sas, Verification};
-use crate::{
-    OutgoingRequest, OutgoingVerificationRequest, QrVerification, RoomMessageRequest,
-    ToDeviceRequest,
-};
+#[cfg(feature = "qrcode")]
+use crate::QrVerification;
+use crate::{OutgoingRequest, OutgoingVerificationRequest, RoomMessageRequest, ToDeviceRequest};
 
 #[derive(Clone, Debug)]
 pub struct VerificationCache {
@@ -55,10 +54,14 @@ impl VerificationCache {
         self.insert(sas);
     }
 
+    #[cfg(feature = "qrcode")]
+    #[cfg_attr(feature = "docs", doc(cfg(qrcode)))]
     pub fn insert_qr(&self, qr: QrVerification) {
         self.insert(qr)
     }
 
+    #[cfg(feature = "qrcode")]
+    #[cfg_attr(feature = "docs", doc(cfg(qrcode)))]
     pub fn get_qr(&self, sender: &UserId, flow_id: &str) -> Option<QrVerification> {
         self.get(sender, flow_id).and_then(|v| {
             if let Verification::QrV1(qr) = v {
@@ -91,6 +94,7 @@ impl VerificationCache {
                     .value()
                     .iter()
                     .filter_map(|s| {
+                        #[allow(irrefutable_let_patterns)]
                         if let Verification::SasV1(s) = s.value() {
                             s.cancel_if_timed_out()
                         } else {
@@ -106,6 +110,7 @@ impl VerificationCache {
 
     pub fn get_sas(&self, user_id: &UserId, flow_id: &str) -> Option<Sas> {
         self.get(user_id, flow_id).and_then(|v| {
+            #[allow(irrefutable_let_patterns)]
             if let Verification::SasV1(sas) = v {
                 Some(sas)
             } else {

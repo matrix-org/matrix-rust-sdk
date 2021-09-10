@@ -15,6 +15,7 @@
 mod cache;
 mod event_enums;
 mod machine;
+#[cfg(feature = "qrcode")]
 mod qrcode;
 mod requests;
 mod sas;
@@ -27,6 +28,8 @@ use std::{
 use event_enums::OutgoingContent;
 pub use machine::VerificationMachine;
 use matrix_sdk_common::locks::Mutex;
+#[cfg(feature = "qrcode")]
+#[cfg_attr(feature = "docs", doc(cfg(qrcode)))]
 pub use qrcode::QrVerification;
 pub use requests::VerificationRequest;
 use ruma::{
@@ -115,6 +118,8 @@ impl VerificationStore {
 pub enum Verification {
     /// The `m.sas.v1` verification variant.
     SasV1(Sas),
+    #[cfg(feature = "qrcode")]
+    #[cfg_attr(feature = "docs", doc(cfg(qrcode)))]
     /// The `m.qr_code.*.v1` verification variant.
     QrV1(QrVerification),
 }
@@ -122,6 +127,7 @@ pub enum Verification {
 impl Verification {
     /// Try to deconstruct this verification enum into a SAS verification.
     pub fn sas_v1(self) -> Option<Sas> {
+        #[allow(irrefutable_let_patterns)]
         if let Verification::SasV1(sas) = self {
             Some(sas)
         } else {
@@ -129,6 +135,8 @@ impl Verification {
         }
     }
 
+    #[cfg(feature = "qrcode")]
+    #[cfg_attr(feature = "docs", doc(cfg(qrcode)))]
     /// Try to deconstruct this verification enum into a QR code verification.
     pub fn qr_v1(self) -> Option<QrVerification> {
         if let Verification::QrV1(qr) = self {
@@ -142,6 +150,7 @@ impl Verification {
     pub fn is_done(&self) -> bool {
         match self {
             Verification::SasV1(s) => s.is_done(),
+            #[cfg(feature = "qrcode")]
             Verification::QrV1(qr) => qr.is_done(),
         }
     }
@@ -150,6 +159,7 @@ impl Verification {
     pub fn flow_id(&self) -> &str {
         match self {
             Verification::SasV1(s) => s.flow_id().as_str(),
+            #[cfg(feature = "qrcode")]
             Verification::QrV1(qr) => qr.flow_id().as_str(),
         }
     }
@@ -158,6 +168,7 @@ impl Verification {
     pub fn is_cancelled(&self) -> bool {
         match self {
             Verification::SasV1(s) => s.is_cancelled(),
+            #[cfg(feature = "qrcode")]
             Verification::QrV1(qr) => qr.is_cancelled(),
         }
     }
@@ -166,6 +177,7 @@ impl Verification {
     pub fn user_id(&self) -> &UserId {
         match self {
             Verification::SasV1(v) => v.user_id(),
+            #[cfg(feature = "qrcode")]
             Verification::QrV1(v) => v.user_id(),
         }
     }
@@ -174,6 +186,7 @@ impl Verification {
     pub fn other_user(&self) -> &UserId {
         match self {
             Verification::SasV1(s) => s.other_user_id(),
+            #[cfg(feature = "qrcode")]
             Verification::QrV1(qr) => qr.other_user_id(),
         }
     }
@@ -182,6 +195,7 @@ impl Verification {
     pub fn is_self_verification(&self) -> bool {
         match self {
             Verification::SasV1(v) => v.is_self_verification(),
+            #[cfg(feature = "qrcode")]
             Verification::QrV1(v) => v.is_self_verification(),
         }
     }
@@ -193,6 +207,8 @@ impl From<Sas> for Verification {
     }
 }
 
+#[cfg(feature = "qrcode")]
+#[cfg_attr(feature = "docs", doc(cfg(qrcode)))]
 impl From<QrVerification> for Verification {
     fn from(qr: QrVerification) -> Self {
         Self::QrV1(qr)
@@ -376,6 +392,7 @@ pub struct IdentitiesBeingVerified {
 }
 
 impl IdentitiesBeingVerified {
+    #[cfg(feature = "qrcode")]
     async fn can_sign_devices(&self) -> bool {
         self.private_identity.can_sign_devices().await
     }
