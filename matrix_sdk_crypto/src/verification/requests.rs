@@ -59,6 +59,7 @@ use crate::{
 
 const SUPPORTED_METHODS: &[VerificationMethod] = &[
     VerificationMethod::SasV1,
+    #[cfg(feature = "qrcode")]
     VerificationMethod::QrCodeShowV1,
     VerificationMethod::ReciprocateV1,
 ];
@@ -307,6 +308,7 @@ impl VerificationRequest {
     }
 
     #[cfg(feature = "qrcode")]
+    #[cfg_attr(feature = "docs", doc(cfg(qrcode)))]
     /// Generate a QR code that can be used by another client to start a QR code
     /// based verification.
     pub async fn generate_qr_code(&self) -> Result<Option<QrVerification>, CryptoStoreError> {
@@ -318,6 +320,7 @@ impl VerificationRequest {
     }
     ///
     #[cfg(feature = "qrcode")]
+    #[cfg_attr(feature = "docs", doc(cfg(qrcode)))]
     /// Start a QR code verification by providing a scanned QR code for this
     /// verification flow.
     ///
@@ -408,8 +411,11 @@ impl VerificationRequest {
     /// This method will accept the request and signal that it supports the
     /// `m.sas.v1`, the `m.qr_code.show.v1`, and `m.reciprocate.v1` method.
     ///
-    /// If QR code scanning should be supported or QR code showing shouldn't be
-    /// supported the [`accept_with_methods()`] method should be used instead.
+    /// `m.qr_code.show.v1` will only be signaled if the `qrcode` feature is
+    /// enabled. This feature is disabled by default. If it's enabeled and QR
+    /// code scanning should be supported or QR code showing shouldn't be
+    /// supported the [`accept_with_methods()`] method should be used
+    /// instead.
     ///
     /// [`accept_with_methods()`]: #method.accept_with_methods
     pub fn accept(&self) -> Option<OutgoingVerificationRequest> {

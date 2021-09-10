@@ -45,6 +45,8 @@ More examples can be found in the [examples] directory.
 The following crate feature flags are available:
 
 * `encryption`: Enables end-to-end encryption support in the library.
+* `qrcode`: Enables qrcode verification support in the library. This will also
+  enable `encryption`. Enabled by default.
 * `sled_cryptostore`: Enables a Sled based store for the encryption keys. If
   this is disabled and `encryption` support is enabled the keys will by
   default be stored only in memory and thus lost after the client is

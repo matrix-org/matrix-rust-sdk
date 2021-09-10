@@ -29,6 +29,7 @@ use event_enums::OutgoingContent;
 pub use machine::VerificationMachine;
 use matrix_sdk_common::locks::Mutex;
 #[cfg(feature = "qrcode")]
+#[cfg_attr(feature = "docs", doc(cfg(qrcode)))]
 pub use qrcode::QrVerification;
 pub use requests::VerificationRequest;
 use ruma::{
@@ -118,6 +119,7 @@ pub enum Verification {
     /// The `m.sas.v1` verification variant.
     SasV1(Sas),
     #[cfg(feature = "qrcode")]
+    #[cfg_attr(feature = "docs", doc(cfg(qrcode)))]
     /// The `m.qr_code.*.v1` verification variant.
     QrV1(QrVerification),
 }
@@ -134,6 +136,7 @@ impl Verification {
     }
 
     #[cfg(feature = "qrcode")]
+    #[cfg_attr(feature = "docs", doc(cfg(qrcode)))]
     /// Try to deconstruct this verification enum into a QR code verification.
     pub fn qr_v1(self) -> Option<QrVerification> {
         if let Verification::QrV1(qr) = self {
@@ -205,6 +208,7 @@ impl From<Sas> for Verification {
 }
 
 #[cfg(feature = "qrcode")]
+#[cfg_attr(feature = "docs", doc(cfg(qrcode)))]
 impl From<QrVerification> for Verification {
     fn from(qr: QrVerification) -> Self {
         Self::QrV1(qr)
