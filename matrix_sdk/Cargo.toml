@@ -50,7 +50,7 @@ bytes = "1.0.1"
 matrix-sdk-common = { version = "0.4.0", path = "../matrix_sdk_common" }
 
 [dependencies.matrix-sdk-base]
-version = "0.3.0"
+version = "0.4.0"
 path = "../matrix_sdk_base"
 default_features = false
 
