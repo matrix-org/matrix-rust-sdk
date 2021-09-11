@@ -33,7 +33,10 @@
 use std::{borrow::Cow, future::Future, ops::Deref};
 
 use matrix_sdk_base::deserialized_responses::{EncryptionInfo, SyncRoomEvent};
-use ruma::{events::AnySyncStateEvent, serde::Raw};
+use ruma::{
+    events::{AnyStrippedStateEvent, AnySyncStateEvent},
+    serde::Raw,
+};
 use serde::Deserialize;
 use serde_json::value::RawValue as RawJsonValue;
 
@@ -253,6 +256,31 @@ impl Client {
                 let StateEventDetails { event_type, unsigned } = raw.deserialize_as()?;
                 let redacted = unsigned.and_then(|u| u.redacted_because).is_some();
                 Ok((EventKind::State { redacted }, event_type))
+            },
+        )
+        .await
+    }
+
+    pub(crate) async fn handle_sync_invite_state_events(
+        &self,
+        room: &Option<room::Room>,
+        state_events: &[Raw<AnyStrippedStateEvent>],
+    ) -> serde_json::Result<()> {
+        #[derive(Deserialize)]
+        struct StateEventDetails<'a> {
+            #[serde(borrow, rename = "type")]
+            event_type: Cow<'a, str>,
+            unsigned: Option<UnsignedDetails>,
+        }
+
+        self.handle_sync_events_wrapped_with(
+            room,
+            state_events,
+            |ev| (ev, None),
+            |raw| {
+                let StateEventDetails { event_type, unsigned } = raw.deserialize_as()?;
+                let redacted = unsigned.and_then(|u| u.redacted_because).is_some();
+                Ok((EventKind::StrippedState { redacted }, event_type))
             },
         )
         .await

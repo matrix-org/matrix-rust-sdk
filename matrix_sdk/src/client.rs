@@ -2191,8 +2191,7 @@ impl Client {
             }
 
             // FIXME: Destructure room_info
-            self.handle_sync_events(EventKind::InitialState, &room, &room_info.invite_state.events)
-                .await?;
+            self.handle_sync_invite_state_events(&room, &room_info.invite_state.events).await?;
         }
 
         for handler in &*self.notification_handlers.read().await {
