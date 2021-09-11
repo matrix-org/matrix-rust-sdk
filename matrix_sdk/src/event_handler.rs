@@ -47,7 +47,7 @@ pub enum EventKind {
     EphemeralRoomData,
     Message { redacted: bool },
     State { redacted: bool },
-    StrippedState { redacted: bool },
+    StrippedState,
     InitialState,
     ToDevice,
     Presence,
@@ -398,8 +398,7 @@ mod static_events {
     where
         C: StaticEventContent + events::StateEventContent,
     {
-        const ID: (EventKind, &'static str) =
-            (EventKind::StrippedState { redacted: false }, C::TYPE);
+        const ID: (EventKind, &'static str) = (EventKind::StrippedState, C::TYPE);
     }
 
     impl<C> SyncEvent for events::InitialStateEvent<C>
@@ -432,13 +431,5 @@ mod static_events {
         C: StaticEventContent + events::RedactedStateEventContent,
     {
         const ID: (EventKind, &'static str) = (EventKind::State { redacted: true }, C::TYPE);
-    }
-
-    impl<C> SyncEvent for events::RedactedStrippedStateEvent<C>
-    where
-        C: StaticEventContent + events::RedactedStateEventContent,
-    {
-        const ID: (EventKind, &'static str) =
-            (EventKind::StrippedState { redacted: true }, C::TYPE);
     }
 }
