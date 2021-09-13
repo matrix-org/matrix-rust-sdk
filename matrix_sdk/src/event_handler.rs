@@ -433,3 +433,116 @@ mod static_events {
         const ID: (EventKind, &'static str) = (EventKind::State { redacted: true }, C::TYPE);
     }
 }
+
+#[cfg(test)]
+mod test {
+    use std::{future, sync::Arc};
+
+    use matrix_sdk_test::{EventBuilder, EventsJson};
+    use ruma::{
+        events::{room::member::MemberEventContent, StrippedStateEvent, SyncStateEvent},
+        room_id,
+    };
+    use serde_json::json;
+
+    use crate::{room, Client};
+
+    #[tokio::test]
+    async fn event_handler() -> crate::Result<()> {
+        use std::sync::atomic::{AtomicU8, Ordering::SeqCst};
+
+        let client = crate::client::test::logged_in_client().await;
+
+        let member_count = Arc::new(AtomicU8::new(0));
+        let typing_count = Arc::new(AtomicU8::new(0));
+        let power_levels_count = Arc::new(AtomicU8::new(0));
+        let invited_member_count = Arc::new(AtomicU8::new(0));
+
+        client
+            .register_event_handler({
+                let member_count = member_count.clone();
+                move |_ev: SyncStateEvent<MemberEventContent>, _room: room::Room| {
+                    member_count.fetch_add(1, SeqCst);
+                    future::ready(())
+                }
+            })
+            .await
+            .register_event_handler({
+                let typing_count = typing_count.clone();
+                move |_ev: SyncStateEvent<MemberEventContent>| {
+                    typing_count.fetch_add(1, SeqCst);
+                    future::ready(())
+                }
+            })
+            .await
+            .register_event_handler({
+                let power_levels_count = power_levels_count.clone();
+                move |_ev: SyncStateEvent<MemberEventContent>,
+                      _client: Client,
+                      _room: room::Room| {
+                    power_levels_count.fetch_add(1, SeqCst);
+                    future::ready(())
+                }
+            })
+            .await
+            .register_event_handler({
+                let invited_member_count = invited_member_count.clone();
+                move |_ev: StrippedStateEvent<MemberEventContent>| {
+                    invited_member_count.fetch_add(1, SeqCst);
+                    future::ready(())
+                }
+            })
+            .await;
+
+        let response = EventBuilder::default()
+            .add_room_event(EventsJson::Member)
+            .add_ephemeral(EventsJson::Typing)
+            .add_state_event(EventsJson::PowerLevels)
+            .add_custom_invited_event(
+                &room_id!("!test_invited:example.org"),
+                json!({
+                "content": {
+                  "avatar_url": "mxc://example.org/SEsfnsuifSDFSSEF",
+                  "displayname": "Alice",
+                  "membership": "invite",
+                },
+                "event_id": "$143273582443PhrSn:example.org",
+                "origin_server_ts": 1432735824653u64,
+                "room_id": "!jEsUZKDJdhlrceRyVU:example.org",
+                "sender": "@example:example.org",
+                "state_key": "@alice:example.org",
+                "type": "m.room.member",
+                "unsigned": {
+                  "age": 1234,
+                  "invite_room_state": [
+                    {
+                      "content": {
+                        "name": "Example Room"
+                      },
+                      "sender": "@bob:example.org",
+                      "state_key": "",
+                      "type": "m.room.name"
+                    },
+                    {
+                      "content": {
+                        "join_rule": "invite"
+                      },
+                      "sender": "@bob:example.org",
+                      "state_key": "",
+                      "type": "m.room.join_rules"
+                    }
+                  ]
+                }
+                          }),
+            )
+            .build_sync_response();
+        client.process_sync(response).await?;
+
+        assert_eq!(member_count.load(SeqCst), 1);
+        assert_eq!(typing_count.load(SeqCst), 1);
+        assert_eq!(power_levels_count.load(SeqCst), 1);
+        assert_eq!(invited_member_count.load(SeqCst), 1);
+
+        Ok(())
+    }
+}
