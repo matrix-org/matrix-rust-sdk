@@ -665,7 +665,7 @@ impl SasState<WeAccepted> {
             last_event_time: Instant::now().into(),
             started_from_request: self.started_from_request,
             state: Arc::new(KeyReceived {
-                we_started: false,
+                we_started: self.state.we_started,
                 their_pubkey,
                 accepted_protocols: self.state.accepted_protocols.clone(),
             }),

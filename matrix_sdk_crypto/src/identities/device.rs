@@ -42,7 +42,7 @@ use super::{atomic_bool_deserializer, atomic_bool_serializer};
 use crate::{
     error::{EventError, OlmError, OlmResult, SignatureError},
     identities::{ReadOnlyOwnUserIdentity, ReadOnlyUserIdentities},
-    olm::{InboundGroupSession, PrivateCrossSigningIdentity, Session, Utility},
+    olm::{InboundGroupSession, Session, Utility},
     store::{Changes, CryptoStore, DeviceChanges, Result as StoreResult},
     verification::VerificationMachine,
     OutgoingVerificationRequest, Sas, ToDeviceRequest, VerificationRequest,
@@ -296,7 +296,6 @@ impl Device {
 #[derive(Debug)]
 pub struct UserDevices {
     pub(crate) inner: HashMap<DeviceIdBox, ReadOnlyDevice>,
-    pub(crate) private_identity: Arc<Mutex<PrivateCrossSigningIdentity>>,
     pub(crate) verification_machine: VerificationMachine,
     pub(crate) own_identity: Option<ReadOnlyOwnUserIdentity>,
     pub(crate) device_owner_identity: Option<ReadOnlyUserIdentities>,

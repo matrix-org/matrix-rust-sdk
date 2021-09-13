@@ -164,7 +164,6 @@ pub struct SledStore {
     identities: Tree,
 
     tracked_users: Tree,
-    users_for_key_query: Tree,
 }
 
 impl std::fmt::Debug for SledStore {
@@ -246,7 +245,6 @@ impl SledStore {
         let outbound_group_sessions = db.open_tree("outbound_group_sessions")?;
 
         let tracked_users = db.open_tree("tracked_users")?;
-        let users_for_key_query = db.open_tree("users_for_key_query")?;
         let olm_hashes = db.open_tree("olm_hashes")?;
 
         let devices = db.open_tree("devices")?;
@@ -283,7 +281,6 @@ impl SledStore {
             secret_requests_by_info,
             devices,
             tracked_users,
-            users_for_key_query,
             olm_hashes,
             identities,
         })

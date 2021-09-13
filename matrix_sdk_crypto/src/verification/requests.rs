@@ -999,7 +999,6 @@ impl RequestState<Ready> {
                                 identites.other_device().get_key(DeviceKeyAlgorithm::Ed25519)
                             {
                                 Some(QrVerification::new_self(
-                                    self.store.clone(),
                                     self.flow_id.as_ref().to_owned(),
                                     master_key.to_owned(),
                                     device_key.to_owned(),
@@ -1048,7 +1047,6 @@ impl RequestState<Ready> {
                             .and_then(|m| m.get_first_key().map(|m| m.to_owned()))
                         {
                             Some(QrVerification::new_cross(
-                                self.store.clone(),
                                 self.flow_id.as_ref().to_owned(),
                                 own_master,
                                 other_master.to_owned(),
@@ -1251,6 +1249,7 @@ impl RequestState<Ready> {
 #[derive(Clone, Debug)]
 struct Passive {
     /// The device id of the device that responded to the verification request.
+    #[allow(dead_code)]
     pub other_device_id: DeviceIdBox,
 }
 

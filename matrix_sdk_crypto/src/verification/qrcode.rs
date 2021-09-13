@@ -80,7 +80,6 @@ pub enum ScanError {
 #[derive(Clone)]
 pub struct QrVerification {
     flow_id: FlowId,
-    store: VerificationStore,
     inner: Arc<QrVerificationData>,
     state: Arc<Mutex<InnerState>>,
     identities: IdentitiesBeingVerified,
@@ -429,7 +428,6 @@ impl QrVerification {
     }
 
     pub(crate) fn new_self(
-        store: VerificationStore,
         flow_id: FlowId,
         own_master_key: String,
         other_device_key: String,
@@ -447,7 +445,7 @@ impl QrVerification {
         )
         .into();
 
-        Self::new_helper(store, flow_id, inner, identities, we_started, request_handle)
+        Self::new_helper(flow_id, inner, identities, we_started, request_handle)
     }
 
     pub(crate) fn new_self_no_master(
@@ -468,11 +466,10 @@ impl QrVerification {
         )
         .into();
 
-        Self::new_helper(store, flow_id, inner, identities, we_started, request_handle)
+        Self::new_helper(flow_id, inner, identities, we_started, request_handle)
     }
 
     pub(crate) fn new_cross(
-        store: VerificationStore,
         flow_id: FlowId,
         own_master_key: String,
         other_master_key: String,
@@ -491,7 +488,7 @@ impl QrVerification {
         let inner: QrVerificationData =
             VerificationData::new(event_id, own_master_key, other_master_key, secret).into();
 
-        Self::new_helper(store, flow_id, inner, identities, we_started, request_handle)
+        Self::new_helper(flow_id, inner, identities, we_started, request_handle)
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -585,7 +582,6 @@ impl QrVerification {
         let own_device_id = store.account.device_id().to_owned();
 
         Ok(Self {
-            store,
             flow_id,
             inner: qr_code.into(),
             state: Mutex::new(InnerState::Reciprocated(QrState {
@@ -599,7 +595,6 @@ impl QrVerification {
     }
 
     fn new_helper(
-        store: VerificationStore,
         flow_id: FlowId,
         inner: QrVerificationData,
         identities: IdentitiesBeingVerified,
@@ -609,7 +604,6 @@ impl QrVerification {
         let secret = inner.secret().to_owned();
 
         Self {
-            store,
             flow_id,
             inner: inner.into(),
             state: Mutex::new(InnerState::Created(QrState { state: Created { secret } })).into(),
@@ -851,7 +845,6 @@ mod test {
         assert_eq!(verification.inner.second_key(), &master_key);
 
         let verification = QrVerification::new_self(
-            store.clone(),
             flow_id,
             master_key.clone(),
             device_key.clone(),
@@ -870,7 +863,6 @@ mod test {
         let flow_id = FlowId::InRoom(room_id!("!test:example"), event_id!("$EVENTID"));
 
         let verification = QrVerification::new_cross(
-            store.clone(),
             flow_id,
             master_key.clone(),
             bob_master_key.clone(),
@@ -972,6 +964,7 @@ mod test {
             assert!(bob_verification.is_done());
 
             let identity = alice_verification
+                .identities
                 .store
                 .get_user_identity(alice_account.user_id())
                 .await

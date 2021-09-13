@@ -309,7 +309,6 @@ impl Store {
 
         Ok(UserDevices {
             inner: devices,
-            private_identity: self.identity.clone(),
             verification_machine: self.verification_machine.clone(),
             own_identity,
             device_owner_identity,
