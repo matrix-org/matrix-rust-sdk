@@ -1248,17 +1248,17 @@ mod test {
         );
         assert!(machine.should_share_key(&bob_device, &inbound).await.is_ok());
 
-        // But we don't share some other session that doesn't match our outbound
-        // session
-        let (_, other_inbound) =
+        let (other_outbound, other_inbound) =
             account.create_group_session_pair_with_defaults(&room_id()).await.unwrap();
 
+        // But we don't share some other session that doesn't match our outbound
+        // session.
         assert_matches!(
             machine.should_share_key(&bob_device, &other_inbound).await,
             Err(KeyForwardDecision::MissingOutboundSession)
         );
 
-        // And we don't share the session with a device that rotated its
+        // Finally, let's ensure we don't share the session with a device that rotated its
         // curve25519 key.
         let bob_device = ReadOnlyDevice::from_account(&bob_account()).await;
         machine.store.save_devices(&[bob_device]).await.unwrap();
@@ -1268,6 +1268,37 @@ mod test {
         assert_matches!(
             machine.should_share_key(&bob_device, &inbound).await,
             Err(KeyForwardDecision::ChangedSenderKey)
+        );
+
+        // Now let's encrypt some messages in another session to increment the message index and
+        // then share it with our own untrusted device.
+        own_device.set_trust_state(LocalTrust::Unset);
+
+        for _ in 1..=3 {
+            other_outbound.encrypt_helper("foo".to_string()).await;
+        }
+        other_outbound.mark_shared_with(
+            own_device.user_id(),
+            own_device.device_id(),
+            own_device.get_key(DeviceKeyAlgorithm::Curve25519).unwrap(),
+        ).await;
+
+        machine.outbound_group_sessions.insert(other_outbound.clone());
+
+        // Since our device is untrusted, we should share the session starting only from the
+        // current index (at which the message was marked as shared). This should be 3 since we
+        // encrypted 3 messages.
+        assert_matches!(
+            machine.should_share_key(&own_device, &other_inbound).await,
+            Ok(Some(3))
+        );
+
+        own_device.set_trust_state(LocalTrust::Verified);
+
+        // However once our device is trusted, we share the entire session.
+        assert_matches!(
+            machine.should_share_key(&own_device, &other_inbound).await,
+            Ok(None)
         );
     }
 
@@ -1317,7 +1348,7 @@ mod test {
             alice_device.user_id(),
             alice_device.device_id(),
             alice_device.get_key(DeviceKeyAlgorithm::Curve25519).unwrap(),
-        );
+        ).await;
 
         // Put the outbound session into bobs store.
         bob_machine.outbound_group_sessions.insert(group_session.clone());
@@ -1523,7 +1554,7 @@ mod test {
             alice_device.user_id(),
             alice_device.device_id(),
             alice_device.get_key(DeviceKeyAlgorithm::Curve25519).unwrap(),
-        );
+        ).await;
 
         // Put the outbound session into bobs store.
         bob_machine.outbound_group_sessions.insert(group_session.clone());

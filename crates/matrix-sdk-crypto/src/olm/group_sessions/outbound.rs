@@ -413,12 +413,31 @@ impl OutboundGroupSession {
         }
     }
 
-    /// Mark that the session was shared with the given user/device pair.
+    /// Mark the session as shared with the given user/device pair, starting from some message
+    /// index.
     #[cfg(test)]
-    pub fn mark_shared_with(&self, user_id: &UserId, device_id: &DeviceId, sender_key: &str) {
+    pub fn mark_shared_with_from_index(&self, user_id: &UserId, device_id: &DeviceId, sender_key: &str, index: u32) {
         self.shared_with_set.entry(user_id.to_owned()).or_insert_with(DashMap::new).insert(
             device_id.to_owned(),
-            ShareInfo { sender_key: sender_key.to_owned(), message_index: 0 },
+            ShareInfo { sender_key: sender_key.to_owned(), message_index: index },
+        );
+    }
+
+    /// Mark the session as shared with the given user/device pair, starting
+    /// from the current index.
+    #[cfg(test)]
+    pub async fn mark_shared_with(
+        &self,
+        user_id: &UserId,
+        device_id: &DeviceId,
+        sender_key: &str,
+    ) {
+        self.shared_with_set.entry(user_id.to_owned()).or_insert_with(DashMap::new).insert(
+            device_id.to_owned(),
+            ShareInfo {
+                sender_key: sender_key.to_owned(),
+                message_index: self.message_index().await,
+            },
         );
     }
 
