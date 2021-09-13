@@ -30,6 +30,7 @@ use crate::deserialized_responses::MemberEvent;
 pub struct RoomMember {
     pub(crate) event: Arc<MemberEvent>,
     pub(crate) profile: Arc<Option<MemberEventContent>>,
+    #[allow(dead_code)]
     pub(crate) presence: Arc<Option<PresenceEvent>>,
     pub(crate) power_levels: Arc<Option<SyncStateEvent<PowerLevelsEventContent>>>,
     pub(crate) max_power_level: i64,
