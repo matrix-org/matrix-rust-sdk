@@ -8,6 +8,8 @@ homepage = "https://github.com/matrix-org/matrix-rust-sdk"
 keywords = ["matrix", "chat", "messaging", "ruma", "nio"]
 license = "Apache-2.0"
 readme = "README.md"
+# This isn't yet supported by the stable cargo, we'll enable it when it is.
+# rust-version = "1.54"
 repository = "https://github.com/matrix-org/matrix-rust-sdk"
 
 [package.metadata.docs.rs]
