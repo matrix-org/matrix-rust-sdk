@@ -17,7 +17,7 @@ use ruma::UserId;
 
 use crate::{error::Result, Client};
 
-/// An object controlling the interactive verification flow.
+/// An object controlling the short auth string verification flow.
 #[derive(Debug, Clone)]
 pub struct SasVerification {
     pub(crate) inner: BaseSas,
@@ -43,26 +43,29 @@ impl SasVerification {
     /// # use futures::executor::block_on;
     /// # use url::Url;
     /// # use ruma::user_id;
-    /// use matrix_sdk::verification::SasVerification;
-    /// use matrix_sdk_base::crypto::AcceptSettings;
-    /// use matrix_sdk::ruma::events::key::verification::ShortAuthenticationString;
-    /// # let homeserver = Url::parse("http://example.com").unwrap();
-    /// # let client = Client::new(homeserver).unwrap();
+    /// use matrix_sdk::{
+    ///     encryption::verification::{SasVerification, AcceptSettings},
+    ///     ruma::events::key::verification::ShortAuthenticationString,
+    /// };
+    ///
     /// # let flow_id = "someID";
     /// # let user_id = user_id!("@alice:example");
     /// # block_on(async {
+    /// # let homeserver = Url::parse("http://example.com")?;
+    /// # let client = Client::new(homeserver)?;
     /// let sas = client
     ///     .get_verification(&user_id, flow_id)
     ///     .await
-    ///     .unwrap()
-    ///     .sas()
-    ///     .unwrap();
+    ///     .and_then(|v| v.sas());
     ///
-    /// let only_decimal = AcceptSettings::with_allowed_methods(
-    ///     vec![ShortAuthenticationString::Decimal]
-    /// );
-    /// sas.accept_with_settings(only_decimal).await.unwrap();
-    /// # });
+    /// if let Some(sas) = sas {
+    ///     let only_decimal = AcceptSettings::with_allowed_methods(
+    ///         vec![ShortAuthenticationString::Decimal]
+    ///     );
+    ///
+    ///     sas.accept_with_settings(only_decimal).await?;
+    /// }
+    /// # anyhow::Result::<()>::Ok(()) });
     /// ```
     pub async fn accept_with_settings(&self, settings: AcceptSettings) -> Result<()> {
         if let Some(request) = self.inner.accept_with_settings(settings) {

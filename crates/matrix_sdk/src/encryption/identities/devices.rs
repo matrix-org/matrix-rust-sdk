@@ -65,10 +65,10 @@ impl Device {
     /// # use matrix_sdk::{Client, ruma::UserId};
     /// # use url::Url;
     /// # use futures::executor::block_on;
-    /// # let alice = UserId::try_from("@alice:example.org").unwrap();
-    /// # let homeserver = Url::parse("http://example.com").unwrap();
-    /// # let client = Client::new(homeserver).unwrap();
     /// # block_on(async {
+    /// # let alice = UserId::try_from("@alice:example.org")?;
+    /// # let homeserver = Url::parse("http://example.com")?;
+    /// # let client = Client::new(homeserver)?;
     /// let device = client.get_device(&alice, "DEVICEID".into()).await?;
     ///
     /// if let Some(device) = device {
@@ -113,10 +113,10 @@ impl Device {
     /// # };
     /// # use url::Url;
     /// # use futures::executor::block_on;
-    /// # let alice = UserId::try_from("@alice:example.org").unwrap();
-    /// # let homeserver = Url::parse("http://example.com").unwrap();
-    /// # let client = Client::new(homeserver).unwrap();
     /// # block_on(async {
+    /// # let alice = UserId::try_from("@alice:example.org")?;
+    /// # let homeserver = Url::parse("http://example.com")?;
+    /// # let client = Client::new(homeserver)?;
     /// let device = client.get_device(&alice, "DEVICEID".into()).await?;
     ///
     /// // We don't want to support showing a QR code, we only support SAS
@@ -157,10 +157,10 @@ impl Device {
     /// # use matrix_sdk::{Client, ruma::UserId};
     /// # use url::Url;
     /// # use futures::executor::block_on;
-    /// # let alice = UserId::try_from("@alice:example.org").unwrap();
-    /// # let homeserver = Url::parse("http://example.com").unwrap();
-    /// # let client = Client::new(homeserver).unwrap();
     /// # block_on(async {
+    /// # let alice = UserId::try_from("@alice:example.org")?;
+    /// # let homeserver = Url::parse("http://example.com")?;
+    /// # let client = Client::new(homeserver)?;
     /// let device = client.get_device(&alice, "DEVICEID".into()).await?;
     ///
     /// if let Some(device) = device {
@@ -211,10 +211,10 @@ impl Device {
     /// # };
     /// # use url::Url;
     /// # use futures::executor::block_on;
-    /// # let alice = UserId::try_from("@alice:example.org").unwrap();
-    /// # let homeserver = Url::parse("http://example.com").unwrap();
-    /// # let client = Client::new(homeserver).unwrap();
     /// # block_on(async {
+    /// # let alice = UserId::try_from("@alice:example.org")?;
+    /// # let homeserver = Url::parse("http://example.com")?;
+    /// # let client = Client::new(homeserver)?;
     /// let device = client.get_device(&alice, "DEVICEID".into()).await?;
     ///
     /// if let Some(device) = device {
@@ -253,10 +253,10 @@ impl Device {
     /// # };
     /// # use url::Url;
     /// # use futures::executor::block_on;
-    /// # let alice = UserId::try_from("@alice:example.org").unwrap();
-    /// # let homeserver = Url::parse("http://example.com").unwrap();
-    /// # let client = Client::new(homeserver).unwrap();
     /// # block_on(async {
+    /// # let alice = UserId::try_from("@alice:example.org")?;
+    /// # let homeserver = Url::parse("http://example.com")?;
+    /// # let client = Client::new(homeserver)?;
     /// let user = client.get_user_identity(&alice).await?;
     ///
     /// if let Some(user) = user {
