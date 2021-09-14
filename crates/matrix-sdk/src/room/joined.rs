@@ -41,8 +41,10 @@ use ruma::{
         AnyMessageEventContent, AnyStateEventContent,
     },
     receipt::ReceiptType,
+    serde::Raw,
     EventId, UserId,
 };
+use serde_json::Value;
 #[cfg(feature = "encryption")]
 use tracing::instrument;
 
@@ -526,12 +528,15 @@ impl Joined {
     ///
     /// # Arguments
     ///
-    /// * `room_id` -  The id of the room that should receive the message.
-    ///
     /// * `content` - The content of the state event.
     ///
     /// * `state_key` - A unique key which defines the overwriting semantics for
     /// this piece of room state. This value is often a zero-length string.
+    ///
+    /// **Note**: To send custom events use the raw variant of this method,
+    /// [`send_state_event_raw()`].
+    ///
+    /// [`send_state_event_raw()`]: #method.send_state_event_raw
     ///
     /// # Example
     ///
@@ -568,6 +573,56 @@ impl Joined {
         let request = send_state_event::Request::new(self.inner.room_id(), state_key, &content);
 
         self.client.send(request, None).await
+    }
+
+    /// Send a raw room state event to the homeserver.
+    ///
+    /// Returns the parsed response from the server.
+    ///
+    /// # Arguments
+    ///
+    /// * `content` - The raw content of the state event.
+    ///
+    /// * `event_type` - The type of the event that we're sending out.
+    ///
+    /// * `state_key` - A unique key which defines the overwriting semantics for
+    /// this piece of room state. This value is often a zero-length string.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use serde_json::json;
+    ///
+    /// # futures::executor::block_on(async {
+    /// # let homeserver = url::Url::parse("http://localhost:8080")?;
+    /// # let mut client = matrix_sdk::Client::new(homeserver)?;
+    /// # let room_id = matrix_sdk::ruma::room_id!("!test:localhost");
+    /// let content = json!({
+    ///     "avatar_url": "mxc://example.org/SEsfnsuifSDFSSEF",
+    ///     "displayname": "Alice Margatroid",
+    ///     "membership": "join"
+    /// });
+    ///
+    /// if let Some(room) = client.get_joined_room(&room_id) {
+    ///     room.send_state_event_raw(content, "m.room.member", "").await?;
+    /// }
+    /// # anyhow::Result::<()>::Ok(()) });
+    /// ```
+    pub async fn send_state_event_raw(
+        &self,
+        content: Value,
+        event_type: &str,
+        state_key: &str,
+    ) -> Result<send_state_event::Response> {
+        let content = Raw::from_json(serde_json::value::to_raw_value(&content)?);
+        let request = send_state_event::Request::new_raw(
+            self.inner.room_id(),
+            event_type,
+            state_key,
+            content,
+        );
+
+        Ok(self.client.send(request, None).await?)
     }
 
     /// Strips all information out of an event of the room.
