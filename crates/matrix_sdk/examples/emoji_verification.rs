@@ -9,13 +9,13 @@ use std::{
 
 use matrix_sdk::{
     self,
+    encryption::verification::{SasVerification, Verification},
     ruma::{
         events::{
             room::message::MessageType, AnySyncMessageEvent, AnySyncRoomEvent, AnyToDeviceEvent,
         },
         UserId,
     },
-    verification::{SasVerification, Verification},
     Client, LoopCtrl, SyncSettings,
 };
 use url::Url;

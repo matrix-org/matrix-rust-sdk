@@ -22,8 +22,8 @@ use ruma::{events::key::verification::VerificationMethod, DeviceId, DeviceIdBox}
 
 use super::ManualVerifyError;
 use crate::{
+    encryption::verification::{SasVerification, VerificationRequest},
     error::Result,
-    verification::{SasVerification, VerificationRequest},
     Client,
 };
 

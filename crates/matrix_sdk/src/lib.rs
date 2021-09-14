@@ -37,9 +37,6 @@ compile_error!("only one of 'native-tls' or 'rustls-tls' features can be enabled
 compile_error!("'sso_login' cannot be enabled on 'wasm32' arch");
 
 pub use bytes;
-#[cfg(feature = "encryption")]
-#[cfg_attr(feature = "docs", doc(cfg(encryption)))]
-pub use matrix_sdk_base::crypto::{EncryptionInfo, LocalTrust};
 pub use matrix_sdk_base::{
     media, Room as BaseRoom, RoomInfo, RoomMember as BaseRoomMember, RoomType, Session,
     StateChanges, StoreError,
@@ -60,10 +57,7 @@ mod room_member;
 
 #[cfg(feature = "encryption")]
 #[cfg_attr(feature = "docs", doc(cfg(encryption)))]
-pub mod identities;
-#[cfg(feature = "encryption")]
-#[cfg_attr(feature = "docs", doc(cfg(encryption)))]
-pub mod verification;
+pub mod encryption;
 
 pub use client::{Client, ClientConfig, LoopCtrl, RequestConfig, SyncSettings};
 pub use error::{Error, HttpError, HttpResult, Result};

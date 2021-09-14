@@ -30,7 +30,7 @@ use ruma::{
 };
 
 use super::{ManualVerifyError, RequestVerificationError};
-use crate::{room::Joined, verification::VerificationRequest, Client};
+use crate::{encryption::verification::VerificationRequest, room::Joined, Client};
 
 /// A struct representing a E2EE capable identity of a user.
 ///

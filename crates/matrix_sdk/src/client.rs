@@ -139,12 +139,14 @@ use ruma::{
 };
 
 #[cfg(all(feature = "qrcode", feature = "encryption"))]
-use crate::verification::QrVerification;
+use crate::encryption::verification::QrVerification;
 #[cfg(feature = "encryption")]
 use crate::{
+    encryption::{
+        identities::{Device, UserDevices},
+        verification::{SasVerification, Verification, VerificationRequest},
+    },
     error::RoomKeyImportError,
-    identities::{Device, UserDevices},
-    verification::{SasVerification, Verification, VerificationRequest},
 };
 use crate::{
     error::{HttpError, HttpResult},
@@ -2685,8 +2687,8 @@ impl Client {
     pub async fn get_user_identity(
         &self,
         user_id: &UserId,
-    ) -> StdResult<Option<crate::identities::UserIdentity>, CryptoStoreError> {
-        use crate::identities::UserIdentity;
+    ) -> StdResult<Option<crate::encryption::identities::UserIdentity>, CryptoStoreError> {
+        use crate::encryption::identities::UserIdentity;
 
         if let Some(olm) = self.base_client.olm_machine().await {
             let identity = olm.get_identity(user_id).await?;
