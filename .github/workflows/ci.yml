@@ -83,7 +83,7 @@ jobs:
 
     - name: Check
       run: |
-        cd matrix_sdk/examples/wasm_command_bot
+        cd crates/matrix_sdk/examples/wasm_command_bot
         cargo check --target wasm32-unknown-unknown
 
   test-appservice:
@@ -121,19 +121,19 @@ jobs:
         uses: actions-rs/cargo@v1
         with:
           command: clippy
-          args: --manifest-path matrix_sdk_appservice/Cargo.toml ${{ matrix.cargo_args }} -- -D warnings
+          args: --manifest-path crates/matrix_sdk_appservice/Cargo.toml ${{ matrix.cargo_args }} -- -D warnings
 
       - name: Build
         uses: actions-rs/cargo@v1
         with:
           command: build
-          args: --manifest-path matrix_sdk_appservice/Cargo.toml ${{ matrix.cargo_args }}
+          args: --manifest-path crates/matrix_sdk_appservice/Cargo.toml ${{ matrix.cargo_args }}
 
       - name: Test
         uses: actions-rs/cargo@v1
         with:
           command: test
-          args: --manifest-path matrix_sdk_appservice/Cargo.toml ${{ matrix.cargo_args }}
+          args: --manifest-path crates/matrix_sdk_appservice/Cargo.toml ${{ matrix.cargo_args }}
 
   test-features:
     name: ${{ matrix.name }}
@@ -197,13 +197,13 @@ jobs:
         uses: actions-rs/cargo@v1
         with:
           command: check
-          args: --manifest-path matrix_sdk/Cargo.toml ${{ matrix.cargo_args }}
+          args: --manifest-path crates/matrix_sdk/Cargo.toml ${{ matrix.cargo_args }}
 
       - name: Test
         uses: actions-rs/cargo@v1
         with:
           command: test
-          args: --manifest-path matrix_sdk/Cargo.toml ${{ matrix.cargo_args }}
+          args: --manifest-path crates/matrix_sdk/Cargo.toml ${{ matrix.cargo_args }}
 
   test:
     name: ${{ matrix.name }}

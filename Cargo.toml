@@ -1,11 +1,11 @@
 [workspace]
 members = [
-    "matrix_sdk",
-    "matrix_qrcode",
-    "matrix_sdk_base",
-    "matrix_sdk_test",
-    "matrix_sdk_test_macros",
-    "matrix_sdk_crypto",
-    "matrix_sdk_common",
-    "matrix_sdk_appservice"
+    "crates/matrix_sdk",
+    "crates/matrix_qrcode",
+    "crates/matrix_sdk_base",
+    "crates/matrix_sdk_test",
+    "crates/matrix_sdk_test_macros",
+    "crates/matrix_sdk_crypto",
+    "crates/matrix_sdk_common",
+    "crates/matrix_sdk_appservice"
 ]
