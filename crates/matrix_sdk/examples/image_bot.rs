@@ -9,12 +9,13 @@ use std::{
 
 use matrix_sdk::{
     self,
+    config::SyncSettings,
     room::Room,
     ruma::events::{
         room::message::{MessageEventContent, MessageType, TextMessageEventContent},
         SyncMessageEvent,
     },
-    Client, SyncSettings,
+    Client,
 };
 use tokio::sync::Mutex;
 use url::Url;

@@ -10,7 +10,7 @@ Connecting and logging in to a homeserver is pretty starightforward:
 ```rust,no_run
 use std::convert::TryFrom;
 use matrix_sdk::{
-    Client, SyncSettings, Result,
+    Client, config::SyncSettings, Result,
     ruma::{UserId, events::{SyncMessageEvent, room::message::MessageEventContent}},
 };
 

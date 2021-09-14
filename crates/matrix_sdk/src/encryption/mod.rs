@@ -344,7 +344,7 @@ impl Client {
     /// ```no_run
     /// # use std::{path::PathBuf, time::Duration};
     /// # use matrix_sdk::{
-    /// #     Client, SyncSettings,
+    /// #     Client, config::SyncSettings,
     /// #     ruma::room_id,
     /// # };
     /// # use futures::executor::block_on;
@@ -414,7 +414,7 @@ impl Client {
     /// ```no_run
     /// # use std::{path::PathBuf, time::Duration};
     /// # use matrix_sdk::{
-    /// #     Client, SyncSettings,
+    /// #     Client, config::SyncSettings,
     /// #     ruma::room_id,
     /// # };
     /// # use futures::executor::block_on;

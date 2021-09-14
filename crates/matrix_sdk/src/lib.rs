@@ -47,6 +47,7 @@ pub use reqwest;
 pub use ruma;
 
 mod client;
+pub mod config;
 mod error;
 pub mod event_handler;
 mod http_client;
@@ -59,7 +60,7 @@ mod room_member;
 #[cfg_attr(feature = "docs", doc(cfg(encryption)))]
 pub mod encryption;
 
-pub use client::{Client, ClientConfig, LoopCtrl, RequestConfig, SyncSettings};
+pub use client::{Client, LoopCtrl};
 pub use error::{Error, HttpError, HttpResult, Result};
 pub use http_client::HttpSend;
 pub use room_member::RoomMember;

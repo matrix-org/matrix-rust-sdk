@@ -4,7 +4,7 @@ use std::{
     sync::atomic::{AtomicBool, Ordering},
 };
 
-use matrix_sdk::{ruma::UserId, Client, LoopCtrl, SyncSettings};
+use matrix_sdk::{config::SyncSettings, ruma::UserId, Client, LoopCtrl};
 use url::Url;
 
 async fn bootstrap(client: Client, user_id: UserId, password: String) {

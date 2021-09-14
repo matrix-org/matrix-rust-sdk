@@ -1,9 +1,10 @@
 use std::{env, process::exit};
 
 use matrix_sdk::{
+    config::{ClientConfig, SyncSettings},
     room::Room,
     ruma::events::{room::member::MemberEventContent, StrippedStateEvent},
-    Client, ClientConfig, SyncSettings,
+    Client,
 };
 use tokio::time::{sleep, Duration};
 use url::Url;

@@ -92,9 +92,10 @@ pub use matrix_sdk;
 pub use matrix_sdk::ruma;
 use matrix_sdk::{
     bytes::Bytes,
+    config::ClientConfig,
     event_handler::{EventHandler, EventHandlerResult, SyncEvent},
     reqwest::Url,
-    Client, ClientConfig, Session,
+    Client, Session,
 };
 use regex::Regex;
 use ruma::{

@@ -162,8 +162,9 @@ impl Joined {
     /// ```no_run
     /// use std::time::Duration;
     /// use matrix_sdk::ruma::api::client::r0::typing::create_typing_event::Typing;
+    ///
     /// # use matrix_sdk::{
-    /// #     Client, SyncSettings,
+    /// #     Client, config::SyncSettings,
     /// #     ruma::room_id,
     /// # };
     /// # use futures::executor::block_on;
@@ -348,7 +349,7 @@ impl Joined {
     /// # Example
     /// ```no_run
     /// # use std::sync::{Arc, RwLock};
-    /// # use matrix_sdk::{Client, SyncSettings};
+    /// # use matrix_sdk::{Client, config::SyncSettings};
     /// # use url::Url;
     /// # use futures::executor::block_on;
     /// # use matrix_sdk::ruma::room_id;

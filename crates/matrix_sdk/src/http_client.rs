@@ -25,7 +25,11 @@ use ruma::api::{
 use tracing::trace;
 use url::Url;
 
-use crate::{error::HttpError, ClientConfig, RequestConfig, Session};
+use crate::{
+    config::{ClientConfig, RequestConfig},
+    error::HttpError,
+    Session,
+};
 
 /// Abstraction around the http layer. The allows implementors to use different
 /// http libraries.
@@ -49,7 +53,7 @@ pub trait HttpSend: AsyncTraitDeps {
     ///
     /// ```
     /// use std::convert::TryFrom;
-    /// use matrix_sdk::{HttpSend, async_trait, HttpError, RequestConfig, bytes::Bytes};
+    /// use matrix_sdk::{HttpSend, async_trait, HttpError, config::RequestConfig, bytes::Bytes};
     ///
     /// #[derive(Debug)]
     /// struct Client(reqwest::Client);

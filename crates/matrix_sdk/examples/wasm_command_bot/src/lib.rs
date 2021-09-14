@@ -1,4 +1,5 @@
 use matrix_sdk::{
+    config::SyncSettings,
     deserialized_responses::SyncResponse,
     ruma::{
         events::{
@@ -7,7 +8,7 @@ use matrix_sdk::{
         },
         RoomId,
     },
-    Client, LoopCtrl, SyncSettings,
+    Client, LoopCtrl,
 };
 use url::Url;
 use wasm_bindgen::prelude::*;

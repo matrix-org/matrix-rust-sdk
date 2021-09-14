@@ -18,7 +18,6 @@ use std::{
     fmt::{self, Debug},
     future::Future,
     io::Read,
-    path::Path,
     pin::Pin,
     result::Result as StdResult,
     sync::Arc,
@@ -27,11 +26,10 @@ use std::{
 use dashmap::DashMap;
 use futures::FutureExt;
 use futures_timer::Delay as sleep;
-use http::HeaderValue;
 use matrix_sdk_base::{
     deserialized_responses::{JoinedRoom, LeftRoom, SyncResponse},
     media::{MediaEventContent, MediaFormat, MediaRequest, MediaThumbnailSize, MediaType},
-    BaseClient, BaseClientConfig, Session, Store,
+    BaseClient, Session, Store,
 };
 use matrix_sdk_common::{
     instant::{Duration, Instant},
@@ -39,7 +37,6 @@ use matrix_sdk_common::{
     uuid::Uuid,
 };
 use mime::{self, Mime};
-use reqwest::header::InvalidHeaderValue;
 use ruma::{
     api::{
         client::{
@@ -73,14 +70,13 @@ use tracing::{error, info, instrument, warn};
 use url::Url;
 
 use crate::{
+    config::{ClientConfig, RequestConfig},
     error::{HttpError, HttpResult},
     event_handler::{EventHandler, EventHandlerData, EventHandlerResult, EventKind, SyncEvent},
-    http_client::{client_with_config, HttpClient, HttpSend},
+    http_client::{client_with_config, HttpClient},
     room, Error, Result,
 };
 
-const DEFAULT_REQUEST_TIMEOUT: Duration = Duration::from_secs(10);
-const DEFAULT_SYNC_TIMEOUT: Duration = Duration::from_secs(30);
 /// A conservative upload speed of 1Mbps
 const DEFAULT_UPLOAD_SPEED: u64 = 125_000;
 /// 5 min minimal upload request timeout, used to clamp the request timeout.
@@ -148,333 +144,6 @@ pub struct Client {
 impl Debug for Client {
     fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> StdResult<(), fmt::Error> {
         write!(fmt, "Client")
-    }
-}
-
-/// Configuration for the creation of the `Client`.
-///
-/// When setting the `StateStore` it is up to the user to open/connect
-/// the storage backend before client creation.
-///
-/// # Example
-///
-/// ```
-/// # use matrix_sdk::ClientConfig;
-/// // To pass all the request through mitmproxy set the proxy and disable SSL
-/// // verification
-/// let client_config = ClientConfig::new()
-///     .proxy("http://localhost:8080")
-///     .unwrap()
-///     .disable_ssl_verification();
-/// ```
-#[derive(Default)]
-pub struct ClientConfig {
-    #[cfg(not(target_arch = "wasm32"))]
-    pub(crate) proxy: Option<reqwest::Proxy>,
-    pub(crate) user_agent: Option<HeaderValue>,
-    pub(crate) disable_ssl_verification: bool,
-    pub(crate) base_config: BaseClientConfig,
-    pub(crate) request_config: RequestConfig,
-    pub(crate) client: Option<Arc<dyn HttpSend>>,
-    pub(crate) appservice_mode: bool,
-}
-
-#[cfg(not(tarpaulin_include))]
-impl Debug for ClientConfig {
-    fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let mut res = fmt.debug_struct("ClientConfig");
-
-        #[cfg(not(target_arch = "wasm32"))]
-        let res = res.field("proxy", &self.proxy);
-
-        res.field("user_agent", &self.user_agent)
-            .field("disable_ssl_verification", &self.disable_ssl_verification)
-            .field("request_config", &self.request_config)
-            .finish()
-    }
-}
-
-impl ClientConfig {
-    /// Create a new default `ClientConfig`.
-    pub fn new() -> Self {
-        Default::default()
-    }
-
-    /// Set the proxy through which all the HTTP requests should go.
-    ///
-    /// Note, only HTTP proxies are supported.
-    ///
-    /// # Arguments
-    ///
-    /// * `proxy` - The HTTP URL of the proxy.
-    ///
-    /// # Example
-    ///
-    /// ```
-    /// use matrix_sdk::ClientConfig;
-    ///
-    /// let client_config = ClientConfig::new()
-    ///     .proxy("http://localhost:8080")
-    ///     .unwrap();
-    /// ```
-    #[cfg(not(target_arch = "wasm32"))]
-    pub fn proxy(mut self, proxy: &str) -> Result<Self> {
-        self.proxy = Some(reqwest::Proxy::all(proxy)?);
-        Ok(self)
-    }
-
-    /// Disable SSL verification for the HTTP requests.
-    pub fn disable_ssl_verification(mut self) -> Self {
-        self.disable_ssl_verification = true;
-        self
-    }
-
-    /// Set a custom HTTP user agent for the client.
-    pub fn user_agent(mut self, user_agent: &str) -> StdResult<Self, InvalidHeaderValue> {
-        self.user_agent = Some(HeaderValue::from_str(user_agent)?);
-        Ok(self)
-    }
-
-    ///// Set a custom implementation of a `StateStore`.
-    /////
-    ///// The state store should be opened before being set.
-    //pub fn state_store(mut self, store: Box<dyn StateStore>) -> Self {
-    //    self.base_config = self.base_config.state_store(store);
-    //    self
-    //}
-
-    /// Set the path for storage.
-    ///
-    /// # Arguments
-    ///
-    /// * `path` - The path where the stores should save data in. It is the
-    /// callers responsibility to make sure that the path exists.
-    ///
-    /// In the default configuration the client will open default
-    /// implementations for the crypto store and the state store. It will use
-    /// the given path to open the stores. If no path is provided no store will
-    /// be opened
-    pub fn store_path(mut self, path: impl AsRef<Path>) -> Self {
-        self.base_config = self.base_config.store_path(path);
-        self
-    }
-
-    /// Set the passphrase to encrypt the crypto store.
-    ///
-    /// # Argument
-    ///
-    /// * `passphrase` - The passphrase that will be used to encrypt the data in
-    /// the cryptostore.
-    ///
-    /// This is only used if no custom cryptostore is set.
-    pub fn passphrase(mut self, passphrase: String) -> Self {
-        self.base_config = self.base_config.passphrase(passphrase);
-        self
-    }
-
-    /// Set the default timeout, fail and retry behavior for all HTTP requests.
-    pub fn request_config(mut self, request_config: RequestConfig) -> Self {
-        self.request_config = request_config;
-        self
-    }
-
-    /// Get the [`RequestConfig`]
-    pub fn get_request_config(&self) -> &RequestConfig {
-        &self.request_config
-    }
-
-    /// Specify a client to handle sending requests and receiving responses.
-    ///
-    /// Any type that implements the `HttpSend` trait can be used to
-    /// send/receive `http` types.
-    pub fn client(mut self, client: Arc<dyn HttpSend>) -> Self {
-        self.client = Some(client);
-        self
-    }
-
-    /// Puts the client into application service mode
-    ///
-    /// This is low-level functionality. For an high-level API check the
-    /// `matrix_sdk_appservice` crate.
-    #[cfg(feature = "appservice")]
-    pub fn appservice_mode(mut self) -> Self {
-        self.appservice_mode = true;
-        self
-    }
-}
-
-#[derive(Debug, Clone)]
-/// Settings for a sync call.
-pub struct SyncSettings<'a> {
-    pub(crate) filter: Option<sync_events::Filter<'a>>,
-    pub(crate) timeout: Option<Duration>,
-    pub(crate) token: Option<String>,
-    pub(crate) full_state: bool,
-}
-
-impl<'a> Default for SyncSettings<'a> {
-    fn default() -> Self {
-        Self {
-            filter: Default::default(),
-            timeout: Some(DEFAULT_SYNC_TIMEOUT),
-            token: Default::default(),
-            full_state: Default::default(),
-        }
-    }
-}
-
-impl<'a> SyncSettings<'a> {
-    /// Create new default sync settings.
-    pub fn new() -> Self {
-        Default::default()
-    }
-
-    /// Set the sync token.
-    ///
-    /// # Arguments
-    ///
-    /// * `token` - The sync token that should be used for the sync call.
-    pub fn token(mut self, token: impl Into<String>) -> Self {
-        self.token = Some(token.into());
-        self
-    }
-
-    /// Set the maximum time the server can wait, in milliseconds, before
-    /// responding to the sync request.
-    ///
-    /// # Arguments
-    ///
-    /// * `timeout` - The time the server is allowed to wait.
-    pub fn timeout(mut self, timeout: Duration) -> Self {
-        self.timeout = Some(timeout);
-        self
-    }
-
-    /// Set the sync filter.
-    /// It can be either the filter ID, or the definition for the filter.
-    ///
-    /// # Arguments
-    ///
-    /// * `filter` - The filter configuration that should be used for the sync
-    ///   call.
-    pub fn filter(mut self, filter: sync_events::Filter<'a>) -> Self {
-        self.filter = Some(filter);
-        self
-    }
-
-    /// Should the server return the full state from the start of the timeline.
-    ///
-    /// This does nothing if no sync token is set.
-    ///
-    /// # Arguments
-    /// * `full_state` - A boolean deciding if the server should return the full
-    ///   state or not.
-    pub fn full_state(mut self, full_state: bool) -> Self {
-        self.full_state = full_state;
-        self
-    }
-}
-
-/// Configuration for requests the `Client` makes.
-///
-/// This sets how often and for how long a request should be repeated. As well
-/// as how long a successful request is allowed to take.
-///
-/// By default requests are retried indefinitely and use no timeout.
-///
-/// # Example
-///
-/// ```
-/// # use matrix_sdk::RequestConfig;
-/// # use std::time::Duration;
-/// // This sets makes requests fail after a single send request and sets the timeout to 30s
-/// let request_config = RequestConfig::new()
-///     .disable_retry()
-///     .timeout(Duration::from_secs(30));
-/// ```
-#[derive(Copy, Clone)]
-pub struct RequestConfig {
-    pub(crate) timeout: Duration,
-    pub(crate) retry_limit: Option<u64>,
-    pub(crate) retry_timeout: Option<Duration>,
-    pub(crate) force_auth: bool,
-    pub(crate) assert_identity: bool,
-}
-
-#[cfg(not(tarpaulin_include))]
-impl Debug for RequestConfig {
-    fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let mut res = fmt.debug_struct("RequestConfig");
-
-        res.field("timeout", &self.timeout)
-            .field("retry_limit", &self.retry_limit)
-            .field("retry_timeout", &self.retry_timeout)
-            .finish()
-    }
-}
-
-impl Default for RequestConfig {
-    fn default() -> Self {
-        Self {
-            timeout: DEFAULT_REQUEST_TIMEOUT,
-            retry_limit: Default::default(),
-            retry_timeout: Default::default(),
-            force_auth: false,
-            assert_identity: false,
-        }
-    }
-}
-
-impl RequestConfig {
-    /// Create a new default `RequestConfig`.
-    pub fn new() -> Self {
-        Default::default()
-    }
-
-    /// This is a convince method to disable the retries of a request. Setting
-    /// the `retry_limit` to `0` has the same effect.
-    pub fn disable_retry(mut self) -> Self {
-        self.retry_limit = Some(0);
-        self
-    }
-
-    /// The number of times a request should be retried. The default is no limit
-    pub fn retry_limit(mut self, retry_limit: u64) -> Self {
-        self.retry_limit = Some(retry_limit);
-        self
-    }
-
-    /// Set the timeout duration for all HTTP requests.
-    pub fn timeout(mut self, timeout: Duration) -> Self {
-        self.timeout = timeout;
-        self
-    }
-
-    /// Set a timeout for how long a request should be retried. The default is
-    /// no timeout, meaning requests are retried forever.
-    pub fn retry_timeout(mut self, retry_timeout: Duration) -> Self {
-        self.retry_timeout = Some(retry_timeout);
-        self
-    }
-
-    /// Force sending authorization even if the endpoint does not require it.
-    /// Default is only sending authorization if it is required.
-    pub(crate) fn force_auth(mut self) -> Self {
-        self.force_auth = true;
-        self
-    }
-
-    /// All outgoing http requests will have a GET query key-value appended with
-    /// `user_id` being the key and the `user_id` from the `Session` being
-    /// the value. Will error if there's no `Session`. This is called
-    /// [identity assertion] in the Matrix Application Service Spec
-    ///
-    /// [identity assertion]: https://spec.matrix.org/unstable/application-service-api/#identity-assertion
-    #[cfg(feature = "appservice")]
-    #[cfg_attr(feature = "docs", doc(cfg(appservice)))]
-    pub fn assert_identity(mut self) -> Self {
-        self.assert_identity = true;
-        self
     }
 }
 
@@ -1504,7 +1173,7 @@ impl Client {
     ///
     /// ```no_run
     /// # use matrix_sdk::{
-    /// #    Client, SyncSettings,
+    /// #    Client, config::SyncSettings,
     /// #    ruma::api::client::r0::{
     /// #        filter::{
     /// #           FilterDefinition, LazyLoadOptions, RoomEventFilter, RoomFilter,
@@ -1789,7 +1458,7 @@ impl Client {
     /// # Example
     /// ```no_run
     /// # use std::sync::{Arc, RwLock};
-    /// # use matrix_sdk::{Client, SyncSettings};
+    /// # use matrix_sdk::{Client, config::SyncSettings};
     /// # use url::Url;
     /// # use futures::executor::block_on;
     /// # use matrix_sdk::ruma::room_id;
@@ -1847,7 +1516,7 @@ impl Client {
     /// # Example
     ///
     /// ```no_run
-    /// # use matrix_sdk::{Client, SyncSettings};
+    /// # use matrix_sdk::{Client, config::SyncSettings};
     /// # use futures::executor::block_on;
     /// # use url::Url;
     /// # use std::convert::TryFrom;
@@ -1886,7 +1555,7 @@ impl Client {
     /// # Examples
     ///
     /// ```no_run
-    /// # use matrix_sdk::{Client, SyncSettings};
+    /// # use matrix_sdk::{Client, config::SyncSettings};
     /// # use futures::executor::block_on;
     /// # use url::Url;
     /// # use std::convert::TryFrom;
@@ -1932,7 +1601,7 @@ impl Client {
     /// #        },
     /// #        assign,
     /// #    },
-    /// #    Client, Error, SyncSettings,
+    /// #    Client, Error, config::SyncSettings,
     /// # };
     /// # use futures::executor::block_on;
     /// # use serde_json::json;
@@ -1981,7 +1650,10 @@ impl Client {
     ///
     /// [`sync`]: #method.sync
     #[instrument]
-    pub async fn sync_once(&self, sync_settings: SyncSettings<'_>) -> Result<SyncResponse> {
+    pub async fn sync_once(
+        &self,
+        sync_settings: crate::config::SyncSettings<'_>,
+    ) -> Result<SyncResponse> {
         let request = assign!(sync_events::Request::new(), {
             filter: sync_settings.filter.as_ref(),
             since: sync_settings.token.as_deref(),
@@ -2102,7 +1774,7 @@ impl Client {
     ///   will be only used for the first sync call.
     ///
     /// [`sync_with_callback`]: #method.sync_with_callback
-    pub async fn sync(&self, sync_settings: SyncSettings<'_>) {
+    pub async fn sync(&self, sync_settings: crate::config::SyncSettings<'_>) {
         self.sync_with_callback(sync_settings, |_| async { LoopCtrl::Continue }).await
     }
 
@@ -2131,7 +1803,7 @@ impl Client {
     /// # };
     /// # use std::sync::{Arc, RwLock};
     /// # use std::time::Duration;
-    /// # use matrix_sdk::{Client, SyncSettings, LoopCtrl};
+    /// # use matrix_sdk::{Client, config::SyncSettings, LoopCtrl};
     /// # use url::Url;
     /// # use futures::executor::block_on;
     /// # block_on(async {
@@ -2164,7 +1836,7 @@ impl Client {
     #[instrument(skip(callback))]
     pub async fn sync_with_callback<C>(
         &self,
-        mut sync_settings: SyncSettings<'_>,
+        mut sync_settings: crate::config::SyncSettings<'_>,
         callback: impl Fn(SyncResponse) -> C,
     ) where
         C: Future<Output = LoopCtrl>,
@@ -2540,8 +2212,11 @@ pub(crate) mod test {
     };
     use serde_json::json;
 
-    use super::{Client, Session, SyncSettings, Url};
-    use crate::{ClientConfig, HttpError, RequestConfig, RoomMember};
+    use super::{Client, Session, Url};
+    use crate::{
+        config::{ClientConfig, RequestConfig, SyncSettings},
+        HttpError, RoomMember,
+    };
 
     pub(crate) async fn logged_in_client() -> Client {
         let session = Session {

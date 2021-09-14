@@ -4,11 +4,11 @@ use std::{
 };
 
 use matrix_sdk::{
+    config::{ClientConfig, RequestConfig},
     ruma::{
         api::appservice::Registration,
         events::{room::member::MemberEventContent, SyncStateEvent},
     },
-    ClientConfig, RequestConfig,
 };
 use matrix_sdk_appservice::*;
 use matrix_sdk_test::{appservice::TransactionBuilder, async_test, EventsJson};

@@ -9,6 +9,7 @@ use std::{
 
 use matrix_sdk::{
     self,
+    config::SyncSettings,
     encryption::verification::{SasVerification, Verification},
     ruma::{
         events::{
@@ -16,7 +17,7 @@ use matrix_sdk::{
         },
         UserId,
     },
-    Client, LoopCtrl, SyncSettings,
+    Client, LoopCtrl,
 };
 use url::Url;
 

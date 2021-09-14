@@ -1,12 +1,13 @@
 use std::{env, process::exit};
 
 use matrix_sdk::{
+    config::{ClientConfig, SyncSettings},
     room::Room,
     ruma::events::{
         room::message::{MessageEventContent, MessageType, TextMessageEventContent},
         AnyMessageEventContent, SyncMessageEvent,
     },
-    Client, ClientConfig, SyncSettings,
+    Client,
 };
 use url::Url;
 
