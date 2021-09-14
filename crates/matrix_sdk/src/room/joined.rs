@@ -170,18 +170,15 @@ impl Joined {
     /// # use futures::executor::block_on;
     /// # use url::Url;
     /// # block_on(async {
-    /// # let homeserver = Url::parse("http://localhost:8080").unwrap();
-    /// # let mut client = Client::new(homeserver).unwrap();
+    /// # let homeserver = Url::parse("http://localhost:8080")?;
+    /// # let client = Client::new(homeserver)?;
     /// # let room_id = room_id!("!test:localhost");
-    /// # let room = client
-    /// #    .get_joined_room(&room_id!("!SVkFJHzfwvuaIEawgC:localhost"))
-    /// #    .unwrap();
+    /// let room_id = room_id!("!SVkFJHzfwvuaIEawgC:localhost");
     ///
-    /// room
-    ///     .typing_notice(true)
-    ///     .await
-    ///     .expect("Can't get devices from server");
-    /// # });
+    /// if let Some(room) = client.get_joined_room(&room_id) {
+    ///     room.typing_notice(true).await?
+    /// }
+    /// # matrix_sdk::Result::Ok(()) });
     /// ```
     pub async fn typing_notice(&self, typing: bool) -> Result<()> {
         // Only send a request to the homeserver if the old timeout has elapsed
@@ -354,26 +351,28 @@ impl Joined {
     /// # use futures::executor::block_on;
     /// # use matrix_sdk::ruma::room_id;
     /// # use std::convert::TryFrom;
-    /// use matrix_sdk::ruma::events::{
-    ///     AnyMessageEventContent,
-    ///     room::message::{MessageEventContent, TextMessageEventContent},
+    /// use matrix_sdk::{
+    ///     uuid::Uuid,
+    ///     ruma::events::{
+    ///         AnyMessageEventContent,
+    ///         room::message::{MessageEventContent, TextMessageEventContent},
+    ///     }
     /// };
     /// # block_on(async {
-    /// # let homeserver = Url::parse("http://localhost:8080").unwrap();
-    /// # let mut client = Client::new(homeserver).unwrap();
+    /// # let homeserver = Url::parse("http://localhost:8080")?;
+    /// # let mut client = Client::new(homeserver)?;
     /// # let room_id = room_id!("!test:localhost");
-    /// use matrix_sdk_common::uuid::Uuid;
     ///
     /// let content = AnyMessageEventContent::RoomMessage(
     ///     MessageEventContent::text_plain("Hello world")
     /// );
     ///
     /// let txn_id = Uuid::new_v4();
-    /// # let room = client
-    /// #    .get_joined_room(&room_id)
-    /// #    .unwrap();
-    /// room.send(content, Some(txn_id)).await.unwrap();
-    /// # })
+    ///
+    /// if let Some(room) = client.get_joined_room(&room_id) {
+    ///     room.send(content, Some(txn_id)).await?;
+    /// }
+    /// # matrix_sdk::Result::Ok(()) });
     /// ```
     pub async fn send(
         &self,
@@ -439,19 +438,21 @@ impl Joined {
     /// # use mime;
     /// # use futures::executor::block_on;
     /// # block_on(async {
-    /// # let homeserver = Url::parse("http://localhost:8080").unwrap();
-    /// # let mut client = Client::new(homeserver).unwrap();
+    /// # let homeserver = Url::parse("http://localhost:8080")?;
+    /// # let mut client = Client::new(homeserver)?;
     /// # let room_id = room_id!("!test:localhost");
     /// let path = PathBuf::from("/home/example/my-cat.jpg");
-    /// let mut image = File::open(path).unwrap();
+    /// let mut image = File::open(path)?;
     ///
-    /// # let room = client
-    /// #    .get_joined_room(&room_id)
-    /// #    .unwrap();
-    /// room.send_attachment("My favorite cat", &mime::IMAGE_JPEG, &mut image, None)
-    ///     .await
-    ///     .expect("Can't upload my cat.");
-    /// # });
+    /// if let Some(room) = client.get_joined_room(&room_id) {
+    ///     room.send_attachment(
+    ///         "My favorite cat",
+    ///         &mime::IMAGE_JPEG,
+    ///         &mut image,
+    ///         None,
+    ///     ).await?;
+    /// }
+    /// # matrix_sdk::Result::Ok(()) });
     /// ```
     pub async fn send_attachment<R: Read>(
         &self,
@@ -543,21 +544,20 @@ impl Joined {
     ///     assign, mxc_uri,
     /// };
     /// # futures::executor::block_on(async {
-    /// # let homeserver = url::Url::parse("http://localhost:8080").unwrap();
-    /// # let mut client = matrix_sdk::Client::new(homeserver).unwrap();
+    /// # let homeserver = url::Url::parse("http://localhost:8080")?;
+    /// # let mut client = matrix_sdk::Client::new(homeserver)?;
     /// # let room_id = matrix_sdk::ruma::room_id!("!test:localhost");
     ///
     /// let avatar_url = mxc_uri!("mxc://example.org/avatar");
     /// let member_event = assign!(MemberEventContent::new(MembershipState::Join), {
     ///    avatar_url: Some(avatar_url),
     /// });
-    /// # let room = client
-    /// #    .get_joined_room(&room_id)
-    /// #    .unwrap();
     ///
-    /// let content = AnyStateEventContent::RoomMember(member_event);
-    /// room.send_state_event(content, "").await.unwrap();
-    /// # })
+    /// if let Some(room) = client.get_joined_room(&room_id) {
+    ///     let content = AnyStateEventContent::RoomMember(member_event);
+    ///     room.send_state_event(content, "").await?;
+    /// }
+    /// # matrix_sdk::Result::Ok(()) });
     /// ```
     pub async fn send_state_event(
         &self,
@@ -591,16 +591,17 @@ impl Joined {
     ///
     /// ```no_run
     /// # futures::executor::block_on(async {
-    /// # let homeserver = url::Url::parse("http://localhost:8080").unwrap();
-    /// # let mut client = matrix_sdk::Client::new(homeserver).unwrap();
+    /// # let homeserver = url::Url::parse("http://localhost:8080")?;
+    /// # let mut client = matrix_sdk::Client::new(homeserver)?;
     /// # let room_id = matrix_sdk::ruma::room_id!("!test:localhost");
-    /// # let room = client
-    /// #   .get_joined_room(&room_id)
-    /// #   .unwrap();
-    /// let event_id = matrix_sdk::ruma::event_id!("$xxxxxx:example.org");
-    /// let reason = Some("Indecent material");
-    /// room.redact(&event_id, reason, None).await.unwrap();
-    /// # })
+    /// use matrix_sdk::ruma::event_id;
+    ///
+    /// if let Some(room) = client.get_joined_room(&room_id) {
+    ///     let event_id = event_id!("$xxxxxx:example.org");
+    ///     let reason = Some("Indecent material");
+    ///     room.redact(&event_id, reason, None).await?;
+    /// }
+    /// # matrix_sdk::Result::Ok(()) });
     /// ```
     pub async fn redact(
         &self,
@@ -632,16 +633,18 @@ impl Joined {
     /// ```no_run
     /// # use ruma::events::tag::TagInfo;
     /// # futures::executor::block_on(async {
-    /// # let homeserver = url::Url::parse("http://localhost:8080").unwrap();
-    /// # let mut client = matrix_sdk::Client::new(homeserver).unwrap();
+    /// # let homeserver = url::Url::parse("http://localhost:8080")?;
+    /// # let mut client = matrix_sdk::Client::new(homeserver)?;
     /// # let room_id = matrix_sdk::ruma::room_id!("!test:localhost");
-    /// # let room = client
-    /// #   .get_joined_room(&room_id)
-    /// #   .unwrap();
-    /// let mut tag_info = TagInfo::new();
-    /// tag_info.order = Some(0.9);
-    /// room.set_tag("u.work", tag_info );
-    /// # })
+    /// use matrix_sdk::ruma::events::tag::TagInfo;
+    ///
+    /// if let Some(room) = client.get_joined_room(&room_id) {
+    ///     let mut tag_info = TagInfo::new();
+    ///     tag_info.order = Some(0.9);
+    ///
+    ///     room.set_tag("u.work", tag_info ).await?;
+    /// }
+    /// # matrix_sdk::Result::Ok(()) });
     /// ```
     pub async fn set_tag(&self, tag: &str, tag_info: TagInfo) -> HttpResult<create_tag::Response> {
         let user_id = self.client.user_id().await.ok_or(HttpError::AuthenticationRequired)?;
