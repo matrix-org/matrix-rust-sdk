@@ -34,7 +34,6 @@ use matrix_sdk_base::{
 use matrix_sdk_common::{
     instant::{Duration, Instant},
     locks::{Mutex, RwLock},
-    uuid::Uuid,
 };
 use mime::{self, Mime};
 use ruma::{
@@ -47,7 +46,6 @@ use ruma::{
                 filter::{create_filter::Request as FilterUploadRequest, FilterDefinition},
                 media::{create_content, get_content, get_content_thumbnail},
                 membership::{join_room_by_id, join_room_by_id_or_alias},
-                message::send_message_event,
                 profile::{get_avatar_url, get_display_name, set_avatar_url, set_display_name},
                 push::get_notifications::Notification,
                 room::create_room,
@@ -61,7 +59,6 @@ use ruma::{
         OutgoingRequest, SendAccessToken,
     },
     assign,
-    events::AnyMessageEventContent,
     presence::PresenceState,
     DeviceIdBox, MxcUri, RoomId, RoomIdOrAliasId, ServerName, UInt, UserId,
 };
@@ -1431,71 +1428,6 @@ impl Client {
 
         let request_config = self.http_client.request_config.timeout(timeout);
         Ok(self.http_client.upload(request, Some(request_config)).await?)
-    }
-
-    /// Send a room message to a room.
-    ///
-    /// Returns the parsed response from the server.
-    ///
-    /// If the encryption feature is enabled this method will transparently
-    /// encrypt the room message if this room is encrypted.
-    ///
-    /// **Note**: This method will send an unencrypted message if the room
-    /// cannot be found in the store, prefer the higher level
-    /// [send()](room::Joined::send()) method that can be found for the
-    /// [Joined](room::Joined) room struct to avoid this.
-    ///
-    /// # Arguments
-    ///
-    /// * `room_id` - The unique id of the room.
-    ///
-    /// * `content` - The content of the message event.
-    ///
-    /// * `txn_id` - A unique `Uuid` that can be attached to a `MessageEvent`
-    /// held in its unsigned field as `transaction_id`. If not given one is
-    /// created for the message.
-    ///
-    /// # Example
-    /// ```no_run
-    /// # use std::sync::{Arc, RwLock};
-    /// # use matrix_sdk::{Client, config::SyncSettings};
-    /// # use url::Url;
-    /// # use futures::executor::block_on;
-    /// # use matrix_sdk::ruma::room_id;
-    /// # use std::convert::TryFrom;
-    /// use matrix_sdk::ruma::events::{
-    ///     AnyMessageEventContent,
-    ///     room::message::{MessageEventContent, TextMessageEventContent},
-    /// };
-    /// # block_on(async {
-    /// # let homeserver = Url::parse("http://localhost:8080").unwrap();
-    /// # let mut client = Client::new(homeserver).unwrap();
-    /// # let room_id = room_id!("!test:localhost");
-    /// use matrix_sdk_common::uuid::Uuid;
-    ///
-    /// let content = AnyMessageEventContent::RoomMessage(
-    ///     MessageEventContent::text_plain("Hello world")
-    /// );
-    ///
-    /// let txn_id = Uuid::new_v4();
-    /// client.room_send(&room_id, content, Some(txn_id)).await.unwrap();
-    /// # })
-    /// ```
-    pub async fn room_send(
-        &self,
-        room_id: &RoomId,
-        content: impl Into<AnyMessageEventContent>,
-        txn_id: Option<Uuid>,
-    ) -> Result<send_message_event::Response> {
-        if let Some(room) = self.get_joined_room(room_id) {
-            room.send(content, txn_id).await
-        } else {
-            let content = content.into();
-            let txn_id = txn_id.unwrap_or_else(Uuid::new_v4).to_string();
-            let request = send_message_event::Request::new(room_id, &txn_id, &content);
-
-            Ok(self.send(request, None).await?)
-        }
     }
 
     /// Send an arbitrary request to the server, without updating client state.
