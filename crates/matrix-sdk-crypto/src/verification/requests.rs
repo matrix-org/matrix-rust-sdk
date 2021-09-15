@@ -532,12 +532,20 @@ impl VerificationRequest {
                 .filter(|d| if let Some(device) = filter_device { &**d != device } else { true })
                 .collect();
 
-            Some(ToDeviceRequest::new_for_recipients(
-                self.other_user(),
-                recipients,
-                c,
-                Uuid::new_v4(),
-            ))
+            // We don't need to notify anyone if no recipients were present
+            // but we did have a filter device, since this means that only a
+            // single device received the `m.key.verification.request` and that
+            // device accepted the request.
+            if recipients.is_empty() && filter_device.is_some() {
+                None
+            } else {
+                Some(ToDeviceRequest::new_for_recipients(
+                    self.other_user(),
+                    recipients,
+                    c,
+                    Uuid::new_v4(),
+                ))
+            }
         } else {
             None
         }
