@@ -1433,7 +1433,7 @@ impl Client {
     /// Send an arbitrary request to the server, without updating client state.
     ///
     /// **Warning:** Because this method *does not* update the client state, it
-    /// is important to make sure than you account for this yourself, and
+    /// is important to make sure that you account for this yourself, and
     /// use wrapper methods where available.  This method should *only* be
     /// used if a wrapper method for the endpoint you'd like to use is not
     /// available.
