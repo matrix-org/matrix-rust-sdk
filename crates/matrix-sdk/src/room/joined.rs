@@ -377,9 +377,7 @@ impl Joined {
     /// # let mut client = Client::new(homeserver)?;
     /// # let room_id = room_id!("!test:localhost");
     ///
-    /// let content = AnyMessageEventContent::RoomMessage(
-    ///     MessageEventContent::text_plain("Hello world")
-    /// );
+    /// let content = MessageEventContent::text_plain("Hello world");
     ///
     /// let txn_id = Uuid::new_v4();
     ///
@@ -652,12 +650,11 @@ impl Joined {
     /// # let room_id = matrix_sdk::ruma::room_id!("!test:localhost");
     ///
     /// let avatar_url = mxc_uri!("mxc://example.org/avatar");
-    /// let member_event = assign!(MemberEventContent::new(MembershipState::Join), {
+    /// let content = assign!(MemberEventContent::new(MembershipState::Join), {
     ///    avatar_url: Some(avatar_url),
     /// });
     ///
     /// if let Some(room) = client.get_joined_room(&room_id) {
-    ///     let content = AnyStateEventContent::RoomMember(member_event);
     ///     room.send_state_event(content, "").await?;
     /// }
     /// # matrix_sdk::Result::Ok(()) });
