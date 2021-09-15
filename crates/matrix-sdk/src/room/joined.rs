@@ -3,16 +3,12 @@ use std::sync::Arc;
 use std::{io::Read, ops::Deref};
 
 #[cfg(feature = "encryption")]
-use matrix_sdk_base::crypto::AttachmentEncryptor;
-#[cfg(feature = "encryption")]
 use matrix_sdk_common::locks::Mutex;
 use matrix_sdk_common::{
     instant::{Duration, Instant},
     uuid::Uuid,
 };
 use mime::{self, Mime};
-#[cfg(feature = "encryption")]
-use ruma::events::room::EncryptedFileInit;
 use ruma::{
     api::client::r0::{
         membership::{
@@ -558,19 +554,19 @@ impl Joined {
         mut reader: &mut R,
         txn_id: Option<Uuid>,
     ) -> Result<send_message_event::Response> {
-        let (response, encrypted_file) = if self.is_encrypted() {
+        let (response, file) = if self.is_encrypted() {
             #[cfg(feature = "encryption")]
-            let mut reader = AttachmentEncryptor::new(reader);
+            let mut reader = matrix_sdk_base::crypto::AttachmentEncryptor::new(reader);
             #[cfg(feature = "encryption")]
             let content_type = &mime::APPLICATION_OCTET_STREAM;
 
             let response = self.client.upload(content_type, &mut reader).await?;
 
             #[cfg(feature = "encryption")]
-            let keys: Option<Box<EncryptedFile>> = {
+            let file: Option<Box<EncryptedFile>> = {
                 let keys = reader.finish();
                 Some(Box::new(
-                    EncryptedFileInit {
+                    ruma::events::room::EncryptedFileInit {
                         url: response.content_uri.clone(),
                         key: keys.web_key,
                         iv: keys.iv,
@@ -581,9 +577,9 @@ impl Joined {
                 ))
             };
             #[cfg(not(feature = "encryption"))]
-            let keys: Option<Box<EncryptedFile>> = None;
+            let file: Option<Box<EncryptedFile>> = None;
 
-            (response, keys)
+            (response, file)
         } else {
             let response = self.client.upload(content_type, &mut reader).await?;
             (response, None)
@@ -596,20 +592,20 @@ impl Joined {
                 // TODO create a thumbnail using the image crate?.
                 MessageType::Image(assign!(
                     ImageMessageEventContent::plain(body.to_owned(), url, None),
-                    { file: encrypted_file }
+                    { file }
                 ))
             }
             mime::AUDIO => MessageType::Audio(assign!(
                 AudioMessageEventContent::plain(body.to_owned(), url, None),
-                { file: encrypted_file }
+                { file }
             )),
             mime::VIDEO => MessageType::Video(assign!(
                 VideoMessageEventContent::plain(body.to_owned(), url, None),
-                { file: encrypted_file }
+                { file }
             )),
             _ => MessageType::File(assign!(
                 FileMessageEventContent::plain(body.to_owned(), url, None),
-                { file: encrypted_file }
+                { file }
             )),
         };
 
