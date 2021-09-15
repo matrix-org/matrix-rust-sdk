@@ -38,7 +38,7 @@ use ruma::{
             EncryptedFile,
         },
         tag::TagInfo,
-        AnyMessageEventContent, AnyStateEventContent,
+        AnyMessageEventContent, AnyStateEventContent, EventContent,
     },
     receipt::ReceiptType,
     serde::Raw,
@@ -337,13 +337,25 @@ impl Joined {
     /// If the encryption feature is enabled this method will transparently
     /// encrypt the room message if this room is encrypted.
     ///
+    /// **Note**: This method does not support sending custom events, the
+    /// [`send_raw()`] method can be used for that instead.
+    ///
     /// # Arguments
     ///
     /// * `content` - The content of the message event.
     ///
-    /// * `txn_id` - A unique `Uuid` that can be attached to a `MessageEvent`
-    /// held in its unsigned field as `transaction_id`. If not given one is
-    /// created for the message.
+    /// * `txn_id` - A locally-unique ID describing a message transaction with
+    ///   the homeserver. Unless you're doing something special, you can pass in
+    ///   `None` which will create a suitable one for you automatically.
+    ///     * On the sending side, this field is used for re-trying earlier
+    ///       failed transactions. Subsequent messages *must never* re-use an
+    ///       earlier transaction ID.
+    ///     * On the receiving side, the field is used for recognizing our own
+    ///       messages when they arrive down the sync: the server includes the
+    ///       ID in the [`Unsigned`] field [`transaction_id`] of the
+    ///       corresponding [`SyncMessageEvent`], but only for the *sending*
+    ///       device. Other devices will not see it. This is then used to ignore
+    ///       events sent by our own device and/or to implement local echo.
     ///
     /// # Example
     /// ```no_run
@@ -376,31 +388,117 @@ impl Joined {
     /// }
     /// # matrix_sdk::Result::Ok(()) });
     /// ```
+    ///
+    /// [`send_raw()`]: #method.send_raw
+    /// [`SyncMessageEvent`]: ruma::events::SyncMessageEvent
+    /// [`Unsigned`]: ruma::events::Unsigned
+    /// [`transaction_id`]: ruma::events::Unsigned#structfield.transaction_id
     pub async fn send(
         &self,
         content: impl Into<AnyMessageEventContent>,
         txn_id: Option<Uuid>,
     ) -> Result<send_message_event::Response> {
+        let content = content.into();
+        let event_type = content.event_type().to_owned();
+        let content = serde_json::to_value(content)?;
+
+        self.send_raw(content, &event_type, txn_id).await
+    }
+
+    /// Send a room message to this room from a json `Value`.
+    ///
+    /// Returns the parsed response from the server.
+    ///
+    /// If the encryption feature is enabled this method will transparently
+    /// encrypt the room message if this room is encrypted.
+    ///
+    /// This method is equivalent to the [`send()`] method but allows sending
+    /// custom events.
+    ///
+    /// # Arguments
+    ///
+    /// * `content` - The content of the event as a json `Value`.
+    ///
+    /// * `event_type` - The type of the event.
+    ///
+    /// * `txn_id` - A locally-unique ID describing a message transaction with
+    ///   the homeserver. Unless you're doing something special, you can pass in
+    ///   `None` which will create a suitable one for you automatically.
+    ///     * On the sending side, this field is used for re-trying earlier
+    ///       failed transactions. Subsequent messages *must never* re-use an
+    ///       earlier transaction ID.
+    ///     * On the receiving side, the field is used for recognizing our own
+    ///       messages when they arrive down the sync: the server includes the
+    ///       ID in the [`Unsigned`] field [`transaction_id`] of the
+    ///       corresponding [`SyncMessageEvent`], but only for the *sending*
+    ///       device. Other devices will not see it. This is then used to ignore
+    ///       events sent by our own device and/or to implement local echo.
+    ///
+    /// # Example
+    /// ```no_run
+    /// # use std::sync::{Arc, RwLock};
+    /// # use matrix_sdk::{Client, config::SyncSettings};
+    /// # use url::Url;
+    /// # use futures::executor::block_on;
+    /// # use matrix_sdk::ruma::room_id;
+    /// # use std::convert::TryFrom;
+    /// # block_on(async {
+    /// # let homeserver = Url::parse("http://localhost:8080")?;
+    /// # let mut client = Client::new(homeserver)?;
+    /// # let room_id = room_id!("!test:localhost");
+    /// use serde_json::json;
+    ///
+    /// let content = json!({
+    ///     "body": "Hello world",
+    /// });
+    ///
+    /// if let Some(room) = client.get_joined_room(&room_id) {
+    ///     room.send_raw(content, "m.room.message", None).await?;
+    /// }
+    /// # matrix_sdk::Result::Ok(()) });
+    /// ```
+    ///
+    /// [`send()`]: #method.send
+    /// [`SyncMessageEvent`]: ruma::events::SyncMessageEvent
+    /// [`Unsigned`]: ruma::events::Unsigned
+    /// [`transaction_id`]: ruma::events::Unsigned#structfield.transaction_id
+    pub async fn send_raw(
+        &self,
+        content: Value,
+        event_type: &str,
+        txn_id: Option<Uuid>,
+    ) -> Result<send_message_event::Response> {
+        let txn_id = txn_id.unwrap_or_else(Uuid::new_v4).to_string();
+
         #[cfg(not(feature = "encryption"))]
-        let content: AnyMessageEventContent = content.into();
+        let content = Raw::from_json(serde_json::value::to_raw_value(&content)?);
 
         #[cfg(feature = "encryption")]
-        let content = if self.is_encrypted() {
+        let (content, event_type) = if self.is_encrypted() {
             if !self.are_members_synced() {
                 self.request_members().await?;
                 // TODO query keys here?
             }
 
             self.preshare_group_session().await?;
-            AnyMessageEventContent::RoomEncrypted(
-                self.client.base_client.encrypt(self.inner.room_id(), content).await?,
-            )
+
+            let olm =
+                self.client.base_client.olm_machine().await.expect("Olm machine wasn't started");
+
+            let encrypted_content =
+                olm.encrypt_raw(self.inner.room_id(), content, event_type).await?;
+
+            (AnyMessageEventContent::RoomEncrypted(encrypted_content).into(), "m.room.encrypted")
         } else {
-            content.into()
+            (Raw::from_json(serde_json::value::to_raw_value(&content)?), event_type)
         };
 
-        let txn_id = txn_id.unwrap_or_else(Uuid::new_v4).to_string();
-        let request = send_message_event::Request::new(self.inner.room_id(), &txn_id, &content);
+        let request = send_message_event::Request::new_raw(
+            self.inner.room_id(),
+            &txn_id,
+            event_type,
+            content,
+        );
 
         let response = self.client.send(request, None).await?;
         Ok(response)

@@ -23,12 +23,13 @@ use matrix_sdk_common::{executor::spawn, uuid::Uuid};
 use ruma::{
     events::{
         room::{encrypted::EncryptedEventContent, history_visibility::HistoryVisibility},
-        AnyMessageEventContent, AnyToDeviceEventContent, EventType,
+        AnyToDeviceEventContent, EventType,
     },
     serde::Raw,
     to_device::DeviceIdOrAllDevices,
     DeviceId, DeviceIdBox, RoomId, UserId,
 };
+use serde_json::Value;
 use tracing::{debug, info, trace};
 
 use crate::{
@@ -155,7 +156,8 @@ impl GroupSessionManager {
     pub async fn encrypt(
         &self,
         room_id: &RoomId,
-        content: AnyMessageEventContent,
+        content: Value,
+        event_type: &str,
     ) -> MegolmResult<EncryptedEventContent> {
         let session = if let Some(s) = self.sessions.get(room_id) {
             s
@@ -167,7 +169,7 @@ impl GroupSessionManager {
             panic!("Session expired");
         }
 
-        let content = session.encrypt(content).await;
+        let content = session.encrypt(content, event_type).await;
 
         let mut changes = Changes::default();
         changes.outbound_group_sessions.push(session);

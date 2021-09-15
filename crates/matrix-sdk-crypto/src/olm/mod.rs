@@ -75,7 +75,10 @@ pub(crate) mod test {
     };
     use serde_json::json;
 
-    use crate::olm::{InboundGroupSession, ReadOnlyAccount, Session};
+    use crate::{
+        olm::{InboundGroupSession, ReadOnlyAccount, Session},
+        MegolmError,
+    };
 
     fn alice_id() -> UserId {
         user_id!("@alice:example.org")
@@ -223,7 +226,7 @@ pub(crate) mod test {
     }
 
     #[tokio::test]
-    async fn edit_decryption() {
+    async fn edit_decryption() -> Result<(), MegolmError> {
         let alice = ReadOnlyAccount::new(&alice_id(), &alice_device_id());
         let room_id = room_id!("!test:localhost");
         let event_id = event_id!("$1234adfad:asdf");
@@ -247,15 +250,18 @@ pub(crate) mod test {
             &room_id,
             outbound.session_key().await,
             None,
-        )
-        .unwrap();
+        )?;
 
         assert_eq!(0, inbound.first_known_index());
 
         assert_eq!(outbound.session_id(), inbound.session_id());
 
-        let encrypted_content =
-            outbound.encrypt(AnyMessageEventContent::RoomMessage(content)).await;
+        let encrypted_content = outbound
+            .encrypt(
+                serde_json::to_value(AnyMessageEventContent::RoomMessage(content))?,
+                "m.room.message",
+            )
+            .await;
 
         let event = json!({
             "sender": alice.user_id(),
@@ -276,15 +282,17 @@ pub(crate) mod test {
                 panic!("Invalid event type")
             };
 
-        let decrypted = inbound.decrypt(&event).await.unwrap().0;
+        let decrypted = inbound.decrypt(&event).await?.0;
 
         if let AnySyncRoomEvent::Message(AnySyncMessageEvent::RoomMessage(e)) =
-            decrypted.deserialize().unwrap()
+            decrypted.deserialize()?
         {
             assert_matches!(e.content.relates_to, Some(Relation::Replacement(_)));
         } else {
             panic!("Invalid event type")
         }
+
+        Ok(())
     }
 
     #[tokio::test]

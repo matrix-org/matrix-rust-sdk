@@ -136,11 +136,11 @@ mod test {
     };
 
     use super::EncryptionSettings;
-    use crate::ReadOnlyAccount;
+    use crate::{MegolmError, ReadOnlyAccount};
 
     #[tokio::test]
     #[cfg(target_os = "linux")]
-    async fn expiration() {
+    async fn expiration() -> Result<(), MegolmError> {
         let settings = EncryptionSettings { rotation_period_msgs: 1, ..Default::default() };
 
         let account = ReadOnlyAccount::new(&user_id!("@alice:example.org"), "DEVICEID".into());
@@ -151,9 +151,12 @@ mod test {
 
         assert!(!session.expired());
         let _ = session
-            .encrypt(AnyMessageEventContent::RoomMessage(MessageEventContent::text_plain(
-                "Test message",
-            )))
+            .encrypt(
+                serde_json::to_value(AnyMessageEventContent::RoomMessage(
+                    MessageEventContent::text_plain("Test message"),
+                ))?,
+                "m.room.message",
+            )
             .await;
         assert!(session.expired());
 
@@ -170,5 +173,7 @@ mod test {
         assert!(!session.expired());
         session.creation_time = Arc::new(Instant::now() - Duration::from_secs(60 * 60));
         assert!(session.expired());
+
+        Ok(())
     }
 }

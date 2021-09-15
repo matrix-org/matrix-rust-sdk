@@ -43,10 +43,12 @@ use ruma::{
         },
         room_key::RoomKeyToDeviceEventContent,
         secret::request::SecretName,
-        AnyMessageEventContent, AnyRoomEvent, AnyToDeviceEvent, SyncMessageEvent, ToDeviceEvent,
+        AnyMessageEventContent, AnyRoomEvent, AnyToDeviceEvent, EventContent, SyncMessageEvent,
+        ToDeviceEvent,
     },
     DeviceId, DeviceIdBox, DeviceKeyAlgorithm, EventEncryptionAlgorithm, RoomId, UInt, UserId,
 };
+use serde_json::Value;
 use tracing::{debug, error, info, trace, warn};
 
 #[cfg(feature = "sled_cryptostore")]
@@ -642,6 +644,9 @@ impl OlmMachine {
     /// [`should_share_group_session`] method if a new group session needs to
     /// be shared.
     ///
+    /// **Note**: This method doesn't support encrypting custom events, see the
+    /// [`encrypt_raw()`] method to do so.
+    ///
     /// # Arguments
     ///
     /// * `room_id` - The id of the room for which the message should be
@@ -656,12 +661,45 @@ impl OlmMachine {
     ///
     /// [`should_share_group_session`]: #method.should_share_group_session
     /// [`share_group_session`]: #method.share_group_session
+    /// [`encrypt_raw()`]: #method.encrypt_raw
     pub async fn encrypt(
         &self,
         room_id: &RoomId,
         content: AnyMessageEventContent,
     ) -> MegolmResult<EncryptedEventContent> {
-        self.group_session_manager.encrypt(room_id, content).await
+        let event_type = content.event_type().to_owned();
+        let content = serde_json::to_value(content)?;
+
+        self.group_session_manager.encrypt(room_id, content, &event_type).await
+    }
+
+    /// Encrypt a json [`Value`] content for the given room.
+    ///
+    /// This method is equivalent to the [`encrypt()`] method but allows custom
+    /// events to be encrypted.
+    ///
+    /// # Arguments
+    ///
+    /// * `room_id` - The id of the room for which the message should be
+    /// encrypted.
+    ///
+    /// * `content` - The plaintext content of the message that should be
+    /// encrypted as a json [`Value`].
+    ///
+    /// * `event_type` - The plaintext type of the event.
+    ///
+    /// # Panics
+    ///
+    /// Panics if a group session for the given room wasn't shared beforehand.
+    ///
+    /// [`encrypt()`]: #method.encrypt
+    pub async fn encrypt_raw(
+        &self,
+        room_id: &RoomId,
+        content: Value,
+        event_type: &str,
+    ) -> MegolmResult<EncryptedEventContent> {
+        self.group_session_manager.encrypt(room_id, content, event_type).await
     }
 
     /// Invalidate the currently active outbound group session for the given

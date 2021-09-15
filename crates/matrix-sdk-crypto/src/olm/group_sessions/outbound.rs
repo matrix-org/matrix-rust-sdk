@@ -41,12 +41,12 @@ use ruma::{
             history_visibility::HistoryVisibility,
         },
         room_key::RoomKeyToDeviceEventContent,
-        AnyMessageEventContent, AnyToDeviceEventContent, EventContent,
+        AnyToDeviceEventContent,
     },
     DeviceId, DeviceIdBox, DeviceKeyAlgorithm, EventEncryptionAlgorithm, RoomId, UserId,
 };
 use serde::{Deserialize, Serialize};
-use serde_json::json;
+use serde_json::{json, Value};
 use tracing::{debug, error, trace};
 
 use super::{
@@ -268,20 +268,23 @@ impl OutboundGroupSession {
     /// # Arguments
     ///
     /// * `content` - The plaintext content of the message that should be
-    /// encrypted.
+    /// encrypted in raw json [`Value`] form.
+    ///
+    /// * `event_type` - The plaintext type of the event, the outer type of the
+    /// event will become `m.room.encrypted`.
     ///
     /// # Panics
     ///
     /// Panics if the content can't be serialized.
-    pub async fn encrypt(&self, content: AnyMessageEventContent) -> EncryptedEventContent {
+    pub async fn encrypt(&self, content: Value, event_type: &str) -> EncryptedEventContent {
         let json_content = json!({
             "content": content,
             "room_id": &*self.room_id,
-            "type": content.event_type(),
+            "type": event_type,
         });
 
         let plaintext = json_content.to_string();
-        let relation = content.relation();
+        let relation = serde_json::from_value(content).ok();
 
         let ciphertext = self.encrypt_helper(plaintext).await;
 
