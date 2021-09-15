@@ -167,7 +167,6 @@ impl Common {
     }
 
     pub(crate) async fn request_members(&self) -> Result<Option<MembersResponse>> {
-        #[allow(clippy::map_clone)]
         if let Some(mutex) =
             self.client.members_request_locks.get(self.inner.room_id()).map(|m| m.clone())
         {

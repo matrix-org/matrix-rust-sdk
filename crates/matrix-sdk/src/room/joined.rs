@@ -270,7 +270,6 @@ impl Joined {
     async fn preshare_group_session(&self) -> Result<()> {
         // TODO expose this publicly so people can pre-share a group session if
         // e.g. a user starts to type a message for a room.
-        #[allow(clippy::map_clone)]
         if let Some(mutex) =
             self.client.group_session_locks.get(self.inner.room_id()).map(|m| m.clone())
         {

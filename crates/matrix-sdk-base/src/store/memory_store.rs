@@ -279,7 +279,6 @@ impl MemoryStore {
     }
 
     async fn get_presence_event(&self, user_id: &UserId) -> Result<Option<Raw<PresenceEvent>>> {
-        #[allow(clippy::map_clone)]
         Ok(self.presence.get(user_id).map(|p| p.clone()))
     }
 
@@ -289,7 +288,6 @@ impl MemoryStore {
         event_type: EventType,
         state_key: &str,
     ) -> Result<Option<Raw<AnySyncStateEvent>>> {
-        #[allow(clippy::map_clone)]
         Ok(self.room_state.get(room_id).and_then(|e| {
             e.get(event_type.as_ref()).and_then(|s| s.get(state_key).map(|e| e.clone()))
         }))
@@ -300,7 +298,6 @@ impl MemoryStore {
         room_id: &RoomId,
         event_type: EventType,
     ) -> Result<Vec<Raw<AnySyncStateEvent>>> {
-        #[allow(clippy::map_clone)]
         Ok(self
             .room_state
             .get(room_id)
@@ -315,7 +312,6 @@ impl MemoryStore {
         room_id: &RoomId,
         user_id: &UserId,
     ) -> Result<Option<MemberEventContent>> {
-        #[allow(clippy::map_clone)]
         Ok(self.profiles.get(room_id).and_then(|p| p.get(user_id).map(|p| p.clone())))
     }
 
@@ -324,12 +320,10 @@ impl MemoryStore {
         room_id: &RoomId,
         state_key: &UserId,
     ) -> Result<Option<MemberEvent>> {
-        #[allow(clippy::map_clone)]
         Ok(self.members.get(room_id).and_then(|m| m.get(state_key).map(|m| m.clone())))
     }
 
     fn get_user_ids(&self, room_id: &RoomId) -> Vec<UserId> {
-        #[allow(clippy::map_clone)]
         self.members
             .get(room_id)
             .map(|u| u.iter().map(|u| u.key().clone()).collect())
@@ -337,7 +331,6 @@ impl MemoryStore {
     }
 
     fn get_invited_user_ids(&self, room_id: &RoomId) -> Vec<UserId> {
-        #[allow(clippy::map_clone)]
         self.invited_user_ids
             .get(room_id)
             .map(|u| u.iter().map(|u| u.clone()).collect())
@@ -345,7 +338,6 @@ impl MemoryStore {
     }
 
     fn get_joined_user_ids(&self, room_id: &RoomId) -> Vec<UserId> {
-        #[allow(clippy::map_clone)]
         self.joined_user_ids
             .get(room_id)
             .map(|u| u.iter().map(|u| u.clone()).collect())
@@ -353,12 +345,10 @@ impl MemoryStore {
     }
 
     fn get_room_infos(&self) -> Vec<RoomInfo> {
-        #[allow(clippy::map_clone)]
         self.room_info.iter().map(|r| r.clone()).collect()
     }
 
     fn get_stripped_room_infos(&self) -> Vec<RoomInfo> {
-        #[allow(clippy::map_clone)]
         self.stripped_room_info.iter().map(|r| r.clone()).collect()
     }
 
@@ -532,7 +522,6 @@ impl StateStore for MemoryStore {
         room_id: &RoomId,
         display_name: &str,
     ) -> Result<BTreeSet<UserId>> {
-        #[allow(clippy::map_clone)]
         Ok(self
             .display_names
             .get(room_id)

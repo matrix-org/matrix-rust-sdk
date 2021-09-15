@@ -62,7 +62,6 @@ impl SessionStore {
 
     /// Get all the sessions that belong to the given sender key.
     pub fn get(&self, sender_key: &str) -> Option<Arc<Mutex<Vec<Session>>>> {
-        #[allow(clippy::map_clone)]
         self.entries.get(sender_key).map(|s| s.clone())
     }
 

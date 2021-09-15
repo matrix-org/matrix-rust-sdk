@@ -363,7 +363,6 @@ impl GroupSessionManager {
                     non_blacklisted_devices.iter().map(|d| d.device_id()).collect();
 
                 if let Some(shared) = outbound.shared_with_set.get(user_id) {
-                    #[allow(clippy::map_clone)]
                     // Devices that received this session
                     let shared: HashSet<DeviceIdBox> =
                         shared.iter().map(|d| d.key().clone()).collect();

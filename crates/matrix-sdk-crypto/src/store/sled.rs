@@ -675,7 +675,6 @@ impl CryptoStore for SledStore {
     }
 
     fn users_for_key_query(&self) -> HashSet<UserId> {
-        #[allow(clippy::map_clone)]
         self.users_for_key_query_cache.iter().map(|u| u.clone()).collect()
     }
 

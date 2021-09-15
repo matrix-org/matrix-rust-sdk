@@ -179,7 +179,6 @@ impl CryptoStore for MemoryStore {
     }
 
     fn users_for_key_query(&self) -> HashSet<UserId> {
-        #[allow(clippy::map_clone)]
         self.users_for_key_query.iter().map(|u| u.clone()).collect()
     }
 
@@ -225,7 +224,6 @@ impl CryptoStore for MemoryStore {
     }
 
     async fn get_user_identity(&self, user_id: &UserId) -> Result<Option<ReadOnlyUserIdentities>> {
-        #[allow(clippy::map_clone)]
         Ok(self.identities.get(user_id).map(|i| i.clone()))
     }
 
