@@ -80,5 +80,5 @@ The `RUST_LOG` variable also supports a more advanced syntax for filtering
 log output more precisely, for instance with crate-level granularity. For
 more information on this, check out the [tracing_subscriber documentation].
 
-[examples]: https://github.com/matrix-org/matrix-rust-sdk/tree/master/crates/matrix_sdk/examples
+[examples]: https://github.com/matrix-org/matrix-rust-sdk/tree/master/crates/matrix-sdk/examples
 [tracing_subscriber documentation]: https://tracing.rs/tracing_subscriber/filter/struct.envfilter
