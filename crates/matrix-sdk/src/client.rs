@@ -1796,75 +1796,9 @@ impl Client {
             };
 
             #[cfg(feature = "encryption")]
-            {
-                use matrix_sdk_base::crypto::OutgoingRequests;
-
-                // This is needed because sometimes we need to automatically
-                // claim some one-time keys to unwedge an existing Olm session.
-                if let Err(e) = self.claim_one_time_keys([].iter()).await {
-                    warn!("Error while claiming one-time keys {:?}", e);
-                }
-
-                // TODO we should probably abort if we get an cryptostore error here
-                let outgoing_requests = match self.base_client.outgoing_requests().await {
-                    Ok(r) => r,
-                    Err(e) => {
-                        warn!("Could not fetch the outgoing requests {:?}", e);
-                        vec![]
-                    }
-                };
-
-                for r in outgoing_requests {
-                    match r.request() {
-                        OutgoingRequests::KeysQuery(request) => {
-                            if let Err(e) =
-                                self.keys_query(r.request_id(), request.device_keys.clone()).await
-                            {
-                                warn!("Error while querying device keys {:?}", e);
-                            }
-                        }
-                        OutgoingRequests::KeysUpload(request) => {
-                            if let Err(e) = self.keys_upload(r.request_id(), request).await {
-                                warn!("Error while querying device keys {:?}", e);
-                            }
-                        }
-                        OutgoingRequests::ToDeviceRequest(request) => {
-                            // TODO remove this unwrap
-                            if let Ok(resp) = self.send_to_device(request).await {
-                                self.base_client
-                                    .mark_request_as_sent(r.request_id(), &resp)
-                                    .await
-                                    .unwrap();
-                            }
-                        }
-                        OutgoingRequests::SignatureUpload(request) => {
-                            // TODO remove this unwrap.
-                            if let Ok(resp) = self.send(request.clone(), None).await {
-                                self.base_client
-                                    .mark_request_as_sent(r.request_id(), &resp)
-                                    .await
-                                    .unwrap();
-                            }
-                        }
-                        OutgoingRequests::RoomMessage(request) => {
-                            if let Ok(resp) = self.room_send_helper(request).await {
-                                self.base_client
-                                    .mark_request_as_sent(r.request_id(), &resp)
-                                    .await
-                                    .unwrap();
-                            }
-                        }
-                        OutgoingRequests::KeysClaim(request) => {
-                            if let Ok(resp) = self.send(request.clone(), None).await {
-                                self.base_client
-                                    .mark_request_as_sent(r.request_id(), &resp)
-                                    .await
-                                    .unwrap();
-                            }
-                        }
-                    }
-                }
-            }
+            if let Err(e) = self.send_outgoing_request().await {
+                error!(error =? e, "Error while sending outgoing E2EE requests");
+            };
 
             if callback(response).await == LoopCtrl::Break {
                 return;

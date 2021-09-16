@@ -42,7 +42,7 @@ use ruma::{
     events::{AnyMessageEvent, AnyRoomEvent, AnySyncMessageEvent, EventType},
     DeviceId, DeviceIdBox, UserId,
 };
-use tracing::{debug, instrument, trace};
+use tracing::{debug, instrument, trace, warn};
 
 use crate::{
     encryption::{
@@ -695,5 +695,56 @@ impl Client {
 
         trace!(room =? room, "Found room");
         room
+    }
+
+    pub(crate) async fn send_outgoing_request(&self) -> Result<()> {
+        use matrix_sdk_base::crypto::OutgoingRequests;
+
+        // This is needed because sometimes we need to automatically
+        // claim some one-time keys to unwedge an existing Olm session.
+        if let Err(e) = self.claim_one_time_keys([].iter()).await {
+            warn!("Error while claiming one-time keys {:?}", e);
+        }
+
+        let outgoing_requests = self.base_client.outgoing_requests().await?;
+
+        for r in outgoing_requests {
+            match r.request() {
+                OutgoingRequests::KeysQuery(request) => {
+                    if let Err(e) =
+                        self.keys_query(r.request_id(), request.device_keys.clone()).await
+                    {
+                        warn!("Error while querying device keys {:?}", e);
+                    }
+                }
+                OutgoingRequests::KeysUpload(request) => {
+                    if let Err(e) = self.keys_upload(r.request_id(), request).await {
+                        warn!("Error while querying device keys {:?}", e);
+                    }
+                }
+                OutgoingRequests::ToDeviceRequest(request) => {
+                    if let Ok(resp) = self.send_to_device(request).await {
+                        self.base_client.mark_request_as_sent(r.request_id(), &resp).await?;
+                    }
+                }
+                OutgoingRequests::SignatureUpload(request) => {
+                    if let Ok(resp) = self.send(request.clone(), None).await {
+                        self.base_client.mark_request_as_sent(r.request_id(), &resp).await?;
+                    }
+                }
+                OutgoingRequests::RoomMessage(request) => {
+                    if let Ok(resp) = self.room_send_helper(request).await {
+                        self.base_client.mark_request_as_sent(r.request_id(), &resp).await?;
+                    }
+                }
+                OutgoingRequests::KeysClaim(request) => {
+                    if let Ok(resp) = self.send(request.clone(), None).await {
+                        self.base_client.mark_request_as_sent(r.request_id(), &resp).await?;
+                    }
+                }
+            }
+        }
+
+        Ok(())
     }
 }
