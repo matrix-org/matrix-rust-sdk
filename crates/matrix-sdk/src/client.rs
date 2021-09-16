@@ -1604,7 +1604,14 @@ impl Client {
         );
 
         let response = self.send(request, Some(request_config)).await?;
-        self.process_sync(response).await
+        let response = self.process_sync(response).await?;
+
+        #[cfg(feature = "encryption")]
+        if let Err(e) = self.send_outgoing_request().await {
+            error!(error =? e, "Error while sending outgoing E2EE requests");
+        };
+
+        Ok(response)
     }
 
     pub(crate) async fn process_sync(
@@ -1793,11 +1800,6 @@ impl Client {
                     sleep::new(Duration::from_secs(1)).await;
                     continue;
                 }
-            };
-
-            #[cfg(feature = "encryption")]
-            if let Err(e) = self.send_outgoing_request().await {
-                error!(error =? e, "Error while sending outgoing E2EE requests");
             };
 
             if callback(response).await == LoopCtrl::Break {
