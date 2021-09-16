@@ -1607,7 +1607,7 @@ impl Client {
         let response = self.process_sync(response).await?;
 
         #[cfg(feature = "encryption")]
-        if let Err(e) = self.send_outgoing_request().await {
+        if let Err(e) = self.send_outgoing_requests().await {
             error!(error =? e, "Error while sending outgoing E2EE requests");
         };
 
