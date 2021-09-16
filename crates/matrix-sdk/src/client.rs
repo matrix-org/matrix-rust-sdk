@@ -730,8 +730,10 @@ impl Client {
     /// [`login_with_token`]: #method.login_with_token
     pub async fn get_sso_login_url(&self, redirect_url: &str) -> Result<String> {
         let homeserver = self.homeserver().await;
+
         let request = sso_login::Request::new(redirect_url)
             .try_into_http_request::<Vec<u8>>(homeserver.as_str(), SendAccessToken::None);
+
         match request {
             Ok(req) => Ok(req.uri().to_string()),
             Err(err) => Err(Error::from(HttpError::from(err))),
@@ -920,7 +922,9 @@ impl Client {
                 Ok(url) => url,
                 Err(err) => return Err(IoError::new(IoErrorKind::InvalidData, err).into()),
             },
-            None => Url::parse("http://localhost:0/").unwrap(),
+            None => {
+                Url::parse("http://localhost:0/").expect("Couldn't parse good known localhost URL")
+            }
         };
 
         let response = match server_response {
@@ -982,7 +986,7 @@ impl Client {
 
         tokio::spawn(server);
 
-        let sso_url = self.get_sso_login_url(redirect_url.as_str()).await.unwrap();
+        let sso_url = self.get_sso_login_url(redirect_url.as_str()).await?;
 
         match use_sso_login_url(sso_url).await {
             Ok(t) => t,
