@@ -2001,7 +2001,7 @@ impl Client {
     //// Repeatedly synchronize the client state with the server.
     ///
     /// This method will internally call [`Client::sync_once`] in a loop and is
-    /// equivalent to the [`Client::sync`] method but the resopnses are provided
+    /// equivalent to the [`Client::sync`] method but the responses are provided
     /// as an async stream.
     ///
     /// # Arguments
