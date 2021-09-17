@@ -1573,47 +1573,6 @@ impl Client {
         self.send(request, None).await
     }
 
-    /// Synchronize the client's state with the latest state on the server.
-    ///
-    /// **Note**: You should not use this method to repeatedly sync if
-    /// encryption support is enabled, the [`sync`] method will make
-    /// additional requests between syncs that are needed for E2E encryption
-    /// to work.
-    ///
-    /// # Arguments
-    ///
-    /// * `sync_settings` - Settings for the sync call.
-    ///
-    /// [`sync`]: #method.sync
-    #[instrument]
-    pub async fn sync_once(
-        &self,
-        sync_settings: crate::config::SyncSettings<'_>,
-    ) -> Result<SyncResponse> {
-        let request = assign!(sync_events::Request::new(), {
-            filter: sync_settings.filter.as_ref(),
-            since: sync_settings.token.as_deref(),
-            full_state: sync_settings.full_state,
-            set_presence: &PresenceState::Online,
-            timeout: sync_settings.timeout,
-        });
-
-        let request_config = self.http_client.request_config.timeout(
-            sync_settings.timeout.unwrap_or_else(|| Duration::from_secs(0))
-                + self.http_client.request_config.timeout,
-        );
-
-        let response = self.send(request, Some(request_config)).await?;
-        let response = self.process_sync(response).await?;
-
-        #[cfg(feature = "encryption")]
-        if let Err(e) = self.send_outgoing_requests().await {
-            error!(error =? e, "Error while sending outgoing E2EE requests");
-        };
-
-        Ok(response)
-    }
-
     pub(crate) async fn process_sync(
         &self,
         response: sync_events::Response,
@@ -1705,17 +1664,184 @@ impl Client {
         Ok(response)
     }
 
-    /// Repeatedly call sync to synchronize the client state with the server.
+    /// Synchronize the client's state with the latest state on the server.
     ///
-    /// This method will never return, if cancellation is needed the method
-    /// should be wrapped in a cancelable task or the [`sync_with_callback`]
-    /// method can be used.
+    /// ## Syncing Events
+    ///
+    /// Messages or any other type of event need to be periodically fetched from
+    /// the server, this is achieved by sending a `/sync` request to the server.
+    ///
+    /// The first sync is sent out without a [`token`]. The response of the
+    /// first sync will contain a [`next_batch`] field which should then be
+    /// used in the subsequent sync calls as the [`token`]. This ensures that we
+    /// don't receive the same events multiple times.
+    ///
+    /// ## Long Polling
+    ///
+    /// A sync should in the usual case always be in flight. The
+    /// [`SyncSettings`] have a  [`timeout`] option, which controls how
+    /// long the server will wait for new events before it will respond.
+    /// The server will respond immediately if some new events arrive before the
+    /// timeout has expired. If no changes arrive and the timeout expires an
+    /// empty sync response will be sent to the client.
+    ///
+    /// This method of sending a request that may not receive a response
+    /// immediately is called long polling.
+    ///
+    /// ## Filtering Events
+    ///
+    /// The number or type of messages and events that the client should receive
+    /// from the server can be altered using a [`Filter`].
+    ///
+    /// Filters can be non-trivial and, since they will be sent with every sync
+    /// request, they may take up a bunch of unnecessary bandwidth.
+    ///
+    /// Luckily filters can be uploaded to the server and reused using an unique
+    /// identifier, this can be achieved using the [`get_or_upload_filter()`]
+    /// method.
     ///
     /// # Arguments
     ///
-    /// * `sync_settings` - Settings for the sync call. Note that those settings
-    ///   will be only used for the first sync call.
+    /// * `sync_settings` - Settings for the sync call, this allows us to set
+    /// various options to configure the sync:
+    ///     * [`filter`] - To configure which events we receive and which get
+    ///       [filtered] by the server
+    ///     * [`timeout`] - To configure our [long polling] setup.
+    ///     * [`token`] - To tell the server which events we already received
+    ///       and where we wish to continue syncing.
+    ///     * [`full_state`] - To tell the server that we wish to receive all
+    ///       state events, regardless of our configured [`token`].
     ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// # use url::Url;
+    /// # use futures::executor::block_on;
+    /// # block_on(async {
+    /// # let homeserver = Url::parse("http://localhost:8080")?;
+    /// # let username = "";
+    /// # let password = "";
+    /// use matrix_sdk::{
+    ///     Client, config::SyncSettings,
+    ///     ruma::events::{SyncMessageEvent, room::message::MessageEventContent},
+    /// };
+    ///
+    /// let client = Client::new(homeserver)?;
+    /// client.login(&username, &password, None, None).await?;
+    ///
+    /// // Sync once so we receive the client state and old messages.
+    /// client.sync_once(SyncSettings::default()).await?;
+    ///
+    /// // Register our handler so we start responding once we receive a new
+    /// // event.
+    /// client.register_event_handler(
+    ///     |ev: SyncMessageEvent<MessageEventContent>|
+    ///     async move {
+    ///         println!("Received event {}: {:?}", ev.sender, ev.content);
+    ///     },
+    /// ).await;
+    ///
+    /// // Now keep on syncing forever. `sync()` will use the stored sync token
+    /// // from our `sync_once()` call automatically.
+    /// client.sync(SyncSettings::default()).await;
+    /// # matrix_sdk::Result::Ok(()) });
+    /// ```
+    ///
+    /// [`sync`]: #method.sync
+    /// [`SyncSettings`]: crate::config::SyncSettings
+    /// [`token`]: crate::config::SyncSettings#method.token
+    /// [`timeout`]: crate::config::SyncSettings#method.timeout
+    /// [`full_state`]: crate::config::SyncSettings#method.full_state
+    /// [`filter`]: crate::config::SyncSettings#method.filter
+    /// [`Filter`]: ruma::api::client::r0::sync::sync_events::Filter
+    /// [`next_batch`]: SyncResponse#structfield.next_batch
+    /// [`get_or_upload_filter()`]: #method.get_or_upload_filter
+    /// [long polling]: #long-polling
+    /// [filtered]: #filtering-events
+    #[instrument]
+    pub async fn sync_once(
+        &self,
+        sync_settings: crate::config::SyncSettings<'_>,
+    ) -> Result<SyncResponse> {
+        let request = assign!(sync_events::Request::new(), {
+            filter: sync_settings.filter.as_ref(),
+            since: sync_settings.token.as_deref(),
+            full_state: sync_settings.full_state,
+            set_presence: &PresenceState::Online,
+            timeout: sync_settings.timeout,
+        });
+
+        let request_config = self.http_client.request_config.timeout(
+            sync_settings.timeout.unwrap_or_else(|| Duration::from_secs(0))
+                + self.http_client.request_config.timeout,
+        );
+
+        let response = self.send(request, Some(request_config)).await?;
+        let response = self.process_sync(response).await?;
+
+        #[cfg(feature = "encryption")]
+        if let Err(e) = self.send_outgoing_requests().await {
+            error!(error =? e, "Error while sending outgoing E2EE requests");
+        };
+
+        self.sync_beat.notify(usize::MAX);
+
+        Ok(response)
+    }
+
+    /// Repeatedly synchronize the client state with the server.
+    ///
+    /// This method will never return, if cancellation is needed the method
+    /// should be wrapped in a cancelable task or the
+    /// [`Client::sync_with_callback`] method can be used.
+    ///
+    /// This method will internally call [`Client::sync_once`] in a loop.
+    ///
+    /// This method can be used with the [`Client::register_event_handler`]
+    /// method to react to individual events. If you instead wish to handle
+    /// events in a bulk manner the [`Client::sync_with_callback`] 
+    /// methods can be used instead. This method repeadetly returns the whole
+    /// sync response.
+    ///
+    /// # Arguments
+    ///
+    /// * `sync_settings` - Settings for the sync call. *Note* that those
+    ///   settings will be only used for the first sync call. See the argument
+    ///   docs for [`Client::sync_once`] for more info.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// # use url::Url;
+    /// # use futures::executor::block_on;
+    /// # block_on(async {
+    /// # let homeserver = Url::parse("http://localhost:8080")?;
+    /// # let username = "";
+    /// # let password = "";
+    /// use matrix_sdk::{
+    ///     Client, config::SyncSettings,
+    ///     ruma::events::{SyncMessageEvent, room::message::MessageEventContent},
+    /// };
+    ///
+    /// let client = Client::new(homeserver)?;
+    /// client.login(&username, &password, None, None).await?;
+    ///
+    /// // Register our handler so we start responding once we receive a new
+    /// // event.
+    /// client.register_event_handler(
+    ///     |ev: SyncMessageEvent<MessageEventContent>|
+    ///     async move {
+    ///         println!("Received event {}: {:?}", ev.sender, ev.content);
+    ///     },
+    /// ).await;
+    ///
+    /// // Now keep on syncing forever. `sync()` will use the latest sync token
+    /// // automatically.
+    /// client.sync(SyncSettings::default()).await;
+    /// # matrix_sdk::Result::Ok(()) });
+    /// ```
+    ///
+    /// [argument docs]: #method.sync_once
     /// [`sync_with_callback`]: #method.sync_with_callback
     pub async fn sync(&self, sync_settings: crate::config::SyncSettings<'_>) {
         self.sync_with_callback(sync_settings, |_| async { LoopCtrl::Continue }).await
@@ -1725,8 +1851,9 @@ impl Client {
     ///
     /// # Arguments
     ///
-    /// * `sync_settings` - Settings for the sync call. Note that those settings
-    ///   will be only used for the first sync call.
+    /// * `sync_settings` - Settings for the sync call. *Note* that those
+    ///   settings will be only used for the first sync call. See the argument
+    ///   docs for [`Client::sync_once`] for more info.
     ///
     /// * `callback` - A callback that will be called every time a successful
     ///   response has been fetched from the server. The callback must return a
