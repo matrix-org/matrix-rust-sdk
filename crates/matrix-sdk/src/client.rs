@@ -335,6 +335,16 @@ impl Client {
         session.as_ref().map(|s| s.device_id.clone())
     }
 
+    /// Get the whole session info of this client.
+    ///
+    /// Will be `None` if the client has not been logged in.
+    ///
+    /// Can be used with [`Client::restore_login`] to restore a previously
+    /// logged in session.
+    pub async fn session(&self) -> Option<Session> {
+        self.base_client.session().read().await.clone()
+    }
+
     /// Fetches the display name of the owner of the client.
     ///
     /// # Example
