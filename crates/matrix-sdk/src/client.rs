@@ -145,7 +145,7 @@ impl Debug for Client {
 }
 
 impl Client {
-    /// Creates a new client for making HTTP requests to the given homeserver.
+    /// Create a new [`Client`] that will use the given homeserver.
     ///
     /// # Arguments
     ///
@@ -155,7 +155,8 @@ impl Client {
         Client::new_with_config(homeserver_url, config)
     }
 
-    /// Create a new client with the given configuration.
+    /// Create a new [`Client`] for the given homeserver and use the given
+    /// configuration.
     ///
     /// # Arguments
     ///
@@ -630,9 +631,9 @@ impl Client {
 
     /// Register a handler for a notification.
     ///
-    /// Similar to `.register_event_handler`, but only allows functions or
-    /// closures with exactly the three arguments `Notification`, `room::Room`,
-    /// `Client` for now.
+    /// Similar to [`Client::register_event_handler`], but only allows functions
+    /// or closures with exactly the three arguments [`Notification`],
+    /// [`room::Room`], [`Client`] for now.
     pub async fn register_notification_handler<H, Fut>(&self, handler: H) -> &Self
     where
         H: Fn(Notification, room::Room, Client) -> Fut + Send + Sync + 'static,
@@ -779,36 +780,42 @@ impl Client {
     /// # Example
     /// ```no_run
     /// # use std::convert::TryFrom;
-    /// # use matrix_sdk::Client;
-    /// # use matrix_sdk::ruma::{assign, DeviceId};
     /// # use futures::executor::block_on;
     /// # use url::Url;
     /// # let homeserver = Url::parse("http://example.com").unwrap();
     /// # block_on(async {
-    /// let client = Client::new(homeserver).unwrap();
-    /// let user = "example";
-    /// let response = client
-    ///     .login(user, "wordpass", None, Some("My bot")).await
-    ///     .unwrap();
+    /// use matrix_sdk::Client;
     ///
-    /// println!("Logged in as {}, got device_id {} and access_token {}",
-    ///          user, response.device_id, response.access_token);
-    /// # })
+    /// let client = Client::new(homeserver)?;
+    /// let user = "example";
+    ///
+    /// let response = client
+    ///     .login(user, "wordpass", None, Some("My bot")).await?;
+    ///
+    /// println!(
+    ///     "Logged in as {}, got device_id {} and access_token {}",
+    ///     user, response.device_id, response.access_token
+    /// );
+    /// # matrix_sdk::Result::Ok(()) });
     /// ```
     ///
     /// [`restore_login`]: #method.restore_login
-    #[instrument(skip(password))]
+    #[instrument(skip(user, password))]
     pub async fn login(
         &self,
-        user: &str,
+        user: impl AsRef<str>,
         password: &str,
         device_id: Option<&str>,
         initial_device_display_name: Option<&str>,
     ) -> Result<login::Response> {
-        info!("Logging in to {} as {:?}", self.homeserver().await, user);
+        let homeserver = self.homeserver().await;
+        info!(homeserver = homeserver.as_str(), user = user.as_ref(), "Logging in");
 
-        let login_info =
-            login::LoginInfo::Password { identifier: UserIdentifier::MatrixId(user), password };
+        let login_info = login::LoginInfo::Password {
+            identifier: UserIdentifier::MatrixId(user.as_ref()),
+            password,
+        };
+
         let request = assign!(login::Request::new(login_info), {
             device_id: device_id.map(|d| d.into()),
             initial_device_display_name,
@@ -1355,10 +1362,7 @@ impl Client {
         self.send(request, None).await
     }
 
-    /// Search the homeserver's directory of public rooms with a filter.
-    ///
-    /// Sends a request to "_matrix/client/r0/publicRooms", returns
-    /// a `get_public_rooms_filtered::Response`.
+    /// Search the homeserver's directory for public rooms with a filter.
     ///
     /// # Arguments
     ///
@@ -1368,24 +1372,30 @@ impl Client {
     /// # Examples
     /// ```no_run
     /// # use std::convert::TryFrom;
-    /// # use matrix_sdk::Client;
-    /// # use matrix_sdk::ruma::{
-    /// #     api::client::r0::directory::get_public_rooms_filtered::Request as PublicRoomsFilterRequest,
-    /// #     directory::{Filter, RoomNetwork},
-    /// #     assign,
-    /// # };
     /// # use url::Url;
+    /// # use matrix_sdk::Client;
     /// # use futures::executor::block_on;
-    /// # let homeserver = Url::parse("http://example.com").unwrap();
     /// # block_on(async {
-    /// let mut client = Client::new(homeserver).unwrap();
+    /// # let homeserver = Url::parse("http://example.com")?;
+    /// use matrix_sdk::{
+    ///     ruma::{
+    ///         api::client::r0::directory::get_public_rooms_filtered::Request,
+    ///         directory::Filter,
+    ///         assign,
+    ///     }
+    /// };
+    /// # let mut client = Client::new(homeserver)?;
     ///
-    /// let generic_search_term = Some("matrix-rust-sdk");
+    /// let generic_search_term = Some("rust");
     /// let filter = assign!(Filter::new(), { generic_search_term });
-    /// let request = assign!(PublicRoomsFilterRequest::new(), { filter });
+    /// let request = assign!(Request::new(), { filter });
     ///
-    /// client.public_rooms_filtered(request).await;
-    /// # })
+    /// let response = client.public_rooms_filtered(request).await?;
+    ///
+    /// for room in response.chunk {
+    ///     println!("Found room {:?}", room);
+    /// }
+    /// # matrix_sdk::Result::Ok(()) });
     /// ```
     pub async fn public_rooms_filtered(
         &self,
@@ -1414,18 +1424,17 @@ impl Client {
     /// # use futures::executor::block_on;
     /// # use mime;
     /// # block_on(async {
-    /// # let homeserver = Url::parse("http://localhost:8080").unwrap();
-    /// # let mut client = Client::new(homeserver).unwrap();
+    /// # let homeserver = Url::parse("http://localhost:8080")?;
+    /// # let mut client = Client::new(homeserver)?;
     /// let path = PathBuf::from("/home/example/my-cat.jpg");
-    /// let mut image = File::open(path).unwrap();
+    /// let mut image = File::open(path)?;
     ///
     /// let response = client
     ///     .upload(&mime::IMAGE_JPEG, &mut image)
-    ///     .await
-    ///     .expect("Can't upload my cat.");
+    ///     .await?;
     ///
     /// println!("Cat URI: {}", response.content_uri);
-    /// # });
+    /// # anyhow::Result::<()>::Ok(()) });
     /// ```
     pub async fn upload(
         &self,
@@ -1471,8 +1480,8 @@ impl Client {
     /// # use url::Url;
     /// # use std::convert::TryFrom;
     /// # block_on(async {
-    /// # let homeserver = Url::parse("http://localhost:8080").unwrap();
-    /// # let mut client = Client::new(homeserver).unwrap();
+    /// # let homeserver = Url::parse("http://localhost:8080")?;
+    /// # let mut client = Client::new(homeserver)?;
     /// use matrix_sdk::ruma::{api::client::r0::profile, user_id};
     ///
     /// // First construct the request you want to make
@@ -1482,11 +1491,11 @@ impl Client {
     /// let request = profile::get_profile::Request::new(&user_id);
     ///
     /// // Start the request using Client::send()
-    /// let response = client.send(request, None).await.unwrap();
+    /// let response = client.send(request, None).await?;
     ///
     /// // Check the corresponding Response struct to find out what types are
     /// // returned
-    /// # })
+    /// # matrix_sdk::Result::Ok(()) });
     /// ```
     pub async fn send<Request>(
         &self,
@@ -1510,9 +1519,9 @@ impl Client {
     /// # use url::Url;
     /// # use std::convert::TryFrom;
     /// # block_on(async {
-    /// # let homeserver = Url::parse("http://localhost:8080").unwrap();
-    /// # let mut client = Client::new(homeserver).unwrap();
-    /// let response = client.devices().await.expect("Can't get devices from server");
+    /// # let homeserver = Url::parse("http://localhost:8080")?;
+    /// # let mut client = Client::new(homeserver)?;
+    /// let response = client.devices().await?;
     ///
     /// for device in response.devices {
     ///     println!(
@@ -1521,7 +1530,7 @@ impl Client {
     ///         device.display_name.as_deref().unwrap_or("")
     ///     );
     /// }
-    /// # });
+    /// # matrix_sdk::Result::Ok(()) });
     /// ```
     pub async fn devices(&self) -> HttpResult<get_devices::Response> {
         let request = get_devices::Request::new();
@@ -1558,8 +1567,8 @@ impl Client {
     /// # use url::Url;
     /// # use std::{collections::BTreeMap, convert::TryFrom};
     /// # block_on(async {
-    /// # let homeserver = Url::parse("http://localhost:8080").unwrap();
-    /// # let mut client = Client::new(homeserver).unwrap();
+    /// # let homeserver = Url::parse("http://localhost:8080")?;
+    /// # let mut client = Client::new(homeserver)?;
     /// let devices = &["DEVICEID".into()];
     ///
     /// if let Err(e) = client.delete_devices(devices, None).await {
@@ -1571,11 +1580,10 @@ impl Client {
     ///
     ///         client
     ///             .delete_devices(devices, Some(auth_data))
-    ///             .await
-    ///             .expect("Can't delete devices");
+    ///             .await?;
     ///     }
     /// }
-    /// # });
+    /// # matrix_sdk::Result::Ok(()) });
     pub async fn delete_devices(
         &self,
         devices: &[DeviceIdBox],
