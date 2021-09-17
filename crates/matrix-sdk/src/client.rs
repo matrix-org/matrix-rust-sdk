@@ -2337,7 +2337,8 @@ pub(crate) mod test {
             device_id: "DEVICEID".into(),
         };
         let homeserver = url::Url::parse(&mockito::server_url()).unwrap();
-        let client = Client::new(homeserver).unwrap();
+        let config = ClientConfig::new().request_config(RequestConfig::new().disable_retry());
+        let client = Client::new_with_config(homeserver, config).unwrap();
         client.restore_login(session).await.unwrap();
 
         client
@@ -2517,22 +2518,15 @@ pub(crate) mod test {
     #[tokio::test]
     async fn test_join_leave_room() {
         let homeserver = Url::from_str(&mockito::server_url()).unwrap();
-
         let room_id = room_id!("!SVkFJHzfwvuaIEawgC:localhost");
-
-        let session = Session {
-            access_token: "1234".to_owned(),
-            user_id: user_id!("@example:localhost"),
-            device_id: "DEVICEID".into(),
-        };
 
         let _m = mock("GET", Matcher::Regex(r"^/_matrix/client/r0/sync\?.*$".to_string()))
             .with_status(200)
             .with_body(test_json::SYNC.to_string())
             .create();
 
-        let client = Client::new(homeserver.clone()).unwrap();
-        client.restore_login(session.clone()).await.unwrap();
+        let client = logged_in_client().await;
+        let session = client.session().await.unwrap();
 
         let room = client.get_joined_room(&room_id);
         assert!(room.is_none());
@@ -2547,7 +2541,9 @@ pub(crate) mod test {
 
         // test store reloads with correct room state from the sled store
         let path = tempfile::tempdir().unwrap();
-        let config = ClientConfig::default().store_path(path);
+        let config = ClientConfig::default()
+            .store_path(path)
+            .request_config(RequestConfig::new().disable_retry());
         let joined_client = Client::new_with_config(homeserver, config).unwrap();
         joined_client.restore_login(session).await.unwrap();
 
@@ -2609,7 +2605,8 @@ pub(crate) mod test {
     #[tokio::test]
     async fn login_error() {
         let homeserver = Url::from_str(&mockito::server_url()).unwrap();
-        let client = Client::new(homeserver).unwrap();
+        let config = ClientConfig::default().request_config(RequestConfig::new().disable_retry());
+        let client = Client::new_with_config(homeserver, config).unwrap();
 
         let _m = mock("POST", "/_matrix/client/r0/login")
             .with_status(403)
@@ -3540,7 +3537,8 @@ pub(crate) mod test {
             .with_body(sync.to_string())
             .create();
 
-        let client = Client::new(homeserver.clone()).unwrap();
+        let config = ClientConfig::default().request_config(RequestConfig::new().retry_limit(3));
+        let client = Client::new_with_config(homeserver.clone(), config).unwrap();
         client.restore_login(session.clone()).await.unwrap();
 
         let room = client.get_joined_room(&room_id);
