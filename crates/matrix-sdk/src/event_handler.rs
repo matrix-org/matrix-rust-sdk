@@ -303,16 +303,29 @@ impl Client {
             let (ev_kind, ev_type) = get_id(raw_event)?;
             let event_handler_id = (ev_kind, &*ev_type);
 
-            if let Some(handlers) = self.event_handlers.read().await.get(&event_handler_id) {
-                for handler in &*handlers {
+            // Construct event handler futures
+            let futures: Vec<_> = self
+                .event_handlers
+                .read()
+                .await
+                .get(&event_handler_id)
+                .into_iter()
+                .flatten()
+                .map(|handler| {
                     let data = EventHandlerData {
                         client: self.clone(),
                         room: room.clone(),
                         raw: raw_event.json(),
                         encryption_info,
                     };
-                    matrix_sdk_common::executor::spawn((handler)(data));
-                }
+                    (handler)(data)
+                })
+                .collect();
+
+            // Run the event handler futures with the `self.event_handlers` lock
+            // no longer being held, in order.
+            for fut in futures {
+                fut.await;
             }
         }
 

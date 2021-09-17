@@ -1673,6 +1673,8 @@ impl Client {
             .await?;
         }
 
+        // Construct notification event handler futures
+        let mut futures = Vec::new();
         for handler in &*self.notification_handlers.read().await {
             for (room_id, room_notifications) in notifications {
                 let room = match self.get_room(room_id) {
@@ -1683,14 +1685,16 @@ impl Client {
                     }
                 };
 
-                for notification in room_notifications {
-                    matrix_sdk_common::executor::spawn((handler)(
-                        notification.clone(),
-                        room.clone(),
-                        self.clone(),
-                    ));
-                }
+                futures.extend(room_notifications.iter().map(|notification| {
+                    (handler)(notification.clone(), room.clone(), self.clone())
+                }));
             }
+        }
+
+        // Run the notification handler futures with the
+        // `self.notification_handlers` lock no longer being held, in order.
+        for fut in futures {
+            fut.await;
         }
 
         Ok(response)
