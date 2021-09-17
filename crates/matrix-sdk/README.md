@@ -17,10 +17,10 @@ use matrix_sdk::{
 #[tokio::main]
 async fn main() -> Result<()> {
     let alice = UserId::try_from("@alice:example.org")?;
-    let client = Client::new_from_user_id(alice.clone()).await?;
+    let client = Client::new_from_user_id(&alice).await?;
 
     // First we need to log in.
-    client.login(alice.localpart(), "password", None, None).await?;
+    client.login(alice, "password", None, None).await?;
 
     client
         .register_event_handler(

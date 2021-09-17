@@ -194,9 +194,11 @@ impl Client {
         })
     }
 
-    /// Creates a new client for making HTTP requests to the homeserver of the
-    /// given user. Follows homeserver discovery directions described
-    /// [here](https://spec.matrix.org/unstable/client-server-api/#well-known-uri).
+    /// Create a new [`Client`] using homeserver auto discovery.
+    ///
+    /// This method will create a [`Client`] object that will attempt to
+    /// discover and configure the homeserver for the given user. Follows the
+    /// homeserver discovery directions described in the [spec].
     ///
     /// # Arguments
     ///
@@ -206,22 +208,32 @@ impl Client {
     /// # Example
     /// ```no_run
     /// # use std::convert::TryFrom;
-    /// # use matrix_sdk::{Client, ruma::UserId};
     /// # use futures::executor::block_on;
-    /// let alice = UserId::try_from("@alice:example.org").unwrap();
     /// # block_on(async {
-    /// let client = Client::new_from_user_id(alice.clone()).await.unwrap();
-    /// client.login(alice.localpart(), "password", None, None).await.unwrap();
-    /// # });
+    /// use matrix_sdk::{Client, ruma::UserId};
+    ///
+    /// // First let's try to construct an user id, presumably from user input.
+    /// let alice = UserId::try_from("@alice:example.org")?;
+    ///
+    /// // Now let's try to discover the homeserver and create client object.
+    /// let client = Client::new_from_user_id(&alice).await?;
+    ///
+    /// // Finally let's try to login.
+    /// client.login(alice, "password", None, None).await?;
+    /// # matrix_sdk::Result::Ok(()) });
     /// ```
-    pub async fn new_from_user_id(user_id: UserId) -> Result<Self> {
+    ///
+    /// [spec]: https://spec.matrix.org/unstable/client-server-api/#well-known-uri
+    pub async fn new_from_user_id(user_id: &UserId) -> Result<Self> {
         let config = ClientConfig::new();
         Client::new_from_user_id_with_config(user_id, config).await
     }
 
-    /// Creates a new client for making HTTP requests to the homeserver of the
-    /// given user and configuration. Follows homeserver discovery directions
-    /// described [here](https://spec.matrix.org/unstable/client-server-api/#well-known-uri).
+    /// Create a new [`Client`] using homeserver auto discovery.
+    ///
+    /// This method will create a [`Client`] object that will attempt to
+    /// discover and configure the homeserver for the given user. Follows the
+    /// homeserver discovery directions described in the [spec].
     ///
     /// # Arguments
     ///
@@ -229,8 +241,10 @@ impl Client {
     ///   connect to.
     ///
     /// * `config` - Configuration for the client.
+    ///
+    /// [spec]: https://spec.matrix.org/unstable/client-server-api/#well-known-uri
     pub async fn new_from_user_id_with_config(
-        user_id: UserId,
+        user_id: &UserId,
         config: ClientConfig,
     ) -> Result<Self> {
         let homeserver = Client::homeserver_from_user_id(user_id)?;
@@ -243,7 +257,7 @@ impl Client {
         Ok(client)
     }
 
-    fn homeserver_from_user_id(user_id: UserId) -> Result<Url> {
+    fn homeserver_from_user_id(user_id: &UserId) -> Result<Url> {
         let homeserver = format!("https://{}", user_id.server_name());
         #[allow(unused_mut)]
         let mut result = Url::parse(homeserver.as_str())?;
@@ -2341,7 +2355,7 @@ pub(crate) mod test {
             .with_status(200)
             .with_body(test_json::VERSIONS.to_string())
             .create();
-        let client = Client::new_from_user_id(alice).await.unwrap();
+        let client = Client::new_from_user_id(&alice).await.unwrap();
 
         assert_eq!(client.homeserver().await, Url::parse(server_url.as_ref()).unwrap());
     }
@@ -2359,7 +2373,7 @@ pub(crate) mod test {
             )
             .create();
 
-        if Client::new_from_user_id(alice).await.is_ok() {
+        if Client::new_from_user_id(&alice).await.is_ok() {
             panic!(
                 "Creating a client from a user ID should fail when the \
                    .well-known server returns no version information."
