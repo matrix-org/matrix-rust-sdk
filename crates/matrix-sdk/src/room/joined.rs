@@ -765,7 +765,7 @@ impl Joined {
 
     /// Adds a tag to the room, or updates it if it already exists.
     ///
-    /// Returns the `[create_tag::Response]` from the server.
+    /// Returns the [`create_tag::Response`] from the server.
     ///
     /// # Arguments
     /// * `tag` - The tag to add or update.
@@ -799,7 +799,7 @@ impl Joined {
 
     /// Removes a tag from the room.
     ///
-    /// Returns the `[delete_tag::Response]` from the server.
+    /// Returns the [`delete_tag::Response`] from the server.
     ///
     /// # Arguments
     /// * `tag` - The tag to remove.
