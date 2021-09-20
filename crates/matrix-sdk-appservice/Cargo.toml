@@ -10,7 +10,9 @@ version = "0.1.0"
 [features]
 default = ["warp", "native-tls"]
 
+anyhow = ["matrix-sdk/anyhow"]
 encryption = ["matrix-sdk/encryption"]
+eyre = ["matrix-sdk/eyre"]
 sled_state_store = ["matrix-sdk/sled_state_store"]
 sled_cryptostore = ["matrix-sdk/sled_cryptostore"]
 markdown = ["matrix-sdk/markdown"]
