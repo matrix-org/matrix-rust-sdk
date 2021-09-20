@@ -188,6 +188,7 @@ impl EventHandlerResult for () {
     fn print_error(&self, _event_type: &str) {}
 }
 
+#[cfg(not(any(feature = "anyhow", feature = "eyre")))]
 impl<E: std::error::Error> EventHandlerResult for Result<(), E> {
     fn print_error(&self, event_type: &str) {
         if let Err(e) = self {
@@ -197,7 +198,18 @@ impl<E: std::error::Error> EventHandlerResult for Result<(), E> {
 }
 
 #[cfg(feature = "anyhow")]
+#[cfg(not(feature = "eyre"))]
 impl EventHandlerResult for anyhow::Result<()> {
+    fn print_error(&self, event_type: &str) {
+        if let Err(e) = self {
+            tracing::error!("Event handler for `{}` failed: {:?}", event_type, e);
+        }
+    }
+}
+
+#[cfg(feature = "eyre")]
+#[cfg(not(feature = "anyhow"))]
+impl EventHandlerResult for eyre::Result<()> {
     fn print_error(&self, event_type: &str) {
         if let Err(e) = self {
             tracing::error!("Event handler for `{}` failed: {:?}", event_type, e);

@@ -61,6 +61,7 @@ The following crate feature flags are available:
 * `appservice`: Enables low-level appservice functionality. For an
   high-level API there's the `matrix-sdk-appservice` crate
 * `anyhow`: Support for returning `anyhow::Result<()>` from event handlers.
+* `eyre`: Support for returning `eyre::Result<()>` from event handlers.
 
 # Enabling logging
 
