@@ -30,7 +30,9 @@
 //!
 //! For more details, see the [`EventHandler`] trait.
 
-use std::{borrow::Cow, future::Future, ops::Deref};
+#[cfg(feature = "anyhow")]
+use std::any::TypeId;
+use std::{borrow::Cow, fmt, future::Future, ops::Deref};
 
 use matrix_sdk_base::deserialized_responses::{EncryptionInfo, SyncRoomEvent};
 use ruma::{events::AnySyncStateEvent, serde::Raw};
@@ -67,9 +69,9 @@ pub trait SyncEvent {
 /// * They must have at least one argument, which is the event itself, a type
 ///   that implements [`SyncEvent`]. Any additional arguments need to implement
 ///   the [`EventHandlerContext`] trait.
-/// * Their return type has to be one of: `()`, `Result<(), impl
-///   std::error::Error>` or `anyhow::Result<()>` (requires the `anyhow` Cargo
-///   feature to be enabled)
+/// * Their return type has to be one of: `()`, `Result<(), impl Display + Debug
+///   + 'static>` (if you are using `anyhow::Result` you can additionally enable
+///   the `anyhow` feature to get the verbose `Debug` output printed on error)
 ///
 /// ### How it works
 ///
@@ -188,19 +190,17 @@ impl EventHandlerResult for () {
     fn print_error(&self, _event_type: &str) {}
 }
 
-impl<E: std::error::Error> EventHandlerResult for Result<(), E> {
+impl<E: fmt::Debug + fmt::Display + 'static> EventHandlerResult for Result<(), E> {
     fn print_error(&self, event_type: &str) {
-        if let Err(e) = self {
-            tracing::error!("Event handler for `{}` failed: {}", event_type, e);
-        }
-    }
-}
-
-#[cfg(feature = "anyhow")]
-impl EventHandlerResult for anyhow::Result<()> {
-    fn print_error(&self, event_type: &str) {
-        if let Err(e) = self {
-            tracing::error!("Event handler for `{}` failed: {:?}", event_type, e);
+        match self {
+            #[cfg(feature = "anyhow")]
+            Err(e) if TypeId::of::<E>() == TypeId::of::<anyhow::Error>() => {
+                tracing::error!("Event handler for `{}` failed: {:?}", event_type, e);
+            }
+            Err(e) => {
+                tracing::error!("Event handler for `{}` failed: {}", event_type, e);
+            }
+            Ok(_) => {}
         }
     }
 }
