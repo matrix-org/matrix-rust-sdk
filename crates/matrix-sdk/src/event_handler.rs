@@ -30,7 +30,7 @@
 //!
 //! For more details, see the [`EventHandler`] trait.
 
-#[cfg(feature = "anyhow")]
+#[cfg(any(feature = "anyhow", feature = "eyre"))]
 use std::any::TypeId;
 use std::{borrow::Cow, fmt, future::Future, ops::Deref};
 
@@ -70,8 +70,9 @@ pub trait SyncEvent {
 ///   that implements [`SyncEvent`]. Any additional arguments need to implement
 ///   the [`EventHandlerContext`] trait.
 /// * Their return type has to be one of: `()`, `Result<(), impl Display + Debug
-///   + 'static>` (if you are using `anyhow::Result` you can additionally enable
-///   the `anyhow` feature to get the verbose `Debug` output printed on error)
+///   + 'static>` (if you are using `anyhow::Result` or `eyre::Result` you can
+///   additionally enable the `anyhow` / `eyre` feature to get the verbose
+///   `Debug` output printed on error)
 ///
 /// ### How it works
 ///
@@ -195,6 +196,10 @@ impl<E: fmt::Debug + fmt::Display + 'static> EventHandlerResult for Result<(), E
         match self {
             #[cfg(feature = "anyhow")]
             Err(e) if TypeId::of::<E>() == TypeId::of::<anyhow::Error>() => {
+                tracing::error!("Event handler for `{}` failed: {:?}", event_type, e);
+            }
+            #[cfg(feature = "eyre")]
+            Err(e) if TypeId::of::<E>() == TypeId::of::<eyre::Report>() => {
                 tracing::error!("Event handler for `{}` failed: {:?}", event_type, e);
             }
             Err(e) => {

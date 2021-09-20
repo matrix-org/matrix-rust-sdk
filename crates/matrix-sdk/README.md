@@ -62,6 +62,8 @@ The following crate feature flags are available:
   high-level API there's the `matrix-sdk-appservice` crate
 * `anyhow`: More verbose error logging for event handlers that return
   `anyhow::Result<()>`.
+* `eyre`: More verbose error logging for event handlers that return
+  `eyre::Result<()>`.
 
 # Enabling logging
 
