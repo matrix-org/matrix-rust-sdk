@@ -1,8 +1,8 @@
 ![Build Status](https://img.shields.io/github/workflow/status/matrix-org/matrix-rust-sdk/CI?style=flat-square)
-[![codecov](https://img.shields.io/codecov/c/github/matrix-org/matrix-rust-sdk/master.svg?style=flat-square)](https://codecov.io/gh/matrix-org/matrix-rust-sdk)
+[![codecov](https://img.shields.io/codecov/c/github/matrix-org/matrix-rust-sdk/main.svg?style=flat-square)](https://codecov.io/gh/matrix-org/matrix-rust-sdk)
 [![License](https://img.shields.io/badge/License-Apache%202.0-yellowgreen.svg?style=flat-square)](https://opensource.org/licenses/Apache-2.0)
 [![#matrix-rust-sdk](https://img.shields.io/badge/matrix-%23matrix--rust--sdk-blue?style=flat-square)](https://matrix.to/#/#matrix-rust-sdk:matrix.org)
-[![Docs - Master](https://img.shields.io/badge/docs-master-blue.svg?style=flat-square)](https://matrix-org.github.io/matrix-rust-sdk/)
+[![Docs - Main](https://img.shields.io/badge/docs-main-blue.svg?style=flat-square)](https://matrix-org.github.io/matrix-rust-sdk/)
 [![Docs - Stable](https://img.shields.io/crates/v/matrix-sdk?color=blue&label=docs&style=flat-square)](https://docs.rs/matrix-sdk)
 
 # matrix-rust-sdk

@@ -70,7 +70,7 @@
 //!
 //! [Application Service]: https://matrix.org/docs/spec/application_service/r0.1.2
 //! [matrix-org/matrix-rust-sdk#228]: https://github.com/matrix-org/matrix-rust-sdk/issues/228
-//! [examples directory]: https://github.com/matrix-org/matrix-rust-sdk/tree/master/matrix_sdk_appservice/examples
+//! [examples directory]: https://github.com/matrix-org/matrix-rust-sdk/tree/main/crates/matrix-sdk-appservice/examples
 
 #[cfg(not(any(feature = "warp")))]
 compile_error!("one webserver feature must be enabled. available ones: `warp`");
