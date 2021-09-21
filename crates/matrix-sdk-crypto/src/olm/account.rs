@@ -368,7 +368,7 @@ impl Account {
             "Successfully decrypted an Olm message"
         );
 
-        let (event, signing_key) = match self.parse_decrypted_to_device_event(sender, &plaintext) {
+        let (event, signing_key) = match self.parse_decrypted_to_device_event(sender, plaintext) {
             Ok(r) => r,
             Err(e) => {
                 // We might created a new session but decryption might still
@@ -400,10 +400,10 @@ impl Account {
     fn parse_decrypted_to_device_event(
         &self,
         sender: &UserId,
-        plaintext: &str,
+        plaintext: String,
     ) -> OlmResult<(Raw<AnyToDeviceEvent>, String)> {
         // TODO make the errors a bit more specific.
-        let decrypted_json: Value = serde_json::from_str(plaintext)?;
+        let decrypted_json: Value = serde_json::from_str(&plaintext)?;
 
         let encrypted_sender = decrypted_json
             .get("sender")
@@ -444,10 +444,7 @@ impl Account {
         let signing_key =
             keys.get(&DeviceKeyAlgorithm::Ed25519).ok_or(EventError::MissingSigningKey)?;
 
-        Ok((
-            Raw::from_json(RawJsonValue::from_string(plaintext.to_owned())?),
-            signing_key.to_owned(),
-        ))
+        Ok((Raw::from_json(RawJsonValue::from_string(plaintext)?), signing_key.to_owned()))
     }
 }
 
