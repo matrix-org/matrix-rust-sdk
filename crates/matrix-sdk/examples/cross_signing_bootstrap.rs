@@ -14,7 +14,6 @@ async fn bootstrap(client: Client, user_id: UserId, password: String) {
 
     io::stdin().read_line(&mut input).expect("error: unable to read user input");
 
-    #[cfg(feature = "encryption")]
     if let Err(e) = client.bootstrap_cross_signing(None).await {
         use matrix_sdk::ruma::{api::client::r0::uiaa, assign};
 
@@ -32,9 +31,6 @@ async fn bootstrap(client: Client, user_id: UserId, password: String) {
             panic!("Error during cross-signing bootstrap {:#?}", e);
         }
     }
-
-    #[cfg(not(feature = "encryption"))]
-    panic!("Cross signing requires the encryption feature to be enabled");
 }
 
 async fn login(
