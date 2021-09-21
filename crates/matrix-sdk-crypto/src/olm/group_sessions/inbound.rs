@@ -316,6 +316,16 @@ impl InboundGroupSession {
         decrypted_object.insert("event_id".to_owned(), event.event_id.to_string().into());
         decrypted_object.insert("origin_server_ts".to_owned(), server_ts.into());
 
+        let room_id = decrypted_object
+            .get("room_id")
+            .and_then(|r| r.as_str().and_then(|r| RoomId::try_from(r).ok()));
+
+        // Check that we have a room id and that the event wasn't forwarded from
+        // another room.
+        if room_id.as_ref() != Some(self.room_id()) {
+            return Err(EventError::MismatchedRoom(self.room_id().to_owned(), room_id).into());
+        }
+
         decrypted_object.insert(
             "unsigned".to_owned(),
             serde_json::to_value(&event.unsigned).unwrap_or_default(),

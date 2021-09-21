@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use olm_rs::errors::{OlmGroupSessionError, OlmSessionError};
-use ruma::{identifiers::Error as IdentifierError, DeviceId, UserId};
+use ruma::{identifiers::Error as IdentifierError, DeviceId, RoomId, UserId};
 use serde_json::Error as SerdeError;
 use thiserror::Error;
 
@@ -123,6 +123,12 @@ pub enum EventError {
 
     #[error("the keys of the message don't match the keys in our database.")]
     MismatchedKeys,
+
+    #[error(
+        "the room id of the room key doesn't match the room id of the \
+        decrypted event: expected {0}, got {:1}"
+    )]
+    MismatchedRoom(RoomId, Option<RoomId>),
 }
 
 #[derive(Error, Debug)]
