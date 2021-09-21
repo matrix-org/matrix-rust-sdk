@@ -35,7 +35,7 @@ serde_yaml = "0.8"
 thiserror = "1.0"
 tracing = "0.1"
 url = "2"
-warp = { git = "https://github.com/seanmonstar/warp.git", rev = "629405", optional = true, default-features = false }
+warp = { version = "0.3.1", optional = true, default-features = false }
 
 [dependencies.ruma]
 version = "0.4.0"

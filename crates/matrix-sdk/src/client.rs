@@ -1176,7 +1176,8 @@ impl Client {
         &self,
         registration: impl Into<register::Request<'_>>,
     ) -> HttpResult<register::Response> {
-        info!("Registering to {}", self.homeserver().await);
+        let homeserver = self.homeserver().await;
+        info!("Registering to {}", homeserver);
 
         let config = if self.appservice_mode {
             Some(self.http_client.request_config.force_auth())
