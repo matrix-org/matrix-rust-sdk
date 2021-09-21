@@ -476,7 +476,7 @@ impl Client {
                                 .into();
                             let encryption_info = decrypted.encryption_info;
 
-                            // Return decrytped room event
+                            // Return decrypted room event
                             return RoomEvent { event, encryption_info };
                         }
                     }
@@ -484,7 +484,7 @@ impl Client {
             }
         }
 
-        // Fallback to unencrypted room event
+        // Fallback to still-encrypted room event
         RoomEvent { event: event.into(), encryption_info: None }
     }
 
