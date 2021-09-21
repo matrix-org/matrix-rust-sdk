@@ -42,7 +42,7 @@ use ruma::{
     UserId,
 };
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
+use serde_json::{json, value::RawValue as RawJsonValue, Value};
 use sha2::{Digest, Sha256};
 use tracing::{debug, trace, warn};
 
@@ -445,7 +445,7 @@ impl Account {
             keys.get(&DeviceKeyAlgorithm::Ed25519).ok_or(EventError::MissingSigningKey)?;
 
         Ok((
-            Raw::from(serde_json::from_value::<AnyToDeviceEvent>(decrypted_json)?),
+            Raw::from_json(RawJsonValue::from_string(plaintext.to_owned())?),
             signing_key.to_owned(),
         ))
     }
